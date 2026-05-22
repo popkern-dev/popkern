@@ -7,6 +7,7 @@ use crate::geometry::nurbs_surface::NurbsSurface;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace};
 use crate::tolerance::Tolerance;
+use crate::topology::brep_edge_surface_compatibility_helpers::adjacent_surfaced_pair;
 use crate::topology::{
     BRep, Edge, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell, ShellHandle,
     Solid, SurfaceBoundaryHintDeclineReason, Vertex,
@@ -128,7 +129,7 @@ fn repair_can_reanchor_vertices_to_verified_surface_intersection_within_policy()
 }
 
 #[test]
-fn missing_surface_declines_and_rolls_back_when_required() {
+fn single_surfaced_plane_trim_repairs_without_adjacent_surface() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let edge = first_repairable_edge(&brep);
     corrupt_edge_curve(&mut brep, edge, Vec3::new(0.11, 0.07, 0.13));
@@ -136,21 +137,16 @@ fn missing_surface_declines_and_rolls_back_when_required() {
     let face = brep.loops[brep.half_edges[half_edge].loop_].face;
     brep.faces[face].surface = None;
 
-    let failure =
-        repair_brep_edge_surface_compatibility_transactionally(&brep, options()).unwrap_err();
+    let result = repair_brep_edge_surface_compatibility_transactionally(&brep, options()).unwrap();
 
-    assert_eq!(
-        failure.reason,
-        BrepEdgeSurfaceCompatibilityRepairFailureReason::UnresolvedIncompatibleEdges
-    );
-    assert_eq!(failure.report.repaired_edges, 0);
-    assert_eq!(failure.report.declined_edges, 1);
+    assert_eq!(result.report.repaired_edges, 1);
+    assert_eq!(result.report.declined_edges, 0);
     assert!(matches!(
-        failure.report.decisions[0].outcome,
-        BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
-            BrepEdgeSurfaceCompatibilityDeclineReason::MissingAdjacentSurfaces
-        )
+        result.report.decisions[0].outcome,
+        BrepEdgeSurfaceCompatibilityRepairOutcome::RepairedFromSurfaceBoundary
     ));
+    assert_eq!(result.report.after.incompatible_half_edges, 0);
+    assert!(result.report.decisions[0].evidence.surface_b.is_none());
 }
 
 #[test]

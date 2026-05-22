@@ -5,11 +5,12 @@ use std::collections::HashSet;
 use crate::topology::brep_edge_surface_compatibility::{
     BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceCompatibilityRepairDecision,
     BrepEdgeSurfaceCompatibilityRepairOutcome, BrepEdgeSurfaceCompatibilityRepairReport,
-    analyze_brep_edge_surface_compatibility, repair_edge,
+    analyze_brep_edge_surface_compatibility,
 };
 use crate::topology::brep_edge_surface_compatibility_helpers::{
     edge_vertices, move_vertex_with_tolerance,
 };
+use crate::topology::brep_edge_surface_compatibility_repair::repair_edge;
 use crate::topology::brep_edge_surface_compatibility_vertex_star::BrepEdgeSurfaceVertexStarOutcome;
 use crate::topology::{BRep, BrepRepairKnowledgeGraph, EdgeHandle};
 

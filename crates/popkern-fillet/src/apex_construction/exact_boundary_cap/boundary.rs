@@ -1,6 +1,7 @@
 //! Exact-boundary curve preparation for apex cap sectors.
 
 use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, EdgeHandle};
 
@@ -10,6 +11,7 @@ const VERIFY_SAMPLES: usize = 9;
 const VERIFY_TOLERANCE: f64 = 1.0e-9;
 const KNOT_EPS: f64 = 1.0e-10;
 const TOPOLOGY_ENDPOINT_TOLERANCE: f64 = 1.0e-7;
+const SUPPORT_SOURCE_SAMPLES: usize = 17;
 
 /// Budget for exact boundary compatibility operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -187,6 +189,9 @@ fn oriented_source_curve(
     seam: &ExactBoundaryOuterSeam,
 ) -> Result<PreparedSourceCurve, ExactBoundaryCurveDiagnostic> {
     let side = seam.side;
+    if let Some(curve) = support_pcurve_source_curve(brep, seam) {
+        return prepared_source_from_curve(brep, sector, seam, curve);
+    }
     let edge_data = brep
         .edges
         .get(seam.edge)
@@ -213,6 +218,16 @@ fn oriented_source_curve(
     let raw_curve = curve_on_edge
         .geometry
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
+    prepared_source_from_curve(brep, sector, seam, raw_curve)
+}
+
+fn prepared_source_from_curve(
+    brep: &BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    seam: &ExactBoundaryOuterSeam,
+    raw_curve: NurbsCurve,
+) -> Result<PreparedSourceCurve, ExactBoundaryCurveDiagnostic> {
+    let side = seam.side;
     let curve = orient_curve_to_cap_half_edge(brep, sector, seam, raw_curve)?;
     let source_range = curve.parameter_range();
     let prepared = normalize_curve_parameter_domain(&curve).ok_or_else(|| {
@@ -239,6 +254,25 @@ fn oriented_source_curve(
         source_range,
         prepared,
     })
+}
+
+fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Option<NurbsCurve> {
+    let support_half_edge = brep.half_edges.get(seam.support_half_edge)?;
+    let pcurve = support_half_edge.pcurve.as_ref()?;
+    let support_face = brep.loops.get(support_half_edge.loop_)?.face;
+    let support_surface = &brep.faces.get(support_face)?.surface.as_ref()?.geometry;
+    let (t0, t1) = pcurve.parameter_range();
+    let mut points = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
+    let mut params = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
+    for index in 0..SUPPORT_SOURCE_SAMPLES {
+        let parameter = index as f64 / (SUPPORT_SOURCE_SAMPLES - 1) as f64;
+        let pcurve_t = t0 + (t1 - t0) * parameter;
+        let uv = pcurve.point_at(pcurve_t);
+        points.push(support_surface.point_at(uv.x, uv.y));
+        params.push(parameter);
+    }
+    let degree = 9.min(points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
 }
 
 fn orient_curve_to_cap_half_edge(

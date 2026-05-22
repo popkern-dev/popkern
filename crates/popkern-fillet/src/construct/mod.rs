@@ -1,6 +1,8 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
 mod apex_face_lift;
+mod apex_face_lift_boundary_curves;
+mod apex_face_lift_support;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;

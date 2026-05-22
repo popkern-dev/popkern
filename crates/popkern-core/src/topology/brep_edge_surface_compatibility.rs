@@ -1,25 +1,13 @@
 //! Edge-curve compatibility with adjacent face surfaces.
 
-use crate::geometry::edge_triple::SurfaceSide;
 use crate::healing::deviation::edge_surface_deviation;
-use crate::topology::brep_edge_surface_compatibility_boundary::is_repairable_surface_pair;
-use crate::topology::brep_edge_surface_compatibility_commit::{
-    anchor_motion_allowed, commit_edge_triple, try_endpoint_reanchored_repair,
-};
-use crate::topology::brep_edge_surface_compatibility_decline::{
-    declined, declined_without_evidence,
-};
-use crate::topology::brep_edge_surface_compatibility_diagnostics::{
-    BrepEdgeSurfaceBoundaryDeclineEvidence, BrepEdgeSurfaceRepairEvidence,
-};
+use crate::topology::brep_edge_surface_compatibility_diagnostics::BrepEdgeSurfaceRepairEvidence;
 use crate::topology::brep_edge_surface_compatibility_helpers::{
-    adjacent_surfaced_pair, build_edge_triple, build_pcurve_scoped_reanchored_intersection_triple,
-    build_reanchored_intersection_triple, endpoint_gap, face_surface_for_half_edge,
-    infer_boundary_hint, unique_edge_half_edges,
+    face_surface_for_half_edge, unique_edge_half_edges,
 };
+use crate::topology::brep_edge_surface_compatibility_repair::repair_edge;
 use crate::topology::brep_edge_surface_compatibility_shared_facts::{
-    edge_repair_diagnostic_codes, edge_repair_fact_ids, edge_surface_repair_knowledge,
-    shared_fact_ids_from_report, with_shared_fact_ids,
+    edge_surface_repair_knowledge, shared_fact_ids_from_report,
 };
 use crate::topology::brep_edge_surface_compatibility_vertex_star::{
     BrepEdgeSurfaceVertexStarReport, classify_edge_surface_vertex_stars,
@@ -27,10 +15,7 @@ use crate::topology::brep_edge_surface_compatibility_vertex_star::{
 use crate::topology::brep_edge_surface_compatibility_vertex_star_repair::{
     edge_is_currently_incompatible, record_repair_decision, repair_coherent_vertex_stars,
 };
-use crate::topology::{
-    BRep, BrepRepairFactId, BrepRepairKnowledgeGraph, EdgeHandle, FaceHandle, HalfEdgeHandle,
-    edge_segment,
-};
+use crate::topology::{BRep, BrepRepairFactId, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 /// Options for direct edge-curve to face-surface compatibility checks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -205,15 +190,22 @@ pub fn analyze_brep_edge_surface_compatibility(
                 surface,
                 options.samples,
             );
+            let pcurve_deviation = brep
+                .measure_half_edge_pcurve_deviation(half_edge)
+                .map(|report| report.max_deviation)
+                .filter(|deviation| deviation.is_finite());
+            let accepted_deviation = pcurve_deviation
+                .map(|pcurve_deviation| deviation.max_deviation.min(pcurve_deviation))
+                .unwrap_or(deviation.max_deviation);
             report.inspected_half_edges += 1;
-            report.max_deviation = report.max_deviation.max(deviation.max_deviation);
-            if deviation.max_deviation > options.tolerance {
+            report.max_deviation = report.max_deviation.max(accepted_deviation);
+            if accepted_deviation > options.tolerance {
                 report.incompatible_half_edges += 1;
                 report.findings.push(BrepEdgeSurfaceCompatibilityFinding {
                     edge,
                     half_edge,
                     face,
-                    max_deviation: deviation.max_deviation,
+                    max_deviation: accepted_deviation,
                     max_curve_parameter: deviation.max_location,
                 });
             }
@@ -289,205 +281,6 @@ pub fn repair_brep_edge_surface_compatibility_transactionally(
         brep: repaired,
         report,
     })
-}
-
-pub(super) fn repair_edge(
-    brep: &mut BRep,
-    knowledge: &BrepRepairKnowledgeGraph,
-    edge: EdgeHandle,
-    options: BrepEdgeSurfaceCompatibilityOptions,
-) -> BrepEdgeSurfaceCompatibilityRepairDecision {
-    let shared_fact_ids = edge_repair_fact_ids(knowledge, brep, edge);
-    let Some((he_a, he_b, face_a, face_b)) = adjacent_surfaced_pair(brep, edge) else {
-        return declined_without_evidence(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::MissingAdjacentSurfaces,
-            shared_fact_ids,
-        );
-    };
-    let Some((start, end)) = edge_segment(brep, edge) else {
-        return declined_without_evidence(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::MissingTopology,
-            shared_fact_ids,
-        );
-    };
-    if start.distance_to(&end) <= options.tolerance.max(1e-12) {
-        return declined_without_evidence(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::DegenerateEdge,
-            shared_fact_ids,
-        );
-    }
-    let (Some(surface_a), Some(surface_b)) = (
-        brep.faces
-            .get(face_a)
-            .and_then(|face| face.surface.as_ref()),
-        brep.faces
-            .get(face_b)
-            .and_then(|face| face.surface.as_ref()),
-    ) else {
-        return declined_without_evidence(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::MissingAdjacentSurfaces,
-            shared_fact_ids,
-        );
-    };
-    let surf_a = surface_a.geometry.clone();
-    let surf_b = surface_b.geometry.clone();
-    let boundary_hint = infer_boundary_hint(brep, he_a, he_b, &surf_a, &surf_b, options.tolerance);
-    let mut evidence =
-        BrepEdgeSurfaceRepairEvidence::from_surfaces(&surf_a, &surf_b, boundary_hint.as_ref());
-    evidence.repair_knowledge_diagnostics = edge_repair_diagnostic_codes(knowledge, edge);
-    evidence.max_allowed_anchor_motion = options.max_anchor_motion;
-    add_boundary_decline_evidence(brep, he_a, SurfaceSide::A, &mut evidence);
-    add_boundary_decline_evidence(brep, he_b, SurfaceSide::B, &mut evidence);
-    let boundary_attempt = if let Some(hint) = boundary_hint.clone() {
-        evidence.attempted_boundary_reconstruction = true;
-        match build_edge_triple(&surf_a, &surf_b, start, end, Some(hint), brep) {
-            Ok(triple) => Some(triple),
-            Err(label) => {
-                evidence.boundary_failure = Some(label);
-                None
-            }
-        }
-    } else {
-        None
-    };
-    let (triple, repaired_from_boundary) = if let Some(triple) = boundary_attempt {
-        (triple, true)
-    } else if is_repairable_surface_pair(&surf_a, &surf_b) {
-        evidence.attempted_surface_intersection = true;
-        match build_edge_triple(&surf_a, &surf_b, start, end, None, brep) {
-            Ok(triple) => (triple, false),
-            Err(label) => {
-                evidence.intersection_failure = Some(label);
-                evidence.attempted_anchor_repair = true;
-                match build_pcurve_scoped_reanchored_intersection_triple(
-                    &surf_a,
-                    &surf_b,
-                    start,
-                    end,
-                    brep,
-                    he_a,
-                    he_b,
-                    options.samples,
-                )
-                .or_else(|_| {
-                    build_reanchored_intersection_triple(
-                        &surf_a,
-                        &surf_b,
-                        start,
-                        end,
-                        brep,
-                        options.samples,
-                    )
-                }) {
-                    Ok((triple, motion)) if anchor_motion_allowed(motion, options) => {
-                        evidence.anchor_motion = motion;
-                        (triple, false)
-                    }
-                    Ok((_, motion)) => {
-                        evidence.anchor_motion = motion;
-                        return declined(
-                            edge,
-                            BrepEdgeSurfaceCompatibilityDeclineReason::AnchorMotionExceeded,
-                            evidence,
-                            shared_fact_ids,
-                        );
-                    }
-                    Err(anchor_label) => {
-                        evidence.intersection_failure = Some(anchor_label);
-                        return declined(
-                            edge,
-                            BrepEdgeSurfaceCompatibilityDeclineReason::IntersectionFailed,
-                            evidence,
-                            shared_fact_ids,
-                        );
-                    }
-                }
-            }
-        }
-    } else if boundary_hint.is_some() {
-        return declined(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::SurfaceBoundaryReconstructionFailed,
-            evidence,
-            shared_fact_ids,
-        );
-    } else {
-        return declined(
-            edge,
-            BrepEdgeSurfaceCompatibilityDeclineReason::UnsupportedSurfacePair,
-            evidence,
-            shared_fact_ids,
-        );
-    };
-    let endpoint_gap = endpoint_gap(&triple.curve_3d, triple.t_start, triple.t_end, start, end);
-    if endpoint_gap > options.tolerance && evidence.anchor_motion == 0.0 {
-        if !repaired_from_boundary
-            && is_repairable_surface_pair(&surf_a, &surf_b)
-            && let Some(decision) = try_endpoint_reanchored_repair(
-                brep,
-                edge,
-                he_a,
-                he_b,
-                &surf_a,
-                &surf_b,
-                start,
-                end,
-                options,
-                evidence.clone(),
-            )
-        {
-            return with_shared_fact_ids(decision, shared_fact_ids);
-        }
-        return BrepEdgeSurfaceCompatibilityRepairDecision {
-            edge,
-            outcome: BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
-                BrepEdgeSurfaceCompatibilityDeclineReason::EndpointMismatch,
-            ),
-            endpoint_gap,
-            residual_deviation: 0.0,
-            evidence,
-            shared_fact_ids,
-        };
-    }
-    with_shared_fact_ids(
-        commit_edge_triple(
-            brep,
-            edge,
-            he_a,
-            he_b,
-            triple,
-            &surf_a,
-            &surf_b,
-            options,
-            evidence,
-            repaired_from_boundary,
-        ),
-        shared_fact_ids,
-    )
-}
-
-fn add_boundary_decline_evidence(
-    brep: &BRep,
-    half_edge: HalfEdgeHandle,
-    side: SurfaceSide,
-    evidence: &mut BrepEdgeSurfaceRepairEvidence,
-) {
-    let Some(decline) = brep.surface_boundary_decline(half_edge) else {
-        return;
-    };
-    evidence
-        .boundary_declines
-        .push(BrepEdgeSurfaceBoundaryDeclineEvidence {
-            side,
-            reason: decline.reason.clone(),
-            best_boundary: decline.best_boundary,
-            best_boundary_deviation: decline.best_boundary_deviation,
-            endpoint_gap: decline.endpoint_gap,
-        });
 }
 
 #[cfg(test)]

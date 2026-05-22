@@ -350,35 +350,23 @@ fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendRe
 }
 
 #[test]
-fn gregory_mixed_radius_strict_edge_surface_pipeline_declines_unresolved_edges() {
+fn gregory_mixed_radius_strict_edge_surface_pipeline_accepts_exact_boundary_route() {
     let brep = mixed_radius_gregory_cube();
-    let failure = repair_brep_boundary_edges_transactionally(
+    let result = repair_brep_boundary_edges_transactionally(
         &brep,
         &[],
         gregory_edge_surface_pipeline_options(true),
     )
-    .expect_err("strict edge/surface compatibility should still decline this real fixture");
+    .expect("strict edge/surface compatibility should accept the exact-boundary cube_mixed route");
 
-    assert_eq!(
-        failure.stage,
-        popkern_core::topology::BrepRepairPipelineStage::EdgeSurfaceCompatibility
-    );
-    let report = failure
+    let report = result
         .report
         .edge_surface_compatibility
         .as_ref()
-        .expect("failure must include edge/surface report");
-    assert!(report.before.incompatible_half_edges > 0);
-    assert!(report.declined_edges > 0);
-    assert!(report.after.incompatible_half_edges > 0);
-    assert!(
-        report.decisions.iter().any(|decision| {
-            matches!(
-                decision.outcome,
-                popkern_core::topology::BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(_)
-            ) && !decision.shared_fact_ids.is_empty()
-        }),
-        "strict real fixture diagnostics must link declined edges to repair knowledge facts"
+        .expect("strict repair must include edge/surface report");
+    assert_eq!(
+        report.after.incompatible_half_edges, 0,
+        "strict exact-boundary cube_mixed route must close all edge/surface incompatibilities: {report:#?}"
     );
 }
 

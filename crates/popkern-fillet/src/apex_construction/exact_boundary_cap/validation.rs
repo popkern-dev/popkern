@@ -1,7 +1,8 @@
 //! Validation gates for exact-boundary apex cap candidates.
 
-use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::topology::BRep;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::healing::deviation::edge_surface_deviation;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::corner::PreparedExactBoundaryInnerSpokes;
 use super::pcurves::PreparedExactBoundaryPcurves;
@@ -70,6 +71,8 @@ pub(crate) enum ExactBoundaryValidationDeclineReason {
     InternalG0Exceeded,
     /// Sampled sector surface normal collapsed or flipped grossly.
     FoldoverDetected,
+    /// Live 3-D edge curve does not lie on the solved cap or support surface.
+    LiveEdgeSurfaceResidualExceeded,
 }
 
 impl ExactBoundaryValidationDeclineReason {
@@ -94,6 +97,9 @@ impl ExactBoundaryValidationDeclineReason {
             }
             Self::InternalG0Exceeded => "exact_boundary_cap.validation.internal_g0_exceeded",
             Self::FoldoverDetected => "exact_boundary_cap.validation.foldover_detected",
+            Self::LiveEdgeSurfaceResidualExceeded => {
+                "exact_boundary_cap.validation.live_edge_surface_residual_exceeded"
+            }
         }
     }
 }
@@ -109,6 +115,12 @@ pub(crate) struct ExactBoundaryValidationDiagnostic {
     pub sector_name: Option<String>,
     /// Measured residual when available.
     pub residual: Option<f64>,
+    /// Source edge being validated.
+    pub edge: Option<EdgeHandle>,
+    /// Support half-edge being validated.
+    pub support_half_edge: Option<HalfEdgeHandle>,
+    /// Support face being validated.
+    pub support_face: Option<FaceHandle>,
 }
 
 impl ExactBoundaryValidationDiagnostic {
@@ -122,6 +134,25 @@ impl ExactBoundaryValidationDiagnostic {
             code: reason.code(),
             sector_name,
             residual,
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+        }
+    }
+
+    fn live_edge_surface_residual(
+        sector: &ExactBoundaryCapSectorInput,
+        seam: &super::sector::ExactBoundaryOuterSeam,
+        residual: f64,
+    ) -> Self {
+        Self {
+            reason: ExactBoundaryValidationDeclineReason::LiveEdgeSurfaceResidualExceeded,
+            code: ExactBoundaryValidationDeclineReason::LiveEdgeSurfaceResidualExceeded.code(),
+            sector_name: Some(sector.sector_name.clone()),
+            residual: Some(residual),
+            edge: Some(seam.edge),
+            support_half_edge: Some(seam.support_half_edge),
+            support_face: Some(seam.support_face),
         }
     }
 
@@ -133,9 +164,9 @@ impl ExactBoundaryValidationDiagnostic {
                 sector_name: self
                     .sector_name
                     .unwrap_or_else(|| "exact_boundary_cap".to_string()),
-                edge: None,
-                support_half_edge: None,
-                support_face: None,
+                edge: self.edge,
+                support_half_edge: self.support_half_edge,
+                support_face: self.support_face,
                 residual: self.residual,
                 shared_fact_ids: Vec::new(),
             },
@@ -163,6 +194,7 @@ pub(crate) fn validate_exact_boundary_candidate(
     validate_surface_inventory(topology, sectors, spokes, solved)?;
     validate_pcurve_inventory(sectors, pcurves)?;
     validate_pcurve_residuals(pcurves, budget)?;
+    validate_live_edge_surface_residuals(brep, sectors, solved, budget)?;
     validate_internal_spokes(spokes, solved, budget)?;
     validate_surface_normals(solved, budget)?;
     Ok(ExactBoundaryValidationReport {
@@ -170,6 +202,67 @@ pub(crate) fn validate_exact_boundary_candidate(
         validated_pcurve_pair_count: pcurves.pairs.len(),
         validated_spoke_edge_count: topology.spoke_edges.len(),
     })
+}
+
+fn validate_live_edge_surface_residuals(
+    brep: &BRep,
+    sectors: &[ExactBoundaryCapSectorInput],
+    solved: &ExactBoundarySolvedSurfaces,
+    budget: ExactBoundaryValidationBudget,
+) -> Result<(), ExactBoundaryValidationDiagnostic> {
+    for sector in sectors {
+        let solved_surface = solved_surface(solved, sector).ok_or_else(|| {
+            ExactBoundaryValidationDiagnostic::new(
+                ExactBoundaryValidationDeclineReason::SurfaceInventoryMismatch,
+                Some(sector.sector_name.clone()),
+                None,
+            )
+        })?;
+        let cap_surface = SurfaceGeometry::Nurbs(solved_surface.surface.clone());
+        for seam in &sector.outer_seams {
+            let Some(curve) = brep
+                .edges
+                .get(seam.edge)
+                .and_then(|edge| edge.curve.as_ref())
+            else {
+                return Err(
+                    ExactBoundaryValidationDiagnostic::live_edge_surface_residual(
+                        sector,
+                        seam,
+                        f64::INFINITY,
+                    ),
+                );
+            };
+            let Some(support_surface) = brep
+                .faces
+                .get(seam.support_face)
+                .and_then(|face| face.surface.as_ref())
+                .map(|surface| &surface.geometry)
+            else {
+                return Err(
+                    ExactBoundaryValidationDiagnostic::live_edge_surface_residual(
+                        sector,
+                        seam,
+                        f64::INFINITY,
+                    ),
+                );
+            };
+            let t_range = (curve.t_start, curve.t_end);
+            let cap_residual =
+                edge_surface_deviation(&curve.geometry, t_range, &cap_surface, 9).max_deviation;
+            let support_residual =
+                edge_surface_deviation(&curve.geometry, t_range, support_surface, 9).max_deviation;
+            let residual = cap_residual.max(support_residual);
+            if residual > budget.max_pair_boundary_residual {
+                return Err(
+                    ExactBoundaryValidationDiagnostic::live_edge_surface_residual(
+                        sector, seam, residual,
+                    ),
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 fn validate_surface_inventory(

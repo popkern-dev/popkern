@@ -28,7 +28,7 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::nurbs_surface::NurbsSurface;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 /// Replace `face`'s `Plane` surface with a degree-(1, 3) Bezier
@@ -40,16 +40,16 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 /// After the surface swap, callers must refit the face's outer-
 /// loop pcurves onto the new NURBS surface (the existing pcurves
 /// are in the old plane's UV space and become invalid).
-pub(crate) fn lift_apex_face_with_bridge(
+pub(super) fn lift_apex_face_with_bridge(
     brep: &mut BRep,
     face: FaceHandle,
     bridge_edge: EdgeHandle,
 ) -> Result<(), String> {
     use popkern_core::geometry::curve::CurveEval;
 
-    // Pull the original plane's parameters.  We need the normal
-    // and a reference point to project bridge CPs back onto the
-    // plane.
+    // Pull the original support surface. Plane supports use an exact
+    // orthogonal projection; already-lifted or repaired NURBS supports use
+    // closest-point projection into the previous surface.
     let face_data = brep
         .faces
         .get(face)
@@ -58,18 +58,17 @@ pub(crate) fn lift_apex_face_with_bridge(
         .surface
         .as_ref()
         .ok_or_else(|| "face has no surface".to_string())?;
-    let SurfaceGeometry::Plane {
-        origin: plane_origin,
-        normal: plane_normal,
-        ..
-    } = &sof.geometry
-    else {
-        return Err("face is not a Plane".into());
+    let source_surface = sof.geometry.clone();
+    let plane_projection = if let SurfaceGeometry::Plane { origin, normal, .. } = &source_surface {
+        Some((
+            *origin,
+            normal
+                .normalized()
+                .ok_or_else(|| "plane normal is zero".to_string())?,
+        ))
+    } else {
+        None
     };
-    let plane_origin = *plane_origin;
-    let plane_normal = plane_normal
-        .normalized()
-        .ok_or_else(|| "plane normal is zero".to_string())?;
 
     // Pull the bridge's deg-9 Bernstein samples (10 points at
     // uniform parameters) and downsample to 4 CPs by picking
@@ -95,16 +94,22 @@ pub(crate) fn lift_apex_face_with_bridge(
         coe.geometry.point_at(t1),
     ];
 
-    // Project each bridge CP orthogonally onto the original plane
-    // — these become the `u=1` row of the new patch.
+    // Project each bridge CP onto the previous support surface; these become
+    // the `u=1` row of the new patch.
     let project_to_plane = |p: Point3| -> Point3 {
-        let d = p - plane_origin;
-        let h = d.dot(&plane_normal);
-        Point3::new(
-            p.x - plane_normal.x * h,
-            p.y - plane_normal.y * h,
-            p.z - plane_normal.z * h,
-        )
+        if let Some((plane_origin, plane_normal)) = plane_projection {
+            let d = p - plane_origin;
+            let h = d.dot(&plane_normal);
+            return Point3::new(
+                p.x - plane_normal.x * h,
+                p.y - plane_normal.y * h,
+                p.z - plane_normal.z * h,
+            );
+        }
+        source_surface
+            .closest_point(&p)
+            .map(|(u, v)| source_surface.point_at(u, v))
+            .unwrap_or_else(|| source_surface.point_at(0.0, 0.0))
     };
     let plane_cps: [Point3; 4] = [
         project_to_plane(bridge_cps[0]),
@@ -194,7 +199,12 @@ pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle
             if let Some(tf) = twin_face
                 && !cap_set.contains(&tf)
                 && let Some(twin_sof) = brep.faces.get(tf).and_then(|f| f.surface.as_ref())
-                && matches!(twin_sof.geometry, SurfaceGeometry::Plane { .. })
+                && matches!(
+                    twin_sof.geometry,
+                    SurfaceGeometry::Plane { .. }
+                        | SurfaceGeometry::Cylinder { .. }
+                        | SurfaceGeometry::Nurbs(_)
+                )
                 && !already_lifted.contains(&tf)
             {
                 if trace {
@@ -249,15 +259,11 @@ pub(crate) fn lift_all_apex_plane_faces(brep: &mut BRep, cap_faces: &[FaceHandle
     count
 }
 
-/// Write an analytic Linear pcurve `(0, 0) → (0, 1)` on the
-/// plane-side half-edge of `bridge_edge`.  After the lift,
-/// `surface(0, v) == bridge.point_at(t_start + v · span)` exactly,
-/// so the analytic pcurve gives bit-exact correspondence between
-/// the cap-side and plane-side surface evaluations.
-fn write_analytic_bridge_pcurve_on_plane_side(
+pub(super) fn write_analytic_boundary_pcurve_on_support_side(
     brep: &mut BRep,
-    plane_face: FaceHandle,
+    support_face: FaceHandle,
     bridge_edge: EdgeHandle,
+    u_value: f64,
 ) {
     use popkern_core::geometry::pcurve::Pcurve;
     let Some(edge_data) = brep.edges.get(bridge_edge) else {
@@ -267,24 +273,20 @@ fn write_analytic_bridge_pcurve_on_plane_side(
         return;
     };
     let (t_start, t_end) = (coe.t_start, coe.t_end);
-    // Find the plane-side half-edge.  The edge has two half-edges;
-    // we want the one whose loop's face is `plane_face`.
     let primary = edge_data.half_edge;
     let twin = brep.half_edges[primary].twin;
     let primary_face = brep.loops[brep.half_edges[primary].loop_].face;
-    let plane_he = if primary_face == plane_face {
+    let support_he = if primary_face == support_face {
         primary
     } else {
         twin
     };
-    let plane_face_check = brep.loops[brep.half_edges[plane_he].loop_].face;
-    if plane_face_check != plane_face {
+    let support_face_check = brep.loops[brep.half_edges[support_he].loop_].face;
+    if support_face_check != support_face {
         return;
     }
-    // Direction sense: does the plane-side HE traverse the curve
-    // forward (t_start → t_end) or backward?  Compare HE.origin to
-    // curve start/end.
-    let v_origin = brep.half_edges[plane_he].origin;
+
+    let v_origin = brep.half_edges[support_he].origin;
     let p_origin = brep.vertices[v_origin].position;
     let p_t_start = {
         use popkern_core::geometry::curve::CurveEval;
@@ -296,19 +298,32 @@ fn write_analytic_bridge_pcurve_on_plane_side(
     };
     let forward = p_origin.distance_to(&p_t_start) <= p_origin.distance_to(&p_t_end);
     let (start_uv, end_uv) = if forward {
-        ((0.0, 0.0), (0.0, 1.0))
+        ((u_value, 0.0), (u_value, 1.0))
     } else {
-        ((0.0, 1.0), (0.0, 0.0))
+        ((u_value, 1.0), (u_value, 0.0))
     };
     let pc = Pcurve::linear(start_uv, end_uv, t_start, t_end);
-    brep.half_edges[plane_he].pcurve = Some(pc);
+    brep.half_edges[support_he].pcurve = Some(pc);
+}
+
+/// Write an analytic Linear pcurve `(0, 0) → (0, 1)` on the
+/// plane-side half-edge of `bridge_edge`.  After the lift,
+/// `surface(0, v) == bridge.point_at(t_start + v · span)` exactly,
+/// so the analytic pcurve gives bit-exact correspondence between
+/// the cap-side and plane-side surface evaluations.
+fn write_analytic_bridge_pcurve_on_plane_side(
+    brep: &mut BRep,
+    plane_face: FaceHandle,
+    bridge_edge: EdgeHandle,
+) {
+    write_analytic_boundary_pcurve_on_support_side(brep, plane_face, bridge_edge, 0.0);
 }
 
 /// Re-fit every outer-loop half-edge's pcurve on `face` against
 /// the face's current surface.  Used after the surface swap to
 /// bring stale (in-the-old-Plane-UV-space) pcurves into the new
 /// NURBS UV space.
-fn refit_face_outer_loop_pcurves(brep: &mut BRep, face: FaceHandle) {
+pub(super) fn refit_face_outer_loop_pcurves(brep: &mut BRep, face: FaceHandle) {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::fitting::fit_curve;
     use popkern_core::geometry::surface::SurfaceEval;

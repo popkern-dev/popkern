@@ -7,6 +7,7 @@ use crate::geometry::edge_triple::{
 };
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::geometry::uv_projection::bounded_parameter_range;
+use crate::geometry::uv_projection::project_point_to_uv;
 use crate::healing::deviation::edge_surface_deviation;
 use crate::topology::brep_edge_surface_compatibility_boundary::infer_surface_boundary_hint;
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -370,4 +371,33 @@ pub(super) fn adjacent_surfaced_pair(
         return None;
     }
     Some((half_edges[0], half_edges[1], face_a, face_b))
+}
+
+pub(super) fn single_surfaced_half_edge(
+    brep: &BRep,
+    edge: EdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    let edge_data = brep.edges.get(edge)?;
+    let half_edges = unique_edge_half_edges(brep, edge_data.half_edge);
+    if half_edges.len() != 2 {
+        return None;
+    }
+    let surfaced = half_edges
+        .iter()
+        .filter_map(|&half_edge| {
+            face_surface_for_half_edge(brep, half_edge).map(|(face, _)| (half_edge, face))
+        })
+        .collect::<Vec<_>>();
+    (surfaced.len() == 1).then_some(surfaced[0])
+}
+
+pub(super) fn projected_endpoint_uvs(
+    surface: &SurfaceGeometry,
+    start: crate::geometry::Point3,
+    end: crate::geometry::Point3,
+) -> Option<((f64, f64), (f64, f64))> {
+    Some((
+        project_point_to_uv(surface, &start)?,
+        project_point_to_uv(surface, &end)?,
+    ))
 }

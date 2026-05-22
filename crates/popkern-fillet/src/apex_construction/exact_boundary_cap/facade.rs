@@ -149,17 +149,39 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         .map(|prepared| prepared.sectors.len() * 2)
         .unwrap_or(0);
 
-    let ribbons = match prepare_exact_boundary_ribbons(
-        brep,
-        &candidate_sectors,
-        &boundary_curves,
-        ExactBoundaryRibbonBudget::default(),
-    ) {
-        Ok(prepared) => Some(prepared),
-        Err(diagnostic) => {
-            diagnostics.push(diagnostic.into_apex_diagnostic());
-            None
-        }
+    let topology = match inner_spokes.as_ref() {
+        Some(inner_spokes) => match materialize_exact_boundary_sector_topology(
+            brep,
+            cap_face,
+            &candidate_sectors,
+            inner_spokes,
+        ) {
+            Ok(topology) => {
+                candidate_sectors = topology.sectors.clone();
+                Some(topology)
+            }
+            Err(diagnostic) => {
+                diagnostics.push(diagnostic.into_apex_diagnostic());
+                None
+            }
+        },
+        None => None,
+    };
+
+    let ribbons = match topology.as_ref() {
+        Some(_) => match prepare_exact_boundary_ribbons(
+            brep,
+            &candidate_sectors,
+            &boundary_curves,
+            ExactBoundaryRibbonBudget::default(),
+        ) {
+            Ok(prepared) => Some(prepared),
+            Err(diagnostic) => {
+                diagnostics.push(diagnostic.into_apex_diagnostic());
+                None
+            }
+        },
+        None => None,
     };
     performance.support_ribbon_count = ribbons
         .as_ref()
@@ -197,7 +219,8 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 
     let mut committed = false;
     let mut committed_faces = Vec::new();
-    if let (Some(inner_spokes), Some(ribbons), Some(solved_surfaces)) = (
+    if let (Some(topology), Some(inner_spokes), Some(ribbons), Some(solved_surfaces)) = (
+        topology.as_ref(),
         inner_spokes.as_ref(),
         ribbons.as_ref(),
         solved_surfaces.as_ref(),
@@ -210,43 +233,32 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         ) {
             Ok(pcurves) => {
                 record_pcurve_report(&mut performance, &pcurves);
-                match materialize_exact_boundary_sector_topology(
+                let _topology_evidence = (topology.pole_vertex, topology.spoke_edges.len());
+                match validate_exact_boundary_candidate(
                     brep,
-                    cap_face,
+                    topology,
                     &candidate_sectors,
                     inner_spokes,
+                    solved_surfaces,
+                    &pcurves,
+                    ExactBoundaryValidationBudget::default(),
                 ) {
-                    Ok(topology) => {
-                        let _topology_evidence = (topology.pole_vertex, topology.spoke_edges.len());
-                        match validate_exact_boundary_candidate(
+                    Ok(validation_report) => {
+                        record_validation_report(&mut performance, validation_report);
+                        committed_faces = candidate_sectors
+                            .iter()
+                            .map(|sector| sector.cap_face)
+                            .collect();
+                        if let Err(diagnostic) = commit_exact_boundary_sector_surfaces(
                             brep,
-                            &topology,
-                            &topology.sectors,
-                            inner_spokes,
+                            cap_face,
+                            &candidate_sectors,
                             solved_surfaces,
                             &pcurves,
-                            ExactBoundaryValidationBudget::default(),
                         ) {
-                            Ok(validation_report) => {
-                                record_validation_report(&mut performance, validation_report);
-                                candidate_sectors = topology.sectors;
-                                committed_faces = candidate_sectors
-                                    .iter()
-                                    .map(|sector| sector.cap_face)
-                                    .collect();
-                                if let Err(diagnostic) = commit_exact_boundary_sector_surfaces(
-                                    brep,
-                                    cap_face,
-                                    &candidate_sectors,
-                                    solved_surfaces,
-                                    &pcurves,
-                                ) {
-                                    diagnostics.push(diagnostic.into_apex_diagnostic());
-                                } else {
-                                    committed = true;
-                                }
-                            }
-                            Err(diagnostic) => diagnostics.push(diagnostic.into_apex_diagnostic()),
+                            diagnostics.push(diagnostic.into_apex_diagnostic());
+                        } else {
+                            committed = true;
                         }
                     }
                     Err(diagnostic) => diagnostics.push(diagnostic.into_apex_diagnostic()),

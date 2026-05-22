@@ -2,6 +2,7 @@
 
 use super::BRep;
 use crate::geometry::curve::CurveGeometry;
+use crate::topology::EdgeHandle;
 
 impl BRep {
     /// Restore the invariant that each edge's representative half-edge points
@@ -54,6 +55,66 @@ impl BRep {
             {
                 curve.geometry = line;
                 normalized += 1;
+            }
+        }
+        normalized
+    }
+
+    /// Canonicalize geometrically straight edge curves only when existing
+    /// pcurves still reproduce the candidate line within the same tolerance.
+    ///
+    /// Exact-boundary and imported trim edges can carry fitted 3-D curves that
+    /// are visually close to straight but are semantically coupled to authored
+    /// pcurves. Blind line canonicalization breaks those triples. This guarded
+    /// variant preserves the shared edge/pcurve/surface invariant.
+    pub fn normalize_semantic_line_edge_curves_preserving_pcurves(
+        &mut self,
+        tolerance: f64,
+    ) -> usize {
+        let candidates = self
+            .edges
+            .iter()
+            .filter_map(|(edge_handle, edge)| {
+                let curve = edge.curve.as_ref()?;
+                if matches!(curve.geometry, CurveGeometry::Line { .. }) {
+                    return None;
+                }
+                let line = curve
+                    .geometry
+                    .canonical_line_in_range((curve.t_start, curve.t_end), tolerance)?;
+                Some((edge_handle, line))
+            })
+            .collect::<Vec<(EdgeHandle, CurveGeometry)>>();
+
+        let mut normalized = 0;
+        for (edge_handle, line) in candidates {
+            let Some(previous) = self
+                .edges
+                .get(edge_handle)
+                .and_then(|edge| edge.curve.as_ref())
+                .map(|curve| curve.geometry.clone())
+            else {
+                continue;
+            };
+            if let Some(curve) = self
+                .edges
+                .get_mut(edge_handle)
+                .and_then(|edge| edge.curve.as_mut())
+            {
+                curve.geometry = line;
+            }
+            let preserves_pcurves = self
+                .measure_edge_pcurve_deviation(edge_handle)
+                .map(|report| report.max_deviation <= tolerance)
+                .unwrap_or(true);
+            if preserves_pcurves {
+                normalized += 1;
+            } else if let Some(curve) = self
+                .edges
+                .get_mut(edge_handle)
+                .and_then(|edge| edge.curve.as_mut())
+            {
+                curve.geometry = previous;
             }
         }
         normalized

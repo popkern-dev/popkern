@@ -92,7 +92,6 @@ pub(super) fn assign_gregory_cap_surface(
 
     let exact_boundary_candidate = run_exact_boundary_cap_candidate(brep, cap_face, plan, sectors)?;
     if exact_boundary_candidate.status == ExactBoundaryCapCandidateStatus::Accepted {
-        brep.normalize_semantic_line_edge_curves(1.0e-8);
         return Ok(GregoryCapAssignment {
             corner_patches: Vec::new(),
             exact_boundary_prepared_curve_count: exact_boundary_candidate.prepared_curve_count(),

@@ -2,7 +2,7 @@
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::topology::{
-    BRep, FaceHandle, HalfEdgeHandle, TopologyRole, Vertex, VertexHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, TopologyRole, Vertex, VertexHandle,
 };
 
 use super::corner::{PreparedExactBoundaryInnerSpokes, PreparedExactBoundarySectorBoundary};
@@ -195,6 +195,9 @@ fn materialize_validated_sector_topology(
         };
         remapped[index].cap_face = sector_face;
     }
+    for sector in &mut remapped {
+        refresh_sector_outer_seams(brep, sector)?;
+    }
 
     if let Err(err) = brep.validate() {
         return Err(ExactBoundaryTopologyDiagnostic::new(
@@ -208,6 +211,98 @@ fn materialize_validated_sector_topology(
         pole_vertex,
         spoke_edges,
     })
+}
+
+fn refresh_sector_outer_seams(
+    brep: &BRep,
+    sector: &mut ExactBoundaryCapSectorInput,
+) -> Result<(), ExactBoundaryTopologyDiagnostic> {
+    let fillet = live_outer_seam(brep, sector, sector.fillet_end_edge)?;
+    let face = live_outer_seam(brep, sector, sector.face_edge)?;
+    sector.fillet_support_face = fillet.1;
+    sector.bridge_support_face = face.1;
+    sector.cap_half_edges = [fillet.0, face.0];
+    sector.support_half_edges = [fillet.2, face.2];
+    sector.outer_seams[0].cap_half_edge = fillet.0;
+    sector.outer_seams[0].support_face = fillet.1;
+    sector.outer_seams[0].support_half_edge = fillet.2;
+    sector.outer_seams[0].cap_pcurve_present = brep
+        .half_edges
+        .get(fillet.0)
+        .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    sector.outer_seams[0].support_pcurve_present = brep
+        .half_edges
+        .get(fillet.2)
+        .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    sector.outer_seams[1].cap_half_edge = face.0;
+    sector.outer_seams[1].support_face = face.1;
+    sector.outer_seams[1].support_half_edge = face.2;
+    sector.outer_seams[1].cap_pcurve_present = brep
+        .half_edges
+        .get(face.0)
+        .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    sector.outer_seams[1].support_pcurve_present = brep
+        .half_edges
+        .get(face.2)
+        .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    Ok(())
+}
+
+fn live_outer_seam(
+    brep: &BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    edge: EdgeHandle,
+) -> Result<(HalfEdgeHandle, FaceHandle, HalfEdgeHandle), ExactBoundaryTopologyDiagnostic> {
+    let edge_data = brep.edges.get(edge).ok_or_else(|| {
+        ExactBoundaryTopologyDiagnostic::new(
+            ExactBoundaryTopologyDeclineReason::TopologyWiringFailed,
+            Some(sector.sector_name.clone()),
+            None,
+        )
+    })?;
+    let primary = edge_data.half_edge;
+    let twin = brep.half_edges.get(primary).map(|half_edge| half_edge.twin);
+    for half_edge in [Some(primary), twin] {
+        let Some(half_edge) = half_edge else {
+            continue;
+        };
+        if face_for_half_edge(brep, half_edge) != Some(sector.cap_face) {
+            continue;
+        }
+        let support_half_edge = brep
+            .half_edges
+            .get(half_edge)
+            .map(|data| data.twin)
+            .ok_or_else(|| {
+                ExactBoundaryTopologyDiagnostic::new(
+                    ExactBoundaryTopologyDeclineReason::TopologyWiringFailed,
+                    Some(sector.sector_name.clone()),
+                    None,
+                )
+            })?;
+        let support_face = face_for_half_edge(brep, support_half_edge).ok_or_else(|| {
+            ExactBoundaryTopologyDiagnostic::new(
+                ExactBoundaryTopologyDeclineReason::TopologyWiringFailed,
+                Some(sector.sector_name.clone()),
+                None,
+            )
+        })?;
+        if support_face != sector.cap_face {
+            return Ok((half_edge, support_face, support_half_edge));
+        }
+    }
+    Err(ExactBoundaryTopologyDiagnostic::new(
+        ExactBoundaryTopologyDeclineReason::TopologyWiringFailed,
+        Some(sector.sector_name.clone()),
+        None,
+    ))
+}
+
+fn face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {
+    brep.half_edges
+        .get(half_edge)
+        .and_then(|half_edge| brep.loops.get(half_edge.loop_))
+        .map(|loop_data| loop_data.face)
 }
 
 fn vertex_for_spoke_anchor(

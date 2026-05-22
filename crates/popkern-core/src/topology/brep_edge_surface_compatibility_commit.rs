@@ -5,6 +5,7 @@ use crate::geometry::edge_triple::EdgeTriple;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::surface::SurfaceGeometry;
+use crate::topology::brep_curve_trim_reconstruction_helpers::project_edge_curve_to_surface_pcurve;
 use crate::topology::brep_edge_surface_compatibility::{
     BrepEdgeSurfaceCompatibilityDeclineReason, BrepEdgeSurfaceCompatibilityOptions,
     BrepEdgeSurfaceCompatibilityRepairDecision, BrepEdgeSurfaceCompatibilityRepairOutcome,
@@ -152,8 +153,12 @@ pub(super) fn commit_edge_triple(
         t_start: triple.t_start,
         t_end: triple.t_end,
     };
-    let pcurve_a = orient_pcurve_to_half_edge(brep, he_a, surf_a, triple.pcurve_a);
-    let pcurve_b = orient_pcurve_to_half_edge(brep, he_b, surf_b, triple.pcurve_b);
+    let mut pcurve_source = brep.clone();
+    pcurve_source.edges[edge].curve = Some(curve.clone());
+    let pcurve_a = project_edge_curve_to_surface_pcurve(&pcurve_source, he_a, options.samples)
+        .unwrap_or_else(|| orient_pcurve_to_half_edge(brep, he_a, surf_a, triple.pcurve_a));
+    let pcurve_b = project_edge_curve_to_surface_pcurve(&pcurve_source, he_b, options.samples)
+        .unwrap_or_else(|| orient_pcurve_to_half_edge(brep, he_b, surf_b, triple.pcurve_b));
     if let Err(failure) = commit_shared_trim_edge_transactionally(
         brep,
         SharedTrimEdgeInput {

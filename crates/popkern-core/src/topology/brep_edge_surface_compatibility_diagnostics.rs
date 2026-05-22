@@ -144,6 +144,34 @@ impl BrepEdgeSurfaceRepairEvidence {
             repair_knowledge_diagnostics: Vec::new(),
         }
     }
+
+    /// Evidence initialized for a one-sided surfaced trim whose twin face has
+    /// no repairable surface. This is still a valid repair class for sheet or
+    /// residual construction topology: the repaired edge must lie on the one
+    /// surfaced owner and preserve the existing topological endpoints.
+    pub fn from_single_surface(surface: &SurfaceGeometry) -> Self {
+        Self {
+            surface_a: Some(surface_kind(surface)),
+            surface_b: None,
+            boundary_hint: None,
+            boundary_declines: Vec::new(),
+            attempted_boundary_reconstruction: true,
+            attempted_surface_intersection: false,
+            attempted_anchor_repair: false,
+            anchor_motion: 0.0,
+            max_allowed_anchor_motion: 0.0,
+            max_incident_endpoint_gap: 0.0,
+            boundary_failure: None,
+            intersection_failure: None,
+            shared_trim_failure: None,
+            shared_trim_curve_surface_deviation: 0.0,
+            shared_trim_side_agreement_deviation: 0.0,
+            shared_trim_endpoint_gap: 0.0,
+            residual_deviation_a: 0.0,
+            residual_deviation_b: 0.0,
+            repair_knowledge_diagnostics: Vec::new(),
+        }
+    }
 }
 
 /// Classify a surface for diagnostics without exposing implementation data.

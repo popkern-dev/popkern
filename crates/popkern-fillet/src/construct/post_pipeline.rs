@@ -167,6 +167,38 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         .map(|v| v != "0")
         .unwrap_or(true)
     {
+        let exact_boundary_bridge_jobs = repair_report
+            .apex_routes
+            .iter()
+            .flat_map(|route| {
+                route
+                    .exact_boundary_report
+                    .sectors
+                    .iter()
+                    .flat_map(|sector| {
+                        [
+                            (sector.support_half_edges[0], sector.fillet_end_edge),
+                            (sector.support_half_edges[1], sector.face_edge),
+                        ]
+                        .into_iter()
+                        .filter_map(|(support_half_edge, edge)| {
+                            let support_face = result
+                                .half_edges
+                                .get(support_half_edge)
+                                .and_then(|half_edge| result.loops.get(half_edge.loop_))
+                                .map(|loop_| loop_.face)?;
+                            Some((support_face, edge))
+                        })
+                    })
+            })
+            .collect::<Vec<_>>();
+        let lifted = apex_face_lift_support::lift_support_faces_for_bridge_edges(
+            result,
+            &exact_boundary_bridge_jobs,
+        );
+        if std::env::var_os("POPKERN_KP_TRACE").is_some() && lifted > 0 {
+            eprintln!("[apex-face-lift] lifted {lifted} direct-apex support faces");
+        }
         for (_boundary, sub_faces) in late_wire_jobs {
             let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
@@ -259,7 +291,12 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    if support_seam_relocation_enabled() {
+    let exact_boundary_owns_apex_seams = repair_report.apex_routes.iter().any(|route| {
+        route.exact_boundary_report.candidate_status
+            == crate::types::ExactBoundaryCandidateOutcome::Accepted
+            && !route.exact_boundary_report.committed_faces.is_empty()
+    });
+    if support_seam_relocation_enabled() && !exact_boundary_owns_apex_seams {
         for (boundary, sub_faces) in support_seam_jobs {
             let report = three_quad_apply::author_model_level_support_face_boundary_seams(
                 result,
@@ -308,8 +345,10 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     }
 
     // Restore semantic curve storage after late repair passes that may fit
-    // straight trim spans through a NURBS path.
-    result.normalize_semantic_line_edge_curves(tolerance.linear().max(1.0e-8));
+    // straight trim spans through a NURBS path. Preserve authored trim triples:
+    // exact-boundary edges may be nearly straight while still requiring their
+    // fitted 3-D curve to remain coupled to support-side pcurves.
+    result.normalize_semantic_line_edge_curves_preserving_pcurves(tolerance.linear().max(1.0e-8));
 }
 
 fn support_seam_relocation_enabled() -> bool {
