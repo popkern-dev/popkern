@@ -347,7 +347,11 @@ impl RepeatedApexPartitionPlan {
                     ownership.fillet_index,
                     fillet_surfaces,
                 )?;
-                let residual_loop = residual_strip_loop_with_duplicated_seam(brep, ownership)?;
+                let residual_loop = residual_strip_loop_with_duplicated_seam(
+                    brep,
+                    ownership,
+                    boundary_outcome.strip_side_override(ownership.fillet_index),
+                )?;
                 let residual_face =
                     insert_face_with_outer_loop(brep, self.cap_face, &residual_loop)?;
                 brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
@@ -445,6 +449,18 @@ impl RepeatedApexPartitionPlan {
                 self.cap_face,
                 &boundary_outcome.cap_cycle,
             )?;
+            for (slot, fillet_end_edge) in fillet_end_edges.iter_mut().enumerate() {
+                let Some(cap_side) = boundary_outcome.cap_cycle.get(2 * slot).copied() else {
+                    continue;
+                };
+                if let Some(edge) = brep
+                    .half_edges
+                    .get(cap_side)
+                    .map(|half_edge| half_edge.edge)
+                {
+                    *fillet_end_edge = edge;
+                }
+            }
         }
         validate_repeated_apex_normalization_structure(brep)?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;

@@ -108,15 +108,19 @@ impl SideSupportRegionDiagnosticSnapshot {
         let topology_report = bridge_primitive.topology_operator_report(brep);
         if bridge_primitive.is_complete() && topology_report.is_ready() {
             let rollback = brep.clone();
-            if let Err(err) = bridge_primitive.apply_topology_operator(brep) {
-                *brep = rollback;
-                return Err(
-                    SideSupportRegionContinuationFailure::BridgeTopologyOperator { reason: err },
-                );
+            match bridge_primitive.apply_topology_operator(brep) {
+                Ok(result) => {
+                    return Ok(SideSupportRegionContinuationOutcome::Applied(result));
+                }
+                Err(err) => {
+                    *brep = rollback;
+                    return Err(
+                        SideSupportRegionContinuationFailure::BridgeTopologyOperator {
+                            reason: err,
+                        },
+                    );
+                }
             }
-            return Ok(SideSupportRegionContinuationOutcome::Applied(
-                SideSupportRegionContinuationResult::not_applied(),
-            ));
         }
         let merge_primitive = SupportRegionMergePrimitiveDerivation::build(&self.selection, brep);
         if !merge_primitive.exact_geometry_ready() {

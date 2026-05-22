@@ -37,6 +37,10 @@ impl PartitionBoundaryOutcome {
         self.existing_target_cylinder_strips.contains(&fillet_index)
     }
 
+    pub(super) fn strip_side_override(&self, fillet_index: usize) -> Option<HalfEdgeHandle> {
+        self.strip_side_overrides.get(&fillet_index).copied()
+    }
+
     pub(super) fn strip_loop(
         &self,
         fillet_index: usize,

@@ -6,11 +6,12 @@
 //! planned FilletEnd/FaceEdge cycle, and validates topology plus semantic
 //! cap-to-cylinder seam ownership before accepting.
 
+use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveEval, CurveOnEdge, Point3};
 use popkern_core::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, TopologyRole, Vertex,
-    VertexHandle,
+    BRep, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, SharedTrimEdgeInput,
+    TopologyRole, Vertex, VertexHandle, commit_shared_trim_edge_transactionally,
 };
 
 use crate::fillet_surface::FilletSurfaceResult;
@@ -118,6 +119,7 @@ use partition_cap_boundary_cycles::{
 };
 use partition_cap_boundary_rewrite::plan_cap_boundary_rewrite_for_cylinder_trim;
 use partition_cap_boundary_rewrite::protect_source_loops_before_partition_loop_claim;
+use partition_cap_boundary_rewrite_curve_refresh::author_materialized_shared_fillet_end_trims_for_plan;
 use partition_cylinder_anchors::{
     coincident_vertex_on_face_outer_loop, containing_outer_loop_edge_by_curve,
     generator_anchor_on_cylinder_loop, materialize_support_boundary_generator_anchor,

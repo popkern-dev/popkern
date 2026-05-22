@@ -129,6 +129,83 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
     .expect("cylinder trim has a live non-cylinder support side");
 }
 
+#[test]
+fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop() {
+    let mut brep = BRep::new(Tolerance::default());
+    let solid = brep.solids.insert(Solid {
+        shell: Default::default(),
+    });
+    let shell = brep.shells.insert(Shell {
+        face: Default::default(),
+        solid,
+    });
+    brep.solids[solid].shell = shell;
+    let vertices = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(0.0, 1.0, 0.0),
+    ]
+    .map(|position| {
+        brep.vertices.insert(Vertex {
+            position,
+            outgoing: Default::default(),
+            name: None,
+            tolerance: None,
+        })
+    });
+    let support_face =
+        add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
+    let bridge_loop = add_boundary_loop(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
+    let bridge_loop_before = collect_loop_half_edges(&brep, bridge_loop).expect("bridge loop");
+    let curve = CurveOnEdge::line_segment(
+        brep.vertices[vertices[0]].position,
+        brep.vertices[vertices[1]].position,
+        brep.tolerance.linear(),
+    )
+    .expect("nondegenerate trim curve");
+
+    let (cylinder_half_edge, support_patch_face) =
+        author_side_support_bridge_path_patch_for_cylinder_trim(
+            &mut brep,
+            SideSupportBridgePathPatchRequest {
+                support_face,
+                bridge_loops: &[bridge_loop],
+                start: vertices[0],
+                end: vertices[1],
+                curve,
+                label: "single span generator",
+                fillet_index: 0,
+            },
+        )
+        .expect("patch authoring succeeds")
+        .expect("single span path patch applies");
+
+    let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
+    assert_eq!(
+        half_edge_end_vertex(&brep, cylinder_half_edge),
+        Some(vertices[1])
+    );
+    assert_eq!(
+        support_split_half_edge_end_vertex(&brep, support_half_edge),
+        Some(vertices[0])
+    );
+    assert_eq!(
+        brep.loops[brep.half_edges[support_half_edge].loop_].face,
+        support_patch_face
+    );
+    assert_eq!(
+        collect_loop_half_edges(&brep, bridge_loop).expect("bridge loop after"),
+        bridge_loop_before
+    );
+    validate_replacement_loop_support_side_ownership(
+        &brep,
+        FaceHandle::default(),
+        0,
+        &[cylinder_half_edge],
+    )
+    .expect("single-span cylinder trim has a live non-cylinder support side");
+}
+
 fn add_boundary_loop(
     brep: &mut BRep,
     shell: popkern_core::topology::ShellHandle,

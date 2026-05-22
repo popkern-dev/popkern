@@ -124,11 +124,21 @@ pub(super) fn plan_retired_base_residual_loop(
 pub(super) fn residual_strip_loop_with_duplicated_seam(
     brep: &mut BRep,
     ownership: &FilletEndOwnership,
+    shared_seam_override: Option<HalfEdgeHandle>,
 ) -> Result<Vec<HalfEdgeHandle>, ApexBuildError> {
+    if let Some(shared) = shared_seam_override {
+        return Ok(vec![
+            shared,
+            ownership.retired_apex_cell.t_a_to_apex,
+            ownership.retired_apex_cell.apex_to_t_b,
+        ]);
+    }
+    let source = shared_seam_override.unwrap_or(ownership.cylinder_candidate_half_edge);
     let shared = duplicate_boundary_half_edge_for_residual_strip(
         brep,
-        ownership.cylinder_candidate_half_edge,
+        source,
         ownership.fillet_index,
+        false,
     )?;
     Ok(vec![
         shared,
@@ -190,7 +200,8 @@ pub(super) fn demote_retired_apex_residual_faces(
         if face == cap_face || target_cylinder_faces.contains(&face) {
             return None;
         }
-        face_has_construction_boundary_edge(brep, face_data).then_some(face)
+        (face_data.surface.is_none() && face_has_construction_boundary_edge(brep, face_data))
+            .then_some(face)
     }));
     for &face in &residual_faces {
         if face == cap_face {
@@ -280,6 +291,7 @@ fn duplicate_boundary_half_edge_for_residual_strip(
     brep: &mut BRep,
     source: HalfEdgeHandle,
     fillet_index: usize,
+    reverse: bool,
 ) -> Result<HalfEdgeHandle, ApexBuildError> {
     let source_data =
         brep.half_edges
@@ -301,7 +313,19 @@ fn duplicate_boundary_half_edge_for_residual_strip(
                  residual strip seam {source:?}: source edge has no curve"
             ),
         })?;
-    let (edge, half_edge) = insert_boundary_half_edge(brep, source_data.origin);
+    let start = if reverse {
+        support_split_half_edge_end_vertex(brep, source).ok_or_else(|| {
+            ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] cannot duplicate \
+                     residual strip seam {source:?}: source endpoint is not recoverable"
+                ),
+            }
+        })?
+    } else {
+        source_data.origin
+    };
+    let (edge, half_edge) = insert_boundary_half_edge(brep, start);
     brep.edges[edge].role = TopologyRole::ConstructionResidual;
     brep.edges[edge].curve = Some(curve);
     Ok(half_edge)

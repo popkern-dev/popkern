@@ -12,6 +12,7 @@ use super::repeated_apex_side_support_plan::{
     BridgeSupportRegionPlan, BridgeSupportTrimPlan, PlannedTopologyOperation,
     SelectedSideSupportRegionPlan, SideSupportRegionPlanSelection,
 };
+use super::repeated_apex_side_support_result::SideSupportRegionContinuationResult;
 #[path = "repeated_apex_side_support_bridge_aggregate.rs"]
 mod bridge_aggregate;
 #[path = "repeated_apex_side_support_bridge_loop_topology.rs"]
@@ -127,7 +128,10 @@ impl FaceFamilyBridgePrimitiveDerivation {
         topology_operator_report(self.primitive.as_ref(), brep)
     }
 
-    pub(super) fn apply_topology_operator(&self, brep: &mut BRep) -> Result<(), String> {
+    pub(super) fn apply_topology_operator(
+        &self,
+        brep: &mut BRep,
+    ) -> Result<SideSupportRegionContinuationResult, String> {
         let primitive = self
             .primitive
             .as_ref()
@@ -232,12 +236,6 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingSupportPath,
             );
         };
-        if !support_paths.are_complementary() {
-            return Self::refused(
-                region.support_face(),
-                FaceFamilyBridgeOperandGap::NonComplementarySupportIntervals,
-            );
-        }
         let Some(outside_paths) = loop_intervals_between_origins(
             brep,
             first.outside_loop(),
@@ -249,6 +247,69 @@ impl FaceFamilyBridgeRegionDerivation {
                 FaceFamilyBridgeOperandGap::MissingOutsidePath,
             );
         };
+        if first.support_half_edge() == second.support_half_edge() {
+            if !outside_paths.are_complementary() {
+                return Self::refused(
+                    region.support_face(),
+                    FaceFamilyBridgeOperandGap::NonComplementaryOutsideIntervals,
+                );
+            }
+            let Some(support_interval) =
+                full_loop_interval_from(brep, first.support_loop(), first.support_half_edge())
+            else {
+                return Self::refused(
+                    region.support_face(),
+                    FaceFamilyBridgeOperandGap::MissingSupportPath,
+                );
+            };
+            let outside_interval = shorter_interval(
+                outside_paths.first_to_second(),
+                outside_paths.second_to_first(),
+            );
+            if outside_interval.len() < 2 {
+                return Self::refused(
+                    region.support_face(),
+                    FaceFamilyBridgeOperandGap::MissingOutsidePath,
+                );
+            }
+            let boundary_cycles = vec![FaceFamilyBridgeBoundaryCycle {
+                support_interval,
+                outside_interval,
+            }];
+            let boundary_exposure =
+                FaceFamilyBridgeBoundaryExposurePlan::build(brep, &boundary_cycles);
+            let boundary_readiness = boundary_exposure.readiness().clone();
+            let expected_edges = boundary_cycles.len() * 2
+                + boundary_exposure.fragment_retire_count()
+                + boundary_exposure.self_owned_exposure_count();
+            let expected_faces = boundary_cycles.len();
+            let primitive = FaceFamilyBridgeRegionPrimitivePlan {
+                support_face: region.support_face(),
+                support_loop: first.support_loop(),
+                outside_face: first.outside_face(),
+                outside_loop: first.outside_loop(),
+                trims: [first.clone(), second.clone()],
+                support_paths,
+                outside_paths,
+                boundary_cycles,
+                boundary_exposure,
+                boundary_readiness,
+                expected_edges,
+                expected_faces,
+                expected_loops: expected_faces,
+            };
+            return Self {
+                support_face: region.support_face(),
+                primitive: Some(primitive),
+                reason: None,
+            };
+        }
+        if !support_paths.are_complementary() {
+            return Self::refused(
+                region.support_face(),
+                FaceFamilyBridgeOperandGap::NonComplementarySupportIntervals,
+            );
+        }
         if !outside_paths.are_complementary() {
             return Self::refused(
                 region.support_face(),
@@ -429,7 +490,7 @@ impl FaceFamilyBridgeBoundaryCycle {
     }
 
     pub(super) fn is_empty(&self) -> bool {
-        self.support_interval.is_empty() || self.outside_interval.is_empty()
+        self.support_interval.len() < 2 || self.outside_interval.len() < 2
     }
 
     fn diagnostic_label(&self) -> String {
@@ -487,5 +548,35 @@ fn two_bridge_trims(trims: &[BridgeSupportTrimPlan]) -> Option<[&BridgeSupportTr
     match trims {
         [first, second] => Some([first, second]),
         _ => None,
+    }
+}
+
+fn full_loop_interval_from(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    start: HalfEdgeHandle,
+) -> Option<Vec<HalfEdgeHandle>> {
+    let mut interval = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        let half_edge = brep.half_edges.get(cursor)?;
+        if half_edge.loop_ != loop_handle {
+            return None;
+        }
+        interval.push(cursor);
+        cursor = half_edge.next;
+        if cursor == start {
+            interval.push(start);
+            return Some(interval);
+        }
+    }
+    None
+}
+
+fn shorter_interval(first: &[HalfEdgeHandle], second: &[HalfEdgeHandle]) -> Vec<HalfEdgeHandle> {
+    if first.len() <= second.len() {
+        first.to_vec()
+    } else {
+        second.to_vec()
     }
 }

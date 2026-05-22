@@ -9,6 +9,7 @@ use super::repeated_apex_side_support_boundary::BridgeBoundaryExposureStatus;
 use super::repeated_apex_side_support_bridge::{
     FaceFamilyBridgePrimitivePlan, FaceFamilyBridgeRegionPrimitivePlan,
 };
+use super::repeated_apex_side_support_result::SideSupportRegionContinuationResult;
 #[path = "repeated_apex_side_support_bridge_operator_exposure.rs"]
 mod bridge_operator_exposure;
 #[path = "repeated_apex_side_support_bridge_operator_exposure_walk.rs"]
@@ -157,13 +158,24 @@ pub(super) fn topology_operator_report(
 pub(super) fn apply_topology_operator(
     primitive: &FaceFamilyBridgePrimitivePlan,
     brep: &mut BRep,
-) -> Result<(), String> {
+) -> Result<SideSupportRegionContinuationResult, String> {
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
     if let [region] = primitive.regions() {
-        apply_region_bridge(region, &mut candidate).map_err(|(_, detail)| detail)?;
+        let bridge_result =
+            apply_region_bridge(region, &mut candidate).map_err(|(_, detail)| detail)?;
+        let result = SideSupportRegionContinuationResult::from_bridge_payload(
+            vec![
+                bridge_result.first_bridge_face,
+                bridge_result.second_bridge_face,
+            ],
+            vec![
+                bridge_result.first_bridge_loop,
+                bridge_result.second_bridge_loop,
+            ],
+        );
         *brep = candidate;
-        return Ok(());
+        return Ok(result);
     }
     let aggregate_cycles = aggregate_bridge_cycles(primitive);
     let aggregate_plan = candidate
@@ -177,8 +189,20 @@ pub(super) fn apply_topology_operator(
         &bridge_result,
         &mut candidate,
     )?;
+    let result = SideSupportRegionContinuationResult::from_bridge_payload(
+        bridge_result
+            .cycles
+            .iter()
+            .map(|cycle| cycle.bridge_face)
+            .collect(),
+        bridge_result
+            .cycles
+            .iter()
+            .map(|cycle| cycle.bridge_loop)
+            .collect(),
+    );
     *brep = candidate;
-    Ok(())
+    Ok(result)
 }
 
 impl FaceFamilyBridgeTopologyOperatorReport {
@@ -413,13 +437,14 @@ fn apply_region_topology_operator(
             err,
         ));
     }
-    apply_region_bridge(region, candidate)
+    apply_region_bridge(region, candidate).map(|_| ())
 }
 
 fn apply_region_bridge(
     region: &FaceFamilyBridgeRegionPrimitivePlan,
     candidate: &mut BRep,
-) -> Result<(), (FaceFamilyBridgeTopologyOperatorGap, String)> {
+) -> Result<popkern_core::euler::TwoLoopBridgeResult, (FaceFamilyBridgeTopologyOperatorGap, String)>
+{
     let plan = candidate
         .preflight_two_loop_bridge(TwoLoopBridgeRequest {
             first_loop: region.support_loop(),
@@ -440,6 +465,5 @@ fn apply_region_bridge(
             FaceFamilyBridgeTopologyOperatorGap::CoreBridgeOperatorRejected,
             format!("{err}"),
         )
-    })?;
-    Ok(())
+    })
 }

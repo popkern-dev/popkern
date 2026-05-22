@@ -14,10 +14,15 @@ pub(super) fn aggregate_bridge_half_edges(
         .iter()
         .flat_map(|region| {
             region.boundary_cycles().iter().flat_map(|cycle| {
-                cycle
+                let support_consumed = cycle
                     .support_interval()
                     .iter()
-                    .chain(cycle.outside_interval().iter())
+                    .take(cycle.support_interval().len().saturating_sub(1));
+                let outside_consumed = cycle
+                    .outside_interval()
+                    .iter()
+                    .take(cycle.outside_interval().len().saturating_sub(1));
+                support_consumed.chain(outside_consumed)
             })
         })
         .copied()

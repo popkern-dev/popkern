@@ -1,6 +1,9 @@
 //! Native Gregory acceptance checks for DirectApex dispatch.
 
 use super::*;
+use popkern_core::geometry::CurveEval;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::uv_projection::project_point_to_uv;
 
 pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
     use popkern_core::error::ValidationError;
@@ -132,6 +135,15 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         }
     }
 
+    measure_exact_boundary_cap_outer_g0(
+        brep,
+        &cap_faces,
+        max_gap,
+        &mut worst_gap,
+        &mut worst_edge,
+        &mut measured_edges,
+    );
+
     if measured_edges == 0 {
         return Some("no cap-vs-noncap seams measured".to_string());
     }
@@ -152,6 +164,96 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         ));
     }
     None
+}
+
+fn measure_exact_boundary_cap_outer_g0(
+    brep: &BRep,
+    cap_faces: &std::collections::BTreeSet<popkern_core::topology::FaceHandle>,
+    max_gap: f64,
+    worst_gap: &mut f64,
+    worst_edge: &mut Option<popkern_core::topology::EdgeHandle>,
+    measured_edges: &mut usize,
+) {
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let mut cap_sides = Vec::new();
+    for cap_face in cap_faces {
+        let Some(cap_loop) = brep.faces.get(*cap_face).map(|face| face.outer_loop) else {
+            continue;
+        };
+        cap_sides.extend(collect_loop_half_edges_for_acceptance(brep, cap_loop));
+    }
+
+    for cap_side in cap_sides {
+        let Some(cap_side_data) = brep.half_edges.get(cap_side) else {
+            continue;
+        };
+        let Some(cap_face) = brep
+            .loops
+            .get(cap_side_data.loop_)
+            .map(|loop_data| loop_data.face)
+        else {
+            continue;
+        };
+        let Some(cap_surface) = brep
+            .faces
+            .get(cap_face)
+            .and_then(|face| face.surface.as_ref())
+        else {
+            continue;
+        };
+        let Some(cap_curve) = brep
+            .edges
+            .get(cap_side_data.edge)
+            .and_then(|edge| edge.curve.as_ref())
+        else {
+            continue;
+        };
+        for (cylinder_face, cylinder_face_data) in brep.faces.iter() {
+            if cap_faces.contains(&cylinder_face) {
+                continue;
+            }
+            let Some(cylinder_surface) = cylinder_face_data.surface.as_ref() else {
+                continue;
+            };
+            if !matches!(cylinder_surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+                continue;
+            }
+            let cylinder_sides =
+                collect_loop_half_edges_for_acceptance(brep, cylinder_face_data.outer_loop);
+            if !cylinder_sides.iter().any(|cylinder_side| {
+                same_oriented_exact_boundary_side(brep, cap_side, *cylinder_side)
+            }) {
+                continue;
+            }
+
+            let t_mid = 0.5 * (cap_curve.t_start + cap_curve.t_end);
+            let seam_point = cap_curve.geometry.point_at(t_mid);
+            let Some((cap_u, cap_v)) = project_point_to_uv(&cap_surface.geometry, &seam_point)
+            else {
+                continue;
+            };
+            let Some((cylinder_u, cylinder_v)) =
+                project_point_to_uv(&cylinder_surface.geometry, &seam_point)
+            else {
+                continue;
+            };
+            let cap_point = cap_surface.geometry.point_at(cap_u, cap_v);
+            let cylinder_point = cylinder_surface.geometry.point_at(cylinder_u, cylinder_v);
+            let gap = cap_point
+                .distance_to(&cylinder_point)
+                .max(cap_point.distance_to(&seam_point))
+                .max(cylinder_point.distance_to(&seam_point));
+            *measured_edges += 1;
+            if gap > *worst_gap {
+                *worst_gap = gap;
+                *worst_edge = Some(cap_side_data.edge);
+            }
+            if gap > max_gap && !crate::direct_apex_trace::cap_g0_enabled() {
+                return;
+            }
+        }
+    }
 }
 
 pub(super) fn native_gregory_cap_outer_g1_diagnostic(
@@ -426,6 +528,15 @@ pub(super) fn native_gregory_has_expected_cylinder_seams(
         }
     }
 
+    if cylinder_faces.len() < n_fillets {
+        count_exact_boundary_cylinder_seams(
+            brep,
+            &cap_faces,
+            &mut cylinder_faces,
+            &mut cylinder_seams,
+        );
+    }
+
     if crate::direct_apex_trace::enabled() {
         eprintln!(
             "[direct-apex-trace] native Gregory seam postcondition: {cylinder_seams} seams across {} distinct cylinder face(s), expected {n_fillets}",
@@ -444,4 +555,130 @@ fn native_gregory_cap_faces(
         .map(|patch| patch.face)
         .chain(result.exact_boundary_report.committed_faces.iter().copied())
         .collect()
+}
+
+fn count_exact_boundary_cylinder_seams(
+    brep: &BRep,
+    cap_faces: &std::collections::BTreeSet<popkern_core::topology::FaceHandle>,
+    cylinder_faces: &mut std::collections::BTreeSet<popkern_core::topology::FaceHandle>,
+    cylinder_seams: &mut usize,
+) {
+    let mut cap_sides = Vec::new();
+    for cap_face in cap_faces {
+        let Some(cap_loop) = brep.faces.get(*cap_face).map(|face| face.outer_loop) else {
+            continue;
+        };
+        cap_sides.extend(collect_loop_half_edges_for_acceptance(brep, cap_loop));
+    }
+
+    for (face, face_data) in brep.faces.iter() {
+        if cap_faces.contains(&face) || cylinder_faces.contains(&face) {
+            continue;
+        }
+        let Some(surface) = face_data.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+            continue;
+        }
+        let cylinder_sides = collect_loop_half_edges_for_acceptance(brep, face_data.outer_loop);
+        if cap_sides.iter().any(|cap_side| {
+            cylinder_sides.iter().any(|cylinder_side| {
+                same_oriented_exact_boundary_side(brep, *cap_side, *cylinder_side)
+            })
+        }) {
+            *cylinder_seams += 1;
+            cylinder_faces.insert(face);
+        }
+    }
+}
+
+fn collect_loop_half_edges_for_acceptance(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Vec<popkern_core::topology::HalfEdgeHandle> {
+    let Some(loop_data) = brep.loops.get(loop_handle) else {
+        return Vec::new();
+    };
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return Vec::new();
+    }
+    let mut cycle = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        cycle.push(cursor);
+        let Some(next) = brep.half_edges.get(cursor).map(|half_edge| half_edge.next) else {
+            return Vec::new();
+        };
+        cursor = next;
+        if cursor == start {
+            return cycle;
+        }
+    }
+    Vec::new()
+}
+
+fn same_oriented_exact_boundary_side(
+    brep: &BRep,
+    cap_side: popkern_core::topology::HalfEdgeHandle,
+    cylinder_side: popkern_core::topology::HalfEdgeHandle,
+) -> bool {
+    let Some(cap_start) = brep.half_edges.get(cap_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(cylinder_start) = brep.half_edges.get(cylinder_side).map(|data| data.origin) else {
+        return false;
+    };
+    if cap_start != cylinder_start {
+        return false;
+    }
+    let Some(cap_end) = half_edge_destination_vertex_for_acceptance(brep, cap_side) else {
+        return false;
+    };
+    let Some(cylinder_end) = half_edge_destination_vertex_for_acceptance(brep, cylinder_side)
+    else {
+        return false;
+    };
+    cap_end == cylinder_end
+}
+
+fn half_edge_destination_vertex_for_acceptance(
+    brep: &BRep,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+) -> Option<popkern_core::topology::VertexHandle> {
+    let data = brep.half_edges.get(half_edge)?;
+    if let Some(twin) = brep.half_edges.get(data.twin) {
+        return Some(twin.origin);
+    }
+    if !brep.boundary_edges.contains(&data.edge) {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    }
+    let edge = brep.edges.get(data.edge)?;
+    let Some(curve) = edge.curve.as_ref() else {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    };
+    let start_position = brep.vertices.get(data.origin)?.position;
+    let p0 = curve.geometry.point_at(curve.t_start);
+    let p1 = curve.geometry.point_at(curve.t_end);
+    let destination = if start_position.distance_to(&p0) <= start_position.distance_to(&p1) {
+        p1
+    } else {
+        p0
+    };
+    let tolerance = brep.tolerance.linear().max(1.0e-9);
+    brep.vertices
+        .iter()
+        .filter_map(|(vertex, data)| {
+            let distance = data.position.distance_to(&destination);
+            (distance <= tolerance).then_some((vertex, distance))
+        })
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(vertex, _)| vertex)
 }

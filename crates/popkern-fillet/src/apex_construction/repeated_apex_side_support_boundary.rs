@@ -79,11 +79,7 @@ impl FaceFamilyBridgeBoundaryExposurePlan {
     pub(super) fn build(brep: &BRep, cycles: &[FaceFamilyBridgeBoundaryCycle]) -> Self {
         let mut blockers = Vec::new();
         for cycle in cycles {
-            for half_edge in cycle
-                .support_interval()
-                .iter()
-                .chain(cycle.outside_interval().iter())
-            {
+            for half_edge in bridge_cycle_consumed_half_edges(cycle) {
                 if bridge_interval_half_edge_is_boundary_ready(brep, *half_edge) {
                     continue;
                 }
@@ -381,14 +377,24 @@ fn self_owned_protected_pairs(
 fn bridge_cycle_half_edges(cycles: &[FaceFamilyBridgeBoundaryCycle]) -> BTreeSet<HalfEdgeHandle> {
     cycles
         .iter()
-        .flat_map(|cycle| {
-            cycle
-                .support_interval()
-                .iter()
-                .chain(cycle.outside_interval().iter())
-        })
+        .flat_map(bridge_cycle_consumed_half_edges)
         .copied()
         .collect()
+}
+
+fn bridge_cycle_consumed_half_edges(
+    cycle: &FaceFamilyBridgeBoundaryCycle,
+) -> impl Iterator<Item = &HalfEdgeHandle> {
+    cycle
+        .support_interval()
+        .iter()
+        .take(cycle.support_interval().len().saturating_sub(1))
+        .chain(
+            cycle
+                .outside_interval()
+                .iter()
+                .take(cycle.outside_interval().len().saturating_sub(1)),
+        )
 }
 
 fn contiguous_fragment_retire_plan(

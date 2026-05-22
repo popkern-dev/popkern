@@ -30,7 +30,7 @@ pub(super) fn author_side_support_bridge_path_patch_for_cylinder_trim(
     let Some(path) = bridge_boundary_path_for_cylinder_side(brep, bridge_loops, start, end) else {
         return Ok(None);
     };
-    if path.len() < 2 {
+    if path.is_empty() {
         return Ok(None);
     }
     let rollback = brep.clone();

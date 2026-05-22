@@ -299,6 +299,15 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
     }
 
     if cylinder_faces.len() < n_fillets {
+        count_materialized_exact_boundary_cap_cylinder_seams(
+            brep,
+            cap_face,
+            &mut cylinder_faces,
+            &mut cylinder_seams,
+        );
+    }
+
+    if cylinder_faces.len() < n_fillets {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition exposed {cylinder_seams} cap-to-cylinder seam(s) \
@@ -308,6 +317,114 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
         });
     }
     Ok(())
+}
+
+fn count_materialized_exact_boundary_cap_cylinder_seams(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cylinder_faces: &mut std::collections::BTreeSet<FaceHandle>,
+    cylinder_seams: &mut usize,
+) {
+    let Some(cap_loop) = brep.faces.get(cap_face).map(|face| face.outer_loop) else {
+        return;
+    };
+    let Ok(cap_sides) = collect_loop_half_edges(brep, cap_loop) else {
+        return;
+    };
+    for (face, face_data) in &brep.faces {
+        if face == cap_face || cylinder_faces.contains(&face) {
+            continue;
+        }
+        let Some(surface) = face_data.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+            continue;
+        }
+        let Ok(cylinder_sides) = collect_loop_half_edges(brep, face_data.outer_loop) else {
+            continue;
+        };
+        if cap_sides.iter().any(|cap_side| {
+            cylinder_sides.iter().any(|cylinder_side| {
+                same_oriented_exact_boundary_side(brep, *cap_side, *cylinder_side)
+            })
+        }) {
+            *cylinder_seams += 1;
+            cylinder_faces.insert(face);
+        }
+    }
+}
+
+fn same_oriented_exact_boundary_side(
+    brep: &BRep,
+    cap_side: HalfEdgeHandle,
+    cylinder_side: HalfEdgeHandle,
+) -> bool {
+    let Some(cap_start) = brep.half_edges.get(cap_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(cylinder_start) = brep.half_edges.get(cylinder_side).map(|data| data.origin) else {
+        return false;
+    };
+    if cap_start != cylinder_start {
+        return false;
+    }
+    let Some(cap_end) = half_edge_destination_vertex(brep, cap_side) else {
+        return false;
+    };
+    let Some(cylinder_end) = half_edge_destination_vertex(brep, cylinder_side) else {
+        return false;
+    };
+    cap_end == cylinder_end
+}
+
+fn collect_loop_half_edges(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Result<Vec<HalfEdgeHandle>, ApexBuildError> {
+    let loop_data = brep
+        .loops
+        .get(loop_handle)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cannot collect stale loop {loop_handle:?}"
+            ),
+        })?;
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition loop {loop_handle:?} starts at stale half-edge \
+                 {start:?}"
+            ),
+        });
+    }
+    let mut cycle = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        cycle.push(cursor);
+        let next = brep
+            .half_edges
+            .get(cursor)
+            .map(|half_edge| half_edge.next)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition loop {loop_handle:?} references stale \
+                     half-edge {cursor:?}"
+                ),
+            })?;
+        cursor = next;
+        if cursor == start {
+            return Ok(cycle);
+        }
+    }
+    Err(ApexBuildError::PlanMismatch {
+        reason: format!(
+            "planned repeated-apex partition loop {loop_handle:?} did not close within {} \
+             half-edge steps",
+            brep.half_edges.len()
+        ),
+    })
 }
 
 fn edge_incident_faces(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<(FaceHandle, FaceHandle)> {

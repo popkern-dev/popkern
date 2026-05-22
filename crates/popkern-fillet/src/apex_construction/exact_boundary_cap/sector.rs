@@ -1,6 +1,8 @@
 //! Exact-boundary sector extraction for direct-apex Gregory caps.
 
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
+use popkern_core::geometry::CurveEval;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::apex_construction::error::ApexBuildError;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
@@ -331,8 +333,8 @@ fn extract_outer_seam(
             Some(cap_half_edge),
         )
     })?;
-    let support_half_edge = cap_half_edge_data.twin;
-    let support_half_edge_data = brep.half_edges.get(support_half_edge).ok_or_else(|| {
+    let mut support_half_edge = cap_half_edge_data.twin;
+    let mut support_half_edge_data = brep.half_edges.get(support_half_edge).ok_or_else(|| {
         diagnostic(
             ExactBoundarySectorDeclineReason::MissingSupportHalfEdge,
             sector,
@@ -342,7 +344,7 @@ fn extract_outer_seam(
             Some(support_half_edge),
         )
     })?;
-    let support_face = brep
+    let mut support_face = brep
         .loops
         .get(support_half_edge_data.loop_)
         .map(|loop_data| loop_data.face)
@@ -357,6 +359,27 @@ fn extract_outer_seam(
                 Some(support_half_edge),
             )
         })?;
+    if brep
+        .faces
+        .get(support_face)
+        .and_then(|face| face.surface.as_ref())
+        .is_none()
+        && let Some((semantic_support_half_edge, semantic_support_face)) =
+            same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
+    {
+        support_half_edge = semantic_support_half_edge;
+        support_half_edge_data = brep.half_edges.get(support_half_edge).ok_or_else(|| {
+            diagnostic(
+                ExactBoundarySectorDeclineReason::MissingSupportHalfEdge,
+                sector,
+                sector_name,
+                cap_face,
+                Some(edge),
+                Some(support_half_edge),
+            )
+        })?;
+        support_face = semantic_support_face;
+    }
 
     Ok(ExactBoundaryOuterSeam {
         side,
@@ -367,6 +390,110 @@ fn extract_outer_seam(
         cap_pcurve_present: cap_half_edge_data.pcurve.is_some(),
         support_pcurve_present: support_half_edge_data.pcurve.is_some(),
     })
+}
+
+fn same_oriented_cylinder_support_side(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cap_half_edge: HalfEdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    for (face, face_data) in brep.faces.iter() {
+        if face == cap_face {
+            continue;
+        }
+        let Some(surface) = face_data.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+            continue;
+        }
+        let Some(sides) = collect_loop_half_edges(brep, face_data.outer_loop) else {
+            continue;
+        };
+        for side in sides {
+            if same_oriented_side(brep, cap_half_edge, side) {
+                return Some((side, face));
+            }
+        }
+    }
+    None
+}
+
+fn same_oriented_side(brep: &BRep, cap_side: HalfEdgeHandle, support_side: HalfEdgeHandle) -> bool {
+    let Some(cap_start) = brep.half_edges.get(cap_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(support_start) = brep.half_edges.get(support_side).map(|data| data.origin) else {
+        return false;
+    };
+    if cap_start != support_start {
+        return false;
+    }
+    let Some(cap_end) = half_edge_destination_vertex(brep, cap_side) else {
+        return false;
+    };
+    let Some(support_end) = half_edge_destination_vertex(brep, support_side) else {
+        return false;
+    };
+    cap_end == support_end
+}
+
+fn collect_loop_half_edges(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Option<Vec<HalfEdgeHandle>> {
+    let loop_data = brep.loops.get(loop_handle)?;
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return None;
+    }
+    let mut cycle = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        cycle.push(cursor);
+        cursor = brep.half_edges.get(cursor)?.next;
+        if cursor == start {
+            return Some(cycle);
+        }
+    }
+    None
+}
+
+fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
+    let data = brep.half_edges.get(half_edge)?;
+    if let Some(twin) = brep.half_edges.get(data.twin) {
+        return Some(twin.origin);
+    }
+    if !brep.boundary_edges.contains(&data.edge) {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    }
+    let edge = brep.edges.get(data.edge)?;
+    let Some(curve) = edge.curve.as_ref() else {
+        return brep
+            .half_edges
+            .get(data.next)
+            .map(|next_half_edge| next_half_edge.origin);
+    };
+    let start_position = brep.vertices.get(data.origin)?.position;
+    let p0 = curve.geometry.point_at(curve.t_start);
+    let p1 = curve.geometry.point_at(curve.t_end);
+    let destination = if start_position.distance_to(&p0) <= start_position.distance_to(&p1) {
+        p1
+    } else {
+        p0
+    };
+    let tolerance = brep.tolerance.linear().max(1.0e-9);
+    brep.vertices
+        .iter()
+        .filter_map(|(vertex, data)| {
+            let distance = data.position.distance_to(&destination);
+            (distance <= tolerance).then_some((vertex, distance))
+        })
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map(|(vertex, _)| vertex)
 }
 
 fn diagnostic(

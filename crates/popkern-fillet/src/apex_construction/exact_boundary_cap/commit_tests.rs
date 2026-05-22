@@ -1,9 +1,10 @@
 use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsSurface, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
-    BRep, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, ShellHandle, TopologyRole,
-    VertexHandle,
+    BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
+    ShellHandle, TopologyRole, Vertex, VertexHandle,
 };
 
 use super::commit::{ExactBoundaryCommitDeclineReason, commit_exact_boundary_sector_surfaces};
@@ -21,6 +22,7 @@ fn commit_declines_when_sector_topology_is_not_split() {
         0,
         "sector_0",
         aggregate_cap,
+        [EdgeHandle::default(), EdgeHandle::default()],
         cap_half_edges,
         support_half_edges,
     );
@@ -50,14 +52,15 @@ fn commit_writes_sector_surfaces_and_pcurves_for_split_topology() {
     let mut brep = BRep::new(Tolerance::default());
     let aggregate_cap = insert_face(&mut brep, ShellHandle::default());
     let sector_face = insert_face(&mut brep, ShellHandle::default());
-    let cap_half_edges = insert_half_edge_pair(&mut brep);
-    let support_half_edges = insert_half_edge_pair(&mut brep);
+    let support_face = insert_support_face(&mut brep, ShellHandle::default());
+    let seams = insert_shared_trim_seams(&mut brep, sector_face, support_face);
     let sector = sector_input(
         0,
         "sector_0",
         sector_face,
-        cap_half_edges,
-        support_half_edges,
+        seams.edges,
+        seams.cap_half_edges,
+        seams.support_half_edges,
     );
 
     let report = commit_exact_boundary_sector_surfaces(
@@ -65,17 +68,25 @@ fn commit_writes_sector_surfaces_and_pcurves_for_split_topology() {
         aggregate_cap,
         &[sector],
         &solved_surfaces(),
-        &prepared_pcurves(),
+        &prepared_pcurves_for(&seams),
     )
     .expect("pre-split sector topology can receive exact-boundary candidates");
 
     assert_eq!(report.committed_sector_count, 1);
     assert_eq!(report.committed_pcurve_pair_count, 2);
     assert!(brep.faces[sector_face].surface.is_some());
-    assert!(brep.half_edges[cap_half_edges[0]].pcurve.is_some());
-    assert!(brep.half_edges[cap_half_edges[1]].pcurve.is_some());
-    assert!(brep.half_edges[support_half_edges[0]].pcurve.is_some());
-    assert!(brep.half_edges[support_half_edges[1]].pcurve.is_some());
+    assert!(brep.half_edges[seams.cap_half_edges[0]].pcurve.is_some());
+    assert!(brep.half_edges[seams.cap_half_edges[1]].pcurve.is_some());
+    assert!(
+        brep.half_edges[seams.support_half_edges[0]]
+            .pcurve
+            .is_some()
+    );
+    assert!(
+        brep.half_edges[seams.support_half_edges[1]]
+            .pcurve
+            .is_some()
+    );
 }
 
 #[test]
@@ -89,6 +100,7 @@ fn commit_declines_when_pcurve_pairs_do_not_cover_each_sector_side() {
         0,
         "sector_0",
         sector_face,
+        [EdgeHandle::default(), EdgeHandle::default()],
         cap_half_edges,
         support_half_edges,
     );
@@ -122,6 +134,11 @@ fn commit_diagnostic_promotes_to_apex_diagnostic() {
         code: "exact_boundary_cap.commit.sector_topology_missing",
         sector_name: Some("sector_0".to_string()),
         face: Some(FaceHandle::default()),
+        edge: None,
+        cap_half_edge: None,
+        support_half_edge: None,
+        shared_trim_failure: None,
+        residual: None,
     };
 
     let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(apex) =
@@ -155,6 +172,15 @@ fn insert_face(brep: &mut BRep, shell: ShellHandle) -> FaceHandle {
     face
 }
 
+fn insert_support_face(brep: &mut BRep, shell: ShellHandle) -> FaceHandle {
+    let face = insert_face(brep, shell);
+    brep.faces[face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(unit_square_surface()),
+        orientation: true,
+    });
+    face
+}
+
 fn insert_half_edge_pair(brep: &mut BRep) -> [HalfEdgeHandle; 2] {
     let loop_ = brep.loops.insert(Loop {
         half_edge: HalfEdgeHandle::default(),
@@ -170,6 +196,86 @@ fn insert_half_edge_pair(brep: &mut BRep) -> [HalfEdgeHandle; 2] {
     brep.half_edges[second].prev = second;
     brep.loops[loop_].half_edge = first;
     [first, second]
+}
+
+struct SharedTrimSeams {
+    edges: [EdgeHandle; 2],
+    cap_half_edges: [HalfEdgeHandle; 2],
+    support_half_edges: [HalfEdgeHandle; 2],
+}
+
+fn insert_shared_trim_seams(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    support_face: FaceHandle,
+) -> SharedTrimSeams {
+    let first = insert_shared_trim_seam(
+        brep,
+        cap_face,
+        support_face,
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.0),
+    );
+    let second = insert_shared_trim_seam(
+        brep,
+        cap_face,
+        support_face,
+        Point3::new(0.0, 0.25, 0.0),
+        Point3::new(1.0, 0.25, 0.0),
+    );
+    SharedTrimSeams {
+        edges: [first.0, second.0],
+        cap_half_edges: [first.1, second.1],
+        support_half_edges: [first.2, second.2],
+    }
+}
+
+fn insert_shared_trim_seam(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    support_face: FaceHandle,
+    start: Point3,
+    end: Point3,
+) -> (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle) {
+    let start_vertex = insert_vertex(brep, start);
+    let end_vertex = insert_vertex(brep, end);
+    let edge = brep.edges.insert(Edge {
+        half_edge: HalfEdgeHandle::default(),
+        curve: None,
+        name: None,
+        tolerance: None,
+        canonical: Default::default(),
+        role: TopologyRole::Production,
+    });
+    let cap_loop = brep.faces[cap_face].outer_loop;
+    let support_loop = brep.faces[support_face].outer_loop;
+    let cap_half_edge = brep.half_edges.insert(half_edge(cap_loop));
+    let support_half_edge = brep.half_edges.insert(half_edge(support_loop));
+    brep.half_edges[cap_half_edge].origin = start_vertex;
+    brep.half_edges[cap_half_edge].twin = support_half_edge;
+    brep.half_edges[cap_half_edge].edge = edge;
+    brep.half_edges[cap_half_edge].next = cap_half_edge;
+    brep.half_edges[cap_half_edge].prev = cap_half_edge;
+    brep.half_edges[support_half_edge].origin = end_vertex;
+    brep.half_edges[support_half_edge].twin = cap_half_edge;
+    brep.half_edges[support_half_edge].edge = edge;
+    brep.half_edges[support_half_edge].next = support_half_edge;
+    brep.half_edges[support_half_edge].prev = support_half_edge;
+    brep.edges[edge].half_edge = cap_half_edge;
+    brep.loops[cap_loop].half_edge = cap_half_edge;
+    brep.loops[support_loop].half_edge = support_half_edge;
+    brep.vertices[start_vertex].outgoing = cap_half_edge;
+    brep.vertices[end_vertex].outgoing = support_half_edge;
+    (edge, cap_half_edge, support_half_edge)
+}
+
+fn insert_vertex(brep: &mut BRep, position: Point3) -> VertexHandle {
+    brep.vertices.insert(Vertex {
+        position,
+        outgoing: HalfEdgeHandle::default(),
+        name: None,
+        tolerance: None,
+    })
 }
 
 fn half_edge(loop_: LoopHandle) -> HalfEdge {
@@ -188,6 +294,7 @@ fn sector_input(
     sector_index: usize,
     sector_name: &str,
     cap_face: FaceHandle,
+    edges: [EdgeHandle; 2],
     cap_half_edges: [HalfEdgeHandle; 2],
     support_half_edges: [HalfEdgeHandle; 2],
 ) -> ExactBoundaryCapSectorInput {
@@ -196,8 +303,8 @@ fn sector_input(
         sector_name: sector_name.to_string(),
         fillet_index: sector_index,
         cap_face,
-        fillet_end_edge: Default::default(),
-        face_edge: Default::default(),
+        fillet_end_edge: edges[0],
+        face_edge: edges[1],
         fillet_support_face: FaceHandle::default(),
         bridge_support_face: FaceHandle::default(),
         cap_half_edges,
@@ -205,11 +312,13 @@ fn sector_input(
         outer_seams: [
             outer_seam(
                 ExactBoundaryOuterSide::FilletEnd,
+                edges[0],
                 cap_half_edges[0],
                 support_half_edges[0],
             ),
             outer_seam(
                 ExactBoundaryOuterSide::FaceEdge,
+                edges[1],
                 cap_half_edges[1],
                 support_half_edges[1],
             ),
@@ -219,12 +328,13 @@ fn sector_input(
 
 fn outer_seam(
     side: ExactBoundaryOuterSide,
+    edge: EdgeHandle,
     cap_half_edge: HalfEdgeHandle,
     support_half_edge: HalfEdgeHandle,
 ) -> ExactBoundaryOuterSeam {
     ExactBoundaryOuterSeam {
         side,
-        edge: Default::default(),
+        edge,
         cap_half_edge,
         support_half_edge,
         support_face: FaceHandle::default(),
@@ -252,8 +362,8 @@ fn unit_square_surface() -> NurbsSurface {
         knots_v: vec![0.0, 0.0, 1.0, 1.0],
         control_points: vec![
             Point3::new(0.0, 0.0, 0.0),
-            Point3::new(1.0, 0.0, 0.0),
             Point3::new(0.0, 1.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
             Point3::new(1.0, 1.0, 0.0),
         ],
         weights: vec![1.0; 4],
@@ -269,6 +379,18 @@ fn prepared_pcurves() -> PreparedExactBoundaryPcurves {
             pcurve_pair(ExactBoundaryOuterSide::FaceEdge),
         ],
     }
+}
+
+fn prepared_pcurves_for(seams: &SharedTrimSeams) -> PreparedExactBoundaryPcurves {
+    let mut pcurves = prepared_pcurves();
+    pcurves.pairs[0].edge = seams.edges[0];
+    pcurves.pairs[0].support_half_edge = seams.support_half_edges[0];
+    pcurves.pairs[0].support_pcurve = Pcurve::linear((1.0, 0.0), (0.0, 0.0), 0.0, 1.0);
+    pcurves.pairs[1].edge = seams.edges[1];
+    pcurves.pairs[1].support_half_edge = seams.support_half_edges[1];
+    pcurves.pairs[1].cap_pcurve = Pcurve::linear((0.0, 0.25), (1.0, 0.25), 0.0, 1.0);
+    pcurves.pairs[1].support_pcurve = Pcurve::linear((1.0, 0.25), (0.0, 0.25), 0.0, 1.0);
+    pcurves
 }
 
 fn pcurve_pair(side: ExactBoundaryOuterSide) -> PreparedExactBoundaryPcurvePair {

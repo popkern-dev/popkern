@@ -13,6 +13,12 @@ pub(super) fn select_aggregate_region_cycles(
     if regions.len() <= 1 || !regions_share_one_outside_loop(&regions) {
         return regions;
     }
+    if regions.iter().any(|region| {
+        region.support_paths().first_to_second().len() < 2
+            || region.support_paths().second_to_first().len() < 2
+    }) {
+        return regions;
+    }
     let Some(selected) = disjoint_aggregate_cycles(brep, &regions) else {
         return regions;
     };

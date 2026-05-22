@@ -5,7 +5,7 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFac
 use popkern_core::geometry::{CurveGeometry, CurveOnEdge, Point3};
 use popkern_core::topology::{
     BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, SharedTrimEdgeFailureReason, SharedTrimEdgeInput,
-    commit_shared_trim_edge_transactionally,
+    TopologyRole, commit_shared_trim_edge_transactionally,
 };
 
 use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
@@ -351,6 +351,43 @@ fn commit_validated_inputs(
                         Some(sector.cap_face),
                     )
                 })?;
+            let cap_edge = brep.half_edges[sector.cap_half_edges[side_index]].edge;
+            let support_edge = brep.half_edges[sector.support_half_edges[side_index]].edge;
+            let support_is_cap_twin = brep.half_edges[sector.cap_half_edges[side_index]].twin
+                == sector.support_half_edges[side_index];
+            let support_is_residual_patch = brep
+                .half_edges
+                .get(sector.support_half_edges[side_index])
+                .and_then(|half_edge| brep.loops.get(half_edge.loop_))
+                .and_then(|loop_| brep.faces.get(loop_.face))
+                .is_some_and(|face| face.role == TopologyRole::ConstructionResidual);
+            if cap_edge != support_edge
+                || !support_is_cap_twin
+                || support_is_residual_patch
+                || pair.side == ExactBoundaryOuterSide::FaceEdge
+            {
+                if let Some(cap_curve) = curve_from_pcurve_in_edge_direction(
+                    brep,
+                    cap_edge,
+                    sector.cap_half_edges[side_index],
+                    &pair.cap_pcurve,
+                    cap_surface,
+                ) {
+                    brep.edges[cap_edge].curve = Some(cap_curve);
+                }
+                if support_edge != cap_edge {
+                    if let Some(support_curve) = curve_from_pcurve_in_edge_direction(
+                        brep,
+                        support_edge,
+                        sector.support_half_edges[side_index],
+                        &pair.support_pcurve,
+                        support_surface,
+                    ) {
+                        brep.edges[support_edge].curve = Some(support_curve);
+                    }
+                }
+                continue;
+            }
             let curve = curve_from_pcurve_in_edge_direction(
                 brep,
                 pair.edge,
@@ -424,12 +461,11 @@ fn curve_from_pcurve_in_edge_direction(
         points.push(surface.point_at(uv.x, uv.y));
         parameters.push(fraction);
     }
-    let degree = 9.min(points.len().saturating_sub(1));
-    let curve =
-        popkern_core::geometry::fitting::fit_curve(&points, &parameters, degree, points.len())
-            .ok()
-            .map(CurveGeometry::Nurbs)
-            .or_else(|| line_curve_from_endpoints(&points))?;
+    let degree = 5.min(points.len().saturating_sub(1));
+    let curve = popkern_core::geometry::fitting::interpolate_curve(&points, &parameters, degree)
+        .ok()
+        .map(CurveGeometry::Nurbs)
+        .or_else(|| line_curve_from_endpoints(&points))?;
     Some(CurveOnEdge {
         geometry: curve,
         t_start: 0.0,

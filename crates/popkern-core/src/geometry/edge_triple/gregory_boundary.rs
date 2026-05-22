@@ -324,13 +324,12 @@ pub(super) fn build_other_pcurve(
         params.push(s);
         uv_samples.push(Point3::new(u, v, 0.0));
     }
-    // Fit a degree-3 NurbsCurve through the UV samples. Use 8 CPs —
-    // sufficient density for a smooth Gregory boundary projected
-    // onto an analytic surface, while staying under the convex-hull
-    // bound that downstream UV-clamping passes already enforce.
-    let degree = 3usize;
-    let n_cps = 8usize.min(uv_samples.len());
-    crate::geometry::fitting::fit_curve(&uv_samples, &params, degree, n_cps).ok()
+    // Interpolate every projected UV sample. Boundary-owned shared
+    // trims are committed through strict curve/surface validation, so
+    // least-squares compression here can incorrectly decline an
+    // otherwise valid exact-boundary candidate on curved neighbors.
+    let degree = 5usize.min(uv_samples.len().saturating_sub(1));
+    crate::geometry::fitting::interpolate_curve(&uv_samples, &params, degree).ok()
 }
 
 /// Reverse a NurbsCurve so `forward(t)` becomes `reverse(1 - t')`.

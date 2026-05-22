@@ -13,6 +13,11 @@ pub(in crate::apex_construction) fn expose_aggregate_bridge_boundaries(
     candidate: &mut BRep,
 ) -> Result<(), String> {
     let mut errors = Vec::new();
+    if let Err(err) = candidate.retire_unwired_construction_residual_edges() {
+        errors.push(format!(
+            "aggregate unwired construction-residual retire rejected: {err}"
+        ));
+    }
     let mut retired_faces = BTreeSet::<FaceHandle>::new();
     for region in primitive.regions() {
         for plan in region.boundary_exposure().retire_faces() {
