@@ -11,6 +11,17 @@ use popkern_io::{
     import_step,
 };
 
+#[path = "step_validation_failure.rs"]
+mod step_validation_failure;
+pub use step_validation_failure::{
+    StepImportedShellGapEvidence, StepImportedValidationFailure, StepImportedValidationFailureKind,
+    StepRoundTripFailure,
+};
+use step_validation_failure::{
+    failure, failure_with_export_quality, failure_with_imported_validation,
+    imported_validation_failure,
+};
+
 #[derive(Debug, Clone)]
 pub struct StepRoundTripValidationOptions {
     pub import: StepImportOptions,
@@ -64,6 +75,7 @@ pub struct StepStrictAcceptanceReport {
     pub label: String,
     pub status: StepStrictAcceptanceStatus,
     pub failure_reason: Option<String>,
+    pub failure: Option<StepRoundTripFailure>,
     pub pre_export_body_reports: Vec<StepRoundTripBodyReport>,
     pub round_trip_report: Option<StepRoundTripReport>,
 }
@@ -113,20 +125,6 @@ pub struct StepRoundTripEdgeSurfaceEvidence {
     pub max_curve_parameter: f64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct StepRoundTripFailure {
-    pub label: String,
-    pub reason: String,
-}
-
-impl std::fmt::Display for StepRoundTripFailure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.label, self.reason)
-    }
-}
-
-impl std::error::Error for StepRoundTripFailure {}
-
 pub fn export_and_validate_breps(
     label: &str,
     breps: &[BRep],
@@ -170,13 +168,15 @@ pub fn validate_strict_step_acceptance(
             label: label.to_string(),
             status: StepStrictAcceptanceStatus::Accepted,
             failure_reason: None,
+            failure: None,
             pre_export_body_reports,
             round_trip_report: Some(report),
         },
         Err(err) => StepStrictAcceptanceReport {
             label: label.to_string(),
             status: StepStrictAcceptanceStatus::Declined,
-            failure_reason: Some(err.reason),
+            failure_reason: Some(err.reason.clone()),
+            failure: Some(err),
             pre_export_body_reports,
             round_trip_report: None,
         },
@@ -238,19 +238,21 @@ fn validate_imported_document(
     let mut body_reports = Vec::with_capacity(bodies.len());
     for (index, body) in bodies.into_iter().enumerate() {
         body.validate().map_err(|err| {
-            failure(
+            failure_with_imported_validation(
                 label,
                 format!("STEP import body {index} failed validation: {err}"),
+                imported_validation_failure(index, body, &err),
             )
         })?;
-        let quality = analyze_brep_export_quality(body, options.quality);
-        if !quality.is_ready() {
-            return Err(failure(
+        let body_report = step_body_report(index, body, options);
+        if body_report.readiness == BrepExportReadiness::Blocked {
+            return Err(failure_with_export_quality(
                 label,
-                format!("body {index} export-quality blocked: {quality:?}"),
+                format!("body {index} export-quality blocked: {body_report:?}"),
+                body_report,
             ));
         }
-        body_reports.push(step_body_report(index, body, options));
+        body_reports.push(body_report);
     }
 
     Ok(StepRoundTripReport {
@@ -373,12 +375,5 @@ fn step_document(label: &str, breps: Vec<BRep>) -> StepDocument {
         roots: vec![0],
         units: UnitContext::default(),
         opaque_bag: OpaqueBag::default(),
-    }
-}
-
-fn failure(label: &str, reason: String) -> StepRoundTripFailure {
-    StepRoundTripFailure {
-        label: label.into(),
-        reason,
     }
 }

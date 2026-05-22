@@ -1,7 +1,8 @@
 //! Edge representative and curve-storage normalization for topology rewrites.
 
 use super::BRep;
-use crate::geometry::curve::CurveGeometry;
+use crate::geometry::Point3;
+use crate::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use crate::topology::EdgeHandle;
 
 impl BRep {
@@ -119,4 +120,64 @@ impl BRep {
         }
         normalized
     }
+
+    /// Repair straight edge curves whose stored endpoints no longer match the
+    /// edge's topological vertices.
+    ///
+    /// Topology rewrites can retarget vertices while leaving an analytic line
+    /// representative on the old support span. For straight edges, the
+    /// commercial-grade invariant is unambiguous: the bounded edge curve must
+    /// terminate at the two vertices owned by the edge's twin half-edges.
+    pub fn repair_line_edge_curve_endpoint_coherence(&mut self, tolerance: f64) -> usize {
+        let repairs = self
+            .edges
+            .iter()
+            .filter_map(|(edge_handle, edge)| {
+                let curve = edge.curve.as_ref()?;
+                if !matches!(curve.geometry, CurveGeometry::Line { .. }) {
+                    return None;
+                }
+                let (start, end) = edge_vertices(self, edge.half_edge)?;
+                let endpoint_gap = edge_endpoint_gap(curve, start, end);
+                (endpoint_gap > tolerance).then_some((edge_handle, start, end))
+            })
+            .collect::<Vec<_>>();
+
+        let mut repaired = 0;
+        for (edge_handle, start, end) in repairs {
+            let Some(curve) = CurveOnEdge::line_segment(start, end, tolerance) else {
+                continue;
+            };
+            if let Some(edge) = self.edges.get_mut(edge_handle) {
+                edge.curve = Some(curve);
+                repaired += 1;
+            }
+        }
+        repaired
+    }
+}
+
+fn edge_vertices(
+    brep: &BRep,
+    half_edge: crate::topology::HalfEdgeHandle,
+) -> Option<(Point3, Point3)> {
+    let half_edge = brep.half_edges.get(half_edge)?;
+    let twin = brep.half_edges.get(half_edge.twin)?;
+    Some((
+        brep.vertices.get(half_edge.origin)?.position,
+        brep.vertices.get(twin.origin)?.position,
+    ))
+}
+
+fn edge_endpoint_gap(curve: &CurveOnEdge, start: Point3, end: Point3) -> f64 {
+    let curve_start = curve.geometry.point_at(curve.t_start);
+    let curve_end = curve.geometry.point_at(curve.t_end);
+    start
+        .distance_to(&curve_start)
+        .max(end.distance_to(&curve_end))
+        .min(
+            start
+                .distance_to(&curve_end)
+                .max(end.distance_to(&curve_start)),
+        )
 }

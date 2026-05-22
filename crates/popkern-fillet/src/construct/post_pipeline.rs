@@ -383,6 +383,7 @@ fn repair_exact_boundary_export_blockers(
         exact_boundary_export_repair_options(),
     ) {
         *result = repaired.brep;
+        result.repair_line_edge_curve_endpoint_coherence(1.0e-6);
         if let Ok(trim_repaired) =
             popkern_core::topology::reconstruct_curve_backed_trims_transactionally(
                 result,

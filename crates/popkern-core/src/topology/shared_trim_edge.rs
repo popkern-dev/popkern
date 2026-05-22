@@ -250,10 +250,10 @@ fn canonical_edge_vertices(
     canonical_half_edge: HalfEdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let he = brep.half_edges.get(canonical_half_edge)?;
-    let next = brep.half_edges.get(he.next)?;
+    let twin = brep.half_edges.get(he.twin)?;
     Some((
         brep.vertices.get(he.origin)?.position,
-        brep.vertices.get(next.origin)?.position,
+        brep.vertices.get(twin.origin)?.position,
     ))
 }
 

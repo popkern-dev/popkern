@@ -1,7 +1,8 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_examples::step_validation::{
-    StepRoundTripValidationOptions, StepStrictAcceptanceStatus, validate_strict_step_acceptance,
+    StepImportedValidationFailureKind, StepRoundTripValidationOptions, StepStrictAcceptanceStatus,
+    validate_strict_step_acceptance,
 };
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
@@ -24,6 +25,10 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     assert_eq!(report.label, "direct_apex_gregory_cap");
     assert_eq!(report.pre_export_body_reports.len(), 1);
     let pre_export = &report.pre_export_body_reports[0];
+    assert_eq!(
+        pre_export.topology_blockers, 0,
+        "raw exact-boundary cap-family export must have no topology blockers: {pre_export:#?}"
+    );
     assert_eq!(
         pre_export.pcurve_blockers,
         0,
@@ -55,18 +60,48 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                 "strict STEP decline should identify the failed shared gate: {reason}"
             );
             if reason.contains("export-quality blocked") {
+                let failure = report
+                    .failure
+                    .as_ref()
+                    .expect("STEP export-quality decline should carry structured failure evidence");
+                let imported_quality = failure
+                    .export_quality
+                    .as_ref()
+                    .expect("STEP export-quality decline should include body evidence");
                 assert!(
-                    pre_export.pcurve_blockers > 0 || pre_export.edge_surface_blockers > 0,
-                    "export-quality decline should expose fidelity blockers: {pre_export:#?}"
+                    imported_quality.trim_blockers > 0
+                        || imported_quality.pcurve_blockers > 0
+                        || imported_quality.edge_surface_blockers > 0,
+                    "imported export-quality decline should expose blockers: {imported_quality:#?}"
                 );
                 assert!(
-                    !pre_export.pcurve_evidence.is_empty()
-                        || !pre_export.edge_surface_evidence.is_empty(),
-                    "export-quality decline should include per-edge evidence: {pre_export:#?}"
+                    failure.imported_validation.is_none(),
+                    "line endpoint repair should move the old shell-gap failure out of import validation"
                 );
             } else {
+                let failure = report
+                    .failure
+                    .as_ref()
+                    .expect("STEP import decline should carry structured failure evidence");
                 assert_eq!(pre_export.pcurve_blockers, 0);
                 assert_eq!(pre_export.edge_surface_blockers, 0);
+                let imported_validation = failure
+                    .imported_validation
+                    .as_ref()
+                    .expect("STEP import decline should identify the imported validation gate");
+                match &imported_validation.kind {
+                    StepImportedValidationFailureKind::ShellGap(shell_gap) => {
+                        assert!(shell_gap.gap > 0.0);
+                        assert!(
+                            shell_gap.natural_gap > Tolerance::default().linear()
+                                || shell_gap.swapped_gap > Tolerance::default().linear(),
+                            "shell-gap evidence should include endpoint disagreement: {shell_gap:#?}"
+                        );
+                    }
+                    other => panic!(
+                        "remaining STEP import decline should expose shell-gap evidence: {other:#?}"
+                    ),
+                }
             }
         }
     }

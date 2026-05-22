@@ -224,9 +224,8 @@ pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> us
             if cap_set.contains(&face_a) || cap_set.contains(&face_b) {
                 continue; // skip cap-loop edges
             }
-            // OTHER endpoint = primary's dest if primary.origin == v, else primary's origin.
             let primary_origin = brep.half_edges[primary].origin;
-            let primary_dest = brep.half_edges[brep.half_edges[primary].next].origin;
+            let primary_dest = brep.half_edges[twin].origin;
             let other = if primary_origin == v {
                 primary_dest
             } else {
@@ -235,8 +234,8 @@ pub(crate) fn repair_base_edges(brep: &mut BRep, cap_faces: &[FaceHandle]) -> us
             if apex_vertices.contains(&other) {
                 continue; // not a base edge — both endpoints in apex set
             }
-            // Found base edge.  Build new curve from primary_origin to primary_dest
-            // (in the BRep edge's stored direction).
+            // Found base edge.  Build the curve in the BRep edge's stored
+            // direction using the topological twin as the destination.
             let p0 = brep.vertices[primary_origin].position;
             let p1 = brep.vertices[primary_dest].position;
             jobs.push((he.edge, p0, p1));
