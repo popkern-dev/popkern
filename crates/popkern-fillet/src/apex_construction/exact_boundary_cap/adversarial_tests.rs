@@ -1,8 +1,6 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
-use super::ribbon::{
-    ExactBoundaryRibbonBudget, ExactBoundaryRibbonDeclineReason, prepare_exact_boundary_ribbons,
-};
+use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::extract_exact_boundary_cap_sectors;
 use crate::apex_construction::cap_kind::CapKind;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
@@ -19,8 +17,8 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 #[test]
 fn support_pcurve_adversarial_matrix_has_stable_outcomes() {
-    assert_support_pcurve_declines(SupportPcurveAdversary::Missing);
-    assert_support_pcurve_declines(SupportPcurveAdversary::Stale);
+    assert_support_pcurve_is_repaired(SupportPcurveAdversary::Missing);
+    assert_support_pcurve_is_repaired(SupportPcurveAdversary::Stale);
     assert_reversed_support_pcurve_is_accepted();
 }
 
@@ -99,7 +97,7 @@ enum SupportPcurveAdversary {
     Stale,
 }
 
-fn assert_support_pcurve_declines(adversary: SupportPcurveAdversary) {
+fn assert_support_pcurve_is_repaired(adversary: SupportPcurveAdversary) {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let (sectors, support_half_edge) = sectors_and_first_support(&brep, cap_face, &edges);
     match adversary {
@@ -115,36 +113,20 @@ fn assert_support_pcurve_declines(adversary: SupportPcurveAdversary) {
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let diagnostic = prepare_exact_boundary_ribbons(
+    let ribbons = prepare_exact_boundary_ribbons(
         &brep,
         &sectors,
         &boundaries,
         ExactBoundaryRibbonBudget::default(),
     )
-    .expect_err("support pcurve adversary must decline");
+    .expect("support pcurve adversary should be repaired by validated projection");
 
-    match adversary {
-        SupportPcurveAdversary::Missing => {
-            assert_eq!(
-                diagnostic.reason,
-                ExactBoundaryRibbonDeclineReason::SupportPcurveMissing
-            );
-            assert_eq!(
-                diagnostic.code,
-                "exact_boundary_cap.ribbon.support_pcurve_missing"
-            );
-        }
-        SupportPcurveAdversary::Stale => {
-            assert_eq!(
-                diagnostic.reason,
-                ExactBoundaryRibbonDeclineReason::SupportPcurveStale
-            );
-            assert_eq!(
-                diagnostic.code,
-                "exact_boundary_cap.ribbon.support_pcurve_stale"
-            );
-        }
-    }
+    let repaired = ribbons
+        .ribbons
+        .iter()
+        .find(|ribbon| ribbon.support_half_edge == support_half_edge)
+        .expect("repaired support half-edge should produce a ribbon");
+    assert!(repaired.max_support_residual <= 1.0e-6);
 }
 
 fn assert_reversed_support_pcurve_is_accepted() {

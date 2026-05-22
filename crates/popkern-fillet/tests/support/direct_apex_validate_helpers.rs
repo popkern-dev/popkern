@@ -182,11 +182,7 @@ pub(crate) fn assert_native_cap_has_cylinder_seams(
 ) {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
-    let cap_faces = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<std::collections::BTreeSet<_>>();
+    let cap_faces = native_cap_faces(result);
     let mut cylinder_seams = 0usize;
     let mut cylinder_faces = std::collections::BTreeSet::new();
 
@@ -236,4 +232,21 @@ pub(crate) fn assert_native_cap_has_cylinder_seams(
          neighbor faces; got seams={cylinder_seams}, distinct_cylinders={}",
         cylinder_faces.len(),
     );
+}
+
+pub(crate) fn native_cap_faces(
+    result: &BlendResult,
+) -> std::collections::BTreeSet<popkern_core::topology::FaceHandle> {
+    result
+        .corner_patches
+        .iter()
+        .map(|p| p.face)
+        .chain(
+            result
+                .repair_report
+                .apex_routes
+                .iter()
+                .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied()),
+        )
+        .collect()
 }

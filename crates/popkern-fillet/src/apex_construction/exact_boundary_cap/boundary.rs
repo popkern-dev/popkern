@@ -9,6 +9,7 @@ use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBo
 const VERIFY_SAMPLES: usize = 9;
 const VERIFY_TOLERANCE: f64 = 1.0e-9;
 const KNOT_EPS: f64 = 1.0e-10;
+const TOPOLOGY_ENDPOINT_TOLERANCE: f64 = 1.0e-7;
 
 /// Budget for exact boundary compatibility operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,13 +118,19 @@ impl ExactBoundaryCurveDiagnostic {
         }
     }
 
-    pub(crate) fn into_build_error(self) -> crate::apex_construction::error::ApexBuildError {
-        crate::apex_construction::error::ApexBuildError::PlanMismatch {
-            reason: format!(
-                "{} sector={} side={:?} edge={:?} residual={:?}",
-                self.code, self.sector_name, self.side, self.edge, self.residual
-            ),
-        }
+    pub(crate) fn into_apex_diagnostic(self) -> crate::types::ApexConstructionDiagnostic {
+        crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+            crate::types::ExactBoundaryCapDiagnostic {
+                stage: "exact_boundary_cap.boundary".to_string(),
+                code: self.code.to_string(),
+                sector_name: self.sector_name,
+                edge: Some(self.edge),
+                support_half_edge: None,
+                support_face: None,
+                residual: self.residual,
+                shared_fact_ids: Vec::new(),
+            },
+        )
     }
 }
 
@@ -203,12 +210,10 @@ fn oriented_source_curve(
             residual: None,
         });
     };
-    let mut curve = curve_on_edge
+    let raw_curve = curve_on_edge
         .geometry
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
-    if seam.cap_half_edge != edge_data.half_edge {
-        curve = reverse_nurbs_curve(&curve);
-    }
+    let curve = orient_curve_to_cap_half_edge(brep, sector, seam, raw_curve)?;
     let source_range = curve.parameter_range();
     let prepared = normalize_curve_parameter_domain(&curve).ok_or_else(|| {
         ExactBoundaryCurveDiagnostic::new(
@@ -234,6 +239,74 @@ fn oriented_source_curve(
         source_range,
         prepared,
     })
+}
+
+fn orient_curve_to_cap_half_edge(
+    brep: &BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    seam: &ExactBoundaryOuterSeam,
+    curve: NurbsCurve,
+) -> Result<NurbsCurve, ExactBoundaryCurveDiagnostic> {
+    let Some((origin, destination)) = cap_half_edge_vertex_span(brep, seam.cap_half_edge) else {
+        return Err(ExactBoundaryCurveDiagnostic::new(
+            ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed,
+            &diagnostic_source_curve(sector, seam, curve, None),
+            None,
+        ));
+    };
+    let direct_gap = endpoint_orientation_gap(&curve, origin, destination);
+    if direct_gap <= TOPOLOGY_ENDPOINT_TOLERANCE {
+        return Ok(curve);
+    }
+
+    let reversed = reverse_nurbs_curve(&curve);
+    let reverse_gap = endpoint_orientation_gap(&reversed, origin, destination);
+    if reverse_gap <= TOPOLOGY_ENDPOINT_TOLERANCE || reverse_gap < direct_gap {
+        return Ok(reversed);
+    }
+
+    Err(ExactBoundaryCurveDiagnostic::new(
+        ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed,
+        &diagnostic_source_curve(sector, seam, curve, None),
+        Some(direct_gap.min(reverse_gap)),
+    ))
+}
+
+fn cap_half_edge_vertex_span(
+    brep: &BRep,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+) -> Option<(Point3, Point3)> {
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let next = brep.half_edges.get(half_edge_data.next)?;
+    let origin = brep.vertices.get(half_edge_data.origin)?.position;
+    let destination = brep.vertices.get(next.origin)?.position;
+    Some((origin, destination))
+}
+
+fn endpoint_orientation_gap(curve: &NurbsCurve, origin: Point3, destination: Point3) -> f64 {
+    let (start, end) = curve.parameter_range();
+    curve
+        .point_at(start)
+        .distance_to(&origin)
+        .max(curve.point_at(end).distance_to(&destination))
+}
+
+fn diagnostic_source_curve(
+    sector: &ExactBoundaryCapSectorInput,
+    seam: &ExactBoundaryOuterSeam,
+    curve: NurbsCurve,
+    source_range: Option<(f64, f64)>,
+) -> PreparedSourceCurve {
+    let source_range = source_range.unwrap_or_else(|| curve.parameter_range());
+    PreparedSourceCurve {
+        sector_index: sector.sector_index,
+        sector_name: sector.sector_name.clone(),
+        side: seam.side,
+        edge: seam.edge,
+        source: curve.clone(),
+        source_range,
+        prepared: curve,
+    }
 }
 
 fn normalize_curve_parameter_domain(curve: &NurbsCurve) -> Option<NurbsCurve> {

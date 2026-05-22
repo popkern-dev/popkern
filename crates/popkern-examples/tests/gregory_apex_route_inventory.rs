@@ -4,9 +4,8 @@ use popkern_core::topology::{
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
 };
 use popkern_fillet::{
-    ApexConstructionDiagnostic, ApexConstructionRoute, ExactBoundaryCandidateOutcome,
-    ExactBoundaryReportTransactionStatus, FilletOptions, FilletRadius, FilletSpec,
-    build_blend_repair_action_artifact, fillet_edges,
+    ApexConstructionRoute, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
+    FilletOptions, FilletRadius, FilletSpec, build_blend_repair_action_artifact, fillet_edges,
 };
 
 #[test]
@@ -20,15 +19,14 @@ fn mixed_radius_gregory_records_default_direct_apex_route() {
     assert_eq!(routes[0].built_faces.len(), 3);
     assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert_eq!(routes[0].exact_boundary_prepared_curve_count, 6);
-    assert_eq!(routes[0].exact_boundary_inner_spoke_count, 0);
-    assert_exact_boundary_inner_spoke_decline(&result);
-    assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
-    assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
-    assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
+    assert_eq!(routes[0].exact_boundary_inner_spoke_count, 6);
+    assert_eq!(routes[0].exact_boundary_ribbon_count, 6);
+    assert_eq!(routes[0].exact_boundary_solved_surface_count, 3);
+    assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 6);
     assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ux_report(&routes[0]);
-    assert_exact_boundary_ribbon_decline(&result);
-    assert_exact_boundary_artifact_links_repair_facts(&result);
+    assert_exact_boundary_accepted(&result);
+    assert_exact_boundary_artifact_has_no_decline_actions(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -46,15 +44,14 @@ fn mixed_radius_gregory_records_direct_apex_requested_route() {
     assert_eq!(routes[0].built_faces.len(), 3);
     assert_eq!(routes[0].exact_boundary_sector_count, 3);
     assert_eq!(routes[0].exact_boundary_prepared_curve_count, 6);
-    assert_eq!(routes[0].exact_boundary_inner_spoke_count, 0);
-    assert_exact_boundary_inner_spoke_decline(&result);
-    assert_eq!(routes[0].exact_boundary_ribbon_count, 0);
-    assert_eq!(routes[0].exact_boundary_solved_surface_count, 0);
-    assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 0);
+    assert_eq!(routes[0].exact_boundary_inner_spoke_count, 6);
+    assert_eq!(routes[0].exact_boundary_ribbon_count, 6);
+    assert_eq!(routes[0].exact_boundary_solved_surface_count, 3);
+    assert_eq!(routes[0].exact_boundary_pcurve_pair_count, 6);
     assert_exact_boundary_performance_report(&routes[0]);
     assert_exact_boundary_ux_report(&routes[0]);
-    assert_exact_boundary_ribbon_decline(&result);
-    assert_exact_boundary_artifact_links_repair_facts(&result);
+    assert_exact_boundary_accepted(&result);
+    assert_exact_boundary_artifact_has_no_decline_actions(&result);
     assert!(routes[0].fallback_reason.is_none());
 }
 
@@ -85,10 +82,7 @@ fn assert_exact_boundary_performance_report(route: &popkern_fillet::ApexConstruc
         performance.elapsed_micros > 0,
         "exact-boundary performance report should carry elapsed budget evidence"
     );
-    assert!(
-        performance.deterministic_skip_code.is_some(),
-        "declined exact-boundary candidates should record a future skip-policy key"
-    );
+    assert!(performance.deterministic_skip_code.is_none());
 }
 
 fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRouteDecision) {
@@ -97,13 +91,17 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     assert_eq!(report.route_label, "direct_apex");
     assert_eq!(
         report.candidate_status,
-        ExactBoundaryCandidateOutcome::Declined
+        ExactBoundaryCandidateOutcome::Accepted
     );
     assert_eq!(
         report.provenance.transaction_status,
-        ExactBoundaryReportTransactionStatus::RolledBack
+        ExactBoundaryReportTransactionStatus::Committed
     );
-    assert!(report.provenance.topology_rollback_performed);
+    assert!(!report.provenance.topology_rollback_performed);
+    assert_eq!(
+        report.committed_faces.len(),
+        route.exact_boundary_sector_count
+    );
     assert_eq!(report.sectors.len(), route.exact_boundary_sector_count);
     assert_eq!(report.performance, route.exact_boundary_performance);
     assert!(report.preview_available);
@@ -112,64 +110,43 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
         route.exact_boundary_performance.deterministic_skip_code
     );
     assert!(report.tolerance_evidence.model_linear_tolerance.is_some());
-    assert!(!report.diagnostics.is_empty());
+    assert!(report.diagnostics.is_empty());
     assert!(
         report
             .diagnostics
             .iter()
             .all(|diagnostic| diagnostic.schema_version == 1)
     );
-    assert!(!report.source_fact_ids.is_empty());
+    assert!(report.source_fact_ids.is_empty());
     assert_eq!(report.sectors[0].sector_name, "direct_apex.cap_sector.0");
     assert_eq!(report.sectors[0].cap_half_edges.len(), 2);
 
     let json = serde_json::to_string(report).expect("exact-boundary report serializes to JSON");
     assert!(json.contains("\"schema_version\":1"));
-    assert!(json.contains("\"candidate_status\":\"Declined\""));
-    assert!(json.contains("\"transaction_status\":\"RolledBack\""));
+    assert!(json.contains("\"candidate_status\":\"Accepted\""));
+    assert!(json.contains("\"transaction_status\":\"Committed\""));
     assert!(json.contains("\"source_fact_ids\""));
 }
 
-fn assert_exact_boundary_ribbon_decline(result: &popkern_fillet::BlendResult) {
+fn assert_exact_boundary_accepted(result: &popkern_fillet::BlendResult) {
     assert!(
         result
             .repair_report
-            .apex_diagnostics
+            .apex_routes
             .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                    if diagnostic.stage == "exact_boundary_cap.support_ribbon"
-                        && diagnostic.code == "exact_boundary_cap.ribbon.support_pcurve_stale"
-            )),
-        "mixed-radius Gregory should promote exact-boundary support-ribbon pcurve readiness declines into apex diagnostics"
+            .all(|route| route.exact_boundary_report.diagnostics.is_empty()),
+        "accepted exact-boundary mixed-radius Gregory should not promote decline diagnostics"
     );
 }
 
-fn assert_exact_boundary_artifact_links_repair_facts(result: &popkern_fillet::BlendResult) {
+fn assert_exact_boundary_artifact_has_no_decline_actions(result: &popkern_fillet::BlendResult) {
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
-        artifact.actions.iter().any(|action| {
-            action.stage.starts_with("exact_boundary_cap.")
-                && action.outcome == "declined"
-                && !action.shared_fact_ids.is_empty()
-        }),
-        "exact-boundary declined repair actions should link to shared BRep repair fact ids"
-    );
-}
-
-fn assert_exact_boundary_inner_spoke_decline(result: &popkern_fillet::BlendResult) {
-    assert!(
-        result
-            .repair_report
-            .apex_diagnostics
+        artifact
+            .actions
             .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                    if diagnostic.stage == "exact_boundary_cap.inner_spoke"
-            )),
-        "mixed-radius Gregory should promote exact-boundary inner-spoke readiness declines into apex diagnostics"
+            .all(|action| !action.stage.starts_with("exact_boundary_cap.")),
+        "accepted exact-boundary candidates should not emit declined repair actions"
     );
 }
 

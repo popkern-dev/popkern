@@ -178,6 +178,7 @@ fn solve_sector(
     let top = line_curve_like(&fillet, sector.face_inner_spoke.anchor, sector.pole());
     let right = line_curve_like(&face, sector.fillet_inner_spoke.anchor, sector.pole());
     let mut controls = coons_controls(&fillet, &face, &top, &right, num_u, num_v);
+    let weights = coons_weights(&fillet, &face, &top, &right, num_u, num_v);
     apply_derivative_rows(sector, ribbons, &mut controls, num_u, num_v);
     let surface = NurbsSurface {
         degree_u: fillet.degree,
@@ -187,7 +188,7 @@ fn solve_sector(
         control_points: controls,
         num_u,
         num_v,
-        weights: vec![1.0; num_u * num_v],
+        weights,
     };
     if has_gross_foldover(&surface, budget) {
         return Err(ExactBoundarySolveDiagnostic::new(
@@ -251,7 +252,7 @@ fn line_curve_like(template: &NurbsCurve, start: Point3, end: Point3) -> NurbsCu
         degree,
         knots: template.knots.clone(),
         control_points: cps,
-        weights: vec![1.0; template.control_points.len()],
+        weights: template.weights.clone(),
     }
 }
 
@@ -280,6 +281,32 @@ fn coons_controls(
         }
     }
     controls
+}
+
+fn coons_weights(
+    bottom: &NurbsCurve,
+    left: &NurbsCurve,
+    top: &NurbsCurve,
+    right: &NurbsCurve,
+    num_u: usize,
+    num_v: usize,
+) -> Vec<f64> {
+    let w00 = bottom.weights[0];
+    let w10 = bottom.weights[num_u - 1];
+    let w01 = left.weights[num_v - 1];
+    let w11 = top.weights[num_u - 1];
+    let mut weights = vec![w00; num_u * num_v];
+    for i in 0..num_u {
+        let u = i as f64 / (num_u - 1) as f64;
+        for j in 0..num_v {
+            let v = j as f64 / (num_v - 1) as f64;
+            let c_u = lerp_scalar(bottom.weights[i], top.weights[i], v);
+            let c_v = lerp_scalar(left.weights[j], right.weights[j], u);
+            let bilinear = bilinear_scalar(w00, w10, w01, w11, u, v);
+            weights[index(i, j, num_v)] = (c_u + c_v - bilinear).max(f64::EPSILON);
+        }
+    }
+    weights
 }
 
 fn apply_derivative_rows(
@@ -408,6 +435,16 @@ fn bilinear_point(p00: Point3, p10: Point3, p01: Point3, p11: Point3, u: f64, v:
     let a = blend_point(p00, p10, u);
     let b = blend_point(p01, p11, u);
     blend_point(a, b, v)
+}
+
+fn bilinear_scalar(w00: f64, w10: f64, w01: f64, w11: f64, u: f64, v: f64) -> f64 {
+    let a = lerp_scalar(w00, w10, u);
+    let b = lerp_scalar(w01, w11, u);
+    lerp_scalar(a, b, v)
+}
+
+fn lerp_scalar(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
 }
 
 fn add_vec(a: Point3, b: Point3) -> Point3 {

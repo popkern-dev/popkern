@@ -1,7 +1,7 @@
 use super::boundary::{ExactBoundaryCurveBudget, PreparedExactBoundaryCurve};
 use super::ribbon::{
-    ExactBoundaryRibbonBudget, ExactBoundaryRibbonDeclineReason, SupportRibbonSampleRequest,
-    compute_support_ribbon_sample, prepare_exact_boundary_ribbons,
+    ExactBoundaryRibbonBudget, SupportRibbonSampleRequest, compute_support_ribbon_sample,
+    prepare_exact_boundary_ribbons,
 };
 use super::sector::{ExactBoundaryOuterSide, extract_exact_boundary_cap_sectors};
 use super::support::ExactBoundarySupportSurfaceFamily;
@@ -55,7 +55,7 @@ fn plane_support_ribbons_use_support_pcurves_and_are_tangent() {
 }
 
 #[test]
-fn missing_support_pcurve_declines_with_stable_diagnostic() {
+fn missing_support_pcurve_uses_projected_candidate_when_valid() {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let plan = trihedral_plan(&brep, &edges);
     let sectors =
@@ -70,22 +70,20 @@ fn missing_support_pcurve_declines_with_stable_diagnostic() {
     )
     .unwrap();
 
-    let diagnostic = prepare_exact_boundary_ribbons(
+    let ribbons = prepare_exact_boundary_ribbons(
         &brep,
         &sectors,
         &boundaries,
         ExactBoundaryRibbonBudget::default(),
     )
-    .expect_err("missing support pcurve must decline");
+    .expect("missing support pcurve should be repaired by validated projection");
 
-    assert_eq!(
-        diagnostic.reason,
-        ExactBoundaryRibbonDeclineReason::SupportPcurveMissing
-    );
-    assert_eq!(
-        diagnostic.code,
-        "exact_boundary_cap.ribbon.support_pcurve_missing"
-    );
+    let ribbon = ribbons
+        .ribbons
+        .iter()
+        .find(|ribbon| ribbon.support_half_edge == missing)
+        .expect("projected ribbon should preserve support half-edge ownership");
+    assert!(ribbon.max_support_residual <= 1.0e-6);
 }
 
 #[test]

@@ -12,6 +12,7 @@ use super::sector::ExactBoundaryOuterSide;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 
 const DEFAULT_MAX_RESIDUAL: f64 = 1.0e-6;
+const CAP_PCURVE_SAMPLES: usize = 9;
 
 /// Local tolerances for pcurve readiness checks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -234,7 +235,8 @@ fn prepare_side_pair(
         ExactBoundaryOuterSide::FilletEnd => &sector.fillet_boundary.curve,
         ExactBoundaryOuterSide::FaceEdge => &sector.face_boundary.curve,
     };
-    let cap_pcurve = cap_pcurve_for_side(side);
+    let cap_pcurve = projected_cap_pcurve(boundary, &surface.surface)
+        .unwrap_or_else(|| cap_pcurve_for_side(side));
     let support_pcurve = support_pcurve_from_ribbon(ribbon);
     let residuals = pcurve_residuals(boundary, &surface.surface, &cap_pcurve, ribbon);
     if residuals.cap > budget.max_cap_residual {
@@ -323,12 +325,42 @@ fn cap_pcurve_for_side(side: ExactBoundaryOuterSide) -> Pcurve {
     }
 }
 
+fn projected_cap_pcurve(boundary: &impl CurveEval, surface: &impl SurfaceEval) -> Option<Pcurve> {
+    let mut uv_points = Vec::with_capacity(CAP_PCURVE_SAMPLES);
+    let mut parameters = Vec::with_capacity(CAP_PCURVE_SAMPLES);
+    for index in 0..CAP_PCURVE_SAMPLES {
+        let parameter = index as f64 / (CAP_PCURVE_SAMPLES - 1) as f64;
+        let point = boundary.point_at(parameter);
+        let (u, v) = surface.closest_point(&point)?;
+        uv_points.push(Point3::new(u, v, 0.0));
+        parameters.push(parameter);
+    }
+    let degree = 3.min(uv_points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &parameters, degree)
+        .ok()
+        .map(Pcurve::from_nurbs)
+}
+
 fn support_pcurve_from_ribbon(ribbon: &PreparedExactBoundaryRibbon) -> Pcurve {
-    let control_points = ribbon
+    let mut control_points = ribbon
         .samples
         .iter()
         .map(|sample| Point3::new(sample.support_uv.0, sample.support_uv.1, 0.0))
         .collect::<Vec<_>>();
+    if !ribbon.support_half_edge_curve_forward {
+        control_points.reverse();
+    }
+    let parameters = ribbon
+        .samples
+        .iter()
+        .map(|sample| sample.parameter)
+        .collect::<Vec<_>>();
+    let degree = 3.min(control_points.len().saturating_sub(1));
+    if let Ok(curve) =
+        popkern_core::geometry::fitting::interpolate_curve(&control_points, &parameters, degree)
+    {
+        return Pcurve::from_nurbs(curve);
+    }
     Pcurve::from_nurbs(NurbsCurve {
         degree: 1,
         knots: clamped_linear_knots(control_points.len()),

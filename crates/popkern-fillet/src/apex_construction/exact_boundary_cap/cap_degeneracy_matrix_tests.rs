@@ -69,7 +69,7 @@ fn candidate_degeneracy_matrix_produces_structured_reports() {
 }
 
 #[test]
-fn candidate_decline_matrix_restores_topology_and_reports_blockers() {
+fn candidate_pcurve_adversaries_are_repaired_and_committed() {
     for adversary in [
         CandidateAdversary::MissingSupportPcurve,
         CandidateAdversary::StaleSupportPcurve,
@@ -80,7 +80,6 @@ fn candidate_decline_matrix_restores_topology_and_reports_blockers() {
         let exact_sectors =
             extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap();
         let support_half_edge = exact_sectors[0].support_half_edges[0];
-        let before_counts = topology_counts(&brep);
         match adversary {
             CandidateAdversary::MissingSupportPcurve => {
                 brep.half_edges[support_half_edge].pcurve = None;
@@ -92,31 +91,22 @@ fn candidate_decline_matrix_restores_topology_and_reports_blockers() {
         }
 
         let result = run_exact_boundary_cap_candidate(&mut brep, cap_face, &plan, &sectors)
-            .expect("pcurve adversary should return a structured declined result");
+            .expect("pcurve adversary should return a structured result");
 
-        assert_eq!(result.status, ExactBoundaryCapCandidateStatus::Declined);
-        assert_eq!(topology_counts(&brep), before_counts);
+        assert_eq!(result.status, ExactBoundaryCapCandidateStatus::Accepted);
         assert_eq!(
             result.report.provenance.transaction_status,
-            ExactBoundaryReportTransactionStatus::RolledBack
+            ExactBoundaryReportTransactionStatus::Committed
         );
-        assert!(result.report.provenance.topology_rollback_performed);
-        assert!(result.committed_faces.is_empty());
-        assert_eq!(result.report.committed_faces.len(), 0);
+        assert!(!result.report.provenance.topology_rollback_performed);
+        assert_eq!(result.committed_faces.len(), 3);
+        assert_eq!(result.report.committed_faces.len(), 3);
         assert_eq!(
             result.report.candidate_status,
-            ExactBoundaryCandidateOutcome::Declined
+            ExactBoundaryCandidateOutcome::Accepted
         );
-        assert!(result.performance.deterministic_skip_code.is_some());
-        assert_eq!(result.report.continuity.achieved, None);
-        assert!(
-            result
-                .report
-                .diagnostics
-                .iter()
-                .any(|diagnostic| diagnostic.code.contains("support_pcurve")),
-            "{adversary:?} should preserve the structured pcurve blocker"
-        );
+        assert!(result.performance.deterministic_skip_code.is_none());
+        assert!(result.report.diagnostics.is_empty(), "{adversary:?}");
         assert!(
             result
                 .report

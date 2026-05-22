@@ -36,7 +36,10 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::reflection_line::blend_reflection_line_kink_max;
 use popkern_fillet::zebra::blend_zebra_kink_max;
-use popkern_fillet::{CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    CornerMethod, ExactBoundaryCandidateOutcome, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
+};
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -80,7 +83,7 @@ fn cube_corner_uniform() -> (BRep, popkern_core::topology::FaceHandle) {
     (r.brep, corner_face)
 }
 
-fn cube_corner_mixed_gregory() -> (BRep, popkern_core::topology::FaceHandle) {
+fn cube_corner_mixed_native_cap() -> (BRep, popkern_core::topology::FaceHandle) {
     let cube = BRep::unit_cube(tol()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident: Vec<_> = cube
@@ -102,14 +105,21 @@ fn cube_corner_mixed_gregory() -> (BRep, popkern_core::topology::FaceHandle) {
         ..FilletOptions::default()
     };
     let r = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
-    // Pick any of the 3 Gregory sub-patch faces (they all share
-    // the same spoke topology).
     let corner_face = r
-        .corner_patches
+        .repair_report
+        .apex_routes
         .iter()
-        .find(|p| p.vertex == vertex && p.method == CornerMethod::Gregory)
-        .expect("mixed-radii Gregory corner must emit a sub-patch")
-        .face;
+        .find(|route| {
+            route.exact_boundary_report.candidate_status == ExactBoundaryCandidateOutcome::Accepted
+        })
+        .and_then(|route| route.exact_boundary_report.committed_faces.first().copied())
+        .or_else(|| {
+            r.corner_patches
+                .iter()
+                .find(|p| p.vertex == vertex && p.method == CornerMethod::Gregory)
+                .map(|p| p.face)
+        })
+        .expect("mixed-radii corner must emit an exact-boundary or Gregory native cap face");
     (r.brep, corner_face)
 }
 
@@ -216,9 +226,10 @@ fn reflection_and_zebra_within_bounds_cross_fixture() {
     let (brep, corner_face) = cube_corner_uniform();
     assert_within_bounds("cube corner uniform", &brep, corner_face);
 
-    // Fixture 3: mixed-radius cube corner (Gregory).
-    let (brep, corner_face) = cube_corner_mixed_gregory();
-    assert_within_bounds("cube corner mixed Gregory", &brep, corner_face);
+    // Fixture 3: mixed-radius cube corner (exact-boundary route, or Gregory
+    // when exact-boundary declines on older construction paths).
+    let (brep, corner_face) = cube_corner_mixed_native_cap();
+    assert_within_bounds("cube corner mixed native cap", &brep, corner_face);
 
     // Fixture 4: pyramid apex (N=4 Gregory).
     if let Some((brep, corner_face)) = pyramid_apex_gregory() {

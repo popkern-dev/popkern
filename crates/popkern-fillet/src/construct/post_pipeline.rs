@@ -306,6 +306,10 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
     }
+
+    // Restore semantic curve storage after late repair passes that may fit
+    // straight trim spans through a NURBS path.
+    result.normalize_semantic_line_edge_curves(tolerance.linear().max(1.0e-8));
 }
 
 fn support_seam_relocation_enabled() -> bool {

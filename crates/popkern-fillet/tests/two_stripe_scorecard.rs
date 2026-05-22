@@ -11,7 +11,10 @@ use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
+    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+};
 
 enum Variant {
     Deg5,
@@ -20,7 +23,7 @@ enum Variant {
     TwoStripe,
 }
 
-fn fillet_mixed_corner(variant: Variant) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+fn fillet_mixed_corner(variant: Variant) -> BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -52,9 +55,37 @@ fn fillet_mixed_corner(variant: Variant) -> (BRep, Vec<popkern_core::topology::F
         use_two_stripe_gregory: tsp,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
-    (result.brep, faces)
+    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap()
+}
+
+fn corner_patch_faces(result: &BlendResult) -> Vec<popkern_core::topology::FaceHandle> {
+    result.corner_patches.iter().map(|p| p.face).collect()
+}
+
+fn assert_exact_boundary_route(result: &BlendResult, variant: &str) {
+    result
+        .brep
+        .validate()
+        .unwrap_or_else(|_| panic!("{variant} exact-boundary route must yield a valid BRep"));
+    let route = result
+        .repair_report
+        .apex_routes
+        .first()
+        .unwrap_or_else(|| panic!("{variant} should report an apex route"));
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Accepted,
+        "{variant} should report accepted exact-boundary construction"
+    );
+    assert_eq!(
+        route.exact_boundary_report.provenance.transaction_status,
+        ExactBoundaryReportTransactionStatus::Committed,
+        "{variant} exact-boundary transaction should commit"
+    );
+    assert!(
+        !route.exact_boundary_report.committed_faces.is_empty(),
+        "{variant} should report exact-boundary committed cap faces"
+    );
 }
 
 fn patch_of(brep: &BRep, face: popkern_core::topology::FaceHandle) -> Option<GregoryPatch> {
@@ -123,26 +154,30 @@ fn summarize(label: &str, samples: &[Sample]) -> (f64, f64, f64) {
 
 #[test]
 fn two_stripe_scorecard_four_rung() {
-    let (brep_d, faces_d) = fillet_mixed_corner(Variant::Deg5);
-    let (brep_q, faces_q) = fillet_mixed_corner(Variant::BiquinticFull);
-    let (brep_s, faces_s) = fillet_mixed_corner(Variant::Biseptic);
-    let (brep_t, faces_t) = fillet_mixed_corner(Variant::TwoStripe);
+    let result_d = fillet_mixed_corner(Variant::Deg5);
+    let result_q = fillet_mixed_corner(Variant::BiquinticFull);
+    let result_s = fillet_mixed_corner(Variant::Biseptic);
+    let result_t = fillet_mixed_corner(Variant::TwoStripe);
+    let faces_d = corner_patch_faces(&result_d);
+    let faces_q = corner_patch_faces(&result_q);
+    let faces_s = corner_patch_faces(&result_s);
+    let faces_t = corner_patch_faces(&result_t);
 
     let patches_d: Vec<_> = faces_d
         .iter()
-        .filter_map(|&f| patch_of(&brep_d, f))
+        .filter_map(|&f| patch_of(&result_d.brep, f))
         .collect();
     let patches_q: Vec<_> = faces_q
         .iter()
-        .filter_map(|&f| patch_of(&brep_q, f))
+        .filter_map(|&f| patch_of(&result_q.brep, f))
         .collect();
     let patches_s: Vec<_> = faces_s
         .iter()
-        .filter_map(|&f| patch_of(&brep_s, f))
+        .filter_map(|&f| patch_of(&result_s.brep, f))
         .collect();
     let patches_t: Vec<_> = faces_t
         .iter()
-        .filter_map(|&f| patch_of(&brep_t, f))
+        .filter_map(|&f| patch_of(&result_t.brep, f))
         .collect();
 
     if patches_d.len() != 3 || patches_q.len() != 3 || patches_s.len() != 3 || patches_t.len() != 3
@@ -158,25 +193,10 @@ fn two_stripe_scorecard_four_rung() {
             patches_s.len(),
             patches_t.len(),
         );
-        assert!(
-            !faces_d.is_empty()
-                && !faces_q.is_empty()
-                && !faces_s.is_empty()
-                && !faces_t.is_empty(),
-            "logical macro-cap route must still report corner patch faces"
-        );
-        brep_d
-            .validate()
-            .expect("deg5 logical macro-cap route must yield a valid BRep");
-        brep_q
-            .validate()
-            .expect("biquintic logical macro-cap route must yield a valid BRep");
-        brep_s
-            .validate()
-            .expect("biseptic logical macro-cap route must yield a valid BRep");
-        brep_t
-            .validate()
-            .expect("two-stripe logical macro-cap route must yield a valid BRep");
+        assert_exact_boundary_route(&result_d, "deg5");
+        assert_exact_boundary_route(&result_q, "biquintic");
+        assert_exact_boundary_route(&result_s, "biseptic");
+        assert_exact_boundary_route(&result_t, "two-stripe");
         return;
     }
 

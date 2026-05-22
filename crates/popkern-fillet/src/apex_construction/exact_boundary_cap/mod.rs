@@ -8,6 +8,7 @@ pub(crate) mod facts;
 pub(crate) mod pcurves;
 pub(crate) mod performance;
 pub(crate) mod ribbon;
+pub(crate) mod ribbon_projection;
 pub(crate) mod sector;
 pub(crate) mod solve;
 pub(crate) mod support;

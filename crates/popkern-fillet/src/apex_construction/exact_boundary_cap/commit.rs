@@ -271,6 +271,7 @@ fn commit_validated_inputs(
                 ExactBoundaryOuterSide::FilletEnd => 0,
                 ExactBoundaryOuterSide::FaceEdge => 1,
             };
+            normalize_semantic_line_edge_curve(brep, pair.edge);
             brep.half_edges[sector.cap_half_edges[side_index]].pcurve =
                 Some(pair.cap_pcurve.clone());
             brep.half_edges[sector.support_half_edges[side_index]].pcurve =
@@ -281,6 +282,22 @@ fn commit_validated_inputs(
         committed_sector_count: sectors.len(),
         committed_pcurve_pair_count: pcurves.pairs.len(),
     })
+}
+
+fn normalize_semantic_line_edge_curve(brep: &mut BRep, edge: popkern_core::topology::EdgeHandle) {
+    let Some(curve) = brep
+        .edges
+        .get_mut(edge)
+        .and_then(|edge| edge.curve.as_mut())
+    else {
+        return;
+    };
+    if let Some(line) = curve
+        .geometry
+        .canonical_line_in_range((curve.t_start, curve.t_end), 1.0e-8)
+    {
+        curve.geometry = line;
+    }
 }
 
 fn solved_surface<'a>(

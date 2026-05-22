@@ -236,6 +236,7 @@ fn ribbon(
         support_face,
         support_family: ExactBoundarySupportSurfaceFamily::Plane,
         support_parameter_reversed: false,
+        support_half_edge_curve_forward: true,
         max_support_residual: 0.0,
         samples: (0..4)
             .map(|i| {

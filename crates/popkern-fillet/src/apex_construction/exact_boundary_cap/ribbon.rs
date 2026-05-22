@@ -2,11 +2,16 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::boundary::{PreparedExactBoundaryCurve, PreparedExactBoundaryCurves};
+pub(super) use super::ribbon_projection::compute_support_ribbon_sample;
+use super::ribbon_projection::{
+    choose_support_pcurve_orientation, local_sector_width, projected_support_pcurve, sample_count,
+    sample_parameters,
+};
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::support::{ExactBoundarySupportSurfaceFamily, support_surface_family};
 
@@ -68,6 +73,8 @@ pub(crate) struct PreparedExactBoundaryRibbon {
     pub support_family: ExactBoundarySupportSurfaceFamily,
     /// True when support pcurve orientation is opposite the prepared cap curve.
     pub support_parameter_reversed: bool,
+    /// True when support half-edge orientation matches the edge curve parameter direction.
+    pub support_half_edge_curve_forward: bool,
     /// Worst sampled 3-D residual between exact edge curve and pcurve image.
     pub max_support_residual: f64,
     /// Sampled derivative data along the seam.
@@ -210,6 +217,7 @@ struct RibbonContext<'a> {
     edge: EdgeHandle,
     support_half_edge: HalfEdgeHandle,
     support_face: FaceHandle,
+    support_half_edge_curve_forward: bool,
 }
 
 /// Prepare support derivative ribbons from exact boundaries and support pcurves.
@@ -228,6 +236,11 @@ pub(crate) fn prepare_exact_boundary_ribbons(
                 edge: seam.edge,
                 support_half_edge: seam.support_half_edge,
                 support_face: seam.support_face,
+                support_half_edge_curve_forward: support_half_edge_curve_forward(
+                    brep,
+                    seam.support_half_edge,
+                )
+                .unwrap_or(true),
             };
             let boundary =
                 boundary_for(boundaries, sector.sector_index, seam.side).ok_or_else(|| {
@@ -255,14 +268,7 @@ pub(crate) fn prepare_exact_boundary_ribbons(
             let pcurve = brep
                 .half_edges
                 .get(seam.support_half_edge)
-                .and_then(|half_edge| half_edge.pcurve.as_ref())
-                .ok_or_else(|| {
-                    ExactBoundaryRibbonDiagnostic::new(
-                        ExactBoundaryRibbonDeclineReason::SupportPcurveMissing,
-                        &context,
-                        None,
-                    )
-                })?;
+                .and_then(|half_edge| half_edge.pcurve.as_ref());
 
             ribbons.push(prepare_ribbon_for_seam(
                 &context,
@@ -282,7 +288,7 @@ fn prepare_ribbon_for_seam(
     boundary: &PreparedExactBoundaryCurve,
     other_boundary: &PreparedExactBoundaryCurve,
     surface: &SurfaceGeometry,
-    pcurve: &Pcurve,
+    pcurve: Option<&Pcurve>,
     budget: ExactBoundaryRibbonBudget,
 ) -> Result<PreparedExactBoundaryRibbon, ExactBoundaryRibbonDiagnostic> {
     let support_family = support_surface_family(surface);
@@ -296,14 +302,55 @@ fn prepare_ribbon_for_seam(
             None,
         ));
     }
-    let orientation = choose_support_pcurve_orientation(boundary, surface, pcurve, budget);
-    if orientation.max_residual > budget.max_support_residual {
-        return Err(ExactBoundaryRibbonDiagnostic::new(
-            ExactBoundaryRibbonDeclineReason::SupportPcurveStale,
-            context,
-            Some(orientation.max_residual),
-        ));
-    }
+    let projected_pcurve;
+    let (pcurve, orientation) = match pcurve {
+        Some(existing) => {
+            let orientation =
+                choose_support_pcurve_orientation(boundary, surface, existing, budget);
+            if orientation.max_residual <= budget.max_support_residual {
+                (existing, orientation)
+            } else {
+                projected_pcurve =
+                    projected_support_pcurve(boundary, surface, budget).ok_or_else(|| {
+                        ExactBoundaryRibbonDiagnostic::new(
+                            ExactBoundaryRibbonDeclineReason::SupportPcurveStale,
+                            context,
+                            Some(orientation.max_residual),
+                        )
+                    })?;
+                let projected_orientation =
+                    choose_support_pcurve_orientation(boundary, surface, &projected_pcurve, budget);
+                if projected_orientation.max_residual > budget.max_support_residual {
+                    return Err(ExactBoundaryRibbonDiagnostic::new(
+                        ExactBoundaryRibbonDeclineReason::SupportPcurveStale,
+                        context,
+                        Some(projected_orientation.max_residual),
+                    ));
+                }
+                (&projected_pcurve, projected_orientation)
+            }
+        }
+        None => {
+            projected_pcurve =
+                projected_support_pcurve(boundary, surface, budget).ok_or_else(|| {
+                    ExactBoundaryRibbonDiagnostic::new(
+                        ExactBoundaryRibbonDeclineReason::SupportPcurveMissing,
+                        context,
+                        None,
+                    )
+                })?;
+            let projected_orientation =
+                choose_support_pcurve_orientation(boundary, surface, &projected_pcurve, budget);
+            if projected_orientation.max_residual > budget.max_support_residual {
+                return Err(ExactBoundaryRibbonDiagnostic::new(
+                    ExactBoundaryRibbonDeclineReason::SupportPcurveStale,
+                    context,
+                    Some(projected_orientation.max_residual),
+                ));
+            }
+            (&projected_pcurve, projected_orientation)
+        }
+    };
 
     let scale = local_sector_width(boundary, other_boundary).min(budget.max_derivative_scale);
     let mut samples = Vec::with_capacity(sample_count(budget));
@@ -332,110 +379,19 @@ fn prepare_ribbon_for_seam(
         support_face: context.support_face,
         support_family,
         support_parameter_reversed: orientation.reversed,
+        support_half_edge_curve_forward: context.support_half_edge_curve_forward,
         max_support_residual: orientation.max_residual,
         samples,
     })
 }
 
-struct SupportPcurveOrientation {
-    reversed: bool,
-    max_residual: f64,
-}
-
-fn choose_support_pcurve_orientation(
-    boundary: &PreparedExactBoundaryCurve,
-    surface: &SurfaceGeometry,
-    pcurve: &Pcurve,
-    budget: ExactBoundaryRibbonBudget,
-) -> SupportPcurveOrientation {
-    let forward = max_support_residual(boundary, surface, pcurve, false, budget);
-    let reversed = max_support_residual(boundary, surface, pcurve, true, budget);
-    if reversed <= forward {
-        SupportPcurveOrientation {
-            reversed: true,
-            max_residual: reversed,
-        }
-    } else {
-        SupportPcurveOrientation {
-            reversed: false,
-            max_residual: forward,
-        }
-    }
-}
-
-fn max_support_residual(
-    boundary: &PreparedExactBoundaryCurve,
-    surface: &SurfaceGeometry,
-    pcurve: &Pcurve,
-    reversed: bool,
-    budget: ExactBoundaryRibbonBudget,
-) -> f64 {
-    sample_parameters(budget)
-        .map(|parameter| {
-            let boundary_point = boundary.curve.point_at(parameter);
-            let uv = pcurve.point_at(support_pcurve_parameter(pcurve, parameter, reversed));
-            let support_point = surface.point_at(uv.x, uv.y);
-            boundary_point.distance_to(&support_point)
-        })
-        .fold(0.0, f64::max)
-}
-
-pub(super) fn compute_support_ribbon_sample(
-    request: SupportRibbonSampleRequest<'_>,
-) -> Result<ExactBoundaryRibbonSample, ExactBoundaryRibbonDeclineReason> {
-    let SupportRibbonSampleRequest {
-        boundary,
-        other_boundary,
-        surface,
-        pcurve,
-        parameter,
-        pcurve_reversed,
-        derivative_scale,
-        budget,
-    } = request;
-    let pcurve_parameter = support_pcurve_parameter(pcurve, parameter, pcurve_reversed);
-    let uv = pcurve.point_at(pcurve_parameter);
-    let support_point = surface.point_at(uv.x, uv.y);
-    let boundary_point = boundary.curve.point_at(parameter);
-    let normal = surface.normal_at(uv.x, uv.y);
-    let Some(support_normal) = normal.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
-    };
-    if normal.length() < budget.min_normal_length {
-        return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
-    }
-
-    let tangent = boundary.curve.derivative_at(parameter, 1);
-    let tangent_in_plane = tangent - support_normal * tangent.dot(&support_normal);
-    if tangent_in_plane.length() < budget.min_tangent_length {
-        return Err(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
-    }
-    let Some(boundary_tangent) = tangent_in_plane.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
-    };
-
-    let cross = support_normal.cross(&boundary_tangent);
-    if cross.length() < budget.min_cross_length {
-        return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
-    }
-    let Some(mut cross_unit) = cross.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
-    };
-    let inward = other_boundary.curve.point_at(0.5) - boundary_point;
-    if cross_unit.dot(&inward) < 0.0 {
-        cross_unit = cross_unit * -1.0;
-    }
-    let cross_derivative = cross_unit * derivative_scale;
-
-    Ok(ExactBoundaryRibbonSample {
-        parameter,
-        support_uv: (uv.x, uv.y),
-        boundary_point,
-        support_point,
-        boundary_tangent,
-        support_normal,
-        cross_derivative,
-    })
+fn support_half_edge_curve_forward(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<bool> {
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let curve = brep.edges.get(half_edge_data.edge)?.curve.as_ref()?;
+    let origin = brep.vertices.get(half_edge_data.origin)?.position;
+    let start = curve.geometry.point_at(curve.t_start);
+    let end = curve.geometry.point_at(curve.t_end);
+    Some(origin.distance_to(&start) <= origin.distance_to(&end))
 }
 
 fn boundary_for(
@@ -465,30 +421,4 @@ fn support_surface(brep: &BRep, face: FaceHandle) -> Option<&SurfaceGeometry> {
         .get(face)
         .and_then(|face_data| face_data.surface.as_ref())
         .map(|surface| &surface.geometry)
-}
-
-fn support_pcurve_parameter(pcurve: &Pcurve, parameter: f64, reversed: bool) -> f64 {
-    let mapped = if reversed { 1.0 - parameter } else { parameter };
-    pcurve.t_start + (pcurve.t_end - pcurve.t_start) * mapped
-}
-
-fn local_sector_width(
-    boundary: &PreparedExactBoundaryCurve,
-    other_boundary: &PreparedExactBoundaryCurve,
-) -> f64 {
-    boundary
-        .curve
-        .point_at(0.5)
-        .distance_to(&other_boundary.curve.point_at(0.5))
-}
-
-fn sample_count(budget: ExactBoundaryRibbonBudget) -> usize {
-    budget.sample_count.max(2)
-}
-
-fn sample_parameters(
-    budget: ExactBoundaryRibbonBudget,
-) -> impl Clone + ExactSizeIterator<Item = f64> {
-    let count = sample_count(budget);
-    (0..count).map(move |index| index as f64 / (count - 1) as f64)
 }

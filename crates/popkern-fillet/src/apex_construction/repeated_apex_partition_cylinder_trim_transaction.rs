@@ -124,6 +124,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
         )?;
         cap_boundary_plan.validate_rewrite_postconditions(brep, face_edges, &topology_plans)?;
+        cap_boundary_plan.refresh_reauthored_fillet_end_curves(brep, &topology_plans)?;
         cap_boundary_plan.validate_adjacent_loop_rewrite_readiness()?;
         let mut boundary_outcome = cap_boundary_plan.boundary_outcome(&topology_plans);
         if require_v_free_repeated_apex {

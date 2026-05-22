@@ -308,6 +308,12 @@ impl RepeatedApexPartitionPlan {
         }
         if execution_options.adopt_cylinder_fillet_end_endpoints {
             adopt_fillet_end_endpoints_into_target_cylinders(brep, &fillet_end_ownership)?;
+            refresh_fillet_end_curves_after_endpoint_adoption(
+                brep,
+                plan,
+                &fillet_end_ownership,
+                fillet_surfaces,
+            )?;
         }
         if execution_options.require_shared_cylinder_fillet_end {
             validate_target_cylinder_loop_ownership_ready(brep, &fillet_end_ownership)?;

@@ -57,7 +57,15 @@ fn fillet_mixed_corner(
         ..FilletOptions::default()
     };
     let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-    let corner_faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    let mut corner_faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    if corner_faces.is_empty() {
+        corner_faces = result
+            .repair_report
+            .apex_routes
+            .iter()
+            .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
+            .collect();
+    }
     (result.brep, corner_faces)
 }
 

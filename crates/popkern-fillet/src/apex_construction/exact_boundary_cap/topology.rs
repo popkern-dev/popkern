@@ -247,21 +247,97 @@ fn sector_cycle(
             None,
         )
     })?;
-    if fillet_data.next != face {
+    let face_data = brep.half_edges.get(face).ok_or_else(|| {
+        ExactBoundaryTopologyDiagnostic::new(
+            ExactBoundaryTopologyDeclineReason::OuterHalfEdgesNotConsecutive,
+            Some(sector.sector_name.clone()),
+            None,
+        )
+    })?;
+    let outer_half_edges = if fillet_data.next == face {
+        [fillet, face]
+    } else if face_data.next == fillet {
+        [face, fillet]
+    } else {
         return Err(ExactBoundaryTopologyDiagnostic::new(
             ExactBoundaryTopologyDeclineReason::OuterHalfEdgesNotConsecutive,
             Some(sector.sector_name.clone()),
             None,
         ));
+    };
+    sector_cycle_from_endpoints(brep, outer_half_edges, previous_spoke, current_spoke).ok_or_else(
+        || {
+            ExactBoundaryTopologyDiagnostic::new(
+                ExactBoundaryTopologyDeclineReason::SpokeEdgeMissing,
+                Some(sector.sector_name.clone()),
+                None,
+            )
+        },
+    )
+}
+
+fn sector_cycle_from_endpoints(
+    brep: &BRep,
+    outer_half_edges: [HalfEdgeHandle; 2],
+    previous_spoke: (HalfEdgeHandle, HalfEdgeHandle),
+    current_spoke: (HalfEdgeHandle, HalfEdgeHandle),
+) -> Option<Vec<HalfEdgeHandle>> {
+    let spokes = [
+        previous_spoke.0,
+        previous_spoke.1,
+        current_spoke.0,
+        current_spoke.1,
+    ];
+    for first_spoke in spokes {
+        for second_spoke in spokes {
+            if first_spoke == second_spoke {
+                continue;
+            }
+            let candidate = vec![
+                outer_half_edges[0],
+                outer_half_edges[1],
+                first_spoke,
+                second_spoke,
+            ];
+            if cycle_is_contiguous(brep, &candidate) {
+                return Some(candidate);
+            }
+        }
     }
-    if !brep.half_edges.contains_key(previous_spoke.1)
-        || !brep.half_edges.contains_key(current_spoke.0)
-    {
-        return Err(ExactBoundaryTopologyDiagnostic::new(
-            ExactBoundaryTopologyDeclineReason::SpokeEdgeMissing,
-            Some(sector.sector_name.clone()),
-            None,
-        ));
+    None
+}
+
+fn cycle_is_contiguous(brep: &BRep, cycle: &[HalfEdgeHandle]) -> bool {
+    !cycle.is_empty()
+        && cycle.iter().enumerate().all(|(index, half_edge)| {
+            let next = cycle[(index + 1) % cycle.len()];
+            half_edges_connect(brep, *half_edge, next)
+        })
+}
+
+fn half_edges_connect(brep: &BRep, left: HalfEdgeHandle, right: HalfEdgeHandle) -> bool {
+    let Some(left_end) = half_edge_destination_vertex(brep, left) else {
+        return false;
+    };
+    let Some(right_start) = brep.half_edges.get(right).map(|half_edge| half_edge.origin) else {
+        return false;
+    };
+    if left_end == right_start {
+        return true;
     }
-    Ok(vec![fillet, face, current_spoke.0, previous_spoke.1])
+    brep.vertices
+        .get(left_end)
+        .zip(brep.vertices.get(right_start))
+        .is_some_and(|(left_vertex, right_vertex)| {
+            left_vertex.position.distance_to(&right_vertex.position)
+                <= brep.tolerance.linear().max(1.0e-9)
+        })
+}
+
+fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
+    let data = brep.half_edges.get(half_edge)?;
+    brep.half_edges
+        .get(data.twin)
+        .map(|twin| twin.origin)
+        .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
 }

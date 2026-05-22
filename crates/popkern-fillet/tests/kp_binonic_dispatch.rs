@@ -17,12 +17,12 @@ use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
+    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+};
 
-fn corner_cube_with_flag(
-    radii: [f64; 3],
-    use_kp_binonic: bool,
-) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
+fn corner_cube_with_flag(radii: [f64; 3], use_kp_binonic: bool) -> BlendResult {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -51,9 +51,37 @@ fn corner_cube_with_flag(
         use_kp_binonic_gregory: use_kp_binonic,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
-    (result.brep, faces)
+    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap()
+}
+
+fn corner_patch_faces(result: &BlendResult) -> Vec<popkern_core::topology::FaceHandle> {
+    result.corner_patches.iter().map(|p| p.face).collect()
+}
+
+fn assert_exact_boundary_cap_route(result: &BlendResult, fixture: &str) {
+    result
+        .brep
+        .validate()
+        .unwrap_or_else(|_| panic!("{fixture} exact-boundary route must yield a valid BRep"));
+    let route = result
+        .repair_report
+        .apex_routes
+        .first()
+        .unwrap_or_else(|| panic!("{fixture} should report an apex route"));
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Accepted,
+        "{fixture} should report accepted exact-boundary construction"
+    );
+    assert_eq!(
+        route.exact_boundary_report.provenance.transaction_status,
+        ExactBoundaryReportTransactionStatus::Committed,
+        "{fixture} exact-boundary transaction should commit"
+    );
+    assert!(
+        !route.exact_boundary_report.committed_faces.is_empty(),
+        "{fixture} should report exact-boundary committed cap faces"
+    );
 }
 
 fn variants_at(brep: &BRep, faces: &[popkern_core::topology::FaceHandle]) -> Vec<String> {
@@ -82,15 +110,11 @@ fn variants_at(brep: &BRep, faces: &[popkern_core::topology::FaceHandle]) -> Vec
 
 #[test]
 fn flag_off_keeps_phase_g_two_stripe_output() {
-    let (brep, faces) = corner_cube_with_flag([0.08, 0.10, 0.12], false);
-    let variants = variants_at(&brep, &faces);
+    let result = corner_cube_with_flag([0.08, 0.10, 0.12], false);
+    let faces = corner_patch_faces(&result);
+    let variants = variants_at(&result.brep, &faces);
     if variants.is_empty() {
-        assert!(
-            !faces.is_empty(),
-            "logical macro-cap route must still report corner patch faces"
-        );
-        brep.validate()
-            .expect("flag-off logical macro-cap route must yield a valid BRep");
+        assert_exact_boundary_cap_route(&result, "cube_mixed flag-off");
         return;
     }
     assert_eq!(variants.len(), 3, "expected 3 sub-patches");
@@ -108,15 +132,11 @@ fn flag_off_keeps_phase_g_two_stripe_output() {
 
 #[test]
 fn flag_on_produces_binonic_or_falls_back_cleanly() {
-    let (brep, faces) = corner_cube_with_flag([0.08, 0.10, 0.12], true);
-    let variants = variants_at(&brep, &faces);
+    let result = corner_cube_with_flag([0.08, 0.10, 0.12], true);
+    let faces = corner_patch_faces(&result);
+    let variants = variants_at(&result.brep, &faces);
     if variants.is_empty() {
-        assert!(
-            !faces.is_empty(),
-            "logical macro-cap route must still report corner patch faces"
-        );
-        brep.validate()
-            .expect("flag-on logical macro-cap route must yield a valid BRep");
+        assert_exact_boundary_cap_route(&result, "cube_mixed flag-on");
         return;
     }
     assert_eq!(variants.len(), 3, "expected 3 sub-patches");
@@ -141,15 +161,11 @@ fn flag_on_produces_binonic_or_falls_back_cleanly() {
 /// is unreachable and the flag has no coverage.
 #[test]
 fn flag_on_lands_binonic_on_at_least_one_fixture() {
-    let (brep, faces) = corner_cube_with_flag([0.02, 0.10, 0.20], true);
-    let variants = variants_at(&brep, &faces);
+    let result = corner_cube_with_flag([0.02, 0.10, 0.20], true);
+    let faces = corner_patch_faces(&result);
+    let variants = variants_at(&result.brep, &faces);
     if variants.is_empty() {
-        assert!(
-            !faces.is_empty(),
-            "logical macro-cap route must still report corner patch faces"
-        );
-        brep.validate()
-            .expect("flag-on logical macro-cap route must yield a valid BRep");
+        assert_exact_boundary_cap_route(&result, "cube_extreme flag-on");
         return;
     }
     let any_binonic = variants.iter().any(|v| v == "binonic");

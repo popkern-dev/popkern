@@ -45,7 +45,7 @@ mod helpers;
 use direct_apex_validate_helpers::{
     EnvGuard, assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
     assert_native_gregory_cube_case, breakdown, build_under_direct_apex,
-    count_direct_apex_fallbacks, direct_apex_fallback_reasons,
+    count_direct_apex_fallbacks, direct_apex_fallback_reasons, native_cap_faces,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
@@ -199,11 +199,7 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
     ];
     for case in cases {
         let result = build_under_direct_apex(case.is_pyramid, case.radii);
-        let cap_faces = result
-            .corner_patches
-            .iter()
-            .map(|p| p.face)
-            .collect::<Vec<_>>();
+        let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
         let m = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
         eprintln!(
             "[direct-apex validation cap_outer] {}: g0={:.3e} g1={:.3e} edges={}",
@@ -317,11 +313,7 @@ fn direct_apex_native_pyramid4_uniform_no_fallback() {
         "native pyramid4_uniform open-loop/shell-gap errors: {errors:#?}"
     );
 
-    let cap_faces = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<Vec<_>>();
+    let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
         "[direct-apex validation cap_outer] pyramid4_uniform: g0={:.3e} g1={:.3e} edges={}",

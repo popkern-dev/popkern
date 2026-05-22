@@ -54,7 +54,15 @@ fn fillet_mixed_corner(variant: Variant) -> (BRep, Vec<popkern_core::topology::F
         ..FilletOptions::default()
     };
     let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    let mut faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    if faces.is_empty() {
+        faces = result
+            .repair_report
+            .apex_routes
+            .iter()
+            .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
+            .collect();
+    }
     (result.brep, faces)
 }
 

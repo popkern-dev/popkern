@@ -11,7 +11,7 @@ use popkern_core::topology::{
     repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
-    ApexConstructionDiagnostic, BlendResult, CornerMethod, CornerPatchInfo, FilletOptions,
+    ApexConstructionDiagnostic, BlendResult, ExactBoundaryCandidateOutcome, FilletOptions,
     FilletRadius, FilletSpec, fillet_edges,
 };
 use popkern_io::{
@@ -54,28 +54,29 @@ struct CornerPatchFaceSamples {
     samples: Vec<(Point3, f64, f64)>,
 }
 
-fn sample_gregory_method_corner_patch_faces(
+fn sample_native_cap_faces(result: &BlendResult) -> Vec<CornerPatchFaceSamples> {
+    let exact_faces: Vec<_> = result
+        .repair_report
+        .apex_routes
+        .iter()
+        .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
+        .collect();
+    sample_faces_by_handle(&result.brep, &exact_faces)
+}
+
+fn sample_faces_by_handle(
     brep: &BRep,
-    corner_patches: &[CornerPatchInfo],
+    faces: &[popkern_core::topology::FaceHandle],
 ) -> Vec<CornerPatchFaceSamples> {
-    let mut faces = Vec::new();
-    for info in corner_patches {
-        if info.method != CornerMethod::Gregory {
-            continue;
-        }
-        let Some(sof) = brep
-            .faces
-            .get(info.face)
-            .and_then(|face| face.surface.as_ref())
-        else {
+    let mut out = Vec::new();
+    for face in faces {
+        let Some(sof) = brep.faces.get(*face).and_then(|face| face.surface.as_ref()) else {
             continue;
         };
         let (SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_)) = &sof.geometry else {
             continue;
         };
         let mut samples = Vec::new();
-        // Sample on a 3×3 interior UV grid — avoid corners where
-        // ε-regularization introduces ~1e-14 noise.
         for i in 1..=3 {
             for j in 1..=3 {
                 let u = i as f64 / 4.0;
@@ -83,9 +84,9 @@ fn sample_gregory_method_corner_patch_faces(
                 samples.push((sof.geometry.point_at(u, v), u, v));
             }
         }
-        faces.push(CornerPatchFaceSamples { samples });
+        out.push(CornerPatchFaceSamples { samples });
     }
-    faces
+    out
 }
 
 /// STEP round-trip on a mixed-radius Gregory fillet. Post-round-trip
@@ -162,11 +163,10 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
     );
 }
 
-/// The Gregory-method cap faces in the original BRep are converted to
-/// STEP NURBS geometry on export. Geometric fidelity must be preserved:
-/// sample the original cap faces at interior UV points, locate the
-/// corresponding face in the re-imported BRep, and assert the position
-/// deviation is within tolerance.
+/// Native cap faces in the original BRep are exported as STEP NURBS geometry.
+/// Geometric fidelity must be preserved: sample the original cap faces at
+/// interior UV points, locate the corresponding face in the re-imported BRep,
+/// and assert the position deviation is within tolerance.
 ///
 /// Older Gregory wrappers use `to_nurbs_exact`; newer macro-cap rungs
 /// may already be NURBS before export. In both cases STEP should carry
@@ -174,12 +174,11 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
 #[test]
 fn gregory_face_geometry_survives_step_roundtrip() {
     let result = mixed_radius_gregory_cube_result();
+    let orig_gregory_faces = sample_native_cap_faces(&result);
     let brep = result.brep;
-    let orig_gregory_faces =
-        sample_gregory_method_corner_patch_faces(&brep, &result.corner_patches);
     assert!(
         !orig_gregory_faces.is_empty(),
-        "test precondition: original BRep must contain Gregory-method corner patch faces"
+        "test precondition: original BRep must contain native cap patch faces"
     );
 
     let doc = StepDocument {
@@ -282,11 +281,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
         artifact.summary.attempted_actions,
         support_report.candidates + apex_diagnostic_actions
     );
-    assert!(
-        !brep.surface_boundary_hints.is_empty() || !brep.surface_boundary_declines.is_empty(),
-        "Gregory construction must author boundary evidence or structured boundary declines"
-    );
-    assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(&brep);
+    assert_gregory_boundary_evidence_or_exact_boundary_acceptance(&blend);
     let before = analyze_brep_edge_surface_compatibility(
         brep,
         BrepEdgeSurfaceCompatibilityOptions {
@@ -340,55 +335,18 @@ fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
     );
 }
 
-fn assert_gregory_cap_cylinder_seams_have_boundary_evidence_or_decline(brep: &BRep) {
-    let mut inspected = 0usize;
-    let mut hinted = 0usize;
-    let mut declined = 0usize;
-    for (_, face) in &brep.faces {
-        let Some(sof) = face.surface.as_ref() else {
-            continue;
-        };
-        if !matches!(sof.geometry, SurfaceGeometry::Gregory(_)) {
-            continue;
-        }
-        let start = brep.loops[face.outer_loop].half_edge;
-        let mut cursor = start;
-        for _ in 0..=brep.half_edges.len() {
-            let half_edge = &brep.half_edges[cursor];
-            let twin = half_edge.twin;
-            let twin_face = brep.loops[brep.half_edges[twin].loop_].face;
-            let has_cylinder_neighbor =
-                brep.faces[twin_face]
-                    .surface
-                    .as_ref()
-                    .is_some_and(|surface| {
-                        matches!(surface.geometry, SurfaceGeometry::Cylinder { .. })
-                    });
-            if has_cylinder_neighbor {
-                inspected += 1;
-                if brep.surface_boundary_hint(cursor).is_some() {
-                    hinted += 1;
-                }
-                if brep.surface_boundary_decline(cursor).is_some() {
-                    declined += 1;
-                }
-                assert!(
-                    brep.surface_boundary_hint(cursor).is_some()
-                        || brep.surface_boundary_decline(cursor).is_some(),
-                    "Gregory cap-to-cylinder seam {cursor:?} must carry boundary evidence or a structured decline"
-                );
-            }
-            cursor = half_edge.next;
-            if cursor == start {
-                break;
-            }
-        }
-    }
-    assert!(inspected > 0, "fixture must contain cap-cylinder seams");
+fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendResult) {
+    let exact_report = &blend.repair_report.apex_routes[0].exact_boundary_report;
     assert!(
-        hinted + declined == inspected,
-        "all Gregory cap-to-cylinder seams must carry accepted hints or structured declines; got hinted={hinted} declined={declined} inspected={inspected}"
+        !exact_report.committed_faces.is_empty(),
+        "mixed-radius fixture should use accepted exact-boundary cap faces"
     );
+    assert_eq!(
+        exact_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Accepted
+    );
+    assert_eq!(exact_report.performance.pcurve_pair_count, 6);
+    assert!(exact_report.diagnostics.is_empty());
 }
 
 #[test]

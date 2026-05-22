@@ -279,12 +279,10 @@ fn full_cube_fillet_populates_corner_patches() {
     }
 }
 
-/// §5.3 Gregory G1 path: mixed-radius cube corners can't fit a
-/// single rolling-ball sphere (the three fillet strips have
-/// different minor radii), so the corner patch falls through to
-/// the §5.3 Gregory polar NURBS. `CornerMethod::Gregory` + G1.
+/// Mixed-radius cube corners can't fit a single rolling-ball sphere. The
+/// current default route accepts exact-boundary sector caps for this fixture.
 #[test]
-fn mixed_radius_cube_corner_produces_gregory_patch() {
+fn mixed_radius_cube_corner_accepts_exact_boundary_cap() {
     let cube = BRep::unit_cube(tol()).unwrap();
     // Pick a specific vertex and build a per-edge radius list
     // where the 3 incident edges get distinct radii.
@@ -306,20 +304,23 @@ fn mixed_radius_cube_corner_produces_gregory_patch() {
         })
         .collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
-    // The target vertex's corner should be Gregory (sphere won't
-    // fit with three different radii). Find it.
-    let patch = result
-        .corner_patches
+    let route = result
+        .repair_report
+        .apex_routes
         .iter()
-        .find(|p| p.vertex == vertex)
-        .expect("target vertex should have a corner patch");
+        .find(|route| {
+            route
+                .incident_edges
+                .iter()
+                .any(|edge| incident.contains(edge))
+        })
+        .expect("target vertex should have an apex route");
     assert_eq!(
-        patch.method,
-        crate::CornerMethod::Gregory,
-        "mixed-radius trihedral corner should produce Gregory, got {:?}",
-        patch.method
+        route.exact_boundary_report.candidate_status,
+        crate::ExactBoundaryCandidateOutcome::Accepted
     );
-    assert_eq!(patch.n_sides, 3);
+    assert_eq!(route.exact_boundary_sector_count, 3);
+    assert_eq!(route.exact_boundary_pcurve_pair_count, 6);
 }
 
 /// Negative control: a single-edge fillet produces no corner

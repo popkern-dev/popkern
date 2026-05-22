@@ -13,7 +13,8 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{
-    BlendResult, CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    BlendResult, CornerMethod, ExactBoundaryCandidateOutcome, FilletOptions, FilletRadius,
+    FilletSpec, fillet_edges,
 };
 
 fn fillet_mixed_corner(use_biquintic_full: bool) -> BlendResult {
@@ -60,20 +61,8 @@ fn biquintic_full_flag_routes_to_biquintic_full_variant() {
         result_full.brep.faces.len(),
         "biquintic-full opt-in must not change face count"
     );
-    assert!(
-        result_deg5
-            .corner_patches
-            .iter()
-            .any(|p| p.method == CornerMethod::Gregory && p.n_sides == 3),
-        "baseline must still report a logical trihedral Gregory corner"
-    );
-    assert!(
-        result_full
-            .corner_patches
-            .iter()
-            .any(|p| p.method == CornerMethod::Gregory && p.n_sides == 3),
-        "biquintic-full opt-in must still report a logical trihedral Gregory corner"
-    );
+    assert!(reports_logical_gregory_or_exact_boundary(&result_deg5));
+    assert!(reports_logical_gregory_or_exact_boundary(&result_full));
 
     let mut deg5_count = 0usize;
     let mut biquintic_full_count = 0usize;
@@ -110,6 +99,17 @@ fn biquintic_full_flag_routes_to_biquintic_full_variant() {
         biquintic_full_count, deg5_count,
         "flag on must replace every deg5 sub-patch with the biquintic-full variant"
     );
+}
+
+fn reports_logical_gregory_or_exact_boundary(result: &BlendResult) -> bool {
+    result
+        .corner_patches
+        .iter()
+        .any(|p| p.method == CornerMethod::Gregory && p.n_sides == 3)
+        || result.repair_report.apex_routes.iter().any(|route| {
+            route.exact_boundary_report.candidate_status == ExactBoundaryCandidateOutcome::Accepted
+                && !route.exact_boundary_report.committed_faces.is_empty()
+        })
 }
 
 /// The biquintic-full opt-in must not break the BRep's validation

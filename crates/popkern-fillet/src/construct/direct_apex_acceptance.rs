@@ -62,11 +62,7 @@ pub(super) fn native_gregory_cap_outer_g0_error(
 ) -> Option<String> {
     use popkern_core::geometry::surface::SurfaceEval;
 
-    let cap_faces = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<std::collections::BTreeSet<_>>();
+    let cap_faces = native_gregory_cap_faces(result);
     if cap_faces.is_empty() {
         return Some("no native cap patch faces reported".to_string());
     }
@@ -167,11 +163,7 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
 
-    let cap_faces = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<std::collections::BTreeSet<_>>();
+    let cap_faces = native_gregory_cap_faces(result);
     if cap_faces.is_empty() {
         return None;
     }
@@ -396,11 +388,7 @@ pub(super) fn native_gregory_has_expected_cylinder_seams(
 ) -> bool {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
-    let cap_faces = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<std::collections::BTreeSet<_>>();
+    let cap_faces = native_gregory_cap_faces(result);
     if cap_faces.is_empty() {
         return false;
     }
@@ -445,4 +433,15 @@ pub(super) fn native_gregory_has_expected_cylinder_seams(
         );
     }
     cylinder_faces.len() >= n_fillets
+}
+
+fn native_gregory_cap_faces(
+    result: &crate::apex_construction::construct::ApexBuildResult,
+) -> std::collections::BTreeSet<popkern_core::topology::FaceHandle> {
+    result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .chain(result.exact_boundary_report.committed_faces.iter().copied())
+        .collect()
 }

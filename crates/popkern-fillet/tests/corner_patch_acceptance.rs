@@ -10,8 +10,8 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::vertex_classifier::VertexBlendClassification;
 use popkern_fillet::{
-    BlendWarning, ContinuityLevel, CornerMethod, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges, preview_corner_patches,
+    BlendWarning, ContinuityLevel, CornerMethod, ExactBoundaryCandidateOutcome, FilletOptions,
+    FilletRadius, FilletSpec, fillet_edges, preview_corner_patches,
 };
 
 fn tol() -> Tolerance {
@@ -76,14 +76,22 @@ fn mixed_radius_trihedral_corner_produces_gregory() {
         .collect();
 
     let r = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None).unwrap();
-    let patch = r
-        .corner_patches
+    let route = r
+        .repair_report
+        .apex_routes
         .iter()
-        .find(|p| p.vertex == vertex)
-        .expect("target vertex should get a corner patch");
-    assert_eq!(patch.method, CornerMethod::Gregory);
-    assert_eq!(patch.n_sides, 3);
-    assert_eq!(patch.achieved_continuity, ContinuityLevel::G1);
+        .find(|route| {
+            route
+                .incident_edges
+                .iter()
+                .any(|edge| incident.contains(edge))
+        })
+        .expect("target vertex should get an apex route");
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Accepted
+    );
+    assert_eq!(route.exact_boundary_sector_count, 3);
 }
 
 /// §5.3 C5 — at G2 request every trihedral cube corner downgrades

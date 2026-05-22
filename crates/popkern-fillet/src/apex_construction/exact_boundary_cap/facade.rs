@@ -101,14 +101,37 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         sector_count: candidate_sectors.len(),
         ..Default::default()
     };
-    let boundary_curves = prepare_exact_boundary_curves(
+    let mut diagnostics = Vec::new();
+    let boundary_curves = match prepare_exact_boundary_curves(
         brep,
         &candidate_sectors,
         ExactBoundaryCurveBudget::default(),
-    )
-    .map_err(|diagnostic| diagnostic.into_build_error())?;
+    ) {
+        Ok(prepared) => prepared,
+        Err(diagnostic) => {
+            diagnostics.push(diagnostic.into_apex_diagnostic());
+            *brep = snapshot;
+            attach_shared_repair_fact_ids(brep, &mut diagnostics);
+            finalize_performance_report(&mut performance, started, &diagnostics);
+            let report = build_exact_boundary_report(
+                brep,
+                ExactBoundaryCapCandidateStatus::Declined,
+                &candidate_sectors,
+                &[],
+                &performance,
+                &diagnostics,
+            );
+            return Ok(ExactBoundaryCapCandidateResult {
+                status: ExactBoundaryCapCandidateStatus::Declined,
+                sectors: candidate_sectors,
+                committed_faces: Vec::new(),
+                performance,
+                diagnostics,
+                report,
+            });
+        }
+    };
     performance.prepared_curve_count = boundary_curves.curves.len();
-    let mut diagnostics = Vec::new();
 
     let inner_spokes = match prepare_exact_boundary_inner_spokes(
         &candidate_sectors,

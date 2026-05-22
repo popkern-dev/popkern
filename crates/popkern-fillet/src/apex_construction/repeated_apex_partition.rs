@@ -47,6 +47,10 @@ mod partition_boundary_outcome;
 mod partition_cap_boundary_cycles;
 #[path = "repeated_apex_partition_cap_boundary_rewrite.rs"]
 mod partition_cap_boundary_rewrite;
+#[path = "repeated_apex_partition_cap_boundary_rewrite_curve_refresh.rs"]
+mod partition_cap_boundary_rewrite_curve_refresh;
+#[path = "repeated_apex_partition_cap_boundary_rewrite_diagnostics.rs"]
+mod partition_cap_boundary_rewrite_diagnostics;
 #[path = "repeated_apex_partition_cylinder_anchors.rs"]
 mod partition_cylinder_anchors;
 #[path = "repeated_apex_partition_cylinder_geometry.rs"]
@@ -75,6 +79,8 @@ mod partition_generator_anchors;
 mod partition_ownership;
 #[path = "repeated_apex_partition_plan.rs"]
 mod partition_plan;
+#[path = "repeated_apex_partition_plan_curve_refresh.rs"]
+mod partition_plan_curve_refresh;
 #[path = "repeated_apex_partition_planner.rs"]
 mod partition_planner;
 #[path = "repeated_apex_partition_rebuild_diagnostics.rs"]
@@ -156,6 +162,7 @@ use partition_ownership::{
 };
 pub(super) use partition_plan::RepeatedApexPartitionExecutionOptions;
 use partition_plan::RetiredApexSpan;
+use partition_plan_curve_refresh::refresh_fillet_end_curves_after_endpoint_adoption;
 use partition_planner::try_plan_repeated_apex_partition;
 use partition_rebuild_diagnostics::{
     adjacent_face_across_half_edge, face_surface_kind, fragment_replacement_authoring_status,

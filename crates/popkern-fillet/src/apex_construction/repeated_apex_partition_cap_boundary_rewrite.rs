@@ -1,6 +1,10 @@
 #[path = "repeated_apex_partition_cap_boundary_adjacent_loop_repair.rs"]
 mod adjacent_loop_repair;
 
+use super::partition_cap_boundary_rewrite_curve_refresh::refresh_reauthored_fillet_end_curves_for_plan;
+use super::partition_cap_boundary_rewrite_diagnostics::{
+    CapBoundaryRewriteDiagnosticInput, cap_boundary_rewrite_diagnostic_label,
+};
 use super::*;
 use adjacent_loop_repair::{
     author_boundary_preserving_adjacent_loop_repair,
@@ -312,6 +316,14 @@ impl CapBoundaryRewritePlan {
         Ok(())
     }
 
+    pub(super) fn refresh_reauthored_fillet_end_curves(
+        &self,
+        brep: &mut BRep,
+        topology_plans: &[CylinderTrimRewriteTopologyPlan],
+    ) -> Result<(), ApexBuildError> {
+        refresh_reauthored_fillet_end_curves_for_plan(self.required, brep, topology_plans)
+    }
+
     fn validate_fillet_end_rewrite_postcondition(
         &self,
         brep: &BRep,
@@ -446,35 +458,20 @@ impl CapBoundaryRewritePlan {
     }
 
     pub(super) fn diagnostic_label(&self) -> String {
-        if self.required {
-            format!(
-                "reauthor the whole cap boundary on {:?}/{:?} across {} FilletEnd seam(s) and \
-                 {} FaceEdge seam(s) so every cap-side half-edge remains opposite its \
-                 support/cylinder-side twin; current_cap_cycle={:?}; \
-                 reauthored_cap_cycle={:?}; adjacent_loop_rewrites=[{}]",
-                self.cap_face,
-                self.cap_loop,
-                self.fillet_end_count,
-                self.face_edge_count,
-                self.current_cap_cycle,
-                self.reauthored_cap_cycle,
-                self.adjacent_loop_rewrites
-                    .iter()
-                    .map(AdjacentLoopRewriteRequirement::diagnostic_label)
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            )
-        } else {
-            format!(
-                "reuse current cap boundary on {:?}/{:?} with {} FilletEnd seam(s) and {} \
-                 FaceEdge seam(s); cap_cycle={:?}",
-                self.cap_face,
-                self.cap_loop,
-                self.fillet_end_count,
-                self.face_edge_count,
-                self.current_cap_cycle
-            )
-        }
+        cap_boundary_rewrite_diagnostic_label(CapBoundaryRewriteDiagnosticInput {
+            required: self.required,
+            cap_face: self.cap_face,
+            cap_loop: self.cap_loop,
+            fillet_end_count: self.fillet_end_count,
+            face_edge_count: self.face_edge_count,
+            current_cap_cycle: &self.current_cap_cycle,
+            reauthored_cap_cycle: &self.reauthored_cap_cycle,
+            adjacent_loop_rewrites: self
+                .adjacent_loop_rewrites
+                .iter()
+                .map(AdjacentLoopRewriteRequirement::diagnostic_label)
+                .collect(),
+        })
     }
 }
 

@@ -1,3 +1,4 @@
+use crate::ExactBoundaryCandidateOutcome;
 use crate::types::{BlendResult, CornerMethod, CornerPatchInfo};
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -40,6 +41,14 @@ pub(super) fn assert_logical_gregory_corner(
     context: &str,
 ) {
     let patches = gregory_corners_for_vertex(result, vertex);
+    if patches.is_empty()
+        && result.repair_report.apex_routes.iter().any(|route| {
+            route.exact_boundary_report.candidate_status == ExactBoundaryCandidateOutcome::Accepted
+                && !route.exact_boundary_report.committed_faces.is_empty()
+        })
+    {
+        return;
+    }
     assert!(
         patches.len() == 1 || patches.len() == n_sides,
         "{context}: expected either one logical Gregory corner patch or one per-sector Gregory \

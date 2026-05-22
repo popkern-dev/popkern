@@ -14,13 +14,36 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, ExactBoundaryCandidateOutcome, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
+};
 use popkern_mesh::{TessellationOptions, tessellate};
 
 struct MeshRun {
     face_count: usize,
     tri_count: usize,
     corner_patch_count: usize,
+}
+
+fn native_cap_faces(result: &BlendResult) -> Vec<popkern_core::topology::FaceHandle> {
+    let corner_faces = result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    if !corner_faces.is_empty() {
+        return corner_faces;
+    }
+    result
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| {
+            route.exact_boundary_report.candidate_status == ExactBoundaryCandidateOutcome::Accepted
+        })
+        .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
+        .collect()
 }
 
 /// Run `fillet_edges` on the mixed-radius cube corner with the
@@ -63,7 +86,7 @@ fn fillet_and_mesh(use_rational_gregory: bool) -> MeshRun {
     MeshRun {
         face_count,
         tri_count,
-        corner_patch_count: result.corner_patches.len(),
+        corner_patch_count: native_cap_faces(&result).len(),
     }
 }
 
@@ -104,7 +127,7 @@ fn r8_c8_mesh_produces_output_on_both_flag_states() {
     } else {
         assert!(
             gregory.corner_patch_count >= 1,
-            "logical macro-cap route must expose at least one corner patch"
+            "logical macro-cap route must expose at least one native cap face"
         );
         assert!(
             gregory.face_count > 0,
@@ -174,8 +197,10 @@ fn gregory_tessellation_chord_height_within_tolerance() {
             continue;
         };
         let is_gregory = matches!(sof.geometry, SurfaceGeometry::Gregory(_));
-        let is_logical_macro_cap = result.corner_patches.iter().any(|p| p.face == fm.face);
-        if !is_gregory && !is_logical_macro_cap {
+        let is_native_cap = native_cap_faces(&result)
+            .iter()
+            .any(|&face| face == fm.face);
+        if !is_gregory && !is_native_cap {
             continue;
         }
         for tri in &fm.triangles {
@@ -198,7 +223,7 @@ fn gregory_tessellation_chord_height_within_tolerance() {
     }
     assert!(
         n_gregory_tris > 0,
-        "must have at least one Gregory or logical macro-cap triangle to measure"
+        "must have at least one Gregory or exact-boundary native cap triangle to measure"
     );
     // Tolerance factor — must accommodate:
     // (a) centroid-vs-nearest-triangle-point offset (≤ √3/3 per
@@ -255,10 +280,10 @@ fn r8_c8_mesh_covers_every_gregory_subpatch() {
     let mesh = tessellate(&result.brep, &mesh_opts).unwrap();
 
     let gregory_patch_faces: std::collections::HashSet<_> =
-        result.corner_patches.iter().map(|p| p.face).collect();
+        native_cap_faces(&result).into_iter().collect();
     assert!(
         !gregory_patch_faces.is_empty(),
-        "rational-Gregory route must expose concrete sub-patches or one logical macro-cap"
+        "rational-Gregory route must expose concrete sub-patches or exact-boundary native cap faces"
     );
 
     for fm in &mesh.face_meshes {
