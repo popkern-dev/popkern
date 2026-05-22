@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use popkern_core::topology::{
     BRep, BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions, BrepExportReadiness,
-    BrepTopologyOutputPolicy, BrepTrimRepairOptions, EdgeHandle, FaceHandle, HalfEdgeHandle,
-    analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
+    BrepTopologyOutputPolicy, BrepTrimFindingKind, BrepTrimRepairOptions, EdgeHandle, FaceHandle,
+    HalfEdgeHandle, analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
 };
 use popkern_io::{
     HealingLevel, OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind,
@@ -90,6 +90,7 @@ pub struct StepRoundTripBodyReport {
     pub readiness: BrepExportReadiness,
     pub topology_blockers: usize,
     pub trim_blockers: usize,
+    pub trim_evidence: Vec<StepRoundTripTrimEvidence>,
     pub edge_curve_blockers: usize,
     pub pcurve_blockers: usize,
     pub max_pcurve_deviation: f64,
@@ -97,6 +98,14 @@ pub struct StepRoundTripBodyReport {
     pub edge_surface_blockers: usize,
     pub max_edge_surface_deviation: f64,
     pub edge_surface_evidence: Vec<StepRoundTripEdgeSurfaceEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepRoundTripTrimEvidence {
+    pub face: FaceHandle,
+    pub half_edge: HalfEdgeHandle,
+    pub kind: BrepTrimFindingKind,
+    pub deviation: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -279,6 +288,7 @@ fn step_body_report(
         readiness: quality.readiness,
         topology_blockers: quality.topology_blockers,
         trim_blockers: quality.trim_blockers,
+        trim_evidence: trim_evidence(&quality.trims),
         edge_curve_blockers: quality.edge_curve_blockers,
         pcurve_blockers: quality.pcurve_blockers,
         max_pcurve_deviation: quality.max_pcurve_deviation,
@@ -287,6 +297,23 @@ fn step_body_report(
         max_edge_surface_deviation: quality.max_edge_surface_deviation,
         edge_surface_evidence: edge_surface_evidence(body, options.quality),
     }
+}
+
+fn trim_evidence(
+    trims: &popkern_core::topology::BrepTrimDiagnosticReport,
+) -> Vec<StepRoundTripTrimEvidence> {
+    let mut evidence: Vec<_> = trims
+        .findings
+        .iter()
+        .map(|finding| StepRoundTripTrimEvidence {
+            face: finding.face,
+            half_edge: finding.half_edge,
+            kind: finding.kind,
+            deviation: finding.deviation,
+        })
+        .collect();
+    evidence.sort_by(|a, b| b.deviation.total_cmp(&a.deviation));
+    evidence
 }
 
 fn pcurve_evidence(body: &BRep, tolerance: Option<f64>) -> Vec<StepRoundTripEdgePcurveEvidence> {

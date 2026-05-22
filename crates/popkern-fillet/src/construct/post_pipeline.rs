@@ -384,6 +384,14 @@ fn repair_exact_boundary_export_blockers(
     ) {
         *result = repaired.brep;
         result.repair_line_edge_curve_endpoint_coherence(1.0e-6);
+        if let Ok(edge_curves_completed) =
+            popkern_core::topology::complete_missing_edge_curves_transactionally(
+                result,
+                exact_boundary_edge_curve_completion_options(),
+            )
+        {
+            *result = edge_curves_completed.brep;
+        }
         if let Ok(trim_repaired) =
             popkern_core::topology::reconstruct_curve_backed_trims_transactionally(
                 result,
@@ -395,6 +403,17 @@ fn repair_exact_boundary_export_blockers(
         result.fix_stale_pcurves();
         pcurve_measured_repair::refit_measured_pcurve_blockers(result, 1.0e-6);
         pcurve_measured_repair::repair_measured_plane_cylinder_pcurves(result, 1.0e-6);
+    }
+}
+
+fn exact_boundary_edge_curve_completion_options()
+-> popkern_core::topology::BrepEdgeCurveCompletionOptions {
+    popkern_core::topology::BrepEdgeCurveCompletionOptions {
+        tolerance: 1e-6,
+        samples: 9,
+        allow_vertex_segments_without_surface: true,
+        require_all_completed: false,
+        validate_output: false,
     }
 }
 

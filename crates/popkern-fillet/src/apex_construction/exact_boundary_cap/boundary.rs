@@ -311,9 +311,9 @@ fn cap_half_edge_vertex_span(
     half_edge: popkern_core::topology::HalfEdgeHandle,
 ) -> Option<(Point3, Point3)> {
     let half_edge_data = brep.half_edges.get(half_edge)?;
-    let next = brep.half_edges.get(half_edge_data.next)?;
+    let twin = brep.half_edges.get(half_edge_data.twin)?;
     let origin = brep.vertices.get(half_edge_data.origin)?.position;
-    let destination = brep.vertices.get(next.origin)?.position;
+    let destination = brep.vertices.get(twin.origin)?.position;
     Some((origin, destination))
 }
 

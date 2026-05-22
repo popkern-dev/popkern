@@ -75,6 +75,12 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     "imported export-quality decline should expose blockers: {imported_quality:#?}"
                 );
                 assert!(
+                    !imported_quality.trim_evidence.is_empty()
+                        || !imported_quality.pcurve_evidence.is_empty()
+                        || !imported_quality.edge_surface_evidence.is_empty(),
+                    "imported export-quality decline should include per-entity evidence: {imported_quality:#?}"
+                );
+                assert!(
                     failure.imported_validation.is_none(),
                     "line endpoint repair should move the old shell-gap failure out of import validation"
                 );
