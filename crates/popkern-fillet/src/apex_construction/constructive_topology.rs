@@ -1,6 +1,5 @@
 //! Loop walking and topology validation helpers for constructive apex building.
 
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use super::error::ApexBuildError;
@@ -271,15 +270,7 @@ pub(super) fn production_faces_containing_vertex(
     brep.faces
         .iter()
         .filter_map(|(face_handle, face)| {
-            let surface = face.surface.as_ref()?;
-            if !matches!(
-                surface.geometry,
-                SurfaceGeometry::Plane { .. }
-                    | SurfaceGeometry::Cylinder { .. }
-                    | SurfaceGeometry::Gregory(_)
-            ) {
-                return None;
-            }
+            face.surface.as_ref()?;
             collect_outer_loop_vertices(brep, face_handle)
                 .is_some_and(|vertices| vertices.contains(&vertex))
                 .then_some(face_handle)

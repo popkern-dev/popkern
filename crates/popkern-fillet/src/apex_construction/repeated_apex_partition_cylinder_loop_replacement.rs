@@ -186,6 +186,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             );
         }
     }
+    materialize_cylinder_only_residual_cycles(brep, cap_face, &all_support_owned_trim_sides)?;
     if !support_ownership_already_materialized {
         materialize_closed_support_trim_cycles(brep, face_edges, &all_support_owned_trim_sides)?;
     }
@@ -201,4 +202,53 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
         )?;
     }
     Ok(pending_cylinder_loop_replacements)
+}
+
+fn materialize_cylinder_only_residual_cycles(
+    brep: &mut BRep,
+    template_face: FaceHandle,
+    trim_sides: &[SupportOwnedTrimSide],
+) -> Result<(), ApexBuildError> {
+    let residual_sides = trim_sides
+        .iter()
+        .filter(|trim_side| !trim_side.requires_support_ownership)
+        .map(|trim_side| {
+            brep.half_edges
+                .get(trim_side.half_edge)
+                .map(|half_edge| half_edge.twin)
+                .ok_or_else(|| ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition FilletEnd[{}] cylinder-only far-side \
+                         trim {:?} has no residual twin",
+                        trim_side.fillet_index, trim_side.half_edge
+                    ),
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if residual_sides.is_empty() {
+        return Ok(());
+    }
+    let cycles = closed_half_edge_cycles_from_unwired_set(brep, &residual_sides);
+    if cycles.len() != 1 {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition cannot close cylinder-only far-side residual \
+                 ownership: residual sides {:?} produced {} closed cycle(s); {}",
+                residual_sides,
+                cycles.len(),
+                support_cycle_open_chain_diagnostic(brep, &residual_sides)
+            ),
+        });
+    }
+    let cycle = &cycles[0];
+    validate_half_edge_cycle(
+        brep,
+        cycle,
+        "cylinder-only far-side residual cycle",
+        template_face,
+    )?;
+    let residual_face = insert_face_with_outer_loop(brep, template_face, cycle)?;
+    brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
+    brep.faces[residual_face].surface = None;
+    Ok(())
 }

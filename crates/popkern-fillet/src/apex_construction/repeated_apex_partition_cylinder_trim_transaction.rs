@@ -60,14 +60,17 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             .iter()
             .map(|plan| plan.plan_cylinder_trim_rewrite_topology(brep))
             .collect::<Result<Vec<_>, _>>()?;
-        let (include_selected_nonmaterialized, diagnostics) =
+        let (include_selected_nonmaterialized, diagnostics) = if require_v_free_repeated_apex {
             selected_far_side_trim_materialization_preflight(
                 brep,
                 cap_face,
                 face_edges,
                 &rebuild_plans,
                 &topology_plans,
-            );
+            )
+        } else {
+            (false, Vec::new())
+        };
         let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
             brep,
             cap_face,
@@ -185,8 +188,9 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
     let rebuild_plans = preflight.rebuild_plans;
     let topology_plans = preflight.topology_plans;
     let subcomplex_plan = preflight.subcomplex_plan;
-    let include_selected_nonmaterialized = preflight.include_selected_nonmaterialized;
     let require_v_free_repeated_apex = preflight.require_v_free_repeated_apex;
+    let include_selected_nonmaterialized =
+        preflight.include_selected_nonmaterialized && require_v_free_repeated_apex;
 
     let before = topology_count_summary(brep);
     let mut candidate = brep.clone();

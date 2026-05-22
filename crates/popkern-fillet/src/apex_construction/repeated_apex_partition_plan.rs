@@ -288,6 +288,14 @@ impl RepeatedApexPartitionPlan {
         validate_partition_ownership_records(brep, &face_edge_arcs, &fillet_end_ownership)?;
         let mut boundary_outcome =
             PartitionBoundaryOutcome::from_current_cap_cycle(cap_cycle.clone());
+        if !execution_options.apply_cylinder_trim_rewrite {
+            if execution_options.require_cylinder_trim_rewrite_ready {
+                validate_cylinder_trim_rewrite_readiness(brep, &fillet_end_ownership)?;
+            }
+            if execution_options.require_cylinder_trim_rebuild_plan {
+                validate_cylinder_trim_rebuild_plans(brep, &fillet_end_ownership)?;
+            }
+        }
         if execution_options.apply_cylinder_trim_rewrite {
             let rewrite_result = apply_cylinder_trim_rewrites_transactionally(
                 brep,
@@ -300,23 +308,19 @@ impl RepeatedApexPartitionPlan {
             boundary_outcome = rewrite_result.boundary_outcome;
             diagnostics.extend(rewrite_result.diagnostics);
         }
-        if execution_options.require_cylinder_trim_rewrite_ready {
-            validate_cylinder_trim_rewrite_readiness(brep, &fillet_end_ownership)?;
-        }
-        if execution_options.require_cylinder_trim_rebuild_plan {
-            validate_cylinder_trim_rebuild_plans(brep, &fillet_end_ownership)?;
-        }
-        if execution_options.adopt_cylinder_fillet_end_endpoints {
-            adopt_fillet_end_endpoints_into_target_cylinders(brep, &fillet_end_ownership)?;
-            refresh_fillet_end_curves_after_endpoint_adoption(
-                brep,
-                plan,
-                &fillet_end_ownership,
-                fillet_surfaces,
-            )?;
-        }
-        if execution_options.require_shared_cylinder_fillet_end {
-            validate_target_cylinder_loop_ownership_ready(brep, &fillet_end_ownership)?;
+        if !execution_options.apply_cylinder_trim_rewrite {
+            if execution_options.adopt_cylinder_fillet_end_endpoints {
+                adopt_fillet_end_endpoints_into_target_cylinders(brep, &fillet_end_ownership)?;
+                refresh_fillet_end_curves_after_endpoint_adoption(
+                    brep,
+                    plan,
+                    &fillet_end_ownership,
+                    fillet_surfaces,
+                )?;
+            }
+            if execution_options.require_shared_cylinder_fillet_end {
+                validate_target_cylinder_loop_ownership_ready(brep, &fillet_end_ownership)?;
+            }
         }
         wire_existing_loop(
             brep,

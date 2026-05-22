@@ -189,8 +189,9 @@ pub(super) fn materialized_far_side_trim_sides(
     if let Ok(curve) =
         exact_cylinder_arc_trim_curve_between(brep, cylinder_face, start, end, label, fillet_index)
     {
-        let (edge, half_edge) = insert_boundary_half_edge(brep, start);
+        let (edge, half_edge, _twin) = insert_unwired_edge_pair(brep, start, end);
         brep.edges[edge].curve = Some(curve);
+        brep.edges[edge].role = TopologyRole::Production;
         if crate::direct_apex_trace::enabled() {
             eprintln!(
                 "[direct-apex-trace §14.9/cylinder-loop-replace] FilletEnd[{fillet_index}] authored \

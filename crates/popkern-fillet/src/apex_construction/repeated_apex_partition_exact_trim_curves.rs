@@ -1,5 +1,6 @@
 use popkern_core::geometry::curve_inversion::invert_curve_at_point;
 use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, compute_edge_geometry};
+use popkern_core::geometry::fitting::interpolate_curve;
 use popkern_core::geometry::intersection::{SurfaceSurfaceIntersection, intersect_surfaces};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{CurveEval, CurveGeometry, CurveOnEdge, Point3, Vec3};
@@ -100,16 +101,6 @@ pub(super) fn exact_cylinder_arc_trim_curve_between(
     let start_axis = (start_point - *origin).dot(&axis_unit);
     let end_axis = (end_point - *origin).dot(&axis_unit);
     let tol = brep.tolerance.linear().max(1.0e-9);
-    if (start_axis - end_axis).abs() > tol {
-        return Err(ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition FilletEnd[{fillet_index}] cannot author \
-                 cylinder arc {label} {start:?}->{end:?}: endpoints are on different cylinder \
-                 stations by {:.3e}",
-                (start_axis - end_axis).abs()
-            ),
-        });
-    }
     if !point_lies_on_cylinder_face(brep, cylinder_face, start_point)
         || !point_lies_on_cylinder_face(brep, cylinder_face, end_point)
     {
@@ -119,6 +110,20 @@ pub(super) fn exact_cylinder_arc_trim_curve_between(
                  cylinder arc {label} {start:?}->{end:?}: endpoint is off cylinder"
             ),
         });
+    }
+    if (start_axis - end_axis).abs() > tol {
+        return cylinder_uv_line_trim_curve_between(
+            brep,
+            *origin,
+            axis_unit,
+            *radius,
+            start_axis,
+            end_axis,
+            start_point,
+            end_point,
+            label,
+            fillet_index,
+        );
     }
     let center = *origin + axis_unit * start_axis;
     let (u_axis, v_axis) = circle_basis_for_normal(axis_unit);
@@ -143,6 +148,77 @@ pub(super) fn exact_cylinder_arc_trim_curve_between(
         t_start: start_angle,
         t_end: end_angle,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn cylinder_uv_line_trim_curve_between(
+    brep: &BRep,
+    origin: Point3,
+    axis_unit: Vec3,
+    radius: f64,
+    start_axis: f64,
+    end_axis: f64,
+    start_point: Point3,
+    end_point: Point3,
+    label: &'static str,
+    fillet_index: usize,
+) -> Result<CurveOnEdge, ApexBuildError> {
+    let (u_axis, v_axis) = circle_basis_for_normal(axis_unit);
+    let start_center = origin + axis_unit * start_axis;
+    let end_center = origin + axis_unit * end_axis;
+    let start_radial = start_point - start_center;
+    let end_radial = end_point - end_center;
+    let start_angle = start_radial.dot(&v_axis).atan2(start_radial.dot(&u_axis));
+    let mut end_angle = end_radial.dot(&v_axis).atan2(end_radial.dot(&u_axis));
+    while end_angle - start_angle > std::f64::consts::PI {
+        end_angle -= std::f64::consts::TAU;
+    }
+    while end_angle - start_angle < -std::f64::consts::PI {
+        end_angle += std::f64::consts::TAU;
+    }
+
+    let sample_count = 17;
+    let mut points = Vec::with_capacity(sample_count);
+    let mut params = Vec::with_capacity(sample_count);
+    for i in 0..sample_count {
+        let t = i as f64 / (sample_count as f64 - 1.0);
+        let angle = start_angle + t * (end_angle - start_angle);
+        let station = start_axis + t * (end_axis - start_axis);
+        let center = origin + axis_unit * station;
+        points.push(center + u_axis * (radius * angle.cos()) + v_axis * (radius * angle.sin()));
+        params.push(t);
+    }
+    let nurbs =
+        interpolate_curve(&points, &params, 5).map_err(|err| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{fillet_index}] cannot author \
+                 cylinder UV-line trim {label}: interpolation failed: {err:?}"
+            ),
+        })?;
+    let curve = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(nurbs),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    let tolerance = brep.tolerance.linear().max(1.0e-7);
+    for i in 0..=32 {
+        let t = i as f64 / 32.0;
+        let point = curve.geometry.point_at(t);
+        let station = (point - origin).dot(&axis_unit);
+        let center = origin + axis_unit * station;
+        let radial = point.distance_to(&center);
+        if (radial - radius).abs() > tolerance {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition FilletEnd[{fillet_index}] cylinder UV-line \
+                     trim {label} exceeded cylinder tolerance at sample {i}: radial deviation \
+                     {:.3e}",
+                    (radial - radius).abs()
+                ),
+            });
+        }
+    }
+    Ok(curve)
 }
 
 fn circle_basis_for_normal(normal: Vec3) -> (Vec3, Vec3) {
