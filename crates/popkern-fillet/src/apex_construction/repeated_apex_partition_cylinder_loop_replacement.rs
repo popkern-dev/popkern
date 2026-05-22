@@ -150,7 +150,8 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
         });
     }
     if support_ownership_already_materialized {
-        repair_support_source_loops_after_cylinder_rewire(brep, &all_support_owned_trim_sides)?;
+        let _ =
+            repair_support_source_loops_after_cylinder_rewire(brep, &all_support_owned_trim_sides)?;
     }
     for replacement in &pending_cylinder_loop_replacements {
         let loop_handle = brep

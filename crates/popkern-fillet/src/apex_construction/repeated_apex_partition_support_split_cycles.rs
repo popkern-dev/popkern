@@ -3,6 +3,7 @@ use super::*;
 
 pub(super) struct SupportSplitCyclePlan {
     pub(super) cycles: Vec<Vec<HalfEdgeHandle>>,
+    pub(super) authored_boundary_spans: Vec<HalfEdgeHandle>,
     missing_spans: Vec<(VertexHandle, VertexHandle)>,
 }
 
@@ -47,6 +48,7 @@ pub(super) fn materialize_support_split_cycles(
     {
         return Ok(SupportSplitCyclePlan {
             cycles: vec![cycle],
+            authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
         });
     }
@@ -55,6 +57,7 @@ pub(super) fn materialize_support_split_cycles(
     if covered == half_edges.len() {
         return Ok(SupportSplitCyclePlan {
             cycles,
+            authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
         });
     }
@@ -65,19 +68,23 @@ pub(super) fn materialize_support_split_cycles(
     if missing_spans.is_empty() {
         return Ok(SupportSplitCyclePlan {
             cycles: Vec::new(),
+            authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
         });
     }
     let mut supplemented = half_edges.to_vec();
+    let mut authored_boundary_spans = Vec::new();
     for (start, end) in &missing_spans {
         let half_edge = author_support_split_closing_span(brep, support_face, *start, *end)?;
         supplemented.push(half_edge);
+        authored_boundary_spans.push(half_edge);
     }
     let cycles = closed_half_edge_cycles_from_unwired_set(brep, &supplemented);
     let covered = cycles.iter().map(Vec::len).sum::<usize>();
     if covered == supplemented.len() {
         return Ok(SupportSplitCyclePlan {
             cycles,
+            authored_boundary_spans,
             missing_spans: Vec::new(),
         });
     }
@@ -90,6 +97,7 @@ pub(super) fn materialize_support_split_cycles(
     );
     Ok(SupportSplitCyclePlan {
         cycles: Vec::new(),
+        authored_boundary_spans,
         missing_spans,
     })
 }
