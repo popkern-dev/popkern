@@ -463,7 +463,7 @@ fn exact_boundary_export_repair_options() -> popkern_core::topology::BrepRepairP
             tolerance: 1e-6,
             max_anchor_motion: 0.06,
             samples: 9,
-            require_all_compatible: true,
+            require_all_compatible: false,
             validate_output: false,
         },
         degenerate_edges: popkern_core::topology::BrepDegenerateEdgeOptions {
