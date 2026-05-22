@@ -237,8 +237,12 @@ fn validate_imported_document(
 
     let mut body_reports = Vec::with_capacity(bodies.len());
     for (index, body) in bodies.into_iter().enumerate() {
-        body.validate()
-            .map_err(|err| failure(label, format!("body {index} failed validation: {err}")))?;
+        body.validate().map_err(|err| {
+            failure(
+                label,
+                format!("STEP import body {index} failed validation: {err}"),
+            )
+        })?;
         let quality = analyze_brep_export_quality(body, options.quality);
         if !quality.is_ready() {
             return Err(failure(

@@ -8,6 +8,7 @@ use popkern_core::topology::{
     commit_shared_trim_edge_transactionally,
 };
 
+use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
 use super::pcurves::PreparedExactBoundaryPcurves;
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
@@ -395,6 +396,7 @@ fn commit_validated_inputs(
             }
         }
     }
+    commit_cap_spoke_shared_trims(brep, sectors)?;
     Ok(ExactBoundaryCommitReport {
         committed_sector_count: sectors.len(),
         committed_pcurve_pair_count: pcurves.pairs.len(),

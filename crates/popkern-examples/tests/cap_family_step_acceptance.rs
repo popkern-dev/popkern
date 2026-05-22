@@ -17,13 +17,24 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
 
     let report = validate_strict_step_acceptance(
         "direct_apex_gregory_cap",
-        &[blend.brep],
+        std::slice::from_ref(&blend.brep),
         &StepRoundTripValidationOptions::default(),
     );
 
     assert_eq!(report.label, "direct_apex_gregory_cap");
     assert_eq!(report.pre_export_body_reports.len(), 1);
     let pre_export = &report.pre_export_body_reports[0];
+    assert_eq!(
+        pre_export.pcurve_blockers,
+        0,
+        "raw exact-boundary cap-family export must have no pcurve blockers: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
+        route.exact_boundary_report,
+        blocker_roles(&blend.brep, pre_export)
+    );
+    assert_eq!(
+        pre_export.edge_surface_blockers, 0,
+        "raw exact-boundary cap-family export must have no edge/surface blockers: {pre_export:#?}"
+    );
     match report.status {
         StepStrictAcceptanceStatus::Accepted => {
             let round_trip = report
@@ -43,16 +54,113 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                 reason.contains("export-quality blocked") || reason.contains("STEP import"),
                 "strict STEP decline should identify the failed shared gate: {reason}"
             );
-            assert!(
-                pre_export.pcurve_blockers > 0 || pre_export.edge_surface_blockers > 0,
-                "declined cap-family strict STEP report should expose fidelity blockers: {pre_export:#?}"
-            );
-            assert!(
-                !pre_export.pcurve_evidence.is_empty()
-                    || !pre_export.edge_surface_evidence.is_empty(),
-                "declined cap-family strict STEP report should include per-edge evidence: {pre_export:#?}"
-            );
+            if reason.contains("export-quality blocked") {
+                assert!(
+                    pre_export.pcurve_blockers > 0 || pre_export.edge_surface_blockers > 0,
+                    "export-quality decline should expose fidelity blockers: {pre_export:#?}"
+                );
+                assert!(
+                    !pre_export.pcurve_evidence.is_empty()
+                        || !pre_export.edge_surface_evidence.is_empty(),
+                    "export-quality decline should include per-edge evidence: {pre_export:#?}"
+                );
+            } else {
+                assert_eq!(pre_export.pcurve_blockers, 0);
+                assert_eq!(pre_export.edge_surface_blockers, 0);
+            }
         }
+    }
+}
+
+fn blocker_roles(
+    brep: &BRep,
+    report: &popkern_examples::step_validation::StepRoundTripBodyReport,
+) -> Vec<String> {
+    report
+        .pcurve_evidence
+        .iter()
+        .flat_map(|edge| {
+            edge.half_edges.iter().map(move |half_edge| {
+                let edge_role = brep
+                    .edges
+                    .get(edge.edge)
+                    .map(|edge| format!("{:?}", edge.role))
+                    .unwrap_or_else(|| "missing_edge".to_string());
+                let face_role = brep
+                    .faces
+                    .get(half_edge.face)
+                    .map(|face| format!("{:?}", face.role))
+                    .unwrap_or_else(|| "missing_face".to_string());
+                let face_surface = brep
+                    .faces
+                    .get(half_edge.face)
+                    .and_then(|face| face.surface.as_ref())
+                    .map(|surface| surface_kind(&surface.geometry))
+                    .unwrap_or("missing_surface");
+                let pcurve_kind = brep
+                    .half_edges
+                    .get(half_edge.half_edge)
+                    .and_then(|half_edge| half_edge.pcurve.as_ref())
+                    .map(pcurve_kind)
+                    .unwrap_or("missing_pcurve");
+                let curve_kind = brep
+                    .edges
+                    .get(edge.edge)
+                    .and_then(|edge| edge.curve.as_ref())
+                    .map(|curve| edge_curve_kind(&curve.geometry))
+                    .unwrap_or("missing_curve");
+                format!(
+                    "edge={:?} edge_role={} curve={} half_edge={:?} face={:?} face_role={} surface={} pcurve={} max={:.6e} same={:.6e} trace={:.6e}",
+                    edge.edge,
+                    edge_role,
+                    curve_kind,
+                    half_edge.half_edge,
+                    half_edge.face,
+                    face_role,
+                    face_surface,
+                    pcurve_kind,
+                    half_edge.max_deviation,
+                    half_edge.same_fraction_deviation,
+                    half_edge.trace_deviation
+                )
+            })
+        })
+        .collect()
+}
+
+fn edge_curve_kind(curve: &popkern_core::geometry::curve::CurveGeometry) -> &'static str {
+    match curve {
+        popkern_core::geometry::curve::CurveGeometry::Line { .. } => "line",
+        popkern_core::geometry::curve::CurveGeometry::Circle { .. } => "circle",
+        popkern_core::geometry::curve::CurveGeometry::Arc { .. } => "arc",
+        popkern_core::geometry::curve::CurveGeometry::Ellipse { .. } => "ellipse",
+        popkern_core::geometry::curve::CurveGeometry::Parabola { .. } => "parabola",
+        popkern_core::geometry::curve::CurveGeometry::Hyperbola { .. } => "hyperbola",
+        popkern_core::geometry::curve::CurveGeometry::Nurbs(_) => "nurbs",
+    }
+}
+
+fn pcurve_kind(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> &'static str {
+    match &pcurve.geometry {
+        popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => "linear",
+        popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "elliptical",
+        popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "sinusoidal",
+        popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "nurbs",
+        popkern_core::geometry::pcurve::PcurveGeometry::CylinderArcViaRationalQuad { .. } => {
+            "cylinder_arc_via_rational_quad"
+        }
+    }
+}
+
+fn surface_kind(surface: &popkern_core::geometry::SurfaceGeometry) -> &'static str {
+    match surface {
+        popkern_core::geometry::SurfaceGeometry::Plane { .. } => "plane",
+        popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "cylinder",
+        popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "sphere",
+        popkern_core::geometry::SurfaceGeometry::Cone { .. } => "cone",
+        popkern_core::geometry::SurfaceGeometry::Torus { .. } => "torus",
+        popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "nurbs",
+        popkern_core::geometry::SurfaceGeometry::Gregory(_) => "gregory",
     }
 }
 

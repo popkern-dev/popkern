@@ -1,6 +1,7 @@
 //! Exact-boundary apex cap primitives.
 
 pub(crate) mod boundary;
+pub(crate) mod cap_spoke_commit;
 pub(crate) mod commit;
 pub(crate) mod corner;
 pub(crate) mod facade;

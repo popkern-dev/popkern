@@ -37,6 +37,7 @@ mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
+mod pcurve_measured_repair;
 mod pcurve_refit;
 mod perpendicular_splits;
 mod phase_split;
