@@ -92,6 +92,7 @@ pub struct StepRoundTripBodyReport {
     pub trim_blockers: usize,
     pub trim_evidence: Vec<StepRoundTripTrimEvidence>,
     pub edge_curve_blockers: usize,
+    pub edge_curve_evidence: Vec<StepRoundTripMissingEdgeCurveEvidence>,
     pub pcurve_blockers: usize,
     pub max_pcurve_deviation: f64,
     pub pcurve_evidence: Vec<StepRoundTripEdgePcurveEvidence>,
@@ -106,6 +107,20 @@ pub struct StepRoundTripTrimEvidence {
     pub half_edge: HalfEdgeHandle,
     pub kind: BrepTrimFindingKind,
     pub deviation: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepRoundTripMissingEdgeCurveEvidence {
+    pub edge: EdgeHandle,
+    pub half_edges: Vec<StepRoundTripMissingEdgeCurveHalfEdgeEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepRoundTripMissingEdgeCurveHalfEdgeEvidence {
+    pub half_edge: HalfEdgeHandle,
+    pub face: FaceHandle,
+    pub pcurve_present: bool,
+    pub surface_present: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -290,6 +305,7 @@ fn step_body_report(
         trim_blockers: quality.trim_blockers,
         trim_evidence: trim_evidence(&quality.trims),
         edge_curve_blockers: quality.edge_curve_blockers,
+        edge_curve_evidence: missing_edge_curve_evidence(body),
         pcurve_blockers: quality.pcurve_blockers,
         max_pcurve_deviation: quality.max_pcurve_deviation,
         pcurve_evidence: pcurve_evidence(body, options.quality.max_pcurve_deviation),
@@ -313,6 +329,42 @@ fn trim_evidence(
         })
         .collect();
     evidence.sort_by(|a, b| b.deviation.total_cmp(&a.deviation));
+    evidence
+}
+
+fn missing_edge_curve_evidence(body: &BRep) -> Vec<StepRoundTripMissingEdgeCurveEvidence> {
+    let mut evidence: Vec<_> = body
+        .edges
+        .iter()
+        .filter(|(_, edge)| edge.curve.is_none())
+        .map(|(edge, _)| {
+            let mut half_edges: Vec<_> = body
+                .half_edges
+                .iter()
+                .filter(|(_, half_edge)| half_edge.edge == edge)
+                .map(|(half_edge, half_edge_data)| {
+                    let face = body
+                        .loops
+                        .get(half_edge_data.loop_)
+                        .map(|loop_data| loop_data.face)
+                        .unwrap_or_default();
+                    let surface_present = body
+                        .faces
+                        .get(face)
+                        .is_some_and(|face_data| face_data.surface.is_some());
+                    StepRoundTripMissingEdgeCurveHalfEdgeEvidence {
+                        half_edge,
+                        face,
+                        pcurve_present: half_edge_data.pcurve.is_some(),
+                        surface_present,
+                    }
+                })
+                .collect();
+            half_edges.sort_by_key(|half_edge| format!("{:?}", half_edge.half_edge));
+            StepRoundTripMissingEdgeCurveEvidence { edge, half_edges }
+        })
+        .collect();
+    evidence.sort_by_key(|edge| format!("{:?}", edge.edge));
     evidence
 }
 

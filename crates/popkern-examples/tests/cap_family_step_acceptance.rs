@@ -40,6 +40,12 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
         pre_export.edge_surface_blockers, 0,
         "raw exact-boundary cap-family export must have no edge/surface blockers: {pre_export:#?}"
     );
+    if pre_export.edge_curve_blockers > 0 {
+        assert!(
+            !pre_export.edge_curve_evidence.is_empty(),
+            "raw exact-boundary cap-family missing-curve blockers must expose per-edge evidence: {pre_export:#?}"
+        );
+    }
     match report.status {
         StepStrictAcceptanceStatus::Accepted => {
             let round_trip = report
@@ -70,12 +76,14 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     .expect("STEP export-quality decline should include body evidence");
                 assert!(
                     imported_quality.trim_blockers > 0
+                        || imported_quality.edge_curve_blockers > 0
                         || imported_quality.pcurve_blockers > 0
                         || imported_quality.edge_surface_blockers > 0,
                     "imported export-quality decline should expose blockers: {imported_quality:#?}"
                 );
                 assert!(
                     !imported_quality.trim_evidence.is_empty()
+                        || !imported_quality.edge_curve_evidence.is_empty()
                         || !imported_quality.pcurve_evidence.is_empty()
                         || !imported_quality.edge_surface_evidence.is_empty(),
                     "imported export-quality decline should include per-entity evidence: {imported_quality:#?}"
