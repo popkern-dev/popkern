@@ -321,15 +321,14 @@ fn commit_validated_inputs(
                 ExactBoundaryOuterSide::FilletEnd => 0,
                 ExactBoundaryOuterSide::FaceEdge => 1,
             };
+            let cap_half_edge = sector.cap_half_edges[side_index];
+            let support_half_edge = pair.support_half_edge;
             normalize_semantic_line_edge_curve(brep, pair.edge);
-            brep.half_edges[sector.cap_half_edges[side_index]].pcurve =
-                Some(pair.cap_pcurve.clone());
-            brep.half_edges[sector.support_half_edges[side_index]].pcurve =
-                Some(pair.support_pcurve.clone());
+            brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
             let cap_surface = brep.faces[sector.cap_face]
                 .surface
                 .as_ref()
-                .map(|surface| &surface.geometry)
+                .map(|surface| surface.geometry.clone())
                 .ok_or_else(|| {
                     ExactBoundaryCommitDiagnostic::new(
                         ExactBoundaryCommitDeclineReason::SectorFaceMissing,
@@ -337,23 +336,20 @@ fn commit_validated_inputs(
                         Some(sector.cap_face),
                     )
                 })?;
-            let support_face = brep
-                .half_edges
-                .get(sector.support_half_edges[side_index])
-                .and_then(|half_edge| brep.loops.get(half_edge.loop_))
-                .map(|loop_| loop_.face)
-                .ok_or_else(|| {
-                    ExactBoundaryCommitDiagnostic::new(
-                        ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
-                        Some(sector.sector_name.clone()),
-                        Some(sector.cap_face),
-                    )
-                })?;
+            let (support_half_edge, support_face) =
+                resolved_support_side_for_commit(brep, pair.side, cap_half_edge, support_half_edge)
+                    .ok_or_else(|| {
+                        ExactBoundaryCommitDiagnostic::new(
+                            ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
+                            Some(sector.sector_name.clone()),
+                            Some(sector.cap_face),
+                        )
+                    })?;
             let support_surface = brep
                 .faces
                 .get(support_face)
                 .and_then(|face| face.surface.as_ref())
-                .map(|surface| &surface.geometry)
+                .map(|surface| surface.geometry.clone())
                 .ok_or_else(|| {
                     ExactBoundaryCommitDiagnostic::new(
                         ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
@@ -361,17 +357,48 @@ fn commit_validated_inputs(
                         Some(sector.cap_face),
                     )
                 })?;
-            let cap_edge = brep.half_edges[sector.cap_half_edges[side_index]].edge;
-            let support_edge = brep.half_edges[sector.support_half_edges[side_index]].edge;
-            let support_is_cap_twin = brep.half_edges[sector.cap_half_edges[side_index]].twin
-                == sector.support_half_edges[side_index];
+            let cap_edge = brep.half_edges[cap_half_edge].edge;
+            let support_edge = brep.half_edges[support_half_edge].edge;
+            let support_is_cap_twin = brep.half_edges[cap_half_edge].twin == support_half_edge;
             let support_is_residual_patch = brep
                 .half_edges
-                .get(sector.support_half_edges[side_index])
+                .get(support_half_edge)
                 .and_then(|half_edge| brep.loops.get(half_edge.loop_))
                 .and_then(|loop_| brep.faces.get(loop_.face))
                 .is_some_and(|face| face.role == TopologyRole::ConstructionResidual);
             let support_is_cap_face = support_face == sector.cap_face;
+            let support_pcurve = if support_half_edge == pair.support_half_edge {
+                pair.support_pcurve.clone()
+            } else {
+                let cap_curve = curve_from_pcurve_in_edge_direction(
+                    brep,
+                    cap_edge,
+                    cap_half_edge,
+                    &pair.cap_pcurve,
+                    &cap_surface,
+                )
+                .ok_or_else(|| {
+                    ExactBoundaryCommitDiagnostic::new(
+                        ExactBoundaryCommitDeclineReason::SharedTrimValidationFailed,
+                        Some(sector.sector_name.clone()),
+                        Some(sector.cap_face),
+                    )
+                })?;
+                project_curve_to_half_edge_pcurve(
+                    brep,
+                    support_half_edge,
+                    &cap_curve,
+                    &support_surface,
+                )
+                .ok_or_else(|| {
+                    ExactBoundaryCommitDiagnostic::new(
+                        ExactBoundaryCommitDeclineReason::SharedTrimValidationFailed,
+                        Some(sector.sector_name.clone()),
+                        Some(sector.cap_face),
+                    )
+                })?
+            };
+            brep.half_edges[support_half_edge].pcurve = Some(support_pcurve.clone());
             if cap_edge != support_edge
                 || !support_is_cap_twin
                 || support_is_residual_patch
@@ -381,9 +408,9 @@ fn commit_validated_inputs(
                 if let Some(cap_curve) = curve_from_pcurve_in_edge_direction(
                     brep,
                     cap_edge,
-                    sector.cap_half_edges[side_index],
+                    cap_half_edge,
                     &pair.cap_pcurve,
-                    cap_surface,
+                    &cap_surface,
                 ) {
                     brep.edges[cap_edge].curve = Some(cap_curve);
                 }
@@ -391,9 +418,9 @@ fn commit_validated_inputs(
                     if let Some(support_curve) = curve_from_pcurve_in_edge_direction(
                         brep,
                         support_edge,
-                        sector.support_half_edges[side_index],
-                        &pair.support_pcurve,
-                        support_surface,
+                        support_half_edge,
+                        &support_pcurve,
+                        &support_surface,
                     ) {
                         brep.edges[support_edge].curve = Some(support_curve);
                     }
@@ -403,12 +430,12 @@ fn commit_validated_inputs(
             let curve = canonical_shared_trim_curve(
                 brep,
                 pair.edge,
-                sector.cap_half_edges[side_index],
+                cap_half_edge,
                 &pair.cap_pcurve,
-                cap_surface,
-                sector.support_half_edges[side_index],
-                &pair.support_pcurve,
-                support_surface,
+                &cap_surface,
+                support_half_edge,
+                &support_pcurve,
+                &support_surface,
             )
             .ok_or_else(|| {
                 ExactBoundaryCommitDiagnostic::new(
@@ -421,16 +448,35 @@ fn commit_validated_inputs(
                 brep,
                 SharedTrimEdgeInput {
                     edge: pair.edge,
-                    half_edge_a: sector.cap_half_edges[side_index],
-                    half_edge_b: sector.support_half_edges[side_index],
-                    curve,
+                    half_edge_a: cap_half_edge,
+                    half_edge_b: support_half_edge,
+                    curve: curve.clone(),
                     pcurve_a: pair.cap_pcurve.clone(),
-                    pcurve_b: pair.support_pcurve.clone(),
+                    pcurve_b: support_pcurve.clone(),
                     tolerance: 1.0e-6,
                     validate_brep: false,
                     provenance: "exact_boundary_cap_commit_shared_trim",
                 },
             ) {
+                let reversed_support_pcurve = reversed_pcurve(&support_pcurve);
+                if commit_shared_trim_edge_transactionally(
+                    brep,
+                    SharedTrimEdgeInput {
+                        edge: pair.edge,
+                        half_edge_a: cap_half_edge,
+                        half_edge_b: support_half_edge,
+                        curve,
+                        pcurve_a: pair.cap_pcurve.clone(),
+                        pcurve_b: reversed_support_pcurve,
+                        tolerance: 1.0e-6,
+                        validate_brep: false,
+                        provenance: "exact_boundary_cap_commit_shared_trim",
+                    },
+                )
+                .is_ok()
+                {
+                    continue;
+                }
                 return Err(
                     ExactBoundaryCommitDiagnostic::shared_trim_validation_failed(
                         sector, side_index, failure,
@@ -446,6 +492,139 @@ fn commit_validated_inputs(
     })
 }
 
+fn resolved_support_side_for_commit(
+    brep: &BRep,
+    side: ExactBoundaryOuterSide,
+    cap_half_edge: HalfEdgeHandle,
+    support_half_edge: HalfEdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    let support_face = face_for_half_edge(brep, support_half_edge)?;
+    if side == ExactBoundaryOuterSide::FilletEnd
+        && !half_edge_has_cylinder_surface(brep, support_half_edge)
+        && let Some(cylinder_side) = same_oriented_cylinder_support_side(brep, cap_half_edge)
+    {
+        return Some(cylinder_side);
+    }
+    Some((support_half_edge, support_face))
+}
+
+fn half_edge_has_cylinder_surface(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
+    face_for_half_edge(brep, half_edge)
+        .and_then(|face| brep.faces.get(face))
+        .and_then(|face| face.surface.as_ref())
+        .is_some_and(|surface| matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }))
+}
+
+fn same_oriented_cylinder_support_side(
+    brep: &BRep,
+    cap_half_edge: HalfEdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    for (face, face_data) in brep.faces.iter() {
+        let Some(surface) = face_data.surface.as_ref() else {
+            continue;
+        };
+        if !matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+            continue;
+        }
+        let Some(sides) = collect_loop_half_edges(brep, face_data.outer_loop) else {
+            continue;
+        };
+        for side in sides {
+            if same_oriented_side(brep, cap_half_edge, side) {
+                return Some((side, face));
+            }
+        }
+    }
+    None
+}
+
+fn collect_loop_half_edges(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Option<Vec<HalfEdgeHandle>> {
+    let start = brep.loops.get(loop_handle)?.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        out.push(cursor);
+        cursor = brep.half_edges.get(cursor)?.next;
+        if cursor == start {
+            return Some(out);
+        }
+    }
+    None
+}
+
+fn same_oriented_side(brep: &BRep, cap_side: HalfEdgeHandle, support_side: HalfEdgeHandle) -> bool {
+    let Some(cap_start) = brep.half_edges.get(cap_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(support_start) = brep.half_edges.get(support_side).map(|data| data.origin) else {
+        return false;
+    };
+    if cap_start != support_start {
+        return false;
+    }
+    half_edge_destination_vertex(brep, cap_side)
+        .zip(half_edge_destination_vertex(brep, support_side))
+        .is_some_and(|(cap_end, support_end)| cap_end == support_end)
+}
+
+fn face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {
+    let loop_ = brep.half_edges.get(half_edge)?.loop_;
+    brep.loops.get(loop_).map(|loop_| loop_.face)
+}
+
+fn half_edge_destination_vertex(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+) -> Option<popkern_core::topology::VertexHandle> {
+    let twin = brep.half_edges.get(half_edge)?.twin;
+    brep.half_edges.get(twin).map(|twin| twin.origin)
+}
+
+fn project_curve_to_half_edge_pcurve(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+) -> Option<Pcurve> {
+    let forward = half_edge_curve_forward(brep, half_edge, curve)?;
+    let samples = 33usize;
+    let mut uv_points = Vec::with_capacity(samples);
+    let mut parameters = Vec::with_capacity(samples);
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let curve_fraction = if forward { fraction } else { 1.0 - fraction };
+        let curve_t = curve.t_start + (curve.t_end - curve.t_start) * curve_fraction;
+        let point = curve.geometry.point_at(curve_t);
+        let (u, v) = surface.closest_point(&point)?;
+        uv_points.push(Point3::new(u, v, 0.0));
+        parameters.push(fraction);
+    }
+    let degree = 5.min(uv_points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &parameters, degree)
+        .ok()
+        .map(Pcurve::from_nurbs)
+}
+
+fn half_edge_curve_forward(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve: &CurveOnEdge,
+) -> Option<bool> {
+    let origin = brep
+        .vertices
+        .get(brep.half_edges.get(half_edge)?.origin)?
+        .position;
+    let curve_start = curve.geometry.point_at(curve.t_start);
+    let curve_end = curve.geometry.point_at(curve.t_end);
+    Some(origin.distance_to(&curve_start) <= origin.distance_to(&curve_end))
+}
+
 fn canonical_shared_trim_curve(
     brep: &BRep,
     edge: EdgeHandle,
@@ -457,19 +636,26 @@ fn canonical_shared_trim_curve(
     support_surface: &SurfaceGeometry,
 ) -> Option<CurveOnEdge> {
     let cap_curve =
-        curve_from_pcurve_in_edge_direction(brep, edge, cap_half_edge, cap_pcurve, cap_surface);
+        curve_from_pcurve_in_edge_direction(brep, edge, cap_half_edge, cap_pcurve, cap_surface)
+            .and_then(|curve| orient_curve_to_edge_vertices(brep, edge, curve));
     let support_curve = curve_from_pcurve_in_edge_direction(
         brep,
         edge,
         support_half_edge,
         support_pcurve,
         support_surface,
-    );
+    )
+    .and_then(|curve| orient_curve_to_edge_vertices(brep, edge, curve));
     match (cap_curve, support_curve) {
         (Some(cap_curve), Some(support_curve)) => {
-            if edge_endpoint_gap(brep, edge, &cap_curve)?
-                <= edge_endpoint_gap(brep, edge, &support_curve)?
+            let cap_endpoint_gap = edge_endpoint_gap(brep, edge, &cap_curve)?;
+            let support_endpoint_gap = edge_endpoint_gap(brep, edge, &support_curve)?;
+            if matches!(support_surface, SurfaceGeometry::Cylinder { .. })
+                && support_endpoint_gap <= cap_endpoint_gap.max(1.0e-6)
             {
+                return Some(support_curve);
+            }
+            if cap_endpoint_gap <= support_endpoint_gap {
                 Some(cap_curve)
             } else {
                 Some(support_curve)
@@ -478,6 +664,57 @@ fn canonical_shared_trim_curve(
         (Some(curve), None) | (None, Some(curve)) => Some(curve),
         (None, None) => None,
     }
+}
+
+fn reversed_pcurve(pcurve: &Pcurve) -> Pcurve {
+    let (t_start, t_end) = pcurve.parameter_range();
+    let samples = 17usize;
+    let mut uv_points = Vec::with_capacity(samples);
+    let mut parameters = Vec::with_capacity(samples);
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let t = t_end + (t_start - t_end) * fraction;
+        uv_points.push(pcurve.point_at(t));
+        parameters.push(fraction);
+    }
+    let degree = 5.min(uv_points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &parameters, degree)
+        .ok()
+        .map(Pcurve::from_nurbs)
+        .unwrap_or_else(|| pcurve.clone())
+}
+
+fn orient_curve_to_edge_vertices(
+    brep: &BRep,
+    edge: EdgeHandle,
+    curve: CurveOnEdge,
+) -> Option<CurveOnEdge> {
+    let direct = edge_endpoint_gap(brep, edge, &curve)?;
+    let reversed = reversed_curve_on_edge(&curve)?;
+    let reverse = edge_endpoint_gap(brep, edge, &reversed)?;
+    Some(if reverse < direct { reversed } else { curve })
+}
+
+fn reversed_curve_on_edge(curve: &CurveOnEdge) -> Option<CurveOnEdge> {
+    let samples = 17usize;
+    let mut points = Vec::with_capacity(samples);
+    let mut parameters = Vec::with_capacity(samples);
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let t = curve.t_end + (curve.t_start - curve.t_end) * fraction;
+        points.push(curve.geometry.point_at(t));
+        parameters.push(fraction);
+    }
+    let degree = 5.min(points.len().saturating_sub(1));
+    let geometry = popkern_core::geometry::fitting::interpolate_curve(&points, &parameters, degree)
+        .ok()
+        .map(CurveGeometry::Nurbs)
+        .or_else(|| line_curve_from_endpoints(&points))?;
+    Some(CurveOnEdge {
+        geometry,
+        t_start: 0.0,
+        t_end: 1.0,
+    })
 }
 
 fn edge_endpoint_gap(brep: &BRep, edge: EdgeHandle, curve: &CurveOnEdge) -> Option<f64> {

@@ -32,7 +32,7 @@ pub(super) fn try_commit_pcurve_trace_edge(
         return None;
     }
     let candidates = [
-        cylinder_gregory_candidate_curve(brep, edge, surf_a, surf_b),
+        cylinder_supported_surface_candidate_curve(brep, edge, surf_a, surf_b),
         supports_surface_trim_authority(surf_a)
             .then(|| pcurve_trace_curve(brep, edge, he_a, surf_a))
             .flatten(),
@@ -167,15 +167,17 @@ fn supports_surface_trim_authority(surface: &SurfaceGeometry) -> bool {
     )
 }
 
-fn cylinder_gregory_candidate_curve(
+fn cylinder_supported_surface_candidate_curve(
     brep: &BRep,
     edge: EdgeHandle,
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
 ) -> Option<CurveOnEdge> {
     let cylinder = match (surf_a, surf_b) {
-        (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Gregory(_)) => surf_a,
-        (SurfaceGeometry::Gregory(_), SurfaceGeometry::Cylinder { .. }) => surf_b,
+        (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Gregory(_))
+        | (SurfaceGeometry::Cylinder { .. }, SurfaceGeometry::Nurbs(_)) => surf_a,
+        (SurfaceGeometry::Gregory(_), SurfaceGeometry::Cylinder { .. })
+        | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Cylinder { .. }) => surf_b,
         _ => return None,
     };
     let (start, end) = crate::topology::edge_segment(brep, edge)?;

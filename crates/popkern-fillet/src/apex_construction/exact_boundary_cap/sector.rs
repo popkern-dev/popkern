@@ -359,11 +359,12 @@ fn extract_outer_seam(
                 Some(support_half_edge),
             )
         })?;
-    if brep
-        .faces
-        .get(support_face)
-        .and_then(|face| face.surface.as_ref())
-        .is_none()
+    if side == ExactBoundaryOuterSide::FilletEnd
+        && brep
+            .faces
+            .get(support_face)
+            .and_then(|face| face.surface.as_ref())
+            .is_none()
         && let Some((semantic_support_half_edge, semantic_support_face)) =
             same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
     {

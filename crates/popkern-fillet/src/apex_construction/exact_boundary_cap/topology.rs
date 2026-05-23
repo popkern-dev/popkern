@@ -218,8 +218,13 @@ fn refresh_sector_outer_seams(
     brep: &BRep,
     sector: &mut ExactBoundaryCapSectorInput,
 ) -> Result<(), ExactBoundaryTopologyDiagnostic> {
-    let fillet = live_outer_seam(brep, sector, sector.fillet_end_edge)?;
-    let face = live_outer_seam(brep, sector, sector.face_edge)?;
+    let fillet = live_outer_seam(
+        brep,
+        sector,
+        sector.fillet_end_edge,
+        sector.fillet_support_face,
+    )?;
+    let face = live_outer_seam(brep, sector, sector.face_edge, sector.bridge_support_face)?;
     sector.fillet_support_face = fillet.1;
     sector.bridge_support_face = face.1;
     sector.cap_half_edges = [fillet.0, face.0];
@@ -253,6 +258,7 @@ fn live_outer_seam(
     brep: &BRep,
     sector: &ExactBoundaryCapSectorInput,
     edge: EdgeHandle,
+    expected_support_face: FaceHandle,
 ) -> Result<(HalfEdgeHandle, FaceHandle, HalfEdgeHandle), ExactBoundaryTopologyDiagnostic> {
     let edge_data = brep.edges.get(edge).ok_or_else(|| {
         ExactBoundaryTopologyDiagnostic::new(
@@ -289,11 +295,25 @@ fn live_outer_seam(
             )
         })?;
         if support_face != sector.cap_face {
-            if brep
+            if support_face != expected_support_face
+                && let Some(semantic_support_half_edge) =
+                    same_oriented_side_on_face(brep, half_edge, expected_support_face)
+            {
+                return Ok((half_edge, expected_support_face, semantic_support_half_edge));
+            }
+            let expected_support_is_cylinder = brep
                 .faces
-                .get(support_face)
+                .get(expected_support_face)
                 .and_then(|face| face.surface.as_ref())
-                .is_none()
+                .is_some_and(|surface| {
+                    matches!(surface.geometry, SurfaceGeometry::Cylinder { .. })
+                });
+            if expected_support_is_cylinder
+                && brep
+                    .faces
+                    .get(support_face)
+                    .and_then(|face| face.surface.as_ref())
+                    .is_none()
                 && let Some((semantic_support_half_edge, semantic_support_face)) =
                     same_oriented_cylinder_support_side(brep, sector.cap_face, half_edge)
             {
@@ -307,6 +327,18 @@ fn live_outer_seam(
         Some(sector.sector_name.clone()),
         None,
     ))
+}
+
+fn same_oriented_side_on_face(
+    brep: &BRep,
+    cap_half_edge: HalfEdgeHandle,
+    expected_support_face: FaceHandle,
+) -> Option<HalfEdgeHandle> {
+    let face_data = brep.faces.get(expected_support_face)?;
+    let sides = collect_loop_half_edges(brep, face_data.outer_loop)?;
+    sides
+        .into_iter()
+        .find(|side| same_oriented_side(brep, cap_half_edge, *side))
 }
 
 fn same_oriented_cylinder_support_side(

@@ -229,18 +229,13 @@ fn absorb_slivers_with_protected(
         let Some((face, kind, he)) = candidate else {
             break;
         };
-        // Phase 6c-D Stage 4.5: if the surviving face (the one
-        // containing `he`) is a substituted-boundary cap, skip the
-        // kef.  The caller has injected hex-boundary CPs that
-        // describe the cap's CURRENT outer loop; absorbing a
-        // neighbour would expand the loop across multiple fillets'
-        // boundaries and the Gregory cap surface (row 0 = one
-        // FilletEnd) can no longer represent it.  Mark the sliver
-        // as retained so the loop moves on rather than retrying.
+        // Phase 6c-D Stage 4.5 and exact-boundary ownership: if the
+        // candidate face or surviving face is protected, skip the kef.
+        // Protected caps and exact-boundary support fragments carry
+        // semantic boundary contracts that downstream pcurve and STEP
+        // validation depend on.
         let surviving_face = brep.half_edges.get(he).map(|h| brep.loops[h.loop_].face);
-        if let Some(sf) = surviving_face
-            && protected.contains(&sf)
-        {
+        if protected.contains(&face) || surviving_face.is_some_and(|sf| protected.contains(&sf)) {
             warnings.push(SliverAbsorbWarning::Retained { face, kind });
             retained.insert(face);
             continue;

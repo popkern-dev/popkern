@@ -111,9 +111,13 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         .collect();
     // §6c-direct-apex dispatch.d — merge direct-apex-built cap faces into the protected
     // set so `sliver_absorb` / `cap_insert` / `late_wire_jobs`
-    // don't re-author them.  When `use_direct_apex_construction` is
-    // off this list is empty.
+    // don't re-author them. Exact-boundary caps also protect their
+    // semantic bridge support faces: those plane fragments are part of
+    // the accepted cap boundary contract, so absorbing them after
+    // acceptance turns FaceEdge ownership into a stale cap-vs-cylinder
+    // adjacency and breaks strict edge/surface validation.
     protected_caps.extend(direct_apex_built_faces.iter().copied());
+    protected_caps.extend(exact_boundary_protected_support_faces(repair_report));
     sliver_absorb::run_and_route_warnings_with_protected(
         result,
         tolerance,
@@ -330,4 +334,24 @@ fn topology_repair_enabled(apex_boundary_context: bool) -> bool {
         Ok(value) => value != "0",
         Err(_) => apex_boundary_context,
     }
+}
+
+fn exact_boundary_protected_support_faces(
+    repair_report: &crate::types::BlendRepairReport,
+) -> Vec<popkern_core::topology::FaceHandle> {
+    repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| {
+            route.exact_boundary_report.candidate_status
+                == crate::types::ExactBoundaryCandidateOutcome::Accepted
+        })
+        .flat_map(|route| {
+            route
+                .exact_boundary_report
+                .sectors
+                .iter()
+                .flat_map(|sector| [sector.fillet_support_face, sector.bridge_support_face])
+        })
+        .collect()
 }
