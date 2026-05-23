@@ -87,6 +87,7 @@ pub struct StepRoundTripBodyReport {
     pub edges: usize,
     pub faces: usize,
     pub boundary_edges: usize,
+    pub boundary_edge_evidence: Vec<StepRoundTripBoundaryEdgeEvidence>,
     pub readiness: BrepExportReadiness,
     pub topology_blockers: usize,
     pub trim_blockers: usize,
@@ -99,6 +100,18 @@ pub struct StepRoundTripBodyReport {
     pub edge_surface_blockers: usize,
     pub max_edge_surface_deviation: f64,
     pub edge_surface_evidence: Vec<StepRoundTripEdgeSurfaceEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepRoundTripBoundaryEdgeEvidence {
+    pub edge: String,
+    pub half_edge: String,
+    pub loop_: Option<String>,
+    pub face: Option<String>,
+    pub edge_role: String,
+    pub face_role: Option<String>,
+    pub face_has_surface: bool,
+    pub has_curve: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -294,12 +307,27 @@ fn step_body_report(
     options: &StepRoundTripValidationOptions,
 ) -> StepRoundTripBodyReport {
     let quality = analyze_brep_export_quality(body, options.quality);
+    let artifact = popkern_core::topology::build_brep_export_quality_artifact(body, &quality);
     StepRoundTripBodyReport {
         index,
         vertices: body.vertices.len(),
         edges: body.edges.len(),
         faces: body.faces.len(),
         boundary_edges: body.boundary_edges.len(),
+        boundary_edge_evidence: artifact
+            .boundary_edges
+            .into_iter()
+            .map(|edge| StepRoundTripBoundaryEdgeEvidence {
+                edge: edge.edge,
+                half_edge: edge.half_edge,
+                loop_: edge.loop_,
+                face: edge.face,
+                edge_role: edge.edge_role,
+                face_role: edge.face_role,
+                face_has_surface: edge.face_has_surface,
+                has_curve: edge.has_curve,
+            })
+            .collect(),
         readiness: quality.readiness,
         topology_blockers: quality.topology_blockers,
         trim_blockers: quality.trim_blockers,
