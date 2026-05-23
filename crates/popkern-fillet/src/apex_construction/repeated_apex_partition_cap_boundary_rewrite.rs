@@ -256,18 +256,27 @@ impl CapBoundaryRewritePlan {
                 self.current_cap_cycle.clone(),
             );
         }
+        let mut fillet_end_cap_sides = std::collections::BTreeMap::new();
         let mut strip_side_overrides = std::collections::BTreeMap::new();
         for plan in topology_plans {
-            let cap_half_edge = match plan.seam_rewrite {
-                FilletEndSeamRewrite::ReuseCurrentTwinPair { cap_half_edge, .. }
-                | FilletEndSeamRewrite::ReauthorCapBoundaryAndCylinderSide {
-                    cap_half_edge, ..
-                } => cap_half_edge,
+            let (cap_side, strip_side) = match plan.seam_rewrite {
+                FilletEndSeamRewrite::ReuseCurrentTwinPair {
+                    cap_half_edge,
+                    current_cylinder_half_edge,
+                    ..
+                } => (cap_half_edge, current_cylinder_half_edge),
+                FilletEndSeamRewrite::ReauthorCapBoundaryAndCylinderSide {
+                    cap_half_edge,
+                    current_cylinder_half_edge,
+                    ..
+                } => (current_cylinder_half_edge, cap_half_edge),
             };
-            strip_side_overrides.insert(plan.fillet_index, cap_half_edge);
+            fillet_end_cap_sides.insert(plan.fillet_index, cap_side);
+            strip_side_overrides.insert(plan.fillet_index, strip_side);
         }
         PartitionBoundaryOutcome::from_reauthored_cap_cycle(
             self.reauthored_cap_cycle.clone(),
+            fillet_end_cap_sides,
             strip_side_overrides,
         )
     }

@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) struct PartitionBoundaryOutcome {
     pub(super) cap_cycle: Vec<HalfEdgeHandle>,
+    fillet_end_cap_sides: std::collections::BTreeMap<usize, HalfEdgeHandle>,
     strip_side_overrides: std::collections::BTreeMap<usize, HalfEdgeHandle>,
     strip_loop_overrides: std::collections::BTreeMap<usize, Vec<HalfEdgeHandle>>,
     existing_target_cylinder_strips: std::collections::BTreeSet<usize>,
@@ -11,6 +12,7 @@ impl PartitionBoundaryOutcome {
     pub(super) fn from_current_cap_cycle(cap_cycle: Vec<HalfEdgeHandle>) -> Self {
         Self {
             cap_cycle,
+            fillet_end_cap_sides: std::collections::BTreeMap::new(),
             strip_side_overrides: std::collections::BTreeMap::new(),
             strip_loop_overrides: std::collections::BTreeMap::new(),
             existing_target_cylinder_strips: std::collections::BTreeSet::new(),
@@ -19,10 +21,12 @@ impl PartitionBoundaryOutcome {
 
     pub(super) fn from_reauthored_cap_cycle(
         cap_cycle: Vec<HalfEdgeHandle>,
+        fillet_end_cap_sides: std::collections::BTreeMap<usize, HalfEdgeHandle>,
         strip_side_overrides: std::collections::BTreeMap<usize, HalfEdgeHandle>,
     ) -> Self {
         Self {
             cap_cycle,
+            fillet_end_cap_sides,
             strip_side_overrides,
             strip_loop_overrides: std::collections::BTreeMap::new(),
             existing_target_cylinder_strips: std::collections::BTreeSet::new(),
@@ -39,6 +43,10 @@ impl PartitionBoundaryOutcome {
 
     pub(super) fn strip_side_override(&self, fillet_index: usize) -> Option<HalfEdgeHandle> {
         self.strip_side_overrides.get(&fillet_index).copied()
+    }
+
+    pub(super) fn fillet_end_cap_side(&self, fillet_index: usize) -> Option<HalfEdgeHandle> {
+        self.fillet_end_cap_sides.get(&fillet_index).copied()
     }
 
     pub(super) fn strip_loop(
@@ -68,6 +76,12 @@ impl PartitionBoundaryOutcome {
             .map(|(fillet_index, half_edge)| format!("FilletEnd[{fillet_index}]={half_edge:?}"))
             .collect::<Vec<_>>()
             .join(", ");
+        let cap_sides = self
+            .fillet_end_cap_sides
+            .iter()
+            .map(|(fillet_index, half_edge)| format!("FilletEnd[{fillet_index}]={half_edge:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
         let strip_loops = self
             .strip_loop_overrides
             .iter()
@@ -82,8 +96,8 @@ impl PartitionBoundaryOutcome {
             .join(", ");
         format!(
             "selected cap_cycle={:?}; strip-side overrides=[{}]; strip-loop overrides=[{}]; \
-             existing target-cylinder strips=[{}]",
-            self.cap_cycle, overrides, strip_loops, existing_strips
+             fillet-end cap-sides=[{}]; existing target-cylinder strips=[{}]",
+            self.cap_cycle, overrides, strip_loops, cap_sides, existing_strips
         )
     }
 

@@ -204,6 +204,7 @@ fn materialized_cap_boundary_from_target_cylinder_replacements(
         .map(|replacement| (replacement.fillet_index, replacement))
         .collect::<std::collections::BTreeMap<_, _>>();
     let mut cap_cycle = Vec::with_capacity(2 * fillet_ends.len());
+    let mut fillet_end_cap_sides = std::collections::BTreeMap::new();
     let mut strip_side_overrides = std::collections::BTreeMap::new();
     for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
         let Some(replacement) = replacements_by_fillet.get(&fillet_end.fillet_index) else {
@@ -265,6 +266,7 @@ fn materialized_cap_boundary_from_target_cylinder_replacements(
         }
         cap_cycle.push(cap_side);
         cap_cycle.push(face_edge.face_edge_cap_half_edge);
+        fillet_end_cap_sides.insert(fillet_end.fillet_index, cap_side);
         strip_side_overrides.insert(fillet_end.fillet_index, opposite_side);
     }
     validate_half_edge_cycle(
@@ -275,6 +277,7 @@ fn materialized_cap_boundary_from_target_cylinder_replacements(
     )?;
     Ok(Some(PartitionBoundaryOutcome::from_reauthored_cap_cycle(
         cap_cycle,
+        fillet_end_cap_sides,
         strip_side_overrides,
     )))
 }

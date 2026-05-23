@@ -450,16 +450,17 @@ impl RepeatedApexPartitionPlan {
                 self.cap_face,
                 &boundary_outcome.cap_cycle,
             )?;
-            for (slot, fillet_end_edge) in fillet_end_edges.iter_mut().enumerate() {
-                let Some(cap_side) = boundary_outcome.cap_cycle.get(2 * slot).copied() else {
+            for (slot, ownership) in fillet_end_ownership.iter().enumerate() {
+                let Some(cap_side) = boundary_outcome.fillet_end_cap_side(ownership.fillet_index)
+                else {
                     continue;
                 };
-                if let Some(edge) = brep
+                let edge = brep
                     .half_edges
                     .get(cap_side)
-                    .map(|half_edge| half_edge.edge)
-                {
-                    *fillet_end_edge = edge;
+                    .map(|half_edge| half_edge.edge);
+                if let Some(edge) = edge {
+                    fillet_end_edges[slot] = edge;
                 }
             }
         }

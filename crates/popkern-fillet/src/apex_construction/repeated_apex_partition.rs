@@ -7,7 +7,7 @@
 //! cap-to-cylinder seam ownership before accepting.
 
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{CurveEval, CurveOnEdge, Point3};
 use popkern_core::topology::{
     BRep, EdgeHandle, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, SharedTrimEdgeInput,
