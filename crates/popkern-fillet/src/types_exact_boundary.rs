@@ -305,6 +305,8 @@ pub struct ExactBoundaryReportDiagnostic {
     pub support_face: Option<FaceHandle>,
     /// Measured residual, when available.
     pub residual: Option<f64>,
+    /// Local tolerance gate used by the diagnostic, when available.
+    pub tolerance: Option<f64>,
     /// Shared BRep repair knowledge facts that explain the source evidence.
     pub shared_fact_ids: Vec<usize>,
 }

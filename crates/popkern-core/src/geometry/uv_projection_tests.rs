@@ -17,6 +17,23 @@ fn plane_projection_round_trips() {
 }
 
 #[test]
+fn plane_projection_round_trips_non_orthogonal_axes() {
+    let surface = SurfaceGeometry::Plane {
+        origin: Point3::new(1.0, -2.0, 0.5),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(2.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.75, 1.5, 0.0),
+    };
+    let expected_u = 0.37;
+    let expected_v = -0.24;
+    let point = surface.point_at(expected_u, expected_v);
+    let (u, v) =
+        project_point_to_uv(&surface, &point).expect("non-orthogonal plane should project");
+    assert!((u - expected_u).abs() < 1e-10, "u={u}");
+    assert!((v - expected_v).abs() < 1e-10, "v={v}");
+}
+
+#[test]
 fn cylinder_point_at_r_0_h() {
     let surface = SurfaceGeometry::Cylinder {
         origin: Point3::new(0.0, 0.0, 0.0),

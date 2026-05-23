@@ -14,7 +14,6 @@ pub(super) struct PostBlendPipelineInputs<'a> {
     pub(super) corner_patches: &'a mut Vec<crate::types::CornerPatchInfo>,
     pub(super) repair_report: &'a mut crate::types::BlendRepairReport,
 }
-
 pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     let brep = inputs.source_brep;
     let result = inputs.result;
@@ -154,12 +153,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Phase 6c-D Stage 4.7: lift each apex-region pyramid Plane
-    // face to a curved NURBS surface that contains the substituted
-    // FaceEdge bridge.  Without this, the bridge sits 2-4 cm off
-    // the original plane, and the plane's pcurve refit can't close
-    // the cap-vs-twin G0 gap (every plane UV maps to a point on
-    // the plane, never to the off-plane bridge).
+    // Phase 6c-D Stage 4.7: lift legacy apex-region pyramid Plane
+    // faces to curved NURBS surfaces where late-wire jobs own the
+    // substituted bridge. Exact-boundary sectors keep their original
+    // production support faces; measured pcurve repair handles their
+    // export-readiness without broad support-face lifting.
     //
     // On by default since #207 cleanup.  Set
     // `POPKERN_APEX_FACE_LIFT=0` to disable for debugging.
@@ -167,38 +165,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         .map(|v| v != "0")
         .unwrap_or(true)
     {
-        let exact_boundary_bridge_jobs = repair_report
-            .apex_routes
-            .iter()
-            .flat_map(|route| {
-                route
-                    .exact_boundary_report
-                    .sectors
-                    .iter()
-                    .flat_map(|sector| {
-                        [
-                            (sector.support_half_edges[0], sector.fillet_end_edge),
-                            (sector.support_half_edges[1], sector.face_edge),
-                        ]
-                        .into_iter()
-                        .filter_map(|(support_half_edge, edge)| {
-                            let support_face = result
-                                .half_edges
-                                .get(support_half_edge)
-                                .and_then(|half_edge| result.loops.get(half_edge.loop_))
-                                .map(|loop_| loop_.face)?;
-                            Some((support_face, edge))
-                        })
-                    })
-            })
-            .collect::<Vec<_>>();
-        let lifted = apex_face_lift_support::lift_support_faces_for_bridge_edges(
-            result,
-            &exact_boundary_bridge_jobs,
-        );
-        if std::env::var_os("POPKERN_KP_TRACE").is_some() && lifted > 0 {
-            eprintln!("[apex-face-lift] lifted {lifted} direct-apex support faces");
-        }
         for (_boundary, sub_faces) in late_wire_jobs {
             let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
@@ -350,7 +316,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // fitted 3-D curve to remain coupled to support-side pcurves.
     result.normalize_semantic_line_edge_curves_preserving_pcurves(tolerance.linear().max(1.0e-8));
 
-    repair_exact_boundary_export_blockers(result, repair_report);
+    exact_boundary_export_repair::repair_exact_boundary_export_blockers(result, repair_report);
 }
 
 fn support_seam_relocation_enabled() -> bool {
@@ -363,132 +329,5 @@ fn topology_repair_enabled(apex_boundary_context: bool) -> bool {
     match std::env::var("POPKERN_TOPO_REPAIR") {
         Ok(value) => value != "0",
         Err(_) => apex_boundary_context,
-    }
-}
-
-fn repair_exact_boundary_export_blockers(
-    result: &mut BRep,
-    repair_report: &crate::types::BlendRepairReport,
-) {
-    let exact_boundary_committed = repair_report.apex_routes.iter().any(|route| {
-        route.exact_boundary_report.candidate_status
-            == crate::types::ExactBoundaryCandidateOutcome::Accepted
-    });
-    if !exact_boundary_committed {
-        return;
-    }
-    if let Ok(repaired) = popkern_core::topology::repair_brep_boundary_edges_transactionally(
-        result,
-        &[],
-        exact_boundary_export_repair_options(),
-    ) {
-        *result = repaired.brep;
-        result.repair_line_edge_curve_endpoint_coherence(1.0e-6);
-        if let Ok(edge_curves_completed) =
-            popkern_core::topology::complete_missing_edge_curves_transactionally(
-                result,
-                exact_boundary_edge_curve_completion_options(),
-            )
-        {
-            *result = edge_curves_completed.brep;
-        }
-        if let Ok(trim_repaired) =
-            popkern_core::topology::reconstruct_curve_backed_trims_transactionally(
-                result,
-                exact_boundary_post_surface_trim_options(),
-            )
-        {
-            *result = trim_repaired.brep;
-        }
-        result.fix_stale_pcurves();
-        pcurve_measured_repair::refit_measured_pcurve_blockers(result, 1.0e-6);
-        pcurve_measured_repair::repair_measured_plane_cylinder_pcurves(result, 1.0e-6);
-    }
-}
-
-fn exact_boundary_edge_curve_completion_options()
--> popkern_core::topology::BrepEdgeCurveCompletionOptions {
-    popkern_core::topology::BrepEdgeCurveCompletionOptions {
-        tolerance: 1e-6,
-        samples: 9,
-        allow_vertex_segments_without_surface: true,
-        require_all_completed: false,
-        validate_output: false,
-    }
-}
-
-fn exact_boundary_export_repair_options() -> popkern_core::topology::BrepRepairPipelineOptions {
-    let clean_sewing = popkern_core::topology::BrepSewingOptions {
-        tolerance: 1e-6,
-        samples: 5,
-        require_surface_agreement: false,
-        validate_output: false,
-        allow_nonmanifold_edges: false,
-    };
-    popkern_core::topology::BrepRepairPipelineOptions {
-        classification: popkern_core::topology::BrepSewingClassificationOptions {
-            exact_tolerance: 1e-9,
-            snap_tolerance: 1e-6,
-            samples: 5,
-            require_surface_agreement: false,
-            allow_nonmanifold_edges: false,
-        },
-        snap_sewing: popkern_core::topology::BrepSnapSewingOptions {
-            max_vertex_motion: 1e-6,
-            clean_sewing,
-        },
-        trim_repair: popkern_core::topology::BrepTrimRepairOptions {
-            endpoint_tolerance: 1e-6,
-            sampled_tolerance: 1e-6,
-            samples: 9,
-            validate_output: false,
-        },
-        edge_curve_completion: popkern_core::topology::BrepEdgeCurveCompletionOptions {
-            tolerance: 1e-6,
-            samples: 9,
-            allow_vertex_segments_without_surface: true,
-            require_all_completed: false,
-            validate_output: false,
-        },
-        curve_trim_reconstruction: popkern_core::topology::BrepCurveTrimReconstructionOptions {
-            tolerance: 1e-6,
-            samples: 9,
-            replace_existing: false,
-            replace_stale_existing: true,
-            expand_bounded_surface_domains: true,
-            require_all_reconstructed: false,
-            validate_output: false,
-        },
-        edge_surface_compatibility: popkern_core::topology::BrepEdgeSurfaceCompatibilityOptions {
-            tolerance: 1e-6,
-            max_anchor_motion: 0.06,
-            samples: 9,
-            require_all_compatible: false,
-            validate_output: false,
-        },
-        degenerate_edges: popkern_core::topology::BrepDegenerateEdgeOptions {
-            tolerance: 1e-6,
-            samples: 9,
-        },
-        require_all_pairs_repaired: true,
-        complete_edge_curves: false,
-        reconstruct_curve_trims: true,
-        repair_edge_surfaces: true,
-        repair_trims: false,
-        diagnose_loop_shell: false,
-        topology_output: popkern_core::topology::BrepTopologyOutputPolicy::OpenSheet,
-    }
-}
-
-fn exact_boundary_post_surface_trim_options()
--> popkern_core::topology::BrepCurveTrimReconstructionOptions {
-    popkern_core::topology::BrepCurveTrimReconstructionOptions {
-        tolerance: 1e-6,
-        samples: 9,
-        replace_existing: true,
-        replace_stale_existing: true,
-        expand_bounded_surface_domains: true,
-        require_all_reconstructed: false,
-        validate_output: false,
     }
 }

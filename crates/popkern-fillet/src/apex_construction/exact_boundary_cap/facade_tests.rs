@@ -117,6 +117,7 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
     );
     assert!(report.provenance.topology_rollback_performed);
     assert_eq!(report.diagnostics[0].schema_version, 1);
+    assert_eq!(report.diagnostics[0].tolerance, None);
     assert_eq!(
         report.tolerance_evidence.deterministic_skip_code.as_deref(),
         Some("exact_boundary_cap.ribbon.support_pcurve_stale")

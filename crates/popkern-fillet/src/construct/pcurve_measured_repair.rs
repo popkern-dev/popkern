@@ -1,9 +1,10 @@
 //! Measured pcurve repair for late export-readiness gates.
 
-use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::edge_triple::{EdgeAnchors, EdgeTripleOptions, compute_edge_geometry};
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{Point3, pcurve::Pcurve};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
@@ -36,40 +37,205 @@ pub(crate) fn refit_measured_pcurve_blockers(brep: &mut BRep, tolerance: f64) ->
         let curve_start = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
         let curve_end = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
         let forward = origin.distance_to(&curve_start) <= origin.distance_to(&curve_end);
-        let Some(new_pcurve) = reparameterize_existing_pcurve_trace(
+        let previous = brep.half_edges[half_edge].pcurve.clone();
+        let candidates =
+            pcurve_repair_candidates(brep, half_edge, &curve_on_edge, &surface, forward);
+        if commit_first_accepted_pcurve_candidate(
             brep,
             half_edge,
-            &curve_on_edge,
-            &surface,
-            forward,
-            257,
-        )
-        .or_else(|| {
-            fit_pcurve_for_half_edge(
-                &curve_on_edge.geometry,
-                curve_on_edge.t_start,
-                curve_on_edge.t_end,
-                &surface,
-                forward,
-                257,
-            )
-        }) else {
-            continue;
-        };
-        let previous = brep.half_edges[half_edge].pcurve.clone();
-        brep.half_edges[half_edge].pcurve = Some(new_pcurve.into());
-        let accepted = brep
-            .measure_half_edge_pcurve_deviation(half_edge)
-            .is_some_and(|report| {
-                report.max_deviation <= tolerance && report.max_deviation < current.max_deviation
-            });
-        if accepted {
+            previous.clone(),
+            candidates.into_iter(),
+            tolerance,
+            current.max_deviation,
+        ) {
             repaired += 1;
         } else {
             brep.half_edges[half_edge].pcurve = previous;
         }
     }
     repaired
+}
+
+fn pcurve_repair_candidates(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+    forward: bool,
+) -> Vec<Pcurve> {
+    let mut candidates = Vec::new();
+    if let Some(linear) = projected_vertex_line_pcurve(brep, half_edge, curve_on_edge, surface) {
+        candidates.push(linear);
+    }
+    if let Some(linear) = closest_point_vertex_line_pcurve(brep, half_edge, curve_on_edge, surface)
+    {
+        candidates.push(linear);
+    }
+    if let Some(linear) = projected_line_pcurve(curve_on_edge, surface, forward) {
+        candidates.push(linear);
+    }
+    if let Some(linear) = closest_point_line_pcurve(curve_on_edge, surface, forward) {
+        candidates.push(linear);
+    }
+    if let Some(pcurve) = fit_closest_point_pcurve(curve_on_edge, surface, forward, 2049) {
+        candidates.push(pcurve);
+    }
+    candidates.extend(
+        [
+            reparameterize_existing_pcurve_trace(
+                brep,
+                half_edge,
+                curve_on_edge,
+                surface,
+                forward,
+                2049,
+            )
+            .map(Pcurve::from),
+            fit_pcurve_for_half_edge(
+                &curve_on_edge.geometry,
+                curve_on_edge.t_start,
+                curve_on_edge.t_end,
+                surface,
+                forward,
+                2049,
+            )
+            .map(Pcurve::from),
+        ]
+        .into_iter()
+        .flatten(),
+    );
+    candidates
+}
+
+fn projected_vertex_line_pcurve(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+) -> Option<Pcurve> {
+    if !matches!(curve_on_edge.geometry, CurveGeometry::Line { .. }) {
+        return None;
+    }
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let start = brep.vertices.get(half_edge_data.origin)?.position;
+    let end = brep
+        .vertices
+        .get(brep.half_edges.get(half_edge_data.next)?.origin)?
+        .position;
+    let start_uv = project_point_to_uv(surface, &start)?;
+    let end_uv = project_point_to_uv(surface, &end)?;
+    Some(Pcurve::linear(start_uv, end_uv, 0.0, 1.0))
+}
+
+fn closest_point_vertex_line_pcurve(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+) -> Option<Pcurve> {
+    if !matches!(curve_on_edge.geometry, CurveGeometry::Line { .. }) {
+        return None;
+    }
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let start = brep.vertices.get(half_edge_data.origin)?.position;
+    let end = brep
+        .vertices
+        .get(brep.half_edges.get(half_edge_data.next)?.origin)?
+        .position;
+    let start_uv = surface.closest_point(&start)?;
+    let end_uv = surface.closest_point(&end)?;
+    Some(Pcurve::linear(start_uv, end_uv, 0.0, 1.0))
+}
+
+fn projected_line_pcurve(
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+    forward: bool,
+) -> Option<Pcurve> {
+    if !matches!(curve_on_edge.geometry, CurveGeometry::Line { .. }) {
+        return None;
+    }
+    let start = curve_on_edge.geometry.point_at(if forward {
+        curve_on_edge.t_start
+    } else {
+        curve_on_edge.t_end
+    });
+    let end = curve_on_edge.geometry.point_at(if forward {
+        curve_on_edge.t_end
+    } else {
+        curve_on_edge.t_start
+    });
+    let start_uv = project_point_to_uv(surface, &start)?;
+    let end_uv = project_point_to_uv(surface, &end)?;
+    Some(Pcurve::linear(start_uv, end_uv, 0.0, 1.0))
+}
+
+fn closest_point_line_pcurve(
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+    forward: bool,
+) -> Option<Pcurve> {
+    if !matches!(curve_on_edge.geometry, CurveGeometry::Line { .. }) {
+        return None;
+    }
+    let start = curve_on_edge.geometry.point_at(if forward {
+        curve_on_edge.t_start
+    } else {
+        curve_on_edge.t_end
+    });
+    let end = curve_on_edge.geometry.point_at(if forward {
+        curve_on_edge.t_end
+    } else {
+        curve_on_edge.t_start
+    });
+    let start_uv = surface.closest_point(&start)?;
+    let end_uv = surface.closest_point(&end)?;
+    Some(Pcurve::linear(start_uv, end_uv, 0.0, 1.0))
+}
+
+fn fit_closest_point_pcurve(
+    curve_on_edge: &CurveOnEdge,
+    surface: &SurfaceGeometry,
+    forward: bool,
+    samples: usize,
+) -> Option<Pcurve> {
+    let samples = samples.max(2);
+    let mut points = Vec::with_capacity(samples);
+    let mut params = Vec::with_capacity(samples);
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let curve_fraction = if forward { fraction } else { 1.0 - fraction };
+        let curve_t =
+            curve_on_edge.t_start + (curve_on_edge.t_end - curve_on_edge.t_start) * curve_fraction;
+        let point = curve_on_edge.geometry.point_at(curve_t);
+        let (u, v) = surface.closest_point(&point)?;
+        points.push(Point3::new(u, v, 0.0));
+        params.push(fraction);
+    }
+    polyline_uv_curve(&points, &params).map(Pcurve::from)
+}
+
+fn commit_first_accepted_pcurve_candidate(
+    brep: &mut BRep,
+    half_edge: HalfEdgeHandle,
+    previous: Option<Pcurve>,
+    candidates: impl Iterator<Item = Pcurve>,
+    tolerance: f64,
+    current_max_deviation: f64,
+) -> bool {
+    for candidate in candidates {
+        brep.half_edges[half_edge].pcurve = Some(candidate);
+        if brep
+            .measure_half_edge_pcurve_deviation(half_edge)
+            .is_some_and(|report| {
+                report.max_deviation <= tolerance && report.max_deviation < current_max_deviation
+            })
+        {
+            return true;
+        }
+    }
+    brep.half_edges[half_edge].pcurve = previous;
+    false
 }
 
 pub(crate) fn repair_measured_plane_cylinder_pcurves(brep: &mut BRep, tolerance: f64) -> usize {

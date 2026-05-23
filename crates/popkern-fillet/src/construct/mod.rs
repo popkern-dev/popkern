@@ -1,8 +1,6 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
 
 mod apex_face_lift;
-mod apex_face_lift_boundary_curves;
-mod apex_face_lift_support;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_topo;
@@ -14,6 +12,7 @@ pub(crate) mod closed_fillet;
 pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
+mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
 /// Re-export of the late-pipeline clamp pass for use by `fillet_edges`
 /// after `fix_stale_pcurves` has run.
@@ -49,6 +48,7 @@ mod route_decision;
 mod sliver_absorb;
 mod sliver_absorb_classifiers;
 mod sphere_fit_edge_wire;
+mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
