@@ -121,6 +121,12 @@ fn export_quality_artifact_lists_boundary_edges_deterministically() {
             .all(|pair| pair[0].edge <= pair[1].edge)
     );
     assert!(artifact.boundary_edges.iter().all(|edge| !edge.has_curve));
+    assert!(artifact.boundary_edges.iter().all(|edge| {
+        edge.edge_role == "Production"
+            && edge.face_role.as_deref() == Some("Production")
+            && edge.loop_.is_some()
+            && edge.face.is_some()
+    }));
     assert_eq!(artifact.blockers.topology, 0);
     assert_eq!(artifact.blockers.trims, 0);
     assert_eq!(artifact.blockers.pcurves, 0);

@@ -142,6 +142,18 @@ pub struct BrepExportQualitySummary {
 pub struct BrepBoundaryEdgeArtifact {
     /// Stable debug handle string.
     pub edge: String,
+    /// Stable debug half-edge handle for the surviving boundary side.
+    pub half_edge: String,
+    /// Stable debug loop handle that owns the surviving boundary side.
+    pub loop_: Option<String>,
+    /// Stable debug face handle that owns the surviving boundary side.
+    pub face: Option<String>,
+    /// Semantic role of the boundary edge.
+    pub edge_role: String,
+    /// Semantic role of the owner face, when known.
+    pub face_role: Option<String>,
+    /// Whether the owner face carries surface geometry.
+    pub face_has_surface: bool,
     /// Start point.
     pub start: [f64; 3],
     /// End point.
@@ -283,14 +295,26 @@ pub fn build_brep_export_quality_artifact(
         .iter()
         .filter_map(|&edge| {
             let (start, end) = edge_segment(brep, edge)?;
+            let edge_data = brep.edges.get(edge)?;
+            let half_edge = brep.half_edges.get(edge_data.half_edge)?;
+            let loop_ = (half_edge.loop_ != crate::topology::LoopHandle::default())
+                .then(|| format!("{:?}", half_edge.loop_));
+            let face = brep
+                .loops
+                .get(half_edge.loop_)
+                .map(|loop_data| loop_data.face);
+            let face_data = face.and_then(|face| brep.faces.get(face));
             Some(BrepBoundaryEdgeArtifact {
                 edge: format!("{edge:?}"),
+                half_edge: format!("{:?}", edge_data.half_edge),
+                loop_,
+                face: face.map(|face| format!("{face:?}")),
+                edge_role: format!("{:?}", edge_data.role),
+                face_role: face_data.map(|face| format!("{:?}", face.role)),
+                face_has_surface: face_data.is_some_and(|face| face.surface.is_some()),
                 start: [start.x, start.y, start.z],
                 end: [end.x, end.y, end.z],
-                has_curve: brep
-                    .edges
-                    .get(edge)
-                    .is_some_and(|edge| edge.curve.is_some()),
+                has_curve: edge_data.curve.is_some(),
             })
         })
         .collect();
