@@ -111,6 +111,8 @@ pub struct StepRoundTripBoundaryEdgeEvidence {
     pub edge_role: String,
     pub face_role: Option<String>,
     pub face_has_surface: bool,
+    pub start: [f64; 3],
+    pub end: [f64; 3],
     pub has_curve: bool,
 }
 
@@ -325,6 +327,8 @@ fn step_body_report(
                 edge_role: edge.edge_role,
                 face_role: edge.face_role,
                 face_has_surface: edge.face_has_surface,
+                start: edge.start,
+                end: edge.end,
                 has_curve: edge.has_curve,
             })
             .collect(),
