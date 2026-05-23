@@ -5,14 +5,14 @@ mod side_support_bridge_path_patch;
 
 use super::*;
 use side_support_bridge_path_patch::{
-    SideSupportBridgePathPatchRequest, author_side_support_bridge_path_patch_for_cylinder_trim,
-    trace_side_support_bridge_claim_miss,
+    SideSupportBridgePathPatch, SideSupportBridgePathPatchRequest,
+    author_side_support_bridge_path_patch_for_cylinder_trim, trace_side_support_bridge_claim_miss,
 };
 
 pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
     brep: &mut BRep,
     request: SideSupportBridgeTrimClaimRequest<'_>,
-) -> Result<Option<(HalfEdgeHandle, FaceHandle)>, ApexBuildError> {
+) -> Result<Option<SideSupportBridgeClaim>, ApexBuildError> {
     let SideSupportBridgeTrimClaimRequest {
         support_face,
         bridge_loops,
@@ -50,7 +50,7 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
                 fillet_index,
             },
         )? {
-            return Ok(Some(result));
+            return Ok(Some(SideSupportBridgeClaim::from_path_patch(result)));
         }
         trace_side_support_bridge_claim_miss(brep, bridge_loops, start, end, label, fillet_index);
         return Ok(None);
@@ -96,12 +96,32 @@ pub(super) fn claim_side_support_bridge_boundary_for_cylinder_trim(
                  side {half_edge:?}, support side {support_half_edge:?}"
             );
         }
-        Ok((half_edge, bridge_face))
+        Ok(SideSupportBridgeClaim {
+            half_edge,
+            support_face: bridge_face,
+            authored_boundary_spans: Vec::new(),
+        })
     })();
     if result.is_err() {
         *brep = rollback;
     }
     result.map(Some)
+}
+
+pub(super) struct SideSupportBridgeClaim {
+    pub(super) half_edge: HalfEdgeHandle,
+    pub(super) support_face: FaceHandle,
+    pub(super) authored_boundary_spans: Vec<HalfEdgeHandle>,
+}
+
+impl SideSupportBridgeClaim {
+    fn from_path_patch(patch: SideSupportBridgePathPatch) -> Self {
+        Self {
+            half_edge: patch.cylinder_half_edge,
+            support_face: patch.support_patch_face,
+            authored_boundary_spans: patch.boundary_spans,
+        }
+    }
 }
 
 pub(super) struct SideSupportBridgeTrimClaimRequest<'a> {

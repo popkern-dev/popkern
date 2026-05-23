@@ -191,7 +191,8 @@ use partition_support_intersections::{
     plane_plane_cylinder_joint_points, support_plane_faces_containing_point,
 };
 use partition_support_loop_rewrite::{
-    materialize_closed_support_trim_cycles, repair_support_source_loops_after_cylinder_rewire,
+    materialize_authored_support_boundary_residual_cycles, materialize_closed_support_trim_cycles,
+    repair_support_source_loops_after_cylinder_rewire,
 };
 use partition_support_owners::{
     GeneratorTrimSupportOwnerQuery, support_face_for_generator_trim_side,

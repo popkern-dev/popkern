@@ -85,21 +85,22 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
     )
     .expect("nondegenerate trim curve");
 
-    let (cylinder_half_edge, support_patch_face) =
-        author_side_support_bridge_path_patch_for_cylinder_trim(
-            &mut brep,
-            SideSupportBridgePathPatchRequest {
-                support_face,
-                bridge_loops: &[first_loop, second_loop],
-                start: vertices[0],
-                end: vertices[2],
-                curve,
-                label: "test generator",
-                fillet_index: 0,
-            },
-        )
-        .expect("patch authoring succeeds")
-        .expect("path patch applies");
+    let patch = author_side_support_bridge_path_patch_for_cylinder_trim(
+        &mut brep,
+        SideSupportBridgePathPatchRequest {
+            support_face,
+            bridge_loops: &[first_loop, second_loop],
+            start: vertices[0],
+            end: vertices[2],
+            curve,
+            label: "test generator",
+            fillet_index: 0,
+        },
+    )
+    .expect("patch authoring succeeds")
+    .expect("path patch applies");
+    let cylinder_half_edge = patch.cylinder_half_edge;
+    let support_patch_face = patch.support_patch_face;
 
     let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
     let support_loop = brep.half_edges[support_half_edge].loop_;
@@ -119,6 +120,13 @@ fn bridge_path_patch_authors_support_owned_trim_without_rewiring_source_loops() 
     assert_eq!(
         collect_loop_half_edges(&brep, second_loop).expect("second loop after"),
         second_loop_before
+    );
+    assert_eq!(patch.boundary_spans.len(), 2);
+    assert!(
+        patch
+            .boundary_spans
+            .iter()
+            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,
@@ -164,21 +172,22 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
     )
     .expect("nondegenerate trim curve");
 
-    let (cylinder_half_edge, support_patch_face) =
-        author_side_support_bridge_path_patch_for_cylinder_trim(
-            &mut brep,
-            SideSupportBridgePathPatchRequest {
-                support_face,
-                bridge_loops: &[bridge_loop],
-                start: vertices[0],
-                end: vertices[1],
-                curve,
-                label: "single span generator",
-                fillet_index: 0,
-            },
-        )
-        .expect("patch authoring succeeds")
-        .expect("single span path patch applies");
+    let patch = author_side_support_bridge_path_patch_for_cylinder_trim(
+        &mut brep,
+        SideSupportBridgePathPatchRequest {
+            support_face,
+            bridge_loops: &[bridge_loop],
+            start: vertices[0],
+            end: vertices[1],
+            curve,
+            label: "single span generator",
+            fillet_index: 0,
+        },
+    )
+    .expect("patch authoring succeeds")
+    .expect("single span path patch applies");
+    let cylinder_half_edge = patch.cylinder_half_edge;
+    let support_patch_face = patch.support_patch_face;
 
     let support_half_edge = brep.half_edges[cylinder_half_edge].twin;
     assert_eq!(
@@ -196,6 +205,13 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
     assert_eq!(
         collect_loop_half_edges(&brep, bridge_loop).expect("bridge loop after"),
         bridge_loop_before
+    );
+    assert_eq!(patch.boundary_spans.len(), 1);
+    assert!(
+        patch
+            .boundary_spans
+            .iter()
+            .all(|span| brep.boundary_edges.contains(&brep.half_edges[*span].edge))
     );
     validate_replacement_loop_support_side_ownership(
         &brep,

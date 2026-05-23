@@ -8,6 +8,7 @@ pub(super) struct SupportOwnedTrimSide {
     pub(super) half_edge: HalfEdgeHandle,
     pub(super) support_side_owned: bool,
     pub(super) support_source: Option<SupportOwnedTrimSource>,
+    pub(super) authored_boundary_spans: Vec<HalfEdgeHandle>,
     pub(super) requires_support_ownership: bool,
 }
 

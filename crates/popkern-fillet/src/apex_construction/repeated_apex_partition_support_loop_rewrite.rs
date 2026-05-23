@@ -1,5 +1,11 @@
 use super::*;
 
+#[path = "repeated_apex_partition_support_loop_residual.rs"]
+mod support_loop_residual;
+
+pub(super) use support_loop_residual::materialize_authored_support_boundary_residual_cycles;
+use support_loop_residual::materialize_support_boundary_residual_cycles;
+
 pub(super) fn materialize_closed_support_trim_cycles(
     brep: &mut BRep,
     face_edges: &[FaceEdgeOwnership],
@@ -410,99 +416,6 @@ fn retire_consumed_support_source_loops(
         }
     }
     Ok(())
-}
-
-fn materialize_support_boundary_residual_cycles(
-    brep: &mut BRep,
-    boundary_spans: &[HalfEdgeHandle],
-) -> Result<(), ApexBuildError> {
-    let boundary_spans = boundary_spans
-        .iter()
-        .copied()
-        .collect::<std::collections::BTreeSet<_>>();
-    if boundary_spans.is_empty() {
-        return Ok(());
-    }
-    let rollback = brep.clone();
-    let result =
-        (|| {
-            let mut residual_sides = Vec::new();
-            let mut template_face = None;
-            for half_edge in boundary_spans {
-                let half_edge_data = brep.half_edges.get(half_edge).cloned().ok_or_else(|| {
-                    ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "planned repeated-apex partition cannot close support boundary \
-                             residual for stale half-edge {half_edge:?}"
-                        ),
-                    }
-                })?;
-                if !brep.boundary_edges.contains(&half_edge_data.edge)
-                    || brep.half_edges.contains_key(half_edge_data.twin)
-                {
-                    continue;
-                }
-                template_face = template_face.or_else(|| {
-                    brep.loops
-                        .get(half_edge_data.loop_)
-                        .map(|loop_data| loop_data.face)
-                });
-                let residual_origin = support_split_half_edge_end_vertex(brep, half_edge)
-                    .ok_or_else(|| ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "planned repeated-apex partition cannot close support boundary \
-                             residual for {half_edge:?}: missing endpoint"
-                        ),
-                    })?;
-                let residual = brep.half_edges.insert(HalfEdge {
-                    origin: residual_origin,
-                    twin: half_edge,
-                    next: HalfEdgeHandle::default(),
-                    prev: HalfEdgeHandle::default(),
-                    edge: half_edge_data.edge,
-                    loop_: LoopHandle::default(),
-                    pcurve: None,
-                });
-                brep.half_edges[half_edge].twin = residual;
-                brep.boundary_edges.remove(&half_edge_data.edge);
-                residual_sides.push(residual);
-            }
-            if residual_sides.is_empty() {
-                return Ok(());
-            }
-            let cycles = closed_half_edge_cycles_from_unwired_set(brep, &residual_sides);
-            if cycles.is_empty() {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition cannot close support boundary residual \
-                     ownership: residual sides {:?} did not form closed cycles; {}",
-                        residual_sides,
-                        support_cycle_open_chain_diagnostic(brep, &residual_sides)
-                    ),
-                });
-            }
-            let template_face = template_face.ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: "planned repeated-apex partition cannot close support boundary residual \
-                     ownership without a template face"
-                    .to_string(),
-            })?;
-            for cycle in cycles {
-                validate_half_edge_cycle(
-                    brep,
-                    &cycle,
-                    "support boundary residual cycle",
-                    template_face,
-                )?;
-                let residual_face = insert_face_with_outer_loop(brep, template_face, &cycle)?;
-                brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
-                brep.faces[residual_face].surface = None;
-            }
-            Ok(())
-        })();
-    if result.is_err() {
-        *brep = rollback;
-    }
-    result
 }
 
 fn trace_topology_counts(brep: &BRep, label: &'static str) {

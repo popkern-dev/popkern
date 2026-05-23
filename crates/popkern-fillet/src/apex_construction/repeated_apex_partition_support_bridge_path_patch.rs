@@ -14,10 +14,16 @@ pub(super) struct SideSupportBridgePathPatchRequest<'a> {
     pub(super) fillet_index: usize,
 }
 
+pub(super) struct SideSupportBridgePathPatch {
+    pub(super) cylinder_half_edge: HalfEdgeHandle,
+    pub(super) support_patch_face: FaceHandle,
+    pub(super) boundary_spans: Vec<HalfEdgeHandle>,
+}
+
 pub(super) fn author_side_support_bridge_path_patch_for_cylinder_trim(
     brep: &mut BRep,
     request: SideSupportBridgePathPatchRequest<'_>,
-) -> Result<Option<(HalfEdgeHandle, FaceHandle)>, ApexBuildError> {
+) -> Result<Option<SideSupportBridgePathPatch>, ApexBuildError> {
     let SideSupportBridgePathPatchRequest {
         support_face,
         bridge_loops,
@@ -82,7 +88,11 @@ pub(super) fn author_side_support_bridge_path_patch_for_cylinder_trim(
                  path [{path_label}]"
             );
         }
-        Ok((cylinder_half_edge, support_patch_face))
+        Ok(SideSupportBridgePathPatch {
+            cylinder_half_edge,
+            support_patch_face,
+            boundary_spans: loop_half_edges[1..].to_vec(),
+        })
     })();
     if result.is_err() {
         *brep = rollback;

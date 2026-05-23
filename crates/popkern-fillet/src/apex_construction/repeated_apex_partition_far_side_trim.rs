@@ -18,19 +18,24 @@ pub(super) fn materialized_far_side_trim_sides(
         fillet_index,
         allowed_support_faces,
     ) {
-        let (half_edge, actual_support_face, support_side_owned, support_source) =
-            materialized_generator_trim_side(
-                brep,
-                GeneratorTrimMaterializationRequest {
-                    cylinder_face,
-                    support_face,
-                    start,
-                    end,
-                    label,
-                    fillet_index,
-                    side_support_bridge_loops: &[],
-                },
-            )?;
+        let (
+            half_edge,
+            actual_support_face,
+            support_side_owned,
+            support_source,
+            authored_boundary_spans,
+        ) = materialized_generator_trim_side(
+            brep,
+            GeneratorTrimMaterializationRequest {
+                cylinder_face,
+                support_face,
+                start,
+                end,
+                label,
+                fillet_index,
+                side_support_bridge_loops: &[],
+            },
+        )?;
         return Ok(vec![SupportOwnedTrimSide {
             cylinder_face,
             support_face: actual_support_face,
@@ -38,6 +43,7 @@ pub(super) fn materialized_far_side_trim_sides(
             half_edge,
             support_side_owned,
             support_source,
+            authored_boundary_spans,
             requires_support_ownership: true,
         }]);
     }
@@ -60,6 +66,7 @@ pub(super) fn materialized_far_side_trim_sides(
                         half_edge,
                         support_side_owned: false,
                         support_source: None,
+                        authored_boundary_spans: Vec::new(),
                         requires_support_ownership: true,
                     }]);
                 }
@@ -152,6 +159,7 @@ pub(super) fn materialized_far_side_trim_sides(
                         half_edge: half_edge_a,
                         support_side_owned: false,
                         support_source: None,
+                        authored_boundary_spans: Vec::new(),
                         requires_support_ownership: true,
                     },
                     SupportOwnedTrimSide {
@@ -161,6 +169,7 @@ pub(super) fn materialized_far_side_trim_sides(
                         half_edge: half_edge_b,
                         support_side_owned: false,
                         support_source: None,
+                        authored_boundary_spans: Vec::new(),
                         requires_support_ownership: true,
                     },
                 ]);
@@ -210,6 +219,7 @@ pub(super) fn materialized_far_side_trim_sides(
             half_edge,
             support_side_owned: false,
             support_source: None,
+            authored_boundary_spans: Vec::new(),
             requires_support_ownership: false,
         }]);
     }

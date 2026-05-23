@@ -31,6 +31,8 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     let support_ownership_already_materialized = request.support_ownership_already_materialized;
 
     let mut all_support_owned_trim_sides = Vec::new();
+    let mut residual_boundary_spans = Vec::new();
+    let mut existing_residual_sides = Vec::new();
     let mut pending_cylinder_loop_replacements = Vec::new();
     if crate::direct_apex_trace::enabled() && !side_support_bridge_loops.is_empty() {
         eprintln!(
@@ -65,6 +67,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                     segment.end,
                     reuse_shared_cap_cylinder_seam,
                 )?;
+                push_if_boundary_span(brep, half_edge, &mut residual_boundary_spans);
                 cycle.push(half_edge);
             } else if segment.label.contains("far-side") {
                 let trim_sides = if let Some(trim_sides) = pre_materialized_trim_sides(
@@ -86,6 +89,22 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                         &allowed_support_faces,
                     )?
                 };
+                for trim_side in &trim_sides {
+                    if !trim_side.requires_support_ownership {
+                        push_if_boundary_span(
+                            brep,
+                            trim_side.half_edge,
+                            &mut residual_boundary_spans,
+                        );
+                        push_if_unwired_residual_twin(
+                            brep,
+                            trim_side.half_edge,
+                            &mut existing_residual_sides,
+                        );
+                    }
+                    residual_boundary_spans
+                        .extend(trim_side.authored_boundary_spans.iter().copied());
+                }
                 support_owned_trim_sides.extend(trim_sides.iter().cloned());
                 cycle.extend(trim_sides.iter().map(|trim_side| trim_side.half_edge));
             } else {
@@ -110,19 +129,25 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                         allowed_support_faces: &allowed_planned_support,
                     },
                 )?;
-                let (half_edge, actual_support_face, support_side_owned, support_source) =
-                    materialized_generator_trim_side(
-                        brep,
-                        GeneratorTrimMaterializationRequest {
-                            cylinder_face: rebuild_plan.cylinder_face,
-                            support_face,
-                            start: segment.start,
-                            end: segment.end,
-                            label: segment.label,
-                            fillet_index: rebuild_plan.fillet_index,
-                            side_support_bridge_loops,
-                        },
-                    )?;
+                let (
+                    half_edge,
+                    actual_support_face,
+                    support_side_owned,
+                    support_source,
+                    authored_boundary_spans,
+                ) = materialized_generator_trim_side(
+                    brep,
+                    GeneratorTrimMaterializationRequest {
+                        cylinder_face: rebuild_plan.cylinder_face,
+                        support_face,
+                        start: segment.start,
+                        end: segment.end,
+                        label: segment.label,
+                        fillet_index: rebuild_plan.fillet_index,
+                        side_support_bridge_loops,
+                    },
+                )?;
+                residual_boundary_spans.extend(authored_boundary_spans.iter().copied());
                 cycle.push(half_edge);
                 support_owned_trim_sides.push(SupportOwnedTrimSide {
                     cylinder_face: topology_plan.cylinder_face,
@@ -131,6 +156,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                     half_edge,
                     support_side_owned,
                     support_source,
+                    authored_boundary_spans,
                     requires_support_ownership: true,
                 });
             }
@@ -187,10 +213,14 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             );
         }
     }
-    materialize_cylinder_only_residual_cycles(brep, cap_face, &all_support_owned_trim_sides)?;
     if !support_ownership_already_materialized {
         materialize_closed_support_trim_cycles(brep, face_edges, &all_support_owned_trim_sides)?;
     }
+    materialize_authored_support_boundary_residual_cycles(
+        brep,
+        &residual_boundary_spans,
+        &existing_residual_sides,
+    )?;
     for trim_side in all_support_owned_trim_sides {
         if !trim_side.requires_support_ownership {
             continue;
@@ -205,51 +235,40 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
     Ok(pending_cylinder_loop_replacements)
 }
 
-fn materialize_cylinder_only_residual_cycles(
-    brep: &mut BRep,
-    template_face: FaceHandle,
-    trim_sides: &[SupportOwnedTrimSide],
-) -> Result<(), ApexBuildError> {
-    let residual_sides = trim_sides
-        .iter()
-        .filter(|trim_side| !trim_side.requires_support_ownership)
-        .map(|trim_side| {
-            brep.half_edges
-                .get(trim_side.half_edge)
-                .map(|half_edge| half_edge.twin)
-                .ok_or_else(|| ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition FilletEnd[{}] cylinder-only far-side \
-                         trim {:?} has no residual twin",
-                        trim_side.fillet_index, trim_side.half_edge
-                    ),
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    if residual_sides.is_empty() {
-        return Ok(());
+fn push_if_boundary_span(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    boundary_spans: &mut Vec<HalfEdgeHandle>,
+) {
+    let Some(edge) = brep
+        .half_edges
+        .get(half_edge)
+        .map(|half_edge| half_edge.edge)
+    else {
+        return;
+    };
+    if brep.boundary_edges.contains(&edge) {
+        boundary_spans.push(half_edge);
     }
-    let cycles = closed_half_edge_cycles_from_unwired_set(brep, &residual_sides);
-    if cycles.len() != 1 {
-        return Err(ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition cannot close cylinder-only far-side residual \
-                 ownership: residual sides {:?} produced {} closed cycle(s); {}",
-                residual_sides,
-                cycles.len(),
-                support_cycle_open_chain_diagnostic(brep, &residual_sides)
-            ),
-        });
+}
+
+fn push_if_unwired_residual_twin(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    residual_sides: &mut Vec<HalfEdgeHandle>,
+) {
+    let Some(twin) = brep
+        .half_edges
+        .get(half_edge)
+        .map(|half_edge| half_edge.twin)
+    else {
+        return;
+    };
+    if brep
+        .half_edges
+        .get(twin)
+        .is_some_and(|twin_data| twin_data.loop_ == LoopHandle::default())
+    {
+        residual_sides.push(twin);
     }
-    let cycle = &cycles[0];
-    validate_half_edge_cycle(
-        brep,
-        cycle,
-        "cylinder-only far-side residual cycle",
-        template_face,
-    )?;
-    let residual_face = insert_face_with_outer_loop(brep, template_face, cycle)?;
-    brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
-    brep.faces[residual_face].surface = None;
-    Ok(())
 }
