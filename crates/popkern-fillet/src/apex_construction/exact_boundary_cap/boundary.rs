@@ -3,6 +3,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{BRep, EdgeHandle};
 
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBoundaryOuterSide};
@@ -12,6 +13,7 @@ const VERIFY_TOLERANCE: f64 = 1.0e-9;
 const KNOT_EPS: f64 = 1.0e-10;
 const TOPOLOGY_ENDPOINT_TOLERANCE: f64 = 1.0e-7;
 const SUPPORT_SOURCE_SAMPLES: usize = 17;
+const SUPPORT_SOURCE_TOLERANCE: f64 = 1.0e-6;
 
 /// Budget for exact boundary compatibility operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -189,9 +191,6 @@ fn oriented_source_curve(
     seam: &ExactBoundaryOuterSeam,
 ) -> Result<PreparedSourceCurve, ExactBoundaryCurveDiagnostic> {
     let side = seam.side;
-    if let Some(curve) = support_pcurve_source_curve(brep, seam) {
-        return prepared_source_from_curve(brep, sector, seam, curve);
-    }
     let edge_data = brep
         .edges
         .get(seam.edge)
@@ -218,6 +217,9 @@ fn oriented_source_curve(
     let raw_curve = curve_on_edge
         .geometry
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
+    if let Some(support_curve) = validated_support_pcurve_source_curve(brep, seam, &raw_curve) {
+        return prepared_source_from_curve(brep, sector, seam, support_curve);
+    }
     prepared_source_from_curve(brep, sector, seam, raw_curve)
 }
 
@@ -256,11 +258,51 @@ fn prepared_source_from_curve(
     })
 }
 
+fn validated_support_pcurve_source_curve(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    edge_curve: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    let support_curve = support_pcurve_source_curve(brep, seam)?;
+    let (origin, destination) = cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
+    if endpoint_orientation_gap(&support_curve, origin, destination) > TOPOLOGY_ENDPOINT_TOLERANCE
+        && endpoint_orientation_gap(&reverse_nurbs_curve(&support_curve), origin, destination)
+            > TOPOLOGY_ENDPOINT_TOLERANCE
+    {
+        return None;
+    }
+    let support_surface = support_surface_for_seam(brep, seam)?;
+    let support_range = support_curve.parameter_range();
+    let support_deviation = edge_surface_deviation(
+        &support_curve,
+        support_range,
+        support_surface,
+        SUPPORT_SOURCE_SAMPLES,
+    )
+    .max_deviation;
+    if support_deviation > SUPPORT_SOURCE_TOLERANCE {
+        return None;
+    }
+    let edge_range = edge_curve.parameter_range();
+    let edge_deviation = edge_surface_deviation(
+        edge_curve,
+        edge_range,
+        support_surface,
+        SUPPORT_SOURCE_SAMPLES,
+    )
+    .max_deviation;
+    let cap_pcurve_missing = brep
+        .half_edges
+        .get(seam.cap_half_edge)
+        .is_some_and(|half_edge| half_edge.pcurve.is_none());
+    (edge_deviation > support_deviation.max(SUPPORT_SOURCE_TOLERANCE) || cap_pcurve_missing)
+        .then_some(support_curve)
+}
+
 fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Option<NurbsCurve> {
     let support_half_edge = brep.half_edges.get(seam.support_half_edge)?;
     let pcurve = support_half_edge.pcurve.as_ref()?;
-    let support_face = brep.loops.get(support_half_edge.loop_)?.face;
-    let support_surface = &brep.faces.get(support_face)?.surface.as_ref()?.geometry;
+    let support_surface = support_surface_for_seam(brep, seam)?;
     let (t0, t1) = pcurve.parameter_range();
     let mut points = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
     let mut params = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
@@ -273,6 +315,15 @@ fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Op
     }
     let degree = 9.min(points.len().saturating_sub(1));
     popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
+}
+
+fn support_surface_for_seam<'a>(
+    brep: &'a BRep,
+    seam: &ExactBoundaryOuterSeam,
+) -> Option<&'a dyn SurfaceEval> {
+    let support_half_edge = brep.half_edges.get(seam.support_half_edge)?;
+    let support_face = brep.loops.get(support_half_edge.loop_)?.face;
+    Some(&brep.faces.get(support_face)?.surface.as_ref()?.geometry)
 }
 
 fn orient_curve_to_cap_half_edge(
