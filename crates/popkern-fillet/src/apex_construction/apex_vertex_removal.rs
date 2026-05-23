@@ -7,6 +7,7 @@ use super::constructive_topology::{
 };
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
+use super::repeated_apex_partition_topology::repair_stale_shell_anchors;
 
 /// Remove V via residual same-face bridges. For Sphere, V has a single
 /// same-face bridge after V-incident edge removal; `kev_v_bridge` removes it
@@ -181,6 +182,7 @@ pub(super) fn remove_apex_vertex(
         }
     })?;
     crate::construct::blend_insert::remove_orphaned_vertex(brep, v);
+    repair_stale_shell_anchors(brep)?;
     Ok(())
 }
 
@@ -224,5 +226,6 @@ fn remove_apex_vertex_after_repeated_apex_normalization(
         }
     }
 
+    repair_stale_shell_anchors(brep)?;
     Ok(())
 }

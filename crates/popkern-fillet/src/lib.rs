@@ -111,6 +111,9 @@ use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
+use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
+use crate::construct::EdgeGeometry;
+
 /// Fillet the specified edges of a BRep solid. See
 /// [`BlendError`] for failure modes.
 pub fn fillet_edges(
@@ -320,6 +323,20 @@ fn fillet_edges_internal(
         partial_result: Box::new(brep.clone()),
         failures: edge_failures,
     })?;
+    repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
+        BlendError::PartialFailure {
+            failed: 1,
+            total: specs.len(),
+            partial_result: Box::new(brep.clone()),
+            failures: vec![(
+                fallback_edge_for_specs(specs, &edge_geometries),
+                BlendFailure::InvalidTopology {
+                    reason: format!("repair stale shell anchors: {err}"),
+                    location: None,
+                },
+            )],
+        }
+    })?;
     emit!(
         progress::FilletPhase::ApplyTopology,
         t4,
@@ -340,6 +357,20 @@ fn fillet_edges_internal(
     // as garbage extrapolation. Clamping CPs guarantees evaluations
     // stay inside the valid domain.
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
+        BlendError::PartialFailure {
+            failed: 1,
+            total: specs.len(),
+            partial_result: Box::new(brep.clone()),
+            failures: vec![(
+                fallback_edge_for_specs(specs, &edge_geometries),
+                BlendFailure::InvalidTopology {
+                    reason: format!("repair stale shell anchors after pcurve repair: {err}"),
+                    location: None,
+                },
+            )],
+        }
+    })?;
     surface_boundary_evidence::audit_gregory_analytic_boundary_evidence(&mut apply_result.brep);
     emit!(
         progress::FilletPhase::RepairPcurves,
@@ -384,6 +415,14 @@ fn fillet_edges_internal(
         corner_patches: apply_result.corner_patches,
         repair_report: apply_result.repair_report,
     })
+}
+
+fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry]) -> EdgeHandle {
+    specs
+        .first()
+        .map(|s| s.edge)
+        .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
+        .unwrap_or_default()
 }
 
 /// Chamfer the specified edges of a BRep solid. See [`BlendError`] for failure modes.

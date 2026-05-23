@@ -441,6 +441,7 @@ impl RepeatedApexPartitionPlan {
         }
 
         brep.normalize_edge_representatives();
+        repair_stale_shell_anchors(brep)?;
         if boundary_outcome.matches_current_cap_cycle(&cap_cycle) {
             assert_normalized_cap_boundary(brep, self.cap_face, apex_vertex_handles, n_fillets)?;
         } else {

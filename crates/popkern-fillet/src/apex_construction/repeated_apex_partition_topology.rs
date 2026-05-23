@@ -171,6 +171,13 @@ pub(super) fn insert_face_with_outer_loop(
         tolerance: template.tolerance,
         role: Default::default(),
     });
+    if brep
+        .shells
+        .get(template.shell)
+        .is_some_and(|shell| !brep.faces.contains_key(shell.face))
+    {
+        brep.shells[template.shell].face = face;
+    }
     let loop_handle = brep.loops.insert(Loop {
         half_edge: half_edges[0],
         face,
@@ -178,6 +185,30 @@ pub(super) fn insert_face_with_outer_loop(
     brep.faces[face].outer_loop = loop_handle;
     wire_existing_loop(brep, loop_handle, face, half_edges)?;
     Ok(face)
+}
+
+pub(crate) fn repair_stale_shell_anchors(brep: &mut BRep) -> Result<(), ApexBuildError> {
+    let shells = brep.shells.keys().collect::<Vec<_>>();
+    for shell in shells {
+        let Some(anchor) = brep.shells.get(shell).map(|shell_data| shell_data.face) else {
+            continue;
+        };
+        if brep.faces.contains_key(anchor) {
+            continue;
+        }
+        let replacement = brep
+            .faces
+            .iter()
+            .find_map(|(face, data)| (data.shell == shell).then_some(face))
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition cannot repair stale shell anchor for \
+                     {shell:?}: no live replacement face remains"
+                ),
+            })?;
+        brep.shells[shell].face = replacement;
+    }
+    Ok(())
 }
 
 pub(super) fn wire_existing_loop(

@@ -15,6 +15,7 @@ use super::construct_surface::assign_cap_surface;
 use super::construct_vertices::resolve_apex_vertices;
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
+use super::repeated_apex_partition_topology::repair_stale_shell_anchors;
 use super::target_topology::TargetCapFace;
 
 #[cfg(test)]
@@ -246,6 +247,7 @@ fn construct_apex_inner(
         }
     })?;
     crate::construct::blend_insert::remove_orphaned_vertex(brep, plan.apex_vertex);
+    repair_stale_shell_anchors(brep)?;
 
     // `kef_cross_face_v_edges` returns whichever face survived the
     // last kef.  When apex_edges are mef'd on multiple host faces

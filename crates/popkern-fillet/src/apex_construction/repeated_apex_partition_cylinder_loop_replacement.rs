@@ -221,6 +221,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
         &residual_boundary_spans,
         &existing_residual_sides,
     )?;
+    repair_stale_shell_anchors(brep)?;
     for trim_side in all_support_owned_trim_sides {
         if !trim_side.requires_support_ownership {
             continue;

@@ -90,6 +90,7 @@ pub struct StepRoundTripBodyReport {
     pub boundary_edge_evidence: Vec<StepRoundTripBoundaryEdgeEvidence>,
     pub readiness: BrepExportReadiness,
     pub topology_blockers: usize,
+    pub topology_evidence: Vec<StepRoundTripTopologyEvidence>,
     pub trim_blockers: usize,
     pub trim_evidence: Vec<StepRoundTripTrimEvidence>,
     pub edge_curve_blockers: usize,
@@ -114,6 +115,18 @@ pub struct StepRoundTripBoundaryEdgeEvidence {
     pub start: [f64; 3],
     pub end: [f64; 3],
     pub has_curve: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepRoundTripTopologyEvidence {
+    pub severity: String,
+    pub kind: String,
+    pub shell: Option<String>,
+    pub face: Option<String>,
+    pub loop_: Option<String>,
+    pub edge: Option<String>,
+    pub half_edge: Option<String>,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -334,6 +347,21 @@ fn step_body_report(
             .collect(),
         readiness: quality.readiness,
         topology_blockers: quality.topology_blockers,
+        topology_evidence: quality
+            .loop_shell
+            .findings
+            .iter()
+            .map(|finding| StepRoundTripTopologyEvidence {
+                severity: format!("{:?}", finding.severity),
+                kind: format!("{:?}", finding.kind),
+                shell: finding.shell.map(|handle| format!("{handle:?}")),
+                face: finding.face.map(|handle| format!("{handle:?}")),
+                loop_: finding.loop_.map(|handle| format!("{handle:?}")),
+                edge: finding.edge.map(|handle| format!("{handle:?}")),
+                half_edge: finding.half_edge.map(|handle| format!("{handle:?}")),
+                message: finding.message.clone(),
+            })
+            .collect(),
         trim_blockers: quality.trim_blockers,
         trim_evidence: trim_evidence(&quality.trims),
         edge_curve_blockers: quality.edge_curve_blockers,

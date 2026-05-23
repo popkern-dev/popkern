@@ -29,7 +29,8 @@ use super::repeated_apex_loop_plan::{
 };
 use super::repeated_apex_partition_topology::{
     insert_boundary_half_edge, insert_face_with_outer_loop, insert_unwired_edge_pair,
-    oriented_edge_half_edges_on_face, validate_partition_cap_to_cylinder_seams, wire_existing_loop,
+    oriented_edge_half_edges_on_face, repair_stale_shell_anchors,
+    validate_partition_cap_to_cylinder_seams, wire_existing_loop,
 };
 use super::repeated_apex_side_support::{
     SideSupportRegionContinuationOutcome, SideSupportRegionDiagnosticSnapshot,

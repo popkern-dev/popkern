@@ -27,8 +27,8 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     let pre_export = &report.pre_export_body_reports[0];
     assert_eq!(
         pre_export.topology_blockers, 0,
-        "raw exact-boundary cap-family export must have no topology blockers: boundary_evidence={:#?} report={pre_export:#?}",
-        pre_export.boundary_edge_evidence
+        "raw exact-boundary cap-family export must have no topology blockers: topology_evidence={:#?} boundary_evidence={:#?} report={pre_export:#?}",
+        pre_export.topology_evidence, pre_export.boundary_edge_evidence
     );
     assert_eq!(
         pre_export.pcurve_blockers,

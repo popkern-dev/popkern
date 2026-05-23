@@ -222,6 +222,64 @@ fn bridge_path_patch_accepts_single_span_boundary_without_rewiring_source_loop()
     .expect("single-span cylinder trim has a live non-cylinder support side");
 }
 
+#[test]
+fn bridge_path_patch_repairs_stale_shell_anchor_on_inserted_face() {
+    let mut brep = BRep::new(Tolerance::default());
+    let solid = brep.solids.insert(Solid {
+        shell: Default::default(),
+    });
+    let shell = brep.shells.insert(Shell {
+        face: Default::default(),
+        solid,
+    });
+    brep.solids[solid].shell = shell;
+    let vertices = [
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.0),
+        Point3::new(0.0, 1.0, 0.0),
+    ]
+    .map(|position| {
+        brep.vertices.insert(Vertex {
+            position,
+            outgoing: Default::default(),
+            name: None,
+            tolerance: None,
+        })
+    });
+    let stale_anchor =
+        add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
+    brep.shells[shell].face = stale_anchor;
+    let stale_loop = brep.faces[stale_anchor].outer_loop;
+    brep.loops.remove(stale_loop);
+    brep.faces.remove(stale_anchor);
+    let support_face =
+        add_boundary_loop_face(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
+    let bridge_loop = add_boundary_loop(&mut brep, shell, &[vertices[0], vertices[1], vertices[2]]);
+    let curve = CurveOnEdge::line_segment(
+        brep.vertices[vertices[0]].position,
+        brep.vertices[vertices[1]].position,
+        brep.tolerance.linear(),
+    )
+    .expect("nondegenerate trim curve");
+
+    let patch = author_side_support_bridge_path_patch_for_cylinder_trim(
+        &mut brep,
+        SideSupportBridgePathPatchRequest {
+            support_face,
+            bridge_loops: &[bridge_loop],
+            start: vertices[0],
+            end: vertices[1],
+            curve,
+            label: "single span generator",
+            fillet_index: 0,
+        },
+    )
+    .expect("patch authoring succeeds")
+    .expect("single span path patch applies");
+
+    assert_eq!(brep.shells[shell].face, patch.support_patch_face);
+}
+
 fn add_boundary_loop(
     brep: &mut BRep,
     shell: popkern_core::topology::ShellHandle,
