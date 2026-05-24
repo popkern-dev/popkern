@@ -14,12 +14,14 @@ use popkern_core::topology::{
 use crate::error::IoError;
 
 const SURFACE_TRIM_EDGE_CURVE_SYNTHESIS_SAMPLES: usize = 17;
+const STEP_EXPORT_SURFACE_TRIM_TOLERANCE: f64 = 1e-6;
 
 pub(super) fn pcurve_endpoints_match_edge_segment(
     brep: &BRep,
     edge: EdgeHandle,
     pcurve: &Pcurve,
     surface: &SurfaceGeometry,
+    tolerance: f64,
 ) -> bool {
     let Some((start, end)) = edge_segment(brep, edge) else {
         return false;
@@ -28,7 +30,7 @@ pub(super) fn pcurve_endpoints_match_edge_segment(
     let uv_end = pcurve.point_at(pcurve.t_end);
     let point_start = surface.point_at(uv_start.x, uv_start.y);
     let point_end = surface.point_at(uv_end.x, uv_end.y);
-    let limit = brep.tolerance.linear().max(1e-9);
+    let limit = tolerance.max(brep.tolerance.linear()).max(1e-9);
     let forward = point_start
         .distance_to(&start)
         .max(point_end.distance_to(&end));
@@ -62,7 +64,10 @@ pub(super) fn synthesize_missing_edge_curve_from_surface_trims(
     brep: &BRep,
     edge: EdgeHandle,
 ) -> Option<CurveOnEdge> {
-    let tolerance = brep.tolerance.linear().max(1e-9);
+    let tolerance = brep
+        .tolerance
+        .linear()
+        .max(STEP_EXPORT_SURFACE_TRIM_TOLERANCE);
     surface_trim_sources(brep, edge)
         .into_iter()
         .filter_map(|half_edge| surface_trim_edge_curve_candidate(brep, edge, half_edge, tolerance))
@@ -79,6 +84,14 @@ pub(super) fn synthesize_missing_edge_curve_from_surface_trims(
         })
         .min_by(|left, right| left.1.total_cmp(&right.1))
         .map(|(candidate, _)| candidate)
+}
+
+pub(super) fn edge_curve_surface_trim_disagreement(
+    brep: &BRep,
+    edge: EdgeHandle,
+    curve: &CurveOnEdge,
+) -> Option<f64> {
+    sampled_surface_trim_disagreement(brep, edge, curve, SURFACE_TRIM_EDGE_CURVE_SYNTHESIS_SAMPLES)
 }
 
 pub(super) fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHandle> {

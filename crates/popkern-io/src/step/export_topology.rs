@@ -12,8 +12,12 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHan
 
 use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
+use crate::step::export_pcurve_synthesis::{
+    step_export_pcurve_association_tolerance, synthesize_export_half_edge_pcurve,
+};
 use crate::step::export_topology_helpers::{
-    collapsed_trim_missing_curve_edges, edge_curve_same_sense, edge_end_vertex, edge_half_edges,
+    collapsed_trim_missing_curve_edges, edge_curve_same_sense,
+    edge_curve_surface_trim_disagreement, edge_end_vertex, edge_half_edges,
     pcurve_endpoints_match_edge_segment, synthesize_missing_edge_curve_from_surface_trims,
     synthesize_plane,
 };
@@ -57,9 +61,17 @@ impl ExportContext {
             // Export the 3-D curve geometry. Valid collapsed surface trims get a
             // degenerate B-spline curve; other missing curves retain the legacy
             // line fallback for non-degenerate vertex-bounded edges.
+            let surface_trim_curve = synthesize_missing_edge_curve_from_surface_trims(brep, eh);
             let curve_3d_id = if let Some(curve) = &edge.curve {
-                self.export_curve(curve)
-            } else if let Some(curve) = synthesize_missing_edge_curve_from_surface_trims(brep, eh) {
+                let export_curve = surface_trim_curve
+                    .as_ref()
+                    .filter(|_| {
+                        edge_curve_surface_trim_disagreement(brep, eh, curve)
+                            .is_some_and(|gap| gap > step_export_pcurve_association_tolerance(brep))
+                    })
+                    .unwrap_or(curve);
+                self.export_curve(export_curve)
+            } else if let Some(curve) = surface_trim_curve {
                 self.export_curve(&curve)
             } else if collapsed_trim_edges.contains(&eh) {
                 let start_v = brep
@@ -334,11 +346,29 @@ impl ExportContext {
         surface_map: &HashMap<FaceHandle, EntityId>,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
-        let pcurve = he.pcurve.as_ref()?;
         let loop_ = brep.loops.get(he.loop_)?;
         let face = brep.faces.get(loop_.face)?;
         let surface = face.surface.as_ref()?;
-        if !pcurve_endpoints_match_edge_segment(brep, edge_handle, pcurve, &surface.geometry) {
+        let pcurve = he
+            .pcurve
+            .clone()
+            .filter(|pcurve| {
+                pcurve_endpoints_match_edge_segment(
+                    brep,
+                    edge_handle,
+                    pcurve,
+                    &surface.geometry,
+                    step_export_pcurve_association_tolerance(brep),
+                )
+            })
+            .or_else(|| synthesize_export_half_edge_pcurve(brep, edge_handle, he_handle))?;
+        if !pcurve_endpoints_match_edge_segment(
+            brep,
+            edge_handle,
+            &pcurve,
+            &surface.geometry,
+            step_export_pcurve_association_tolerance(brep),
+        ) {
             return None;
         }
         let surface_id = surface_map.get(&loop_.face)?;

@@ -384,6 +384,40 @@ fn missing_edge_curve_synthesizes_from_valid_surface_trim() {
     );
 }
 
+#[test]
+fn missing_half_edge_pcurve_synthesizes_during_surface_curve_export() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = brep
+        .edges
+        .keys()
+        .find(|&edge| {
+            edge_half_edges(&brep, edge)
+                .iter()
+                .filter(|half_edge| brep.half_edges.get(**half_edge).is_some())
+                .count()
+                == 2
+        })
+        .expect("cube should have manifold edges");
+    let half_edges = edge_half_edges(&brep, edge);
+    brep.half_edges[half_edges[0]].pcurve = None;
+
+    let mut ctx = ExportContext::new();
+    ctx.export_brep(&brep).unwrap();
+
+    let surface_curve = ctx
+        .entities
+        .iter()
+        .find(|entity| entity.type_name == "SURFACE_CURVE")
+        .expect("cube edge should export as SURFACE_CURVE");
+    let pcurve_count = format!("{:?}", surface_curve.params[2])
+        .matches("EntityRef")
+        .count();
+    assert_eq!(
+        pcurve_count, 2,
+        "missing face-use pcurve should be synthesized for STEP export: {surface_curve:?}"
+    );
+}
+
 fn collapsed_trim_sheet() -> BRep {
     use popkern_core::geometry::pcurve::Pcurve;
     use popkern_core::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};

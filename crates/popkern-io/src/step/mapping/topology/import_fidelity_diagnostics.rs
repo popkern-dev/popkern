@@ -122,11 +122,14 @@ fn report_edge_surface_fidelity_diagnostics(
         let edge_curve_id = imported
             .map(|entry| entry.edge_curve_id)
             .or_else(|| provenance.edge_curves.get(&finding.edge).copied());
+        let pcurve_id = imported.and_then(|entry| entry.pcurve_id);
+        let reference_curve_id = imported.and_then(|entry| entry.reference_curve_id);
+        let selected_gap = imported.and_then(|entry| entry.selected_pcurve_gap);
         log.warn(
             Phase::MapTopology,
             edge_curve_id,
             format!(
-                "STEP import edge/surface fidelity blocker: edge={:?} half_edge={:?} face={:?} surface_kind={} edge_curve={} oriented_edge={} advanced_face={} surface={} max_deviation={:.3e} curve_parameter={:.3e}",
+                "STEP import edge/surface fidelity blocker: edge={:?} half_edge={:?} face={:?} surface_kind={} edge_curve={} oriented_edge={} advanced_face={} surface={} pcurve={} reference_curve={} selected_gap={} max_deviation={:.3e} curve_parameter={:.3e}",
                 finding.edge,
                 finding.half_edge,
                 finding.face,
@@ -135,6 +138,11 @@ fn report_edge_surface_fidelity_diagnostics(
                 entity_label(imported.map(|entry| entry.oriented_edge_id)),
                 entity_label(imported.map(|entry| entry.face_id)),
                 entity_label(imported.map(|entry| entry.surface_id)),
+                entity_label(pcurve_id),
+                entity_label(reference_curve_id),
+                selected_gap
+                    .map(|gap| format!("{gap:.3e}"))
+                    .unwrap_or_else(|| "none".to_string()),
                 finding.max_deviation,
                 finding.max_curve_parameter,
             ),
