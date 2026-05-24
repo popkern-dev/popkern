@@ -122,6 +122,32 @@ pub(super) fn surface_trim_sources(brep: &BRep, edge: EdgeHandle) -> Vec<Surface
         .collect()
 }
 
+pub(super) fn surface_trim_endpoint_spread(
+    brep: &BRep,
+    edge: EdgeHandle,
+    sources: &[SurfaceTrimSource],
+) -> Option<f64> {
+    let mut start: Option<Point3> = None;
+    let mut end: Option<Point3> = None;
+    let mut max_spread = 0.0_f64;
+    for source in sources {
+        let points = sample_surface_trim_in_edge_direction(brep, edge, source, 2)?;
+        let source_start = *points.first()?;
+        let source_end = *points.last()?;
+        if let Some(reference) = start {
+            max_spread = max_spread.max(reference.distance_to(&source_start));
+        } else {
+            start = Some(source_start);
+        }
+        if let Some(reference) = end {
+            max_spread = max_spread.max(reference.distance_to(&source_end));
+        } else {
+            end = Some(source_end);
+        }
+    }
+    (start.is_some() && end.is_some()).then_some(max_spread)
+}
+
 fn curve_from_points(
     points: &[Point3],
     start: Point3,

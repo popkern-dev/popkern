@@ -257,6 +257,12 @@ pub(super) fn edge_curve_completion_decline_reason_label(
             "missing_surface_trim_source"
         }
         BrepEdgeCurveCompletionDeclineReason::EndpointMismatch => "endpoint_mismatch",
+        BrepEdgeCurveCompletionDeclineReason::TopologyEndpointMismatch => {
+            "topology_endpoint_mismatch"
+        }
+        BrepEdgeCurveCompletionDeclineReason::SurfaceTrimEndpointMismatch => {
+            "surface_trim_endpoint_mismatch"
+        }
         BrepEdgeCurveCompletionDeclineReason::SampledDisagreement => "sampled_disagreement",
         BrepEdgeCurveCompletionDeclineReason::FittingFailed => "fitting_failed",
         BrepEdgeCurveCompletionDeclineReason::VertexSegmentFallbackDisabled => {

@@ -2,7 +2,8 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
-    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
+    BrepEdgeCurveCompletionDeclineReason, BrepEdgeCurveCompletionOptions,
+    BrepEdgeCurveCompletionOutcome, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingOptions,
     BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
@@ -135,6 +136,24 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         .edge_surface_compatibility
         .as_ref()
         .expect("edge/surface repair report should be present");
+    let edge_curve_report = repaired
+        .report
+        .edge_curve_completion
+        .as_ref()
+        .expect("edge curve completion report should be present");
+    let edge_curve_decline_reasons = edge_curve_report
+        .decisions
+        .iter()
+        .filter_map(|decision| match decision.outcome {
+            BrepEdgeCurveCompletionOutcome::Declined(reason) => Some(reason),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        edge_curve_decline_reasons
+            .contains(&BrepEdgeCurveCompletionDeclineReason::SurfaceTrimEndpointMismatch),
+        "Gregory missing edge-curve completion should classify inconsistent trim endpoint sources: {edge_curve_decline_reasons:#?}"
+    );
     assert!(
         edge_surface_report.decisions.iter().all(|decision| {
             !matches!(

@@ -112,6 +112,36 @@ fn completes_from_vertices_when_surface_trims_are_stale_but_segment_lies_on_surf
     );
 }
 
+#[test]
+fn classifies_coherent_trim_endpoints_against_stale_topology_vertices() {
+    let mut brep = square_sheet(true, true);
+    let edge = brep.edges.keys().next().unwrap();
+    let half_edge = brep.edges[edge].half_edge;
+    let start_vertex = brep.half_edges[half_edge].origin;
+    let end_vertex = brep.half_edges[brep.half_edges[half_edge].next].origin;
+    brep.vertices[start_vertex].position.z += 0.05;
+    brep.vertices[end_vertex].position.z += 0.05;
+
+    let failure = complete_missing_edge_curves_transactionally(&brep, options()).unwrap_err();
+    let decision = failure
+        .report
+        .decisions
+        .iter()
+        .find(|decision| decision.edge == edge)
+        .expect("target edge should be inspected");
+
+    assert!(matches!(
+        decision.outcome,
+        BrepEdgeCurveCompletionOutcome::Declined(
+            BrepEdgeCurveCompletionDeclineReason::TopologyEndpointMismatch
+        )
+    ));
+    assert!(
+        decision.endpoint_gap > options().tolerance,
+        "stale topology endpoint gap should be measured"
+    );
+}
+
 fn square_sheet(with_surface: bool, with_pcurves: bool) -> BRep {
     let mut brep = BRep::new(Tolerance::default());
     let solid = brep.solids.insert(Solid {

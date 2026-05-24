@@ -7,8 +7,9 @@ use crate::topology::brep_edge_curve_completion_facts::{
 use crate::topology::{BRep, BrepRepairFactId, EdgeHandle};
 
 use super::brep_edge_curve_completion_helpers::{
-    curve_from_surface_trim, curve_from_vertices, surface_trim_sources, validate_candidate,
-    validated_anchored_surface_trim_curve, validated_vertex_curve_for_surfaced_edge,
+    curve_from_surface_trim, curve_from_vertices, surface_trim_endpoint_spread,
+    surface_trim_sources, validate_candidate, validated_anchored_surface_trim_curve,
+    validated_vertex_curve_for_surfaced_edge,
 };
 
 /// Options controlling missing edge-curve completion.
@@ -100,6 +101,10 @@ pub enum BrepEdgeCurveCompletionDeclineReason {
     MissingSurfaceTrimSource,
     /// Endpoint validation exceeded tolerance.
     EndpointMismatch,
+    /// Coherent pcurve/surface trim endpoints disagree with topology vertices.
+    TopologyEndpointMismatch,
+    /// Multiple pcurve/surface trim sources disagree at their endpoints.
+    SurfaceTrimEndpointMismatch,
     /// Candidate curve disagreed with at least one owning trim/surface.
     SampledDisagreement,
     /// Curve fitting failed for sampled trim/surface points.
@@ -247,7 +252,7 @@ fn complete_edge_curve(
         }
         return decision(
             edge,
-            BrepEdgeCurveCompletionDeclineReason::EndpointMismatch,
+            endpoint_decline_reason(original, edge, &sources, options),
             source_trims,
             endpoint_gap,
             sampled_disagreement,
@@ -300,6 +305,24 @@ fn complete_edge_curve(
         endpoint_gap,
         sampled_disagreement,
         shared_fact_ids: Vec::new(),
+    }
+}
+
+fn endpoint_decline_reason(
+    brep: &BRep,
+    edge: EdgeHandle,
+    sources: &[super::brep_edge_curve_completion_helpers::SurfaceTrimSource],
+    options: BrepEdgeCurveCompletionOptions,
+) -> BrepEdgeCurveCompletionDeclineReason {
+    let Some(spread) = surface_trim_endpoint_spread(brep, edge, sources) else {
+        return BrepEdgeCurveCompletionDeclineReason::EndpointMismatch;
+    };
+    if spread <= options.tolerance {
+        BrepEdgeCurveCompletionDeclineReason::TopologyEndpointMismatch
+    } else if sources.len() > 1 {
+        BrepEdgeCurveCompletionDeclineReason::SurfaceTrimEndpointMismatch
+    } else {
+        BrepEdgeCurveCompletionDeclineReason::EndpointMismatch
     }
 }
 
