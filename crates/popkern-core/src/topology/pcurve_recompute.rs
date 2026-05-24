@@ -1,15 +1,15 @@
 //! Pcurve recomputation for BRep faces.
 //!
-//! Projects edge curve endpoints (or vertex positions) to surface UV space
-//! and creates degree-1 NURBS pcurves for half-edges that lack them.
+//! Projects trim vertices to surface UV space and uses edge curves, when
+//! present, for interior pcurve shape on non-planar surfaces.
 
 use super::FaceHandle;
 use super::brep::BRep;
 use crate::geometry::curve::CurveEval;
 
 impl BRep {
-    /// Recompute pcurves for all half-edges on a face by projecting
-    /// edge curve endpoints to the face surface's UV space.
+    /// Recompute pcurves for all half-edges on a face by projecting trim
+    /// vertices to the face surface's UV space.
     ///
     /// Skips half-edges that already have pcurves. Falls back to vertex
     /// positions for edges that lack curve geometry. Clamps UV coordinates
@@ -92,8 +92,7 @@ impl BRep {
             let he_dest_pos = self.vertices[self.half_edges[next_heh].origin].position;
 
             let edge_handle = self.half_edges[heh].edge;
-            let (start_3d, end_3d) = if let Some(ref curve_on_edge) = self.edges[edge_handle].curve
-            {
+            let edge_direction = if let Some(ref curve_on_edge) = self.edges[edge_handle].curve {
                 // Determine direction: compare he.origin position with curve start.
                 let curve_start_pos = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
                 let curve_end_pos = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
@@ -101,13 +100,12 @@ impl BRep {
                 if he_origin_pos.distance_to(&curve_start_pos)
                     <= he_origin_pos.distance_to(&curve_end_pos)
                 {
-                    (curve_start_pos, curve_end_pos)
+                    (curve_on_edge.t_start, curve_on_edge.t_end)
                 } else {
-                    (curve_end_pos, curve_start_pos)
+                    (curve_on_edge.t_end, curve_on_edge.t_start)
                 }
             } else {
-                // No edge curve: fall back to vertex positions.
-                (he_origin_pos, he_dest_pos)
+                (0.0, 1.0)
             };
 
             // Clamp UV to surface parameter range (if finite).
@@ -131,11 +129,11 @@ impl BRep {
 
             let pcurve = if is_planar || edge_curve.is_none() {
                 // Degree-1: straight line in UV.
-                let (u_s, v_s) = match project_point_to_uv(&surface, &start_3d) {
+                let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
-                let (u_e, v_e) = match project_point_to_uv(&surface, &end_3d) {
+                let (u_e, v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
@@ -161,25 +159,17 @@ impl BRep {
                 let Some(curve_on_edge) = edge_curve.as_ref() else {
                     continue;
                 };
-                let forward = he_origin_pos
-                    .distance_to(&curve_on_edge.geometry.point_at(curve_on_edge.t_start))
-                    <= he_origin_pos
-                        .distance_to(&curve_on_edge.geometry.point_at(curve_on_edge.t_end));
-                let (t_lo, t_hi) = if forward {
-                    (curve_on_edge.t_start, curve_on_edge.t_end)
-                } else {
-                    (curve_on_edge.t_end, curve_on_edge.t_start)
-                };
+                let (t_lo, t_hi) = edge_direction;
 
                 // Quick linearity check: if the UV midpoint lies on the
                 // line between start/end UV, the pcurve is a straight
                 // line in UV space.  Use degree-1 (exact) instead of the
                 // 64-point degree-3 fit, avoiding control-point overshoot.
-                let (u_s, v_s) = match project_point_to_uv(&surface, &start_3d) {
+                let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
-                let (u_e, v_e) = match project_point_to_uv(&surface, &end_3d) {
+                let (u_e, v_e) = match project_point_to_uv(&surface, &he_dest_pos) {
                     Some(uv) => uv,
                     None => continue,
                 };
@@ -230,7 +220,13 @@ impl BRep {
                     for i in 0..n_samples {
                         let frac = i as f64 / (n_samples - 1).max(1) as f64;
                         let t = t_lo + (t_hi - t_lo) * frac;
-                        let p = curve_on_edge.geometry.point_at(t);
+                        let p = if i == 0 {
+                            he_origin_pos
+                        } else if i + 1 == n_samples {
+                            he_dest_pos
+                        } else {
+                            curve_on_edge.geometry.point_at(t)
+                        };
 
                         // Continuation: use previous UV as starting
                         // guess for Gauss-Newton. This prevents branch
@@ -327,7 +323,6 @@ impl BRep {
     /// operations move edge positions or reassign face surfaces without
     /// updating inherited pcurves.
     pub fn fix_stale_pcurves(&mut self) {
-        use crate::geometry::pcurve::PcurveGeometry;
         use crate::geometry::surface::SurfaceEval;
 
         let he_keys: Vec<_> = self.half_edges.keys().collect();
@@ -336,12 +331,6 @@ impl BRep {
                 Some(pc) => pc.clone(),
                 None => continue,
             };
-
-            // §6c-D Stage 4.6: analytic pcurves are authoritative;
-            // run the staleness check only on Nurbs pcurves.
-            if !matches!(pcurve.geometry, PcurveGeometry::Nurbs(_)) {
-                continue;
-            }
 
             let loop_handle = self.half_edges[heh].loop_;
             let face_handle = match self.loops.get(loop_handle) {

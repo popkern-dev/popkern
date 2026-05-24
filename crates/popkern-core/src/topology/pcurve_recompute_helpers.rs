@@ -17,7 +17,7 @@ impl BRep {
     /// for edges that span the seam (e.g., self-loop circles), so the fix
     /// is skipped when the error is close to a multiple of the period.
     pub(super) fn fix_pcurve_endpoints(&mut self, face_handle: FaceHandle) {
-        use crate::geometry::uv_projection::project_point_to_uv;
+        use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 
         let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
             Some(s) => s.geometry.clone(),
@@ -60,30 +60,27 @@ impl BRep {
                 None => continue,
             };
 
-            // §6c-D Stage 4.6: analytic pcurves are exact-by-construction;
-            // skip endpoint surgery for them.  Closest-point projection on
-            // Gregory caps frequently lands on the wrong boundary.
-            use crate::geometry::pcurve::PcurveGeometry;
-            if !matches!(pcurve.geometry, PcurveGeometry::Nurbs(_)) {
-                continue;
-            }
-
             let origin_pos = self.vertices[self.half_edges[heh].origin].position;
             let next_heh = self.half_edges[heh].next;
             let dest_pos = self.vertices[self.half_edges[next_heh].origin].position;
 
-            let exact_uv_start = match project_point_to_uv(&surface, &origin_pos) {
-                Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
-                None => continue,
-            };
-            let exact_uv_end = match project_point_to_uv(&surface, &dest_pos) {
-                Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
-                None => continue,
-            };
-
             let (t0, t1) = pcurve.parameter_range();
             let eval_start = pcurve.point_at(t0);
             let eval_end = pcurve.point_at(t1);
+            let exact_uv_start =
+                match project_point_to_uv_near(&surface, &origin_pos, eval_start.x, eval_start.y)
+                    .or_else(|| project_point_to_uv(&surface, &origin_pos))
+                {
+                    Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
+                    None => continue,
+                };
+            let exact_uv_end =
+                match project_point_to_uv_near(&surface, &dest_pos, eval_end.x, eval_end.y)
+                    .or_else(|| project_point_to_uv(&surface, &dest_pos))
+                {
+                    Some((u, v)) => crate::geometry::Point3::new(u, v, 0.0),
+                    None => continue,
+                };
 
             // Compute UV error modulo periodicity: if the difference is
             // close to a multiple of the period, the pcurve is correct

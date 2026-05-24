@@ -91,6 +91,9 @@ pub struct BrepRepairPipelineReport {
     pub edge_curve_completion: Option<BrepEdgeCurveCompletionReport>,
     /// Transactional curve-backed pcurve reconstruction report.
     pub curve_trim_reconstruction: Option<BrepCurveTrimReconstructionReport>,
+    /// Final transactional curve-backed pcurve reconstruction report after
+    /// edge/surface compatibility repair.
+    pub final_curve_trim_reconstruction: Option<BrepCurveTrimReconstructionReport>,
     /// Transactional direct edge-curve to adjacent-surface compatibility report.
     pub edge_surface_compatibility: Option<BrepEdgeSurfaceCompatibilityRepairReport>,
     /// Read-only degenerate edge diagnostics.
@@ -115,6 +118,7 @@ impl BrepRepairPipelineReport {
             snap_sewing: None,
             edge_curve_completion: None,
             curve_trim_reconstruction: None,
+            final_curve_trim_reconstruction: None,
             edge_surface_compatibility: None,
             degenerate_edges: None,
             trim_repair: None,
@@ -215,15 +219,10 @@ pub fn repair_brep_boundary_edges_transactionally(
     report.classification = Some(classification);
 
     let sewn = run_snap_sewing(brep, &classified_pairs, options, &mut report)?;
-    let trim_repaired = if options.repair_trims {
-        run_trim_repair(&sewn, options, &mut report)?
+    let repaired = if options.complete_edge_curves {
+        run_edge_curve_completion(&sewn, options, &mut report)?
     } else {
         sewn
-    };
-    let repaired = if options.complete_edge_curves {
-        run_edge_curve_completion(&trim_repaired, options, &mut report)?
-    } else {
-        trim_repaired
     };
     let repaired = if options.reconstruct_curve_trims {
         run_curve_trim_reconstruction(&repaired, options, &mut report)?
@@ -232,6 +231,20 @@ pub fn repair_brep_boundary_edges_transactionally(
     };
     let repaired = if options.repair_edge_surfaces {
         run_edge_surface_compatibility(&repaired, options, &mut report)?
+    } else {
+        repaired
+    };
+    let repaired = if options.reconstruct_curve_trims && options.repair_edge_surfaces {
+        let first_reconstruction = report.curve_trim_reconstruction.take();
+        let final_repaired = run_curve_trim_reconstruction(&repaired, options, &mut report)?;
+        report.final_curve_trim_reconstruction = report.curve_trim_reconstruction.take();
+        report.curve_trim_reconstruction = first_reconstruction;
+        final_repaired
+    } else {
+        repaired
+    };
+    let repaired = if options.repair_trims {
+        run_trim_repair(&repaired, options, &mut report)?
     } else {
         repaired
     };

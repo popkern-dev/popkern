@@ -90,6 +90,24 @@ fn pipeline_runs_curve_backed_trim_reconstruction_before_edge_surface_repair() {
     }));
 }
 
+#[test]
+fn pipeline_runs_final_curve_trim_reconstruction_after_edge_surface_repair() {
+    let mut opts = options();
+    opts.repair_edge_surfaces = true;
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+
+    let result = repair_brep_boundary_edges_transactionally(&brep, &[], opts).unwrap();
+
+    assert!(
+        result.report.curve_trim_reconstruction.is_some(),
+        "pre edge/surface curve trim reconstruction report should be retained"
+    );
+    assert!(
+        result.report.final_curve_trim_reconstruction.is_some(),
+        "final curve trim reconstruction should run after edge/surface compatibility repair"
+    );
+}
+
 fn bound_owning_face_to_existing_uv_box(
     brep: &mut BRep,
     half_edge: crate::topology::HalfEdgeHandle,

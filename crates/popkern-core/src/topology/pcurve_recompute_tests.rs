@@ -1,4 +1,5 @@
 use crate::geometry::Point3;
+use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use crate::topology::BRep;
@@ -350,6 +351,32 @@ fn fix_stale_pcurves_detects_end_only_corruption() {
     assert!(
         after.max_deviation < 1e-6,
         "end-only stale pcurve should be recomputed, got {}",
+        after.max_deviation
+    );
+}
+
+#[test]
+fn fix_stale_pcurves_recomputes_stale_linear_pcurve() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let half_edge = brep.half_edges.keys().next().unwrap();
+    brep.half_edges[half_edge].pcurve = Some(Pcurve::linear((10.0, 10.0), (11.0, 10.0), 0.0, 1.0));
+
+    let before = brep
+        .measure_half_edge_pcurve_deviation(half_edge)
+        .expect("corrupted analytic pcurve remains measurable");
+    assert!(
+        before.max_deviation > brep.max_imprecision,
+        "test precondition: stale analytic pcurve must exceed precision budget"
+    );
+
+    brep.fix_stale_pcurves();
+
+    let after = brep
+        .measure_half_edge_pcurve_deviation(half_edge)
+        .expect("repaired half-edge remains measurable");
+    assert!(
+        after.max_deviation < 1e-6,
+        "stale analytic pcurve should be recomputed, got {}",
         after.max_deviation
     );
 }
