@@ -8,6 +8,16 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 use super::super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 
+pub(super) struct SharedTrimCurveSelection<'a> {
+    pub(super) edge: EdgeHandle,
+    pub(super) cap_half_edge: HalfEdgeHandle,
+    pub(super) cap_pcurve: &'a Pcurve,
+    pub(super) cap_surface: &'a SurfaceGeometry,
+    pub(super) support_half_edge: HalfEdgeHandle,
+    pub(super) support_pcurve: &'a Pcurve,
+    pub(super) support_surface: &'a SurfaceGeometry,
+}
+
 pub(super) fn resolved_support_side_for_commit(
     brep: &BRep,
     side: ExactBoundaryOuterSide,
@@ -143,14 +153,17 @@ fn half_edge_curve_forward(
 
 pub(super) fn canonical_shared_trim_curve(
     brep: &BRep,
-    edge: EdgeHandle,
-    cap_half_edge: HalfEdgeHandle,
-    cap_pcurve: &Pcurve,
-    cap_surface: &SurfaceGeometry,
-    support_half_edge: HalfEdgeHandle,
-    support_pcurve: &Pcurve,
-    support_surface: &SurfaceGeometry,
+    selection: SharedTrimCurveSelection<'_>,
 ) -> Option<CurveOnEdge> {
+    let SharedTrimCurveSelection {
+        edge,
+        cap_half_edge,
+        cap_pcurve,
+        cap_surface,
+        support_half_edge,
+        support_pcurve,
+        support_surface,
+    } = selection;
     let cap_curve =
         curve_from_pcurve_in_edge_direction(brep, edge, cap_half_edge, cap_pcurve, cap_surface)
             .and_then(|curve| orient_curve_to_edge_vertices(brep, edge, curve));

@@ -322,7 +322,7 @@ fn pipeline_repairs_edge_surface_compatibility_after_trim_stages() {
 }
 
 #[test]
-fn pipeline_reports_unresolved_edge_surface_compatibility_without_partial_output() {
+fn pipeline_repairs_edge_surface_compatibility_from_surface_boundary_authority() {
     let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
     corrupt_edge_curve(&mut brep, edge, Vec3::new(0.11, 0.07, 0.13));
@@ -333,36 +333,33 @@ fn pipeline_reports_unresolved_edge_surface_compatibility_without_partial_output
     options.repair_edge_surfaces = true;
     options.repair_trims = false;
 
-    let failure = repair_brep_boundary_edges_transactionally(&brep, &[], options).unwrap_err();
+    let result = repair_brep_boundary_edges_transactionally(&brep, &[], options).unwrap();
 
-    assert_eq!(
-        failure.stage,
-        BrepRepairPipelineStage::EdgeSurfaceCompatibility
-    );
-    assert!(matches!(
-        failure.reason,
-        BrepRepairPipelineFailureReason::EdgeSurfaceCompatibilityFailed(_)
-    ));
-    assert_eq!(
-        failure
-            .report
-            .edge_surface_compatibility
-            .unwrap()
-            .repaired_edges,
-        0
+    let report = result.report.edge_surface_compatibility.unwrap();
+    assert_eq!(report.before.incompatible_half_edges, 1);
+    assert_eq!(report.repaired_edges, 1);
+    assert_eq!(report.after.incompatible_half_edges, 0);
+    assert_eq!(report.declined_edges, 0);
+    assert!(
+        report
+            .decisions
+            .iter()
+            .any(|decision| decision.evidence.attempted_boundary_reconstruction)
     );
     assert!(
-        failure
+        result
             .report
             .actions
             .decisions
             .iter()
-            .any(|decision| decision.outcome == BrepRepairActionOutcome::RolledBack)
+            .any(
+                |decision| decision.stage == BrepRepairPipelineStage::EdgeSurfaceCompatibility
+                    && decision.outcome == BrepRepairActionOutcome::Authored
+            )
     );
-    let artifact = build_brep_repair_action_artifact(&failure.report.actions);
+    let artifact = build_brep_repair_action_artifact(&result.report.actions);
     assert!(artifact.actions.iter().any(|action| {
-        action.outcome == "rolled_back"
-            && action.reason.as_deref() == Some("unresolved_edge_surface_compatibility")
+        action.stage == "edge_surface_compatibility" && action.outcome == "authored"
     }));
 }
 

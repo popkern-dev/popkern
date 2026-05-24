@@ -129,13 +129,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                         allowed_support_faces: &allowed_planned_support,
                     },
                 )?;
-                let (
-                    half_edge,
-                    actual_support_face,
-                    support_side_owned,
-                    support_source,
-                    authored_boundary_spans,
-                ) = materialized_generator_trim_side(
+                let materialized = materialized_generator_trim_side(
                     brep,
                     GeneratorTrimMaterializationRequest {
                         cylinder_face: rebuild_plan.cylinder_face,
@@ -147,16 +141,17 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                         side_support_bridge_loops,
                     },
                 )?;
-                residual_boundary_spans.extend(authored_boundary_spans.iter().copied());
-                cycle.push(half_edge);
+                residual_boundary_spans
+                    .extend(materialized.authored_boundary_spans.iter().copied());
+                cycle.push(materialized.half_edge);
                 support_owned_trim_sides.push(SupportOwnedTrimSide {
                     cylinder_face: topology_plan.cylinder_face,
-                    support_face: actual_support_face,
+                    support_face: materialized.support_face,
                     fillet_index: topology_plan.fillet_index,
-                    half_edge,
-                    support_side_owned,
-                    support_source,
-                    authored_boundary_spans,
+                    half_edge: materialized.half_edge,
+                    support_side_owned: materialized.support_side_owned,
+                    support_source: materialized.support_source,
+                    authored_boundary_spans: materialized.authored_boundary_spans,
                     requires_support_ownership: true,
                 });
             }

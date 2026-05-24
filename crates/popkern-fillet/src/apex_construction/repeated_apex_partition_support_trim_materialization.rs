@@ -13,16 +13,7 @@ pub(super) struct GeneratorTrimMaterializationRequest<'a> {
 pub(super) fn materialized_generator_trim_side(
     brep: &mut BRep,
     request: GeneratorTrimMaterializationRequest<'_>,
-) -> Result<
-    (
-        HalfEdgeHandle,
-        FaceHandle,
-        bool,
-        Option<SupportOwnedTrimSource>,
-        Vec<HalfEdgeHandle>,
-    ),
-    ApexBuildError,
-> {
+) -> Result<MaterializedGeneratorTrimSide, ApexBuildError> {
     let GeneratorTrimMaterializationRequest {
         cylinder_face,
         support_face,
@@ -45,7 +36,13 @@ pub(super) fn materialized_generator_trim_side(
             fillet_index,
         )?
     {
-        return Ok((half_edge, actual_support_face, true, None, Vec::new()));
+        return Ok(MaterializedGeneratorTrimSide {
+            half_edge,
+            support_face: actual_support_face,
+            support_side_owned: true,
+            support_source: None,
+            authored_boundary_spans: Vec::new(),
+        });
     }
     if let Some(claim) = claim_side_support_bridge_boundary_for_cylinder_trim(
         brep,
@@ -59,13 +56,13 @@ pub(super) fn materialized_generator_trim_side(
             fillet_index,
         },
     )? {
-        return Ok((
-            claim.half_edge,
-            claim.support_face,
-            true,
-            None,
-            claim.authored_boundary_spans,
-        ));
+        return Ok(MaterializedGeneratorTrimSide {
+            half_edge: claim.half_edge,
+            support_face: claim.support_face,
+            support_side_owned: true,
+            support_source: None,
+            authored_boundary_spans: claim.authored_boundary_spans,
+        });
     }
     match materialize_support_face_mef_trim(
         brep,
@@ -77,13 +74,13 @@ pub(super) fn materialized_generator_trim_side(
         fillet_index,
     ) {
         Ok((half_edge, actual_support_face, support_source)) => {
-            return Ok((
+            return Ok(MaterializedGeneratorTrimSide {
                 half_edge,
-                actual_support_face,
-                true,
-                Some(support_source),
-                Vec::new(),
-            ));
+                support_face: actual_support_face,
+                support_side_owned: true,
+                support_source: Some(support_source),
+                authored_boundary_spans: Vec::new(),
+            });
         }
         Err(err) => {
             if crate::direct_apex_trace::enabled() {
@@ -97,7 +94,13 @@ pub(super) fn materialized_generator_trim_side(
     }
     let (edge, half_edge, _twin) = insert_unwired_edge_pair(brep, start, end);
     brep.edges[edge].curve = Some(curve);
-    Ok((half_edge, support_face, false, None, Vec::new()))
+    Ok(MaterializedGeneratorTrimSide {
+        half_edge,
+        support_face,
+        support_side_owned: false,
+        support_source: None,
+        authored_boundary_spans: Vec::new(),
+    })
 }
 
 fn claim_existing_support_boundary_for_cylinder_trim(

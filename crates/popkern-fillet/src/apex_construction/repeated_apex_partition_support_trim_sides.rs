@@ -19,6 +19,14 @@ pub(super) struct SupportOwnedTrimSource {
     pub(super) next: HalfEdgeHandle,
 }
 
+pub(super) struct MaterializedGeneratorTrimSide {
+    pub(super) half_edge: HalfEdgeHandle,
+    pub(super) support_face: FaceHandle,
+    pub(super) support_side_owned: bool,
+    pub(super) support_source: Option<SupportOwnedTrimSource>,
+    pub(super) authored_boundary_spans: Vec<HalfEdgeHandle>,
+}
+
 #[derive(Clone)]
 pub(super) struct PreMaterializedTrimSide {
     pub(super) cylinder_face: FaceHandle,

@@ -8,13 +8,12 @@ use popkern_core::topology::{
 
 #[path = "commit_helpers.rs"]
 mod commit_helpers;
-
 use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
 use super::pcurves::PreparedExactBoundaryPcurves;
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::solve::ExactBoundarySolvedSurfaces;
 use commit_helpers::{
-    canonical_shared_trim_curve, curve_from_pcurve_in_edge_direction,
+    SharedTrimCurveSelection, canonical_shared_trim_curve, curve_from_pcurve_in_edge_direction,
     normalize_semantic_line_edge_curve, project_curve_to_half_edge_pcurve,
     resolved_support_side_for_commit, reversed_pcurve, solved_surface,
 };
@@ -420,28 +419,30 @@ fn commit_validated_inputs(
                 ) {
                     brep.edges[cap_edge].curve = Some(cap_curve);
                 }
-                if support_edge != cap_edge {
-                    if let Some(support_curve) = curve_from_pcurve_in_edge_direction(
+                if support_edge != cap_edge
+                    && let Some(support_curve) = curve_from_pcurve_in_edge_direction(
                         brep,
                         support_edge,
                         support_half_edge,
                         &support_pcurve,
                         &support_surface,
-                    ) {
-                        brep.edges[support_edge].curve = Some(support_curve);
-                    }
+                    )
+                {
+                    brep.edges[support_edge].curve = Some(support_curve);
                 }
                 continue;
             }
             let curve = canonical_shared_trim_curve(
                 brep,
-                pair.edge,
-                cap_half_edge,
-                &pair.cap_pcurve,
-                &cap_surface,
-                support_half_edge,
-                &support_pcurve,
-                &support_surface,
+                SharedTrimCurveSelection {
+                    edge: pair.edge,
+                    cap_half_edge,
+                    cap_pcurve: &pair.cap_pcurve,
+                    cap_surface: &cap_surface,
+                    support_half_edge,
+                    support_pcurve: &support_pcurve,
+                    support_surface: &support_surface,
+                },
             )
             .ok_or_else(|| {
                 ExactBoundaryCommitDiagnostic::new(

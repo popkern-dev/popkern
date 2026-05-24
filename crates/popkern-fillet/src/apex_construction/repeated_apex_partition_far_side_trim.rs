@@ -18,13 +18,7 @@ pub(super) fn materialized_far_side_trim_sides(
         fillet_index,
         allowed_support_faces,
     ) {
-        let (
-            half_edge,
-            actual_support_face,
-            support_side_owned,
-            support_source,
-            authored_boundary_spans,
-        ) = materialized_generator_trim_side(
+        let materialized = materialized_generator_trim_side(
             brep,
             GeneratorTrimMaterializationRequest {
                 cylinder_face,
@@ -38,12 +32,12 @@ pub(super) fn materialized_far_side_trim_sides(
         )?;
         return Ok(vec![SupportOwnedTrimSide {
             cylinder_face,
-            support_face: actual_support_face,
+            support_face: materialized.support_face,
             fillet_index,
-            half_edge,
-            support_side_owned,
-            support_source,
-            authored_boundary_spans,
+            half_edge: materialized.half_edge,
+            support_side_owned: materialized.support_side_owned,
+            support_source: materialized.support_source,
+            authored_boundary_spans: materialized.authored_boundary_spans,
             requires_support_ownership: true,
         }]);
     }

@@ -8,8 +8,8 @@ use crate::step_validation::StepRoundTripBodyReport;
 pub struct StepRoundTripFailure {
     pub label: String,
     pub reason: String,
-    pub imported_validation: Option<StepImportedValidationFailure>,
-    pub export_quality: Option<StepRoundTripBodyReport>,
+    pub imported_validation: Option<Box<StepImportedValidationFailure>>,
+    pub export_quality: Option<Box<StepRoundTripBodyReport>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -173,7 +173,7 @@ pub(super) fn failure_with_imported_validation(
     StepRoundTripFailure {
         label: label.into(),
         reason,
-        imported_validation: Some(imported_validation),
+        imported_validation: Some(Box::new(imported_validation)),
         export_quality: None,
     }
 }
@@ -187,6 +187,6 @@ pub(super) fn failure_with_export_quality(
         label: label.into(),
         reason,
         imported_validation: None,
-        export_quality: Some(export_quality),
+        export_quality: Some(Box::new(export_quality)),
     }
 }

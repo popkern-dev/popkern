@@ -51,9 +51,7 @@ pub(super) fn try_commit_pcurve_trace_edge(
                 surf_b,
                 options.samples,
             );
-            let Some((start, end)) = crate::topology::edge_segment(brep, edge) else {
-                return None;
-            };
+            let (start, end) = crate::topology::edge_segment(brep, edge)?;
             let endpoint_gap =
                 endpoint_gap(&curve.geometry, curve.t_start, curve.t_end, start, end);
             (residual_a.max(residual_b) <= options.tolerance

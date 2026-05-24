@@ -205,8 +205,8 @@ use partition_support_trim_materialization::{
     GeneratorTrimMaterializationRequest, materialized_generator_trim_side,
 };
 use partition_support_trim_sides::{
-    PreMaterializedTrimSide, SupportOwnedTrimSide, SupportOwnedTrimSource,
-    pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,
+    MaterializedGeneratorTrimSide, PreMaterializedTrimSide, SupportOwnedTrimSide,
+    SupportOwnedTrimSource, pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,
 };
 use partition_support_trim_validation::validate_replacement_loop_support_side_ownership;
 

@@ -2,7 +2,7 @@ use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
     BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingOptions,
-    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions, TopologyRole,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
     classify_brep_fidelity_blocker_ownership, repair_brep_boundary_edges_transactionally,
 };
@@ -89,19 +89,9 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     let export_state = &states[1];
     let imported_state = &states[2];
     let ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
-    assert!(
-        ownership.production_owned >= 9,
-        "remaining large blockers should be production-owned cylinder-loop geometry, not only residual leakage: {ownership:#?}"
-    );
-    assert!(
-        ownership.edges.iter().take(9).all(|edge| {
-            edge.edge_role == TopologyRole::Production
-                && edge
-                    .half_edges
-                    .iter()
-                    .any(|side| side.face_role == TopologyRole::Production)
-        }),
-        "top pcurve blockers should expose production edge/face ownership: {ownership:#?}"
+    assert_eq!(
+        ownership.blockers, 0,
+        "exact-boundary Gregory construction should no longer leave pcurve blocker ownership to classify: {ownership:#?}"
     );
 
     assert!(
@@ -112,13 +102,13 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         export_state.edge_surface_blockers <= construction_state.edge_surface_blockers,
         "repair should not increase construction edge/surface blockers: {states:#?}"
     );
-    assert!(
-        repaired
-            .report
-            .edge_surface_compatibility
-            .as_ref()
-            .is_some_and(|report| report.declined_edges > 0),
-        "strict shared-trim repair should keep unresolved construction blockers observable"
+    assert_eq!(
+        export_state.pcurve_blockers, 0,
+        "strict shared-trim repair should resolve construction pcurve blockers before export: {states:#?}"
+    );
+    assert_eq!(
+        export_state.edge_surface_blockers, 0,
+        "strict shared-trim repair should resolve construction edge/surface blockers before export: {states:#?}"
     );
     let edge_surface_report = repaired
         .report
@@ -142,18 +132,18 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
                 .iter()
                 .any(|code| code.starts_with("brep.surface.boundary"))
         }),
-        "remaining Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics"
+        "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
     assert!(
         imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,
-        "probe should keep the remaining STEP fidelity blocker observable: {states:#?}"
+        "probe should keep the remaining STEP import fidelity blocker observable: {states:#?}"
     );
 
     let classification =
         classify_fidelity_blocker(construction_state, export_state, imported_state);
     assert_eq!(
-        classification, "construction_geometry_issue",
-        "unexpected Gregory STEP fidelity blocker classification; states: {states:#?}"
+        classification, "export_pcurve_issue",
+        "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }
 
@@ -162,7 +152,15 @@ fn classify_fidelity_blocker(
     export_input: &FidelityState,
     imported: &FidelityState,
 ) -> &'static str {
-    if construction.edge_surface_blockers > 0
+    if construction.pcurve_blockers == 0
+        && construction.edge_surface_blockers == 0
+        && export_input.pcurve_blockers == 0
+        && export_input.edge_surface_blockers == 0
+        && imported.pcurve_blockers == 0
+        && imported.edge_surface_blockers == 0
+    {
+        "no_fidelity_blocker"
+    } else if construction.edge_surface_blockers > 0
         && export_input.edge_surface_blockers > 0
         && imported.edge_surface_blockers > 0
     {
