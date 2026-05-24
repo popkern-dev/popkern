@@ -48,6 +48,74 @@ fn from_nurbs_round_trip() {
 }
 
 #[test]
+fn nurbs_to_nurbs_honors_owned_pcurve_span() {
+    use crate::geometry::curve::CurveEval;
+
+    let full = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 2.0, 2.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.5, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let p = Pcurve {
+        geometry: PcurveGeometry::Nurbs(full.clone()),
+        t_start: 0.5,
+        t_end: 1.5,
+    };
+
+    let trimmed = p.to_nurbs();
+    let (trim_start, trim_end) = trimmed.parameter_range();
+
+    assert!((trim_start - 0.5).abs() < 1e-12);
+    assert!((trim_end - 1.5).abs() < 1e-12);
+    assert!(
+        trimmed
+            .point_at(trim_start)
+            .distance_to(&full.point_at(0.5))
+            < 1e-12
+    );
+    assert!(trimmed.point_at(trim_end).distance_to(&full.point_at(1.5)) < 1e-12);
+}
+
+#[test]
+fn nurbs_to_nurbs_preserves_reversed_owned_pcurve_span() {
+    use crate::geometry::curve::CurveEval;
+
+    let full = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 2.0, 2.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.5, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let p = Pcurve {
+        geometry: PcurveGeometry::Nurbs(full.clone()),
+        t_start: 1.5,
+        t_end: 0.5,
+    };
+
+    let trimmed = p.to_nurbs();
+    let (trim_start, trim_end) = trimmed.parameter_range();
+
+    assert!((trim_start - 0.5).abs() < 1e-12);
+    assert!((trim_end - 1.5).abs() < 1e-12);
+    assert!(
+        trimmed
+            .point_at(trim_start)
+            .distance_to(&full.point_at(1.5))
+            < 1e-12
+    );
+    assert!(trimmed.point_at(trim_end).distance_to(&full.point_at(0.5)) < 1e-12);
+}
+
+#[test]
 fn linear_to_nurbs_preserves_endpoints() {
     let p = Pcurve::linear((0.0, 1.0), (4.0, 1.0), 0.0, 1.0);
     let n = p.to_nurbs();
@@ -79,6 +147,28 @@ fn cylinder_arc_quad_honors_pcurve_parameter_range() {
     assert!((end.y - 0.4).abs() < 1e-12);
     assert!(tangent.x.is_finite());
     assert!(tangent.x > 0.0);
+}
+
+#[test]
+fn cylinder_arc_quad_exports_exact_linear_uv_nurbs() {
+    let p = Pcurve {
+        geometry: PcurveGeometry::CylinderArcViaRationalQuad {
+            theta_a: 7.0 * std::f64::consts::PI / 4.0,
+            theta_b: std::f64::consts::PI / 4.0,
+            v_const: 0.4,
+        },
+        t_start: 2.0,
+        t_end: 5.0,
+    };
+
+    let n = p.to_nurbs();
+
+    assert_eq!(n.degree, 1);
+    assert_eq!(n.control_points.len(), 2);
+    assert!((n.control_points[0].x - 7.0 * std::f64::consts::PI / 4.0).abs() < 1e-12);
+    assert!((n.control_points[1].x - 9.0 * std::f64::consts::PI / 4.0).abs() < 1e-12);
+    assert!((n.control_points[0].y - 0.4).abs() < 1e-12);
+    assert!((n.control_points[1].y - 0.4).abs() < 1e-12);
 }
 
 #[test]

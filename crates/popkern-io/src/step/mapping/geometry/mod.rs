@@ -11,6 +11,8 @@ mod surfaces;
 #[cfg(test)]
 mod tests_resolve;
 
+pub(crate) use pcurves::ResolvedStepPcurve;
+
 use std::collections::HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};

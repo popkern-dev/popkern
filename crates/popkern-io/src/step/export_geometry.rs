@@ -108,7 +108,12 @@ impl ExportContext {
                 let nurbs = curve.geometry.to_nurbs_in_range(range);
                 self.export_nurbs_curve(&nurbs)
             }
-            CurveGeometry::Nurbs(nurbs) => self.export_nurbs_curve(nurbs),
+            CurveGeometry::Nurbs(_) => {
+                let nurbs = curve
+                    .geometry
+                    .to_nurbs_in_range((curve.t_start, curve.t_end));
+                self.export_nurbs_curve(&nurbs)
+            }
         }
     }
 

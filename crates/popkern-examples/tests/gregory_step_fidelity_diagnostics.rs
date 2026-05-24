@@ -1,3 +1,5 @@
+use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
@@ -37,6 +39,7 @@ struct EdgePcurveEvidence {
 struct HalfEdgePcurveEvidence {
     half_edge: String,
     face: String,
+    surface_kind: &'static str,
     max_deviation: f64,
     same_fraction_deviation: f64,
     trace_deviation: f64,
@@ -48,6 +51,7 @@ struct EdgeSurfaceEvidence {
     edge: String,
     half_edge: String,
     face: String,
+    surface_kind: &'static str,
     max_deviation: f64,
     max_curve_parameter: f64,
 }
@@ -78,16 +82,32 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "STEP import diagnostics contain errors: {:?}",
         imported.diagnostics.entries()
     );
+    assert!(
+        imported.diagnostics.entries().iter().any(|entry| {
+            entry.entity_id.is_some()
+                && (entry
+                    .message
+                    .contains("STEP import pcurve fidelity blocker")
+                    || entry
+                        .message
+                        .contains("STEP import edge/surface fidelity blocker"))
+                && entry.message.contains("edge_curve=#")
+        }),
+        "remaining imported fidelity blocker should be promoted to STEP entity-level diagnostics: {:?}",
+        imported.diagnostics.entries()
+    );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
 
     let states = [
         fidelity_state("construction", &construction),
         fidelity_state("export_input", &export_input),
+        fidelity_state("export_surface_form", &export_surface_form(&export_input)),
+        fidelity_state("export_pcurve_form", &export_pcurve_form(&export_input)),
         fidelity_state("imported", imported_brep),
     ];
     let construction_state = &states[0];
     let export_state = &states[1];
-    let imported_state = &states[2];
+    let imported_state = &states[4];
     let ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
     assert_eq!(
         ownership.blockers, 0,
@@ -139,10 +159,17 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "probe should keep the remaining STEP import fidelity blocker observable: {states:#?}"
     );
 
-    let classification =
-        classify_fidelity_blocker(construction_state, export_state, imported_state);
+    let export_surface_state = &states[2];
+    let export_pcurve_state = &states[3];
+    let classification = classify_fidelity_blocker(
+        construction_state,
+        export_state,
+        export_surface_state,
+        export_pcurve_state,
+        imported_state,
+    );
     assert_eq!(
-        classification, "export_pcurve_issue",
+        classification, "step_import_mapping_issue",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }
@@ -150,6 +177,8 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
 fn classify_fidelity_blocker(
     construction: &FidelityState,
     export_input: &FidelityState,
+    export_surface_form: &FidelityState,
+    export_pcurve_form: &FidelityState,
     imported: &FidelityState,
 ) -> &'static str {
     if construction.pcurve_blockers == 0
@@ -165,8 +194,15 @@ fn classify_fidelity_blocker(
         && imported.edge_surface_blockers > 0
     {
         "construction_geometry_issue"
-    } else if export_input.pcurve_blockers == 0 && imported.pcurve_blockers > 0 {
-        "export_pcurve_issue"
+    } else if export_input.pcurve_blockers == 0
+        && export_input.edge_surface_blockers == 0
+        && export_surface_form.pcurve_blockers == 0
+        && export_surface_form.edge_surface_blockers == 0
+        && export_pcurve_form.pcurve_blockers == 0
+        && export_pcurve_form.edge_surface_blockers == 0
+        && (imported.pcurve_blockers > 0 || imported.edge_surface_blockers > 0)
+    {
+        "step_import_mapping_issue"
     } else if export_input.max_pcurve_deviation <= 1e-6 && imported.max_pcurve_deviation > 1e-6 {
         "import_association_issue"
     } else if construction.pcurve_blockers > 0 && export_input.pcurve_blockers == 0 {
@@ -206,11 +242,36 @@ fn fidelity_state(label: &'static str, brep: &BRep) -> FidelityState {
                 edge: format!("{:?}", finding.edge),
                 half_edge: format!("{:?}", finding.half_edge),
                 face: format!("{:?}", finding.face),
+                surface_kind: face_surface_kind(brep, finding.face),
                 max_deviation: finding.max_deviation,
                 max_curve_parameter: finding.max_curve_parameter,
             })
             .collect(),
     }
+}
+
+fn export_surface_form(brep: &BRep) -> BRep {
+    let mut converted = brep.clone();
+    for face in converted.faces.values_mut() {
+        let Some(surface) = face.surface.as_mut() else {
+            continue;
+        };
+        if matches!(surface.geometry, SurfaceGeometry::Gregory(_)) {
+            surface.geometry = SurfaceGeometry::Nurbs(surface.geometry.to_nurbs());
+        }
+    }
+    converted
+}
+
+fn export_pcurve_form(brep: &BRep) -> BRep {
+    let mut converted = export_surface_form(brep);
+    for half_edge in converted.half_edges.values_mut() {
+        let Some(pcurve) = half_edge.pcurve.as_mut() else {
+            continue;
+        };
+        *pcurve = Pcurve::from_nurbs(pcurve.to_nurbs());
+    }
+    converted
 }
 
 fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
@@ -233,6 +294,7 @@ fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
                 .map(|half_edge| HalfEdgePcurveEvidence {
                     half_edge: format!("{:?}", half_edge.half_edge),
                     face: format!("{:?}", half_edge.face),
+                    surface_kind: face_surface_kind(brep, half_edge.face),
                     max_deviation: half_edge.max_deviation,
                     same_fraction_deviation: half_edge.max_same_fraction_deviation,
                     trace_deviation: half_edge.max_trace_deviation,
@@ -241,6 +303,24 @@ fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
                 .collect(),
         })
         .collect()
+}
+
+fn face_surface_kind(brep: &BRep, face: popkern_core::topology::FaceHandle) -> &'static str {
+    match brep
+        .faces
+        .get(face)
+        .and_then(|face| face.surface.as_ref())
+        .map(|surface| &surface.geometry)
+    {
+        Some(SurfaceGeometry::Plane { .. }) => "plane",
+        Some(SurfaceGeometry::Cylinder { .. }) => "cylinder",
+        Some(SurfaceGeometry::Cone { .. }) => "cone",
+        Some(SurfaceGeometry::Sphere { .. }) => "sphere",
+        Some(SurfaceGeometry::Torus { .. }) => "torus",
+        Some(SurfaceGeometry::Nurbs(_)) => "nurbs",
+        Some(SurfaceGeometry::Gregory(_)) => "gregory",
+        None => "missing",
+    }
 }
 
 pub(crate) fn mixed_radius_gregory_cube() -> BRep {

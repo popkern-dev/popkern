@@ -73,6 +73,60 @@ fn nurbs_to_nurbs_is_clone() {
 }
 
 #[test]
+fn nurbs_to_nurbs_in_range_honors_edge_span() {
+    let nurbs = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 2.0, 2.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let geom = CurveGeometry::Nurbs(nurbs.clone());
+    let trimmed = geom.to_nurbs_in_range((0.5, 1.5));
+    let (trim_start, trim_end) = trimmed.parameter_range();
+
+    assert!((trim_start - 0.5).abs() < 1e-12);
+    assert!((trim_end - 1.5).abs() < 1e-12);
+    assert!(
+        trimmed
+            .point_at(trim_start)
+            .distance_to(&nurbs.point_at(0.5))
+            < 1e-12
+    );
+    assert!(trimmed.point_at(trim_end).distance_to(&nurbs.point_at(1.5)) < 1e-12);
+}
+
+#[test]
+fn nurbs_to_nurbs_in_range_preserves_reversed_edge_span() {
+    let nurbs = NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 2.0, 2.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0, 1.0, 1.0],
+    };
+    let geom = CurveGeometry::Nurbs(nurbs.clone());
+    let trimmed = geom.to_nurbs_in_range((1.5, 0.5));
+    let (trim_start, trim_end) = trimmed.parameter_range();
+
+    assert!((trim_start - 0.5).abs() < 1e-12);
+    assert!((trim_end - 1.5).abs() < 1e-12);
+    assert!(
+        trimmed
+            .point_at(trim_start)
+            .distance_to(&nurbs.point_at(1.5))
+            < 1e-12
+    );
+    assert!(trimmed.point_at(trim_end).distance_to(&nurbs.point_at(0.5)) < 1e-12);
+}
+
+#[test]
 fn arc_to_nurbs_quarter_circle() {
     use std::f64::consts::FRAC_PI_2;
     let arc = CurveGeometry::Arc {

@@ -5,39 +5,58 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceOnFace};
 use popkern_core::tolerance::Tolerance;
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
+use crate::step::mapping::geometry::ResolvedStepPcurve;
 use crate::step::parser::types::EntityId;
 
+#[derive(Debug, Clone)]
+pub(super) struct SelectedStepPcurve {
+    pub pcurve: Pcurve,
+    pub pcurve_id: EntityId,
+    pub reference_curve_id: EntityId,
+    pub sampled_gap: f64,
+}
+
 pub(super) fn select_orient_pcurve_to_half_edge(
-    pcurves: Vec<Pcurve>,
+    pcurves: Vec<ResolvedStepPcurve>,
     curve: &CurveOnEdge,
     surface: &SurfaceOnFace,
     edge_forward: bool,
     face_id: EntityId,
     tolerance: Tolerance,
     log: &mut DiagnosticLog,
-) -> Option<Pcurve> {
-    let mut best: Option<(Pcurve, f64)> = None;
-    for pcurve in pcurves {
-        let candidate = align_pcurve_candidate(pcurve, curve, surface, edge_forward, tolerance);
+) -> Option<SelectedStepPcurve> {
+    let mut best: Option<(ResolvedStepPcurve, Pcurve, f64)> = None;
+    for resolved in pcurves {
+        let candidate = align_pcurve_candidate(
+            resolved.pcurve.clone(),
+            curve,
+            surface,
+            edge_forward,
+            tolerance,
+        );
         match &best {
-            Some((_, best_gap)) if candidate.1 >= *best_gap => {}
-            _ => best = Some(candidate),
+            Some((_, _, best_score)) if candidate.1 >= *best_score => {}
+            _ => best = Some((resolved, candidate.0, candidate.1)),
         }
     }
 
-    let (pcurve, accepted_gap) = best?;
-    if accepted_gap > tolerance.linear() {
+    let (resolved, pcurve, accepted_score) = best?;
+    if accepted_score > tolerance.linear() {
         log.warn(
             Phase::MapTopology,
-            Some(face_id),
+            Some(resolved.pcurve_id),
             format!(
-                "STEP pcurve endpoint disagreement {:.3e} exceeds tolerance {:.3e}",
-                accepted_gap,
-                tolerance.linear()
+                "STEP pcurve sampled disagreement {:.3e} exceeds tolerance {:.3e} on ADVANCED_FACE #{face_id}",
+                accepted_score, tolerance.linear()
             ),
         );
     }
-    Some(pcurve)
+    Some(SelectedStepPcurve {
+        pcurve,
+        pcurve_id: resolved.pcurve_id,
+        reference_curve_id: resolved.reference_curve_id,
+        sampled_gap: accepted_score,
+    })
 }
 
 fn align_pcurve_candidate(
@@ -52,8 +71,22 @@ fn align_pcurve_candidate(
     let reversed = reverse_pcurve_candidate(pcurve);
     let _ = tolerance;
 
-    let (_, direct_gap) = pcurve_endpoint_gap(&direct, surface, curve_start, curve_end);
-    let (_, reversed_gap) = pcurve_endpoint_gap(&reversed, surface, curve_start, curve_end);
+    let direct_gap = pcurve_candidate_gap(
+        &direct,
+        curve,
+        surface,
+        edge_forward,
+        curve_start,
+        curve_end,
+    );
+    let reversed_gap = pcurve_candidate_gap(
+        &reversed,
+        curve,
+        surface,
+        edge_forward,
+        curve_start,
+        curve_end,
+    );
 
     if reversed_gap < direct_gap {
         (reversed, reversed_gap)
@@ -137,6 +170,54 @@ fn pcurve_endpoint_gap(
     ((pc_start, pc_end), gap)
 }
 
+fn pcurve_candidate_gap(
+    pcurve: &Pcurve,
+    curve: &CurveOnEdge,
+    surface: &SurfaceOnFace,
+    edge_forward: bool,
+    target_start: Point3,
+    target_end: Point3,
+) -> f64 {
+    let (_, endpoint_gap) = pcurve_endpoint_gap(pcurve, surface, target_start, target_end);
+    endpoint_gap.max(pcurve_same_fraction_gap(
+        pcurve,
+        curve,
+        surface,
+        edge_forward,
+        9,
+    ))
+}
+
+fn pcurve_same_fraction_gap(
+    pcurve: &Pcurve,
+    curve: &CurveOnEdge,
+    surface: &SurfaceOnFace,
+    edge_forward: bool,
+    samples: usize,
+) -> f64 {
+    let edge_start = if edge_forward {
+        curve.t_start
+    } else {
+        curve.t_end
+    };
+    let edge_end = if edge_forward {
+        curve.t_end
+    } else {
+        curve.t_start
+    };
+    let mut max_gap = 0.0_f64;
+    for i in 0..samples.max(2) {
+        let fraction = i as f64 / (samples.max(2) as f64 - 1.0);
+        let edge_t = edge_start + (edge_end - edge_start) * fraction;
+        let pcurve_t = pcurve.t_start + (pcurve.t_end - pcurve.t_start) * fraction;
+        let edge_point = curve.geometry.point_at(edge_t);
+        let uv = pcurve.point_at(pcurve_t);
+        let surface_point = surface.geometry.point_at(uv.x, uv.y);
+        max_gap = max_gap.max(edge_point.distance_to(&surface_point));
+    }
+    max_gap
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +249,14 @@ mod tests {
         }
     }
 
+    fn resolved(id: EntityId, pcurve: Pcurve) -> ResolvedStepPcurve {
+        ResolvedStepPcurve {
+            pcurve_id: id,
+            reference_curve_id: id + 1000,
+            pcurve,
+        }
+    }
+
     #[test]
     fn select_orient_pcurve_aligns_endpoint_images_to_half_edge() {
         let surface = xy_plane();
@@ -177,7 +266,7 @@ mod tests {
         let mut log = DiagnosticLog::new();
 
         let selected = select_orient_pcurve_to_half_edge(
-            vec![wrong, reversed],
+            vec![resolved(100, wrong), resolved(101, reversed)],
             &curve,
             &surface,
             true,
@@ -187,8 +276,44 @@ mod tests {
         )
         .expect("one pcurve candidate should be selected");
 
-        let (start, end) = pcurve_endpoint_images(&selected, &surface);
+        assert_eq!(selected.pcurve_id, 101);
+        let (start, end) = pcurve_endpoint_images(&selected.pcurve, &surface);
         assert!(start.distance_to(&Point3::new(0.0, 0.0, 0.0)) <= Tolerance::default().linear());
         assert!(end.distance_to(&Point3::new(1.0, 0.0, 0.0)) <= Tolerance::default().linear());
+    }
+
+    #[test]
+    fn select_orient_pcurve_prefers_same_fraction_trace_over_endpoint_tie() {
+        let surface = xy_plane();
+        let curve = unit_x_edge();
+        let wrong = Pcurve::from_nurbs(popkern_core::geometry::NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 1.0, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        });
+        let correct = Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0);
+        let mut log = DiagnosticLog::new();
+
+        let selected = select_orient_pcurve_to_half_edge(
+            vec![resolved(100, wrong), resolved(101, correct)],
+            &curve,
+            &surface,
+            true,
+            42,
+            Tolerance::default(),
+            &mut log,
+        )
+        .expect("one pcurve candidate should be selected");
+
+        assert!(
+            pcurve_same_fraction_gap(&selected.pcurve, &curve, &surface, true, 9)
+                <= Tolerance::default().linear()
+        );
+        assert_eq!(selected.pcurve_id, 101);
     }
 }

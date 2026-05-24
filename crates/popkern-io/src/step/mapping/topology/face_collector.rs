@@ -42,6 +42,8 @@ pub(super) struct BoundInfo {
 
 /// Resolved oriented edge reference.
 pub(super) struct OrientedEdgeInfo {
+    /// Entity ID of the ORIENTED_EDGE.
+    pub oriented_edge_id: EntityId,
     /// Entity ID of the underlying EDGE_CURVE.
     pub edge_curve_id: EntityId,
     /// Effective orientation (composed from ORIENTED_EDGE and FACE_BOUND).
@@ -148,6 +150,7 @@ pub(super) fn collect_face_data(
                 // Compose ORIENTED_EDGE and FACE_BOUND orientations
                 let effective_orientation = oe.orientation == bound_orientation;
                 oriented_edges.push(OrientedEdgeInfo {
+                    oriented_edge_id: oe_id,
                     edge_curve_id: oe.edge_element,
                     orientation: effective_orientation,
                 });

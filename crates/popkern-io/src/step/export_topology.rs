@@ -4,18 +4,19 @@
 //! EDGE_LOOP, FACE_BOUND, ADVANCED_FACE, CLOSED_SHELL, and
 //! MANIFOLD_SOLID_BREP entities.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
-use popkern_core::topology::{
-    BRep, BrepDegenerateEdgeKind, BrepDegenerateEdgeOptions, EdgeHandle, FaceHandle, LoopHandle,
-    VertexHandle, analyze_brep_degenerate_edges,
-};
+use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHandle};
 
 use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
+use crate::step::export_topology_helpers::{
+    collapsed_trim_missing_curve_edges, edge_curve_same_sense, edge_end_vertex, edge_half_edges,
+    pcurve_endpoints_match_edge_segment, synthesize_missing_edge_curve_from_surface_trims,
+    synthesize_plane,
+};
 use crate::step::parser::types::EntityId;
 
 impl ExportContext {
@@ -58,6 +59,8 @@ impl ExportContext {
             // line fallback for non-degenerate vertex-bounded edges.
             let curve_3d_id = if let Some(curve) = &edge.curve {
                 self.export_curve(curve)
+            } else if let Some(curve) = synthesize_missing_edge_curve_from_surface_trims(brep, eh) {
+                self.export_curve(&curve)
             } else if collapsed_trim_edges.contains(&eh) {
                 let start_v = brep
                     .vertices
@@ -86,14 +89,13 @@ impl ExportContext {
             };
 
             // Build pcurve list from both half-edges
-            let curve_id = self.maybe_wrap_surface_curve(
-                brep,
-                curve_3d_id,
-                edge.half_edge,
-                brep.half_edges.get(he.twin).map(|_| he.twin),
-                &surface_map,
-            );
+            let curve_id = self.maybe_wrap_surface_curve(brep, curve_3d_id, eh, &surface_map);
 
+            let same_sense = edge
+                .curve
+                .as_ref()
+                .map(edge_curve_same_sense)
+                .unwrap_or(true);
             let ec_id = self.emit(
                 "EDGE_CURVE",
                 vec![
@@ -101,7 +103,7 @@ impl ExportContext {
                     ref_(*start_vp),
                     ref_(*end_vp),
                     ref_(curve_id),
-                    bool_(true), // same_sense
+                    bool_(same_sense),
                 ],
             );
             edge_map.insert(eh, ec_id);
@@ -287,38 +289,30 @@ impl ExportContext {
         &mut self,
         brep: &BRep,
         curve_3d_id: EntityId,
-        he_handle: popkern_core::topology::HalfEdgeHandle,
-        twin_handle: Option<popkern_core::topology::HalfEdgeHandle>,
+        edge_handle: EdgeHandle,
         surface_map: &HashMap<FaceHandle, EntityId>,
     ) -> EntityId {
         let mut pcurve_ids: Vec<EntityId> = Vec::new();
-
-        // Try to export pcurve for the forward half-edge
-        if let Some(pcurve_id) = self.try_export_he_pcurve(brep, he_handle, surface_map) {
-            pcurve_ids.push(pcurve_id);
-        }
-
-        // Try to export pcurve for the twin half-edge
-        if let Some(twin_handle) = twin_handle
-            && let Some(pcurve_id) = self.try_export_he_pcurve(brep, twin_handle, surface_map)
-        {
-            pcurve_ids.push(pcurve_id);
+        let half_edges = edge_half_edges(brep, edge_handle);
+        for he_handle in &half_edges {
+            if let Some(pcurve_id) =
+                self.try_export_he_pcurve(brep, edge_handle, *he_handle, surface_map)
+            {
+                pcurve_ids.push(pcurve_id);
+            }
         }
 
         if pcurve_ids.is_empty() {
             curve_3d_id
         } else {
             // Detect seam edges: both half-edges belong to the same face
-            let he_face = brep
-                .half_edges
-                .get(he_handle)
-                .and_then(|he| brep.loops.get(he.loop_))
-                .map(|l| l.face);
-            let twin_face = twin_handle
-                .and_then(|twin| brep.half_edges.get(twin))
-                .and_then(|he| brep.loops.get(he.loop_))
-                .map(|l| l.face);
-            let is_seam = he_face == twin_face && he_face.is_some();
+            let mut faces = half_edges
+                .iter()
+                .filter_map(|he_handle| brep.half_edges.get(*he_handle))
+                .filter_map(|he| brep.loops.get(he.loop_))
+                .map(|loop_| loop_.face);
+            let first_face = faces.next();
+            let is_seam = first_face.is_some() && faces.all(|face| Some(face) == first_face);
 
             if is_seam {
                 self.export_seam_curve(curve_3d_id, &pcurve_ids)
@@ -335,12 +329,18 @@ impl ExportContext {
     fn try_export_he_pcurve(
         &mut self,
         brep: &BRep,
+        edge_handle: EdgeHandle,
         he_handle: popkern_core::topology::HalfEdgeHandle,
         surface_map: &HashMap<FaceHandle, EntityId>,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
         let pcurve = he.pcurve.as_ref()?;
         let loop_ = brep.loops.get(he.loop_)?;
+        let face = brep.faces.get(loop_.face)?;
+        let surface = face.surface.as_ref()?;
+        if !pcurve_endpoints_match_edge_segment(brep, edge_handle, pcurve, &surface.geometry) {
+            return None;
+        }
         let surface_id = surface_map.get(&loop_.face)?;
         // STEP doesn't have a native analytic-pcurve type — convert
         // any analytic Pcurve variant (Linear, etc.) to its NURBS
@@ -361,100 +361,6 @@ impl ExportContext {
 }
 
 use crate::step::parser::types::Parameter;
-
-fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHandle> {
-    analyze_brep_degenerate_edges(
-        brep,
-        BrepDegenerateEdgeOptions {
-            tolerance: brep.tolerance.linear(),
-            samples: 5,
-        },
-    )
-    .findings
-    .into_iter()
-    .filter_map(|finding| {
-        let missing_curve = brep
-            .edges
-            .get(finding.edge)
-            .is_some_and(|edge| edge.curve.is_none());
-        (finding.kind == BrepDegenerateEdgeKind::CollapsedSurfaceTrim && missing_curve)
-            .then_some(finding.edge)
-    })
-    .collect()
-}
-
-fn edge_end_vertex(
-    brep: &BRep,
-    edge: EdgeHandle,
-    he: &popkern_core::topology::HalfEdge,
-) -> Result<VertexHandle, IoError> {
-    if brep.boundary_edges.contains(&edge) {
-        return brep
-            .half_edges
-            .get(he.next)
-            .map(|next| next.origin)
-            .ok_or_else(|| {
-                IoError::Export("Boundary edge references missing next half-edge".into())
-            });
-    }
-    brep.half_edges
-        .get(he.twin)
-        .map(|twin| twin.origin)
-        .ok_or_else(|| IoError::Export("Half-edge references missing twin".into()))
-}
-
-/// Synthesize a plane surface from the first three vertices of a loop.
-fn synthesize_plane(brep: &BRep, lh: LoopHandle) -> Result<SurfaceOnFace, IoError> {
-    let loop_ = brep
-        .loops
-        .get(lh)
-        .ok_or_else(|| IoError::Export("Loop not found for plane synthesis".into()))?;
-
-    // Collect up to 3 vertex positions from the loop
-    let mut positions = Vec::new();
-    let start_he = loop_.half_edge;
-    let mut current = start_he;
-    loop {
-        let he = brep
-            .half_edges
-            .get(current)
-            .ok_or_else(|| IoError::Export("Half-edge not found during plane synthesis".into()))?;
-        if let Some(v) = brep.vertices.get(he.origin) {
-            positions.push(v.position);
-        }
-        if positions.len() >= 3 {
-            break;
-        }
-        current = he.next;
-        if current == start_he {
-            break;
-        }
-    }
-
-    if positions.len() < 3 {
-        return Err(IoError::Export(
-            "Cannot synthesize plane: loop has fewer than 3 vertices".into(),
-        ));
-    }
-
-    let origin = positions[0];
-    let u_vec = positions[1] - positions[0];
-    let v_vec = positions[2] - positions[0];
-    let normal = u_vec.cross(&v_vec);
-    let normal = normal.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-    let u_axis = u_vec.normalized().unwrap_or(Vec3::new(1.0, 0.0, 0.0));
-    let v_axis = normal.cross(&u_axis);
-
-    Ok(SurfaceOnFace {
-        geometry: SurfaceGeometry::Plane {
-            origin,
-            normal,
-            u_axis,
-            v_axis,
-        },
-        orientation: true,
-    })
-}
 
 #[cfg(test)]
 #[path = "export_topology_tests.rs"]

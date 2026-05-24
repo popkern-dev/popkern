@@ -128,7 +128,7 @@ fn normalised_parameter(pcurve: &Pcurve, t: f64) -> f64 {
     }
 }
 
-fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
+pub(super) fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
     use crate::geometry::curve::CurveEval;
     let (t_min, t_max) = curve.parameter_range();
     let mut knots: Vec<f64> = curve
@@ -150,7 +150,7 @@ fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
     }
 }
 
-fn slice_nurbs_curve(curve: &NurbsCurve, lo: f64, hi: f64) -> Option<NurbsCurve> {
+pub(super) fn slice_nurbs_curve(curve: &NurbsCurve, lo: f64, hi: f64) -> Option<NurbsCurve> {
     use crate::geometry::curve::CurveEval;
     let (full_min, full_max) = curve.parameter_range();
     let eps = 1.0e-12 * (full_max - full_min).abs().max(1.0);

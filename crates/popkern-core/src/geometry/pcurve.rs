@@ -17,6 +17,8 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 
+#[path = "pcurve_nurbs_export.rs"]
+mod pcurve_nurbs_export;
 #[path = "pcurve_span.rs"]
 mod pcurve_span;
 
@@ -396,7 +398,29 @@ impl Pcurve {
     /// data.
     pub fn to_nurbs(&self) -> NurbsCurve {
         match &self.geometry {
-            PcurveGeometry::Nurbs(n) => n.clone(),
+            PcurveGeometry::Nurbs(n) => {
+                use crate::geometry::curve::CurveEval;
+                let (full_start, full_end) = n.parameter_range();
+                let (slice_start, slice_end, reversed) = if self.t_start <= self.t_end {
+                    (self.t_start, self.t_end, false)
+                } else {
+                    (self.t_end, self.t_start, true)
+                };
+                let eps = 1.0e-12 * (full_end - full_start).abs().max(1.0);
+                let restricted = if (slice_start - full_start).abs() <= eps
+                    && (slice_end - full_end).abs() <= eps
+                {
+                    n.clone()
+                } else {
+                    pcurve_span::slice_nurbs_curve(n, slice_start, slice_end)
+                        .unwrap_or_else(|| pcurve_nurbs_export::sampled_to_nurbs_approx(self))
+                };
+                if reversed {
+                    pcurve_span::reverse_nurbs_curve(&restricted)
+                } else {
+                    restricted
+                }
+            }
             PcurveGeometry::Linear { start, end } => NurbsCurve {
                 degree: 1,
                 knots: vec![self.t_start, self.t_start, self.t_end, self.t_end],
@@ -414,38 +438,12 @@ impl Pcurve {
                 // standard rational construction. For the general
                 // case we use a degree-3 LSQ fit over 17 samples
                 // (residual < 1e-12 over a half-circle).
-                self.sampled_to_nurbs_approx()
+                pcurve_nurbs_export::sampled_to_nurbs_approx(self)
             }
-            PcurveGeometry::Sinusoidal { .. } => self.sampled_to_nurbs_approx(),
-            PcurveGeometry::CylinderArcViaRationalQuad { .. } => self.sampled_to_nurbs_approx(),
-        }
-    }
-
-    fn sampled_to_nurbs_approx(&self) -> NurbsCurve {
-        let n_samples = 17;
-        let mut control_points = Vec::with_capacity(n_samples);
-        let mut params = Vec::with_capacity(n_samples);
-        for i in 0..n_samples {
-            let s = i as f64 / (n_samples as f64 - 1.0);
-            let t = self.t_start + s * (self.t_end - self.t_start);
-            control_points.push(self.point_at(t));
-            params.push(t);
-        }
-        // STEP pcurves are imported by matching pcurve endpoint
-        // images to oriented edge endpoints. Use interpolation
-        // instead of a least-squares fit so analytic pcurve
-        // conversions preserve those endpoints exactly.
-        match crate::geometry::fitting::interpolate_curve(&control_points, &params, 3) {
-            Ok(c) => c,
-            Err(_) => NurbsCurve {
-                degree: 1,
-                knots: vec![self.t_start, self.t_start, self.t_end, self.t_end],
-                control_points: vec![
-                    control_points[0],
-                    control_points.last().copied().unwrap_or(control_points[0]),
-                ],
-                weights: vec![1.0, 1.0],
-            },
+            PcurveGeometry::Sinusoidal { .. } => pcurve_nurbs_export::sampled_to_nurbs_approx(self),
+            PcurveGeometry::CylinderArcViaRationalQuad { .. } => {
+                pcurve_nurbs_export::cylinder_arc_via_rational_quad_to_nurbs(self)
+            }
         }
     }
 

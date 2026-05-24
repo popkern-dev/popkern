@@ -257,7 +257,9 @@ impl CurveGeometry {
                 t_start,
                 t_end,
             } => hyperbola_to_nurbs(*center, *semi_major, *semi_minor, *t_start, *t_end),
-            CurveGeometry::Nurbs(nurbs) => nurbs.clone(),
+            CurveGeometry::Nurbs(nurbs) => {
+                nurbs_curve_in_range(nurbs, t_range).unwrap_or_else(|| nurbs.clone())
+            }
         }
     }
 
@@ -265,6 +267,65 @@ impl CurveGeometry {
     pub fn to_nurbs(&self) -> NurbsCurve {
         let range = self.parameter_range();
         self.to_nurbs_in_range(range)
+    }
+}
+
+fn nurbs_curve_in_range(nurbs: &NurbsCurve, t_range: (f64, f64)) -> Option<NurbsCurve> {
+    let (full_start, full_end) = nurbs.parameter_range();
+    let (slice_start, slice_end, reversed) = if t_range.0 <= t_range.1 {
+        (t_range.0, t_range.1, false)
+    } else {
+        (t_range.1, t_range.0, true)
+    };
+    let eps = 1.0e-12 * (full_end - full_start).abs().max(1.0);
+    if slice_start < full_start - eps
+        || slice_end > full_end + eps
+        || slice_end <= slice_start + eps
+    {
+        return None;
+    }
+
+    let at_start = (slice_start - full_start).abs() <= eps;
+    let at_end = (slice_end - full_end).abs() <= eps;
+    let mut restricted = nurbs.clone();
+    if !at_start {
+        restricted = restricted.split_at(slice_start).ok()?.1;
+    }
+    if !at_end {
+        let (current_start, _) = restricted.parameter_range();
+        let split_at = if at_start {
+            slice_end
+        } else {
+            current_start + (slice_end - slice_start)
+        };
+        restricted = restricted.split_at(split_at).ok()?.0;
+    }
+
+    Some(if reversed {
+        reverse_nurbs_curve(&restricted)
+    } else {
+        restricted
+    })
+}
+
+fn reverse_nurbs_curve(nurbs: &NurbsCurve) -> NurbsCurve {
+    let (t_min, t_max) = nurbs.parameter_range();
+    let mut knots = nurbs
+        .knots
+        .iter()
+        .rev()
+        .map(|&k| t_min + t_max - k)
+        .collect::<Vec<_>>();
+    knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut control_points = nurbs.control_points.clone();
+    control_points.reverse();
+    let mut weights = nurbs.weights.clone();
+    weights.reverse();
+    NurbsCurve {
+        degree: nurbs.degree,
+        knots,
+        control_points,
+        weights,
     }
 }
 

@@ -1,6 +1,7 @@
 use super::*;
 use crate::step::parser::types::{EntityInstance, Parameter};
 use popkern_core::geometry::Vec3;
+use popkern_core::topology::edge_segment;
 
 fn make_entity(id: EntityId, type_name: &str, params: Vec<Parameter>) -> EntityInstance {
     EntityInstance {
@@ -107,6 +108,132 @@ fn recovers_periodic_trim_across_zero_angle_with_same_sense() {
     );
     assert!(
         trimmed.geometry.point_at(trimmed.t_end).distance_to(&end) <= Tolerance::default().linear()
+    );
+}
+
+#[test]
+fn keeps_bounded_nurbs_trim_when_domain_endpoints_match_topology() {
+    let curve = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(popkern_core::geometry::NurbsCurve {
+            degree: 2,
+            knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: vec![
+                Point3::new(0.0, 0.0, 0.0),
+                Point3::new(0.5, 0.2, 0.0),
+                Point3::new(1.0, 0.0, 0.0),
+            ],
+            weights: vec![1.0, 1.0, 1.0],
+        }),
+        t_start: 0.0,
+        t_end: 1.0,
+    };
+    let start = curve.geometry.point_at(curve.t_start);
+    let end = curve.geometry.point_at(curve.t_end);
+    let mut log = DiagnosticLog::new();
+
+    let trimmed =
+        recover_edge_curve_trim(99, curve, start, end, true, Tolerance::default(), &mut log);
+
+    assert_eq!(trimmed.t_start, 0.0);
+    assert_eq!(trimmed.t_end, 1.0);
+    assert!(
+        log.entries().is_empty(),
+        "trusted bounded NURBS domain should not emit trim recovery diagnostics: {:?}",
+        log.entries()
+    );
+}
+
+#[test]
+fn reconciles_imported_edge_curve_from_valid_surface_trim_evidence() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = brep
+        .edges
+        .keys()
+        .find(|&edge| {
+            brep.measure_edge_pcurve_deviation(edge)
+                .is_some_and(|report| !report.half_edges.is_empty())
+        })
+        .expect("unit cube should have surfaced pcurve-backed edges");
+    let (start, end) = edge_segment(&brep, edge).expect("edge has vertices");
+    let offset = Vec3::new(0.0, 0.0, 0.05);
+    brep.edges[edge].curve = Some(
+        CurveOnEdge::line_segment(start + offset, end + offset, 1e-9)
+            .expect("offset edge remains non-degenerate"),
+    );
+    let before = brep
+        .measure_edge_pcurve_deviation(edge)
+        .expect("corrupted edge remains measurable");
+    assert!(before.max_deviation > 1e-3);
+    let mut log = DiagnosticLog::new();
+
+    reconcile_step_surface_curve_edges(&mut brep, Tolerance::default(), &mut log);
+
+    let after = brep
+        .measure_edge_pcurve_deviation(edge)
+        .expect("reconciled edge remains measurable");
+    assert!(after.max_deviation <= Tolerance::default().linear());
+    assert!(
+        log.entries()
+            .iter()
+            .any(|entry| entry.message.contains("normalized 1 STEP SURFACE_CURVE")),
+        "accepted import normalization must be observable through structured diagnostics: {:?}",
+        log.entries()
+    );
+}
+
+#[test]
+fn import_fidelity_diagnostics_report_step_entity_provenance() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = brep
+        .edges
+        .keys()
+        .find(|&edge| {
+            brep.measure_edge_pcurve_deviation(edge)
+                .is_some_and(|report| !report.half_edges.is_empty())
+        })
+        .expect("unit cube should have pcurve-backed edges");
+    let initial = brep
+        .measure_edge_pcurve_deviation(edge)
+        .expect("selected edge should be measurable");
+    let (start, end) = edge_segment(&brep, edge).expect("edge has vertices");
+    brep.edges[edge].curve = Some(
+        CurveOnEdge::line_segment(start + Vec3::new(0.0, 0.0, 0.05), end, 1e-9)
+            .expect("corrupted edge remains non-degenerate"),
+    );
+
+    let mut provenance = StepTopologyImportProvenance::default();
+    provenance.edge_curves.insert(edge, 300);
+    for half_edge in initial.half_edges {
+        provenance.half_edges.insert(
+            half_edge.half_edge,
+            StepHalfEdgeImportProvenance {
+                edge_curve_id: 300,
+                oriented_edge_id: 400,
+                face_id: 500,
+                surface_id: 600,
+                pcurve_id: Some(700),
+                reference_curve_id: Some(800),
+                selected_pcurve_gap: Some(0.0),
+            },
+        );
+    }
+    let mut log = DiagnosticLog::new();
+
+    report_step_import_fidelity_diagnostics(&brep, &provenance, Tolerance::default(), &mut log);
+
+    assert!(
+        log.entries().iter().any(|entry| {
+            entry.entity_id == Some(300)
+                && entry
+                    .message
+                    .contains("STEP import pcurve fidelity blocker")
+                && entry.message.contains("edge_curve=#300")
+                && entry.message.contains("oriented_edge=#400")
+                && entry.message.contains("pcurve=#700")
+                && entry.message.contains("reference_curve=#800")
+        }),
+        "pcurve fidelity diagnostics must carry STEP topology and pcurve provenance: {:?}",
+        log.entries()
     );
 }
 

@@ -1,4 +1,6 @@
 use super::*;
+use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use std::sync::Arc;
 
@@ -333,6 +335,53 @@ fn collapsed_surface_trim_missing_curve_exports_degenerate_bspline() {
         "collapsed trim must not export a zero-direction LINE"
     );
     assert_eq!(count("PCURVE"), 1);
+}
+
+#[test]
+fn reversed_periodic_edge_curve_exports_same_sense_false() {
+    let curve = CurveOnEdge {
+        geometry: CurveGeometry::Circle {
+            center: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        },
+        t_start: std::f64::consts::FRAC_PI_2,
+        t_end: 0.0,
+    };
+
+    assert!(
+        !edge_curve_same_sense(&curve),
+        "decreasing periodic trims must export EDGE_CURVE.same_sense = false so import recovers the short reversed arc"
+    );
+}
+
+#[test]
+fn missing_edge_curve_synthesizes_from_valid_surface_trim() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let edge = brep
+        .edges
+        .iter()
+        .find_map(|(edge, _data)| {
+            let has_surface_trim = brep
+                .half_edges
+                .iter()
+                .any(|(_, half_edge)| half_edge.edge == edge && half_edge.pcurve.is_some());
+            has_surface_trim.then_some(edge)
+        })
+        .expect("cube should expose edge surface trims");
+
+    brep.edges[edge].curve = None;
+    let curve = synthesize_missing_edge_curve_from_surface_trims(&brep, edge)
+        .expect("valid surface trim should synthesize an export edge curve");
+    brep.edges[edge].curve = Some(curve);
+
+    let report = brep
+        .measure_edge_pcurve_deviation(edge)
+        .expect("synthesized edge should remain measurable against trims");
+    assert!(
+        report.max_deviation <= brep.tolerance.linear().max(1e-9),
+        "synthesized edge curve must stay compatible with existing pcurves: {report:#?}"
+    );
 }
 
 fn collapsed_trim_sheet() -> BRep {

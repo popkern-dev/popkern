@@ -6,8 +6,10 @@
 //! Face data collection is in the [`face_collector`] submodule.
 
 mod face_collector;
+mod import_fidelity_diagnostics;
 mod open_shell;
 mod pcurve_orientation;
+mod surface_curve_normalization;
 
 use std::collections::HashMap;
 
@@ -16,7 +18,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::brep::BRep;
-use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{EdgeHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
@@ -27,8 +29,13 @@ use crate::step::schema::topology::{
 };
 
 use face_collector::collect_face_data;
+use import_fidelity_diagnostics::{
+    StepHalfEdgeImportProvenance, StepTopologyImportProvenance,
+    report_step_import_fidelity_diagnostics,
+};
 use open_shell::normalize_open_shell_boundaries;
 use pcurve_orientation::select_orient_pcurve_to_half_edge;
+use surface_curve_normalization::reconcile_step_surface_curve_edges;
 
 /// Find BRep body representation items and build a [`BRep`] for each.
 ///
@@ -160,6 +167,7 @@ fn build_brep_from_faces(
     let mut vertex_map: HashMap<EntityId, VertexHandle> = HashMap::new();
     let mut edge_map: HashMap<EntityId, (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle)> =
         HashMap::new();
+    let mut provenance = StepTopologyImportProvenance::default();
 
     let face_data = collect_face_data(graph, faces, log)?;
 
@@ -200,6 +208,7 @@ fn build_brep_from_faces(
         let v2 = *vertex_map.get(&ec.end)?;
         let (eh, he1, he2) = builder.add_edge(v1, v2);
         edge_map.insert(ec_id, (eh, he1, he2));
+        provenance.edge_curves.insert(eh, ec_id);
 
         // STEP EDGE_CURVE geometry is bounded by the topological start/end
         // vertices. Resolve the native curve, then recover the edge parameter
@@ -232,11 +241,14 @@ fn build_brep_from_faces(
             let mut half_edges = Vec::with_capacity(bound.oriented_edges.len());
             for oe_info in &bound.oriented_edges {
                 let (_eh, he_fwd, he_rev) = edge_map.get(&oe_info.edge_curve_id)?;
-                let he = if oe_info.orientation {
-                    *he_fwd
-                } else {
-                    *he_rev
-                };
+                let (he, edge_forward) = choose_step_half_edge_use(
+                    builder.brep(),
+                    *he_fwd,
+                    *he_rev,
+                    oe_info.orientation,
+                    oe_info.edge_curve_id,
+                    log,
+                );
                 if builder.brep().half_edges[he].pcurve.is_none()
                     && let Some((edge_handle, _he_fwd, _he_rev)) =
                         edge_map.get(&oe_info.edge_curve_id)
@@ -256,14 +268,38 @@ fn build_brep_from_faces(
                         pcurves,
                         curve,
                         surface,
-                        oe_info.orientation,
+                        edge_forward,
                         face_info.face_id,
                         tolerance,
                         log,
                     ) {
-                        builder.brep_mut().half_edges[he].pcurve = Some(oriented);
+                        builder.brep_mut().half_edges[he].pcurve = Some(oriented.pcurve);
+                        provenance.half_edges.insert(
+                            he,
+                            StepHalfEdgeImportProvenance {
+                                edge_curve_id: oe_info.edge_curve_id,
+                                oriented_edge_id: oe_info.oriented_edge_id,
+                                face_id: face_info.face_id,
+                                surface_id: face_info.surface_id,
+                                pcurve_id: Some(oriented.pcurve_id),
+                                reference_curve_id: Some(oriented.reference_curve_id),
+                                selected_pcurve_gap: Some(oriented.sampled_gap),
+                            },
+                        );
                     }
                 }
+                provenance
+                    .half_edges
+                    .entry(he)
+                    .or_insert_with(|| StepHalfEdgeImportProvenance {
+                        edge_curve_id: oe_info.edge_curve_id,
+                        oriented_edge_id: oe_info.oriented_edge_id,
+                        face_id: face_info.face_id,
+                        surface_id: face_info.surface_id,
+                        pcurve_id: None,
+                        reference_curve_id: None,
+                        selected_pcurve_gap: None,
+                    });
                 half_edges.push(he);
             }
 
@@ -297,7 +333,40 @@ fn build_brep_from_faces(
         normalize_open_shell_boundaries(&mut builder);
     }
 
-    Some(builder.build_unchecked())
+    let mut brep = builder.build_unchecked();
+    reconcile_step_surface_curve_edges(&mut brep, tolerance, log);
+    report_step_import_fidelity_diagnostics(&brep, &provenance, tolerance, log);
+    Some(brep)
+}
+
+fn choose_step_half_edge_use(
+    brep: &BRep,
+    he_fwd: HalfEdgeHandle,
+    he_rev: HalfEdgeHandle,
+    oriented_forward: bool,
+    edge_curve_id: EntityId,
+    log: &mut DiagnosticLog,
+) -> (HalfEdgeHandle, bool) {
+    let preferred = if oriented_forward { he_fwd } else { he_rev };
+    let alternate = if oriented_forward { he_rev } else { he_fwd };
+    if !half_edge_is_wired(brep, preferred) {
+        return (preferred, preferred == he_fwd);
+    }
+    if !half_edge_is_wired(brep, alternate) {
+        log.warn(
+            Phase::MapTopology,
+            Some(edge_curve_id),
+            "STEP oriented edge preferred an already wired half-edge; using available twin to preserve one face-use per half-edge",
+        );
+        return (alternate, alternate == he_fwd);
+    }
+    (preferred, preferred == he_fwd)
+}
+
+fn half_edge_is_wired(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
+    brep.half_edges
+        .get(half_edge)
+        .is_some_and(|data| data.loop_ != LoopHandle::default())
 }
 
 fn recover_edge_curve_trim(
@@ -309,6 +378,10 @@ fn recover_edge_curve_trim(
     tolerance: Tolerance,
     log: &mut DiagnosticLog,
 ) -> CurveOnEdge {
+    if bounded_nurbs_endpoints_match(&curve, start, end, same_sense, tolerance) {
+        return curve;
+    }
+
     let Some(mut start_t) = curve.geometry.closest_point(&start) else {
         log.warn(
             Phase::MapTopology,
@@ -347,6 +420,31 @@ fn recover_edge_curve_trim(
     curve.t_end = end_t;
 
     curve
+}
+
+fn bounded_nurbs_endpoints_match(
+    curve: &CurveOnEdge,
+    start: Point3,
+    end: Point3,
+    same_sense: bool,
+    tolerance: Tolerance,
+) -> bool {
+    if !matches!(curve.geometry, CurveGeometry::Nurbs(_)) {
+        return false;
+    }
+    let (curve_start, curve_end) = if same_sense {
+        (
+            curve.geometry.point_at(curve.t_start),
+            curve.geometry.point_at(curve.t_end),
+        )
+    } else {
+        (
+            curve.geometry.point_at(curve.t_end),
+            curve.geometry.point_at(curve.t_start),
+        )
+    };
+    let limit = tolerance.linear().max(1e-9);
+    curve_start.distance_to(&start) <= limit && curve_end.distance_to(&end) <= limit
 }
 
 fn normalize_periodic_parameter_order(

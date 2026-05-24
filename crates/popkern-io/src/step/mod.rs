@@ -8,6 +8,7 @@ mod export_nurbs;
 mod export_pcurve;
 mod export_product;
 mod export_topology;
+mod export_topology_helpers;
 pub mod healing;
 pub mod import;
 pub mod mapping;
