@@ -255,7 +255,7 @@ fn gregory_face_geometry_survives_step_roundtrip() {
 }
 
 #[test]
-fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
+fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route() {
     let blend = mixed_radius_gregory_cube_result();
     let brep = &blend.brep;
     let support_report = &blend.repair_report.support_seam_relocation;
@@ -298,7 +298,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
         &[],
         gregory_edge_surface_pipeline_options(false),
     )
-    .expect("diagnostic repair pipeline should commit partial edge/surface repair");
+    .expect("diagnostic repair pipeline should commit the exact-boundary route");
 
     let report = result
         .report
@@ -309,25 +309,21 @@ fn gregory_mixed_radius_edge_surface_pipeline_diagnostics_are_structured() {
         report.before.incompatible_half_edges,
         before.incompatible_half_edges
     );
-    assert!(
-        report.before.incompatible_half_edges > 0,
-        "real mixed-radius Gregory fixture must exercise edge/surface diagnostics"
+    assert_eq!(
+        report.before.incompatible_half_edges, 0,
+        "accepted exact-boundary mixed-radius Gregory route should enter the shared pipeline clean"
     );
     assert_eq!(
         report.attempted_edges,
         report.repaired_edges + report.declined_edges
     );
-    assert!(
-        report.after.incompatible_half_edges <= report.before.incompatible_half_edges,
-        "pipeline repair must not increase edge/surface incompatibility"
+    assert_eq!(
+        report.attempted_edges, 0,
+        "clean exact-boundary route should not require edge/surface repair actions"
     );
-    assert!(
-        report.repaired_edges > 0 || report.declined_edges > 0,
-        "pipeline must produce per-edge repair or decline decisions"
-    );
-    assert!(
-        report.declined_edges > 0,
-        "real mixed-radius Gregory fixture must preserve unresolved edge/surface declines"
+    assert_eq!(
+        report.after.incompatible_half_edges, 0,
+        "pipeline must preserve exact-boundary edge/surface compatibility"
     );
     assert!(
         brep.faces.len() == result.brep.faces.len(),

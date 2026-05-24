@@ -1,17 +1,19 @@
 //! Read-only BRep export-quality diagnostics.
 
 use crate::topology::{
-    BRep, BrepEdgeSurfaceCompatibilityOptions, BrepLoopShellDiagnosticReport,
-    BrepRepairAuthorityKind, BrepRepairAuthorityReason, BrepRepairFactKind,
-    BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope, BrepRepairScopeExpansion,
-    BrepRepairScopeSeed, BrepRepairTopologyHandle, BrepTopologyDiagnosticKind,
-    BrepTopologyDiagnosticSeverity, BrepTopologyOutputPolicy, BrepTrimDiagnosticReport,
-    BrepTrimRepairOptions, EdgeHandle, LocalToleranceSource,
-    analyze_brep_edge_surface_compatibility, analyze_brep_loop_shell_validity, analyze_brep_trims,
-    edge_segment,
+    BRep, BrepLoopShellDiagnosticReport, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
+    BrepRepairFactKind, BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope,
+    BrepRepairScopeExpansion, BrepRepairScopeSeed, BrepRepairTopologyHandle,
+    BrepTopologyDiagnosticKind, BrepTopologyDiagnosticSeverity, BrepTopologyOutputPolicy,
+    BrepTrimDiagnosticReport, BrepTrimRepairOptions, EdgeHandle, LocalToleranceSource,
+    analyze_brep_loop_shell_validity, analyze_brep_trims, edge_segment,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
+
+#[path = "brep_export_quality_helpers.rs"]
+mod brep_export_quality_helpers;
+use brep_export_quality_helpers::{edge_surface_fidelity_blockers, pcurve_fidelity_blockers};
 
 /// Options for export-quality diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -399,44 +401,6 @@ fn export_authority_graph(brep: &BRep, trim: BrepTrimRepairOptions) -> BrepRepai
         LocalToleranceSource::RepairPolicy,
         trim.samples,
     )
-}
-
-fn edge_surface_fidelity_blockers(
-    brep: &BRep,
-    tolerance: Option<f64>,
-    trim: BrepTrimRepairOptions,
-) -> (usize, f64) {
-    let report = analyze_brep_edge_surface_compatibility(
-        brep,
-        BrepEdgeSurfaceCompatibilityOptions {
-            tolerance: tolerance.unwrap_or(f64::INFINITY),
-            max_anchor_motion: 0.0,
-            samples: trim.samples,
-            require_all_compatible: false,
-            validate_output: false,
-        },
-    );
-    let blockers = tolerance
-        .map(|_| report.incompatible_half_edges)
-        .unwrap_or_default();
-    (blockers, report.max_deviation)
-}
-
-fn pcurve_fidelity_blockers(brep: &BRep, tolerance: Option<f64>) -> (usize, f64) {
-    let mut blockers = 0usize;
-    let mut max_deviation = 0.0_f64;
-    for edge in brep.edges.keys() {
-        let Some(report) = brep.measure_edge_pcurve_deviation(edge) else {
-            continue;
-        };
-        max_deviation = max_deviation.max(report.max_deviation);
-        if let Some(tolerance) = tolerance
-            && report.max_deviation > tolerance
-        {
-            blockers += 1;
-        }
-    }
-    (blockers, max_deviation)
 }
 
 fn topology_blocker_count(

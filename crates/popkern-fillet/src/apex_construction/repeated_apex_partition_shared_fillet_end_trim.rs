@@ -65,7 +65,13 @@ pub(super) fn materialized_shared_fillet_end_cylinder_half_edge(
             topology_plan.seam_rewrite.diagnostic_label()
         );
     }
-    Ok(existing.expect("existing shared seam checked above"))
+    existing.ok_or_else(|| ApexBuildError::PlanMismatch {
+        reason: format!(
+            "planned repeated-apex partition FilletEnd[{}] expected reusable shared \
+             cap/cylinder seam {:?}->{:?}, but no semantic half-edge was found",
+            rebuild_plan.fillet_index, start, end
+        ),
+    })
 }
 
 fn existing_shared_fillet_end_half_edge_for_segment(
