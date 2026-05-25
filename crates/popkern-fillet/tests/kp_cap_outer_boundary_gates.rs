@@ -101,21 +101,21 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
     );
 }
 
-#[ignore]
+#[ignore = "PK-076: variable cube cap-outer seam must expose measurable cap/support edges and meet G0/G1 gates"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_mixed() {
     let m = run_cube(&[0.08, 0.10, 0.12]);
     assert_cap_outer_gates("cube_mixed", &m);
 }
 
-#[ignore]
+#[ignore = "PK-076: extreme cube cap-outer seam currently fails G0/G1 commercial gates"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_extreme() {
     let m = run_cube(&[0.02, 0.10, 0.20]);
     assert_cap_outer_gates("cube_extreme", &m);
 }
 
-#[ignore]
+#[ignore = "PK-076: pyramid4 mixed cap-outer seam currently fails G0/G1 commercial gates"]
 #[test]
 fn cap_outer_boundary_passes_on_pyramid4_mixed() {
     let m = run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
@@ -127,7 +127,7 @@ fn cap_outer_boundary_passes_on_pyramid4_mixed() {
 /// caps, so this fixture should report 0 edges measured. Kept here
 /// so the matrix is documented; will be skipped or replaced when
 /// the PnS sibling helper lands.
-#[ignore]
+#[ignore = "PK-076: replace Gregory-only helper with PnS/sphere-cap cap-outer coverage"]
 #[test]
 fn cap_outer_boundary_pyramid5_mixed_path_check() {
     let m = run_n_pyramid(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
@@ -151,7 +151,7 @@ fn cap_outer_boundary_pyramid5_mixed_path_check() {
 /// Single-fixture probe for the cube_uniform path — used to trace
 /// the per-vertex insert_vertex_blend invocation count without the
 /// noise of the full 8-fixture matrix.
-#[ignore]
+#[ignore = "diagnostic probe only: single-fixture cap-outer metric printout, not an acceptance gate"]
 #[test]
 fn print_cube_uniform_only() {
     eprintln!("\n=== cube_uniform single-fixture probe ===");
@@ -162,7 +162,7 @@ fn print_cube_uniform_only() {
     );
 }
 
-#[ignore]
+#[ignore = "diagnostic probe only: single-fixture cap-outer metric printout, not an acceptance gate"]
 #[test]
 fn print_pyramid3_uniform_only() {
     eprintln!("\n=== pyramid3_uniform single-fixture probe ===");
@@ -177,7 +177,7 @@ fn print_pyramid3_uniform_only() {
 /// vertex positions, on-sphere classification, and adjacent
 /// (twin-side) face surface type. Used to design Phase 6c-C
 /// variable-radius topology surgery.
-#[ignore]
+#[ignore = "diagnostic probe only: cap-loop topology dump for PK-076 investigations"]
 #[test]
 fn dump_cap_loop_structure() {
     use popkern_core::geometry::surface::SurfaceGeometry;
@@ -268,7 +268,7 @@ fn dump_cap_loop_structure() {
 /// vertex count for cube_uniform vs cube_mixed vs cube_extreme.
 /// Used to verify which surface type lands on the cap face after
 /// the full pipeline (Phase 6c-A continuation §4.2 work).
-#[ignore]
+#[ignore = "diagnostic probe only: cap surface-type dump for PK-076 investigations"]
 #[test]
 fn dump_cap_surface_types() {
     use popkern_core::geometry::surface::SurfaceGeometry;
@@ -315,7 +315,7 @@ fn dump_cap_surface_types() {
     }
 }
 
-#[ignore]
+#[ignore = "diagnostic probe only: baseline metric table for PK-076 investigations"]
 #[test]
 fn print_cap_outer_boundary_baseline() {
     eprintln!("\n=== cap-outer-boundary baseline (no assertions) ===");

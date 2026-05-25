@@ -256,7 +256,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_30() {
 /// after recording it. `patch_of` now uses `.get()` to drop stale
 /// handles silently so the real (upstream empty-patches) gap
 /// surfaces cleanly.
-#[ignore]
+#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:40 cube asymmetry"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_40() {
     let m = run_cube_binonic(&[0.005, 0.10, 0.20], "cube_extreme_40");
@@ -273,7 +273,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_40() {
 /// the boundary between "fillet pipeline handles the geometry" and
 /// "fillet pipeline gives up" somewhere between 1:20 and 1:50
 /// asymmetry. Closing needs diagnosis at the upstream stage.
-#[ignore]
+#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:50 cube asymmetry"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_50() {
     let m = run_cube_binonic(&[0.004, 0.10, 0.20], "cube_extreme_50");
@@ -282,7 +282,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_50() {
 
 /// **Documented gap — 1:100 asymmetry.** Same failure mode as
 /// cube_extreme_50: zero Gregory corner patches produced.
-#[ignore]
+#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:100 cube asymmetry"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_100() {
     let m = run_cube_binonic(&[0.002, 0.10, 0.20], "cube_extreme_100");
@@ -297,7 +297,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_100() {
 /// face insertion — not an L-M convergence issue. Worth fixing
 /// eventually for commercial CAD robustness (radii of a few μm
 /// on a metre-scale part are common), but distinct workstream.
-#[ignore]
+#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches for tiny absolute cube radii"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
     let m = run_cube_binonic(&[0.001, 0.002, 0.003], "cube_tiny_radii");
@@ -309,7 +309,7 @@ fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
 /// zero Gregory corner patches. Needs the K-P polar variant
 /// (Phase H.5b per the module header) before binonic can engage
 /// at all.
-#[ignore]
+#[ignore = "PK-075: high-valence polar/binonic path must produce measurable N=5 Gregory cap rings"]
 #[test]
 fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
     let m = run_n_gonal_pyramid_binonic(
@@ -324,7 +324,7 @@ fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
 
 /// **Documented gap — N=6 apex.** Same dispatch ceiling as
 /// pentagon5 — K-P polar variant required.
-#[ignore]
+#[ignore = "PK-075: high-valence polar/binonic path must produce measurable N=6 Gregory cap rings"]
 #[test]
 fn binonic_passes_commercial_gates_on_hexagon6_mixed() {
     let m = run_n_gonal_pyramid_binonic(
