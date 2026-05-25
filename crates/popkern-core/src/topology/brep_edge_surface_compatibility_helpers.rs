@@ -335,15 +335,13 @@ pub(super) fn unique_edge_half_edges(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
 ) -> Vec<HalfEdgeHandle> {
-    let mut half_edges = Vec::with_capacity(2);
-    if brep.half_edges.contains_key(half_edge) {
-        half_edges.push(half_edge);
-        let twin = brep.half_edges[half_edge].twin;
-        if twin != half_edge && brep.half_edges.contains_key(twin) {
-            half_edges.push(twin);
-        }
-    }
-    half_edges
+    let Some(seed) = brep.half_edges.get(half_edge) else {
+        return Vec::new();
+    };
+    brep.half_edges
+        .iter()
+        .filter_map(|(handle, data)| (data.edge == seed.edge).then_some(handle))
+        .collect()
 }
 
 pub(super) fn face_surface_for_half_edge(

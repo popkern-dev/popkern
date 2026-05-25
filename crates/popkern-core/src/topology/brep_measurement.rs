@@ -8,6 +8,7 @@ use crate::geometry::Point3;
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::topology::brep_edge_surface_compatibility_helpers::unique_edge_half_edges;
 use crate::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 /// Number of sample points along an edge curve for deviation measurement.
@@ -71,17 +72,17 @@ impl BRep {
     ) -> Option<EdgePcurveDeviationReport> {
         let edge = self.edges.get(eh)?;
         let curve_on_edge = edge.curve.as_ref()?;
-        let Some(first_half_edge) = self.half_edges.get(edge.half_edge) else {
+        if !self.half_edges.contains_key(edge.half_edge) {
             return Some(EdgePcurveDeviationReport {
                 edge: eh,
                 max_deviation: 0.0,
                 half_edges: Vec::new(),
             });
-        };
+        }
 
         let mut max_deviation = 0.0_f64;
         let mut half_edges = Vec::new();
-        for heh in [edge.half_edge, first_half_edge.twin] {
+        for heh in unique_edge_half_edges(self, edge.half_edge) {
             let Some(report) = self.measure_half_edge_pcurve_deviation_with_curve(
                 heh,
                 curve_on_edge,

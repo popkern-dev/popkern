@@ -40,24 +40,12 @@ pub(super) fn pcurve_endpoints_match_edge_segment(
     forward.min(reverse) <= limit
 }
 
+#[cfg(test)]
 pub(super) fn edge_half_edges(brep: &BRep, edge_handle: EdgeHandle) -> Vec<HalfEdgeHandle> {
-    let Some(edge) = brep.edges.get(edge_handle) else {
-        return Vec::new();
-    };
-    let mut half_edges = Vec::new();
-    let mut seen = HashSet::new();
-    let mut current = edge.half_edge;
-    while seen.insert(current) {
-        if brep.half_edges.get(current).is_none() {
-            break;
-        }
-        half_edges.push(current);
-        let Some(next) = brep.radial_next(current) else {
-            break;
-        };
-        current = next;
-    }
-    half_edges
+    brep.half_edges
+        .iter()
+        .filter_map(|(half_edge, data)| (data.edge == edge_handle).then_some(half_edge))
+        .collect()
 }
 
 pub(super) fn synthesize_missing_edge_curve_from_surface_trims(

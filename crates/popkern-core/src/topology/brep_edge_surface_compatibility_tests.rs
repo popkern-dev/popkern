@@ -490,5 +490,7 @@ fn corrupt_edge_curve(brep: &mut BRep, edge: EdgeHandle, offset: Vec3) {
 
 #[path = "brep_edge_surface_compatibility_anchor_tests.rs"]
 mod anchor_tests;
+#[path = "brep_edge_surface_compatibility_radial_tests.rs"]
+mod radial_tests;
 #[path = "brep_edge_surface_compatibility_trim_tests.rs"]
 mod trim_tests;

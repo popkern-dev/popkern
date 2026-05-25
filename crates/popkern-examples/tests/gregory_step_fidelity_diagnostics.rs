@@ -84,17 +84,15 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         imported.diagnostics.entries()
     );
     assert!(
-        imported.diagnostics.entries().iter().any(|entry| {
-            entry.entity_id.is_some()
-                && (entry
+        imported.diagnostics.entries().iter().all(|entry| {
+            !entry
+                .message
+                .contains("STEP import pcurve fidelity blocker")
+                && !entry
                     .message
-                    .contains("STEP import pcurve fidelity blocker")
-                    || entry
-                        .message
-                        .contains("STEP import edge/surface fidelity blocker"))
-                && entry.message.contains("edge_curve=#")
+                    .contains("STEP import edge/surface fidelity blocker")
         }),
-        "remaining imported fidelity blocker should be promoted to STEP entity-level diagnostics: {:?}",
+        "Gregory STEP roundtrip should not leave pcurve or edge/surface fidelity blockers: {:?}",
         imported.diagnostics.entries()
     );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
@@ -174,8 +172,8 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
     assert!(
-        imported_state.pcurve_blockers > 0 || imported_state.edge_surface_blockers > 0,
-        "probe should keep the remaining STEP import fidelity blocker observable: {states:#?}"
+        imported_state.pcurve_blockers == 0 && imported_state.edge_surface_blockers == 0,
+        "STEP export/import repair should clear the imported fidelity blockers: {states:#?}"
     );
 
     let export_surface_state = &states[2];
@@ -188,7 +186,7 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         imported_state,
     );
     assert_eq!(
-        classification, "step_import_mapping_issue",
+        classification, "no_fidelity_blocker",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }
