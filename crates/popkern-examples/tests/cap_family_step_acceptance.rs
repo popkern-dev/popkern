@@ -47,6 +47,10 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
             "raw exact-boundary cap-family missing-curve blockers must expose per-edge evidence: {pre_export:#?}"
         );
     }
+    assert!(
+        matches!(report.status, StepStrictAcceptanceStatus::Accepted),
+        "direct-apex Gregory cap should pass shared strict STEP acceptance after closed-shell incidence repair: {report:#?}"
+    );
     match report.status {
         StepStrictAcceptanceStatus::Accepted => {
             let round_trip = report

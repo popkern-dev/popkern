@@ -9,6 +9,7 @@ use crate::step::document::{
     UnitContext,
 };
 use crate::step::export::{StepExportOptions, export_step};
+use crate::step::export_topology_helpers::edge_half_edges;
 
 #[test]
 fn export_unit_cube_entity_counts() {

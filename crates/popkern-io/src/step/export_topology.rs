@@ -156,9 +156,13 @@ impl ExportContext {
             face_ids.push(face_id);
         }
 
-        // 4. Emit shell item
+        // 4. Emit shell item. Face-local STEP edge curves preserve geometric
+        // fidelity for incoherent face uses, but they also make STEP topology
+        // single-sided at those uses. Do not declare that representation as a
+        // manifold solid.
+        let exports_open_shell = brep.has_boundary_edges() || !local_edge_map.is_empty();
         let face_refs: Vec<_> = face_ids.iter().map(|&id| ref_(id)).collect();
-        let shell_type = if brep.has_boundary_edges() {
+        let shell_type = if exports_open_shell {
             "OPEN_SHELL"
         } else {
             "CLOSED_SHELL"
@@ -166,7 +170,7 @@ impl ExportContext {
         let shell_id = self.emit(shell_type, vec![str_param(""), list(face_refs)]);
 
         // 5. Emit the top-level representation item.
-        let item_id = if brep.has_boundary_edges() {
+        let item_id = if exports_open_shell {
             self.emit(
                 "SHELL_BASED_SURFACE_MODEL",
                 vec![str_param(""), list(vec![ref_(shell_id)])],

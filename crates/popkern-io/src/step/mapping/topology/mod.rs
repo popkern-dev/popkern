@@ -9,6 +9,7 @@ mod face_collector;
 mod import_fidelity_diagnostics;
 mod open_shell;
 mod pcurve_orientation;
+mod shell_incidence;
 mod surface_curve_normalization;
 
 use std::collections::HashMap;
@@ -31,10 +32,11 @@ use crate::step::schema::topology::{
 use face_collector::collect_face_data;
 use import_fidelity_diagnostics::{
     StepHalfEdgeImportProvenance, StepTopologyImportProvenance,
-    report_step_import_fidelity_diagnostics,
+    report_step_import_boundary_incidence_diagnostics, report_step_import_fidelity_diagnostics,
 };
 use open_shell::normalize_open_shell_boundaries;
 use pcurve_orientation::select_orient_pcurve_to_half_edge;
+use shell_incidence::{closed_shell_incidence_policy, open_shell_incidence_policy};
 use surface_curve_normalization::reconcile_step_surface_curve_edges;
 
 /// Find BRep body representation items and build a [`BRep`] for each.
@@ -170,6 +172,11 @@ fn build_brep_from_faces(
     let mut provenance = StepTopologyImportProvenance::default();
 
     let face_data = collect_face_data(graph, faces, log)?;
+    let incidence_policy = if is_open_shell {
+        open_shell_incidence_policy()
+    } else {
+        closed_shell_incidence_policy(&face_data, log)?
+    };
 
     let mut builder = BRepBuilder::new(tolerance);
 
@@ -329,12 +336,15 @@ fn build_brep_from_faces(
         }
     }
 
-    if is_open_shell {
+    if incidence_policy.treat_as_open {
         normalize_open_shell_boundaries(&mut builder);
     }
 
     let mut brep = builder.build_unchecked();
     reconcile_step_surface_curve_edges(&mut brep, tolerance, log);
+    if incidence_policy.downgraded_closed_shell {
+        report_step_import_boundary_incidence_diagnostics(&brep, &provenance, log);
+    }
     report_step_import_fidelity_diagnostics(&brep, &provenance, tolerance, log);
     Some(brep)
 }

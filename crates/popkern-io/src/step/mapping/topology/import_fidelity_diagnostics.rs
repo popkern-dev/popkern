@@ -41,6 +41,24 @@ pub(super) fn report_step_import_fidelity_diagnostics(
     report_edge_surface_fidelity_diagnostics(brep, provenance, tolerance, log);
 }
 
+pub(super) fn report_step_import_boundary_incidence_diagnostics(
+    brep: &BRep,
+    provenance: &StepTopologyImportProvenance,
+    log: &mut DiagnosticLog,
+) {
+    for &edge in &brep.boundary_edges {
+        let edge_curve_id = provenance.edge_curves.get(&edge).copied();
+        log.warn(
+            Phase::MapTopology,
+            edge_curve_id,
+            format!(
+                "STEP import closed-shell incidence downgraded to boundary edge: edge={edge:?} edge_curve={}",
+                entity_label(edge_curve_id),
+            ),
+        );
+    }
+}
+
 fn report_pcurve_fidelity_diagnostics(
     brep: &BRep,
     provenance: &StepTopologyImportProvenance,

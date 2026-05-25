@@ -404,4 +404,16 @@ fn build_triangle_solid() {
     assert_eq!(brep.faces.len(), 1);
     assert_eq!(brep.solids.len(), 1);
     assert_eq!(brep.shells.len(), 1);
+    assert_eq!(
+        brep.boundary_edges.len(),
+        3,
+        "single-face CLOSED_SHELL is invalid closed incidence and must import as open boundary topology"
+    );
+    assert!(
+        log.warnings().any(|entry| entry
+            .message
+            .contains("downgrading imported shell to open boundary topology")),
+        "closed-shell incidence downgrade should be diagnosed: {:?}",
+        log.entries()
+    );
 }
