@@ -97,6 +97,24 @@ impl CapContinuityReport {
             decline_code: Some("cap_outer_g1_exceeds_gate".to_string()),
         }
     }
+
+    /// Report a native cap/support decline before positional continuity was met.
+    pub fn declined_g0(
+        target: CapContinuityTarget,
+        measured_edges: usize,
+        worst_g0_gap: f64,
+        worst_g1_normal_deficit: f64,
+    ) -> Self {
+        Self {
+            target,
+            achieved: None,
+            measured_edges,
+            worst_g0_gap: Some(worst_g0_gap),
+            worst_g1_normal_deficit: Some(worst_g1_normal_deficit),
+            worst_g2_relative_curvature_error: None,
+            decline_code: Some("cap_outer_g0_exceeds_gate".to_string()),
+        }
+    }
 }
 
 impl Default for CapContinuityReport {

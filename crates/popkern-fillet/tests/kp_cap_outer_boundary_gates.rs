@@ -107,7 +107,7 @@ fn cap_outer_boundary_passes_on_cube_mixed() {
     assert_cap_outer_gates("cube_mixed", &m);
 }
 
-#[ignore = "PK-077: extreme cube cap-outer seam currently fails G0/G1 commercial gates"]
+#[ignore = "PK-080: native direct-apex needs outside-outside support continuation before extreme cube can meet G0/G1 gates"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_extreme() {
     let m = run_cube(&[0.02, 0.10, 0.20]);

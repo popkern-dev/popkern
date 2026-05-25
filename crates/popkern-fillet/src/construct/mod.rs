@@ -252,6 +252,7 @@ pub fn apply_blend_geometry(
                     None
                 };
                 let mut direct_apex_succeeded = false;
+                let mut direct_apex_fell_back_to_legacy = false;
                 if let Some(outcome) = direct_apex_outcome {
                     match outcome {
                         Ok(success) => {
@@ -291,6 +292,7 @@ pub fn apply_blend_geometry(
                             direct_apex_succeeded = true;
                         }
                         Err(reason) => {
+                            direct_apex_fell_back_to_legacy = true;
                             let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
                             repair_report
                                 .apex_routes
@@ -368,6 +370,16 @@ pub fn apply_blend_geometry(
                     Some(pre),
                 ) {
                     Ok((infos, boundary_opt)) => {
+                        if direct_apex_fell_back_to_legacy {
+                            let cap_faces = infos.iter().map(|info| info.face).collect::<Vec<_>>();
+                            if let Some(diagnostic) =
+                                cap_outer_acceptance::cap_support_continuity_diagnostic(
+                                    &result, &cap_faces, 5.0e-3, 5.0e-2,
+                                )
+                            {
+                                repair_report.apex_diagnostics.push(diagnostic);
+                            }
+                        }
                         for emit in [
                             bridge_warnings::emit_bridge_fallback_warnings,
                             bridge_warnings::emit_tangent_corner_warning,

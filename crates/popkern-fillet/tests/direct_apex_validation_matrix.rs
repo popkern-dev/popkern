@@ -48,6 +48,7 @@ use direct_apex_validate_helpers::{
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
+use popkern_fillet::types::ApexConstructionDiagnostic;
 
 /// Whole-matrix containment gate: every fixture keeps structural
 /// validity under direct-apex dispatch.  Uniform Sphere remains a hard native
@@ -155,6 +156,26 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             );
         }
     }
+}
+
+#[test]
+fn cube_extreme_legacy_fallback_reports_cap_support_decline() {
+    let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    let diagnostic = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
+            _ => None,
+        })
+        .expect("legacy fallback must report cap/support continuity decline");
+    assert_eq!(
+        diagnostic.continuity.decline_code.as_deref(),
+        Some("cap_outer_g0_exceeds_gate")
+    );
+    assert!(diagnostic.continuity.worst_g0_gap.unwrap_or(0.0) > 5.0e-3);
+    assert!(diagnostic.edges_measured >= 1);
 }
 
 /// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex
