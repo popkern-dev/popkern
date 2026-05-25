@@ -1,14 +1,17 @@
 //! BRep — the top-level boundary representation container.
 
 use crate::geometry::edge_triple::BoundarySide;
+use crate::geometry::pcurve::Pcurve;
 use crate::naming::{NamePool, OperationLabels};
 use crate::precision::{
     DegradationTracker, EntityHandle, OperationPrecisionReport, PrecisionHealth, PrecisionSummary,
 };
 use crate::tolerance::Tolerance;
+use crate::topology::brep_face_use_trim_storage::FaceUseTrimKey;
 use crate::topology::*;
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
+use std::collections::HashMap;
 
 /// A boundary representation model.
 ///
@@ -66,6 +69,9 @@ pub struct BRep {
     /// hidden behind local trace output.
     #[serde(default)]
     pub surface_boundary_audit_events: Vec<SurfaceBoundaryAuditEvent>,
+    /// Face-use-local pcurve authority for loop uses.
+    #[serde(default)]
+    pub face_use_pcurves: HashMap<FaceUseTrimKey, Pcurve>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -96,6 +102,7 @@ impl BRep {
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
             surface_boundary_audit_events: Vec::new(),
+            face_use_pcurves: HashMap::new(),
             degradation_tracker: None,
         }
     }
@@ -459,12 +466,10 @@ impl BRep {
     pub fn transform(&self, t: &Transform3) -> Result<BRep, crate::error::CoreError> {
         let mut result = self.clone();
 
-        // 1. Transform vertex positions.
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
         }
 
-        // 2. Transform face surface geometry.
         for (_, face) in &mut result.faces {
             if let Some(ref mut sof) = face.surface {
                 sof.geometry = transform_surface(&sof.geometry, t);

@@ -54,7 +54,9 @@ fn pcurve_exportable_for_face_use(
 ) -> Option<()> {
     let he = brep.half_edges.get(face_use.half_edge)?;
     let surface = surface_map.get(&face_use.face)?;
-    let pcurve = he.pcurve.as_ref()?;
+    let pcurve = brep
+        .face_use_pcurve(face_use.face, face_use.half_edge)
+        .or(he.pcurve.as_ref())?;
     (pcurve_endpoints_match_edge_segment(
         brep,
         edge_handle,

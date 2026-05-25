@@ -394,9 +394,10 @@ impl ExportContext {
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
         let surface = surface_map.get(&face_handle)?;
-        let pcurve = he
-            .pcurve
-            .clone()
+        let pcurve = brep
+            .face_use_pcurve(face_handle, he_handle)
+            .or(he.pcurve.as_ref())
+            .cloned()
             .filter(|pcurve| {
                 pcurve_endpoints_match_edge_segment(
                     brep,

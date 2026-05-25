@@ -31,6 +31,8 @@ pub use vertex::Vertex;
 pub mod brep;
 pub use brep::BRep;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+mod brep_face_use_trim_storage;
+pub use brep_face_use_trim_storage::FaceUseTrimKey;
 mod surface_boundary_audit;
 pub use surface_boundary_audit::{
     SurfaceBoundaryAuditEvent, SurfaceBoundaryAuditOutcome, SurfaceBoundarySharedTrimFailureReason,
@@ -59,6 +61,17 @@ mod brep_edge_representatives;
 /// Geometric deviation measurement for edges and vertices.
 mod brep_measurement;
 pub use brep_measurement::{EdgePcurveDeviationReport, HalfEdgePcurveDeviation};
+mod brep_face_use_trim_authority;
+mod brep_face_use_trim_authority_repair;
+pub use brep_face_use_trim_authority::{
+    BrepFaceUseTrimAuthorityFinding, BrepFaceUseTrimAuthorityFindingKind,
+    BrepFaceUseTrimAuthorityOptions, BrepFaceUseTrimAuthorityReport,
+    analyze_brep_face_use_trim_authority,
+};
+pub use brep_face_use_trim_authority_repair::{
+    BrepFaceUseTrimAuthorityRepairFailure, BrepFaceUseTrimAuthorityRepairResult,
+    repair_brep_face_use_trim_authority_transactionally,
+};
 
 /// Transactional construction primitive for shared trim-edge geometry.
 mod shared_trim_edge;

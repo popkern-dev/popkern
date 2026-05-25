@@ -1,18 +1,19 @@
 //! Read-only BRep export-quality diagnostics.
 
 use crate::topology::{
-    BRep, BrepLoopShellDiagnosticReport, BrepRepairAuthorityKind, BrepRepairAuthorityReason,
-    BrepRepairFactKind, BrepRepairKnowledgeGraph, BrepRepairKnowledgeScope,
-    BrepRepairScopeExpansion, BrepRepairScopeSeed, BrepRepairTopologyHandle,
-    BrepTopologyDiagnosticKind, BrepTopologyDiagnosticSeverity, BrepTopologyOutputPolicy,
-    BrepTrimDiagnosticReport, BrepTrimRepairOptions, EdgeHandle, LocalToleranceSource,
-    analyze_brep_loop_shell_validity, analyze_brep_trims, edge_segment,
+    BRep, BrepFaceUseTrimAuthorityFindingKind, BrepFaceUseTrimAuthorityOptions,
+    BrepFaceUseTrimAuthorityReport, BrepLoopShellDiagnosticReport, BrepTopologyDiagnosticKind,
+    BrepTopologyDiagnosticSeverity, BrepTopologyOutputPolicy, BrepTrimDiagnosticReport,
+    BrepTrimRepairOptions, analyze_brep_face_use_trim_authority, analyze_brep_loop_shell_validity,
+    analyze_brep_trims, edge_segment,
 };
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
 
+#[path = "brep_export_quality_authority.rs"]
+mod brep_export_quality_authority;
 #[path = "brep_export_quality_helpers.rs"]
 mod brep_export_quality_helpers;
+use brep_export_quality_authority::{authoritative_degenerate_edges, export_authority_summary};
 use brep_export_quality_helpers::{edge_surface_fidelity_blockers, pcurve_fidelity_blockers};
 
 /// Options for export-quality diagnostics.
@@ -64,6 +65,8 @@ pub struct BrepExportQualityReport {
     pub loop_shell: BrepLoopShellDiagnosticReport,
     /// Trim diagnostics.
     pub trims: BrepTrimDiagnosticReport,
+    /// Face-use trim authority diagnostics.
+    pub face_use_trim_authority: BrepFaceUseTrimAuthorityReport,
     /// Whether full BRep validation passed.
     pub validation_passed: bool,
     /// Validation failure text, when validation was requested and failed.
@@ -72,6 +75,8 @@ pub struct BrepExportQualityReport {
     pub topology_blockers: usize,
     /// Number of blocking trim findings.
     pub trim_blockers: usize,
+    /// Number of blocking face-use trim authority findings.
+    pub face_use_trim_authority_blockers: usize,
     /// Number of blocking edge-curve findings.
     pub edge_curve_blockers: usize,
     /// Number of pcurve fidelity blockers.
@@ -129,6 +134,8 @@ pub struct BrepExportQualitySummary {
     pub missing_edge_curves: usize,
     /// Missing edge curves accepted as valid collapsed surface trims.
     pub collapsed_trim_missing_edge_curves: usize,
+    /// Face-use trim authority blocker count.
+    pub face_use_trim_authority_blockers: usize,
     /// Maximum measured edge-to-pcurve deviation.
     pub max_pcurve_deviation: f64,
     /// Maximum measured direct edge-curve to adjacent-surface deviation.
@@ -175,6 +182,8 @@ pub struct BrepExportBlockerSummary {
     pub edge_curves: usize,
     /// Pcurve fidelity blockers.
     pub pcurves: usize,
+    /// Face-use trim authority blockers.
+    pub face_use_trim_authority: usize,
     /// Direct edge-curve to adjacent-surface fidelity blockers.
     pub edge_surfaces: usize,
     /// Validation blockers.
@@ -224,6 +233,13 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
     edge_surface_fidelity: (usize, f64),
 ) -> BrepExportQualityReport {
     let loop_shell = analyze_brep_loop_shell_validity(brep);
+    let face_use_trim_authority = analyze_brep_face_use_trim_authority(
+        brep,
+        BrepFaceUseTrimAuthorityOptions {
+            tolerance: options.trim.endpoint_tolerance,
+            samples: options.trim.samples,
+        },
+    );
     let missing_edge_curves = brep
         .edges
         .iter()
@@ -241,6 +257,8 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
     };
     let topology_blockers = topology_blocker_count(&loop_shell, options.topology_output);
     let trim_blockers = trims.findings.len();
+    let face_use_trim_authority_blockers =
+        face_use_trim_authority_blocker_count(&face_use_trim_authority);
     let edge_curve_blockers = if options.require_edge_curves {
         missing_edge_curves.saturating_sub(collapsed_trim_missing_edge_curves)
     } else {
@@ -252,6 +270,7 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
     let validation_passed = validation_error.is_none();
     let blocked = topology_blockers > 0
         || trim_blockers > 0
+        || face_use_trim_authority_blockers > 0
         || edge_curve_blockers > 0
         || pcurve_blockers > 0
         || edge_surface_blockers > 0
@@ -274,10 +293,12 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
         collapsed_trim_missing_edge_curves,
         loop_shell,
         trims,
+        face_use_trim_authority,
         validation_passed,
         validation_error,
         topology_blockers,
         trim_blockers,
+        face_use_trim_authority_blockers,
         edge_curve_blockers,
         pcurve_blockers,
         max_pcurve_deviation,
@@ -329,6 +350,7 @@ pub fn build_brep_export_quality_artifact(
             boundary_edges: report.boundary_edges,
             missing_edge_curves: report.missing_edge_curves,
             collapsed_trim_missing_edge_curves: report.collapsed_trim_missing_edge_curves,
+            face_use_trim_authority_blockers: report.face_use_trim_authority_blockers,
             max_pcurve_deviation: report.max_pcurve_deviation,
             max_edge_surface_deviation: report.max_edge_surface_deviation,
             validation_passed: report.validation_passed,
@@ -338,6 +360,7 @@ pub fn build_brep_export_quality_artifact(
         blockers: BrepExportBlockerSummary {
             topology: report.topology_blockers,
             trims: report.trim_blockers,
+            face_use_trim_authority: report.face_use_trim_authority_blockers,
             edge_curves: report.edge_curve_blockers,
             pcurves: report.pcurve_blockers,
             edge_surfaces: report.edge_surface_blockers,
@@ -345,62 +368,6 @@ pub fn build_brep_export_quality_artifact(
         },
         authority: report.authority.clone(),
     }
-}
-
-fn export_authority_summary(
-    brep: &BRep,
-    trim: BrepTrimRepairOptions,
-) -> BrepExportAuthoritySummary {
-    let graph = export_authority_graph(brep, trim);
-    let mut summary = BrepExportAuthoritySummary {
-        facts: 0,
-        stale_pcurves: 0,
-        conflicting_sources: 0,
-        missing_sources: 0,
-        degenerate_topology: 0,
-    };
-    for fact in graph
-        .facts
-        .iter()
-        .filter(|fact| fact.header.kind == BrepRepairFactKind::Authority)
-    {
-        let Some(authority) = fact.authority.as_ref() else {
-            continue;
-        };
-        summary.facts += 1;
-        if authority.kind == BrepRepairAuthorityKind::StalePcurve {
-            summary.stale_pcurves += 1;
-        }
-        if authority.kind == BrepRepairAuthorityKind::SideLocalSurfaceMismatch {
-            summary.conflicting_sources += 1;
-        }
-        if authority.kind == BrepRepairAuthorityKind::NoAuthoritativeSource
-            && authority.reason != BrepRepairAuthorityReason::MissingSurfaceBoundaryEvidence
-        {
-            summary.missing_sources += 1;
-        }
-        if authority.kind == BrepRepairAuthorityKind::AuthoritativeDegenerateTopology {
-            summary.degenerate_topology += 1;
-        }
-    }
-    summary
-}
-
-fn export_authority_graph(brep: &BRep, trim: BrepTrimRepairOptions) -> BrepRepairKnowledgeGraph {
-    let mut scope = BrepRepairKnowledgeScope::seeds_only(
-        brep.edges
-            .keys()
-            .map(BrepRepairScopeSeed::Edge)
-            .collect::<Vec<_>>(),
-    );
-    scope.expansion = BrepRepairScopeExpansion::AdjacentFaces;
-    BrepRepairKnowledgeGraph::build_with_local_tolerance(
-        brep,
-        scope,
-        trim.endpoint_tolerance,
-        LocalToleranceSource::RepairPolicy,
-        trim.samples,
-    )
 }
 
 fn topology_blocker_count(
@@ -417,6 +384,20 @@ fn topology_blocker_count(
                 topology_finding_blocks_export(finding.severity, &finding.kind, policy)
             })
             .count()
+}
+
+fn face_use_trim_authority_blocker_count(report: &BrepFaceUseTrimAuthorityReport) -> usize {
+    report
+        .findings
+        .iter()
+        .filter(|finding| {
+            matches!(
+                finding.kind,
+                BrepFaceUseTrimAuthorityFindingKind::LoopOwnershipMismatch
+                    | BrepFaceUseTrimAuthorityFindingKind::PcurveSurfaceMismatch
+            )
+        })
+        .count()
 }
 
 fn topology_finding_blocks_export(
@@ -458,27 +439,6 @@ fn collapsed_trim_missing_edge_curve_count(brep: &BRep, trim: BrepTrimRepairOpti
         .iter()
         .filter(|(edge, data)| data.curve.is_none() && authoritative_edges.contains(edge))
         .count()
-}
-
-fn authoritative_degenerate_edges(
-    brep: &BRep,
-    trim: BrepTrimRepairOptions,
-) -> BTreeSet<EdgeHandle> {
-    export_authority_graph(brep, trim)
-        .facts
-        .iter()
-        .filter(|fact| {
-            fact.header.kind == BrepRepairFactKind::Authority
-                && fact.authority.as_ref().is_some_and(|authority| {
-                    authority.kind == BrepRepairAuthorityKind::AuthoritativeDegenerateTopology
-                })
-        })
-        .flat_map(|fact| fact.handles.iter())
-        .filter_map(|handle| match *handle {
-            BrepRepairTopologyHandle::Edge(edge) => Some(edge),
-            _ => None,
-        })
-        .collect()
 }
 
 #[cfg(test)]

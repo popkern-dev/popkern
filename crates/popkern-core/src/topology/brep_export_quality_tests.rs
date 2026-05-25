@@ -60,6 +60,28 @@ fn export_quality_reports_missing_edge_curves_when_required() {
 }
 
 #[test]
+fn export_quality_blocks_wrong_face_trim_authority() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let faces = brep.faces.keys().take(2).collect::<Vec<_>>();
+    let source_loop = brep.faces[faces[0]].outer_loop;
+    brep.faces[faces[1]].outer_loop = source_loop;
+
+    let report = analyze_brep_export_quality(&brep, options(BrepTopologyOutputPolicy::ClosedShell));
+
+    assert_eq!(report.readiness, BrepExportReadiness::Blocked);
+    assert!(report.face_use_trim_authority_blockers > 0);
+    assert!(
+        report
+            .face_use_trim_authority
+            .findings
+            .iter()
+            .any(|finding| finding.kind
+                == BrepFaceUseTrimAuthorityFindingKind::LoopOwnershipMismatch),
+        "{report:#?}"
+    );
+}
+
+#[test]
 fn export_quality_allows_collapsed_trim_missing_curve_when_enabled() {
     let brep = collapsed_trim_sheet();
     let mut opts = options(BrepTopologyOutputPolicy::OpenSheet);
