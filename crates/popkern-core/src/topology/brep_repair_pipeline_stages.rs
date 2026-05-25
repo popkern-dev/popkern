@@ -5,7 +5,8 @@ use crate::topology::{
     BrepRepairPipelineFailure, BrepRepairPipelineFailureReason, BrepRepairPipelineOptions,
     BrepRepairPipelineReport, BrepRepairPipelineStage, BrepSnapSewingReport,
     complete_missing_edge_curves_transactionally, reconstruct_curve_backed_trims_transactionally,
-    repair_brep_edge_surface_compatibility_transactionally, repair_brep_trims_transactionally,
+    repair_brep_edge_surface_compatibility_transactionally,
+    repair_brep_face_use_trim_authority_transactionally, repair_brep_trims_transactionally,
     snap_and_sew_classified_edge_pairs,
 };
 
@@ -207,6 +208,48 @@ pub(super) fn run_edge_surface_compatibility(
     })?;
     pipeline_actions::append_edge_surface_actions(&mut report.actions, &repaired.report);
     report.edge_surface_compatibility = Some(repaired.report);
+    Ok(repaired.brep)
+}
+
+pub(super) fn run_face_use_trim_authority(
+    brep: &BRep,
+    options: BrepRepairPipelineOptions,
+    report: &mut BrepRepairPipelineReport,
+) -> Result<BRep, Box<BrepRepairPipelineFailure>> {
+    let repaired =
+        repair_brep_face_use_trim_authority_transactionally(brep, options.face_use_trim_authority)
+            .map_err(|err| {
+                let reason = BrepRepairPipelineFailureReason::FaceUseTrimAuthorityFailed(
+                    "unresolved_face_use_trim_authority".to_string(),
+                );
+                let mut failure_report = report.clone();
+                pipeline_actions::append_face_use_trim_authority_actions(
+                    &mut failure_report.actions,
+                    &err.report,
+                );
+                failure_report.actions.push(BrepRepairActionDecision {
+                    stage: BrepRepairPipelineStage::FaceUseTrimAuthority,
+                    outcome: BrepRepairActionOutcome::RolledBack,
+                    subject: "face_use_trim_authority_transaction".to_string(),
+                    reason: Some("unresolved_face_use_trim_authority".to_string()),
+                    max_motion: 0.0,
+                    max_deviation: err
+                        .report
+                        .after
+                        .max_endpoint_gap
+                        .max(err.report.after.max_sampled_gap),
+                    affected_handles: Vec::new(),
+                    shared_fact_ids: Vec::new(),
+                });
+                failure_report.face_use_trim_authority = Some(err.report);
+                failure(
+                    BrepRepairPipelineStage::FaceUseTrimAuthority,
+                    reason,
+                    failure_report,
+                )
+            })?;
+    pipeline_actions::append_face_use_trim_authority_actions(&mut report.actions, &repaired.report);
+    report.face_use_trim_authority = Some(repaired.report);
     Ok(repaired.brep)
 }
 

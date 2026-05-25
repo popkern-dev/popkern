@@ -25,11 +25,15 @@ fn repair_materializes_explicit_authority_for_reused_loop_on_same_surface() {
     let repaired = repair_brep_face_use_trim_authority_transactionally(&brep, options())
         .expect("same-surface loop reuse should be materializable as face-use authority");
 
-    assert!(repaired.after.is_clean(), "{:#?}", repaired.after);
-    assert!(repaired.materialized_face_uses > 0);
+    assert!(
+        repaired.report.after.is_clean(),
+        "{:#?}",
+        repaired.report.after
+    );
+    assert!(repaired.report.materialized_face_uses > 0);
     assert_eq!(
-        repaired.after.explicit_face_use_authorities,
-        repaired.materialized_face_uses
+        repaired.report.after.explicit_face_use_authorities,
+        repaired.report.materialized_face_uses
     );
     assert!(
         analyze_brep_face_use_trim_authority(&brep, options()).loop_ownership_mismatches > 0,
@@ -46,6 +50,6 @@ fn repair_declines_when_face_surface_cannot_support_loop_vertices() {
     let failure = repair_brep_face_use_trim_authority_transactionally(&brep, options())
         .expect_err("different-surface loop reuse must not be silently accepted");
 
-    assert!(failure.before.loop_ownership_mismatches > 0);
-    assert!(!failure.after.is_clean());
+    assert!(failure.report.before.loop_ownership_mismatches > 0);
+    assert!(failure.report.after.has_blocking_findings());
 }

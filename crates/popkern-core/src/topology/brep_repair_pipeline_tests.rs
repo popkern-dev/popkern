@@ -7,7 +7,6 @@ use crate::topology::{
     BrepSewingProvenance, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop,
     LoopHandle, Shell, ShellHandle, Solid, Vertex, build_brep_repair_action_artifact,
 };
-
 fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
     let clean_sewing = BrepSewingOptions {
         tolerance: 1e-9,
@@ -57,6 +56,10 @@ fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
             require_all_compatible: true,
             validate_output: true,
         },
+        face_use_trim_authority: BrepFaceUseTrimAuthorityOptions {
+            tolerance: 1e-6,
+            samples: 7,
+        },
         degenerate_edges: BrepDegenerateEdgeOptions {
             tolerance: 1e-6,
             samples: 5,
@@ -65,12 +68,12 @@ fn pipeline_options(diagnose_loop_shell: bool) -> BrepRepairPipelineOptions {
         complete_edge_curves: false,
         reconstruct_curve_trims: false,
         repair_edge_surfaces: false,
+        repair_face_use_trim_authority: false,
         repair_trims: true,
         diagnose_loop_shell,
         topology_output: BrepTopologyOutputPolicy::ClosedShell,
     }
 }
-
 fn open_sheet_pipeline_options() -> BrepRepairPipelineOptions {
     BrepRepairPipelineOptions {
         topology_output: BrepTopologyOutputPolicy::OpenSheet,

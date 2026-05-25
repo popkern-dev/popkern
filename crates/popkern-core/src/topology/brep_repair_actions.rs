@@ -145,6 +145,7 @@ pub fn brep_repair_action_stage_label(stage: BrepRepairPipelineStage) -> &'stati
         BrepRepairPipelineStage::EdgeCurveCompletion => "edge_curve_completion",
         BrepRepairPipelineStage::CurveTrimReconstruction => "curve_trim_reconstruction",
         BrepRepairPipelineStage::EdgeSurfaceCompatibility => "edge_surface_compatibility",
+        BrepRepairPipelineStage::FaceUseTrimAuthority => "face_use_trim_authority",
         BrepRepairPipelineStage::TrimRepair => "trim_repair",
         BrepRepairPipelineStage::LoopShellDiagnostics => "loop_shell_diagnostics",
     }

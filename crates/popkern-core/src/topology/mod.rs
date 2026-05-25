@@ -69,8 +69,8 @@ pub use brep_face_use_trim_authority::{
     analyze_brep_face_use_trim_authority,
 };
 pub use brep_face_use_trim_authority_repair::{
-    BrepFaceUseTrimAuthorityRepairFailure, BrepFaceUseTrimAuthorityRepairResult,
-    repair_brep_face_use_trim_authority_transactionally,
+    BrepFaceUseTrimAuthorityRepairFailure, BrepFaceUseTrimAuthorityRepairReport,
+    BrepFaceUseTrimAuthorityRepairResult, repair_brep_face_use_trim_authority_transactionally,
 };
 
 /// Transactional construction primitive for shared trim-edge geometry.

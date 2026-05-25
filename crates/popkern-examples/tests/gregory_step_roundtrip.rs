@@ -5,10 +5,10 @@ use popkern_core::geometry::{
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
-    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepRepairPipelineOptions,
-    BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
-    BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_edge_surface_compatibility,
-    repair_brep_boundary_edges_transactionally,
+    BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
+    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineOptions, BrepSewingClassificationOptions,
+    BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    analyze_brep_edge_surface_compatibility, repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
     ApexConstructionDiagnostic, BlendResult, ExactBoundaryCandidateOutcome, FilletOptions,
@@ -417,6 +417,10 @@ fn gregory_edge_surface_pipeline_options(
             require_all_compatible,
             validate_output: false,
         },
+        face_use_trim_authority: BrepFaceUseTrimAuthorityOptions {
+            tolerance: 1e-6,
+            samples: 9,
+        },
         degenerate_edges: BrepDegenerateEdgeOptions {
             tolerance: 1e-6,
             samples: 9,
@@ -425,6 +429,7 @@ fn gregory_edge_surface_pipeline_options(
         complete_edge_curves: false,
         reconstruct_curve_trims: true,
         repair_edge_surfaces: true,
+        repair_face_use_trim_authority: true,
         repair_trims: false,
         diagnose_loop_shell: false,
         topology_output: BrepTopologyOutputPolicy::OpenSheet,

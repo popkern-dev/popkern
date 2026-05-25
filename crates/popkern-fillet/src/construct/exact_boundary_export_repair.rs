@@ -221,6 +221,10 @@ fn exact_boundary_export_repair_options() -> popkern_core::topology::BrepRepairP
             require_all_compatible: false,
             validate_output: false,
         },
+        face_use_trim_authority: popkern_core::topology::BrepFaceUseTrimAuthorityOptions {
+            tolerance: 1e-6,
+            samples: 9,
+        },
         degenerate_edges: popkern_core::topology::BrepDegenerateEdgeOptions {
             tolerance: 1e-6,
             samples: 9,
@@ -229,6 +233,7 @@ fn exact_boundary_export_repair_options() -> popkern_core::topology::BrepRepairP
         complete_edge_curves: false,
         reconstruct_curve_trims: true,
         repair_edge_surfaces: true,
+        repair_face_use_trim_authority: true,
         repair_trims: false,
         diagnose_loop_shell: false,
         topology_output: popkern_core::topology::BrepTopologyOutputPolicy::OpenSheet,

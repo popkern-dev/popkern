@@ -5,15 +5,13 @@ use crate::geometry::pcurve::Pcurve;
 use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
 use crate::geometry::{CurveEval, Point3, SurfaceEval};
 use crate::topology::{
-    BRep, BrepFaceUseTrimAuthorityOptions, BrepFaceUseTrimAuthorityReport,
-    analyze_brep_face_use_trim_authority,
+    BRep, BrepFaceUseTrimAuthorityFindingKind, BrepFaceUseTrimAuthorityOptions,
+    BrepFaceUseTrimAuthorityReport, analyze_brep_face_use_trim_authority,
 };
 
-/// Successful face-use trim authority materialization.
-#[derive(Debug, Clone)]
-pub struct BrepFaceUseTrimAuthorityRepairResult {
-    /// Repaired clone of the input BRep.
-    pub brep: BRep,
+/// Structured face-use trim authority repair report.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BrepFaceUseTrimAuthorityRepairReport {
     /// Diagnostics before repair.
     pub before: BrepFaceUseTrimAuthorityReport,
     /// Diagnostics after repair.
@@ -22,15 +20,20 @@ pub struct BrepFaceUseTrimAuthorityRepairResult {
     pub materialized_face_uses: usize,
 }
 
+/// Successful face-use trim authority materialization.
+#[derive(Debug, Clone)]
+pub struct BrepFaceUseTrimAuthorityRepairResult {
+    /// Repaired clone of the input BRep.
+    pub brep: BRep,
+    /// Structured repair report.
+    pub report: BrepFaceUseTrimAuthorityRepairReport,
+}
+
 /// Transactional face-use trim authority repair failure.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BrepFaceUseTrimAuthorityRepairFailure {
-    /// Diagnostics before attempted repair.
-    pub before: BrepFaceUseTrimAuthorityReport,
-    /// Diagnostics after attempted repair.
-    pub after: BrepFaceUseTrimAuthorityReport,
-    /// Number of face-use pcurves materialized before rollback.
-    pub materialized_face_uses: usize,
+    /// Structured repair report from the rolled-back clone.
+    pub report: BrepFaceUseTrimAuthorityRepairReport,
 }
 
 /// Materialize explicit face-use pcurve authority on a cloned BRep.
@@ -39,17 +42,22 @@ pub fn repair_brep_face_use_trim_authority_transactionally(
     options: BrepFaceUseTrimAuthorityOptions,
 ) -> Result<BrepFaceUseTrimAuthorityRepairResult, Box<BrepFaceUseTrimAuthorityRepairFailure>> {
     let before = analyze_brep_face_use_trim_authority(brep, options);
-    if before.is_clean() {
+    if !before.has_blocking_findings() {
         return Ok(BrepFaceUseTrimAuthorityRepairResult {
             brep: brep.clone(),
-            before: before.clone(),
-            after: before,
-            materialized_face_uses: 0,
+            report: BrepFaceUseTrimAuthorityRepairReport {
+                before: before.clone(),
+                after: before,
+                materialized_face_uses: 0,
+            },
         });
     }
     let mut repaired = brep.clone();
     let mut materialized = 0;
     for finding in &before.findings {
+        if finding.kind == BrepFaceUseTrimAuthorityFindingKind::MissingPcurve {
+            continue;
+        }
         if repaired
             .face_use_pcurve(finding.face, finding.half_edge)
             .is_some()
@@ -66,18 +74,19 @@ pub fn repair_brep_face_use_trim_authority_transactionally(
         }
     }
     let after = analyze_brep_face_use_trim_authority(&repaired, options);
-    if !after.is_clean() {
+    let repair_report = BrepFaceUseTrimAuthorityRepairReport {
+        before,
+        after,
+        materialized_face_uses: materialized,
+    };
+    if repair_report.after.has_blocking_findings() {
         return Err(Box::new(BrepFaceUseTrimAuthorityRepairFailure {
-            before,
-            after,
-            materialized_face_uses: materialized,
+            report: repair_report,
         }));
     }
     Ok(BrepFaceUseTrimAuthorityRepairResult {
         brep: repaired,
-        before,
-        after,
-        materialized_face_uses: materialized,
+        report: repair_report,
     })
 }
 
@@ -91,7 +100,7 @@ fn synthesize_face_use_pcurve(
     let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
     let curve = brep.edges.get(half_edge_data.edge)?.curve.as_ref()?;
     let forward = half_edge_curve_forward(brep, half_edge, curve)?;
-    let samples = options.samples.max(2);
+    let samples = options.samples.max(33);
     let (period_u, period_v) = surface.periodicity();
     let mut prev_uv: Option<(f64, f64)> = None;
     let mut uv_points = Vec::with_capacity(samples);

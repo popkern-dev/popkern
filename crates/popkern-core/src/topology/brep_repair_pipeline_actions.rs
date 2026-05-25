@@ -7,6 +7,7 @@ use crate::topology::{
     BrepEdgeCurveCompletionOutcome, BrepEdgeCurveCompletionReport,
     BrepEdgeSurfaceCompatibilityDeclineReason, BrepEdgeSurfaceCompatibilityRepairFailureReason,
     BrepEdgeSurfaceCompatibilityRepairOutcome, BrepEdgeSurfaceCompatibilityRepairReport,
+    BrepFaceUseTrimAuthorityFindingKind, BrepFaceUseTrimAuthorityRepairReport,
     BrepRepairActionDecision, BrepRepairActionOutcome, BrepRepairActionReport,
     BrepRepairPipelineStage, BrepRepairTopologyHandle, BrepSewingDeclineReason,
     BrepSnapSewingDeclineReason, BrepSnapSewingFailureReason, BrepSnapSewingReport,
@@ -170,6 +171,46 @@ pub(super) fn append_curve_trim_reconstruction_actions(
     }
 }
 
+pub(super) fn append_face_use_trim_authority_actions(
+    actions: &mut BrepRepairActionReport,
+    report: &BrepFaceUseTrimAuthorityRepairReport,
+) {
+    let mut seen = Vec::new();
+    for finding in &report.before.findings {
+        if finding.kind == BrepFaceUseTrimAuthorityFindingKind::MissingPcurve {
+            continue;
+        }
+        let key = (finding.face, finding.half_edge);
+        if seen.contains(&key) {
+            continue;
+        }
+        seen.push(key);
+        let outcome = if report.after.findings.iter().any(|after| {
+            after.face == finding.face
+                && after.half_edge == finding.half_edge
+                && after.kind != BrepFaceUseTrimAuthorityFindingKind::MissingPcurve
+        }) {
+            BrepRepairActionOutcome::Declined
+        } else {
+            BrepRepairActionOutcome::Authored
+        };
+        actions.push(BrepRepairActionDecision {
+            stage: BrepRepairPipelineStage::FaceUseTrimAuthority,
+            outcome,
+            subject: format!("{:?}:{:?}", finding.face, finding.half_edge),
+            reason: Some(face_use_trim_authority_kind_label(finding.kind).to_string()),
+            max_motion: 0.0,
+            max_deviation: finding.endpoint_gap.max(finding.sampled_gap),
+            affected_handles: vec![
+                BrepRepairTopologyHandle::Face(finding.face),
+                BrepRepairTopologyHandle::HalfEdge(finding.half_edge),
+                BrepRepairTopologyHandle::Edge(finding.edge),
+            ],
+            shared_fact_ids: Vec::new(),
+        });
+    }
+}
+
 pub(super) fn sewing_decline_reason_label(reason: &BrepSewingDeclineReason) -> &'static str {
     match reason {
         BrepSewingDeclineReason::SameEdge => "same_edge",
@@ -323,6 +364,16 @@ pub(super) fn edge_surface_compatibility_failure_reason_label(
             "unresolved_edge_surface_compatibility"
         }
         BrepEdgeSurfaceCompatibilityRepairFailureReason::ValidationFailed(_) => "validation_failed",
+    }
+}
+
+pub(super) fn face_use_trim_authority_kind_label(
+    kind: BrepFaceUseTrimAuthorityFindingKind,
+) -> &'static str {
+    match kind {
+        BrepFaceUseTrimAuthorityFindingKind::LoopOwnershipMismatch => "loop_ownership_mismatch",
+        BrepFaceUseTrimAuthorityFindingKind::MissingPcurve => "missing_pcurve",
+        BrepFaceUseTrimAuthorityFindingKind::PcurveSurfaceMismatch => "pcurve_surface_mismatch",
     }
 }
 

@@ -52,6 +52,10 @@ fn options() -> BrepRepairPipelineOptions {
             require_all_compatible: false,
             validate_output: true,
         },
+        face_use_trim_authority: BrepFaceUseTrimAuthorityOptions {
+            tolerance,
+            samples: 5,
+        },
         degenerate_edges: BrepDegenerateEdgeOptions {
             tolerance,
             samples: 5,
@@ -60,6 +64,7 @@ fn options() -> BrepRepairPipelineOptions {
         complete_edge_curves: false,
         reconstruct_curve_trims: true,
         repair_edge_surfaces: false,
+        repair_face_use_trim_authority: false,
         repair_trims: false,
         diagnose_loop_shell: false,
         topology_output: BrepTopologyOutputPolicy::ClosedShell,

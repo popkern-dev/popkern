@@ -7,10 +7,11 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions, BrepExportQualityOptions,
-    BrepRepairDiagnosticExport, BrepRepairPipelineOptions, BrepRepairPipelineReport,
-    BrepSewingClassificationOptions, BrepSewingOptions, BrepSnapSewingOptions,
-    BrepTopologyOutputPolicy, BrepTrimRepairOptions, analyze_brep_export_quality,
-    build_brep_export_quality_artifact, repair_brep_boundary_edges_transactionally,
+    BrepFaceUseTrimAuthorityOptions, BrepRepairDiagnosticExport, BrepRepairPipelineOptions,
+    BrepRepairPipelineReport, BrepSewingClassificationOptions, BrepSewingOptions,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    analyze_brep_export_quality, build_brep_export_quality_artifact,
+    repair_brep_boundary_edges_transactionally,
 };
 use popkern_examples::example_manifests::{ExampleRunManifestInput, write_example_run_manifest};
 use popkern_examples::repair_artifacts::{
@@ -280,11 +281,13 @@ fn gregory_repair_options() -> BrepRepairPipelineOptions {
             require_all_compatible: false,
             validate_output: true,
         },
+        face_use_trim_authority: BrepFaceUseTrimAuthorityOptions { tolerance, samples },
         degenerate_edges: BrepDegenerateEdgeOptions { tolerance, samples },
         require_all_pairs_repaired: true,
         complete_edge_curves: true,
         reconstruct_curve_trims: true,
         repair_edge_surfaces: true,
+        repair_face_use_trim_authority: true,
         repair_trims: false,
         diagnose_loop_shell: true,
         topology_output: BrepTopologyOutputPolicy::OpenSheet,

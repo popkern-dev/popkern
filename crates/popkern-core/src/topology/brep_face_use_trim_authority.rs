@@ -40,6 +40,16 @@ impl BrepFaceUseTrimAuthorityReport {
     pub fn is_clean(&self) -> bool {
         self.findings.is_empty()
     }
+
+    /// True when findings block robust face-local trim export.
+    pub fn has_blocking_findings(&self) -> bool {
+        self.findings.iter().any(|finding| {
+            !matches!(
+                finding.kind,
+                BrepFaceUseTrimAuthorityFindingKind::MissingPcurve
+            )
+        })
+    }
 }
 
 /// One face-use trim authority finding.

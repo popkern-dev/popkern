@@ -7,9 +7,10 @@ use crate::topology::{
     BrepDegenerateEdgeOptions, BrepDegenerateEdgeReport, BrepEdgeCurveCompletionOptions,
     BrepEdgeCurveCompletionReport, BrepEdgePairPolicyContext, BrepEdgePairPolicyDecision,
     BrepEdgePairPolicyOutcome, BrepEdgeSurfaceCompatibilityOptions,
-    BrepEdgeSurfaceCompatibilityRepairReport, BrepLoopShellDiagnosticReport,
-    BrepRepairActionReport, BrepSewingClassificationOptions, BrepSewingClassificationReport,
-    BrepSewingEdgePair, BrepSnapSewingOptions, BrepSnapSewingReport, BrepTopologyDiagnosticFinding,
+    BrepEdgeSurfaceCompatibilityRepairReport, BrepFaceUseTrimAuthorityOptions,
+    BrepFaceUseTrimAuthorityRepairReport, BrepLoopShellDiagnosticReport, BrepRepairActionReport,
+    BrepSewingClassificationOptions, BrepSewingClassificationReport, BrepSewingEdgePair,
+    BrepSnapSewingOptions, BrepSnapSewingReport, BrepTopologyDiagnosticFinding,
     BrepTopologyDiagnosticKind, BrepTopologyDiagnosticSeverity, BrepTopologyRepairPolicy,
     BrepTrimRepairOptions, BrepTrimRepairReport, analyze_brep_degenerate_edges,
     analyze_brep_loop_shell_validity, assess_edge_pair_topology_policy,
@@ -22,7 +23,7 @@ mod pipeline_actions;
 mod pipeline_stages;
 use pipeline_stages::{
     run_curve_trim_reconstruction, run_edge_curve_completion, run_edge_surface_compatibility,
-    run_snap_sewing, run_trim_repair,
+    run_face_use_trim_authority, run_snap_sewing, run_trim_repair,
 };
 
 /// Options for the generic BRep boundary repair pipeline.
@@ -40,6 +41,8 @@ pub struct BrepRepairPipelineOptions {
     pub curve_trim_reconstruction: BrepCurveTrimReconstructionOptions,
     /// Transactional direct edge-curve to adjacent-surface repair options.
     pub edge_surface_compatibility: BrepEdgeSurfaceCompatibilityOptions,
+    /// Transactional face-use-local trim authority repair options.
+    pub face_use_trim_authority: BrepFaceUseTrimAuthorityOptions,
     /// Read-only degenerate edge diagnostic options.
     pub degenerate_edges: BrepDegenerateEdgeOptions,
     /// Whether any declined candidate makes the whole pipeline fail.
@@ -50,6 +53,8 @@ pub struct BrepRepairPipelineOptions {
     pub reconstruct_curve_trims: bool,
     /// Whether direct edge-curve/surface compatibility repair runs after curve completion.
     pub repair_edge_surfaces: bool,
+    /// Whether face-use-local trim authority repair runs before broad trim repair.
+    pub repair_face_use_trim_authority: bool,
     /// Whether trim repair runs after sewing.
     pub repair_trims: bool,
     /// Whether loop/shell diagnostics run after all repair stages.
@@ -96,6 +101,8 @@ pub struct BrepRepairPipelineReport {
     pub final_curve_trim_reconstruction: Option<BrepCurveTrimReconstructionReport>,
     /// Transactional direct edge-curve to adjacent-surface compatibility report.
     pub edge_surface_compatibility: Option<BrepEdgeSurfaceCompatibilityRepairReport>,
+    /// Transactional face-use-local trim authority repair report.
+    pub face_use_trim_authority: Option<BrepFaceUseTrimAuthorityRepairReport>,
     /// Read-only degenerate edge diagnostics.
     pub degenerate_edges: Option<BrepDegenerateEdgeReport>,
     /// Transactional trim repair report.
@@ -120,6 +127,7 @@ impl BrepRepairPipelineReport {
             curve_trim_reconstruction: None,
             final_curve_trim_reconstruction: None,
             edge_surface_compatibility: None,
+            face_use_trim_authority: None,
             degenerate_edges: None,
             trim_repair: None,
             loop_shell: None,
@@ -155,6 +163,8 @@ pub enum BrepRepairPipelineStage {
     CurveTrimReconstruction,
     /// Transactional direct edge-curve to adjacent-surface compatibility repair.
     EdgeSurfaceCompatibility,
+    /// Transactional face-use-local trim authority repair.
+    FaceUseTrimAuthority,
     /// Transactional trim repair.
     TrimRepair,
     /// Read-only loop/shell diagnostics.
@@ -178,6 +188,8 @@ pub enum BrepRepairPipelineFailureReason {
     CurveTrimReconstructionFailed(String),
     /// Edge/surface compatibility repair failed validation or left unresolved edges.
     EdgeSurfaceCompatibilityFailed(String),
+    /// Face-use trim authority repair failed validation or left unresolved authority blockers.
+    FaceUseTrimAuthorityFailed(String),
     /// Trim repair failed validation or left unresolved trim findings.
     TrimRepairFailed(String),
     /// Loop/shell diagnostics found error-severity topology issues.
@@ -240,6 +252,11 @@ pub fn repair_brep_boundary_edges_transactionally(
         report.final_curve_trim_reconstruction = report.curve_trim_reconstruction.take();
         report.curve_trim_reconstruction = first_reconstruction;
         final_repaired
+    } else {
+        repaired
+    };
+    let repaired = if options.repair_face_use_trim_authority {
+        run_face_use_trim_authority(&repaired, options, &mut report)?
     } else {
         repaired
     };
@@ -355,3 +372,7 @@ mod curve_trim_tests;
 #[cfg(test)]
 #[path = "brep_repair_pipeline_edge_curve_tests.rs"]
 mod edge_curve_tests;
+
+#[cfg(test)]
+#[path = "brep_repair_pipeline_face_use_tests.rs"]
+mod face_use_tests;
