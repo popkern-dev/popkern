@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::error::CoreError;
-use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
+use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::{
     CylinderMediatedSupportContinuationBatchPlan,
@@ -40,6 +40,20 @@ impl SegmentBridgeCycleOperandSet {
         self.operands
             .get(segment_index)
             .map(|operand| operand.boundary_half_edges.len())
+    }
+
+    pub(super) fn boundary_interval(&self, segment_index: usize) -> Option<Vec<HalfEdgeHandle>> {
+        self.operands.get(segment_index).map(|operand| {
+            let mut interval = operand.boundary_half_edges.clone();
+            interval.push(operand.after_last);
+            interval
+        })
+    }
+
+    pub(super) fn boundary_loop(&self, segment_index: usize) -> Option<LoopHandle> {
+        self.operands
+            .get(segment_index)
+            .map(|operand| operand.loop_)
     }
 
     pub(super) fn ownership_status(&self) -> SegmentBridgeCycleOwnershipStatus {
@@ -147,7 +161,9 @@ impl SegmentBridgeCycleOwnershipStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SegmentBridgeCycleOperand {
     request_indices: Vec<usize>,
+    loop_: LoopHandle,
     boundary_half_edges: Vec<HalfEdgeHandle>,
+    after_last: HalfEdgeHandle,
     start: VertexHandle,
     end: VertexHandle,
     support_faces: Vec<FaceHandle>,
@@ -200,7 +216,9 @@ fn segment_bridge_cycle_operand(
         })?;
     Ok(SegmentBridgeCycleOperand {
         request_indices: segment.request_indices.clone(),
+        loop_: brep.half_edges[first].loop_,
         boundary_half_edges: segment.half_edges.clone(),
+        after_last,
         start,
         end,
         support_faces: selected_support_faces(plan, segment)?,

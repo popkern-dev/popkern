@@ -1,7 +1,5 @@
 //! Transactional boundary for cylinder-mediated support continuation.
 
-use std::collections::BTreeMap;
-
 use crate::error::CoreError;
 use crate::topology::{BRep, BrepRepairFactId, FaceHandle, HalfEdgeHandle, LoopHandle};
 
@@ -30,6 +28,8 @@ mod apply_owner_spans;
 mod apply_preconditions;
 #[path = "cylinder_mediated_support_apply_resource_candidates.rs"]
 mod apply_resource_candidates;
+#[path = "cylinder_mediated_support_apply_segment_authoring.rs"]
+mod apply_segment_authoring;
 #[path = "cylinder_mediated_support_apply_shared_start_bridge.rs"]
 mod apply_shared_start_bridge;
 #[path = "cylinder_mediated_support_apply_shared_start_bridge_mutation.rs"]
@@ -49,7 +49,7 @@ use apply_diagnostics::{
     authored_delta_label, bridge_refusal_reason, execution_delta_label, segment_authoring_summary,
     topology_delta_gap_label,
 };
-use apply_owner_spans::{expose_owner_repair_spans, owner_repair_spans};
+use apply_owner_spans::expose_owner_repair_spans;
 use apply_preconditions::{require_known_aggregate_delta, require_non_empty_partition};
 use apply_shared_start_bridge::{SharedStartBridgePreflight, preflight_shared_start_bridge};
 use apply_shared_start_bridge_mutation::{
@@ -261,6 +261,29 @@ impl BRep {
             }
             SharedStartBridgeMutationStatus::NotApplicable => {}
         }
+        if let Some(result) = reconciliation.apply_connector_authoring_mutation(
+            &mut candidate,
+            &bridge_cycles,
+            cylinder_resource_remap.segments(),
+        )? {
+            candidate
+                .validate_half_edge_pairing()
+                .map_err(CoreError::from)?;
+            candidate
+                .validate_half_edge_cycles()
+                .map_err(CoreError::from)?;
+            candidate
+                .validate_manifold_edges()
+                .map_err(CoreError::from)?;
+            *self = candidate;
+            return Ok(CylinderMediatedSupportContinuationBatchResult {
+                expected_delta: plan.expected_delta.clone(),
+                segment_authoring,
+                bridge_faces: result.bridge_faces,
+                bridge_loops: result.bridge_loops,
+                postconditions: CylinderMediatedSupportContinuationPostconditions::Satisfied,
+            });
+        }
         let bridge_refusal =
             bridge_refusal_reason(bridge_cycles.ownership_status(), reconciliation.status());
         Err(CoreError::PreconditionFailed(format!(
@@ -294,202 +317,6 @@ impl BRep {
         &self,
         plan: &CylinderMediatedSupportContinuationBatchPlan,
     ) -> Result<Vec<CylinderMediatedSupportContinuationSegmentAuthoringPlan>, CoreError> {
-        let mut authoring = Vec::new();
-        for loop_partition in &plan.outside_interval_partition.loops {
-            for (segment_index, segment) in loop_partition.segments.iter().enumerate() {
-                let mut segment_plan = CylinderMediatedSupportContinuationSegmentAuthoringPlan {
-                    outside_loop: loop_partition.outside_loop,
-                    segment_index,
-                    request_indices: segment.request_indices.clone(),
-                    half_edges: segment.half_edges.clone(),
-                    boundary_bridge_half_edges: Vec::new(),
-                    cylinder_owned_half_edges: Vec::new(),
-                    outside_owned_half_edges: Vec::new(),
-                    support_owned_half_edges: Vec::new(),
-                    unassigned_twin_half_edges: Vec::new(),
-                    unsupported_owned_half_edges: Vec::new(),
-                    context_owned_half_edges: Vec::new(),
-                    unsupported_owner_faces: Vec::new(),
-                    context_owner_faces: Vec::new(),
-                    owner_repair_spans: Vec::new(),
-                    requirement:
-                        CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge,
-                    source_fact_ids: segment_source_fact_ids(self, &segment.half_edges),
-                };
-                for &half_edge in &segment.half_edges {
-                    self.classify_segment_half_edge(plan, &mut segment_plan, half_edge)?;
-                }
-                segment_plan.unsupported_owner_faces =
-                    unsupported_owner_faces(self, &segment_plan)?;
-                segment_plan.context_owner_faces = context_owner_faces(self, &segment_plan)?;
-                segment_plan.owner_repair_spans = owner_repair_spans(self, &segment_plan)?;
-                segment_plan.requirement = segment_requirement(&segment_plan);
-                authoring.push(segment_plan);
-            }
-        }
-        Ok(authoring)
+        apply_segment_authoring::segment_authoring_plan(self, plan)
     }
-
-    fn classify_segment_half_edge(
-        &self,
-        plan: &CylinderMediatedSupportContinuationBatchPlan,
-        segment_plan: &mut CylinderMediatedSupportContinuationSegmentAuthoringPlan,
-        half_edge: HalfEdgeHandle,
-    ) -> Result<(), CoreError> {
-        let data = self.half_edges.get(half_edge).ok_or_else(|| {
-            CoreError::InvalidHandle(format!(
-                "cylinder-mediated segment references stale half-edge {half_edge:?}"
-            ))
-        })?;
-        if self.boundary_edges.contains(&data.edge) && !self.half_edges.contains_key(data.twin) {
-            segment_plan.boundary_bridge_half_edges.push(half_edge);
-            return Ok(());
-        }
-        let Some(twin) = self.half_edges.get(data.twin) else {
-            segment_plan.unsupported_owned_half_edges.push(half_edge);
-            return Ok(());
-        };
-        let Some(twin_loop) = self.loops.get(twin.loop_) else {
-            segment_plan.unassigned_twin_half_edges.push(half_edge);
-            return Ok(());
-        };
-        let selected_cylinder = segment_plan.request_indices.iter().any(|&request_index| {
-            plan.plans
-                .get(request_index)
-                .map(|continuation| continuation.request.cylinder_face == twin_loop.face)
-                .unwrap_or(false)
-        });
-        if selected_cylinder {
-            segment_plan.cylinder_owned_half_edges.push(half_edge);
-            return Ok(());
-        }
-        let selected_outside = segment_plan.request_indices.iter().any(|&request_index| {
-            plan.plans
-                .get(request_index)
-                .map(|continuation| continuation.request.outside_face == twin_loop.face)
-                .unwrap_or(false)
-        });
-        if selected_outside {
-            segment_plan.outside_owned_half_edges.push(half_edge);
-            return Ok(());
-        }
-        let selected_support = segment_plan.request_indices.iter().any(|&request_index| {
-            plan.plans
-                .get(request_index)
-                .map(|continuation| continuation.request.support_face == twin_loop.face)
-                .unwrap_or(false)
-        });
-        if selected_support {
-            segment_plan.support_owned_half_edges.push(half_edge);
-            return Ok(());
-        }
-        let context_owner = segment_plan.request_indices.iter().any(|&request_index| {
-            plan.plans
-                .get(request_index)
-                .map(|continuation| {
-                    continuation
-                        .request
-                        .context_owner_faces
-                        .contains(&twin_loop.face)
-                })
-                .unwrap_or(false)
-        });
-        if context_owner {
-            segment_plan.context_owned_half_edges.push(half_edge);
-        } else {
-            segment_plan.unsupported_owned_half_edges.push(half_edge);
-        }
-        Ok(())
-    }
-}
-
-fn unsupported_owner_faces(
-    brep: &BRep,
-    segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
-) -> Result<Vec<CylinderMediatedUnsupportedOwnerFace>, CoreError> {
-    let mut counts = BTreeMap::<FaceHandle, usize>::new();
-    for &half_edge in &segment.unsupported_owned_half_edges {
-        let twin = brep
-            .half_edges
-            .get(half_edge)
-            .and_then(|data| brep.half_edges.get(data.twin))
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(format!(
-                    "unsupported owner half-edge {half_edge:?} has no live twin"
-                ))
-            })?;
-        let face = brep
-            .loops
-            .get(twin.loop_)
-            .map(|loop_data| loop_data.face)
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(format!(
-                    "unsupported owner half-edge {half_edge:?} has no live twin loop"
-                ))
-            })?;
-        *counts.entry(face).or_default() += 1;
-    }
-    Ok(counts
-        .into_iter()
-        .map(|(face, half_edges)| CylinderMediatedUnsupportedOwnerFace { face, half_edges })
-        .collect())
-}
-
-fn context_owner_faces(
-    brep: &BRep,
-    segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
-) -> Result<Vec<CylinderMediatedContextOwnerFace>, CoreError> {
-    let counts = owner_face_counts(brep, &segment.context_owned_half_edges)?;
-    Ok(counts
-        .into_iter()
-        .map(|(face, half_edges)| CylinderMediatedContextOwnerFace { face, half_edges })
-        .collect())
-}
-
-fn owner_face_counts(
-    brep: &BRep,
-    half_edges: &[HalfEdgeHandle],
-) -> Result<BTreeMap<FaceHandle, usize>, CoreError> {
-    let mut counts = BTreeMap::<FaceHandle, usize>::new();
-    for &half_edge in half_edges {
-        let twin = brep
-            .half_edges
-            .get(half_edge)
-            .and_then(|data| brep.half_edges.get(data.twin))
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(format!(
-                    "owner half-edge {half_edge:?} has no live twin"
-                ))
-            })?;
-        let face = brep
-            .loops
-            .get(twin.loop_)
-            .map(|loop_data| loop_data.face)
-            .ok_or_else(|| {
-                CoreError::PreconditionFailed(format!(
-                    "owner half-edge {half_edge:?} has no live twin loop"
-                ))
-            })?;
-        *counts.entry(face).or_default() += 1;
-    }
-    Ok(counts)
-}
-
-fn segment_requirement(
-    segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
-) -> CylinderMediatedSupportContinuationSegmentRequirement {
-    if !segment.unsupported_owned_half_edges.is_empty() {
-        return CylinderMediatedSupportContinuationSegmentRequirement::UnsupportedOwnedEdge;
-    }
-    if !segment.unassigned_twin_half_edges.is_empty() {
-        return CylinderMediatedSupportContinuationSegmentRequirement::UnassignedTwinRepair;
-    }
-    if !segment.cylinder_owned_half_edges.is_empty()
-        || !segment.outside_owned_half_edges.is_empty()
-        || !segment.support_owned_half_edges.is_empty()
-        || !segment.context_owned_half_edges.is_empty()
-    {
-        return CylinderMediatedSupportContinuationSegmentRequirement::OwnedEdgeReclassification;
-    }
-    CylinderMediatedSupportContinuationSegmentRequirement::BoundaryBridge
 }

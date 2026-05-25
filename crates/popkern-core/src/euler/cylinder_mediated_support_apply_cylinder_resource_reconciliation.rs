@@ -8,16 +8,21 @@ use super::{CylinderBridgeResourcePartition, CylinderBridgeResourceSegment};
 use crate::error::CoreError;
 use crate::topology::BRep;
 
+#[path = "cylinder_mediated_support_apply_cylinder_resource_connector_authoring.rs"]
+mod connector_authoring;
 #[path = "cylinder_mediated_support_apply_cylinder_resource_split_merge.rs"]
 mod split_merge;
 
 use split_merge::{
     SplitResourceMergeOperand, cylinder_request_sets_cover_missing_set,
-    split_resource_merge_operand_summary, split_resource_merge_operands,
+    multi_run_bridge_face_plan_label, split_resource_connector_authoring_label,
+    split_resource_connector_transaction_label, split_resource_merge_operand_summary,
+    split_resource_merge_operands, split_resource_merge_preflight_label,
     split_resource_merge_summary, split_resource_operands_are_shared_start,
+    split_resource_operands_need_connector_authoring,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(in crate::euler::cylinder_mediated_support_apply) struct BridgeResourceReconciliation {
     outside_segments: usize,
     cylinder_segments: usize,
@@ -54,6 +59,10 @@ impl BridgeResourceReconciliation {
         if self.has_split_cylinder_resource_transition() {
             if split_resource_operands_are_shared_start(&self.split_resource_merge_operands) {
                 return BridgeResourceReconciliationStatus::SharedStartSplitCylinderResourcesReady;
+            }
+            if split_resource_operands_need_connector_authoring(&self.split_resource_merge_operands)
+            {
+                return BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedConnectorAuthoring;
             }
             return BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge;
         }
@@ -118,7 +127,7 @@ impl BridgeResourceReconciliation {
             ),
         };
         format!(
-            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {} {} {}",
+            "bridge_resource_reconciliation=outside_segments={} cylinder_segments={} exact_matches={} missing_cylinder_matches={} extra_cylinder_resources={} duplicate_cylinder_request_sets={} resource_status={} construction_actions={} action_sequence=[{}] outside_request_sets=[{}] cylinder_request_sets=[{}] missing_request_sets=[{}] {} {} {} {} {} {} {}",
             self.outside_segments,
             self.cylinder_segments,
             self.exact_matches,
@@ -132,6 +141,10 @@ impl BridgeResourceReconciliation {
             request_set_summary(&self.cylinder_request_sets),
             request_set_summary(&self.missing_request_sets),
             split_resource_merge_summary(&self.split_resource_merge_operands).diagnostic_label(),
+            split_resource_merge_preflight_label(&self.split_resource_merge_operands),
+            split_resource_connector_authoring_label(&self.split_resource_merge_operands),
+            split_resource_connector_transaction_label(&self.split_resource_merge_operands),
+            multi_run_bridge_face_plan_label(&self.split_resource_merge_operands),
             split_resource_merge_operand_summary(&self.split_resource_merge_operands),
             candidate_summary.diagnostic_label()
         )
@@ -188,6 +201,7 @@ pub(in crate::euler::cylinder_mediated_support_apply) enum BridgeResourceReconci
     SharedOutsideTransitionNeedsResource,
     SingleSupportCoveredBySharedCylinderResource,
     SharedStartSplitCylinderResourcesReady,
+    SplitCylinderResourcesNeedConnectorAuthoring,
     SplitCylinderResourcesNeedMerge,
     IncompatibleResourceSets,
 }
@@ -210,6 +224,9 @@ impl BridgeResourceReconciliationStatus {
             }
             Self::SharedStartSplitCylinderResourcesReady => {
                 "shared-start-split-cylinder-resources-ready"
+            }
+            Self::SplitCylinderResourcesNeedConnectorAuthoring => {
+                "split-cylinder-resources-need-connector-authoring"
             }
             Self::SplitCylinderResourcesNeedMerge => "split-cylinder-resources-need-merge",
             Self::IncompatibleResourceSets => "incompatible-resource-sets",
@@ -272,11 +289,18 @@ impl CylinderBridgeResourcePartition {
                 request_indices: outside_request_set.clone(),
             });
         }
+        let unmatched_cylinder_segments = self
+            .segments
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| !matched_cylinder_segments.contains(index))
+            .map(|(_, segment)| segment.clone())
+            .collect::<Vec<_>>();
         let split_resource_merge_operands = split_resource_merge_operands(
             brep,
             bridge_cycles,
             &missing_outside_segments,
-            &self.segments,
+            &unmatched_cylinder_segments,
         )?;
         Ok(BridgeResourceReconciliation {
             outside_segments: outside_request_sets.len(),

@@ -1,29 +1,52 @@
 //! Split cylinder-resource merge operands for mediated support continuation.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::error::CoreError;
-use crate::topology::{BRep, VertexHandle};
+use crate::geometry::Point3;
+use crate::topology::{BRep, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle};
 
 use super::super::super::apply_bridge_cycles::SegmentBridgeCycleOperandSet;
 use super::super::CylinderBridgeResourceSegment;
+use multi_run_bridge_face::MultiRunBridgeFaceMutationResult;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[path = "cylinder_mediated_support_apply_multi_run_bridge_face.rs"]
+mod multi_run_bridge_face;
+#[path = "cylinder_mediated_support_apply_cylinder_resource_split_merge_preflight.rs"]
+mod preflight;
+
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct SplitResourceMergeOperand {
     outside_segment_index: usize,
     request_indices: Vec<usize>,
+    outside_loop: LoopHandle,
+    outside_interval: Vec<HalfEdgeHandle>,
     outside_start: VertexHandle,
     outside_end: VertexHandle,
     outside_half_edges: usize,
     cylinder_runs: Vec<SplitResourceCylinderRun>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct SplitResourceCylinderRun {
     cylinder_segment_index: usize,
     request_indices: Vec<usize>,
+    loop_: LoopHandle,
+    half_edges: Vec<HalfEdgeHandle>,
+    after_last: HalfEdgeHandle,
     start: VertexHandle,
     end: VertexHandle,
+    start_position: Point3,
+    end_position: Point3,
+    boundary_ready_half_edges: usize,
+    live_twin_half_edges: usize,
+    not_boundary_half_edges: usize,
+    live_twin_owner_faces: Vec<SplitResourceOwnerFace>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SplitResourceOwnerFace {
+    face: FaceHandle,
     half_edges: usize,
 }
 
@@ -60,9 +83,17 @@ pub(super) fn split_resource_merge_operands(
         else {
             continue;
         };
+        let Some(outside_interval) = bridge_cycles.boundary_interval(*outside_segment_index) else {
+            continue;
+        };
+        let Some(outside_loop) = bridge_cycles.boundary_loop(*outside_segment_index) else {
+            continue;
+        };
         operands.push(SplitResourceMergeOperand {
             outside_segment_index: *outside_segment_index,
             request_indices: missing.clone(),
+            outside_loop,
+            outside_interval,
             outside_start,
             outside_end,
             outside_half_edges: bridge_cycles
@@ -98,6 +129,15 @@ fn split_resource_cylinder_run(
                 "split cylinder resource run {cylinder_segment_index} has stale first half-edge {first:?}"
             ))
         })?;
+    let loop_ = brep
+        .half_edges
+        .get(first)
+        .map(|half_edge| half_edge.loop_)
+        .ok_or_else(|| {
+            CoreError::InvalidHandle(format!(
+                "split cylinder resource run {cylinder_segment_index} has stale first half-edge {first:?}"
+            ))
+        })?;
     let after_last = brep
         .half_edges
         .get(last)
@@ -116,12 +156,86 @@ fn split_resource_cylinder_run(
                 "split cylinder resource run {cylinder_segment_index} has stale after-last half-edge {after_last:?}"
             ))
         })?;
+    let start_position = brep
+        .vertices
+        .get(start)
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| {
+            CoreError::InvalidHandle(format!(
+                "split cylinder resource run {cylinder_segment_index} has stale start vertex {start:?}"
+            ))
+        })?;
+    let end_position = brep
+        .vertices
+        .get(end)
+        .map(|vertex| vertex.position)
+        .ok_or_else(|| {
+            CoreError::InvalidHandle(format!(
+                "split cylinder resource run {cylinder_segment_index} has stale end vertex {end:?}"
+            ))
+        })?;
+    let readiness = split_resource_run_readiness(brep, segment)?;
     Ok(SplitResourceCylinderRun {
         cylinder_segment_index,
         request_indices: segment.request_indices.clone(),
+        loop_,
+        half_edges: segment.half_edges.clone(),
+        after_last,
         start,
         end,
-        half_edges: segment.half_edges.len(),
+        start_position,
+        end_position,
+        boundary_ready_half_edges: readiness.boundary_ready_half_edges,
+        live_twin_half_edges: readiness.live_twin_half_edges,
+        not_boundary_half_edges: readiness.not_boundary_half_edges,
+        live_twin_owner_faces: readiness.live_twin_owner_faces,
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SplitResourceRunReadiness {
+    boundary_ready_half_edges: usize,
+    live_twin_half_edges: usize,
+    not_boundary_half_edges: usize,
+    live_twin_owner_faces: Vec<SplitResourceOwnerFace>,
+}
+
+fn split_resource_run_readiness(
+    brep: &BRep,
+    segment: &CylinderBridgeResourceSegment,
+) -> Result<SplitResourceRunReadiness, CoreError> {
+    let mut boundary_ready_half_edges = 0;
+    let mut live_twin_half_edges = 0;
+    let mut not_boundary_half_edges = 0;
+    let mut live_twin_owner_faces = BTreeMap::<FaceHandle, usize>::new();
+    for &half_edge in &segment.half_edges {
+        let data = brep.half_edges.get(half_edge).ok_or_else(|| {
+            CoreError::InvalidHandle(format!(
+                "split cylinder resource run references stale half-edge {half_edge:?}"
+            ))
+        })?;
+        if !brep.boundary_edges.contains(&data.edge) {
+            not_boundary_half_edges += 1;
+        }
+        if let Some(twin) = brep.half_edges.get(data.twin) {
+            live_twin_half_edges += 1;
+            if let Some(loop_data) = brep.loops.get(twin.loop_) {
+                *live_twin_owner_faces.entry(loop_data.face).or_default() += 1;
+            }
+            continue;
+        }
+        if brep.boundary_edges.contains(&data.edge) {
+            boundary_ready_half_edges += 1;
+        }
+    }
+    Ok(SplitResourceRunReadiness {
+        boundary_ready_half_edges,
+        live_twin_half_edges,
+        not_boundary_half_edges,
+        live_twin_owner_faces: live_twin_owner_faces
+            .into_iter()
+            .map(|(face, half_edges)| SplitResourceOwnerFace { face, half_edges })
+            .collect(),
     })
 }
 
@@ -179,6 +293,41 @@ pub(super) fn split_resource_merge_operand_summary(
             .collect::<Vec<_>>()
             .join(";")
     )
+}
+
+pub(super) fn split_resource_merge_preflight_label(
+    operands: &[SplitResourceMergeOperand],
+) -> String {
+    preflight::split_resource_merge_preflight(operands).diagnostic_label()
+}
+
+pub(super) fn split_resource_operands_need_connector_authoring(
+    operands: &[SplitResourceMergeOperand],
+) -> bool {
+    preflight::split_resource_merge_preflight(operands).requires_connector_authoring()
+}
+
+pub(super) fn split_resource_connector_authoring_label(
+    operands: &[SplitResourceMergeOperand],
+) -> String {
+    preflight::split_resource_connector_authoring_summary(operands)
+}
+
+pub(super) fn split_resource_connector_transaction_label(
+    operands: &[SplitResourceMergeOperand],
+) -> String {
+    preflight::split_resource_connector_transaction_summary(operands)
+}
+
+pub(super) fn multi_run_bridge_face_plan_label(operands: &[SplitResourceMergeOperand]) -> String {
+    multi_run_bridge_face::multi_run_bridge_face_plan_summary(operands)
+}
+
+pub(super) fn apply_multi_run_bridge_face_plans(
+    brep: &mut BRep,
+    operands: &[SplitResourceMergeOperand],
+) -> Result<Option<MultiRunBridgeFaceMutationResult>, CoreError> {
+    multi_run_bridge_face::apply_multi_run_bridge_face_plans(brep, operands)
 }
 
 pub(super) fn split_resource_operands_are_shared_start(
@@ -288,13 +437,25 @@ fn split_resource_endpoint_shape(
 
 fn split_resource_cylinder_run_label(run: &SplitResourceCylinderRun) -> String {
     format!(
-        "{}:{}:{:?}->{:?}:{}",
+        "{}:{}:{:?}->{:?}:{}:boundary_ready={} live_twin={} not_boundary={} live_twin_owner_faces=[{}]",
         run.cylinder_segment_index,
         request_set_label(&run.request_indices),
         run.start,
         run.end,
-        run.half_edges
+        run.half_edges.len(),
+        run.boundary_ready_half_edges,
+        run.live_twin_half_edges,
+        run.not_boundary_half_edges,
+        split_resource_owner_face_summary(&run.live_twin_owner_faces)
     )
+}
+
+fn split_resource_owner_face_summary(owner_faces: &[SplitResourceOwnerFace]) -> String {
+    owner_faces
+        .iter()
+        .map(|owner| format!("{:?}:{}", owner.face, owner.half_edges))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn cylinder_request_set_participates_in_missing_set(missing: &[usize], set: &[usize]) -> bool {

@@ -80,6 +80,15 @@ impl CylinderResourceConstructionCandidate {
                 feasibility: CylinderResourceConstructionFeasibility::ExecutableAfterNormalization,
                 reason: "shared-start-split-cylinder-resources-ready",
             },
+            BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedConnectorAuthoring => {
+                Self {
+                    family:
+                        CylinderResourceConstructionFamily::SplitCylinderResourceConnectorAuthoring,
+                    feasibility:
+                        CylinderResourceConstructionFeasibility::RequiresConnectorAuthoring,
+                    reason: "split-cylinder-resource-connector-authoring-required",
+                }
+            }
             BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => Self {
                 family: CylinderResourceConstructionFamily::SplitCylinderResourceMerge,
                 feasibility: CylinderResourceConstructionFeasibility::RequiresResourceMerge,
@@ -108,6 +117,9 @@ impl CylinderResourceConstructionCandidate {
             CylinderResourceConstructionFeasibility::RequiresResourceMerge => {
                 "cylinder-resource-merge-primitive"
             }
+            CylinderResourceConstructionFeasibility::RequiresConnectorAuthoring => {
+                "cylinder-resource-connector-authoring-primitive"
+            }
             CylinderResourceConstructionFeasibility::InvalidResourceSets => {
                 "valid-cylinder-resource-set"
             }
@@ -123,6 +135,7 @@ enum CylinderResourceConstructionFamily {
     SharedOutsideTransitionResource,
     SingleSupportCoveredBySharedCylinder,
     SharedStartSplitCylinderResources,
+    SplitCylinderResourceConnectorAuthoring,
     SplitCylinderResourceMerge,
     IncompatibleResourceSets,
 }
@@ -136,6 +149,9 @@ impl CylinderResourceConstructionFamily {
                 "single-support-covered-by-shared-cylinder-resource"
             }
             Self::SharedStartSplitCylinderResources => "shared-start-split-cylinder-resources",
+            Self::SplitCylinderResourceConnectorAuthoring => {
+                "split-cylinder-resource-connector-authoring"
+            }
             Self::SplitCylinderResourceMerge => "split-cylinder-resource-merge",
             Self::IncompatibleResourceSets => "incompatible-resource-sets",
         }
@@ -149,6 +165,7 @@ enum CylinderResourceConstructionFeasibility {
     RequiresResourceAuthoring,
     RequiresResourceSplit,
     RequiresResourceMerge,
+    RequiresConnectorAuthoring,
     InvalidResourceSets,
 }
 
@@ -160,6 +177,7 @@ impl CylinderResourceConstructionFeasibility {
             Self::RequiresResourceAuthoring => "requires-resource-authoring",
             Self::RequiresResourceSplit => "requires-resource-split",
             Self::RequiresResourceMerge => "requires-resource-merge",
+            Self::RequiresConnectorAuthoring => "requires-connector-authoring",
             Self::InvalidResourceSets => "invalid-resource-sets",
         }
     }
