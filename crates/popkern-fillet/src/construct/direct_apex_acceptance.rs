@@ -265,3 +265,114 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
         ),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use popkern_core::tolerance::Tolerance;
+    use popkern_core::topology::{BRep, EdgeHandle};
+
+    use crate::types::{
+        ApexConstructionDiagnostic, CapContinuityReport, CapContinuityTarget, ContinuityLevel,
+        FilletOptions, FilletRadius, FilletSpec,
+    };
+
+    use super::native_gregory_cap_outer_g1_diagnostic;
+
+    #[test]
+    fn native_gregory_g1_decline_populates_cap_continuity_report() {
+        let result = mixed_radius_direct_apex_cube();
+        let apex_result = crate::apex_construction::construct::ApexBuildResult {
+            created_faces: result
+                .corner_patches
+                .iter()
+                .map(|patch| patch.face)
+                .collect(),
+            apex_vertices: Vec::new(),
+            apex_edges: Vec::new(),
+            corner_patches: result.corner_patches.clone(),
+            exact_boundary_sectors: Vec::new(),
+            exact_boundary_prepared_curve_count: 0,
+            exact_boundary_inner_spoke_count: 0,
+            exact_boundary_ribbon_count: 0,
+            exact_boundary_solved_surface_count: 0,
+            exact_boundary_pcurve_pair_count: 0,
+            exact_boundary_performance: Default::default(),
+            exact_boundary_report: result.repair_report.apex_routes[0]
+                .exact_boundary_report
+                .clone(),
+            diagnostics: Vec::new(),
+            telemetry: Default::default(),
+        };
+
+        let diagnostic =
+            native_gregory_cap_outer_g1_diagnostic(&result.brep, &apex_result, 5.0e-3, 0.0)
+                .expect("zero G1 gate should force a native cap/support continuity decline");
+        let ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) = diagnostic else {
+            panic!("expected cap/support continuity diagnostic");
+        };
+
+        assert_eq!(
+            diagnostic.continuity.target,
+            CapContinuityTarget::native_cap_g1(5.0e-3, 0.0)
+        );
+        assert_eq!(
+            diagnostic.continuity,
+            CapContinuityReport::declined_g1(
+                diagnostic.continuity.target,
+                diagnostic.edges_measured,
+                diagnostic.continuity.worst_g0_gap.unwrap(),
+                diagnostic.worst_g1_coplanarity,
+            )
+        );
+        assert_eq!(diagnostic.continuity.target.requested, ContinuityLevel::G1);
+        assert_eq!(
+            diagnostic.continuity.target.accepted_floor,
+            ContinuityLevel::G1
+        );
+        assert_eq!(diagnostic.continuity.achieved, Some(ContinuityLevel::G0));
+        assert_eq!(
+            diagnostic.continuity.decline_code.as_deref(),
+            Some("cap_outer_g1_exceeds_gate")
+        );
+        assert_eq!(
+            diagnostic.continuity.measured_edges,
+            diagnostic.edges_measured
+        );
+        assert!(diagnostic.edges_measured > 0);
+        assert_eq!(
+            diagnostic.continuity.worst_g1_normal_deficit,
+            Some(diagnostic.worst_g1_coplanarity)
+        );
+    }
+
+    fn mixed_radius_direct_apex_cube() -> crate::types::BlendResult {
+        let tol = Tolerance::default();
+        let cube = BRep::unit_cube(tol).unwrap();
+        let apex = cube.vertices.keys().next().unwrap();
+        let incident_edges = incident_edges(&cube, apex);
+        let specs = incident_edges
+            .iter()
+            .zip([0.08, 0.10, 0.12])
+            .map(|(&edge, radius)| FilletSpec {
+                edge,
+                radius: FilletRadius::Constant(radius),
+            })
+            .collect::<Vec<_>>();
+        let options = FilletOptions {
+            use_direct_apex_construction: true,
+            ..FilletOptions::default()
+        };
+        crate::fillet_edges(&cube, &specs, &options, tol, None).unwrap()
+    }
+
+    fn incident_edges(
+        brep: &BRep,
+        vertex: popkern_core::topology::VertexHandle,
+    ) -> Vec<EdgeHandle> {
+        brep.half_edges
+            .values()
+            .filter(|half_edge| half_edge.origin == vertex)
+            .map(|half_edge| half_edge.edge)
+            .collect()
+    }
+}
