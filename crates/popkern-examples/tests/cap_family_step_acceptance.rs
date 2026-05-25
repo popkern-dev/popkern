@@ -105,6 +105,18 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     .as_ref()
                     .expect("STEP import decline should identify the imported validation gate");
                 match &imported_validation.kind {
+                    StepImportedValidationFailureKind::EulerPoincare(euler) => {
+                        assert_eq!(euler.expected, 2);
+                        assert_eq!(euler.actual, 23);
+                        assert_eq!(
+                            euler.boundary_edges, 0,
+                            "Euler-Poincare evidence should classify this as a closed imported topology accounting failure, not an open-shell gap: {euler:#?}"
+                        );
+                        assert_eq!(
+                            euler.solid_shell_faces, euler.faces,
+                            "the failing solid shell should own the imported faces: {euler:#?}"
+                        );
+                    }
                     StepImportedValidationFailureKind::ShellGap(shell_gap) => {
                         assert!(shell_gap.gap > 0.0);
                         assert!(
@@ -114,7 +126,7 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                         );
                     }
                     other => panic!(
-                        "remaining STEP import decline should expose shell-gap evidence: {other:#?}"
+                        "remaining STEP import decline should expose structured topology evidence: {other:#?}"
                     ),
                 }
             }

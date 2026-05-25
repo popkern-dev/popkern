@@ -19,8 +19,8 @@ use step_validation_evidence::{
     edge_surface_evidence, missing_edge_curve_evidence, pcurve_evidence,
 };
 pub use step_validation_failure::{
-    StepImportedShellGapEvidence, StepImportedValidationFailure, StepImportedValidationFailureKind,
-    StepRoundTripFailure,
+    StepImportedEulerPoincareEvidence, StepImportedShellGapEvidence, StepImportedValidationFailure,
+    StepImportedValidationFailureKind, StepRoundTripFailure,
 };
 use step_validation_failure::{
     failure, failure_with_export_quality, failure_with_imported_validation,

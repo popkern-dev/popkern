@@ -1,6 +1,6 @@
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::CurveEval;
-use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, ShellHandle, SolidHandle};
 
 use crate::step_validation::StepRoundTripBodyReport;
 
@@ -20,8 +20,28 @@ pub struct StepImportedValidationFailure {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StepImportedValidationFailureKind {
+    EulerPoincare(StepImportedEulerPoincareEvidence),
     ShellGap(StepImportedShellGapEvidence),
     Other { message: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepImportedEulerPoincareEvidence {
+    pub solid: SolidHandle,
+    pub shell: Option<ShellHandle>,
+    pub expected: i64,
+    pub actual: i64,
+    pub vertices: usize,
+    pub edges: usize,
+    pub half_edges: usize,
+    pub loops: usize,
+    pub faces: usize,
+    pub shells: usize,
+    pub solids: usize,
+    pub boundary_edges: usize,
+    pub solid_shell_faces: usize,
+    pub solid_shell_loops: usize,
+    pub solid_shell_edges: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,6 +81,13 @@ pub(super) fn imported_validation_failure(
     StepImportedValidationFailure {
         body_index,
         kind: match err {
+            ValidationError::EulerPoincare {
+                solid,
+                expected,
+                actual,
+            } => StepImportedValidationFailureKind::EulerPoincare(
+                imported_euler_poincare_evidence(body, *solid, *expected, *actual),
+            ),
             ValidationError::ShellGap { edge, gap } => StepImportedValidationFailureKind::ShellGap(
                 imported_shell_gap_evidence(body, *edge, *gap),
             ),
@@ -68,6 +95,67 @@ pub(super) fn imported_validation_failure(
                 message: err.to_string(),
             },
         },
+    }
+}
+
+fn imported_euler_poincare_evidence(
+    body: &BRep,
+    solid: SolidHandle,
+    expected: i64,
+    actual: i64,
+) -> StepImportedEulerPoincareEvidence {
+    let shell = body.solids.get(solid).map(|solid_data| solid_data.shell);
+    let solid_shell_faces = shell
+        .map(|shell| {
+            body.faces
+                .values()
+                .filter(|face| face.shell == shell)
+                .count()
+        })
+        .unwrap_or_default();
+    let solid_shell_loops = shell
+        .map(|shell| {
+            body.loops
+                .values()
+                .filter(|loop_| {
+                    body.faces
+                        .get(loop_.face)
+                        .is_some_and(|face| face.shell == shell)
+                })
+                .count()
+        })
+        .unwrap_or_default();
+    let solid_shell_edges = shell
+        .map(|shell| {
+            body.edges
+                .values()
+                .filter(|edge| {
+                    body.half_edges
+                        .get(edge.half_edge)
+                        .and_then(|half_edge| body.loops.get(half_edge.loop_))
+                        .and_then(|loop_| body.faces.get(loop_.face))
+                        .is_some_and(|face| face.shell == shell)
+                })
+                .count()
+        })
+        .unwrap_or_default();
+
+    StepImportedEulerPoincareEvidence {
+        solid,
+        shell,
+        expected,
+        actual,
+        vertices: body.vertices.len(),
+        edges: body.edges.len(),
+        half_edges: body.half_edges.len(),
+        loops: body.loops.len(),
+        faces: body.faces.len(),
+        shells: body.shells.len(),
+        solids: body.solids.len(),
+        boundary_edges: body.boundary_edges.len(),
+        solid_shell_faces,
+        solid_shell_loops,
+        solid_shell_edges,
     }
 }
 
