@@ -18,7 +18,8 @@ use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use std::collections::BTreeSet;
 
 #[path = "support/kp_gate_cap_outer.rs"]
 mod kp_gate_cap_outer;
@@ -93,8 +94,25 @@ pub fn fillet_corner_full(
         ..FilletOptions::default()
     };
     let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();
-    let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
+    let faces = cap_faces_from_result(&result);
     (result.brep, faces)
+}
+
+fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
+    result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .chain(
+            result
+                .repair_report
+                .apex_routes
+                .iter()
+                .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied()),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 pub fn patch_of(brep: &BRep, face: FaceHandle) -> Option<GregoryPatch> {

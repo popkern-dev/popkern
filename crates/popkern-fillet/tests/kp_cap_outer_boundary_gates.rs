@@ -101,21 +101,20 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
     );
 }
 
-#[ignore = "PK-076: variable cube cap-outer seam must expose measurable cap/support edges and meet G0/G1 gates"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_mixed() {
     let m = run_cube(&[0.08, 0.10, 0.12]);
     assert_cap_outer_gates("cube_mixed", &m);
 }
 
-#[ignore = "PK-076: extreme cube cap-outer seam currently fails G0/G1 commercial gates"]
+#[ignore = "PK-077: extreme cube cap-outer seam currently fails G0/G1 commercial gates"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_extreme() {
     let m = run_cube(&[0.02, 0.10, 0.20]);
     assert_cap_outer_gates("cube_extreme", &m);
 }
 
-#[ignore = "PK-076: pyramid4 mixed cap-outer seam currently fails G0/G1 commercial gates"]
+#[ignore = "PK-078: pyramid4 mixed cap-outer seam currently fails G0/G1 commercial gates"]
 #[test]
 fn cap_outer_boundary_passes_on_pyramid4_mixed() {
     let m = run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);
@@ -127,7 +126,7 @@ fn cap_outer_boundary_passes_on_pyramid4_mixed() {
 /// caps, so this fixture should report 0 edges measured. Kept here
 /// so the matrix is documented; will be skipped or replaced when
 /// the PnS sibling helper lands.
-#[ignore = "PK-076: replace Gregory-only helper with PnS/sphere-cap cap-outer coverage"]
+#[ignore = "PK-079: replace Gregory-only helper with PnS/sphere-cap cap-outer coverage"]
 #[test]
 fn cap_outer_boundary_pyramid5_mixed_path_check() {
     let m = run_n_pyramid(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
