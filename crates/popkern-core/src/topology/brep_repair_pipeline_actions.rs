@@ -206,7 +206,7 @@ pub(super) fn append_face_use_trim_authority_actions(
                 BrepRepairTopologyHandle::HalfEdge(finding.half_edge),
                 BrepRepairTopologyHandle::Edge(finding.edge),
             ],
-            shared_fact_ids: Vec::new(),
+            shared_fact_ids: finding.shared_fact_ids.clone(),
         });
     }
 }

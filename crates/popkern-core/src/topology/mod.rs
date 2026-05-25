@@ -62,6 +62,7 @@ mod brep_edge_representatives;
 mod brep_measurement;
 pub use brep_measurement::{EdgePcurveDeviationReport, HalfEdgePcurveDeviation};
 mod brep_face_use_trim_authority;
+mod brep_face_use_trim_authority_facts;
 mod brep_face_use_trim_authority_repair;
 pub use brep_face_use_trim_authority::{
     BrepFaceUseTrimAuthorityFinding, BrepFaceUseTrimAuthorityFindingKind,

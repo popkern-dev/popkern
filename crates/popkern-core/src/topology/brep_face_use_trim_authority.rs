@@ -3,6 +3,9 @@
 use crate::geometry::curve::{CurveEval, CurveOnEdge};
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use crate::topology::brep_face_use_trim_authority_facts::{
+    attach_face_use_trim_authority_fact_ids, face_use_trim_authority_knowledge,
+};
 use crate::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle};
 
 /// Options for face-use trim authority diagnostics.
@@ -33,6 +36,8 @@ pub struct BrepFaceUseTrimAuthorityReport {
     pub max_sampled_gap: f64,
     /// Per-face-use findings.
     pub findings: Vec<BrepFaceUseTrimAuthorityFinding>,
+    /// Shared repair knowledge facts referenced by this report.
+    pub shared_fact_ids: Vec<crate::topology::BrepRepairFactId>,
 }
 
 impl BrepFaceUseTrimAuthorityReport {
@@ -69,6 +74,8 @@ pub struct BrepFaceUseTrimAuthorityFinding {
     pub endpoint_gap: f64,
     /// Sampled curve/surface trace gap measured on the face-use surface.
     pub sampled_gap: f64,
+    /// Shared repair knowledge facts referenced by this finding.
+    pub shared_fact_ids: Vec<crate::topology::BrepRepairFactId>,
 }
 
 /// Machine-readable face-use trim authority finding kind.
@@ -96,12 +103,18 @@ pub fn analyze_brep_face_use_trim_authority(
         max_endpoint_gap: 0.0,
         max_sampled_gap: 0.0,
         findings: Vec::new(),
+        shared_fact_ids: Vec::new(),
     };
     for (face_handle, face) in &brep.faces {
         inspect_loop(brep, face_handle, face.outer_loop, options, &mut report);
         for &inner_loop in &face.inner_loops {
             inspect_loop(brep, face_handle, inner_loop, options, &mut report);
         }
+    }
+    if !report.findings.is_empty() {
+        let knowledge = face_use_trim_authority_knowledge(brep, options);
+        report.shared_fact_ids =
+            attach_face_use_trim_authority_fact_ids(brep, &knowledge, &mut report.findings);
     }
     report
 }
@@ -298,6 +311,7 @@ fn push_finding(
         kind,
         endpoint_gap: gaps.0,
         sampled_gap: gaps.1,
+        shared_fact_ids: Vec::new(),
     });
 }
 

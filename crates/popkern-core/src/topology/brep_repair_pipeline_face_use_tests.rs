@@ -107,6 +107,7 @@ fn pipeline_materializes_face_use_trim_authority_transactionally() {
     assert!(result.report.actions.decisions.iter().any(|decision| {
         decision.stage == BrepRepairPipelineStage::FaceUseTrimAuthority
             && decision.outcome == BrepRepairActionOutcome::Authored
+            && !decision.shared_fact_ids.is_empty()
             && decision.affected_handles.iter().any(|handle| {
                 matches!(
                     handle,
@@ -116,6 +117,8 @@ fn pipeline_materializes_face_use_trim_authority_transactionally() {
     }));
     let artifact = build_brep_repair_action_artifact(&result.report.actions);
     assert!(artifact.actions.iter().any(|action| {
-        action.stage == "face_use_trim_authority" && action.outcome == "authored"
+        action.stage == "face_use_trim_authority"
+            && action.outcome == "authored"
+            && !action.shared_fact_ids.is_empty()
     }));
 }

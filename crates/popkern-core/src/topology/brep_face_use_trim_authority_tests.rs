@@ -36,7 +36,12 @@ fn detects_loop_reused_by_wrong_face_as_trim_authority_incoherence() {
             finding.face == faces[1]
                 && finding.loop_ == source_loop
                 && finding.kind == BrepFaceUseTrimAuthorityFindingKind::LoopOwnershipMismatch
+                && !finding.shared_fact_ids.is_empty()
         }),
         "finding should identify the face-use that borrowed another face's loop: {report:#?}"
+    );
+    assert!(
+        !report.shared_fact_ids.is_empty(),
+        "report should aggregate shared repair fact ids for API/GUI explanation"
     );
 }
