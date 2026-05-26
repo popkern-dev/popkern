@@ -39,6 +39,16 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         return Some("no native cap patch faces reported".to_string());
     }
 
+    let cap_face_list = cap_faces.iter().copied().collect::<Vec<_>>();
+    if let Some(error) = crate::construct::cap_outer_acceptance::cap_support_acceptance_error(
+        brep,
+        &cap_face_list,
+        max_gap,
+        f64::INFINITY,
+    ) {
+        return Some(error);
+    }
+
     let mut worst_gap = 0.0f64;
     let mut worst_edge = None;
     let mut measured_edges = 0usize;

@@ -296,12 +296,21 @@ impl CylinderBridgeResourcePartition {
             .filter(|(index, _)| !matched_cylinder_segments.contains(index))
             .map(|(_, segment)| segment.clone())
             .collect::<Vec<_>>();
-        let split_resource_merge_operands = split_resource_merge_operands(
+        let mut merge_operands = split_resource_merge_operands(
             brep,
             bridge_cycles,
             &missing_outside_segments,
             &unmatched_cylinder_segments,
         )?;
+        if merge_operands.is_empty() && !missing_outside_segments.is_empty() {
+            let all_cylinder_segments = self.segments.to_vec();
+            merge_operands = split_resource_merge_operands(
+                brep,
+                bridge_cycles,
+                &missing_outside_segments,
+                &all_cylinder_segments,
+            )?;
+        }
         Ok(BridgeResourceReconciliation {
             outside_segments: outside_request_sets.len(),
             cylinder_segments: self.segments.len(),
@@ -315,7 +324,7 @@ impl CylinderBridgeResourcePartition {
                 .map(|segment| segment.request_indices.clone())
                 .collect(),
             missing_request_sets,
-            split_resource_merge_operands,
+            split_resource_merge_operands: merge_operands,
             actions,
         })
     }

@@ -1,7 +1,7 @@
 use crate::direct_apex_validate_helpers::{build_under_direct_apex, direct_apex_fallback_reasons};
 use popkern_fillet::{
-    ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
-    build_blend_repair_action_artifact,
+    ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
+    ExactBoundaryReportTransactionStatus, build_blend_repair_action_artifact,
 };
 
 /// Native cube-mixed direct-apex status. This fixture now completes through
@@ -45,4 +45,33 @@ fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
             .all(|action| action.stage != "exact_boundary_cap" || action.outcome != "declined"),
         "accepted cube_mixed exact-boundary route should not export decline actions"
     );
+}
+
+#[test]
+fn cube_extreme_reaches_side_support_topology_operator_before_residual_decline() {
+    let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons
+            .iter()
+            .any(|reason| reason.contains("topology_operator_ready=true")
+                && reason.contains("cannot close support boundary residual ownership")),
+        "cube_extreme must reach the side-support topology operator before the residual-cycle blocker; got:\n{}",
+        reasons.join("\n"),
+    );
+
+    let continuity = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
+            _ => None,
+        })
+        .expect("cube_extreme fallback must promote cap/support continuity evidence");
+    assert_eq!(
+        continuity.continuity.decline_code.as_deref(),
+        Some("cap_outer_g0_exceeds_gate")
+    );
+    assert!(continuity.continuity.worst_g0_gap.unwrap_or(0.0) > 5.0e-3);
 }
