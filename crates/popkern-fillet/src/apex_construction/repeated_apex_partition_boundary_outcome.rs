@@ -137,9 +137,28 @@ impl PartitionBoundaryOutcome {
                     *cap_side = actual_side;
                 }
             }
-            for strip_side in self.strip_side_overrides.values_mut() {
-                if *strip_side == expected_side {
-                    *strip_side = actual_side;
+            let strip_replacements = self
+                .strip_side_overrides
+                .iter_mut()
+                .filter_map(|(fillet_index, strip_side)| {
+                    if *strip_side == expected_side {
+                        *strip_side = actual_side;
+                        Some(*fillet_index)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>();
+            for fillet_index in strip_replacements {
+                if let Some(cap_side) = self.fillet_end_cap_sides.get_mut(&fillet_index) {
+                    *cap_side = actual_side;
+                }
+            }
+            for strip_loop in self.strip_loop_overrides.values_mut() {
+                for strip_side in strip_loop {
+                    if *strip_side == expected_side {
+                        *strip_side = actual_side;
+                    }
                 }
             }
         }

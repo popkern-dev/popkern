@@ -465,7 +465,7 @@ impl RepeatedApexPartitionPlan {
                 }
             }
         }
-        mark_unowned_half_edges_construction_residual(brep);
+        materialize_unowned_half_edge_residual_faces(brep, self.cap_face)?;
         validate_repeated_apex_normalization_structure(brep)?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
         Ok((self.cap_face, fillet_end_edges, diagnostics))

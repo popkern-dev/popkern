@@ -215,7 +215,7 @@ use partition_support_trim_sides::{
     SupportOwnedTrimSource, pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,
 };
 use partition_support_trim_validation::validate_replacement_loop_support_side_ownership;
-use partition_unowned_residuals::mark_unowned_half_edges_construction_residual;
+use partition_unowned_residuals::materialize_unowned_half_edge_residual_faces;
 
 pub(super) type RepeatedApexNormalization = (
     FaceHandle,
