@@ -91,12 +91,16 @@ mod partition_rebuild_diagnostics;
 mod partition_residuals;
 #[path = "repeated_apex_partition_shared_fillet_end_trim.rs"]
 mod partition_shared_fillet_end_trim;
+#[path = "repeated_apex_partition_support_boundary_claim.rs"]
+mod partition_support_boundary_claim;
 #[path = "repeated_apex_partition_support_bridge_trim_claim.rs"]
 mod partition_support_bridge_trim_claim;
 #[path = "repeated_apex_partition_support_cycle_primitives.rs"]
 mod partition_support_cycle_primitives;
 #[path = "repeated_apex_partition_support_family.rs"]
 mod partition_support_family;
+#[path = "repeated_apex_partition_support_interior_trim_patch.rs"]
+mod partition_support_interior_trim_patch;
 #[path = "repeated_apex_partition_support_intersections.rs"]
 mod partition_support_intersections;
 #[path = "repeated_apex_partition_support_loop_rewrite.rs"]

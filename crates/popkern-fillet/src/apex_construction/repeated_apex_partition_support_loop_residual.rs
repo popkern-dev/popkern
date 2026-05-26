@@ -100,7 +100,7 @@ fn materialize_support_boundary_residual_cycles_candidate(
         if residual_sides.is_empty() {
             return Ok(());
         }
-        let cycles = closed_residual_cycles_with_shared_vertices(brep, &residual_sides);
+        let cycles = residual_cycles_with_connector_closure(brep, &residual_sides);
         if cycles.is_empty() {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
@@ -190,6 +190,78 @@ fn closed_residual_cycles_with_shared_vertices(
                 return Vec::new();
             };
             cursor = next;
+        }
+    }
+    if visited.len() == input.len() {
+        cycles
+    } else {
+        Vec::new()
+    }
+}
+
+fn residual_cycles_with_connector_closure(
+    brep: &mut BRep,
+    half_edges: &[HalfEdgeHandle],
+) -> Vec<Vec<HalfEdgeHandle>> {
+    let closed = closed_residual_cycles_with_shared_vertices(brep, half_edges);
+    if !closed.is_empty() {
+        return closed;
+    }
+    let input = half_edges
+        .iter()
+        .copied()
+        .collect::<std::collections::BTreeSet<_>>();
+    if input.is_empty() {
+        return Vec::new();
+    }
+    let mut by_start = std::collections::BTreeMap::<VertexHandle, Vec<HalfEdgeHandle>>::new();
+    for half_edge in &input {
+        let Some(start) = brep.half_edges.get(*half_edge).map(|data| data.origin) else {
+            return Vec::new();
+        };
+        by_start.entry(start).or_default().push(*half_edge);
+    }
+    for half_edges in by_start.values_mut() {
+        half_edges.sort_by_key(|half_edge| format!("{half_edge:?}"));
+    }
+
+    let mut visited = std::collections::BTreeSet::new();
+    let mut cycles = Vec::new();
+    for start_half_edge in &input {
+        if visited.contains(start_half_edge) {
+            continue;
+        }
+        let Some(start_vertex) = brep
+            .half_edges
+            .get(*start_half_edge)
+            .map(|data| data.origin)
+        else {
+            return Vec::new();
+        };
+        let mut cursor = *start_half_edge;
+        let mut cycle = Vec::new();
+        for _ in 0..=input.len() {
+            if !input.contains(&cursor) || !visited.insert(cursor) {
+                return Vec::new();
+            }
+            cycle.push(cursor);
+            let Some(end) = support_split_half_edge_end_vertex(brep, cursor) else {
+                return Vec::new();
+            };
+            if end == start_vertex || vertices_are_coincident(brep, end, start_vertex) {
+                cycles.push(cycle);
+                break;
+            }
+            if let Some(next) =
+                next_unvisited_residual_side_from_vertex(brep, &by_start, &visited, end)
+            {
+                cursor = next;
+                continue;
+            }
+            let (_, connector, _) = insert_unwired_edge_pair(brep, end, start_vertex);
+            cycle.push(connector);
+            cycles.push(cycle);
+            break;
         }
     }
     if visited.len() == input.len() {
