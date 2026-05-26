@@ -191,7 +191,7 @@ fn cube_extreme_native_direct_apex_preserves_sphere_preflight_diagnostic() {
 /// faces. Their separate quality gates belong with Sphere-cap
 /// boundary metrics.
 #[test]
-#[ignore = "native Gregory cap-outer matrix; cube_mixed has a hard gate, remaining repeated-apex fixtures are still under containment fallback"]
+#[ignore = "cap-quality gate: cube_extreme currently fails cap_outer_g0/G1 after native DirectApex topology"]
 fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
     struct Case {
         name: &'static str,
@@ -289,7 +289,7 @@ fn direct_apex_native_cube_mixed_no_fallback() {
 /// during repeated-apex normalization; each must finish natively
 /// with cylinder-owned FilletEnd seams.
 #[test]
-#[ignore = "native Gregory direct-apex gate; current variable cubes decline through containment fallback"]
+#[ignore = "cap-to-cylinder seam exposure gate: cube_extreme is native fallback-free but exposes only two distinct cylinder neighbors"]
 fn direct_apex_native_variable_cube_gregory_set_no_fallback() {
     for (name, radii) in [
         ("cube_mixed", &[0.08, 0.10, 0.12][..]),
@@ -304,14 +304,12 @@ fn direct_apex_native_variable_cube_gregory_set_no_fallback() {
 /// order is constructible; the planned partition operator must
 /// complete natively and expose all four cylinder seams.
 #[test]
-#[ignore = "native N=4 Gregory partition gate; missing outside/outside support-continuation primitive"]
 fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
     assert_native_gregory_case("pyramid4_mixed", true, &[0.04, 0.06, 0.05, 0.07], 4);
 }
 
 #[test]
-#[ignore = "native N=4 uniform Gregory gate; missing outside/outside support-continuation primitive"]
-fn direct_apex_native_pyramid4_uniform_no_fallback() {
+fn direct_apex_native_pyramid4_uniform_no_fallback_structural() {
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -335,7 +333,12 @@ fn direct_apex_native_pyramid4_uniform_no_fallback() {
         m.path_a_relevant, 0,
         "native pyramid4_uniform open-loop/shell-gap errors: {errors:#?}"
     );
+}
 
+#[test]
+#[ignore = "cap-quality gate: pyramid4_uniform is native fallback-free but cap_outer_g1 exceeds 5.0e-2"]
+fn direct_apex_native_pyramid4_uniform_cap_outer_quality_gate() {
+    let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(

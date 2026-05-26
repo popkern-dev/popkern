@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-#[ignore = "native Gregory seam-ownership gate; current repeated-apex direct-apex path is under containment fallback"]
+#[ignore = "seam-ownership gate: cube_extreme is native fallback-free but has missing cap pcurves and one missing 3D seam curve"]
 fn direct_apex_native_cap_support_seam_ownership_inventory() {
     struct Case {
         name: &'static str,
