@@ -61,6 +61,49 @@ pub(super) fn intended_cap_boundary_cycle(
     cycle
 }
 
+pub(super) fn refreshed_intended_cap_boundary_cycle(
+    brep: &BRep,
+    cap_loop: popkern_core::topology::LoopHandle,
+    face_edges: &[FaceEdgeOwnership],
+    fillet_ends: &[FilletEndOwnership],
+) -> Option<Vec<HalfEdgeHandle>> {
+    let expected_edges = intended_cap_boundary_edges(face_edges, fillet_ends);
+    let actual_cycle = collect_loop_half_edges(brep, cap_loop).ok()?;
+    if actual_cycle.len() != expected_edges.len() {
+        return None;
+    }
+    let actual_edges = actual_cycle
+        .iter()
+        .map(|half_edge| brep.half_edges.get(*half_edge).map(|data| data.edge))
+        .collect::<Option<Vec<_>>>()?;
+    for offset in 0..actual_edges.len() {
+        if expected_edges
+            .iter()
+            .enumerate()
+            .all(|(i, expected)| actual_edges[(offset + i) % actual_edges.len()] == *expected)
+        {
+            return Some(
+                (0..actual_cycle.len())
+                    .map(|i| actual_cycle[(offset + i) % actual_cycle.len()])
+                    .collect(),
+            );
+        }
+    }
+    None
+}
+
+fn intended_cap_boundary_edges(
+    face_edges: &[FaceEdgeOwnership],
+    fillet_ends: &[FilletEndOwnership],
+) -> Vec<EdgeHandle> {
+    let mut edges = Vec::with_capacity(2 * fillet_ends.len());
+    for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
+        edges.push(fillet_end.edge);
+        edges.push(face_edge.edge);
+    }
+    edges
+}
+
 pub(super) fn reversed_twin_cycle(
     brep: &BRep,
     current_cap_cycle: &[HalfEdgeHandle],

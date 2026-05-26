@@ -137,19 +137,38 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             PartitionBoundaryOutcome::from_current_cap_cycle(Vec::new())
         };
         let cap_boundary_plan = if boundary_outcome.cap_cycle.is_empty() {
-            let plan = plan_cap_boundary_rewrite_for_cylinder_trim(
+            let plan_result = plan_cap_boundary_rewrite_for_cylinder_trim(
                 brep,
                 cap_face,
                 cap_loop,
                 face_edges,
                 fillet_ends,
                 &topology_plans,
-            )?;
-            plan.validate_rewrite_postconditions(brep, face_edges, &topology_plans)?;
-            plan.refresh_reauthored_fillet_end_curves(brep, &topology_plans)?;
-            plan.validate_adjacent_loop_rewrite_readiness()?;
-            boundary_outcome = plan.boundary_outcome(&topology_plans);
-            Some(plan)
+            );
+            match plan_result {
+                Ok(plan) => {
+                    plan.validate_rewrite_postconditions(brep, face_edges, &topology_plans)?;
+                    plan.refresh_reauthored_fillet_end_curves(brep, &topology_plans)?;
+                    plan.validate_adjacent_loop_rewrite_readiness()?;
+                    boundary_outcome = plan.boundary_outcome(&topology_plans);
+                    Some(plan)
+                }
+                Err(plan_error) => {
+                    let Some(materialized) =
+                        materialized_cap_boundary_from_target_cylinder_replacements(
+                            brep,
+                            cap_face,
+                            face_edges,
+                            fillet_ends,
+                            &cylinder_loop_replacements,
+                        )?
+                    else {
+                        return Err(plan_error);
+                    };
+                    boundary_outcome = materialized;
+                    None
+                }
+            }
         } else {
             None
         };
@@ -193,99 +212,6 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         *brep = rollback_snapshot;
     }
     result
-}
-
-fn materialized_cap_boundary_from_target_cylinder_replacements(
-    brep: &mut BRep,
-    cap_face: FaceHandle,
-    face_edges: &[FaceEdgeOwnership],
-    fillet_ends: &[FilletEndOwnership],
-    cylinder_loop_replacements: &[PendingCylinderLoopReplacement],
-) -> Result<Option<PartitionBoundaryOutcome>, ApexBuildError> {
-    if cylinder_loop_replacements.len() != fillet_ends.len() {
-        return Ok(None);
-    }
-    let replacements_by_fillet = cylinder_loop_replacements
-        .iter()
-        .map(|replacement| (replacement.fillet_index, replacement))
-        .collect::<std::collections::BTreeMap<_, _>>();
-    let mut cap_cycle = Vec::with_capacity(2 * fillet_ends.len());
-    let mut fillet_end_cap_sides = std::collections::BTreeMap::new();
-    let mut strip_side_overrides = std::collections::BTreeMap::new();
-    for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
-        let Some(replacement) = replacements_by_fillet.get(&fillet_end.fillet_index) else {
-            return Ok(None);
-        };
-        let Some(shared_cylinder_side) = replacement.cycle.first().copied() else {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot derive materialized cap \
-                     boundary: selected target-cylinder replacement loop is empty",
-                    fillet_end.fillet_index
-                ),
-            });
-        };
-        let cylinder_data = brep
-            .half_edges
-            .get(shared_cylinder_side)
-            .cloned()
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot derive materialized cap \
-                     boundary: selected shared cylinder side {shared_cylinder_side:?} is stale",
-                    fillet_end.fillet_index
-                ),
-            })?;
-        let cap_start = cylinder_data.origin;
-        let cap_end = support_split_half_edge_end_vertex(brep, shared_cylinder_side).ok_or_else(
-            || ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot derive materialized cap \
-                     boundary: selected shared cylinder side {shared_cylinder_side:?} has no \
-                     recoverable endpoint",
-                    fillet_end.fillet_index
-                ),
-            },
-        )?;
-        let curve = brep
-            .edges
-            .get(cylinder_data.edge)
-            .and_then(|edge| edge.curve.clone())
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot derive materialized cap \
-                     boundary: selected shared cylinder side {shared_cylinder_side:?} has no \
-                     exact curve to clone",
-                    fillet_end.fillet_index
-                ),
-            })?;
-        let (edge, cap_side, opposite_side) = insert_unwired_edge_pair(brep, cap_start, cap_end);
-        brep.edges[edge].curve = Some(curve);
-        if half_edge_end_vertex(brep, cap_side) != Some(cap_end) {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition FilletEnd[{}] cannot derive materialized cap \
-                     boundary: cloned cap side {cap_side:?} does not span {:?}->{:?}",
-                    fillet_end.fillet_index, cap_start, cap_end
-                ),
-            });
-        }
-        cap_cycle.push(cap_side);
-        cap_cycle.push(face_edge.face_edge_cap_half_edge);
-        fillet_end_cap_sides.insert(fillet_end.fillet_index, cap_side);
-        strip_side_overrides.insert(fillet_end.fillet_index, opposite_side);
-    }
-    validate_half_edge_cycle(
-        brep,
-        &cap_cycle,
-        "materialized target-cylinder cap boundary",
-        cap_face,
-    )?;
-    Ok(Some(PartitionBoundaryOutcome::from_reauthored_cap_cycle(
-        cap_cycle,
-        fillet_end_cap_sides,
-        strip_side_overrides,
-    )))
 }
 
 pub(super) struct CylinderTrimRewriteResult {

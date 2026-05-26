@@ -3,8 +3,8 @@
 //! Locks in the commercial-grade apex-cap quality of direct-apex (per
 //! ADR §6c-direct-apex and §6c-X.A.6's metric breakdown).  Runs the same
 //! six-fixture matrix that `phase_6c_a6_validation` uses, but with
-//! `FilletOptions::use_direct_apex_construction = true`.  Two
-//! dispatch outcomes coexist in one matrix:
+//! `FilletOptions::use_direct_apex_construction = true`.  Active
+//! matrix fixtures must all complete through native DirectApex:
 //!
 //! * **Uniform fixtures** (`cube_uniform`, `pyramid3_uniform`,
 //!   `pyramid4_uniform`) — direct-apex succeeds end-to-end, no
@@ -16,12 +16,11 @@
 //!   with no fallback and expose measurable cap-to-cylinder seams. `cube_mixed`
 //!   is native with G0-preserving cap/support seams, but still records the
 //!   remaining cap_outer_g1 construction-quality blocker.
-//! * **Remaining Gregory-cap fixtures** (`cube_extreme`,
-//!   `pyramid3_uniform`) —
-//!   until the validated outside/outside support-continuation
-//!   primitive and remaining surface-quality repairs are implemented,
-//!   direct-apex may decline through one recorded fallback. These are
-//!   containment checks, not native-quality acceptance.
+//! * **Repeated-apex Gregory fixtures** (`cube_extreme`,
+//!   `pyramid3_uniform`, `pyramid4_uniform`, `pyramid4_mixed`) —
+//!   direct-apex must complete without containment fallback. Remaining
+//!   surface-quality blockers stay visible through `other_geometric`
+//!   and the focused cap-continuity gates.
 //!
 //! Either way: every fixture must pass the A.6 metric gate
 //! (`structural == 0`, `path_a_relevant == 0`).  This is the
@@ -50,10 +49,9 @@ use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
 use popkern_fillet::types::ApexConstructionDiagnostic;
 
-/// Whole-matrix containment gate: every fixture keeps structural
-/// validity under direct-apex dispatch.  Uniform Sphere remains a hard native
-/// gate; Gregory/repeated-apex fixtures must either become native
-/// later or decline once with an actionable fallback diagnostic.
+/// Whole-matrix native DirectApex gate: every active fixture keeps
+/// structural validity and path-A gap validity under direct-apex
+/// dispatch, with zero containment fallback warnings.
 #[test]
 fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
     struct Case {
@@ -85,7 +83,7 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "pyramid4_uniform",
@@ -361,8 +359,7 @@ fn direct_apex_native_pyramid4_uniform_no_fallback() {
 }
 
 #[test]
-#[ignore = "native pyramid3 Gregory gate; current apex anchor is incompatible and declines through containment fallback"]
-fn direct_apex_native_pyramid3_uniform_anchor_incompatible_uses_gregory_no_fallback() {
+fn direct_apex_native_pyramid3_uniform_uses_gregory_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
 }
 

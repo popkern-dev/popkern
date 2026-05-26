@@ -77,6 +77,8 @@ mod partition_exact_trim_curves;
 mod partition_far_side_trim;
 #[path = "repeated_apex_partition_generator_anchors.rs"]
 mod partition_generator_anchors;
+#[path = "repeated_apex_partition_materialized_cap_boundary.rs"]
+mod partition_materialized_cap_boundary;
 #[path = "repeated_apex_partition_ownership.rs"]
 mod partition_ownership;
 #[path = "repeated_apex_partition_plan.rs"]
@@ -122,7 +124,8 @@ use partition_anchor_diagnostics::generator_anchor_blocker;
 use partition_boundary_outcome::PartitionBoundaryOutcome;
 use partition_cap_boundary_cycles::{
     assert_cap_boundary_matches_selected_cycle, collect_loop_half_edges,
-    intended_cap_boundary_cycle, reversed_twin_cycle, validate_half_edge_cycle,
+    intended_cap_boundary_cycle, refreshed_intended_cap_boundary_cycle, reversed_twin_cycle,
+    validate_half_edge_cycle,
 };
 use partition_cap_boundary_rewrite::plan_cap_boundary_rewrite_for_cylinder_trim;
 use partition_cap_boundary_rewrite::protect_source_loops_before_partition_loop_claim;
@@ -165,6 +168,7 @@ use partition_exact_trim_curves::{
 };
 use partition_far_side_trim::materialized_far_side_trim_sides;
 use partition_generator_anchors::materialize_missing_generator_anchors;
+use partition_materialized_cap_boundary::materialized_cap_boundary_from_target_cylinder_replacements;
 use partition_ownership::{
     FaceEdgeOwnership, FilletEndOwnership, RetiredApexCell, validate_partition_ownership_records,
     validate_target_cylinder_loop_ownership_ready,

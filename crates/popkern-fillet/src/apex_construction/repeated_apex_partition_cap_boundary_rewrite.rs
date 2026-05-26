@@ -52,13 +52,28 @@ pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
             ),
         });
     }
-    let current_cap_cycle = intended_cap_boundary_cycle(face_edges, fillet_ends);
-    validate_half_edge_cycle(
-        brep,
-        &current_cap_cycle,
-        "current intended cap boundary",
-        cap_face,
-    )?;
+    let recorded_cap_cycle = intended_cap_boundary_cycle(face_edges, fillet_ends);
+    let current_cap_cycle =
+        match validate_half_edge_cycle(
+            brep,
+            &recorded_cap_cycle,
+            "current intended cap boundary",
+            cap_face,
+        ) {
+            Ok(()) => recorded_cap_cycle,
+            Err(recorded_error) => {
+                refreshed_intended_cap_boundary_cycle(brep, cap_loop, face_edges, fillet_ends)
+                    .map_or(Err(recorded_error), |refreshed| {
+                        validate_half_edge_cycle(
+                            brep,
+                            &refreshed,
+                            "refreshed current intended cap boundary",
+                            cap_face,
+                        )
+                        .map(|()| refreshed)
+                    })?
+            }
+        };
     let reauthored_cap_cycle = if cap_boundary_rewrite_required {
         let cycle = reversed_twin_cycle(brep, &current_cap_cycle, cap_face)?;
         validate_half_edge_cycle(brep, &cycle, "reauthored cap boundary", cap_face)?;
