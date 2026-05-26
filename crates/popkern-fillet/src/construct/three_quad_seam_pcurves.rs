@@ -29,10 +29,11 @@ pub(super) fn author_boundary_owned_seam_pcurves(
     fillet_surfaces: &[FilletSurfaceResult],
     subface_index: usize,
     semantic_cap_index: Option<usize>,
-) {
+) -> Vec<crate::types::ApexConstructionDiagnostic> {
+    let mut diagnostics = Vec::new();
     let segment_cap_index = semantic_cap_index.unwrap_or(subface_index);
     if boundary.segments.len() < 2 * (segment_cap_index + 1) {
-        return;
+        return diagnostics;
     }
     for (segment_offset, segment_index) in [2 * segment_cap_index, 2 * segment_cap_index + 1]
         .into_iter()
@@ -102,6 +103,17 @@ pub(super) fn author_boundary_owned_seam_pcurves(
             if let Some((half_edge, max_disagreement, boundary_side, endpoint_gap)) = best_decline
                 && brep.surface_boundary_hint(half_edge).is_none()
             {
+                diagnostics.push(
+                    crate::construct::three_quad_boundary_pcurve_diagnostics::boundary_owned_pcurve_decline_diagnostic(
+                        brep,
+                        half_edge,
+                        segment,
+                        segment_index,
+                        max_disagreement,
+                        endpoint_gap,
+                        tolerance_for_boundary_authoring(brep),
+                    ),
+                );
                 brep.set_surface_boundary_decline(
                     half_edge,
                     SurfaceBoundaryHintDecline {
@@ -185,6 +197,7 @@ pub(super) fn author_boundary_owned_seam_pcurves(
             );
         }
     }
+    diagnostics
 }
 
 struct BoundaryOwnedAuditInput {

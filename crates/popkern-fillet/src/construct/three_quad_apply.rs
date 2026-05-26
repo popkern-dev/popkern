@@ -410,14 +410,14 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             boundary.sphere_fit_substituted,
         );
         if !sphere_cap_rung {
-            author_boundary_owned_seam_pcurves(
+            diagnostics.extend(author_boundary_owned_seam_pcurves(
                 brep,
                 *sub_face,
                 boundary,
                 fillet_surfaces,
                 k,
                 Some(semantic_cap_index),
-            );
+            ));
         }
         if support_frames_enabled && !sphere_cap_rung {
             let surface_before_support_frame = brep.faces[*sub_face].surface.clone();

@@ -29,7 +29,7 @@ pub(crate) fn author_cap_face_boundary_pcurves(
         old_surface,
         false,
     );
-    super::three_quad_seam_pcurves::author_boundary_owned_seam_pcurves(
+    let _diagnostics = super::three_quad_seam_pcurves::author_boundary_owned_seam_pcurves(
         brep,
         sub_face,
         boundary,

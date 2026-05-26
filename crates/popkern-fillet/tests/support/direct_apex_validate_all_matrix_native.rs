@@ -94,4 +94,31 @@ fn cube_extreme_reaches_native_gregory_cap_outer_g0_before_fallback() {
         sphere_preflight.support_face.is_some(),
         "sphere-plane preflight diagnostic should identify the support face"
     );
+
+    let boundary_owned_pcurve = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                if diagnostic.stage == "native_gregory_boundary_owned_pcurve" =>
+            {
+                Some(diagnostic)
+            }
+            _ => None,
+        })
+        .expect("cube_extreme must classify the declined boundary-owned seam pcurve");
+    assert!(
+        matches!(
+            boundary_owned_pcurve.code.as_str(),
+            "boundary_owned_pcurve_endpoint_mismatch"
+                | "boundary_owned_pcurve_not_on_canonical_boundary"
+        ),
+        "unexpected boundary-owned pcurve decline code: {}",
+        boundary_owned_pcurve.code
+    );
+    assert!(
+        boundary_owned_pcurve.edge.is_some(),
+        "boundary-owned pcurve decline should identify the responsible edge"
+    );
 }

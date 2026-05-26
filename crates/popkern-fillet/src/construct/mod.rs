@@ -53,6 +53,7 @@ mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
+pub(crate) mod three_quad_boundary_pcurve_diagnostics;
 pub(crate) mod three_quad_promotions;
 pub(crate) mod topology_repair;
 
