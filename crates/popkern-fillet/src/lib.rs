@@ -404,6 +404,21 @@ fn fillet_edges_internal(
         &mut all_warnings,
     );
 
+    if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
+        return Err(BlendError::PartialFailure {
+            failed: 1,
+            total: specs.len(),
+            partial_result: Box::new(brep.clone()),
+            failures: vec![(
+                fallback_edge,
+                BlendFailure::InvalidTopology {
+                    reason,
+                    location: None,
+                },
+            )],
+        });
+    }
+
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
@@ -423,6 +438,22 @@ fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry
         .map(|s| s.edge)
         .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
         .unwrap_or_default()
+}
+
+fn first_structural_validation_error(brep: &BRep) -> Option<String> {
+    brep.validate_all()
+        .into_iter()
+        .find(|err| {
+            matches!(
+                err,
+                popkern_core::error::ValidationError::BrokenCycle { .. }
+                    | popkern_core::error::ValidationError::BrokenTwin { .. }
+                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+                    | popkern_core::error::ValidationError::OpenLoop { .. }
+            )
+        })
+        .map(|err| format!("post-blend structural validation failed: {err:?}"))
 }
 
 #[path = "lib_chamfer.rs"]

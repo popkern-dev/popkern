@@ -125,9 +125,10 @@ pub(super) fn long_interval_cylinder_mediated_fixture() -> LongIntervalCylinderM
         outside_half_edges.push(half_edge);
         outside_twins.push(twin);
     }
-    let outside_loop = builder
-        .add_loop(&outside_half_edges, outside_face)
-        .expect("outside loop wires");
+    let outside_loop = match builder.add_loop(&outside_half_edges, outside_face) {
+        Ok(loop_) => loop_,
+        Err(error) => panic!("outside loop wires: {error}"),
+    };
 
     let (first_support_loop, first_support_cylinder_half_edge, first_support_cylinder_twin) =
         add_support_square(&mut builder, first_support_face, 100.0);
@@ -142,25 +143,26 @@ pub(super) fn long_interval_cylinder_mediated_fixture() -> LongIntervalCylinderM
             half_edge
         })
         .collect::<Vec<_>>();
-    builder
-        .add_loop(
-            &[
-                outside_twins[3],
-                cylinder_connectors[0],
-                cylinder_connectors[1],
-                cylinder_connectors[2],
-                first_support_cylinder_twin,
-                cylinder_connectors[3],
-                outside_twins[7],
-                second_support_cylinder_twin,
-                cylinder_connectors[4],
-                cylinder_connectors[5],
-                cylinder_connectors[6],
-                cylinder_connectors[7],
-            ],
-            cylinder_face,
-        )
-        .expect("cylinder loop wires");
+    match builder.add_loop(
+        &[
+            outside_twins[3],
+            cylinder_connectors[0],
+            cylinder_connectors[1],
+            cylinder_connectors[2],
+            first_support_cylinder_twin,
+            cylinder_connectors[3],
+            outside_twins[7],
+            second_support_cylinder_twin,
+            cylinder_connectors[4],
+            cylinder_connectors[5],
+            cylinder_connectors[6],
+            cylinder_connectors[7],
+        ],
+        cylinder_face,
+    ) {
+        Ok(_) => {}
+        Err(error) => panic!("cylinder loop wires: {error}"),
+    }
 
     LongIntervalCylinderMediatedFixture {
         brep: boundary_normalized_test_brep(builder.build_unchecked()),
@@ -209,10 +211,12 @@ fn boundary_normalized_test_brep(mut brep: BRep) -> BRep {
             continue;
         }
         let boundary_half_edge = live_half_edges[0];
-        let residual_half_edge = incident_half_edges
+        let Some(residual_half_edge) = incident_half_edges
             .into_iter()
             .find(|half_edge| *half_edge != boundary_half_edge)
-            .expect("two incident half-edges include one residual");
+        else {
+            panic!("two incident half-edges include one residual");
+        };
         brep.half_edges[boundary_half_edge].twin = HalfEdgeHandle::default();
         brep.edges[edge].half_edge = boundary_half_edge;
         brep.boundary_edges.insert(edge);
@@ -253,12 +257,13 @@ fn add_support_square(
     let (_, side_1, _) = builder.add_edge(vertices[1], vertices[2]);
     let (_, side_2, _) = builder.add_edge(vertices[2], vertices[3]);
     let (_, side_3, _) = builder.add_edge(vertices[3], vertices[0]);
-    let support_loop = builder
-        .add_loop(
-            &[support_cylinder_half_edge, side_1, side_2, side_3],
-            support_face,
-        )
-        .expect("support loop wires");
+    let support_loop = match builder.add_loop(
+        &[support_cylinder_half_edge, side_1, side_2, side_3],
+        support_face,
+    ) {
+        Ok(loop_) => loop_,
+        Err(error) => panic!("support loop wires: {error}"),
+    };
     (
         support_loop,
         support_cylinder_half_edge,

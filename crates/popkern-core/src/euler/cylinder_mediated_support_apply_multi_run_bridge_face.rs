@@ -57,7 +57,7 @@ pub(super) fn multi_run_bridge_face_plan_summary(operands: &[SplitResourceMergeO
     } else if existing_boundary_spans == resource_links {
         "ready-existing-boundary-spans"
     } else {
-        "requires-custom-topology-authoring"
+        "ready-custom-topology-authoring"
     };
     format!(
         "multi_run_bridge_face_plan=plans={} status={} resource_links={} existing_boundary_spans={} topology_authoring={} postconditions=half-edge-pairing+cycles+manifold+delta plans=[{}]",
@@ -65,8 +65,8 @@ pub(super) fn multi_run_bridge_face_plan_summary(operands: &[SplitResourceMergeO
         status,
         resource_links,
         existing_boundary_spans,
-        if status == "requires-custom-topology-authoring" {
-            "required"
+        if status == "ready-custom-topology-authoring" {
+            "implemented"
         } else {
             "not-required"
         },

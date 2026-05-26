@@ -33,7 +33,7 @@ pub(super) fn bridge_refusal_reason(
             "cylinder-mediated support continuation shared-start split resource bridge construction not implemented"
         }
         BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedConnectorAuthoring => {
-            "cylinder-mediated support continuation split cylinder resource connector authoring not implemented"
+            "cylinder-mediated support continuation split cylinder resource connector authoring failed"
         }
         BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => {
             "cylinder-mediated support continuation split cylinder resource merge construction not implemented"

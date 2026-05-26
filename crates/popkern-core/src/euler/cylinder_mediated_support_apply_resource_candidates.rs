@@ -85,8 +85,8 @@ impl CylinderResourceConstructionCandidate {
                     family:
                         CylinderResourceConstructionFamily::SplitCylinderResourceConnectorAuthoring,
                     feasibility:
-                        CylinderResourceConstructionFeasibility::RequiresConnectorAuthoring,
-                    reason: "split-cylinder-resource-connector-authoring-required",
+                        CylinderResourceConstructionFeasibility::ExecutableByConnectorAuthoring,
+                    reason: "split-cylinder-resource-connector-authoring-ready",
                 }
             }
             BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedMerge => Self {
@@ -117,14 +117,12 @@ impl CylinderResourceConstructionCandidate {
             CylinderResourceConstructionFeasibility::RequiresResourceMerge => {
                 "cylinder-resource-merge-primitive"
             }
-            CylinderResourceConstructionFeasibility::RequiresConnectorAuthoring => {
-                "cylinder-resource-connector-authoring-primitive"
-            }
             CylinderResourceConstructionFeasibility::InvalidResourceSets => {
                 "valid-cylinder-resource-set"
             }
             CylinderResourceConstructionFeasibility::ExecutableByExistingResources
-            | CylinderResourceConstructionFeasibility::ExecutableAfterNormalization => "none",
+            | CylinderResourceConstructionFeasibility::ExecutableAfterNormalization
+            | CylinderResourceConstructionFeasibility::ExecutableByConnectorAuthoring => "none",
         }
     }
 }
@@ -162,10 +160,10 @@ impl CylinderResourceConstructionFamily {
 enum CylinderResourceConstructionFeasibility {
     ExecutableByExistingResources,
     ExecutableAfterNormalization,
+    ExecutableByConnectorAuthoring,
     RequiresResourceAuthoring,
     RequiresResourceSplit,
     RequiresResourceMerge,
-    RequiresConnectorAuthoring,
     InvalidResourceSets,
 }
 
@@ -174,11 +172,31 @@ impl CylinderResourceConstructionFeasibility {
         match self {
             Self::ExecutableByExistingResources => "executable-by-existing-resources",
             Self::ExecutableAfterNormalization => "executable-after-normalization",
+            Self::ExecutableByConnectorAuthoring => "executable-by-connector-authoring",
             Self::RequiresResourceAuthoring => "requires-resource-authoring",
             Self::RequiresResourceSplit => "requires-resource-split",
             Self::RequiresResourceMerge => "requires-resource-merge",
-            Self::RequiresConnectorAuthoring => "requires-connector-authoring",
             Self::InvalidResourceSets => "invalid-resource-sets",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn connector_authoring_candidate_is_executable() {
+        let summary = CylinderResourceCandidateSummary::from_status(
+            BridgeResourceReconciliationStatus::SplitCylinderResourcesNeedConnectorAuthoring,
+        );
+
+        assert!(summary.mutation_gate_complete());
+        assert_eq!(summary.missing_primitive(), "none");
+        assert!(
+            summary
+                .diagnostic_label()
+                .contains("feasibility=executable-by-connector-authoring")
+        );
     }
 }

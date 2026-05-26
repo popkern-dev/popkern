@@ -166,12 +166,12 @@ pub(super) fn split_resource_connector_transaction_summary(
         .filter(|operand| operand.cylinder_runs.len() > 1)
         .count();
     let status = if links > 0 {
-        "blocked-missing-topology-mutation"
+        "ready-for-topology-mutation"
     } else {
         "not-applicable"
     };
     format!(
-        "split_resource_connector_transaction=status={} primitive=multi-run-bridge-face-authoring multi_run_faces={} resource_links={} existing_boundary_spans={} expected_delta=deferred-until-topology-authoring rollback_boundary=candidate-brep-before-commit postconditions=not-run",
+        "split_resource_connector_transaction=status={} primitive=multi-run-bridge-face-authoring multi_run_faces={} resource_links={} existing_boundary_spans={} expected_delta=computed-at-mutation-boundary rollback_boundary=candidate-brep-before-commit postconditions=half-edge-pairing+cycles+manifold+delta",
         status,
         multi_run_faces,
         links,

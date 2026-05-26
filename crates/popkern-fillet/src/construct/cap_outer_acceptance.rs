@@ -234,15 +234,9 @@ fn sample_cap_support_edge(
     let (Some(pa), Some(pb)) = (ha.pcurve.as_ref(), hb.pcurve.as_ref()) else {
         return None;
     };
-    let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
-        return None;
-    };
-    let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
-        return None;
-    };
-    let Some(coe) = edge.curve.as_ref() else {
-        return None;
-    };
+    let sa = brep.faces.get(face_a).and_then(|f| f.surface.as_ref())?;
+    let sb = brep.faces.get(face_b).and_then(|f| f.surface.as_ref())?;
+    let coe = edge.curve.as_ref()?;
     let (pa_lo, pa_hi) = pa.parameter_range();
     let (pb_lo, pb_hi) = pb.parameter_range();
     let pa_at = |t: f64| {
