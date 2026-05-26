@@ -115,6 +115,8 @@ mod partition_support_trim_materialization;
 mod partition_support_trim_sides;
 #[path = "repeated_apex_partition_support_trim_validation.rs"]
 mod partition_support_trim_validation;
+#[path = "repeated_apex_partition_unowned_residuals.rs"]
+mod partition_unowned_residuals;
 
 use partition_anchor_diagnostics::generator_anchor_blocker;
 use partition_boundary_outcome::PartitionBoundaryOutcome;
@@ -213,6 +215,7 @@ use partition_support_trim_sides::{
     SupportOwnedTrimSource, pre_materialize_far_side_trim_sides, pre_materialized_trim_sides,
 };
 use partition_support_trim_validation::validate_replacement_loop_support_side_ownership;
+use partition_unowned_residuals::mark_unowned_half_edges_construction_residual;
 
 pub(super) type RepeatedApexNormalization = (
     FaceHandle,

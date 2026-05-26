@@ -48,14 +48,14 @@ fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
 }
 
 #[test]
-fn cube_extreme_reaches_cap_boundary_rewrite_before_fallback() {
+fn cube_extreme_reaches_candidate_topology_validation_before_fallback() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons
             .iter()
-            .any(|reason| reason.contains("selected cap boundary mismatch")),
-        "cube_extreme must reach cap-boundary rewrite after side-support topology authoring; got:\n{}",
+            .any(|reason| reason.contains("normalization produced invalid topology")),
+        "cube_extreme must reach final candidate topology validation after side-support topology authoring; got:\n{}",
         reasons.join("\n"),
     );
 

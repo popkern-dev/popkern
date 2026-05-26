@@ -105,6 +105,48 @@ impl PartitionBoundaryOutcome {
         self.cap_cycle == current_cap_cycle
     }
 
+    pub(super) fn refresh_from_current_cap_loop(
+        &mut self,
+        brep: &BRep,
+        cap_face: FaceHandle,
+    ) -> Result<(), ApexBuildError> {
+        let cap_loop = brep
+            .faces
+            .get(cap_face)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition selected cap boundary references stale cap \
+                     face {cap_face:?}"
+                ),
+            })?
+            .outer_loop;
+        let actual = collect_loop_half_edges(brep, cap_loop)?;
+        if actual == self.cap_cycle {
+            return Ok(());
+        }
+        if !cap_cycles_are_geometrically_equivalent(brep, &actual, &self.cap_cycle)
+            && !cap_cycles_are_single_handle_refresh(&actual, &self.cap_cycle)
+        {
+            return Ok(());
+        }
+        for (actual_side, expected_side) in
+            actual.iter().copied().zip(self.cap_cycle.iter().copied())
+        {
+            for cap_side in self.fillet_end_cap_sides.values_mut() {
+                if *cap_side == expected_side {
+                    *cap_side = actual_side;
+                }
+            }
+            for strip_side in self.strip_side_overrides.values_mut() {
+                if *strip_side == expected_side {
+                    *strip_side = actual_side;
+                }
+            }
+        }
+        self.cap_cycle = actual;
+        Ok(())
+    }
+
     pub(super) fn plan_strip_loop_overrides(
         &mut self,
         brep: &BRep,
@@ -186,4 +228,61 @@ impl PartitionBoundaryOutcome {
             vec![shared, tb_to_apex, apex_to_ta],
         ])
     }
+}
+
+fn cap_cycles_are_geometrically_equivalent(
+    brep: &BRep,
+    actual: &[HalfEdgeHandle],
+    expected: &[HalfEdgeHandle],
+) -> bool {
+    actual.len() == expected.len()
+        && actual.iter().copied().zip(expected.iter().copied()).all(
+            |(actual_side, expected_side)| {
+                cap_boundary_side_is_geometrically_equivalent(brep, actual_side, expected_side)
+            },
+        )
+}
+
+fn cap_cycles_are_single_handle_refresh(
+    actual: &[HalfEdgeHandle],
+    expected: &[HalfEdgeHandle],
+) -> bool {
+    actual.len() == expected.len()
+        && !actual.is_empty()
+        && actual
+            .iter()
+            .zip(expected)
+            .filter(|(actual_side, expected_side)| actual_side == expected_side)
+            .count()
+            + 1
+            >= expected.len()
+}
+
+fn cap_boundary_side_is_geometrically_equivalent(
+    brep: &BRep,
+    actual: HalfEdgeHandle,
+    expected: HalfEdgeHandle,
+) -> bool {
+    let Some(actual_start) = brep
+        .half_edges
+        .get(actual)
+        .map(|half_edge| half_edge.origin)
+    else {
+        return false;
+    };
+    let Some(expected_start) = brep
+        .half_edges
+        .get(expected)
+        .map(|half_edge| half_edge.origin)
+    else {
+        return false;
+    };
+    let Some(actual_end) = half_edge_end_vertex(brep, actual) else {
+        return false;
+    };
+    let Some(expected_end) = half_edge_end_vertex(brep, expected) else {
+        return false;
+    };
+    vertices_are_coincident(brep, actual_start, expected_start)
+        && vertices_are_coincident(brep, actual_end, expected_end)
 }

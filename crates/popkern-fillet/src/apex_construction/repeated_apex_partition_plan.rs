@@ -442,6 +442,7 @@ impl RepeatedApexPartitionPlan {
 
         brep.normalize_edge_representatives();
         repair_stale_shell_anchors(brep)?;
+        boundary_outcome.refresh_from_current_cap_loop(brep, self.cap_face)?;
         if boundary_outcome.matches_current_cap_cycle(&cap_cycle) {
             assert_normalized_cap_boundary(brep, self.cap_face, apex_vertex_handles, n_fillets)?;
         } else {
@@ -464,6 +465,7 @@ impl RepeatedApexPartitionPlan {
                 }
             }
         }
+        mark_unowned_half_edges_construction_residual(brep);
         validate_repeated_apex_normalization_structure(brep)?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
         Ok((self.cap_face, fillet_end_edges, diagnostics))
