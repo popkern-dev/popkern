@@ -72,4 +72,26 @@ fn cube_extreme_reaches_native_gregory_cap_outer_g0_before_fallback() {
         Some("cap_outer_g0_exceeds_gate")
     );
     assert!(continuity.continuity.worst_g0_gap.unwrap_or(0.0) > 5.0e-3);
+
+    let sphere_preflight = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                if diagnostic.stage == "native_gregory_sphere_cap_preflight" =>
+            {
+                Some(diagnostic)
+            }
+            _ => None,
+        })
+        .expect("cube_extreme must classify the declined sphere-cap boundary preflight");
+    assert_eq!(
+        sphere_preflight.code,
+        "sphere_plane_boundary_tangent_or_empty"
+    );
+    assert!(
+        sphere_preflight.support_face.is_some(),
+        "sphere-plane preflight diagnostic should identify the support face"
+    );
 }

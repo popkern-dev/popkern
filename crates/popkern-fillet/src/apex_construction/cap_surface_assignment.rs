@@ -106,7 +106,7 @@ pub(super) fn assign_gregory_cap_surface(
             exact_boundary_diagnostics: exact_boundary_candidate.diagnostics,
         });
     }
-    let corner_patches = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
+    let surface_assembly = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,
         plan,
@@ -117,19 +117,27 @@ pub(super) fn assign_gregory_cap_surface(
         fillet_surfaces,
         tolerance,
     )?;
+    let corner_patches = surface_assembly.corner_patches;
     author_plane_side_face_edge_pcurves(brep, face_edge_handles);
+    let exact_boundary_prepared_curve_count = exact_boundary_candidate.prepared_curve_count();
+    let exact_boundary_inner_spoke_count = exact_boundary_candidate.inner_spoke_count();
+    let exact_boundary_ribbon_count = exact_boundary_candidate.ribbon_count();
+    let exact_boundary_solved_surface_count = exact_boundary_candidate.solved_surface_count();
+    let exact_boundary_pcurve_pair_count = exact_boundary_candidate.pcurve_pair_count();
+    let mut exact_boundary_diagnostics = exact_boundary_candidate.diagnostics;
+    exact_boundary_diagnostics.extend(surface_assembly.diagnostics);
     Ok(GregoryCapAssignment {
         corner_patches,
-        exact_boundary_prepared_curve_count: exact_boundary_candidate.prepared_curve_count(),
-        exact_boundary_inner_spoke_count: exact_boundary_candidate.inner_spoke_count(),
-        exact_boundary_ribbon_count: exact_boundary_candidate.ribbon_count(),
-        exact_boundary_solved_surface_count: exact_boundary_candidate.solved_surface_count(),
-        exact_boundary_pcurve_pair_count: exact_boundary_candidate.pcurve_pair_count(),
+        exact_boundary_prepared_curve_count,
+        exact_boundary_inner_spoke_count,
+        exact_boundary_ribbon_count,
+        exact_boundary_solved_surface_count,
+        exact_boundary_pcurve_pair_count,
         exact_boundary_sectors: exact_boundary_candidate.sectors,
         exact_boundary_committed_faces: exact_boundary_candidate.committed_faces,
         exact_boundary_performance: exact_boundary_candidate.performance,
         exact_boundary_report: exact_boundary_candidate.report,
-        exact_boundary_diagnostics: exact_boundary_candidate.diagnostics,
+        exact_boundary_diagnostics,
     })
 }
 

@@ -1,7 +1,45 @@
 //! Small helpers for three-quad cap application.
 
 use crate::construct::promotion_ladder::PromotionResult;
-use crate::types::{CornerSubPatchFamily, CornerSubPatchProvenance};
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::topology::{BRep, FaceHandle};
+
+use crate::blend::boundary::BlendBoundary;
+use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::{
+    ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
+};
+
+pub(crate) struct ThreeQuadApplyResult {
+    pub patches: Vec<CornerPatchInfo>,
+    pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+pub(crate) fn author_cap_face_boundary_pcurves(
+    brep: &mut BRep,
+    sub_face: FaceHandle,
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    subface_index: usize,
+    old_surface: Option<&SurfaceGeometry>,
+) -> Result<(), String> {
+    super::three_quad_reproject::reproject_loop_pcurves_onto_gregory(
+        brep,
+        sub_face,
+        old_surface,
+        false,
+    );
+    super::three_quad_seam_pcurves::author_boundary_owned_seam_pcurves(
+        brep,
+        sub_face,
+        boundary,
+        fillet_surfaces,
+        subface_index,
+        None,
+    );
+    super::three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, sub_face);
+    super::three_quad_reproject::verify_outer_loop_pcurves(brep, sub_face)
+}
 
 pub(super) fn sub_patch_provenance(
     macro_family: Option<CornerSubPatchFamily>,

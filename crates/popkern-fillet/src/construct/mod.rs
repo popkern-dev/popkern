@@ -292,9 +292,11 @@ pub fn apply_blend_geometry(
                             corner_patches.extend(success.corner_patches);
                             direct_apex_succeeded = true;
                         }
-                        Err(reason) => {
+                        Err(error) => {
                             direct_apex_fell_back_to_legacy = true;
                             let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
+                            let reason = error.reason;
+                            repair_report.apex_diagnostics.extend(error.diagnostics);
                             repair_report
                                 .apex_routes
                                 .push(apex_route_decision(ApexRouteDecisionInput {

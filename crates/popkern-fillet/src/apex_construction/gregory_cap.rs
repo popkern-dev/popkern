@@ -24,9 +24,11 @@ use super::gregory_cap_boundary::{
     half_edge_for_face_on_edge, inject_physical_hex_boundary_cps, missing_adjacent_face_error,
     oriented_cap_edge_curve, validate_physical_sector_handles, validate_planned_gregory_loop_roles,
 };
+use super::gregory_cap_surface_assembly::GregoryCapSurfaceAssembly;
 pub(super) use super::gregory_cap_topology::{
     find_face_bounded_by_all_apex_edges, merge_cap_side_accumulators,
 };
+use super::gregory_cap_trace::trace_gregory_boundary_segments;
 use super::plan::ApexPlan;
 use super::pns_cap_candidate::{BoundaryPreservingPnsCapInput, try_boundary_preserving_pns_cap};
 use super::target_topology::TargetCapFace;
@@ -34,7 +36,6 @@ use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::construct::three_quad_apply::{
     ThreeQuadFailure, apply_three_quad_decomposition_to_blend,
 };
-use crate::types::CornerPatchInfo;
 use crate::vertex_classifier::VertexBlendClassification;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GregoryCapSector {
@@ -65,7 +66,7 @@ pub(super) fn assemble_gregory_cap_surface(
     sectors: &[GregoryCapSector],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     tolerance: &Tolerance,
-) -> Result<Vec<CornerPatchInfo>, ApexBuildError> {
+) -> Result<GregoryCapSurfaceAssembly, ApexBuildError> {
     if fillet_surfaces.is_empty() {
         return Err(ApexBuildError::PlanMismatch {
             reason: "Gregory cap surface assembly needs fillet_surfaces; caller \
@@ -159,7 +160,10 @@ pub(super) fn assemble_gregory_cap_surface(
         classification,
         sectors,
     }) {
-        return Ok(patches);
+        return Ok(GregoryCapSurfaceAssembly {
+            corner_patches: patches,
+            diagnostics: Vec::new(),
+        });
     }
 
     let result = apply_three_quad_decomposition_to_blend(
@@ -179,7 +183,10 @@ pub(super) fn assemble_gregory_cap_surface(
     );
 
     match result {
-        Ok(patches) => Ok(patches),
+        Ok(result) => Ok(GregoryCapSurfaceAssembly {
+            corner_patches: result.patches,
+            diagnostics: result.diagnostics,
+        }),
         Err(ThreeQuadFailure::Overlap) => Err(ApexBuildError::PlanMismatch {
             reason: "Gregory three-quad decomposition self-intersects (overlap remediation)".into(),
         }),
@@ -469,28 +476,5 @@ fn line_curve(start: Point3, end: Point3) -> popkern_core::geometry::NurbsCurve 
         control_points: vec![start, end],
         knots: vec![0.0, 0.0, 1.0, 1.0],
         weights: vec![1.0, 1.0],
-    }
-}
-
-fn trace_gregory_boundary_segments(segments: &[BoundarySegment]) {
-    if !crate::direct_apex_trace::enabled() {
-        return;
-    }
-    for (index, segment) in segments.iter().enumerate() {
-        let (label, curve) = match segment {
-            BoundarySegment::FilletEnd {
-                fillet_index,
-                curve,
-            } => (format!("FilletEnd[{fillet_index}]"), curve),
-            BoundarySegment::FaceEdge { face, curve } => (format!("FaceEdge[{face:?}]"), curve),
-        };
-        let (t0, t1) = curve.parameter_range();
-        let start = curve.point_at(t0);
-        let end = curve.point_at(t1);
-        eprintln!(
-            "[direct-apex-trace §DirectApex.4/gregory-boundary] segment[{index}] {label}: \
-             ({:.6},{:.6},{:.6}) -> ({:.6},{:.6},{:.6})",
-            start.x, start.y, start.z, end.x, end.y, end.z
-        );
     }
 }

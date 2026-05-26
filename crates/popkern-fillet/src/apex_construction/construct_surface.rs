@@ -59,6 +59,7 @@ pub(super) fn assign_cap_surface(
                 fillet_surfaces,
                 tolerance,
             )
+            .map(|assembly| assembly.corner_patches)
         }
         CapKind::Open { .. } => unreachable!("Open handled in construct_apex_inner"),
     }

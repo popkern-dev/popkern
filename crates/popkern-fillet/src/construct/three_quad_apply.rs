@@ -29,7 +29,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 use three_quad_apply_helpers::{
-    decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,
+    ThreeQuadApplyResult, decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
@@ -50,6 +50,8 @@ use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
+pub(crate) use three_quad_apply_helpers::author_cap_face_boundary_pcurves;
+
 /// §5.3 item #10 — why the three-quad dispatch failed. Callers
 /// use this to distinguish an honest topology / geometry failure
 /// (caller should record the reason + fall through to polar) from
@@ -69,27 +71,6 @@ impl From<String> for ThreeQuadFailure {
     fn from(s: String) -> Self {
         ThreeQuadFailure::Other(s)
     }
-}
-
-pub(crate) fn author_cap_face_boundary_pcurves(
-    brep: &mut BRep,
-    sub_face: FaceHandle,
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-    subface_index: usize,
-    old_surface: Option<&SurfaceGeometry>,
-) -> Result<(), String> {
-    reproject_loop_pcurves_onto_gregory(brep, sub_face, old_surface, false);
-    author_boundary_owned_seam_pcurves(
-        brep,
-        sub_face,
-        boundary,
-        fillet_surfaces,
-        subface_index,
-        None,
-    );
-    three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, sub_face);
-    three_quad_reproject::verify_outer_loop_pcurves(brep, sub_face)
 }
 
 /// Apply a three-quad decomposition to an existing hexagonal blend
@@ -117,7 +98,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     use_two_stripe: bool,
     use_kp_binonic: bool,
     use_kp_polar: bool,
-) -> Result<Vec<CornerPatchInfo>, ThreeQuadFailure> {
+) -> Result<ThreeQuadApplyResult, ThreeQuadFailure> {
     let mut decomp = build_n_quad_decomposition_with_options(
         boundary,
         fillet_surfaces,
@@ -179,12 +160,26 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let sphere_cap_available = boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()
         && boundary.per_fillet_caps.len() == decomp.sub_patches.len();
+    let sphere_cap_unavailable_reason = (!sphere_cap_available)
+        .then(|| "per-fillet sphere caps unavailable for this decomposition".to_string());
     let sphere_cap_boundary_rejection = if sphere_cap_available {
         sphere_cap_boundary_degeneracy_in_boundary_order(brep, boundary, fillet_surfaces)
     } else {
-        Some("per-fillet sphere caps unavailable for this decomposition".to_string())
+        None
     };
-    let sphere_cap_boundary_preflight = sphere_cap_boundary_rejection.is_none();
+    let mut diagnostics = Vec::new();
+    if let Some(rejection) = &sphere_cap_boundary_rejection {
+        diagnostics.push(rejection.to_diagnostic());
+    }
+    let sphere_cap_boundary_preflight =
+        sphere_cap_available && sphere_cap_boundary_rejection.is_none();
+    let sphere_cap_rejection_reason = || {
+        sphere_cap_boundary_rejection
+            .as_ref()
+            .map(|rejection| rejection.describe())
+            .or_else(|| sphere_cap_unavailable_reason.clone())
+            .unwrap_or_else(|| "available".to_string())
+    };
 
     // Self-intersection screen. N ≥ 5 bypass: bi-5 parallelogram
     // folds on narrow 72°/60° sectors by design (K-P 2015 motivates
@@ -213,9 +208,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                              sphere caps rejected ({sphere_reason}); promoted constrained patch \
                              rejected (self-intersection); unpromoted constrained patch rejected \
                              (self-intersection)",
-                            sphere_reason = sphere_cap_boundary_rejection
-                                .as_deref()
-                                .unwrap_or("available")
+                            sphere_reason = sphere_cap_rejection_reason()
                         )));
                     }
                     None => {
@@ -224,9 +217,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                              sphere caps rejected ({sphere_reason}); promoted constrained patch \
                              rejected (self-intersection); no unpromoted constrained candidate \
                              was available",
-                            sphere_reason = sphere_cap_boundary_rejection
-                                .as_deref()
-                                .unwrap_or("available")
+                            sphere_reason = sphere_cap_rejection_reason()
                         )));
                     }
                 }
@@ -469,7 +460,10 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
-    Ok(patches)
+    Ok(ThreeQuadApplyResult {
+        patches,
+        diagnostics,
+    })
 }
 
 pub(crate) fn author_model_level_support_face_boundary_seams(

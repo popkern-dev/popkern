@@ -61,6 +61,21 @@ pub(crate) struct DirectApexDispatchOutcome {
     pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
 }
 
+#[derive(Debug, Clone)]
+pub(crate) struct DirectApexDispatchError {
+    pub reason: String,
+    pub diagnostics: Vec<crate::types::ApexConstructionDiagnostic>,
+}
+
+impl DirectApexDispatchError {
+    fn new(reason: String) -> Self {
+        Self {
+            reason,
+            diagnostics: Vec::new(),
+        }
+    }
+}
+
 /// Try the direct-apex apex-construction path for one vertex.
 ///
 /// On success, the BRep has been mutated (apex region built by
@@ -75,7 +90,7 @@ pub(super) fn try_direct_apex_construction(
     edge_geometries: &[EdgeGeometry],
     _descendants: &HashMap<EdgeHandle, Vec<EdgeHandle>>,
     tolerance: &Tolerance,
-) -> Result<DirectApexDispatchOutcome, String> {
+) -> Result<DirectApexDispatchOutcome, DirectApexDispatchError> {
     // Edge handles in `edge_geometries` are the ORIGINAL pre-
     // pipeline handles.  Phase C kef's the fillet edges so
     // those handles are no longer live in the BRep — but the
@@ -196,7 +211,9 @@ pub(super) fn try_direct_apex_construction(
         }
     }
     let plan = plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
-        .map_err(|plan_err| format!("plan_apex_resolution: {plan_err}"))?;
+        .map_err(|plan_err| {
+            DirectApexDispatchError::new(format!("plan_apex_resolution: {plan_err}"))
+        })?;
 
     // §direct-apex cap-surface option 2 diagnostic: detect Phase-C cylinder-face
     // incoherence (loops with off-cyl vertices, per ADR §25).
@@ -241,8 +258,9 @@ pub(super) fn try_direct_apex_construction(
             try_constructive_with_legacy_fallthrough(brep, &plan, &surfaces, tolerance)?
         }
         CapKind::Open { .. } => {
-            construct_apex_with_surfaces(brep, &plan, &surfaces, tolerance, None)
-                .map_err(|build_err| format!("construct_apex: {build_err}"))?
+            construct_apex_with_surfaces(brep, &plan, &surfaces, tolerance, None).map_err(
+                |build_err| DirectApexDispatchError::new(format!("construct_apex: {build_err}")),
+            )?
         }
     };
     Ok(DirectApexDispatchOutcome {
@@ -274,7 +292,7 @@ fn try_constructive_with_legacy_fallthrough(
     plan: &crate::apex_construction::plan::ApexPlan,
     surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
-) -> Result<crate::apex_construction::construct::ApexBuildResult, String> {
+) -> Result<crate::apex_construction::construct::ApexBuildResult, DirectApexDispatchError> {
     let snapshot = brep.clone();
     let execution_options =
         crate::apex_construction::constructive_builder_options::ConstructiveApexExecutionOptions::from_environment_adapter();
@@ -318,14 +336,22 @@ fn try_constructive_with_legacy_fallthrough(
                             "[direct-apex-trace] constructive fell through to legacy DirectApex: {constructive_err}"
                         );
                     }
+                    let constructive_diagnostics = result.diagnostics;
                     *brep = snapshot;
-                    return construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None)
-                        .map_err(|build_err| {
-                            format!(
+                    return match construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None)
+                    {
+                        Ok(mut legacy_result) => {
+                            legacy_result.diagnostics.extend(constructive_diagnostics);
+                            Ok(legacy_result)
+                        }
+                        Err(build_err) => Err(DirectApexDispatchError {
+                            reason: format!(
                                 "construct_apex (after constructive fail: {constructive_err}): \
                                  {build_err}"
-                            )
-                        });
+                            ),
+                            diagnostics: constructive_diagnostics,
+                        }),
+                    };
                 }
                 if let Some(diagnostic) =
                     direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
@@ -345,10 +371,10 @@ fn try_constructive_with_legacy_fallthrough(
             }
             construct_apex_with_surfaces(brep, plan, surfaces, tolerance, None).map_err(
                 |build_err| {
-                    format!(
+                    DirectApexDispatchError::new(format!(
                         "construct_apex (after constructive fail: {constructive_err}): \
                          {build_err}"
-                    )
+                    ))
                 },
             )
         }

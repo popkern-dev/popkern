@@ -260,7 +260,9 @@ pub(crate) fn insert_vertex_blend(
             use_kp_binonic_gregory,
             use_kp_polar_gregory,
         ) {
-            Ok(patches) if patches.len() == n_sides => return Ok((patches, n_gon_boundary)),
+            Ok(result) if result.patches.len() == n_sides => {
+                return Ok((result.patches, n_gon_boundary));
+            }
             Err(ThreeQuadFailure::Overlap) => {
                 let mut r = base_patch.clone();
                 r.overlap_remediated = true;

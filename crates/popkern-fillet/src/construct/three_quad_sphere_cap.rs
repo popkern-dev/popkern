@@ -8,6 +8,43 @@ use super::three_quad_face_matching::primary_cylinder_identity_of_face;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::fillet_surface::FilletSurfaceResult;
 
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct SphereCapBoundaryDegeneracy {
+    pub boundary_index: usize,
+    pub segment_kind: &'static str,
+    pub support_face: Option<FaceHandle>,
+    pub code: &'static str,
+    pub reason: String,
+    pub residual: Option<f64>,
+}
+
+impl SphereCapBoundaryDegeneracy {
+    pub(super) fn describe(&self) -> String {
+        format!(
+            "boundary[{}] {}: {}",
+            self.boundary_index, self.segment_kind, self.reason
+        )
+    }
+
+    pub(super) fn to_diagnostic(&self) -> crate::types::ApexConstructionDiagnostic {
+        crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+            crate::types::ExactBoundaryCapDiagnostic {
+                stage: "native_gregory_sphere_cap_preflight".to_string(),
+                code: self.code.to_string(),
+                sector_name: format!(
+                    "sphere_cap_boundary[{}].{}",
+                    self.boundary_index, self.segment_kind
+                ),
+                edge: None,
+                support_half_edge: None,
+                support_face: self.support_face,
+                residual: self.residual,
+                shared_fact_ids: Vec::new(),
+            },
+        )
+    }
+}
+
 pub(super) fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {
     let mut min_radius = f64::INFINITY;
     let mut max_radius = 0.0_f64;
@@ -82,29 +119,35 @@ pub(super) fn sphere_cap_boundary_degeneracy_in_boundary_order(
     brep: &BRep,
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
-) -> Option<String> {
+) -> Option<SphereCapBoundaryDegeneracy> {
     if boundary.segments.len() != 2 * boundary.per_fillet_caps.len() {
-        return Some(format!(
-            "boundary segment count {} does not match per-fillet cap count {}",
-            boundary.segments.len(),
-            boundary.per_fillet_caps.len()
-        ));
+        return Some(SphereCapBoundaryDegeneracy {
+            boundary_index: 0,
+            segment_kind: "Boundary",
+            support_face: None,
+            code: "sphere_cap_boundary_count_mismatch",
+            reason: format!(
+                "boundary segment count {} does not match per-fillet cap count {}",
+                boundary.segments.len(),
+                boundary.per_fillet_caps.len()
+            ),
+            residual: None,
+        });
     }
     for (k, &(center, radius)) in boundary.per_fillet_caps.iter().enumerate() {
         for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
-            if let Some(reason) =
+            if let Some(mut degeneracy) =
                 sphere_cap_segment_degeneracy(brep, fillet_surfaces, center, radius, segment)
             {
+                degeneracy.boundary_index = k;
                 if crate::direct_apex_trace::enabled() {
                     eprintln!(
                         "[direct-apex-trace] sphere-cap preflight declined boundary[{k}] segment={}: {reason}",
-                        boundary_segment_kind(segment)
+                        boundary_segment_kind(segment),
+                        reason = degeneracy.reason,
                     );
                 }
-                return Some(format!(
-                    "boundary[{k}] {}: {reason}",
-                    boundary_segment_kind(segment)
-                ));
+                return Some(degeneracy);
             }
         }
     }
@@ -125,13 +168,14 @@ pub(super) fn sphere_cap_boundary_seams_are_nondegenerate(
             return false;
         };
         for segment in [&boundary.segments[2 * k], &boundary.segments[2 * k + 1]] {
-            if let Some(reason) =
+            if let Some(degeneracy) =
                 sphere_cap_segment_degeneracy(brep, fillet_surfaces, *center, *radius, segment)
             {
                 if crate::direct_apex_trace::enabled() {
                     eprintln!(
                         "[direct-apex-trace] sphere-cap rung declined subface[{k}] segment={}: {reason}",
-                        boundary_segment_kind(segment)
+                        boundary_segment_kind(segment),
+                        reason = degeneracy.reason,
                     );
                 }
                 return false;
@@ -147,7 +191,7 @@ fn sphere_cap_segment_degeneracy(
     sphere_center: Point3,
     sphere_radius: f64,
     segment: &BoundarySegment,
-) -> Option<String> {
+) -> Option<SphereCapBoundaryDegeneracy> {
     match segment {
         BoundarySegment::FaceEdge { face, .. } => {
             let surface = brep.faces.get(*face)?.surface.as_ref()?;
@@ -157,16 +201,30 @@ fn sphere_cap_segment_degeneracy(
                 let circle_radius_sq = sphere_radius * sphere_radius - plane_offset * plane_offset;
                 let tol = sphere_radius.max(1.0) * 1.0e-8;
                 if circle_radius_sq <= tol * tol {
-                    return Some(format!(
-                        "sphere-plane boundary is tangent or empty \
-                         (sphere radius {sphere_radius:.6e}, plane offset {plane_offset:.6e})"
-                    ));
+                    return Some(SphereCapBoundaryDegeneracy {
+                        boundary_index: 0,
+                        segment_kind: "FaceEdge",
+                        support_face: Some(*face),
+                        code: "sphere_plane_boundary_tangent_or_empty",
+                        reason: format!(
+                            "sphere-plane boundary is tangent or empty \
+                             (sphere radius {sphere_radius:.6e}, plane offset {plane_offset:.6e})"
+                        ),
+                        residual: Some((sphere_radius - plane_offset).abs()),
+                    });
                 }
             }
         }
         BoundarySegment::FilletEnd { fillet_index, .. } => {
             let Some(fillet) = fillet_surfaces.get(*fillet_index) else {
-                return Some(format!("fillet index {fillet_index} missing"));
+                return Some(SphereCapBoundaryDegeneracy {
+                    boundary_index: 0,
+                    segment_kind: "FilletEnd",
+                    support_face: None,
+                    code: "sphere_cap_fillet_index_missing",
+                    reason: format!("fillet index {fillet_index} missing"),
+                    residual: None,
+                });
             };
             if let SurfaceGeometry::Cylinder {
                 origin,
@@ -175,7 +233,14 @@ fn sphere_cap_segment_degeneracy(
             } = &fillet.surface
             {
                 let Some(axis_unit) = axis.normalized() else {
-                    return Some("fillet cylinder axis is degenerate".to_string());
+                    return Some(SphereCapBoundaryDegeneracy {
+                        boundary_index: 0,
+                        segment_kind: "FilletEnd",
+                        support_face: None,
+                        code: "sphere_cap_fillet_cylinder_axis_degenerate",
+                        reason: "fillet cylinder axis is degenerate".to_string(),
+                        residual: None,
+                    });
                 };
                 let to_center = sphere_center - *origin;
                 let along = to_center.dot(&axis_unit);
@@ -184,10 +249,17 @@ fn sphere_cap_segment_degeneracy(
                 let radius_error = (sphere_radius - *radius).abs();
                 let tol = sphere_radius.max(*radius).max(1.0) * 1.0e-5;
                 if axis_error > tol || radius_error > tol {
-                    return Some(format!(
-                        "sphere-cylinder tangent circle is not well-defined \
-                         (axis error {axis_error:.3e}, radius error {radius_error:.3e})"
-                    ));
+                    return Some(SphereCapBoundaryDegeneracy {
+                        boundary_index: 0,
+                        segment_kind: "FilletEnd",
+                        support_face: None,
+                        code: "sphere_cylinder_boundary_not_tangent",
+                        reason: format!(
+                            "sphere-cylinder tangent circle is not well-defined \
+                             (axis error {axis_error:.3e}, radius error {radius_error:.3e})"
+                        ),
+                        residual: Some(axis_error.max(radius_error)),
+                    });
                 }
             }
         }
