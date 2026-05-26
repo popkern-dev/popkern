@@ -4,7 +4,7 @@ use crate::construct::promotion_ladder::PromotionResult;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::blend::boundary::BlendBoundary;
+use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{
     ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
@@ -73,4 +73,34 @@ pub(super) fn decomp_self_intersects(
         .sub_patches
         .iter()
         .any(|patch| patch.self_intersects_with_tolerance(tolerance))
+}
+
+pub(super) fn max_outer_boundary_residual(
+    decomp: &crate::blend::gregory_three_quad::NQuadDecomposition,
+    boundary: &BlendBoundary,
+) -> Option<f64> {
+    use popkern_core::geometry::curve::CurveEval;
+    if boundary.segments.len() != 2 * decomp.sub_patches.len() {
+        return None;
+    }
+    let mut worst = 0.0_f64;
+    for (k, patch) in decomp.sub_patches.iter().enumerate() {
+        for (segment_index, side) in [(2 * k, 0usize), (2 * k + 1, 1usize)] {
+            let curve = match boundary.segments.get(segment_index)? {
+                BoundarySegment::FilletEnd { curve, .. }
+                | BoundarySegment::FaceEdge { curve, .. } => curve,
+            };
+            let (t0, t1) = curve.parameter_range();
+            for sample in 0..=10 {
+                let s = sample as f64 / 10.0;
+                let reference = curve.point_at(t0 + s * (t1 - t0));
+                let surface_point = match side {
+                    0 => patch.point_at(0.0, s),
+                    _ => patch.point_at(s, 1.0),
+                };
+                worst = worst.max(reference.distance_to(&surface_point));
+            }
+        }
+    }
+    Some(worst)
 }

@@ -29,7 +29,8 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 use three_quad_apply_helpers::{
-    ThreeQuadApplyResult, decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,
+    ThreeQuadApplyResult, decomp_self_intersects, macro_family_from_promotion,
+    max_outer_boundary_residual, sub_patch_provenance,
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
@@ -137,11 +138,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         } else {
             Some(&boundary.hex_boundary_cps_deg9)
         };
-    let sphere_cap_available_before_promotion = boundary.sphere_fit_substituted
-        && !boundary.per_fillet_caps.is_empty()
-        && boundary.per_fillet_caps.len() == decomp.sub_patches.len();
-    let unpromoted_sphere_cap_decomp =
-        sphere_cap_available_before_promotion.then(|| decomp.clone());
+    let unpromoted_constrained_decomp = decomp.clone();
 
     let mut promotion_result = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
@@ -156,6 +153,20 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
     let mut macro_family = macro_family_from_promotion(promotion_result);
+
+    const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
+    if matches!(
+        promotion_result,
+        super::promotion_ladder::PromotionResult::Standard
+    ) && max_outer_boundary_residual(&decomp, boundary)
+        .is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
+        && max_outer_boundary_residual(&unpromoted_constrained_decomp, boundary)
+            .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
+    {
+        decomp = unpromoted_constrained_decomp.clone();
+        promotion_result = super::promotion_ladder::PromotionResult::Standard;
+        macro_family = None;
+    }
 
     let sphere_cap_available = boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()
@@ -196,30 +207,18 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         if promoted_self_intersects {
             intermediate_self_intersects = true;
             if !sphere_cap_boundary_preflight {
-                match unpromoted_sphere_cap_decomp.clone() {
-                    Some(unpromoted) if !decomp_self_intersects(&unpromoted, SELF_INT_TOL) => {
-                        decomp = unpromoted;
-                        promotion_result = super::promotion_ladder::PromotionResult::Standard;
-                        macro_family = None;
-                    }
-                    Some(_) => {
-                        return Err(ThreeQuadFailure::Other(format!(
-                            "cap surface candidate planner rejected all candidates: \
+                if !decomp_self_intersects(&unpromoted_constrained_decomp, SELF_INT_TOL) {
+                    decomp = unpromoted_constrained_decomp.clone();
+                    promotion_result = super::promotion_ladder::PromotionResult::Standard;
+                    macro_family = None;
+                } else {
+                    return Err(ThreeQuadFailure::Other(format!(
+                        "cap surface candidate planner rejected all candidates: \
                              sphere caps rejected ({sphere_reason}); promoted constrained patch \
                              rejected (self-intersection); unpromoted constrained patch rejected \
                              (self-intersection)",
-                            sphere_reason = sphere_cap_rejection_reason()
-                        )));
-                    }
-                    None => {
-                        return Err(ThreeQuadFailure::Other(format!(
-                            "cap surface candidate planner rejected all candidates: \
-                             sphere caps rejected ({sphere_reason}); promoted constrained patch \
-                             rejected (self-intersection); no unpromoted constrained candidate \
-                             was available",
-                            sphere_reason = sphere_cap_rejection_reason()
-                        )));
-                    }
+                        sphere_reason = sphere_cap_rejection_reason()
+                    )));
                 }
             }
         }

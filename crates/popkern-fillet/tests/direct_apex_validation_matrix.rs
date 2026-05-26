@@ -79,7 +79,7 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             name: "cube_extreme",
             radii: &[0.02, 0.10, 0.20],
             is_pyramid: false,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "pyramid3_uniform",
@@ -159,23 +159,28 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
 }
 
 #[test]
-fn cube_extreme_legacy_fallback_reports_cap_support_decline() {
+fn cube_extreme_native_direct_apex_preserves_sphere_preflight_diagnostic() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "cube_extreme should now complete through native direct-apex; got:\n{}",
+        reasons.join("\n")
+    );
     let diagnostic = result
         .repair_report
         .apex_diagnostics
         .iter()
         .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                if diagnostic.stage == "native_gregory_sphere_cap_preflight" =>
+            {
+                Some(diagnostic)
+            }
             _ => None,
         })
-        .expect("legacy fallback must report cap/support continuity decline");
-    assert_eq!(
-        diagnostic.continuity.decline_code.as_deref(),
-        Some("cap_outer_g0_exceeds_gate")
-    );
-    assert!(diagnostic.continuity.worst_g0_gap.unwrap_or(0.0) > 5.0e-3);
-    assert!(diagnostic.edges_measured >= 1);
+        .expect("native cube_extreme should preserve declined sphere-cap preflight evidence");
+    assert_eq!(diagnostic.code, "sphere_plane_boundary_tangent_or_empty");
 }
 
 /// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex

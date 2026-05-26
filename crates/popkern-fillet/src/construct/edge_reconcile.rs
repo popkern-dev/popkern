@@ -64,8 +64,20 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     };
 
-    let face_1 = brep.loops[he_data.loop_].face;
-    let face_2 = brep.loops[twin_data.loop_].face;
+    let Some(face_1) = brep
+        .loops
+        .get(he_data.loop_)
+        .map(|loop_data| loop_data.face)
+    else {
+        return false;
+    };
+    let Some(face_2) = brep
+        .loops
+        .get(twin_data.loop_)
+        .map(|loop_data| loop_data.face)
+    else {
+        return false;
+    };
     if face_1 == face_2 {
         // Self-loop edge — pcurve repair only, skip 3D curve rewrite.
         return false;

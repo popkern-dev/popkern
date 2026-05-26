@@ -48,30 +48,14 @@ fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
 }
 
 #[test]
-fn cube_extreme_reaches_native_gregory_cap_outer_g0_before_fallback() {
+fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
-        reasons.iter().any(|reason| reason
-            .contains("native Gregory cap failed geometric acceptance: cap_outer_g0")),
-        "cube_extreme must reach the native Gregory cap/support geometric gate after exact-boundary sector ownership; got:\n{}",
+        reasons.is_empty(),
+        "cube_extreme must complete through native Gregory after endpoint-preserving boundary construction; got:\n{}",
         reasons.join("\n"),
     );
-
-    let continuity = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
-            _ => None,
-        })
-        .expect("cube_extreme fallback must promote cap/support continuity evidence");
-    assert_eq!(
-        continuity.continuity.decline_code.as_deref(),
-        Some("cap_outer_g0_exceeds_gate")
-    );
-    assert!(continuity.continuity.worst_g0_gap.unwrap_or(0.0) > 5.0e-3);
 
     let sphere_preflight = result
         .repair_report
@@ -93,32 +77,5 @@ fn cube_extreme_reaches_native_gregory_cap_outer_g0_before_fallback() {
     assert!(
         sphere_preflight.support_face.is_some(),
         "sphere-plane preflight diagnostic should identify the support face"
-    );
-
-    let boundary_owned_pcurve = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                if diagnostic.stage == "native_gregory_boundary_owned_pcurve" =>
-            {
-                Some(diagnostic)
-            }
-            _ => None,
-        })
-        .expect("cube_extreme must classify the declined boundary-owned seam pcurve");
-    assert!(
-        matches!(
-            boundary_owned_pcurve.code.as_str(),
-            "boundary_owned_pcurve_endpoint_mismatch"
-                | "boundary_owned_pcurve_not_on_canonical_boundary"
-        ),
-        "unexpected boundary-owned pcurve decline code: {}",
-        boundary_owned_pcurve.code
-    );
-    assert!(
-        boundary_owned_pcurve.edge.is_some(),
-        "boundary-owned pcurve decline should identify the responsible edge"
     );
 }

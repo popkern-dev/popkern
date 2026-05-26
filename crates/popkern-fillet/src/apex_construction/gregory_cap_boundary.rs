@@ -1,8 +1,6 @@
 //! Boundary and sector helpers for DirectApex Gregory cap assembly.
 
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::uv_projection::project_point_to_uv;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::error::ApexBuildError;
@@ -249,101 +247,6 @@ pub(super) fn inject_physical_hex_boundary_cps(
     }
     boundary.hex_boundary_cps_deg9 = hex_boundary_cps_deg9;
     Ok(())
-}
-
-pub(super) fn author_support_compatible_face_edge_tangents(
-    boundary: &mut BlendBoundary,
-    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-    brep: &BRep,
-) {
-    let n = boundary.segments.len() / 2;
-    if boundary.hex_boundary_cps_deg9.len() != n {
-        return;
-    }
-    for k in 0..n {
-        let Some(fillet_index) = fillet_index_at(boundary, k) else {
-            continue;
-        };
-        let Some(fillet_support) = fillet_surfaces.get(fillet_index).map(|f| &f.surface) else {
-            continue;
-        };
-        let face_support = match boundary.segments.get(2 * k + 1) {
-            Some(BoundarySegment::FaceEdge { face, .. }) => brep
-                .faces
-                .get(*face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| &s.geometry),
-            _ => None,
-        };
-        let Some(face_support) = face_support else {
-            continue;
-        };
-        let (row0, col9) = &mut boundary.hex_boundary_cps_deg9[k];
-        let Some(compatible_start) = support_compatible_face_edge_start(row0, fillet_support)
-        else {
-            continue;
-        };
-        col9[0] = row0[9];
-        col9[1] = project_point_to_surface(face_support, compatible_start);
-        if let Some(BoundarySegment::FaceEdge { curve, .. }) = boundary.segments.get_mut(2 * k + 1)
-        {
-            *curve = bezier_deg9_curve(*col9);
-        }
-    }
-}
-
-fn fillet_index_at(boundary: &BlendBoundary, sector: usize) -> Option<usize> {
-    match boundary.segments.get(2 * sector)? {
-        BoundarySegment::FilletEnd { fillet_index, .. } => Some(*fillet_index),
-        _ => None,
-    }
-}
-
-fn support_compatible_face_edge_start(
-    row0: &[Point3; 10],
-    support: &SurfaceGeometry,
-) -> Option<Point3> {
-    let endpoint = row0[9];
-    let tangent = point_delta(row0[9], row0[8]) * 9.0;
-    let normal = support_normal_at(support, &endpoint)?;
-    let cross = tangent.cross(&normal).normalized()? * tangent.length();
-    Some(offset_point(endpoint, cross, 1.0 / 9.0))
-}
-
-fn support_normal_at(support: &SurfaceGeometry, point: &Point3) -> Option<Vec3> {
-    let (u, v) = project_point_to_uv(support, point)?;
-    support.normal_at(u, v).normalized()
-}
-
-fn project_point_to_surface(surface: &SurfaceGeometry, point: Point3) -> Point3 {
-    let Some((u, v)) = project_point_to_uv(surface, &point) else {
-        return point;
-    };
-    surface.point_at(u, v)
-}
-
-fn bezier_deg9_curve(control_points: [Point3; 10]) -> NurbsCurve {
-    NurbsCurve {
-        degree: 9,
-        knots: vec![
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0,
-        ],
-        control_points: control_points.to_vec(),
-        weights: vec![1.0; 10],
-    }
-}
-
-fn point_delta(a: Point3, b: Point3) -> Vec3 {
-    Vec3::new(a.x - b.x, a.y - b.y, a.z - b.z)
-}
-
-fn offset_point(point: Point3, direction: Vec3, scale: f64) -> Point3 {
-    Point3::new(
-        point.x + scale * direction.x,
-        point.y + scale * direction.y,
-        point.z + scale * direction.z,
-    )
 }
 
 fn sample_and_fit_deg9(curve: &NurbsCurve) -> Option<[Point3; 10]> {

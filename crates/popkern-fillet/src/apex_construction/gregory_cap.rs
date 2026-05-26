@@ -20,9 +20,9 @@ use super::cap_kind::CapKind;
 use super::constructive_geometry::cylinder_arc_through_edge_endpoints;
 use super::error::ApexBuildError;
 use super::gregory_cap_boundary::{
-    author_support_compatible_face_edge_tangents, find_face_across_edge,
-    half_edge_for_face_on_edge, inject_physical_hex_boundary_cps, missing_adjacent_face_error,
-    oriented_cap_edge_curve, validate_physical_sector_handles, validate_planned_gregory_loop_roles,
+    find_face_across_edge, half_edge_for_face_on_edge, inject_physical_hex_boundary_cps,
+    missing_adjacent_face_error, oriented_cap_edge_curve, validate_physical_sector_handles,
+    validate_planned_gregory_loop_roles,
 };
 use super::gregory_cap_surface_assembly::GregoryCapSurfaceAssembly;
 pub(super) use super::gregory_cap_topology::{
@@ -145,10 +145,6 @@ pub(super) fn assemble_gregory_cap_surface(
         }
     }
     inject_physical_hex_boundary_cps(&mut boundary)?;
-    if boundary.sphere_fit_substituted {
-        author_support_compatible_face_edge_tangents(&mut boundary, fillet_surfaces, brep);
-    }
-
     let classification = VertexBlendClassification::SameSideConvex;
     if let Some(patches) = try_boundary_preserving_pns_cap(BoundaryPreservingPnsCapInput {
         brep,
