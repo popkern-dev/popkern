@@ -19,7 +19,6 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
-use std::collections::BTreeSet;
 
 #[path = "support/kp_gate_cap_outer.rs"]
 mod kp_gate_cap_outer;
@@ -99,20 +98,22 @@ pub fn fillet_corner_full(
 }
 
 fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
-    result
-        .corner_patches
-        .iter()
-        .map(|patch| patch.face)
-        .chain(
-            result
-                .repair_report
-                .apex_routes
-                .iter()
-                .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied()),
-        )
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+    let mut faces = Vec::new();
+    // Ring continuity metrics are order-sensitive. Preserve the
+    // construction report order and deduplicate without sorting by
+    // SlotMap handle, which is not a topological adjacency order.
+    for face in result.corner_patches.iter().map(|patch| patch.face).chain(
+        result
+            .repair_report
+            .apex_routes
+            .iter()
+            .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied()),
+    ) {
+        if !faces.contains(&face) {
+            faces.push(face);
+        }
+    }
+    faces
 }
 
 pub fn patch_of(brep: &BRep, face: FaceHandle) -> Option<GregoryPatch> {
