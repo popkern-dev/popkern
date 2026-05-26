@@ -10,7 +10,9 @@ use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::gregory_cap_boundary::half_edge_for_face_on_edge;
 use crate::apex_construction::plan::ApexPlan;
 use crate::apex_construction::target_topology::{TargetCapFace, TargetEdgeRole};
-use sector_support_side::same_oriented_cylinder_support_side;
+use sector_support_side::{
+    coincident_support_side, same_oriented_cylinder_support_side, same_oriented_support_side,
+};
 
 /// Sector-local side occupied by an immutable cap/support seam.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -315,7 +317,7 @@ fn extract_outer_seam(
             None,
         ));
     }
-    let cap_half_edge = half_edge_for_face_on_edge(brep, edge, cap_face).ok_or_else(|| {
+    let mut cap_half_edge = half_edge_for_face_on_edge(brep, edge, cap_face).ok_or_else(|| {
         diagnostic(
             ExactBoundarySectorDeclineReason::MissingCapHalfEdge,
             sector,
@@ -325,7 +327,7 @@ fn extract_outer_seam(
             None,
         )
     })?;
-    let cap_half_edge_data = brep.half_edges.get(cap_half_edge).ok_or_else(|| {
+    let mut cap_half_edge_data = brep.half_edges.get(cap_half_edge).ok_or_else(|| {
         diagnostic(
             ExactBoundarySectorDeclineReason::MissingCapHalfEdge,
             sector,
@@ -336,7 +338,65 @@ fn extract_outer_seam(
         )
     })?;
     let mut support_half_edge = cap_half_edge_data.twin;
-    let mut support_half_edge_data = brep.half_edges.get(support_half_edge).ok_or_else(|| {
+    let mut support_half_edge_data = brep.half_edges.get(support_half_edge);
+    let mut support_face = support_half_edge_data
+        .and_then(|data| brep.loops.get(data.loop_))
+        .map(|loop_data| loop_data.face)
+        .filter(|face| *face != cap_face);
+    if support_half_edge_data
+        .and_then(|data| brep.loops.get(data.loop_))
+        .is_some_and(|loop_data| loop_data.face == cap_face)
+    {
+        cap_half_edge = support_half_edge;
+        cap_half_edge_data = brep.half_edges.get(cap_half_edge).ok_or_else(|| {
+            diagnostic(
+                ExactBoundarySectorDeclineReason::MissingCapHalfEdge,
+                sector,
+                sector_name,
+                cap_face,
+                Some(edge),
+                Some(cap_half_edge),
+            )
+        })?;
+        support_half_edge = cap_half_edge_data.twin;
+        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_face = support_half_edge_data
+            .and_then(|data| brep.loops.get(data.loop_))
+            .map(|loop_data| loop_data.face)
+            .filter(|face| *face != cap_face);
+    }
+    if side == ExactBoundaryOuterSide::FilletEnd
+        && (support_half_edge_data.is_none()
+            || support_face.is_none_or(|face| {
+                brep.faces
+                    .get(face)
+                    .and_then(|face_data| face_data.surface.as_ref())
+                    .is_none()
+            }))
+        && let Some((semantic_support_half_edge, semantic_support_face)) =
+            same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
+    {
+        support_half_edge = semantic_support_half_edge;
+        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_face = Some(semantic_support_face);
+    }
+    if support_face.is_none_or(|face| face == cap_face)
+        && let Some((semantic_support_half_edge, semantic_support_face)) =
+            same_oriented_support_side(brep, cap_face, cap_half_edge)
+    {
+        support_half_edge = semantic_support_half_edge;
+        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_face = Some(semantic_support_face);
+    }
+    if support_face.is_none_or(|face| face == cap_face)
+        && let Some((semantic_support_half_edge, semantic_support_face)) =
+            coincident_support_side(brep, cap_face, cap_half_edge)
+    {
+        support_half_edge = semantic_support_half_edge;
+        support_half_edge_data = brep.half_edges.get(support_half_edge);
+        support_face = Some(semantic_support_face);
+    }
+    let support_half_edge_data = support_half_edge_data.ok_or_else(|| {
         diagnostic(
             ExactBoundarySectorDeclineReason::MissingSupportHalfEdge,
             sector,
@@ -346,43 +406,16 @@ fn extract_outer_seam(
             Some(support_half_edge),
         )
     })?;
-    let mut support_face = brep
-        .loops
-        .get(support_half_edge_data.loop_)
-        .map(|loop_data| loop_data.face)
-        .filter(|face| *face != cap_face)
-        .ok_or_else(|| {
-            diagnostic(
-                ExactBoundarySectorDeclineReason::MissingSupportFace,
-                sector,
-                sector_name,
-                cap_face,
-                Some(edge),
-                Some(support_half_edge),
-            )
-        })?;
-    if side == ExactBoundaryOuterSide::FilletEnd
-        && brep
-            .faces
-            .get(support_face)
-            .and_then(|face| face.surface.as_ref())
-            .is_none()
-        && let Some((semantic_support_half_edge, semantic_support_face)) =
-            same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
-    {
-        support_half_edge = semantic_support_half_edge;
-        support_half_edge_data = brep.half_edges.get(support_half_edge).ok_or_else(|| {
-            diagnostic(
-                ExactBoundarySectorDeclineReason::MissingSupportHalfEdge,
-                sector,
-                sector_name,
-                cap_face,
-                Some(edge),
-                Some(support_half_edge),
-            )
-        })?;
-        support_face = semantic_support_face;
-    }
+    let support_face = support_face.ok_or_else(|| {
+        diagnostic(
+            ExactBoundarySectorDeclineReason::MissingSupportFace,
+            sector,
+            sector_name,
+            cap_face,
+            Some(edge),
+            Some(support_half_edge),
+        )
+    })?;
 
     Ok(ExactBoundaryOuterSeam {
         side,

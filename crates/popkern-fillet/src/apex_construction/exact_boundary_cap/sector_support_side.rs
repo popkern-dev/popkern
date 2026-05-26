@@ -9,6 +9,62 @@ pub(super) fn same_oriented_cylinder_support_side(
     cap_face: FaceHandle,
     cap_half_edge: HalfEdgeHandle,
 ) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    same_oriented_support_side_matching(brep, cap_face, cap_half_edge, |surface| {
+        matches!(surface.geometry, SurfaceGeometry::Cylinder { .. })
+    })
+}
+
+pub(super) fn same_oriented_support_side(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cap_half_edge: HalfEdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    same_oriented_support_side_matching(brep, cap_face, cap_half_edge, |_| true)
+}
+
+pub(super) fn coincident_support_side(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cap_half_edge: HalfEdgeHandle,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    for (face, face_data) in brep.faces.iter() {
+        if face == cap_face {
+            continue;
+        }
+        let Some(sides) = collect_loop_half_edges(brep, face_data.outer_loop) else {
+            continue;
+        };
+        for side in sides {
+            if coincident_side(brep, cap_half_edge, side) {
+                return Some((side, face));
+            }
+        }
+    }
+    None
+}
+
+fn same_oriented_support_side_matching(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cap_half_edge: HalfEdgeHandle,
+    surface_matches: impl Fn(&popkern_core::geometry::surface::SurfaceOnFace) -> bool,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
+    support_side_matching(
+        brep,
+        cap_face,
+        cap_half_edge,
+        surface_matches,
+        same_oriented_side,
+    )
+}
+
+fn support_side_matching(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    cap_half_edge: HalfEdgeHandle,
+    surface_matches: impl Fn(&popkern_core::geometry::surface::SurfaceOnFace) -> bool,
+    side_matches: impl Fn(&BRep, HalfEdgeHandle, HalfEdgeHandle) -> bool,
+) -> Option<(HalfEdgeHandle, FaceHandle)> {
     for (face, face_data) in brep.faces.iter() {
         if face == cap_face {
             continue;
@@ -16,14 +72,14 @@ pub(super) fn same_oriented_cylinder_support_side(
         let Some(surface) = face_data.surface.as_ref() else {
             continue;
         };
-        if !matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
+        if !surface_matches(surface) {
             continue;
         }
         let Some(sides) = collect_loop_half_edges(brep, face_data.outer_loop) else {
             continue;
         };
         for side in sides {
-            if same_oriented_side(brep, cap_half_edge, side) {
+            if side_matches(brep, cap_half_edge, side) {
                 return Some((side, face));
             }
         }
@@ -48,6 +104,23 @@ fn same_oriented_side(brep: &BRep, cap_side: HalfEdgeHandle, support_side: HalfE
         return false;
     };
     cap_end == support_end
+}
+
+fn coincident_side(brep: &BRep, cap_side: HalfEdgeHandle, support_side: HalfEdgeHandle) -> bool {
+    let Some(cap_start) = brep.half_edges.get(cap_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(support_start) = brep.half_edges.get(support_side).map(|data| data.origin) else {
+        return false;
+    };
+    let Some(cap_end) = half_edge_destination_vertex(brep, cap_side) else {
+        return false;
+    };
+    let Some(support_end) = half_edge_destination_vertex(brep, support_side) else {
+        return false;
+    };
+    (cap_start == support_start && cap_end == support_end)
+        || (cap_start == support_end && cap_end == support_start)
 }
 
 fn collect_loop_half_edges(
