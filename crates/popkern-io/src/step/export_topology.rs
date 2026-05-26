@@ -477,3 +477,7 @@ use crate::step::parser::types::Parameter;
 #[cfg(test)]
 #[path = "export_topology_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "export_topology_fixture_tests.rs"]
+mod fixture_tests;

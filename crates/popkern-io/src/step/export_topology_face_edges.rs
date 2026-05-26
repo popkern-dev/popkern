@@ -9,7 +9,7 @@ use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, ref_, str_param};
 use crate::step::export_pcurve_synthesis::{
     export_pcurve_trace_matches_edge, step_export_pcurve_association_tolerance,
-    synthesize_export_face_use_curve_and_pcurve,
+    synthesize_export_face_use_curve_and_pcurve, synthesize_export_half_edge_pcurve_on_surface,
 };
 use crate::step::export_topology::ExportedFaceSurface;
 use crate::step::export_topology_face_uses::{EdgeFaceUse, edge_face_uses};
@@ -54,22 +54,32 @@ fn pcurve_exportable_for_face_use(
 ) -> Option<()> {
     let he = brep.half_edges.get(face_use.half_edge)?;
     let surface = surface_map.get(&face_use.face)?;
-    let pcurve = brep
+    let stored_pcurve = brep
         .face_use_pcurve(face_use.face, face_use.half_edge)
-        .or(he.pcurve.as_ref())?;
+        .or(he.pcurve.as_ref())
+        .cloned();
+    let synthesized_pcurve = stored_pcurve.or_else(|| {
+        synthesize_export_half_edge_pcurve_on_surface(
+            brep,
+            edge_handle,
+            face_use.half_edge,
+            &surface.surface.geometry,
+        )
+    })?;
+    let tolerance = step_export_pcurve_association_tolerance(brep);
     (pcurve_endpoints_match_edge_segment(
         brep,
         edge_handle,
-        pcurve,
+        &synthesized_pcurve,
         &surface.surface.geometry,
-        step_export_pcurve_association_tolerance(brep),
+        tolerance,
     ) || export_pcurve_trace_matches_edge(
         brep,
         edge_handle,
         face_use.half_edge,
-        pcurve,
+        &synthesized_pcurve,
         &surface.surface.geometry,
-        step_export_pcurve_association_tolerance(brep),
+        tolerance,
     ))
     .then_some(())
 }
