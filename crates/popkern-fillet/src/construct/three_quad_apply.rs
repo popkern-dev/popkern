@@ -4,6 +4,8 @@
 //! face: build patches, poke topology, assign surfaces, and return
 //! one [`CornerPatchInfo`] per sub-face.
 
+#[path = "three_quad_apply_helpers.rs"]
+mod three_quad_apply_helpers;
 #[path = "three_quad_face_matching.rs"]
 mod three_quad_face_matching;
 #[path = "three_quad_kp_promote.rs"]
@@ -26,6 +28,9 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use three_quad_apply_helpers::{
+    decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,
+};
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
 pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_coplanarity};
@@ -38,12 +43,11 @@ use three_quad_sphere_cap::{
 use three_quad_trace::trace_cap_subface_neighbors;
 
 use super::poke_hex::poke_n_gon_face_into_n_quads;
+use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::{
-    ContinuityLevel, CornerMethod, CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchProvenance,
-};
+use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
 /// §5.3 item #10 — why the three-quad dispatch failed. Callers
@@ -76,7 +80,14 @@ pub(crate) fn author_cap_face_boundary_pcurves(
     old_surface: Option<&SurfaceGeometry>,
 ) -> Result<(), String> {
     reproject_loop_pcurves_onto_gregory(brep, sub_face, old_surface, false);
-    author_boundary_owned_seam_pcurves(brep, sub_face, boundary, fillet_surfaces, subface_index);
+    author_boundary_owned_seam_pcurves(
+        brep,
+        sub_face,
+        boundary,
+        fillet_surfaces,
+        subface_index,
+        None,
+    );
     three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, sub_face);
     three_quad_reproject::verify_outer_loop_pcurves(brep, sub_face)
 }
@@ -354,7 +365,18 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
-    for (k, (sub_face, sub_patch)) in sub_faces.iter().zip(decomp.sub_patches.iter()).enumerate() {
+    let semantic_cap_indices = semantic_cap_indices_for_subfaces(brep, boundary, &sub_faces);
+    for (k, sub_face) in sub_faces.iter().enumerate() {
+        let semantic_cap_index = semantic_cap_indices
+            .get(k)
+            .and_then(|cap_index| *cap_index)
+            .unwrap_or(k);
+        let Some(sub_patch) = decomp.sub_patches.get(semantic_cap_index) else {
+            *brep = brep_before_surface_assignment.clone();
+            return Err(ThreeQuadFailure::Other(format!(
+                "semantic cap index {semantic_cap_index} has no Gregory sub-patch"
+            )));
+        };
         // Internal cap-to-cap edges may lack a 3-D curve, so keep the old
         // surface as the reprojection fallback before replacing it.
         let old_surface = brep
@@ -363,7 +385,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .and_then(|f| f.surface.as_ref())
             .map(|sof| sof.geometry.clone());
         let new_geometry = if sphere_cap_rung {
-            let chosen = cap_sphere_per_subface[k].unwrap_or(boundary.per_fillet_caps[k]);
+            let chosen =
+                cap_sphere_per_subface[k].unwrap_or(boundary.per_fillet_caps[semantic_cap_index]);
             SurfaceGeometry::Sphere {
                 center: chosen.0,
                 radius: chosen.1,
@@ -382,7 +405,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                     *sub_face,
                     boundary,
                     fillet_surfaces,
-                    k,
+                    semantic_cap_index,
                 )
         {
             *brep = brep_before_surface_assignment.clone();
@@ -396,7 +419,14 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             boundary.sphere_fit_substituted,
         );
         if !sphere_cap_rung {
-            author_boundary_owned_seam_pcurves(brep, *sub_face, boundary, fillet_surfaces, k);
+            author_boundary_owned_seam_pcurves(
+                brep,
+                *sub_face,
+                boundary,
+                fillet_surfaces,
+                k,
+                Some(semantic_cap_index),
+            );
         }
         if support_frames_enabled && !sphere_cap_rung {
             let surface_before_support_frame = brep.faces[*sub_face].surface.clone();
@@ -433,7 +463,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             overlap_remediated: false,
             relaxed_continuity_coplanarity: relaxed_coplanarity,
             cap_sphere: cap_sphere_per_subface[k],
-            sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, k),
+            sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, semantic_cap_index),
         });
     }
     if crate::direct_apex_trace::enabled() {
@@ -453,41 +483,8 @@ pub(crate) fn author_model_level_support_face_boundary_seams(
         sub_faces,
         boundary,
         fillet_surfaces,
+        &semantic_cap_indices_for_subfaces(brep, boundary, sub_faces),
     )
-}
-
-fn sub_patch_provenance(
-    macro_family: Option<CornerSubPatchFamily>,
-    n_sides: usize,
-    sub_patch_index: usize,
-) -> Option<CornerSubPatchProvenance> {
-    macro_family.map(|family| {
-        CornerSubPatchProvenance::macro_cap(
-            family,
-            sub_patch_index / 4,
-            n_sides,
-            sub_patch_index % 4,
-        )
-    })
-}
-
-fn macro_family_from_promotion(
-    promotion_result: super::promotion_ladder::PromotionResult,
-) -> Option<CornerSubPatchFamily> {
-    match promotion_result {
-        super::promotion_ladder::PromotionResult::Standard => None,
-        super::promotion_ladder::PromotionResult::Macro4n(family) => Some(family),
-    }
-}
-
-fn decomp_self_intersects(
-    decomp: &crate::blend::gregory_three_quad::NQuadDecomposition,
-    tolerance: f64,
-) -> bool {
-    decomp
-        .sub_patches
-        .iter()
-        .any(|patch| patch.self_intersects_with_tolerance(tolerance))
 }
 
 #[cfg(test)]

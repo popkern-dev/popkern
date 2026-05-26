@@ -18,9 +18,11 @@ pub(crate) fn cap_support_acceptance_error(
         .collect::<std::collections::BTreeSet<_>>();
     let mut worst_g0 = 0.0f64;
     let mut worst_g1 = 0.0f64;
+    let mut worst_g0_edge = None;
+    let mut worst_g1_edge = None;
     let mut measured_edges = 0usize;
 
-    for (_edge_handle, edge) in brep.edges.iter() {
+    for (edge_handle, edge) in brep.edges.iter() {
         let he_a = edge.half_edge;
         let Some(ha) = brep.half_edges.get(he_a) else {
             continue;
@@ -81,7 +83,11 @@ pub(crate) fn cap_support_acceptance_error(
             let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
             let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
             let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
-            worst_g0 = worst_g0.max(p_a.distance_to(&p_b));
+            let g0_gap = p_a.distance_to(&p_b);
+            if g0_gap > worst_g0 {
+                worst_g0 = g0_gap;
+                worst_g0_edge = Some(edge_handle);
+            }
 
             let n_a = sa
                 .geometry
@@ -95,7 +101,11 @@ pub(crate) fn cap_support_acceptance_error(
             let len_b = n_b.length();
             if len_a > 1e-300 && len_b > 1e-300 {
                 let dot = n_a.x * n_b.x + n_a.y * n_b.y + n_a.z * n_b.z;
-                worst_g1 = worst_g1.max(1.0 - (dot / (len_a * len_b)).abs());
+                let g1_gap = 1.0 - (dot / (len_a * len_b)).abs();
+                if g1_gap > worst_g1 {
+                    worst_g1 = g1_gap;
+                    worst_g1_edge = Some(edge_handle);
+                }
             }
         }
     }
@@ -108,12 +118,14 @@ pub(crate) fn cap_support_acceptance_error(
     }
     if worst_g0 > max_g0_gap {
         return Some(format!(
-            "cap_outer_g0 {worst_g0:.3e} exceeds {max_g0_gap:.3e}"
+            "cap_outer_g0 {worst_g0:.3e} on {:?} exceeds {max_g0_gap:.3e}",
+            worst_g0_edge.unwrap_or_default()
         ));
     }
     if worst_g1 > max_g1_coplanarity {
         return Some(format!(
-            "cap_outer_g1 {worst_g1:.3e} exceeds {max_g1_coplanarity:.3e}"
+            "cap_outer_g1 {worst_g1:.3e} on {:?} exceeds {max_g1_coplanarity:.3e}",
+            worst_g1_edge.unwrap_or_default()
         ));
     }
     None

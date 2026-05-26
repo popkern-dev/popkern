@@ -33,14 +33,12 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveGeometry, Point3, fitting};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
-#[path = "sphere_fit_edge_wire_cap_identity.rs"]
-mod sphere_fit_edge_wire_cap_identity;
 #[path = "sphere_fit_edge_wire_helpers.rs"]
 mod sphere_fit_edge_wire_helpers;
 #[path = "sphere_fit_edge_wire_match.rs"]
 mod sphere_fit_edge_wire_match;
 
-use sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
+use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use sphere_fit_edge_wire_helpers::{
     analytic_linear_pcurve_on_surface, cap_pcurve_for_segment, project_point_on_curve,
     refit_pcurve_on_surface, reverse_nurbs, snap_vertex_to,

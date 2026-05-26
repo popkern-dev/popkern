@@ -271,7 +271,9 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             ApexConstructionDiagnostic::CylinderTrimMaterialization(_) => {}
             ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
                 apex_declined += 1;
-                apex_max_deviation = apex_max_deviation.max(diagnostic.worst_g1_coplanarity);
+                let worst_g0_gap = diagnostic.continuity.worst_g0_gap.unwrap_or(0.0);
+                let worst_deviation = worst_g0_gap.max(diagnostic.worst_g1_coplanarity);
+                apex_max_deviation = apex_max_deviation.max(worst_deviation);
                 actions.push(BrepRepairActionRecord {
                     stage: "apex_cap_support_continuity".to_string(),
                     outcome: "declined".to_string(),
@@ -285,7 +287,7 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
                         .clone()
                         .or_else(|| Some("cap_outer_g1_exceeds_gate".to_string())),
                     max_motion: 0.0,
-                    max_deviation: diagnostic.worst_g1_coplanarity,
+                    max_deviation: worst_deviation,
                     affected_handles: vec![
                         format!("face:{:?}", diagnostic.cap_face),
                         format!("face:{:?}", diagnostic.support_face),

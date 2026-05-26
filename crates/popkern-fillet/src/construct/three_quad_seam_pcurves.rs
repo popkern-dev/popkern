@@ -28,11 +28,13 @@ pub(super) fn author_boundary_owned_seam_pcurves(
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
     subface_index: usize,
+    semantic_cap_index: Option<usize>,
 ) {
-    if boundary.segments.len() < 2 * (subface_index + 1) {
+    let segment_cap_index = semantic_cap_index.unwrap_or(subface_index);
+    if boundary.segments.len() < 2 * (segment_cap_index + 1) {
         return;
     }
-    for (segment_offset, segment_index) in [2 * subface_index, 2 * subface_index + 1]
+    for (segment_offset, segment_index) in [2 * segment_cap_index, 2 * segment_cap_index + 1]
         .into_iter()
         .enumerate()
     {
@@ -313,13 +315,18 @@ pub(super) fn author_post_assignment_support_face_boundary_seams(
     sub_faces: &[FaceHandle],
     boundary: &BlendBoundary,
     fillet_surfaces: &[FilletSurfaceResult],
+    semantic_cap_indices: &[Option<usize>],
 ) -> SupportSeamRelocationReport {
     let before = brep.clone();
     let mut report = SupportSeamRelocationReport::default();
     let required_hints = gregory_cap_cylinder_boundary_hint_count(brep);
     let required_neighbors = three_quad_support_seams::gregory_cap_cylinder_neighbor_count(brep);
     for (subface_index, sub_face) in sub_faces.iter().enumerate() {
-        for (segment_offset, segment_index) in [2 * subface_index, 2 * subface_index + 1]
+        let segment_cap_index = semantic_cap_indices
+            .get(subface_index)
+            .and_then(|cap_index| *cap_index)
+            .unwrap_or(subface_index);
+        for (segment_offset, segment_index) in [2 * segment_cap_index, 2 * segment_cap_index + 1]
             .into_iter()
             .enumerate()
         {
