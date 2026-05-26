@@ -372,6 +372,10 @@ fn fillet_edges_internal(
         }
     })?;
     surface_boundary_evidence::audit_gregory_analytic_boundary_evidence(&mut apply_result.brep);
+    construct::corner_patch_support_completion::complete_corner_patch_support_pcurves(
+        &mut apply_result.brep,
+        &apply_result.corner_patches,
+    );
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
