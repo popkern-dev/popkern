@@ -250,8 +250,12 @@ pub(in crate::construct) fn native_gregory_has_expected_cylinder_seams(
         let Some(hb) = brep.half_edges.get(ha.twin) else {
             continue;
         };
-        let face_a = brep.loops[ha.loop_].face;
-        let face_b = brep.loops[hb.loop_].face;
+        let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
+        let Some(face_b) = brep.loops.get(hb.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
         if face_a == face_b {
             continue;
         }
@@ -273,7 +277,7 @@ pub(in crate::construct) fn native_gregory_has_expected_cylinder_seams(
         }
     }
 
-    if cylinder_faces.len() < n_fillets {
+    if cylinder_seams < n_fillets {
         count_exact_boundary_cylinder_seams(
             brep,
             &cap_faces,
@@ -288,7 +292,7 @@ pub(in crate::construct) fn native_gregory_has_expected_cylinder_seams(
             cylinder_faces.len()
         );
     }
-    cylinder_faces.len() >= n_fillets
+    cylinder_seams >= n_fillets
 }
 
 pub(super) fn native_gregory_cap_faces(
@@ -375,9 +379,6 @@ fn same_oriented_exact_boundary_side(
     let Some(cylinder_start) = brep.half_edges.get(cylinder_side).map(|data| data.origin) else {
         return false;
     };
-    if cap_start != cylinder_start {
-        return false;
-    }
     let Some(cap_end) = half_edge_destination_vertex_for_acceptance(brep, cap_side) else {
         return false;
     };
@@ -385,7 +386,8 @@ fn same_oriented_exact_boundary_side(
     else {
         return false;
     };
-    cap_end == cylinder_end
+    (cap_start == cylinder_start && cap_end == cylinder_end)
+        || (cap_start == cylinder_end && cap_end == cylinder_start)
 }
 
 fn half_edge_destination_vertex_for_acceptance(

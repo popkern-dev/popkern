@@ -8,6 +8,7 @@ pub(super) type WireJob = (HalfEdgeHandle, usize, bool, Point3, Point3);
 pub(super) fn build_wire_worklist(
     brep: &BRep,
     sub_faces: &[FaceHandle],
+    semantic_cap_indices: &[Option<usize>],
     segment_curves: &[&NurbsCurve],
     segment_endpoints: &[[Point3; 2]],
     tol: f64,
@@ -35,11 +36,11 @@ pub(super) fn build_wire_worklist(
     let allow_multi_sub_edge = stage4_wide_tol;
     let trace_match = std::env::var_os("POPKERN_WIRE_MATCH_TRACE").is_some();
     // Phase 6c-D Stage 4.6: when injection is active, restrict
-    // matching to per-cap-face index — sub_face[k] gets row 0 =
-    // FilletEnd[k] (segment 2k) and col 9 = FaceEdge[k]
-    // (segment 2k+1) by construction.  Twin face surface kind
-    // tells us which boundary the edge sits on; combined with
-    // the cap face index, the segment index is fully determined.
+    // matching to each sub-face's semantic cap index. cap[j]
+    // gets row 0 = FilletEnd[j] (segment 2j) and col 9 =
+    // FaceEdge[j] (segment 2j+1). Twin face surface kind tells
+    // us which boundary the edge sits on; combined with the cap
+    // identity, the segment index is fully determined.
     //
     // Without this constraint, geometric-proximity matching
     // routes cap[1]'s cylinder edge to FilletEnd[2] (the wrong
@@ -49,7 +50,9 @@ pub(super) fn build_wire_worklist(
     // because the rolling-ball z (0.755) and analytic-arc z
     // (0.818) gap (~6 cm) is comparable to the inter-fillet XY
     // separation, so all four FilletEnd arcs are roughly
-    // equidistant.
+    // equidistant. Rewritten exact-boundary loops can also rotate
+    // vector order away from boundary order, so callers provide
+    // cylinder/sphere identity when available.
     let constrained_by_cap_index = stage4_wide_tol;
     let mut consumed = vec![false; segment_curves.len()];
     let mut worklist: Vec<WireJob> = Vec::new();
@@ -98,8 +101,9 @@ pub(super) fn build_wire_worklist(
             // in `sub_faces` is the topology-stable signal.
             let twin_he = he.twin;
             let twin_face = brep
-                .loops
-                .get(brep.half_edges[twin_he].loop_)
+                .half_edges
+                .get(twin_he)
+                .and_then(|twin| brep.loops.get(twin.loop_))
                 .map(|l| l.face);
             let twin_is_cap = twin_face
                 .map(|f| cap_face_set.contains(&f))
@@ -114,8 +118,14 @@ pub(super) fn build_wire_worklist(
                 continue;
             }
 
-            let p_origin = brep.vertices[v_origin].position;
-            let p_dest = brep.vertices[v_dest].position;
+            let Some(origin_vertex) = brep.vertices.get(v_origin) else {
+                continue;
+            };
+            let Some(dest_vertex) = brep.vertices.get(v_dest) else {
+                continue;
+            };
+            let p_origin = origin_vertex.position;
+            let p_dest = dest_vertex.position;
 
             // Phase 6c-D Stage 4.2 — matching strategy:
             //
@@ -139,16 +149,20 @@ pub(super) fn build_wire_worklist(
             //   FilletEnd segment.
             let mut best: Option<(usize, f64, bool)> = None;
             if constrained_by_cap_index {
-                // Phase 6c-D Stage 4.6: route by cap index + twin
-                // surface kind.  sub_face[k] owns segments
-                // {2k, 2k+1}; twin face kind picks parity.
+                // Phase 6c-D Stage 4.6: route by semantic cap index
+                // + twin surface kind. sub_face owns segments
+                // {2j, 2j+1}; twin face kind picks parity.
+                let semantic_cap_k = semantic_cap_indices
+                    .get(cap_k)
+                    .and_then(|cap| *cap)
+                    .unwrap_or(cap_k);
                 let twin_face_data = twin_face.and_then(|f| brep.faces.get(f));
                 let twin_kind = twin_face_data
                     .and_then(|f| f.surface.as_ref())
                     .map(|sof| &sof.geometry);
                 let target_seg = match twin_kind {
-                    Some(SurfaceGeometry::Cylinder { .. }) => Some(2 * cap_k),
-                    Some(SurfaceGeometry::Plane { .. }) => Some(2 * cap_k + 1),
+                    Some(SurfaceGeometry::Cylinder { .. }) => Some(2 * semantic_cap_k),
+                    Some(SurfaceGeometry::Plane { .. }) => Some(2 * semantic_cap_k + 1),
                     _ => None,
                 };
                 if let Some(seg_i) = target_seg
@@ -167,6 +181,26 @@ pub(super) fn build_wire_worklist(
                     let t_dest = project_point_on_curve(segment, p_dest);
                     let reversed = t_origin > t_dest;
                     best = Some((seg_i, d, reversed));
+                } else {
+                    let p_mid = Point3::new(
+                        (p_origin.x + p_dest.x) * 0.5,
+                        (p_origin.y + p_dest.y) * 0.5,
+                        (p_origin.z + p_dest.z) * 0.5,
+                    );
+                    for seg_i in [2 * semantic_cap_k, 2 * semantic_cap_k + 1] {
+                        let Some(segment) = segment_curves.get(seg_i) else {
+                            continue;
+                        };
+                        let t_mid = project_point_on_curve(segment, p_mid);
+                        let proj_mid = segment.point_at(t_mid);
+                        let d = proj_mid.distance_to(&p_mid);
+                        let t_origin = project_point_on_curve(segment, p_origin);
+                        let t_dest = project_point_on_curve(segment, p_dest);
+                        let reversed = t_origin > t_dest;
+                        if best.map(|(_, bd, _)| d < bd).unwrap_or(true) {
+                            best = Some((seg_i, d, reversed));
+                        }
+                    }
                 }
             } else if allow_multi_sub_edge {
                 let p_mid = Point3::new(
@@ -207,7 +241,7 @@ pub(super) fn build_wire_worklist(
                 let chord = p_origin.distance_to(&p_dest);
                 let twin_kind = brep
                     .faces
-                    .get(twin_face.unwrap_or(brep.loops[brep.half_edges[twin_he].loop_].face))
+                    .get(twin_face.unwrap_or(sub_face))
                     .and_then(|f| f.surface.as_ref())
                     .map(|sof| match &sof.geometry {
                         SurfaceGeometry::Cylinder { .. } => "Cyl",

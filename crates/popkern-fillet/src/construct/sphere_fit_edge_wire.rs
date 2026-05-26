@@ -33,11 +33,14 @@ use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{CurveGeometry, Point3, fitting};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 
+#[path = "sphere_fit_edge_wire_cap_identity.rs"]
+mod sphere_fit_edge_wire_cap_identity;
 #[path = "sphere_fit_edge_wire_helpers.rs"]
 mod sphere_fit_edge_wire_helpers;
 #[path = "sphere_fit_edge_wire_match.rs"]
 mod sphere_fit_edge_wire_match;
 
+use sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use sphere_fit_edge_wire_helpers::{
     analytic_linear_pcurve_on_surface, cap_pcurve_for_segment, project_point_on_curve,
     refit_pcurve_on_surface, reverse_nurbs, snap_vertex_to,
@@ -64,9 +67,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // Phase 6c-D Stage 1: optional 30 cm tolerance + vertex
     // relocation under `POPKERN_GREGORY_CAP_REBUILD=1`. Closes the
     // BRep ↔ substituted-boundary alignment gap for fixtures where
-    // Path B reroute can't run (pyramid topology — neighbour
-    // cylinder axes don't pass through per-fillet sphere centres).
-    // Default off so cube_mixed/extreme's Path B path is undisturbed.
+    // neighbor-cylinder reroute can't run (pyramid topology axes do
+    // not pass through per-fillet sphere centres). Default off so
+    // cube_mixed/extreme's reroute path is undisturbed.
     //
     // Phase 6c-D Stage 4: empirical finding — variable-radius
     // pyramid fixtures need the wider tolerance to match ANY
@@ -94,8 +97,8 @@ pub(crate) fn wire_substituted_boundary_to_edges(
     // to match the curve endpoints; A.5 updates BASE-EDGE curves.
     //
     // Implies stage4_wide_tol behaviours (analytic pcurves, etc.)
-    // because the apex Path A is meaningful only under sphere-fit
-    // substitution.
+    // because full-boundary apex wiring is meaningful only under
+    // sphere-fit substitution.
     let path_a_active = boundary.sphere_fit_substituted
         && std::env::var("POPKERN_APEX_PATH_A")
             .map(|v| v != "0")
@@ -122,10 +125,12 @@ pub(crate) fn wire_substituted_boundary_to_edges(
             [c.point_at(t0), c.point_at(t1)]
         })
         .collect();
+    let semantic_cap_indices = semantic_cap_indices_for_subfaces(brep, boundary, sub_faces);
 
     let worklist = build_wire_worklist(
         brep,
         sub_faces,
+        &semantic_cap_indices,
         &segment_curves,
         &segment_endpoints,
         tol,
@@ -149,9 +154,9 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         };
         let v_dest = next_he_data.origin;
 
-        // Snap vertices first when relocation is enabled (pyramid
-        // path — no Path B). Keeps loop closure invariants when
-        // the curve below is written. snap_vertex_to syncs *all*
+        // Snap vertices first when relocation is enabled. Keeps loop
+        // closure invariants when the curve below is written.
+        // snap_vertex_to syncs *all*
         // incident half-edges' edge curves CP[0]/CP[last] to the
         // new vertex position, so sibling edges' curves still join
         // cleanly at the moved vertex.
@@ -191,13 +196,15 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         // Capture face surfaces for pcurve refit (this side + twin)
         // before we mutate the edge curve.
         let twin_he = brep.half_edges[he_handle].twin;
+        let twin_he_live = brep.half_edges.contains_key(twin_he).then_some(twin_he);
         let cap_face = brep
             .loops
             .get(brep.half_edges[he_handle].loop_)
             .map(|l| l.face);
         let other_face = brep
-            .loops
-            .get(brep.half_edges[twin_he].loop_)
+            .half_edges
+            .get(twin_he)
+            .and_then(|twin| brep.loops.get(twin.loop_))
             .map(|l| l.face);
         let cap_surf = cap_face.and_then(|f| {
             brep.faces
@@ -230,7 +237,7 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         } else {
             // Phase 6c-D Stage 4.1: project the sub-edge's vertex
             // endpoints onto the segment to find the sub-range.
-            // Without this (in legacy non-Path-A mode), every sub-edge
+            // Without this in legacy subrange mode, every sub-edge
             // sharing a segment would claim the full segment range.
             let v_origin_pos = brep.vertices[v_origin].position;
             let v_dest_pos = brep.vertices[v_dest].position;
@@ -404,10 +411,11 @@ pub(crate) fn wire_substituted_boundary_to_edges(
         } else {
             None
         };
-        if let Some(pc) = analytic_twin_pcurve {
+        if let (Some(twin_he), Some(pc)) = (twin_he_live, analytic_twin_pcurve) {
             brep.half_edges[twin_he].pcurve = Some(pc);
         } else if let Some(other_surf) = other_surf.as_ref()
             && let Some(pc) = refit_pcurve_on_surface(&curve, other_surf, edge_t_start, edge_t_end)
+            && let Some(twin_he) = twin_he_live
         {
             brep.half_edges[twin_he].pcurve = Some(pc.into());
         }

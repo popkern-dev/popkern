@@ -2,17 +2,9 @@
 //!
 //! Bridges from DirectApex's [`ApexPlan`] + post-stitch BRep state to the
 //! legacy [`apply_three_quad_decomposition_to_blend`] entry point
-//! (the K-P promotion ladder).  The bridge:
-//!
-//! 1. Walks `plan.target_topology.outer_loop_edge_indices` and emits
-//!    one [`BoundarySegment`] per apex_edge — `FilletEnd` for
-//!    [`TargetEdgeRole::CapVsCyl`], `FaceEdge` for
-//!    [`TargetEdgeRole::CapVsPlane`].
-//! 2. Resolves the `face` field of each `FaceEdge` by walking the
-//!    BRep edge's twin half-edge.
-//! 3. Calls the legacy K-P promotion ladder via
-//!    `apply_three_quad_decomposition_to_blend`.
-//!
+//! (the K-P promotion ladder). The bridge emits planner-ordered boundary
+//! segments, resolves adjacent faces, and calls the legacy K-P promotion
+//! ladder via `apply_three_quad_decomposition_to_blend`.
 //! Plus topological helpers used by `construct_apex_inner` to
 //! identify the cap face after apex teardown and merge any unmerged
 //! corner sub-faces left by the V-spoke kef sequence on Gregory
@@ -373,8 +365,12 @@ fn oriented_fillet_end_boundary_curve(
     let end = brep
         .half_edges
         .get(cap_half_edge)
-        .and_then(|half_edge| brep.half_edges.get(half_edge.twin))
-        .and_then(|twin| brep.vertices.get(twin.origin))
+        .and_then(|half_edge| {
+            brep.half_edges
+                .get(half_edge.twin)
+                .or_else(|| brep.half_edges.get(half_edge.next))
+        })
+        .and_then(|end_side| brep.vertices.get(end_side.origin))
         .map(|vertex| vertex.position)
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: format!(

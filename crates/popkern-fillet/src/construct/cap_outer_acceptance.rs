@@ -28,8 +28,12 @@ pub(crate) fn cap_support_acceptance_error(
         let Some(hb) = brep.half_edges.get(ha.twin) else {
             continue;
         };
-        let face_a = brep.loops[ha.loop_].face;
-        let face_b = brep.loops[hb.loop_].face;
+        let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
+        let Some(face_b) = brep.loops.get(hb.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
         if face_a == face_b {
             continue;
         }
@@ -184,8 +188,12 @@ fn measure_cap_support_continuity(
         let Some(hb) = brep.half_edges.get(ha.twin) else {
             continue;
         };
-        let face_a = brep.loops[ha.loop_].face;
-        let face_b = brep.loops[hb.loop_].face;
+        let Some(face_a) = brep.loops.get(ha.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
+        let Some(face_b) = brep.loops.get(hb.loop_).map(|loop_data| loop_data.face) else {
+            continue;
+        };
         if face_a == face_b {
             continue;
         }
