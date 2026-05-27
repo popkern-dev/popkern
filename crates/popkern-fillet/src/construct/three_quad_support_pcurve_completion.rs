@@ -10,6 +10,7 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use super::helpers;
 
 const SAMPLE_COUNT: usize = 12;
+const STALE_CAP_PCURVE_TOLERANCE: f64 = 1.0e-5;
 
 pub(crate) fn complete_missing_cap_support_seams(brep: &mut BRep, cap_face: FaceHandle) {
     let Some(cap_surface) = brep
@@ -61,18 +62,45 @@ fn complete_cap_support_half_edge(
         return;
     };
     let edge = half_edge_data.edge;
-    let needs_cap_pcurve = brep.half_edges[half_edge].pcurve.is_none();
-    let needs_edge_curve = brep
+    let edge_curve = brep
         .edges
         .get(edge)
         .and_then(|edge| edge.curve.as_ref())
-        .is_none();
-    if !needs_cap_pcurve && !needs_edge_curve {
-        return;
-    }
-    let Some(samples) = cap_oriented_samples(brep, half_edge, twin, &support_surface) else {
+        .cloned();
+    let support_pcurve = brep.half_edges.get(twin).and_then(|he| he.pcurve.as_ref());
+    let support_owns_seam =
+        matches!(support_surface, SurfaceGeometry::Cylinder { .. }) && support_pcurve.is_some();
+    let Some(samples) =
+        cap_oriented_samples(brep, half_edge, twin, &support_surface, support_owns_seam)
+    else {
         return;
     };
+    let mut support_samples = samples.clone();
+    support_samples.reverse();
+    let needs_edge_curve = edge_curve.as_ref().is_none_or(|curve| {
+        support_owns_seam && edge_curve_sample_gap(brep, half_edge, curve, &samples) > 1.0e-5
+    });
+    let cap_boundary_owned = brep.surface_boundary_hint(half_edge).is_some();
+    let needs_cap_pcurve = !cap_boundary_owned
+        && brep.half_edges[half_edge]
+            .pcurve
+            .as_ref()
+            .is_none_or(|pcurve| {
+                cap_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, &samples)
+                    > STALE_CAP_PCURVE_TOLERANCE
+            });
+    let needs_support_pcurve = !needs_edge_curve
+        && match brep.half_edges[twin].pcurve.as_ref() {
+            None => true,
+            Some(_) if matches!(support_surface, SurfaceGeometry::Nurbs(_)) => false,
+            Some(pcurve) => {
+                cap_pcurve_sample_gap(brep, twin, &support_surface, pcurve, &support_samples)
+                    > STALE_CAP_PCURVE_TOLERANCE
+            }
+        };
+    if !needs_cap_pcurve && !needs_support_pcurve && !needs_edge_curve {
+        return;
+    }
     if needs_edge_curve {
         let mut edge_samples = samples.clone();
         if brep
@@ -96,10 +124,22 @@ fn complete_cap_support_half_edge(
             .iter()
             .map(|point| cap_uv_point(cap_surface, point))
             .collect::<Vec<_>>();
-        let pcurve = fit_nurbs_curve(&uv_samples)
-            .map(Pcurve::from)
-            .unwrap_or_else(|| linear_pcurve_from_endpoints(&uv_samples));
-        brep.half_edges[half_edge].pcurve = Some(pcurve);
+        brep.half_edges[half_edge].pcurve = Some(best_pcurve_for_surface_samples(
+            cap_surface,
+            &uv_samples,
+            &samples,
+        ));
+    }
+    if needs_support_pcurve {
+        let uv_samples = support_samples
+            .iter()
+            .map(|point| unclamped_uv_point(&support_surface, point))
+            .collect::<Vec<_>>();
+        brep.half_edges[twin].pcurve = Some(best_pcurve_for_surface_samples(
+            &support_surface,
+            &uv_samples,
+            &support_samples,
+        ));
     }
 }
 
@@ -108,7 +148,19 @@ fn cap_oriented_samples(
     half_edge: HalfEdgeHandle,
     twin: HalfEdgeHandle,
     support_surface: &SurfaceGeometry,
+    prefer_support_pcurve: bool,
 ) -> Option<Vec<Point3>> {
+    if prefer_support_pcurve
+        && let Some(support_pcurve) = brep.half_edges.get(twin)?.pcurve.as_ref()
+    {
+        return Some(samples_from_support_pcurve(
+            brep,
+            half_edge,
+            twin,
+            support_surface,
+            support_pcurve,
+        ));
+    }
     if let Some(curve) = brep
         .half_edges
         .get(half_edge)
@@ -117,14 +169,29 @@ fn cap_oriented_samples(
     {
         return Some(samples_from_curve_for_half_edge(brep, half_edge, curve));
     }
-    let support_pcurve = brep.half_edges.get(twin)?.pcurve.as_ref()?;
-    Some(samples_from_support_pcurve(
-        brep,
-        half_edge,
-        twin,
-        support_surface,
-        support_pcurve,
-    ))
+    if let Some(support_pcurve) = brep.half_edges.get(twin)?.pcurve.as_ref() {
+        return Some(samples_from_support_pcurve(
+            brep,
+            half_edge,
+            twin,
+            support_surface,
+            support_pcurve,
+        ));
+    }
+    None
+}
+
+fn edge_curve_sample_gap(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    curve: &CurveOnEdge,
+    target_samples: &[Point3],
+) -> f64 {
+    samples_from_curve_for_half_edge(brep, half_edge, curve)
+        .iter()
+        .zip(target_samples)
+        .map(|(sample, target)| sample.distance_to(target))
+        .fold(0.0, f64::max)
 }
 
 fn samples_from_curve_for_half_edge(
@@ -186,11 +253,127 @@ fn cap_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
     Point3::new(u, v, 0.0)
 }
 
+fn unclamped_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
+    let (u, v) = helpers::project_to_uv(surface, point);
+    Point3::new(u, v, 0.0)
+}
+
 fn fit_nurbs_curve(points: &[Point3]) -> Option<NurbsCurve> {
     let params = (0..points.len())
         .map(|index| index as f64 / (points.len() - 1) as f64)
         .collect::<Vec<_>>();
     fit_curve(points, &params, 3, points.len()).ok()
+}
+
+fn best_pcurve_for_surface_samples(
+    surface: &SurfaceGeometry,
+    uv_samples: &[Point3],
+    target_samples: &[Point3],
+) -> Pcurve {
+    let linear = linear_pcurve_from_endpoints(uv_samples);
+    if uv_samples_are_collinear(uv_samples) {
+        return linear;
+    }
+    let linear_gap = pcurve_surface_sample_gap(surface, &linear, target_samples);
+    let Some(fitted) = fit_nurbs_curve(uv_samples).map(Pcurve::from) else {
+        return linear;
+    };
+    let fitted_gap = pcurve_surface_sample_gap(surface, &fitted, target_samples);
+    if fitted_gap <= linear_gap {
+        fitted
+    } else {
+        linear
+    }
+}
+
+fn uv_samples_are_collinear(samples: &[Point3]) -> bool {
+    if samples.len() < 3 {
+        return true;
+    }
+    let start = samples[0];
+    let end = samples[samples.len() - 1];
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let len = (dx * dx + dy * dy).sqrt();
+    if len <= 1.0e-12 {
+        return samples.iter().all(|sample| {
+            let sx = sample.x - start.x;
+            let sy = sample.y - start.y;
+            (sx * sx + sy * sy).sqrt() <= 1.0e-10
+        });
+    }
+    samples.iter().all(|sample| {
+        let sx = sample.x - start.x;
+        let sy = sample.y - start.y;
+        (sx * dy - sy * dx).abs() / len <= 1.0e-8
+    })
+}
+
+fn pcurve_surface_sample_gap(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    samples: &[Point3],
+) -> f64 {
+    if samples.len() < 2 {
+        return f64::INFINITY;
+    }
+    let (t0, t1) = pcurve.parameter_range();
+    samples
+        .iter()
+        .enumerate()
+        .map(|(index, sample)| {
+            let s = index as f64 / (samples.len() - 1) as f64;
+            let point = cap_surface_point(surface, pcurve, t0 + s * (t1 - t0));
+            if point_is_finite(&point) {
+                point.distance_to(sample)
+            } else {
+                f64::INFINITY
+            }
+        })
+        .fold(0.0, f64::max)
+}
+
+fn cap_pcurve_sample_gap(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    cap_surface: &SurfaceGeometry,
+    cap_pcurve: &Pcurve,
+    samples: &[Point3],
+) -> f64 {
+    if samples.len() < 2 {
+        return f64::INFINITY;
+    }
+    let cap_start = brep.vertices[brep.half_edges[half_edge].origin].position;
+    let (t0, t1) = cap_pcurve.parameter_range();
+    let p0 = cap_surface_point(cap_surface, cap_pcurve, t0);
+    let p1 = cap_surface_point(cap_surface, cap_pcurve, t1);
+    if !point_is_finite(&p0) || !point_is_finite(&p1) {
+        return f64::INFINITY;
+    }
+    let forward = p0.distance_to(&cap_start) <= p1.distance_to(&cap_start);
+    samples
+        .iter()
+        .enumerate()
+        .map(|(index, sample)| {
+            let s = index as f64 / (samples.len() - 1) as f64;
+            let local = if forward { s } else { 1.0 - s };
+            let point = cap_surface_point(cap_surface, cap_pcurve, t0 + local * (t1 - t0));
+            if point_is_finite(&point) {
+                point.distance_to(sample)
+            } else {
+                f64::INFINITY
+            }
+        })
+        .fold(0.0, f64::max)
+}
+
+fn cap_surface_point(surface: &SurfaceGeometry, pcurve: &Pcurve, t: f64) -> Point3 {
+    let uv = pcurve.point_at(t);
+    surface.point_at(uv.x, uv.y)
+}
+
+fn point_is_finite(point: &Point3) -> bool {
+    point.x.is_finite() && point.y.is_finite() && point.z.is_finite()
 }
 
 fn linear_pcurve_from_endpoints(points: &[Point3]) -> Pcurve {
@@ -231,35 +414,7 @@ fn complete_direct_cap_half_edges(
         })
         .collect::<Vec<_>>();
     for half_edge in half_edges {
-        let half_edge_data = brep.half_edges[half_edge].clone();
-        let twin = half_edge_data.twin;
-        let start = brep.vertices[half_edge_data.origin].position;
-        let end = brep.vertices[brep.half_edges[twin].origin].position;
-        if brep.half_edges[half_edge].pcurve.is_none() {
-            let uv_start = cap_uv_point(cap_surface, &start);
-            let uv_end = cap_uv_point(cap_surface, &end);
-            brep.half_edges[half_edge].pcurve = Some(Pcurve::linear(
-                (uv_start.x, uv_start.y),
-                (uv_end.x, uv_end.y),
-                0.0,
-                1.0,
-            ));
-        }
-        if brep
-            .edges
-            .get(half_edge_data.edge)
-            .and_then(|edge| edge.curve.as_ref())
-            .is_none()
-        {
-            brep.edges[half_edge_data.edge].curve = Some(CurveOnEdge {
-                geometry: CurveGeometry::Line {
-                    origin: start,
-                    direction: end - start,
-                },
-                t_start: 0.0,
-                t_end: 1.0,
-            });
-        }
+        complete_cap_support_half_edge(brep, cap_face, cap_surface, half_edge);
     }
 }
 

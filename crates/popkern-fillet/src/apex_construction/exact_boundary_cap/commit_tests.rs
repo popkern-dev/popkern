@@ -1,6 +1,7 @@
+use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::geometry::{NurbsSurface, Point3};
+use popkern_core::geometry::{NurbsSurface, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle,
@@ -128,30 +129,95 @@ fn commit_declines_when_pcurve_pairs_do_not_cover_each_sector_side() {
 }
 
 #[test]
-fn commit_diagnostic_promotes_to_apex_diagnostic() {
-    let diagnostic = super::commit::ExactBoundaryCommitDiagnostic {
-        reason: ExactBoundaryCommitDeclineReason::SectorTopologyMissing,
-        code: "exact_boundary_cap.commit.sector_topology_missing",
-        sector_name: Some("sector_0".to_string()),
-        face: Some(FaceHandle::default()),
-        edge: None,
-        cap_half_edge: None,
-        support_half_edge: None,
-        shared_trim_failure: None,
-        residual: None,
-    };
-
-    let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(apex) =
-        diagnostic.into_apex_diagnostic()
-    else {
-        panic!("commit diagnostic must promote through the exact-boundary diagnostic channel");
-    };
-    assert_eq!(apex.stage, "exact_boundary_cap.commit");
-    assert_eq!(
-        apex.code,
-        "exact_boundary_cap.commit.sector_topology_missing"
+fn commit_materializes_support_subdivision_for_unsurfaced_exact_seam() {
+    let mut brep = BRep::new(Tolerance::default());
+    let aggregate_cap = insert_face(&mut brep, ShellHandle::default());
+    let sector_face = insert_face(&mut brep, ShellHandle::default());
+    let support_face = insert_face(&mut brep, ShellHandle::default());
+    let seams = insert_shared_trim_seams(&mut brep, sector_face, support_face);
+    let sector = sector_input(
+        0,
+        "sector_0",
+        sector_face,
+        seams.edges,
+        seams.cap_half_edges,
+        seams.support_half_edges,
     );
-    assert_eq!(apex.sector_name, "sector_0");
+
+    let report = commit_exact_boundary_sector_surfaces(
+        &mut brep,
+        aggregate_cap,
+        &[sector],
+        &solved_surfaces(),
+        &prepared_pcurves_for(&seams),
+    )
+    .expect("exact-boundary commit should materialize a support-owned seam patch");
+
+    assert_eq!(report.committed_sector_count, 1);
+    assert_eq!(report.committed_pcurve_pair_count, 2);
+    assert!(brep.faces[sector_face].surface.is_some());
+    assert!(brep.half_edges[seams.cap_half_edges[0]].pcurve.is_some());
+    let support_half_edge = brep.half_edges[seams.cap_half_edges[0]].twin;
+    assert_ne!(support_half_edge, seams.support_half_edges[0]);
+    assert_eq!(
+        brep.half_edges[support_half_edge].twin,
+        seams.cap_half_edges[0]
+    );
+    let support_patch_loop = brep.half_edges[support_half_edge].loop_;
+    let support_patch_face = brep.loops[support_patch_loop].face;
+    assert_ne!(support_patch_face, support_face);
+    assert!(brep.faces[support_patch_face].surface.is_some());
+    let previous_neighbor_twin = brep.half_edges[seams.support_half_edges[0]].twin;
+    assert_ne!(previous_neighbor_twin, seams.cap_half_edges[0]);
+    assert_eq!(
+        brep.half_edges[previous_neighbor_twin].twin,
+        seams.support_half_edges[0]
+    );
+    assert!(
+        !brep
+            .boundary_edges
+            .contains(&brep.half_edges[seams.support_half_edges[0]].edge)
+    );
+}
+
+#[test]
+fn commit_assigns_prepared_support_surface_when_whole_loop_fits() {
+    let mut brep = BRep::new(Tolerance::default());
+    let aggregate_cap = insert_face(&mut brep, ShellHandle::default());
+    let sector_face = insert_face(&mut brep, ShellHandle::default());
+    let support_face = insert_face(&mut brep, ShellHandle::default());
+    let seams = insert_shared_trim_seams(&mut brep, sector_face, support_face);
+    set_line_edge_curves(&mut brep, &seams);
+    let sector = sector_input(
+        0,
+        "sector_0",
+        sector_face,
+        seams.edges,
+        seams.cap_half_edges,
+        seams.support_half_edges,
+    );
+
+    let report = commit_exact_boundary_sector_surfaces(
+        &mut brep,
+        aggregate_cap,
+        &[sector],
+        &solved_surfaces(),
+        &prepared_pcurves_for(&seams),
+    )
+    .expect("loop-valid prepared support surface can be committed to unsurfaced support topology");
+
+    assert_eq!(report.committed_sector_count, 1);
+    assert!(brep.faces[support_face].surface.is_some());
+    assert!(
+        brep.half_edges[seams.support_half_edges[0]]
+            .pcurve
+            .is_some()
+    );
+    assert!(
+        brep.half_edges[seams.support_half_edges[1]]
+            .pcurve
+            .is_some()
+    );
 }
 
 fn insert_face(brep: &mut BRep, shell: ShellHandle) -> FaceHandle {
@@ -267,6 +333,23 @@ fn insert_shared_trim_seam(
     brep.vertices[start_vertex].outgoing = cap_half_edge;
     brep.vertices[end_vertex].outgoing = support_half_edge;
     (edge, cap_half_edge, support_half_edge)
+}
+
+fn set_line_edge_curves(brep: &mut BRep, seams: &SharedTrimSeams) {
+    for edge in seams.edges {
+        let half_edge = brep.edges[edge].half_edge;
+        let start = brep.vertices[brep.half_edges[half_edge].origin].position;
+        let end_vertex = brep.half_edges[brep.half_edges[half_edge].twin].origin;
+        let end = brep.vertices[end_vertex].position;
+        brep.edges[edge].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Line {
+                origin: start,
+                direction: end - start,
+            },
+            t_start: 0.0,
+            t_end: 1.0,
+        });
+    }
 }
 
 fn insert_vertex(brep: &mut BRep, position: Point3) -> VertexHandle {
@@ -401,6 +484,12 @@ fn pcurve_pair(side: ExactBoundaryOuterSide) -> PreparedExactBoundaryPcurvePair 
         edge: Default::default(),
         support_half_edge: HalfEdgeHandle::default(),
         support_face: FaceHandle::default(),
+        support_surface: SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        },
         cap_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
         support_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
         max_cap_residual: 0.0,

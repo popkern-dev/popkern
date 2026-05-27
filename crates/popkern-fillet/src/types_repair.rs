@@ -118,6 +118,30 @@ pub enum ApexConstructionDiagnostic {
     /// Native Gregory cap/support seam continuity did not meet the commercial
     /// G1 gate after construction.
     CapSupportContinuity(CapSupportContinuityDiagnostic),
+    /// Side-support continuation topology was applied before repeated-apex
+    /// target-cylinder trim rewrites.
+    SideSupportContinuation(SideSupportContinuationDiagnostic),
+}
+
+/// Applied side-support continuation diagnostic for repeated-apex topology
+/// ownership.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SideSupportContinuationDiagnostic {
+    /// Candidate stage that emitted the diagnostic.
+    pub stage: String,
+    /// Stable diagnostic code.
+    pub code: String,
+    /// Cap face whose repeated-apex trim rewrite required side-support
+    /// ownership continuation.
+    pub cap_face: FaceHandle,
+    /// Semantic topology primitive that was applied.
+    pub primitive: String,
+    /// Whether a support-ownership bridge payload was materialized.
+    pub applied: bool,
+    /// Number of bridge faces authored by the primitive.
+    pub bridge_face_count: usize,
+    /// Number of bridge loops authored by the primitive.
+    pub bridge_loop_count: usize,
 }
 
 /// Exact-boundary cap preparation diagnostic for candidate construction.
@@ -242,11 +266,14 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             shared_fact_ids: Vec::new(),
         });
     }
+    let mut apex_attempted = 0usize;
+    let mut apex_authored = 0usize;
     let mut apex_declined = 0usize;
     let mut apex_max_deviation = 0.0f64;
     for diagnostic in &report.apex_diagnostics {
         match diagnostic {
             ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) => {
+                apex_attempted += 1;
                 apex_declined += 1;
                 let deviation = diagnostic.residual.unwrap_or(0.0);
                 apex_max_deviation = apex_max_deviation.max(deviation);
@@ -270,6 +297,7 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             }
             ApexConstructionDiagnostic::CylinderTrimMaterialization(_) => {}
             ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
+                apex_attempted += 1;
                 apex_declined += 1;
                 let worst_g0_gap = diagnostic.continuity.worst_g0_gap.unwrap_or(0.0);
                 let worst_deviation = worst_g0_gap.max(diagnostic.worst_g1_coplanarity);
@@ -296,12 +324,40 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
                     shared_fact_ids: Vec::new(),
                 });
             }
+            ApexConstructionDiagnostic::SideSupportContinuation(diagnostic) => {
+                apex_attempted += 1;
+                if diagnostic.applied {
+                    apex_authored += 1;
+                } else {
+                    apex_declined += 1;
+                }
+                actions.push(BrepRepairActionRecord {
+                    stage: diagnostic.stage.clone(),
+                    outcome: if diagnostic.applied {
+                        "authored".to_string()
+                    } else {
+                        "declined".to_string()
+                    },
+                    subject: format!(
+                        "cap={:?};primitive={};bridge_faces={};bridge_loops={}",
+                        diagnostic.cap_face,
+                        diagnostic.primitive,
+                        diagnostic.bridge_face_count,
+                        diagnostic.bridge_loop_count
+                    ),
+                    reason: Some(diagnostic.code.clone()),
+                    max_motion: 0.0,
+                    max_deviation: 0.0,
+                    affected_handles: vec![format!("face:{:?}", diagnostic.cap_face)],
+                    shared_fact_ids: Vec::new(),
+                });
+            }
         }
     }
     BrepRepairActionArtifact {
         summary: BrepRepairActionSummary {
-            attempted_actions: seam.candidates + rolled_back + apex_declined,
-            authored_actions: seam.authored,
+            attempted_actions: seam.candidates + rolled_back + apex_attempted,
+            authored_actions: seam.authored + apex_authored,
             declined_actions: seam.declined + apex_declined,
             rolled_back_actions: rolled_back,
             max_motion: seam.max_endpoint_motion,

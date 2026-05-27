@@ -77,6 +77,11 @@ fn measure_cap_outer_boundary_inner(
         if a_is_cap == b_is_cap {
             continue;
         }
+        let cap_half_edge = if a_is_cap { he_a } else { ha.twin };
+        let cap_face = if a_is_cap { face_a } else { face_b };
+        if !half_edge_is_on_face_outer_loop(brep, cap_face, cap_half_edge) {
+            continue;
+        }
         let Some(pa) = ha.pcurve.as_ref() else {
             continue;
         };
@@ -137,8 +142,20 @@ fn measure_cap_outer_boundary_inner(
             if g0 > worst_g0 {
                 worst_g0 = g0;
                 if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
+                    let edge_trace = edge
+                        .curve
+                        .as_ref()
+                        .map(|coe| {
+                            let p0 = coe.geometry.point_at(coe.t_start);
+                            let p1 = coe.geometry.point_at(coe.t_end);
+                            format!(
+                                " curve=({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                                p0.x, p0.y, p0.z, p1.x, p1.y, p1.z
+                            )
+                        })
+                        .unwrap_or_default();
                     worst_g0_trace = format!(
-                        "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) p_a=({:.4},{:.4},{:.4}) p_b=({:.4},{:.4},{:.4})",
+                        "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i}{edge_trace} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) p_a=({:.4},{:.4},{:.4}) p_b=({:.4},{:.4},{:.4})",
                         uv_a.x, uv_a.y, uv_b.x, uv_b.y, p_a.x, p_a.y, p_a.z, p_b.x, p_b.y, p_b.z
                     );
                 }
@@ -193,4 +210,32 @@ fn measure_cap_outer_boundary_inner(
         worst_g1_coplanarity: worst_g1,
         edges_measured,
     }
+}
+
+fn half_edge_is_on_face_outer_loop(
+    brep: &BRep,
+    face: FaceHandle,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        if cursor == half_edge {
+            return true;
+        }
+        let Some(half_edge_data) = brep.half_edges.get(cursor) else {
+            return false;
+        };
+        cursor = half_edge_data.next;
+        if cursor == start {
+            return false;
+        }
+    }
+    false
 }

@@ -171,9 +171,7 @@ pub(super) fn boundary_segment_to_sub_face_permutation(
     if n == 0 || boundary.segments.len() != 2 * n {
         return None;
     }
-    if !boundary.hex_boundary_cps_deg9.is_empty()
-        && let Some(perm) = boundary_endpoint_to_sub_face_permutation(brep, sub_faces_raw, boundary)
-    {
+    if let Some(perm) = boundary_endpoint_to_sub_face_permutation(brep, sub_faces_raw, boundary) {
         return Some(perm);
     }
     // For each sub-face, identify its primary cyl-twin's params.
@@ -283,10 +281,7 @@ fn boundary_endpoint_to_sub_face_permutation(
                 best = Some((face_idx, score));
             }
         }
-        let (face_idx, score) = best?;
-        if score < 2 {
-            return None;
-        }
+        let (face_idx, _) = best?;
         *slot = face_idx;
         consumed[face_idx] = true;
     }

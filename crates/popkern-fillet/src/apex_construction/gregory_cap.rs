@@ -5,10 +5,8 @@
 //! (the K-P promotion ladder). The bridge emits planner-ordered boundary
 //! segments, resolves adjacent faces, and calls the legacy K-P promotion
 //! ladder via `apply_three_quad_decomposition_to_blend`.
-//! Plus topological helpers used by `construct_apex_inner` to
-//! identify the cap face after apex teardown and merge any unmerged
-//! corner sub-faces left by the V-spoke kef sequence on Gregory
-//! caps with mixed-host mef sites.
+//! Plus helpers used by `construct_apex_inner` to identify the cap face after
+//! apex teardown and merge unmerged Gregory corner sub-faces.
 //! See ADR `docs/decisions/2026-04-30-phase-6c-a2-direct-apex-construction.md`
 //! §DirectApex.4.
 
@@ -192,6 +190,8 @@ pub(super) fn assemble_gregory_cap_surface(
     }
 }
 
+#[path = "gregory_cap_face_edge_boundary.rs"]
+mod gregory_cap_face_edge_boundary;
 fn apply_planned_gregory_boundary(
     boundary: &mut BlendBoundary,
     plan: &ApexPlan,
@@ -236,8 +236,10 @@ fn apply_planned_gregory_boundary(
                 reason: format!("Gregory boundary segment {} is not a FilletEnd", 2 * k),
             });
         };
-        *curve = align_planned_curve_to_endpoints(curve, start, end, 1.0e-6)
-            .unwrap_or_else(|| line_curve(start, end));
+        if !curve_matches_endpoints(curve, start, end, 1.0e-6) {
+            *curve = align_planned_curve_to_endpoints(curve, start, end, 1.0e-6)
+                .unwrap_or_else(|| line_curve(start, end));
+        }
 
         let next = (k + 1) % n;
         let bridge_start = end;
@@ -254,7 +256,10 @@ fn apply_planned_gregory_boundary(
                 reason: format!("Gregory boundary segment {} is not a FaceEdge", 2 * k + 1),
             });
         };
-        *curve = line_curve(bridge_start, bridge_end);
+        if !curve_matches_endpoints(curve, bridge_start, bridge_end, 1.0e-6) {
+            *curve = align_planned_curve_to_endpoints(curve, bridge_start, bridge_end, 1.0e-6)
+                .unwrap_or_else(|| line_curve(bridge_start, bridge_end));
+        }
     }
     boundary.per_fillet_caps = per_fillet_caps.clone();
     boundary.sphere_fit_substituted = true;
@@ -284,7 +289,12 @@ fn gregory_boundary_segments_from_sector_order(
             sector,
             fillet_surfaces,
         )?);
-        segments.push(gregory_face_segment(brep, cap_face, sector)?);
+        segments.push(gregory_face_segment(
+            brep,
+            cap_face,
+            sector,
+            fillet_surfaces,
+        )?);
     }
     Ok(segments)
 }
@@ -324,6 +334,7 @@ fn gregory_face_segment(
     brep: &BRep,
     cap_face: FaceHandle,
     sector: &GregoryCapSector,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
 ) -> Result<BoundarySegment, ApexBuildError> {
     let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
         missing_adjacent_face_error(
@@ -336,7 +347,19 @@ fn gregory_face_segment(
     })?;
     Ok(BoundarySegment::FaceEdge {
         face,
-        curve: oriented_cap_edge_curve(brep, cap_face, sector.face_edge, "FaceEdge")?,
+        curve: gregory_cap_face_edge_boundary::oriented_support_face_edge_curve(
+            brep,
+            cap_face,
+            sector.face_edge,
+            face,
+            fillet_surfaces,
+        )
+        .unwrap_or(oriented_cap_edge_curve(
+            brep,
+            cap_face,
+            sector.face_edge,
+            "FaceEdge",
+        )?),
     })
 }
 

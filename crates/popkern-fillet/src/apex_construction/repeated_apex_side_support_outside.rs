@@ -171,12 +171,12 @@ impl OutsideOutsideSupportPrimitiveDerivation {
             .preflight_cylinder_mediated_support_continuation_batch(primitive.requests.clone())?;
         let result = brep.cylinder_mediated_support_continuation_batch(&batch)?;
         match result.postconditions {
-            CylinderMediatedSupportContinuationPostconditions::Satisfied => {
-                Ok(SideSupportRegionContinuationResult::from_bridge_payload(
+            CylinderMediatedSupportContinuationPostconditions::Satisfied => Ok(
+                SideSupportRegionContinuationResult::from_outside_outside_cylinder_payload(
                     result.bridge_faces,
                     result.bridge_loops,
-                ))
-            }
+                ),
+            ),
             CylinderMediatedSupportContinuationPostconditions::Refused { reason } => {
                 Err(CoreError::PreconditionFailed(format!(
                     "outside/outside support continuation refused after mutation boundary: {reason}"

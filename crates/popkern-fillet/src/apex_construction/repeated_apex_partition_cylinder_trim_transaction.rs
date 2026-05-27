@@ -66,7 +66,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             .iter()
             .map(|plan| plan.plan_cylinder_trim_rewrite_topology(brep))
             .collect::<Result<Vec<_>, _>>()?;
-        let (include_selected_nonmaterialized, diagnostics) = if require_v_free_repeated_apex {
+        let (include_selected_nonmaterialized, mut diagnostics) = if require_v_free_repeated_apex {
             selected_far_side_trim_materialization_preflight(
                 brep,
                 cap_face,
@@ -96,6 +96,9 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             require_v_free_repeated_apex,
         })?;
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
+        if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {
+            diagnostics.push(diagnostic);
+        }
         let support_ownership_already_materialized = matches!(
             side_support_result,
             SideSupportRegionContinuationOutcome::Applied(_)

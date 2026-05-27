@@ -6,6 +6,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::corner::PreparedExactBoundaryInnerSpokes;
 use super::pcurves::PreparedExactBoundaryPcurves;
+use super::ribbon::{PreparedExactBoundaryRibbon, PreparedExactBoundaryRibbons};
 use super::sector::ExactBoundaryCapSectorInput;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 use super::topology::ExactBoundarySectorTopology;
@@ -39,6 +40,19 @@ impl Default for ExactBoundaryValidationBudget {
             min_normal_length: DEFAULT_MIN_NORMAL_LENGTH,
         }
     }
+}
+
+/// Candidate state consumed by exact-boundary validation.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExactBoundaryValidationInputs<'a> {
+    pub(crate) brep: &'a BRep,
+    pub(crate) topology: &'a ExactBoundarySectorTopology,
+    pub(crate) sectors: &'a [ExactBoundaryCapSectorInput],
+    pub(crate) spokes: &'a PreparedExactBoundaryInnerSpokes,
+    pub(crate) ribbons: &'a PreparedExactBoundaryRibbons,
+    pub(crate) solved: &'a ExactBoundarySolvedSurfaces,
+    pub(crate) pcurves: &'a PreparedExactBoundaryPcurves,
+    pub(crate) budget: ExactBoundaryValidationBudget,
 }
 
 /// Candidate validation summary for route reports and future UX.
@@ -176,14 +190,18 @@ impl ExactBoundaryValidationDiagnostic {
 
 /// Validate exact-boundary candidate topology, surfaces, and pcurves before commit.
 pub(crate) fn validate_exact_boundary_candidate(
-    brep: &BRep,
-    topology: &ExactBoundarySectorTopology,
-    sectors: &[ExactBoundaryCapSectorInput],
-    spokes: &PreparedExactBoundaryInnerSpokes,
-    solved: &ExactBoundarySolvedSurfaces,
-    pcurves: &PreparedExactBoundaryPcurves,
-    budget: ExactBoundaryValidationBudget,
+    inputs: ExactBoundaryValidationInputs<'_>,
 ) -> Result<ExactBoundaryValidationReport, ExactBoundaryValidationDiagnostic> {
+    let ExactBoundaryValidationInputs {
+        brep,
+        topology,
+        sectors,
+        spokes,
+        ribbons,
+        solved,
+        pcurves,
+        budget,
+    } = inputs;
     if let Err(err) = brep.validate() {
         return Err(ExactBoundaryValidationDiagnostic::new(
             ExactBoundaryValidationDeclineReason::TopologyInvalid,
@@ -194,7 +212,7 @@ pub(crate) fn validate_exact_boundary_candidate(
     validate_surface_inventory(topology, sectors, spokes, solved)?;
     validate_pcurve_inventory(sectors, pcurves)?;
     validate_pcurve_residuals(pcurves, budget)?;
-    validate_live_edge_surface_residuals(brep, sectors, solved, budget)?;
+    validate_live_edge_surface_residuals(brep, sectors, solved, ribbons, budget)?;
     validate_internal_spokes(spokes, solved, budget)?;
     validate_surface_normals(solved, budget)?;
     Ok(ExactBoundaryValidationReport {
@@ -208,6 +226,7 @@ fn validate_live_edge_surface_residuals(
     brep: &BRep,
     sectors: &[ExactBoundaryCapSectorInput],
     solved: &ExactBoundarySolvedSurfaces,
+    ribbons: &PreparedExactBoundaryRibbons,
     budget: ExactBoundaryValidationBudget,
 ) -> Result<(), ExactBoundaryValidationDiagnostic> {
     for sector in sectors {
@@ -233,12 +252,23 @@ fn validate_live_edge_surface_residuals(
                     ),
                 );
             };
-            let Some(support_surface) = brep
+            let borrowed_support_surface;
+            let support_surface = if let Some(surface) = brep
                 .faces
                 .get(seam.support_face)
                 .and_then(|face| face.surface.as_ref())
                 .map(|surface| &surface.geometry)
-            else {
+            {
+                surface
+            } else if let Some(ribbon) = ribbon_for_seam(ribbons, sector, seam) {
+                let _ribbon_evidence = (
+                    &ribbon.sector_name,
+                    ribbon.support_parameter_reversed,
+                    ribbon.max_support_residual,
+                );
+                borrowed_support_surface = ribbon.support_surface.clone();
+                &borrowed_support_surface
+            } else {
                 return Err(
                     ExactBoundaryValidationDiagnostic::live_edge_surface_residual(
                         sector,
@@ -263,6 +293,19 @@ fn validate_live_edge_surface_residuals(
         }
     }
     Ok(())
+}
+
+fn ribbon_for_seam<'a>(
+    ribbons: &'a PreparedExactBoundaryRibbons,
+    sector: &ExactBoundaryCapSectorInput,
+    seam: &super::sector::ExactBoundaryOuterSeam,
+) -> Option<&'a PreparedExactBoundaryRibbon> {
+    ribbons.ribbons.iter().find(|ribbon| {
+        ribbon.sector_index == sector.sector_index
+            && ribbon.side == seam.side
+            && ribbon.edge == seam.edge
+            && ribbon.support_half_edge == seam.support_half_edge
+    })
 }
 
 fn validate_surface_inventory(

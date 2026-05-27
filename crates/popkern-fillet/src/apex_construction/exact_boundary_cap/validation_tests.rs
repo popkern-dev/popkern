@@ -7,7 +7,7 @@ use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
 use super::topology::materialize_exact_boundary_sector_topology;
 use super::validation::{
     ExactBoundaryValidationBudget, ExactBoundaryValidationDeclineReason,
-    validate_exact_boundary_candidate,
+    ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
 };
 use crate::apex_construction::cap_kind::CapKind;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
@@ -17,7 +17,8 @@ use crate::apex_construction::target_topology::{
 };
 use crate::apex_construction::telemetry::PlanTelemetry;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
@@ -26,15 +27,16 @@ fn validation_accepts_materialized_exact_boundary_candidate() {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let fixture = candidate_fixture(&mut brep, cap_face, &edges);
 
-    let report = validate_exact_boundary_candidate(
-        &brep,
-        &fixture.topology,
-        &fixture.topology.sectors,
-        &fixture.spokes,
-        &fixture.solved,
-        &fixture.pcurves,
-        ExactBoundaryValidationBudget::default(),
-    )
+    let report = validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
+        brep: &brep,
+        topology: &fixture.topology,
+        sectors: &fixture.topology.sectors,
+        spokes: &fixture.spokes,
+        ribbons: &fixture.ribbons,
+        solved: &fixture.solved,
+        pcurves: &fixture.pcurves,
+        budget: ExactBoundaryValidationBudget::default(),
+    })
     .expect("valid materialized candidate passes exact-boundary gates");
 
     assert_eq!(report.validated_sector_count, 3);
@@ -48,15 +50,16 @@ fn validation_declines_pair_residual_over_budget() {
     let mut fixture = candidate_fixture(&mut brep, cap_face, &edges);
     fixture.pcurves.pairs[0].max_pair_residual = 1.0;
 
-    let diagnostic = validate_exact_boundary_candidate(
-        &brep,
-        &fixture.topology,
-        &fixture.topology.sectors,
-        &fixture.spokes,
-        &fixture.solved,
-        &fixture.pcurves,
-        ExactBoundaryValidationBudget::default(),
-    )
+    let diagnostic = validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
+        brep: &brep,
+        topology: &fixture.topology,
+        sectors: &fixture.topology.sectors,
+        spokes: &fixture.spokes,
+        ribbons: &fixture.ribbons,
+        solved: &fixture.solved,
+        pcurves: &fixture.pcurves,
+        budget: ExactBoundaryValidationBudget::default(),
+    })
     .expect_err("oversized pair residual must decline before commit");
 
     assert_eq!(
@@ -74,18 +77,19 @@ fn validation_declines_foldover_budget_failure() {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let fixture = candidate_fixture(&mut brep, cap_face, &edges);
 
-    let diagnostic = validate_exact_boundary_candidate(
-        &brep,
-        &fixture.topology,
-        &fixture.topology.sectors,
-        &fixture.spokes,
-        &fixture.solved,
-        &fixture.pcurves,
-        ExactBoundaryValidationBudget {
+    let diagnostic = validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
+        brep: &brep,
+        topology: &fixture.topology,
+        sectors: &fixture.topology.sectors,
+        spokes: &fixture.spokes,
+        ribbons: &fixture.ribbons,
+        solved: &fixture.solved,
+        pcurves: &fixture.pcurves,
+        budget: ExactBoundaryValidationBudget {
             min_normal_length: 1.0e9,
             ..ExactBoundaryValidationBudget::default()
         },
-    )
+    })
     .expect_err("oversized normal budget must decline");
 
     assert_eq!(
@@ -101,6 +105,7 @@ fn validation_declines_foldover_budget_failure() {
 struct CandidateFixture {
     topology: super::topology::ExactBoundarySectorTopology,
     spokes: super::corner::PreparedExactBoundaryInnerSpokes,
+    ribbons: super::ribbon::PreparedExactBoundaryRibbons,
     solved: super::solve::ExactBoundarySolvedSurfaces,
     pcurves: super::pcurves::PreparedExactBoundaryPcurves,
 }
@@ -138,6 +143,7 @@ fn candidate_fixture(
     CandidateFixture {
         topology,
         spokes,
+        ribbons,
         solved,
         pcurves,
     }
@@ -179,6 +185,12 @@ fn pcurve_pair(
         support_face: match side {
             super::sector::ExactBoundaryOuterSide::FilletEnd => sector.fillet_support_face,
             super::sector::ExactBoundaryOuterSide::FaceEdge => sector.bridge_support_face,
+        },
+        support_surface: SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
         },
         cap_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
         support_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),

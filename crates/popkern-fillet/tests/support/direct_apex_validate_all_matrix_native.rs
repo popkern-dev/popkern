@@ -78,4 +78,62 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         sphere_preflight.support_face.is_some(),
         "sphere-plane preflight diagnostic should identify the support face"
     );
+
+    let side_support = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::SideSupportContinuation(diagnostic) => Some(diagnostic),
+            _ => None,
+        })
+        .expect("cube_extreme should report applied side-support topology continuation");
+    assert_eq!(
+        side_support.code,
+        "side_support_continuation.outside_outside_cylinder_mediated.applied"
+    );
+    assert!(side_support.applied);
+    assert_eq!(side_support.bridge_face_count, 3);
+    assert_eq!(side_support.bridge_loop_count, 3);
+}
+
+#[test]
+fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
+    let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
+    let route = result
+        .repair_report
+        .apex_routes
+        .first()
+        .expect("cube_extreme should record one direct-apex route");
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Accepted,
+        "support-face subdivision must let exact-boundary commit instead of declining"
+    );
+    assert!(
+        !route.exact_boundary_report.committed_faces.is_empty(),
+        "accepted exact-boundary route must record committed cap/support faces"
+    );
+    assert!(
+        route
+            .exact_boundary_report
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.code
+                != "exact_boundary_cap.commit.support_face_subdivision_required"),
+        "support-face subdivision-required is a pre-primitive decline and must not remain"
+    );
+    let support_scope_diagnostics = route
+        .exact_boundary_report
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.stage == "exact_boundary_cap.support_scope")
+        .collect::<Vec<_>>();
+    assert!(
+        support_scope_diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.support_half_edge.is_some()
+                && diagnostic.support_face.is_some()),
+        "support-scope diagnostics must preserve support ownership handles"
+    );
 }

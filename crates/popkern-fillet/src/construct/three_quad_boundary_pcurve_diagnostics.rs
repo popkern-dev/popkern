@@ -25,7 +25,7 @@ pub(super) fn boundary_owned_pcurve_decline_diagnostic(
         .and_then(|support_half_edge| brep.half_edges.get(support_half_edge))
         .and_then(|half_edge| brep.loops.get(half_edge.loop_))
         .map(|loop_data| loop_data.face)
-        .or_else(|| match segment {
+        .or(match segment {
             BoundarySegment::FaceEdge { face, .. } => Some(*face),
             BoundarySegment::FilletEnd { .. } => None,
         });

@@ -164,7 +164,7 @@ pub(super) fn apply_topology_operator(
     if let [region] = primitive.regions() {
         let bridge_result =
             apply_region_bridge(region, &mut candidate).map_err(|(_, detail)| detail)?;
-        let result = SideSupportRegionContinuationResult::from_bridge_payload(
+        let result = SideSupportRegionContinuationResult::from_face_family_bridge_payload(
             vec![
                 bridge_result.first_bridge_face,
                 bridge_result.second_bridge_face,
@@ -189,7 +189,7 @@ pub(super) fn apply_topology_operator(
         &bridge_result,
         &mut candidate,
     )?;
-    let result = SideSupportRegionContinuationResult::from_bridge_payload(
+    let result = SideSupportRegionContinuationResult::from_face_family_bridge_payload(
         bridge_result
             .cycles
             .iter()

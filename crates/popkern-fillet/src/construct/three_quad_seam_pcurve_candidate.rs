@@ -197,7 +197,12 @@ pub(super) fn tolerance_for_boundary_authoring(brep: &BRep) -> f64 {
 
 fn boundary_sides_for_segment_offset(segment_offset: usize) -> &'static [BoundarySide] {
     match segment_offset {
-        0 => &[BoundarySide::UMin],
+        0 => &[
+            BoundarySide::UMin,
+            BoundarySide::UMax,
+            BoundarySide::VMin,
+            BoundarySide::VMax,
+        ],
         _ => &[BoundarySide::UMax, BoundarySide::VMin, BoundarySide::VMax],
     }
 }

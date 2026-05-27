@@ -26,10 +26,10 @@ pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,
     BlendRepairReport, CapSupportContinuityDiagnostic, CylinderTrimFarSideStrategy,
     CylinderTrimMaterializationDeclineReason, CylinderTrimMaterializationDiagnostic,
-    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, SupportSeamDecision,
-    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
-    build_blend_repair_action_artifact, support_seam_decline_reason_label,
-    support_seam_rollback_reason_label,
+    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic,
+    SideSupportContinuationDiagnostic, SupportSeamDecision, SupportSeamDeclineReason,
+    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
 
 use popkern_core::topology::EdgeHandle;

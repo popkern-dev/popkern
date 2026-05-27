@@ -9,6 +9,7 @@ use direct_apex_acceptance_helpers::{
     measure_exact_boundary_cap_outer_g0, native_gregory_cap_faces,
     trace_loop_for_acceptance_failure, trace_native_gregory_cap_seam_g0,
 };
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
 pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
     use popkern_core::error::ValidationError;
@@ -83,6 +84,11 @@ pub(super) fn native_gregory_cap_outer_g0_error(
         let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
             continue;
         };
+        if !surface_supports_bounded_normal_sampling(&sa.geometry)
+            || !surface_supports_bounded_normal_sampling(&sb.geometry)
+        {
+            continue;
+        }
 
         let (pa_lo, pa_hi) = pa.parameter_range();
         let (pb_lo, pb_hi) = pb.parameter_range();
@@ -162,7 +168,6 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
     if cap_faces.is_empty() {
         return None;
     }
-
     let mut worst = 0.0f64;
     let mut worst_g0_gap = 0.0f64;
     let mut worst_edge = None;
@@ -222,8 +227,9 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
             <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
 
         measured_edges += 1;
-        for i in 0..100 {
-            let s = 0.05 + 0.90 * (i as f64) / 99.0;
+        let samples = 17usize;
+        for i in 0..samples {
+            let s = 0.05 + 0.90 * (i as f64) / (samples - 1) as f64;
             let s_a = if pa_forward { s } else { 1.0 - s };
             let s_b = if pb_forward { s } else { 1.0 - s };
             let uv_a = pa.point_at(pa_lo + s_a * (pa_hi - pa_lo));
@@ -231,14 +237,18 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
             let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
             let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
             worst_g0_gap = worst_g0_gap.max(p_a.distance_to(&p_b));
+            let (normal_u_a, normal_v_a) =
+                interior_normal_sample_parameters(&sa.geometry, uv_a.x, uv_a.y);
+            let (normal_u_b, normal_v_b) =
+                interior_normal_sample_parameters(&sb.geometry, uv_b.x, uv_b.y);
             let n_a = sa
                 .geometry
-                .partial_u(uv_a.x, uv_a.y)
-                .cross(&sa.geometry.partial_v(uv_a.x, uv_a.y));
+                .partial_u(normal_u_a, normal_v_a)
+                .cross(&sa.geometry.partial_v(normal_u_a, normal_v_a));
             let n_b = sb
                 .geometry
-                .partial_u(uv_b.x, uv_b.y)
-                .cross(&sb.geometry.partial_v(uv_b.x, uv_b.y));
+                .partial_u(normal_u_b, normal_v_b)
+                .cross(&sb.geometry.partial_v(normal_u_b, normal_v_b));
             let nn_a = (n_a.x * n_a.x + n_a.y * n_a.y + n_a.z * n_a.z).sqrt();
             let nn_b = (n_b.x * n_b.x + n_b.y * n_b.y + n_b.z * n_b.z).sqrt();
             if nn_a <= 1e-300 || nn_b <= 1e-300 {
@@ -282,6 +292,47 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
             },
         ),
     )
+}
+
+fn surface_supports_bounded_normal_sampling(surface: &SurfaceGeometry) -> bool {
+    match surface {
+        SurfaceGeometry::Nurbs(surface) => {
+            nurbs_knot_vector_is_sampleable(surface.degree_u, surface.num_u, &surface.knots_u)
+                && nurbs_knot_vector_is_sampleable(
+                    surface.degree_v,
+                    surface.num_v,
+                    &surface.knots_v,
+                )
+                && surface.control_points.len() == surface.num_u.saturating_mul(surface.num_v)
+                && surface.weights.len() == surface.control_points.len()
+                && surface.weights.iter().all(|weight| weight.is_finite())
+        }
+        _ => true,
+    }
+}
+
+fn nurbs_knot_vector_is_sampleable(degree: usize, controls: usize, knots: &[f64]) -> bool {
+    controls > degree
+        && degree < 32
+        && knots.len() == controls + degree + 1
+        && knots.iter().all(|knot| knot.is_finite())
+        && knots.windows(2).all(|pair| pair[0] <= pair[1])
+}
+
+fn interior_normal_sample_parameters(surface: &SurfaceGeometry, u: f64, v: f64) -> (f64, f64) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    (
+        interior_parameter(u, u_min, u_max),
+        interior_parameter(v, v_min, v_max),
+    )
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
 
 #[cfg(test)]

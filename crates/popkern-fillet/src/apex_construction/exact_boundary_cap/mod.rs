@@ -3,6 +3,7 @@
 pub(crate) mod boundary;
 pub(crate) mod cap_spoke_commit;
 pub(crate) mod commit;
+pub(crate) mod commit_diagnostics;
 pub(crate) mod corner;
 pub(crate) mod facade;
 pub(crate) mod facts;
@@ -13,6 +14,7 @@ pub(crate) mod ribbon_projection;
 pub(crate) mod sector;
 pub(crate) mod solve;
 pub(crate) mod support;
+pub(crate) mod support_subdivision;
 pub(crate) mod topology;
 pub(crate) mod validation;
 

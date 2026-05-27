@@ -2,7 +2,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle};
 
@@ -48,7 +48,12 @@ impl PreparedExactBoundaryPcurves {
         self.pairs
             .iter()
             .filter(|pair| {
-                let _handles = (pair.edge, pair.support_half_edge, pair.support_face);
+                let _evidence = (
+                    pair.edge,
+                    pair.support_half_edge,
+                    pair.support_face,
+                    &pair.support_surface,
+                );
                 let cap_start = pair.cap_pcurve.point_at(0.0);
                 let support_start = pair.support_pcurve.point_at(0.0);
                 !pair.sector_name.is_empty()
@@ -82,6 +87,8 @@ pub(crate) struct PreparedExactBoundaryPcurvePair {
     pub support_half_edge: HalfEdgeHandle,
     /// Support face sampled by the support-side pcurve.
     pub support_face: FaceHandle,
+    /// Exact support surface used to prove and author the support-side pcurve.
+    pub support_surface: SurfaceGeometry,
     /// Cap-side pcurve on the solved sector surface.
     pub cap_pcurve: Pcurve,
     /// Support-side pcurve reconstructed from support evidence.
@@ -273,6 +280,7 @@ fn prepare_side_pair(
         edge: ribbon.edge,
         support_half_edge: ribbon.support_half_edge,
         support_face: ribbon.support_face,
+        support_surface: ribbon.support_surface.clone(),
         cap_pcurve,
         support_pcurve,
         max_cap_residual: residuals.cap,

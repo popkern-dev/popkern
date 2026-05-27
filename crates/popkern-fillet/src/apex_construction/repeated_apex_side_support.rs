@@ -1,6 +1,6 @@
 //! Read-only side-support region planner for repeated-apex trim rewrites.
 
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use super::error::ApexBuildError;
 use super::repeated_apex_region_candidates::CandidateSetSnapshot;
@@ -169,6 +169,34 @@ pub(super) fn apply_selected_side_support_continuation(
 }
 
 impl SideSupportRegionContinuationOutcome {
+    pub(super) fn applied_diagnostic(
+        &self,
+        cap_face: FaceHandle,
+    ) -> Option<crate::types::ApexConstructionDiagnostic> {
+        let SideSupportRegionContinuationOutcome::Applied(result) = self else {
+            return None;
+        };
+        if !result.was_applied() {
+            return None;
+        }
+        Some(
+            crate::types::ApexConstructionDiagnostic::SideSupportContinuation(
+                crate::types::SideSupportContinuationDiagnostic {
+                    stage: "side_support_continuation".to_string(),
+                    code: format!(
+                        "side_support_continuation.{}.applied",
+                        result.primitive_code()
+                    ),
+                    cap_face,
+                    primitive: result.primitive_code().to_string(),
+                    applied: true,
+                    bridge_face_count: result.bridge_face_count(),
+                    bridge_loop_count: result.bridge_loop_count(),
+                },
+            ),
+        )
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         match self {
             SideSupportRegionContinuationOutcome::Applied(result) => {

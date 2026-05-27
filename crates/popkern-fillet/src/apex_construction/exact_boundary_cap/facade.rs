@@ -15,7 +15,7 @@ use crate::types::{
 };
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::commit::commit_exact_boundary_sector_surfaces;
+use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
@@ -27,7 +27,9 @@ use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::{ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors};
 use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
 use super::topology::materialize_exact_boundary_sector_topology;
-use super::validation::{ExactBoundaryValidationBudget, validate_exact_boundary_candidate};
+use super::validation::{
+    ExactBoundaryValidationBudget, ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
+};
 
 /// Status of one exact-boundary cap candidate attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +97,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let started = Instant::now();
     let snapshot = brep.clone();
+    let baseline_validation_errors = snapshot.validate_all();
     let mut candidate_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;
     let mut performance = ExactBoundaryCandidatePerformanceReport {
@@ -234,15 +237,16 @@ pub(crate) fn run_exact_boundary_cap_candidate(
             Ok(pcurves) => {
                 record_pcurve_report(&mut performance, &pcurves);
                 let _topology_evidence = (topology.pole_vertex, topology.spoke_edges.len());
-                match validate_exact_boundary_candidate(
+                match validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
                     brep,
                     topology,
-                    &candidate_sectors,
-                    inner_spokes,
-                    solved_surfaces,
-                    &pcurves,
-                    ExactBoundaryValidationBudget::default(),
-                ) {
+                    sectors: &candidate_sectors,
+                    spokes: inner_spokes,
+                    ribbons,
+                    solved: solved_surfaces,
+                    pcurves: &pcurves,
+                    budget: ExactBoundaryValidationBudget::default(),
+                }) {
                     Ok(validation_report) => {
                         record_validation_report(&mut performance, validation_report);
                         committed_faces = candidate_sectors
@@ -255,6 +259,12 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                             &candidate_sectors,
                             solved_surfaces,
                             &pcurves,
+                        ) {
+                            diagnostics.push(diagnostic.into_apex_diagnostic());
+                        } else if let Some(diagnostic) = post_commit_validation_diagnostic(
+                            &baseline_validation_errors,
+                            &brep.validate_all(),
+                            brep.tolerance.linear(),
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());
                         } else {

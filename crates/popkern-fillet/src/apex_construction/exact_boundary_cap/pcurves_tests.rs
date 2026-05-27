@@ -12,6 +12,7 @@ use super::sector::ExactBoundaryOuterSide;
 use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
 use super::support::ExactBoundarySupportSurfaceFamily;
 use popkern_core::geometry::pcurve::PcurveGeometry;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
@@ -168,6 +169,7 @@ fn ribbon(
         edge,
         support_half_edge,
         support_face,
+        support_surface: plane_surface(),
         support_family: ExactBoundarySupportSurfaceFamily::Plane,
         support_parameter_reversed: false,
         support_half_edge_curve_forward: true,
@@ -195,6 +197,15 @@ fn ribbon(
                 }
             })
             .collect(),
+    }
+}
+
+fn plane_surface() -> SurfaceGeometry {
+    SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
     }
 }
 

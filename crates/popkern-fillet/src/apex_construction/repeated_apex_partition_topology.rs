@@ -141,6 +141,11 @@ fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Optio
         })
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(vertex, _)| vertex)
+        .or_else(|| {
+            brep.half_edges
+                .get(data.next)
+                .map(|next_half_edge| next_half_edge.origin)
+        })
 }
 
 pub(super) fn insert_face_with_outer_loop(

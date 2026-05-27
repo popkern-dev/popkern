@@ -1,22 +1,29 @@
 //! Transactional BRep commit boundary for exact-boundary apex cap sectors.
 
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{
-    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, SharedTrimEdgeFailureReason, SharedTrimEdgeInput,
-    TopologyRole, commit_shared_trim_edge_transactionally,
+    BRep, FaceHandle, SharedTrimEdgeInput, TopologyRole, commit_shared_trim_edge_transactionally,
 };
 
 #[path = "commit_helpers.rs"]
 mod commit_helpers;
+#[path = "commit_post_validation.rs"]
+mod commit_post_validation;
 use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
+pub(crate) use super::commit_diagnostics::{
+    ExactBoundaryCommitDeclineReason, ExactBoundaryCommitDiagnostic,
+};
 use super::pcurves::PreparedExactBoundaryPcurves;
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::solve::ExactBoundarySolvedSurfaces;
+use super::support_subdivision::materialize_support_subdivision;
 use commit_helpers::{
     SharedTrimCurveSelection, canonical_shared_trim_curve, curve_from_pcurve_in_edge_direction,
     normalize_semantic_line_edge_curve, project_curve_to_half_edge_pcurve,
     resolved_support_side_for_commit, reversed_pcurve, solved_surface,
 };
+pub(crate) use commit_post_validation::post_commit_validation_diagnostic;
 
 /// Result of committing exact-boundary sector candidates into live topology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,131 +32,6 @@ pub(crate) struct ExactBoundaryCommitReport {
     pub committed_sector_count: usize,
     /// Number of cap/support pcurve pairs written to live half-edges.
     pub committed_pcurve_pair_count: usize,
-}
-
-/// Stable decline reason for the BRep commit boundary.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ExactBoundaryCommitDeclineReason {
-    /// The aggregate cap face handle is stale.
-    CapFaceMissing,
-    /// Candidate sector inventory does not match solved surfaces.
-    SurfaceInventoryMismatch,
-    /// Candidate sector inventory does not match prepared pcurve pairs.
-    PcurveInventoryMismatch,
-    /// Candidate topology still has one aggregate cap face instead of sector faces.
-    SectorTopologyMissing,
-    /// A sector face handle is stale.
-    SectorFaceMissing,
-    /// A cap-side half-edge to receive a pcurve is stale.
-    CapHalfEdgeMissing,
-    /// A support-side half-edge to receive a pcurve is stale.
-    SupportHalfEdgeMissing,
-    /// Atomic shared trim validation rejected the committed edge/pcurve triple.
-    SharedTrimValidationFailed,
-}
-
-impl ExactBoundaryCommitDeclineReason {
-    /// Stable diagnostic code for tests and future UI/API consumers.
-    pub(crate) fn code(self) -> &'static str {
-        match self {
-            Self::CapFaceMissing => "exact_boundary_cap.commit.cap_face_missing",
-            Self::SurfaceInventoryMismatch => {
-                "exact_boundary_cap.commit.surface_inventory_mismatch"
-            }
-            Self::PcurveInventoryMismatch => "exact_boundary_cap.commit.pcurve_inventory_mismatch",
-            Self::SectorTopologyMissing => "exact_boundary_cap.commit.sector_topology_missing",
-            Self::SectorFaceMissing => "exact_boundary_cap.commit.sector_face_missing",
-            Self::CapHalfEdgeMissing => "exact_boundary_cap.commit.cap_half_edge_missing",
-            Self::SupportHalfEdgeMissing => "exact_boundary_cap.commit.support_half_edge_missing",
-            Self::SharedTrimValidationFailed => {
-                "exact_boundary_cap.commit.shared_trim_validation_failed"
-            }
-        }
-    }
-}
-
-/// Structured exact-boundary commit decline.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct ExactBoundaryCommitDiagnostic {
-    /// Stable decline reason.
-    pub reason: ExactBoundaryCommitDeclineReason,
-    /// Stable diagnostic code.
-    pub code: &'static str,
-    /// Stable sector name when the failure is sector-scoped.
-    pub sector_name: Option<String>,
-    /// Cap or sector face being inspected.
-    pub face: Option<FaceHandle>,
-    /// Edge being inspected or committed.
-    pub edge: Option<EdgeHandle>,
-    /// Cap-side half-edge being committed.
-    pub cap_half_edge: Option<HalfEdgeHandle>,
-    /// Support-side half-edge being committed.
-    pub support_half_edge: Option<HalfEdgeHandle>,
-    /// Shared trim failure reason, when available.
-    pub shared_trim_failure: Option<SharedTrimEdgeFailureReason>,
-    /// Measured validation residual, when available.
-    pub residual: Option<f64>,
-}
-
-impl ExactBoundaryCommitDiagnostic {
-    fn new(
-        reason: ExactBoundaryCommitDeclineReason,
-        sector_name: Option<String>,
-        face: Option<FaceHandle>,
-    ) -> Self {
-        Self {
-            reason,
-            code: reason.code(),
-            sector_name,
-            face,
-            edge: None,
-            cap_half_edge: None,
-            support_half_edge: None,
-            shared_trim_failure: None,
-            residual: None,
-        }
-    }
-
-    fn shared_trim_validation_failed(
-        sector: &ExactBoundaryCapSectorInput,
-        side_index: usize,
-        failure: popkern_core::topology::SharedTrimEdgeFailure,
-    ) -> Self {
-        Self {
-            reason: ExactBoundaryCommitDeclineReason::SharedTrimValidationFailed,
-            code: ExactBoundaryCommitDeclineReason::SharedTrimValidationFailed.code(),
-            sector_name: Some(sector.sector_name.clone()),
-            face: Some(sector.cap_face),
-            edge: Some(sector.outer_seams[side_index].edge),
-            cap_half_edge: Some(sector.cap_half_edges[side_index]),
-            support_half_edge: Some(sector.support_half_edges[side_index]),
-            shared_trim_failure: Some(failure.reason),
-            residual: Some(
-                failure
-                    .validation
-                    .max_curve_surface_deviation
-                    .max(failure.validation.max_side_agreement_deviation)
-                    .max(failure.validation.max_endpoint_gap),
-            ),
-        }
-    }
-
-    pub(crate) fn into_apex_diagnostic(self) -> crate::types::ApexConstructionDiagnostic {
-        crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
-            crate::types::ExactBoundaryCapDiagnostic {
-                stage: "exact_boundary_cap.commit".to_string(),
-                code: self.code.to_string(),
-                sector_name: self
-                    .sector_name
-                    .unwrap_or_else(|| "exact_boundary_cap".to_string()),
-                edge: self.edge,
-                support_half_edge: self.support_half_edge.or(self.cap_half_edge),
-                support_face: self.face,
-                residual: self.residual,
-                shared_fact_ids: Vec::new(),
-            },
-        )
-    }
 }
 
 /// Commit solved exact-boundary sector surfaces and paired pcurves transactionally.
@@ -163,10 +45,13 @@ pub(crate) fn commit_exact_boundary_sector_surfaces(
     validate_commit_inputs(brep, cap_face, sectors, solved, pcurves)?;
     let snapshot = brep.clone();
     let result = commit_validated_inputs(brep, sectors, solved, pcurves);
-    if result.is_err() {
-        *brep = snapshot;
+    match result {
+        Ok(report) => Ok(report),
+        Err(diagnostic) => {
+            *brep = snapshot;
+            Err(diagnostic)
+        }
     }
-    result
 }
 
 fn validate_commit_inputs(
@@ -341,27 +226,76 @@ fn commit_validated_inputs(
                         Some(sector.cap_face),
                     )
                 })?;
-            let (support_half_edge, support_face) =
-                resolved_support_side_for_commit(brep, pair.side, cap_half_edge, support_half_edge)
-                    .ok_or_else(|| {
-                        ExactBoundaryCommitDiagnostic::new(
-                            ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
-                            Some(sector.sector_name.clone()),
-                            Some(sector.cap_face),
-                        )
-                    })?;
-            let support_surface = brep
+            let (support_half_edge, support_face) = resolved_support_side_for_commit(
+                brep,
+                pair.side,
+                cap_half_edge,
+                support_half_edge,
+                &pair.support_surface,
+            )
+            .ok_or_else(|| {
+                ExactBoundaryCommitDiagnostic::support_side_missing(
+                    sector,
+                    side_index,
+                    cap_half_edge,
+                    pair.support_half_edge,
+                    None,
+                )
+            })?;
+            let mut support_half_edge = support_half_edge;
+            let mut support_face = support_face;
+            let mut support_surface = brep
                 .faces
                 .get(support_face)
                 .and_then(|face| face.surface.as_ref())
                 .map(|surface| surface.geometry.clone())
-                .ok_or_else(|| {
-                    ExactBoundaryCommitDiagnostic::new(
-                        ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
-                        Some(sector.sector_name.clone()),
-                        Some(sector.cap_face),
+                .or_else(|| {
+                    assign_loop_valid_support_surface(
+                        brep,
+                        support_face,
+                        pair.support_surface.clone(),
                     )
-                })?;
+                });
+            let support_residual =
+                support_loop_surface_residual(brep, support_face, &pair.support_surface);
+            if (support_surface.is_none()
+                || support_residual
+                    .is_some_and(|residual| residual > brep.tolerance.linear().max(1.0e-6)))
+                && let Some(subdivision) = materialize_support_subdivision(
+                    brep,
+                    cap_half_edge,
+                    support_half_edge,
+                    support_face,
+                    pair.support_surface.clone(),
+                )
+            {
+                support_half_edge = subdivision.support_half_edge;
+                support_face = subdivision.support_face;
+                support_surface = Some(pair.support_surface.clone());
+            }
+            let support_surface = support_surface.ok_or_else(|| {
+                if let Some(residual) = support_residual
+                    && residual > brep.tolerance.linear().max(1.0e-6)
+                {
+                    ExactBoundaryCommitDiagnostic::support_face_subdivision_required(
+                        sector,
+                        side_index,
+                        cap_half_edge,
+                        support_half_edge,
+                        support_face,
+                        residual,
+                    )
+                } else {
+                    ExactBoundaryCommitDiagnostic::support_surface_missing(
+                        sector,
+                        side_index,
+                        cap_half_edge,
+                        support_half_edge,
+                        support_face,
+                        support_residual,
+                    )
+                }
+            })?;
             let cap_edge = brep.half_edges[cap_half_edge].edge;
             let support_edge = brep.half_edges[support_half_edge].edge;
             let support_is_cap_twin = brep.half_edges[cap_half_edge].twin == support_half_edge;
@@ -497,4 +431,66 @@ fn commit_validated_inputs(
         committed_sector_count: sectors.len(),
         committed_pcurve_pair_count: pcurves.pairs.len(),
     })
+}
+
+fn assign_loop_valid_support_surface(
+    brep: &mut BRep,
+    support_face: FaceHandle,
+    support_surface: SurfaceGeometry,
+) -> Option<SurfaceGeometry> {
+    let tolerance = brep.tolerance.linear().max(1.0e-6);
+    let residual = support_loop_surface_residual(brep, support_face, &support_surface)?;
+    if residual > tolerance {
+        return None;
+    }
+    let face = brep.faces.get_mut(support_face)?;
+    face.surface = Some(SurfaceOnFace {
+        geometry: support_surface.clone(),
+        orientation: true,
+    });
+    Some(support_surface)
+}
+
+fn support_loop_surface_residual(
+    brep: &BRep,
+    support_face: FaceHandle,
+    support_surface: &SurfaceGeometry,
+) -> Option<f64> {
+    let loop_handle = brep.faces.get(support_face)?.outer_loop;
+    collect_loop_half_edges(brep, loop_handle)?
+        .into_iter()
+        .filter_map(|half_edge| {
+            let edge = brep.edges.get(brep.half_edges.get(half_edge)?.edge)?;
+            let curve = edge.curve.as_ref()?;
+            Some(
+                edge_surface_deviation(
+                    &curve.geometry,
+                    (curve.t_start, curve.t_end),
+                    support_surface,
+                    9,
+                )
+                .max_deviation,
+            )
+        })
+        .reduce(f64::max)
+}
+
+fn collect_loop_half_edges(
+    brep: &BRep,
+    loop_handle: popkern_core::topology::LoopHandle,
+) -> Option<Vec<popkern_core::topology::HalfEdgeHandle>> {
+    let start = brep.loops.get(loop_handle)?.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut cursor = start;
+    for _ in 0..=brep.half_edges.len() {
+        out.push(cursor);
+        cursor = brep.half_edges.get(cursor)?.next;
+        if cursor == start {
+            return Some(out);
+        }
+    }
+    None
 }

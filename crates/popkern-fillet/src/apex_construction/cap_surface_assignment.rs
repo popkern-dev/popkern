@@ -3,7 +3,7 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -89,6 +89,8 @@ pub(super) fn assign_gregory_cap_surface(
         apex_edge_handles.push(Some(fillet_end_handles[k]));
         apex_edge_handles.push(Some(face_edge_handles[k]));
     }
+    let face_edge_support_surfaces =
+        face_edge_support_surfaces(brep, cap_face, face_edge_handles, tolerance.linear());
 
     let exact_boundary_candidate = run_exact_boundary_cap_candidate(brep, cap_face, plan, sectors)?;
     if exact_boundary_candidate.status == ExactBoundaryCapCandidateStatus::Accepted {
@@ -118,6 +120,7 @@ pub(super) fn assign_gregory_cap_surface(
         tolerance,
     )?;
     let corner_patches = surface_assembly.corner_patches;
+    restore_face_edge_support_surfaces(brep, &face_edge_support_surfaces, tolerance.linear());
     author_plane_side_face_edge_pcurves(brep, face_edge_handles);
     let exact_boundary_prepared_curve_count = exact_boundary_candidate.prepared_curve_count();
     let exact_boundary_inner_spoke_count = exact_boundary_candidate.inner_spoke_count();
@@ -138,6 +141,105 @@ pub(super) fn assign_gregory_cap_surface(
         exact_boundary_performance: exact_boundary_candidate.performance,
         exact_boundary_report: exact_boundary_candidate.report,
         exact_boundary_diagnostics,
+    })
+}
+
+fn face_edge_support_surfaces(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    face_edge_handles: &[EdgeHandle],
+    tolerance: f64,
+) -> Vec<(FaceHandle, SurfaceOnFace)> {
+    face_edge_handles
+        .iter()
+        .filter_map(|edge| {
+            let support_face = face_across_edge(brep, *edge, cap_face)?;
+            let surface = brep.faces.get(support_face)?.surface.as_ref()?.clone();
+            edge_curve_fits_surface(brep, *edge, &surface.geometry, tolerance)
+                .then_some((support_face, surface))
+        })
+        .collect()
+}
+
+fn restore_face_edge_support_surfaces(
+    brep: &mut BRep,
+    surfaces: &[(FaceHandle, SurfaceOnFace)],
+    tolerance: f64,
+) {
+    for (face, surface) in surfaces {
+        if !edge_owner_surface_still_needed(brep, *face, &surface.geometry, tolerance) {
+            continue;
+        }
+        let Some(face_data) = brep.faces.get_mut(*face) else {
+            continue;
+        };
+        face_data.surface = Some(surface.clone());
+    }
+}
+
+fn edge_owner_surface_still_needed(
+    brep: &BRep,
+    face: FaceHandle,
+    surface: &SurfaceGeometry,
+    tolerance: f64,
+) -> bool {
+    brep.faces.get(face).is_some_and(|_| {
+        face_outer_edges(brep, face)
+            .into_iter()
+            .any(|edge| edge_curve_fits_surface(brep, edge, surface, tolerance))
+    })
+}
+
+fn face_outer_edges(brep: &BRep, face: FaceHandle) -> Vec<EdgeHandle> {
+    let Some(face_data) = brep.faces.get(face) else {
+        return Vec::new();
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return Vec::new();
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    let mut out = Vec::new();
+    for _ in 0..=brep.half_edges.len() {
+        let Some(half_edge) = brep.half_edges.get(cursor) else {
+            break;
+        };
+        out.push(half_edge.edge);
+        cursor = half_edge.next;
+        if cursor == start {
+            break;
+        }
+    }
+    out
+}
+
+fn face_across_edge(brep: &BRep, edge: EdgeHandle, cap_face: FaceHandle) -> Option<FaceHandle> {
+    let edge_data = brep.edges.get(edge)?;
+    let first = edge_data.half_edge;
+    let second = brep.half_edges.get(first)?.twin;
+    [first, second].into_iter().find_map(|half_edge| {
+        let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
+        (face != cap_face).then_some(face)
+    })
+}
+
+fn edge_curve_fits_surface(
+    brep: &BRep,
+    edge: EdgeHandle,
+    surface: &SurfaceGeometry,
+    tolerance: f64,
+) -> bool {
+    let Some(curve) = brep.edges.get(edge).and_then(|edge| edge.curve.as_ref()) else {
+        return false;
+    };
+    let (t0, t1) = curve.geometry.parameter_range();
+    (0..12).all(|index| {
+        let s = index as f64 / 11.0;
+        let point = curve.geometry.point_at(t0 + s * (t1 - t0));
+        let Some((u, v)) = project_point_to_uv(surface, &point) else {
+            return false;
+        };
+        surface.point_at(u, v).distance_to(&point) <= tolerance.max(1.0e-6)
     })
 }
 

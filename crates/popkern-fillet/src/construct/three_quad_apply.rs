@@ -155,10 +155,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let mut macro_family = macro_family_from_promotion(promotion_result);
 
     const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
-    if matches!(
-        promotion_result,
-        super::promotion_ladder::PromotionResult::Standard
-    ) && max_outer_boundary_residual(&decomp, boundary)
+    if max_outer_boundary_residual(&decomp, boundary)
         .is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
         && max_outer_boundary_residual(&unpromoted_constrained_decomp, boundary)
             .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)

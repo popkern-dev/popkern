@@ -206,16 +206,6 @@ fn n_sector_cap_fixture(case: CapFixtureCase) -> (BRep, FaceHandle, Vec<EdgeHand
     (brep, cap_face, edges)
 }
 
-fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize, usize) {
-    (
-        brep.vertices.len(),
-        brep.edges.len(),
-        brep.half_edges.len(),
-        brep.loops.len(),
-        brep.faces.len(),
-    )
-}
-
 fn first_non_cap_edge(brep: &BRep, cap_edges: &[EdgeHandle]) -> EdgeHandle {
     brep.edges
         .keys()
