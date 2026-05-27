@@ -24,14 +24,6 @@ pub(super) fn repair_exact_boundary_export_blockers(
     {
         *result = edge_curves_completed.brep;
     }
-    if let Ok(trim_repaired) =
-        popkern_core::topology::reconstruct_curve_backed_trims_transactionally(
-            result,
-            exact_boundary_post_surface_trim_options(),
-        )
-    {
-        *result = trim_repaired.brep;
-    }
     result.fix_stale_pcurves();
     pcurve_measured_repair::repair_measured_plane_cylinder_pcurves(result, 1.0e-6);
     surface_driven_edge_repair::repair_measured_edges_from_single_surface_pcurves(
@@ -159,19 +151,6 @@ fn exact_boundary_edge_curve_completion_options()
         samples: 9,
         allow_vertex_segments_without_surface: true,
         require_all_completed: false,
-        validate_output: false,
-    }
-}
-
-fn exact_boundary_post_surface_trim_options()
--> popkern_core::topology::BrepCurveTrimReconstructionOptions {
-    popkern_core::topology::BrepCurveTrimReconstructionOptions {
-        tolerance: 1e-6,
-        samples: 9,
-        replace_existing: true,
-        replace_stale_existing: true,
-        expand_bounded_surface_domains: true,
-        require_all_reconstructed: false,
         validate_output: false,
     }
 }

@@ -337,6 +337,7 @@ fn commit_validated_inputs(
                     )
                 })?
             };
+            brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
             brep.half_edges[support_half_edge].pcurve = Some(support_pcurve.clone());
             if cap_edge != support_edge
                 || !support_is_cap_twin

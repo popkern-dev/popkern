@@ -1,4 +1,7 @@
-use crate::direct_apex_validate_helpers::{build_under_direct_apex, direct_apex_fallback_reasons};
+use crate::direct_apex_validate_helpers::{
+    build_under_direct_apex, direct_apex_fallback_reasons, native_cap_faces,
+};
+use crate::helpers::measure_cap_outer_boundary;
 use popkern_fillet::{
     ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
     ExactBoundaryReportTransactionStatus, build_blend_repair_action_artifact,
@@ -44,6 +47,28 @@ fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
             .iter()
             .all(|action| action.stage != "exact_boundary_cap" || action.outcome != "declined"),
         "accepted cube_mixed exact-boundary route should not export decline actions"
+    );
+}
+
+#[test]
+fn cube_mixed_exact_boundary_cap_outer_passes_commercial_gate() {
+    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
+    let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
+    let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
+
+    assert!(
+        metrics.edges_measured >= 1,
+        "cube_mixed should expose measurable exact-boundary cap edges"
+    );
+    assert!(
+        metrics.worst_g0_gap <= 5.0e-3,
+        "cube_mixed cap_outer_g0 {:.3e} exceeds 5.0e-3",
+        metrics.worst_g0_gap
+    );
+    assert!(
+        metrics.worst_g1_coplanarity <= 5.0e-2,
+        "cube_mixed cap_outer_g1 {:.3e} exceeds 5.0e-2",
+        metrics.worst_g1_coplanarity
     );
 }
 

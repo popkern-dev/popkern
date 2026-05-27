@@ -2,11 +2,14 @@
 
 use popkern_core::geometry::SurfaceEval;
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 
 use super::corner::{PreparedExactBoundaryInnerSpokes, PreparedExactBoundarySectorBoundary};
-use super::ribbon::{PreparedExactBoundaryRibbon, PreparedExactBoundaryRibbons};
-use super::sector::ExactBoundaryOuterSide;
+use super::ribbon::PreparedExactBoundaryRibbons;
+use solve_derivatives::{BoundaryOrientation, apply_derivative_rows};
+
+#[path = "solve_derivatives.rs"]
+mod solve_derivatives;
 
 const DEFAULT_CORNER_TOLERANCE: f64 = 1.0e-7;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
@@ -63,6 +66,11 @@ pub(crate) struct ExactBoundarySectorSurface {
     pub surface: NurbsSurface,
     /// Maximum locked corner mismatch measured before solving.
     pub max_corner_gap: f64,
+}
+
+struct OrientedBoundary {
+    curve: NurbsCurve,
+    reversed: bool,
 }
 
 /// Stable decline reason for the in-memory solve.
@@ -158,15 +166,15 @@ fn solve_sector(
         sector.fillet_inner_spoke.anchor,
     );
     let face = orient_curve(&sector.face_boundary.curve, sector.face_inner_spoke.anchor);
-    let Some((num_u, num_v)) = compatible_dimensions(&fillet, &face) else {
+    let Some((num_u, num_v)) = compatible_dimensions(&fillet.curve, &face.curve) else {
         return Err(ExactBoundarySolveDiagnostic::new(
             ExactBoundarySolveDeclineReason::BoundaryCompatibilityMissing,
             sector,
             None,
         ));
     };
-    let shared = fillet.point_at(0.0);
-    let corner_gap = shared.distance_to(&face.point_at(0.0));
+    let shared = fillet.curve.point_at(0.0);
+    let corner_gap = shared.distance_to(&face.curve.point_at(0.0));
     if corner_gap > budget.corner_tolerance {
         return Err(ExactBoundarySolveDiagnostic::new(
             ExactBoundarySolveDeclineReason::CornerDerivativeConflict,
@@ -175,16 +183,26 @@ fn solve_sector(
         ));
     }
 
-    let top = line_curve_like(&fillet, sector.face_inner_spoke.anchor, sector.pole());
-    let right = line_curve_like(&face, sector.fillet_inner_spoke.anchor, sector.pole());
-    let mut controls = coons_controls(&fillet, &face, &top, &right, num_u, num_v);
-    let weights = coons_weights(&fillet, &face, &top, &right, num_u, num_v);
-    apply_derivative_rows(sector, ribbons, &mut controls, num_u, num_v);
+    let top = line_curve_like(&fillet.curve, sector.face_inner_spoke.anchor, sector.pole());
+    let right = line_curve_like(&face.curve, sector.fillet_inner_spoke.anchor, sector.pole());
+    let mut controls = coons_controls(&fillet.curve, &face.curve, &top, &right, num_u, num_v);
+    let weights = coons_weights(&fillet.curve, &face.curve, &top, &right, num_u, num_v);
+    apply_derivative_rows(
+        sector,
+        ribbons,
+        BoundaryOrientation {
+            fillet_reversed: fillet.reversed,
+            face_reversed: face.reversed,
+        },
+        &mut controls,
+        num_u,
+        num_v,
+    );
     let surface = NurbsSurface {
-        degree_u: fillet.degree,
-        degree_v: face.degree,
-        knots_u: fillet.knots.clone(),
-        knots_v: face.knots.clone(),
+        degree_u: fillet.curve.degree,
+        degree_v: face.curve.degree,
+        knots_u: fillet.curve.knots.clone(),
+        knots_v: face.curve.knots.clone(),
         control_points: controls,
         num_u,
         num_v,
@@ -222,13 +240,19 @@ fn compatible_dimensions(fillet: &NurbsCurve, face: &NurbsCurve) -> Option<(usiz
     Some((fillet.control_points.len(), face.control_points.len()))
 }
 
-fn orient_curve(curve: &NurbsCurve, expected_end: Point3) -> NurbsCurve {
+fn orient_curve(curve: &NurbsCurve, expected_end: Point3) -> OrientedBoundary {
     let end_gap = curve.point_at(1.0).distance_to(&expected_end);
     let start_gap = curve.point_at(0.0).distance_to(&expected_end);
     if start_gap < end_gap {
-        reverse_curve(curve)
+        OrientedBoundary {
+            curve: reverse_curve(curve),
+            reversed: true,
+        }
     } else {
-        curve.clone()
+        OrientedBoundary {
+            curve: curve.clone(),
+            reversed: false,
+        }
     }
 }
 
@@ -309,85 +333,6 @@ fn coons_weights(
     weights
 }
 
-fn apply_derivative_rows(
-    sector: &PreparedExactBoundarySectorBoundary,
-    ribbons: &PreparedExactBoundaryRibbons,
-    controls: &mut [Point3],
-    num_u: usize,
-    num_v: usize,
-) {
-    let mut derivative_controls = vec![None; controls.len()];
-    if let Some(ribbon) = ribbon_for(
-        ribbons,
-        sector.sector_index,
-        ExactBoundaryOuterSide::FilletEnd,
-    ) {
-        for i in 1..num_u.saturating_sub(1) {
-            let parameter = i as f64 / (num_u - 1) as f64;
-            let derivative = ribbon_derivative(ribbon, parameter);
-            let base = controls[index(i, 0, num_v)];
-            merge_derivative_control(
-                &mut derivative_controls,
-                index(i, 1, num_v),
-                base + derivative * (1.0 / sector.face_boundary.curve.degree as f64),
-            );
-        }
-    }
-    if let Some(ribbon) = ribbon_for(
-        ribbons,
-        sector.sector_index,
-        ExactBoundaryOuterSide::FaceEdge,
-    ) {
-        for j in 1..num_v.saturating_sub(1) {
-            let parameter = j as f64 / (num_v - 1) as f64;
-            let derivative = ribbon_derivative(ribbon, parameter);
-            let base = controls[index(0, j, num_v)];
-            merge_derivative_control(
-                &mut derivative_controls,
-                index(1, j, num_v),
-                base + derivative * (1.0 / sector.fillet_boundary.curve.degree as f64),
-            );
-        }
-    }
-    for (control, derivative_control) in controls.iter_mut().zip(derivative_controls) {
-        if let Some(derivative_control) = derivative_control {
-            *control = derivative_control;
-        }
-    }
-}
-
-fn merge_derivative_control(controls: &mut [Option<Point3>], index: usize, candidate: Point3) {
-    controls[index] = Some(match controls[index] {
-        Some(existing) => midpoint(existing, candidate),
-        None => candidate,
-    });
-}
-
-fn ribbon_for(
-    ribbons: &PreparedExactBoundaryRibbons,
-    sector_index: usize,
-    side: ExactBoundaryOuterSide,
-) -> Option<&PreparedExactBoundaryRibbon> {
-    ribbons
-        .ribbons
-        .iter()
-        .find(|ribbon| ribbon.sector_index == sector_index && ribbon.side == side)
-}
-
-fn ribbon_derivative(ribbon: &PreparedExactBoundaryRibbon, parameter: f64) -> Vec3 {
-    ribbon
-        .samples
-        .iter()
-        .min_by(|a, b| {
-            (a.parameter - parameter)
-                .abs()
-                .partial_cmp(&(b.parameter - parameter).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .map(|sample| sample.cross_derivative)
-        .unwrap_or(Vec3::zero())
-}
-
 fn has_gross_foldover(surface: &NurbsSurface, budget: ExactBoundarySolveBudget) -> bool {
     for u in [0.25, 0.5, 0.75] {
         for v in [0.25, 0.5, 0.75] {
@@ -449,8 +394,4 @@ fn lerp_scalar(a: f64, b: f64, t: f64) -> f64 {
 
 fn add_vec(a: Point3, b: Point3) -> Point3 {
     Point3::new(a.x + b.x, a.y + b.y, a.z + b.z)
-}
-
-fn midpoint(a: Point3, b: Point3) -> Point3 {
-    a + (b - a) * 0.5
 }

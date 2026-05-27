@@ -161,10 +161,14 @@ fn measure_cap_outer_boundary_inner(
                 }
             }
 
-            let su_a = sa.geometry.partial_u(uv_a.x, uv_a.y);
-            let sv_a = sa.geometry.partial_v(uv_a.x, uv_a.y);
-            let su_b = sb.geometry.partial_u(uv_b.x, uv_b.y);
-            let sv_b = sb.geometry.partial_v(uv_b.x, uv_b.y);
+            let (normal_u_a, normal_v_a) =
+                interior_normal_sample_parameters(&sa.geometry, uv_a.x, uv_a.y);
+            let (normal_u_b, normal_v_b) =
+                interior_normal_sample_parameters(&sb.geometry, uv_b.x, uv_b.y);
+            let su_a = sa.geometry.partial_u(normal_u_a, normal_v_a);
+            let sv_a = sa.geometry.partial_v(normal_u_a, normal_v_a);
+            let su_b = sb.geometry.partial_u(normal_u_b, normal_v_b);
+            let sv_b = sb.geometry.partial_v(normal_u_b, normal_v_b);
             let n_a = su_a.cross(&sv_a);
             let n_b = su_b.cross(&sv_b);
             let nn_a = vec_norm(n_a);
@@ -175,7 +179,7 @@ fn measure_cap_outer_boundary_inner(
                     worst_g1 = deficit;
                     if std::env::var_os("POPKERN_TRACE_CAP_OUTER_MEASURE").is_some() {
                         worst_g1_trace = format!(
-                            "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) n_a=({:.3},{:.3},{:.3}) n_b=({:.3},{:.3},{:.3}) su_a=({:.3},{:.3},{:.3}) sv_a=({:.3},{:.3},{:.3})",
+                            "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) n_a=({:.3},{:.3},{:.3}) n_b=({:.3},{:.3},{:.3}) su_a=({:.3},{:.3},{:.3}) sv_a=({:.3},{:.3},{:.3}) su_b=({:.3},{:.3},{:.3}) sv_b=({:.3},{:.3},{:.3})",
                             uv_a.x,
                             uv_a.y,
                             uv_b.x,
@@ -191,7 +195,13 @@ fn measure_cap_outer_boundary_inner(
                             su_a.z,
                             sv_a.x,
                             sv_a.y,
-                            sv_a.z
+                            sv_a.z,
+                            su_b.x,
+                            su_b.y,
+                            su_b.z,
+                            sv_b.x,
+                            sv_b.y,
+                            sv_b.z
                         );
                     }
                 }
@@ -210,6 +220,28 @@ fn measure_cap_outer_boundary_inner(
         worst_g1_coplanarity: worst_g1,
         edges_measured,
     }
+}
+
+fn interior_normal_sample_parameters(
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    u: f64,
+    v: f64,
+) -> (f64, f64) {
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    (
+        interior_parameter(u, u_min, u_max),
+        interior_parameter(v, v_min, v_max),
+    )
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
 
 fn half_edge_is_on_face_outer_loop(

@@ -7,15 +7,31 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
     use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
     let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
-    let cap_set = result
-        .corner_patches
-        .iter()
-        .map(|p| p.face)
-        .collect::<std::collections::BTreeSet<_>>();
+    let cap_set = native_cap_faces(&result);
     eprintln!(
         "\n=== direct-apex cube_mixed cap-outer per-edge breakdown: {} cap faces ===",
         cap_set.len()
     );
+    for route in &result.repair_report.apex_routes {
+        eprintln!(
+            "route status={:?} pcurve_pairs={} diagnostics={:?}",
+            route.exact_boundary_report.candidate_status,
+            route.exact_boundary_pcurve_pair_count,
+            route.exact_boundary_report.diagnostics
+        );
+        for sector in &route.exact_boundary_report.sectors {
+            eprintln!(
+                "sector={} cap={:?} fillet_edge={:?} face_edge={:?} support=({:?},{:?}) cap_hes={:?}",
+                sector.sector_name,
+                sector.cap_face,
+                sector.fillet_end_edge,
+                sector.face_edge,
+                sector.fillet_support_face,
+                sector.bridge_support_face,
+                sector.cap_half_edges
+            );
+        }
+    }
     let kind = |g: &SurfaceGeometry| -> &'static str {
         match g {
             SurfaceGeometry::Plane { .. } => "Plane",
@@ -25,6 +41,17 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
+        }
+    };
+    let pcurve_kind = |p: &popkern_core::geometry::pcurve::Pcurve| -> &'static str {
+        match &p.geometry {
+            popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => "Linear",
+            popkern_core::geometry::pcurve::PcurveGeometry::Elliptical { .. } => "Elliptical",
+            popkern_core::geometry::pcurve::PcurveGeometry::Sinusoidal { .. } => "Sinusoidal",
+            popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(_) => "Nurbs",
+            popkern_core::geometry::pcurve::PcurveGeometry::CylinderArcViaRationalQuad {
+                ..
+            } => "CylinderArcViaRationalQuad",
         }
     };
     for (eh, edge) in result.brep.edges.iter() {
@@ -66,6 +93,39 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
         };
         let (pa_lo, pa_hi) = pa.parameter_range();
         let (pb_lo, pb_hi) = pb.parameter_range();
+        let pa_at = |t: f64| {
+            let uv = pa.point_at(t);
+            sa.geometry.point_at(uv.x, uv.y)
+        };
+        let pb_at = |t: f64| {
+            let uv = pb.point_at(t);
+            sb.geometry.point_at(uv.x, uv.y)
+        };
+        let (pa_forward, pb_forward) = {
+            let (t_lo, t_hi) = (coe.t_start, coe.t_end);
+            let p3_lo = coe.geometry.point_at(t_lo);
+            let p3_hi = coe.geometry.point_at(t_hi);
+            (
+                p3_lo.distance_to(&pa_at(pa_lo)) + p3_hi.distance_to(&pa_at(pa_hi))
+                    <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo)),
+                p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
+                    <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo)),
+            )
+        };
+        let mut worst = 0.0_f64;
+        let mut worst_sample = 0usize;
+        for i in 0..100 {
+            let s = 0.05 + 0.90 * (i as f64) / 99.0;
+            let s_a = if pa_forward { s } else { 1.0 - s };
+            let s_b = if pb_forward { s } else { 1.0 - s };
+            let t_a = pa_lo + s_a * (pa_hi - pa_lo);
+            let t_b = pb_lo + s_b * (pb_hi - pb_lo);
+            let gap = pa_at(t_a).distance_to(&pb_at(t_b));
+            if gap > worst {
+                worst = gap;
+                worst_sample = i;
+            }
+        }
         let t_a = 0.5 * (pa_lo + pa_hi);
         let t_b = 0.5 * (pb_lo + pb_hi);
         let uv_a = pa.point_at(t_a);
@@ -91,6 +151,19 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
             p_b.x,
             p_b.y,
             p_b.z,
+        );
+        eprintln!(
+            "  pcurves=({},{}) ranges=({:.3},{:.3})/({:.3},{:.3}) forward=({},{}) worst100={:.3e}@{}",
+            pcurve_kind(pa),
+            pcurve_kind(pb),
+            pa_lo,
+            pa_hi,
+            pb_lo,
+            pb_hi,
+            pa_forward,
+            pb_forward,
+            worst,
+            worst_sample,
         );
     }
 }

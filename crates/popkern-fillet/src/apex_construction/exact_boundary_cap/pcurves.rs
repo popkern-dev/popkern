@@ -242,8 +242,11 @@ fn prepare_side_pair(
         ExactBoundaryOuterSide::FilletEnd => &sector.fillet_boundary.curve,
         ExactBoundaryOuterSide::FaceEdge => &sector.face_boundary.curve,
     };
-    let cap_pcurve = projected_cap_pcurve(boundary, &surface.surface)
-        .unwrap_or_else(|| cap_pcurve_for_side(side));
+    let cap_pcurve = match side {
+        ExactBoundaryOuterSide::FilletEnd => cap_pcurve_for_side(side),
+        ExactBoundaryOuterSide::FaceEdge => projected_cap_pcurve(boundary, &surface.surface)
+            .unwrap_or_else(|| cap_pcurve_for_side(side)),
+    };
     let support_pcurve = support_pcurve_from_ribbon(ribbon);
     let residuals = pcurve_residuals(boundary, &surface.surface, &cap_pcurve, ribbon);
     if residuals.cap > budget.max_cap_residual {
