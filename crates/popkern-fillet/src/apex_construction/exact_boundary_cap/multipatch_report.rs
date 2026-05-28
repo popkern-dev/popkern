@@ -148,6 +148,8 @@ impl ExactBoundaryMultiPatchDeclineReason {
 pub(crate) enum ExactBoundaryMultiPatchCandidateOutcome {
     /// Report has not yet reached an accept/decline decision.
     Pending,
+    /// Candidate passed all in-memory gates and may enter commit preflight.
+    CommitEligible,
     /// Candidate declined with at least one structured diagnostic.
     Declined,
 }
@@ -193,6 +195,40 @@ pub(crate) struct ExactBoundaryMultiPatchCandidateReport {
 }
 
 impl ExactBoundaryMultiPatchCandidateReport {
+    /// Build a commit-eligible candidate-only report.
+    pub(crate) fn commit_eligible(
+        sector: &ExactBoundaryCapSectorInput,
+        inventory: ExactBoundaryMultiPatchInventoryReport,
+        performance: ExactBoundaryMultiPatchPerformanceReport,
+    ) -> Self {
+        Self {
+            sector_index: sector.sector_index,
+            sector_name: sector.sector_name.clone(),
+            outcome: ExactBoundaryMultiPatchCandidateOutcome::CommitEligible,
+            inventory: Some(inventory),
+            diagnostics: Vec::new(),
+            performance,
+        }
+    }
+
+    /// Build a declined candidate-only report after orchestration has context.
+    pub(crate) fn declined_with_context(
+        sector: &ExactBoundaryCapSectorInput,
+        inventory: Option<ExactBoundaryMultiPatchInventoryReport>,
+        diagnostic: ExactBoundaryMultiPatchDiagnostic,
+        mut performance: ExactBoundaryMultiPatchPerformanceReport,
+    ) -> Self {
+        performance.deterministic_skip_code = Some(diagnostic.code.clone());
+        Self {
+            sector_index: sector.sector_index,
+            sector_name: sector.sector_name.clone(),
+            outcome: ExactBoundaryMultiPatchCandidateOutcome::Declined,
+            inventory,
+            diagnostics: vec![diagnostic],
+            performance,
+        }
+    }
+
     /// Build a declined report for an inventory mismatch.
     pub(crate) fn declined_for_inventory_mismatch(
         diagnostic: ExactBoundaryMultiPatchInventoryDiagnostic,
