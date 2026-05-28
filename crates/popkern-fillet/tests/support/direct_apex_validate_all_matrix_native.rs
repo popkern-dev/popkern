@@ -158,7 +158,6 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
         .apex_routes
         .first()
         .expect("pyramid3_uniform should record one direct-apex route");
-
     assert_eq!(
         route.exact_boundary_report.candidate_status,
         ExactBoundaryCandidateOutcome::Declined,

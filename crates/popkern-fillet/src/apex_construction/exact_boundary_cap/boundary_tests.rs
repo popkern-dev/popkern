@@ -45,7 +45,7 @@ fn budget_overflow_declines_with_stable_diagnostic() {
         &brep,
         &sectors,
         ExactBoundaryCurveBudget {
-            target_degree: 5,
+            target_degree: 9,
             max_control_points: 2,
             max_knots: 4,
         },

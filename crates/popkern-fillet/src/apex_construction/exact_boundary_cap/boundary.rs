@@ -14,6 +14,11 @@ const VERIFY_SAMPLES: usize = 9;
 const VERIFY_TOLERANCE: f64 = 1.0e-9;
 const KNOT_EPS: f64 = 1.0e-10;
 const TOPOLOGY_ENDPOINT_TOLERANCE: f64 = 1.0e-7;
+const SUPPORT_RIBBON_REFINEMENT_KNOTS: [f64; 28] = [
+    0.125, 0.125, 0.125, 0.125, 0.250, 0.250, 0.250, 0.250, 0.375, 0.375, 0.375, 0.375, 0.500,
+    0.500, 0.500, 0.500, 0.625, 0.625, 0.625, 0.625, 0.750, 0.750, 0.750, 0.750, 0.875, 0.875,
+    0.875, 0.875,
+];
 
 /// Budget for exact boundary compatibility operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -394,6 +399,7 @@ fn compatible_interior_knots(curves: &[PreparedSourceCurve]) -> Vec<f64> {
             }
         }
     }
+    knots.extend(SUPPORT_RIBBON_REFINEMENT_KNOTS);
     knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     knots
 }
@@ -404,12 +410,17 @@ fn insert_missing_knots(
     budget: ExactBoundaryCurveBudget,
 ) -> Result<(), ExactBoundaryCurveDiagnostic> {
     for &knot in union_knots {
-        if !curve
+        let required = union_knots
+            .iter()
+            .filter(|required| f64::abs(**required - knot) <= KNOT_EPS)
+            .count();
+        let existing = curve
             .prepared
             .knots
             .iter()
-            .any(|existing| f64::abs(*existing - knot) <= KNOT_EPS)
-        {
+            .filter(|existing| f64::abs(**existing - knot) <= KNOT_EPS)
+            .count();
+        if existing < required {
             curve.prepared = curve.prepared.insert_knot(knot).map_err(|_| {
                 ExactBoundaryCurveDiagnostic::new(
                     ExactBoundaryCurveDeclineReason::KnotCompatibilityDeclined,

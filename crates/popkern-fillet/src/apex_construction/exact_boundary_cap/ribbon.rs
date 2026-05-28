@@ -21,7 +21,7 @@ use super::support::{ExactBoundarySupportSurfaceFamily, support_surface_family};
 mod ribbon_surface_identity;
 use ribbon_surface_identity::geometrically_unique_surface;
 
-const DEFAULT_SAMPLE_COUNT: usize = 5;
+const DEFAULT_SAMPLE_COUNT: usize = 9;
 
 /// Budget and local tolerances for support derivative ribbon preparation.
 #[derive(Debug, Clone, Copy, PartialEq)]

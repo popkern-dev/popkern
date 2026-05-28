@@ -28,12 +28,7 @@ pub(super) fn apply_derivative_rows(
     ) {
         for i in 1..num_u.saturating_sub(1) {
             let parameter = i as f64 / (num_u - 1) as f64;
-            let derivative = ribbon_derivative(
-                ribbon,
-                parameter,
-                orientation.fillet_reversed,
-                BoundarySide::Bottom,
-            );
+            let derivative = ribbon_derivative(ribbon, parameter, orientation.fillet_reversed);
             let base = controls[index(i, 0, num_v)];
             merge_derivative_control(
                 &mut derivative_controls,
@@ -49,12 +44,7 @@ pub(super) fn apply_derivative_rows(
     ) {
         for j in 1..num_v.saturating_sub(1) {
             let parameter = j as f64 / (num_v - 1) as f64;
-            let derivative = ribbon_derivative(
-                ribbon,
-                parameter,
-                orientation.face_reversed,
-                BoundarySide::Left,
-            );
+            let derivative = ribbon_derivative(ribbon, parameter, orientation.face_reversed);
             let base = controls[index(0, j, num_v)];
             merge_derivative_control(
                 &mut derivative_controls,
@@ -68,12 +58,6 @@ pub(super) fn apply_derivative_rows(
             *control = derivative_control;
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum BoundarySide {
-    Bottom,
-    Left,
 }
 
 fn merge_derivative_control(controls: &mut [Option<Point3>], index: usize, candidate: Point3) {
@@ -98,7 +82,6 @@ fn ribbon_derivative(
     ribbon: &PreparedExactBoundaryRibbon,
     parameter: f64,
     boundary_reversed: bool,
-    side: BoundarySide,
 ) -> Vec3 {
     let ribbon_parameter = if boundary_reversed {
         1.0 - parameter
@@ -107,22 +90,35 @@ fn ribbon_derivative(
     };
     ribbon
         .samples
-        .iter()
-        .min_by(|a, b| {
-            (a.parameter - ribbon_parameter)
-                .abs()
-                .partial_cmp(&(b.parameter - ribbon_parameter).abs())
-                .unwrap_or(std::cmp::Ordering::Equal)
+        .windows(2)
+        .find_map(|window| {
+            let left = window[0];
+            let right = window[1];
+            if ribbon_parameter < left.parameter || ribbon_parameter > right.parameter {
+                return None;
+            }
+            let span = right.parameter - left.parameter;
+            if span.abs() <= f64::EPSILON {
+                return Some(left.cross_derivative);
+            }
+            let fraction = ((ribbon_parameter - left.parameter) / span).clamp(0.0, 1.0);
+            Some(
+                left.cross_derivative + (right.cross_derivative - left.cross_derivative) * fraction,
+            )
         })
-        .map(|sample| sample.cross_derivative * derivative_sign(boundary_reversed, side))
+        .or_else(|| {
+            ribbon
+                .samples
+                .iter()
+                .min_by(|a, b| {
+                    (a.parameter - ribbon_parameter)
+                        .abs()
+                        .partial_cmp(&(b.parameter - ribbon_parameter).abs())
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|sample| sample.cross_derivative)
+        })
         .unwrap_or(Vec3::zero())
-}
-
-fn derivative_sign(boundary_reversed: bool, side: BoundarySide) -> f64 {
-    match (side, boundary_reversed) {
-        (BoundarySide::Bottom, false) | (BoundarySide::Left, true) => 1.0,
-        (BoundarySide::Bottom, true) | (BoundarySide::Left, false) => -1.0,
-    }
 }
 
 fn boundary_derivative_control_step(boundary: &NurbsCurve) -> f64 {

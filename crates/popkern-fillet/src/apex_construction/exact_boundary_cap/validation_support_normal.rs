@@ -65,10 +65,12 @@ fn support_normal_deficit(
         pair.cap_pcurve.t_start
             + (pair.cap_pcurve.t_end - pair.cap_pcurve.t_start) * sample.parameter,
     );
+    let (normal_u, normal_v) =
+        interior_normal_sample_parameters(&solved_surface.surface, cap_uv.x, cap_uv.y);
     let cap_normal = solved_surface
         .surface
-        .partial_u(cap_uv.x, cap_uv.y)
-        .cross(&solved_surface.surface.partial_v(cap_uv.x, cap_uv.y));
+        .partial_u(normal_u, normal_v)
+        .cross(&solved_surface.surface.partial_v(normal_u, normal_v));
     let support_normal = sample.support_normal;
     let cap_length = cap_normal.length();
     let support_length = support_normal.length();
@@ -82,4 +84,24 @@ fn support_normal_deficit(
         );
     }
     Ok(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
+}
+
+fn interior_normal_sample_parameters(
+    surface: &popkern_core::geometry::NurbsSurface,
+    u: f64,
+    v: f64,
+) -> (f64, f64) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    (
+        interior_parameter(u, u_min, u_max),
+        interior_parameter(v, v_min, v_max),
+    )
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
