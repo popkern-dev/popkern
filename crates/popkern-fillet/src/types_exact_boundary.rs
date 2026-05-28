@@ -323,6 +323,10 @@ pub struct ExactBoundaryReportDiagnostic {
     pub support_face: Option<FaceHandle>,
     /// Measured residual, when available.
     pub residual: Option<f64>,
+    /// Sector-local outer side for seam-scoped diagnostics.
+    pub outer_side: Option<String>,
+    /// Normalized seam sample parameter for sample-scoped diagnostics.
+    pub sample_parameter: Option<f64>,
     /// Local tolerance gate used by the diagnostic, when available.
     pub tolerance: Option<f64>,
     /// Shared BRep repair knowledge facts that explain the source evidence.

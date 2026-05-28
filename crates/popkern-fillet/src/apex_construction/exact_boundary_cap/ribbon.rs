@@ -213,6 +213,8 @@ impl ExactBoundaryRibbonDiagnostic {
                 support_half_edge: Some(self.support_half_edge),
                 support_face: Some(self.support_face),
                 residual: self.residual,
+                outer_side: Some(format!("{:?}", self.side)),
+                sample_parameter: None,
                 shared_fact_ids: Vec::new(),
             },
         )

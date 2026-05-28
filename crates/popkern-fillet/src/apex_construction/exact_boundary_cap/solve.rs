@@ -137,6 +137,8 @@ impl ExactBoundarySolveDiagnostic {
                 support_half_edge: None,
                 support_face: None,
                 residual: self.residual,
+                outer_side: None,
+                sample_parameter: None,
                 shared_fact_ids: Vec::new(),
             },
         )

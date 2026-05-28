@@ -138,7 +138,6 @@ pub(crate) struct ExactBoundaryValidationDiagnostic {
     pub reason: ExactBoundaryValidationDeclineReason,
     /// Stable diagnostic code.
     pub code: &'static str,
-    /// Stable sector name when the failure is sector-scoped.
     pub sector_name: Option<String>,
     /// Measured residual when available.
     pub residual: Option<f64>,
@@ -146,8 +145,9 @@ pub(crate) struct ExactBoundaryValidationDiagnostic {
     pub edge: Option<EdgeHandle>,
     /// Support half-edge being validated.
     pub support_half_edge: Option<HalfEdgeHandle>,
-    /// Support face being validated.
     pub support_face: Option<FaceHandle>,
+    pub outer_side: Option<String>,
+    pub sample_parameter: Option<f64>,
 }
 
 impl ExactBoundaryValidationDiagnostic {
@@ -164,6 +164,8 @@ impl ExactBoundaryValidationDiagnostic {
             edge: None,
             support_half_edge: None,
             support_face: None,
+            outer_side: None,
+            sample_parameter: None,
         }
     }
 
@@ -180,12 +182,15 @@ impl ExactBoundaryValidationDiagnostic {
             edge: Some(seam.edge),
             support_half_edge: Some(seam.support_half_edge),
             support_face: Some(seam.support_face),
+            outer_side: Some(format!("{:?}", seam.side)),
+            sample_parameter: None,
         }
     }
 
     pub(super) fn support_normal_continuity(
         pair: &super::pcurves::PreparedExactBoundaryPcurvePair,
         residual: f64,
+        sample_parameter: f64,
     ) -> Self {
         Self {
             reason: ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded,
@@ -195,6 +200,8 @@ impl ExactBoundaryValidationDiagnostic {
             edge: Some(pair.edge),
             support_half_edge: Some(pair.support_half_edge),
             support_face: Some(pair.support_face),
+            outer_side: Some(format!("{:?}", pair.side)),
+            sample_parameter: Some(sample_parameter),
         }
     }
 
@@ -210,6 +217,8 @@ impl ExactBoundaryValidationDiagnostic {
                 support_half_edge: self.support_half_edge,
                 support_face: self.support_face,
                 residual: self.residual,
+                outer_side: self.outer_side,
+                sample_parameter: self.sample_parameter,
                 shared_fact_ids: Vec::new(),
             },
         )

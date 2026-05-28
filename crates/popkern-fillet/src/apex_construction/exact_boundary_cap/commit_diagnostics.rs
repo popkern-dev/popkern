@@ -199,6 +199,8 @@ impl ExactBoundaryCommitDiagnostic {
                 support_half_edge: self.support_half_edge.or(self.cap_half_edge),
                 support_face: self.face,
                 residual: self.residual,
+                outer_side: None,
+                sample_parameter: None,
                 shared_fact_ids: Vec::new(),
             },
         )

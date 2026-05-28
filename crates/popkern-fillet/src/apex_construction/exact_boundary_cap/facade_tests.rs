@@ -93,6 +93,8 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
         support_half_edge: Some(exact_sectors[0].support_half_edges[0]),
         support_face: Some(exact_sectors[0].fillet_support_face),
         residual: Some(1.0),
+        outer_side: Some("FilletEnd".to_string()),
+        sample_parameter: Some(0.5),
         shared_fact_ids: Vec::new(),
     });
 
@@ -118,6 +120,11 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
     assert!(report.provenance.topology_rollback_performed);
     assert_eq!(report.diagnostics[0].schema_version, 1);
     assert_eq!(report.diagnostics[0].tolerance, None);
+    assert_eq!(
+        report.diagnostics[0].outer_side.as_deref(),
+        Some("FilletEnd")
+    );
+    assert_eq!(report.diagnostics[0].sample_parameter, Some(0.5));
     assert_eq!(
         report.tolerance_evidence.deterministic_skip_code.as_deref(),
         Some("exact_boundary_cap.ribbon.support_pcurve_stale")

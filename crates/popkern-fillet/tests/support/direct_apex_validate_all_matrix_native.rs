@@ -175,6 +175,10 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
                     && diagnostic.edge.is_some()
                     && diagnostic.support_half_edge.is_some()
                     && diagnostic.support_face.is_some()
+                    && diagnostic.outer_side.is_some()
+                    && diagnostic
+                        .sample_parameter
+                        .is_some_and(|parameter| parameter > 0.0 && parameter < 1.0)
                     && diagnostic
                         .residual
                         .is_some_and(|residual| residual > 5.0e-2)

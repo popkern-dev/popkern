@@ -38,17 +38,24 @@ pub(super) fn validate_support_normal_continuity(
                 None,
             ));
         };
-        let worst_deficit = ribbon
+        let (worst_deficit, worst_parameter) = ribbon
             .samples
             .iter()
             .filter(|sample| sample.parameter > 0.0 && sample.parameter < 1.0)
-            .map(|sample| support_normal_deficit(solved_surface, pair, sample, budget))
-            .try_fold(0.0_f64, |worst, deficit| {
-                deficit.map(|deficit| worst.max(deficit))
+            .map(|sample| {
+                support_normal_deficit(solved_surface, pair, sample, budget)
+                    .map(|deficit| (deficit, sample.parameter))
+            })
+            .try_fold((0.0_f64, 0.0_f64), |worst, deficit| {
+                deficit.map(|deficit| if deficit.0 > worst.0 { deficit } else { worst })
             })?;
         if worst_deficit > budget.max_support_normal_deficit {
             return Err(
-                ExactBoundaryValidationDiagnostic::support_normal_continuity(pair, worst_deficit),
+                ExactBoundaryValidationDiagnostic::support_normal_continuity(
+                    pair,
+                    worst_deficit,
+                    worst_parameter,
+                ),
             );
         }
     }
@@ -80,7 +87,11 @@ fn support_normal_deficit(
         || !support_length.is_finite()
     {
         return Err(
-            ExactBoundaryValidationDiagnostic::support_normal_continuity(pair, f64::INFINITY),
+            ExactBoundaryValidationDiagnostic::support_normal_continuity(
+                pair,
+                f64::INFINITY,
+                sample.parameter,
+            ),
         );
     }
     Ok(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())

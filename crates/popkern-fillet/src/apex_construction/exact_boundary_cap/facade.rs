@@ -406,6 +406,8 @@ fn report_diagnostic_from_exact_boundary(
         support_half_edge: diagnostic.support_half_edge,
         support_face: diagnostic.support_face,
         residual: diagnostic.residual,
+        outer_side: diagnostic.outer_side.clone(),
+        sample_parameter: diagnostic.sample_parameter,
         tolerance: None,
         shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
     }

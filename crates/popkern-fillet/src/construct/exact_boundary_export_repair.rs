@@ -74,6 +74,8 @@ fn record_exact_boundary_support_scope_declines(
                     support_half_edge: Some(support_half_edge),
                     support_face: Some(support_face),
                     residual,
+                    outer_side: None,
+                    sample_parameter: None,
                     shared_fact_ids: Vec::new(),
                 };
                 route.exact_boundary_report.diagnostics.push(
@@ -86,6 +88,8 @@ fn record_exact_boundary_support_scope_declines(
                         support_half_edge: diagnostic.support_half_edge,
                         support_face: diagnostic.support_face,
                         residual: diagnostic.residual,
+                        outer_side: diagnostic.outer_side.clone(),
+                        sample_parameter: diagnostic.sample_parameter,
                         tolerance: Some(tolerance),
                         shared_fact_ids: Vec::new(),
                     },

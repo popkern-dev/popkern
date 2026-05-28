@@ -14,11 +14,8 @@ const VERIFY_SAMPLES: usize = 9;
 const VERIFY_TOLERANCE: f64 = 1.0e-9;
 const KNOT_EPS: f64 = 1.0e-10;
 const TOPOLOGY_ENDPOINT_TOLERANCE: f64 = 1.0e-7;
-const SUPPORT_RIBBON_REFINEMENT_KNOTS: [f64; 28] = [
-    0.125, 0.125, 0.125, 0.125, 0.250, 0.250, 0.250, 0.250, 0.375, 0.375, 0.375, 0.375, 0.500,
-    0.500, 0.500, 0.500, 0.625, 0.625, 0.625, 0.625, 0.750, 0.750, 0.750, 0.750, 0.875, 0.875,
-    0.875, 0.875,
-];
+#[rustfmt::skip]
+const SUPPORT_RIBBON_REFINEMENT_KNOTS: [f64; 28] = [0.125, 0.125, 0.125, 0.125, 0.250, 0.250, 0.250, 0.250, 0.375, 0.375, 0.375, 0.375, 0.500, 0.500, 0.500, 0.500, 0.625, 0.625, 0.625, 0.625, 0.750, 0.750, 0.750, 0.750, 0.875, 0.875, 0.875, 0.875];
 
 /// Budget for exact boundary compatibility operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,6 +134,8 @@ impl ExactBoundaryCurveDiagnostic {
                 support_half_edge: None,
                 support_face: None,
                 residual: self.residual,
+                outer_side: Some(format!("{:?}", self.side)),
+                sample_parameter: None,
                 shared_fact_ids: Vec::new(),
             },
         )

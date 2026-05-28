@@ -10,6 +10,8 @@ mod types_corner;
 mod types_exact_boundary;
 #[path = "types_repair.rs"]
 mod types_repair;
+#[path = "types_repair_exact_boundary.rs"]
+mod types_repair_exact_boundary;
 
 pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
 pub use types_corner::{
@@ -26,11 +28,12 @@ pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,
     BlendRepairReport, CapSupportContinuityDiagnostic, CylinderTrimFarSideStrategy,
     CylinderTrimMaterializationDeclineReason, CylinderTrimMaterializationDiagnostic,
-    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic,
-    SideSupportContinuationDiagnostic, SupportSeamDecision, SupportSeamDeclineReason,
-    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    ExactBoundaryCandidatePerformanceReport, SideSupportContinuationDiagnostic,
+    SupportSeamDecision, SupportSeamDeclineReason, SupportSeamRelocationReport,
+    SupportSeamRollbackReason, build_blend_repair_action_artifact,
     support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
+pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 
 use popkern_core::topology::EdgeHandle;
 

@@ -1,11 +1,12 @@
 use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::topology::{
-    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, BrepRepairFactId,
-    EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle,
+    BrepRepairActionArtifact, BrepRepairActionRecord, BrepRepairActionSummary, EdgeHandle,
+    FaceHandle, HalfEdgeHandle, VertexHandle,
 };
 use serde::{Deserialize, Serialize};
 
 use super::types_exact_boundary::{CapContinuityReport, ExactBoundaryCapReport};
+use super::types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 
 /// Structured diagnostics for repair and hardening actions performed during a
 /// blend operation.
@@ -142,27 +143,6 @@ pub struct SideSupportContinuationDiagnostic {
     pub bridge_face_count: usize,
     /// Number of bridge loops authored by the primitive.
     pub bridge_loop_count: usize,
-}
-
-/// Exact-boundary cap preparation diagnostic for candidate construction.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ExactBoundaryCapDiagnostic {
-    /// Candidate stage that emitted the diagnostic.
-    pub stage: String,
-    /// Stable diagnostic code.
-    pub code: String,
-    /// Stable sector name where available.
-    pub sector_name: String,
-    /// Source edge being prepared.
-    pub edge: Option<EdgeHandle>,
-    /// Support half-edge being sampled, when applicable.
-    pub support_half_edge: Option<HalfEdgeHandle>,
-    /// Support face being sampled, when applicable.
-    pub support_face: Option<FaceHandle>,
-    /// Measured residual, when available.
-    pub residual: Option<f64>,
-    /// Shared BRep repair knowledge facts that explain the source evidence.
-    pub shared_fact_ids: Vec<BrepRepairFactId>,
 }
 
 /// Native cap/support continuity diagnostic for a constructed apex cap.
