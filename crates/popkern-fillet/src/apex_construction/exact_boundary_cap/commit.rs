@@ -1,7 +1,6 @@
 //! Transactional BRep commit boundary for exact-boundary apex cap sectors.
 
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{
     BRep, FaceHandle, SharedTrimEdgeInput, TopologyRole, commit_shared_trim_edge_transactionally,
 };
@@ -10,6 +9,8 @@ use popkern_core::topology::{
 mod commit_helpers;
 #[path = "commit_post_validation.rs"]
 mod commit_post_validation;
+#[path = "commit_support_loop.rs"]
+mod commit_support_loop;
 use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
 pub(crate) use super::commit_diagnostics::{
     ExactBoundaryCommitDeclineReason, ExactBoundaryCommitDiagnostic,
@@ -24,6 +25,7 @@ use commit_helpers::{
     resolved_support_side_for_commit, reversed_pcurve, solved_surface,
 };
 pub(crate) use commit_post_validation::post_commit_validation_diagnostic;
+use commit_support_loop::{assign_loop_valid_support_surface, support_loop_surface_residual};
 
 /// Result of committing exact-boundary sector candidates into live topology.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -258,7 +260,10 @@ fn commit_validated_inputs(
                 });
             let support_residual =
                 support_loop_surface_residual(brep, support_face, &pair.support_surface);
-            if (support_surface.is_none()
+            let requires_semantic_subdivision = pair.side == ExactBoundaryOuterSide::FaceEdge
+                && brep.half_edges[cap_half_edge].twin != support_half_edge;
+            if (requires_semantic_subdivision
+                || support_surface.is_none()
                 || support_residual
                     .is_some_and(|residual| residual > brep.tolerance.linear().max(1.0e-6)))
                 && let Some(subdivision) = materialize_support_subdivision(
@@ -432,66 +437,4 @@ fn commit_validated_inputs(
         committed_sector_count: sectors.len(),
         committed_pcurve_pair_count: pcurves.pairs.len(),
     })
-}
-
-fn assign_loop_valid_support_surface(
-    brep: &mut BRep,
-    support_face: FaceHandle,
-    support_surface: SurfaceGeometry,
-) -> Option<SurfaceGeometry> {
-    let tolerance = brep.tolerance.linear().max(1.0e-6);
-    let residual = support_loop_surface_residual(brep, support_face, &support_surface)?;
-    if residual > tolerance {
-        return None;
-    }
-    let face = brep.faces.get_mut(support_face)?;
-    face.surface = Some(SurfaceOnFace {
-        geometry: support_surface.clone(),
-        orientation: true,
-    });
-    Some(support_surface)
-}
-
-fn support_loop_surface_residual(
-    brep: &BRep,
-    support_face: FaceHandle,
-    support_surface: &SurfaceGeometry,
-) -> Option<f64> {
-    let loop_handle = brep.faces.get(support_face)?.outer_loop;
-    collect_loop_half_edges(brep, loop_handle)?
-        .into_iter()
-        .filter_map(|half_edge| {
-            let edge = brep.edges.get(brep.half_edges.get(half_edge)?.edge)?;
-            let curve = edge.curve.as_ref()?;
-            Some(
-                edge_surface_deviation(
-                    &curve.geometry,
-                    (curve.t_start, curve.t_end),
-                    support_surface,
-                    9,
-                )
-                .max_deviation,
-            )
-        })
-        .reduce(f64::max)
-}
-
-fn collect_loop_half_edges(
-    brep: &BRep,
-    loop_handle: popkern_core::topology::LoopHandle,
-) -> Option<Vec<popkern_core::topology::HalfEdgeHandle>> {
-    let start = brep.loops.get(loop_handle)?.half_edge;
-    if !brep.half_edges.contains_key(start) {
-        return None;
-    }
-    let mut out = Vec::new();
-    let mut cursor = start;
-    for _ in 0..=brep.half_edges.len() {
-        out.push(cursor);
-        cursor = brep.half_edges.get(cursor)?.next;
-        if cursor == start {
-            return Some(out);
-        }
-    }
-    None
 }

@@ -47,7 +47,6 @@ use direct_apex_validate_helpers::{
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;
-use popkern_fillet::types::ApexConstructionDiagnostic;
 
 /// Whole-matrix native DirectApex gate: every active fixture keeps
 /// structural validity and path-A gap validity under direct-apex
@@ -157,7 +156,7 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
 }
 
 #[test]
-fn cube_extreme_native_direct_apex_preserves_sphere_preflight_diagnostic() {
+fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -165,20 +164,22 @@ fn cube_extreme_native_direct_apex_preserves_sphere_preflight_diagnostic() {
         "cube_extreme should now complete through native direct-apex; got:\n{}",
         reasons.join("\n")
     );
-    let diagnostic = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                if diagnostic.stage == "native_gregory_sphere_cap_preflight" =>
-            {
-                Some(diagnostic)
-            }
-            _ => None,
-        })
-        .expect("native cube_extreme should preserve declined sphere-cap preflight evidence");
-    assert_eq!(diagnostic.code, "sphere_plane_boundary_tangent_or_empty");
+    let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
+    let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
+    assert!(
+        metrics.edges_measured >= 1,
+        "cube_extreme should expose measurable exact-boundary cap edges"
+    );
+    assert!(
+        metrics.worst_g0_gap <= 5.0e-3,
+        "cube_extreme cap_outer_g0 {:.3e} exceeds 5.0e-3",
+        metrics.worst_g0_gap
+    );
+    assert!(
+        metrics.worst_g1_coplanarity <= 5.0e-2,
+        "cube_extreme cap_outer_g1 {:.3e} exceeds 5.0e-2",
+        metrics.worst_g1_coplanarity
+    );
 }
 
 /// Phase 6c-E commercial `cap_outer_g0 <= 5e-3 m` gate under DirectApex

@@ -82,26 +82,13 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         reasons.join("\n"),
     );
 
-    let sphere_preflight = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                if diagnostic.stage == "native_gregory_sphere_cap_preflight" =>
-            {
-                Some(diagnostic)
-            }
-            _ => None,
-        })
-        .expect("cube_extreme must classify the declined sphere-cap boundary preflight");
-    assert_eq!(
-        sphere_preflight.code,
-        "sphere_plane_boundary_tangent_or_empty"
-    );
+    let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
+    let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     assert!(
-        sphere_preflight.support_face.is_some(),
-        "sphere-plane preflight diagnostic should identify the support face"
+        metrics.worst_g0_gap <= 5.0e-3 && metrics.worst_g1_coplanarity <= 5.0e-2,
+        "cube_extreme exact-boundary cap_outer must pass after support-face subdivision; got g0={:.3e}, g1={:.3e}",
+        metrics.worst_g0_gap,
+        metrics.worst_g1_coplanarity,
     );
 
     let side_support = result

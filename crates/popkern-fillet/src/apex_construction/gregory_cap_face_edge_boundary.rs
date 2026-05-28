@@ -165,7 +165,17 @@ fn fit_oriented_support_trim(
 }
 
 fn curve_matches_endpoints(curve: &NurbsCurve, start: Point3, end: Point3, tolerance: f64) -> bool {
+    if !has_valid_parameter_range(curve) {
+        return false;
+    }
     let (t0, t1) = curve.parameter_range();
     curve.point_at(t0).distance_to(&start) <= tolerance
         && curve.point_at(t1).distance_to(&end) <= tolerance
+}
+
+fn has_valid_parameter_range(curve: &NurbsCurve) -> bool {
+    let Some(last_control_index) = curve.control_points.len().checked_sub(1) else {
+        return false;
+    };
+    curve.degree <= last_control_index && curve.knots.len() > last_control_index + 1
 }
