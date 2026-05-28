@@ -272,6 +272,7 @@ impl ExactBoundaryMultiPatchDiagnostic {
             residual: self.residual,
             outer_side: self.side.map(|side| format!("{side:?}")),
             sample_parameter: self.sample_parameter,
+            tolerance: self.tolerance,
             shared_fact_ids: self.source_fact_ids,
         })
     }

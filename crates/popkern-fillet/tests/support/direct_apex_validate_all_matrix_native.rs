@@ -199,4 +199,42 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
             .any(|step| step.route_label == "exact_boundary.multipatch"),
         "pyramid3 constrained-strip decline must record the multipatch candidate decision"
     );
+    let multipatch_diagnostic = route
+        .exact_boundary_report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.stage == "exact_boundary_cap.multipatch")
+        .expect("pyramid3 multipatch attempt must export its structured diagnostic");
+    assert!(
+        multipatch_diagnostic
+            .code
+            .starts_with("exact_boundary_cap.multipatch."),
+        "multipatch diagnostic must stay in the multipatch namespace"
+    );
+    assert!(
+        multipatch_diagnostic.tolerance.is_some(),
+        "multipatch diagnostic must preserve the local failed tolerance gate"
+    );
+    assert!(
+        !multipatch_diagnostic.shared_fact_ids.is_empty(),
+        "multipatch diagnostic must carry shared repair fact ids for source highlighting"
+    );
+    assert!(
+        !route.exact_boundary_report.source_fact_ids.is_empty(),
+        "route report must aggregate shared fact ids from multipatch diagnostics"
+    );
+    let artifact = build_blend_repair_action_artifact(&result.repair_report);
+    assert!(
+        artifact.actions.iter().any(|action| {
+            action.stage == "exact_boundary_cap.route_decision"
+                && action.outcome == "declined"
+                && action.subject.contains("route=exact_boundary.multipatch")
+                && action
+                    .reason
+                    .as_deref()
+                    .is_some_and(|reason| reason.starts_with("exact_boundary_cap.multipatch."))
+                && !action.shared_fact_ids.is_empty()
+        }),
+        "repair action artifact must preserve multipatch route decision and shared facts"
+    );
 }

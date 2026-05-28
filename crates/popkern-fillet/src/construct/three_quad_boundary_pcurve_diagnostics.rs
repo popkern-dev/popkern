@@ -45,6 +45,7 @@ pub(super) fn boundary_owned_pcurve_decline_diagnostic(
             residual: Some(max_disagreement.max(endpoint_gap)),
             outer_side: None,
             sample_parameter: None,
+            tolerance: None,
             shared_fact_ids: Vec::new(),
         },
     )

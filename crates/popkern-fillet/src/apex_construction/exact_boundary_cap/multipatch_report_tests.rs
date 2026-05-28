@@ -183,6 +183,7 @@ fn multipatch_diagnostic_converts_to_existing_apex_diagnostic_surface() {
     );
     assert_eq!(apex_diagnostic.outer_side.as_deref(), Some("FaceEdge"));
     assert_eq!(apex_diagnostic.shared_fact_ids, vec![BrepRepairFactId(3)]);
+    assert_eq!(apex_diagnostic.tolerance, Some(0.005));
 }
 
 fn sector_input() -> ExactBoundaryCapSectorInput {

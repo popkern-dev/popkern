@@ -219,6 +219,7 @@ impl ExactBoundaryValidationDiagnostic {
                 residual: self.residual,
                 outer_side: self.outer_side,
                 sample_parameter: self.sample_parameter,
+                tolerance: None,
                 shared_fact_ids: Vec::new(),
             },
         )

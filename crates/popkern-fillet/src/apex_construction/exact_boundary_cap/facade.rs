@@ -450,7 +450,7 @@ fn report_diagnostic_from_exact_boundary(
         residual: diagnostic.residual,
         outer_side: diagnostic.outer_side.clone(),
         sample_parameter: diagnostic.sample_parameter,
-        tolerance: None,
+        tolerance: diagnostic.tolerance,
         shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
     }
 }

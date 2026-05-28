@@ -181,6 +181,7 @@ impl ExactBoundaryPcurveDiagnostic {
                 residual: self.residual,
                 outer_side: self.side.map(|side| format!("{side:?}")),
                 sample_parameter: None,
+                tolerance: None,
                 shared_fact_ids: Vec::new(),
             },
         )

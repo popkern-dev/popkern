@@ -21,6 +21,8 @@ pub struct ExactBoundaryCapDiagnostic {
     pub outer_side: Option<String>,
     /// Normalized seam sample parameter for sample-scoped diagnostics.
     pub sample_parameter: Option<f64>,
+    /// Local tolerance gate used by the diagnostic, when available.
+    pub tolerance: Option<f64>,
     /// Shared BRep repair knowledge facts that explain the source evidence.
     pub shared_fact_ids: Vec<BrepRepairFactId>,
 }

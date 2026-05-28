@@ -76,6 +76,7 @@ fn record_exact_boundary_support_scope_declines(
                     residual,
                     outer_side: None,
                     sample_parameter: None,
+                    tolerance: Some(tolerance),
                     shared_fact_ids: Vec::new(),
                 };
                 route.exact_boundary_report.diagnostics.push(

@@ -201,6 +201,7 @@ impl ExactBoundaryCommitDiagnostic {
                 residual: self.residual,
                 outer_side: None,
                 sample_parameter: None,
+                tolerance: None,
                 shared_fact_ids: Vec::new(),
             },
         )

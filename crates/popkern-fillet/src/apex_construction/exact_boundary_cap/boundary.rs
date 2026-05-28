@@ -136,6 +136,7 @@ impl ExactBoundaryCurveDiagnostic {
                 residual: self.residual,
                 outer_side: Some(format!("{:?}", self.side)),
                 sample_parameter: None,
+                tolerance: None,
                 shared_fact_ids: Vec::new(),
             },
         )

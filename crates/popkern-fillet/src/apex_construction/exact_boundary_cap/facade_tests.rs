@@ -104,6 +104,7 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
         residual: Some(1.0),
         outer_side: Some("FilletEnd".to_string()),
         sample_parameter: Some(0.5),
+        tolerance: None,
         shared_fact_ids: Vec::new(),
     });
 
