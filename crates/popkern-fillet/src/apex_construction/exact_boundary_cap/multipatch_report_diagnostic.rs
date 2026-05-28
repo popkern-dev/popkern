@@ -132,6 +132,45 @@ impl ExactBoundaryMultiPatchDiagnostic {
         .with_sample_parameter(sample_parameter)
     }
 
+    pub(crate) fn interface_tangent(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        interface: &ExactBoundaryPatchInterfaceInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::interface_decline(
+            ExactBoundaryMultiPatchDeclineReason::InterfaceTangentUnsatisfied,
+            sector,
+            strip,
+            interface,
+            residual,
+            sample_parameter,
+            tolerance,
+        )
+    }
+
+    pub(crate) fn pole_position(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        interface: &ExactBoundaryPatchInterfaceInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::interface_decline(
+            ExactBoundaryMultiPatchDeclineReason::InnerPolePositionUnsatisfied,
+            sector,
+            strip,
+            interface,
+            residual,
+            sample_parameter,
+            tolerance,
+        )
+        .with_patch_name(interface.inner_patch_name.clone())
+    }
+
     pub(crate) fn support_strip_band(
         sector: &ExactBoundaryCapSectorInput,
         strip: &ExactBoundaryOuterStripPatchInventory,
@@ -161,6 +200,28 @@ impl ExactBoundaryMultiPatchDiagnostic {
     ) -> Self {
         Self::new(reason, sector.sector_index, sector.sector_name.clone())
             .with_patch_name(strip.patch_name.clone())
+            .with_side(Some(strip.side))
+            .with_edge(strip.edge)
+            .with_cap_half_edge(strip.cap_half_edge)
+            .with_support_half_edge(strip.support_half_edge)
+            .with_support_face(strip.support_face)
+            .with_residual(residual)
+            .with_tolerance(tolerance)
+            .with_sample_parameter(sample_parameter)
+    }
+
+    fn interface_decline(
+        reason: ExactBoundaryMultiPatchDeclineReason,
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        interface: &ExactBoundaryPatchInterfaceInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::new(reason, sector.sector_index, sector.sector_name.clone())
+            .with_patch_name(strip.patch_name.clone())
+            .with_interface_name(interface.interface_name.clone())
             .with_side(Some(strip.side))
             .with_edge(strip.edge)
             .with_cap_half_edge(strip.cap_half_edge)

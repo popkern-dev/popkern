@@ -9,8 +9,10 @@ use crate::apex_construction::exact_boundary_cap::ribbon::ExactBoundaryRibbonSam
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 
 use super::budget::ExactBoundaryMultiPatchBudget;
+use super::inner::{ExactBoundaryInnerPolePatchPrototype, ExactBoundaryStripInnerInterfaceCurve};
 use super::inventory::{
     ExactBoundaryMultiPatchInventoryDiagnostic, ExactBoundaryOuterStripPatchInventory,
+    ExactBoundaryPatchInterfaceInventory,
 };
 use super::report::{ExactBoundaryMultiPatchDiagnostic, ExactBoundaryMultiPatchValidationOrder};
 use super::strip::{ExactBoundaryOuterStripBoundaryScaffold, ExactBoundaryStripBoundaryDirection};
@@ -37,6 +39,21 @@ pub(crate) struct ExactBoundaryOuterStripValidationReport {
     pub support_strip_sample_count: usize,
     /// Number of near-threshold midpoint refinements evaluated.
     pub midpoint_refinement_count: usize,
+}
+
+/// Validated inner pole G0 evidence before commit eligibility.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ExactBoundaryInnerPoleValidationReport {
+    /// Candidate inner patch name.
+    pub patch_name: String,
+    /// Adjacent interface name.
+    pub interface_name: String,
+    /// Worst interface G0 residual.
+    pub max_interface_g0: f64,
+    /// Worst pole/spoke G0 residual.
+    pub max_pole_g0: f64,
+    /// Whether interface G1 has been validated by a later slice.
+    pub interface_g1_validated: bool,
 }
 
 /// Validate one candidate strip without mutating topology or routing.
@@ -119,6 +136,54 @@ pub(crate) fn validate_outer_strip_candidate(
         boundary_sample_count: boundary_report.sample_count,
         support_strip_sample_count: support_report.sample_count,
         midpoint_refinement_count: boundary_report.midpoint_refinement_count,
+    })
+}
+
+/// Validate inner pole prototype G0 and decline G0-only candidates before commit.
+pub(crate) fn validate_inner_pole_patch_prototype(
+    sector: &ExactBoundaryCapSectorInput,
+    strip: &ExactBoundaryOuterStripPatchInventory,
+    interface_inventory: &ExactBoundaryPatchInterfaceInventory,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    budget: ExactBoundaryMultiPatchBudget,
+) -> Result<ExactBoundaryInnerPoleValidationReport, ExactBoundaryMultiPatchDiagnostic> {
+    if prototype.max_interface_g0 > budget.interface_g0 {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_position(
+            sector,
+            strip,
+            interface_inventory,
+            prototype.max_interface_g0,
+            interface.sample_parameter,
+            budget.interface_g0,
+        ));
+    }
+    if prototype.max_pole_g0 > budget.pole_g0 {
+        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+            sector,
+            strip,
+            interface_inventory,
+            prototype.max_pole_g0,
+            0.0,
+            budget.pole_g0,
+        ));
+    }
+    if !prototype.interface_g1_validated {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_tangent(
+            sector,
+            strip,
+            interface_inventory,
+            f64::INFINITY,
+            interface.sample_parameter,
+            budget.interface_g1_deficit,
+        ));
+    }
+    Ok(ExactBoundaryInnerPoleValidationReport {
+        patch_name: prototype.patch_name.clone(),
+        interface_name: prototype.interface_name.clone(),
+        max_interface_g0: prototype.max_interface_g0,
+        max_pole_g0: prototype.max_pole_g0,
+        interface_g1_validated: prototype.interface_g1_validated,
     })
 }
 

@@ -1,10 +1,10 @@
 //! Inner pole patch construction for multi-patch exact-boundary candidates.
 #![allow(dead_code)]
 
-use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 
@@ -15,6 +15,7 @@ use super::report::ExactBoundaryMultiPatchDiagnostic;
 use super::strip::{ExactBoundaryOuterStripBoundaryScaffold, ExactBoundaryStripBoundaryDirection};
 
 const INTERFACE_SAMPLE_COUNT: usize = 17;
+const POLE_SAMPLE_COUNT: usize = 9;
 
 /// Candidate-only strip/inner interface curve from a strip inner boundary.
 #[derive(Debug, Clone)]
@@ -39,6 +40,110 @@ pub(crate) struct ExactBoundaryStripInnerInterfaceCurve {
     pub sample_count: usize,
     /// Local explicit G0 tolerance.
     pub tolerance: f64,
+}
+
+/// Candidate-only inner pole patch prototype with G0 validation evidence.
+#[derive(Debug, Clone)]
+pub(crate) struct ExactBoundaryInnerPolePatchPrototype {
+    /// Stable semantic inner patch name.
+    pub patch_name: String,
+    /// Adjacent interface name.
+    pub interface_name: String,
+    /// Candidate inner patch surface.
+    pub surface: NurbsSurface,
+    /// Inner patch pcurve along the strip/inner interface.
+    pub interface_pcurve: Pcurve,
+    /// Maximum sampled gap between inner patch and interface curve.
+    pub max_interface_g0: f64,
+    /// Maximum sampled gap between inner patch pole row and pole point.
+    pub max_pole_g0: f64,
+    /// Local explicit G0 tolerance.
+    pub tolerance: f64,
+    /// G0 prototype has not established interface G1 yet.
+    pub interface_g1_validated: bool,
+}
+
+/// Build a G0-only inner pole patch prototype from interface curve to pole.
+pub(crate) fn construct_inner_pole_patch_prototype(
+    sector: &ExactBoundaryCapSectorInput,
+    strip: &ExactBoundaryOuterStripPatchInventory,
+    interface_inventory: &ExactBoundaryPatchInterfaceInventory,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    pole: Point3,
+    tolerance: f64,
+) -> Result<ExactBoundaryInnerPolePatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
+    if !curve_geometry_is_finite(&interface.curve) {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_position(
+            sector,
+            strip,
+            interface_inventory,
+            f64::INFINITY,
+            0.0,
+            tolerance,
+        ));
+    }
+    if !point_is_finite(pole) {
+        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+            sector,
+            strip,
+            interface_inventory,
+            f64::INFINITY,
+            0.0,
+            tolerance,
+        ));
+    }
+    let surface = inner_pole_surface(interface, pole);
+    let interface_pcurve = inner_interface_pcurve(interface);
+    let interface_g0 = inner_interface_g0(&surface, interface, &interface_pcurve);
+    if interface_g0.max_residual > tolerance {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_position(
+            sector,
+            strip,
+            interface_inventory,
+            interface_g0.max_residual,
+            interface_g0.sample_parameter,
+            tolerance,
+        ));
+    }
+    let pole_g0 = pole_g0(&surface, pole);
+    if pole_g0.max_residual > tolerance {
+        return Err(ExactBoundaryMultiPatchDiagnostic::pole_position(
+            sector,
+            strip,
+            interface_inventory,
+            pole_g0.max_residual,
+            pole_g0.sample_parameter,
+            tolerance,
+        ));
+    }
+
+    Ok(ExactBoundaryInnerPolePatchPrototype {
+        patch_name: interface.inner_patch_name.clone(),
+        interface_name: interface.interface_name.clone(),
+        surface,
+        interface_pcurve,
+        max_interface_g0: interface_g0.max_residual,
+        max_pole_g0: pole_g0.max_residual,
+        tolerance,
+        interface_g1_validated: false,
+    })
+}
+
+/// Decline a G0-only prototype before commit until MP-010 validates G1.
+pub(crate) fn decline_g0_only_inner_prototype_before_commit(
+    sector: &ExactBoundaryCapSectorInput,
+    strip: &ExactBoundaryOuterStripPatchInventory,
+    interface: &ExactBoundaryPatchInterfaceInventory,
+    prototype: &ExactBoundaryInnerPolePatchPrototype,
+) -> ExactBoundaryMultiPatchDiagnostic {
+    ExactBoundaryMultiPatchDiagnostic::interface_tangent(
+        sector,
+        strip,
+        interface,
+        f64::INFINITY,
+        prototype.max_interface_g0,
+        prototype.tolerance,
+    )
 }
 
 /// Generate the strip/inner interface from the strip surface inner boundary.
@@ -103,6 +208,22 @@ fn strip_inner_boundary_curve(candidate: &ExactBoundaryOuterStripBoundaryScaffol
     }
 }
 
+fn curve_geometry_is_finite(curve: &NurbsCurve) -> bool {
+    curve.knots.iter().all(|value| value.is_finite())
+        && curve
+            .weights
+            .iter()
+            .all(|value| value.is_finite() && *value > 0.0)
+        && curve
+            .control_points
+            .iter()
+            .all(|point| point_is_finite(*point))
+}
+
+fn point_is_finite(point: Point3) -> bool {
+    point.x.is_finite() && point.y.is_finite() && point.z.is_finite()
+}
+
 fn strip_inner_boundary_pcurve(
     candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     curve: &NurbsCurve,
@@ -141,6 +262,91 @@ fn interface_residual(
         let strip_point = candidate.surface.point_at(uv.x, uv.y);
         let curve_point = curve.point_at(uv.x);
         let residual = strip_point.distance_to(&curve_point);
+        if residual > report.max_residual {
+            report = InterfaceResidual {
+                max_residual: residual,
+                sample_parameter: parameter,
+            };
+        }
+    }
+    report
+}
+
+fn inner_pole_surface(
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    pole: Point3,
+) -> NurbsSurface {
+    let mut control_points = Vec::with_capacity(interface.curve.control_points.len() * 2);
+    let mut weights = Vec::with_capacity(interface.curve.weights.len() * 2);
+    for (point, weight) in interface
+        .curve
+        .control_points
+        .iter()
+        .zip(&interface.curve.weights)
+    {
+        control_points.push(*point);
+        control_points.push(pole);
+        weights.push(*weight);
+        weights.push(1.0);
+    }
+    NurbsSurface {
+        degree_u: interface.curve.degree,
+        degree_v: 1,
+        knots_u: interface.curve.knots.clone(),
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points,
+        num_u: interface.curve.control_points.len(),
+        num_v: 2,
+        weights,
+    }
+}
+
+fn inner_interface_pcurve(interface: &ExactBoundaryStripInnerInterfaceCurve) -> Pcurve {
+    let (t_start, t_end) = interface.curve.parameter_range();
+    if interface.strip_parameter_reversed {
+        Pcurve::linear((t_end, 0.0), (t_start, 0.0), t_start, t_end)
+    } else {
+        Pcurve::linear((t_start, 0.0), (t_end, 0.0), t_start, t_end)
+    }
+}
+
+fn inner_interface_g0(
+    surface: &NurbsSurface,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    pcurve: &Pcurve,
+) -> InterfaceResidual {
+    let (t_start, t_end) = interface.curve.parameter_range();
+    let mut report = InterfaceResidual {
+        max_residual: 0.0,
+        sample_parameter: t_start,
+    };
+    for index in 0..INTERFACE_SAMPLE_COUNT {
+        let parameter =
+            t_start + (t_end - t_start) * index as f64 / (INTERFACE_SAMPLE_COUNT - 1) as f64;
+        let uv = pcurve.point_at(parameter);
+        let patch_point = surface.point_at(uv.x, uv.y);
+        let interface_point = interface.curve.point_at(uv.x);
+        let residual = patch_point.distance_to(&interface_point);
+        if residual > report.max_residual {
+            report = InterfaceResidual {
+                max_residual: residual,
+                sample_parameter: parameter,
+            };
+        }
+    }
+    report
+}
+
+fn pole_g0(surface: &NurbsSurface, pole: Point3) -> InterfaceResidual {
+    let ((t_start, t_end), _) = surface.parameter_range();
+    let mut report = InterfaceResidual {
+        max_residual: 0.0,
+        sample_parameter: t_start,
+    };
+    for index in 0..POLE_SAMPLE_COUNT {
+        let parameter = t_start + (t_end - t_start) * index as f64 / (POLE_SAMPLE_COUNT - 1) as f64;
+        let patch_point = surface.point_at(parameter, 1.0);
+        let residual = patch_point.distance_to(&pole);
         if residual > report.max_residual {
             report = InterfaceResidual {
                 max_residual: residual,

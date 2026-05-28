@@ -4,7 +4,10 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-use super::construct_strip_inner_interface_curve;
+use super::{
+    construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+    decline_g0_only_inner_prototype_before_commit,
+};
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use crate::apex_construction::exact_boundary_cap::multipatch::inventory::ExactBoundaryMultiPatchInventory;
 use crate::apex_construction::exact_boundary_cap::multipatch::report::{
@@ -129,10 +132,137 @@ fn interface_ownership_mismatch_declines_with_interface_diagnostic() {
     );
 }
 
+#[test]
+fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let interface = interface_for_fixture(&fixture);
+    let pole = Point3::new(0.5, 0.7, 0.0);
+
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        pole,
+        1.0e-6,
+    )
+    .expect("inner G0 prototype constructs");
+
+    assert_eq!(prototype.patch_name, interface.inner_patch_name);
+    assert_eq!(prototype.interface_name, interface.interface_name);
+    assert_eq!(prototype.surface.degree_u, interface.curve.degree);
+    assert_eq!(prototype.surface.knots_u, interface.curve.knots);
+    assert_eq!(prototype.surface.degree_v, 1);
+    assert!(prototype.max_interface_g0 <= 1.0e-6);
+    assert!(prototype.max_pole_g0 <= 1.0e-6);
+    assert!(!prototype.interface_g1_validated);
+    for parameter in [0.0, 0.5, 1.0] {
+        let uv = prototype.interface_pcurve.point_at(parameter);
+        let patch_point = prototype.surface.point_at(uv.x, uv.y);
+        let interface_point = interface.curve.point_at(uv.x);
+        assert!(patch_point.distance_to(&interface_point) <= 1.0e-6);
+        assert!(
+            prototype
+                .surface
+                .point_at(parameter, 1.0)
+                .distance_to(&pole)
+                <= 1.0e-6
+        );
+    }
+}
+
+#[test]
+fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let interface = interface_for_fixture(&fixture);
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.0),
+        1.0e-6,
+    )
+    .expect("inner G0 prototype constructs");
+
+    let diagnostic = decline_g0_only_inner_prototype_before_commit(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &prototype,
+    );
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::InterfaceTangentUnsatisfied
+    );
+    assert_eq!(
+        diagnostic.code,
+        "exact_boundary_cap.multipatch.interface_g1_exceeded"
+    );
+    assert_eq!(
+        diagnostic.validation_order,
+        ExactBoundaryMultiPatchValidationOrder::InterfaceTangent
+    );
+    assert_eq!(
+        diagnostic.interface_name.as_deref(),
+        Some(fixture.inventory.interfaces[0].interface_name.as_str())
+    );
+}
+
+#[test]
+fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let mut interface = interface_for_fixture(&fixture);
+    interface.curve.control_points[0].z = f64::NAN;
+    let interface_diag = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.0),
+        1.0e-6,
+    )
+    .expect_err("interface G0 mismatch declines");
+
+    assert_eq!(
+        interface_diag.reason,
+        ExactBoundaryMultiPatchDeclineReason::InterfacePositionUnsatisfied
+    );
+    assert_eq!(
+        interface_diag.code,
+        "exact_boundary_cap.multipatch.interface_g0_exceeded"
+    );
+
+    let interface = interface_for_fixture(&fixture);
+    let pole_diag = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        Point3::new(f64::NAN, 0.7, 0.0),
+        1.0e-6,
+    )
+    .expect_err("invalid pole declines");
+
+    assert_eq!(
+        pole_diag.reason,
+        ExactBoundaryMultiPatchDeclineReason::InnerPolePositionUnsatisfied
+    );
+    assert_eq!(
+        pole_diag.code,
+        "exact_boundary_cap.multipatch.pole_g0_exceeded"
+    );
+}
+
 fn interface_for_direction(
     direction: ExactBoundaryStripBoundaryDirection,
 ) -> super::ExactBoundaryStripInnerInterfaceCurve {
     let fixture = strip_fixture(direction);
+    interface_for_fixture(&fixture)
+}
+
+fn interface_for_fixture(fixture: &StripFixture) -> super::ExactBoundaryStripInnerInterfaceCurve {
     construct_strip_inner_interface_curve(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],

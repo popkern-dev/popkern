@@ -2,8 +2,11 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-use super::validate_outer_strip_candidate;
+use super::{validate_inner_pole_patch_prototype, validate_outer_strip_candidate};
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
+use crate::apex_construction::exact_boundary_cap::multipatch::inner::{
+    construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+};
 use crate::apex_construction::exact_boundary_cap::multipatch::inventory::{
     ExactBoundaryMultiPatchInventory, ExactBoundaryMultiPatchInventoryDeclineReason,
 };
@@ -202,6 +205,55 @@ fn strip_validation_reports_foldover_after_support_band_passes() {
     assert_eq!(
         diagnostic.validation_order,
         ExactBoundaryMultiPatchValidationOrder::Foldover
+    );
+}
+
+#[test]
+fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
+    let fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
+    let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
+        &fixture.sector,
+        ExactBoundaryOuterSide::FaceEdge,
+    );
+    let interface = construct_strip_inner_interface_curve(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &fixture.candidate,
+        fixture.budget.interface_g0,
+    )
+    .expect("interface constructs");
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.0),
+        fixture.budget.pole_g0,
+    )
+    .expect("inner G0 prototype constructs");
+
+    let diagnostic = validate_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &interface,
+        &prototype,
+        fixture.budget,
+    )
+    .expect_err("G0-only prototype declines before commit");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::InterfaceTangentUnsatisfied
+    );
+    assert_eq!(
+        diagnostic.code,
+        "exact_boundary_cap.multipatch.interface_g1_exceeded"
+    );
+    assert_eq!(
+        diagnostic.interface_name.as_deref(),
+        Some(inventory.interfaces[0].interface_name.as_str())
     );
 }
 

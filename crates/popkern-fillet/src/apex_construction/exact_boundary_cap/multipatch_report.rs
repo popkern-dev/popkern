@@ -97,14 +97,12 @@ impl ExactBoundaryMultiPatchDeclineReason {
                 "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
             }
             Self::InterfacePositionUnsatisfied => {
-                "exact_boundary_cap.multipatch.interface_position_unsatisfied"
+                "exact_boundary_cap.multipatch.interface_g0_exceeded"
             }
             Self::InterfaceTangentUnsatisfied => {
-                "exact_boundary_cap.multipatch.interface_tangent_unsatisfied"
+                "exact_boundary_cap.multipatch.interface_g1_exceeded"
             }
-            Self::InnerPolePositionUnsatisfied => {
-                "exact_boundary_cap.multipatch.inner_pole_position_unsatisfied"
-            }
+            Self::InnerPolePositionUnsatisfied => "exact_boundary_cap.multipatch.pole_g0_exceeded",
             Self::PatchFoldover => "exact_boundary_cap.multipatch.patch_foldover",
         }
     }
