@@ -13,7 +13,7 @@ use super::{ExactBoundaryMultiPatchDeclineReason, ExactBoundaryMultiPatchDiagnos
 const MULTIPATCH_STAGE: &str = "exact_boundary_cap.multipatch";
 
 impl ExactBoundaryMultiPatchDiagnostic {
-    pub(super) fn inventory_mismatch(
+    pub(crate) fn inventory_mismatch(
         diagnostic: ExactBoundaryMultiPatchInventoryDiagnostic,
     ) -> Self {
         Self::new(
@@ -81,6 +81,23 @@ impl ExactBoundaryMultiPatchDiagnostic {
     ) -> Self {
         Self::strip_boundary_decline(
             ExactBoundaryMultiPatchDeclineReason::OuterBoundaryPositionUnsatisfied,
+            sector,
+            strip,
+            residual,
+            sample_parameter,
+            tolerance,
+        )
+    }
+
+    pub(crate) fn patch_foldover(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::strip_boundary_decline(
+            ExactBoundaryMultiPatchDeclineReason::PatchFoldover,
             sector,
             strip,
             residual,
