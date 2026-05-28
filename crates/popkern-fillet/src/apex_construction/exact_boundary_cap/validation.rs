@@ -11,8 +11,13 @@ use super::sector::ExactBoundaryCapSectorInput;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 use super::topology::ExactBoundarySectorTopology;
 
+#[path = "validation_support_normal.rs"]
+mod validation_support_normal;
+use validation_support_normal::validate_support_normal_continuity;
+
 const DEFAULT_MAX_BOUNDARY_RESIDUAL: f64 = 1.0e-6;
 const DEFAULT_MAX_INTERNAL_G0_GAP: f64 = 1.0e-6;
+const DEFAULT_MAX_SUPPORT_NORMAL_DEFICIT: f64 = 5.0e-2;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
 
 /// Local validation budgets for exact-boundary candidate acceptance.
@@ -26,6 +31,8 @@ pub(crate) struct ExactBoundaryValidationBudget {
     pub max_pair_boundary_residual: f64,
     /// Maximum gap where generated inner spokes meet the shared pole.
     pub max_internal_g0_gap: f64,
+    /// Maximum cap/support unit-normal coplanarity deficit along outer seams.
+    pub max_support_normal_deficit: f64,
     /// Minimum sampled normal length for gross foldover rejection.
     pub min_normal_length: f64,
 }
@@ -37,6 +44,7 @@ impl Default for ExactBoundaryValidationBudget {
             max_support_boundary_residual: DEFAULT_MAX_BOUNDARY_RESIDUAL,
             max_pair_boundary_residual: DEFAULT_MAX_BOUNDARY_RESIDUAL,
             max_internal_g0_gap: DEFAULT_MAX_INTERNAL_G0_GAP,
+            max_support_normal_deficit: DEFAULT_MAX_SUPPORT_NORMAL_DEFICIT,
             min_normal_length: DEFAULT_MIN_NORMAL_LENGTH,
         }
     }
@@ -87,6 +95,8 @@ pub(crate) enum ExactBoundaryValidationDeclineReason {
     FoldoverDetected,
     /// Live 3-D edge curve does not lie on the solved cap or support surface.
     LiveEdgeSurfaceResidualExceeded,
+    /// Solved cap normal is not support-normal compatible along an outer seam.
+    SupportNormalContinuityExceeded,
 }
 
 impl ExactBoundaryValidationDeclineReason {
@@ -114,6 +124,9 @@ impl ExactBoundaryValidationDeclineReason {
             Self::LiveEdgeSurfaceResidualExceeded => {
                 "exact_boundary_cap.validation.live_edge_surface_residual_exceeded"
             }
+            Self::SupportNormalContinuityExceeded => {
+                "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+            }
         }
     }
 }
@@ -138,7 +151,7 @@ pub(crate) struct ExactBoundaryValidationDiagnostic {
 }
 
 impl ExactBoundaryValidationDiagnostic {
-    fn new(
+    pub(super) fn new(
         reason: ExactBoundaryValidationDeclineReason,
         sector_name: Option<String>,
         residual: Option<f64>,
@@ -167,6 +180,21 @@ impl ExactBoundaryValidationDiagnostic {
             edge: Some(seam.edge),
             support_half_edge: Some(seam.support_half_edge),
             support_face: Some(seam.support_face),
+        }
+    }
+
+    pub(super) fn support_normal_continuity(
+        pair: &super::pcurves::PreparedExactBoundaryPcurvePair,
+        residual: f64,
+    ) -> Self {
+        Self {
+            reason: ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded,
+            code: ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded.code(),
+            sector_name: Some(pair.sector_name.clone()),
+            residual: Some(residual),
+            edge: Some(pair.edge),
+            support_half_edge: Some(pair.support_half_edge),
+            support_face: Some(pair.support_face),
         }
     }
 
@@ -215,6 +243,7 @@ pub(crate) fn validate_exact_boundary_candidate(
     validate_live_edge_surface_residuals(brep, sectors, solved, ribbons, budget)?;
     validate_internal_spokes(spokes, solved, budget)?;
     validate_surface_normals(solved, budget)?;
+    validate_support_normal_continuity(solved, pcurves, ribbons, budget)?;
     Ok(ExactBoundaryValidationReport {
         validated_sector_count: sectors.len(),
         validated_pcurve_pair_count: pcurves.pairs.len(),

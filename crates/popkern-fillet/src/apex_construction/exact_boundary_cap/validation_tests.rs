@@ -1,6 +1,6 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
-use super::pcurves::{PreparedExactBoundaryPcurvePair, PreparedExactBoundaryPcurves};
+use super::pcurves::prepare_exact_boundary_pcurves;
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::extract_exact_boundary_cap_sectors;
 use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
@@ -16,14 +16,12 @@ use crate::apex_construction::target_topology::{
     TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology,
 };
 use crate::apex_construction::telemetry::PlanTelemetry;
-use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 #[test]
-fn validation_accepts_materialized_exact_boundary_candidate() {
+fn validation_accepts_materialized_candidate_when_normal_gate_is_loose() {
     let (mut brep, cap_face, edges) = hex_cap_fixture();
     let fixture = candidate_fixture(&mut brep, cap_face, &edges);
 
@@ -35,13 +33,56 @@ fn validation_accepts_materialized_exact_boundary_candidate() {
         ribbons: &fixture.ribbons,
         solved: &fixture.solved,
         pcurves: &fixture.pcurves,
-        budget: ExactBoundaryValidationBudget::default(),
+        budget: ExactBoundaryValidationBudget {
+            max_support_normal_deficit: 1.0,
+            ..ExactBoundaryValidationBudget::default()
+        },
     })
     .expect("valid materialized candidate passes exact-boundary gates");
 
     assert_eq!(report.validated_sector_count, 3);
     assert_eq!(report.validated_pcurve_pair_count, 6);
     assert_eq!(report.validated_spoke_edge_count, 3);
+}
+
+#[test]
+fn validation_declines_support_normal_continuity_over_budget() {
+    let (mut brep, cap_face, edges) = hex_cap_fixture();
+    let mut fixture = candidate_fixture(&mut brep, cap_face, &edges);
+    for sample in &mut fixture.ribbons.ribbons[0].samples {
+        if sample.parameter > 0.0 && sample.parameter < 1.0 {
+            sample.support_normal = Vec3::new(1.0, 0.0, 0.0);
+        }
+    }
+
+    let diagnostic = validate_exact_boundary_candidate(ExactBoundaryValidationInputs {
+        brep: &brep,
+        topology: &fixture.topology,
+        sectors: &fixture.topology.sectors,
+        spokes: &fixture.spokes,
+        ribbons: &fixture.ribbons,
+        solved: &fixture.solved,
+        pcurves: &fixture.pcurves,
+        budget: ExactBoundaryValidationBudget::default(),
+    })
+    .expect_err("default support-normal gate must decline non-G1 materialized cap");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded
+    );
+    assert_eq!(
+        diagnostic.code,
+        "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+    );
+    assert!(
+        diagnostic
+            .residual
+            .is_some_and(|residual| residual > 5.0e-2)
+    );
+    assert!(diagnostic.edge.is_some());
+    assert!(diagnostic.support_half_edge.is_some());
+    assert!(diagnostic.support_face.is_some());
 }
 
 #[test]
@@ -139,64 +180,19 @@ fn candidate_fixture(
             .unwrap();
     let topology =
         materialize_exact_boundary_sector_topology(brep, cap_face, &sectors, &spokes).unwrap();
-    let pcurves = prepared_pcurves(&topology.sectors);
+    let pcurves = prepare_exact_boundary_pcurves(
+        &spokes,
+        &ribbons,
+        &solved,
+        super::pcurves::ExactBoundaryPcurveBudget::default(),
+    )
+    .unwrap();
     CandidateFixture {
         topology,
         spokes,
         ribbons,
         solved,
         pcurves,
-    }
-}
-
-fn prepared_pcurves(
-    sectors: &[super::sector::ExactBoundaryCapSectorInput],
-) -> PreparedExactBoundaryPcurves {
-    let mut pairs = Vec::with_capacity(sectors.len() * 2);
-    for sector in sectors {
-        pairs.push(pcurve_pair(
-            sector,
-            super::sector::ExactBoundaryOuterSide::FilletEnd,
-        ));
-        pairs.push(pcurve_pair(
-            sector,
-            super::sector::ExactBoundaryOuterSide::FaceEdge,
-        ));
-    }
-    PreparedExactBoundaryPcurves { pairs }
-}
-
-fn pcurve_pair(
-    sector: &super::sector::ExactBoundaryCapSectorInput,
-    side: super::sector::ExactBoundaryOuterSide,
-) -> PreparedExactBoundaryPcurvePair {
-    PreparedExactBoundaryPcurvePair {
-        sector_index: sector.sector_index,
-        sector_name: sector.sector_name.clone(),
-        side,
-        edge: match side {
-            super::sector::ExactBoundaryOuterSide::FilletEnd => sector.fillet_end_edge,
-            super::sector::ExactBoundaryOuterSide::FaceEdge => sector.face_edge,
-        },
-        support_half_edge: match side {
-            super::sector::ExactBoundaryOuterSide::FilletEnd => sector.support_half_edges[0],
-            super::sector::ExactBoundaryOuterSide::FaceEdge => sector.support_half_edges[1],
-        },
-        support_face: match side {
-            super::sector::ExactBoundaryOuterSide::FilletEnd => sector.fillet_support_face,
-            super::sector::ExactBoundaryOuterSide::FaceEdge => sector.bridge_support_face,
-        },
-        support_surface: SurfaceGeometry::Plane {
-            origin: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            u_axis: Vec3::new(1.0, 0.0, 0.0),
-            v_axis: Vec3::new(0.0, 1.0, 0.0),
-        },
-        cap_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
-        support_pcurve: Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
-        max_cap_residual: 0.0,
-        max_support_residual: 0.0,
-        max_pair_residual: 0.0,
     }
 }
 

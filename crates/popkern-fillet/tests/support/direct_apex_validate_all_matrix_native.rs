@@ -149,3 +149,37 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
         "support-scope diagnostics must preserve support ownership handles"
     );
 }
+
+#[test]
+fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
+    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+    let route = result
+        .repair_report
+        .apex_routes
+        .first()
+        .expect("pyramid3_uniform should record one direct-apex route");
+
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::Declined,
+        "pyramid3 exact-boundary must not accept a support-normal-incompatible cap"
+    );
+    assert!(
+        route
+            .exact_boundary_report
+            .diagnostics
+            .iter()
+            .any(|diagnostic| {
+                diagnostic.stage == "exact_boundary_cap.validation"
+                    && diagnostic.code
+                        == "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+                    && diagnostic.edge.is_some()
+                    && diagnostic.support_half_edge.is_some()
+                    && diagnostic.support_face.is_some()
+                    && diagnostic
+                        .residual
+                        .is_some_and(|residual| residual > 5.0e-2)
+            }),
+        "pyramid3 exact-boundary decline must preserve structured support-normal evidence"
+    );
+}

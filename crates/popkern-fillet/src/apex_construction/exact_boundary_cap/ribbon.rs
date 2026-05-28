@@ -8,10 +8,11 @@ use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::boundary::{PreparedExactBoundaryCurve, PreparedExactBoundaryCurves};
+#[cfg(test)]
 pub(super) use super::ribbon_projection::compute_support_ribbon_sample;
 use super::ribbon_projection::{
-    choose_support_pcurve_orientation, local_sector_width, projected_support_pcurve, sample_count,
-    sample_parameters,
+    choose_support_pcurve_orientation, compute_support_ribbon_samples, local_sector_width,
+    projected_support_pcurve,
 };
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::support::{ExactBoundarySupportSurfaceFamily, support_surface_family};
@@ -360,22 +361,17 @@ fn prepare_ribbon_for_seam(
     };
 
     let scale = local_sector_width(boundary, other_boundary).min(budget.max_derivative_scale);
-    let mut samples = Vec::with_capacity(sample_count(budget));
-    for parameter in sample_parameters(budget) {
-        samples.push(
-            compute_support_ribbon_sample(SupportRibbonSampleRequest {
-                boundary,
-                other_boundary,
-                surface,
-                pcurve,
-                parameter,
-                pcurve_reversed: orientation.reversed,
-                derivative_scale: scale,
-                budget,
-            })
-            .map_err(|reason| ExactBoundaryRibbonDiagnostic::new(reason, context, None))?,
-        );
-    }
+    let samples = compute_support_ribbon_samples(SupportRibbonSampleRequest {
+        boundary,
+        other_boundary,
+        surface,
+        pcurve,
+        parameter: 0.0,
+        pcurve_reversed: orientation.reversed,
+        derivative_scale: scale,
+        budget,
+    })
+    .map_err(|reason| ExactBoundaryRibbonDiagnostic::new(reason, context, None))?;
 
     Ok(PreparedExactBoundaryRibbon {
         sector_index: context.sector.sector_index,

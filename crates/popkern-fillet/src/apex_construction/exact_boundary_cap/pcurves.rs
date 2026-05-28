@@ -12,7 +12,6 @@ use super::sector::ExactBoundaryOuterSide;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 
 const DEFAULT_MAX_RESIDUAL: f64 = 1.0e-6;
-const CAP_PCURVE_SAMPLES: usize = 9;
 
 /// Local tolerances for pcurve readiness checks.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -242,11 +241,7 @@ fn prepare_side_pair(
         ExactBoundaryOuterSide::FilletEnd => &sector.fillet_boundary.curve,
         ExactBoundaryOuterSide::FaceEdge => &sector.face_boundary.curve,
     };
-    let cap_pcurve = match side {
-        ExactBoundaryOuterSide::FilletEnd => cap_pcurve_for_side(side),
-        ExactBoundaryOuterSide::FaceEdge => projected_cap_pcurve(boundary, &surface.surface)
-            .unwrap_or_else(|| cap_pcurve_for_side(side)),
-    };
+    let cap_pcurve = authored_cap_pcurve(sector, side);
     let support_pcurve = support_pcurve_from_ribbon(ribbon);
     let residuals = pcurve_residuals(boundary, &surface.surface, &cap_pcurve, ribbon);
     if residuals.cap > budget.max_cap_residual {
@@ -336,20 +331,34 @@ fn cap_pcurve_for_side(side: ExactBoundaryOuterSide) -> Pcurve {
     }
 }
 
-fn projected_cap_pcurve(boundary: &impl CurveEval, surface: &impl SurfaceEval) -> Option<Pcurve> {
-    let mut uv_points = Vec::with_capacity(CAP_PCURVE_SAMPLES);
-    let mut parameters = Vec::with_capacity(CAP_PCURVE_SAMPLES);
-    for index in 0..CAP_PCURVE_SAMPLES {
-        let parameter = index as f64 / (CAP_PCURVE_SAMPLES - 1) as f64;
-        let point = boundary.point_at(parameter);
-        let (u, v) = surface.closest_point(&point)?;
-        uv_points.push(Point3::new(u, v, 0.0));
-        parameters.push(parameter);
+fn authored_cap_pcurve(
+    sector: &PreparedExactBoundarySectorBoundary,
+    side: ExactBoundaryOuterSide,
+) -> Pcurve {
+    let reversed = match side {
+        ExactBoundaryOuterSide::FilletEnd => boundary_reversed(
+            &sector.fillet_boundary.curve,
+            sector.fillet_inner_spoke.anchor,
+        ),
+        ExactBoundaryOuterSide::FaceEdge => {
+            boundary_reversed(&sector.face_boundary.curve, sector.face_inner_spoke.anchor)
+        }
+    };
+    match (side, reversed) {
+        (ExactBoundaryOuterSide::FilletEnd, false) => cap_pcurve_for_side(side),
+        (ExactBoundaryOuterSide::FilletEnd, true) => {
+            Pcurve::linear((1.0, 0.0), (0.0, 0.0), 0.0, 1.0)
+        }
+        (ExactBoundaryOuterSide::FaceEdge, false) => cap_pcurve_for_side(side),
+        (ExactBoundaryOuterSide::FaceEdge, true) => {
+            Pcurve::linear((0.0, 1.0), (0.0, 0.0), 0.0, 1.0)
+        }
     }
-    let degree = 3.min(uv_points.len().saturating_sub(1));
-    popkern_core::geometry::fitting::interpolate_curve(&uv_points, &parameters, degree)
-        .ok()
-        .map(Pcurve::from_nurbs)
+}
+
+fn boundary_reversed(boundary: &NurbsCurve, expected_end: Point3) -> bool {
+    boundary.point_at(0.0).distance_to(&expected_end)
+        < boundary.point_at(1.0).distance_to(&expected_end)
 }
 
 fn support_pcurve_from_ribbon(ribbon: &PreparedExactBoundaryRibbon) -> Pcurve {

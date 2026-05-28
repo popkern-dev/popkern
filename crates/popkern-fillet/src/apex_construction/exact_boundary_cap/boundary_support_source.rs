@@ -16,15 +16,17 @@ pub(super) fn validated_support_pcurve_source_curve(
     seam: &ExactBoundaryOuterSeam,
     edge_curve: &NurbsCurve,
 ) -> Option<NurbsCurve> {
-    let support_curve = support_pcurve_source_curve(brep, seam)?;
+    let support_curve = support_pcurve_source_curve(brep, seam)
+        .or_else(|| projected_support_source_curve(brep, seam, edge_curve))?;
     let (origin, destination) = super::cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
-    if super::endpoint_orientation_gap(&support_curve, origin, destination)
-        > super::TOPOLOGY_ENDPOINT_TOLERANCE
-        && super::endpoint_orientation_gap(
-            &super::reverse_nurbs_curve(&support_curve),
-            origin,
-            destination,
-        ) > super::TOPOLOGY_ENDPOINT_TOLERANCE
+    let direct_endpoint_gap = super::endpoint_orientation_gap(&support_curve, origin, destination);
+    let reverse_endpoint_gap = super::endpoint_orientation_gap(
+        &super::reverse_nurbs_curve(&support_curve),
+        origin,
+        destination,
+    );
+    if direct_endpoint_gap > super::TOPOLOGY_ENDPOINT_TOLERANCE
+        && reverse_endpoint_gap > super::TOPOLOGY_ENDPOINT_TOLERANCE
     {
         return None;
     }
@@ -40,20 +42,7 @@ pub(super) fn validated_support_pcurve_source_curve(
     if support_deviation > SUPPORT_SOURCE_TOLERANCE {
         return None;
     }
-    let edge_range = edge_curve.parameter_range();
-    let edge_deviation = edge_surface_deviation(
-        edge_curve,
-        edge_range,
-        support_surface,
-        SUPPORT_SOURCE_SAMPLES,
-    )
-    .max_deviation;
-    let cap_pcurve_missing = brep
-        .half_edges
-        .get(seam.cap_half_edge)
-        .is_some_and(|half_edge| half_edge.pcurve.is_none());
-    (edge_deviation > support_deviation.max(SUPPORT_SOURCE_TOLERANCE) || cap_pcurve_missing)
-        .then_some(support_curve)
+    Some(support_curve)
 }
 
 fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Option<NurbsCurve> {
@@ -68,6 +57,27 @@ fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Op
         let pcurve_t = t0 + (t1 - t0) * parameter;
         let uv = pcurve.point_at(pcurve_t);
         points.push(support_surface.point_at(uv.x, uv.y));
+        params.push(parameter);
+    }
+    let degree = 9.min(points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
+}
+
+fn projected_support_source_curve(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    edge_curve: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    let support_surface = support_surface_for_seam(brep, seam)?;
+    let edge_range = edge_curve.parameter_range();
+    let mut points = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
+    let mut params = Vec::with_capacity(SUPPORT_SOURCE_SAMPLES);
+    for index in 0..SUPPORT_SOURCE_SAMPLES {
+        let parameter = index as f64 / (SUPPORT_SOURCE_SAMPLES - 1) as f64;
+        let t = edge_range.0 + (edge_range.1 - edge_range.0) * parameter;
+        let point = edge_curve.point_at(t);
+        let (u, v) = support_surface.closest_point(&point)?;
+        points.push(support_surface.point_at(u, v));
         params.push(parameter);
     }
     let degree = 9.min(points.len().saturating_sub(1));

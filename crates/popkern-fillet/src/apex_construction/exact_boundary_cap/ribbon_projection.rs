@@ -1,10 +1,10 @@
 //! Support pcurve projection and sample construction for exact-boundary ribbons.
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
+use popkern_core::geometry::{Point3, Vec3};
 
 use super::boundary::PreparedExactBoundaryCurve;
 use super::ribbon::{
@@ -112,62 +112,65 @@ fn max_support_residual(
         .fold(0.0, f64::max)
 }
 
+#[cfg(test)]
 pub(super) fn compute_support_ribbon_sample(
     request: SupportRibbonSampleRequest<'_>,
 ) -> Result<ExactBoundaryRibbonSample, ExactBoundaryRibbonDeclineReason> {
+    let parameter = request.parameter;
+    compute_support_ribbon_samples(request)?
+        .into_iter()
+        .min_by(|a, b| {
+            (a.parameter - parameter)
+                .abs()
+                .partial_cmp(&(b.parameter - parameter).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .ok_or(ExactBoundaryRibbonDeclineReason::TangentAmbiguity)
+}
+
+pub(super) fn compute_support_ribbon_samples(
+    request: SupportRibbonSampleRequest<'_>,
+) -> Result<Vec<ExactBoundaryRibbonSample>, ExactBoundaryRibbonDeclineReason> {
     let SupportRibbonSampleRequest {
         boundary,
         other_boundary,
         surface,
         pcurve,
-        parameter,
+        parameter: _requested_parameter,
         pcurve_reversed,
         derivative_scale,
         budget,
     } = request;
-    let pcurve_parameter = support_pcurve_parameter(pcurve, parameter, pcurve_reversed);
-    let uv = pcurve.point_at(pcurve_parameter);
-    let support_point = surface.point_at(uv.x, uv.y);
-    let boundary_point = boundary.curve.point_at(parameter);
-    let normal = surface.normal_at(uv.x, uv.y);
-    let Some(support_normal) = normal.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
-    };
-    if normal.length() < budget.min_normal_length {
-        return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
+    let trace = support_trace_points(boundary, surface, pcurve, pcurve_reversed, budget)?;
+    let mut samples = Vec::with_capacity(trace.len());
+    for index in 0..trace.len() {
+        let point = &trace[index];
+        let boundary_tangent =
+            support_trace_tangent(&trace, index, boundary, other_boundary, surface, budget)?
+                .normalized()
+                .ok_or(ExactBoundaryRibbonDeclineReason::TangentAmbiguity)?;
+        let cross = point.support_normal.cross(&boundary_tangent);
+        if cross.length() < budget.min_cross_length {
+            return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
+        }
+        let Some(mut cross_unit) = cross.normalized() else {
+            return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
+        };
+        let inward = other_boundary.curve.point_at(0.5) - point.boundary_point;
+        if cross_unit.dot(&inward) < 0.0 {
+            cross_unit = cross_unit * -1.0;
+        }
+        samples.push(ExactBoundaryRibbonSample {
+            parameter: point.parameter,
+            support_uv: point.support_uv,
+            boundary_point: point.boundary_point,
+            support_point: point.support_point,
+            boundary_tangent,
+            support_normal: point.support_normal,
+            cross_derivative: cross_unit * derivative_scale,
+        });
     }
-
-    let tangent = boundary.curve.derivative_at(parameter, 1);
-    let tangent_in_plane = tangent - support_normal * tangent.dot(&support_normal);
-    if tangent_in_plane.length() < budget.min_tangent_length {
-        return Err(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
-    }
-    let Some(boundary_tangent) = tangent_in_plane.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
-    };
-
-    let cross = support_normal.cross(&boundary_tangent);
-    if cross.length() < budget.min_cross_length {
-        return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
-    }
-    let Some(mut cross_unit) = cross.normalized() else {
-        return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
-    };
-    let inward = other_boundary.curve.point_at(0.5) - boundary_point;
-    if cross_unit.dot(&inward) < 0.0 {
-        cross_unit = cross_unit * -1.0;
-    }
-    let cross_derivative = cross_unit * derivative_scale;
-
-    Ok(ExactBoundaryRibbonSample {
-        parameter,
-        support_uv: (uv.x, uv.y),
-        boundary_point,
-        support_point,
-        boundary_tangent,
-        support_normal,
-        cross_derivative,
-    })
+    Ok(samples)
 }
 
 pub(super) fn local_sector_width(
@@ -194,4 +197,115 @@ pub(super) fn sample_parameters(
 fn support_pcurve_parameter(pcurve: &Pcurve, parameter: f64, reversed: bool) -> f64 {
     let mapped = if reversed { 1.0 - parameter } else { parameter };
     pcurve.t_start + (pcurve.t_end - pcurve.t_start) * mapped
+}
+
+struct SupportTracePoint {
+    parameter: f64,
+    support_uv: (f64, f64),
+    boundary_point: Point3,
+    support_point: Point3,
+    support_normal: Vec3,
+}
+
+fn support_trace_points(
+    boundary: &PreparedExactBoundaryCurve,
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    pcurve_reversed: bool,
+    budget: ExactBoundaryRibbonBudget,
+) -> Result<Vec<SupportTracePoint>, ExactBoundaryRibbonDeclineReason> {
+    sample_parameters(budget)
+        .map(|parameter| {
+            let pcurve_parameter = support_pcurve_parameter(pcurve, parameter, pcurve_reversed);
+            let uv = pcurve.point_at(pcurve_parameter);
+            let support_point = surface.point_at(uv.x, uv.y);
+            let boundary_point = boundary.curve.point_at(parameter);
+            let normal = surface.normal_at(uv.x, uv.y);
+            if normal.length() < budget.min_normal_length {
+                return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
+            }
+            let Some(support_normal) = normal.normalized() else {
+                return Err(ExactBoundaryRibbonDeclineReason::DegenerateSupportNormal);
+            };
+            Ok(SupportTracePoint {
+                parameter,
+                support_uv: (uv.x, uv.y),
+                boundary_point,
+                support_point,
+                support_normal,
+            })
+        })
+        .collect()
+}
+
+fn support_trace_tangent(
+    trace: &[SupportTracePoint],
+    index: usize,
+    boundary: &PreparedExactBoundaryCurve,
+    other_boundary: &PreparedExactBoundaryCurve,
+    surface: &SurfaceGeometry,
+    budget: ExactBoundaryRibbonBudget,
+) -> Result<Vec3, ExactBoundaryRibbonDeclineReason> {
+    let point = &trace[index];
+    let tangent = boundary.curve.derivative_at(point.parameter, 1);
+    let tangent_in_plane = tangent - point.support_normal * tangent.dot(&point.support_normal);
+    if tangent_in_plane.length() >= budget.min_tangent_length {
+        return Ok(tangent_in_plane);
+    }
+    let Some(chord) = support_trace_chord(trace, index) else {
+        return support_frame_tangent(surface, point, other_boundary, budget)
+            .ok_or(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
+    };
+    let chord_in_plane = chord - point.support_normal * chord.dot(&point.support_normal);
+    if chord_in_plane.length() < budget.min_tangent_length {
+        return support_frame_tangent(surface, point, other_boundary, budget)
+            .ok_or(ExactBoundaryRibbonDeclineReason::TangentAmbiguity);
+    }
+    Ok(chord_in_plane)
+}
+
+fn support_frame_tangent(
+    surface: &SurfaceGeometry,
+    point: &SupportTracePoint,
+    other_boundary: &PreparedExactBoundaryCurve,
+    budget: ExactBoundaryRibbonBudget,
+) -> Option<Vec3> {
+    let inward = other_boundary.curve.point_at(0.5) - point.boundary_point;
+    let inward_in_plane = inward - point.support_normal * inward.dot(&point.support_normal);
+    if inward_in_plane.length() >= budget.min_tangent_length {
+        return Some(inward_in_plane.cross(&point.support_normal));
+    }
+    support_surface_tangent(surface, point, budget)
+}
+
+fn support_surface_tangent(
+    surface: &SurfaceGeometry,
+    point: &SupportTracePoint,
+    budget: ExactBoundaryRibbonBudget,
+) -> Option<Vec3> {
+    let u = surface.partial_u(point.support_uv.0, point.support_uv.1);
+    let v = surface.partial_v(point.support_uv.0, point.support_uv.1);
+    let u = u - point.support_normal * u.dot(&point.support_normal);
+    let v = v - point.support_normal * v.dot(&point.support_normal);
+    let tangent = if u.length() >= v.length() { u } else { v };
+    (tangent.length() >= budget.min_tangent_length).then_some(tangent)
+}
+
+fn support_trace_chord(trace: &[SupportTracePoint], index: usize) -> Option<Vec3> {
+    let current = trace.get(index)?;
+    if let Some(next) = trace.get(index + 1) {
+        let chord = next.support_point - current.support_point;
+        if chord.length() > 0.0 {
+            return Some(chord);
+        }
+    }
+    if index > 0
+        && let Some(previous) = trace.get(index - 1)
+    {
+        let chord = current.support_point - previous.support_point;
+        if chord.length() > 0.0 {
+            return Some(chord);
+        }
+    }
+    None
 }
