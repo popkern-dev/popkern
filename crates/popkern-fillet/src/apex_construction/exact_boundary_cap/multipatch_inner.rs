@@ -176,22 +176,23 @@ pub(crate) fn measure_inner_interface_g1(
 pub(crate) fn decline_g0_only_inner_prototype_before_commit(
     sector: &ExactBoundaryCapSectorInput,
     strip: &ExactBoundaryOuterStripPatchInventory,
-    interface: &ExactBoundaryPatchInterfaceInventory,
+    interface_inventory: &ExactBoundaryPatchInterfaceInventory,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
     prototype: &ExactBoundaryInnerPolePatchPrototype,
+    interface_g1_tolerance: f64,
 ) -> ExactBoundaryMultiPatchDiagnostic {
+    let report = prototype.interface_g1_report;
     ExactBoundaryMultiPatchDiagnostic::interface_tangent(
         sector,
         strip,
-        interface,
-        prototype
-            .interface_g1_report
-            .map(|report| report.max_interface_g1_deficit)
+        interface_inventory,
+        report
+            .map(|g1| g1.max_interface_g1_deficit)
             .unwrap_or(f64::INFINITY),
-        prototype
-            .interface_g1_report
-            .map(|report| report.sample_parameter)
-            .unwrap_or(prototype.max_interface_g0),
-        prototype.tolerance,
+        report
+            .map(|g1| g1.sample_parameter)
+            .unwrap_or(interface.sample_parameter),
+        interface_g1_tolerance,
     )
 }
 

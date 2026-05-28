@@ -189,7 +189,9 @@ fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &interface,
         &prototype,
+        5.0e-2,
     );
 
     assert_eq!(
@@ -208,6 +210,11 @@ fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
         diagnostic.interface_name.as_deref(),
         Some(fixture.inventory.interfaces[0].interface_name.as_str())
     );
+    assert_eq!(
+        diagnostic.sample_parameter,
+        Some(interface.sample_parameter)
+    );
+    assert_eq!(diagnostic.tolerance, Some(5.0e-2));
 }
 
 #[test]

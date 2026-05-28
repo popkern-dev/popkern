@@ -141,7 +141,17 @@ pub(crate) fn solve_strip_support_normal_row(
         ));
     };
     let mut surface = scaffold.surface.clone();
-    let bounded_iteration_count = surface.num_u.min(budget.max_width_direction_controls);
+    if surface.num_u > budget.max_width_direction_controls {
+        return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+            sector,
+            strip,
+            f64::INFINITY,
+            0.0,
+            budget.support_normal_deficit,
+            Vec::new(),
+        ));
+    }
+    let bounded_iteration_count = surface.num_u;
     for index in 0..surface.num_u {
         let parameter = control_row_parameter(boundary, index, surface.num_u);
         let sample = sample_at_parameter(samples, parameter);

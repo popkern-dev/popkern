@@ -169,6 +169,45 @@ fn support_normal_row_solves_from_ribbon_samples_with_bounded_evidence() {
 }
 
 #[test]
+fn support_normal_row_declines_when_width_control_budget_is_exceeded() {
+    let sector = sector_input();
+    let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
+        &sector,
+        ExactBoundaryOuterSide::FaceEdge,
+    );
+    let strip = &inventory.outer_strips[0];
+    let boundary = cubic_boundary_with_five_controls();
+    let scaffold = scaffold_outer_strip_boundary(
+        &sector,
+        strip,
+        &boundary,
+        ExactBoundaryStripBoundaryDirection::Forward,
+        1.0e-12,
+    )
+    .expect("outer boundary scaffold");
+    let mut budget = ExactBoundaryMultiPatchBudget::default();
+    budget.max_width_direction_controls = 4;
+
+    let diagnostic = solve_strip_support_normal_row(
+        &sector,
+        strip,
+        &scaffold,
+        &boundary,
+        &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        budget,
+    )
+    .expect_err("control count beyond budget must decline");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied
+    );
+    assert!(diagnostic.residual.expect("residual").is_infinite());
+    assert_eq!(diagnostic.tolerance, Some(budget.support_normal_deficit));
+    assert_eq!(diagnostic.support_half_edge, Some(strip.support_half_edge));
+}
+
+#[test]
 fn support_normal_row_declines_with_source_handles_and_local_tolerance() {
     let sector = sector_input();
     let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
@@ -241,6 +280,21 @@ fn cubic_boundary() -> NurbsCurve {
             Point3::new(1.0, 0.0, 0.0),
         ],
         weights: vec![1.0; 4],
+    }
+}
+
+fn cubic_boundary_with_five_controls() -> NurbsCurve {
+    NurbsCurve {
+        degree: 3,
+        knots: vec![0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.25, 0.1, 0.0),
+            Point3::new(0.5, 0.15, 0.0),
+            Point3::new(0.75, 0.1, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0; 5],
     }
 }
 
