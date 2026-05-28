@@ -7,6 +7,7 @@ use crate::types::{ApexConstructionDiagnostic, ExactBoundaryCapDiagnostic};
 
 use super::super::inventory::{
     ExactBoundaryMultiPatchInventoryDiagnostic, ExactBoundaryOuterStripPatchInventory,
+    ExactBoundaryPatchInterfaceInventory,
 };
 use super::{ExactBoundaryMultiPatchDeclineReason, ExactBoundaryMultiPatchDiagnostic};
 
@@ -104,6 +105,31 @@ impl ExactBoundaryMultiPatchDiagnostic {
             sample_parameter,
             tolerance,
         )
+    }
+
+    pub(crate) fn interface_position(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        interface: &ExactBoundaryPatchInterfaceInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::new(
+            ExactBoundaryMultiPatchDeclineReason::InterfacePositionUnsatisfied,
+            sector.sector_index,
+            sector.sector_name.clone(),
+        )
+        .with_patch_name(strip.patch_name.clone())
+        .with_interface_name(interface.interface_name.clone())
+        .with_side(Some(strip.side))
+        .with_edge(strip.edge)
+        .with_cap_half_edge(strip.cap_half_edge)
+        .with_support_half_edge(strip.support_half_edge)
+        .with_support_face(strip.support_face)
+        .with_residual(residual)
+        .with_tolerance(tolerance)
+        .with_sample_parameter(sample_parameter)
     }
 
     pub(crate) fn support_strip_band(
@@ -208,6 +234,11 @@ impl ExactBoundaryMultiPatchDiagnostic {
 
     fn with_patch_name(mut self, name: String) -> Self {
         self.patch_name = Some(name);
+        self
+    }
+
+    fn with_interface_name(mut self, name: String) -> Self {
+        self.interface_name = Some(name);
         self
     }
 
