@@ -6,6 +6,7 @@ use super::{validate_inner_pole_patch_prototype, validate_outer_strip_candidate}
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use crate::apex_construction::exact_boundary_cap::multipatch::inner::{
     construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
+    measure_inner_interface_g1,
 };
 use crate::apex_construction::exact_boundary_cap::multipatch::inventory::{
     ExactBoundaryMultiPatchInventory, ExactBoundaryMultiPatchInventoryDeclineReason,
@@ -255,6 +256,57 @@ fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
         diagnostic.interface_name.as_deref(),
         Some(inventory.interfaces[0].interface_name.as_str())
     );
+}
+
+#[test]
+fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
+    let fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
+    let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
+        &fixture.sector,
+        ExactBoundaryOuterSide::FaceEdge,
+    );
+    let interface = construct_strip_inner_interface_curve(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &fixture.candidate,
+        fixture.budget.interface_g0,
+    )
+    .expect("interface constructs");
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.0),
+        fixture.budget.pole_g0,
+    )
+    .expect("inner G0 prototype constructs");
+    let measured = measure_inner_interface_g1(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &fixture.candidate,
+        &interface,
+        &prototype,
+        fixture.budget.interface_g1_deficit,
+    )
+    .expect("interface G1 passes");
+
+    let report = validate_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.strip,
+        &inventory.interfaces[0],
+        &interface,
+        &measured,
+        fixture.budget,
+    )
+    .expect("measured inner prototype validates");
+
+    assert!(report.interface_g1_validated);
+    assert!(report.max_interface_g1_deficit <= fixture.budget.interface_g1_deficit);
+    assert!(report.max_interface_g0 <= fixture.budget.interface_g0);
+    assert!(report.max_pole_g0 <= fixture.budget.pole_g0);
 }
 
 struct StripFixture {

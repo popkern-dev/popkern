@@ -4,7 +4,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
 
@@ -59,8 +59,23 @@ pub(crate) struct ExactBoundaryInnerPolePatchPrototype {
     pub max_pole_g0: f64,
     /// Local explicit G0 tolerance.
     pub tolerance: f64,
+    /// Interface tangent-plane compatibility evidence, when measured.
+    pub interface_g1_report: Option<ExactBoundaryInterfaceG1Report>,
     /// G0 prototype has not established interface G1 yet.
     pub interface_g1_validated: bool,
+}
+
+/// Sampled interface G1 evidence between strip and inner patch surfaces.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ExactBoundaryInterfaceG1Report {
+    /// Worst tangent-plane deficit along the interface.
+    pub max_interface_g1_deficit: f64,
+    /// Sample parameter where the worst deficit was measured.
+    pub sample_parameter: f64,
+    /// Number of deterministic samples evaluated.
+    pub sample_count: usize,
+    /// Local explicit tangent-plane tolerance.
+    pub tolerance: f64,
 }
 
 /// Build a G0-only inner pole patch prototype from interface curve to pole.
@@ -125,8 +140,36 @@ pub(crate) fn construct_inner_pole_patch_prototype(
         max_interface_g0: interface_g0.max_residual,
         max_pole_g0: pole_g0.max_residual,
         tolerance,
+        interface_g1_report: None,
         interface_g1_validated: false,
     })
+}
+
+/// Measure strip/inner interface G1 and return an updated prototype.
+pub(crate) fn measure_inner_interface_g1(
+    sector: &ExactBoundaryCapSectorInput,
+    strip: &ExactBoundaryOuterStripPatchInventory,
+    interface_inventory: &ExactBoundaryPatchInterfaceInventory,
+    strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    tolerance: f64,
+) -> Result<ExactBoundaryInnerPolePatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
+    let report = interface_g1_report(strip_candidate, interface, prototype, tolerance);
+    if report.max_interface_g1_deficit > tolerance {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_tangent(
+            sector,
+            strip,
+            interface_inventory,
+            report.max_interface_g1_deficit,
+            report.sample_parameter,
+            tolerance,
+        ));
+    }
+    let mut accepted = prototype.clone();
+    accepted.interface_g1_report = Some(report);
+    accepted.interface_g1_validated = true;
+    Ok(accepted)
 }
 
 /// Decline a G0-only prototype before commit until MP-010 validates G1.
@@ -140,8 +183,14 @@ pub(crate) fn decline_g0_only_inner_prototype_before_commit(
         sector,
         strip,
         interface,
-        f64::INFINITY,
-        prototype.max_interface_g0,
+        prototype
+            .interface_g1_report
+            .map(|report| report.max_interface_g1_deficit)
+            .unwrap_or(f64::INFINITY),
+        prototype
+            .interface_g1_report
+            .map(|report| report.sample_parameter)
+            .unwrap_or(prototype.max_interface_g0),
         prototype.tolerance,
     )
 }
@@ -335,6 +384,70 @@ fn inner_interface_g0(
         }
     }
     report
+}
+
+fn interface_g1_report(
+    strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    prototype: &ExactBoundaryInnerPolePatchPrototype,
+    tolerance: f64,
+) -> ExactBoundaryInterfaceG1Report {
+    let (t_start, t_end) = interface.curve.parameter_range();
+    let mut report = ExactBoundaryInterfaceG1Report {
+        max_interface_g1_deficit: 0.0,
+        sample_parameter: t_start,
+        sample_count: INTERFACE_SAMPLE_COUNT,
+        tolerance,
+    };
+    for index in 0..INTERFACE_SAMPLE_COUNT {
+        let parameter =
+            t_start + (t_end - t_start) * index as f64 / (INTERFACE_SAMPLE_COUNT - 1) as f64;
+        let strip_uv = interface.strip_pcurve.point_at(parameter);
+        let inner_uv = prototype.interface_pcurve.point_at(parameter);
+        let deficit = tangent_plane_deficit(
+            &strip_candidate.surface,
+            strip_uv.x,
+            strip_uv.y,
+            &prototype.surface,
+            inner_uv.x,
+            inner_uv.y,
+        )
+        .unwrap_or(f64::INFINITY);
+        if deficit > report.max_interface_g1_deficit {
+            report.max_interface_g1_deficit = deficit;
+            report.sample_parameter = parameter;
+        }
+    }
+    report
+}
+
+fn tangent_plane_deficit(
+    strip_surface: &NurbsSurface,
+    strip_u: f64,
+    strip_v: f64,
+    inner_surface: &NurbsSurface,
+    inner_u: f64,
+    inner_v: f64,
+) -> Option<f64> {
+    let strip_normal = safe_surface_normal(strip_surface, strip_u, strip_v)?;
+    let inner_normal = safe_surface_normal(inner_surface, inner_u, inner_v)?;
+    Some(1.0 - strip_normal.dot(&inner_normal).abs())
+}
+
+fn safe_surface_normal(surface: &NurbsSurface, u: f64, v: f64) -> Option<Vec3> {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    let u = interior_parameter(u, u_min, u_max);
+    let v = interior_parameter(v, v_min, v_max);
+    surface.normal_at(u, v).normalized()
+}
+
+fn interior_parameter(parameter: f64, min: f64, max: f64) -> f64 {
+    let span = max - min;
+    if span.abs() <= 1.0e-12 {
+        return parameter;
+    }
+    let inset = span.abs() * 1.0e-6;
+    parameter.clamp(min + inset, max - inset)
 }
 
 fn pole_g0(surface: &NurbsSurface, pole: Point3) -> InterfaceResidual {

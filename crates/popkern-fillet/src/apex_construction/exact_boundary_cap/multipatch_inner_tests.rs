@@ -6,7 +6,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::{
     construct_inner_pole_patch_prototype, construct_strip_inner_interface_curve,
-    decline_g0_only_inner_prototype_before_commit,
+    decline_g0_only_inner_prototype_before_commit, measure_inner_interface_g1,
 };
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use crate::apex_construction::exact_boundary_cap::multipatch::inventory::ExactBoundaryMultiPatchInventory;
@@ -252,6 +252,79 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
     assert_eq!(
         pole_diag.code,
         "exact_boundary_cap.multipatch.pole_g0_exceeded"
+    );
+}
+
+#[test]
+fn interface_g1_measurement_marks_compatible_candidate_validated() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let interface = interface_for_fixture(&fixture);
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.0),
+        1.0e-6,
+    )
+    .expect("inner G0 prototype constructs");
+
+    let measured = measure_inner_interface_g1(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
+        &interface,
+        &prototype,
+        5.0e-2,
+    )
+    .expect("coplanar prototype passes G1");
+    let report = measured.interface_g1_report.expect("G1 report");
+
+    assert!(measured.interface_g1_validated);
+    assert!(report.max_interface_g1_deficit <= 5.0e-2);
+    assert_eq!(report.sample_count, 17);
+    assert_eq!(report.tolerance, 5.0e-2);
+}
+
+#[test]
+fn interface_g1_measurement_declines_incompatible_candidate_with_worst_sample() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let interface = interface_for_fixture(&fixture);
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &interface,
+        Point3::new(0.5, 0.7, 0.8),
+        1.0e-6,
+    )
+    .expect("tilted inner G0 prototype constructs");
+
+    let diagnostic = measure_inner_interface_g1(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
+        &interface,
+        &prototype,
+        5.0e-2,
+    )
+    .expect_err("tilted prototype exceeds G1 gate");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::InterfaceTangentUnsatisfied
+    );
+    assert_eq!(
+        diagnostic.code,
+        "exact_boundary_cap.multipatch.interface_g1_exceeded"
+    );
+    assert!(diagnostic.residual.expect("residual") > 5.0e-2);
+    assert!(diagnostic.sample_parameter.is_some());
+    assert_eq!(
+        diagnostic.interface_name.as_deref(),
+        Some(fixture.inventory.interfaces[0].interface_name.as_str())
     );
 }
 

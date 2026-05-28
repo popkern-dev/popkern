@@ -52,6 +52,8 @@ pub(crate) struct ExactBoundaryInnerPoleValidationReport {
     pub max_interface_g0: f64,
     /// Worst pole/spoke G0 residual.
     pub max_pole_g0: f64,
+    /// Worst measured interface G1 deficit.
+    pub max_interface_g1_deficit: f64,
     /// Whether interface G1 has been validated by a later slice.
     pub interface_g1_validated: bool,
 }
@@ -168,13 +170,30 @@ pub(crate) fn validate_inner_pole_patch_prototype(
             budget.pole_g0,
         ));
     }
-    if !prototype.interface_g1_validated {
+    let interface_g1_report = prototype.interface_g1_report;
+    if let Some(report) = interface_g1_report
+        && report.max_interface_g1_deficit > budget.interface_g1_deficit
+    {
         return Err(ExactBoundaryMultiPatchDiagnostic::interface_tangent(
             sector,
             strip,
             interface_inventory,
-            f64::INFINITY,
-            interface.sample_parameter,
+            report.max_interface_g1_deficit,
+            report.sample_parameter,
+            budget.interface_g1_deficit,
+        ));
+    }
+    if !prototype.interface_g1_validated || interface_g1_report.is_none() {
+        return Err(ExactBoundaryMultiPatchDiagnostic::interface_tangent(
+            sector,
+            strip,
+            interface_inventory,
+            interface_g1_report
+                .map(|report| report.max_interface_g1_deficit)
+                .unwrap_or(f64::INFINITY),
+            interface_g1_report
+                .map(|report| report.sample_parameter)
+                .unwrap_or(interface.sample_parameter),
             budget.interface_g1_deficit,
         ));
     }
@@ -183,6 +202,9 @@ pub(crate) fn validate_inner_pole_patch_prototype(
         interface_name: prototype.interface_name.clone(),
         max_interface_g0: prototype.max_interface_g0,
         max_pole_g0: prototype.max_pole_g0,
+        max_interface_g1_deficit: interface_g1_report
+            .map(|report| report.max_interface_g1_deficit)
+            .unwrap_or(f64::INFINITY),
         interface_g1_validated: prototype.interface_g1_validated,
     })
 }
