@@ -4,7 +4,8 @@ use crate::direct_apex_validate_helpers::{
 use crate::helpers::measure_cap_outer_boundary;
 use popkern_fillet::{
     ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
-    ExactBoundaryReportTransactionStatus, build_blend_repair_action_artifact,
+    ExactBoundaryReportTransactionStatus, ExactBoundaryRouteDecisionOutcome,
+    build_blend_repair_action_artifact,
 };
 
 /// Native cube-mixed direct-apex status. This fixture now completes through
@@ -35,6 +36,11 @@ fn direct_apex_5_cap_outer_cube_mixed_records_remaining_g1_blocker() {
         route.exact_boundary_report.provenance.transaction_status
             == ExactBoundaryReportTransactionStatus::Committed,
         "cube_mixed exact-boundary topology transaction should commit"
+    );
+    assert_eq!(route.exact_boundary_report.decision_chain.len(), 1);
+    assert_eq!(
+        route.exact_boundary_report.decision_chain[0].outcome,
+        ExactBoundaryRouteDecisionOutcome::Accepted
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
@@ -184,5 +190,13 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
                         .is_some_and(|residual| residual > 5.0e-2)
             }),
         "pyramid3 exact-boundary decline must preserve structured support-normal evidence"
+    );
+    assert!(
+        route
+            .exact_boundary_report
+            .decision_chain
+            .iter()
+            .any(|step| step.route_label == "exact_boundary.multipatch"),
+        "pyramid3 constrained-strip decline must record the multipatch candidate decision"
     );
 }

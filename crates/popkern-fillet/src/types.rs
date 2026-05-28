@@ -22,6 +22,7 @@ pub use types_exact_boundary::{
     CapContinuityReport, CapContinuityTarget, ExactBoundaryCandidateOutcome,
     ExactBoundaryCapReport, ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance,
     ExactBoundaryReportSector, ExactBoundaryReportTransactionStatus,
+    ExactBoundaryRouteDecisionOutcome, ExactBoundaryRouteDecisionStep,
     ExactBoundaryToleranceEvidence,
 };
 pub use types_repair::{

@@ -10,7 +10,7 @@ use crate::apex_construction::telemetry::PlanTelemetry;
 use crate::types::{
     ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
     ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic,
-    ExactBoundaryReportTransactionStatus,
+    ExactBoundaryReportTransactionStatus, ExactBoundaryRouteDecisionOutcome,
 };
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::{NurbsCurve, Point3};
@@ -61,6 +61,15 @@ fn report_sector_pcurve_flags_are_read_from_live_topology() {
         ExactBoundaryReportTransactionStatus::Committed
     );
     assert!(!report.provenance.topology_rollback_performed);
+    assert_eq!(report.decision_chain.len(), 1);
+    assert_eq!(
+        report.decision_chain[0].route_label,
+        "exact_boundary.one_patch"
+    );
+    assert_eq!(
+        report.decision_chain[0].outcome,
+        ExactBoundaryRouteDecisionOutcome::Accepted
+    );
     assert_eq!(report.sectors.len(), 3);
     for sector in report.sectors {
         assert!(
@@ -118,6 +127,19 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
         ExactBoundaryReportTransactionStatus::RolledBack
     );
     assert!(report.provenance.topology_rollback_performed);
+    assert_eq!(report.decision_chain.len(), 1);
+    assert_eq!(
+        report.decision_chain[0].route_label,
+        "exact_boundary.one_patch"
+    );
+    assert_eq!(
+        report.decision_chain[0].outcome,
+        ExactBoundaryRouteDecisionOutcome::Declined
+    );
+    assert_eq!(
+        report.decision_chain[0].diagnostic_code.as_deref(),
+        Some("exact_boundary_cap.ribbon.support_pcurve_stale")
+    );
     assert_eq!(report.diagnostics[0].schema_version, 1);
     assert_eq!(report.diagnostics[0].tolerance, None);
     assert_eq!(

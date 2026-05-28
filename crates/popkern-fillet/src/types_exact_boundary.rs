@@ -132,6 +132,8 @@ pub struct ExactBoundaryCapReport {
     pub route_label: String,
     /// Candidate outcome in user-facing terms.
     pub candidate_status: ExactBoundaryCandidateOutcome,
+    /// Ordered route decisions made while preparing the cap candidate.
+    pub decision_chain: Vec<ExactBoundaryRouteDecisionStep>,
     /// Report producer, transaction status, and compatibility metadata.
     pub provenance: ExactBoundaryReportProvenance,
     /// Sector ownership records extracted from live topology.
@@ -159,6 +161,7 @@ impl ExactBoundaryCapReport {
             schema_version: 1,
             route_label: route_label.to_string(),
             candidate_status: ExactBoundaryCandidateOutcome::NotApplicable,
+            decision_chain: vec![ExactBoundaryRouteDecisionStep::not_attempted(route_label)],
             provenance: ExactBoundaryReportProvenance::not_started(),
             sectors: Vec::new(),
             committed_faces: Vec::new(),
@@ -176,6 +179,77 @@ impl ExactBoundaryCapReport {
         self.route_label = route_label.to_string();
         self
     }
+
+    /// Return a copy with an explicit ordered route decision chain.
+    pub fn with_decision_chain(
+        mut self,
+        decision_chain: Vec<ExactBoundaryRouteDecisionStep>,
+    ) -> Self {
+        self.decision_chain = decision_chain;
+        self
+    }
+}
+
+/// One ordered route decision in an exact-boundary cap attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExactBoundaryRouteDecisionStep {
+    /// Stable route label for UI/API filtering.
+    pub route_label: String,
+    /// Candidate-local outcome for this route.
+    pub outcome: ExactBoundaryRouteDecisionOutcome,
+    /// First diagnostic code explaining a decline, when any.
+    pub diagnostic_code: Option<String>,
+}
+
+impl ExactBoundaryRouteDecisionStep {
+    /// Build an unattempted route step.
+    pub fn not_attempted(route_label: &str) -> Self {
+        Self {
+            route_label: route_label.to_string(),
+            outcome: ExactBoundaryRouteDecisionOutcome::NotAttempted,
+            diagnostic_code: None,
+        }
+    }
+
+    /// Build an accepted route step.
+    pub fn accepted(route_label: &str) -> Self {
+        Self {
+            route_label: route_label.to_string(),
+            outcome: ExactBoundaryRouteDecisionOutcome::Accepted,
+            diagnostic_code: None,
+        }
+    }
+
+    /// Build a commit-eligible candidate-only route step.
+    pub fn commit_eligible(route_label: &str) -> Self {
+        Self {
+            route_label: route_label.to_string(),
+            outcome: ExactBoundaryRouteDecisionOutcome::CommitEligible,
+            diagnostic_code: None,
+        }
+    }
+
+    /// Build a declined route step with its first deterministic diagnostic.
+    pub fn declined(route_label: &str, diagnostic_code: Option<String>) -> Self {
+        Self {
+            route_label: route_label.to_string(),
+            outcome: ExactBoundaryRouteDecisionOutcome::Declined,
+            diagnostic_code,
+        }
+    }
+}
+
+/// Candidate-local outcome for an exact-boundary route step.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ExactBoundaryRouteDecisionOutcome {
+    /// Route did not run.
+    NotAttempted,
+    /// Route passed validation and committed live topology.
+    Accepted,
+    /// Route passed candidate-only gates and awaits commit preflight.
+    CommitEligible,
+    /// Route declined with structured diagnostics.
+    Declined,
 }
 
 /// Versioned producer and transaction metadata for exact-boundary reports.
@@ -363,6 +437,8 @@ mod tests {
 
         let json = serde_json::to_string(&report).unwrap();
         assert!(json.contains("\"candidate_status\":\"NotApplicable\""));
+        assert!(json.contains("\"decision_chain\""));
+        assert!(json.contains("\"outcome\":\"NotAttempted\""));
         assert!(json.contains("\"schema_name\":\"exact_boundary_cap_report\""));
         assert!(json.contains("\"requested\":\"G1\""));
     }

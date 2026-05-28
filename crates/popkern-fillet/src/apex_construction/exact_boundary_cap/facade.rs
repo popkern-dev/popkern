@@ -11,8 +11,11 @@ use crate::types::{
     ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
     ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, ExactBoundaryCapReport,
     ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance, ExactBoundaryReportSector,
-    ExactBoundaryToleranceEvidence,
+    ExactBoundaryRouteDecisionStep, ExactBoundaryToleranceEvidence,
 };
+
+#[path = "facade_multipatch_route.rs"]
+mod multipatch_route;
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
@@ -33,6 +36,7 @@ use super::topology::materialize_exact_boundary_sector_topology;
 use super::validation::{
     ExactBoundaryValidationBudget, ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
 };
+use multipatch_route::attempt_multipatch_after_one_patch_decline;
 
 /// Status of one exact-boundary cap candidate attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,6 +229,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 
     let mut committed = false;
     let mut committed_faces = Vec::new();
+    let mut decision_chain = Vec::new();
     if let (Some(topology), Some(inner_spokes), Some(ribbons), Some(solved_surfaces)) = (
         topology.as_ref(),
         inner_spokes.as_ref(),
@@ -275,7 +280,23 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                             committed = true;
                         }
                     }
-                    Err(diagnostic) => diagnostics.push(diagnostic.into_apex_diagnostic()),
+                    Err(diagnostic) => {
+                        decision_chain.push(ExactBoundaryRouteDecisionStep::declined(
+                            "exact_boundary.one_patch",
+                            Some(diagnostic.code.to_string()),
+                        ));
+                        diagnostics.push(diagnostic.clone().into_apex_diagnostic());
+                        if let Some(step) = attempt_multipatch_after_one_patch_decline(
+                            &diagnostic,
+                            &candidate_sectors,
+                            &boundary_curves,
+                            ribbons,
+                            inner_spokes,
+                            &mut diagnostics,
+                        ) {
+                            decision_chain.push(step);
+                        }
+                    }
                 }
             }
             Err(diagnostic) => diagnostics.push(diagnostic.into_apex_diagnostic()),
@@ -302,6 +323,11 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         &performance,
         &diagnostics,
     );
+    let report = if decision_chain.is_empty() {
+        report
+    } else {
+        report.with_decision_chain(decision_chain)
+    };
 
     Ok(ExactBoundaryCapCandidateResult {
         status,
@@ -334,6 +360,18 @@ pub(super) fn build_exact_boundary_report(
         schema_version: 1,
         route_label: "direct_apex".to_string(),
         candidate_status,
+        decision_chain: vec![match candidate_status {
+            ExactBoundaryCandidateOutcome::Accepted => {
+                ExactBoundaryRouteDecisionStep::accepted("exact_boundary.one_patch")
+            }
+            ExactBoundaryCandidateOutcome::Declined => ExactBoundaryRouteDecisionStep::declined(
+                "exact_boundary.one_patch",
+                performance.deterministic_skip_code.clone(),
+            ),
+            ExactBoundaryCandidateOutcome::NotApplicable => {
+                ExactBoundaryRouteDecisionStep::not_attempted("exact_boundary.one_patch")
+            }
+        }],
         provenance: ExactBoundaryReportProvenance::for_status(candidate_status),
         sectors: sectors
             .iter()

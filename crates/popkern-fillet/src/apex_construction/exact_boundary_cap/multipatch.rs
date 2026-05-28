@@ -26,10 +26,10 @@ mod inner;
 mod inventory;
 
 #[path = "multipatch_report.rs"]
-mod report;
+pub(crate) mod report;
 
 #[path = "multipatch_strip.rs"]
-mod strip;
+pub(crate) mod strip;
 
 #[path = "multipatch_validation.rs"]
 mod validation;
