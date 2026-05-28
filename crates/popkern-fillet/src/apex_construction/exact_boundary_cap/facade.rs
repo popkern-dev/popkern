@@ -25,7 +25,10 @@ use super::performance::{
 };
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::{ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors};
-use super::solve::{ExactBoundarySolveBudget, solve_exact_boundary_surfaces};
+use super::solve::{
+    ExactBoundarySolveBudget, refine_support_normal_strips_with_pcurves,
+    solve_exact_boundary_surfaces,
+};
 use super::topology::materialize_exact_boundary_sector_topology;
 use super::validation::{
     ExactBoundaryValidationBudget, ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
@@ -195,7 +198,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         record_support_family_counts(&mut performance, ribbons);
     }
 
-    let solved_surfaces = match (inner_spokes.as_ref(), ribbons.as_ref()) {
+    let mut solved_surfaces = match (inner_spokes.as_ref(), ribbons.as_ref()) {
         (Some(inner_spokes), Some(ribbons)) => {
             match solve_exact_boundary_surfaces(
                 inner_spokes,
@@ -226,7 +229,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         topology.as_ref(),
         inner_spokes.as_ref(),
         ribbons.as_ref(),
-        solved_surfaces.as_ref(),
+        solved_surfaces.as_mut(),
     ) {
         match prepare_exact_boundary_pcurves(
             inner_spokes,
@@ -235,6 +238,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
             ExactBoundaryPcurveBudget::default(),
         ) {
             Ok(pcurves) => {
+                refine_support_normal_strips_with_pcurves(solved_surfaces, &pcurves, ribbons);
                 record_pcurve_report(&mut performance, &pcurves);
                 let _topology_evidence = (topology.pole_vertex, topology.spoke_edges.len());
                 match validate_exact_boundary_candidate(ExactBoundaryValidationInputs {

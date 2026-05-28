@@ -78,7 +78,7 @@ fn ribbon_for(
         .find(|ribbon| ribbon.sector_index == sector_index && ribbon.side == side)
 }
 
-fn ribbon_derivative(
+pub(super) fn ribbon_derivative(
     ribbon: &PreparedExactBoundaryRibbon,
     parameter: f64,
     boundary_reversed: bool,
@@ -121,7 +121,7 @@ fn ribbon_derivative(
         .unwrap_or(Vec3::zero())
 }
 
-fn boundary_derivative_control_step(boundary: &NurbsCurve) -> f64 {
+pub(super) fn boundary_derivative_control_step(boundary: &NurbsCurve) -> f64 {
     if boundary.degree == 0 {
         return 0.0;
     }

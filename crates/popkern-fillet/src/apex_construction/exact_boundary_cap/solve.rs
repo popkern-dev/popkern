@@ -7,9 +7,16 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use super::corner::{PreparedExactBoundaryInnerSpokes, PreparedExactBoundarySectorBoundary};
 use super::ribbon::PreparedExactBoundaryRibbons;
 use solve_derivatives::{BoundaryOrientation, apply_derivative_rows};
+use solve_support_strip::apply_support_normal_strip_correction;
 
 #[path = "solve_derivatives.rs"]
 mod solve_derivatives;
+#[path = "solve_support_pcurve_optimize.rs"]
+mod solve_support_pcurve_optimize;
+#[path = "solve_support_pcurve_strip.rs"]
+mod solve_support_pcurve_strip;
+#[path = "solve_support_strip.rs"]
+mod solve_support_strip;
 
 const DEFAULT_CORNER_TOLERANCE: f64 = 1.0e-7;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
@@ -158,6 +165,8 @@ pub(crate) fn solve_exact_boundary_surfaces(
     Ok(ExactBoundarySolvedSurfaces { surfaces })
 }
 
+pub(crate) use solve_support_pcurve_strip::refine_support_normal_strips_with_pcurves;
+
 fn solve_sector(
     sector: &PreparedExactBoundarySectorBoundary,
     ribbons: &PreparedExactBoundaryRibbons,
@@ -200,7 +209,7 @@ fn solve_sector(
         num_u,
         num_v,
     );
-    let surface = NurbsSurface {
+    let mut surface = NurbsSurface {
         degree_u: fillet.curve.degree,
         degree_v: face.curve.degree,
         knots_u: fillet.curve.knots.clone(),
@@ -210,6 +219,15 @@ fn solve_sector(
         num_v,
         weights,
     };
+    apply_support_normal_strip_correction(
+        sector,
+        ribbons,
+        BoundaryOrientation {
+            fillet_reversed: fillet.reversed,
+            face_reversed: face.reversed,
+        },
+        &mut surface,
+    );
     if has_gross_foldover(&surface, budget) {
         return Err(ExactBoundarySolveDiagnostic::new(
             ExactBoundarySolveDeclineReason::GrossFoldover,
