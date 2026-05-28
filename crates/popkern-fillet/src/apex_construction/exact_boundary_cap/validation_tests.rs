@@ -69,11 +69,11 @@ fn validation_declines_support_normal_continuity_over_budget() {
 
     assert_eq!(
         diagnostic.reason,
-        ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded
+        ExactBoundaryValidationDeclineReason::ConstrainedStripBandUnsatisfied
     );
     assert_eq!(
         diagnostic.code,
-        "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+        "exact_boundary_cap.validation.constrained_strip_band_unsatisfied"
     );
     assert!(
         diagnostic

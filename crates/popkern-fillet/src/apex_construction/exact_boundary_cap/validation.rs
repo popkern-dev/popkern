@@ -95,8 +95,8 @@ pub(crate) enum ExactBoundaryValidationDeclineReason {
     FoldoverDetected,
     /// Live 3-D edge curve does not lie on the solved cap or support surface.
     LiveEdgeSurfaceResidualExceeded,
-    /// Solved cap normal is not support-normal compatible along an outer seam.
-    SupportNormalContinuityExceeded,
+    /// The constrained support-normal strip band could not satisfy its postcondition.
+    ConstrainedStripBandUnsatisfied,
 }
 
 impl ExactBoundaryValidationDeclineReason {
@@ -124,8 +124,8 @@ impl ExactBoundaryValidationDeclineReason {
             Self::LiveEdgeSurfaceResidualExceeded => {
                 "exact_boundary_cap.validation.live_edge_surface_residual_exceeded"
             }
-            Self::SupportNormalContinuityExceeded => {
-                "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+            Self::ConstrainedStripBandUnsatisfied => {
+                "exact_boundary_cap.validation.constrained_strip_band_unsatisfied"
             }
         }
     }
@@ -187,14 +187,14 @@ impl ExactBoundaryValidationDiagnostic {
         }
     }
 
-    pub(super) fn support_normal_continuity(
+    pub(super) fn constrained_strip_band(
         pair: &super::pcurves::PreparedExactBoundaryPcurvePair,
         residual: f64,
         sample_parameter: f64,
     ) -> Self {
         Self {
-            reason: ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded,
-            code: ExactBoundaryValidationDeclineReason::SupportNormalContinuityExceeded.code(),
+            reason: ExactBoundaryValidationDeclineReason::ConstrainedStripBandUnsatisfied,
+            code: ExactBoundaryValidationDeclineReason::ConstrainedStripBandUnsatisfied.code(),
             sector_name: Some(pair.sector_name.clone()),
             residual: Some(residual),
             edge: Some(pair.edge),

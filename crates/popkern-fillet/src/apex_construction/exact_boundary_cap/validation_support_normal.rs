@@ -50,13 +50,11 @@ pub(super) fn validate_support_normal_continuity(
                 deficit.map(|deficit| if deficit.0 > worst.0 { deficit } else { worst })
             })?;
         if worst_deficit > budget.max_support_normal_deficit {
-            return Err(
-                ExactBoundaryValidationDiagnostic::support_normal_continuity(
-                    pair,
-                    worst_deficit,
-                    worst_parameter,
-                ),
-            );
+            return Err(ExactBoundaryValidationDiagnostic::constrained_strip_band(
+                pair,
+                worst_deficit,
+                worst_parameter,
+            ));
         }
     }
     Ok(())
@@ -86,13 +84,11 @@ fn support_normal_deficit(
         || !cap_length.is_finite()
         || !support_length.is_finite()
     {
-        return Err(
-            ExactBoundaryValidationDiagnostic::support_normal_continuity(
-                pair,
-                f64::INFINITY,
-                sample.parameter,
-            ),
-        );
+        return Err(ExactBoundaryValidationDiagnostic::constrained_strip_band(
+            pair,
+            f64::INFINITY,
+            sample.parameter,
+        ));
     }
     Ok(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
 }

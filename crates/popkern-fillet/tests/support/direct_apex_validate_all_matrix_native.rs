@@ -171,7 +171,7 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
             .any(|diagnostic| {
                 diagnostic.stage == "exact_boundary_cap.validation"
                     && diagnostic.code
-                        == "exact_boundary_cap.validation.support_normal_continuity_exceeded"
+                        == "exact_boundary_cap.validation.constrained_strip_band_unsatisfied"
                     && diagnostic.edge.is_some()
                     && diagnostic.support_half_edge.is_some()
                     && diagnostic.support_face.is_some()
