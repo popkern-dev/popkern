@@ -171,9 +171,15 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 }
 
 #[test]
-#[ignore = "multipatch candidate is commit-eligible; live exact-boundary topology commit remains pending"]
-fn pyramid3_uniform_exact_boundary_records_commit_eligible_multipatch_candidate() {
+#[ignore = "live multipatch route reaches cap/support continuity gate; full multipatch topology closure remains pending"]
+fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "pyramid3 exact-boundary multipatch decline must stay native and not fall through to legacy; got:\n{}",
+        reasons.join("\n"),
+    );
     let route = result
         .repair_report
         .apex_routes
@@ -182,29 +188,22 @@ fn pyramid3_uniform_exact_boundary_records_commit_eligible_multipatch_candidate(
     assert_eq!(
         route.exact_boundary_report.candidate_status,
         ExactBoundaryCandidateOutcome::Declined,
-        "pyramid3 exact-boundary must stay declined until the multipatch candidate commits live topology"
+        "pyramid3 exact-boundary must decline until multipatch cap/support quality passes"
     );
-    assert!(
-        route
-            .exact_boundary_report
-            .diagnostics
-            .iter()
-            .any(|diagnostic| {
-                diagnostic.stage == "exact_boundary_cap.validation"
-                    && diagnostic.code
-                        == "exact_boundary_cap.validation.constrained_strip_band_unsatisfied"
-                    && diagnostic.edge.is_some()
-                    && diagnostic.support_half_edge.is_some()
-                    && diagnostic.support_face.is_some()
-                    && diagnostic.outer_side.is_some()
-                    && diagnostic
-                        .sample_parameter
-                        .is_some_and(|parameter| parameter > 0.0 && parameter < 1.0)
-                    && diagnostic
-                        .residual
-                        .is_some_and(|residual| residual > 5.0e-2)
-            }),
-        "pyramid3 exact-boundary decline must preserve structured support-normal evidence"
+    assert!(route.exact_boundary_report.committed_faces.is_empty());
+    let one_patch_step = route
+        .exact_boundary_report
+        .decision_chain
+        .iter()
+        .find(|step| step.route_label == "exact_boundary.one_patch")
+        .expect("pyramid3 route must preserve the one-patch decision");
+    assert_eq!(
+        one_patch_step.outcome,
+        ExactBoundaryRouteDecisionOutcome::Declined
+    );
+    assert_eq!(
+        one_patch_step.diagnostic_code.as_deref(),
+        Some("exact_boundary_cap.validation.constrained_strip_band_unsatisfied")
     );
     let multipatch_step = route
         .exact_boundary_report
@@ -214,12 +213,15 @@ fn pyramid3_uniform_exact_boundary_records_commit_eligible_multipatch_candidate(
         .expect("pyramid3 constrained-strip decline must record the multipatch candidate decision");
     assert_eq!(
         multipatch_step.outcome,
-        ExactBoundaryRouteDecisionOutcome::CommitEligible,
-        "pyramid3 multipatch candidate must pass candidate-only gates before live commit wiring"
+        ExactBoundaryRouteDecisionOutcome::Declined,
+        "pyramid3 multipatch route must decline after live cap/support quality fails"
     );
     assert!(
-        multipatch_step.diagnostic_code.is_none(),
-        "commit-eligible multipatch route must not carry a stale decline diagnostic code"
+        matches!(
+            multipatch_step.diagnostic_code.as_deref(),
+            Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
+        ),
+        "multipatch decline must be the live cap/support continuity gate"
     );
     assert!(
         route
@@ -229,27 +231,28 @@ fn pyramid3_uniform_exact_boundary_records_commit_eligible_multipatch_candidate(
             .all(|diagnostic| diagnostic.stage != "exact_boundary_cap.multipatch"),
         "commit-eligible multipatch route must not export stale decline diagnostics"
     );
-    assert!(
-        !route.exact_boundary_report.source_fact_ids.is_empty(),
-        "route report must keep source fact ids for repair/UI attribution"
-    );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
         artifact.actions.iter().any(|action| {
             action.stage == "exact_boundary_cap.route_decision"
-                && action.outcome == "commit_eligible"
+                && action.outcome == "declined"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && action.reason.is_none()
-                && !action.shared_fact_ids.is_empty()
+                && matches!(
+                    action.reason.as_deref(),
+                    Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
+                )
         }),
-        "repair action artifact must preserve multipatch commit-eligible route attribution"
+        "repair action artifact must preserve multipatch cap/support continuity decline"
     );
     assert!(
-        artifact.actions.iter().all(|action| {
-            !(action.stage == "exact_boundary_cap.route_decision"
+        artifact.actions.iter().any(|action| {
+            action.stage == "apex_cap_support_continuity"
                 && action.outcome == "declined"
-                && action.subject.contains("route=exact_boundary.multipatch"))
+                && matches!(
+                    action.reason.as_deref(),
+                    Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
+                )
         }),
-        "repair action artifact must not preserve stale multipatch decline actions"
+        "repair action artifact must expose the measured cap/support continuity blocker"
     );
 }

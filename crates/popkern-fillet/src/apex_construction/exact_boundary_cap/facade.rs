@@ -8,14 +8,16 @@ use crate::apex_construction::error::ApexBuildError;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::plan::ApexPlan;
 use crate::types::{
-    ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
-    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, ExactBoundaryCapReport,
-    ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance, ExactBoundaryReportSector,
-    ExactBoundaryRouteDecisionStep, ExactBoundaryToleranceEvidence,
+    ApexConstructionDiagnostic, ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapReport,
+    ExactBoundaryRouteDecisionStep,
 };
 
+#[path = "facade_multipatch_commit.rs"]
+mod multipatch_commit;
 #[path = "facade_multipatch_route.rs"]
 mod multipatch_route;
+#[path = "facade_report.rs"]
+mod report;
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
@@ -36,7 +38,11 @@ use super::topology::materialize_exact_boundary_sector_topology;
 use super::validation::{
     ExactBoundaryValidationBudget, ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
 };
+use multipatch_commit::{
+    ExactBoundaryMultipatchCommitOutcome, commit_multipatch_route_transactionally,
+};
 use multipatch_route::attempt_multipatch_after_one_patch_decline;
+pub(super) use report::build_exact_boundary_report;
 
 /// Status of one exact-boundary cap candidate attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -281,20 +287,55 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                         }
                     }
                     Err(diagnostic) => {
-                        decision_chain.push(ExactBoundaryRouteDecisionStep::declined(
-                            "exact_boundary.one_patch",
-                            Some(diagnostic.code.to_string()),
-                        ));
-                        diagnostics.push(diagnostic.clone().into_apex_diagnostic());
-                        if let Some(step) = attempt_multipatch_after_one_patch_decline(
+                        let multipatch = attempt_multipatch_after_one_patch_decline(
                             &diagnostic,
                             &candidate_sectors,
                             &boundary_curves,
                             ribbons,
                             inner_spokes,
                             &mut diagnostics,
-                        ) {
-                            decision_chain.push(step);
+                        );
+                        if let Some(ref attempt) = multipatch
+                            && let Some(candidate) = attempt.candidate.as_ref()
+                        {
+                            decision_chain.push(ExactBoundaryRouteDecisionStep::declined(
+                                "exact_boundary.one_patch",
+                                Some(diagnostic.code.to_string()),
+                            ));
+                            match commit_multipatch_route_transactionally(
+                                brep,
+                                cap_face,
+                                &candidate_sectors,
+                                solved_surfaces,
+                                &pcurves,
+                                &baseline_validation_errors,
+                                &attempt,
+                                candidate,
+                            ) {
+                                ExactBoundaryMultipatchCommitOutcome::Accepted { faces } => {
+                                    committed_faces = faces;
+                                    committed = true;
+                                    decision_chain.push(ExactBoundaryRouteDecisionStep::accepted(
+                                        "exact_boundary.multipatch",
+                                    ));
+                                }
+                                ExactBoundaryMultipatchCommitOutcome::Declined {
+                                    step,
+                                    diagnostic,
+                                } => {
+                                    decision_chain.push(step);
+                                    diagnostics.push(diagnostic);
+                                }
+                            }
+                        } else {
+                            decision_chain.push(ExactBoundaryRouteDecisionStep::declined(
+                                "exact_boundary.one_patch",
+                                Some(diagnostic.code.to_string()),
+                            ));
+                            diagnostics.push(diagnostic.clone().into_apex_diagnostic());
+                            if let Some(attempt) = multipatch {
+                                decision_chain.push(attempt.step);
+                            }
                         }
                     }
                 }
@@ -337,133 +378,4 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         report,
         diagnostics,
     })
-}
-
-pub(super) fn build_exact_boundary_report(
-    brep: &BRep,
-    status: ExactBoundaryCapCandidateStatus,
-    sectors: &[ExactBoundaryCapSectorInput],
-    committed_faces: &[FaceHandle],
-    performance: &ExactBoundaryCandidatePerformanceReport,
-    diagnostics: &[ApexConstructionDiagnostic],
-) -> ExactBoundaryCapReport {
-    let report_diagnostics: Vec<_> = diagnostics
-        .iter()
-        .filter_map(exact_boundary_report_diagnostic)
-        .collect();
-    let source_fact_ids = unique_source_fact_ids(&report_diagnostics);
-    let candidate_status = match status {
-        ExactBoundaryCapCandidateStatus::Accepted => ExactBoundaryCandidateOutcome::Accepted,
-        ExactBoundaryCapCandidateStatus::Declined => ExactBoundaryCandidateOutcome::Declined,
-    };
-    ExactBoundaryCapReport {
-        schema_version: 1,
-        route_label: "direct_apex".to_string(),
-        candidate_status,
-        decision_chain: vec![match candidate_status {
-            ExactBoundaryCandidateOutcome::Accepted => {
-                ExactBoundaryRouteDecisionStep::accepted("exact_boundary.one_patch")
-            }
-            ExactBoundaryCandidateOutcome::Declined => ExactBoundaryRouteDecisionStep::declined(
-                "exact_boundary.one_patch",
-                performance.deterministic_skip_code.clone(),
-            ),
-            ExactBoundaryCandidateOutcome::NotApplicable => {
-                ExactBoundaryRouteDecisionStep::not_attempted("exact_boundary.one_patch")
-            }
-        }],
-        provenance: ExactBoundaryReportProvenance::for_status(candidate_status),
-        sectors: sectors
-            .iter()
-            .map(|sector| exact_boundary_report_sector(brep, sector))
-            .collect(),
-        committed_faces: committed_faces.to_vec(),
-        preview_available: !sectors.is_empty(),
-        tolerance_evidence: ExactBoundaryToleranceEvidence {
-            model_linear_tolerance: Some(brep.tolerance.linear()),
-            max_reported_residual: report_diagnostics
-                .iter()
-                .filter_map(|diagnostic| diagnostic.residual)
-                .reduce(f64::max),
-            deterministic_skip_code: performance.deterministic_skip_code.clone(),
-            ..ExactBoundaryToleranceEvidence::default()
-        },
-        continuity: Default::default(),
-        performance: performance.clone(),
-        diagnostics: report_diagnostics,
-        source_fact_ids,
-    }
-}
-
-fn exact_boundary_report_sector(
-    brep: &BRep,
-    sector: &ExactBoundaryCapSectorInput,
-) -> ExactBoundaryReportSector {
-    ExactBoundaryReportSector {
-        sector_index: sector.sector_index,
-        sector_name: sector.sector_name.clone(),
-        fillet_index: sector.fillet_index,
-        cap_face: sector.cap_face,
-        fillet_end_edge: sector.fillet_end_edge,
-        face_edge: sector.face_edge,
-        fillet_support_face: sector.fillet_support_face,
-        bridge_support_face: sector.bridge_support_face,
-        cap_half_edges: sector.cap_half_edges,
-        support_half_edges: sector.support_half_edges,
-        cap_pcurves_present: [
-            half_edge_has_pcurve(brep, sector.cap_half_edges[0]),
-            half_edge_has_pcurve(brep, sector.cap_half_edges[1]),
-        ],
-        support_pcurves_present: [
-            half_edge_has_pcurve(brep, sector.support_half_edges[0]),
-            half_edge_has_pcurve(brep, sector.support_half_edges[1]),
-        ],
-    }
-}
-
-fn half_edge_has_pcurve(brep: &BRep, half_edge: popkern_core::topology::HalfEdgeHandle) -> bool {
-    brep.half_edges
-        .get(half_edge)
-        .is_some_and(|half_edge| half_edge.pcurve.is_some())
-}
-
-fn exact_boundary_report_diagnostic(
-    diagnostic: &ApexConstructionDiagnostic,
-) -> Option<ExactBoundaryReportDiagnostic> {
-    let ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) = diagnostic else {
-        return None;
-    };
-    Some(report_diagnostic_from_exact_boundary(diagnostic))
-}
-
-fn report_diagnostic_from_exact_boundary(
-    diagnostic: &ExactBoundaryCapDiagnostic,
-) -> ExactBoundaryReportDiagnostic {
-    ExactBoundaryReportDiagnostic {
-        schema_version: 1,
-        stage: diagnostic.stage.clone(),
-        code: diagnostic.code.clone(),
-        sector_name: diagnostic.sector_name.clone(),
-        edge: diagnostic.edge,
-        support_half_edge: diagnostic.support_half_edge,
-        support_face: diagnostic.support_face,
-        residual: diagnostic.residual,
-        outer_side: diagnostic.outer_side.clone(),
-        sample_parameter: diagnostic.sample_parameter,
-        tolerance: diagnostic.tolerance,
-        shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
-    }
-}
-
-fn unique_source_fact_ids(diagnostics: &[ExactBoundaryReportDiagnostic]) -> Vec<usize> {
-    let mut fact_ids = Vec::new();
-    for fact_id in diagnostics
-        .iter()
-        .flat_map(|diagnostic| diagnostic.shared_fact_ids.iter().copied())
-    {
-        if !fact_ids.contains(&fact_id) {
-            fact_ids.push(fact_id);
-        }
-    }
-    fact_ids
 }

@@ -8,13 +8,20 @@ use super::super::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use super::super::multipatch::report::ExactBoundaryMultiPatchCandidateOutcome;
 use super::super::multipatch::strip::ExactBoundaryStripBoundaryDirection;
 use super::super::multipatch::{
-    ExactBoundaryMultiPatchCandidateRequest, prepare_multipatch_candidate,
+    ExactBoundaryMultiPatchCandidate, ExactBoundaryMultiPatchCandidateRequest,
+    prepare_multipatch_candidate,
 };
 use super::super::ribbon::PreparedExactBoundaryRibbons;
 use super::super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::super::validation::{
     ExactBoundaryValidationDeclineReason, ExactBoundaryValidationDiagnostic,
 };
+
+pub(super) struct ExactBoundaryMultipatchRouteAttempt {
+    pub(super) step: ExactBoundaryRouteDecisionStep,
+    pub(super) sector: ExactBoundaryCapSectorInput,
+    pub(super) candidate: Option<ExactBoundaryMultiPatchCandidate>,
+}
 
 pub(super) fn attempt_multipatch_after_one_patch_decline(
     diagnostic: &ExactBoundaryValidationDiagnostic,
@@ -23,7 +30,7 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
     ribbons: &PreparedExactBoundaryRibbons,
     inner_spokes: &PreparedExactBoundaryInnerSpokes,
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
-) -> Option<ExactBoundaryRouteDecisionStep> {
+) -> Option<ExactBoundaryMultipatchRouteAttempt> {
     if diagnostic.reason != ExactBoundaryValidationDeclineReason::ConstrainedStripBandUnsatisfied {
         return None;
     }
@@ -53,9 +60,13 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
         budget: ExactBoundaryMultiPatchBudget::default(),
     });
     match attempt.report.outcome {
-        ExactBoundaryMultiPatchCandidateOutcome::CommitEligible => Some(
-            ExactBoundaryRouteDecisionStep::commit_eligible("exact_boundary.multipatch"),
-        ),
+        ExactBoundaryMultiPatchCandidateOutcome::CommitEligible => {
+            Some(ExactBoundaryMultipatchRouteAttempt {
+                step: ExactBoundaryRouteDecisionStep::commit_eligible("exact_boundary.multipatch"),
+                sector: sector.clone(),
+                candidate: attempt.candidate,
+            })
+        }
         ExactBoundaryMultiPatchCandidateOutcome::Declined => {
             let diagnostic_code = attempt
                 .report
@@ -69,10 +80,14 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
                     .into_iter()
                     .map(|diagnostic| diagnostic.into_apex_diagnostic()),
             );
-            Some(ExactBoundaryRouteDecisionStep::declined(
-                "exact_boundary.multipatch",
-                diagnostic_code,
-            ))
+            Some(ExactBoundaryMultipatchRouteAttempt {
+                step: ExactBoundaryRouteDecisionStep::declined(
+                    "exact_boundary.multipatch",
+                    diagnostic_code,
+                ),
+                sector: sector.clone(),
+                candidate: None,
+            })
         }
         ExactBoundaryMultiPatchCandidateOutcome::Pending => None,
     }

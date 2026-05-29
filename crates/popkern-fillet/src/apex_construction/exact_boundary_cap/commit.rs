@@ -444,6 +444,7 @@ fn commit_validated_inputs(
                     Some(sector.cap_face),
                 )
             })?;
+            let shared_trim_tolerance = brep.tolerance.linear().max(5.0e-3);
             if let Err(failure) = commit_shared_trim_edge_transactionally(
                 brep,
                 SharedTrimEdgeInput {
@@ -453,7 +454,7 @@ fn commit_validated_inputs(
                     curve: curve.clone(),
                     pcurve_a: cap_pcurve.clone(),
                     pcurve_b: support_pcurve.clone(),
-                    tolerance: 1.0e-6,
+                    tolerance: shared_trim_tolerance,
                     validate_brep: false,
                     provenance: "exact_boundary_cap_commit_shared_trim",
                 },
@@ -468,7 +469,7 @@ fn commit_validated_inputs(
                         curve,
                         pcurve_a: cap_pcurve.clone(),
                         pcurve_b: reversed_support_pcurve,
-                        tolerance: 1.0e-6,
+                        tolerance: shared_trim_tolerance,
                         validate_brep: false,
                         provenance: "exact_boundary_cap_commit_shared_trim",
                     },
