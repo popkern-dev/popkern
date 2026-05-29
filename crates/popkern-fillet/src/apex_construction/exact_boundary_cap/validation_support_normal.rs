@@ -17,15 +17,33 @@ pub(super) fn validate_support_normal_continuity(
     ribbons: &PreparedExactBoundaryRibbons,
     budget: ExactBoundaryValidationBudget,
 ) -> Result<(), ExactBoundaryValidationDiagnostic> {
+    if let Some(diagnostic) =
+        collect_constrained_strip_band_diagnostics(solved, pcurves, ribbons, budget)
+            .into_iter()
+            .next()
+    {
+        return Err(diagnostic);
+    }
+    Ok(())
+}
+
+pub(crate) fn collect_constrained_strip_band_diagnostics(
+    solved: &ExactBoundarySolvedSurfaces,
+    pcurves: &PreparedExactBoundaryPcurves,
+    ribbons: &PreparedExactBoundaryRibbons,
+    budget: ExactBoundaryValidationBudget,
+) -> Vec<ExactBoundaryValidationDiagnostic> {
+    let mut diagnostics = Vec::new();
     for pair in &pcurves.pairs {
         let Some(solved_surface) = solved.surfaces.iter().find(|surface| {
             surface.sector_index == pair.sector_index && surface.sector_name == pair.sector_name
         }) else {
-            return Err(ExactBoundaryValidationDiagnostic::new(
+            diagnostics.push(ExactBoundaryValidationDiagnostic::new(
                 ExactBoundaryValidationDeclineReason::SurfaceInventoryMismatch,
                 Some(pair.sector_name.clone()),
                 None,
             ));
+            continue;
         };
         let Some(ribbon) = ribbons.ribbons.iter().find(|ribbon| {
             ribbon.sector_index == pair.sector_index
@@ -33,13 +51,14 @@ pub(super) fn validate_support_normal_continuity(
                 && ribbon.edge == pair.edge
                 && ribbon.support_half_edge == pair.support_half_edge
         }) else {
-            return Err(ExactBoundaryValidationDiagnostic::new(
+            diagnostics.push(ExactBoundaryValidationDiagnostic::new(
                 ExactBoundaryValidationDeclineReason::PcurveInventoryMismatch,
                 Some(pair.sector_name.clone()),
                 None,
             ));
+            continue;
         };
-        let (worst_deficit, worst_parameter) = ribbon
+        let measured = ribbon
             .samples
             .iter()
             .filter(|sample| sample.parameter > 0.0 && sample.parameter < 1.0)
@@ -49,16 +68,23 @@ pub(super) fn validate_support_normal_continuity(
             })
             .try_fold((0.0_f64, 0.0_f64), |worst, deficit| {
                 deficit.map(|deficit| if deficit.0 > worst.0 { deficit } else { worst })
-            })?;
+            });
+        let (worst_deficit, worst_parameter) = match measured {
+            Ok(measured) => measured,
+            Err(diagnostic) => {
+                diagnostics.push(diagnostic);
+                continue;
+            }
+        };
         if worst_deficit > budget.max_support_normal_deficit {
-            return Err(ExactBoundaryValidationDiagnostic::constrained_strip_band(
+            diagnostics.push(ExactBoundaryValidationDiagnostic::constrained_strip_band(
                 pair,
                 worst_deficit,
                 worst_parameter,
             ));
         }
     }
-    Ok(())
+    diagnostics
 }
 
 fn support_normal_deficit(

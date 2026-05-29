@@ -23,6 +23,47 @@ pub(super) struct ExactBoundaryMultipatchRouteAttempt {
     pub(super) candidate: Option<ExactBoundaryMultiPatchCandidate>,
 }
 
+pub(super) fn attempt_multipatches_after_one_patch_decline(
+    diagnostics_to_repair: &[ExactBoundaryValidationDiagnostic],
+    sectors: &[ExactBoundaryCapSectorInput],
+    boundary_curves: &PreparedExactBoundaryCurves,
+    ribbons: &PreparedExactBoundaryRibbons,
+    inner_spokes: &PreparedExactBoundaryInnerSpokes,
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+) -> Vec<ExactBoundaryMultipatchRouteAttempt> {
+    let mut attempts = Vec::new();
+    for diagnostic in diagnostics_to_repair {
+        let Some(attempt) = attempt_multipatch_after_one_patch_decline(
+            diagnostic,
+            sectors,
+            boundary_curves,
+            ribbons,
+            inner_spokes,
+            diagnostics,
+        ) else {
+            continue;
+        };
+        if attempts
+            .iter()
+            .any(|existing: &ExactBoundaryMultipatchRouteAttempt| {
+                existing.sector.sector_name == attempt.sector.sector_name
+            })
+        {
+            attempts.push(ExactBoundaryMultipatchRouteAttempt {
+                step: ExactBoundaryRouteDecisionStep::declined(
+                    "exact_boundary.multipatch",
+                    Some("exact_boundary_cap.multipatch.multiple_sides_required".to_string()),
+                ),
+                sector: attempt.sector,
+                candidate: None,
+            });
+        } else {
+            attempts.push(attempt);
+        }
+    }
+    attempts
+}
+
 pub(super) fn attempt_multipatch_after_one_patch_decline(
     diagnostic: &ExactBoundaryValidationDiagnostic,
     sectors: &[ExactBoundaryCapSectorInput],

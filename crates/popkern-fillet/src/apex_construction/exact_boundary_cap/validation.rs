@@ -10,9 +10,9 @@ use super::topology::ExactBoundarySectorTopology;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
-
 #[path = "validation_support_normal.rs"]
 mod validation_support_normal;
+pub(crate) use validation_support_normal::collect_constrained_strip_band_diagnostics;
 use validation_support_normal::validate_support_normal_continuity;
 
 const DEFAULT_MAX_BOUNDARY_RESIDUAL: f64 = 5.0e-3;
@@ -186,7 +186,7 @@ impl ExactBoundaryValidationDiagnostic {
         }
     }
 
-    pub(super) fn constrained_strip_band(
+    pub(crate) fn constrained_strip_band(
         pair: &super::pcurves::PreparedExactBoundaryPcurvePair,
         residual: f64,
         sample_parameter: f64,

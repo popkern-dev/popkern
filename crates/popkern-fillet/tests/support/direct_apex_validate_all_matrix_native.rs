@@ -218,7 +218,8 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     );
     assert!(
         multipatch_step.diagnostic_code.as_deref() == Some("cap_outer_g1_exceeds_gate"),
-        "multipatch retained-boundary binding should resolve G0 and leave the G1 gate as the blocker"
+        "multipatch retained-boundary binding should resolve G0 and leave the G1 gate as the blocker; got {:?}",
+        multipatch_step.diagnostic_code
     );
     assert!(
         route

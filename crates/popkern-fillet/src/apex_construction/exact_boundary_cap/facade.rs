@@ -36,12 +36,13 @@ use super::solve::{
 };
 use super::topology::materialize_exact_boundary_sector_topology;
 use super::validation::{
-    ExactBoundaryValidationBudget, ExactBoundaryValidationInputs, validate_exact_boundary_candidate,
+    ExactBoundaryValidationBudget, ExactBoundaryValidationInputs,
+    collect_constrained_strip_band_diagnostics, validate_exact_boundary_candidate,
 };
 use multipatch_commit::{
-    ExactBoundaryMultipatchCommitOutcome, commit_multipatch_route_transactionally,
+    ExactBoundaryMultipatchCommitOutcome, commit_multipatch_routes_transactionally,
 };
-use multipatch_route::attempt_multipatch_after_one_patch_decline;
+use multipatch_route::attempt_multipatches_after_one_patch_decline;
 pub(super) use report::build_exact_boundary_report;
 
 /// Status of one exact-boundary cap candidate attempt.
@@ -287,30 +288,47 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                         }
                     }
                     Err(diagnostic) => {
-                        let multipatch = attempt_multipatch_after_one_patch_decline(
-                            &diagnostic,
+                        let mut repair_diagnostics = collect_constrained_strip_band_diagnostics(
+                            solved_surfaces,
+                            &pcurves,
+                            ribbons,
+                            ExactBoundaryValidationBudget::default(),
+                        );
+                        if repair_diagnostics.is_empty() {
+                            repair_diagnostics.push(diagnostic.clone());
+                        }
+                        let multipatch_attempts = attempt_multipatches_after_one_patch_decline(
+                            &repair_diagnostics,
                             &candidate_sectors,
                             &boundary_curves,
                             ribbons,
                             inner_spokes,
                             &mut diagnostics,
                         );
-                        if let Some(ref attempt) = multipatch
-                            && let Some(candidate) = attempt.candidate.as_ref()
+                        let multipatch_candidates = multipatch_attempts
+                            .iter()
+                            .filter_map(|attempt| {
+                                attempt
+                                    .candidate
+                                    .as_ref()
+                                    .map(|candidate| (attempt, candidate))
+                            })
+                            .collect::<Vec<_>>();
+                        if !multipatch_attempts.is_empty()
+                            && multipatch_candidates.len() == multipatch_attempts.len()
                         {
                             decision_chain.push(ExactBoundaryRouteDecisionStep::declined(
                                 "exact_boundary.one_patch",
                                 Some(diagnostic.code.to_string()),
                             ));
-                            match commit_multipatch_route_transactionally(
+                            match commit_multipatch_routes_transactionally(
                                 brep,
                                 cap_face,
                                 &candidate_sectors,
                                 solved_surfaces,
                                 &pcurves,
                                 &baseline_validation_errors,
-                                &attempt,
-                                candidate,
+                                &multipatch_candidates,
                             ) {
                                 ExactBoundaryMultipatchCommitOutcome::Accepted { faces } => {
                                     committed_faces = faces;
@@ -333,7 +351,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                                 Some(diagnostic.code.to_string()),
                             ));
                             diagnostics.push(diagnostic.clone().into_apex_diagnostic());
-                            if let Some(attempt) = multipatch {
+                            for attempt in multipatch_attempts {
                                 decision_chain.push(attempt.step);
                             }
                         }

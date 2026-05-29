@@ -27,38 +27,46 @@ pub(super) enum ExactBoundaryMultipatchCommitOutcome {
     },
 }
 
-pub(super) fn commit_multipatch_route_transactionally(
+pub(super) fn commit_multipatch_routes_transactionally(
     brep: &mut BRep,
     cap_face: FaceHandle,
     sectors: &[ExactBoundaryCapSectorInput],
     solved_surfaces: &ExactBoundarySolvedSurfaces,
     pcurves: &PreparedExactBoundaryPcurves,
     baseline_validation_errors: &[ValidationError],
-    attempt: &ExactBoundaryMultipatchRouteAttempt,
-    candidate: &ExactBoundaryMultiPatchCandidate,
+    attempts: &[(
+        &ExactBoundaryMultipatchRouteAttempt,
+        &ExactBoundaryMultiPatchCandidate,
+    )],
 ) -> ExactBoundaryMultipatchCommitOutcome {
-    let multipatch_commit =
-        match commit_multipatch_candidate_transactionally(brep, &attempt.sector, candidate) {
-            Ok(report) => report,
-            Err(diagnostic) => {
-                return declined(diagnostic.code.clone(), diagnostic.into_apex_diagnostic());
-            }
-        };
-    bind_inner_face_retained_boundaries(
-        brep,
-        &attempt.sector,
-        candidate,
-        solved_surfaces,
-        pcurves,
-        multipatch_commit.inner_face,
-    );
+    let mut inner_faces = Vec::with_capacity(attempts.len());
+    for (attempt, candidate) in attempts {
+        let multipatch_commit =
+            match commit_multipatch_candidate_transactionally(brep, &attempt.sector, candidate) {
+                Ok(report) => report,
+                Err(diagnostic) => {
+                    return declined(diagnostic.code.clone(), diagnostic.into_apex_diagnostic());
+                }
+            };
+        bind_inner_face_retained_boundaries(
+            brep,
+            &attempt.sector,
+            candidate,
+            solved_surfaces,
+            pcurves,
+            multipatch_commit.inner_face,
+        );
+        inner_faces.push(multipatch_commit.inner_face);
+    }
     if let Err(diagnostic) = commit_unaffected_one_patch_sectors(
         brep,
         cap_face,
         sectors,
         solved_surfaces,
         pcurves,
-        attempt,
+        attempts
+            .iter()
+            .map(|(attempt, _)| attempt.sector.sector_name.as_str()),
     ) {
         return declined(
             diagnostic.code.to_string(),
@@ -79,7 +87,7 @@ pub(super) fn commit_multipatch_route_transactionally(
         .iter()
         .map(|sector| sector.cap_face)
         .collect::<Vec<_>>();
-    faces.push(multipatch_commit.inner_face);
+    faces.extend(inner_faces.iter().copied());
     if let Some(diagnostic) = cap_support_continuity_diagnostic(brep, &faces, 5.0e-3, 5.0e-2) {
         return declined(apex_diagnostic_code(&diagnostic), diagnostic);
     }
@@ -122,17 +130,22 @@ fn bind_inner_face_retained_boundaries(
     }
 }
 
-fn commit_unaffected_one_patch_sectors(
+fn commit_unaffected_one_patch_sectors<'a>(
     brep: &mut BRep,
     cap_face: FaceHandle,
     sectors: &[ExactBoundaryCapSectorInput],
     solved_surfaces: &ExactBoundarySolvedSurfaces,
     pcurves: &PreparedExactBoundaryPcurves,
-    attempt: &ExactBoundaryMultipatchRouteAttempt,
+    multipatch_sector_names: impl Iterator<Item = &'a str>,
 ) -> Result<(), super::super::commit::ExactBoundaryCommitDiagnostic> {
+    let multipatch_sector_names = multipatch_sector_names.collect::<Vec<_>>();
     let mut remaining_sectors = sectors
         .iter()
-        .filter(|sector| sector.sector_name != attempt.sector.sector_name)
+        .filter(|sector| {
+            !multipatch_sector_names
+                .iter()
+                .any(|name| *name == sector.sector_name)
+        })
         .cloned()
         .collect::<Vec<_>>();
     for (index, sector) in remaining_sectors.iter_mut().enumerate() {
@@ -147,14 +160,31 @@ fn commit_unaffected_one_patch_sectors(
     let remaining_pcurves = PreparedExactBoundaryPcurves {
         pairs: filter_pcurves_for_sectors(&pcurves.pairs, &remaining_sectors),
     };
+    let commit_cap_face = validation_cap_face(cap_face, sectors, &remaining_sectors);
     commit_exact_boundary_sector_surfaces(
         brep,
-        cap_face,
+        commit_cap_face,
         &remaining_sectors,
         &remaining_solved,
         &remaining_pcurves,
     )
     .map(|_| ())
+}
+
+fn validation_cap_face(
+    cap_face: FaceHandle,
+    all_sectors: &[ExactBoundaryCapSectorInput],
+    committed_sectors: &[ExactBoundaryCapSectorInput],
+) -> FaceHandle {
+    if committed_sectors.len() == 1 && committed_sectors[0].cap_face == cap_face {
+        all_sectors
+            .iter()
+            .find(|sector| sector.cap_face != cap_face)
+            .map(|sector| sector.cap_face)
+            .unwrap_or(cap_face)
+    } else {
+        cap_face
+    }
 }
 
 fn filter_surfaces_for_sectors(
