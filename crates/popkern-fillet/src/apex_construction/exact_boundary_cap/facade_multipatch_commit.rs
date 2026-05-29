@@ -1,6 +1,7 @@
 //! Live commit bridge for exact-boundary multipatch route attempts.
 
 use popkern_core::error::ValidationError;
+use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::types::{ApexConstructionDiagnostic, ExactBoundaryRouteDecisionStep};
@@ -43,6 +44,14 @@ pub(super) fn commit_multipatch_route_transactionally(
                 return declined(diagnostic.code.clone(), diagnostic.into_apex_diagnostic());
             }
         };
+    bind_inner_face_retained_boundaries(
+        brep,
+        &attempt.sector,
+        candidate,
+        solved_surfaces,
+        pcurves,
+        multipatch_commit.inner_face,
+    );
     if let Err(diagnostic) = commit_unaffected_one_patch_sectors(
         brep,
         cap_face,
@@ -75,6 +84,42 @@ pub(super) fn commit_multipatch_route_transactionally(
         return declined(apex_diagnostic_code(&diagnostic), diagnostic);
     }
     ExactBoundaryMultipatchCommitOutcome::Accepted { faces }
+}
+
+fn bind_inner_face_retained_boundaries(
+    brep: &mut BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    candidate: &ExactBoundaryMultiPatchCandidate,
+    solved_surfaces: &ExactBoundarySolvedSurfaces,
+    pcurves: &PreparedExactBoundaryPcurves,
+    inner_face: FaceHandle,
+) {
+    let Some(surface) = solved_surfaces
+        .surfaces
+        .iter()
+        .find(|surface| surface.sector_name == sector.sector_name)
+    else {
+        return;
+    };
+    brep.faces[inner_face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(surface.surface.clone()),
+        orientation: true,
+    });
+    for pair in pcurves
+        .pairs
+        .iter()
+        .filter(|pair| pair.sector_name == sector.sector_name)
+        .filter(|pair| pair.side != candidate.strip_inventory.side)
+    {
+        let side_index = match pair.side {
+            super::super::sector::ExactBoundaryOuterSide::FilletEnd => 0,
+            super::super::sector::ExactBoundaryOuterSide::FaceEdge => 1,
+        };
+        brep.half_edges[sector.cap_half_edges[side_index]].pcurve = Some(pair.cap_pcurve.clone());
+        if brep.half_edges.contains_key(pair.support_half_edge) {
+            brep.half_edges[pair.support_half_edge].pcurve = Some(pair.support_pcurve.clone());
+        }
+    }
 }
 
 fn commit_unaffected_one_patch_sectors(

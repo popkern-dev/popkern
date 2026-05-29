@@ -217,11 +217,8 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "pyramid3 multipatch route must decline after live cap/support quality fails"
     );
     assert!(
-        matches!(
-            multipatch_step.diagnostic_code.as_deref(),
-            Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
-        ),
-        "multipatch decline must be the live cap/support continuity gate"
+        multipatch_step.diagnostic_code.as_deref() == Some("cap_outer_g1_exceeds_gate"),
+        "multipatch retained-boundary binding should resolve G0 and leave the G1 gate as the blocker"
     );
     assert!(
         route
@@ -237,10 +234,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             action.stage == "exact_boundary_cap.route_decision"
                 && action.outcome == "declined"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && matches!(
-                    action.reason.as_deref(),
-                    Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
-                )
+                && action.reason.as_deref() == Some("cap_outer_g1_exceeds_gate")
         }),
         "repair action artifact must preserve multipatch cap/support continuity decline"
     );
@@ -248,10 +242,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         artifact.actions.iter().any(|action| {
             action.stage == "apex_cap_support_continuity"
                 && action.outcome == "declined"
-                && matches!(
-                    action.reason.as_deref(),
-                    Some("cap_outer_g0_exceeds_gate" | "cap_outer_g1_exceeds_gate")
-                )
+                && action.reason.as_deref() == Some("cap_outer_g1_exceeds_gate")
         }),
         "repair action artifact must expose the measured cap/support continuity blocker"
     );
