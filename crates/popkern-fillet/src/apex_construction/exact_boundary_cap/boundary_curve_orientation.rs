@@ -12,12 +12,12 @@ pub(super) fn cap_half_edge_vertex_span(
     let origin = brep.vertices.get(half_edge_data.origin)?.position;
     let destination_vertex = brep
         .half_edges
-        .get(half_edge_data.twin)
-        .map(|twin| twin.origin)
+        .get(half_edge_data.next)
+        .map(|next| next.origin)
         .or_else(|| {
             brep.half_edges
-                .get(half_edge_data.next)
-                .map(|next| next.origin)
+                .get(half_edge_data.twin)
+                .map(|twin| twin.origin)
         })?;
     let destination = brep.vertices.get(destination_vertex)?.position;
     Some((origin, destination))

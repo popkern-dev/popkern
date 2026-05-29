@@ -32,7 +32,7 @@ pub(super) fn materialized_far_side_trim_sides(
         )?;
         return Ok(vec![SupportOwnedTrimSide {
             cylinder_face,
-            support_face: materialized.support_face,
+            support_face,
             fillet_index,
             half_edge: materialized.half_edge,
             support_side_owned: materialized.support_side_owned,

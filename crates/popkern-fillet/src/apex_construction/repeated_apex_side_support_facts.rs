@@ -56,7 +56,7 @@ pub(super) enum EndpointRegionMembership {
 
 impl SideSupportRegionFacts {
     pub(super) fn classify(knowledge: &TopologyKnowledgeGraph) -> Self {
-        let support_families = knowledge
+        let support_families: Vec<_> = knowledge
             .support_families()
             .map(|family| SideSupportFamilyFacts {
                 support_face: family.support_face(),
@@ -79,6 +79,9 @@ impl SideSupportRegionFacts {
             .filter(|trim| trim.requires_support_ownership)
             .filter_map(|trim| {
                 let support_face = trim.support_face?;
+                let support_family = support_families
+                    .iter()
+                    .find(|family| family.support_face() == support_face)?;
                 Some(SideSupportTrimEndpointFacts {
                     fillet_index: trim.fillet_index,
                     cylinder_face: trim.cylinder_face,
@@ -87,13 +90,13 @@ impl SideSupportRegionFacts {
                     end: trim.end,
                     start_membership: endpoint_region_membership(
                         knowledge,
-                        support_face,
+                        support_family,
                         trim.cylinder_face,
                         trim.start,
                     ),
                     end_membership: endpoint_region_membership(
                         knowledge,
-                        support_face,
+                        support_family,
                         trim.cylinder_face,
                         trim.end,
                     ),
@@ -135,8 +138,16 @@ impl SideSupportRegionFacts {
 }
 
 impl SideSupportFamilyFacts {
+    pub(super) fn support_face(&self) -> FaceHandle {
+        self.support_face
+    }
+
     pub(super) fn loops(&self) -> &[SideSupportLoopFacts] {
         &self.loops
+    }
+
+    fn contains_face(&self, face: FaceHandle) -> bool {
+        face == self.support_face || self.loops.iter().any(|loop_facts| loop_facts.face == face)
     }
 
     fn diagnostic_label(&self) -> String {
@@ -253,22 +264,29 @@ impl EndpointRegionMembership {
 
 fn endpoint_region_membership(
     knowledge: &TopologyKnowledgeGraph,
-    support_face: FaceHandle,
+    support_family: &SideSupportFamilyFacts,
     cylinder_face: FaceHandle,
     vertex: VertexHandle,
 ) -> EndpointRegionMembership {
     let Some(membership) = knowledge.endpoint_membership(vertex) else {
         return EndpointRegionMembership::Unknown;
     };
-    if let Some(loop_membership) = membership
+    let support_memberships = membership
         .containing_loops()
         .iter()
-        .find(|loop_membership| loop_membership.face() == support_face)
-    {
+        .filter(|loop_membership| support_family.contains_face(loop_membership.face()))
+        .collect::<Vec<_>>();
+    if support_memberships.len() == 1 {
+        let loop_membership = support_memberships[0];
         return EndpointRegionMembership::SameSupportLoop {
             face: loop_membership.face(),
             loop_handle: loop_membership.loop_handle(),
             half_edge: loop_membership.half_edge(),
+        };
+    }
+    if support_memberships.len() > 1 {
+        return EndpointRegionMembership::Ambiguous {
+            containing_loop_count: support_memberships.len(),
         };
     }
     if let Some(loop_membership) = membership

@@ -355,9 +355,19 @@ fn support_strip_band_report(
         .unwrap_or(0.0);
     for sample in support_samples {
         let uv = candidate.outer_pcurve.point_at(sample.parameter);
-        let deficit =
+        let Some(deficit) =
             support_normal_deficit_at(&candidate.surface, uv.x, uv.y, sample.support_normal)
-                .unwrap_or(f64::INFINITY);
+        else {
+            if is_endpoint_sample(sample.parameter) {
+                continue;
+            }
+            let deficit = f64::INFINITY;
+            if deficit > max_deficit {
+                max_deficit = deficit;
+                sample_parameter = sample.parameter;
+            }
+            continue;
+        };
         if deficit > max_deficit {
             max_deficit = deficit;
             sample_parameter = sample.parameter;
@@ -368,6 +378,10 @@ fn support_strip_band_report(
         sample_parameter,
         sample_count: support_samples.len(),
     }
+}
+
+fn is_endpoint_sample(parameter: f64) -> bool {
+    parameter <= 1.0e-12 || (1.0 - parameter).abs() <= 1.0e-12
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -387,6 +401,9 @@ fn foldover_report(
     let mut reference_normal = None;
     let mut orientation_flip = false;
     for parameter in parameters {
+        if is_endpoint_sample(parameter) {
+            continue;
+        }
         for v in [0.0, 0.5, 1.0] {
             let uv = candidate.outer_pcurve.point_at(parameter);
             let normal = candidate

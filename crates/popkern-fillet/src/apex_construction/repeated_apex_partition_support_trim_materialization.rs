@@ -165,7 +165,7 @@ fn materialize_support_face_mef_trim(
                 result.half_edge, result.half_edge_twin
             );
         }
-        Ok((result.half_edge, actual_support_face, support_source))
+        Ok((result.half_edge, result.face, support_source))
     })();
     if result.is_err() {
         *brep = rollback;

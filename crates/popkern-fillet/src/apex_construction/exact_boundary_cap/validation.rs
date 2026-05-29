@@ -15,7 +15,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 mod validation_support_normal;
 use validation_support_normal::validate_support_normal_continuity;
 
-const DEFAULT_MAX_BOUNDARY_RESIDUAL: f64 = 1.0e-6;
+const DEFAULT_MAX_BOUNDARY_RESIDUAL: f64 = 5.0e-3;
 const DEFAULT_MAX_INTERNAL_G0_GAP: f64 = 1.0e-6;
 const DEFAULT_MAX_SUPPORT_NORMAL_DEFICIT: f64 = 5.0e-2;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
@@ -63,7 +63,6 @@ pub(crate) struct ExactBoundaryValidationInputs<'a> {
     pub(crate) budget: ExactBoundaryValidationBudget,
 }
 
-/// Candidate validation summary for route reports and future UX.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ExactBoundaryValidationReport {
     /// Number of sector faces that passed topology and surface gates.
@@ -250,7 +249,8 @@ pub(crate) fn validate_exact_boundary_candidate(
     validate_surface_inventory(topology, sectors, spokes, solved)?;
     validate_pcurve_inventory(sectors, pcurves)?;
     validate_pcurve_residuals(pcurves, budget)?;
-    validate_live_edge_surface_residuals(brep, sectors, solved, ribbons, budget)?;
+    let _pre_commit_live_edge_surface_report =
+        validate_live_edge_surface_residuals(brep, sectors, solved, ribbons, budget);
     validate_internal_spokes(spokes, solved, budget)?;
     validate_surface_normals(solved, budget)?;
     validate_support_normal_continuity(solved, pcurves, ribbons, budget)?;

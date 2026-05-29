@@ -4,7 +4,6 @@ use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::healing::deviation::edge_surface_deviation;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::boundary::{PreparedExactBoundaryCurve, PreparedExactBoundaryCurves};
@@ -19,7 +18,10 @@ use super::support::{ExactBoundarySupportSurfaceFamily, support_surface_family};
 
 #[path = "ribbon_surface_identity.rs"]
 mod ribbon_surface_identity;
-use ribbon_surface_identity::geometrically_unique_surface;
+
+#[path = "ribbon_support_surface.rs"]
+mod ribbon_support_surface;
+use ribbon_support_surface::select_support_surface;
 
 const DEFAULT_SAMPLE_COUNT: usize = 9;
 
@@ -269,7 +271,16 @@ pub(crate) fn prepare_exact_boundary_ribbons(
                         None,
                     )
                 })?;
-            let surface = support_surface(brep, &context).ok_or_else(|| {
+            let surface = select_support_surface(
+                brep,
+                context.sector.cap_face,
+                context.support_face,
+                context.side,
+                context.edge,
+                boundary,
+                budget.max_support_residual,
+            )
+            .ok_or_else(|| {
                 ExactBoundaryRibbonDiagnostic::new(
                     ExactBoundaryRibbonDeclineReason::SupportSurfaceMissing,
                     &context,
@@ -421,71 +432,4 @@ fn other_boundary_for(
         .curves
         .iter()
         .find(|curve| curve.sector_index == sector_index && curve.side != side)
-}
-
-fn support_surface(brep: &BRep, context: &RibbonContext<'_>) -> Option<SurfaceGeometry> {
-    if let Some(surface) = brep
-        .faces
-        .get(context.support_face)
-        .and_then(|face_data| face_data.surface.as_ref())
-        .map(|surface| surface.geometry.clone())
-    {
-        return Some(surface);
-    }
-    unique_analytic_surface_for_edge(brep, context)
-}
-
-fn unique_analytic_surface_for_edge(
-    brep: &BRep,
-    context: &RibbonContext<'_>,
-) -> Option<SurfaceGeometry> {
-    let edge = brep.edges.get(context.edge)?;
-    let curve = edge.curve.as_ref()?;
-    let tolerance = brep.tolerance.linear().max(1.0e-6);
-    let candidates = brep
-        .faces
-        .iter()
-        .filter_map(|(face, face_data)| {
-            if face == context.sector.cap_face || face == context.support_face {
-                return None;
-            }
-            let surface = face_data.surface.as_ref()?;
-            if matches!(
-                surface.geometry,
-                SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_)
-            ) {
-                return None;
-            }
-            let residual = edge_surface_deviation(
-                &curve.geometry,
-                (curve.t_start, curve.t_end),
-                &surface.geometry,
-                17,
-            )
-            .max_deviation;
-            (residual <= tolerance).then_some(surface.geometry.clone())
-        })
-        .collect::<Vec<_>>();
-    let mut preferred = candidates
-        .iter()
-        .filter(|surface| match context.side {
-            ExactBoundaryOuterSide::FilletEnd => {
-                matches!(surface, SurfaceGeometry::Cylinder { .. })
-            }
-            ExactBoundaryOuterSide::FaceEdge => matches!(surface, SurfaceGeometry::Plane { .. }),
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    if preferred.len() == 1 {
-        return preferred.pop();
-    }
-    if let Some(surface) = geometrically_unique_surface(&preferred, tolerance) {
-        return Some(surface);
-    }
-    let mut candidates = candidates;
-    if candidates.len() == 1 {
-        candidates.pop()
-    } else {
-        geometrically_unique_surface(&candidates, tolerance)
-    }
 }

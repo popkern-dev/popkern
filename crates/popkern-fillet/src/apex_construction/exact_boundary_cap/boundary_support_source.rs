@@ -35,19 +35,80 @@ pub(super) fn validated_support_pcurve_source_curve(
     {
         return None;
     }
-    let support_surface = support_surface_for_seam(brep, seam)?;
     let support_range = support_curve.parameter_range();
+    let edge_range = edge_curve.parameter_range();
+    let edge_deviation =
+        curve_pair_deviation(&support_curve, support_range, edge_curve, edge_range);
+    if edge_deviation > SUPPORT_SOURCE_TOLERANCE {
+        return None;
+    }
+    validate_support_curve_on_seam(brep, seam, &support_curve)?;
+    Some(support_curve)
+}
+
+pub(super) fn validated_projected_support_source_curve(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    topology_curve: &NurbsCurve,
+) -> Option<NurbsCurve> {
+    let support_curve = projected_support_source_curve(brep, seam, topology_curve)?;
+    validate_support_curve_on_seam(brep, seam, &support_curve)?;
+    Some(support_curve)
+}
+
+fn validate_support_curve_on_seam(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    support_curve: &NurbsCurve,
+) -> Option<()> {
+    let (origin, destination) =
+        super::boundary_curve_orientation::cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
+    let direct_endpoint_gap = super::boundary_curve_orientation::endpoint_orientation_gap(
+        support_curve,
+        origin,
+        destination,
+    );
+    let reverse_endpoint_gap = super::boundary_curve_orientation::endpoint_orientation_gap(
+        &super::boundary_curve_orientation::reverse_nurbs_curve(support_curve),
+        origin,
+        destination,
+    );
+    if direct_endpoint_gap > super::TOPOLOGY_ENDPOINT_TOLERANCE
+        && reverse_endpoint_gap > super::TOPOLOGY_ENDPOINT_TOLERANCE
+    {
+        return None;
+    }
     let support_deviation = edge_surface_deviation(
-        &support_curve,
-        support_range,
-        support_surface,
+        support_curve,
+        support_curve.parameter_range(),
+        support_surface_for_seam(brep, seam)?,
         SUPPORT_SOURCE_SAMPLES,
     )
     .max_deviation;
     if support_deviation > SUPPORT_SOURCE_TOLERANCE {
         return None;
     }
-    Some(support_curve)
+    Some(())
+}
+
+fn curve_pair_deviation(
+    candidate: &NurbsCurve,
+    candidate_range: (f64, f64),
+    authority: &NurbsCurve,
+    authority_range: (f64, f64),
+) -> f64 {
+    let mut worst = 0.0_f64;
+    for index in 0..SUPPORT_SOURCE_SAMPLES {
+        let parameter = index as f64 / (SUPPORT_SOURCE_SAMPLES - 1) as f64;
+        let candidate_t = candidate_range.0 + (candidate_range.1 - candidate_range.0) * parameter;
+        let authority_t = authority_range.0 + (authority_range.1 - authority_range.0) * parameter;
+        worst = worst.max(
+            candidate
+                .point_at(candidate_t)
+                .distance_to(&authority.point_at(authority_t)),
+        );
+    }
+    worst
 }
 
 fn support_pcurve_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Option<NurbsCurve> {

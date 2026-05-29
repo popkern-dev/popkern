@@ -23,10 +23,15 @@ use super::telemetry::PlanTelemetry;
 /// or an N-sided Gregory cap (variable radii / distinct
 /// terminations).  Per ADR §4.1: the decision is tolerance-aware.
 ///
-/// Sphere cap criteria (BOTH must hold):
+/// Sphere cap criteria (ALL must hold):
 /// 1. All fillet radii are within `tolerance.linear()` of each other.
 /// 2. All adjacent FaceEdge bridges collapse to within
 ///    `tolerance.linear() * 10` (i.e. T_b[k] ≈ T_a[k+1]).
+/// 3. The trihedral support-normal frame is mutually orthogonal. A
+///    non-orthogonal pyramid apex may be topologically trihedral and
+///    radius-uniform, but a single rolling-ball sphere cannot satisfy
+///    the cap-to-fillet support-normal postcondition along every outer
+///    seam.
 ///
 /// Otherwise → Gregory cap with distinct per-fillet terminations.
 ///
@@ -84,12 +89,27 @@ pub(crate) fn decide_cap_kind(
             0.0
         },
     );
+    let max_face_normal_dot = max_unique_face_normal_dot(terminations);
+    let sphere_normal_frame_supported = max_face_normal_dot <= 1.0e-6;
+    telemetry.set_value("max_face_normal_dot", max_face_normal_dot);
+    telemetry.set_value(
+        "single_sphere_normal_frame_supported",
+        if sphere_normal_frame_supported {
+            1.0
+        } else {
+            0.0
+        },
+    );
 
     // Sphere if all criteria hold; else Gregory. A collapsed bridge
     // loop is not sufficient for N >= 4: a single sphere can be
     // topologically closed while still failing the cap-to-cylinder
     // boundary geometry on pyramid-like apices.
-    if radii_uniform && bridges_collapse && single_sphere_topology_supported {
+    if radii_uniform
+        && bridges_collapse
+        && single_sphere_topology_supported
+        && sphere_normal_frame_supported
+    {
         // Compute average cap centre (per-fillet centres should
         // coincide for the symmetric case).
         let mut centre_sum = Point3::new(0.0, 0.0, 0.0);
@@ -121,26 +141,69 @@ pub(crate) fn decide_cap_kind(
             radii_uniform,
             bridges_collapse,
             single_sphere_topology_supported,
+            sphere_normal_frame_supported,
         ) {
-            (false, false, _) => format!(
+            (false, false, _, _) => format!(
                 "variable radii (spread {r_spread:.3e}) and non-collapsed bridges \
                  (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
             ),
-            (false, true, _) => {
+            (false, true, _, _) => {
                 format!("variable radii (spread {r_spread:.3e}) — Gregory cap chosen")
             }
-            (true, false, _) => format!(
+            (true, false, _, _) => format!(
                 "uniform radii but bridges don't collapse (max gap {max_bridge_gap:.3e}) — Gregory cap chosen"
             ),
-            (true, true, false) => format!(
+            (true, true, false, _) => format!(
                 "uniform radii and collapsed bridges, but single Sphere caps are accepted only for trihedral corners; N={n_fil} — Gregory cap chosen"
             ),
-            (true, true, true) => unreachable!(),
+            (true, true, true, false) => format!(
+                "uniform trihedral radii and collapsed bridges, but support normals are non-orthogonal \
+                 (max |dot| {max_face_normal_dot:.3e}) — Gregory cap chosen"
+            ),
+            (true, true, true, true) => unreachable!(),
         };
         telemetry.cap_kind_reason = reason;
         let _ = fillet_specs; // currently unused; reserved for variable-radius variants
         Ok(gregory_cap_kind(terminations))
     }
+}
+
+fn max_unique_face_normal_dot(terminations: &[PerFilletTermination]) -> f64 {
+    let mut normals = Vec::new();
+    for termination in terminations {
+        push_unique_normal(&mut normals, termination.face_a_normal);
+        push_unique_normal(&mut normals, termination.face_b_normal);
+    }
+    let mut max_dot = 0.0_f64;
+    for i in 0..normals.len() {
+        for j in (i + 1)..normals.len() {
+            let Some(a) = normals[i].normalized() else {
+                continue;
+            };
+            let Some(b) = normals[j].normalized() else {
+                continue;
+            };
+            max_dot = max_dot.max(a.dot(&b).abs());
+        }
+    }
+    max_dot
+}
+
+fn push_unique_normal(
+    normals: &mut Vec<popkern_core::geometry::Vec3>,
+    normal: popkern_core::geometry::Vec3,
+) {
+    let Some(unit) = normal.normalized() else {
+        return;
+    };
+    if normals.iter().any(|existing| {
+        existing
+            .normalized()
+            .is_some_and(|other| unit.dot(&other).abs() > 1.0 - 1.0e-8)
+    }) {
+        return;
+    }
+    normals.push(unit);
 }
 
 pub(crate) fn gregory_cap_kind(terminations: &[PerFilletTermination]) -> CapKind {

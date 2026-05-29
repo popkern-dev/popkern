@@ -155,7 +155,10 @@ pub(crate) fn solve_strip_support_normal_row(
     for index in 0..surface.num_u {
         let parameter = control_row_parameter(boundary, index, surface.num_u);
         let sample = sample_at_parameter(samples, parameter);
-        let Some(direction) = width_direction(boundary, parameter, sample.support_normal) else {
+        let Some(direction) = width_direction(boundary, parameter, sample.support_normal)
+            .or_else(|| sample.cross_derivative.normalized())
+            .or_else(|| endpoint_fallback_width_direction(samples, sample.parameter))
+        else {
             return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
                 sector,
                 strip,
@@ -191,6 +194,20 @@ pub(crate) fn solve_strip_support_normal_row(
         }),
         ..scaffold.clone()
     })
+}
+
+fn endpoint_fallback_width_direction(
+    samples: &[ExactBoundaryRibbonSample],
+    parameter: f64,
+) -> Option<Vec3> {
+    if !is_endpoint_sample(parameter) {
+        return None;
+    }
+    samples
+        .iter()
+        .filter(|sample| !is_endpoint_sample(sample.parameter))
+        .filter_map(|sample| sample.cross_derivative.normalized())
+        .next()
 }
 
 fn boundary_layout_is_valid(boundary: &NurbsCurve) -> bool {
@@ -330,9 +347,34 @@ fn sample_at_parameter(
 }
 
 fn width_direction(boundary: &NurbsCurve, parameter: f64, support_normal: Vec3) -> Option<Vec3> {
-    let tangent = boundary.derivative_at(parameter, 1).normalized()?;
+    let tangent = boundary_tangent(boundary, parameter)?;
     let normal = support_normal.normalized()?;
     normal.cross(&tangent).normalized()
+}
+
+fn boundary_tangent(boundary: &NurbsCurve, parameter: f64) -> Option<Vec3> {
+    if let Some(tangent) = boundary.derivative_at(parameter, 1).normalized() {
+        return Some(tangent);
+    }
+    let (start, end) = boundary.parameter_range();
+    let span = end - start;
+    if span.abs() <= 1.0e-12 {
+        return None;
+    }
+    let inset = span.abs() * 1.0e-6;
+    for fallback in [
+        (parameter + inset).clamp(start, end),
+        (parameter - inset).clamp(start, end),
+        start + 0.5 * span,
+    ] {
+        if (fallback - parameter).abs() <= 1.0e-15 {
+            continue;
+        }
+        if let Some(tangent) = boundary.derivative_at(fallback, 1).normalized() {
+            return Some(tangent);
+        }
+    }
+    None
 }
 
 fn support_normal_report(
@@ -348,8 +390,18 @@ fn support_normal_report(
         .unwrap_or(0.0);
     for sample in samples {
         let uv = scaffold.outer_pcurve.point_at(sample.parameter);
-        let deficit = support_normal_deficit_at(surface, uv.x, uv.y, sample.support_normal)
-            .unwrap_or(f64::INFINITY);
+        let Some(deficit) = support_normal_deficit_at(surface, uv.x, uv.y, sample.support_normal)
+        else {
+            if is_endpoint_sample(sample.parameter) {
+                continue;
+            }
+            let deficit = f64::INFINITY;
+            if deficit > max_support_normal_deficit {
+                max_support_normal_deficit = deficit;
+                sample_parameter = sample.parameter;
+            }
+            continue;
+        };
         if deficit > max_support_normal_deficit {
             max_support_normal_deficit = deficit;
             sample_parameter = sample.parameter;
@@ -363,6 +415,10 @@ fn support_normal_report(
         bounded_iteration_count: 0,
         tolerance,
     }
+}
+
+fn is_endpoint_sample(parameter: f64) -> bool {
+    parameter <= 1.0e-12 || (1.0 - parameter).abs() <= 1.0e-12
 }
 
 fn support_normal_deficit_at(

@@ -8,6 +8,7 @@ use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 
 const DEFAULT_G0_TOLERANCE: f64 = 1.0e-7;
 const DEFAULT_MIN_SPOKE_LENGTH: f64 = 1.0e-6;
+const GENERATED_ANCHOR_RECONCILIATION_TOLERANCE: f64 = 5.0e-3;
 
 /// Local tolerances for generated inner-spoke preparation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -224,6 +225,7 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
         });
     }
 
+    reconcile_adjacent_spoke_anchors(&mut prepared, GENERATED_ANCHOR_RECONCILIATION_TOLERANCE);
     validate_adjacent_spoke_g0(&prepared, budget)?;
     Ok(PreparedExactBoundaryInnerSpokes {
         sectors: prepared,
@@ -336,6 +338,49 @@ fn validate_adjacent_spoke_g0(
         }
     }
     Ok(())
+}
+
+fn reconcile_adjacent_spoke_anchors(
+    sectors: &mut [PreparedExactBoundarySectorBoundary],
+    tolerance: f64,
+) {
+    if sectors.len() < 2 {
+        return;
+    }
+    for index in 0..sectors.len() {
+        let Some(nearest_index) = nearest_fillet_anchor_index(sectors, index) else {
+            continue;
+        };
+        let face_anchor = sectors[index].face_inner_spoke.anchor;
+        let fillet_anchor = sectors[nearest_index].fillet_inner_spoke.anchor;
+        if face_anchor.distance_to(&fillet_anchor) > tolerance {
+            continue;
+        }
+        reset_generated_spoke_anchor(&mut sectors[nearest_index].fillet_inner_spoke, face_anchor);
+    }
+}
+
+fn nearest_fillet_anchor_index(
+    sectors: &[PreparedExactBoundarySectorBoundary],
+    index: usize,
+) -> Option<usize> {
+    sectors
+        .iter()
+        .enumerate()
+        .filter(|(candidate_index, _)| *candidate_index != index)
+        .min_by(|(_, a), (_, b)| {
+            let anchor = sectors[index].face_inner_spoke.anchor;
+            anchor
+                .distance_to(&a.fillet_inner_spoke.anchor)
+                .partial_cmp(&anchor.distance_to(&b.fillet_inner_spoke.anchor))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(candidate_index, _)| candidate_index)
+}
+
+fn reset_generated_spoke_anchor(spoke: &mut GeneratedInnerSpoke, anchor: Point3) {
+    spoke.anchor = anchor;
+    spoke.curve.control_points = vec![anchor, spoke.pole];
 }
 
 fn boundary_for(

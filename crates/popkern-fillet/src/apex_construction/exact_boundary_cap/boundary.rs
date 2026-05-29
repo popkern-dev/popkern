@@ -13,7 +13,9 @@ use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBo
 use boundary_curve_orientation::{
     cap_half_edge_vertex_span, endpoint_orientation_gap, reverse_nurbs_curve,
 };
-use boundary_support_source::validated_support_pcurve_source_curve;
+use boundary_support_source::{
+    validated_projected_support_source_curve, validated_support_pcurve_source_curve,
+};
 
 const VERIFY_SAMPLES: usize = 9;
 const VERIFY_TOLERANCE: f64 = 1.0e-9;
@@ -229,10 +231,29 @@ fn oriented_source_curve(
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
     if !has_non_unit_weights(&raw_curve)
         && let Some(support_curve) = validated_support_pcurve_source_curve(brep, seam, &raw_curve)
+        && let Ok(prepared) = prepared_source_from_curve(brep, sector, seam, support_curve)
     {
-        return prepared_source_from_curve(brep, sector, seam, support_curve);
+        return Ok(prepared);
     }
-    prepared_source_from_curve(brep, sector, seam, raw_curve)
+    match prepared_source_from_curve(brep, sector, seam, raw_curve) {
+        Ok(prepared) => Ok(prepared),
+        Err(diagnostic)
+            if diagnostic.reason == ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed =>
+        {
+            if let Some(topology_curve) = topology_span_source_curve(brep, seam) {
+                if let Some(support_curve) =
+                    validated_projected_support_source_curve(brep, seam, &topology_curve)
+                    && let Ok(prepared) =
+                        prepared_source_from_curve(brep, sector, seam, support_curve)
+                {
+                    return Ok(prepared);
+                }
+                return prepared_source_from_curve(brep, sector, seam, topology_curve);
+            }
+            Err(diagnostic)
+        }
+        Err(diagnostic) => Err(diagnostic),
+    }
 }
 
 fn has_non_unit_weights(curve: &NurbsCurve) -> bool {
@@ -241,6 +262,19 @@ fn has_non_unit_weights(curve: &NurbsCurve) -> bool {
             .weights
             .iter()
             .any(|weight| (*weight - 1.0).abs() > 1.0e-9)
+}
+
+fn topology_span_source_curve(brep: &BRep, seam: &ExactBoundaryOuterSeam) -> Option<NurbsCurve> {
+    let (origin, destination) = cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
+    if origin.distance_to(&destination) <= TOPOLOGY_ENDPOINT_TOLERANCE {
+        return None;
+    }
+    Some(NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![origin, destination],
+        weights: vec![1.0, 1.0],
+    })
 }
 
 fn prepared_source_from_curve(

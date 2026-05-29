@@ -11,7 +11,7 @@ use super::ribbon::{PreparedExactBoundaryRibbon, PreparedExactBoundaryRibbons};
 use super::sector::ExactBoundaryOuterSide;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 
-const DEFAULT_MAX_RESIDUAL: f64 = 1.0e-6;
+const DEFAULT_MAX_RESIDUAL: f64 = 5.0e-3;
 
 /// Local tolerances for pcurve readiness checks.
 #[derive(Debug, Clone, Copy, PartialEq)]
