@@ -1,12 +1,17 @@
 //! Transactional commit boundary for validated multi-patch candidates.
 
 use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, NurbsSurface};
-use popkern_core::topology::EdgeHandle;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 use super::ExactBoundaryMultiPatchCandidate;
 use super::report::ExactBoundaryMultiPatchDiagnostic;
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSectorInput;
+
+#[path = "multipatch_commit_topology.rs"]
+mod commit_topology;
+use commit_topology::materialize_patch_faces;
 
 /// Candidate-only topology delta that a later transaction may materialize.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +28,23 @@ pub(crate) struct ExactBoundaryMultiPatchCommitPreflightReport {
     pub pcurve_count: usize,
     /// Number of generated pole spokes required by the candidate commit.
     pub generated_spoke_count: usize,
+}
+
+/// Live topology committed for one validated multi-patch sector split.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExactBoundaryMultiPatchCommitReport {
+    /// Candidate-only preflight evidence used by this transaction.
+    pub preflight: ExactBoundaryMultiPatchCommitPreflightReport,
+    /// Source cap face reused as the outer strip patch face.
+    pub strip_face: FaceHandle,
+    /// Generated cap face for the inner pole patch.
+    pub inner_face: FaceHandle,
+    /// Generated strip/inner interface edge.
+    pub internal_interface_edges: Vec<EdgeHandle>,
+    /// Generated connector edges closing the strip and inner loops.
+    pub generated_connector_edges: Vec<EdgeHandle>,
+    /// Number of pcurves authored on live half-edges by this commit.
+    pub committed_pcurve_count: usize,
 }
 
 /// Verify commit readiness without mutating live topology.
@@ -89,12 +111,87 @@ pub(crate) fn preflight_multipatch_commit(
     })
 }
 
+/// Materialize a validated multi-patch candidate into live BRep topology.
+///
+/// The transaction reuses the source sector cap face as the outer strip face,
+/// creates one generated inner face, wires one generated interface edge between
+/// them, and restores the full BRep snapshot on any materialization or
+/// validation failure.
+pub(crate) fn commit_multipatch_candidate_transactionally(
+    brep: &mut BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    candidate: &ExactBoundaryMultiPatchCandidate,
+) -> Result<ExactBoundaryMultiPatchCommitReport, ExactBoundaryMultiPatchDiagnostic> {
+    let preflight = preflight_multipatch_commit(sector, candidate)?;
+    let snapshot = brep.clone();
+    let result = commit_preflighted_candidate(brep, sector, candidate, preflight);
+    match result {
+        Ok(report) => Ok(report),
+        Err(diagnostic) => {
+            *brep = snapshot;
+            Err(diagnostic)
+        }
+    }
+}
+
+fn commit_preflighted_candidate(
+    brep: &mut BRep,
+    sector: &ExactBoundaryCapSectorInput,
+    candidate: &ExactBoundaryMultiPatchCandidate,
+    preflight: ExactBoundaryMultiPatchCommitPreflightReport,
+) -> Result<ExactBoundaryMultiPatchCommitReport, ExactBoundaryMultiPatchDiagnostic> {
+    let strip = &candidate.strip_inventory;
+    let split = materialize_patch_faces(brep, sector, candidate)?;
+    brep.faces[split.strip_face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(candidate.strip_candidate.surface.clone()),
+        orientation: true,
+    });
+    brep.faces[split.inner_face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Nurbs(candidate.inner_patch.surface.clone()),
+        orientation: true,
+    });
+    brep.half_edges[strip.cap_half_edge].pcurve =
+        Some(candidate.strip_candidate.outer_pcurve.clone());
+    brep.half_edges[split.interface_strip_half_edge].pcurve =
+        Some(reversed_pcurve(&candidate.interface.strip_pcurve));
+    brep.half_edges[split.interface_inner_half_edge].pcurve =
+        Some(candidate.inner_patch.interface_pcurve.clone());
+
+    if let Err(err) = brep.validate() {
+        return Err(ExactBoundaryMultiPatchDiagnostic::commit_validation_failed(
+            sector,
+            strip,
+            Some(err.to_string().len() as f64),
+        ));
+    }
+
+    Ok(ExactBoundaryMultiPatchCommitReport {
+        preflight,
+        strip_face: split.strip_face,
+        inner_face: split.inner_face,
+        internal_interface_edges: vec![split.interface_edge],
+        generated_connector_edges: vec![split.right_connector_edge, split.left_connector_edge],
+        committed_pcurve_count: 3,
+    })
+}
+
 fn first_invalid_surface_name(candidate: &ExactBoundaryMultiPatchCandidate) -> String {
     if !surface_layout_is_valid(&candidate.strip_candidate.surface) {
         candidate.strip_inventory.patch_name.clone()
     } else {
         candidate.inner_patch.patch_name.clone()
     }
+}
+
+fn reversed_pcurve(pcurve: &Pcurve) -> Pcurve {
+    let start = pcurve.point_at(pcurve.t_end);
+    let end = pcurve.point_at(pcurve.t_start);
+    Pcurve::linear(
+        (start.x, start.y),
+        (end.x, end.y),
+        pcurve.t_start,
+        pcurve.t_end,
+    )
 }
 
 fn surface_layout_is_valid(surface: &NurbsSurface) -> bool {

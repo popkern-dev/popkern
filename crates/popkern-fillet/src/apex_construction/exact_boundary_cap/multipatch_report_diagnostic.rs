@@ -248,6 +248,36 @@ impl ExactBoundaryMultiPatchDiagnostic {
         .with_patch_name(patch_name)
     }
 
+    pub(crate) fn commit_materialization_failed(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        detail_code: &'static str,
+        residual: Option<f64>,
+    ) -> Self {
+        Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitMaterializationFailed,
+            sector,
+            strip,
+        )
+        .with_patch_name(strip.patch_name.clone())
+        .with_detail_code(detail_code)
+        .with_optional_residual(residual)
+    }
+
+    pub(crate) fn commit_validation_failed(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        residual: Option<f64>,
+    ) -> Self {
+        Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitValidationFailed,
+            sector,
+            strip,
+        )
+        .with_patch_name(strip.patch_name.clone())
+        .with_optional_residual(residual)
+    }
+
     fn strip_boundary_decline(
         reason: ExactBoundaryMultiPatchDeclineReason,
         sector: &ExactBoundaryCapSectorInput,
@@ -350,6 +380,11 @@ impl ExactBoundaryMultiPatchDiagnostic {
 
     fn with_detail_code(mut self, detail_code: &'static str) -> Self {
         self.detail_code = Some(detail_code.to_string());
+        self
+    }
+
+    fn with_optional_residual(mut self, residual: Option<f64>) -> Self {
+        self.residual = residual;
         self
     }
 

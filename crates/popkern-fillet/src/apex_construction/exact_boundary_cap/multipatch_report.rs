@@ -79,6 +79,10 @@ pub(crate) enum ExactBoundaryMultiPatchDeclineReason {
     CommitPreflightMissingInterface,
     /// Commit preflight found generated spoke evidence missing or invalid.
     CommitPreflightMissingGeneratedSpoke,
+    /// Commit could not materialize the required patch topology.
+    CommitMaterializationFailed,
+    /// Commit materialized topology failed BRep validation and was rolled back.
+    CommitValidationFailed,
 }
 
 impl ExactBoundaryMultiPatchDeclineReason {
@@ -124,6 +128,12 @@ impl ExactBoundaryMultiPatchDeclineReason {
             Self::CommitPreflightMissingGeneratedSpoke => {
                 "exact_boundary_cap.multipatch.commit_preflight_missing_generated_spoke"
             }
+            Self::CommitMaterializationFailed => {
+                "exact_boundary_cap.multipatch.commit_materialization_failed"
+            }
+            Self::CommitValidationFailed => {
+                "exact_boundary_cap.multipatch.commit_validation_failed"
+            }
         }
     }
 
@@ -162,7 +172,9 @@ impl ExactBoundaryMultiPatchDeclineReason {
             Self::CommitPreflightMissingSurface
             | Self::CommitPreflightMissingPcurve
             | Self::CommitPreflightMissingInterface
-            | Self::CommitPreflightMissingGeneratedSpoke => {
+            | Self::CommitPreflightMissingGeneratedSpoke
+            | Self::CommitMaterializationFailed
+            | Self::CommitValidationFailed => {
                 ExactBoundaryMultiPatchValidationOrder::ReportConsistency
             }
         }

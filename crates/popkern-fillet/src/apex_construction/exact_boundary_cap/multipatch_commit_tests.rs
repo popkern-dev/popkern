@@ -2,7 +2,7 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
-use super::preflight_multipatch_commit;
+use super::{commit_multipatch_candidate_transactionally, preflight_multipatch_commit};
 use crate::apex_construction::exact_boundary_cap::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use crate::apex_construction::exact_boundary_cap::multipatch::report::{
     ExactBoundaryMultiPatchCandidateOutcome, ExactBoundaryMultiPatchDeclineReason,
@@ -114,19 +114,83 @@ fn commit_preflight_declines_missing_pcurve_or_interface_or_spokes() {
     );
 }
 
+#[test]
+fn transactional_commit_materializes_split_faces_and_validates_brep() {
+    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
+    let initial_face_count = brep.faces.len();
+    let initial_edge_count = brep.edges.len();
+    let initial_vertex_count = brep.vertices.len();
+    let support_pcurve_before = brep.half_edges[sector.support_half_edges[1]].pcurve.clone();
+    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+
+    let report = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
+        .expect("validated candidate should commit transactionally");
+
+    assert_eq!(report.strip_face, sector.cap_face);
+    assert!(brep.faces.contains_key(report.inner_face));
+    assert_eq!(report.internal_interface_edges.len(), 1);
+    assert_eq!(report.generated_connector_edges.len(), 2);
+    assert_eq!(report.committed_pcurve_count, 3);
+    assert_eq!(brep.faces.len(), initial_face_count + 1);
+    assert_eq!(brep.edges.len(), initial_edge_count + 3);
+    assert_eq!(brep.vertices.len(), initial_vertex_count + 2);
+    assert!(brep.faces[report.strip_face].surface.is_some());
+    assert!(brep.faces[report.inner_face].surface.is_some());
+    assert!(brep.half_edges[sector.cap_half_edges[1]].pcurve.is_some());
+    assert_eq!(
+        brep.half_edges[sector.support_half_edges[1]]
+            .pcurve
+            .is_some(),
+        support_pcurve_before.is_some()
+    );
+    brep.validate()
+        .expect("committed multipatch split must leave valid BRep topology");
+}
+
+#[test]
+fn transactional_commit_rolls_back_when_source_face_is_stale() {
+    let (mut brep, mut sector, boundary, samples, pole) = live_sector_fixture();
+    let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let before_counts = topology_counts(&brep);
+    sector.cap_face = FaceHandle::default();
+
+    let diagnostic = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
+        .expect_err("stale live topology must decline");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::CommitMaterializationFailed
+    );
+    assert_eq!(topology_counts(&brep), before_counts);
+}
+
 fn commit_eligible_candidate(
     sector: &ExactBoundaryCapSectorInput,
 ) -> ExactBoundaryMultiPatchCandidate {
     let boundary = cubic_boundary();
+    commit_eligible_candidate_from_boundary(
+        sector,
+        &boundary,
+        &support_samples(),
+        Point3::new(0.5, 0.7, 0.0),
+    )
+}
+
+fn commit_eligible_candidate_from_boundary(
+    sector: &ExactBoundaryCapSectorInput,
+    boundary: &NurbsCurve,
+    samples: &[ExactBoundaryRibbonSample],
+    pole: Point3,
+) -> ExactBoundaryMultiPatchCandidate {
     let mut budget = ExactBoundaryMultiPatchBudget::default();
     budget.support_normal_deficit = 1.0e-8;
     let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
         sector,
         selected_sides: &[ExactBoundaryOuterSide::FaceEdge],
-        boundary: &boundary,
+        boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
-        support_samples: &support_samples(),
-        pole: Point3::new(0.5, 0.7, 0.0),
+        support_samples: samples,
+        pole,
         budget,
     });
     assert_eq!(
@@ -134,6 +198,67 @@ fn commit_eligible_candidate(
         ExactBoundaryMultiPatchCandidateOutcome::CommitEligible
     );
     attempt.candidate.expect("commit-eligible candidate")
+}
+
+fn live_sector_fixture() -> (
+    BRep,
+    ExactBoundaryCapSectorInput,
+    NurbsCurve,
+    Vec<ExactBoundaryRibbonSample>,
+    Point3,
+) {
+    let brep = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let cap_face = brep.faces.keys().next().expect("face");
+    let loop_half_edges = loop_half_edges(&brep, cap_face);
+    let selected = loop_half_edges[0];
+    let companion = loop_half_edges[1];
+    let selected_twin = brep.half_edges[selected].twin;
+    let companion_twin = brep.half_edges[companion].twin;
+    let selected_edge = brep.half_edges[selected].edge;
+    let companion_edge = brep.half_edges[companion].edge;
+    let selected_support_face = face_for_half_edge(&brep, selected_twin);
+    let companion_support_face = face_for_half_edge(&brep, companion_twin);
+    let start = brep.vertices[brep.half_edges[selected].origin].position;
+    let end = brep.vertices[destination_vertex(&brep, selected)].position;
+    let centroid = face_centroid(&brep, cap_face);
+    let midpoint = start + (end - start) * 0.5;
+    let tangent = (end - start).normalized().expect("non-degenerate edge");
+    let inward = (centroid - midpoint)
+        .normalized()
+        .expect("selected edge has interior direction");
+    let normal = tangent.cross(&inward).normalized().expect("face normal");
+    let boundary = line_boundary(start, end);
+    let samples = live_support_samples(start, end, normal, inward);
+    let pole = midpoint + inward * 0.45;
+    let sector = ExactBoundaryCapSectorInput {
+        sector_index: 0,
+        sector_name: "direct_apex.cap_sector.live".to_string(),
+        fillet_index: 0,
+        cap_face,
+        fillet_end_edge: companion_edge,
+        face_edge: selected_edge,
+        fillet_support_face: companion_support_face,
+        bridge_support_face: selected_support_face,
+        cap_half_edges: [companion, selected],
+        support_half_edges: [companion_twin, selected_twin],
+        outer_seams: [
+            seam(
+                ExactBoundaryOuterSide::FilletEnd,
+                companion_edge,
+                companion,
+                companion_twin,
+                companion_support_face,
+            ),
+            seam(
+                ExactBoundaryOuterSide::FaceEdge,
+                selected_edge,
+                selected,
+                selected_twin,
+                selected_support_face,
+            ),
+        ],
+    };
+    (brep, sector, boundary, samples, pole)
 }
 
 fn cubic_boundary() -> NurbsCurve {
@@ -163,6 +288,38 @@ fn support_samples() -> Vec<ExactBoundaryRibbonSample> {
             cross_derivative: Vec3::new(0.0, 0.2, 0.0),
         })
         .collect()
+}
+
+fn live_support_samples(
+    start: Point3,
+    end: Point3,
+    support_normal: Vec3,
+    inward: Vec3,
+) -> Vec<ExactBoundaryRibbonSample> {
+    [0.0, 0.5, 1.0]
+        .into_iter()
+        .map(|parameter| {
+            let boundary_point = start + (end - start) * parameter;
+            ExactBoundaryRibbonSample {
+                parameter,
+                support_uv: (parameter, 0.0),
+                boundary_point,
+                support_point: boundary_point,
+                boundary_tangent: end - start,
+                support_normal,
+                cross_derivative: inward * 0.2,
+            }
+        })
+        .collect()
+}
+
+fn line_boundary(start: Point3, end: Point3) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![start, end],
+        weights: vec![1.0, 1.0],
+    }
 }
 
 fn sector_input() -> ExactBoundaryCapSectorInput {
@@ -198,6 +355,52 @@ fn sector_input() -> ExactBoundaryCapSectorInput {
             ),
         ],
     }
+}
+
+fn loop_half_edges(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
+    let start = brep.loops[brep.faces[face].outer_loop].half_edge;
+    let mut out = Vec::new();
+    let mut cursor = start;
+    loop {
+        out.push(cursor);
+        cursor = brep.half_edges[cursor].next;
+        if cursor == start {
+            return out;
+        }
+    }
+}
+
+fn destination_vertex(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+) -> popkern_core::topology::VertexHandle {
+    brep.half_edges[brep.half_edges[half_edge].twin].origin
+}
+
+fn face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> FaceHandle {
+    brep.loops[brep.half_edges[half_edge].loop_].face
+}
+
+fn face_centroid(brep: &BRep, face: FaceHandle) -> Point3 {
+    let points = loop_half_edges(brep, face)
+        .into_iter()
+        .map(|half_edge| brep.vertices[brep.half_edges[half_edge].origin].position)
+        .collect::<Vec<_>>();
+    let sum = points.iter().fold(Vec3::new(0.0, 0.0, 0.0), |acc, point| {
+        acc + Vec3::new(point.x, point.y, point.z)
+    });
+    let scale = 1.0 / points.len() as f64;
+    Point3::new(sum.x * scale, sum.y * scale, sum.z * scale)
+}
+
+fn topology_counts(brep: &BRep) -> (usize, usize, usize, usize, usize) {
+    (
+        brep.vertices.len(),
+        brep.edges.len(),
+        brep.half_edges.len(),
+        brep.loops.len(),
+        brep.faces.len(),
+    )
 }
 
 fn seam(
