@@ -203,6 +203,10 @@ pub(crate) struct ExactBoundaryMultiPatchPerformanceReport {
     pub interface_count: usize,
     /// Candidate inner pole patches considered.
     pub inner_patch_count: usize,
+    /// Strip surface control points allocated by accepted candidates.
+    pub strip_control_point_count: usize,
+    /// Inner-pole surface control points allocated by accepted candidates.
+    pub inner_control_point_count: usize,
     /// Support strip samples evaluated.
     pub support_strip_sample_count: usize,
     /// Interface samples evaluated.

@@ -38,12 +38,44 @@ fn orchestrator_builds_commit_eligible_candidate_without_live_brep_mutation() {
     assert_eq!(attempt.report.performance.outer_strip_patch_count, 1);
     assert_eq!(attempt.report.performance.interface_count, 1);
     assert_eq!(attempt.report.performance.inner_patch_count, 1);
+    assert_eq!(attempt.report.performance.strip_control_point_count, 8);
+    assert_eq!(attempt.report.performance.inner_control_point_count, 8);
+    assert!(attempt.report.performance.bounded_iteration_count >= 12);
     assert_eq!(attempt.report.performance.deterministic_skip_code, None);
     let candidate = attempt.candidate.expect("commit-eligible candidate");
     assert_eq!(candidate.inventory_report.actual_outer_strip_count, 1);
     assert_eq!(candidate.strip_validation.support_strip_sample_count, 3);
     assert!(candidate.inner_patch.interface_g1_validated);
     assert!(candidate.inner_validation.interface_g1_validated);
+}
+
+#[test]
+fn orchestrator_declines_oversized_strip_before_surface_allocation() {
+    let sector = sector_input();
+    let boundary = oversized_boundary();
+    let mut budget = tight_budget();
+    budget.max_width_direction_controls = 4;
+    let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
+        sector: &sector,
+        selected_sides: &[ExactBoundaryOuterSide::FaceEdge],
+        boundary: &boundary,
+        boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
+        support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        pole: Point3::new(0.5, 0.7, 0.0),
+        budget,
+    });
+
+    assert_eq!(
+        attempt.report.outcome,
+        ExactBoundaryMultiPatchCandidateOutcome::Declined
+    );
+    assert_eq!(
+        attempt.report.diagnostics[0].reason,
+        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied
+    );
+    assert_eq!(attempt.report.performance.strip_control_point_count, 0);
+    assert_eq!(attempt.report.performance.inner_control_point_count, 0);
+    assert_eq!(attempt.report.performance.bounded_iteration_count, 0);
 }
 
 #[test]
@@ -141,6 +173,21 @@ fn cubic_boundary() -> NurbsCurve {
             Point3::new(1.0, 0.0, 0.0),
         ],
         weights: vec![1.0; 4],
+    }
+}
+
+fn oversized_boundary() -> NurbsCurve {
+    NurbsCurve {
+        degree: 3,
+        knots: vec![0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.2, 0.08, 0.0),
+            Point3::new(0.4, 0.12, 0.0),
+            Point3::new(0.7, 0.08, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+        ],
+        weights: vec![1.0; 5],
     }
 }
 

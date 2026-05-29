@@ -175,6 +175,22 @@ pub(crate) fn prepare_multipatch_candidate(
     let strip = &inventory.outer_strips[0];
     let strip_inventory = strip.clone();
     let interface_inventory = &inventory.interfaces[0];
+    if request.boundary.control_points.len() > request.budget.max_width_direction_controls {
+        return declined_with_context(
+            request.sector,
+            Some(inventory_report),
+            ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+                request.sector,
+                strip,
+                f64::INFINITY,
+                0.0,
+                request.budget.support_normal_deficit,
+                Vec::new(),
+            ),
+            performance,
+            started_at,
+        );
+    }
 
     let scaffold = match scaffold_outer_strip_boundary(
         request.sector,
@@ -217,6 +233,7 @@ pub(crate) fn prepare_multipatch_candidate(
         performance.support_strip_sample_count += report.support_strip_sample_count;
         performance.bounded_iteration_count += report.bounded_iteration_count;
     }
+    performance.strip_control_point_count += strip_candidate.surface.control_points.len();
 
     let strip_validation = match validate_outer_strip_candidate(
         request.sector,
@@ -259,6 +276,7 @@ pub(crate) fn prepare_multipatch_candidate(
         }
     };
     performance.interface_sample_count += interface.sample_count;
+    performance.bounded_iteration_count += interface.curve.control_points.len();
 
     let prototype = match construct_inner_pole_patch_prototype(
         request.sector,
@@ -302,6 +320,8 @@ pub(crate) fn prepare_multipatch_candidate(
     if let Some(report) = inner_patch.interface_g1_report {
         performance.interface_sample_count += report.sample_count;
     }
+    performance.inner_control_point_count += inner_patch.surface.control_points.len();
+    performance.bounded_iteration_count += inner_patch.surface.num_u;
 
     let inner_validation = match validate_inner_pole_patch_prototype(
         request.sector,
