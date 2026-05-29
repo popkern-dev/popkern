@@ -42,7 +42,9 @@ use super::validation::{
 use multipatch_commit::{
     ExactBoundaryMultipatchCommitOutcome, commit_multipatch_routes_transactionally,
 };
-use multipatch_route::attempt_multipatches_after_one_patch_decline;
+use multipatch_route::{
+    attempt_multipatches_after_one_patch_decline, collect_live_one_patch_cap_support_failures,
+};
 pub(super) use report::build_exact_boundary_report;
 
 /// Status of one exact-boundary cap candidate attempt.
@@ -297,11 +299,27 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                         if repair_diagnostics.is_empty() {
                             repair_diagnostics.push(diagnostic.clone());
                         }
+                        let live_diagnostics = collect_live_one_patch_cap_support_failures(
+                            brep,
+                            cap_face,
+                            &candidate_sectors,
+                            solved_surfaces,
+                            &pcurves,
+                        );
+                        for live_diagnostic in live_diagnostics {
+                            if !repair_diagnostics
+                                .iter()
+                                .any(|existing| existing.sector_name == live_diagnostic.sector_name)
+                            {
+                                repair_diagnostics.push(live_diagnostic);
+                            }
+                        }
                         let multipatch_attempts = attempt_multipatches_after_one_patch_decline(
                             &repair_diagnostics,
                             &candidate_sectors,
                             &boundary_curves,
                             ribbons,
+                            &pcurves,
                             inner_spokes,
                             &mut diagnostics,
                         );
