@@ -164,6 +164,33 @@ fn transactional_commit_rolls_back_when_source_face_is_stale() {
     assert_eq!(topology_counts(&brep), before_counts);
 }
 
+#[test]
+fn transactional_commit_rolls_back_post_validation_failure() {
+    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
+    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let before_counts = topology_counts(&brep);
+    let source_surface_before = brep.faces[sector.cap_face].surface.clone();
+    let collapsed = candidate.inner_patch.surface.control_points[0];
+    for point in &mut candidate.inner_patch.surface.control_points {
+        *point = collapsed;
+    }
+
+    let diagnostic = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
+        .expect_err("degenerate committed surface must fail post-validation");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::CommitValidationFailed
+    );
+    assert_eq!(topology_counts(&brep), before_counts);
+    assert_eq!(
+        brep.faces[sector.cap_face].surface.is_some(),
+        source_surface_before.is_some()
+    );
+    brep.validate()
+        .expect("rollback must restore the source BRep to validity");
+}
+
 fn commit_eligible_candidate(
     sector: &ExactBoundaryCapSectorInput,
 ) -> ExactBoundaryMultiPatchCandidate {
