@@ -39,8 +39,8 @@ fn orchestrator_builds_commit_eligible_candidate_without_live_brep_mutation() {
     assert_eq!(attempt.report.performance.outer_strip_patch_count, 1);
     assert_eq!(attempt.report.performance.interface_count, 1);
     assert_eq!(attempt.report.performance.inner_patch_count, 1);
-    assert_eq!(attempt.report.performance.strip_control_point_count, 8);
-    assert_eq!(attempt.report.performance.inner_control_point_count, 12);
+    assert_eq!(attempt.report.performance.strip_control_point_count, 15);
+    assert_eq!(attempt.report.performance.inner_control_point_count, 15);
     assert!(attempt.report.performance.bounded_iteration_count >= 12);
     assert_eq!(attempt.report.performance.deterministic_skip_code, None);
     let candidate = attempt.candidate.expect("commit-eligible candidate");
@@ -127,7 +127,7 @@ fn orchestrator_robustness_matrix_covers_accept_and_decline_classes() {
         cubic_boundary(),
         ExactBoundaryStripBoundaryDirection::Forward,
         Vec3::new(1.0, 0.0, 0.0),
-        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
+        ExactBoundaryMultiPatchDeclineReason::BoundaryTangentSupportIncompatible,
     )];
     for (name, boundary, direction, support_normal, reason) in declined {
         let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
@@ -177,12 +177,12 @@ fn orchestrator_reports_first_failed_gate_with_context() {
             .performance
             .deterministic_skip_code
             .as_deref(),
-        Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied")
+        Some("exact_boundary_cap.multipatch.boundary_tangent_support_incompatible")
     );
     let diagnostic = &attempt.report.diagnostics[0];
     assert_eq!(
         diagnostic.reason,
-        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied
+        ExactBoundaryMultiPatchDeclineReason::BoundaryTangentSupportIncompatible
     );
     assert_eq!(
         diagnostic.validation_order,

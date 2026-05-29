@@ -12,10 +12,19 @@ use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryCapSector
 use super::budget::ExactBoundaryMultiPatchBudget;
 use super::inventory::ExactBoundaryOuterStripPatchInventory;
 use super::report::ExactBoundaryMultiPatchDiagnostic;
+#[path = "multipatch_strip_support.rs"]
+mod strip_support;
+use strip_support::{
+    boundary_tangent_compatibility, control_row_parameter, endpoint_fallback_width_direction,
+    is_endpoint_sample, sample_at_parameter, strip_width_from_samples, support_refined_boundary,
+    width_direction,
+};
 
 const OUTER_BOUNDARY_SAMPLE_COUNT: usize = 9;
-const MIN_STRIP_WIDTH: f64 = 1.0e-12;
 const MIN_STRIP_NORMAL_LENGTH: f64 = 1.0e-12;
+const STRIP_ROW_COUNT: usize = 3;
+const SUPPORT_NORMAL_ROW: usize = 1;
+const INNER_INTERFACE_ROW: usize = 2;
 
 /// Candidate strip direction along the copied exact-boundary curve.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,8 +77,6 @@ pub(crate) struct ExactBoundaryStripSupportNormalReport {
     pub tolerance: f64,
 }
 
-/// Build a candidate strip surface whose outer row exactly reuses the source
-/// NURBS boundary layout. The second row is a zero-width placeholder for MP-006.
 pub(crate) fn scaffold_outer_strip_boundary(
     sector: &ExactBoundaryCapSectorInput,
     strip: &ExactBoundaryOuterStripPatchInventory,
@@ -120,8 +127,6 @@ pub(crate) fn scaffold_outer_strip_boundary(
     })
 }
 
-/// Fill the first width-direction control row from support-normal-compatible
-/// cross-boundary directions, leaving the candidate in memory only.
 pub(crate) fn solve_strip_support_normal_row(
     sector: &ExactBoundaryCapSectorInput,
     strip: &ExactBoundaryOuterStripPatchInventory,
@@ -140,7 +145,32 @@ pub(crate) fn solve_strip_support_normal_row(
             Vec::new(),
         ));
     };
-    let mut surface = scaffold.surface.clone();
+    let compatibility = boundary_tangent_compatibility(boundary, samples);
+    if compatibility.min_reachable_deficit > budget.support_normal_deficit {
+        return Err(
+            ExactBoundaryMultiPatchDiagnostic::boundary_tangent_incompatible(
+                sector,
+                strip,
+                compatibility.min_reachable_deficit,
+                compatibility.sample_parameter,
+                budget.support_normal_deficit,
+            ),
+        );
+    }
+    let refined_boundary = match support_refined_boundary(boundary, samples) {
+        Some(refined_boundary) => refined_boundary,
+        None => {
+            return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+                sector,
+                strip,
+                f64::INFINITY,
+                0.0,
+                budget.support_normal_deficit,
+                Vec::new(),
+            ));
+        }
+    };
+    let mut surface = zero_width_strip_surface(&refined_boundary);
     if surface.num_u > budget.max_width_direction_controls {
         return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
             sector,
@@ -151,9 +181,9 @@ pub(crate) fn solve_strip_support_normal_row(
             Vec::new(),
         ));
     }
-    let bounded_iteration_count = surface.num_u;
+    let bounded_iteration_count = surface.num_u * surface.num_v.saturating_sub(1);
     for index in 0..surface.num_u {
-        let parameter = control_row_parameter(boundary, index, surface.num_u);
+        let parameter = control_row_parameter(&refined_boundary, index);
         let sample = sample_at_parameter(samples, parameter);
         let Some(direction) = width_direction(boundary, parameter, sample.support_normal)
             .or_else(|| sample.cross_derivative.normalized())
@@ -168,8 +198,11 @@ pub(crate) fn solve_strip_support_normal_row(
                 Vec::new(),
             ));
         };
-        let row0 = surface.control_points[index * surface.num_v];
-        surface.control_points[index * surface.num_v + 1] = row0 + direction * strip_width;
+        let row0 = surface.control_points[control_index(index, 0, surface.num_v)];
+        surface.control_points[control_index(index, SUPPORT_NORMAL_ROW, surface.num_v)] =
+            row0 + direction * (strip_width * 0.5);
+        surface.control_points[control_index(index, INNER_INTERFACE_ROW, surface.num_v)] =
+            row0 + direction * strip_width;
     }
 
     let report = support_normal_report(&surface, scaffold, samples, budget.support_normal_deficit);
@@ -194,20 +227,6 @@ pub(crate) fn solve_strip_support_normal_row(
         }),
         ..scaffold.clone()
     })
-}
-
-fn endpoint_fallback_width_direction(
-    samples: &[ExactBoundaryRibbonSample],
-    parameter: f64,
-) -> Option<Vec3> {
-    if !is_endpoint_sample(parameter) {
-        return None;
-    }
-    samples
-        .iter()
-        .filter(|sample| !is_endpoint_sample(sample.parameter))
-        .filter_map(|sample| sample.cross_derivative.normalized())
-        .next()
 }
 
 fn boundary_layout_is_valid(boundary: &NurbsCurve) -> bool {
@@ -241,24 +260,28 @@ fn rational_weights_are_unsupported(boundary: &NurbsCurve) -> bool {
 }
 
 fn zero_width_strip_surface(boundary: &NurbsCurve) -> NurbsSurface {
-    let mut control_points = Vec::with_capacity(boundary.control_points.len() * 2);
-    let mut weights = Vec::with_capacity(boundary.weights.len() * 2);
+    let mut control_points = Vec::with_capacity(boundary.control_points.len() * STRIP_ROW_COUNT);
+    let mut weights = Vec::with_capacity(boundary.weights.len() * STRIP_ROW_COUNT);
     for (point, weight) in boundary.control_points.iter().zip(&boundary.weights) {
-        control_points.push(*point);
-        control_points.push(*point);
-        weights.push(*weight);
-        weights.push(*weight);
+        for _ in 0..STRIP_ROW_COUNT {
+            control_points.push(*point);
+            weights.push(*weight);
+        }
     }
     NurbsSurface {
         degree_u: boundary.degree,
-        degree_v: 1,
+        degree_v: 2,
         knots_u: boundary.knots.clone(),
-        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
         control_points,
         num_u: boundary.control_points.len(),
-        num_v: 2,
+        num_v: STRIP_ROW_COUNT,
         weights,
     }
+}
+
+fn control_index(u_index: usize, v_index: usize, num_v: usize) -> usize {
+    u_index * num_v + v_index
 }
 
 fn outer_boundary_pcurve(
@@ -309,74 +332,6 @@ fn outer_boundary_residual(
     report
 }
 
-fn strip_width_from_samples(samples: &[ExactBoundaryRibbonSample]) -> Option<f64> {
-    let mut width_sum = 0.0;
-    let mut count = 0;
-    for sample in samples {
-        let width = sample.cross_derivative.length();
-        if width.is_finite() && width > MIN_STRIP_WIDTH {
-            width_sum += width;
-            count += 1;
-        }
-    }
-    (count > 0).then_some(width_sum / count as f64)
-}
-
-fn control_row_parameter(boundary: &NurbsCurve, index: usize, count: usize) -> f64 {
-    let (t_start, t_end) = boundary.parameter_range();
-    if count <= 1 {
-        return t_start;
-    }
-    t_start + (t_end - t_start) * index as f64 / (count - 1) as f64
-}
-
-fn sample_at_parameter(
-    samples: &[ExactBoundaryRibbonSample],
-    parameter: f64,
-) -> ExactBoundaryRibbonSample {
-    let mut best = samples[0];
-    let mut best_distance = (best.parameter - parameter).abs();
-    for sample in &samples[1..] {
-        let distance = (sample.parameter - parameter).abs();
-        if distance < best_distance {
-            best = *sample;
-            best_distance = distance;
-        }
-    }
-    best
-}
-
-fn width_direction(boundary: &NurbsCurve, parameter: f64, support_normal: Vec3) -> Option<Vec3> {
-    let tangent = boundary_tangent(boundary, parameter)?;
-    let normal = support_normal.normalized()?;
-    normal.cross(&tangent).normalized()
-}
-
-fn boundary_tangent(boundary: &NurbsCurve, parameter: f64) -> Option<Vec3> {
-    if let Some(tangent) = boundary.derivative_at(parameter, 1).normalized() {
-        return Some(tangent);
-    }
-    let (start, end) = boundary.parameter_range();
-    let span = end - start;
-    if span.abs() <= 1.0e-12 {
-        return None;
-    }
-    let inset = span.abs() * 1.0e-6;
-    for fallback in [
-        (parameter + inset).clamp(start, end),
-        (parameter - inset).clamp(start, end),
-        start + 0.5 * span,
-    ] {
-        if (fallback - parameter).abs() <= 1.0e-15 {
-            continue;
-        }
-        if let Some(tangent) = boundary.derivative_at(fallback, 1).normalized() {
-            return Some(tangent);
-        }
-    }
-    None
-}
-
 fn support_normal_report(
     surface: &NurbsSurface,
     scaffold: &ExactBoundaryOuterStripBoundaryScaffold,
@@ -415,10 +370,6 @@ fn support_normal_report(
         bounded_iteration_count: 0,
         tolerance,
     }
-}
-
-fn is_endpoint_sample(parameter: f64) -> bool {
-    parameter <= 1.0e-12 || (1.0 - parameter).abs() <= 1.0e-12
 }
 
 fn support_normal_deficit_at(

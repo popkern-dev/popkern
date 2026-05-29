@@ -173,6 +173,8 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 #[test]
 #[ignore = "live multipatch route reaches cap/support continuity gate; full multipatch topology closure remains pending"]
 fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
+    const MULTIPATCH_BLOCKER: &str =
+        "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -217,9 +219,8 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "pyramid3 multipatch route must decline before live commit when selected strip quality fails"
     );
     assert!(
-        multipatch_step.diagnostic_code.as_deref()
-            == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied"),
-        "multipatch selected-strip validation should identify the unsatisfied support-normal gate; got {:?}",
+        multipatch_step.diagnostic_code.as_deref() == Some(MULTIPATCH_BLOCKER),
+        "multipatch selected-strip validation should identify exact-boundary tangent/support-plane incompatibility; got {:?}",
         multipatch_step.diagnostic_code
     );
     let multipatch_diagnostic = route
@@ -228,10 +229,10 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         .iter()
         .find(|diagnostic| {
             diagnostic.stage == "exact_boundary_cap.multipatch"
-                && diagnostic.code == "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+                && diagnostic.code == MULTIPATCH_BLOCKER
                 && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(31v1)"
         })
-        .expect("multipatch decline must promote edge31 selected-strip support-normal evidence");
+        .expect("multipatch decline must promote edge31 tangent/support-plane evidence");
     assert_eq!(
         format!("{:?}", multipatch_diagnostic.edge.expect("edge")),
         "EdgeHandle(31v1)",
@@ -244,8 +245,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         .find_map(|diagnostic| match diagnostic {
             ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
                 if diagnostic.stage == "exact_boundary_cap.multipatch"
-                    && diagnostic.code
-                        == "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+                    && diagnostic.code == MULTIPATCH_BLOCKER
                     && diagnostic
                         .edge
                         .map(|edge| format!("{edge:?}") == "EdgeHandle(31v1)")
@@ -255,7 +255,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             }
             _ => None,
         })
-        .expect("multipatch decline must promote support-strip evidence");
+        .expect("multipatch decline must promote tangent/support-plane evidence");
     assert_eq!(
         format!("{:?}", multipatch_apex_diagnostic.edge.expect("edge")),
         "EdgeHandle(31v1)",
@@ -267,8 +267,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             action.stage == "exact_boundary_cap.route_decision"
                 && action.outcome == "declined"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && action.reason.as_deref()
-                    == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied")
+                && action.reason.as_deref() == Some(MULTIPATCH_BLOCKER)
         }),
         "repair action artifact must preserve multipatch selected-strip decline"
     );
@@ -276,8 +275,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         artifact.actions.iter().any(|action| {
             action.stage == "exact_boundary_cap.multipatch"
                 && action.outcome == "declined"
-                && action.reason.as_deref()
-                    == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied")
+                && action.reason.as_deref() == Some(MULTIPATCH_BLOCKER)
         }),
         "repair action artifact must expose the measured selected-strip blocker"
     );

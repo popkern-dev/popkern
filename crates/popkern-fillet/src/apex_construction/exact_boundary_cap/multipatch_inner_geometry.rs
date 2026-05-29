@@ -24,11 +24,14 @@ pub(super) struct InterfaceResidual {
 pub(super) fn strip_inner_boundary_curve(
     candidate: &ExactBoundaryOuterStripBoundaryScaffold,
 ) -> NurbsCurve {
+    let interface_row = candidate.surface.num_v.saturating_sub(1);
     let control_points = (0..candidate.surface.num_u)
-        .map(|index| candidate.surface.control_points[index * candidate.surface.num_v + 1])
+        .map(|index| {
+            candidate.surface.control_points[index * candidate.surface.num_v + interface_row]
+        })
         .collect::<Vec<_>>();
     let weights = (0..candidate.surface.num_u)
-        .map(|index| candidate.surface.weights[index * candidate.surface.num_v + 1])
+        .map(|index| candidate.surface.weights[index * candidate.surface.num_v + interface_row])
         .collect::<Vec<_>>();
     NurbsCurve {
         degree: candidate.surface.degree_u,

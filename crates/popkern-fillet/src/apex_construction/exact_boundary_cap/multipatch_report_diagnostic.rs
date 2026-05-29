@@ -190,6 +190,23 @@ impl ExactBoundaryMultiPatchDiagnostic {
         .with_source_fact_ids(source_fact_ids)
     }
 
+    pub(crate) fn boundary_tangent_incompatible(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::strip_boundary_decline(
+            ExactBoundaryMultiPatchDeclineReason::BoundaryTangentSupportIncompatible,
+            sector,
+            strip,
+            residual,
+            sample_parameter,
+            tolerance,
+        )
+    }
+
     pub(crate) fn commit_preflight_missing_surface(
         sector: &ExactBoundaryCapSectorInput,
         strip: &ExactBoundaryOuterStripPatchInventory,

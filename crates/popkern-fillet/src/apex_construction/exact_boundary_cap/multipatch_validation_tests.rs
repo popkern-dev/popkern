@@ -181,8 +181,12 @@ fn strip_validation_reports_foldover_after_support_band_passes() {
     let mut fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
     fixture.samples.clear();
     for index in 0..fixture.candidate.surface.num_u {
-        let row0 = fixture.candidate.surface.control_points[index * 2];
-        fixture.candidate.surface.control_points[index * 2 + 1] = row0;
+        let row0 =
+            fixture.candidate.surface.control_points[index * fixture.candidate.surface.num_v];
+        for row in 1..fixture.candidate.surface.num_v {
+            fixture.candidate.surface.control_points
+                [index * fixture.candidate.surface.num_v + row] = row0;
+        }
     }
 
     let diagnostic = validate_outer_strip_candidate(

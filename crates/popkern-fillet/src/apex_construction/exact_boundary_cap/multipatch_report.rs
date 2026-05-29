@@ -63,6 +63,8 @@ pub(crate) enum ExactBoundaryMultiPatchDeclineReason {
     OuterBoundaryPositionUnsatisfied,
     /// Candidate strip does not satisfy the support-normal strip band.
     SupportStripBandUnsatisfied,
+    /// Exact boundary tangent is incompatible with the support tangent plane.
+    BoundaryTangentSupportIncompatible,
     /// Candidate strip/inner interface exceeds the position gate.
     InterfacePositionUnsatisfied,
     /// Candidate strip/inner interface exceeds the tangent gate.
@@ -107,6 +109,9 @@ impl ExactBoundaryMultiPatchDeclineReason {
             }
             Self::SupportStripBandUnsatisfied => {
                 "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+            }
+            Self::BoundaryTangentSupportIncompatible => {
+                "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible"
             }
             Self::InterfacePositionUnsatisfied => {
                 "exact_boundary_cap.multipatch.interface_g0_exceeded"
@@ -157,6 +162,9 @@ impl ExactBoundaryMultiPatchDeclineReason {
                 ExactBoundaryMultiPatchValidationOrder::OuterBoundaryPosition
             }
             Self::SupportStripBandUnsatisfied => {
+                ExactBoundaryMultiPatchValidationOrder::SupportStripBand
+            }
+            Self::BoundaryTangentSupportIncompatible => {
                 ExactBoundaryMultiPatchValidationOrder::SupportStripBand
             }
             Self::InterfacePositionUnsatisfied => {

@@ -39,15 +39,18 @@ fn strip_scaffold_reuses_boundary_layout_and_rational_weights() {
     assert_eq!(scaffold.patch_name, strip.patch_name);
     assert_eq!(scaffold.surface.degree_u, boundary.degree);
     assert_eq!(scaffold.surface.knots_u, boundary.knots);
-    assert_eq!(scaffold.surface.degree_v, 1);
+    assert_eq!(scaffold.surface.degree_v, 2);
     assert_eq!(scaffold.surface.num_u, boundary.control_points.len());
-    assert_eq!(scaffold.surface.num_v, 2);
+    assert_eq!(scaffold.surface.num_v, 3);
     for index in 0..boundary.control_points.len() {
         assert_eq!(
-            scaffold.surface.control_points[index * 2],
+            scaffold.surface.control_points[index * scaffold.surface.num_v],
             boundary.control_points[index]
         );
-        assert_eq!(scaffold.surface.weights[index * 2], boundary.weights[index]);
+        assert_eq!(
+            scaffold.surface.weights[index * scaffold.surface.num_v],
+            boundary.weights[index]
+        );
     }
     assert!(scaffold.rational_boundary);
     assert!(scaffold.support_normal_row_pending);
@@ -159,13 +162,18 @@ fn support_normal_row_solves_from_ribbon_samples_with_bounded_evidence() {
     assert!(!solved.support_normal_row_pending);
     assert!(report.strip_width > 0.0);
     assert_eq!(report.support_strip_sample_count, 3);
-    assert_eq!(report.bounded_iteration_count, 4);
+    assert_eq!(report.bounded_iteration_count, 10);
     assert!(report.max_support_normal_deficit <= budget.support_normal_deficit);
     assert_eq!(report.tolerance, budget.support_normal_deficit);
     assert_ne!(
         solved.surface.control_points[1],
         solved.surface.control_points[0]
     );
+    assert_ne!(
+        solved.surface.control_points[2],
+        solved.surface.control_points[0]
+    );
+    assert_eq!(solved.surface.num_u, boundary.control_points.len() + 1);
 }
 
 #[test]
@@ -239,11 +247,11 @@ fn support_normal_row_declines_with_source_handles_and_local_tolerance() {
 
     assert_eq!(
         diagnostic.reason,
-        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied
+        ExactBoundaryMultiPatchDeclineReason::BoundaryTangentSupportIncompatible
     );
     assert_eq!(
         diagnostic.code,
-        "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+        "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible"
     );
     assert_eq!(
         diagnostic.validation_order,
