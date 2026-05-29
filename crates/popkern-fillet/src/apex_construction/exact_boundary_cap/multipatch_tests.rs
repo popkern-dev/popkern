@@ -79,6 +79,83 @@ fn orchestrator_declines_oversized_strip_before_surface_allocation() {
 }
 
 #[test]
+fn orchestrator_robustness_matrix_covers_accept_and_decline_classes() {
+    let sector = sector_input();
+    let accepted = [
+        (
+            "linear-forward",
+            line_boundary(),
+            ExactBoundaryStripBoundaryDirection::Forward,
+        ),
+        (
+            "cubic-forward",
+            cubic_boundary(),
+            ExactBoundaryStripBoundaryDirection::Forward,
+        ),
+        (
+            "cubic-reversed",
+            cubic_boundary(),
+            ExactBoundaryStripBoundaryDirection::Reversed,
+        ),
+    ];
+    for (name, boundary, direction) in accepted {
+        let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
+            sector: &sector,
+            selected_sides: &[ExactBoundaryOuterSide::FaceEdge],
+            boundary: &boundary,
+            boundary_direction: direction,
+            support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+            pole: Point3::new(0.5, 0.7, 0.0),
+            budget: tight_budget(),
+        });
+        assert_eq!(
+            attempt.report.outcome,
+            ExactBoundaryMultiPatchCandidateOutcome::CommitEligible,
+            "{name}"
+        );
+        assert_eq!(
+            attempt.report.performance.deterministic_skip_code, None,
+            "{name}"
+        );
+    }
+
+    let declined = [
+        (
+            "incompatible-support-normal",
+            cubic_boundary(),
+            ExactBoundaryStripBoundaryDirection::Forward,
+            Vec3::new(1.0, 0.0, 0.0),
+            ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
+        ),
+        (
+            "oversized-controls",
+            oversized_boundary(),
+            ExactBoundaryStripBoundaryDirection::Forward,
+            Vec3::new(0.0, 0.0, 1.0),
+            ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
+        ),
+    ];
+    for (name, boundary, direction, support_normal, reason) in declined {
+        let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
+            sector: &sector,
+            selected_sides: &[ExactBoundaryOuterSide::FaceEdge],
+            boundary: &boundary,
+            boundary_direction: direction,
+            support_samples: &support_samples(support_normal),
+            pole: Point3::new(0.5, 0.7, 0.0),
+            budget: tight_budget(),
+        });
+        assert_eq!(
+            attempt.report.outcome,
+            ExactBoundaryMultiPatchCandidateOutcome::Declined,
+            "{name}"
+        );
+        assert_eq!(attempt.report.diagnostics[0].reason, reason, "{name}");
+        assert!(attempt.candidate.is_none(), "{name}");
+    }
+}
+
+#[test]
 fn orchestrator_reports_first_failed_gate_with_context() {
     let sector = sector_input();
     let boundary = cubic_boundary();
@@ -173,6 +250,15 @@ fn cubic_boundary() -> NurbsCurve {
             Point3::new(1.0, 0.0, 0.0),
         ],
         weights: vec![1.0; 4],
+    }
+}
+
+fn line_boundary() -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(1.0, 0.0, 0.0)],
+        weights: vec![1.0; 2],
     }
 }
 
