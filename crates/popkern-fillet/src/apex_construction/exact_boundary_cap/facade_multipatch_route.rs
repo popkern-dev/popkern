@@ -11,7 +11,9 @@ use super::super::boundary::{PreparedExactBoundaryCurve, PreparedExactBoundaryCu
 use super::super::commit::commit_exact_boundary_sector_surfaces;
 use super::super::corner::PreparedExactBoundaryInnerSpokes;
 use super::super::multipatch::budget::ExactBoundaryMultiPatchBudget;
-use super::super::multipatch::report::ExactBoundaryMultiPatchCandidateOutcome;
+use super::super::multipatch::report::{
+    ExactBoundaryMultiPatchCandidateOutcome, ExactBoundaryMultiPatchDiagnostic,
+};
 use super::super::multipatch::strip::ExactBoundaryStripBoundaryDirection;
 use super::super::multipatch::{
     ExactBoundaryMultiPatchCandidate, ExactBoundaryMultiPatchCandidateRequest,
@@ -135,9 +137,10 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
             && Some(ribbon.support_half_edge) == diagnostic.support_half_edge
             && Some(ribbon.support_face) == diagnostic.support_face
     })?;
-    let support_samples =
-        dense_support_samples(boundary, pcurves, ribbon).unwrap_or_else(|| ribbon.samples.clone());
+    let support_pair = pcurve_pair_for_ribbon(pcurves, ribbon)?;
+    let support_samples = dense_support_samples(boundary, support_pair, ribbon);
     let selected_sides = [side];
+    let budget = ExactBoundaryMultiPatchBudget::default();
     let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
         sector,
         selected_sides: &selected_sides,
@@ -145,14 +148,35 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples,
         pole: inner_spokes.pole,
-        budget: ExactBoundaryMultiPatchBudget::default(),
+        budget,
     });
     match attempt.report.outcome {
         ExactBoundaryMultiPatchCandidateOutcome::CommitEligible => {
+            let Some(candidate) = attempt.candidate else {
+                return None;
+            };
+            if let Some(diagnostic) = selected_strip_live_equivalent_diagnostic(
+                sector,
+                &candidate,
+                boundary,
+                support_pair,
+                budget,
+            ) {
+                let diagnostic_code = diagnostic.code.clone();
+                diagnostics.push(diagnostic.into_apex_diagnostic());
+                return Some(ExactBoundaryMultipatchRouteAttempt {
+                    step: ExactBoundaryRouteDecisionStep::declined(
+                        "exact_boundary.multipatch",
+                        Some(diagnostic_code),
+                    ),
+                    sector: sector.clone(),
+                    candidate: None,
+                });
+            }
             Some(ExactBoundaryMultipatchRouteAttempt {
                 step: ExactBoundaryRouteDecisionStep::commit_eligible("exact_boundary.multipatch"),
                 sector: sector.clone(),
-                candidate: attempt.candidate,
+                candidate: Some(candidate),
             })
         }
         ExactBoundaryMultiPatchCandidateOutcome::Declined => {
@@ -208,16 +232,22 @@ fn diagnostic_continuity_residual(diagnostic: &ApexConstructionDiagnostic) -> f6
     }
 }
 
-fn dense_support_samples(
-    boundary: &PreparedExactBoundaryCurve,
-    pcurves: &PreparedExactBoundaryPcurves,
+fn pcurve_pair_for_ribbon<'a>(
+    pcurves: &'a PreparedExactBoundaryPcurves,
     ribbon: &super::super::ribbon::PreparedExactBoundaryRibbon,
-) -> Option<Vec<ExactBoundaryRibbonSample>> {
-    let pair = pcurves.pairs.iter().find(|pair| {
+) -> Option<&'a PreparedExactBoundaryPcurvePair> {
+    pcurves.pairs.iter().find(|pair| {
         pair.sector_name == ribbon.sector_name
             && pair.side == ribbon.side
             && pair.edge == ribbon.edge
-    })?;
+    })
+}
+
+fn dense_support_samples(
+    boundary: &PreparedExactBoundaryCurve,
+    pair: &PreparedExactBoundaryPcurvePair,
+    ribbon: &super::super::ribbon::PreparedExactBoundaryRibbon,
+) -> Vec<ExactBoundaryRibbonSample> {
     let mut samples = ribbon.samples.clone();
     for index in 0..64 {
         let parameter = index as f64 / 63.0;
@@ -236,7 +266,7 @@ fn dense_support_samples(
             .partial_cmp(&b.parameter)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    Some(samples)
+    samples
 }
 
 fn dense_support_sample(
@@ -277,6 +307,136 @@ fn nearest_support_sample(
             .partial_cmp(&(b.parameter - parameter).abs())
             .unwrap_or(std::cmp::Ordering::Equal)
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CandidateSupportSeamReport {
+    max_g1_deficit: f64,
+    sample_parameter: f64,
+}
+
+fn selected_strip_live_equivalent_diagnostic(
+    sector: &ExactBoundaryCapSectorInput,
+    candidate: &ExactBoundaryMultiPatchCandidate,
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    budget: ExactBoundaryMultiPatchBudget,
+) -> Option<ExactBoundaryMultiPatchDiagnostic> {
+    let report = selected_strip_support_seam_report(candidate, boundary, support_pair)?;
+    (report.max_g1_deficit > budget.support_normal_deficit).then(|| {
+        ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+            sector,
+            &candidate.strip_inventory,
+            report.max_g1_deficit,
+            report.sample_parameter,
+            budget.support_normal_deficit,
+            Vec::new(),
+        )
+    })
+}
+
+fn selected_strip_support_seam_report(
+    candidate: &ExactBoundaryMultiPatchCandidate,
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> Option<CandidateSupportSeamReport> {
+    let cap_pcurve = &candidate.strip_candidate.outer_pcurve;
+    let support_pcurve = &support_pair.support_pcurve;
+    let (cap_lo, cap_hi) = cap_pcurve.parameter_range();
+    let (support_lo, support_hi) = support_pcurve.parameter_range();
+    let boundary_start = boundary.curve.point_at(0.0);
+    let boundary_end = boundary.curve.point_at(1.0);
+    let cap_forward = pcurve_follows_boundary(
+        &candidate.strip_candidate.surface,
+        cap_pcurve,
+        boundary_start,
+        boundary_end,
+    );
+    let support_forward = pcurve_follows_boundary(
+        &support_pair.support_surface,
+        support_pcurve,
+        boundary_start,
+        boundary_end,
+    );
+
+    let mut report = CandidateSupportSeamReport {
+        max_g1_deficit: 0.0,
+        sample_parameter: 0.0,
+    };
+    for index in 0..100 {
+        let parameter = 0.05 + 0.90 * index as f64 / 99.0;
+        let cap_s = if cap_forward {
+            parameter
+        } else {
+            1.0 - parameter
+        };
+        let support_s = if support_forward {
+            parameter
+        } else {
+            1.0 - parameter
+        };
+        let cap_uv = cap_pcurve.point_at(cap_lo + cap_s * (cap_hi - cap_lo));
+        let support_uv =
+            support_pcurve.point_at(support_lo + support_s * (support_hi - support_lo));
+        let Some(deficit) = normal_deficit_between_surfaces(
+            &candidate.strip_candidate.surface,
+            cap_uv.x,
+            cap_uv.y,
+            &support_pair.support_surface,
+            support_uv.x,
+            support_uv.y,
+        ) else {
+            continue;
+        };
+        if deficit > report.max_g1_deficit {
+            report = CandidateSupportSeamReport {
+                max_g1_deficit: deficit,
+                sample_parameter: parameter,
+            };
+        }
+    }
+    Some(report)
+}
+
+fn normal_deficit_between_surfaces(
+    cap_surface: &impl SurfaceEval,
+    cap_u: f64,
+    cap_v: f64,
+    support_surface: &impl SurfaceEval,
+    support_u: f64,
+    support_v: f64,
+) -> Option<f64> {
+    let cap_normal = cap_surface
+        .partial_u(cap_u, cap_v)
+        .cross(&cap_surface.partial_v(cap_u, cap_v));
+    let support_normal = support_surface
+        .partial_u(support_u, support_v)
+        .cross(&support_surface.partial_v(support_u, support_v));
+    let cap_length = cap_normal.length();
+    let support_length = support_normal.length();
+    if cap_length <= 1.0e-300
+        || support_length <= 1.0e-300
+        || !cap_length.is_finite()
+        || !support_length.is_finite()
+    {
+        return None;
+    }
+    Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
+}
+
+fn pcurve_follows_boundary(
+    surface: &impl SurfaceEval,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    boundary_start: popkern_core::geometry::Point3,
+    boundary_end: popkern_core::geometry::Point3,
+) -> bool {
+    let (lo, hi) = pcurve.parameter_range();
+    let start_uv = pcurve.point_at(lo);
+    let end_uv = pcurve.point_at(hi);
+    let start = surface.point_at(start_uv.x, start_uv.y);
+    let end = surface.point_at(end_uv.x, end_uv.y);
+    boundary_start.distance_to(&start) + boundary_end.distance_to(&end)
+        <= boundary_start.distance_to(&end) + boundary_end.distance_to(&start)
 }
 
 fn diagnostic_side(

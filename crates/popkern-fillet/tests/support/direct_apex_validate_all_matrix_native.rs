@@ -214,34 +214,52 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     assert_eq!(
         multipatch_step.outcome,
         ExactBoundaryRouteDecisionOutcome::Declined,
-        "pyramid3 multipatch route must decline after live cap/support quality fails"
+        "pyramid3 multipatch route must decline before live commit when selected strip quality fails"
     );
     assert!(
-        multipatch_step.diagnostic_code.as_deref() == Some("cap_outer_g1_exceeds_gate"),
-        "multipatch retained-boundary binding should resolve G0 and leave the G1 gate as the blocker; got {:?}",
+        multipatch_step.diagnostic_code.as_deref()
+            == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied"),
+        "multipatch selected-strip validation should identify the unsatisfied support-normal gate; got {:?}",
         multipatch_step.diagnostic_code
     );
-    let cap_support_diagnostic = result
+    let multipatch_diagnostic = route
+        .exact_boundary_report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.stage == "exact_boundary_cap.multipatch"
+                && diagnostic.code == "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(31v1)"
+        })
+        .expect("multipatch decline must promote edge31 selected-strip support-normal evidence");
+    assert_eq!(
+        format!("{:?}", multipatch_diagnostic.edge.expect("edge")),
+        "EdgeHandle(31v1)",
+        "multipatch diagnostic must identify the actual worst selected strip edge"
+    );
+    let multipatch_apex_diagnostic = result
         .repair_report
         .apex_diagnostics
         .iter()
         .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                if diagnostic.stage == "exact_boundary_cap.multipatch"
+                    && diagnostic.code
+                        == "exact_boundary_cap.multipatch.support_strip_band_unsatisfied"
+                    && diagnostic
+                        .edge
+                        .map(|edge| format!("{edge:?}") == "EdgeHandle(31v1)")
+                        .unwrap_or(false) =>
+            {
+                Some(diagnostic)
+            }
             _ => None,
         })
-        .expect("multipatch decline must promote cap/support continuity evidence");
+        .expect("multipatch decline must promote support-strip evidence");
     assert_eq!(
-        format!("{:?}", cap_support_diagnostic.edge),
+        format!("{:?}", multipatch_apex_diagnostic.edge.expect("edge")),
         "EdgeHandle(31v1)",
-        "cap/support diagnostic must identify the actual worst G1 seam"
-    );
-    assert!(
-        route
-            .exact_boundary_report
-            .diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic.stage != "exact_boundary_cap.multipatch"),
-        "commit-eligible multipatch route must not export stale decline diagnostics"
+        "apex diagnostic must identify the actual worst selected strip edge"
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
@@ -249,16 +267,18 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             action.stage == "exact_boundary_cap.route_decision"
                 && action.outcome == "declined"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && action.reason.as_deref() == Some("cap_outer_g1_exceeds_gate")
+                && action.reason.as_deref()
+                    == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied")
         }),
-        "repair action artifact must preserve multipatch cap/support continuity decline"
+        "repair action artifact must preserve multipatch selected-strip decline"
     );
     assert!(
         artifact.actions.iter().any(|action| {
-            action.stage == "apex_cap_support_continuity"
+            action.stage == "exact_boundary_cap.multipatch"
                 && action.outcome == "declined"
-                && action.reason.as_deref() == Some("cap_outer_g1_exceeds_gate")
+                && action.reason.as_deref()
+                    == Some("exact_boundary_cap.multipatch.support_strip_band_unsatisfied")
         }),
-        "repair action artifact must expose the measured cap/support continuity blocker"
+        "repair action artifact must expose the measured selected-strip blocker"
     );
 }
