@@ -219,6 +219,7 @@ mod brep_edge_surface_compatibility_shared_facts;
 mod brep_edge_surface_compatibility_single_surface;
 mod brep_edge_surface_compatibility_trim_candidate;
 mod brep_edge_surface_compatibility_vertex_candidate;
+mod brep_edge_surface_compatibility_vertex_candidate_geometry;
 mod brep_edge_surface_compatibility_vertex_star;
 mod brep_edge_surface_compatibility_vertex_star_repair;
 pub use brep_edge_surface_compatibility::{

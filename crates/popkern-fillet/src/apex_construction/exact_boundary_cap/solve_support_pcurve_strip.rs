@@ -11,11 +11,14 @@ use super::super::ribbon::{
 use super::super::sector::ExactBoundaryOuterSide;
 use super::ExactBoundarySolvedSurfaces;
 use super::solve_support_pcurve_optimize::optimize_pair_controls;
+use super::solve_support_pcurve_residual::worst_cap_support_position_residual;
 use super::solve_support_strip::{
     MAX_ITERATIONS, MAX_SUPPORT_NORMAL_DEFICIT, StripSide, correct_strip_point_least_norm,
     interior_rational_strip_basis, scaled_target_derivatives, strip_curve,
     support_normal_deficit_at,
 };
+
+const MAX_REFINED_BOUNDARY_RESIDUAL: f64 = 1.0e-6;
 
 pub(crate) fn refine_support_normal_strips_with_pcurves(
     solved: &mut ExactBoundarySolvedSurfaces,
@@ -47,7 +50,12 @@ pub(crate) fn refine_support_normal_strips_with_pcurves(
     }
     let candidate_deficit = first_pcurve_decline_deficit(&candidate, pcurves, ribbons)
         .unwrap_or_else(|| worst_pcurve_support_normal_deficit(&candidate, pcurves, ribbons));
-    if candidate_deficit.is_finite() && candidate_deficit < baseline_deficit {
+    let candidate_boundary_residual =
+        worst_cap_support_position_residual(&candidate, pcurves, ribbons);
+    if candidate_deficit.is_finite()
+        && candidate_deficit < baseline_deficit
+        && candidate_boundary_residual <= MAX_REFINED_BOUNDARY_RESIDUAL
+    {
         *solved = candidate;
     }
 }
@@ -237,7 +245,7 @@ fn strip_target(
     } else {
         let boundary_point = surface.point_at(cap_uv.x, cap_uv.y);
         let step = surface_derivative_control_step(surface, side).max(1.0e-9);
-        let Some(target_point) = best_local_target_point(
+        let target_point = best_local_target_point(
             surface,
             side,
             parameter,
@@ -247,9 +255,7 @@ fn strip_target(
             cap_uv.y,
             sample.support_normal,
             sample.cross_derivative,
-        ) else {
-            return None;
-        };
+        )?;
         (target_point, 1.0)
     };
     Some(StripTarget {
@@ -263,6 +269,7 @@ fn strip_target(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn best_local_target_point(
     surface: &NurbsSurface,
     side: StripSide,
@@ -403,6 +410,7 @@ fn apply_best_pcurve_strip_target(
     false
 }
 
+#[allow(clippy::needless_range_loop)]
 fn solve_vector_system(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<Vec3>) -> Option<Vec<Vec3>> {
     let n = rhs.len();
     for pivot in 0..n {
@@ -457,9 +465,8 @@ pub(super) fn strip_side_from_cap_uv(
     v: f64,
 ) -> Option<(StripSide, f64)> {
     match side {
-        ExactBoundaryOuterSide::FilletEnd if v.abs() <= 1.0e-3 => Some((StripSide::FilletEnd, u)),
-        ExactBoundaryOuterSide::FaceEdge if u.abs() <= 1.0e-3 => Some((StripSide::FaceEdge, v)),
-        _ => None,
+        ExactBoundaryOuterSide::FilletEnd => Some((StripSide::FilletEnd, u)),
+        ExactBoundaryOuterSide::FaceEdge => Some((StripSide::FaceEdge, v)),
     }
 }
 

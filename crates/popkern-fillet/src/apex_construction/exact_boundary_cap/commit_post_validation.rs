@@ -63,6 +63,9 @@ fn post_commit_validation_failed(
         support_half_edge: None,
         shared_trim_failure: None,
         residual,
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
     }
 }
 

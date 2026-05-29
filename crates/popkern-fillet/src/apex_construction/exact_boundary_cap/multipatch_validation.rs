@@ -1,5 +1,5 @@
 //! Validation gates for multi-patch exact-boundary cap candidates.
-#![allow(dead_code)]
+#![allow(dead_code, clippy::result_large_err)]
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;

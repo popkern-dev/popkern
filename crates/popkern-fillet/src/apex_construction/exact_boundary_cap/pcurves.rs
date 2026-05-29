@@ -327,17 +327,12 @@ fn ribbon_for(
         .find(|ribbon| ribbon.sector_index == sector_index && ribbon.side == side)
 }
 
-fn cap_pcurve_for_side(side: ExactBoundaryOuterSide) -> Pcurve {
-    match side {
-        ExactBoundaryOuterSide::FilletEnd => Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0),
-        ExactBoundaryOuterSide::FaceEdge => Pcurve::linear((0.0, 0.0), (0.0, 1.0), 0.0, 1.0),
-    }
-}
-
 fn authored_cap_pcurve(
     sector: &PreparedExactBoundarySectorBoundary,
     side: ExactBoundaryOuterSide,
 ) -> Pcurve {
+    let (fillet_start, fillet_end) = sector.fillet_boundary.curve.parameter_range();
+    let (face_start, face_end) = sector.face_boundary.curve.parameter_range();
     let reversed = match side {
         ExactBoundaryOuterSide::FilletEnd => boundary_reversed(
             &sector.fillet_boundary.curve,
@@ -348,14 +343,30 @@ fn authored_cap_pcurve(
         }
     };
     match (side, reversed) {
-        (ExactBoundaryOuterSide::FilletEnd, false) => cap_pcurve_for_side(side),
-        (ExactBoundaryOuterSide::FilletEnd, true) => {
-            Pcurve::linear((1.0, 0.0), (0.0, 0.0), 0.0, 1.0)
-        }
-        (ExactBoundaryOuterSide::FaceEdge, false) => cap_pcurve_for_side(side),
-        (ExactBoundaryOuterSide::FaceEdge, true) => {
-            Pcurve::linear((0.0, 1.0), (0.0, 0.0), 0.0, 1.0)
-        }
+        (ExactBoundaryOuterSide::FilletEnd, false) => Pcurve::linear(
+            (fillet_start, face_start),
+            (fillet_end, face_start),
+            0.0,
+            1.0,
+        ),
+        (ExactBoundaryOuterSide::FilletEnd, true) => Pcurve::linear(
+            (fillet_end, face_start),
+            (fillet_start, face_start),
+            0.0,
+            1.0,
+        ),
+        (ExactBoundaryOuterSide::FaceEdge, false) => Pcurve::linear(
+            (fillet_start, face_start),
+            (fillet_start, face_end),
+            0.0,
+            1.0,
+        ),
+        (ExactBoundaryOuterSide::FaceEdge, true) => Pcurve::linear(
+            (fillet_start, face_end),
+            (fillet_start, face_start),
+            0.0,
+            1.0,
+        ),
     }
 }
 

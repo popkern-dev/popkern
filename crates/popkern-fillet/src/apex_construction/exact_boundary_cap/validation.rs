@@ -1,8 +1,5 @@
 //! Validation gates for exact-boundary apex cap candidates.
-
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::healing::deviation::edge_surface_deviation;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
+#![allow(clippy::result_large_err)]
 
 use super::corner::PreparedExactBoundaryInnerSpokes;
 use super::pcurves::PreparedExactBoundaryPcurves;
@@ -10,6 +7,9 @@ use super::ribbon::{PreparedExactBoundaryRibbon, PreparedExactBoundaryRibbons};
 use super::sector::ExactBoundaryCapSectorInput;
 use super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 use super::topology::ExactBoundarySectorTopology;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::healing::deviation::edge_surface_deviation;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 #[path = "validation_support_normal.rs"]
 mod validation_support_normal;

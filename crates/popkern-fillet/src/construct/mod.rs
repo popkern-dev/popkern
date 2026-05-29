@@ -13,12 +13,23 @@ pub(crate) mod corner_patch_support_completion;
 pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
+mod exact_boundary_cap_trim_fit;
+mod exact_boundary_cap_trim_restore;
+mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
 /// Re-export of the late-pipeline clamp pass for use by `fillet_edges`
 /// after `fix_stale_pcurves` has run.
 pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
     gregory_pcurve_clamp::clamp_bounded_pcurves(brep)
+}
+
+/// Restore exact-boundary cap trim authority after generic Phase 5 pcurve repair.
+pub fn restore_exact_boundary_cap_pcurves_post_phase5(
+    brep: &mut popkern_core::topology::BRep,
+    repair_report: &mut crate::types::BlendRepairReport,
+) {
+    exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves(brep, repair_report);
 }
 #[cfg(test)]
 mod apex_termination_spike;

@@ -1,4 +1,5 @@
 //! Support-normal continuity validation for exact-boundary cap candidates.
+#![allow(clippy::result_large_err)]
 
 use popkern_core::geometry::surface::SurfaceEval;
 

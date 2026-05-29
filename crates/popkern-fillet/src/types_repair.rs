@@ -16,6 +16,9 @@ use super::types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 pub struct BlendRepairReport {
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
+    /// Straight edge curves reauthored to terminate at their owning topology
+    /// vertices after late blend topology rewrites.
+    pub edge_curve_endpoint_coherence_repairs: usize,
     /// Per-apex construction route decisions for legacy/direct-apex migration tracking.
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
     /// Structured apex construction diagnostics and declined repair candidates.

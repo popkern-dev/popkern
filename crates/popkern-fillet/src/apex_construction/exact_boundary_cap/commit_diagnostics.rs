@@ -2,7 +2,7 @@
 
 use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle, SharedTrimEdgeFailureReason};
 
-use super::sector::ExactBoundaryCapSectorInput;
+use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 
 /// Stable decline reason for the BRep commit boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,6 +28,8 @@ pub(crate) enum ExactBoundaryCommitDeclineReason {
     SupportFaceSubdivisionRequired,
     /// Atomic shared trim validation rejected the committed edge/pcurve triple.
     SharedTrimValidationFailed,
+    /// Live cap/support pcurves no longer agree after support-side resolution.
+    LivePcurvePairResidualExceeded,
     /// Final BRep validation rejected the committed exact-boundary topology.
     PostCommitValidationFailed,
 }
@@ -51,6 +53,9 @@ impl ExactBoundaryCommitDeclineReason {
             }
             Self::SharedTrimValidationFailed => {
                 "exact_boundary_cap.commit.shared_trim_validation_failed"
+            }
+            Self::LivePcurvePairResidualExceeded => {
+                "exact_boundary_cap.commit.live_pcurve_pair_residual_exceeded"
             }
             Self::PostCommitValidationFailed => {
                 "exact_boundary_cap.commit.post_commit_validation_failed"
@@ -80,6 +85,12 @@ pub(crate) struct ExactBoundaryCommitDiagnostic {
     pub shared_trim_failure: Option<SharedTrimEdgeFailureReason>,
     /// Measured validation residual, when available.
     pub residual: Option<f64>,
+    /// Sector-local side being committed, when available.
+    pub outer_side: Option<ExactBoundaryOuterSide>,
+    /// Normalized sample parameter at the measured maximum, when available.
+    pub sample_parameter: Option<f64>,
+    /// Local tolerance used by the commit gate, when available.
+    pub tolerance: Option<f64>,
 }
 
 impl ExactBoundaryCommitDiagnostic {
@@ -98,6 +109,9 @@ impl ExactBoundaryCommitDiagnostic {
             support_half_edge: None,
             shared_trim_failure: None,
             residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
         }
     }
 
@@ -118,6 +132,9 @@ impl ExactBoundaryCommitDiagnostic {
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual: None,
+            outer_side: Some(sector.outer_seams[side_index].side),
+            sample_parameter: None,
+            tolerance: None,
         }
     }
 
@@ -139,6 +156,9 @@ impl ExactBoundaryCommitDiagnostic {
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual,
+            outer_side: Some(sector.outer_seams[side_index].side),
+            sample_parameter: None,
+            tolerance: None,
         }
     }
 
@@ -160,6 +180,9 @@ impl ExactBoundaryCommitDiagnostic {
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual: Some(residual),
+            outer_side: Some(sector.outer_seams[side_index].side),
+            sample_parameter: None,
+            tolerance: None,
         }
     }
 
@@ -184,6 +207,34 @@ impl ExactBoundaryCommitDiagnostic {
                     .max(failure.validation.max_side_agreement_deviation)
                     .max(failure.validation.max_endpoint_gap),
             ),
+            outer_side: Some(sector.outer_seams[side_index].side),
+            sample_parameter: None,
+            tolerance: None,
+        }
+    }
+
+    pub(crate) fn live_pcurve_pair_residual_exceeded(
+        sector: &ExactBoundaryCapSectorInput,
+        side_index: usize,
+        cap_half_edge: HalfEdgeHandle,
+        support_half_edge: HalfEdgeHandle,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self {
+            reason: ExactBoundaryCommitDeclineReason::LivePcurvePairResidualExceeded,
+            code: ExactBoundaryCommitDeclineReason::LivePcurvePairResidualExceeded.code(),
+            sector_name: Some(sector.sector_name.clone()),
+            face: Some(sector.cap_face),
+            edge: Some(sector.outer_seams[side_index].edge),
+            cap_half_edge: Some(cap_half_edge),
+            support_half_edge: Some(support_half_edge),
+            shared_trim_failure: None,
+            residual: Some(residual),
+            outer_side: Some(sector.outer_seams[side_index].side),
+            sample_parameter: Some(sample_parameter),
+            tolerance: Some(tolerance),
         }
     }
 
@@ -199,9 +250,9 @@ impl ExactBoundaryCommitDiagnostic {
                 support_half_edge: self.support_half_edge.or(self.cap_half_edge),
                 support_face: self.face,
                 residual: self.residual,
-                outer_side: None,
-                sample_parameter: None,
-                tolerance: None,
+                outer_side: self.outer_side.map(|side| format!("{side:?}")),
+                sample_parameter: self.sample_parameter,
+                tolerance: self.tolerance,
                 shared_fact_ids: Vec::new(),
             },
         )
@@ -225,6 +276,9 @@ mod tests {
             support_half_edge: None,
             shared_trim_failure: None,
             residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
         };
 
         let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(apex) =

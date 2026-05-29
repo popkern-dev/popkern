@@ -58,12 +58,6 @@ pub fn repair_brep_face_use_trim_authority_transactionally(
         if finding.kind == BrepFaceUseTrimAuthorityFindingKind::MissingPcurve {
             continue;
         }
-        if repaired
-            .face_use_pcurve(finding.face, finding.half_edge)
-            .is_some()
-        {
-            continue;
-        }
         let Some(pcurve) =
             synthesize_face_use_pcurve(&repaired, finding.face, finding.half_edge, options)
         else {

@@ -7,10 +7,16 @@ use popkern_core::topology::{
 
 #[path = "commit_helpers.rs"]
 mod commit_helpers;
+#[path = "commit_live_boundary_validation.rs"]
+mod commit_live_boundary_validation;
+#[path = "commit_pcurve_orientation.rs"]
+mod commit_pcurve_orientation;
 #[path = "commit_post_validation.rs"]
 mod commit_post_validation;
 #[path = "commit_support_loop.rs"]
 mod commit_support_loop;
+#[path = "commit_surface_equivalence.rs"]
+mod commit_surface_equivalence;
 use super::cap_spoke_commit::commit_cap_spoke_shared_trims;
 pub(crate) use super::commit_diagnostics::{
     ExactBoundaryCommitDeclineReason, ExactBoundaryCommitDiagnostic,
@@ -24,6 +30,8 @@ use commit_helpers::{
     normalize_semantic_line_edge_curve, project_curve_to_half_edge_pcurve,
     resolved_support_side_for_commit, reversed_pcurve, solved_surface,
 };
+use commit_live_boundary_validation::live_pcurve_pair_residual;
+use commit_pcurve_orientation::orient_pcurve_to_half_edge_vertices;
 pub(crate) use commit_post_validation::post_commit_validation_diagnostic;
 use commit_support_loop::{assign_loop_valid_support_surface, support_loop_surface_residual};
 
@@ -214,7 +222,7 @@ fn commit_validated_inputs(
                 ExactBoundaryOuterSide::FaceEdge => 1,
             };
             let cap_half_edge = sector.cap_half_edges[side_index];
-            let support_half_edge = pair.support_half_edge;
+            let support_half_edge = sector.support_half_edges[side_index];
             normalize_semantic_line_edge_curve(brep, pair.edge);
             brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
             let cap_surface = brep.faces[sector.cap_face]
@@ -231,8 +239,10 @@ fn commit_validated_inputs(
             let (support_half_edge, support_face) = resolved_support_side_for_commit(
                 brep,
                 pair.side,
+                sector.cap_face,
                 cap_half_edge,
                 support_half_edge,
+                sector.outer_seams[side_index].support_face,
                 &pair.support_surface,
             )
             .ok_or_else(|| {
@@ -301,6 +311,12 @@ fn commit_validated_inputs(
                     )
                 }
             })?;
+            let cap_pcurve = orient_pcurve_to_half_edge_vertices(
+                brep,
+                cap_half_edge,
+                pair.cap_pcurve.clone(),
+                &cap_surface,
+            );
             let cap_edge = brep.half_edges[cap_half_edge].edge;
             let support_edge = brep.half_edges[support_half_edge].edge;
             let support_is_cap_twin = brep.half_edges[cap_half_edge].twin == support_half_edge;
@@ -318,7 +334,7 @@ fn commit_validated_inputs(
                     brep,
                     cap_edge,
                     cap_half_edge,
-                    &pair.cap_pcurve,
+                    &cap_pcurve,
                     &cap_surface,
                 )
                 .ok_or_else(|| {
@@ -342,8 +358,45 @@ fn commit_validated_inputs(
                     )
                 })?
             };
-            brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
+            let support_pcurve = orient_pcurve_to_half_edge_vertices(
+                brep,
+                support_half_edge,
+                support_pcurve,
+                &support_surface,
+            );
+            brep.half_edges[cap_half_edge].pcurve = Some(cap_pcurve.clone());
             brep.half_edges[support_half_edge].pcurve = Some(support_pcurve.clone());
+            let live_pair_tolerance = brep.tolerance.linear().max(5.0e-2);
+            let live_pair = live_pcurve_pair_residual(
+                &cap_pcurve,
+                &cap_surface,
+                &support_pcurve,
+                &support_surface,
+            )
+            .ok_or_else(|| {
+                ExactBoundaryCommitDiagnostic::live_pcurve_pair_residual_exceeded(
+                    sector,
+                    side_index,
+                    cap_half_edge,
+                    support_half_edge,
+                    f64::INFINITY,
+                    0.0,
+                    live_pair_tolerance,
+                )
+            })?;
+            if live_pair.residual > live_pair_tolerance {
+                return Err(
+                    ExactBoundaryCommitDiagnostic::live_pcurve_pair_residual_exceeded(
+                        sector,
+                        side_index,
+                        cap_half_edge,
+                        support_half_edge,
+                        live_pair.residual,
+                        live_pair.sample_parameter,
+                        live_pair_tolerance,
+                    ),
+                );
+            }
             if cap_edge != support_edge
                 || !support_is_cap_twin
                 || support_is_residual_patch
@@ -354,7 +407,7 @@ fn commit_validated_inputs(
                     brep,
                     cap_edge,
                     cap_half_edge,
-                    &pair.cap_pcurve,
+                    &cap_pcurve,
                     &cap_surface,
                 ) {
                     brep.edges[cap_edge].curve = Some(cap_curve);
@@ -377,7 +430,7 @@ fn commit_validated_inputs(
                 SharedTrimCurveSelection {
                     edge: pair.edge,
                     cap_half_edge,
-                    cap_pcurve: &pair.cap_pcurve,
+                    cap_pcurve: &cap_pcurve,
                     cap_surface: &cap_surface,
                     support_half_edge,
                     support_pcurve: &support_pcurve,
@@ -398,7 +451,7 @@ fn commit_validated_inputs(
                     half_edge_a: cap_half_edge,
                     half_edge_b: support_half_edge,
                     curve: curve.clone(),
-                    pcurve_a: pair.cap_pcurve.clone(),
+                    pcurve_a: cap_pcurve.clone(),
                     pcurve_b: support_pcurve.clone(),
                     tolerance: 1.0e-6,
                     validate_brep: false,
@@ -413,7 +466,7 @@ fn commit_validated_inputs(
                         half_edge_a: cap_half_edge,
                         half_edge_b: support_half_edge,
                         curve,
-                        pcurve_a: pair.cap_pcurve.clone(),
+                        pcurve_a: cap_pcurve.clone(),
                         pcurve_b: reversed_support_pcurve,
                         tolerance: 1.0e-6,
                         validate_brep: false,

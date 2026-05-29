@@ -207,5 +207,8 @@ fn diagnostic(
         support_half_edge: Some(half_edge_b),
         shared_trim_failure: None,
         residual,
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
     }
 }

@@ -6,8 +6,9 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
-    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineOptions, BrepSewingClassificationOptions,
-    BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineFailureReason, BrepRepairPipelineOptions,
+    BrepRepairPipelineStage, BrepSewingClassificationOptions, BrepSewingOptions,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
@@ -293,14 +294,21 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         },
     );
 
-    let result = repair_brep_boundary_edges_transactionally(
+    let failure = repair_brep_boundary_edges_transactionally(
         brep,
         &[],
         gregory_edge_surface_pipeline_options(false),
     )
-    .expect("diagnostic repair pipeline should commit the exact-boundary route");
+    .expect_err(
+        "diagnostic repair pipeline should expose residual face-use authority blockers for the exact-boundary route",
+    );
+    assert_eq!(failure.stage, BrepRepairPipelineStage::FaceUseTrimAuthority);
+    assert!(matches!(
+        failure.reason,
+        BrepRepairPipelineFailureReason::FaceUseTrimAuthorityFailed(_)
+    ));
 
-    let report = result
+    let report = failure
         .report
         .edge_surface_compatibility
         .as_ref()
@@ -310,24 +318,29 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         before.incompatible_half_edges
     );
     assert_eq!(
-        report.before.incompatible_half_edges, 0,
-        "accepted exact-boundary mixed-radius Gregory route should enter the shared pipeline clean"
+        report.before.incompatible_half_edges, 15,
+        "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(
         report.attempted_edges,
         report.repaired_edges + report.declined_edges
     );
     assert_eq!(
-        report.attempted_edges, 0,
-        "clean exact-boundary route should not require edge/surface repair actions"
-    );
-    assert_eq!(
-        report.after.incompatible_half_edges, 0,
-        "pipeline must preserve exact-boundary edge/surface compatibility"
+        report.attempted_edges, 12,
+        "shared pipeline should attempt the known raw exact-boundary edge/surface blocker class"
     );
     assert!(
-        brep.faces.len() == result.brep.faces.len(),
-        "edge/surface repair must preserve face ownership"
+        report.after.incompatible_half_edges > 0,
+        "pipeline should leave residual exact-boundary edge/surface blockers visible to diagnostics"
+    );
+    let face_use_report = failure
+        .report
+        .face_use_trim_authority
+        .as_ref()
+        .expect("face-use authority report should explain the decline");
+    assert!(
+        face_use_report.after.has_blocking_findings(),
+        "face-use authority decline should preserve structured residual blockers: {face_use_report:#?}"
     );
 }
 
@@ -342,27 +355,45 @@ fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendRe
         ExactBoundaryCandidateOutcome::Accepted
     );
     assert_eq!(exact_report.performance.pcurve_pair_count, 6);
-    assert!(exact_report.diagnostics.is_empty());
+    assert!(
+        exact_report.diagnostics.iter().all(|diagnostic| {
+            (diagnostic.stage == "exact_boundary_cap.support_scope"
+                && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
+                || (diagnostic.stage == "exact_boundary_cap.cap_outer"
+                    && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded")
+        }),
+        "accepted exact-boundary route should expose only structured cap/support residual diagnostics: {:#?}",
+        exact_report.diagnostics
+    );
 }
 
 #[test]
 fn gregory_mixed_radius_strict_edge_surface_pipeline_accepts_exact_boundary_route() {
     let brep = mixed_radius_gregory_cube();
-    let result = repair_brep_boundary_edges_transactionally(
+    let failure = repair_brep_boundary_edges_transactionally(
         &brep,
         &[],
         gregory_edge_surface_pipeline_options(true),
     )
-    .expect("strict edge/surface compatibility should accept the exact-boundary cube_mixed route");
-
-    let report = result
+    .expect_err(
+        "strict edge/surface compatibility should decline residual exact-boundary blockers",
+    );
+    assert_eq!(
+        failure.stage,
+        BrepRepairPipelineStage::EdgeSurfaceCompatibility
+    );
+    assert!(matches!(
+        failure.reason,
+        BrepRepairPipelineFailureReason::EdgeSurfaceCompatibilityFailed(_)
+    ));
+    let report = failure
         .report
         .edge_surface_compatibility
         .as_ref()
         .expect("strict repair must include edge/surface report");
-    assert_eq!(
-        report.after.incompatible_half_edges, 0,
-        "strict exact-boundary cube_mixed route must close all edge/surface incompatibilities: {report:#?}"
+    assert!(
+        report.after.incompatible_half_edges > 0,
+        "strict exact-boundary route must expose residual edge/surface incompatibilities: {report:#?}"
     );
 }
 

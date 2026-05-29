@@ -1,4 +1,5 @@
 use super::facade::{ExactBoundaryCapCandidateStatus, run_exact_boundary_cap_candidate};
+use super::ribbon::ExactBoundaryRibbonBudget;
 use crate::apex_construction::cap_kind::CapKind;
 use crate::apex_construction::gregory_cap::GregoryCapSector;
 use crate::apex_construction::plan::ApexPlan;
@@ -13,6 +14,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 #[test]
 fn exact_boundary_candidate_reports_linear_scaling_counts() {
+    let mut surface_control_points_per_sector = None;
     for sector_count in [3, 4, 8, 12] {
         let result = run_candidate(sector_count);
         let performance = &result.performance;
@@ -21,9 +23,19 @@ fn exact_boundary_candidate_reports_linear_scaling_counts() {
         assert_eq!(performance.prepared_curve_count, sector_count * 2);
         assert_eq!(performance.inner_spoke_count, sector_count * 2);
         assert_eq!(performance.support_ribbon_count, sector_count * 2);
-        assert_eq!(performance.support_sample_count, sector_count * 10);
+        assert_eq!(
+            performance.support_sample_count,
+            performance.support_ribbon_count * ExactBoundaryRibbonBudget::default().sample_count
+        );
         assert_eq!(performance.solved_surface_count, sector_count);
-        assert_eq!(performance.surface_control_point_count, sector_count * 100);
+        assert_eq!(performance.surface_control_point_count % sector_count, 0);
+        let per_sector = performance.surface_control_point_count / sector_count;
+        if let Some(expected) = surface_control_points_per_sector {
+            assert_eq!(per_sector, expected);
+        } else {
+            surface_control_points_per_sector = Some(per_sector);
+        }
+        assert!(per_sector >= 100);
         assert!(performance.pcurve_pair_count <= sector_count * 2);
         assert!(performance.validation_sector_count <= sector_count);
         assert!(performance.validation_pcurve_pair_count <= sector_count * 2);

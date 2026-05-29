@@ -8,6 +8,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
+use super::commit_surface_equivalence::equivalent_surface;
 
 pub(super) struct SharedTrimCurveSelection<'a> {
     pub(super) edge: EdgeHandle,
@@ -22,24 +23,38 @@ pub(super) struct SharedTrimCurveSelection<'a> {
 pub(super) fn resolved_support_side_for_commit(
     brep: &BRep,
     side: ExactBoundaryOuterSide,
+    cap_face: FaceHandle,
     cap_half_edge: HalfEdgeHandle,
     support_half_edge: HalfEdgeHandle,
+    prepared_support_face: FaceHandle,
     prepared_support_surface: &SurfaceGeometry,
 ) -> Option<(HalfEdgeHandle, FaceHandle)> {
     let support_face = face_for_half_edge(brep, support_half_edge)?;
-    if support_face_needs_semantic_owner(brep, support_face, prepared_support_surface)
+    if support_face == prepared_support_face
+        && !support_face_needs_semantic_owner(brep, support_face, prepared_support_surface)
+    {
+        return Some((support_half_edge, support_face));
+    }
+    if let Some(prepared_side) =
+        coincident_prepared_support_side(brep, cap_half_edge, prepared_support_face)
+    {
+        return Some((prepared_side, prepared_support_face));
+    }
+    if support_face != cap_face
+        && support_face_needs_semantic_owner(brep, support_face, prepared_support_surface)
         && let Some(surface_side) =
-            coincident_surface_support_side(brep, cap_half_edge, prepared_support_surface)
+            coincident_surface_support_side(brep, cap_face, cap_half_edge, prepared_support_surface)
     {
         return Some(surface_side);
     }
     if side == ExactBoundaryOuterSide::FilletEnd
         && !half_edge_has_cylinder_surface(brep, support_half_edge)
-        && let Some(cylinder_side) = same_oriented_cylinder_support_side(brep, cap_half_edge)
+        && let Some(cylinder_side) =
+            same_oriented_cylinder_support_side(brep, cap_face, cap_half_edge)
     {
         return Some(cylinder_side);
     }
-    Some((support_half_edge, support_face))
+    (support_face != cap_face).then_some((support_half_edge, support_face))
 }
 
 fn support_face_needs_semantic_owner(
@@ -68,6 +83,7 @@ fn half_edge_has_cylinder_surface(brep: &BRep, half_edge: HalfEdgeHandle) -> boo
 
 fn coincident_surface_support_side(
     brep: &BRep,
+    cap_face: FaceHandle,
     cap_half_edge: HalfEdgeHandle,
     prepared_support_surface: &SurfaceGeometry,
 ) -> Option<(HalfEdgeHandle, FaceHandle)> {
@@ -75,6 +91,9 @@ fn coincident_surface_support_side(
     let edge_curve = brep.edges.get(cap_edge)?.curve.as_ref();
     let tolerance = brep.tolerance.linear().max(1.0e-6);
     for (face, face_data) in brep.faces.iter() {
+        if face == cap_face {
+            continue;
+        }
         let Some(surface) = face_data.surface.as_ref() else {
             continue;
         };
@@ -105,11 +124,27 @@ fn coincident_surface_support_side(
     None
 }
 
+fn coincident_prepared_support_side(
+    brep: &BRep,
+    cap_half_edge: HalfEdgeHandle,
+    prepared_support_face: FaceHandle,
+) -> Option<HalfEdgeHandle> {
+    let face_data = brep.faces.get(prepared_support_face)?;
+    let sides = collect_loop_half_edges(brep, face_data.outer_loop)?;
+    sides
+        .into_iter()
+        .find(|side| coincident_side(brep, cap_half_edge, *side))
+}
+
 fn same_oriented_cylinder_support_side(
     brep: &BRep,
+    cap_face: FaceHandle,
     cap_half_edge: HalfEdgeHandle,
 ) -> Option<(HalfEdgeHandle, FaceHandle)> {
     for (face, face_data) in brep.faces.iter() {
+        if face == cap_face {
+            continue;
+        }
         let Some(surface) = face_data.surface.as_ref() else {
             continue;
         };
@@ -134,56 +169,6 @@ fn surface_matches_prepared_support(
     tolerance: f64,
 ) -> bool {
     equivalent_surface(&candidate.geometry, prepared, tolerance)
-}
-
-fn equivalent_surface(a: &SurfaceGeometry, b: &SurfaceGeometry, tolerance: f64) -> bool {
-    match (a, b) {
-        (
-            SurfaceGeometry::Plane {
-                origin: origin_a,
-                normal: normal_a,
-                ..
-            },
-            SurfaceGeometry::Plane {
-                origin: origin_b,
-                normal: normal_b,
-                ..
-            },
-        ) => {
-            let len_a = normal_a.length();
-            let len_b = normal_b.length();
-            if len_a <= 1.0e-12 || len_b <= 1.0e-12 {
-                return false;
-            }
-            let parallel = (normal_a.dot(normal_b) / (len_a * len_b)).abs() >= 1.0 - 1.0e-10;
-            let offset = ((*origin_b - *origin_a).dot(normal_a) / len_a).abs();
-            parallel && offset <= tolerance.max(1.0e-9)
-        }
-        (
-            SurfaceGeometry::Cylinder {
-                origin: origin_a,
-                axis: axis_a,
-                radius: radius_a,
-            },
-            SurfaceGeometry::Cylinder {
-                origin: origin_b,
-                axis: axis_b,
-                radius: radius_b,
-            },
-        ) => {
-            let len_a = axis_a.length();
-            let len_b = axis_b.length();
-            if len_a <= 1.0e-12 || len_b <= 1.0e-12 {
-                return false;
-            }
-            let parallel = (axis_a.dot(axis_b) / (len_a * len_b)).abs() >= 1.0 - 1.0e-10;
-            let axis_gap = (*origin_b - *origin_a).cross(axis_a).length() / len_a;
-            parallel
-                && axis_gap <= tolerance.max(1.0e-9)
-                && (*radius_a - *radius_b).abs() <= tolerance
-        }
-        _ => false,
-    }
 }
 
 fn collect_loop_half_edges(

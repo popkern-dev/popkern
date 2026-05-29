@@ -1,4 +1,5 @@
 //! Live topology materialization for exact-boundary multi-patch commits.
+#![allow(clippy::result_large_err)]
 
 use popkern_core::geometry::{CurveEval, CurveOnEdge, NurbsCurve, Point3};
 use popkern_core::topology::{

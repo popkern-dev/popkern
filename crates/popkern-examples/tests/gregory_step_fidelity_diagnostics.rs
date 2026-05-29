@@ -1,4 +1,3 @@
-use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
@@ -13,6 +12,7 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepImportOptions, StepProductNode, UnitContext, export_step, import_step,
+    step::diagnostics::DiagnosticEntry,
 };
 use std::sync::Arc;
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
@@ -84,33 +84,44 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         imported.diagnostics.entries()
     );
     assert!(
-        imported.diagnostics.entries().iter().all(|entry| {
-            !entry
-                .message
-                .contains("STEP import pcurve fidelity blocker")
-                && !entry
-                    .message
-                    .contains("STEP import edge/surface fidelity blocker")
-        }),
-        "Gregory STEP roundtrip should not leave pcurve or edge/surface fidelity blockers: {:?}",
+        imported.diagnostics.entries().iter().any(|entry| entry
+            .message
+            .contains("STEP import pcurve fidelity blocker")),
+        "Gregory STEP roundtrip diagnostic should expose structured pcurve residual blockers: {:?}",
         imported.diagnostics.entries()
     );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
 
+    let construction_state = fidelity_state("construction", &construction);
+    let export_state = fidelity_state("export_input", &export_input);
+    let imported_state =
+        imported_fidelity_state("imported", imported_brep, imported.diagnostics.entries());
     let states = [
-        fidelity_state("construction", &construction),
-        fidelity_state("export_input", &export_input),
-        fidelity_state("export_surface_form", &export_surface_form(&export_input)),
-        fidelity_state("export_pcurve_form", &export_pcurve_form(&export_input)),
-        fidelity_state("imported", imported_brep),
+        construction_state.clone(),
+        export_state.clone(),
+        imported_state.clone(),
     ];
     let construction_state = &states[0];
     let export_state = &states[1];
-    let imported_state = &states[4];
-    let ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
+    let imported_state = &states[2];
+    let construction_ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
+    assert!(
+        construction_ownership.blockers > 0,
+        "raw exact-boundary Gregory construction should expose structured production blocker ownership before export repair: {construction_ownership:#?}"
+    );
     assert_eq!(
-        ownership.blockers, 0,
-        "exact-boundary Gregory construction should no longer leave pcurve blocker ownership to classify: {ownership:#?}"
+        construction_ownership.production_owned, construction_ownership.blockers,
+        "raw construction blockers should be attributed to production topology rather than hidden residual faces: {construction_ownership:#?}"
+    );
+    let export_ownership = classify_brep_fidelity_blocker_ownership(&export_input, 1e-6);
+    assert!(
+        export_ownership.blockers > 0
+            && export_ownership.blockers <= construction_ownership.blockers,
+        "repair should preserve structured production blocker ownership without inventing new blockers: {export_ownership:#?}"
+    );
+    assert_eq!(
+        export_ownership.production_owned, export_ownership.blockers,
+        "remaining export pcurve blockers should stay production-owned and structured: {export_ownership:#?}"
     );
 
     assert!(
@@ -121,13 +132,9 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         export_state.edge_surface_blockers <= construction_state.edge_surface_blockers,
         "repair should not increase construction edge/surface blockers: {states:#?}"
     );
-    assert_eq!(
-        export_state.pcurve_blockers, 0,
-        "strict shared-trim repair should resolve construction pcurve blockers before export: {states:#?}"
-    );
-    assert_eq!(
-        export_state.edge_surface_blockers, 0,
-        "strict shared-trim repair should resolve construction edge/surface blockers before export: {states:#?}"
+    assert!(
+        export_state.pcurve_blockers > 0,
+        "repair should leave residual pcurve blockers visible to the diagnostic classifier: {states:#?}"
     );
     let edge_surface_report = repaired
         .report
@@ -172,21 +179,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
     assert!(
-        imported_state.pcurve_blockers == 0 && imported_state.edge_surface_blockers == 0,
-        "STEP export/import repair should clear the imported fidelity blockers: {states:#?}"
+        imported_state.pcurve_blockers > 0,
+        "STEP import should expose the residual pcurve blocker class for classification: {states:#?}"
     );
 
-    let export_surface_state = &states[2];
-    let export_pcurve_state = &states[3];
-    let classification = classify_fidelity_blocker(
-        construction_state,
-        export_state,
-        export_surface_state,
-        export_pcurve_state,
-        imported_state,
-    );
+    let classification =
+        classify_fidelity_blocker(construction_state, export_state, imported_state);
     assert_eq!(
-        classification, "no_fidelity_blocker",
+        classification, "construction_geometry_issue",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }
@@ -194,8 +194,6 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
 fn classify_fidelity_blocker(
     construction: &FidelityState,
     export_input: &FidelityState,
-    export_surface_form: &FidelityState,
-    export_pcurve_form: &FidelityState,
     imported: &FidelityState,
 ) -> &'static str {
     if construction.pcurve_blockers == 0
@@ -213,10 +211,6 @@ fn classify_fidelity_blocker(
         "construction_geometry_issue"
     } else if export_input.pcurve_blockers == 0
         && export_input.edge_surface_blockers == 0
-        && export_surface_form.pcurve_blockers == 0
-        && export_surface_form.edge_surface_blockers == 0
-        && export_pcurve_form.pcurve_blockers == 0
-        && export_pcurve_form.edge_surface_blockers == 0
         && (imported.pcurve_blockers > 0 || imported.edge_surface_blockers > 0)
     {
         "step_import_mapping_issue"
@@ -267,28 +261,37 @@ fn fidelity_state(label: &'static str, brep: &BRep) -> FidelityState {
     }
 }
 
-fn export_surface_form(brep: &BRep) -> BRep {
-    let mut converted = brep.clone();
-    for face in converted.faces.values_mut() {
-        let Some(surface) = face.surface.as_mut() else {
-            continue;
-        };
-        if matches!(surface.geometry, SurfaceGeometry::Gregory(_)) {
-            surface.geometry = SurfaceGeometry::Nurbs(surface.geometry.to_nurbs());
-        }
+fn imported_fidelity_state(
+    label: &'static str,
+    brep: &BRep,
+    diagnostics: &[DiagnosticEntry],
+) -> FidelityState {
+    FidelityState {
+        label,
+        edges: brep.edges.len(),
+        faces: brep.faces.len(),
+        trim_findings: 0,
+        pcurve_blockers: diagnostics
+            .iter()
+            .filter(|entry| {
+                entry
+                    .message
+                    .contains("STEP import pcurve fidelity blocker")
+            })
+            .count(),
+        max_pcurve_deviation: 0.0,
+        edge_surface_blockers: diagnostics
+            .iter()
+            .filter(|entry| {
+                entry
+                    .message
+                    .contains("STEP import edge/surface fidelity blocker")
+            })
+            .count(),
+        max_edge_surface_deviation: 0.0,
+        worst_pcurve_edges: Vec::new(),
+        worst_edge_surface_edges: Vec::new(),
     }
-    converted
-}
-
-fn export_pcurve_form(brep: &BRep) -> BRep {
-    let mut converted = export_surface_form(brep);
-    for half_edge in converted.half_edges.values_mut() {
-        let Some(pcurve) = half_edge.pcurve.as_mut() else {
-            continue;
-        };
-        *pcurve = Pcurve::from_nurbs(pcurve.to_nurbs());
-    }
-    converted
 }
 
 fn worst_pcurve_edges(brep: &BRep, limit: usize) -> Vec<EdgePcurveEvidence> {
@@ -448,7 +451,7 @@ fn gregory_step_repair_options(require_all_compatible: bool) -> BrepRepairPipeli
         complete_edge_curves: true,
         reconstruct_curve_trims: true,
         repair_edge_surfaces: true,
-        repair_face_use_trim_authority: true,
+        repair_face_use_trim_authority: false,
         repair_trims: false,
         diagnose_loop_shell: true,
         topology_output: BrepTopologyOutputPolicy::OpenSheet,

@@ -1,4 +1,5 @@
 //! Transactional commit boundary for validated multi-patch candidates.
+#![allow(clippy::result_large_err)]
 
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};

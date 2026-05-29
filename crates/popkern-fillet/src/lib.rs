@@ -376,6 +376,19 @@ fn fillet_edges_internal(
         &mut apply_result.brep,
         &apply_result.corner_patches,
     );
+    construct::restore_exact_boundary_cap_pcurves_post_phase5(
+        &mut apply_result.brep,
+        &mut apply_result.repair_report,
+    );
+    apply_result
+        .repair_report
+        .edge_curve_endpoint_coherence_repairs +=
+        apply_result.brep.separate_nonmanifold_edge_uses();
+    apply_result
+        .repair_report
+        .edge_curve_endpoint_coherence_repairs += apply_result
+        .brep
+        .repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
@@ -445,7 +458,8 @@ fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry
 }
 
 fn first_structural_validation_error(brep: &BRep) -> Option<String> {
-    brep.validate_all()
+    let errors = brep.validate_all();
+    errors
         .into_iter()
         .find(|err| {
             matches!(

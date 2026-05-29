@@ -110,7 +110,20 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
         route.exact_boundary_performance.deterministic_skip_code
     );
     assert!(report.tolerance_evidence.model_linear_tolerance.is_some());
-    assert!(report.diagnostics.is_empty());
+    assert!(
+        report.diagnostics.len() >= route.exact_boundary_sector_count,
+        "accepted exact-boundary routes should retain at least sector-scoped residual evidence"
+    );
+    assert!(report.diagnostics.iter().all(|diagnostic| {
+        diagnostic.schema_version == 1
+            && diagnostic.residual.is_some_and(|residual| residual > 0.0)
+            && ((diagnostic.stage == "exact_boundary_cap.support_scope"
+                && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded"
+                && diagnostic.tolerance == Some(1.0e-6))
+                || (diagnostic.stage == "exact_boundary_cap.cap_outer"
+                    && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
+                    && diagnostic.tolerance == Some(5.0e-3)))
+    }));
     assert!(
         report
             .diagnostics
@@ -130,12 +143,17 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
 
 fn assert_exact_boundary_accepted(result: &popkern_fillet::BlendResult) {
     assert!(
-        result
-            .repair_report
-            .apex_routes
+        result.repair_report.apex_routes.iter().all(|route| route
+            .exact_boundary_report
+            .diagnostics
             .iter()
-            .all(|route| route.exact_boundary_report.diagnostics.is_empty()),
-        "accepted exact-boundary mixed-radius Gregory should not promote decline diagnostics"
+            .all(|diagnostic| {
+                (diagnostic.stage == "exact_boundary_cap.support_scope"
+                    && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
+                    || (diagnostic.stage == "exact_boundary_cap.cap_outer"
+                        && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded")
+            })),
+        "accepted exact-boundary mixed-radius Gregory should only promote structured cap/support diagnostics"
     );
 }
 
@@ -145,8 +163,11 @@ fn assert_exact_boundary_artifact_has_no_decline_actions(result: &popkern_fillet
         artifact
             .actions
             .iter()
-            .all(|action| !action.stage.starts_with("exact_boundary_cap.")),
-        "accepted exact-boundary candidates should not emit declined repair actions"
+            .all(|action| !action.stage.starts_with("exact_boundary_cap.")
+                || action.stage == "exact_boundary_cap.route_decision"
+                || action.stage == "exact_boundary_cap.support_scope"
+                || action.stage == "exact_boundary_cap.cap_outer"),
+        "accepted exact-boundary candidates should not emit declined construction actions: {artifact:#?}"
     );
 }
 

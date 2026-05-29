@@ -255,7 +255,17 @@ pub fn repair_brep_edge_surface_compatibility_transactionally(
         if !edge_is_currently_incompatible(&repaired, edge, options) {
             continue;
         }
-        let decision = repair_edge(&mut repaired, &knowledge, edge, options);
+        let before_edge_repair = options.validate_output.then(|| repaired.clone());
+        let mut decision = repair_edge(&mut repaired, &knowledge, edge, options);
+        if decision_is_authored(&decision)
+            && let Some(before_edge_repair) = before_edge_repair
+            && repaired.validate().is_err()
+        {
+            repaired = before_edge_repair;
+            decision.outcome = BrepEdgeSurfaceCompatibilityRepairOutcome::Declined(
+                BrepEdgeSurfaceCompatibilityDeclineReason::SharedTrimValidationFailed,
+            );
+        }
         record_repair_decision(&mut report, decision);
     }
     report.after = analyze_brep_edge_surface_compatibility(&repaired, options);
@@ -281,6 +291,14 @@ pub fn repair_brep_edge_surface_compatibility_transactionally(
         brep: repaired,
         report,
     })
+}
+
+fn decision_is_authored(decision: &BrepEdgeSurfaceCompatibilityRepairDecision) -> bool {
+    matches!(
+        decision.outcome,
+        BrepEdgeSurfaceCompatibilityRepairOutcome::RepairedFromSurfaceIntersection
+            | BrepEdgeSurfaceCompatibilityRepairOutcome::RepairedFromSurfaceBoundary
+    )
 }
 
 #[cfg(test)]

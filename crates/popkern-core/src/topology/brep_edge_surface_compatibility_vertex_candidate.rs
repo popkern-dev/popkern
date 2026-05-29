@@ -5,7 +5,7 @@ use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, SurfaceGeometry};
 use crate::topology::brep_edge_surface_compatibility::BrepEdgeSurfaceCompatibilityOptions;
 use crate::topology::brep_edge_surface_compatibility_boundary::{
-    infer_surface_boundary_side_read_only, surface_boundary_curve,
+    infer_surface_boundary_side_read_only, is_repairable_surface_pair, surface_boundary_curve,
 };
 use crate::topology::brep_edge_surface_compatibility_candidate_facts::{
     edge_surface_candidate_fact_ids, surface_boundary_fact_ids, trim_endpoint_fact_ids,
@@ -16,6 +16,9 @@ use crate::topology::brep_edge_surface_compatibility_helpers::{
 };
 use crate::topology::brep_edge_surface_compatibility_trim_candidate::{
     TrimEndpointCandidate, trim_decline, trim_endpoint_candidates_for_side,
+};
+use crate::topology::brep_edge_surface_compatibility_vertex_candidate_geometry::{
+    closest_boundary_parameter, point_centroid,
 };
 use crate::topology::{
     BRep, BrepRepairFactId, BrepRepairFactKind, BrepRepairKnowledgeGraph, EdgeHandle,
@@ -126,19 +129,22 @@ pub(super) fn proposed_vertex_position_for_edge(
     let Some((start_vertex, end_vertex)) = edge_vertices(brep, edge) else {
         return missing_surface_candidate(edge, diagnostics);
     };
-    if let Ok((triple, _)) = build_pcurve_scoped_reanchored_intersection_triple(
-        surf_a,
-        surf_b,
-        start,
-        end,
-        brep,
-        he_a,
-        he_b,
-        options.samples,
-    )
-    .or_else(|_| {
-        build_reanchored_intersection_triple(surf_a, surf_b, start, end, brep, options.samples)
-    }) {
+    if !has_boundary_owned_surface(surf_a, surf_b)
+        && is_repairable_surface_pair(surf_a, surf_b)
+        && let Ok((triple, _)) = build_pcurve_scoped_reanchored_intersection_triple(
+            surf_a,
+            surf_b,
+            start,
+            end,
+            brep,
+            he_a,
+            he_b,
+            options.samples,
+        )
+        .or_else(|_| {
+            build_reanchored_intersection_triple(surf_a, surf_b, start, end, brep, options.samples)
+        })
+    {
         let point = if vertex == start_vertex {
             Some(triple.curve_3d.point_at(triple.t_start))
         } else if vertex == end_vertex {
@@ -186,6 +192,14 @@ pub(super) fn proposed_vertex_position_for_edge(
         point: boundary.point,
         diagnostics,
     }
+}
+
+fn has_boundary_owned_surface(a: &SurfaceGeometry, b: &SurfaceGeometry) -> bool {
+    matches!(
+        (a, b),
+        (SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_), _)
+            | (_, SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_))
+    )
 }
 
 fn boundary_vertex_position_for_edge(
@@ -372,55 +386,6 @@ fn best_side_candidate_agreement(
         }
     }
     best
-}
-
-fn closest_boundary_parameter(
-    curve: &NurbsCurve,
-    target: Point3,
-    t_start: f64,
-    t_end: f64,
-    samples: usize,
-) -> Option<f64> {
-    let mut best_index = 0usize;
-    let mut best_distance = f64::INFINITY;
-    for index in 0..samples {
-        let f = index as f64 / (samples - 1) as f64;
-        let t = t_start + (t_end - t_start) * f;
-        let distance = curve.point_at(t).distance_to(&target);
-        if distance < best_distance {
-            best_distance = distance;
-            best_index = index;
-        }
-    }
-    if !best_distance.is_finite() {
-        return None;
-    }
-    let step = (t_end - t_start) / (samples - 1) as f64;
-    let mut lo = t_start + step * best_index.saturating_sub(1) as f64;
-    let mut hi = t_start + step * (best_index + 1).min(samples - 1) as f64;
-    for _ in 0..32 {
-        let m1 = lo + (hi - lo) / 3.0;
-        let m2 = hi - (hi - lo) / 3.0;
-        if curve.point_at(m1).distance_to(&target) <= curve.point_at(m2).distance_to(&target) {
-            hi = m2;
-        } else {
-            lo = m1;
-        }
-    }
-    Some(0.5 * (lo + hi))
-}
-
-fn point_centroid(points: &[Point3]) -> Point3 {
-    let mut x = 0.0;
-    let mut y = 0.0;
-    let mut z = 0.0;
-    for point in points {
-        x += point.x;
-        y += point.y;
-        z += point.z;
-    }
-    let scale = 1.0 / points.len() as f64;
-    Point3::new(x * scale, y * scale, z * scale)
 }
 
 fn accepted_candidate_diagnostic(

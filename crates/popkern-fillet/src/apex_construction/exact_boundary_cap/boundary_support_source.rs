@@ -18,10 +18,15 @@ pub(super) fn validated_support_pcurve_source_curve(
 ) -> Option<NurbsCurve> {
     let support_curve = support_pcurve_source_curve(brep, seam)
         .or_else(|| projected_support_source_curve(brep, seam, edge_curve))?;
-    let (origin, destination) = super::cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
-    let direct_endpoint_gap = super::endpoint_orientation_gap(&support_curve, origin, destination);
-    let reverse_endpoint_gap = super::endpoint_orientation_gap(
-        &super::reverse_nurbs_curve(&support_curve),
+    let (origin, destination) =
+        super::boundary_curve_orientation::cap_half_edge_vertex_span(brep, seam.cap_half_edge)?;
+    let direct_endpoint_gap = super::boundary_curve_orientation::endpoint_orientation_gap(
+        &support_curve,
+        origin,
+        destination,
+    );
+    let reverse_endpoint_gap = super::boundary_curve_orientation::endpoint_orientation_gap(
+        &super::boundary_curve_orientation::reverse_nurbs_curve(&support_curve),
         origin,
         destination,
     );

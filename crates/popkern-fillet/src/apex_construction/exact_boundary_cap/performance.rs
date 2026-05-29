@@ -109,12 +109,5 @@ pub(crate) fn deterministic_skip_code(
 }
 
 fn is_deterministic_exact_boundary_decline(code: &str) -> bool {
-    code.starts_with("exact_boundary_cap.boundary.")
-        || code.starts_with("exact_boundary_cap.inner_spoke.")
-        || code.starts_with("exact_boundary_cap.ribbon.")
-        || code.starts_with("exact_boundary_cap.solve.")
-        || code.starts_with("exact_boundary_cap.pcurve.")
-        || code.starts_with("exact_boundary_cap.topology.")
-        || code.starts_with("exact_boundary_cap.validation.")
-        || code == "exact_boundary_cap.corner_derivative_conflict"
+    code.starts_with("exact_boundary_cap.")
 }

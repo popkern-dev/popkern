@@ -13,6 +13,8 @@ use solve_support_strip::apply_support_normal_strip_correction;
 mod solve_derivatives;
 #[path = "solve_support_pcurve_optimize.rs"]
 mod solve_support_pcurve_optimize;
+#[path = "solve_support_pcurve_residual.rs"]
+mod solve_support_pcurve_residual;
 #[path = "solve_support_pcurve_strip.rs"]
 mod solve_support_pcurve_strip;
 #[path = "solve_support_strip.rs"]

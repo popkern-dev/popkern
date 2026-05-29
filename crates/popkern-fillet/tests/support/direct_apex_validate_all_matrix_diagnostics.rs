@@ -135,7 +135,7 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
         let (t_lo, t_hi) = (coe.t_start, coe.t_end);
         let p_mid = coe.geometry.point_at(0.5 * (t_lo + t_hi));
         eprintln!(
-            "edge={eh:?} faces=({face_a:?}:{}, {face_b:?}:{}) cap_is_a={} g0={:.3e} dev_a={:.3e} dev_b={:.3e} curve_mid=({:.3},{:.3},{:.3}) a=({:.3},{:.3},{:.3}) b=({:.3},{:.3},{:.3})",
+            "edge={eh:?} faces=({face_a:?}:{}, {face_b:?}:{}) cap_is_a={} g0={:.3e} dev_a={:.3e} dev_b={:.3e} curve_mid=({:.3},{:.3},{:.3}) a_uv=({:.3},{:.3}) b_uv=({:.3},{:.3}) a=({:.3},{:.3},{:.3}) b=({:.3},{:.3},{:.3})",
             kind(&sa.geometry),
             kind(&sb.geometry),
             a_is_cap,
@@ -145,6 +145,10 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
             p_mid.x,
             p_mid.y,
             p_mid.z,
+            uv_a.x,
+            uv_a.y,
+            uv_b.x,
+            uv_b.y,
             p_a.x,
             p_a.y,
             p_a.z,

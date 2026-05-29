@@ -48,6 +48,18 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
             shared_fact_ids: Vec::new(),
         });
     }
+    if report.edge_curve_endpoint_coherence_repairs > 0 {
+        actions.push(BrepRepairActionRecord {
+            stage: "edge_curve_endpoint_coherence".to_string(),
+            outcome: "authored".to_string(),
+            subject: "edge_curve_endpoints".to_string(),
+            reason: Some("stale_curve_endpoint".to_string()),
+            max_motion: 0.0,
+            max_deviation: 0.0,
+            affected_handles: Vec::new(),
+            shared_fact_ids: Vec::new(),
+        });
+    }
     let mut apex_attempted = 0usize;
     let mut apex_authored = 0usize;
     let mut apex_declined = 0usize;
@@ -63,8 +75,13 @@ pub fn build_blend_repair_action_artifact(report: &BlendRepairReport) -> BrepRep
     );
     BrepRepairActionArtifact {
         summary: BrepRepairActionSummary {
-            attempted_actions: seam.candidates + rolled_back + apex_attempted,
-            authored_actions: seam.authored + apex_authored,
+            attempted_actions: seam.candidates
+                + rolled_back
+                + apex_attempted
+                + report.edge_curve_endpoint_coherence_repairs,
+            authored_actions: seam.authored
+                + apex_authored
+                + report.edge_curve_endpoint_coherence_repairs,
             declined_actions: seam.declined + apex_declined,
             rolled_back_actions: rolled_back,
             max_motion: seam.max_endpoint_motion,

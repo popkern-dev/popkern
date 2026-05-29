@@ -1,13 +1,18 @@
 //! Exact-boundary curve preparation for apex cap sectors.
 
+use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::topology::{BRep, EdgeHandle};
 
+#[path = "boundary_curve_orientation.rs"]
+mod boundary_curve_orientation;
 #[path = "boundary_support_source.rs"]
 mod boundary_support_source;
 
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBoundaryOuterSide};
+use boundary_curve_orientation::{
+    cap_half_edge_vertex_span, endpoint_orientation_gap, reverse_nurbs_curve,
+};
 use boundary_support_source::validated_support_pcurve_source_curve;
 
 const VERIFY_SAMPLES: usize = 9;
@@ -222,10 +227,20 @@ fn oriented_source_curve(
     let raw_curve = curve_on_edge
         .geometry
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
-    if let Some(support_curve) = validated_support_pcurve_source_curve(brep, seam, &raw_curve) {
+    if !has_non_unit_weights(&raw_curve)
+        && let Some(support_curve) = validated_support_pcurve_source_curve(brep, seam, &raw_curve)
+    {
         return prepared_source_from_curve(brep, sector, seam, support_curve);
     }
     prepared_source_from_curve(brep, sector, seam, raw_curve)
+}
+
+fn has_non_unit_weights(curve: &NurbsCurve) -> bool {
+    curve.weights.len() == curve.control_points.len()
+        && curve
+            .weights
+            .iter()
+            .any(|weight| (*weight - 1.0).abs() > 1.0e-9)
 }
 
 fn prepared_source_from_curve(
@@ -294,33 +309,6 @@ fn orient_curve_to_cap_half_edge(
     ))
 }
 
-fn cap_half_edge_vertex_span(
-    brep: &BRep,
-    half_edge: popkern_core::topology::HalfEdgeHandle,
-) -> Option<(Point3, Point3)> {
-    let half_edge_data = brep.half_edges.get(half_edge)?;
-    let origin = brep.vertices.get(half_edge_data.origin)?.position;
-    let destination_vertex = brep
-        .half_edges
-        .get(half_edge_data.twin)
-        .map(|twin| twin.origin)
-        .or_else(|| {
-            brep.half_edges
-                .get(half_edge_data.next)
-                .map(|next| next.origin)
-        })?;
-    let destination = brep.vertices.get(destination_vertex)?.position;
-    Some((origin, destination))
-}
-
-fn endpoint_orientation_gap(curve: &NurbsCurve, origin: Point3, destination: Point3) -> f64 {
-    let (start, end) = curve.parameter_range();
-    curve
-        .point_at(start)
-        .distance_to(&origin)
-        .max(curve.point_at(end).distance_to(&destination))
-}
-
 fn diagnostic_source_curve(
     sector: &ExactBoundaryCapSectorInput,
     seam: &ExactBoundaryOuterSeam,
@@ -362,6 +350,7 @@ fn elevate_to_target(
     budget: ExactBoundaryCurveBudget,
 ) -> Result<PreparedSourceCurve, ExactBoundaryCurveDiagnostic> {
     if curve.prepared.degree > budget.target_degree {
+        check_budget(&curve, budget)?;
         return Err(ExactBoundaryCurveDiagnostic::new(
             ExactBoundaryCurveDeclineReason::DegreeCompatibilityDeclined,
             &curve,
@@ -473,27 +462,5 @@ fn verify_prepared_curve(curve: &PreparedSourceCurve) -> Result<(), ExactBoundar
         ))
     } else {
         Ok(())
-    }
-}
-
-fn reverse_nurbs_curve(curve: &NurbsCurve) -> NurbsCurve {
-    let first = *curve.knots.first().unwrap_or(&0.0);
-    let last = *curve.knots.last().unwrap_or(&1.0);
-    let mut knots: Vec<f64> = curve
-        .knots
-        .iter()
-        .rev()
-        .map(|k| first + last - *k)
-        .collect();
-    knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mut control_points: Vec<Point3> = curve.control_points.clone();
-    control_points.reverse();
-    let mut weights = curve.weights.clone();
-    weights.reverse();
-    NurbsCurve {
-        degree: curve.degree,
-        knots,
-        control_points,
-        weights,
     }
 }

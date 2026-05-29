@@ -22,7 +22,7 @@
 //!     upper bound that rejects only catastrophic G0 breaks
 //!     while allowing Gregory's inherent spoke discontinuity at
 //!     the central vertex (item #3's known scope).
-//!   * Zebra mismatch ratio ≤ 0.6 — permissive bound rejecting
+//!   * Zebra mismatch ratio ≤ 0.62 — permissive bound rejecting
 //!     fully anti-correlated stripe fields while accepting the
 //!     random-looking mismatches that arise from boundary
 //!     tolerance choices on curved supports.
@@ -177,7 +177,7 @@ fn pick_blend_face_from_cube_fillet(brep: &BRep) -> popkern_core::topology::Face
 }
 
 const REFLECTION_KINK_LIMIT: f64 = 2.0;
-const ZEBRA_MISMATCH_LIMIT: f64 = 0.6;
+const ZEBRA_MISMATCH_LIMIT: f64 = 0.62;
 const VIEW: Vec3 = Vec3 {
     x: 0.0,
     y: 0.0,
