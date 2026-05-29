@@ -22,6 +22,9 @@ pub(crate) mod commit;
 #[path = "multipatch_inner.rs"]
 mod inner;
 
+#[path = "multipatch_inner_geometry.rs"]
+mod inner_geometry;
+
 #[path = "multipatch_inventory.rs"]
 mod inventory;
 
@@ -282,6 +285,7 @@ pub(crate) fn prepare_multipatch_candidate(
         request.sector,
         strip,
         interface_inventory,
+        &strip_candidate,
         &interface,
         request.pole,
         request.budget.pole_g0,

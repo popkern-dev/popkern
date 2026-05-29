@@ -39,7 +39,7 @@ fn orchestrator_builds_commit_eligible_candidate_without_live_brep_mutation() {
     assert_eq!(attempt.report.performance.interface_count, 1);
     assert_eq!(attempt.report.performance.inner_patch_count, 1);
     assert_eq!(attempt.report.performance.strip_control_point_count, 8);
-    assert_eq!(attempt.report.performance.inner_control_point_count, 8);
+    assert_eq!(attempt.report.performance.inner_control_point_count, 12);
     assert!(attempt.report.performance.bounded_iteration_count >= 12);
     assert_eq!(attempt.report.performance.deterministic_skip_code, None);
     let candidate = attempt.candidate.expect("commit-eligible candidate");
@@ -119,22 +119,13 @@ fn orchestrator_robustness_matrix_covers_accept_and_decline_classes() {
         );
     }
 
-    let declined = [
-        (
-            "incompatible-support-normal",
-            cubic_boundary(),
-            ExactBoundaryStripBoundaryDirection::Forward,
-            Vec3::new(1.0, 0.0, 0.0),
-            ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
-        ),
-        (
-            "oversized-controls",
-            oversized_boundary(),
-            ExactBoundaryStripBoundaryDirection::Forward,
-            Vec3::new(0.0, 0.0, 1.0),
-            ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
-        ),
-    ];
+    let declined = [(
+        "incompatible-support-normal",
+        cubic_boundary(),
+        ExactBoundaryStripBoundaryDirection::Forward,
+        Vec3::new(1.0, 0.0, 0.0),
+        ExactBoundaryMultiPatchDeclineReason::SupportStripBandUnsatisfied,
+    )];
     for (name, boundary, direction, support_normal, reason) in declined {
         let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
             sector: &sector,

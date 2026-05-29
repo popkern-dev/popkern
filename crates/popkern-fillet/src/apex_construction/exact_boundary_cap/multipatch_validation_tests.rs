@@ -181,11 +181,8 @@ fn strip_validation_reports_foldover_after_support_band_passes() {
     let mut fixture = solved_fixture(Vec3::new(0.0, 0.0, 1.0));
     fixture.samples.clear();
     for index in 0..fixture.candidate.surface.num_u {
-        if index % 2 == 1 {
-            let row0 = fixture.candidate.surface.control_points[index * 2];
-            fixture.candidate.surface.control_points[index * 2 + 1] =
-                row0 + Vec3::new(0.0, -0.2, 0.0);
-        }
+        let row0 = fixture.candidate.surface.control_points[index * 2];
+        fixture.candidate.surface.control_points[index * 2 + 1] = row0;
     }
 
     let diagnostic = validate_outer_strip_candidate(
@@ -228,6 +225,7 @@ fn inner_pole_validation_declines_g0_only_candidate_before_commit() {
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
+        &fixture.candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
         fixture.budget.pole_g0,
@@ -277,6 +275,7 @@ fn inner_pole_validation_accepts_candidate_after_interface_g1_measurement() {
         &fixture.sector,
         &fixture.strip,
         &inventory.interfaces[0],
+        &fixture.candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
         fixture.budget.pole_g0,

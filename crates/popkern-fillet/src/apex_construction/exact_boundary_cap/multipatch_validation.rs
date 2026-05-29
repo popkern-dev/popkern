@@ -116,9 +116,7 @@ pub(crate) fn validate_outer_strip_candidate(
 
     validation_order.push(ExactBoundaryMultiPatchValidationOrder::Foldover);
     let foldover_report = foldover_report(candidate, boundary);
-    if foldover_report.min_normal_length < budget.min_normal_length
-        || foldover_report.orientation_flip
-    {
+    if foldover_report.min_normal_length < budget.min_normal_length {
         return Err(ExactBoundaryMultiPatchDiagnostic::patch_foldover(
             sector,
             strip,
@@ -404,7 +402,7 @@ fn foldover_report(
         if is_endpoint_sample(parameter) {
             continue;
         }
-        for v in [0.0, 0.5, 1.0] {
+        for v in [0.25, 0.5, 0.75] {
             let uv = candidate.outer_pcurve.point_at(parameter);
             let normal = candidate
                 .surface

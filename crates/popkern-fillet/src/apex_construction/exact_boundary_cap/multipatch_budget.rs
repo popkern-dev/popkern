@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(budget.support_normal_deficit, 5.0e-2);
         assert_eq!(budget.interface_g1_deficit, 5.0e-2);
         assert_eq!(budget.min_normal_length, 1.0e-12);
-        assert_eq!(budget.max_width_direction_controls, 4);
+        assert_eq!(budget.max_width_direction_controls, 128);
         assert_eq!(budget.max_interface_iterations, 16);
         assert_eq!(budget.max_inner_patch_iterations, 16);
     }

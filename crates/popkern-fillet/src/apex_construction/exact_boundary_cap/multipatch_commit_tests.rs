@@ -103,7 +103,9 @@ fn commit_preflight_declines_missing_pcurve_or_interface_or_spokes() {
 
     let mut missing_spokes = commit_eligible_candidate(&sector);
     for index in 1..missing_spokes.inner_patch.surface.num_u {
-        let pole_index = index * missing_spokes.inner_patch.surface.num_v + 1;
+        let pole_index = index * missing_spokes.inner_patch.surface.num_v
+            + missing_spokes.inner_patch.surface.num_v
+            - 1;
         missing_spokes.inner_patch.surface.control_points[pole_index].x += index as f64;
     }
     let spoke_diagnostic = preflight_multipatch_commit(&sector, &missing_spokes)

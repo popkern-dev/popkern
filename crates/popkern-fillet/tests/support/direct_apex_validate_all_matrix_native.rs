@@ -171,8 +171,8 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 }
 
 #[test]
-#[ignore = "support-normal gate: pyramid3 currently accepts a residual support-normal-incompatible exact-boundary cap"]
-fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
+#[ignore = "multipatch candidate is commit-eligible; live exact-boundary topology commit remains pending"]
+fn pyramid3_uniform_exact_boundary_records_commit_eligible_multipatch_candidate() {
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let route = result
         .repair_report
@@ -182,7 +182,7 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
     assert_eq!(
         route.exact_boundary_report.candidate_status,
         ExactBoundaryCandidateOutcome::Declined,
-        "pyramid3 exact-boundary must not accept a support-normal-incompatible cap"
+        "pyramid3 exact-boundary must stay declined until the multipatch candidate commits live topology"
     );
     assert!(
         route
@@ -206,50 +206,50 @@ fn pyramid3_uniform_exact_boundary_declines_g1_instead_of_accepting_bad_cap() {
             }),
         "pyramid3 exact-boundary decline must preserve structured support-normal evidence"
     );
+    let multipatch_step = route
+        .exact_boundary_report
+        .decision_chain
+        .iter()
+        .find(|step| step.route_label == "exact_boundary.multipatch")
+        .expect("pyramid3 constrained-strip decline must record the multipatch candidate decision");
+    assert_eq!(
+        multipatch_step.outcome,
+        ExactBoundaryRouteDecisionOutcome::CommitEligible,
+        "pyramid3 multipatch candidate must pass candidate-only gates before live commit wiring"
+    );
+    assert!(
+        multipatch_step.diagnostic_code.is_none(),
+        "commit-eligible multipatch route must not carry a stale decline diagnostic code"
+    );
     assert!(
         route
             .exact_boundary_report
-            .decision_chain
+            .diagnostics
             .iter()
-            .any(|step| step.route_label == "exact_boundary.multipatch"),
-        "pyramid3 constrained-strip decline must record the multipatch candidate decision"
-    );
-    let multipatch_diagnostic = route
-        .exact_boundary_report
-        .diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic.stage == "exact_boundary_cap.multipatch")
-        .expect("pyramid3 multipatch attempt must export its structured diagnostic");
-    assert!(
-        multipatch_diagnostic
-            .code
-            .starts_with("exact_boundary_cap.multipatch."),
-        "multipatch diagnostic must stay in the multipatch namespace"
-    );
-    assert!(
-        multipatch_diagnostic.tolerance.is_some(),
-        "multipatch diagnostic must preserve the local failed tolerance gate"
-    );
-    assert!(
-        !multipatch_diagnostic.shared_fact_ids.is_empty(),
-        "multipatch diagnostic must carry shared repair fact ids for source highlighting"
+            .all(|diagnostic| diagnostic.stage != "exact_boundary_cap.multipatch"),
+        "commit-eligible multipatch route must not export stale decline diagnostics"
     );
     assert!(
         !route.exact_boundary_report.source_fact_ids.is_empty(),
-        "route report must aggregate shared fact ids from multipatch diagnostics"
+        "route report must keep source fact ids for repair/UI attribution"
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
         artifact.actions.iter().any(|action| {
             action.stage == "exact_boundary_cap.route_decision"
-                && action.outcome == "declined"
+                && action.outcome == "commit_eligible"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && action
-                    .reason
-                    .as_deref()
-                    .is_some_and(|reason| reason.starts_with("exact_boundary_cap.multipatch."))
+                && action.reason.is_none()
                 && !action.shared_fact_ids.is_empty()
         }),
-        "repair action artifact must preserve multipatch route decision and shared facts"
+        "repair action artifact must preserve multipatch commit-eligible route attribution"
+    );
+    assert!(
+        artifact.actions.iter().all(|action| {
+            !(action.stage == "exact_boundary_cap.route_decision"
+                && action.outcome == "declined"
+                && action.subject.contains("route=exact_boundary.multipatch"))
+        }),
+        "repair action artifact must not preserve stale multipatch decline actions"
     );
 }

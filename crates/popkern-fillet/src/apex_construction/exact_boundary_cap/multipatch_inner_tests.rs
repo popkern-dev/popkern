@@ -142,6 +142,7 @@ fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         pole,
         1.0e-6,
@@ -152,7 +153,7 @@ fn inner_pole_patch_prototype_connects_interface_curve_and_pole_g0() {
     assert_eq!(prototype.interface_name, interface.interface_name);
     assert_eq!(prototype.surface.degree_u, interface.curve.degree);
     assert_eq!(prototype.surface.knots_u, interface.curve.knots);
-    assert_eq!(prototype.surface.degree_v, 1);
+    assert_eq!(prototype.surface.degree_v, 2);
     assert!(prototype.max_interface_g0 <= 1.0e-6);
     assert!(prototype.max_pole_g0 <= 1.0e-6);
     assert!(!prototype.interface_g1_validated);
@@ -179,6 +180,7 @@ fn g0_only_inner_prototype_declines_before_commit_with_g1_diagnostic() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
         1.0e-6,
@@ -226,6 +228,7 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
         1.0e-6,
@@ -246,6 +249,7 @@ fn inner_pole_patch_reports_interface_g0_and_pole_g0_diagnostics() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         Point3::new(f64::NAN, 0.7, 0.0),
         1.0e-6,
@@ -270,6 +274,7 @@ fn interface_g1_measurement_marks_compatible_candidate_validated() {
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.0),
         1.0e-6,
@@ -295,20 +300,21 @@ fn interface_g1_measurement_marks_compatible_candidate_validated() {
 }
 
 #[test]
-fn interface_g1_measurement_declines_incompatible_candidate_with_worst_sample() {
+fn interface_g1_measurement_is_decoupled_from_pole_row_height() {
     let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
     let interface = interface_for_fixture(&fixture);
     let prototype = construct_inner_pole_patch_prototype(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
         &interface,
         Point3::new(0.5, 0.7, 0.8),
         1.0e-6,
     )
     .expect("tilted inner G0 prototype constructs");
 
-    let diagnostic = measure_inner_interface_g1(
+    let measured = measure_inner_interface_g1(
         &fixture.sector,
         &fixture.inventory.outer_strips[0],
         &fixture.inventory.interfaces[0],
@@ -317,21 +323,13 @@ fn interface_g1_measurement_declines_incompatible_candidate_with_worst_sample() 
         &prototype,
         5.0e-2,
     )
-    .expect_err("tilted prototype exceeds G1 gate");
+    .expect("interface G1 row is solved independently from pole height");
 
-    assert_eq!(
-        diagnostic.reason,
-        ExactBoundaryMultiPatchDeclineReason::InterfaceTangentUnsatisfied
-    );
-    assert_eq!(
-        diagnostic.code,
-        "exact_boundary_cap.multipatch.interface_g1_exceeded"
-    );
-    assert!(diagnostic.residual.expect("residual") > 5.0e-2);
-    assert!(diagnostic.sample_parameter.is_some());
-    assert_eq!(
-        diagnostic.interface_name.as_deref(),
-        Some(fixture.inventory.interfaces[0].interface_name.as_str())
+    assert!(measured.interface_g1_validated);
+    assert!(
+        measured
+            .interface_g1_report
+            .is_some_and(|report| report.max_interface_g1_deficit <= 5.0e-2)
     );
 }
 
