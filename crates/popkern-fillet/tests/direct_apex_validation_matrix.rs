@@ -12,10 +12,9 @@
 //!   Sphere only for trihedral collapsed targets whose cap boundary
 //!   is constructively valid; higher-valence uniform apices use
 //!   Gregory to preserve cap-to-cylinder geometry.
-//! * **Native Gregory fixtures** (`cube_mixed`) — direct-apex must complete
-//!   with no fallback and expose measurable cap-to-cylinder seams. `cube_mixed`
-//!   is native with G0-preserving cap/support seams, but still records the
-//!   remaining cap_outer_g1 construction-quality blocker.
+//! * **Native Gregory fixtures** (`cube_mixed`, `cube_extreme`) —
+//!   direct-apex must complete with no fallback and expose measurable,
+//!   commercial-tolerance cap-to-cylinder seams.
 //! * **Repeated-apex Gregory fixtures** (`cube_extreme`,
 //!   `pyramid3_uniform`, `pyramid4_uniform`, `pyramid4_mixed`) —
 //!   direct-apex must complete without containment fallback. Remaining
@@ -156,7 +155,6 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
 }
 
 #[test]
-#[ignore = "cap-quality gate: cube_extreme currently exposes residual exact-boundary cap_outer G0/G1 blockers"]
 fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
@@ -193,7 +191,7 @@ fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
 /// faces. Their separate quality gates belong with Sphere-cap
 /// boundary metrics.
 #[test]
-#[ignore = "cap-quality gate: cube_extreme currently fails cap_outer_g0/G1 after native DirectApex topology"]
+#[ignore = "cap-quality gate: pyramid3_uniform currently fails cap_outer_g1 after native DirectApex topology"]
 fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
     struct Case {
         name: &'static str,

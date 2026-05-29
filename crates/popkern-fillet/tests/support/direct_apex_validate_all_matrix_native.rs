@@ -93,7 +93,6 @@ fn cube_mixed_exact_boundary_cap_outer_passes_commercial_gate() {
 }
 
 #[test]
-#[ignore = "cap-quality gate: cube_extreme currently exposes residual exact-boundary cap_outer G0/G1 blockers"]
 fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
