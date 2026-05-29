@@ -71,6 +71,14 @@ pub(crate) enum ExactBoundaryMultiPatchDeclineReason {
     InnerPolePositionUnsatisfied,
     /// Candidate patch domain folds over.
     PatchFoldover,
+    /// Commit preflight found a required candidate surface missing or invalid.
+    CommitPreflightMissingSurface,
+    /// Commit preflight found a required pcurve missing or invalid.
+    CommitPreflightMissingPcurve,
+    /// Commit preflight found a required interface curve missing or invalid.
+    CommitPreflightMissingInterface,
+    /// Commit preflight found generated spoke evidence missing or invalid.
+    CommitPreflightMissingGeneratedSpoke,
 }
 
 impl ExactBoundaryMultiPatchDeclineReason {
@@ -104,6 +112,18 @@ impl ExactBoundaryMultiPatchDeclineReason {
             }
             Self::InnerPolePositionUnsatisfied => "exact_boundary_cap.multipatch.pole_g0_exceeded",
             Self::PatchFoldover => "exact_boundary_cap.multipatch.patch_foldover",
+            Self::CommitPreflightMissingSurface => {
+                "exact_boundary_cap.multipatch.commit_preflight_missing_surface"
+            }
+            Self::CommitPreflightMissingPcurve => {
+                "exact_boundary_cap.multipatch.commit_preflight_missing_pcurve"
+            }
+            Self::CommitPreflightMissingInterface => {
+                "exact_boundary_cap.multipatch.commit_preflight_missing_interface"
+            }
+            Self::CommitPreflightMissingGeneratedSpoke => {
+                "exact_boundary_cap.multipatch.commit_preflight_missing_generated_spoke"
+            }
         }
     }
 
@@ -139,6 +159,12 @@ impl ExactBoundaryMultiPatchDeclineReason {
                 ExactBoundaryMultiPatchValidationOrder::InnerPolePosition
             }
             Self::PatchFoldover => ExactBoundaryMultiPatchValidationOrder::Foldover,
+            Self::CommitPreflightMissingSurface
+            | Self::CommitPreflightMissingPcurve
+            | Self::CommitPreflightMissingInterface
+            | Self::CommitPreflightMissingGeneratedSpoke => {
+                ExactBoundaryMultiPatchValidationOrder::ReportConsistency
+            }
         }
     }
 }

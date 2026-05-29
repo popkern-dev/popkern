@@ -190,6 +190,64 @@ impl ExactBoundaryMultiPatchDiagnostic {
         .with_source_fact_ids(source_fact_ids)
     }
 
+    pub(crate) fn commit_preflight_missing_surface(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        patch_name: String,
+    ) -> Self {
+        Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitPreflightMissingSurface,
+            sector,
+            strip,
+        )
+        .with_patch_name(patch_name)
+    }
+
+    pub(crate) fn commit_preflight_missing_pcurve(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        patch_name: String,
+        interface_name: Option<String>,
+    ) -> Self {
+        let diagnostic = Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitPreflightMissingPcurve,
+            sector,
+            strip,
+        )
+        .with_patch_name(patch_name);
+        if let Some(interface_name) = interface_name {
+            diagnostic.with_interface_name(interface_name)
+        } else {
+            diagnostic
+        }
+    }
+
+    pub(crate) fn commit_preflight_missing_interface(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        interface_name: String,
+    ) -> Self {
+        Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitPreflightMissingInterface,
+            sector,
+            strip,
+        )
+        .with_interface_name(interface_name)
+    }
+
+    pub(crate) fn commit_preflight_missing_generated_spoke(
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        patch_name: String,
+    ) -> Self {
+        Self::commit_preflight_decline(
+            ExactBoundaryMultiPatchDeclineReason::CommitPreflightMissingGeneratedSpoke,
+            sector,
+            strip,
+        )
+        .with_patch_name(patch_name)
+    }
+
     fn strip_boundary_decline(
         reason: ExactBoundaryMultiPatchDeclineReason,
         sector: &ExactBoundaryCapSectorInput,
@@ -208,6 +266,19 @@ impl ExactBoundaryMultiPatchDiagnostic {
             .with_residual(residual)
             .with_tolerance(tolerance)
             .with_sample_parameter(sample_parameter)
+    }
+
+    fn commit_preflight_decline(
+        reason: ExactBoundaryMultiPatchDeclineReason,
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+    ) -> Self {
+        Self::new(reason, sector.sector_index, sector.sector_name.clone())
+            .with_side(Some(strip.side))
+            .with_edge(strip.edge)
+            .with_cap_half_edge(strip.cap_half_edge)
+            .with_support_half_edge(strip.support_half_edge)
+            .with_support_face(strip.support_face)
     }
 
     fn interface_decline(

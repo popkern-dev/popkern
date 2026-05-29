@@ -17,7 +17,7 @@ use crate::apex_construction::exact_boundary_cap::sector::{
 pub(crate) mod budget;
 
 #[path = "multipatch_commit.rs"]
-mod commit;
+pub(crate) mod commit;
 
 #[path = "multipatch_inner.rs"]
 mod inner;
