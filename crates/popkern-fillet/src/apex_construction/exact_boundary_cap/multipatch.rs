@@ -72,6 +72,8 @@ pub(crate) struct ExactBoundaryMultiPatchCandidateRequest<'a> {
     pub boundary_direction: ExactBoundaryStripBoundaryDirection,
     /// Deterministic support-ribbon samples for the selected side.
     pub support_samples: &'a [ExactBoundaryRibbonSample],
+    /// Optional support-authority 3-D boundary replacing stale source edge authority.
+    pub support_authority_boundary: Option<&'a NurbsCurve>,
     /// Candidate inner pole point.
     pub pole: Point3,
     /// Local explicit tolerances and iteration budgets.
@@ -125,6 +127,8 @@ pub(crate) struct ExactBoundaryMultiPatchCandidate {
     pub strip_inventory: ExactBoundaryOuterStripPatchInventory,
     /// Solved outer strip candidate.
     pub strip_candidate: ExactBoundaryOuterStripBoundaryScaffold,
+    /// Optional 3-D selected seam curve authored from support authority.
+    pub support_authority_boundary: Option<NurbsCurve>,
     /// Strip validation evidence.
     pub strip_validation: ExactBoundaryOuterStripValidationReport,
     /// Candidate strip/inner interface curve.
@@ -359,6 +363,7 @@ pub(crate) fn prepare_multipatch_candidate(
             inventory_report,
             strip_inventory,
             strip_candidate,
+            support_authority_boundary: request.support_authority_boundary.cloned(),
             strip_validation,
             interface,
             inner_patch,

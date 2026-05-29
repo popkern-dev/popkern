@@ -1,3 +1,4 @@
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
@@ -150,6 +151,34 @@ fn transactional_commit_materializes_split_faces_and_validates_brep() {
 }
 
 #[test]
+fn transactional_commit_authors_support_authority_edge_curve() {
+    let (mut brep, sector, boundary, samples, pole) = live_sector_fixture();
+    let mut candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
+    let authority_boundary = quadratic_boundary_on_same_line(&boundary);
+    candidate.support_authority_boundary = Some(authority_boundary.clone());
+
+    commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
+        .expect("validated candidate should commit transactionally");
+
+    let edge_curve = brep.edges[sector.face_edge]
+        .curve
+        .as_ref()
+        .expect("selected edge must keep 3-D curve authority");
+    assert_eq!(edge_curve.t_start, authority_boundary.parameter_range().0);
+    assert_eq!(edge_curve.t_end, authority_boundary.parameter_range().1);
+    let CurveGeometry::Nurbs(committed_boundary) = &edge_curve.geometry else {
+        panic!("support-authority boundary must be authored as selected edge NURBS");
+    };
+    assert_eq!(committed_boundary.degree, authority_boundary.degree);
+    assert_eq!(
+        committed_boundary.control_points,
+        authority_boundary.control_points
+    );
+    brep.validate()
+        .expect("support-authority edge curve must preserve valid topology");
+}
+
+#[test]
 fn transactional_commit_rolls_back_when_source_face_is_stale() {
     let (mut brep, mut sector, boundary, samples, pole) = live_sector_fixture();
     let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
@@ -219,6 +248,7 @@ fn commit_eligible_candidate_from_boundary(
         boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: samples,
+        support_authority_boundary: None,
         pole,
         budget,
     });
@@ -348,6 +378,19 @@ fn line_boundary(start: Point3, end: Point3) -> NurbsCurve {
         knots: vec![0.0, 0.0, 1.0, 1.0],
         control_points: vec![start, end],
         weights: vec![1.0, 1.0],
+    }
+}
+
+fn quadratic_boundary_on_same_line(boundary: &NurbsCurve) -> NurbsCurve {
+    let (start, end) = boundary.parameter_range();
+    let p0 = boundary.point_at(start);
+    let p2 = boundary.point_at(end);
+    let p1 = p0 + (p2 - p0) * 0.5;
+    NurbsCurve {
+        degree: 2,
+        knots: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        control_points: vec![p0, p1, p2],
+        weights: vec![1.0, 1.0, 1.0],
     }
 }
 

@@ -25,6 +25,7 @@ fn orchestrator_builds_commit_eligible_candidate_without_live_brep_mutation() {
         boundary: &boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        support_authority_boundary: None,
         pole: Point3::new(0.5, 0.7, 0.0),
         budget,
     });
@@ -61,6 +62,7 @@ fn orchestrator_declines_oversized_strip_before_surface_allocation() {
         boundary: &boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        support_authority_boundary: None,
         pole: Point3::new(0.5, 0.7, 0.0),
         budget,
     });
@@ -105,6 +107,7 @@ fn orchestrator_robustness_matrix_covers_accept_and_decline_classes() {
             boundary: &boundary,
             boundary_direction: direction,
             support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+            support_authority_boundary: None,
             pole: Point3::new(0.5, 0.7, 0.0),
             budget: tight_budget(),
         });
@@ -133,6 +136,7 @@ fn orchestrator_robustness_matrix_covers_accept_and_decline_classes() {
             boundary: &boundary,
             boundary_direction: direction,
             support_samples: &support_samples(support_normal),
+            support_authority_boundary: None,
             pole: Point3::new(0.5, 0.7, 0.0),
             budget: tight_budget(),
         });
@@ -156,6 +160,7 @@ fn orchestrator_reports_first_failed_gate_with_context() {
         boundary: &boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples(Vec3::new(1.0, 0.0, 0.0)),
+        support_authority_boundary: None,
         pole: Point3::new(0.5, 0.7, 0.0),
         budget: tight_budget(),
     });
@@ -203,6 +208,7 @@ fn orchestrator_declines_two_selected_outer_sides_before_construction() {
         boundary: &boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        support_authority_boundary: None,
         pole: Point3::new(0.5, 0.7, 0.0),
         budget: tight_budget(),
     });

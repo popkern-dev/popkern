@@ -152,6 +152,8 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
         boundary: &candidate_boundary,
         boundary_direction: ExactBoundaryStripBoundaryDirection::Forward,
         support_samples: &support_samples,
+        support_authority_boundary: (candidate_boundary != boundary.curve)
+            .then_some(&candidate_boundary),
         pole: inner_spokes.pole,
         budget,
     });

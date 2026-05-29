@@ -1,6 +1,7 @@
 //! Transactional commit boundary for validated multi-patch candidates.
 #![allow(clippy::result_large_err)]
 
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, NurbsSurface};
@@ -79,6 +80,10 @@ pub(crate) fn preflight_multipatch_commit(
         );
     }
     if !curve_layout_is_valid(&candidate.interface.curve)
+        || candidate
+            .support_authority_boundary
+            .as_ref()
+            .is_some_and(|curve| !curve_layout_is_valid(curve))
         || candidate.interface.interface_name != candidate.inner_patch.interface_name
         || candidate.interface.interface_name != candidate.inventory.interfaces[0].interface_name
     {
@@ -153,6 +158,13 @@ fn commit_preflighted_candidate(
     });
     brep.half_edges[strip.cap_half_edge].pcurve =
         Some(candidate.strip_candidate.outer_pcurve.clone());
+    if let Some(curve) = &candidate.support_authority_boundary {
+        brep.edges[strip.edge].curve = Some(CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(curve.clone()),
+            t_start: curve.parameter_range().0,
+            t_end: curve.parameter_range().1,
+        });
+    }
     brep.half_edges[split.interface_strip_half_edge].pcurve =
         Some(reversed_pcurve(&candidate.interface.strip_pcurve));
     brep.half_edges[split.interface_inner_half_edge].pcurve =
