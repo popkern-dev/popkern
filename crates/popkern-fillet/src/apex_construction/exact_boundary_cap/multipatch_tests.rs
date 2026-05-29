@@ -44,7 +44,7 @@ fn orchestrator_builds_commit_eligible_candidate_without_live_brep_mutation() {
     assert_eq!(attempt.report.performance.deterministic_skip_code, None);
     let candidate = attempt.candidate.expect("commit-eligible candidate");
     assert_eq!(candidate.inventory_report.actual_outer_strip_count, 1);
-    assert_eq!(candidate.strip_validation.support_strip_sample_count, 3);
+    assert!(candidate.strip_validation.support_strip_sample_count >= 32);
     assert!(candidate.inner_patch.interface_g1_validated);
     assert!(candidate.inner_validation.interface_g1_validated);
 }

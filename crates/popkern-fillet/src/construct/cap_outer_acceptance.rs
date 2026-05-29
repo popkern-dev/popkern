@@ -159,13 +159,18 @@ pub(crate) fn cap_support_continuity_diagnostic(
             evidence.worst_g1_coplanarity,
         )
     };
+    let failed_seam = if evidence.worst_g0_gap > max_g0_gap {
+        evidence.worst_g0_seam
+    } else {
+        evidence.worst_g1_seam
+    };
     Some(
         crate::types::ApexConstructionDiagnostic::CapSupportContinuity(
             crate::types::CapSupportContinuityDiagnostic {
                 continuity,
-                cap_face: evidence.cap_face,
-                support_face: evidence.support_face,
-                edge: evidence.edge,
+                cap_face: failed_seam.cap_face,
+                support_face: failed_seam.support_face,
+                edge: failed_seam.edge,
                 worst_g1_coplanarity: evidence.worst_g1_coplanarity,
                 gate: max_g1_coplanarity,
                 edges_measured: evidence.measured_edges,
@@ -178,6 +183,12 @@ struct CapSupportContinuityEvidence {
     worst_g0_gap: f64,
     worst_g1_coplanarity: f64,
     measured_edges: usize,
+    worst_g0_seam: CapSupportSeamEvidence,
+    worst_g1_seam: CapSupportSeamEvidence,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct CapSupportSeamEvidence {
     cap_face: FaceHandle,
     support_face: FaceHandle,
     edge: EdgeHandle,
@@ -221,16 +232,13 @@ fn measure_cap_support_continuity(
         match &mut evidence {
             Some(existing) => {
                 existing.measured_edges += 1;
-                if sample.worst_g0_gap > existing.worst_g0_gap
-                    || sample.worst_g1_coplanarity > existing.worst_g1_coplanarity
-                {
-                    existing.worst_g0_gap = existing.worst_g0_gap.max(sample.worst_g0_gap);
-                    existing.worst_g1_coplanarity = existing
-                        .worst_g1_coplanarity
-                        .max(sample.worst_g1_coplanarity);
-                    existing.cap_face = sample.cap_face;
-                    existing.support_face = sample.support_face;
-                    existing.edge = sample.edge;
+                if sample.worst_g0_gap > existing.worst_g0_gap {
+                    existing.worst_g0_gap = sample.worst_g0_gap;
+                    existing.worst_g0_seam = sample.worst_g0_seam;
+                }
+                if sample.worst_g1_coplanarity > existing.worst_g1_coplanarity {
+                    existing.worst_g1_coplanarity = sample.worst_g1_coplanarity;
+                    existing.worst_g1_seam = sample.worst_g1_seam;
                 }
             }
             None => evidence = Some(sample),
@@ -309,8 +317,15 @@ fn sample_cap_support_edge(
         worst_g0_gap,
         worst_g1_coplanarity,
         measured_edges: 1,
-        cap_face,
-        support_face,
-        edge: edge_handle,
+        worst_g0_seam: CapSupportSeamEvidence {
+            cap_face,
+            support_face,
+            edge: edge_handle,
+        },
+        worst_g1_seam: CapSupportSeamEvidence {
+            cap_face,
+            support_face,
+            edge: edge_handle,
+        },
     })
 }

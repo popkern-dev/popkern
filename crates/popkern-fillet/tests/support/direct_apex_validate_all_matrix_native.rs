@@ -221,6 +221,20 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "multipatch retained-boundary binding should resolve G0 and leave the G1 gate as the blocker; got {:?}",
         multipatch_step.diagnostic_code
     );
+    let cap_support_diagnostic = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => Some(diagnostic),
+            _ => None,
+        })
+        .expect("multipatch decline must promote cap/support continuity evidence");
+    assert_eq!(
+        format!("{:?}", cap_support_diagnostic.edge),
+        "EdgeHandle(31v1)",
+        "cap/support diagnostic must identify the actual worst G1 seam"
+    );
     assert!(
         route
             .exact_boundary_report

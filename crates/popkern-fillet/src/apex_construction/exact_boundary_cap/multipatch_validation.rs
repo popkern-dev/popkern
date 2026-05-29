@@ -351,31 +351,76 @@ fn support_strip_band_report(
         .first()
         .map(|sample| sample.parameter)
         .unwrap_or(0.0);
-    for sample in support_samples {
-        let uv = candidate.outer_pcurve.point_at(sample.parameter);
+    let parameters = support_strip_parameters(support_samples);
+    for parameter in &parameters {
+        let Some(support_normal) = interpolated_support_normal(support_samples, *parameter) else {
+            continue;
+        };
+        let uv = candidate.outer_pcurve.point_at(*parameter);
         let Some(deficit) =
-            support_normal_deficit_at(&candidate.surface, uv.x, uv.y, sample.support_normal)
+            support_normal_deficit_at(&candidate.surface, uv.x, uv.y, support_normal)
         else {
-            if is_endpoint_sample(sample.parameter) {
+            if is_endpoint_sample(*parameter) {
                 continue;
             }
             let deficit = f64::INFINITY;
             if deficit > max_deficit {
                 max_deficit = deficit;
-                sample_parameter = sample.parameter;
+                sample_parameter = *parameter;
             }
             continue;
         };
         if deficit > max_deficit {
             max_deficit = deficit;
-            sample_parameter = sample.parameter;
+            sample_parameter = *parameter;
         }
     }
     SupportStripBandReport {
         max_deficit,
         sample_parameter,
-        sample_count: support_samples.len(),
+        sample_count: parameters.len(),
     }
+}
+
+fn support_strip_parameters(samples: &[ExactBoundaryRibbonSample]) -> Vec<f64> {
+    let mut parameters = samples
+        .iter()
+        .map(|sample| sample.parameter)
+        .chain(
+            (0..UNIFORM_SAMPLE_COUNT).map(|index| index as f64 / (UNIFORM_SAMPLE_COUNT - 1) as f64),
+        )
+        .collect::<Vec<_>>();
+    parameters.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    parameters.dedup_by(|a, b| (*a - *b).abs() <= 1.0e-12);
+    parameters
+}
+
+fn interpolated_support_normal(
+    samples: &[ExactBoundaryRibbonSample],
+    parameter: f64,
+) -> Option<Vec3> {
+    let first = samples.first()?;
+    let last = samples.last()?;
+    if parameter <= first.parameter {
+        return first.support_normal.normalized();
+    }
+    if parameter >= last.parameter {
+        return last.support_normal.normalized();
+    }
+    for pair in samples.windows(2) {
+        let a = pair[0];
+        let b = pair[1];
+        if parameter < a.parameter || parameter > b.parameter {
+            continue;
+        }
+        let span = b.parameter - a.parameter;
+        if span.abs() <= 1.0e-12 {
+            return a.support_normal.normalized();
+        }
+        let alpha = (parameter - a.parameter) / span;
+        return (a.support_normal * (1.0 - alpha) + b.support_normal * alpha).normalized();
+    }
+    None
 }
 
 fn is_endpoint_sample(parameter: f64) -> bool {
@@ -386,7 +431,6 @@ fn is_endpoint_sample(parameter: f64) -> bool {
 struct FoldoverReport {
     min_normal_length: f64,
     sample_parameter: f64,
-    orientation_flip: bool,
 }
 
 fn foldover_report(
@@ -396,8 +440,6 @@ fn foldover_report(
     let parameters = deterministic_boundary_parameters(boundary, &[]);
     let mut min_normal_length = f64::INFINITY;
     let mut sample_parameter = parameters.first().copied().unwrap_or(0.0);
-    let mut reference_normal = None;
-    let mut orientation_flip = false;
     for parameter in parameters {
         if is_endpoint_sample(parameter) {
             continue;
@@ -413,22 +455,11 @@ fn foldover_report(
                 min_normal_length = length;
                 sample_parameter = parameter;
             }
-            if length.is_finite() && length > 1.0e-12 {
-                let unit = normal * (1.0 / length);
-                if let Some(reference) = reference_normal {
-                    if unit.dot(&reference) < -1.0e-6 {
-                        orientation_flip = true;
-                    }
-                } else {
-                    reference_normal = Some(unit);
-                }
-            }
         }
     }
     FoldoverReport {
         min_normal_length,
         sample_parameter,
-        orientation_flip,
     }
 }
 
