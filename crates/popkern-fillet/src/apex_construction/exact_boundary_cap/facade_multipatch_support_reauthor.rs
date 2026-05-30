@@ -409,8 +409,8 @@ fn support_boundary_residual(
         residual: 0.0,
         sample_parameter: 0.0,
     };
-    for index in 0..33 {
-        let parameter = index as f64 / 32.0;
+    for index in 0..129 {
+        let parameter = index as f64 / 128.0;
         let candidate_t = start + (end - start) * parameter;
         if let Some(sample) = support_boundary_sample(support_pair, parameter, support_forward) {
             let residual = candidate.point_at(candidate_t).distance_to(&sample.point);

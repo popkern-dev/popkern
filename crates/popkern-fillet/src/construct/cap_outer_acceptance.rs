@@ -89,14 +89,18 @@ pub(crate) fn cap_support_acceptance_error(
                 worst_g0_edge = Some(edge_handle);
             }
 
+            let (normal_u_a, normal_v_a) =
+                interior_normal_sample_parameters(&sa.geometry, uv_a.x, uv_a.y);
+            let (normal_u_b, normal_v_b) =
+                interior_normal_sample_parameters(&sb.geometry, uv_b.x, uv_b.y);
             let n_a = sa
                 .geometry
-                .partial_u(uv_a.x, uv_a.y)
-                .cross(&sa.geometry.partial_v(uv_a.x, uv_a.y));
+                .partial_u(normal_u_a, normal_v_a)
+                .cross(&sa.geometry.partial_v(normal_u_a, normal_v_a));
             let n_b = sb
                 .geometry
-                .partial_u(uv_b.x, uv_b.y)
-                .cross(&sb.geometry.partial_v(uv_b.x, uv_b.y));
+                .partial_u(normal_u_b, normal_v_b)
+                .cross(&sb.geometry.partial_v(normal_u_b, normal_v_b));
             let len_a = n_a.length();
             let len_b = n_b.length();
             if len_a > 1e-300 && len_b > 1e-300 {
@@ -302,14 +306,18 @@ fn sample_cap_support_edge(
             worst_g0_parameter = s;
         }
 
+        let (normal_u_a, normal_v_a) =
+            interior_normal_sample_parameters(&sa.geometry, uv_a.x, uv_a.y);
+        let (normal_u_b, normal_v_b) =
+            interior_normal_sample_parameters(&sb.geometry, uv_b.x, uv_b.y);
         let n_a = sa
             .geometry
-            .partial_u(uv_a.x, uv_a.y)
-            .cross(&sa.geometry.partial_v(uv_a.x, uv_a.y));
+            .partial_u(normal_u_a, normal_v_a)
+            .cross(&sa.geometry.partial_v(normal_u_a, normal_v_a));
         let n_b = sb
             .geometry
-            .partial_u(uv_b.x, uv_b.y)
-            .cross(&sb.geometry.partial_v(uv_b.x, uv_b.y));
+            .partial_u(normal_u_b, normal_v_b)
+            .cross(&sb.geometry.partial_v(normal_u_b, normal_v_b));
         let len_a = n_a.length();
         let len_b = n_b.length();
         if len_a > 1e-300 && len_b > 1e-300 {
@@ -343,4 +351,20 @@ fn sample_cap_support_edge(
             sample_parameter: worst_g1_parameter,
         },
     })
+}
+
+fn interior_normal_sample_parameters(surface: &impl SurfaceEval, u: f64, v: f64) -> (f64, f64) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    (
+        interior_parameter(u, u_min, u_max),
+        interior_parameter(v, v_min, v_max),
+    )
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }

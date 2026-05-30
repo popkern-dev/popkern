@@ -43,6 +43,7 @@ pub(super) fn commit_multipatch_routes_transactionally(
     )],
 ) -> ExactBoundaryMultipatchCommitOutcome {
     let mut inner_faces = Vec::with_capacity(attempts.len());
+    let mut strip_faces = Vec::with_capacity(attempts.len());
     for (attempt, candidate) in attempts {
         if let Some(diagnostic) =
             candidate_selected_strip_continuity_diagnostic(&attempt.sector, candidate, pcurves)
@@ -65,6 +66,7 @@ pub(super) fn commit_multipatch_routes_transactionally(
             multipatch_commit.inner_face,
         );
         bind_strip_face_support_boundary(brep, &attempt.sector, candidate, pcurves);
+        strip_faces.push(multipatch_commit.strip_face);
         inner_faces.push(multipatch_commit.inner_face);
     }
     if let Err(diagnostic) = commit_unaffected_one_patch_sectors(
@@ -97,6 +99,7 @@ pub(super) fn commit_multipatch_routes_transactionally(
         .map(|sector| sector.cap_face)
         .collect::<Vec<_>>();
     faces.extend(inner_faces.iter().copied());
+    faces.extend(strip_faces.iter().copied());
     if let Some(diagnostic) = cap_support_continuity_diagnostic(brep, &faces, 5.0e-3, 5.0e-2) {
         return declined(apex_diagnostic_code(&diagnostic), diagnostic);
     }
