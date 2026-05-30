@@ -65,8 +65,11 @@ fn interface_curve_matches_strip_inner_boundary_with_owned_names() {
 
 #[test]
 fn interface_pcurve_is_finite_and_monotone_for_forward_and_reversed_strips() {
-    let forward = interface_for_direction(ExactBoundaryStripBoundaryDirection::Forward);
-    let reversed = interface_for_direction(ExactBoundaryStripBoundaryDirection::Reversed);
+    let forward =
+        interface_for_fixture(&strip_fixture(ExactBoundaryStripBoundaryDirection::Forward));
+    let reversed = interface_for_fixture(&strip_fixture(
+        ExactBoundaryStripBoundaryDirection::Reversed,
+    ));
 
     let f0 = forward.strip_pcurve.point_at(0.0).x;
     let f1 = forward.strip_pcurve.point_at(1.0).x;
@@ -333,11 +336,35 @@ fn interface_g1_measurement_is_decoupled_from_pole_row_height() {
     );
 }
 
-fn interface_for_direction(
-    direction: ExactBoundaryStripBoundaryDirection,
-) -> super::ExactBoundaryStripInnerInterfaceCurve {
-    let fixture = strip_fixture(direction);
-    interface_for_fixture(&fixture)
+#[test]
+fn interface_g1_measurement_leaves_endpoints_to_pole_closure() {
+    let fixture = strip_fixture(ExactBoundaryStripBoundaryDirection::Forward);
+    let interface = interface_for_fixture(&fixture);
+    let prototype = construct_inner_pole_patch_prototype(
+        &fixture.sector,
+        &fixture.inventory.outer_strips[0],
+        &fixture.inventory.interfaces[0],
+        &fixture.strip_candidate,
+        &interface,
+        Point3::new(0.5, 0.7, 1.5),
+        1.0e-6,
+    )
+    .expect("tilted pole prototype constructs");
+
+    assert!(
+        measure_inner_interface_g1(
+            &fixture.sector,
+            &fixture.inventory.outer_strips[0],
+            &fixture.inventory.interfaces[0],
+            &fixture.strip_candidate,
+            &interface,
+            &prototype,
+            5.0e-2,
+        )
+        .expect("endpoint-only pole closure should not block open interface G1")
+        .interface_g1_report
+        .is_some_and(|report| report.max_interface_g1_deficit <= 5.0e-2)
+    );
 }
 
 fn interface_for_fixture(fixture: &StripFixture) -> super::ExactBoundaryStripInnerInterfaceCurve {

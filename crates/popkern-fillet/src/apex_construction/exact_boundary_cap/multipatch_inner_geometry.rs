@@ -116,7 +116,7 @@ pub(super) fn inner_pole_surface(
         control_points.push(*point);
         control_points.push(interface_normal_row_point(
             strip_candidate,
-            &interface.curve,
+            interface,
             index,
             *point,
             pole,
@@ -140,19 +140,21 @@ pub(super) fn inner_pole_surface(
 
 fn interface_normal_row_point(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
-    interface_curve: &NurbsCurve,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
     index: usize,
     point: Point3,
     pole: Point3,
 ) -> Point3 {
-    let parameter = control_row_parameter(interface_curve, index);
-    let tangent = interface_curve
+    let parameter = control_row_parameter(&interface.curve, index);
+    let tangent = interface
+        .curve
         .derivative_at(parameter, 1)
         .normalized()
         .unwrap_or_else(|| fallback_tangent(point, pole));
+    let strip_uv = interface.strip_pcurve.point_at(parameter);
     let target_normal = strip_candidate
         .surface
-        .normal_at(parameter, 1.0)
+        .normal_at(strip_uv.x, strip_uv.y)
         .normalized()
         .unwrap_or_else(|| fallback_normal(tangent, point, pole));
     let direction = target_normal
@@ -237,6 +239,9 @@ pub(super) fn interface_g1_report(
     for index in 0..INTERFACE_SAMPLE_COUNT {
         let parameter =
             t_start + (t_end - t_start) * index as f64 / (INTERFACE_SAMPLE_COUNT - 1) as f64;
+        if is_endpoint_parameter(parameter, t_start, t_end) {
+            continue;
+        }
         let strip_uv = interface.strip_pcurve.point_at(parameter);
         let inner_uv = prototype.interface_pcurve.point_at(parameter);
         let deficit = tangent_plane_deficit(
@@ -254,6 +259,11 @@ pub(super) fn interface_g1_report(
         }
     }
     report
+}
+
+fn is_endpoint_parameter(parameter: f64, start: f64, end: f64) -> bool {
+    let tolerance = 1.0e-12 * (end - start).abs().max(1.0);
+    parameter <= start + tolerance || parameter >= end - tolerance
 }
 
 fn tangent_plane_deficit(
