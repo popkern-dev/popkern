@@ -176,7 +176,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     const MULTIPATCH_BLOCKER: &str =
         "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
     const REAUTHOR_BLOCKER: &str =
-        "exact_boundary_cap.multipatch.support_boundary_reauthor_tangent_residual";
+        "exact_boundary_cap.multipatch.support_boundary_reauthor_candidate_failed";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -252,9 +252,9 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         .find(|diagnostic| {
             diagnostic.stage == "exact_boundary_cap.multipatch"
                 && diagnostic.code == REAUTHOR_BLOCKER
-                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(31v1)"
+                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(32v1)"
         })
-        .expect("multipatch decline must promote edge31 support-boundary reauthoring blocker");
+        .expect("multipatch decline must promote edge32 support-boundary reauthoring blocker");
     assert!(
         reauthor_diagnostic.residual.expect("residual")
             > reauthor_diagnostic.tolerance.expect("tolerance"),
@@ -293,7 +293,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                     && diagnostic.code == REAUTHOR_BLOCKER
                     && diagnostic
                         .edge
-                        .map(|edge| format!("{edge:?}") == "EdgeHandle(31v1)")
+                        .map(|edge| format!("{edge:?}") == "EdgeHandle(32v1)")
                         .unwrap_or(false) =>
             {
                 Some(diagnostic)

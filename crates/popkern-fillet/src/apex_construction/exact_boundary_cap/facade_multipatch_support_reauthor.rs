@@ -9,7 +9,7 @@ use crate::apex_construction::exact_boundary_cap::boundary::PreparedExactBoundar
 use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBoundaryMultiPatchDeclineReason;
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
 
-const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 3] = [4, 8, 16];
+const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 5] = [4, 8, 16, 32, 64];
 const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
 const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
 const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
@@ -102,20 +102,7 @@ fn sampled_support_authority_boundary_curve(
             points.push(support_pair.support_surface.point_at(uv.x, uv.y));
             params.push(parameter);
         }
-        let degree = 5.min(points.len().saturating_sub(1));
-        let Some(candidate) =
-            popkern_core::geometry::fitting::interpolate_curve(&points, &params, degree)
-                .ok()
-                .or_else(|| {
-                    popkern_core::geometry::fitting::fit_curve(
-                        &points,
-                        &params,
-                        degree,
-                        points.len(),
-                    )
-                    .ok()
-                })
-        else {
+        let Some(candidate) = derivative_aware_fit_curve(&points, &params, support_pair) else {
             continue;
         };
         match certify_support_boundary_candidate(
@@ -129,6 +116,20 @@ fn sampled_support_authority_boundary_curve(
         }
     }
     last_decline
+}
+
+fn derivative_aware_fit_curve(
+    points: &[Point3],
+    params: &[f64],
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> Option<NurbsCurve> {
+    let degree = 5.min(points.len().saturating_sub(1));
+    let candidate = popkern_core::geometry::fitting::interpolate_curve(points, params, degree)
+        .ok()
+        .or_else(|| {
+            popkern_core::geometry::fitting::fit_curve(points, params, degree, points.len()).ok()
+        })?;
+    tangent_report_follows_support_image(&candidate, support_pair).then_some(candidate)
 }
 
 fn support_hermite_boundary_curve(
@@ -420,6 +421,14 @@ fn tangent_support_normal_report(
         }
     }
     report
+}
+
+fn tangent_report_follows_support_image(
+    boundary: &NurbsCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> bool {
+    let tangent_residual = tangent_support_normal_report(boundary, support_pair);
+    tangent_residual.residual <= max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT)
 }
 
 fn pcurve_follows_boundary(
