@@ -10,6 +10,7 @@ use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBound
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
 
 const SUPPORT_BOUNDARY_SEGMENTS: usize = 16;
+const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
 const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
 const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
 
@@ -30,10 +31,18 @@ pub(crate) fn support_authority_boundary_attempt(
             candidate: Some(candidate),
             decline: None,
         },
-        ReauthoredBoundaryResult::Declined(decline) => SupportAuthorityBoundaryAttempt {
-            candidate: sampled_support_authority_boundary_curve(boundary, support_pair),
-            decline: Some(decline),
-        },
+        ReauthoredBoundaryResult::Declined(_) => {
+            match sampled_support_authority_boundary_curve(boundary, support_pair) {
+                ReauthoredBoundaryResult::Accepted(candidate) => SupportAuthorityBoundaryAttempt {
+                    candidate: Some(candidate),
+                    decline: None,
+                },
+                ReauthoredBoundaryResult::Declined(decline) => SupportAuthorityBoundaryAttempt {
+                    candidate: None,
+                    decline: Some(decline),
+                },
+            }
+        }
     }
 }
 
@@ -59,11 +68,11 @@ enum ReauthoredBoundaryResult {
 fn sampled_support_authority_boundary_curve(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
-) -> Option<NurbsCurve> {
+) -> ReauthoredBoundaryResult {
     if let ReauthoredBoundaryResult::Accepted(candidate) =
         support_hermite_boundary_curve(boundary, support_pair)
     {
-        return Some(candidate);
+        return ReauthoredBoundaryResult::Accepted(candidate);
     }
     let support_forward = pcurve_follows_boundary(
         &support_pair.support_surface,
@@ -72,28 +81,54 @@ fn sampled_support_authority_boundary_curve(
         boundary.curve.point_at(1.0),
     );
     let (start, end) = support_pair.support_pcurve.parameter_range();
-    let mut points = Vec::with_capacity(17);
-    let mut params = Vec::with_capacity(17);
-    for index in 0..17 {
-        let parameter = index as f64 / 16.0;
-        let support_parameter = if support_forward {
-            parameter
-        } else {
-            1.0 - parameter
+    let mut last_decline = reauthor_decline(
+        ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+        f64::INFINITY,
+        0.0,
+        SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+    );
+    for sample_count in SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS {
+        let mut points = Vec::with_capacity(sample_count);
+        let mut params = Vec::with_capacity(sample_count);
+        for index in 0..sample_count {
+            let parameter = index as f64 / (sample_count - 1) as f64;
+            let support_parameter = if support_forward {
+                parameter
+            } else {
+                1.0 - parameter
+            };
+            let t = start + (end - start) * support_parameter;
+            let uv = support_pair.support_pcurve.point_at(t);
+            points.push(support_pair.support_surface.point_at(uv.x, uv.y));
+            params.push(parameter);
+        }
+        let degree = 5.min(points.len().saturating_sub(1));
+        let Some(candidate) =
+            popkern_core::geometry::fitting::interpolate_curve(&points, &params, degree)
+                .ok()
+                .or_else(|| {
+                    popkern_core::geometry::fitting::fit_curve(
+                        &points,
+                        &params,
+                        degree,
+                        points.len(),
+                    )
+                    .ok()
+                })
+        else {
+            continue;
         };
-        let t = start + (end - start) * support_parameter;
-        let uv = support_pair.support_pcurve.point_at(t);
-        points.push(support_pair.support_surface.point_at(uv.x, uv.y));
-        params.push(parameter);
+        match certify_support_boundary_candidate(
+            boundary,
+            support_pair,
+            &candidate,
+            support_forward,
+        ) {
+            None => return ReauthoredBoundaryResult::Accepted(candidate),
+            Some(decline) => last_decline = ReauthoredBoundaryResult::Declined(decline),
+        }
     }
-    let degree = 9.min(points.len().saturating_sub(1));
-    let candidate = popkern_core::geometry::fitting::interpolate_curve(&points, &params, degree)
-        .ok()
-        .or_else(|| {
-            popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
-        })?;
-    support_authority_improves_tangent_compatibility(boundary, support_pair, &candidate)
-        .then_some(candidate)
+    last_decline
 }
 
 fn support_hermite_boundary_curve(
@@ -156,25 +191,10 @@ fn support_hermite_boundary_curve(
             SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
         );
     }
-    let support_residual = support_boundary_residual(&candidate, support_pair, support_forward);
-    if support_residual.residual > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
-        return reauthor_decline(
-            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorSupportResidual,
-            support_residual.residual,
-            support_residual.sample_parameter,
-            SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
-        );
+    match certify_support_boundary_candidate(boundary, support_pair, &candidate, support_forward) {
+        None => ReauthoredBoundaryResult::Accepted(candidate),
+        Some(decline) => ReauthoredBoundaryResult::Declined(decline),
     }
-    let tangent_residual = tangent_support_normal_report(&candidate, support_pair);
-    if tangent_residual.residual > max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT) {
-        return reauthor_decline(
-            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorTangentResidual,
-            tangent_residual.residual,
-            tangent_residual.sample_parameter,
-            max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT),
-        );
-    }
-    ReauthoredBoundaryResult::Accepted(candidate)
 }
 
 fn reauthor_decline(
@@ -254,6 +274,43 @@ fn endpoint_gap_sample(boundary: &PreparedExactBoundaryCurve, candidate: &NurbsC
     if start_gap >= end_gap { 0.0 } else { 1.0 }
 }
 
+fn certify_support_boundary_candidate(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    candidate: &NurbsCurve,
+    support_forward: bool,
+) -> Option<SupportBoundaryReauthorDecline> {
+    let endpoint_gap = support_boundary_endpoint_gap(boundary, candidate).unwrap_or(f64::INFINITY);
+    if endpoint_gap > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
+        return Some(SupportBoundaryReauthorDecline {
+            reason: ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorEndpointMismatch,
+            residual: endpoint_gap,
+            sample_parameter: endpoint_gap_sample(boundary, candidate),
+            tolerance: SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+        });
+    }
+    let support_residual = support_boundary_residual(candidate, support_pair, support_forward);
+    if support_residual.residual > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
+        return Some(SupportBoundaryReauthorDecline {
+            reason: ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorSupportResidual,
+            residual: support_residual.residual,
+            sample_parameter: support_residual.sample_parameter,
+            tolerance: SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+        });
+    }
+    let tangent_residual = tangent_support_normal_report(candidate, support_pair);
+    let tangent_tolerance = max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT);
+    if tangent_residual.residual > tangent_tolerance {
+        return Some(SupportBoundaryReauthorDecline {
+            reason: ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorTangentResidual,
+            residual: tangent_residual.residual,
+            sample_parameter: tangent_residual.sample_parameter,
+            tolerance: tangent_tolerance,
+        });
+    }
+    None
+}
+
 fn support_boundary_residual(
     candidate: &NurbsCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
@@ -285,15 +342,7 @@ fn max_tangent_dot_for_deficit(deficit: f64) -> f64 {
     (1.0 - alignment * alignment).max(0.0).sqrt()
 }
 
-fn support_authority_improves_tangent_compatibility(
-    boundary: &PreparedExactBoundaryCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-    candidate: &NurbsCurve,
-) -> bool {
-    tangent_support_normal_dot(&boundary.curve, support_pair)
-        > tangent_support_normal_dot(candidate, support_pair) + 1.0e-3
-}
-
+#[cfg(test)]
 pub(crate) fn tangent_support_normal_dot(
     boundary: &NurbsCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,

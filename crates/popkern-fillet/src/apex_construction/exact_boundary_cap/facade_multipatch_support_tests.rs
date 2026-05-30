@@ -1,6 +1,6 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle};
 
@@ -43,6 +43,42 @@ fn support_authority_boundary_declines_when_endpoints_change_topology() {
     assert!(decline.residual > decline.tolerance);
 }
 
+#[test]
+fn support_authority_boundary_uses_certified_sampled_support_image() {
+    let support_surface = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 1.0,
+    };
+    let start = support_surface.point_at(0.0, 0.0);
+    let end = support_surface.point_at(0.9, 0.4);
+    let boundary = prepared_boundary(line_curve(start, end));
+    let support_pair = PreparedExactBoundaryPcurvePair {
+        sector_index: 0,
+        sector_name: "direct_apex.cap_sector.0".to_string(),
+        side: ExactBoundaryOuterSide::FaceEdge,
+        edge: EdgeHandle::default(),
+        support_half_edge: HalfEdgeHandle::default(),
+        support_face: FaceHandle::default(),
+        support_surface,
+        cap_pcurve: Pcurve::linear((0.0, 0.0), (0.9, 0.4), 0.0, 1.0),
+        support_pcurve: Pcurve::linear((0.0, 0.0), (0.9, 0.4), 0.0, 1.0),
+        max_cap_residual: 0.0,
+        max_support_residual: 0.0,
+        max_pair_residual: 0.0,
+    };
+
+    let attempt = support_authority_boundary_attempt(&boundary, &support_pair);
+
+    let candidate = attempt
+        .candidate
+        .expect("sampled support image should pass certification");
+    assert!(attempt.decline.is_none());
+    assert!(candidate.point_at(0.0).distance_to(&start) <= 1.0e-9);
+    assert!(candidate.point_at(1.0).distance_to(&end) <= 1.0e-9);
+    assert!(tangent_support_normal_dot(&candidate, &support_pair) <= 5.0e-2);
+}
+
 fn prepared_boundary(curve: NurbsCurve) -> PreparedExactBoundaryCurve {
     PreparedExactBoundaryCurve {
         sector_index: 0,
@@ -50,6 +86,15 @@ fn prepared_boundary(curve: NurbsCurve) -> PreparedExactBoundaryCurve {
         side: ExactBoundaryOuterSide::FaceEdge,
         edge: EdgeHandle::default(),
         curve,
+    }
+}
+
+fn line_curve(start: Point3, end: Point3) -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![start, end],
+        weights: vec![1.0, 1.0],
     }
 }
 
