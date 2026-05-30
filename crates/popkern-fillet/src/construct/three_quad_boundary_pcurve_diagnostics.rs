@@ -38,6 +38,7 @@ pub(super) fn boundary_owned_pcurve_decline_diagnostic(
         crate::types::ExactBoundaryCapDiagnostic {
             stage: "native_gregory_boundary_owned_pcurve".to_string(),
             code: code.to_string(),
+            detail_code: None,
             sector_name: format!("cap_boundary.segment[{segment_index}]"),
             edge,
             support_half_edge,

@@ -97,6 +97,7 @@ impl ExactBoundaryTopologyDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.topology".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self
                     .sector_name
                     .unwrap_or_else(|| "exact_boundary_cap".to_string()),

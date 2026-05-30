@@ -210,6 +210,7 @@ impl ExactBoundaryRibbonDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.support_ribbon".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self.sector_name,
                 edge: Some(self.edge),
                 support_half_edge: Some(self.support_half_edge),

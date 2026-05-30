@@ -174,6 +174,7 @@ impl ExactBoundaryPcurveDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.pcurve".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self.sector_name,
                 edge: self.edge,
                 support_half_edge: self.support_half_edge,

@@ -1,4 +1,3 @@
-//! Validation gates for exact-boundary apex cap candidates.
 #![allow(clippy::result_large_err)]
 
 use super::corner::PreparedExactBoundaryInnerSpokes;
@@ -209,6 +208,7 @@ impl ExactBoundaryValidationDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.validation".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self
                     .sector_name
                     .unwrap_or_else(|| "exact_boundary_cap".to_string()),

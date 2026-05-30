@@ -214,8 +214,10 @@ impl ExactBoundaryMultiPatchDiagnostic {
         residual: f64,
         sample_parameter: f64,
         tolerance: f64,
+        detail_code: &'static str,
     ) -> Self {
         Self::strip_boundary_decline(reason, sector, strip, residual, sample_parameter, tolerance)
+            .with_detail_code(detail_code)
     }
 
     pub(crate) fn commit_preflight_missing_surface(
@@ -394,6 +396,7 @@ impl ExactBoundaryMultiPatchDiagnostic {
         ApexConstructionDiagnostic::ExactBoundaryCap(ExactBoundaryCapDiagnostic {
             stage: MULTIPATCH_STAGE.to_string(),
             code: self.code,
+            detail_code: self.detail_code,
             sector_name: self.sector_name,
             edge: self.edge,
             support_half_edge: self.support_half_edge,

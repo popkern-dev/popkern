@@ -31,6 +31,7 @@ impl SphereCapBoundaryDegeneracy {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "native_gregory_sphere_cap_preflight".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: format!(
                     "sphere_cap_boundary[{}].{}",
                     self.boundary_index, self.segment_kind

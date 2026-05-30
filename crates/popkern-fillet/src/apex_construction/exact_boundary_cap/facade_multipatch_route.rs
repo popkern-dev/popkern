@@ -156,6 +156,7 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
                 decline.residual,
                 decline.sample_parameter,
                 decline.tolerance,
+                decline.detail_code,
             )
             .into_apex_diagnostic(),
         );

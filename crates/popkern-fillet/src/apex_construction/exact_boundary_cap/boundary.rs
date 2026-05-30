@@ -1,5 +1,3 @@
-//! Exact-boundary curve preparation for apex cap sectors.
-
 use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -136,6 +134,7 @@ impl ExactBoundaryCurveDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.boundary".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self.sector_name,
                 edge: Some(self.edge),
                 support_half_edge: None,

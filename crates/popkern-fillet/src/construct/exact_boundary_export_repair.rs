@@ -116,6 +116,7 @@ fn record_exact_boundary_cap_outer_declines(
                 let diagnostic = crate::types::ExactBoundaryCapDiagnostic {
                     stage: "exact_boundary_cap.cap_outer".to_string(),
                     code,
+                    detail_code: None,
                     sector_name: sector.sector_name.clone(),
                     edge: Some(edge),
                     support_half_edge: Some(support_half_edge),
@@ -135,6 +136,7 @@ fn record_exact_boundary_cap_outer_declines(
                         schema_version: 1,
                         stage: diagnostic.stage.clone(),
                         code: diagnostic.code.clone(),
+                        detail_code: diagnostic.detail_code.clone(),
                         sector_name: diagnostic.sector_name.clone(),
                         edge: diagnostic.edge,
                         support_half_edge: diagnostic.support_half_edge,
@@ -256,6 +258,7 @@ fn record_exact_boundary_support_scope_declines(
                 let diagnostic = crate::types::ExactBoundaryCapDiagnostic {
                     stage: "exact_boundary_cap.support_scope".to_string(),
                     code,
+                    detail_code: None,
                     sector_name: sector.sector_name.clone(),
                     edge: Some(edge),
                     support_half_edge: Some(support_half_edge),
@@ -271,6 +274,7 @@ fn record_exact_boundary_support_scope_declines(
                         schema_version: 1,
                         stage: diagnostic.stage.clone(),
                         code: diagnostic.code.clone(),
+                        detail_code: diagnostic.detail_code.clone(),
                         sector_name: diagnostic.sector_name.clone(),
                         edge: diagnostic.edge,
                         support_half_edge: diagnostic.support_half_edge,

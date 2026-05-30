@@ -97,6 +97,7 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
     let diagnostic = ApexConstructionDiagnostic::ExactBoundaryCap(ExactBoundaryCapDiagnostic {
         stage: "exact_boundary_cap.ribbon".to_string(),
         code: "exact_boundary_cap.ribbon.support_pcurve_stale".to_string(),
+        detail_code: None,
         sector_name: "direct_apex.cap_sector.0".to_string(),
         edge: Some(edges[0]),
         support_half_edge: Some(exact_sectors[0].support_half_edges[0]),

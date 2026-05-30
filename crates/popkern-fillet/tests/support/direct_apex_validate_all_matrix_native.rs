@@ -255,6 +255,10 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                 && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(32v1)"
         })
         .expect("multipatch decline must promote edge32 support-boundary reauthoring blocker");
+    assert_eq!(
+        reauthor_diagnostic.detail_code.as_deref(),
+        Some("support_boundary_reauthor.sampled_fit_tangent_unsatisfied")
+    );
     assert!(
         reauthor_diagnostic.residual.expect("residual")
             > reauthor_diagnostic.tolerance.expect("tolerance"),

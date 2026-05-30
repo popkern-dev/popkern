@@ -387,6 +387,8 @@ pub struct ExactBoundaryReportDiagnostic {
     pub stage: String,
     /// Stable diagnostic code.
     pub code: String,
+    /// Optional detailed sub-code for the same diagnostic family.
+    pub detail_code: Option<String>,
     /// Stable sector name where available.
     pub sector_name: String,
     /// Source edge being prepared.

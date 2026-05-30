@@ -116,6 +116,7 @@ fn report_diagnostic_from_exact_boundary(
         schema_version: 1,
         stage: diagnostic.stage.clone(),
         code: diagnostic.code.clone(),
+        detail_code: diagnostic.detail_code.clone(),
         sector_name: diagnostic.sector_name.clone(),
         edge: diagnostic.edge,
         support_half_edge: diagnostic.support_half_edge,

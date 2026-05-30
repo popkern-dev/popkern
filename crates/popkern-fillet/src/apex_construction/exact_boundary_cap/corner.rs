@@ -131,6 +131,7 @@ impl ExactBoundaryInnerSpokeDiagnostic {
             crate::types::ExactBoundaryCapDiagnostic {
                 stage: "exact_boundary_cap.inner_spoke".to_string(),
                 code: self.code.to_string(),
+                detail_code: None,
                 sector_name: self.sector_name.unwrap_or_else(|| "unknown".to_string()),
                 edge: None,
                 support_half_edge: None,
