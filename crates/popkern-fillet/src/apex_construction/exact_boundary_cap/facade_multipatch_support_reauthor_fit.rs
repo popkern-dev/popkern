@@ -7,6 +7,86 @@ use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundary
 
 const DERIVATIVE_ROW_WEIGHT: f64 = 32.0;
 const ENDPOINT_ROW_WEIGHT: f64 = 64.0;
+const TANGENT_PLANE_ROW_WEIGHT: f64 = 128.0;
+
+pub(super) fn tangent_plane_constrained_sampled_curve(
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    support_forward: bool,
+    sample_count: usize,
+) -> Option<NurbsCurve> {
+    if sample_count < 2 {
+        return None;
+    }
+    let degree = 5usize.min(sample_count.saturating_sub(1));
+    let control_count = sample_count;
+    let knots = open_uniform_knots(degree, control_count);
+    let unknown_count = control_count * 3;
+    let mut matrix = vec![vec![0.0; unknown_count]; unknown_count];
+    let mut values = vec![0.0; unknown_count];
+
+    for index in 0..sample_count {
+        let parameter = index as f64 / (sample_count - 1) as f64;
+        let (point, _) = support_image_sample(support_pair, parameter, support_forward)?;
+        let endpoint_weight = if index == 0 || index + 1 == sample_count {
+            ENDPOINT_ROW_WEIGHT
+        } else {
+            1.0
+        };
+        let basis = basis_row(degree, &knots, control_count, parameter);
+        add_coordinate_row(
+            &mut matrix,
+            &mut values,
+            &basis,
+            0,
+            endpoint_weight,
+            point.x,
+        );
+        add_coordinate_row(
+            &mut matrix,
+            &mut values,
+            &basis,
+            1,
+            endpoint_weight,
+            point.y,
+        );
+        add_coordinate_row(
+            &mut matrix,
+            &mut values,
+            &basis,
+            2,
+            endpoint_weight,
+            point.z,
+        );
+        let normal = support_image_normal(support_pair, parameter, support_forward)?;
+        let derivative_basis = derivative_basis_row(degree, &knots, control_count, parameter);
+        add_tangent_plane_row(
+            &mut matrix,
+            &mut values,
+            &derivative_basis,
+            normal,
+            TANGENT_PLANE_ROW_WEIGHT,
+        );
+    }
+
+    let solution = solve_linear_system(&matrix, &values)?;
+    let mut control_points = (0..control_count)
+        .map(|index| {
+            Point3::new(
+                solution[index * 3],
+                solution[index * 3 + 1],
+                solution[index * 3 + 2],
+            )
+        })
+        .collect::<Vec<_>>();
+    control_points[0] = support_image_sample(support_pair, 0.0, support_forward)?.0;
+    control_points[control_count - 1] = support_image_sample(support_pair, 1.0, support_forward)?.0;
+    Some(NurbsCurve {
+        degree,
+        knots,
+        control_points,
+        weights: vec![1.0; control_count],
+    })
+}
 
 pub(super) fn derivative_constrained_sampled_curve(
     support_pair: &PreparedExactBoundaryPcurvePair,
@@ -96,6 +176,78 @@ fn support_image_sample(
         support_pair.support_surface.point_at(uv.x, uv.y),
         tangent * direction_sign * (end - start).abs(),
     ))
+}
+
+fn support_image_normal(
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    parameter: f64,
+    support_forward: bool,
+) -> Option<Vec3> {
+    let support_parameter = if support_forward {
+        parameter
+    } else {
+        1.0 - parameter
+    };
+    let (start, end) = support_pair.support_pcurve.parameter_range();
+    let pcurve_t = start + (end - start) * support_parameter;
+    let uv = support_pair.support_pcurve.point_at(pcurve_t);
+    support_pair
+        .support_surface
+        .partial_u(uv.x, uv.y)
+        .cross(&support_pair.support_surface.partial_v(uv.x, uv.y))
+        .normalized()
+}
+
+fn add_coordinate_row(
+    matrix: &mut [Vec<f64>],
+    values: &mut [f64],
+    basis: &[f64],
+    coordinate: usize,
+    weight: f64,
+    target: f64,
+) {
+    let row = basis
+        .iter()
+        .enumerate()
+        .filter_map(|(index, basis_value)| {
+            (basis_value.abs() > f64::EPSILON).then_some((index * 3 + coordinate, *basis_value))
+        })
+        .collect::<Vec<_>>();
+    add_coupled_row(matrix, values, &row, weight, target);
+}
+
+fn add_tangent_plane_row(
+    matrix: &mut [Vec<f64>],
+    values: &mut [f64],
+    derivative_basis: &[f64],
+    normal: Vec3,
+    weight: f64,
+) {
+    let mut row = Vec::new();
+    for (index, basis_value) in derivative_basis.iter().enumerate() {
+        if basis_value.abs() <= f64::EPSILON {
+            continue;
+        }
+        row.push((index * 3, *basis_value * normal.x));
+        row.push((index * 3 + 1, *basis_value * normal.y));
+        row.push((index * 3 + 2, *basis_value * normal.z));
+    }
+    add_coupled_row(matrix, values, &row, weight, 0.0);
+}
+
+fn add_coupled_row(
+    matrix: &mut [Vec<f64>],
+    values: &mut [f64],
+    row: &[(usize, f64)],
+    weight: f64,
+    target: f64,
+) {
+    for &(row_index, row_value) in row {
+        values[row_index] += weight * row_value * target;
+        for &(column_index, column_value) in row {
+            matrix[row_index][column_index] += weight * row_value * column_value;
+        }
+    }
 }
 
 fn add_row(

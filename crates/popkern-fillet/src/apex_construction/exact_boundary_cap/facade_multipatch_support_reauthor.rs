@@ -156,6 +156,13 @@ fn support_image_fit_candidates(
     sample_count: usize,
 ) -> Result<Vec<NurbsCurve>, SupportBoundaryReauthorDecline> {
     let mut candidates = Vec::new();
+    if let Some(candidate) = reauthor_fit::tangent_plane_constrained_sampled_curve(
+        support_pair,
+        support_forward,
+        sample_count,
+    ) {
+        candidates.push(candidate);
+    }
     if let Some(candidate) = reauthor_fit::derivative_constrained_sampled_curve(
         support_pair,
         support_forward,
@@ -176,7 +183,6 @@ fn support_image_fit_candidates(
         SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
     ))
 }
-
 fn support_hermite_boundary_curve(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
@@ -478,7 +484,6 @@ fn tangent_support_normal_report(
     }
     report
 }
-
 fn pcurve_follows_boundary(
     surface: &impl SurfaceEval,
     pcurve: &Pcurve,

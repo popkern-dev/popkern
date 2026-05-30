@@ -173,8 +173,7 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 #[test]
 #[ignore = "live multipatch route reaches cap/support continuity gate; full multipatch topology closure remains pending"]
 fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
-    const MULTIPATCH_BLOCKER: &str =
-        "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
+    const CAP_OUTER_BLOCKER: &str = "cap_outer_g0_exceeds_gate";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -219,29 +218,43 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "pyramid3 multipatch route must decline before live commit when selected strip quality fails"
     );
     assert!(
-        multipatch_step.diagnostic_code.as_deref() == Some(MULTIPATCH_BLOCKER),
-        "bounded multipatch reauthoring should expose the remaining boundary/support tangent blocker; got {:?}",
+        multipatch_step.diagnostic_code.as_deref() == Some(CAP_OUTER_BLOCKER),
+        "bounded tangent-plane support reauthoring should reach the cap/support G0 gate; got {:?}",
         multipatch_step.diagnostic_code
     );
-    let multipatch_diagnostic = route
+    assert_eq!(
+        route
+            .exact_boundary_report
+            .continuity
+            .decline_code
+            .as_deref(),
+        Some(CAP_OUTER_BLOCKER),
+        "exact-boundary report must preserve cap/support continuity decline evidence"
+    );
+    assert!(
+        route.exact_boundary_report.continuity.worst_g0_gap
+            > Some(
+                route
+                    .exact_boundary_report
+                    .continuity
+                    .target
+                    .g0_position_tolerance,
+            ),
+        "cap/support continuity report must preserve measured G0 excess"
+    );
+    let cap_outer_diagnostic = route
         .exact_boundary_report
         .diagnostics
         .iter()
         .find(|diagnostic| {
-            diagnostic.stage == "exact_boundary_cap.multipatch"
-                && diagnostic.code == MULTIPATCH_BLOCKER
-                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(32v1)"
+            diagnostic.stage == "exact_boundary_cap.cap_support_continuity"
+                && diagnostic.code == CAP_OUTER_BLOCKER
         })
-        .expect("multipatch decline must promote edge32 boundary/support tangent evidence");
-    assert_eq!(
-        format!("{:?}", multipatch_diagnostic.edge.expect("edge")),
-        "EdgeHandle(32v1)",
-        "multipatch diagnostic must identify the remaining tangent-incompatible edge"
-    );
+        .expect("cap/support continuity decline must be promoted into the exact-boundary report");
     assert!(
-        multipatch_diagnostic.residual.expect("residual")
-            > multipatch_diagnostic.tolerance.expect("tolerance"),
-        "multipatch diagnostic must preserve measured tangent residual evidence"
+        cap_outer_diagnostic.residual.expect("residual")
+            > cap_outer_diagnostic.tolerance.expect("tolerance"),
+        "cap/support diagnostic must preserve measured G0 residual evidence"
     );
     let reauthor_diagnostic = route
         .exact_boundary_report
@@ -268,28 +281,28 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                     .unwrap_or(false)),
         "bounded support-boundary reauthoring must not promote an infinite support-strip sentinel"
     );
-    let multipatch_apex_diagnostic = result
+    let cap_outer_apex_diagnostic = result
         .repair_report
         .apex_diagnostics
         .iter()
         .find_map(|diagnostic| match diagnostic {
-            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
-                if diagnostic.stage == "exact_boundary_cap.multipatch"
-                    && diagnostic.code == MULTIPATCH_BLOCKER
-                    && diagnostic
-                        .edge
-                        .map(|edge| format!("{edge:?}") == "EdgeHandle(32v1)")
-                        .unwrap_or(false) =>
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic)
+                if diagnostic.continuity.decline_code.as_deref() == Some(CAP_OUTER_BLOCKER) =>
             {
                 Some(diagnostic)
             }
             _ => None,
         })
-        .expect("multipatch decline must promote boundary/support tangent evidence");
-    assert_eq!(
-        format!("{:?}", multipatch_apex_diagnostic.edge.expect("edge")),
-        "EdgeHandle(32v1)",
-        "apex diagnostic must identify the remaining tangent-incompatible edge"
+        .expect("cap/support continuity decline must promote apex diagnostic evidence");
+    assert!(
+        cap_outer_apex_diagnostic.continuity.worst_g0_gap
+            > Some(
+                cap_outer_apex_diagnostic
+                    .continuity
+                    .target
+                    .g0_position_tolerance,
+            ),
+        "apex diagnostic must preserve measured cap/support G0 excess"
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
@@ -297,16 +310,16 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             action.stage == "exact_boundary_cap.route_decision"
                 && action.outcome == "declined"
                 && action.subject.contains("route=exact_boundary.multipatch")
-                && action.reason.as_deref() == Some(MULTIPATCH_BLOCKER)
+                && action.reason.as_deref() == Some(CAP_OUTER_BLOCKER)
         }),
-        "repair action artifact must preserve multipatch selected-strip decline"
+        "repair action artifact must preserve multipatch cap/support continuity decline"
     );
     assert!(
         artifact.actions.iter().any(|action| {
-            action.stage == "exact_boundary_cap.multipatch"
+            action.stage == "apex_cap_support_continuity"
                 && action.outcome == "declined"
-                && action.reason.as_deref() == Some(MULTIPATCH_BLOCKER)
+                && action.reason.as_deref() == Some(CAP_OUTER_BLOCKER)
         }),
-        "repair action artifact must expose the measured selected-strip blocker"
+        "repair action artifact must expose the measured cap/support continuity blocker"
     );
 }

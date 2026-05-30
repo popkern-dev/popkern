@@ -3,10 +3,11 @@
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::types::{
-    ApexConstructionDiagnostic, ExactBoundaryCandidateOutcome,
-    ExactBoundaryCandidatePerformanceReport, ExactBoundaryCapDiagnostic, ExactBoundaryCapReport,
-    ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance, ExactBoundaryReportSector,
-    ExactBoundaryRouteDecisionStep, ExactBoundaryToleranceEvidence,
+    ApexConstructionDiagnostic, CapContinuityReport, CapSupportContinuityDiagnostic,
+    ExactBoundaryCandidateOutcome, ExactBoundaryCandidatePerformanceReport,
+    ExactBoundaryCapDiagnostic, ExactBoundaryCapReport, ExactBoundaryReportDiagnostic,
+    ExactBoundaryReportProvenance, ExactBoundaryReportSector, ExactBoundaryRouteDecisionStep,
+    ExactBoundaryToleranceEvidence,
 };
 
 use super::super::sector::ExactBoundaryCapSectorInput;
@@ -61,7 +62,7 @@ pub(crate) fn build_exact_boundary_report(
             deterministic_skip_code: performance.deterministic_skip_code.clone(),
             ..ExactBoundaryToleranceEvidence::default()
         },
-        continuity: Default::default(),
+        continuity: report_continuity(diagnostics),
         performance: performance.clone(),
         diagnostics: report_diagnostics,
         source_fact_ids,
@@ -103,10 +104,15 @@ fn half_edge_has_pcurve(brep: &BRep, half_edge: HalfEdgeHandle) -> bool {
 fn exact_boundary_report_diagnostic(
     diagnostic: &ApexConstructionDiagnostic,
 ) -> Option<ExactBoundaryReportDiagnostic> {
-    let ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) = diagnostic else {
-        return None;
-    };
-    Some(report_diagnostic_from_exact_boundary(diagnostic))
+    match diagnostic {
+        ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) => {
+            Some(report_diagnostic_from_exact_boundary(diagnostic))
+        }
+        ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
+            Some(report_diagnostic_from_cap_support(diagnostic))
+        }
+        _ => None,
+    }
 }
 
 fn report_diagnostic_from_exact_boundary(
@@ -127,6 +133,52 @@ fn report_diagnostic_from_exact_boundary(
         tolerance: diagnostic.tolerance,
         shared_fact_ids: diagnostic.shared_fact_ids.iter().map(|id| id.0).collect(),
     }
+}
+
+fn report_diagnostic_from_cap_support(
+    diagnostic: &CapSupportContinuityDiagnostic,
+) -> ExactBoundaryReportDiagnostic {
+    let g0_declined =
+        diagnostic.continuity.decline_code.as_deref() == Some("cap_outer_g0_exceeds_gate");
+    ExactBoundaryReportDiagnostic {
+        schema_version: 1,
+        stage: "exact_boundary_cap.cap_support_continuity".to_string(),
+        code: diagnostic
+            .continuity
+            .decline_code
+            .clone()
+            .unwrap_or_else(|| "cap_outer_g1_exceeds_gate".to_string()),
+        detail_code: None,
+        sector_name: String::new(),
+        edge: Some(diagnostic.edge),
+        support_half_edge: None,
+        support_face: Some(diagnostic.support_face),
+        residual: if g0_declined {
+            diagnostic.continuity.worst_g0_gap
+        } else {
+            diagnostic.continuity.worst_g1_normal_deficit
+        },
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: Some(if g0_declined {
+            diagnostic.continuity.target.g0_position_tolerance
+        } else {
+            diagnostic.continuity.target.g1_normal_deficit_tolerance
+        }),
+        shared_fact_ids: Vec::new(),
+    }
+}
+
+fn report_continuity(diagnostics: &[ApexConstructionDiagnostic]) -> CapContinuityReport {
+    diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) => {
+                Some(diagnostic.continuity.clone())
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 fn unique_source_fact_ids(diagnostics: &[ExactBoundaryReportDiagnostic]) -> Vec<usize> {
