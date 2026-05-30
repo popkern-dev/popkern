@@ -16,6 +16,7 @@ pub(super) fn relock_exact_boundary_cap_side(
     support_half_edge: HalfEdgeHandle,
     side: ExactBoundaryCapSurfaceSide,
     side_forward: bool,
+    support_forward: bool,
 ) -> Option<()> {
     let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
     let edge = brep.half_edges.get(half_edge)?.edge;
@@ -26,7 +27,7 @@ pub(super) fn relock_exact_boundary_cap_side(
     } else {
         BoundarySampleDirection::Reverse
     };
-    let support_direction = if side_forward {
+    let support_direction = if support_forward {
         BoundarySampleDirection::Forward
     } else {
         BoundarySampleDirection::Reverse

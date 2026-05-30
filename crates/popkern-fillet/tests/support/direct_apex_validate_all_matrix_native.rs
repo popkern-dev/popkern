@@ -288,57 +288,12 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
     for (fixture, radii, expect_multipatch_recovery) in [
         ("pyramid3_uniform", [0.10, 0.10, 0.10], true),
         ("pyramid3_mixed", [0.08, 0.10, 0.12], false),
+        ("pyramid3_extreme", [0.02, 0.10, 0.20], false),
     ] {
         assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
             fixture,
             &radii,
             expect_multipatch_recovery,
-        );
-    }
-}
-
-#[test]
-fn pyramid3_nonuniform_records_structured_exact_boundary_blockers() {
-    for (fixture, radii) in [("pyramid3_extreme", [0.02, 0.10, 0.20])] {
-        let result = build_under_direct_apex(true, &radii);
-        let route = result
-            .repair_report
-            .apex_routes
-            .first()
-            .expect("pyramid3 nonuniform fixture should record one direct-apex route");
-        let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
-        let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
-        assert!(
-            route
-                .exact_boundary_report
-                .diagnostics
-                .iter()
-                .any(
-                    |diagnostic| diagnostic.stage == "exact_boundary_cap.cap_outer"
-                        && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
-                        && diagnostic
-                            .residual
-                            .is_some_and(|residual| residual > 5.0e-3)
-                        || diagnostic.stage == "exact_boundary_cap.cap_support_continuity"
-                            && diagnostic.code == "cap_outer_g0_exceeds_gate"
-                            && diagnostic
-                                .residual
-                                .is_some_and(|residual| residual > 5.0e-3)
-                        || diagnostic.stage == "exact_boundary_cap.support_scope"
-                            && diagnostic.code
-                                == "exact_boundary_cap.support_scope.residual_exceeded"
-                            && diagnostic
-                                .residual
-                                .is_some_and(|residual| residual > 1.0e-6)
-                ),
-            "{fixture} must not silently accept its exact-boundary blocker; g0={:.3e} decisions={:?} diagnostics={:?}",
-            metrics.worst_g0_gap,
-            route.exact_boundary_report.decision_chain,
-            route.exact_boundary_report.diagnostics,
-        );
-        assert!(
-            metrics.worst_g0_gap > 5.0e-3,
-            "{fixture} blocker test must remain tied to the measured cap_outer G0 gap"
         );
     }
 }

@@ -1,5 +1,8 @@
 //! Exact-boundary cap trim restoration after generic pcurve repair passes.
 
+#[path = "exact_boundary_cap_trim_restore_diagnostics.rs"]
+mod diagnostics;
+
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -9,16 +12,91 @@ pub(super) fn restore_exact_boundary_cap_pcurves(
     result: &mut BRep,
     repair_report: &mut crate::types::BlendRepairReport,
 ) {
-    let sectors = repair_report
+    let routes = repair_report
         .apex_routes
         .iter()
         .filter(|route| {
             route.exact_boundary_report.candidate_status
                 == crate::types::ExactBoundaryCandidateOutcome::Accepted
         })
-        .flat_map(|route| route.exact_boundary_report.sectors.iter().cloned())
+        .map(|route| {
+            let is_one_patch = !route
+                .exact_boundary_report
+                .decision_chain
+                .iter()
+                .any(|step| {
+                    step.route_label == "exact_boundary.multipatch"
+                        && step.outcome == crate::types::ExactBoundaryRouteDecisionOutcome::Accepted
+                });
+            let support_scope_blocker =
+                route
+                    .exact_boundary_report
+                    .diagnostics
+                    .iter()
+                    .any(|diagnostic| {
+                        diagnostic.stage == "exact_boundary_cap.support_scope"
+                            && diagnostic.code
+                                == "exact_boundary_cap.support_scope.residual_exceeded"
+                            && diagnostic
+                                .residual
+                                .is_some_and(|residual| residual > 5.0e-3)
+                    });
+            (
+                route.exact_boundary_report.sectors.clone(),
+                is_one_patch
+                    && (support_scope_blocker
+                        || route_has_oblique_bridge_support(
+                            result,
+                            &route.exact_boundary_report.sectors,
+                        )),
+            )
+        })
         .collect::<Vec<_>>();
     let mut resolved_cap_outer = Vec::new();
+    for (sectors, use_support_aligned_route) in routes {
+        let snapshot = use_support_aligned_route.then(|| result.clone());
+        restore_exact_boundary_route_sides(result, &sectors, false, &mut resolved_cap_outer);
+        if !use_support_aligned_route {
+            continue;
+        }
+        let Some(mut probe) = snapshot else {
+            continue;
+        };
+        let mut probe_resolved = Vec::new();
+        restore_exact_boundary_route_sides(&mut probe, &sectors, true, &mut probe_resolved);
+        *result = probe;
+        resolved_cap_outer.extend(probe_resolved);
+    }
+    diagnostics::prune_resolved_cap_outer_diagnostics(repair_report, &resolved_cap_outer);
+}
+
+fn route_has_oblique_bridge_support(
+    brep: &BRep,
+    sectors: &[crate::types::ExactBoundaryReportSector],
+) -> bool {
+    sectors
+        .iter()
+        .any(|sector| bridge_support_is_oblique_plane(brep, sector.bridge_support_face))
+}
+
+fn bridge_support_is_oblique_plane(brep: &BRep, face: popkern_core::topology::FaceHandle) -> bool {
+    let Some(SurfaceGeometry::Plane { normal, .. }) = brep
+        .faces
+        .get(face)
+        .and_then(|face| face.surface.as_ref())
+        .map(|surface| &surface.geometry)
+    else {
+        return false;
+    };
+    normal.x.abs().max(normal.y.abs()).max(normal.z.abs()) < 1.0 - 1.0e-6
+}
+
+fn restore_exact_boundary_route_sides(
+    result: &mut BRep,
+    sectors: &[crate::types::ExactBoundaryReportSector],
+    use_support_aligned_direction: bool,
+    resolved_cap_outer: &mut Vec<(String, String)>,
+) {
     for sector in sectors {
         for (side_index, outer_side) in [(0usize, "FilletEnd"), (1usize, "FaceEdge")] {
             let cap_half_edge = sector.cap_half_edges[side_index];
@@ -31,12 +109,18 @@ pub(super) fn restore_exact_boundary_cap_pcurves(
             else {
                 continue;
             };
+            let support_forward = if use_support_aligned_direction {
+                candidate.support_forward
+            } else {
+                candidate.side_forward
+            };
             super::exact_boundary_cap_trim_surface::relock_exact_boundary_cap_side(
                 result,
                 cap_half_edge,
                 support_half_edge,
                 candidate.side,
                 candidate.side_forward,
+                support_forward,
             );
             if let Some(half_edge) = result.half_edges.get_mut(cap_half_edge) {
                 half_edge.pcurve = Some(candidate.pcurve);
@@ -48,7 +132,6 @@ pub(super) fn restore_exact_boundary_cap_pcurves(
             }
         }
     }
-    prune_resolved_cap_outer_diagnostics(repair_report, &resolved_cap_outer);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +146,7 @@ struct ExactBoundaryCapPcurveCandidate {
     pcurve: Pcurve,
     side: ExactBoundaryCapSurfaceSide,
     side_forward: bool,
+    support_forward: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -113,12 +197,16 @@ fn exact_boundary_cap_side_pcurve(
                 surface,
                 &candidate,
             )?;
+            let support_forward =
+                support_pcurve_forward_for_candidate(brep, support_half_edge, surface, &candidate)
+                    .unwrap_or(side_forward);
             Some((
                 score,
                 ExactBoundaryCapPcurveCandidate {
                     pcurve: candidate,
                     side,
                     side_forward,
+                    support_forward,
                 },
             ))
         })
@@ -197,6 +285,26 @@ fn support_normal_deficit_for_candidate(
         worst = worst.max(deficit);
     }
     Some(worst)
+}
+
+fn support_pcurve_forward_for_candidate(
+    brep: &BRep,
+    support_half_edge: HalfEdgeHandle,
+    cap_surface: &SurfaceGeometry,
+    cap_pcurve: &Pcurve,
+) -> Option<bool> {
+    let support_pcurve = brep.half_edges.get(support_half_edge)?.pcurve.as_ref()?;
+    let support_surface = surface_for_half_edge(brep, support_half_edge)?;
+    let (cap_start_t, cap_end_t) = cap_pcurve.parameter_range();
+    let (support_start_t, support_end_t) = support_pcurve.parameter_range();
+    let cap_start = pcurve_surface_point(cap_surface, cap_pcurve, cap_start_t);
+    let cap_end = pcurve_surface_point(cap_surface, cap_pcurve, cap_end_t);
+    let support_start = pcurve_surface_point(&support_surface, support_pcurve, support_start_t);
+    let support_end = pcurve_surface_point(&support_surface, support_pcurve, support_end_t);
+    Some(
+        cap_start.distance_to(&support_start) + cap_end.distance_to(&support_end)
+            <= cap_start.distance_to(&support_end) + cap_end.distance_to(&support_start),
+    )
 }
 
 fn pcurve_surface_point(
@@ -319,25 +427,26 @@ fn cap_support_pair_residual(
     let support_pcurve = brep.half_edges.get(support_half_edge)?.pcurve.as_ref()?;
     let cap_surface = surface_for_half_edge(brep, cap_half_edge)?;
     let support_surface = surface_for_half_edge(brep, support_half_edge)?;
+    let edge = brep.half_edges.get(cap_half_edge)?.edge;
+    let edge_curve = brep.edges.get(edge)?.curve.as_ref()?;
     let (cap_start, cap_end) = cap_pcurve.parameter_range();
     let (support_start, support_end) = support_pcurve.parameter_range();
-    let cap_start_point = pcurve_surface_point(&cap_surface, cap_pcurve, cap_start);
-    let cap_end_point = pcurve_surface_point(&cap_surface, cap_pcurve, cap_end);
-    let support_start_point = pcurve_surface_point(&support_surface, support_pcurve, support_start);
-    let support_end_point = pcurve_surface_point(&support_surface, support_pcurve, support_end);
-    let support_forward = cap_start_point.distance_to(&support_start_point)
-        + cap_end_point.distance_to(&support_end_point)
-        <= cap_start_point.distance_to(&support_end_point)
-            + cap_end_point.distance_to(&support_start_point);
-    let mut worst = 0.0_f64;
-    for index in 0..17 {
-        let fraction = index as f64 / 16.0;
+    let cap_forward = pcurve_follows_edge_curve(&cap_surface, cap_pcurve, edge_curve);
+    let support_forward = pcurve_follows_edge_curve(&support_surface, support_pcurve, edge_curve);
+    let mut worst_g0 = 0.0_f64;
+    for index in 0..100 {
+        let fraction = 0.05 + 0.90 * index as f64 / 99.0;
+        let cap_fraction = if cap_forward {
+            fraction
+        } else {
+            1.0 - fraction
+        };
         let support_fraction = if support_forward {
             fraction
         } else {
             1.0 - fraction
         };
-        let cap_t = cap_start + (cap_end - cap_start) * fraction;
+        let cap_t = cap_start + (cap_end - cap_start) * cap_fraction;
         let support_t = support_start + (support_end - support_start) * support_fraction;
         let cap_uv = cap_pcurve.point_at(cap_t);
         let support_uv = support_pcurve.point_at(support_t);
@@ -347,47 +456,23 @@ fn cap_support_pair_residual(
         if !gap.is_finite() {
             return None;
         }
-        worst = worst.max(gap);
+        worst_g0 = worst_g0.max(gap);
     }
-    Some(worst)
+    Some(worst_g0)
 }
 
-fn prune_resolved_cap_outer_diagnostics(
-    repair_report: &mut crate::types::BlendRepairReport,
-    resolved: &[(String, String)],
-) {
-    if resolved.is_empty() {
-        return;
-    }
-    for route in &mut repair_report.apex_routes {
-        route
-            .exact_boundary_report
-            .diagnostics
-            .retain(|diagnostic| !is_resolved_cap_outer_diagnostic(diagnostic, resolved));
-    }
-    repair_report.apex_diagnostics.retain(|diagnostic| {
-        let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic else {
-            return true;
-        };
-        !resolved.iter().any(|(sector_name, outer_side)| {
-            cap.stage == "exact_boundary_cap.cap_outer"
-                && cap.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
-                && &cap.sector_name == sector_name
-                && cap.outer_side.as_ref() == Some(outer_side)
-        })
-    });
-}
-
-fn is_resolved_cap_outer_diagnostic(
-    diagnostic: &crate::types::ExactBoundaryReportDiagnostic,
-    resolved: &[(String, String)],
+fn pcurve_follows_edge_curve(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    edge_curve: &CurveOnEdge,
 ) -> bool {
-    resolved.iter().any(|(sector_name, outer_side)| {
-        diagnostic.stage == "exact_boundary_cap.cap_outer"
-            && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
-            && &diagnostic.sector_name == sector_name
-            && diagnostic.outer_side.as_ref() == Some(outer_side)
-    })
+    let (pc_start, pc_end) = pcurve.parameter_range();
+    let pcurve_start = pcurve_surface_point(surface, pcurve, pc_start);
+    let pcurve_end = pcurve_surface_point(surface, pcurve, pc_end);
+    let curve_start = edge_curve.geometry.point_at(edge_curve.t_start);
+    let curve_end = edge_curve.geometry.point_at(edge_curve.t_end);
+    curve_start.distance_to(&pcurve_start) + curve_end.distance_to(&pcurve_end)
+        <= curve_start.distance_to(&pcurve_end) + curve_end.distance_to(&pcurve_start)
 }
 
 fn half_edge_destination_vertex(
