@@ -29,8 +29,8 @@ use super::super::validation::{
     ExactBoundaryValidationDeclineReason, ExactBoundaryValidationDiagnostic,
 };
 use support::{
-    dense_support_samples, selected_strip_live_equivalent_diagnostic,
-    support_authority_boundary_attempt,
+    dense_support_samples, optimize_selected_strip_live_support_seam,
+    selected_strip_live_equivalent_diagnostic, support_authority_boundary_attempt,
 };
 
 pub(super) struct ExactBoundaryMultipatchRouteAttempt {
@@ -179,7 +179,13 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
     });
     match attempt.report.outcome {
         ExactBoundaryMultiPatchCandidateOutcome::CommitEligible => {
-            let candidate = attempt.candidate?;
+            let mut candidate = attempt.candidate?;
+            optimize_selected_strip_live_support_seam(
+                &mut candidate,
+                &candidate_boundary,
+                support_pair,
+                budget,
+            );
             if let Some(diagnostic) = selected_strip_live_equivalent_diagnostic(
                 sector,
                 &candidate,

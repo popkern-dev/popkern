@@ -12,9 +12,12 @@ use super::super::super::pcurves::PreparedExactBoundaryPcurvePair;
 use super::super::super::ribbon::{ExactBoundaryRibbonSample, PreparedExactBoundaryRibbon};
 use super::super::super::sector::ExactBoundaryCapSectorInput;
 
+#[path = "facade_multipatch_support_optimizer.rs"]
+mod optimizer;
 #[path = "facade_multipatch_support_reauthor.rs"]
 mod reauthor;
 
+pub(super) use optimizer::optimize_selected_strip_live_support_seam;
 pub(super) use reauthor::support_authority_boundary_attempt;
 #[cfg(test)]
 use reauthor::{support_authority_boundary_curve, tangent_support_normal_dot};
@@ -131,12 +134,12 @@ fn nearest_support_sample(
 }
 
 #[derive(Debug, Clone, Copy)]
-struct CandidateSupportSeamReport {
-    max_g1_deficit: f64,
-    sample_parameter: f64,
+pub(super) struct CandidateSupportSeamReport {
+    pub(super) max_g1_deficit: f64,
+    pub(super) sample_parameter: f64,
 }
 
-fn selected_strip_support_seam_report(
+pub(super) fn selected_strip_support_seam_report(
     candidate: &ExactBoundaryMultiPatchCandidate,
     boundary: &NurbsCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
@@ -199,7 +202,7 @@ fn selected_strip_support_seam_report(
     Some(report)
 }
 
-fn normal_deficit_between_surfaces(
+pub(super) fn normal_deficit_between_surfaces(
     cap_surface: &impl SurfaceEval,
     cap_u: f64,
     cap_v: f64,
@@ -225,7 +228,7 @@ fn normal_deficit_between_surfaces(
     Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
 }
 
-fn pcurve_follows_boundary(
+pub(super) fn pcurve_follows_boundary(
     surface: &impl SurfaceEval,
     pcurve: &Pcurve,
     boundary_start: Point3,
