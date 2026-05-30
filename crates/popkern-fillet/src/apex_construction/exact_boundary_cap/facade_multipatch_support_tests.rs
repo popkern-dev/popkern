@@ -6,6 +6,7 @@ use popkern_core::topology::{EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use super::*;
 use crate::apex_construction::exact_boundary_cap::boundary::PreparedExactBoundaryCurve;
+use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBoundaryMultiPatchDeclineReason;
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
 use crate::apex_construction::exact_boundary_cap::sector::ExactBoundaryOuterSide;
 
@@ -31,7 +32,15 @@ fn support_authority_boundary_declines_when_endpoints_change_topology() {
     });
     let support_pair = support_pair(Point3::new(1.0, 0.0, 0.0));
 
-    assert!(support_authority_boundary_curve(&boundary, &support_pair).is_none());
+    let attempt = support_authority_boundary_attempt(&boundary, &support_pair);
+
+    assert!(attempt.candidate.is_none());
+    let decline = attempt.decline.expect("endpoint mismatch decline");
+    assert_eq!(
+        decline.reason,
+        ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorEndpointMismatch
+    );
+    assert!(decline.residual > decline.tolerance);
 }
 
 fn prepared_boundary(curve: NurbsCurve) -> PreparedExactBoundaryCurve {

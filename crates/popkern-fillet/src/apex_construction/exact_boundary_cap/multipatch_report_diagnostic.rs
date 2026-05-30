@@ -207,6 +207,17 @@ impl ExactBoundaryMultiPatchDiagnostic {
         )
     }
 
+    pub(crate) fn support_boundary_reauthor_decline(
+        reason: ExactBoundaryMultiPatchDeclineReason,
+        sector: &ExactBoundaryCapSectorInput,
+        strip: &ExactBoundaryOuterStripPatchInventory,
+        residual: f64,
+        sample_parameter: f64,
+        tolerance: f64,
+    ) -> Self {
+        Self::strip_boundary_decline(reason, sector, strip, residual, sample_parameter, tolerance)
+    }
+
     pub(crate) fn commit_preflight_missing_surface(
         sector: &ExactBoundaryCapSectorInput,
         strip: &ExactBoundaryOuterStripPatchInventory,

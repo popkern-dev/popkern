@@ -3,9 +3,8 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, Point3};
 
-use super::super::super::boundary::PreparedExactBoundaryCurve;
 use super::super::super::multipatch::ExactBoundaryMultiPatchCandidate;
 use super::super::super::multipatch::budget::ExactBoundaryMultiPatchBudget;
 use super::super::super::multipatch::report::ExactBoundaryMultiPatchDiagnostic;
@@ -13,9 +12,12 @@ use super::super::super::pcurves::PreparedExactBoundaryPcurvePair;
 use super::super::super::ribbon::{ExactBoundaryRibbonSample, PreparedExactBoundaryRibbon};
 use super::super::super::sector::ExactBoundaryCapSectorInput;
 
-const SUPPORT_BOUNDARY_SEGMENTS: usize = 16;
-const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
-const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
+#[path = "facade_multipatch_support_reauthor.rs"]
+mod reauthor;
+
+pub(super) use reauthor::support_authority_boundary_attempt;
+#[cfg(test)]
+use reauthor::{support_authority_boundary_curve, tangent_support_normal_dot};
 
 pub(super) fn dense_support_samples(
     boundary: &NurbsCurve,
@@ -43,160 +45,6 @@ pub(super) fn dense_support_samples(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
     samples
-}
-
-pub(super) fn support_authority_boundary_curve(
-    boundary: &PreparedExactBoundaryCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-) -> Option<NurbsCurve> {
-    if let Some(candidate) = support_hermite_boundary_curve(boundary, support_pair) {
-        return Some(candidate);
-    }
-    let support_forward = pcurve_follows_boundary(
-        &support_pair.support_surface,
-        &support_pair.support_pcurve,
-        boundary.curve.point_at(0.0),
-        boundary.curve.point_at(1.0),
-    );
-    let (start, end) = support_pair.support_pcurve.parameter_range();
-    let mut points = Vec::with_capacity(17);
-    let mut params = Vec::with_capacity(17);
-    for index in 0..17 {
-        let parameter = index as f64 / 16.0;
-        let support_parameter = if support_forward {
-            parameter
-        } else {
-            1.0 - parameter
-        };
-        let t = start + (end - start) * support_parameter;
-        let uv = support_pair.support_pcurve.point_at(t);
-        points.push(support_pair.support_surface.point_at(uv.x, uv.y));
-        params.push(parameter);
-    }
-    let degree = 9.min(points.len().saturating_sub(1));
-    let candidate = popkern_core::geometry::fitting::interpolate_curve(&points, &params, degree)
-        .ok()
-        .or_else(|| {
-            popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
-        })?;
-    support_authority_improves_tangent_compatibility(boundary, support_pair, &candidate)
-        .then_some(candidate)
-}
-
-fn support_hermite_boundary_curve(
-    boundary: &PreparedExactBoundaryCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-) -> Option<NurbsCurve> {
-    let support_forward = pcurve_follows_boundary(
-        &support_pair.support_surface,
-        &support_pair.support_pcurve,
-        boundary.curve.point_at(0.0),
-        boundary.curve.point_at(1.0),
-    );
-    let mut controls = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 1);
-    for segment in 0..SUPPORT_BOUNDARY_SEGMENTS {
-        let s0 = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
-        let s1 = (segment + 1) as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
-        let sample0 = support_boundary_sample(support_pair, s0, support_forward)?;
-        let sample1 = support_boundary_sample(support_pair, s1, support_forward)?;
-        if segment == 0 {
-            controls.push(sample0.point);
-        }
-        let scale = (s1 - s0) / 3.0;
-        controls.push(sample0.point + sample0.tangent * scale);
-        controls.push(sample1.point - sample1.tangent * scale);
-        controls.push(sample1.point);
-    }
-    let mut knots = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 5);
-    knots.extend(std::iter::repeat_n(0.0, 4));
-    for segment in 1..SUPPORT_BOUNDARY_SEGMENTS {
-        let knot = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
-        knots.extend(std::iter::repeat_n(knot, 3));
-    }
-    knots.extend(std::iter::repeat_n(1.0, 4));
-    let candidate = NurbsCurve {
-        degree: 3,
-        knots,
-        weights: vec![1.0; controls.len()],
-        control_points: controls,
-    };
-    support_boundary_endpoint_gap(boundary, &candidate)
-        .is_some_and(|gap| gap <= SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE)
-        .then_some(())?;
-    (support_boundary_residual(&candidate, support_pair, support_forward)
-        <= SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE)
-        .then_some(())?;
-    (tangent_support_normal_dot(&candidate, support_pair)
-        <= max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT))
-    .then_some(candidate)
-}
-
-#[derive(Debug, Clone, Copy)]
-struct SupportBoundarySample {
-    point: Point3,
-    tangent: Vec3,
-}
-
-fn support_boundary_sample(
-    support_pair: &PreparedExactBoundaryPcurvePair,
-    parameter: f64,
-    support_forward: bool,
-) -> Option<SupportBoundarySample> {
-    let support_parameter = if support_forward {
-        parameter
-    } else {
-        1.0 - parameter
-    };
-    let (start, end) = support_pair.support_pcurve.parameter_range();
-    let pcurve_t = start + (end - start) * support_parameter;
-    let uv = support_pair.support_pcurve.point_at(pcurve_t);
-    let uv_tangent = support_pair.support_pcurve.tangent_at(pcurve_t);
-    let direction_sign = if support_forward { 1.0 } else { -1.0 };
-    let tangent = support_pair.support_surface.partial_u(uv.x, uv.y) * uv_tangent.x
-        + support_pair.support_surface.partial_v(uv.x, uv.y) * uv_tangent.y;
-    Some(SupportBoundarySample {
-        point: support_pair.support_surface.point_at(uv.x, uv.y),
-        tangent: tangent * direction_sign * (end - start).abs(),
-    })
-}
-
-fn support_boundary_endpoint_gap(
-    boundary: &PreparedExactBoundaryCurve,
-    candidate: &NurbsCurve,
-) -> Option<f64> {
-    let (start, end) = candidate.parameter_range();
-    Some(
-        candidate
-            .point_at(start)
-            .distance_to(&boundary.curve.point_at(0.0))
-            .max(
-                candidate
-                    .point_at(end)
-                    .distance_to(&boundary.curve.point_at(1.0)),
-            ),
-    )
-}
-
-fn support_boundary_residual(
-    candidate: &NurbsCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-    support_forward: bool,
-) -> f64 {
-    let (start, end) = candidate.parameter_range();
-    let mut worst = 0.0_f64;
-    for index in 0..33 {
-        let parameter = index as f64 / 32.0;
-        let candidate_t = start + (end - start) * parameter;
-        if let Some(sample) = support_boundary_sample(support_pair, parameter, support_forward) {
-            worst = worst.max(candidate.point_at(candidate_t).distance_to(&sample.point));
-        }
-    }
-    worst
-}
-
-fn max_tangent_dot_for_deficit(deficit: f64) -> f64 {
-    let alignment = 1.0 - deficit.clamp(0.0, 1.0);
-    (1.0 - alignment * alignment).max(0.0).sqrt()
 }
 
 pub(super) fn selected_strip_live_equivalent_diagnostic(
@@ -264,53 +112,6 @@ fn nearest_support_sample(
             .partial_cmp(&(b.parameter - parameter).abs())
             .unwrap_or(std::cmp::Ordering::Equal)
     })
-}
-
-fn support_authority_improves_tangent_compatibility(
-    boundary: &PreparedExactBoundaryCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-    candidate: &NurbsCurve,
-) -> bool {
-    tangent_support_normal_dot(&boundary.curve, support_pair)
-        > tangent_support_normal_dot(candidate, support_pair) + 1.0e-3
-}
-
-fn tangent_support_normal_dot(
-    boundary: &NurbsCurve,
-    support_pair: &PreparedExactBoundaryPcurvePair,
-) -> f64 {
-    let support_forward = pcurve_follows_boundary(
-        &support_pair.support_surface,
-        &support_pair.support_pcurve,
-        boundary.point_at(0.0),
-        boundary.point_at(1.0),
-    );
-    let mut max_dot: f64 = 0.0;
-    for index in 0..32 {
-        let parameter = 0.05 + 0.90 * index as f64 / 31.0;
-        let Some(boundary_tangent) = boundary.derivative_at(parameter, 1).normalized() else {
-            continue;
-        };
-        let support_parameter = if support_forward {
-            parameter
-        } else {
-            1.0 - parameter
-        };
-        let t = support_pair.support_pcurve.t_start
-            + (support_pair.support_pcurve.t_end - support_pair.support_pcurve.t_start)
-                * support_parameter;
-        let uv = support_pair.support_pcurve.point_at(t);
-        let Some(support_normal) = support_pair
-            .support_surface
-            .partial_u(uv.x, uv.y)
-            .cross(&support_pair.support_surface.partial_v(uv.x, uv.y))
-            .normalized()
-        else {
-            continue;
-        };
-        max_dot = max_dot.max(boundary_tangent.dot(&support_normal).abs());
-    }
-    max_dot
 }
 
 #[derive(Debug, Clone, Copy)]

@@ -26,7 +26,7 @@ mod inner;
 mod inner_geometry;
 
 #[path = "multipatch_inventory.rs"]
-mod inventory;
+pub(crate) mod inventory;
 
 #[path = "multipatch_report.rs"]
 pub(crate) mod report;

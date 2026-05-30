@@ -175,6 +175,8 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     const MULTIPATCH_BLOCKER: &str =
         "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
+    const REAUTHOR_BLOCKER: &str =
+        "exact_boundary_cap.multipatch.support_boundary_reauthor_support_residual";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -238,6 +240,21 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "EdgeHandle(31v1)",
         "multipatch diagnostic must identify the actual worst selected strip edge"
     );
+    let reauthor_diagnostic = route
+        .exact_boundary_report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic.stage == "exact_boundary_cap.multipatch"
+                && diagnostic.code == REAUTHOR_BLOCKER
+                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(31v1)"
+        })
+        .expect("multipatch decline must promote edge31 support-boundary reauthoring blocker");
+    assert!(
+        reauthor_diagnostic.residual.expect("residual")
+            > reauthor_diagnostic.tolerance.expect("tolerance"),
+        "reauthoring diagnostic must report the failing measured gate"
+    );
     let multipatch_apex_diagnostic = result
         .repair_report
         .apex_diagnostics
@@ -261,6 +278,29 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         "EdgeHandle(31v1)",
         "apex diagnostic must identify the actual worst selected strip edge"
     );
+    let reauthor_apex_diagnostic = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .find_map(|diagnostic| match diagnostic {
+            ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic)
+                if diagnostic.stage == "exact_boundary_cap.multipatch"
+                    && diagnostic.code == REAUTHOR_BLOCKER
+                    && diagnostic
+                        .edge
+                        .map(|edge| format!("{edge:?}") == "EdgeHandle(31v1)")
+                        .unwrap_or(false) =>
+            {
+                Some(diagnostic)
+            }
+            _ => None,
+        })
+        .expect("apex diagnostics must expose the support-boundary reauthoring blocker");
+    assert!(
+        reauthor_apex_diagnostic.residual.expect("residual")
+            > reauthor_apex_diagnostic.tolerance.expect("tolerance"),
+        "apex reauthoring diagnostic must preserve measured residual evidence"
+    );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
         artifact.actions.iter().any(|action| {
@@ -278,5 +318,13 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                 && action.reason.as_deref() == Some(MULTIPATCH_BLOCKER)
         }),
         "repair action artifact must expose the measured selected-strip blocker"
+    );
+    assert!(
+        artifact.actions.iter().any(|action| {
+            action.stage == "exact_boundary_cap.multipatch"
+                && action.outcome == "declined"
+                && action.reason.as_deref() == Some(REAUTHOR_BLOCKER)
+        }),
+        "repair action artifact must expose the support-boundary reauthoring blocker"
     );
 }

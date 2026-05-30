@@ -12,7 +12,10 @@ use super::super::boundary::PreparedExactBoundaryCurves;
 use super::super::commit::commit_exact_boundary_sector_surfaces;
 use super::super::corner::PreparedExactBoundaryInnerSpokes;
 use super::super::multipatch::budget::ExactBoundaryMultiPatchBudget;
-use super::super::multipatch::report::ExactBoundaryMultiPatchCandidateOutcome;
+use super::super::multipatch::inventory::ExactBoundaryMultiPatchInventory;
+use super::super::multipatch::report::{
+    ExactBoundaryMultiPatchCandidateOutcome, ExactBoundaryMultiPatchDiagnostic,
+};
 use super::super::multipatch::strip::ExactBoundaryStripBoundaryDirection;
 use super::super::multipatch::{
     ExactBoundaryMultiPatchCandidate, ExactBoundaryMultiPatchCandidateRequest,
@@ -27,7 +30,7 @@ use super::super::validation::{
 };
 use support::{
     dense_support_samples, selected_strip_live_equivalent_diagnostic,
-    support_authority_boundary_curve,
+    support_authority_boundary_attempt,
 };
 
 pub(super) struct ExactBoundaryMultipatchRouteAttempt {
@@ -141,7 +144,24 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
             && Some(ribbon.support_face) == diagnostic.support_face
     })?;
     let support_pair = pcurve_pair_for_ribbon(pcurves, ribbon)?;
-    let candidate_boundary = support_authority_boundary_curve(boundary, support_pair)
+    let reauthor_attempt = support_authority_boundary_attempt(boundary, support_pair);
+    if let Some(decline) = reauthor_attempt.decline {
+        let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(sector, side);
+        let strip = inventory.outer_strips.first()?;
+        diagnostics.push(
+            ExactBoundaryMultiPatchDiagnostic::support_boundary_reauthor_decline(
+                decline.reason,
+                sector,
+                strip,
+                decline.residual,
+                decline.sample_parameter,
+                decline.tolerance,
+            )
+            .into_apex_diagnostic(),
+        );
+    }
+    let candidate_boundary = reauthor_attempt
+        .candidate
         .unwrap_or_else(|| boundary.curve.clone());
     let support_samples = dense_support_samples(&candidate_boundary, support_pair, ribbon);
     let selected_sides = [side];

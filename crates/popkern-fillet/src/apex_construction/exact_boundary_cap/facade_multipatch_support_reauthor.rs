@@ -1,0 +1,364 @@
+//! Support-authority boundary reauthoring for multipatch route attempts.
+
+use popkern_core::geometry::curve::CurveEval;
+use popkern_core::geometry::pcurve::Pcurve;
+use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
+
+use crate::apex_construction::exact_boundary_cap::boundary::PreparedExactBoundaryCurve;
+use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBoundaryMultiPatchDeclineReason;
+use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
+
+const SUPPORT_BOUNDARY_SEGMENTS: usize = 16;
+const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
+const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
+
+#[cfg(test)]
+pub(crate) fn support_authority_boundary_curve(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> Option<NurbsCurve> {
+    support_authority_boundary_attempt(boundary, support_pair).candidate
+}
+
+pub(crate) fn support_authority_boundary_attempt(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> SupportAuthorityBoundaryAttempt {
+    match support_hermite_boundary_curve(boundary, support_pair) {
+        ReauthoredBoundaryResult::Accepted(candidate) => SupportAuthorityBoundaryAttempt {
+            candidate: Some(candidate),
+            decline: None,
+        },
+        ReauthoredBoundaryResult::Declined(decline) => SupportAuthorityBoundaryAttempt {
+            candidate: sampled_support_authority_boundary_curve(boundary, support_pair),
+            decline: Some(decline),
+        },
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct SupportAuthorityBoundaryAttempt {
+    pub(crate) candidate: Option<NurbsCurve>,
+    pub(crate) decline: Option<SupportBoundaryReauthorDecline>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SupportBoundaryReauthorDecline {
+    pub(crate) reason: ExactBoundaryMultiPatchDeclineReason,
+    pub(crate) residual: f64,
+    pub(crate) sample_parameter: f64,
+    pub(crate) tolerance: f64,
+}
+
+enum ReauthoredBoundaryResult {
+    Accepted(NurbsCurve),
+    Declined(SupportBoundaryReauthorDecline),
+}
+
+fn sampled_support_authority_boundary_curve(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> Option<NurbsCurve> {
+    if let ReauthoredBoundaryResult::Accepted(candidate) =
+        support_hermite_boundary_curve(boundary, support_pair)
+    {
+        return Some(candidate);
+    }
+    let support_forward = pcurve_follows_boundary(
+        &support_pair.support_surface,
+        &support_pair.support_pcurve,
+        boundary.curve.point_at(0.0),
+        boundary.curve.point_at(1.0),
+    );
+    let (start, end) = support_pair.support_pcurve.parameter_range();
+    let mut points = Vec::with_capacity(17);
+    let mut params = Vec::with_capacity(17);
+    for index in 0..17 {
+        let parameter = index as f64 / 16.0;
+        let support_parameter = if support_forward {
+            parameter
+        } else {
+            1.0 - parameter
+        };
+        let t = start + (end - start) * support_parameter;
+        let uv = support_pair.support_pcurve.point_at(t);
+        points.push(support_pair.support_surface.point_at(uv.x, uv.y));
+        params.push(parameter);
+    }
+    let degree = 9.min(points.len().saturating_sub(1));
+    let candidate = popkern_core::geometry::fitting::interpolate_curve(&points, &params, degree)
+        .ok()
+        .or_else(|| {
+            popkern_core::geometry::fitting::fit_curve(&points, &params, degree, points.len()).ok()
+        })?;
+    support_authority_improves_tangent_compatibility(boundary, support_pair, &candidate)
+        .then_some(candidate)
+}
+
+fn support_hermite_boundary_curve(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> ReauthoredBoundaryResult {
+    let support_forward = pcurve_follows_boundary(
+        &support_pair.support_surface,
+        &support_pair.support_pcurve,
+        boundary.curve.point_at(0.0),
+        boundary.curve.point_at(1.0),
+    );
+    let mut controls = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 1);
+    for segment in 0..SUPPORT_BOUNDARY_SEGMENTS {
+        let s0 = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
+        let s1 = (segment + 1) as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
+        let Some(sample0) = support_boundary_sample(support_pair, s0, support_forward) else {
+            return reauthor_decline(
+                ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+                f64::INFINITY,
+                s0,
+                SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+            );
+        };
+        let Some(sample1) = support_boundary_sample(support_pair, s1, support_forward) else {
+            return reauthor_decline(
+                ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+                f64::INFINITY,
+                s1,
+                SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+            );
+        };
+        if segment == 0 {
+            controls.push(sample0.point);
+        }
+        let scale = (s1 - s0) / 3.0;
+        controls.push(sample0.point + sample0.tangent * scale);
+        controls.push(sample1.point - sample1.tangent * scale);
+        controls.push(sample1.point);
+    }
+    let mut knots = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 5);
+    knots.extend(std::iter::repeat_n(0.0, 4));
+    for segment in 1..SUPPORT_BOUNDARY_SEGMENTS {
+        let knot = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
+        knots.extend(std::iter::repeat_n(knot, 3));
+    }
+    knots.extend(std::iter::repeat_n(1.0, 4));
+    let candidate = NurbsCurve {
+        degree: 3,
+        knots,
+        weights: vec![1.0; controls.len()],
+        control_points: controls,
+    };
+    let endpoint_gap = support_boundary_endpoint_gap(boundary, &candidate).unwrap_or(f64::INFINITY);
+    if endpoint_gap > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
+        return reauthor_decline(
+            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorEndpointMismatch,
+            endpoint_gap,
+            endpoint_gap_sample(boundary, &candidate),
+            SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+        );
+    }
+    let support_residual = support_boundary_residual(&candidate, support_pair, support_forward);
+    if support_residual.residual > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
+        return reauthor_decline(
+            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorSupportResidual,
+            support_residual.residual,
+            support_residual.sample_parameter,
+            SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+        );
+    }
+    let tangent_residual = tangent_support_normal_report(&candidate, support_pair);
+    if tangent_residual.residual > max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT) {
+        return reauthor_decline(
+            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorTangentResidual,
+            tangent_residual.residual,
+            tangent_residual.sample_parameter,
+            max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT),
+        );
+    }
+    ReauthoredBoundaryResult::Accepted(candidate)
+}
+
+fn reauthor_decline(
+    reason: ExactBoundaryMultiPatchDeclineReason,
+    residual: f64,
+    sample_parameter: f64,
+    tolerance: f64,
+) -> ReauthoredBoundaryResult {
+    ReauthoredBoundaryResult::Declined(SupportBoundaryReauthorDecline {
+        reason,
+        residual,
+        sample_parameter,
+        tolerance,
+    })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SupportBoundarySample {
+    point: Point3,
+    tangent: Vec3,
+}
+
+fn support_boundary_sample(
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    parameter: f64,
+    support_forward: bool,
+) -> Option<SupportBoundarySample> {
+    let support_parameter = if support_forward {
+        parameter
+    } else {
+        1.0 - parameter
+    };
+    let (start, end) = support_pair.support_pcurve.parameter_range();
+    let pcurve_t = start + (end - start) * support_parameter;
+    let uv = support_pair.support_pcurve.point_at(pcurve_t);
+    let uv_tangent = support_pair.support_pcurve.tangent_at(pcurve_t);
+    let direction_sign = if support_forward { 1.0 } else { -1.0 };
+    let tangent = support_pair.support_surface.partial_u(uv.x, uv.y) * uv_tangent.x
+        + support_pair.support_surface.partial_v(uv.x, uv.y) * uv_tangent.y;
+    Some(SupportBoundarySample {
+        point: support_pair.support_surface.point_at(uv.x, uv.y),
+        tangent: tangent * direction_sign * (end - start).abs(),
+    })
+}
+
+fn support_boundary_endpoint_gap(
+    boundary: &PreparedExactBoundaryCurve,
+    candidate: &NurbsCurve,
+) -> Option<f64> {
+    let (start, end) = candidate.parameter_range();
+    Some(
+        candidate
+            .point_at(start)
+            .distance_to(&boundary.curve.point_at(0.0))
+            .max(
+                candidate
+                    .point_at(end)
+                    .distance_to(&boundary.curve.point_at(1.0)),
+            ),
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ResidualReport {
+    residual: f64,
+    sample_parameter: f64,
+}
+
+fn endpoint_gap_sample(boundary: &PreparedExactBoundaryCurve, candidate: &NurbsCurve) -> f64 {
+    let (start, end) = candidate.parameter_range();
+    let start_gap = candidate
+        .point_at(start)
+        .distance_to(&boundary.curve.point_at(0.0));
+    let end_gap = candidate
+        .point_at(end)
+        .distance_to(&boundary.curve.point_at(1.0));
+    if start_gap >= end_gap { 0.0 } else { 1.0 }
+}
+
+fn support_boundary_residual(
+    candidate: &NurbsCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    support_forward: bool,
+) -> ResidualReport {
+    let (start, end) = candidate.parameter_range();
+    let mut report = ResidualReport {
+        residual: 0.0,
+        sample_parameter: 0.0,
+    };
+    for index in 0..33 {
+        let parameter = index as f64 / 32.0;
+        let candidate_t = start + (end - start) * parameter;
+        if let Some(sample) = support_boundary_sample(support_pair, parameter, support_forward) {
+            let residual = candidate.point_at(candidate_t).distance_to(&sample.point);
+            if residual > report.residual {
+                report = ResidualReport {
+                    residual,
+                    sample_parameter: parameter,
+                };
+            }
+        }
+    }
+    report
+}
+
+fn max_tangent_dot_for_deficit(deficit: f64) -> f64 {
+    let alignment = 1.0 - deficit.clamp(0.0, 1.0);
+    (1.0 - alignment * alignment).max(0.0).sqrt()
+}
+
+fn support_authority_improves_tangent_compatibility(
+    boundary: &PreparedExactBoundaryCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    candidate: &NurbsCurve,
+) -> bool {
+    tangent_support_normal_dot(&boundary.curve, support_pair)
+        > tangent_support_normal_dot(candidate, support_pair) + 1.0e-3
+}
+
+pub(crate) fn tangent_support_normal_dot(
+    boundary: &NurbsCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> f64 {
+    tangent_support_normal_report(boundary, support_pair).residual
+}
+
+fn tangent_support_normal_report(
+    boundary: &NurbsCurve,
+    support_pair: &PreparedExactBoundaryPcurvePair,
+) -> ResidualReport {
+    let support_forward = pcurve_follows_boundary(
+        &support_pair.support_surface,
+        &support_pair.support_pcurve,
+        boundary.point_at(0.0),
+        boundary.point_at(1.0),
+    );
+    let mut report = ResidualReport {
+        residual: 0.0,
+        sample_parameter: 0.0,
+    };
+    for index in 0..32 {
+        let parameter = 0.05 + 0.90 * index as f64 / 31.0;
+        let Some(boundary_tangent) = boundary.derivative_at(parameter, 1).normalized() else {
+            continue;
+        };
+        let support_parameter = if support_forward {
+            parameter
+        } else {
+            1.0 - parameter
+        };
+        let t = support_pair.support_pcurve.t_start
+            + (support_pair.support_pcurve.t_end - support_pair.support_pcurve.t_start)
+                * support_parameter;
+        let uv = support_pair.support_pcurve.point_at(t);
+        let Some(support_normal) = support_pair
+            .support_surface
+            .partial_u(uv.x, uv.y)
+            .cross(&support_pair.support_surface.partial_v(uv.x, uv.y))
+            .normalized()
+        else {
+            continue;
+        };
+        let residual = boundary_tangent.dot(&support_normal).abs();
+        if residual > report.residual {
+            report = ResidualReport {
+                residual,
+                sample_parameter: parameter,
+            };
+        }
+    }
+    report
+}
+
+fn pcurve_follows_boundary(
+    surface: &impl SurfaceEval,
+    pcurve: &Pcurve,
+    boundary_start: Point3,
+    boundary_end: Point3,
+) -> bool {
+    let (lo, hi) = pcurve.parameter_range();
+    let start_uv = pcurve.point_at(lo);
+    let end_uv = pcurve.point_at(hi);
+    let start = surface.point_at(start_uv.x, start_uv.y);
+    let end = surface.point_at(end_uv.x, end_uv.y);
+    boundary_start.distance_to(&start) + boundary_end.distance_to(&end)
+        <= boundary_start.distance_to(&end) + boundary_end.distance_to(&start)
+}

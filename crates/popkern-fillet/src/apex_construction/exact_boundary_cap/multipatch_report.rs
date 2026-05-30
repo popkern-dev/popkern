@@ -65,6 +65,14 @@ pub(crate) enum ExactBoundaryMultiPatchDeclineReason {
     SupportStripBandUnsatisfied,
     /// Exact boundary tangent is incompatible with the support tangent plane.
     BoundaryTangentSupportIncompatible,
+    /// Support-authority boundary reauthoring could not construct a candidate.
+    SupportBoundaryReauthorCandidateFailed,
+    /// Support-authority boundary reauthoring would move edge endpoints.
+    SupportBoundaryReauthorEndpointMismatch,
+    /// Support-authority boundary reauthoring did not follow the support image.
+    SupportBoundaryReauthorSupportResidual,
+    /// Support-authority boundary reauthoring did not satisfy tangent-plane compatibility.
+    SupportBoundaryReauthorTangentResidual,
     /// Candidate strip/inner interface exceeds the position gate.
     InterfacePositionUnsatisfied,
     /// Candidate strip/inner interface exceeds the tangent gate.
@@ -112,6 +120,18 @@ impl ExactBoundaryMultiPatchDeclineReason {
             }
             Self::BoundaryTangentSupportIncompatible => {
                 "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible"
+            }
+            Self::SupportBoundaryReauthorCandidateFailed => {
+                "exact_boundary_cap.multipatch.support_boundary_reauthor_candidate_failed"
+            }
+            Self::SupportBoundaryReauthorEndpointMismatch => {
+                "exact_boundary_cap.multipatch.support_boundary_reauthor_endpoint_mismatch"
+            }
+            Self::SupportBoundaryReauthorSupportResidual => {
+                "exact_boundary_cap.multipatch.support_boundary_reauthor_support_residual"
+            }
+            Self::SupportBoundaryReauthorTangentResidual => {
+                "exact_boundary_cap.multipatch.support_boundary_reauthor_tangent_residual"
             }
             Self::InterfacePositionUnsatisfied => {
                 "exact_boundary_cap.multipatch.interface_g0_exceeded"
@@ -165,6 +185,12 @@ impl ExactBoundaryMultiPatchDeclineReason {
                 ExactBoundaryMultiPatchValidationOrder::SupportStripBand
             }
             Self::BoundaryTangentSupportIncompatible => {
+                ExactBoundaryMultiPatchValidationOrder::SupportStripBand
+            }
+            Self::SupportBoundaryReauthorCandidateFailed
+            | Self::SupportBoundaryReauthorEndpointMismatch
+            | Self::SupportBoundaryReauthorSupportResidual
+            | Self::SupportBoundaryReauthorTangentResidual => {
                 ExactBoundaryMultiPatchValidationOrder::SupportStripBand
             }
             Self::InterfacePositionUnsatisfied => {
