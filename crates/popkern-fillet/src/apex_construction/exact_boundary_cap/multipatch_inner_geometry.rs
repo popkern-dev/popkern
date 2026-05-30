@@ -164,7 +164,7 @@ fn interface_normal_row_points(
     })
 }
 
-fn interface_normal_row_target(
+pub(super) fn interface_normal_row_target(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
     parameter: f64,
@@ -262,7 +262,7 @@ fn fixed_knot_interpolation_controls(
     )
 }
 
-fn basis_function(index: usize, degree: usize, parameter: f64, knots: &[f64]) -> f64 {
+pub(super) fn basis_function(index: usize, degree: usize, parameter: f64, knots: &[f64]) -> f64 {
     if degree == 0 {
         let is_last_span = index + 2 == knots.len();
         if (knots[index] <= parameter && parameter < knots[index + 1])

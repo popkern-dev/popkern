@@ -25,6 +25,9 @@ mod inner;
 #[path = "multipatch_inner_geometry.rs"]
 mod inner_geometry;
 
+#[path = "multipatch_inner_optimizer.rs"]
+mod inner_optimizer;
+
 #[path = "multipatch_inventory.rs"]
 pub(crate) mod inventory;
 

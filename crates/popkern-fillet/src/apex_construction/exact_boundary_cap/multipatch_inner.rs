@@ -11,6 +11,7 @@ use super::inner_geometry::{
     inner_pole_surface, interface_g1_report, interface_residual, point_is_finite, pole_g0,
     strip_inner_boundary_curve, strip_inner_boundary_pcurve,
 };
+use super::inner_optimizer::optimize_inner_interface_g1;
 use super::inventory::{
     ExactBoundaryOuterStripPatchInventory, ExactBoundaryPatchInterfaceInventory,
 };
@@ -156,7 +157,8 @@ pub(crate) fn measure_inner_interface_g1(
     prototype: &ExactBoundaryInnerPolePatchPrototype,
     tolerance: f64,
 ) -> Result<ExactBoundaryInnerPolePatchPrototype, ExactBoundaryMultiPatchDiagnostic> {
-    let report = interface_g1_report(strip_candidate, interface, prototype, tolerance);
+    let optimized = optimize_inner_interface_g1(strip_candidate, interface, prototype, tolerance);
+    let report = interface_g1_report(strip_candidate, interface, &optimized, tolerance);
     if report.max_interface_g1_deficit > tolerance {
         return Err(ExactBoundaryMultiPatchDiagnostic::interface_tangent(
             sector,
@@ -167,7 +169,7 @@ pub(crate) fn measure_inner_interface_g1(
             tolerance,
         ));
     }
-    let mut accepted = prototype.clone();
+    let mut accepted = optimized;
     accepted.interface_g1_report = Some(report);
     accepted.interface_g1_validated = true;
     Ok(accepted)
