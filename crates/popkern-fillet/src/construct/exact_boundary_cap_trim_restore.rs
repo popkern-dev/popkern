@@ -26,7 +26,8 @@ pub(super) fn restore_exact_boundary_cap_pcurves(
             let Some(surface) = surface_for_half_edge(result, cap_half_edge) else {
                 continue;
             };
-            let Some(candidate) = exact_boundary_cap_side_pcurve(result, cap_half_edge, &surface)
+            let Some(candidate) =
+                exact_boundary_cap_side_pcurve(result, cap_half_edge, support_half_edge, &surface)
             else {
                 continue;
             };
@@ -64,9 +65,16 @@ struct ExactBoundaryCapPcurveCandidate {
     side_forward: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ExactBoundaryCapPcurveScore {
+    g0_gap: f64,
+    g1_deficit: f64,
+}
+
 fn exact_boundary_cap_side_pcurve(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
+    support_half_edge: HalfEdgeHandle,
     surface: &SurfaceGeometry,
 ) -> Option<ExactBoundaryCapPcurveCandidate> {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
@@ -98,7 +106,13 @@ fn exact_boundary_cap_side_pcurve(
             [(side, true, candidate), (side, false, reversed)]
         })
         .filter_map(|(side, side_forward, candidate)| {
-            let score = exact_boundary_cap_pcurve_score(brep, half_edge, surface, &candidate)?;
+            let score = exact_boundary_cap_pcurve_score(
+                brep,
+                half_edge,
+                support_half_edge,
+                surface,
+                &candidate,
+            )?;
             Some((
                 score,
                 ExactBoundaryCapPcurveCandidate {
@@ -108,21 +122,127 @@ fn exact_boundary_cap_side_pcurve(
                 },
             ))
         })
-        .min_by(|(a, _), (b, _)| a.total_cmp(b))
+        .min_by(|(a, _), (b, _)| compare_cap_pcurve_scores(*a, *b))
         .map(|(_, candidate)| candidate)
 }
 
 fn exact_boundary_cap_pcurve_score(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
+    support_half_edge: HalfEdgeHandle,
     surface: &SurfaceGeometry,
     pcurve: &Pcurve,
-) -> Option<f64> {
+) -> Option<ExactBoundaryCapPcurveScore> {
     let endpoint_gap = pcurve_endpoint_gap(brep, half_edge, surface, pcurve)?;
     let edge = brep.half_edges.get(half_edge)?.edge;
     let curve = brep.edges.get(edge)?.curve.as_ref()?;
     let trace_gap = pcurve_curve_trace_gap(brep, half_edge, surface, pcurve, curve)?;
-    Some(endpoint_gap.max(trace_gap))
+    Some(ExactBoundaryCapPcurveScore {
+        g0_gap: endpoint_gap.max(trace_gap),
+        g1_deficit: support_normal_deficit_for_candidate(brep, support_half_edge, surface, pcurve)
+            .unwrap_or(f64::INFINITY),
+    })
+}
+
+fn compare_cap_pcurve_scores(
+    a: ExactBoundaryCapPcurveScore,
+    b: ExactBoundaryCapPcurveScore,
+) -> std::cmp::Ordering {
+    if (a.g0_gap - b.g0_gap).abs() <= 1.0e-8 {
+        a.g1_deficit
+            .total_cmp(&b.g1_deficit)
+            .then_with(|| a.g0_gap.total_cmp(&b.g0_gap))
+    } else {
+        a.g0_gap
+            .total_cmp(&b.g0_gap)
+            .then_with(|| a.g1_deficit.total_cmp(&b.g1_deficit))
+    }
+}
+
+fn support_normal_deficit_for_candidate(
+    brep: &BRep,
+    support_half_edge: HalfEdgeHandle,
+    cap_surface: &SurfaceGeometry,
+    cap_pcurve: &Pcurve,
+) -> Option<f64> {
+    let support_pcurve = brep.half_edges.get(support_half_edge)?.pcurve.as_ref()?;
+    let support_surface = surface_for_half_edge(brep, support_half_edge)?;
+    let (cap_start_t, cap_end_t) = cap_pcurve.parameter_range();
+    let (support_start_t, support_end_t) = support_pcurve.parameter_range();
+    let cap_start = pcurve_surface_point(cap_surface, cap_pcurve, cap_start_t);
+    let cap_end = pcurve_surface_point(cap_surface, cap_pcurve, cap_end_t);
+    let support_start = pcurve_surface_point(&support_surface, support_pcurve, support_start_t);
+    let support_end = pcurve_surface_point(&support_surface, support_pcurve, support_end_t);
+    let support_forward = cap_start.distance_to(&support_start) + cap_end.distance_to(&support_end)
+        <= cap_start.distance_to(&support_end) + cap_end.distance_to(&support_start);
+    let mut worst = 0.0_f64;
+    for index in 0..17 {
+        let parameter = 0.05 + 0.90 * index as f64 / 16.0;
+        let support_parameter = if support_forward {
+            parameter
+        } else {
+            1.0 - parameter
+        };
+        let cap_uv = cap_pcurve.point_at(cap_start_t + (cap_end_t - cap_start_t) * parameter);
+        let support_uv = support_pcurve
+            .point_at(support_start_t + (support_end_t - support_start_t) * support_parameter);
+        let deficit = interior_normal_deficit_between_surfaces(
+            cap_surface,
+            cap_uv.x,
+            cap_uv.y,
+            &support_surface,
+            support_uv.x,
+            support_uv.y,
+        )?;
+        worst = worst.max(deficit);
+    }
+    Some(worst)
+}
+
+fn pcurve_surface_point(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    parameter: f64,
+) -> popkern_core::geometry::Point3 {
+    let uv = pcurve.point_at(parameter);
+    surface.point_at(uv.x, uv.y)
+}
+
+fn interior_normal_deficit_between_surfaces(
+    cap_surface: &SurfaceGeometry,
+    cap_u: f64,
+    cap_v: f64,
+    support_surface: &SurfaceGeometry,
+    support_u: f64,
+    support_v: f64,
+) -> Option<f64> {
+    let ((cap_u_min, cap_u_max), (cap_v_min, cap_v_max)) = cap_surface.parameter_range();
+    let ((support_u_min, support_u_max), (support_v_min, support_v_max)) =
+        support_surface.parameter_range();
+    let cap_u = interior_parameter(cap_u, cap_u_min, cap_u_max);
+    let cap_v = interior_parameter(cap_v, cap_v_min, cap_v_max);
+    let support_u = interior_parameter(support_u, support_u_min, support_u_max);
+    let support_v = interior_parameter(support_v, support_v_min, support_v_max);
+    let cap_normal = cap_surface
+        .partial_u(cap_u, cap_v)
+        .cross(&cap_surface.partial_v(cap_u, cap_v));
+    let support_normal = support_surface
+        .partial_u(support_u, support_v)
+        .cross(&support_surface.partial_v(support_u, support_v));
+    let cap_length = cap_normal.length();
+    let support_length = support_normal.length();
+    if cap_length <= 1.0e-300 || support_length <= 1.0e-300 {
+        return None;
+    }
+    Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
 
 fn pcurve_endpoint_gap(

@@ -5,7 +5,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 
 use super::{
-    CandidateSupportSeamReport, normal_deficit_between_surfaces, pcurve_follows_boundary,
+    CandidateSupportSeamReport, interior_normal_deficit_between_surfaces, pcurve_follows_boundary,
     selected_strip_support_seam_report,
 };
 use crate::apex_construction::exact_boundary_cap::multipatch::ExactBoundaryMultiPatchCandidate;
@@ -74,14 +74,34 @@ fn support_row_update(
     report: CandidateSupportSeamReport,
 ) -> Option<SupportRowUpdate> {
     let sample = support_seam_sample(candidate, boundary, support_pair, report.sample_parameter)?;
+    let cap_u = interior_parameter_for_surface(
+        &candidate.strip_candidate.surface,
+        sample.cap_u,
+        SurfaceDirection::U,
+    );
+    let cap_v = interior_parameter_for_surface(
+        &candidate.strip_candidate.surface,
+        sample.cap_v,
+        SurfaceDirection::V,
+    );
     let cap_tangent = candidate
         .strip_candidate
         .surface
-        .partial_u(sample.cap_u, sample.cap_v)
+        .partial_u(cap_u, cap_v)
         .normalized()?;
+    let support_u = interior_parameter_for_surface(
+        &support_pair.support_surface,
+        sample.support_u,
+        SurfaceDirection::U,
+    );
+    let support_v = interior_parameter_for_surface(
+        &support_pair.support_surface,
+        sample.support_v,
+        SurfaceDirection::V,
+    );
     let support_normal = support_pair
         .support_surface
-        .normal_at(sample.support_u, sample.support_v)
+        .normal_at(support_u, support_v)
         .normalized()?;
     let direction = support_normal.cross(&cap_tangent).normalized()?;
     let boundary_point = candidate
@@ -212,7 +232,7 @@ fn strip_inner_interface_g1_report(
         let parameter = t_start + (t_end - t_start) * index as f64 / 16.0;
         let strip_uv = candidate.interface.strip_pcurve.point_at(parameter);
         let inner_uv = candidate.inner_patch.interface_pcurve.point_at(parameter);
-        let deficit = normal_deficit_between_surfaces(
+        let deficit = interior_normal_deficit_between_surfaces(
             &candidate.strip_candidate.surface,
             strip_uv.x,
             strip_uv.y,
@@ -228,6 +248,29 @@ fn strip_inner_interface_g1_report(
         }
     }
     Some(report)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SurfaceDirection {
+    U,
+    V,
+}
+
+fn interior_parameter_for_surface(
+    surface: &impl SurfaceEval,
+    value: f64,
+    direction: SurfaceDirection,
+) -> f64 {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    let (min, max) = match direction {
+        SurfaceDirection::U => (u_min, u_max),
+        SurfaceDirection::V => (v_min, v_max),
+    };
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
 
 fn support_row_point_at(surface: &NurbsSurface, parameter: f64) -> Option<Point3> {

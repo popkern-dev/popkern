@@ -119,20 +119,19 @@ fn measure_sample(
         evidence.worst_g0_gap = g0_gap;
         evidence.worst_g0_parameter = parameter;
     }
+    let (cap_u, cap_v) =
+        interior_normal_sample_parameters(&candidate.strip_candidate.surface, cap_uv.x, cap_uv.y);
+    let (support_u, support_v) =
+        interior_normal_sample_parameters(&pair.support_surface, support_uv.x, support_uv.y);
     let cap_normal = candidate
         .strip_candidate
         .surface
-        .partial_u(cap_uv.x, cap_uv.y)
-        .cross(
-            &candidate
-                .strip_candidate
-                .surface
-                .partial_v(cap_uv.x, cap_uv.y),
-        );
+        .partial_u(cap_u, cap_v)
+        .cross(&candidate.strip_candidate.surface.partial_v(cap_u, cap_v));
     let support_normal = pair
         .support_surface
-        .partial_u(support_uv.x, support_uv.y)
-        .cross(&pair.support_surface.partial_v(support_uv.x, support_uv.y));
+        .partial_u(support_u, support_v)
+        .cross(&pair.support_surface.partial_v(support_u, support_v));
     let cap_length = cap_normal.length();
     let support_length = support_normal.length();
     if cap_length > 1.0e-300 && support_length > 1.0e-300 {
@@ -161,4 +160,20 @@ fn support_pcurve_point(
 ) -> popkern_core::geometry::Point3 {
     let uv = pair.support_pcurve.point_at(parameter);
     pair.support_surface.point_at(uv.x, uv.y)
+}
+
+fn interior_normal_sample_parameters(surface: &impl SurfaceEval, u: f64, v: f64) -> (f64, f64) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    (
+        interior_parameter(u, u_min, u_max),
+        interior_parameter(v, v_min, v_max),
+    )
+}
+
+fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
+        return value;
+    }
+    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
+    value.clamp(min + margin, max - margin)
 }
