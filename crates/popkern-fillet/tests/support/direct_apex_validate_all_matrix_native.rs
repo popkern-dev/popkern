@@ -243,6 +243,18 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             > multipatch_diagnostic.tolerance.expect("tolerance"),
         "multipatch diagnostic must preserve measured tangent residual evidence"
     );
+    let reauthor_diagnostic = route
+        .exact_boundary_report
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.code.contains("support_boundary_reauthor"));
+    assert!(
+        reauthor_diagnostic
+            .and_then(|diagnostic| diagnostic.residual)
+            .map(|residual| residual <= 0.81)
+            .unwrap_or(true),
+        "bounded reauthoring should keep its remaining tangent residual below the previous coarse-fit level"
+    );
     assert!(
         route
             .exact_boundary_report

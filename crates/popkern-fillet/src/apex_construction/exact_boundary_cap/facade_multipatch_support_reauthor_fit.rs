@@ -5,7 +5,7 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
 
-const DERIVATIVE_ROW_WEIGHT: f64 = 0.25;
+const DERIVATIVE_ROW_WEIGHT: f64 = 32.0;
 const ENDPOINT_ROW_WEIGHT: f64 = 64.0;
 
 pub(super) fn derivative_constrained_sampled_curve(
@@ -17,7 +17,7 @@ pub(super) fn derivative_constrained_sampled_curve(
         return None;
     }
     let degree = 5usize.min(sample_count.saturating_sub(1));
-    let control_count = sample_count.clamp(degree + 1, 32);
+    let control_count = sample_count.clamp(degree + 1, 256);
     let knots = open_uniform_knots(degree, control_count);
     let mut matrix = vec![vec![0.0; control_count]; control_count];
     let mut x_values = vec![0.0; control_count];
