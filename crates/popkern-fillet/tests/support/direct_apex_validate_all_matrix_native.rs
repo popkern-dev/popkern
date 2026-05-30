@@ -173,7 +173,8 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 #[test]
 #[ignore = "live multipatch route reaches cap/support continuity gate; full multipatch topology closure remains pending"]
 fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
-    const MULTIPATCH_BLOCKER: &str = "exact_boundary_cap.multipatch.support_strip_band_unsatisfied";
+    const MULTIPATCH_BLOCKER: &str =
+        "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
     const REAUTHOR_BLOCKER: &str =
         "exact_boundary_cap.multipatch.support_boundary_reauthor_tangent_residual";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
@@ -221,7 +222,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     );
     assert!(
         multipatch_step.diagnostic_code.as_deref() == Some(MULTIPATCH_BLOCKER),
-        "multipatch selected-strip validation should expose the remaining live support seam blocker; got {:?}",
+        "multipatch selected-strip validation should expose the remaining boundary/support tangent blocker; got {:?}",
         multipatch_step.diagnostic_code
     );
     let multipatch_diagnostic = route
@@ -233,16 +234,16 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                 && diagnostic.code == MULTIPATCH_BLOCKER
                 && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(32v1)"
         })
-        .expect("multipatch decline must promote edge32 support-strip evidence");
+        .expect("multipatch decline must promote edge32 boundary/support tangent evidence");
     assert_eq!(
         format!("{:?}", multipatch_diagnostic.edge.expect("edge")),
         "EdgeHandle(32v1)",
-        "multipatch diagnostic must identify the remaining support-strip edge"
+        "multipatch diagnostic must identify the remaining tangent-incompatible edge"
     );
     assert!(
         multipatch_diagnostic.residual.expect("residual")
             > multipatch_diagnostic.tolerance.expect("tolerance"),
-        "multipatch diagnostic must preserve measured support-strip residual evidence"
+        "multipatch diagnostic must preserve measured tangent residual evidence"
     );
     let reauthor_diagnostic = route
         .exact_boundary_report
@@ -276,11 +277,11 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             }
             _ => None,
         })
-        .expect("multipatch decline must promote support-strip evidence");
+        .expect("multipatch decline must promote boundary/support tangent evidence");
     assert_eq!(
         format!("{:?}", multipatch_apex_diagnostic.edge.expect("edge")),
         "EdgeHandle(32v1)",
-        "apex diagnostic must identify the remaining support-strip edge"
+        "apex diagnostic must identify the remaining tangent-incompatible edge"
     );
     let reauthor_apex_diagnostic = result
         .repair_report

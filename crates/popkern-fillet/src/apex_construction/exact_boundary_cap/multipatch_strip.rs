@@ -15,9 +15,8 @@ use super::report::ExactBoundaryMultiPatchDiagnostic;
 #[path = "multipatch_strip_support.rs"]
 mod strip_support;
 use strip_support::{
-    boundary_tangent_compatibility, control_row_parameter, endpoint_fallback_width_direction,
-    is_endpoint_sample, sample_at_parameter, strip_width_from_samples, support_refined_boundary,
-    width_direction, width_direction_from_tangent,
+    boundary_tangent_compatibility, is_endpoint_sample, strip_width_from_samples,
+    support_frame_row_controls, support_refined_boundary,
 };
 
 const OUTER_BOUNDARY_SAMPLE_COUNT: usize = 9;
@@ -181,33 +180,36 @@ pub(crate) fn solve_strip_support_normal_row(
             Vec::new(),
         ));
     }
+    let Some(support_row) =
+        support_frame_row_controls(&refined_boundary, samples, strip_width, 0.5)
+    else {
+        return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+            sector,
+            strip,
+            f64::INFINITY,
+            0.0,
+            budget.support_normal_deficit,
+            Vec::new(),
+        ));
+    };
+    let Some(interface_row) =
+        support_frame_row_controls(&refined_boundary, samples, strip_width, 1.0)
+    else {
+        return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
+            sector,
+            strip,
+            f64::INFINITY,
+            0.0,
+            budget.support_normal_deficit,
+            Vec::new(),
+        ));
+    };
     let bounded_iteration_count = surface.num_u * surface.num_v.saturating_sub(1);
     for index in 0..surface.num_u {
-        let parameter = control_row_parameter(&refined_boundary, index);
-        let sample = sample_at_parameter(samples, parameter);
-        let Some(direction) =
-            width_direction_from_tangent(sample.boundary_tangent, sample.support_normal)
-                .or_else(|| width_direction(boundary, parameter, sample.support_normal))
-                .or_else(|| {
-                    width_direction_from_tangent(sample.cross_derivative, sample.support_normal)
-                })
-                .or_else(|| sample.cross_derivative.normalized())
-                .or_else(|| endpoint_fallback_width_direction(samples, sample.parameter))
-        else {
-            return Err(ExactBoundaryMultiPatchDiagnostic::support_strip_band(
-                sector,
-                strip,
-                f64::INFINITY,
-                sample.parameter,
-                budget.support_normal_deficit,
-                Vec::new(),
-            ));
-        };
-        let row0 = surface.control_points[control_index(index, 0, surface.num_v)];
         surface.control_points[control_index(index, SUPPORT_NORMAL_ROW, surface.num_v)] =
-            row0 + direction * (strip_width * 0.5);
+            support_row[index];
         surface.control_points[control_index(index, INNER_INTERFACE_ROW, surface.num_v)] =
-            row0 + direction * strip_width;
+            interface_row[index];
     }
 
     let report = support_normal_report(&surface, scaffold, samples, budget.support_normal_deficit);

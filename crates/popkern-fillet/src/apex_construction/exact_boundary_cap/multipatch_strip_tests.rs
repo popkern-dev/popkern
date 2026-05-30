@@ -265,6 +265,46 @@ fn support_normal_row_declines_with_source_handles_and_local_tolerance() {
 }
 
 #[test]
+fn support_normal_row_uses_candidate_boundary_tangent_for_compatibility() {
+    let sector = sector_input();
+    let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
+        &sector,
+        ExactBoundaryOuterSide::FaceEdge,
+    );
+    let strip = &inventory.outer_strips[0];
+    let boundary = vertical_boundary();
+    let scaffold = scaffold_outer_strip_boundary(
+        &sector,
+        strip,
+        &boundary,
+        ExactBoundaryStripBoundaryDirection::Forward,
+        1.0e-12,
+    )
+    .expect("outer boundary scaffold");
+    let mut budget = ExactBoundaryMultiPatchBudget::default();
+    budget.support_normal_deficit = 1.0e-8;
+
+    let diagnostic = solve_strip_support_normal_row(
+        &sector,
+        strip,
+        &scaffold,
+        &boundary,
+        &support_samples(Vec3::new(0.0, 0.0, 1.0)),
+        budget,
+    )
+    .expect_err("actual boundary tangent is parallel to support normal");
+
+    assert_eq!(
+        diagnostic.reason,
+        ExactBoundaryMultiPatchDeclineReason::BoundaryTangentSupportIncompatible
+    );
+    assert!(
+        diagnostic.residual.expect("residual") > budget.support_normal_deficit,
+        "compatibility must be measured from the candidate boundary derivative"
+    );
+}
+
+#[test]
 fn support_normal_row_leaves_endpoint_normal_closure_to_interface_gates() {
     let sector = sector_input();
     let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
@@ -334,6 +374,15 @@ fn cubic_boundary_with_five_controls() -> NurbsCurve {
             Point3::new(1.0, 0.0, 0.0),
         ],
         weights: vec![1.0; 5],
+    }
+}
+
+fn vertical_boundary() -> NurbsCurve {
+    NurbsCurve {
+        degree: 1,
+        knots: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![Point3::new(0.0, 0.0, 0.0), Point3::new(0.0, 0.0, 1.0)],
+        weights: vec![1.0; 2],
     }
 }
 
