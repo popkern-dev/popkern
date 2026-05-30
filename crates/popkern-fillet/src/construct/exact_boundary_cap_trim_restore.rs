@@ -121,6 +121,7 @@ fn restore_exact_boundary_route_sides(
                 candidate.side,
                 candidate.side_forward,
                 support_forward,
+                sectors.len() >= 4,
             );
             if let Some(half_edge) = result.half_edges.get_mut(cap_half_edge) {
                 half_edge.pcurve = Some(candidate.pcurve);

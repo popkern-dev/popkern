@@ -170,9 +170,9 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
     );
 }
 
-fn assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
+fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
     fixture: &str,
-    radii: &[f64; 3],
+    radii: &[f64],
     expect_multipatch_recovery: bool,
 ) {
     let result = build_under_direct_apex(true, radii);
@@ -186,7 +186,7 @@ fn assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
         .repair_report
         .apex_routes
         .first()
-        .expect("pyramid3 fixture should record one direct-apex route");
+        .expect("pyramid fixture should record one direct-apex route");
     assert_eq!(
         route.exact_boundary_report.candidate_status,
         ExactBoundaryCandidateOutcome::Accepted,
@@ -206,7 +206,7 @@ fn assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
         .decision_chain
         .iter()
         .find(|step| step.route_label == "exact_boundary.one_patch")
-        .expect("pyramid3 fixture route must preserve the one-patch decision");
+        .expect("pyramid fixture route must preserve the one-patch decision");
     if expect_multipatch_recovery {
         assert_eq!(
             one_patch_step.outcome,
@@ -223,7 +223,7 @@ fn assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
             .decision_chain
             .iter()
             .find(|step| step.route_label == "exact_boundary.multipatch")
-            .expect("pyramid3 fixture constrained-strip decline must record the multipatch recovery decision");
+            .expect("pyramid fixture constrained-strip decline must record the multipatch recovery decision");
         assert_eq!(
             multipatch_step.outcome,
             ExactBoundaryRouteDecisionOutcome::Accepted,
@@ -290,7 +290,21 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
         ("pyramid3_mixed", [0.08, 0.10, 0.12], false),
         ("pyramid3_extreme", [0.02, 0.10, 0.20], false),
     ] {
-        assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
+        assert_pyramid_exact_boundary_passes_commercial_cap_quality(
+            fixture,
+            &radii,
+            expect_multipatch_recovery,
+        );
+    }
+}
+
+#[test]
+fn pyramid4_exact_boundary_acceptance_matrix() {
+    for (fixture, radii, expect_multipatch_recovery) in [
+        ("pyramid4_uniform", [0.05, 0.05, 0.05, 0.05], false),
+        ("pyramid4_mixed", [0.04, 0.06, 0.05, 0.07], false),
+    ] {
+        assert_pyramid_exact_boundary_passes_commercial_cap_quality(
             fixture,
             &radii,
             expect_multipatch_recovery,

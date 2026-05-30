@@ -1,14 +1,20 @@
 //! Exact-boundary cap surface-row relock helpers.
 
+#[path = "exact_boundary_cap_trim_surface_adjacent.rs"]
+mod adjacent;
+#[path = "exact_boundary_cap_trim_surface_trace.rs"]
+mod trace;
+
 use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface};
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
 use super::exact_boundary_cap_trim_fit::{
     greville_parameters, interpolate_points_on_fixed_knots, knots_equivalent,
 };
 use super::exact_boundary_cap_trim_restore::ExactBoundaryCapSurfaceSide;
+use trace::{BoundaryTrace, reverse_nurbs_curve, sample_trace, select_trace_boundary_curve};
 
 pub(super) fn relock_exact_boundary_cap_side(
     brep: &mut BRep,
@@ -17,6 +23,7 @@ pub(super) fn relock_exact_boundary_cap_side(
     side: ExactBoundaryCapSurfaceSide,
     side_forward: bool,
     support_forward: bool,
+    allow_wide_adjacent_row_search: bool,
 ) -> Option<()> {
     let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
     let edge = brep.half_edges.get(half_edge)?.edge;
@@ -44,7 +51,13 @@ pub(super) fn relock_exact_boundary_cap_side(
     let boundary = boundary?;
     relock_nurbs_boundary_row(surface_nurbs, side, &boundary)?;
     if let Some(trace) = support_trace.as_ref() {
-        relock_nurbs_adjacent_row(surface_nurbs, side, &boundary, trace);
+        adjacent::relock_nurbs_adjacent_row(
+            surface_nurbs,
+            side,
+            &boundary,
+            trace,
+            allow_wide_adjacent_row_search,
+        );
     }
     Some(())
 }
@@ -53,11 +66,6 @@ pub(super) fn relock_exact_boundary_cap_side(
 enum BoundarySampleDirection {
     Forward,
     Reverse,
-}
-
-struct BoundaryTrace {
-    points: Vec<Point3>,
-    normals: Vec<Vec3>,
 }
 
 fn support_boundary_trace(
@@ -151,52 +159,19 @@ fn interpolate_trace_on_fixed_knots(
         })
         .collect::<Vec<_>>();
     let control_points = interpolate_points_on_fixed_knots(&points, &params, degree, knots)?;
-    Some(NurbsCurve {
+    let interpolated = NurbsCurve {
         degree,
         knots: knots.to_vec(),
         weights: vec![1.0; control_points.len()],
         control_points,
-    })
-}
-
-fn sample_trace(trace: &BoundaryTrace, fraction: f64) -> Point3 {
-    let scaled = fraction.clamp(0.0, 1.0) * (trace.points.len() - 1) as f64;
-    let lower = scaled.floor() as usize;
-    let upper = scaled.ceil() as usize;
-    if lower == upper {
-        return trace.points[lower];
-    }
-    let local = scaled - lower as f64;
-    let a = trace.points[lower];
-    let b = trace.points[upper];
-    Point3::new(
-        a.x + (b.x - a.x) * local,
-        a.y + (b.y - a.y) * local,
-        a.z + (b.z - a.z) * local,
-    )
-}
-
-fn sample_trace_normal(trace: &BoundaryTrace, fraction: f64) -> Option<Vec3> {
-    if trace.normals.len() < 2 {
-        return None;
-    }
-    let scaled = fraction.clamp(0.0, 1.0) * (trace.normals.len() - 1) as f64;
-    let lower = scaled.floor() as usize;
-    let upper = scaled.ceil() as usize;
-    if lower == upper {
-        return trace.normals[lower].normalized();
-    }
-    let local = scaled - lower as f64;
-    (trace.normals[lower] * (1.0 - local) + trace.normals[upper] * local).normalized()
-}
-
-fn parameter_fraction(parameter: f64, knots: &[f64]) -> Option<f64> {
-    let first = *knots.first()?;
-    let last = *knots.last()?;
-    if (last - first).abs() <= f64::EPSILON {
-        return None;
-    }
-    Some(((parameter - first) / (last - first)).clamp(0.0, 1.0))
+    };
+    let sampled = NurbsCurve {
+        degree,
+        knots: knots.to_vec(),
+        weights: vec![1.0; points.len()],
+        control_points: points,
+    };
+    Some(select_trace_boundary_curve(trace, interpolated, sampled))
 }
 
 fn interpolate_edge_curve_for_surface_side(
@@ -287,143 +262,6 @@ fn relock_nurbs_boundary_row(
     Some(())
 }
 
-fn relock_nurbs_adjacent_row(
-    surface: &mut NurbsSurface,
-    side: ExactBoundaryCapSurfaceSide,
-    boundary: &NurbsCurve,
-    support_trace: &BoundaryTrace,
-) -> Option<()> {
-    let expected = side_control_count(surface, side);
-    if expected < 2 || boundary.control_points.len() != expected {
-        return None;
-    }
-    let degree = side_degree(surface, side).min(expected.saturating_sub(1));
-    let knots = side_knots(surface, side);
-    let params = greville_parameters(expected, degree, knots)?;
-    let scale = cross_derivative_control_scale(surface, side)?;
-    let mut adjacent_points = Vec::with_capacity(expected);
-    for parameter in &params {
-        let fraction = parameter_fraction(*parameter, knots)?;
-        let boundary_point = boundary.point_at(*parameter);
-        let tangent = boundary_tangent(boundary, *parameter)?;
-        let support_normal = sample_trace_normal(support_trace, fraction)?;
-        let cross_direction = desired_cross_direction(side, tangent, support_normal)?;
-        adjacent_points.push(adjacent_point_for_side(
-            side,
-            boundary_point,
-            cross_direction,
-            scale,
-        ));
-    }
-    let adjacent_curve =
-        interpolate_points_on_fixed_knots(&adjacent_points, &params, degree, knots)?;
-    for (index, point) in adjacent_curve.iter().enumerate() {
-        let surface_index = adjacent_row_index(surface, side, index)?;
-        surface.control_points[surface_index] = *point;
-        surface.weights[surface_index] = 1.0;
-    }
-    Some(())
-}
-
-fn cross_derivative_control_scale(
-    surface: &NurbsSurface,
-    side: ExactBoundaryCapSurfaceSide,
-) -> Option<f64> {
-    let (degree, knots, at_min) = match side {
-        ExactBoundaryCapSurfaceSide::VMin => (surface.degree_v, &surface.knots_v, true),
-        ExactBoundaryCapSurfaceSide::VMax => (surface.degree_v, &surface.knots_v, false),
-        ExactBoundaryCapSurfaceSide::UMin => (surface.degree_u, &surface.knots_u, true),
-        ExactBoundaryCapSurfaceSide::UMax => (surface.degree_u, &surface.knots_u, false),
-    };
-    if degree == 0 {
-        return None;
-    }
-    let boundary = if at_min {
-        *knots.get(degree)?
-    } else {
-        *knots.get(knots.len().checked_sub(degree + 1)?)?
-    };
-    let neighbor = if at_min {
-        knots
-            .iter()
-            .copied()
-            .find(|knot| *knot > boundary + 1.0e-14)?
-    } else {
-        knots
-            .iter()
-            .rev()
-            .copied()
-            .find(|knot| *knot < boundary - 1.0e-14)?
-    };
-    Some((neighbor - boundary).abs() / degree as f64)
-}
-
-fn boundary_tangent(curve: &NurbsCurve, parameter: f64) -> Option<Vec3> {
-    let (start, end) = curve.parameter_range();
-    let span = (end - start).abs();
-    if span <= f64::EPSILON {
-        return None;
-    }
-    let h = (span * 1.0e-5).max(1.0e-6);
-    let before = (parameter - h).clamp(start, end);
-    let after = (parameter + h).clamp(start, end);
-    if (after - before).abs() <= f64::EPSILON {
-        return None;
-    }
-    let tangent = curve.point_at(after) - curve.point_at(before);
-    tangent.normalized()
-}
-
-fn desired_cross_direction(
-    side: ExactBoundaryCapSurfaceSide,
-    tangent: Vec3,
-    support_normal: Vec3,
-) -> Option<Vec3> {
-    let normal = support_normal.normalized()?;
-    let direction = match side {
-        ExactBoundaryCapSurfaceSide::VMin | ExactBoundaryCapSurfaceSide::VMax => {
-            normal.cross(&tangent)
-        }
-        ExactBoundaryCapSurfaceSide::UMin | ExactBoundaryCapSurfaceSide::UMax => {
-            tangent.cross(&normal)
-        }
-    };
-    direction.normalized()
-}
-
-fn adjacent_point_for_side(
-    side: ExactBoundaryCapSurfaceSide,
-    boundary: Point3,
-    cross_direction: Vec3,
-    scale: f64,
-) -> Point3 {
-    match side {
-        ExactBoundaryCapSurfaceSide::VMin | ExactBoundaryCapSurfaceSide::UMin => {
-            boundary + cross_direction * scale
-        }
-        ExactBoundaryCapSurfaceSide::VMax | ExactBoundaryCapSurfaceSide::UMax => {
-            boundary - cross_direction * scale
-        }
-    }
-}
-
-fn adjacent_row_index(
-    surface: &NurbsSurface,
-    side: ExactBoundaryCapSurfaceSide,
-    index: usize,
-) -> Option<usize> {
-    match side {
-        ExactBoundaryCapSurfaceSide::VMin => Some(index * surface.num_v + 1),
-        ExactBoundaryCapSurfaceSide::VMax => {
-            Some(index * surface.num_v + surface.num_v.checked_sub(2)?)
-        }
-        ExactBoundaryCapSurfaceSide::UMin => Some(surface.num_v + index),
-        ExactBoundaryCapSurfaceSide::UMax => {
-            Some(surface.num_u.checked_sub(2)? * surface.num_v + index)
-        }
-    }
-}
-
 fn side_control_count(surface: &NurbsSurface, side: ExactBoundaryCapSurfaceSide) -> usize {
     match side {
         ExactBoundaryCapSurfaceSide::VMin | ExactBoundaryCapSurfaceSide::VMax => surface.num_u,
@@ -442,26 +280,5 @@ fn side_knots(surface: &NurbsSurface, side: ExactBoundaryCapSurfaceSide) -> &[f6
     match side {
         ExactBoundaryCapSurfaceSide::VMin | ExactBoundaryCapSurfaceSide::VMax => &surface.knots_u,
         ExactBoundaryCapSurfaceSide::UMin | ExactBoundaryCapSurfaceSide::UMax => &surface.knots_v,
-    }
-}
-
-fn reverse_nurbs_curve(nurbs: &NurbsCurve) -> NurbsCurve {
-    let (t_min, t_max) = nurbs.parameter_range();
-    let mut knots = nurbs
-        .knots
-        .iter()
-        .rev()
-        .map(|&k| t_min + t_max - k)
-        .collect::<Vec<_>>();
-    knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    let mut control_points = nurbs.control_points.clone();
-    control_points.reverse();
-    let mut weights = nurbs.weights.clone();
-    weights.reverse();
-    NurbsCurve {
-        degree: nurbs.degree,
-        knots,
-        control_points,
-        weights,
     }
 }
