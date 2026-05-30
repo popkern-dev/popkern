@@ -8,7 +8,7 @@ use popkern_core::geometry::{
 #[path = "facade_multipatch_support_reauthor_fit.rs"]
 mod reauthor_fit;
 
-const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 5] = [4, 8, 16, 32, 64];
+const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 7] = [4, 8, 16, 32, 64, 128, 256];
 const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
 const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
 const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
