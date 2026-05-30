@@ -173,7 +173,7 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
 #[test]
 #[ignore = "live multipatch route reaches cap/support continuity gate; full multipatch topology closure remains pending"]
 fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
-    const MULTIPATCH_BLOCKER: &str = "exact_boundary_cap.multipatch.support_strip_band_unsatisfied";
+    const MULTIPATCH_BLOCKER: &str = "exact_boundary_cap.multipatch.interface_g1_exceeded";
     const REAUTHOR_BLOCKER: &str =
         "exact_boundary_cap.multipatch.support_boundary_reauthor_tangent_residual";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
@@ -221,7 +221,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     );
     assert!(
         multipatch_step.diagnostic_code.as_deref() == Some(MULTIPATCH_BLOCKER),
-        "multipatch selected-strip validation should now reach finite support-strip band evidence; got {:?}",
+        "multipatch selected-strip validation should now reach interface G1 evidence; got {:?}",
         multipatch_step.diagnostic_code
     );
     let multipatch_diagnostic = route
@@ -231,18 +231,18 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         .find(|diagnostic| {
             diagnostic.stage == "exact_boundary_cap.multipatch"
                 && diagnostic.code == MULTIPATCH_BLOCKER
-                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(31v1)"
+                && format!("{:?}", diagnostic.edge.expect("edge")) == "EdgeHandle(32v1)"
         })
-        .expect("multipatch decline must promote edge31 support-strip band evidence");
+        .expect("multipatch decline must promote edge32 interface G1 evidence");
     assert_eq!(
         format!("{:?}", multipatch_diagnostic.edge.expect("edge")),
-        "EdgeHandle(31v1)",
-        "multipatch diagnostic must identify the remaining selected strip edge"
+        "EdgeHandle(32v1)",
+        "multipatch diagnostic must identify the remaining interface edge"
     );
     assert!(
         multipatch_diagnostic.residual.expect("residual")
             > multipatch_diagnostic.tolerance.expect("tolerance"),
-        "multipatch diagnostic must preserve measured support-strip residual evidence"
+        "multipatch diagnostic must preserve measured interface residual evidence"
     );
     let reauthor_diagnostic = route
         .exact_boundary_report
@@ -269,18 +269,18 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                     && diagnostic.code == MULTIPATCH_BLOCKER
                     && diagnostic
                         .edge
-                        .map(|edge| format!("{edge:?}") == "EdgeHandle(31v1)")
+                        .map(|edge| format!("{edge:?}") == "EdgeHandle(32v1)")
                         .unwrap_or(false) =>
             {
                 Some(diagnostic)
             }
             _ => None,
         })
-        .expect("multipatch decline must promote support-strip band evidence");
+        .expect("multipatch decline must promote interface G1 evidence");
     assert_eq!(
         format!("{:?}", multipatch_apex_diagnostic.edge.expect("edge")),
-        "EdgeHandle(31v1)",
-        "apex diagnostic must identify the actual worst selected strip edge"
+        "EdgeHandle(32v1)",
+        "apex diagnostic must identify the remaining interface edge"
     );
     let reauthor_apex_diagnostic = result
         .repair_report

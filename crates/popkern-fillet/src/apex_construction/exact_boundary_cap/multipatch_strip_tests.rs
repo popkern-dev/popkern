@@ -264,6 +264,37 @@ fn support_normal_row_declines_with_source_handles_and_local_tolerance() {
     assert_eq!(diagnostic.tolerance, Some(budget.support_normal_deficit));
 }
 
+#[test]
+fn support_normal_row_leaves_endpoint_normal_closure_to_interface_gates() {
+    let sector = sector_input();
+    let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(
+        &sector,
+        ExactBoundaryOuterSide::FaceEdge,
+    );
+    let strip = &inventory.outer_strips[0];
+    let boundary = cubic_boundary();
+    let scaffold = scaffold_outer_strip_boundary(
+        &sector,
+        strip,
+        &boundary,
+        ExactBoundaryStripBoundaryDirection::Forward,
+        1.0e-12,
+    )
+    .expect("outer boundary scaffold");
+    let mut samples = support_samples(Vec3::new(0.0, 0.0, 1.0));
+    samples[0].support_normal = Vec3::new(0.0, 1.0, 0.0);
+    let mut budget = ExactBoundaryMultiPatchBudget::default();
+    budget.support_normal_deficit = 1.0e-1;
+
+    let solved =
+        solve_strip_support_normal_row(&sector, strip, &scaffold, &boundary, &samples, budget)
+            .expect("endpoint-only normal mismatch should not block open strip band");
+    let report = solved.support_normal_report.expect("support-normal report");
+
+    assert!(report.max_support_normal_deficit <= budget.support_normal_deficit);
+    assert_eq!(report.support_strip_sample_count, samples.len());
+}
+
 fn rational_quadratic_boundary() -> NurbsCurve {
     NurbsCurve {
         degree: 2,
