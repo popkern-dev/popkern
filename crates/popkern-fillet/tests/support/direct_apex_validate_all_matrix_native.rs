@@ -176,7 +176,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
     const MULTIPATCH_BLOCKER: &str =
         "exact_boundary_cap.multipatch.boundary_tangent_support_incompatible";
     const REAUTHOR_BLOCKER: &str =
-        "exact_boundary_cap.multipatch.support_boundary_reauthor_candidate_failed";
+        "exact_boundary_cap.multipatch.support_boundary_reauthor_support_residual";
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -257,7 +257,7 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         .expect("multipatch decline must promote edge32 support-boundary reauthoring blocker");
     assert_eq!(
         reauthor_diagnostic.detail_code.as_deref(),
-        Some("support_boundary_reauthor.sampled_fit_tangent_unsatisfied")
+        Some(REAUTHOR_BLOCKER)
     );
     assert!(
         reauthor_diagnostic.residual.expect("residual")

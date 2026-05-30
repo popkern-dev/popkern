@@ -1,13 +1,12 @@
-//! Support-authority boundary reauthoring for multipatch route attempts.
-
-use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
-
 use crate::apex_construction::exact_boundary_cap::boundary::PreparedExactBoundaryCurve;
 use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBoundaryMultiPatchDeclineReason;
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
+use popkern_core::geometry::{
+    NurbsCurve, Point3, Vec3, curve::CurveEval, pcurve::Pcurve, surface::SurfaceEval,
+};
+
+#[path = "facade_multipatch_support_reauthor_fit.rs"]
+mod reauthor_fit;
 
 const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 5] = [4, 8, 16, 32, 64];
 const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
@@ -26,23 +25,23 @@ pub(crate) fn support_authority_boundary_attempt(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
 ) -> SupportAuthorityBoundaryAttempt {
-    match support_hermite_boundary_curve(boundary, support_pair) {
+    if let ReauthoredBoundaryResult::Accepted(candidate) =
+        support_hermite_boundary_curve(boundary, support_pair)
+    {
+        return SupportAuthorityBoundaryAttempt {
+            candidate: Some(candidate),
+            decline: None,
+        };
+    }
+    match sampled_support_authority_boundary_curve(boundary, support_pair) {
         ReauthoredBoundaryResult::Accepted(candidate) => SupportAuthorityBoundaryAttempt {
             candidate: Some(candidate),
             decline: None,
         },
-        ReauthoredBoundaryResult::Declined(_) => {
-            match sampled_support_authority_boundary_curve(boundary, support_pair) {
-                ReauthoredBoundaryResult::Accepted(candidate) => SupportAuthorityBoundaryAttempt {
-                    candidate: Some(candidate),
-                    decline: None,
-                },
-                ReauthoredBoundaryResult::Declined(decline) => SupportAuthorityBoundaryAttempt {
-                    candidate: None,
-                    decline: Some(decline),
-                },
-            }
-        }
+        ReauthoredBoundaryResult::Declined(decline) => SupportAuthorityBoundaryAttempt {
+            candidate: None,
+            decline: Some(decline),
+        },
     }
 }
 
@@ -120,7 +119,13 @@ fn sampled_support_authority_boundary_curve(
             points.push(support_pair.support_surface.point_at(uv.x, uv.y));
             params.push(parameter);
         }
-        let candidate = match derivative_aware_fit_curve(&points, &params, support_pair) {
+        let candidate = match derivative_aware_fit_curve(
+            &points,
+            &params,
+            support_pair,
+            support_forward,
+            sample_count,
+        ) {
             Ok(candidate) => candidate,
             Err(decline) => {
                 last_decline = ReauthoredBoundaryResult::Declined(decline);
@@ -144,7 +149,16 @@ fn derivative_aware_fit_curve(
     points: &[Point3],
     params: &[f64],
     support_pair: &PreparedExactBoundaryPcurvePair,
+    support_forward: bool,
+    sample_count: usize,
 ) -> Result<NurbsCurve, SupportBoundaryReauthorDecline> {
+    if let Some(candidate) = reauthor_fit::derivative_constrained_sampled_curve(
+        support_pair,
+        support_forward,
+        sample_count,
+    ) {
+        return Ok(candidate);
+    }
     let degree = 5.min(points.len().saturating_sub(1));
     let candidate = popkern_core::geometry::fitting::interpolate_curve(points, params, degree)
         .ok()
