@@ -3,7 +3,7 @@
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 use super::super::super::multipatch::ExactBoundaryMultiPatchCandidate;
 use super::super::super::multipatch::budget::ExactBoundaryMultiPatchBudget;
@@ -89,7 +89,8 @@ fn dense_support_sample(
         .cross(&pair.support_surface.partial_v(support_uv.x, support_uv.y))
         .normalized()?;
     let boundary_point = boundary.point_at(parameter);
-    let boundary_tangent = boundary.derivative_at(parameter, 1).normalized()?;
+    let boundary_tangent =
+        support_boundary_tangent(pair, support_t, support_uv.x, support_uv.y, support_forward)?;
     let nearest = nearest_support_sample(&ribbon.samples, parameter)?;
     Some(ExactBoundaryRibbonSample {
         parameter,
@@ -100,6 +101,21 @@ fn dense_support_sample(
         support_normal,
         cross_derivative: nearest.cross_derivative,
     })
+}
+
+fn support_boundary_tangent(
+    pair: &PreparedExactBoundaryPcurvePair,
+    support_t: f64,
+    support_u: f64,
+    support_v: f64,
+    support_forward: bool,
+) -> Option<Vec3> {
+    let direction_sign = if support_forward { 1.0 } else { -1.0 };
+    let support_tangent = pair.support_pcurve.tangent_at(support_t);
+    (pair.support_surface.partial_u(support_u, support_v) * support_tangent.x
+        + pair.support_surface.partial_v(support_u, support_v) * support_tangent.y)
+        .normalized()
+        .map(|tangent| tangent * direction_sign)
 }
 
 fn nearest_support_sample(

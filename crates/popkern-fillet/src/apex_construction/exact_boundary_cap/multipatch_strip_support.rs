@@ -14,7 +14,7 @@ pub(super) struct BoundaryTangentCompatibilityReport {
 }
 
 pub(super) fn boundary_tangent_compatibility(
-    boundary: &NurbsCurve,
+    _boundary: &NurbsCurve,
     samples: &[ExactBoundaryRibbonSample],
 ) -> BoundaryTangentCompatibilityReport {
     let mut report = BoundaryTangentCompatibilityReport {
@@ -25,7 +25,7 @@ pub(super) fn boundary_tangent_compatibility(
             .unwrap_or(0.0),
     };
     for sample in samples {
-        let Some(tangent) = boundary_tangent(boundary, sample.parameter) else {
+        let Some(tangent) = sample.boundary_tangent.normalized() else {
             continue;
         };
         let Some(normal) = sample.support_normal.normalized() else {
