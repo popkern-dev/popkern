@@ -17,7 +17,7 @@ mod strip_support;
 use strip_support::{
     boundary_tangent_compatibility, control_row_parameter, endpoint_fallback_width_direction,
     is_endpoint_sample, sample_at_parameter, strip_width_from_samples, support_refined_boundary,
-    width_direction,
+    width_direction, width_direction_from_tangent,
 };
 
 const OUTER_BOUNDARY_SAMPLE_COUNT: usize = 9;
@@ -186,6 +186,9 @@ pub(crate) fn solve_strip_support_normal_row(
         let parameter = control_row_parameter(&refined_boundary, index);
         let sample = sample_at_parameter(samples, parameter);
         let Some(direction) = width_direction(boundary, parameter, sample.support_normal)
+            .or_else(|| {
+                width_direction_from_tangent(sample.boundary_tangent, sample.support_normal)
+            })
             .or_else(|| sample.cross_derivative.normalized())
             .or_else(|| endpoint_fallback_width_direction(samples, sample.parameter))
         else {

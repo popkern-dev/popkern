@@ -9,7 +9,7 @@ use crate::apex_construction::exact_boundary_cap::boundary::PreparedExactBoundar
 use crate::apex_construction::exact_boundary_cap::multipatch::report::ExactBoundaryMultiPatchDeclineReason;
 use crate::apex_construction::exact_boundary_cap::pcurves::PreparedExactBoundaryPcurvePair;
 
-const SUPPORT_BOUNDARY_SEGMENTS: usize = 16;
+const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 3] = [4, 8, 16];
 const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
 const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
 const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
@@ -141,26 +141,64 @@ fn support_hermite_boundary_curve(
         boundary.curve.point_at(0.0),
         boundary.curve.point_at(1.0),
     );
-    let mut controls = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 1);
-    for segment in 0..SUPPORT_BOUNDARY_SEGMENTS {
-        let s0 = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
-        let s1 = (segment + 1) as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
-        let Some(sample0) = support_boundary_sample(support_pair, s0, support_forward) else {
-            return reauthor_decline(
-                ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
-                f64::INFINITY,
-                s0,
-                SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
-            );
+    let mut last_decline = reauthor_decline(
+        ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+        f64::INFINITY,
+        0.0,
+        SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+    );
+    for segment_count in SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS {
+        let candidate = match support_hermite_boundary_candidate(
+            support_pair,
+            support_forward,
+            segment_count,
+        ) {
+            Ok(candidate) => candidate,
+            Err(decline) => {
+                last_decline = ReauthoredBoundaryResult::Declined(decline);
+                continue;
+            }
         };
-        let Some(sample1) = support_boundary_sample(support_pair, s1, support_forward) else {
-            return reauthor_decline(
-                ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
-                f64::INFINITY,
-                s1,
-                SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
-            );
-        };
+        match certify_support_boundary_candidate(
+            boundary,
+            support_pair,
+            &candidate,
+            support_forward,
+        ) {
+            None => return ReauthoredBoundaryResult::Accepted(candidate),
+            Some(decline) => last_decline = ReauthoredBoundaryResult::Declined(decline),
+        }
+    }
+    last_decline
+}
+
+fn support_hermite_boundary_candidate(
+    support_pair: &PreparedExactBoundaryPcurvePair,
+    support_forward: bool,
+    segment_count: usize,
+) -> Result<NurbsCurve, SupportBoundaryReauthorDecline> {
+    let mut controls = Vec::with_capacity(segment_count * 3 + 1);
+    for segment in 0..segment_count {
+        let s0 = segment as f64 / segment_count as f64;
+        let s1 = (segment + 1) as f64 / segment_count as f64;
+        let sample0 = support_boundary_sample(support_pair, s0, support_forward).ok_or(
+            SupportBoundaryReauthorDecline {
+                reason:
+                    ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+                residual: f64::INFINITY,
+                sample_parameter: s0,
+                tolerance: SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+            },
+        )?;
+        let sample1 = support_boundary_sample(support_pair, s1, support_forward).ok_or(
+            SupportBoundaryReauthorDecline {
+                reason:
+                    ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorCandidateFailed,
+                residual: f64::INFINITY,
+                sample_parameter: s1,
+                tolerance: SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+            },
+        )?;
         if segment == 0 {
             controls.push(sample0.point);
         }
@@ -169,32 +207,19 @@ fn support_hermite_boundary_curve(
         controls.push(sample1.point - sample1.tangent * scale);
         controls.push(sample1.point);
     }
-    let mut knots = Vec::with_capacity(SUPPORT_BOUNDARY_SEGMENTS * 3 + 5);
+    let mut knots = Vec::with_capacity(segment_count * 3 + 5);
     knots.extend(std::iter::repeat_n(0.0, 4));
-    for segment in 1..SUPPORT_BOUNDARY_SEGMENTS {
-        let knot = segment as f64 / SUPPORT_BOUNDARY_SEGMENTS as f64;
+    for segment in 1..segment_count {
+        let knot = segment as f64 / segment_count as f64;
         knots.extend(std::iter::repeat_n(knot, 3));
     }
     knots.extend(std::iter::repeat_n(1.0, 4));
-    let candidate = NurbsCurve {
+    Ok(NurbsCurve {
         degree: 3,
         knots,
         weights: vec![1.0; controls.len()],
         control_points: controls,
-    };
-    let endpoint_gap = support_boundary_endpoint_gap(boundary, &candidate).unwrap_or(f64::INFINITY);
-    if endpoint_gap > SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE {
-        return reauthor_decline(
-            ExactBoundaryMultiPatchDeclineReason::SupportBoundaryReauthorEndpointMismatch,
-            endpoint_gap,
-            endpoint_gap_sample(boundary, &candidate),
-            SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
-        );
-    }
-    match certify_support_boundary_candidate(boundary, support_pair, &candidate, support_forward) {
-        None => ReauthoredBoundaryResult::Accepted(candidate),
-        Some(decline) => ReauthoredBoundaryResult::Declined(decline),
-    }
+    })
 }
 
 fn reauthor_decline(

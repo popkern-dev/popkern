@@ -123,6 +123,10 @@ pub(super) fn width_direction(
     support_normal: Vec3,
 ) -> Option<Vec3> {
     let tangent = boundary_tangent(boundary, parameter)?;
+    width_direction_from_tangent(tangent, support_normal)
+}
+
+pub(super) fn width_direction_from_tangent(tangent: Vec3, support_normal: Vec3) -> Option<Vec3> {
     let normal = support_normal.normalized()?;
     normal.cross(&tangent).normalized()
 }
