@@ -119,7 +119,7 @@ fn sampled_support_authority_boundary_curve(
             points.push(support_pair.support_surface.point_at(uv.x, uv.y));
             params.push(parameter);
         }
-        let candidate = match derivative_aware_fit_curve(
+        let candidates = match support_image_fit_candidates(
             &points,
             &params,
             support_pair,
@@ -132,58 +132,48 @@ fn sampled_support_authority_boundary_curve(
                 continue;
             }
         };
-        match certify_support_boundary_candidate(
-            boundary,
-            support_pair,
-            &candidate,
-            support_forward,
-        ) {
-            None => return ReauthoredBoundaryResult::Accepted(candidate),
-            Some(decline) => last_decline = ReauthoredBoundaryResult::Declined(decline),
+        for candidate in candidates {
+            match certify_support_boundary_candidate(
+                boundary,
+                support_pair,
+                &candidate,
+                support_forward,
+            ) {
+                None => return ReauthoredBoundaryResult::Accepted(candidate),
+                Some(decline) => last_decline = ReauthoredBoundaryResult::Declined(decline),
+            }
         }
     }
     last_decline
 }
 
-fn derivative_aware_fit_curve(
+fn support_image_fit_candidates(
     points: &[Point3],
     params: &[f64],
     support_pair: &PreparedExactBoundaryPcurvePair,
     support_forward: bool,
     sample_count: usize,
-) -> Result<NurbsCurve, SupportBoundaryReauthorDecline> {
+) -> Result<Vec<NurbsCurve>, SupportBoundaryReauthorDecline> {
+    let mut candidates = Vec::new();
     if let Some(candidate) = reauthor_fit::derivative_constrained_sampled_curve(
         support_pair,
         support_forward,
         sample_count,
     ) {
-        return Ok(candidate);
+        candidates.push(candidate);
     }
-    let degree = 5.min(points.len().saturating_sub(1));
-    let candidate = popkern_core::geometry::fitting::interpolate_curve(points, params, degree)
-        .ok()
-        .or_else(|| {
-            popkern_core::geometry::fitting::fit_curve(points, params, degree, points.len()).ok()
-        })
-        .ok_or_else(|| {
-            SupportBoundaryReauthorDecline::candidate_failed(
-                "support_boundary_reauthor.sampled_fit_failed",
-                f64::INFINITY,
-                0.0,
-                SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
-            )
-        })?;
-    let tangent = tangent_support_normal_report(&candidate, support_pair);
-    let tolerance = max_tangent_dot_for_deficit(SUPPORT_TANGENT_PLANE_DEFICIT);
-    if tangent.residual > tolerance {
-        return Err(SupportBoundaryReauthorDecline::candidate_failed(
-            "support_boundary_reauthor.sampled_fit_tangent_unsatisfied",
-            tangent.residual,
-            tangent.sample_parameter,
-            tolerance,
-        ));
+    if let Some(candidate) = reauthor_fit::interpolated_sampled_curve(points, params) {
+        candidates.push(candidate);
     }
-    Ok(candidate)
+    if !candidates.is_empty() {
+        return Ok(candidates);
+    }
+    Err(SupportBoundaryReauthorDecline::candidate_failed(
+        "support_boundary_reauthor.sampled_fit_failed",
+        f64::INFINITY,
+        0.0,
+        SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE,
+    ))
 }
 
 fn support_hermite_boundary_curve(

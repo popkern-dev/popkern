@@ -70,6 +70,11 @@ pub(super) fn derivative_constrained_sampled_curve(
     })
 }
 
+pub(super) fn interpolated_sampled_curve(points: &[Point3], params: &[f64]) -> Option<NurbsCurve> {
+    let degree = 5.min(points.len().saturating_sub(1));
+    popkern_core::geometry::fitting::interpolate_curve(points, params, degree).ok()
+}
+
 fn support_image_sample(
     support_pair: &PreparedExactBoundaryPcurvePair,
     parameter: f64,
