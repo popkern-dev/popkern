@@ -170,66 +170,79 @@ fn cube_extreme_exact_boundary_materializes_support_face_subdivision() {
     );
 }
 
-#[test]
-fn pyramid3_uniform_exact_boundary_accepts_multi_sector_multipatch_cap_quality() {
-    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+fn assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
+    fixture: &str,
+    radii: &[f64; 3],
+    expect_multipatch_recovery: bool,
+) {
+    let result = build_under_direct_apex(true, radii);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
         reasons.is_empty(),
-        "pyramid3 exact-boundary multipatch route must stay native and not fall through to legacy; got:\n{}",
+        "{fixture} exact-boundary route must stay native and not fall through to legacy; got:\n{}",
         reasons.join("\n"),
     );
     let route = result
         .repair_report
         .apex_routes
         .first()
-        .expect("pyramid3_uniform should record one direct-apex route");
+        .expect("pyramid3 fixture should record one direct-apex route");
     assert_eq!(
         route.exact_boundary_report.candidate_status,
         ExactBoundaryCandidateOutcome::Accepted,
-        "pyramid3 exact-boundary multipatch route should repair every failing live cap/support seam"
+        "{fixture} exact-boundary route should satisfy live cap/support seams"
     );
     assert!(
         !route.exact_boundary_report.committed_faces.is_empty(),
-        "accepted pyramid3 multipatch route must report committed faces"
+        "accepted {fixture} exact-boundary route must report committed faces"
     );
     assert_eq!(
         route.exact_boundary_report.provenance.transaction_status,
         ExactBoundaryReportTransactionStatus::Committed,
-        "accepted pyramid3 multipatch transaction should commit"
+        "accepted {fixture} exact-boundary transaction should commit"
     );
     let one_patch_step = route
         .exact_boundary_report
         .decision_chain
         .iter()
         .find(|step| step.route_label == "exact_boundary.one_patch")
-        .expect("pyramid3 route must preserve the one-patch decision");
-    assert_eq!(
-        one_patch_step.outcome,
-        ExactBoundaryRouteDecisionOutcome::Declined
-    );
-    assert_eq!(
-        one_patch_step.diagnostic_code.as_deref(),
-        Some("exact_boundary_cap.validation.constrained_strip_band_unsatisfied")
-    );
-    let multipatch_step = route
-        .exact_boundary_report
-        .decision_chain
-        .iter()
-        .find(|step| step.route_label == "exact_boundary.multipatch")
-        .expect("pyramid3 constrained-strip decline must record the multipatch recovery decision");
-    assert_eq!(
-        multipatch_step.outcome,
-        ExactBoundaryRouteDecisionOutcome::Accepted,
-        "pyramid3 multipatch route must accept only after live cap/support G1 passes"
-    );
+        .expect("pyramid3 fixture route must preserve the one-patch decision");
+    if expect_multipatch_recovery {
+        assert_eq!(
+            one_patch_step.outcome,
+            ExactBoundaryRouteDecisionOutcome::Declined,
+            "{fixture} should preserve the one-patch constrained-strip decline before multipatch recovery"
+        );
+        assert_eq!(
+            one_patch_step.diagnostic_code.as_deref(),
+            Some("exact_boundary_cap.validation.constrained_strip_band_unsatisfied"),
+            "{fixture} should route to multipatch only for the measured constrained-strip gate"
+        );
+        let multipatch_step = route
+            .exact_boundary_report
+            .decision_chain
+            .iter()
+            .find(|step| step.route_label == "exact_boundary.multipatch")
+            .expect("pyramid3 fixture constrained-strip decline must record the multipatch recovery decision");
+        assert_eq!(
+            multipatch_step.outcome,
+            ExactBoundaryRouteDecisionOutcome::Accepted,
+            "{fixture} multipatch route must accept only after live cap/support G1 passes"
+        );
+    } else {
+        assert_eq!(
+            one_patch_step.outcome,
+            ExactBoundaryRouteDecisionOutcome::Accepted,
+            "{fixture} should either accept directly or be promoted into the explicit multipatch recovery matrix"
+        );
+    }
     assert!(
         route
             .exact_boundary_report
             .continuity
             .decline_code
             .is_none(),
-        "accepted pyramid3 multipatch route must not carry stale cap/support decline evidence"
+        "accepted {fixture} exact-boundary route must not carry stale cap/support decline evidence"
     );
     assert!(
         route
@@ -246,18 +259,18 @@ fn pyramid3_uniform_exact_boundary_accepts_multi_sector_multipatch_cap_quality()
                             .map(|residual| residual.is_finite())
                             .unwrap_or(false))
             }),
-        "pyramid3 multipatch must not regress to G0 or infinite support-strip diagnostics"
+        "{fixture} exact-boundary route must not regress to G0 or infinite support-strip diagnostics"
     );
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     assert!(
         metrics.worst_g0_gap <= 5.0e-3,
-        "pyramid3 multipatch cap_outer_g0 {:.3e} exceeds 5.0e-3",
+        "{fixture} exact-boundary cap_outer_g0 {:.3e} exceeds 5.0e-3",
         metrics.worst_g0_gap
     );
     assert!(
         metrics.worst_g1_coplanarity <= 5.0e-2,
-        "pyramid3 multipatch cap_outer_g1 {:.3e} exceeds 5.0e-2",
+        "{fixture} exact-boundary cap_outer_g1 {:.3e} exceeds 5.0e-2",
         metrics.worst_g1_coplanarity
     );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
@@ -266,6 +279,66 @@ fn pyramid3_uniform_exact_boundary_accepts_multi_sector_multipatch_cap_quality()
             .actions
             .iter()
             .all(|action| action.stage != "exact_boundary_cap" || action.outcome != "declined"),
-        "accepted pyramid3 multipatch route should not export exact-boundary decline actions"
+        "accepted {fixture} exact-boundary route should not export exact-boundary decline actions"
     );
+}
+
+#[test]
+fn pyramid3_exact_boundary_acceptance_matrix() {
+    for (fixture, radii, expect_multipatch_recovery) in [
+        ("pyramid3_uniform", [0.10, 0.10, 0.10], true),
+        ("pyramid3_mixed", [0.08, 0.10, 0.12], false),
+    ] {
+        assert_pyramid3_exact_boundary_passes_commercial_cap_quality(
+            fixture,
+            &radii,
+            expect_multipatch_recovery,
+        );
+    }
+}
+
+#[test]
+fn pyramid3_nonuniform_records_structured_exact_boundary_blockers() {
+    for (fixture, radii) in [("pyramid3_extreme", [0.02, 0.10, 0.20])] {
+        let result = build_under_direct_apex(true, &radii);
+        let route = result
+            .repair_report
+            .apex_routes
+            .first()
+            .expect("pyramid3 nonuniform fixture should record one direct-apex route");
+        let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
+        let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
+        assert!(
+            route
+                .exact_boundary_report
+                .diagnostics
+                .iter()
+                .any(
+                    |diagnostic| diagnostic.stage == "exact_boundary_cap.cap_outer"
+                        && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
+                        && diagnostic
+                            .residual
+                            .is_some_and(|residual| residual > 5.0e-3)
+                        || diagnostic.stage == "exact_boundary_cap.cap_support_continuity"
+                            && diagnostic.code == "cap_outer_g0_exceeds_gate"
+                            && diagnostic
+                                .residual
+                                .is_some_and(|residual| residual > 5.0e-3)
+                        || diagnostic.stage == "exact_boundary_cap.support_scope"
+                            && diagnostic.code
+                                == "exact_boundary_cap.support_scope.residual_exceeded"
+                            && diagnostic
+                                .residual
+                                .is_some_and(|residual| residual > 1.0e-6)
+                ),
+            "{fixture} must not silently accept its exact-boundary blocker; g0={:.3e} decisions={:?} diagnostics={:?}",
+            metrics.worst_g0_gap,
+            route.exact_boundary_report.decision_chain,
+            route.exact_boundary_report.diagnostics,
+        );
+        assert!(
+            metrics.worst_g0_gap > 5.0e-3,
+            "{fixture} blocker test must remain tied to the measured cap_outer G0 gap"
+        );
+    }
 }

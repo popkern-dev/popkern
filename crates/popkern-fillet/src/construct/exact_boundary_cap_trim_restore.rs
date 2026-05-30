@@ -321,11 +321,24 @@ fn cap_support_pair_residual(
     let support_surface = surface_for_half_edge(brep, support_half_edge)?;
     let (cap_start, cap_end) = cap_pcurve.parameter_range();
     let (support_start, support_end) = support_pcurve.parameter_range();
+    let cap_start_point = pcurve_surface_point(&cap_surface, cap_pcurve, cap_start);
+    let cap_end_point = pcurve_surface_point(&cap_surface, cap_pcurve, cap_end);
+    let support_start_point = pcurve_surface_point(&support_surface, support_pcurve, support_start);
+    let support_end_point = pcurve_surface_point(&support_surface, support_pcurve, support_end);
+    let support_forward = cap_start_point.distance_to(&support_start_point)
+        + cap_end_point.distance_to(&support_end_point)
+        <= cap_start_point.distance_to(&support_end_point)
+            + cap_end_point.distance_to(&support_start_point);
     let mut worst = 0.0_f64;
     for index in 0..17 {
         let fraction = index as f64 / 16.0;
+        let support_fraction = if support_forward {
+            fraction
+        } else {
+            1.0 - fraction
+        };
         let cap_t = cap_start + (cap_end - cap_start) * fraction;
-        let support_t = support_start + (support_end - support_start) * fraction;
+        let support_t = support_start + (support_end - support_start) * support_fraction;
         let cap_uv = cap_pcurve.point_at(cap_t);
         let support_uv = support_pcurve.point_at(support_t);
         let cap_point = cap_surface.point_at(cap_uv.x, cap_uv.y);

@@ -1,5 +1,6 @@
 //! Exact-boundary export-readiness repair without broad support-face demotion.
 
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
@@ -43,20 +44,36 @@ struct CapOuterPairResidual {
 }
 
 fn cap_support_pair_residual_with_parameter(
+    result: &BRep,
+    cap_half_edge: HalfEdgeHandle,
     cap_pcurve: &Pcurve,
     support_pcurve: &Pcurve,
     cap_surface: &SurfaceGeometry,
     support_surface: &SurfaceGeometry,
 ) -> Option<CapOuterPairResidual> {
+    let edge = result.half_edges.get(cap_half_edge)?.edge;
+    let edge_curve = result.edges.get(edge)?.curve.as_ref()?;
     let (cap_start, cap_end) = cap_pcurve.parameter_range();
     let (support_start, support_end) = support_pcurve.parameter_range();
-    let samples = 17usize;
+    let cap_forward = pcurve_follows_edge_curve(cap_surface, cap_pcurve, edge_curve);
+    let support_forward = pcurve_follows_edge_curve(support_surface, support_pcurve, edge_curve);
+    let samples = 100usize;
     let mut worst = 0.0_f64;
     let mut worst_parameter = 0.0_f64;
     for index in 0..samples {
-        let fraction = index as f64 / (samples - 1) as f64;
-        let cap_t = cap_start + (cap_end - cap_start) * fraction;
-        let support_t = support_start + (support_end - support_start) * fraction;
+        let fraction = 0.05 + 0.90 * index as f64 / (samples - 1) as f64;
+        let cap_fraction = if cap_forward {
+            fraction
+        } else {
+            1.0 - fraction
+        };
+        let support_fraction = if support_forward {
+            fraction
+        } else {
+            1.0 - fraction
+        };
+        let cap_t = cap_start + (cap_end - cap_start) * cap_fraction;
+        let support_t = support_start + (support_end - support_start) * support_fraction;
         let cap_uv = cap_pcurve.point_at(cap_t);
         let support_uv = support_pcurve.point_at(support_t);
         let cap_point = cap_surface.point_at(cap_uv.x, cap_uv.y);
@@ -74,6 +91,29 @@ fn cap_support_pair_residual_with_parameter(
         residual: worst,
         sample_parameter: worst_parameter,
     })
+}
+
+fn pcurve_follows_edge_curve(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    edge_curve: &popkern_core::geometry::curve::CurveOnEdge,
+) -> bool {
+    let (pc_start, pc_end) = pcurve.parameter_range();
+    let pcurve_start = pcurve_surface_point(surface, pcurve, pc_start);
+    let pcurve_end = pcurve_surface_point(surface, pcurve, pc_end);
+    let curve_start = edge_curve.geometry.point_at(edge_curve.t_start);
+    let curve_end = edge_curve.geometry.point_at(edge_curve.t_end);
+    curve_start.distance_to(&pcurve_start) + curve_end.distance_to(&pcurve_end)
+        <= curve_start.distance_to(&pcurve_end) + curve_end.distance_to(&pcurve_start)
+}
+
+fn pcurve_surface_point(
+    surface: &SurfaceGeometry,
+    pcurve: &Pcurve,
+    parameter: f64,
+) -> popkern_core::geometry::Point3 {
+    let uv = pcurve.point_at(parameter);
+    surface.point_at(uv.x, uv.y)
 }
 
 fn surface_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<SurfaceGeometry> {
@@ -200,6 +240,8 @@ fn exact_boundary_cap_outer_decline(
         );
     };
     let Some(report) = cap_support_pair_residual_with_parameter(
+        result,
+        cap_half_edge,
         cap_pcurve,
         support_pcurve,
         &cap_surface,
