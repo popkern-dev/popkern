@@ -8,7 +8,7 @@ use popkern_core::geometry::{
 #[path = "facade_multipatch_support_reauthor_fit.rs"]
 mod reauthor_fit;
 
-const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 7] = [4, 8, 16, 32, 64, 128, 256];
+const SUPPORT_BOUNDARY_HERMITE_SEGMENT_BUDGETS: [usize; 8] = [4, 8, 16, 32, 42, 64, 128, 256];
 const SUPPORT_BOUNDARY_FIT_SAMPLE_BUDGETS: [usize; 3] = [17, 33, 65];
 const SUPPORT_BOUNDARY_RESIDUAL_TOLERANCE: f64 = 5.0e-3;
 const SUPPORT_TANGENT_PLANE_DEFICIT: f64 = 5.0e-2;
@@ -18,22 +18,24 @@ pub(crate) fn support_authority_boundary_curve(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
 ) -> Option<NurbsCurve> {
-    support_authority_boundary_attempt(boundary, support_pair).candidate
+    support_authority_boundary_attempt_with_control_limit(boundary, support_pair, usize::MAX)
+        .candidate
 }
 
-pub(crate) fn support_authority_boundary_attempt(
+pub(crate) fn support_authority_boundary_attempt_with_control_limit(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
+    max_control_count: usize,
 ) -> SupportAuthorityBoundaryAttempt {
     if let ReauthoredBoundaryResult::Accepted(candidate) =
-        support_hermite_boundary_curve(boundary, support_pair)
+        support_hermite_boundary_curve(boundary, support_pair, max_control_count)
     {
         return SupportAuthorityBoundaryAttempt {
             candidate: Some(candidate),
             decline: None,
         };
     }
-    match sampled_support_authority_boundary_curve(boundary, support_pair) {
+    match sampled_support_authority_boundary_curve(boundary, support_pair, max_control_count) {
         ReauthoredBoundaryResult::Accepted(candidate) => SupportAuthorityBoundaryAttempt {
             candidate: Some(candidate),
             decline: None,
@@ -85,12 +87,8 @@ enum ReauthoredBoundaryResult {
 fn sampled_support_authority_boundary_curve(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
+    max_control_count: usize,
 ) -> ReauthoredBoundaryResult {
-    if let ReauthoredBoundaryResult::Accepted(candidate) =
-        support_hermite_boundary_curve(boundary, support_pair)
-    {
-        return ReauthoredBoundaryResult::Accepted(candidate);
-    }
     let support_forward = pcurve_follows_boundary(
         &support_pair.support_surface,
         &support_pair.support_pcurve,
@@ -133,6 +131,9 @@ fn sampled_support_authority_boundary_curve(
             }
         };
         for candidate in candidates {
+            if candidate.control_points.len() > max_control_count {
+                continue;
+            }
             match certify_support_boundary_candidate(
                 boundary,
                 support_pair,
@@ -179,6 +180,7 @@ fn support_image_fit_candidates(
 fn support_hermite_boundary_curve(
     boundary: &PreparedExactBoundaryCurve,
     support_pair: &PreparedExactBoundaryPcurvePair,
+    max_control_count: usize,
 ) -> ReauthoredBoundaryResult {
     let support_forward = pcurve_follows_boundary(
         &support_pair.support_surface,
@@ -204,6 +206,9 @@ fn support_hermite_boundary_curve(
                 continue;
             }
         };
+        if candidate.control_points.len() > max_control_count {
+            continue;
+        }
         match certify_support_boundary_candidate(
             boundary,
             support_pair,

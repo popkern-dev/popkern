@@ -32,7 +32,8 @@ fn support_authority_boundary_declines_when_endpoints_change_topology() {
     });
     let support_pair = support_pair(Point3::new(1.0, 0.0, 0.0));
 
-    let attempt = support_authority_boundary_attempt(&boundary, &support_pair);
+    let attempt =
+        support_authority_boundary_attempt_with_control_limit(&boundary, &support_pair, usize::MAX);
 
     assert!(attempt.candidate.is_none());
     let decline = attempt.decline.expect("endpoint mismatch decline");
@@ -68,7 +69,8 @@ fn support_authority_boundary_uses_certified_sampled_support_image() {
         max_pair_residual: 0.0,
     };
 
-    let attempt = support_authority_boundary_attempt(&boundary, &support_pair);
+    let attempt =
+        support_authority_boundary_attempt_with_control_limit(&boundary, &support_pair, usize::MAX);
 
     let candidate = attempt
         .candidate

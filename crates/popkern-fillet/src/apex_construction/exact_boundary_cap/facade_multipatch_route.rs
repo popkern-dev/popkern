@@ -30,7 +30,8 @@ use super::super::validation::{
 };
 use support::{
     dense_support_samples, optimize_selected_strip_live_support_seam,
-    selected_strip_live_equivalent_diagnostic, support_authority_boundary_attempt,
+    selected_strip_live_equivalent_diagnostic,
+    support_authority_boundary_attempt_with_control_limit,
 };
 
 pub(super) struct ExactBoundaryMultipatchRouteAttempt {
@@ -144,7 +145,12 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
             && Some(ribbon.support_face) == diagnostic.support_face
     })?;
     let support_pair = pcurve_pair_for_ribbon(pcurves, ribbon)?;
-    let reauthor_attempt = support_authority_boundary_attempt(boundary, support_pair);
+    let budget = ExactBoundaryMultiPatchBudget::default();
+    let reauthor_attempt = support_authority_boundary_attempt_with_control_limit(
+        boundary,
+        support_pair,
+        budget.max_width_direction_controls,
+    );
     if let Some(decline) = reauthor_attempt.decline {
         let inventory = ExactBoundaryMultiPatchInventory::for_selected_side(sector, side);
         let strip = inventory.outer_strips.first()?;
@@ -166,7 +172,6 @@ pub(super) fn attempt_multipatch_after_one_patch_decline(
         .unwrap_or_else(|| boundary.curve.clone());
     let support_samples = dense_support_samples(&candidate_boundary, support_pair, ribbon);
     let selected_sides = [side];
-    let budget = ExactBoundaryMultiPatchBudget::default();
     let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
         sector,
         selected_sides: &selected_sides,

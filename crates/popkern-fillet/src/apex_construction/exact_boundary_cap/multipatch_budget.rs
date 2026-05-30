@@ -8,7 +8,7 @@ use crate::apex_construction::exact_boundary_cap::validation::ExactBoundaryValid
 const DEFAULT_MAX_SUPPORT_NORMAL_DEFICIT: f64 = 5.0e-2;
 const DEFAULT_INTERFACE_G1_DEFICIT: f64 = 5.0e-2;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
-const DEFAULT_MAX_WIDTH_DIRECTION_CONTROLS: usize = 128;
+const DEFAULT_MAX_WIDTH_DIRECTION_CONTROLS: usize = 256;
 const DEFAULT_MAX_INTERFACE_ITERATIONS: usize = 16;
 const DEFAULT_MAX_INNER_PATCH_ITERATIONS: usize = 16;
 
@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(budget.support_normal_deficit, 5.0e-2);
         assert_eq!(budget.interface_g1_deficit, 5.0e-2);
         assert_eq!(budget.min_normal_length, 1.0e-12);
-        assert_eq!(budget.max_width_direction_controls, 128);
+        assert_eq!(budget.max_width_direction_controls, 256);
         assert_eq!(budget.max_interface_iterations, 16);
         assert_eq!(budget.max_inner_patch_iterations, 16);
     }

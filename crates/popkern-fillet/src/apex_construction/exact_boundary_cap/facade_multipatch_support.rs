@@ -18,7 +18,7 @@ mod optimizer;
 mod reauthor;
 
 pub(super) use optimizer::optimize_selected_strip_live_support_seam;
-pub(super) use reauthor::support_authority_boundary_attempt;
+pub(super) use reauthor::support_authority_boundary_attempt_with_control_limit;
 #[cfg(test)]
 use reauthor::{support_authority_boundary_curve, tangent_support_normal_dot};
 
