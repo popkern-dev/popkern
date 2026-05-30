@@ -104,6 +104,7 @@ pub(super) fn inner_pole_surface(
     interface: &ExactBoundaryStripInnerInterfaceCurve,
     pole: Point3,
 ) -> NurbsSurface {
+    let normal_row_points = interface_normal_row_points(strip_candidate, interface, pole);
     let mut control_points = Vec::with_capacity(interface.curve.control_points.len() * 3);
     let mut weights = Vec::with_capacity(interface.curve.weights.len() * 3);
     for (index, (point, weight)) in interface
@@ -114,13 +115,7 @@ pub(super) fn inner_pole_surface(
         .enumerate()
     {
         control_points.push(*point);
-        control_points.push(interface_normal_row_point(
-            strip_candidate,
-            interface,
-            index,
-            *point,
-            pole,
-        ));
+        control_points.push(normal_row_points[index]);
         control_points.push(pole);
         weights.push(*weight);
         weights.push(*weight);
@@ -138,20 +133,51 @@ pub(super) fn inner_pole_surface(
     }
 }
 
-fn interface_normal_row_point(
+fn interface_normal_row_points(
     strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
     interface: &ExactBoundaryStripInnerInterfaceCurve,
-    index: usize,
-    point: Point3,
+    pole: Point3,
+) -> Vec<Point3> {
+    let parameters = (0..interface.curve.control_points.len())
+        .map(|index| control_row_parameter(&interface.curve, index))
+        .collect::<Vec<_>>();
+    let targets = parameters
+        .iter()
+        .map(|parameter| interface_normal_row_target(strip_candidate, interface, *parameter, pole))
+        .collect::<Vec<_>>();
+    fixed_knot_interpolation_controls(
+        &targets,
+        &parameters,
+        interface.curve.degree,
+        &interface.curve.knots,
+    )
+    .unwrap_or_else(|| {
+        interface
+            .curve
+            .control_points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| {
+                interface_normal_row_point(strip_candidate, interface, index, *point, pole)
+            })
+            .collect()
+    })
+}
+
+fn interface_normal_row_target(
+    strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    parameter: f64,
     pole: Point3,
 ) -> Point3 {
-    let parameter = control_row_parameter(&interface.curve, index);
-    let tangent = interface
-        .curve
-        .derivative_at(parameter, 1)
-        .normalized()
-        .unwrap_or_else(|| fallback_tangent(point, pole));
+    let point = interface.curve.point_at(parameter);
     let strip_uv = interface.strip_pcurve.point_at(parameter);
+    let tangent = strip_candidate
+        .surface
+        .partial_u(strip_uv.x, strip_uv.y)
+        .normalized()
+        .or_else(|| interface.curve.derivative_at(parameter, 1).normalized())
+        .unwrap_or_else(|| fallback_tangent(point, pole));
     let target_normal = strip_candidate
         .surface
         .normal_at(strip_uv.x, strip_uv.y)
@@ -165,13 +191,155 @@ fn interface_normal_row_point(
     point + direction * width
 }
 
+fn interface_normal_row_point(
+    strip_candidate: &ExactBoundaryOuterStripBoundaryScaffold,
+    interface: &ExactBoundaryStripInnerInterfaceCurve,
+    index: usize,
+    point: Point3,
+    pole: Point3,
+) -> Point3 {
+    let parameter = control_row_parameter(&interface.curve, index);
+    let strip_uv = interface.strip_pcurve.point_at(parameter);
+    let tangent = strip_candidate
+        .surface
+        .partial_u(strip_uv.x, strip_uv.y)
+        .normalized()
+        .or_else(|| interface.curve.derivative_at(parameter, 1).normalized())
+        .unwrap_or_else(|| fallback_tangent(point, pole));
+    let target_normal = strip_candidate
+        .surface
+        .normal_at(strip_uv.x, strip_uv.y)
+        .normalized()
+        .unwrap_or_else(|| fallback_normal(tangent, point, pole));
+    let direction = target_normal
+        .cross(&tangent)
+        .normalized()
+        .unwrap_or_else(|| fallback_tangent(point, pole));
+    let width = point.distance_to(&pole).max(1.0e-6) * 0.35;
+    point + direction * width
+}
+
+fn fixed_knot_interpolation_controls(
+    points: &[Point3],
+    parameters: &[f64],
+    degree: usize,
+    knots: &[f64],
+) -> Option<Vec<Point3>> {
+    let count = points.len();
+    if count == 0 || parameters.len() != count || knots.len() != count + degree + 1 {
+        return None;
+    }
+    let mut matrix = vec![vec![0.0; count]; count];
+    for (row, parameter) in parameters.iter().enumerate() {
+        if (*parameter - knots[degree]).abs() <= 1.0e-14 {
+            matrix[row][0] = 1.0;
+            continue;
+        }
+        if (*parameter - knots[count]).abs() <= 1.0e-14 {
+            matrix[row][count - 1] = 1.0;
+            continue;
+        }
+        for column in 0..count {
+            matrix[row][column] = basis_function(column, degree, *parameter, knots);
+        }
+    }
+    let x = solve_linear_system(
+        &matrix,
+        &points.iter().map(|point| point.x).collect::<Vec<_>>(),
+    )?;
+    let y = solve_linear_system(
+        &matrix,
+        &points.iter().map(|point| point.y).collect::<Vec<_>>(),
+    )?;
+    let z = solve_linear_system(
+        &matrix,
+        &points.iter().map(|point| point.z).collect::<Vec<_>>(),
+    )?;
+    Some(
+        (0..count)
+            .map(|index| Point3::new(x[index], y[index], z[index]))
+            .collect(),
+    )
+}
+
+fn basis_function(index: usize, degree: usize, parameter: f64, knots: &[f64]) -> f64 {
+    if degree == 0 {
+        let is_last_span = index + 2 == knots.len();
+        if (knots[index] <= parameter && parameter < knots[index + 1])
+            || (is_last_span && (parameter - knots[index + 1]).abs() <= 1.0e-14)
+        {
+            return 1.0;
+        }
+        return 0.0;
+    }
+    let mut value = 0.0;
+    let left = knots[index + degree] - knots[index];
+    if left.abs() > 1.0e-14 {
+        value +=
+            (parameter - knots[index]) / left * basis_function(index, degree - 1, parameter, knots);
+    }
+    let right = knots[index + degree + 1] - knots[index + 1];
+    if right.abs() > 1.0e-14 {
+        value += (knots[index + degree + 1] - parameter) / right
+            * basis_function(index + 1, degree - 1, parameter, knots);
+    }
+    value
+}
+
+fn solve_linear_system(matrix: &[Vec<f64>], values: &[f64]) -> Option<Vec<f64>> {
+    let count = matrix.len();
+    if values.len() != count || matrix.iter().any(|row| row.len() != count) {
+        return None;
+    }
+    let mut rows = matrix
+        .iter()
+        .zip(values)
+        .map(|(row, value)| {
+            let mut augmented = row.clone();
+            augmented.push(*value);
+            augmented
+        })
+        .collect::<Vec<_>>();
+    for column in 0..count {
+        let pivot = (column..count).max_by(|a, b| {
+            rows[*a][column]
+                .abs()
+                .partial_cmp(&rows[*b][column].abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+        if rows[pivot][column].abs() < 1.0e-12 {
+            return None;
+        }
+        rows.swap(column, pivot);
+        for row in (column + 1)..count {
+            let factor = rows[row][column] / rows[column][column];
+            for entry in column..=count {
+                rows[row][entry] -= factor * rows[column][entry];
+            }
+        }
+    }
+    let mut solution = vec![0.0; count];
+    for row in (0..count).rev() {
+        let mut value = rows[row][count];
+        for column in (row + 1)..count {
+            value -= rows[row][column] * solution[column];
+        }
+        solution[row] = value / rows[row][row];
+    }
+    Some(solution)
+}
+
 fn control_row_parameter(curve: &NurbsCurve, index: usize) -> f64 {
     let (start, end) = curve.parameter_range();
-    let count = curve.control_points.len();
-    if count <= 1 {
+    if index == 0 || curve.degree == 0 {
         return start;
     }
-    start + (end - start) * index as f64 / (count - 1) as f64
+    if index + 1 == curve.control_points.len() {
+        return end;
+    }
+    let start_index = index + 1;
+    let end_index = index + curve.degree + 1;
+    curve.knots[start_index..end_index].iter().sum::<f64>() / curve.degree as f64
 }
 
 fn fallback_tangent(point: Point3, pole: Point3) -> Vec3 {
@@ -280,6 +448,9 @@ fn tangent_plane_deficit(
 }
 
 fn safe_surface_normal(surface: &NurbsSurface, u: f64, v: f64) -> Option<Vec3> {
+    if let Some(normal) = surface.normal_at(u, v).normalized() {
+        return Some(normal);
+    }
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
     let u = interior_parameter(u, u_min, u_max);
     let v = interior_parameter(v, v_min, v_max);
