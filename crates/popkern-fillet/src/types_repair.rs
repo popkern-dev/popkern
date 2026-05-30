@@ -161,6 +161,10 @@ pub struct CapSupportContinuityDiagnostic {
     pub support_face: FaceHandle,
     /// Topological edge shared by the cap and support face.
     pub edge: EdgeHandle,
+    /// Scope that performed the measurement, for example candidate or live topology.
+    pub measurement_scope: String,
+    /// Normalized seam parameter where the selected failing residual was measured.
+    pub sample_parameter: Option<f64>,
     /// Worst sampled unit-normal parallelism deficit.
     pub worst_g1_coplanarity: f64,
     /// Commercial gate used for the measurement.

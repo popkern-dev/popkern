@@ -286,6 +286,8 @@ pub(super) fn native_gregory_cap_outer_g1_diagnostic(
                 cap_face,
                 support_face,
                 edge: worst_edge?,
+                measurement_scope: "direct_apex_live_topology".to_string(),
+                sample_parameter: None,
                 worst_g1_coplanarity: worst,
                 gate,
                 edges_measured: measured_edges,

@@ -16,6 +16,7 @@ use super::super::multipatch::commit::commit_multipatch_candidate_transactionall
 use super::super::pcurves::{PreparedExactBoundaryPcurvePair, PreparedExactBoundaryPcurves};
 use super::super::sector::ExactBoundaryCapSectorInput;
 use super::super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
+use super::candidate_continuity::candidate_selected_strip_continuity_diagnostic;
 use super::multipatch_route::ExactBoundaryMultipatchRouteAttempt;
 use crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic;
 
@@ -43,6 +44,11 @@ pub(super) fn commit_multipatch_routes_transactionally(
 ) -> ExactBoundaryMultipatchCommitOutcome {
     let mut inner_faces = Vec::with_capacity(attempts.len());
     for (attempt, candidate) in attempts {
+        if let Some(diagnostic) =
+            candidate_selected_strip_continuity_diagnostic(&attempt.sector, candidate, pcurves)
+        {
+            return declined(apex_diagnostic_code(&diagnostic), diagnostic);
+        }
         let multipatch_commit =
             match commit_multipatch_candidate_transactionally(brep, &attempt.sector, candidate) {
                 Ok(report) => report,

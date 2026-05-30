@@ -251,6 +251,15 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
                 && diagnostic.code == CAP_OUTER_BLOCKER
         })
         .expect("cap/support continuity decline must be promoted into the exact-boundary report");
+    assert_eq!(
+        cap_outer_diagnostic.detail_code.as_deref(),
+        Some("multipatch_candidate_selected_strip"),
+        "cap/support diagnostic must identify whether candidate construction or live topology owns the gap"
+    );
+    assert!(
+        cap_outer_diagnostic.sample_parameter.is_some(),
+        "cap/support diagnostic must identify the failing seam sample"
+    );
     assert!(
         cap_outer_diagnostic.residual.expect("residual")
             > cap_outer_diagnostic.tolerance.expect("tolerance"),
@@ -304,6 +313,10 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
             ),
         "apex diagnostic must preserve measured cap/support G0 excess"
     );
+    assert_eq!(
+        cap_outer_apex_diagnostic.measurement_scope,
+        "multipatch_candidate_selected_strip"
+    );
     let artifact = build_blend_repair_action_artifact(&result.repair_report);
     assert!(
         artifact.actions.iter().any(|action| {
@@ -318,6 +331,9 @@ fn pyramid3_uniform_exact_boundary_declines_live_multipatch_cap_quality() {
         artifact.actions.iter().any(|action| {
             action.stage == "apex_cap_support_continuity"
                 && action.outcome == "declined"
+                && action
+                    .subject
+                    .contains("scope=multipatch_candidate_selected_strip")
                 && action.reason.as_deref() == Some(CAP_OUTER_BLOCKER)
         }),
         "repair action artifact must expose the measured cap/support continuity blocker"

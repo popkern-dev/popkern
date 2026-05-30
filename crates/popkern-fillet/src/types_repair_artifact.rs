@@ -167,8 +167,11 @@ fn append_apex_diagnostic_actions(
                     stage: "apex_cap_support_continuity".to_string(),
                     outcome: "declined".to_string(),
                     subject: format!(
-                        "cap={:?};support={:?};edge={:?}",
-                        diagnostic.cap_face, diagnostic.support_face, diagnostic.edge
+                        "scope={};cap={:?};support={:?};edge={:?}",
+                        diagnostic.measurement_scope,
+                        diagnostic.cap_face,
+                        diagnostic.support_face,
+                        diagnostic.edge
                     ),
                     reason: diagnostic
                         .continuity

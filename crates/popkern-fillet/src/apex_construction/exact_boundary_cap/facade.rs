@@ -12,6 +12,8 @@ use crate::types::{
     ExactBoundaryRouteDecisionStep,
 };
 
+#[path = "facade_multipatch_candidate_continuity.rs"]
+mod candidate_continuity;
 #[path = "facade_multipatch_commit.rs"]
 mod multipatch_commit;
 #[path = "facade_multipatch_route.rs"]

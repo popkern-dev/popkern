@@ -148,7 +148,7 @@ fn report_diagnostic_from_cap_support(
             .decline_code
             .clone()
             .unwrap_or_else(|| "cap_outer_g1_exceeds_gate".to_string()),
-        detail_code: None,
+        detail_code: Some(diagnostic.measurement_scope.clone()),
         sector_name: String::new(),
         edge: Some(diagnostic.edge),
         support_half_edge: None,
@@ -159,7 +159,7 @@ fn report_diagnostic_from_cap_support(
             diagnostic.continuity.worst_g1_normal_deficit
         },
         outer_side: None,
-        sample_parameter: None,
+        sample_parameter: diagnostic.sample_parameter,
         tolerance: Some(if g0_declined {
             diagnostic.continuity.target.g0_position_tolerance
         } else {

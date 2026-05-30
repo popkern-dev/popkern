@@ -171,6 +171,8 @@ pub(crate) fn cap_support_continuity_diagnostic(
                 cap_face: failed_seam.cap_face,
                 support_face: failed_seam.support_face,
                 edge: failed_seam.edge,
+                measurement_scope: "live_committed_topology".to_string(),
+                sample_parameter: Some(failed_seam.sample_parameter),
                 worst_g1_coplanarity: evidence.worst_g1_coplanarity,
                 gate: max_g1_coplanarity,
                 edges_measured: evidence.measured_edges,
@@ -192,6 +194,7 @@ struct CapSupportSeamEvidence {
     cap_face: FaceHandle,
     support_face: FaceHandle,
     edge: EdgeHandle,
+    sample_parameter: f64,
 }
 
 fn measure_cap_support_continuity(
@@ -283,6 +286,8 @@ fn sample_cap_support_edge(
         <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo));
     let mut worst_g0_gap = 0.0f64;
     let mut worst_g1_coplanarity = 0.0f64;
+    let mut worst_g0_parameter = 0.0f64;
+    let mut worst_g1_parameter = 0.0f64;
     for i in 0..100 {
         let s = 0.05 + 0.90 * (i as f64) / 99.0;
         let s_a = if pa_forward { s } else { 1.0 - s };
@@ -291,7 +296,11 @@ fn sample_cap_support_edge(
         let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
         let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
         let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
-        worst_g0_gap = worst_g0_gap.max(p_a.distance_to(&p_b));
+        let g0_gap = p_a.distance_to(&p_b);
+        if g0_gap > worst_g0_gap {
+            worst_g0_gap = g0_gap;
+            worst_g0_parameter = s;
+        }
 
         let n_a = sa
             .geometry
@@ -305,7 +314,11 @@ fn sample_cap_support_edge(
         let len_b = n_b.length();
         if len_a > 1e-300 && len_b > 1e-300 {
             let dot = n_a.x * n_b.x + n_a.y * n_b.y + n_a.z * n_b.z;
-            worst_g1_coplanarity = worst_g1_coplanarity.max(1.0 - (dot / (len_a * len_b)).abs());
+            let g1_coplanarity = 1.0 - (dot / (len_a * len_b)).abs();
+            if g1_coplanarity > worst_g1_coplanarity {
+                worst_g1_coplanarity = g1_coplanarity;
+                worst_g1_parameter = s;
+            }
         }
     }
     let (cap_face, support_face) = if a_is_cap {
@@ -321,11 +334,13 @@ fn sample_cap_support_edge(
             cap_face,
             support_face,
             edge: edge_handle,
+            sample_parameter: worst_g0_parameter,
         },
         worst_g1_seam: CapSupportSeamEvidence {
             cap_face,
             support_face,
             edge: edge_handle,
+            sample_parameter: worst_g1_parameter,
         },
     })
 }
