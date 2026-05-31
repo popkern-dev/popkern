@@ -27,6 +27,7 @@ pub(super) fn optimize_exact_boundary_binonic(
             lambda_max: 1e6,
             max_iter: 15,
             target_residual: 1e-6,
+            require_feasible_start: true,
         },
         "exact-boundary-binonic-spoke-row",
     );

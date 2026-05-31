@@ -29,6 +29,7 @@
 //! is the paper's prescribed answer.
 
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
+use super::kp_polar_deep_fill::boundary_owned_deep_fill_input;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{Bi6CapFreeParams, Bi6CapInput, assemble_bi6_polar_cap};
 
@@ -59,6 +60,7 @@ const FOLD_PENALTY_WEIGHT: f64 = 10.0;
 
 /// Sample count per patch for fold-proximity evaluation.
 const FOLD_PENALTY_SAMPLES: usize = 5;
+const EXTRA_DEEP_CELLS: [(usize, usize); 6] = [(3, 4), (4, 3), (4, 4), (5, 3), (5, 4), (5, 5)];
 
 pub(super) struct PolarLmReport {
     pub patches: Option<Vec<[[Point3; 10]; 10]>>,
@@ -68,6 +70,7 @@ pub(super) struct PolarLmReport {
 enum SingleLmOutcome {
     Accepted(Vec<[[Point3; 10]; 10]>),
     InfeasibleStart,
+    InfeasibleStartRejected,
     RejectedAfterFeasibleStart,
 }
 
@@ -78,18 +81,27 @@ struct PolarLmEval<'a> {
     base: &'a Bi6CapInput,
 }
 
+struct PolarLmVars {
+    free: Bi6CapFreeParams,
+    extra_deep: Vec<[Point3; EXTRA_DEEP_CELLS.len()]>,
+}
+
 impl PolarLmEval<'_> {
     fn n(&self) -> usize {
         self.base.n
     }
 
-    /// Unpack a flat parameter vector into `Bi6CapFreeParams`.
+    /// Unpack a flat parameter vector into polar L-M variables.
     /// Layout matches `Bi6CapFreeParams` probe convention: x/y/z
     /// for `p0_01, p0_02, p0_11, p0_22`, then per-sector
-    /// `p_23[k], p_33[k]` triplets.
-    fn unpack(&self, x: &[f64]) -> Option<Bi6CapFreeParams> {
+    /// `p_23[k], p_33[k]` triplets, then selected deep-interior
+    /// cells per sector. The selected cells deliberately exclude
+    /// the exact interface edge, which remains owned by the
+    /// boundary construction.
+    fn unpack(&self, x: &[f64]) -> Option<PolarLmVars> {
         let n = self.n();
-        let expected = 3 * (2 * n + 4);
+        let free_len = 2 * n + 4;
+        let expected = 3 * (free_len + n * EXTRA_DEEP_CELLS.len());
         if x.len() != expected {
             return None;
         }
@@ -104,53 +116,39 @@ impl PolarLmEval<'_> {
             p_23.push(pt(4 + 2 * k));
             p_33.push(pt(4 + 2 * k + 1));
         }
-        Some(Bi6CapFreeParams {
+        let free = Bi6CapFreeParams {
             p0_01,
             p0_02,
             p0_11,
             p0_22,
             p_23,
             p_33,
-        })
+        };
+        let mut extra_deep = Vec::with_capacity(n);
+        let mut offset = free_len;
+        for _ in 0..n {
+            let mut cells = [Point3::new(0.0, 0.0, 0.0); EXTRA_DEEP_CELLS.len()];
+            for cell in &mut cells {
+                *cell = pt(offset);
+                offset += 1;
+            }
+            extra_deep.push(cells);
+        }
+        Some(PolarLmVars { free, extra_deep })
     }
 
     /// Apply free params + (S1) propagation (mirroring
     /// `kp15_bi6_cap_f5_solve::apply_free_params` for consistency)
     /// and assemble the cap.
-    fn build(&self, params: &Bi6CapFreeParams) -> Option<Vec<[[Point3; 10]; 10]>> {
-        use popkern_core::geometry::gregory::{
-            assemble_bi6_polar_cap as _assemble, rule_s1_star_propagation as _s1,
-        };
-        let _ = (_assemble, _s1); // disambiguation marker
-        let mut input = self.base.clone();
-        input.p0_22 = params.p0_22;
-        if !input.sectors.is_empty() {
-            input.sectors[0].p_01 = params.p0_01;
-            input.sectors[0].p_02 = params.p0_02;
-            input.sectors[0].p_11 = params.p0_11;
+    fn build(&self, vars: &PolarLmVars) -> Option<Vec<[[Point3; 10]; 10]>> {
+        let mut input = boundary_owned_deep_fill_input(self.base, &vars.free, 1.0)?;
+        if let Some(filler) = input.interior_filler.as_mut() {
+            for (k, cells) in vars.extra_deep.iter().enumerate() {
+                for (idx, &(i, j)) in EXTRA_DEEP_CELLS.iter().enumerate() {
+                    filler[k][i][j] = Some(cells[idx]);
+                }
+            }
         }
-        // (S1) propagation forward.
-        for k in 1..input.sectors.len() {
-            let prev = input.sectors[k - 1];
-            let s1 = popkern_core::geometry::gregory::rule_s1_star_propagation(
-                &input.params,
-                prev.p_00,
-                prev.p_01,
-                prev.p_02,
-                prev.p_10,
-                prev.p_11,
-                prev.p_20,
-            );
-            input.sectors[k].p_01 = s1.p01;
-            input.sectors[k].p_11 = s1.p11;
-            input.sectors[k].p_02 = s1.p02;
-        }
-        let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; input.n];
-        for (k, slot) in filler.iter_mut().enumerate() {
-            slot[2][3] = Some(params.p_23[k]);
-            slot[3][3] = Some(params.p_33[k]);
-        }
-        input.interior_filler = Some(filler);
         assemble_bi6_polar_cap(&input)
             .ok()
             .map(|out| out.patches_bi9)
@@ -226,17 +224,17 @@ impl PolarLmEval<'_> {
 
 impl LmEval for PolarLmEval<'_> {
     fn residual(&mut self, x: &[f64]) -> Option<Vec<f64>> {
-        let params = self.unpack(x)?;
-        let patches = self.build(&params)?;
+        let vars = self.unpack(x)?;
+        let patches = self.build(&vars)?;
         Some(self.compute_residuals(&patches))
     }
 
     fn fold_safe(&mut self, x: &[f64]) -> bool {
         use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
-        let Some(params) = self.unpack(x) else {
+        let Some(vars) = self.unpack(x) else {
             return false;
         };
-        let Some(patches) = self.build(&params) else {
+        let Some(patches) = self.build(&vars) else {
             return false;
         };
         for g in &patches {
@@ -252,9 +250,9 @@ impl LmEval for PolarLmEval<'_> {
 
 /// Pack a `Bi6CapFreeParams` into the flat parameter vector layout
 /// expected by [`PolarLmEval::unpack`].
-fn pack(params: &Bi6CapFreeParams) -> Vec<f64> {
+fn pack(base: &Bi6CapInput, params: &Bi6CapFreeParams) -> Vec<f64> {
     let n = params.p_23.len();
-    let expected = 3 * (2 * n + 4);
+    let expected = 3 * (2 * n + 4 + n * EXTRA_DEEP_CELLS.len());
     let mut out = Vec::with_capacity(expected);
     for p in [&params.p0_01, &params.p0_02, &params.p0_11, &params.p0_22] {
         out.push(p.x);
@@ -268,6 +266,33 @@ fn pack(params: &Bi6CapFreeParams) -> Vec<f64> {
         out.push(params.p_33[k].x);
         out.push(params.p_33[k].y);
         out.push(params.p_33[k].z);
+    }
+    let extra = initial_extra_deep_cells(base, params);
+    for cells in &extra {
+        for p in cells {
+            out.push(p.x);
+            out.push(p.y);
+            out.push(p.z);
+        }
+    }
+    out
+}
+
+fn initial_extra_deep_cells(
+    base: &Bi6CapInput,
+    params: &Bi6CapFreeParams,
+) -> Vec<[Point3; EXTRA_DEEP_CELLS.len()]> {
+    let mut out = vec![[base.c7; EXTRA_DEEP_CELLS.len()]; base.n];
+    if let Some(input) = boundary_owned_deep_fill_input(base, params, 1.0)
+        && let Some(filler) = input.interior_filler
+    {
+        for (k, cells) in out.iter_mut().enumerate() {
+            for (idx, &(i, j)) in EXTRA_DEEP_CELLS.iter().enumerate() {
+                if let Some(p) = filler[k][i][j] {
+                    cells[idx] = p;
+                }
+            }
+        }
     }
     out
 }
@@ -330,6 +355,7 @@ pub(super) fn try_polar_lm_with_report(
                 };
             }
             SingleLmOutcome::InfeasibleStart => {}
+            SingleLmOutcome::InfeasibleStartRejected => {}
             SingleLmOutcome::RejectedAfterFeasibleStart => {
                 saw_feasible_start = true;
             }
@@ -340,24 +366,21 @@ pub(super) fn try_polar_lm_with_report(
         rejection_reason: Some(if saw_feasible_start {
             "feasible_warm_start_optimized_to_fold"
         } else {
-            "no_fold_safe_warm_start"
+            "expanded_deep_lm_no_fold_safe_iterate"
         }),
     }
 }
 
 /// Run L-M once with a single warm-start. Returns `None` if the
-/// warm-start itself isn't fold-safe OR L-M doesn't produce a
-/// fold-safe final iterate.
+/// warm-start itself isn't fold-safe and the infeasible-start
+/// solve cannot produce a fold-safe final iterate, OR L-M doesn't
+/// produce a fold-safe final iterate.
 fn try_single_lm(base: &Bi6CapInput, warm_start: &Bi6CapFreeParams) -> SingleLmOutcome {
     let eval_check = PolarLmEval { base };
-    let x0 = pack(warm_start);
+    let x0 = pack(base, warm_start);
 
-    // Pre-check: is the warm-start fold-safe? If not, L-M will
-    // bail immediately.
     let mut eval_mut = PolarLmEval { base };
-    if !eval_mut.fold_safe(&x0) {
-        return SingleLmOutcome::InfeasibleStart;
-    }
+    let feasible_start = eval_mut.fold_safe(&x0);
 
     let config = LmConfig {
         fd_eps: FD_EPS,
@@ -365,20 +388,25 @@ fn try_single_lm(base: &Bi6CapInput, warm_start: &Bi6CapFreeParams) -> SingleLmO
         lambda_max: LAMBDA_MAX,
         max_iter: MAX_ITER,
         target_residual: TARGET_RESIDUAL,
+        require_feasible_start: false,
     };
     let n = eval_check.n();
     let result = run_lm(PolarLmEval { base }, x0, &config, &format!("polar N={n}"));
-    let Some(params) = eval_check.unpack(&result.x) else {
+    let Some(vars) = eval_check.unpack(&result.x) else {
         return SingleLmOutcome::RejectedAfterFeasibleStart;
     };
-    let Some(patches) = eval_check.build(&params) else {
+    let Some(patches) = eval_check.build(&vars) else {
         return SingleLmOutcome::RejectedAfterFeasibleStart;
     };
     use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
     for g in &patches {
         let gp = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }));
         if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
-            return SingleLmOutcome::RejectedAfterFeasibleStart;
+            return if feasible_start {
+                SingleLmOutcome::RejectedAfterFeasibleStart
+            } else {
+                SingleLmOutcome::InfeasibleStartRejected
+            };
         }
     }
     SingleLmOutcome::Accepted(patches)

@@ -149,6 +149,7 @@ pub(super) fn optimize_binonic_with_outer_fillets(
             lambda_max: 1e6,
             max_iter,
             target_residual,
+            require_feasible_start: true,
         },
         "binonic-phase3",
     );

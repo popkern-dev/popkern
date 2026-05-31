@@ -37,6 +37,7 @@ pub(super) struct LmConfig {
     pub lambda_max: f64,
     pub max_iter: usize,
     pub target_residual: f64,
+    pub require_feasible_start: bool,
 }
 
 pub(super) struct LmResult {
@@ -101,7 +102,7 @@ pub(super) fn run_lm<E: LmEval>(
         };
     };
     let mut residual_sq = sum_sq(&f);
-    if !eval.fold_safe(&x) {
+    if config.require_feasible_start && !eval.fold_safe(&x) {
         return LmResult {
             x,
             final_residual: residual_sq,
@@ -327,6 +328,7 @@ mod tests {
                 lambda_max: 1e6,
                 max_iter: 50,
                 target_residual: 1e-12,
+                require_feasible_start: true,
             },
             "rosenbrock",
         );
@@ -375,6 +377,7 @@ mod tests {
                 lambda_max: 1e6,
                 max_iter: 20,
                 target_residual: 1e-16,
+                require_feasible_start: true,
             },
             "diag-lsq",
         );

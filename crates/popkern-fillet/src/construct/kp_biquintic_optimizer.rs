@@ -198,6 +198,7 @@ pub(super) fn optimize_biquintic_and_build_binonic(
             lambda_max: 1e6,
             max_iter: 15,
             target_residual: TARGET_RESIDUAL,
+            require_feasible_start: true,
         },
         "biquintic-phase2",
     );

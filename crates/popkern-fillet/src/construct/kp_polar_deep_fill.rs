@@ -30,9 +30,16 @@ pub(super) fn try_boundary_owned_deep_fill(
     let mut last_reason = "deep_fill_no_candidate";
     for scale in [1.0, 0.5, 0.25, 0.05, 0.0] {
         let candidate = contract_free_params(free, base.c7, scale);
-        match try_single_boundary_owned_deep_fill(base, &candidate, commercial_gate) {
-            DeepFillOutcome::Accepted(patches) => return DeepFillOutcome::Accepted(patches),
-            DeepFillOutcome::Rejected(reason) => last_reason = reason,
+        for boundary_weight in [0.0, 0.1, 0.25, 0.5, 0.75, 1.0] {
+            match try_single_boundary_owned_deep_fill(
+                base,
+                &candidate,
+                commercial_gate,
+                boundary_weight,
+            ) {
+                DeepFillOutcome::Accepted(patches) => return DeepFillOutcome::Accepted(patches),
+                DeepFillOutcome::Rejected(reason) => last_reason = reason,
+            }
         }
     }
     DeepFillOutcome::Rejected(last_reason)
@@ -42,37 +49,11 @@ fn try_single_boundary_owned_deep_fill(
     base: &Bi6CapInput,
     free: &Bi6CapFreeParams,
     commercial_gate: f64,
+    boundary_weight: f64,
 ) -> DeepFillOutcome {
-    let Some(mut input) = apply_near_star_and_free_cells(base, free) else {
+    let Some(input) = boundary_owned_deep_fill_input(base, free, boundary_weight) else {
         return DeepFillOutcome::Rejected("deep_fill_input_shape");
     };
-    let Ok(seed) = assemble_bi6_polar_cap(&input) else {
-        return DeepFillOutcome::Rejected("deep_fill_seed_assembly");
-    };
-
-    let mut filler = input
-        .interior_filler
-        .take()
-        .unwrap_or_else(|| vec![[[None; 7]; 7]; input.n]);
-    for k in 0..input.n {
-        let next = &seed.patches_bi6[(k + 1) % input.n];
-        let sector = &seed.patches_bi6[k];
-        for j in 3..=6 {
-            let v = ((j - 2) as f64) / 4.0;
-            let right = next[6 - j][0];
-            let left = sector[0][j];
-            for i in 0..=6 {
-                let u = (i as f64) / 6.0;
-                let row2 = sector[i][2];
-                let owned_edge = lerp(left, right, u);
-                filler[k][i][j] = Some(lerp(row2, owned_edge, v));
-            }
-        }
-        filler[k][2][3] = Some(free.p_23[k]);
-        filler[k][3][3] = Some(free.p_33[k]);
-    }
-    input.interior_filler = Some(filler);
-
     let Ok(out) = assemble_bi6_polar_cap(&input) else {
         return DeepFillOutcome::Rejected("deep_fill_final_assembly");
     };
@@ -91,6 +72,45 @@ fn try_single_boundary_owned_deep_fill(
         return DeepFillOutcome::Rejected("deep_fill_g1_exceeded");
     }
     DeepFillOutcome::Accepted(patches)
+}
+
+pub(super) fn boundary_owned_deep_fill_input(
+    base: &Bi6CapInput,
+    free: &Bi6CapFreeParams,
+    boundary_weight: f64,
+) -> Option<Bi6CapInput> {
+    let mut input = apply_near_star_and_free_cells(base, free)?;
+    let Ok(seed) = assemble_bi6_polar_cap(&input) else {
+        return None;
+    };
+
+    let mut filler = input
+        .interior_filler
+        .take()
+        .unwrap_or_else(|| vec![[[None; 7]; 7]; input.n]);
+    for k in 0..input.n {
+        let next = &seed.patches_bi6[(k + 1) % input.n];
+        let sector = &seed.patches_bi6[k];
+        for j in 3..=6 {
+            let v = boundary_weight * ((j - 2) as f64) / 4.0;
+            let right = next[6 - j][0];
+            let left = sector[0][j];
+            for i in 0..=6 {
+                if i == 6 {
+                    filler[k][i][j] = Some(right);
+                    continue;
+                }
+                let u = (i as f64) / 6.0;
+                let row2 = sector[i][2];
+                let owned_edge = lerp(left, right, u);
+                filler[k][i][j] = Some(lerp(row2, owned_edge, v));
+            }
+        }
+        filler[k][2][3] = Some(free.p_23[k]);
+        filler[k][3][3] = Some(free.p_33[k]);
+    }
+    input.interior_filler = Some(filler);
+    Some(input)
 }
 
 fn apply_near_star_and_free_cells(
