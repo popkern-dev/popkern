@@ -215,6 +215,23 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
             )),
         "hexagon6_mixed should expose its polar promotion rejection as structured diagnostics"
     );
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "kp20_polar_macro.dispatch.declined"
+                        && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
+                        && cap.sector_name == "kp20_polar_macro_ring_n6"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("jacobian_reversal=true")
+                        })
+            )),
+        "hexagon6_mixed should expose the KP20 macro-cap rejection as structured diagnostics"
+    );
 }
 
 #[ignore]

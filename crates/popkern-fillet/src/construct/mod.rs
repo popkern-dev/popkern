@@ -35,6 +35,7 @@ pub fn restore_exact_boundary_cap_pcurves_post_phase5(
 mod apex_termination_spike;
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
+mod kp20_polar_diagnostics;
 mod kp20_polar_dispatch;
 mod kp_bi5_macro_apply;
 mod kp_binonic_optimizer;

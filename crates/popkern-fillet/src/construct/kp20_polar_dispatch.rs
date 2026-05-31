@@ -11,17 +11,35 @@ use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp_polar_bi6_promote::extract_fillet_radius;
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::ApexConstructionDiagnostic;
 
-pub(super) fn try_kp20_polar_dispatch(
+pub(super) struct Kp20PolarDispatchReport {
+    pub patches: Option<Vec<GregoryPatch>>,
+    pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     sub_patches: &[GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
-) -> Option<Vec<GregoryPatch>> {
+) -> Kp20PolarDispatchReport {
     let n = sub_patches.len();
+    let mut diagnostics = Vec::new();
     let mut two_stripe = Vec::with_capacity(n);
     for (idx, patch) in sub_patches.iter().enumerate() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
-            trace("non-two-stripe input", n, Some(format!("sub-patch {idx}")));
-            return None;
+            let detail = format!("sub-patch {idx}");
+            trace("non-two-stripe input", n, Some(detail.clone()));
+            record_decline(
+                &mut diagnostics,
+                "non_two_stripe_input",
+                n,
+                Some(detail),
+                None,
+            );
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
         };
         two_stripe.push((**ts).clone());
     }
@@ -42,7 +60,17 @@ pub(super) fn try_kp20_polar_dispatch(
         .collect();
     let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {
         trace("extract_direct_boundary_input", n, None);
-        return None;
+        record_decline(
+            &mut diagnostics,
+            "direct_boundary_unavailable",
+            n,
+            None,
+            None,
+        );
+        return Kp20PolarDispatchReport {
+            patches: None,
+            diagnostics,
+        };
     };
     if fillet_surfaces.len() >= n {
         for (k, spoke) in direct.spokes.iter_mut().enumerate() {
@@ -55,46 +83,89 @@ pub(super) fn try_kp20_polar_dispatch(
     let polar = match PolarBoundaryInput::from_direct_boundary_input(&direct) {
         Ok(polar) => polar,
         Err(e) => {
-            trace("from_direct_boundary_input", n, Some(e));
-            return None;
+            trace("from_direct_boundary_input", n, Some(e.clone()));
+            record_decline(&mut diagnostics, "polar_boundary_input", n, Some(e), None);
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
         }
     };
     let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
         Ok(TensorBorder::Bi3(tensor_border)) => tensor_border,
         Ok(TensorBorder::Bi5(_)) => {
             trace("tensor-border kind", n, Some("expected bi-3".into()));
-            return None;
+            record_decline(
+                &mut diagnostics,
+                "tensor_border_kind",
+                n,
+                Some("expected bi-3".into()),
+                None,
+            );
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
         }
         Err(e) => {
-            trace("tensor-border extract", n, Some(e));
-            return None;
+            trace("tensor-border extract", n, Some(e.clone()));
+            record_decline(&mut diagnostics, "tensor_border_extract", n, Some(e), None);
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
         }
     };
     let candidate = match try_kp20_polar_macro_candidate(polar.central_vertex, &tensor_border) {
         Ok(candidate) => candidate,
         Err(e) => {
-            trace("candidate", n, Some(e));
-            return None;
+            trace("candidate", n, Some(e.clone()));
+            record_decline(&mut diagnostics, "candidate", n, Some(e), None);
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
         }
     };
     if candidate.len() != 4 * n {
-        trace(
-            "output length mismatch",
+        let detail = format!("expected {}, got {}", 4 * n, candidate.len());
+        trace("output length mismatch", n, Some(detail.clone()));
+        record_decline(
+            &mut diagnostics,
+            "output_length_mismatch",
             n,
-            Some(format!("expected {}, got {}", 4 * n, candidate.len())),
+            Some(detail),
+            None,
         );
-        return None;
+        return Kp20PolarDispatchReport {
+            patches: None,
+            diagnostics,
+        };
     }
     if let Some((idx, detail)) = first_self_intersecting_patch(&candidate) {
+        let label = detail.diagnostic_label();
         trace(
             "self-intersection",
             n,
-            Some(format!("patch index {idx}; {}", detail.diagnostic_label())),
+            Some(format!("patch index {idx}; {label}")),
         );
-        return None;
+        record_decline(
+            &mut diagnostics,
+            "self_intersection",
+            n,
+            Some(format!("patch_index={idx};{label}")),
+            Some(detail.min_jacobian_normal_cos),
+        );
+        return Kp20PolarDispatchReport {
+            patches: None,
+            diagnostics,
+        };
     }
     trace("accepted", n, Some(format!("4N={} bi-9 patches", 4 * n)));
-    Some(candidate)
+    Kp20PolarDispatchReport {
+        patches: Some(candidate),
+        diagnostics,
+    }
 }
 
 pub(super) fn try_kp20_polar_macro_candidate(
@@ -138,4 +209,20 @@ fn trace(stage: &str, n: usize, detail: Option<String>) {
             None => eprintln!("[kp20_polar N={n}] {stage}"),
         }
     }
+}
+
+fn record_decline(
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+    reason_code: &str,
+    n_sides: usize,
+    detail: Option<String>,
+    residual: Option<f64>,
+) {
+    diagnostics.push(super::kp20_polar_diagnostics::dispatch_declined(
+        reason_code,
+        n_sides,
+        detail,
+        residual,
+        Some(SELF_INT_TOL),
+    ));
 }

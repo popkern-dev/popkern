@@ -114,20 +114,23 @@ pub(super) fn run_promotion_ladder(
             diagnostics: Vec::new(),
         };
     }
-    if use_kp_polar
-        && decomp.sub_patches.len() >= 3
-        && let Some(patches_4n) = super::kp20_polar_dispatch::try_kp20_polar_dispatch(
+    let mut diagnostics = Vec::new();
+    if use_kp_polar && decomp.sub_patches.len() >= 3 {
+        let mut report = super::kp20_polar_dispatch::try_kp20_polar_dispatch_with_diagnostics(
             &decomp.sub_patches,
             fillet_surfaces,
-        )
-    {
-        decomp.sub_patches = patches_4n;
-        return PromotionLadderReport {
-            result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6),
-            diagnostics: Vec::new(),
-        };
+        );
+        diagnostics.append(&mut report.diagnostics);
+        if let Some(patches_4n) = report.patches {
+            decomp.sub_patches = patches_4n;
+            return PromotionLadderReport {
+                result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6),
+                diagnostics,
+            };
+        }
     }
-    let (polar_committed, mut diagnostics) = if use_kp_polar && decomp.sub_patches.len() >= 5 {
+    let (polar_committed, mut polar_diagnostics) = if use_kp_polar && decomp.sub_patches.len() >= 5
+    {
         super::kp_polar_bi6_promote::promote_and_update_relaxed_with_diagnostics(
             &mut decomp.sub_patches,
             fillet_surfaces,
@@ -136,6 +139,7 @@ pub(super) fn run_promotion_ladder(
     } else {
         (false, Vec::new())
     };
+    diagnostics.append(&mut polar_diagnostics);
     if use_kp_binonic && !polar_committed {
         let report = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
         *relaxed_coplanarity = report.relaxed_coplanarity;
