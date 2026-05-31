@@ -80,7 +80,7 @@ pub struct Bi6CapInput {
     /// Optional per-sector fillers for "deep interior" BB-CPs
     /// (rows 3..6 at j > 2). `interior_filler[k][i][j]` is the
     /// value to use for `p^k_{i, j}` at `i, j ∈ 3..=6`. `None`
-    /// uses `Point3::ZERO` — fine for smoke testing.
+    /// leaves the cell at the cap star.
     ///
     /// Paper §2.5 step 4 places `p^k_{23}` and `p^k_{33}` in
     /// the free parameter set; others are also effectively
@@ -270,7 +270,7 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
         grid[5][2] = s.p_52;
         grid[6][2] = s.p_62;
         // Rows 3..6: deep interior. Use caller-supplied filler
-        // or leave at zero.
+        // or leave at the star default.
         if let Some(filler) = input.interior_filler.as_ref()
             && let Some(per_sector) = filler.get(k)
         {

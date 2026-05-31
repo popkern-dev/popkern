@@ -44,6 +44,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::kp_polar_bi6_diagnostics::{self, trace_polar};
+use super::kp_polar_deep_fill::{DeepFillOutcome, try_boundary_owned_deep_fill};
 use super::kp_polar_deep_trace::deep_trace_bi6_output;
 use super::kp_polar_lm_optimizer::try_polar_lm_with_report;
 use super::kp_polar_weighted_f5::try_weighted_f5_profiles;
@@ -320,10 +321,39 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         committed_patches = try_weighted_f5_profiles(&cap_input, n, &mut last_free_params);
     }
 
-    // Still nothing — fall through to L-M (option F).
+    // Still nothing — try a boundary-owned deep-interior
+    // candidate before the nonlinear L-M fallback. This owns the
+    // open U=1 interface from the next sector's row-0 data and
+    // declines unless the same fold/G1 gates pass.
     if committed_patches.is_none() {
         trace_polar(
             "weighted F_5 exhausted",
+            n,
+            Some("attempting boundary-owned deep fill before L-M".into()),
+        );
+        if let Some(warm_start) = last_free_params.as_ref() {
+            match try_boundary_owned_deep_fill(&cap_input, warm_start, COMMERCIAL_GATE) {
+                DeepFillOutcome::Accepted(patches) => {
+                    trace_polar("boundary-owned deep fill accepted", n, None);
+                    committed_patches = Some(patches);
+                }
+                DeepFillOutcome::Rejected(reason) => {
+                    trace_polar("boundary-owned deep fill rejected", n, Some(reason.into()));
+                    record_polar_decline(
+                        &mut diagnostics,
+                        "deep_fill_rejected",
+                        n,
+                        Some(reason.into()),
+                    );
+                }
+            }
+        }
+    }
+
+    // Still nothing — fall through to L-M (option F).
+    if committed_patches.is_none() {
+        trace_polar(
+            "boundary-owned deep fill exhausted",
             n,
             Some("attempting L-M refinement (option F)".into()),
         );

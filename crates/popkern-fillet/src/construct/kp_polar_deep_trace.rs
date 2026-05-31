@@ -7,16 +7,13 @@
 //! - CP coordinates at key positions: `grid[0][0]` (star),
 //!   `grid[3][3]` (centre), `grid[6][6]` (outer corner).
 //!
-//! **Key finding surfaced by this helper (2026-04-21):** every
-//! sub-patch has `grid[6][6] = (0, 0, 0)` on pentagon5 fixtures.
-//! The K-P 2015 cap assembly only populates rows 3..7 at columns
-//! 3..7 via the caller-supplied `interior_filler`, and the F_5
-//! solver only writes `(2, 3)` and `(3, 3)`. The remaining ~20
-//! deep-interior CPs default to `Point3::new(0.0, 0.0, 0.0)` —
-//! all pointing at origin. That's why every κ folds at (0.95,
-//! 0.95): the patch's outer quadrant collapses to origin while
-//! the rest sits at realistic 3D positions, so the Jacobian
-//! crashes through zero.
+//! **Key finding surfaced by this helper (2026-04-21, refined
+//! 2026-05-31):** the K-P 2015 cap assembly only populates rows
+//! 3..7 at columns 3..7 via caller-supplied `interior_filler`,
+//! and the F_5 solver only writes `(2, 3)` and `(3, 3)`. The
+//! remaining deep-interior CPs now default to the cap star rather
+//! than the origin, but N=6 still folds because the open-interface
+//! row and deep corner are not paper-authored construction data.
 
 #![allow(dead_code)]
 

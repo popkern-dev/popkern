@@ -223,6 +223,21 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
             .any(|diagnostic| matches!(
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "kp_polar_bi6.promotion.declined"
+                        && cap.stage == "kp_polar_bi6.promotion.deep_fill_rejected"
+                        && cap.sector_name == "kp_polar_bi6_ring_n6"
+                        && cap.detail_code.as_deref() == Some("deep_fill_self_intersection")
+            )),
+        "hexagon6_mixed should classify boundary-owned deep-fill rejection structurally"
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                     if cap.code == "kp20_polar_macro.dispatch.declined"
                         && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
                         && cap.sector_name == "kp20_polar_macro_ring_n6"
