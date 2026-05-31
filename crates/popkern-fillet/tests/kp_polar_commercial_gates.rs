@@ -250,6 +250,27 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
             .any(|diagnostic| matches!(
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "kp20_polar_macro.dispatch.fact"
+                        && cap.stage == "kp20_polar_macro.dispatch.sampler_comparison"
+                        && cap.sector_name == "kp20_polar_macro_ring_n6"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("bounded_affine_folds=")
+                                && detail.contains("bounded_affine_min_jacobian_cos=")
+                                && detail.contains("sector_local_tau_status=")
+                                && (detail.contains("sector_local_tau_folds=")
+                                    || detail.contains("sector_local_tau_error="))
+                        })
+            )),
+        "hexagon6_mixed should compare bounded-affine and sector-local τ sampling structurally"
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                     if cap.code == "kp20_polar_macro.dispatch.declined"
                         && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
                         && cap.sector_name == "kp20_polar_macro_ring_n6"

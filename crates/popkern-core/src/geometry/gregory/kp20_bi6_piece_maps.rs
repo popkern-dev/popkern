@@ -8,6 +8,8 @@ use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20PatchCorner, Kp20Tri6GuideSector, kp20_sample_macro_patch_from_guide,
 };
+use super::kp20_bi6_tau::{Kp20TauMap, kp20_sample_corner_block_with_tau_affine};
+use crate::geometry::Point3;
 
 /// Corner maps for one KP20 bi-6 piece.
 pub type Kp20PieceCornerMaps = [(Kp20PatchCorner, Kp20AffineGuideMap); 4];
@@ -88,6 +90,57 @@ pub fn sample_kp20_macro_patch_from_default_maps(guide: &Kp20Tri6GuideSector) ->
     kp20_sample_macro_patch_from_guide(guide, kp20_default_sector_piece_maps())
 }
 
+/// Sample one guide sector into one KP20 macro-patch using the
+/// sector-local KP20 τ map before each default piece map.
+pub fn sample_kp20_macro_patch_from_tau_maps(
+    guide: &Kp20Tri6GuideSector,
+    valence: usize,
+    sector: usize,
+) -> Result<Kp20MacroPatch, String> {
+    let tau = Kp20TauMap::for_sector_local(valence, sector)?;
+    let mut out = Kp20MacroPatch::zero();
+    for (piece_id, maps) in kp20_default_sector_piece_maps() {
+        *out.piece_mut(piece_id) = kp20_sample_patch_from_tau_maps(guide, &tau, maps);
+    }
+    Ok(out)
+}
+
+fn kp20_sample_patch_from_tau_maps(
+    guide: &Kp20Tri6GuideSector,
+    tau: &Kp20TauMap,
+    corner_maps: Kp20PieceCornerMaps,
+) -> super::kp20_bi6_cap::Kp20Bi6Patch {
+    let zero = Point3::new(0.0, 0.0, 0.0);
+    let mut sums = [[zero; 7]; 7];
+    let mut counts = [[0_u8; 7]; 7];
+
+    for (corner, map) in corner_maps {
+        let block = kp20_sample_corner_block_with_tau_affine(guide, tau, map);
+        for i in 0..4 {
+            for j in 0..4 {
+                let (ii, jj) = oriented_index(corner, i, j);
+                sums[ii][jj].x += block[i][j].x;
+                sums[ii][jj].y += block[i][j].y;
+                sums[ii][jj].z += block[i][j].z;
+                counts[ii][jj] += 1;
+            }
+        }
+    }
+
+    let mut out = super::kp20_bi6_cap::Kp20Bi6Patch::zero();
+    for i in 0..7 {
+        for j in 0..7 {
+            debug_assert!(
+                counts[i][j] > 0,
+                "corner blocks must cover the full bi-6 grid"
+            );
+            let inv = 1.0 / counts[i][j] as f64;
+            out.cps[i][j] = Point3::new(sums[i][j].x * inv, sums[i][j].y * inv, sums[i][j].z * inv);
+        }
+    }
+    out
+}
+
 fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
     [
         (
@@ -119,6 +172,15 @@ const fn add2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
 
 const fn scale2(a: [f64; 2], s: f64) -> [f64; 2] {
     [a[0] * s, a[1] * s]
+}
+
+const fn oriented_index(corner: Kp20PatchCorner, i: usize, j: usize) -> (usize, usize) {
+    match corner {
+        Kp20PatchCorner::U0V0 => (i, j),
+        Kp20PatchCorner::U1V0 => (6 - i, j),
+        Kp20PatchCorner::U0V1 => (i, 6 - j),
+        Kp20PatchCorner::U1V1 => (6 - i, 6 - j),
+    }
 }
 
 #[cfg(test)]

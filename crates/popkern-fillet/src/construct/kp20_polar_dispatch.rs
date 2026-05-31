@@ -10,6 +10,7 @@ use popkern_core::geometry::gregory::{
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp_polar_bi6_promote::extract_fillet_radius;
+use super::kp20_polar_comparison::{sampler_comparison_diagnostic, summarize_intersections};
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
@@ -160,6 +161,11 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     }
     let intersections = self_intersecting_patches(&candidate);
     if !intersections.is_empty() {
+        diagnostics.push(sampler_comparison_diagnostic(
+            polar.central_vertex,
+            &tensor_border,
+            summarize_intersections(&intersections),
+        ));
         for (idx, detail) in intersections {
             let label = detail.diagnostic_label();
             let sector = idx / 4;

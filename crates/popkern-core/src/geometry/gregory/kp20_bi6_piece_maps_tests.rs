@@ -50,6 +50,28 @@ fn default_piece_maps_sample_all_pieces_from_guide() {
 }
 
 #[test]
+fn tau_piece_maps_sample_all_pieces_from_guide() {
+    let guide = affine_guide();
+
+    let macro_patch = sample_kp20_macro_patch_from_tau_maps(&guide, 6, 4).unwrap();
+
+    for id in Kp20PieceId::all() {
+        let piece = macro_patch.piece(id);
+        for row in piece.cps {
+            for cp in row {
+                assert!(cp.x.is_finite());
+                assert!(cp.y.is_finite());
+                assert!(cp.z.is_finite());
+            }
+        }
+    }
+    assert_eq!(
+        macro_patch.piece(Kp20PieceId::NearOriginLeft).cps[0][0],
+        p(0.0, 0.0, 0.0)
+    );
+}
+
+#[test]
 fn default_piece_maps_stay_inside_sector_triangle() {
     let report = kp20_default_piece_map_domain_report();
 
