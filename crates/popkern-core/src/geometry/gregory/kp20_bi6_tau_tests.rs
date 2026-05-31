@@ -44,6 +44,22 @@ fn tau_map_matches_kp20_eq22_sector_coefficients() {
 }
 
 #[test]
+fn sector_local_tau_projects_global_wedge_to_guide_triangle() {
+    let params = Kp20TauParams::for_valence(6).unwrap();
+    let tau = Kp20TauMap::for_sector_local(6, 4).unwrap();
+
+    assert_eq!(tau.cps[flat_index(3, 0, 0)], [0.0, 0.0]);
+    assert!((tau.cps[flat_index(3, 1, 0)][0] - 1.0 / 3.0).abs() < 1e-12);
+    assert!(tau.cps[flat_index(3, 1, 0)][1].abs() < 1e-12);
+    assert!(tau.cps[flat_index(3, 0, 1)][0].abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 0, 1)][1] - 1.0 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 3, 0)][0] - params.mu0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 0, 3)][1] - params.mu0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][0] - params.mu1).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][1] - params.mu1).abs() < 1e-12);
+}
+
+#[test]
 fn affine_tau_jet_has_constant_first_partials_and_zero_higher_partials() {
     let tau = Kp20TauMap::affine([0.1, 0.2], [0.5, -0.25], [0.125, 0.75]);
 

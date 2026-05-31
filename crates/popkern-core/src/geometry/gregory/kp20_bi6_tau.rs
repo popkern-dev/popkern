@@ -53,6 +53,30 @@ impl Kp20TauMap {
         Ok(Self { cps })
     }
 
+    /// Build the KP20 sector τ map in the local triangular coordinates
+    /// used by one stored guide sector. The first local coordinate points
+    /// along sector spoke `k + 1`; the second points along spoke `k`.
+    pub fn for_sector_local(n: usize, k: usize) -> Result<Self, String> {
+        let global = Self::for_sector(n, k)?;
+        let alpha = core::f64::consts::TAU / n as f64;
+        let a0 = k as f64 * alpha;
+        let a1 = (k + 1) as f64 * alpha;
+        let spoke0 = [a0.cos(), a0.sin()];
+        let spoke1 = [a1.cos(), a1.sin()];
+        let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
+        if det.abs() <= 1.0e-14 {
+            return Err(format!("KP20 sector {k} has singular local τ basis"));
+        }
+        let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
+        for (dst, src) in cps.iter_mut().zip(global.cps) {
+            *dst = [
+                (src[0] * spoke0[1] - src[1] * spoke0[0]) / det,
+                (spoke1[0] * src[1] - spoke1[1] * src[0]) / det,
+            ];
+        }
+        Ok(Self { cps })
+    }
+
     /// Build a degree-3 triangular representation of an affine map
     /// `origin + u * du + v * dv`. Used as a compatibility bridge
     /// and as a test oracle for the cubic chain rule.
