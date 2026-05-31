@@ -15,12 +15,14 @@
 //! The user-visible quality bar is set here, not at the inner
 //! spokes.
 //!
-//! # Status (2026-04-27)
+//! # Status
 //!
-//! All fixtures `#[ignore]` because they're expected to fail
-//! today — the gate is being introduced *before* the fix to
-//! quantify the problem precisely. Once Task #144 closes, these
-//! flip to passing and become regression guards.
+//! The direct-apex exact-boundary matrix now gates native cube and
+//! pyramid cap_outer quality at the user-visible `5e-3`/`5e-2`
+//! tolerances. This older K-P helper remains useful as a stricter
+//! legacy-path monitor: several ignored fixtures still miss the
+//! near-exact `G0 <= 1e-10` seam gate even when their direct-apex
+//! exact-boundary route is commercially acceptable.
 //!
 //! Threshold targets (mirroring `kp_binonic_commercial_gates`):
 //! * G0 ≤ 1e-10 (position match at the seam)
@@ -102,20 +104,20 @@ fn cap_outer_boundary_g1_passes_on_cube_uniform() {
 }
 
 #[test]
-#[ignore = "PK-083: cube_mixed exact-boundary cap-outer seam currently exposes residual G0/G1 blockers"]
+#[ignore = "legacy K-P strict gate: cube_mixed direct-apex exact-boundary passes 5e-3/5e-2, but this helper still misses G0 <= 1e-10"]
 fn cap_outer_boundary_passes_on_cube_mixed() {
     let m = run_cube(&[0.08, 0.10, 0.12]);
     assert_cap_outer_gates("cube_mixed", &m);
 }
 
-#[ignore = "PK-080: native direct-apex needs outside-outside support continuation before extreme cube can meet G0/G1 gates"]
+#[ignore = "legacy K-P strict gate: cube_extreme direct-apex exact-boundary passes 5e-3/5e-2, but this helper still misses G0 <= 1e-10"]
 #[test]
 fn cap_outer_boundary_passes_on_cube_extreme() {
     let m = run_cube(&[0.02, 0.10, 0.20]);
     assert_cap_outer_gates("cube_extreme", &m);
 }
 
-#[ignore = "PK-078: pyramid4 mixed cap-outer seam currently fails G0/G1 commercial gates"]
+#[ignore = "legacy K-P helper path: native exact-boundary pyramid4_mixed passes the direct-apex cap_outer matrix, but this older path still fails G0/G1"]
 #[test]
 fn cap_outer_boundary_passes_on_pyramid4_mixed() {
     let m = run_n_pyramid(4, 0.8, &[0.04, 0.06, 0.05, 0.07]);

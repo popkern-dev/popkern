@@ -191,7 +191,6 @@ fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
 /// faces. Their separate quality gates belong with Sphere-cap
 /// boundary metrics.
 #[test]
-#[ignore = "cap-quality gate: pyramid3_uniform currently fails cap_outer_g1 after native DirectApex topology"]
 fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
     struct Case {
         name: &'static str,
@@ -336,7 +335,6 @@ fn direct_apex_native_pyramid4_uniform_no_fallback_structural() {
 }
 
 #[test]
-#[ignore = "cap-quality gate: pyramid4_uniform is native fallback-free but cap_outer_g1 exceeds 5.0e-2"]
 fn direct_apex_native_pyramid4_uniform_cap_outer_quality_gate() {
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
