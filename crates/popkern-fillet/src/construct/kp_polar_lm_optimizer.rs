@@ -60,7 +60,28 @@ const FOLD_PENALTY_WEIGHT: f64 = 10.0;
 
 /// Sample count per patch for fold-proximity evaluation.
 const FOLD_PENALTY_SAMPLES: usize = 5;
-const EXTRA_DEEP_CELLS: [(usize, usize); 6] = [(3, 4), (4, 3), (4, 4), (5, 3), (5, 4), (5, 5)];
+const EXTRA_DEEP_CELLS: [(usize, usize); 20] = [
+    (1, 3),
+    (2, 3),
+    (3, 3),
+    (4, 3),
+    (5, 3),
+    (1, 4),
+    (2, 4),
+    (3, 4),
+    (4, 4),
+    (5, 4),
+    (1, 5),
+    (2, 5),
+    (3, 5),
+    (4, 5),
+    (5, 5),
+    (1, 6),
+    (2, 6),
+    (3, 6),
+    (4, 6),
+    (5, 6),
+];
 
 pub(super) struct PolarLmReport {
     pub patches: Option<Vec<[[Point3; 10]; 10]>>,
@@ -366,7 +387,7 @@ pub(super) fn try_polar_lm_with_report(
         rejection_reason: Some(if saw_feasible_start {
             "feasible_warm_start_optimized_to_fold"
         } else {
-            "expanded_deep_lm_no_fold_safe_iterate"
+            "full_deep_lm_no_fold_safe_iterate"
         }),
     }
 }
