@@ -4,14 +4,14 @@ use super::*;
 use crate::construct::kp_binonic_optimizer;
 use crate::construct::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
 use crate::construct::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
+use crate::construct::promotion_ladder::KpBinonicPromotionReport;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
 /// Promote sub-patches from `RectangularTwoStripe` to
 /// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
-/// construction. Returns `Some(worst_coplanarity)` when the
-/// binonic ships with relaxed continuity (worst > 5e-2 commercial
-/// gate — Phase H.8 step-D graceful degradation), `None` when the
-/// promotion is accepted at commercial grade or reverted.
+/// construction. Returns a report containing structured decline
+/// diagnostics when the promotion is rejected; accepted commercial
+/// grade promotion mutates `sub_patches` in place.
 ///
 /// Phase 6c-B: `fillet_surfaces` (one entry per sub-patch, ordered
 /// by ring index) are forwarded to `optimize_binonic_with_outer_fillets`
@@ -27,18 +27,17 @@ pub(super) fn promote_decomp_to_kp_binonic(
     sub_patches: &mut [GregoryPatch],
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     hex_boundaries: Option<&[([Point3; 10], [Point3; 10])]>,
-) -> Option<f64> {
+) -> KpBinonicPromotionReport {
     let n = sub_patches.len();
     if n == 0 {
-        return None;
+        return KpBinonicPromotionReport::default();
     }
     // Every sub-patch must already be two-stripe — we read the
     // grid as the source of the K-P DirectBoundaryInput.
     let mut two_stripe: Vec<RectangularGregoryTwoStripe> = Vec::with_capacity(n);
     for patch in sub_patches.iter() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
-            trace_kp("non-two-stripe input", n, None);
-            return None;
+            return declined("non_two_stripe_input", n, None, None, None);
         };
         two_stripe.push((**ts).clone());
     }
@@ -62,8 +61,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
         .collect();
 
     let Some(input) = extract_direct_boundary_input(&two_stripe, &spokes, hex_boundaries) else {
-        trace_kp("extract_direct_boundary_input → None", n, None);
-        return None;
+        return declined("boundary_input_unavailable", n, None, None, None);
     };
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
@@ -103,8 +101,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
     ) {
         Some(candidate) => candidate,
         None => {
-            trace_kp("optimize_binonic_and_build_binonic → None", n, None);
-            return None;
+            return declined("candidate_unavailable", n, None, None, None);
         }
     };
     let mut binonic = guide_binonic.clone();
@@ -139,25 +136,27 @@ pub(super) fn promote_decomp_to_kp_binonic(
         .collect();
     for (i, gp) in binonic_gp.iter().enumerate() {
         if gp.self_intersects_with_tolerance(1e-6) {
-            trace_kp(
-                "self_intersects_with_tolerance",
+            return declined(
+                "self_intersection",
                 n,
                 Some(format!("sub-patch {i}")),
+                None,
+                Some(1e-6),
             );
-            return None;
         }
     }
     const COMMERCIAL_G0_GATE: f64 = RING_G0_GATE;
     let post_g0 = worst_ring_g0_gap(&binonic_gp);
     if post_g0 > COMMERCIAL_G0_GATE {
-        trace_kp(
-            "g0 postcondition",
+        return declined(
+            "g0_exceeded",
             n,
             Some(format!(
                 "worst_g0={post_g0:.3e} gate={COMMERCIAL_G0_GATE:.1e}"
             )),
+            Some(post_g0),
+            Some(COMMERCIAL_G0_GATE),
         );
-        return None;
     }
 
     // Quality guard — revert to two-stripe when binonic is
@@ -166,30 +165,32 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // regressions.
     let post_worst = worst_ring_coplanarity(&binonic_gp);
     if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
-        trace_kp(
-            "quality regression",
+        return declined(
+            "quality_regression",
             n,
             Some(format!("pre={pre_worst:.3e} post={post_worst:.3e}")),
+            Some(post_worst),
+            Some(1.2 * pre_worst),
         );
-        return None;
     }
 
     const COMMERCIAL_GATE: f64 = RING_G1_GATE;
     if post_worst > COMMERCIAL_GATE {
-        trace_kp(
-            "g1 postcondition",
+        return declined(
+            "g1_exceeded",
             n,
             Some(format!(
                 "worst_coplanarity={post_worst:.3e} gate={COMMERCIAL_GATE:.1e}"
             )),
+            Some(post_worst),
+            Some(COMMERCIAL_GATE),
         );
-        return None;
     }
 
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
-    None
+    KpBinonicPromotionReport::default()
 }
 
 const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
@@ -292,16 +293,24 @@ pub(crate) fn worst_ring_g0_gap(patches: &[GregoryPatch]) -> f64 {
     worst
 }
 
-/// Emit a diagnostic trace when the K-P promotion silently
-/// falls back to two-stripe. Gated on the `POPKERN_KP_TRACE`
-/// env var so production builds stay silent; set `=1` before
-/// running a fillet test to see which stage rejected the input.
-fn trace_kp(stage: &str, n: usize, detail: Option<String>) {
-    if std::env::var_os("POPKERN_KP_TRACE").is_some() {
-        match detail {
-            Some(d) => eprintln!("[kp_binonic N={n}] fallback @ {stage}: {d}"),
-            None => eprintln!("[kp_binonic N={n}] fallback @ {stage}"),
-        }
+fn declined(
+    reason_code: &'static str,
+    n_sides: usize,
+    detail: Option<String>,
+    residual: Option<f64>,
+    tolerance: Option<f64>,
+) -> KpBinonicPromotionReport {
+    KpBinonicPromotionReport {
+        relaxed_coplanarity: None,
+        diagnostics: vec![
+            crate::construct::three_quad_kp_diagnostics::promotion_declined(
+                reason_code,
+                n_sides,
+                detail,
+                residual,
+                tolerance,
+            ),
+        ],
     }
 }
 

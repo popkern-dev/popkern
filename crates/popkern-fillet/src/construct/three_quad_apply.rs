@@ -145,7 +145,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let unpromoted_constrained_decomp = decomp.clone();
     let mut diagnostics = Vec::new();
 
-    let mut promotion_result = super::promotion_ladder::run_promotion_ladder(
+    let mut promotion_report = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
         fillet_surfaces,
         &mut relaxed_coplanarity,
@@ -157,7 +157,8 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         use_kp_polar,
         |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
-    let mut macro_family = macro_family_from_promotion(promotion_result);
+    diagnostics.extend(std::mem::take(&mut promotion_report.diagnostics));
+    let mut macro_family = macro_family_from_promotion(promotion_report.result);
 
     const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
     let promoted_boundary_residual = max_outer_boundary_residual(&decomp, boundary);
@@ -175,7 +176,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             ),
         );
         decomp = unpromoted_constrained_decomp.clone();
-        promotion_result = super::promotion_ladder::PromotionResult::Standard;
+        promotion_report.result = super::promotion_ladder::PromotionResult::Standard;
         macro_family = None;
     }
 
@@ -219,7 +220,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             if !sphere_cap_boundary_preflight {
                 if !decomp_self_intersects(&unpromoted_constrained_decomp, SELF_INT_TOL) {
                     decomp = unpromoted_constrained_decomp.clone();
-                    promotion_result = super::promotion_ladder::PromotionResult::Standard;
+                    promotion_report.result = super::promotion_ladder::PromotionResult::Standard;
                     macro_family = None;
                 } else {
                     return Err(ThreeQuadFailure::Other(format!(
@@ -235,7 +236,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     }
 
     let sub_faces_raw: Vec<FaceHandle> = if matches!(
-        promotion_result,
+        promotion_report.result,
         super::promotion_ladder::PromotionResult::Macro4n(_)
     ) {
         super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)

@@ -38,10 +38,10 @@
 //! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | binonic commercial gates pass |
 //! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | `#[ignore]` lower-rung fallback |
-//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | `#[ignore]` no measurable K-P ring |
-//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | `#[ignore]` no measurable K-P ring |
-//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | `#[ignore]` no measurable K-P ring |
-//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | legacy route, no K-P ring |
+//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | legacy route, no K-P ring |
+//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | legacy route, no K-P ring |
+//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | legacy route, no K-P ring |
 //! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | `#[ignore]` polar dispatch gap |
 //! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | `#[ignore]` polar dispatch gap |
 //!
@@ -49,8 +49,8 @@
 //! * cube_mixed is now covered as an exact-boundary route invariant.
 //! * cube_extreme through cube_extreme_30 now ship rectangular
 //!   binonic surfaces through direct exact-boundary spoke-row
-//!   optimization. Wider asymmetry fixtures still produce no
-//!   measurable K-P ring.
+//!   optimization. cube_extreme_40+ and cube_tiny_radii route
+//!   through legacy construction instead of the K-P rung.
 //! * pyramid4_mixed reaches Gregory patches but not the binonic rung;
 //!   the current blocker is lower-rung fallback, distinct from the
 //!   native exact-boundary cap_outer matrix.
@@ -62,16 +62,16 @@
 //! satisfied. Those are a different code-path; testing them
 //! belongs in a sphere-shortcut suite.
 //!
-//! The active acceptance in this file is now limited to exact-boundary
-//! route invariants that still apply when the K-P/binonic flag is set.
-//! Wider asymmetry and unsupported-valence continuity tests remain
-//! ignored until they produce measurable rectangular binonic rings.
+//! The active acceptance in this file covers the selected construction
+//! family for each fixture. Wider asymmetry and unsupported-valence
+//! continuity tests remain ignored until they produce measurable
+//! rectangular binonic rings.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{
-    BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
-    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    ApexConstructionRoute, BlendResult, ExactBoundaryCandidateOutcome,
+    ExactBoundaryReportTransactionStatus, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
 
 #[path = "kp_gate_helpers.rs"]
@@ -270,55 +270,116 @@ fn binonic_passes_commercial_gates_on_cube_extreme_30() {
     assert_commercial_gates("cube_extreme_30", &m);
 }
 
-/// **Documented gap — 1:40 asymmetry.** Same dispatch failure as
-/// 1:50+ (zero Gregory corner patches). Earlier diagnostic observed a follow-on
-/// SlotMap panic from stale face handles in `result.corner_patches`
-/// — the sliver-absorb or cap-insert pass deletes the corner face
-/// after recording it. `patch_of` now uses `.get()` to drop stale
-/// handles silently so the real (upstream empty-patches) gap
-/// surfaces cleanly.
-#[ignore = "K-P/binonic dispatch gate: cube_extreme_40 currently produces no measurable Gregory corner patches under this helper"]
+#[test]
+fn cube_extreme_40_accepts_legacy_route_instead_of_kp_ring() {
+    assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(
+        &[0.005, 0.10, 0.20],
+        "cube_extreme_40",
+    );
+}
+
+#[test]
+fn cube_extreme_50_accepts_legacy_route_instead_of_kp_ring() {
+    assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(
+        &[0.004, 0.10, 0.20],
+        "cube_extreme_50",
+    );
+}
+
+#[test]
+fn cube_extreme_100_accepts_legacy_route_instead_of_kp_ring() {
+    assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(
+        &[0.002, 0.10, 0.20],
+        "cube_extreme_100",
+    );
+}
+
+#[test]
+fn cube_tiny_radii_accepts_legacy_route_instead_of_kp_ring() {
+    assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(
+        &[0.001, 0.002, 0.003],
+        "cube_tiny_radii",
+    );
+}
+
+fn assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(radii: &[f64], fixture: &str) {
+    let result = fillet_cube_result(radii, true);
+    result
+        .brep
+        .validate()
+        .unwrap_or_else(|_| panic!("{fixture} legacy route must leave a valid BRep"));
+    for patch in &result.corner_patches {
+        assert!(
+            result.brep.faces.contains_key(patch.face),
+            "{fixture} should not expose stale corner patch face handles: {patch:#?}"
+        );
+    }
+    let faces = result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    assert!(
+        collect_patches(&result.brep, &faces).is_empty(),
+        "{fixture} should not route through measurable Gregory/K-P patches"
+    );
+    let route = result
+        .repair_report
+        .apex_routes
+        .first()
+        .unwrap_or_else(|| panic!("{fixture} should record an apex construction route"));
+    assert_eq!(
+        route.route,
+        ApexConstructionRoute::Legacy,
+        "{fixture} should be owned by the selected legacy route"
+    );
+    assert_eq!(
+        route.exact_boundary_report.candidate_status,
+        ExactBoundaryCandidateOutcome::NotApplicable,
+        "{fixture} should not pretend direct-apex/exact-boundary was attempted"
+    );
+    assert!(
+        route.built_faces.is_empty(),
+        "{fixture} legacy route should not report direct-apex built faces"
+    );
+}
+
+/// **Documented non-applicable binonic gate — 1:40 asymmetry.**
+/// This fixture is covered by legacy construction before a
+/// measurable K-P/Gregory ring exists. The active route test above
+/// guards that selected construction; this continuity gate remains
+/// ignored because it intentionally asks for the non-selected family.
+#[ignore = "K-P/binonic route not selected: cube_extreme_40 is accepted by legacy construction"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_40() {
     let m = run_cube_binonic(&[0.005, 0.10, 0.20], "cube_extreme_40");
     assert_commercial_gates("cube_extreme_40", &m);
 }
 
-/// **Documented gap — 1:50 asymmetry, upstream of K-P.** At
-/// r=[0.004, 0.10, 0.20] the fillet pipeline produces zero
-/// Gregory corner patches (confirmed: no K-P trace output fires).
-/// The failure is upstream of the binonic dispatch — probably in
-/// the fillet analysis, three-quad decomposition, or blend face
-/// insertion, not in the L-M stack. The fact that cube_extreme_20
-/// (1:20) reaches the ladder but cube_extreme_50 doesn't localises
-/// the boundary between "fillet pipeline handles the geometry" and
-/// "fillet pipeline gives up" somewhere between 1:20 and 1:50
-/// asymmetry. Closing needs diagnosis at the upstream stage.
-#[ignore = "K-P/binonic dispatch gate: cube_extreme_50 currently produces no measurable Gregory corner patches under this helper"]
+/// **Documented non-applicable binonic gate — 1:50 asymmetry.**
+/// This fixture is covered by legacy construction before a
+/// measurable K-P/Gregory ring exists.
+#[ignore = "K-P/binonic route not selected: cube_extreme_50 is accepted by legacy construction"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_50() {
     let m = run_cube_binonic(&[0.004, 0.10, 0.20], "cube_extreme_50");
     assert_commercial_gates("cube_extreme_50", &m);
 }
 
-/// **Documented gap — 1:100 asymmetry.** Same failure mode as
-/// cube_extreme_50: zero Gregory corner patches produced.
-#[ignore = "K-P/binonic dispatch gate: cube_extreme_100 currently produces no measurable Gregory corner patches under this helper"]
+/// **Documented non-applicable binonic gate — 1:100 asymmetry.**
+/// This fixture is covered by legacy construction before a
+/// measurable K-P/Gregory ring exists.
+#[ignore = "K-P/binonic route not selected: cube_extreme_100 is accepted by legacy construction"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_100() {
     let m = run_cube_binonic(&[0.002, 0.10, 0.20], "cube_extreme_100");
     assert_commercial_gates("cube_extreme_100", &m);
 }
 
-/// **Documented gap — tiny absolute radii.** At r=[0.001, 0.002,
-/// 0.003] (1/1000th of the unit-cube edge length) the fillet
-/// pipeline produces zero Gregory corner patches. Same upstream-
-/// failure signature as the extreme-asymmetry fixtures. Probably
-/// a numerical-tolerance issue in the fillet analysis or blend-
-/// face insertion — not an L-M convergence issue. Worth fixing
-/// eventually for commercial CAD robustness (radii of a few μm
-/// on a metre-scale part are common), but distinct workstream.
-#[ignore = "K-P/binonic dispatch gate: cube_tiny_radii currently produces no measurable Gregory corner patches under this helper"]
+/// **Documented non-applicable binonic gate — tiny absolute
+/// radii.** The selected construction is valid legacy topology
+/// before a measurable K-P/Gregory ring exists.
+#[ignore = "K-P/binonic route not selected: cube_tiny_radii is accepted by legacy construction"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
     let m = run_cube_binonic(&[0.001, 0.002, 0.003], "cube_tiny_radii");

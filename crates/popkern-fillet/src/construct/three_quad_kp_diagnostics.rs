@@ -26,3 +26,28 @@ pub(super) fn outer_boundary_residual_exceeded(
         },
     )
 }
+
+pub(super) fn promotion_declined(
+    reason_code: &str,
+    n_sides: usize,
+    detail: Option<String>,
+    residual: Option<f64>,
+    tolerance: Option<f64>,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: format!("kp_binonic.promotion.{reason_code}"),
+            code: "kp_binonic.promotion.declined".to_string(),
+            detail_code: detail,
+            sector_name: format!("kp_binonic_ring_n{n_sides}"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}

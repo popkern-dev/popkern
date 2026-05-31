@@ -10,12 +10,14 @@
 
 use popkern_core::geometry::gregory::GregoryPatch;
 
+use super::three_quad_kp_diagnostics;
 use super::three_quad_promotions::{
     promote_decomp_to_biquintic_full_with_spoke_g1, promote_decomp_to_biseptic_with_spoke_g1,
     promote_decomp_to_two_stripe_with_spoke_g1,
 };
 use crate::blend::gregory_three_quad::NQuadDecomposition;
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::ApexConstructionDiagnostic;
 use crate::types::CornerSubPatchFamily;
 
 /// Result of running the promotion ladder.
@@ -27,9 +29,26 @@ pub(super) enum PromotionResult {
     Macro4n(CornerSubPatchFamily),
 }
 
-/// Run the full promotion ladder. Returns `true` if the KP13
-/// bi-5 4N path committed (caller uses 4N poke downstream),
-/// `false` otherwise.
+impl Default for PromotionResult {
+    fn default() -> Self {
+        Self::Standard
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct KpBinonicPromotionReport {
+    pub relaxed_coplanarity: Option<f64>,
+    pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct PromotionLadderReport {
+    pub result: PromotionResult,
+    pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+/// Run the full promotion ladder and return its selected topology
+/// family plus structured diagnostics for declined promotion rungs.
 ///
 /// Phase 6c-B: `promote_binonic` callback takes both `sub_patches`
 /// and `fillet_surfaces` so the binonic optimiser can use outer-
@@ -46,26 +65,54 @@ pub(super) fn run_promotion_ladder(
     use_two_stripe: bool,
     use_kp_binonic: bool,
     use_kp_polar: bool,
-    promote_binonic: impl FnOnce(&mut [GregoryPatch], &[FilletSurfaceResult]) -> Option<f64>,
-) -> PromotionResult {
+    promote_binonic: impl FnOnce(
+        &mut [GregoryPatch],
+        &[FilletSurfaceResult],
+    ) -> KpBinonicPromotionReport,
+) -> PromotionLadderReport {
     if !(use_biquintic_full && use_deg5) {
-        return PromotionResult::Standard;
+        return standard_report_with_binonic_prerequisite_decline(
+            use_kp_binonic,
+            decomp.sub_patches.len(),
+            "pre_biquintic_disabled",
+            Some("deg5 or biquintic-full promotion disabled".to_string()),
+        );
     }
     promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
-    if !(use_biseptic
-        && promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches)
-        && use_two_stripe)
-    {
-        return PromotionResult::Standard;
+    if !use_biseptic || !use_two_stripe {
+        return standard_report_with_binonic_prerequisite_decline(
+            use_kp_binonic,
+            decomp.sub_patches.len(),
+            "pre_two_stripe_disabled",
+            Some("biseptic or two-stripe promotion disabled".to_string()),
+        );
     }
-    promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches);
+    if !promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches) {
+        return standard_report_with_binonic_prerequisite_decline(
+            use_kp_binonic,
+            decomp.sub_patches.len(),
+            "biseptic_unavailable",
+            None,
+        );
+    }
+    if !promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches) {
+        return standard_report_with_binonic_prerequisite_decline(
+            use_kp_binonic,
+            decomp.sub_patches.len(),
+            "two_stripe_unavailable",
+            None,
+        );
+    }
     if use_kp_polar
         && decomp.sub_patches.len() >= 3
         && let Some(patches_4n) =
             super::kp13_bi5_promote::try_kp13_bi5_dispatch(&decomp.sub_patches, fillet_surfaces)
     {
         decomp.sub_patches = patches_4n;
-        return PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5);
+        return PromotionLadderReport {
+            result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5),
+            diagnostics: Vec::new(),
+        };
     }
     if use_kp_polar
         && decomp.sub_patches.len() >= 3
@@ -75,7 +122,10 @@ pub(super) fn run_promotion_ladder(
         )
     {
         decomp.sub_patches = patches_4n;
-        return PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6);
+        return PromotionLadderReport {
+            result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6),
+            diagnostics: Vec::new(),
+        };
     }
     let polar_committed = use_kp_polar
         && decomp.sub_patches.len() >= 5
@@ -84,8 +134,69 @@ pub(super) fn run_promotion_ladder(
             fillet_surfaces,
             relaxed_coplanarity,
         );
+    let mut diagnostics = Vec::new();
     if use_kp_binonic && !polar_committed {
-        *relaxed_coplanarity = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
+        let report = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
+        *relaxed_coplanarity = report.relaxed_coplanarity;
+        diagnostics = report.diagnostics;
     }
-    PromotionResult::Standard
+    PromotionLadderReport {
+        result: PromotionResult::Standard,
+        diagnostics,
+    }
+}
+
+fn standard_report_with_binonic_prerequisite_decline(
+    use_kp_binonic: bool,
+    n_sides: usize,
+    reason_code: &'static str,
+    detail: Option<String>,
+) -> PromotionLadderReport {
+    let diagnostics = use_kp_binonic
+        .then(|| {
+            three_quad_kp_diagnostics::promotion_declined(reason_code, n_sides, detail, None, None)
+        })
+        .into_iter()
+        .collect();
+    PromotionLadderReport {
+        result: PromotionResult::Standard,
+        diagnostics,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use popkern_core::geometry::Point3;
+
+    #[test]
+    fn binonic_prerequisite_decline_is_structured_diagnostic() {
+        let mut decomp = NQuadDecomposition {
+            central_point: Point3::new(0.0, 0.0, 0.0),
+            sub_patches: Vec::new(),
+        };
+        let mut relaxed_coplanarity = None;
+        let report = run_promotion_ladder(
+            &mut decomp,
+            &[],
+            &mut relaxed_coplanarity,
+            false,
+            false,
+            true,
+            true,
+            true,
+            false,
+            |_, _| KpBinonicPromotionReport::default(),
+        );
+        assert_eq!(report.result, PromotionResult::Standard);
+        assert_eq!(report.diagnostics.len(), 1);
+        let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(cap) =
+            &report.diagnostics[0]
+        else {
+            panic!("expected exact-boundary cap diagnostic");
+        };
+        assert_eq!(cap.code, "kp_binonic.promotion.declined");
+        assert_eq!(cap.stage, "kp_binonic.promotion.pre_biquintic_disabled");
+        assert_eq!(cap.sector_name, "kp_binonic_ring_n0");
+    }
 }
