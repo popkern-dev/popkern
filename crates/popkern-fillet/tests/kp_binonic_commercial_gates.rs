@@ -37,7 +37,7 @@
 //! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | binonic commercial gates pass |
-//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | `#[ignore]` lower-rung fallback |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | binonic commercial gates pass |
 //! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | legacy route, no K-P ring |
 //! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | legacy route, no K-P ring |
 //! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | legacy route, no K-P ring |
@@ -51,9 +51,9 @@
 //!   binonic surfaces through direct exact-boundary spoke-row
 //!   optimization. cube_extreme_40+ and cube_tiny_radii route
 //!   through legacy construction instead of the K-P rung.
-//! * pyramid4_mixed reaches Gregory patches but not the binonic rung;
-//!   the current blocker is lower-rung fallback, distinct from the
-//!   native exact-boundary cap_outer matrix.
+//! * pyramid4_mixed now ships rectangular binonic surfaces that
+//!   satisfy the same commercial G0/G1/G2 ring gates as the cube
+//!   fixtures.
 //! * N >= 5 still needs the K-P polar variant (Phase H.5b).
 //!
 //! Uniform-radii fixtures are out-of-scope here — the analytic
@@ -244,7 +244,6 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 }
 
 #[test]
-#[ignore = "K-P/binonic dispatch gate: pyramid4_mixed produces Gregory patches but falls back below the rectangular binonic rung"]
 fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
     let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
     assert_commercial_gates("pyramid4_mixed", &m);
