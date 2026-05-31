@@ -49,6 +49,10 @@ pub struct Kp20PieceMapDomainReport {
     pub max_simplex_excess: f64,
     /// Stable labels for offending piece corners.
     pub offending_corners: Vec<String>,
+    /// Number of base piece maps whose affine orientation is not positive.
+    pub non_positive_orientation_maps: usize,
+    /// Stable labels for non-positive base piece maps.
+    pub orientation_offenders: Vec<String>,
 }
 
 impl Kp20PieceMapDomainReport {
@@ -64,7 +68,15 @@ pub fn kp20_default_piece_map_domain_report() -> Kp20PieceMapDomainReport {
     let mut outside_triangle_corners = 0;
     let mut max_simplex_excess = 0.0_f64;
     let mut offending_corners = Vec::new();
+    let mut non_positive_orientation_maps = 0;
+    let mut orientation_offenders = Vec::new();
     for (piece, maps) in kp20_default_sector_piece_maps() {
+        let base_map = maps[0].1;
+        let det = base_map.du[0] * base_map.dv[1] - base_map.du[1] * base_map.dv[0];
+        if det <= 1.0e-12 {
+            non_positive_orientation_maps += 1;
+            orientation_offenders.push(format!("{piece:?}:det={det:.3e}"));
+        }
         for (corner, map) in maps {
             let u = map.origin[0];
             let v = map.origin[1];
@@ -81,6 +93,8 @@ pub fn kp20_default_piece_map_domain_report() -> Kp20PieceMapDomainReport {
         outside_triangle_corners,
         max_simplex_excess,
         offending_corners,
+        non_positive_orientation_maps,
+        orientation_offenders,
     }
 }
 

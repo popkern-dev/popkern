@@ -151,13 +151,27 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             "piece_map_extrapolates",
             n,
             Some(format!(
-                "outside_triangle_corners={};max_simplex_excess={:.3e};{}",
+                "outside_triangle_corners={};max_simplex_excess={:.3e};non_positive_orientation_maps={};{}",
                 map_report.outside_triangle_corners,
                 map_report.max_simplex_excess,
+                map_report.non_positive_orientation_maps,
                 map_report.offending_corners.join("|")
             )),
             Some(map_report.max_simplex_excess),
         );
+    }
+    if map_report.non_positive_orientation_maps > 0 {
+        diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+            "piece_map_orientation",
+            n,
+            Some(format!(
+                "non_positive_orientation_maps={};{}",
+                map_report.non_positive_orientation_maps,
+                map_report.orientation_offenders.join("|")
+            )),
+            None,
+            None,
+        ));
     }
     let intersections = self_intersecting_patches(&candidate);
     if !intersections.is_empty() {

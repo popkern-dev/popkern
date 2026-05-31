@@ -80,3 +80,28 @@ fn default_piece_maps_stay_inside_sector_triangle() {
     assert!(report.max_simplex_excess <= 1e-12);
     assert!(report.offending_corners.is_empty());
 }
+
+#[test]
+fn default_piece_maps_report_non_positive_orientation_scaffold() {
+    let report = kp20_default_piece_map_domain_report();
+
+    assert_eq!(report.non_positive_orientation_maps, 3);
+    assert!(
+        report
+            .orientation_offenders
+            .iter()
+            .any(|offender| offender.starts_with("NearOriginRight:"))
+    );
+    assert!(
+        report
+            .orientation_offenders
+            .iter()
+            .any(|offender| offender.starts_with("NearMidpointRight:"))
+    );
+    assert!(
+        report
+            .orientation_offenders
+            .iter()
+            .any(|offender| offender.starts_with("NearMidpointLeft:"))
+    );
+}
