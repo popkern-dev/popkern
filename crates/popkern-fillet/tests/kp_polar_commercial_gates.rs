@@ -227,7 +227,9 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                         && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
                         && cap.sector_name == "kp20_polar_macro_ring_n6"
                         && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("jacobian_reversal=true")
+                            detail.contains("sector=0")
+                                && detail.contains("piece=NearOriginLeft")
+                                && detail.contains("jacobian_reversal=true")
                         })
             )),
         "hexagon6_mixed should expose the KP20 macro-cap rejection as structured diagnostics"

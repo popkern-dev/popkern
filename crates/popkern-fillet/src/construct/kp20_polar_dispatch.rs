@@ -2,9 +2,10 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    GregoryPatch, Kp20Bi6CapInput, PolarBoundaryInput, RectangularGregoryBiNonic, Side, Spoke,
-    SpokeEnd, TensorBorder, TensorBorderBi3, assemble_kp20_bi6_cap, elevate_bi6_grid_to_bi9,
-    extract_bi3_tensor_border_from_polar_input, measure_kp20_bi6_macro_cap,
+    GregoryPatch, Kp20Bi6CapInput, Kp20PieceId, PolarBoundaryInput, RectangularGregoryBiNonic,
+    Side, Spoke, SpokeEnd, TensorBorder, TensorBorderBi3, assemble_kp20_bi6_cap,
+    elevate_bi6_grid_to_bi9, extract_bi3_tensor_border_from_polar_input,
+    measure_kp20_bi6_macro_cap,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -142,20 +143,29 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             diagnostics,
         };
     }
-    if let Some((idx, detail)) = first_self_intersecting_patch(&candidate) {
-        let label = detail.diagnostic_label();
-        trace(
-            "self-intersection",
-            n,
-            Some(format!("patch index {idx}; {label}")),
-        );
-        record_decline(
-            &mut diagnostics,
-            "self_intersection",
-            n,
-            Some(format!("patch_index={idx};{label}")),
-            Some(detail.min_jacobian_normal_cos),
-        );
+    let intersections = self_intersecting_patches(&candidate);
+    if !intersections.is_empty() {
+        for (idx, detail) in intersections {
+            let label = detail.diagnostic_label();
+            let sector = idx / 4;
+            let piece = Kp20PieceId::all()[idx % 4];
+            trace(
+                "self-intersection",
+                n,
+                Some(format!(
+                    "sector {sector}; piece {piece:?}; patch index {idx}; {label}"
+                )),
+            );
+            record_decline(
+                &mut diagnostics,
+                "self_intersection",
+                n,
+                Some(format!(
+                    "sector={sector};piece={piece:?};patch_index={idx};{label}"
+                )),
+                Some(detail.min_jacobian_normal_cos),
+            );
+        }
         return Kp20PolarDispatchReport {
             patches: None,
             diagnostics,
@@ -190,16 +200,20 @@ pub(super) fn try_kp20_polar_macro_candidate(
         .collect())
 }
 
-pub(super) fn first_self_intersecting_patch(
+pub(super) fn self_intersecting_patches(
     candidate: &[GregoryPatch],
-) -> Option<(
+) -> Vec<(
     usize,
     popkern_core::geometry::gregory::GregorySelfIntersectionReport,
 )> {
-    candidate.iter().enumerate().find_map(|(idx, gp)| {
-        let report = gp.self_intersection_report(SELF_INT_TOL);
-        report.intersects().then_some((idx, report))
-    })
+    candidate
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, gp)| {
+            let report = gp.self_intersection_report(SELF_INT_TOL);
+            report.intersects().then_some((idx, report))
+        })
+        .collect()
 }
 
 fn trace(stage: &str, n: usize, detail: Option<String>) {
