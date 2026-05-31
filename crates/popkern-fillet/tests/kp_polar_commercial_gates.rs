@@ -239,6 +239,24 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                     if cap.code == "kp20_polar_macro.dispatch.declined"
+                        && cap.stage == "kp20_polar_macro.dispatch.piece_map_extrapolates"
+                        && cap.sector_name == "kp20_polar_macro_ring_n6"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("outside_triangle_corners=2")
+                                && detail.contains("NearOriginRight.U1V1")
+                        })
+            )),
+        "hexagon6_mixed should classify KP20 affine piece-map extrapolation"
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "kp20_polar_macro.dispatch.declined"
                         && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
                         && cap.sector_name == "kp20_polar_macro_ring_n6"
                         && cap.detail_code.as_deref().is_some_and(|detail| {

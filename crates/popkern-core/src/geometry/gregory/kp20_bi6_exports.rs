@@ -38,7 +38,8 @@ pub use super::kp20_bi6_math::{
     kp20_s0_free_count, kp20_stam_characteristic_eigenvector,
 };
 pub use super::kp20_bi6_piece_maps::{
-    Kp20PieceCornerMaps, Kp20SectorPieceMaps, kp20_default_sector_piece_maps,
+    Kp20PieceCornerMaps, Kp20PieceMapDomainReport, Kp20SectorPieceMaps,
+    kp20_default_piece_map_domain_report, kp20_default_sector_piece_maps,
     sample_kp20_macro_patch_from_default_maps,
 };
 pub use super::kp20_bi6_s0_solve::{

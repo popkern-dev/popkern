@@ -5,7 +5,7 @@ use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6CapInput, Kp20PieceId, PolarBoundaryInput, RectangularGregoryBiNonic,
     Side, Spoke, SpokeEnd, TensorBorder, TensorBorderBi3, assemble_kp20_bi6_cap,
     elevate_bi6_grid_to_bi9, extract_bi3_tensor_border_from_polar_input,
-    measure_kp20_bi6_macro_cap,
+    kp20_default_piece_map_domain_report, measure_kp20_bi6_macro_cap,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -142,6 +142,21 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             patches: None,
             diagnostics,
         };
+    }
+    let map_report = kp20_default_piece_map_domain_report();
+    if !map_report.stays_inside_triangle() {
+        record_decline(
+            &mut diagnostics,
+            "piece_map_extrapolates",
+            n,
+            Some(format!(
+                "outside_triangle_corners={};max_simplex_excess={:.3e};{}",
+                map_report.outside_triangle_corners,
+                map_report.max_simplex_excess,
+                map_report.offending_corners.join("|")
+            )),
+            Some(map_report.max_simplex_excess),
+        );
     }
     let intersections = self_intersecting_patches(&candidate);
     if !intersections.is_empty() {

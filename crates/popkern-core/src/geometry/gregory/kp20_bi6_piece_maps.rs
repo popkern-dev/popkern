@@ -37,6 +37,51 @@ pub fn kp20_default_sector_piece_maps() -> Kp20SectorPieceMaps {
     ]
 }
 
+/// Domain-coverage report for the current affine piece-map scaffold.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20PieceMapDomainReport {
+    /// Number of piece corners whose guide-domain coordinate lies outside
+    /// the local triangular sector domain `u >= 0`, `v >= 0`, `u + v <= 1`.
+    pub outside_triangle_corners: usize,
+    /// Largest positive violation of `u + v <= 1`.
+    pub max_simplex_excess: f64,
+    /// Stable labels for offending piece corners.
+    pub offending_corners: Vec<String>,
+}
+
+impl Kp20PieceMapDomainReport {
+    /// Whether every affine mapped corner stays inside the sector triangle.
+    pub fn stays_inside_triangle(&self) -> bool {
+        self.outside_triangle_corners == 0
+    }
+}
+
+/// Measure whether the current affine piece maps extrapolate outside the
+/// sector-local triangular guide domain.
+pub fn kp20_default_piece_map_domain_report() -> Kp20PieceMapDomainReport {
+    let mut outside_triangle_corners = 0;
+    let mut max_simplex_excess = 0.0_f64;
+    let mut offending_corners = Vec::new();
+    for (piece, maps) in kp20_default_sector_piece_maps() {
+        for (corner, map) in maps {
+            let u = map.origin[0];
+            let v = map.origin[1];
+            let simplex_excess = (u + v - 1.0).max(0.0);
+            let outside = u < -1e-12 || v < -1e-12 || simplex_excess > 1e-12;
+            max_simplex_excess = max_simplex_excess.max(simplex_excess);
+            if outside {
+                outside_triangle_corners += 1;
+                offending_corners.push(format!("{piece:?}.{corner:?}@({u:.3},{v:.3})"));
+            }
+        }
+    }
+    Kp20PieceMapDomainReport {
+        outside_triangle_corners,
+        max_simplex_excess,
+        offending_corners,
+    }
+}
+
 /// Sample one guide sector into one KP20 macro-patch using the
 /// default piece maps.
 pub fn sample_kp20_macro_patch_from_default_maps(guide: &Kp20Tri6GuideSector) -> Kp20MacroPatch {
