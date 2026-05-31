@@ -175,6 +175,15 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     }
     let intersections = self_intersecting_patches(&candidate);
     if !intersections.is_empty() {
+        if map_report.non_positive_orientation_maps == 0 {
+            diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                "piece_map_orientation",
+                n,
+                Some("non_positive_orientation_maps=0".to_string()),
+                None,
+                None,
+            ));
+        }
         diagnostics.push(sampler_comparison_diagnostic(
             polar.central_vertex,
             &tensor_border,

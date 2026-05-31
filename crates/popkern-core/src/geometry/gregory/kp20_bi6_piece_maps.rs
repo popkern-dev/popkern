@@ -39,6 +39,29 @@ pub fn kp20_default_sector_piece_maps() -> Kp20SectorPieceMaps {
     ]
 }
 
+/// Orientation-valid piece-to-guide maps for comparison against the
+/// current bounded-affine scaffold.
+pub fn kp20_orientation_valid_sector_piece_maps() -> Kp20SectorPieceMaps {
+    [
+        (
+            Kp20PieceId::NearOriginLeft,
+            square_maps([0.0, 0.0], [0.25, 0.0], [0.0, 0.25]),
+        ),
+        (
+            Kp20PieceId::NearOriginRight,
+            square_maps([0.25, 0.0], [0.25, 0.0], [0.0, 0.25]),
+        ),
+        (
+            Kp20PieceId::NearMidpointRight,
+            square_maps([0.5, 0.0], [0.25, 0.0], [0.0, 0.25]),
+        ),
+        (
+            Kp20PieceId::NearMidpointLeft,
+            square_maps([0.0, 0.25], [0.25, 0.0], [0.0, 0.25]),
+        ),
+    ]
+}
+
 /// Domain-coverage report for the current affine piece-map scaffold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20PieceMapDomainReport {
@@ -102,6 +125,14 @@ pub fn kp20_default_piece_map_domain_report() -> Kp20PieceMapDomainReport {
 /// default piece maps.
 pub fn sample_kp20_macro_patch_from_default_maps(guide: &Kp20Tri6GuideSector) -> Kp20MacroPatch {
     kp20_sample_macro_patch_from_guide(guide, kp20_default_sector_piece_maps())
+}
+
+/// Sample one guide sector into one KP20 macro-patch using the
+/// orientation-valid comparison maps.
+pub fn sample_kp20_macro_patch_from_orientation_valid_maps(
+    guide: &Kp20Tri6GuideSector,
+) -> Kp20MacroPatch {
+    kp20_sample_macro_patch_from_guide(guide, kp20_orientation_valid_sector_piece_maps())
 }
 
 /// Sample one guide sector into one KP20 macro-patch using the

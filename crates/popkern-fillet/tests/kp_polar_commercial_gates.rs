@@ -260,7 +260,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("NearMidpointLeft:")
                         })
             )),
-        "hexagon6_mixed should expose the KP20 piece-map orientation scaffold structurally"
+        "hexagon6_mixed should expose KP20 piece-map orientation facts structurally"
     );
     assert!(
         result

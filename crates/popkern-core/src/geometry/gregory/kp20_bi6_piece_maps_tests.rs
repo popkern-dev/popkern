@@ -50,6 +50,23 @@ fn default_piece_maps_sample_all_pieces_from_guide() {
 }
 
 #[test]
+fn orientation_valid_piece_maps_sample_all_pieces_from_guide() {
+    let guide = affine_guide();
+
+    let macro_patch = sample_kp20_macro_patch_from_orientation_valid_maps(&guide);
+
+    for id in Kp20PieceId::all() {
+        let piece = macro_patch.piece(id);
+        assert!(piece.cps[0][0].z.abs() < 1e-12);
+        assert!(piece.cps[6][6].z.abs() < 1e-12);
+    }
+    assert_eq!(
+        macro_patch.piece(Kp20PieceId::NearMidpointRight).cps[0][0],
+        p(0.5, 0.0, 0.0)
+    );
+}
+
+#[test]
 fn tau_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
