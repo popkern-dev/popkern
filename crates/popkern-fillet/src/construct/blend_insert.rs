@@ -13,20 +13,27 @@ use crate::blend::BlendBoundary;
 use crate::construct::EdgeGeometry;
 use crate::construct::blend_topo::{
     build_fillet_surface_list, collect_edges_through_vertex, collect_faces_around_vertex,
-    find_face_trim_anchors, find_halfedge_from_vertex_in_face, identify_corner_face,
     repair_vertex_outgoing,
 };
 use crate::construct::poke_hex::face_has_2n_outer_half_edges;
 use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 
+#[path = "blend_insert_diagnostics.rs"]
+mod blend_insert_diagnostics;
 #[path = "blend_insert_surface.rs"]
 mod blend_insert_surface;
+#[path = "blend_insert_topology.rs"]
+mod blend_insert_topology;
 use crate::types::{
     ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode,
 };
 use crate::vertex_classifier::VertexBlendClassification;
+use blend_insert_diagnostics::{
+    rational_gregory_dispatch_declined_diagnostic, rational_gregory_dispatch_precondition_reason,
+};
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
+use blend_insert_topology::split_corner_triangles;
 
 type InsertVertexBlendOutput = (
     Vec<CornerPatchInfo>,
@@ -201,10 +208,8 @@ pub(crate) fn insert_vertex_blend(
     }
 
     // §5.3 item #6 — propagate pre-merge bridge-fallback names.
-    let bridge_fallbacks = n_gon_boundary
-        .as_ref()
-        .map(|b| b.bridge_fallbacks.clone())
-        .unwrap_or_default();
+    let dispatch_boundary = n_gon_boundary.as_ref().unwrap_or(&blend_boundary);
+    let bridge_fallbacks = dispatch_boundary.bridge_fallbacks.clone();
     let base_patch = CornerPatchInfo {
         vertex,
         n_sides: edge_indices.len(),
@@ -218,6 +223,7 @@ pub(crate) fn insert_vertex_blend(
         cap_sphere: None,
         sub_patch_provenance: None,
     };
+    let mut diagnostics = Vec::new();
 
     // PnS rung (env-gated). Keep default production dispatch at
     // N >= 5: trihedral PnS currently reduces curved boundaries to
@@ -240,23 +246,38 @@ pub(crate) fn insert_vertex_blend(
         return Ok((patches, n_gon_boundary, Vec::new()));
     }
 
-    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
-    if use_rational_gregory
-        && rational_gregory_compatible
-        && let Some(boundary) = n_gon_boundary.as_ref()
-        && boundary.segments.len() == 2 * n_sides
+    let rational_dispatch_preconditions_met = dispatch_boundary.segments.len() == 2 * n_sides
         && crate::construct::poke_hex::face_has_2n_outer_half_edges_with(
             brep,
             blend_face,
             n_sides,
-            boundary.sphere_fit_substituted,
-        )
+            dispatch_boundary.sphere_fit_substituted,
+        );
+    if use_rational_gregory
+        && use_kp_polar_gregory
+        && rational_gregory_compatible
+        && n_sides >= 5
+        && !rational_dispatch_preconditions_met
     {
+        diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+            n_sides,
+            "precondition_failed",
+            Some(rational_gregory_dispatch_precondition_reason(
+                brep,
+                blend_face,
+                n_sides,
+                dispatch_boundary,
+            )),
+        ));
+    }
+
+    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
+    if use_rational_gregory && rational_gregory_compatible && rational_dispatch_preconditions_met {
         use crate::construct::three_quad_apply::ThreeQuadFailure;
         match apply_three_quad_decomposition_to_blend(
             brep,
             blend_face,
-            boundary,
+            dispatch_boundary,
             &fillet_surfaces_pre,
             vertex,
             edge_indices.len(),
@@ -269,69 +290,43 @@ pub(crate) fn insert_vertex_blend(
             use_kp_polar_gregory,
         ) {
             Ok(result) if result.patches.len() == n_sides => {
-                return Ok((result.patches, n_gon_boundary, result.diagnostics));
+                return Ok((
+                    result.patches,
+                    Some(dispatch_boundary.clone()),
+                    result.diagnostics,
+                ));
+            }
+            Ok(result) => {
+                diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+                    n_sides,
+                    "patch_count_mismatch",
+                    Some(format!(
+                        "expected {n_sides} corner patches, got {}",
+                        result.patches.len()
+                    )),
+                ));
             }
             Err(ThreeQuadFailure::Overlap) => {
                 let mut r = base_patch.clone();
                 r.overlap_remediated = true;
-                return Ok((vec![r], n_gon_boundary, Vec::new()));
+                diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+                    n_sides,
+                    "self_intersection_overlap",
+                    None,
+                ));
+                return Ok((vec![r], Some(dispatch_boundary.clone()), diagnostics));
             }
-            _ => {}
+            Err(ThreeQuadFailure::Other(reason)) => {
+                diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+                    n_sides,
+                    "construction_error",
+                    Some(reason),
+                ));
+            }
         }
     }
 
-    Ok((vec![base_patch], n_gon_boundary, Vec::new()))
-}
-
-/// Phase 1: Split off corner regions from each face around V using
-/// the per-face fillet trim endpoints as mef anchors.
-fn split_corner_triangles(
-    brep: &mut BRep,
-    vertex: VertexHandle,
-    face_info: &[(FaceHandle, HalfEdgeHandle)],
-    edge_geometries: &[EdgeGeometry],
-    tolerance: &Tolerance,
-) -> Result<Vec<FaceHandle>, String> {
-    let mut corner_faces: Vec<FaceHandle> = Vec::new();
-
-    for (face, _he_arriving_at_v) in face_info {
-        let anchors = find_face_trim_anchors(brep, *face, vertex, edge_geometries, tolerance)?;
-        if anchors.len() < 2 {
-            // Falling back to the legacy nearest-to-V anchors keeps
-            // low-N or atypical configurations working during the R8
-            // transition. Chamfer/mitred paths and non-trihedral
-            // corners hit this.
-            return Err(format!(
-                "face {face:?} has {} trim-endpoint anchors around vertex {vertex:?}, expected ≥2",
-                anchors.len()
-            ));
-        }
-        // For trihedral corners we expect exactly 2. If more appear
-        // (degenerate), just take the first two — the V-containing
-        // sub-face still gets cut off.
-        let (anchor_a, anchor_b) = (anchors[0], anchors[1]);
-
-        let he_at_a = find_halfedge_from_vertex_in_face(brep, *face, anchor_a)?;
-        let he_at_b = find_halfedge_from_vertex_in_face(brep, *face, anchor_b)?;
-
-        // Verify both half-edges are in the same loop before calling mef.
-        let loop_a = brep.half_edges[he_at_a].loop_;
-        let loop_b = brep.half_edges[he_at_b].loop_;
-        if loop_a != loop_b {
-            return Err(format!(
-                "anchor half-edges on face {face:?} are in different loops"
-            ));
-        }
-
-        let mef_result = brep
-            .mef(he_at_a, he_at_b)
-            .map_err(|e| format!("mef failed on face {face:?}: {e}"))?;
-
-        let corner = identify_corner_face(brep, *face, mef_result.face, vertex)?;
-        corner_faces.push(corner);
-    }
-
-    Ok(corner_faces)
+    Ok((vec![base_patch], n_gon_boundary, diagnostics))
 }
 
 /// Phase 2a: kef every V-edge that separates two distinct faces.

@@ -1,7 +1,4 @@
-use super::{
-    DiagnosticAxis, DiagnosticMatrixRow, DiagnosticMatrixTerminal, FixtureTier,
-    UnknownDiagnosticFacet,
-};
+use super::{DiagnosticAxis, DiagnosticMatrixRow, DiagnosticMatrixTerminal, FixtureTier};
 
 macro_rules! matrix_row {
     (
@@ -304,22 +301,22 @@ pub(crate) const SEED_MATRIX_ROWS: [DiagnosticMatrixRow; 19] = [
     ),
     matrix_row!(
         "pentagon5_mixed_polar_gap",
-        FixtureTier::IgnoredZoo,
+        FixtureTier::CapturedCore,
         [DiagnosticAxis::PyramidApex, DiagnosticAxis::GregoryCap],
         DiagnosticMatrixTerminal::NamedMissingPrimitive,
-        "high-valence-polar-transition",
-        "requires-geometry-feasibility",
+        "high-valence-face-loop-normalization",
+        "requires-topology-normalization",
+        false,
+        Some("not-applicable"),
         true,
-        Some("unsupported-geometry-family"),
+        Some("valid-as-input"),
         true,
-        Some("valid-after-non-mutating-normalization"),
+        Some("missing-underresolved-face-loop-normalizer"),
         true,
-        Some("missing-high-valence-polar-transition"),
-        true,
-        Some("blocked-unsupported-geometry"),
-        "polar-gap-before-gregory-ladder",
-        Some(UnknownDiagnosticFacet::UnknownInputFact),
-        Some("PK-005")
+        Some("blocked-topology-precondition"),
+        "outer-loop-has-four-half-edges-before-n5-polar",
+        None,
+        None
     ),
     matrix_row!(
         "apex_retired_vertex_absence",

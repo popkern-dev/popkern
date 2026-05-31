@@ -69,6 +69,9 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_fillet::{
+    ApexConstructionDiagnostic, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
@@ -92,6 +95,37 @@ fn run_n_gonal_pyramid_polar(
     let patches = collect_patches(&brep, &faces);
     assert_all_binonic(&patches, fixture);
     measure_ring(&patches, N_SAMPLES)
+}
+
+fn fillet_n_gonal_pyramid_result(
+    n: usize,
+    base_radius: f64,
+    height: f64,
+    radii: &[f64],
+) -> popkern_fillet::BlendResult {
+    assert_eq!(radii.len(), n);
+    let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
+    let edges = incident_edges(&pyr, vertex);
+    let specs = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&edge, &radius)| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect::<Vec<_>>();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        use_biquintic_full_gregory: true,
+        use_biseptic_gregory: true,
+        use_two_stripe_gregory: true,
+        use_kp_binonic_gregory: true,
+        use_kp_polar_gregory: true,
+        ..FilletOptions::default()
+    };
+    fillet_edges(&pyr, &specs, &opts, Tolerance::default(), None).unwrap()
 }
 
 /// Blunt-apex positive control (apex half-angle 18°, typical CAD).
@@ -133,6 +167,33 @@ fn polar_passes_commercial_gates_on_pentagon5_mixed() {
         "pentagon5_mixed",
     );
     assert_commercial_gates("pentagon5_mixed", &m);
+}
+
+#[test]
+fn pentagon5_mixed_records_structured_polar_dispatch_decline() {
+    let result = fillet_n_gonal_pyramid_result(5, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
+    result
+        .brep
+        .validate()
+        .expect("pentagon5_mixed fallback route must leave a valid BRep");
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "rational_gregory.dispatch.declined"
+                        && cap.stage.starts_with("rational_gregory.dispatch.")
+                        && cap.sector_name == "n5_corner_cap"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("outer_half_edges=Some(4)")
+                                && detail.contains("expected 5 or 10")
+                        })
+            )),
+        "pentagon5_mixed should expose its N>=5 Gregory/polar fallback as structured diagnostics"
+    );
 }
 
 #[ignore]
