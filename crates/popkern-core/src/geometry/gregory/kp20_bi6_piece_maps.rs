@@ -24,11 +24,11 @@ pub fn kp20_default_sector_piece_maps() -> Kp20SectorPieceMaps {
         ),
         (
             Kp20PieceId::NearOriginRight,
-            square_maps([0.0, 0.0], [0.5, 0.0], [0.5, 0.5]),
+            square_maps([0.0, 0.0], [0.0, 0.5], [0.5, 0.0]),
         ),
         (
             Kp20PieceId::NearMidpointRight,
-            square_maps([0.5, 0.5], [0.5, 0.0], [0.0, -0.5]),
+            square_maps([0.5, 0.5], [0.5, -0.5], [-0.5, 0.0]),
         ),
         (
             Kp20PieceId::NearMidpointLeft,

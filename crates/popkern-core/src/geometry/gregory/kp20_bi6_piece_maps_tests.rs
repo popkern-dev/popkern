@@ -50,16 +50,11 @@ fn default_piece_maps_sample_all_pieces_from_guide() {
 }
 
 #[test]
-fn default_piece_maps_classify_triangle_extrapolation() {
+fn default_piece_maps_stay_inside_sector_triangle() {
     let report = kp20_default_piece_map_domain_report();
 
-    assert!(!report.stays_inside_triangle());
-    assert_eq!(report.outside_triangle_corners, 2);
-    assert!((report.max_simplex_excess - 0.5).abs() < 1e-12);
-    assert!(
-        report
-            .offending_corners
-            .iter()
-            .any(|label| label.contains("NearOriginRight.U1V1"))
-    );
+    assert!(report.stays_inside_triangle());
+    assert_eq!(report.outside_triangle_corners, 0);
+    assert!(report.max_simplex_excess <= 1e-12);
+    assert!(report.offending_corners.is_empty());
 }
