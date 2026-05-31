@@ -38,7 +38,9 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, VertexHandle,
+};
 
 /// Result of [`poke_n_gon_face_into_n_quads`]: the `N` sub-face
 /// handles in CCW order matching the input polygon's arc/bridge
@@ -102,6 +104,24 @@ pub(crate) fn poke_n_gon_face_into_n_quads(
     face: FaceHandle,
     central_point: Point3,
 ) -> Result<HexPokeResult, CoreError> {
+    poke_n_gon_face_into_n_quads_with_expected(brep, face, central_point, None)
+}
+
+pub(crate) fn poke_n_gon_face_into_expected_n_quads(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    expected_n: usize,
+) -> Result<HexPokeResult, CoreError> {
+    poke_n_gon_face_into_n_quads_with_expected(brep, face, central_point, Some(expected_n))
+}
+
+fn poke_n_gon_face_into_n_quads_with_expected(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    expected_n: Option<usize>,
+) -> Result<HexPokeResult, CoreError> {
     let outer_loop = brep
         .faces
         .get(face)
@@ -125,30 +145,22 @@ pub(crate) fn poke_n_gon_face_into_n_quads(
     // each slant face into a single edge.  For N=3 (cube) the
     // bridges still survive so the count is 6; the 2N branch
     // catches that.
-    let n = if initial_count >= 6 && initial_count.is_multiple_of(2) {
-        initial_count / 2
-    } else if (4..=16).contains(&initial_count) {
-        // N-HE input at N ≥ 5 — sharp-apex case. Split each arc at
-        // `t=0.5` to reach 2N; the synthetic midpoint vertices
-        // become the "corner" vertices where the bridges would
-        // have ended in the 2N shape.
-        let edges: Vec<EdgeHandle> = loop_hes
-            .iter()
-            .map(|he| brep.half_edges[*he].edge)
-            .collect();
-        for edge in edges {
-            brep.split_edge(edge, 0.5)?;
-        }
-        // Re-walk the loop: `split_edge` re-splices half-edges,
-        // so prior handles may no longer be adjacent.
-        loop_hes = walk_outer_loop(brep, outer_loop)?;
-        if loop_hes.len() != 2 * initial_count {
+    let n = if let Some(expected) = expected_n {
+        if initial_count == 2 * expected {
+            expected
+        } else if initial_count == expected && (4..=16).contains(&expected) {
+            normalize_n_he_loop_to_2n(brep, outer_loop, &mut loop_hes, initial_count)?;
+            expected
+        } else {
             return Err(CoreError::PreconditionFailed(format!(
-                "N-HE → 2N split expected {} half-edges, got {}",
-                2 * initial_count,
-                loop_hes.len()
+                "expected {expected} or {} half-edges for requested N, got {initial_count}",
+                2 * expected
             )));
         }
+    } else if initial_count >= 6 && initial_count.is_multiple_of(2) {
+        initial_count / 2
+    } else if (4..=16).contains(&initial_count) {
+        normalize_n_he_loop_to_2n(brep, outer_loop, &mut loop_hes, initial_count)?;
         initial_count
     } else {
         return Err(CoreError::PreconditionFailed(format!(
@@ -191,6 +203,34 @@ pub(crate) fn poke_n_gon_face_into_n_quads(
         sub_faces,
         central_vertex,
     })
+}
+
+fn normalize_n_he_loop_to_2n(
+    brep: &mut BRep,
+    outer_loop: LoopHandle,
+    loop_hes: &mut Vec<HalfEdgeHandle>,
+    initial_count: usize,
+) -> Result<(), CoreError> {
+    // N-HE input at N ≥ 4. Split each arc at `t=0.5` to reach
+    // 2N; the synthetic midpoint vertices become the "corner"
+    // vertices where bridge endpoints would have existed in the
+    // 2N shape.
+    let edges: Vec<EdgeHandle> = loop_hes
+        .iter()
+        .map(|he| brep.half_edges[*he].edge)
+        .collect();
+    for edge in edges {
+        brep.split_edge(edge, 0.5)?;
+    }
+    *loop_hes = walk_outer_loop(brep, outer_loop)?;
+    if loop_hes.len() != 2 * initial_count {
+        return Err(CoreError::PreconditionFailed(format!(
+            "N-HE -> 2N split expected {} half-edges, got {}",
+            2 * initial_count,
+            loop_hes.len()
+        )));
+    }
+    Ok(())
 }
 
 /// Back-compat wrapper: N=3 specialization of

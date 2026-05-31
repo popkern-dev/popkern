@@ -77,7 +77,7 @@ fn rejects_n_less_than_5() {
     let mut ring = synthetic_ring(4);
     assert!(matches!(
         promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
-        super::PolarPromoteOutcome::Rejected
+        super::PolarPromoteOutcome::Rejected { .. }
     ));
 }
 
@@ -86,7 +86,7 @@ fn rejects_empty_ring() {
     let mut ring: Vec<GregoryPatch> = vec![];
     assert!(matches!(
         promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
-        super::PolarPromoteOutcome::Rejected
+        super::PolarPromoteOutcome::Rejected { .. }
     ));
 }
 
@@ -106,7 +106,7 @@ fn rejects_non_two_stripe_input() {
     ring[0] = GregoryPatch::RectangularBiNonic(Box::new(bi9));
     assert!(matches!(
         promote_decomp_to_kp_polar_bi6(&mut ring, &[]),
-        super::PolarPromoteOutcome::Rejected
+        super::PolarPromoteOutcome::Rejected { .. }
     ));
 }
 

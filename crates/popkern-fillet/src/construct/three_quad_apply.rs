@@ -45,7 +45,7 @@ use three_quad_sphere_cap::{
 };
 use three_quad_trace::trace_cap_subface_neighbors;
 
-use super::poke_hex::poke_n_gon_face_into_n_quads;
+use super::poke_hex::poke_n_gon_face_into_expected_n_quads;
 use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
@@ -243,7 +243,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
             .sub_faces
     } else {
-        poke_n_gon_face_into_n_quads(brep, blend_face, decomp.central_point)
+        poke_n_gon_face_into_expected_n_quads(brep, blend_face, decomp.central_point, n_sides)
             .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?
             .sub_faces
     };

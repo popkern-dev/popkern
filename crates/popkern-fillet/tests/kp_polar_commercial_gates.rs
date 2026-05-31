@@ -12,7 +12,7 @@
 //! | Fixture             | Valence | Radii                                      | Status |
 //! |---------------------|---------|--------------------------------------------|--------|
 //! | pentagon5_uniform   | 5       | all 0.05                                       | `#[ignore]` |
-//! | pentagon5_mixed     | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]                 | `#[ignore]` |
+//! | pentagon5_mixed     | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]                 | polar commercial gates pass |
 //! | pentagon5_variable  | 5       | [0.02, 0.04, 0.06, 0.04, 0.02] (1:3 ratio)     | `#[ignore]` I.22 |
 //! | hexagon6_uniform    | 6       | all 0.05                                       | `#[ignore]` |
 //! | hexagon6_mixed      | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06]           | `#[ignore]` |
@@ -39,27 +39,11 @@
 //! this explicitly in their names (`_blunt` = expected sphere-fit;
 //! `_sharp` or unqualified = polar-engaged).
 //!
-//! All polar fixtures are `#[ignore]` at commit time for **two separate
-//! reasons**:
-//!
-//! 1. **Upstream N ≥ 5 gap (blocking).** The fillet pipeline's
-//!    three-quad vertex-blend path does not currently reach any
-//!    polar rung for N ≥ 5 apex vertices — the `compute_blend_
-//!    boundary` / kef / three-quad dispatch bails out before
-//!    `apply_three_quad_decomposition_to_blend` is invoked.
-//!    Confirmed empirically in `kp_polar_pipeline_probe.rs` — on
-//!    current tested pyramid geometry still returns no measurable
-//!    N-sector Gregory ring for these fixtures.
-//!    Fixing this is Phase II scope.
-//! 2. **Bi-6 output stabilisation (gate threshold).** Even once
-//!    the upstream gap closes, the bi-6/KP20 output may need tuning
-//!    to land under the 5e-2 commercial gates on adversarial
-//!    fixtures. That's the normal progression we expect to track
-//!    by flipping `#[ignore]` off per fixture as it passes.
-//!
-//! When (1) closes, `probe_pentagon5_geometry_sweep` in the probe
-//! file will report `gregory_surface=5` on at least one row —
-//! that's the green-light to start flipping these gates on.
+//! `pentagon5_mixed` is active after high-valence face-loop
+//! normalization restored the N-edge topology prerequisite before
+//! polar dispatch. Remaining ignored fixtures are either selected
+//! non-polar paths or polar stress cases awaiting the same measured
+//! promotion.
 //!
 //! The uniform-radii fixtures are deliberately included to catch
 //! regressions where a sphere-fit shortcut or upstream dispatch
@@ -69,9 +53,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{
-    ApexConstructionDiagnostic, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
-};
+use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
@@ -156,7 +138,6 @@ fn polar_passes_commercial_gates_on_pentagon5_uniform() {
     assert_commercial_gates("pentagon5_uniform", &m);
 }
 
-#[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_mixed() {
     let m = run_n_gonal_pyramid_polar(
@@ -170,29 +151,23 @@ fn polar_passes_commercial_gates_on_pentagon5_mixed() {
 }
 
 #[test]
-fn pentagon5_mixed_records_structured_polar_dispatch_decline() {
+fn pentagon5_mixed_no_longer_records_polar_dispatch_decline() {
     let result = fillet_n_gonal_pyramid_result(5, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     result
         .brep
         .validate()
-        .expect("pentagon5_mixed fallback route must leave a valid BRep");
+        .expect("pentagon5_mixed polar route must leave a valid BRep");
     assert!(
         result
             .repair_report
             .apex_diagnostics
             .iter()
-            .any(|diagnostic| matches!(
+            .all(|diagnostic| !matches!(
                 diagnostic,
-                ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                     if cap.code == "rational_gregory.dispatch.declined"
-                        && cap.stage.starts_with("rational_gregory.dispatch.")
-                        && cap.sector_name == "n5_corner_cap"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("outer_half_edges=Some(4)")
-                                && detail.contains("expected 5 or 10")
-                        })
             )),
-        "pentagon5_mixed should expose its N>=5 Gregory/polar fallback as structured diagnostics"
+        "pentagon5_mixed should reach N>=5 Gregory/polar dispatch without fallback diagnostics"
     );
 }
 
@@ -214,6 +189,32 @@ fn polar_passes_commercial_gates_on_hexagon6_mixed() {
         "hexagon6_mixed",
     );
     assert_commercial_gates("hexagon6_mixed", &m);
+}
+
+#[test]
+fn hexagon6_mixed_records_structured_polar_promotion_decline() {
+    let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06]);
+    result
+        .brep
+        .validate()
+        .expect("hexagon6_mixed fallback route must leave a valid BRep");
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.code == "kp_polar_bi6.promotion.declined"
+                        && cap.stage == "kp_polar_bi6.promotion.lm_rejected"
+                        && cap.sector_name == "kp_polar_bi6_ring_n6"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("no fold-safe L-M iterate")
+                        })
+            )),
+        "hexagon6_mixed should expose its polar promotion rejection as structured diagnostics"
+    );
 }
 
 #[ignore]

@@ -32,8 +32,9 @@
 //!
 //! # Diagnostics
 //!
-//! Set env var `POPKERN_KP_POLAR_TRACE=1` before a fillet run to
-//! stream the reason on every fallback. Silent by default.
+//! Rejections return structured exact-boundary diagnostics so
+//! downstream classification, UI, and tests can explain why the
+//! polar rung declined before lower-rung fallback.
 
 use popkern_core::geometry::gregory::{
     Bi6CapInput, GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic,
@@ -43,10 +44,12 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
+use super::kp_polar_bi6_diagnostics::{self, trace_polar};
 use super::kp_polar_deep_trace::deep_trace_bi6_output;
 use super::kp_polar_lm_optimizer::try_polar_lm;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
+use crate::types::ApexConstructionDiagnostic;
 
 /// Commercial-grade gate on worst-case G1 coplanarity across the
 /// ring's shared spokes. Output above this threshold is still
@@ -70,7 +73,9 @@ pub(super) enum PolarPromoteOutcome {
     /// Promotion did not run; sub-patches unchanged. Upstream
     /// fallback applies (existing two-stripe / kp-binonic output
     /// is preserved).
-    Rejected,
+    Rejected {
+        diagnostics: Vec<ApexConstructionDiagnostic>,
+    },
 }
 
 /// Extract the characteristic fillet radius from an analytic
@@ -114,9 +119,16 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     fillet_surfaces: &[FilletSurfaceResult],
 ) -> PolarPromoteOutcome {
     let n = sub_patches.len();
+    let mut diagnostics = Vec::new();
     if n < 5 {
         trace_polar("n < 5", n, None);
-        return PolarPromoteOutcome::Rejected;
+        record_polar_decline(
+            &mut diagnostics,
+            "under_valence",
+            n,
+            Some("n < 5".to_string()),
+        );
+        return PolarPromoteOutcome::Rejected { diagnostics };
     }
 
     let mut two_stripe: Vec<RectangularGregoryTwoStripe> = Vec::with_capacity(n);
@@ -127,7 +139,13 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
                 n,
                 Some(format!("sub-patch {idx} is {}", variant_name(patch))),
             );
-            return PolarPromoteOutcome::Rejected;
+            record_polar_decline(
+                &mut diagnostics,
+                "non_two_stripe_input",
+                n,
+                Some(format!("sub-patch {idx} is {}", variant_name(patch))),
+            );
+            return PolarPromoteOutcome::Rejected { diagnostics };
         };
         two_stripe.push((**ts).clone());
     }
@@ -155,7 +173,8 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     // injection isn't needed. Pass `None` for the existing path.
     let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {
         trace_polar("extract_direct_boundary_input → None", n, None);
-        return PolarPromoteOutcome::Rejected;
+        record_polar_decline(&mut diagnostics, "direct_boundary_unavailable", n, None);
+        return PolarPromoteOutcome::Rejected { diagnostics };
     };
 
     // I.22 — per-sector radius threading. Math spec §6 (polar-kp-
@@ -187,8 +206,9 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     let polar = match PolarBoundaryInput::from_direct_boundary_input(&direct) {
         Ok(p) => p,
         Err(e) => {
-            trace_polar("from_direct_boundary_input", n, Some(e));
-            return PolarPromoteOutcome::Rejected;
+            trace_polar("from_direct_boundary_input", n, Some(e.clone()));
+            record_polar_decline(&mut diagnostics, "polar_boundary_input", n, Some(e));
+            return PolarPromoteOutcome::Rejected { diagnostics };
         }
     };
 
@@ -197,15 +217,17 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
         Ok(tb) => tb,
         Err(e) => {
-            trace_polar("tensor-border extract", n, Some(e));
-            return PolarPromoteOutcome::Rejected;
+            trace_polar("tensor-border extract", n, Some(e.clone()));
+            record_polar_decline(&mut diagnostics, "tensor_border_extract", n, Some(e));
+            return PolarPromoteOutcome::Rejected { diagnostics };
         }
     };
     let cap_input = match convert_polar_to_bi6_cap_input(&polar, &tensor_border) {
         Ok(ci) => ci,
         Err(e) => {
-            trace_polar("convert_polar_to_bi6_cap_input", n, Some(e));
-            return PolarPromoteOutcome::Rejected;
+            trace_polar("convert_polar_to_bi6_cap_input", n, Some(e.clone()));
+            record_polar_decline(&mut diagnostics, "bi6_cap_input", n, Some(e));
+            return PolarPromoteOutcome::Rejected { diagnostics };
         }
     };
 
@@ -268,6 +290,12 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
                 n,
                 Some(format!("sub-patch {fold_idx}")),
             );
+            record_polar_decline(
+                &mut diagnostics,
+                "f_kappa_self_intersection",
+                n,
+                Some(format!("kappa={kappa};sub_patch={fold_idx}")),
+            );
             continue;
         }
         if kappa != 5 {
@@ -312,11 +340,20 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             committed_patches = Some(lm_wrapped);
         } else {
             trace_polar("L-M rejected", n, Some("no fold-safe iterate found".into()));
+            record_polar_decline(
+                &mut diagnostics,
+                "lm_rejected",
+                n,
+                Some(
+                    "F_kappa and weighted F5 candidates folded; no fold-safe L-M iterate found"
+                        .into(),
+                ),
+            );
         }
     }
 
     let Some(new_patches) = committed_patches else {
-        return PolarPromoteOutcome::Rejected;
+        return PolarPromoteOutcome::Rejected { diagnostics };
     };
 
     let worst_coplanarity = worst_ring_coplanarity(&new_patches);
@@ -347,6 +384,15 @@ pub(super) fn promote_and_update_relaxed(
     fillet_surfaces: &[FilletSurfaceResult],
     relaxed_coplanarity: &mut Option<f64>,
 ) -> bool {
+    promote_and_update_relaxed_with_diagnostics(sub_patches, fillet_surfaces, relaxed_coplanarity).0
+}
+
+#[allow(dead_code)]
+pub(super) fn promote_and_update_relaxed_with_diagnostics(
+    sub_patches: &mut [GregoryPatch],
+    fillet_surfaces: &[FilletSurfaceResult],
+    relaxed_coplanarity: &mut Option<f64>,
+) -> (bool, Vec<ApexConstructionDiagnostic>) {
     match promote_decomp_to_kp_polar_bi6(sub_patches, fillet_surfaces) {
         PolarPromoteOutcome::Committed { worst_coplanarity } => {
             *relaxed_coplanarity = if worst_coplanarity > COMMERCIAL_GATE {
@@ -354,9 +400,9 @@ pub(super) fn promote_and_update_relaxed(
             } else {
                 None
             };
-            true
+            (true, Vec::new())
         }
-        PolarPromoteOutcome::Rejected => false,
+        PolarPromoteOutcome::Rejected { diagnostics } => (false, diagnostics),
     }
 }
 
@@ -420,6 +466,20 @@ fn try_weighted_f5_profiles(
     None
 }
 
+fn record_polar_decline(
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+    reason_code: &str,
+    n_sides: usize,
+    detail: Option<String>,
+) {
+    diagnostics.push(kp_polar_bi6_diagnostics::promotion_declined(
+        reason_code,
+        n_sides,
+        detail,
+        Some(SELF_INT_TOL),
+    ));
+}
+
 /// Name of a `GregoryPatch` variant for diagnostic traces.
 fn variant_name(p: &GregoryPatch) -> &'static str {
     match p {
@@ -430,18 +490,6 @@ fn variant_name(p: &GregoryPatch) -> &'static str {
         GregoryPatch::RectangularTwoStripe(_) => "RectangularTwoStripe",
         GregoryPatch::RectangularBiNonic(_) => "RectangularBiNonic",
         GregoryPatch::Triangular(_) => "Triangular",
-    }
-}
-
-/// Emit a diagnostic trace when the polar K-P promotion rejects.
-/// Gated on `POPKERN_KP_POLAR_TRACE` so production builds stay
-/// silent; set `=1` to see which stage rejected and why.
-fn trace_polar(stage: &str, n: usize, detail: Option<String>) {
-    if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
-        match detail {
-            Some(d) => eprintln!("[kp_polar_bi6 N={n}] fallback @ {stage}: {d}"),
-            None => eprintln!("[kp_polar_bi6 N={n}] fallback @ {stage}"),
-        }
     }
 }
 

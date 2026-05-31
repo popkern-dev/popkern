@@ -127,18 +127,19 @@ pub(super) fn run_promotion_ladder(
             diagnostics: Vec::new(),
         };
     }
-    let polar_committed = use_kp_polar
-        && decomp.sub_patches.len() >= 5
-        && super::kp_polar_bi6_promote::promote_and_update_relaxed(
+    let (polar_committed, mut diagnostics) = if use_kp_polar && decomp.sub_patches.len() >= 5 {
+        super::kp_polar_bi6_promote::promote_and_update_relaxed_with_diagnostics(
             &mut decomp.sub_patches,
             fillet_surfaces,
             relaxed_coplanarity,
-        );
-    let mut diagnostics = Vec::new();
+        )
+    } else {
+        (false, Vec::new())
+    };
     if use_kp_binonic && !polar_committed {
         let report = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
         *relaxed_coplanarity = report.relaxed_coplanarity;
-        diagnostics = report.diagnostics;
+        diagnostics.extend(report.diagnostics);
     }
     PromotionLadderReport {
         result: PromotionResult::Standard,

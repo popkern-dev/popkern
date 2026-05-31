@@ -33,7 +33,7 @@ use blend_insert_diagnostics::{
 };
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
-use blend_insert_topology::split_corner_triangles;
+use blend_insert_topology::{normalize_underresolved_face_loop_to_n, split_corner_triangles};
 
 type InsertVertexBlendOutput = (
     Vec<CornerPatchInfo>,
@@ -244,6 +244,26 @@ pub(crate) fn insert_vertex_blend(
         )
     {
         return Ok((patches, n_gon_boundary, Vec::new()));
+    }
+
+    if use_rational_gregory
+        && use_kp_polar_gregory
+        && rational_gregory_compatible
+        && n_sides >= 5
+        && dispatch_boundary.segments.len() == 2 * n_sides
+        && !crate::construct::poke_hex::face_has_2n_outer_half_edges_with(
+            brep,
+            blend_face,
+            n_sides,
+            dispatch_boundary.sphere_fit_substituted,
+        )
+        && let Err(reason) = normalize_underresolved_face_loop_to_n(brep, blend_face, n_sides)
+    {
+        diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+            n_sides,
+            "normalization_failed",
+            Some(reason),
+        ));
     }
 
     let rational_dispatch_preconditions_met = dispatch_boundary.segments.len() == 2 * n_sides
