@@ -17,6 +17,7 @@ use super::sector::ExactBoundaryCapSectorInput;
 const PCURVE_SAMPLES: usize = 9;
 const COMMIT_TOLERANCE: f64 = 1.0e-6;
 
+#[allow(clippy::result_large_err)]
 pub(super) fn commit_cap_spoke_shared_trims(
     brep: &mut BRep,
     sectors: &[ExactBoundaryCapSectorInput],
@@ -62,6 +63,7 @@ pub(super) fn commit_cap_spoke_shared_trims(
     Ok(committed.len())
 }
 
+#[allow(clippy::result_large_err)]
 fn commit_one_cap_spoke(
     brep: &mut BRep,
     sector: &ExactBoundaryCapSectorInput,

@@ -225,6 +225,7 @@ fn boundary_tangent(boundary: &NurbsCurve, parameter: f64) -> Option<Vec3> {
     None
 }
 
+#[allow(clippy::needless_range_loop)]
 fn fixed_knot_interpolation_controls(
     points: &[Point3],
     parameters: &[f64],
@@ -329,6 +330,7 @@ fn basis_function(index: usize, degree: usize, parameter: f64, knots: &[f64]) ->
     value
 }
 
+#[allow(clippy::needless_range_loop)]
 fn solve_linear_system(matrix: &[Vec<f64>], values: &[f64]) -> Option<Vec<f64>> {
     let count = matrix.len();
     if values.len() != count || matrix.iter().any(|row| row.len() != count) {

@@ -45,6 +45,7 @@ pub(crate) struct ExactBoundaryCommitReport {
 }
 
 /// Commit solved exact-boundary sector surfaces and paired pcurves transactionally.
+#[allow(clippy::result_large_err)]
 pub(crate) fn commit_exact_boundary_sector_surfaces(
     brep: &mut BRep,
     cap_face: FaceHandle,
@@ -64,6 +65,7 @@ pub(crate) fn commit_exact_boundary_sector_surfaces(
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_commit_inputs(
     brep: &BRep,
     cap_face: FaceHandle,
@@ -193,6 +195,7 @@ fn has_required_pcurve_pairs_for_sector(
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn commit_validated_inputs(
     brep: &mut BRep,
     sectors: &[ExactBoundaryCapSectorInput],

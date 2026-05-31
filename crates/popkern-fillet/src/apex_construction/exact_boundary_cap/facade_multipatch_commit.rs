@@ -20,6 +20,7 @@ use super::candidate_continuity::candidate_selected_strip_continuity_diagnostic;
 use super::multipatch_route::ExactBoundaryMultipatchRouteAttempt;
 use crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic;
 
+#[allow(clippy::large_enum_variant)]
 pub(super) enum ExactBoundaryMultipatchCommitOutcome {
     Accepted {
         faces: Vec<FaceHandle>,
@@ -243,6 +244,7 @@ fn bind_inner_face_retained_boundaries(
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn commit_unaffected_one_patch_sectors<'a>(
     brep: &mut BRep,
     cap_face: FaceHandle,

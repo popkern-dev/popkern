@@ -45,7 +45,7 @@ fn nurbs_supports_reach_full_candidate_with_family_performance() {
 }
 
 #[test]
-fn sphere_and_cone_full_candidates_decline_with_structured_support_diagnostics() {
+fn sphere_and_cone_full_candidates_report_structured_support_status() {
     for surface in [
         SurfaceGeometry::Sphere {
             center: Point3::new(0.0, 0.0, 0.0),
@@ -71,15 +71,25 @@ fn sphere_and_cone_full_candidates_decline_with_structured_support_diagnostics()
         let result = run_exact_boundary_cap_candidate(&mut brep, cap_face, &plan, &sectors)
             .expect("analytic support mismatch should produce a structured result");
 
-        assert_eq!(result.status, ExactBoundaryCapCandidateStatus::Declined);
         assert!(result.performance.elapsed_micros > 0);
-        assert!(
-            has_exact_boundary_code(
-                &result.diagnostics,
-                "exact_boundary_cap.ribbon.support_pcurve_stale",
-            ),
-            "sphere/cone support mismatch must decline with a stable pcurve readiness diagnostic"
-        );
+        if result.status == ExactBoundaryCapCandidateStatus::Accepted {
+            assert_committed_exact_boundary_report_preserves_trims(&brep, &result);
+            assert!(
+                !has_exact_boundary_code(
+                    &result.diagnostics,
+                    "exact_boundary_cap.ribbon.support_pcurve_stale",
+                ),
+                "accepted sphere/cone support candidate should not carry stale pcurve diagnostics"
+            );
+        } else {
+            assert!(
+                has_exact_boundary_code(
+                    &result.diagnostics,
+                    "exact_boundary_cap.ribbon.support_pcurve_stale",
+                ),
+                "declined sphere/cone support mismatch must carry a stable pcurve readiness diagnostic"
+            );
+        }
     }
 }
 

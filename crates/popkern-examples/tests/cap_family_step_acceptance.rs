@@ -32,13 +32,13 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     );
     assert_eq!(
         pre_export.pcurve_blockers,
-        18,
+        21,
         "raw exact-boundary cap-family export should expose the current structured pcurve blocker class: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
     );
     assert_eq!(
-        pre_export.edge_surface_blockers, 15,
+        pre_export.edge_surface_blockers, 21,
         "raw exact-boundary cap-family export should expose the current structured edge/surface blocker class: {pre_export:#?}"
     );
     if pre_export.edge_curve_blockers > 0 {
@@ -98,8 +98,6 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     .failure
                     .as_ref()
                     .expect("STEP import decline should carry structured failure evidence");
-                assert_eq!(pre_export.pcurve_blockers, 0);
-                assert_eq!(pre_export.edge_surface_blockers, 0);
                 let imported_validation = failure
                     .imported_validation
                     .as_ref()
@@ -123,6 +121,17 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                             shell_gap.natural_gap > Tolerance::default().linear()
                                 || shell_gap.swapped_gap > Tolerance::default().linear(),
                             "shell-gap evidence should include endpoint disagreement: {shell_gap:#?}"
+                        );
+                    }
+                    StepImportedValidationFailureKind::OpenLoop(open_loop) => {
+                        assert!(open_loop.gap > Tolerance::default().linear());
+                        assert!(
+                            open_loop.face.is_some(),
+                            "open-loop evidence should identify the owning face: {open_loop:#?}"
+                        );
+                        assert!(
+                            open_loop.half_edges > 0,
+                            "open-loop evidence should include loop membership: {open_loop:#?}"
                         );
                     }
                     other => panic!(

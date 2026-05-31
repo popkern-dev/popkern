@@ -1,6 +1,8 @@
 use popkern_core::error::ValidationError;
 use popkern_core::geometry::CurveEval;
-use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, ShellHandle, SolidHandle};
+use popkern_core::topology::{
+    BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, LoopHandle, ShellHandle, SolidHandle,
+};
 
 use crate::step_validation::StepRoundTripBodyReport;
 
@@ -22,6 +24,7 @@ pub struct StepImportedValidationFailure {
 pub enum StepImportedValidationFailureKind {
     EulerPoincare(StepImportedEulerPoincareEvidence),
     ShellGap(StepImportedShellGapEvidence),
+    OpenLoop(StepImportedOpenLoopEvidence),
     Other { message: String },
 }
 
@@ -65,6 +68,14 @@ pub struct StepImportedShellGapEvidence {
     pub swapped_gap: f64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct StepImportedOpenLoopEvidence {
+    pub loop_: LoopHandle,
+    pub face: Option<FaceHandle>,
+    pub gap: f64,
+    pub half_edges: usize,
+}
+
 impl std::fmt::Display for StepRoundTripFailure {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}: {}", self.label, self.reason)
@@ -91,6 +102,11 @@ pub(super) fn imported_validation_failure(
             ValidationError::ShellGap { edge, gap } => StepImportedValidationFailureKind::ShellGap(
                 imported_shell_gap_evidence(body, *edge, *gap),
             ),
+            ValidationError::OpenLoop { loop_, gap } => {
+                StepImportedValidationFailureKind::OpenLoop(imported_open_loop_evidence(
+                    body, *loop_, *gap,
+                ))
+            }
             _ => StepImportedValidationFailureKind::Other {
                 message: err.to_string(),
             },
@@ -156,6 +172,25 @@ fn imported_euler_poincare_evidence(
         solid_shell_faces,
         solid_shell_loops,
         solid_shell_edges,
+    }
+}
+
+fn imported_open_loop_evidence(
+    body: &BRep,
+    loop_: LoopHandle,
+    gap: f64,
+) -> StepImportedOpenLoopEvidence {
+    let face = body.loops.get(loop_).map(|loop_data| loop_data.face);
+    let half_edges = body
+        .half_edges
+        .values()
+        .filter(|half_edge| half_edge.loop_ == loop_)
+        .count();
+    StepImportedOpenLoopEvidence {
+        loop_,
+        face,
+        gap,
+        half_edges,
     }
 }
 

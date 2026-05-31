@@ -34,9 +34,9 @@
 //! | Fixture          | Valence | Radii                                | Status                    |
 //! |------------------|---------|--------------------------------------|---------------------------|
 //! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | exact-boundary route passes |
-//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | `#[ignore]` no measurable K-P ring |
-//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | `#[ignore]` no measurable K-P ring |
-//! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | binonic commercial gates pass |
+//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | binonic commercial gates pass |
+//! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | binonic commercial gates pass |
 //! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | `#[ignore]` lower-rung fallback |
 //! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | `#[ignore]` no measurable K-P ring |
 //! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | `#[ignore]` no measurable K-P ring |
@@ -47,9 +47,10 @@
 //!
 //! **Known limits after exact-boundary promotion**:
 //! * cube_mixed is now covered as an exact-boundary route invariant.
-//! * cube_extreme and the wider asymmetry fixtures currently produce
-//!   no measurable K-P ring under this helper, so their older binonic
-//!   continuity claims were stale.
+//! * cube_extreme through cube_extreme_30 now ship rectangular
+//!   binonic surfaces through direct exact-boundary spoke-row
+//!   optimization. Wider asymmetry fixtures still produce no
+//!   measurable K-P ring.
 //! * pyramid4_mixed reaches Gregory patches but not the binonic rung;
 //!   the current blocker is lower-rung fallback, distinct from the
 //!   native exact-boundary cap_outer matrix.
@@ -63,8 +64,8 @@
 //!
 //! The active acceptance in this file is now limited to exact-boundary
 //! route invariants that still apply when the K-P/binonic flag is set.
-//! Continuity tests remain ignored until they produce measurable
-//! rectangular binonic rings.
+//! Wider asymmetry and unsupported-valence continuity tests remain
+//! ignored until they produce measurable rectangular binonic rings.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -200,11 +201,43 @@ fn binonic_passes_or_declines_commercially_on_cube_mixed() {
     assert_cube_mixed_exact_boundary_route(&result);
 }
 
-/// cube_extreme currently reaches no measurable K-P/binonic ring
-/// through this helper. This gate stays ignored until dispatch
-/// exposes committed rectangular binonic patches again.
 #[test]
-#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches under this helper"]
+fn kp_binonic_dispatch_reaches_measurable_ring_on_cube_extreme() {
+    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
+    let vertex = cube.vertices.keys().next().unwrap();
+    let edges = incident_edges(&cube, vertex);
+    let result = fillet_cube_result(&[0.02, 0.10, 0.20], true);
+    let faces = result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    let patches = collect_patches(&result.brep, &faces);
+    assert_eq!(edges.len(), 3);
+    assert_eq!(
+        patches.len(),
+        3,
+        "cube_extreme should reach a measurable K-P/Gregory ring"
+    );
+    assert_all_binonic(&patches, "cube_extreme");
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .all(|diagnostic| {
+                !matches!(
+                    diagnostic,
+                    popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                        if cap.stage == "kp_binonic.promotion"
+                            && cap.code == "kp_binonic.promotion.outer_boundary_residual_exceeded"
+                )
+            }),
+        "cube_extreme should no longer demote K-P/binonic on outer-boundary residual"
+    );
+}
+
+#[test]
 fn binonic_passes_commercial_gates_on_cube_extreme() {
     let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
     assert_commercial_gates("cube_extreme", &m);
@@ -219,24 +252,19 @@ fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
 
 // ── K-P/binonic dispatch stress fixtures ─────────────────────
 //
-// These tests remain ignored because the current helper does not
-// expose measurable rectangular binonic rings for these fixtures.
-// They become continuity gates only after the dispatch blocker is
-// closed.
+// Wider-asymmetry tests remain ignored where the current helper does
+// not expose committed rectangular binonic rings. They become
+// continuity gates after the upstream dispatch blocker is closed.
 
 /// 1:20 radius asymmetry — twice as asymmetric as cube_extreme.
-/// Current blocker: no measurable K-P/binonic ring.
 #[test]
-#[ignore = "K-P/binonic dispatch gate: cube_extreme_20 currently produces no measurable Gregory corner patches under this helper"]
 fn binonic_passes_commercial_gates_on_cube_extreme_20() {
     let m = run_cube_binonic(&[0.01, 0.10, 0.20], "cube_extreme_20");
     assert_commercial_gates("cube_extreme_20", &m);
 }
 
-/// 1:30 radius asymmetry. Current blocker: no measurable
-/// K-P/binonic ring.
+/// 1:30 radius asymmetry.
 #[test]
-#[ignore = "K-P/binonic dispatch gate: cube_extreme_30 currently produces no measurable Gregory corner patches under this helper"]
 fn binonic_passes_commercial_gates_on_cube_extreme_30() {
     let m = run_cube_binonic(&[0.0067, 0.10, 0.20], "cube_extreme_30");
     assert_commercial_gates("cube_extreme_30", &m);
@@ -341,7 +369,7 @@ fn exact_boundary_route_matches_with_binonic_flag_on_cube_mixed() {
 }
 
 #[test]
-#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches, so two-stripe/binonic comparison is not meaningful"]
+#[ignore = "comparison gate: non-binonic cube_extreme route currently produces no measurable Gregory patches"]
 fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     let mt = run_cube(&[0.02, 0.10, 0.20], false);
     let mb = run_cube(&[0.02, 0.10, 0.20], true);
@@ -349,7 +377,6 @@ fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
 }
 
 #[test]
-#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches, so binonic shipping cannot be asserted"]
 fn cube_extreme_ships_binonic_no_warning() {
     use popkern_core::tolerance::Tolerance;
     use popkern_fillet::error::BlendWarning;

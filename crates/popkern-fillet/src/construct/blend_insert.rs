@@ -21,10 +21,18 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 
 #[path = "blend_insert_surface.rs"]
 mod blend_insert_surface;
-use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode};
+use crate::types::{
+    ApexConstructionDiagnostic, ContinuityLevel, CornerMethod, CornerPatchInfo, VertexMode,
+};
 use crate::vertex_classifier::VertexBlendClassification;
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
+
+type InsertVertexBlendOutput = (
+    Vec<CornerPatchInfo>,
+    Option<BlendBoundary>,
+    Vec<ApexConstructionDiagnostic>,
+);
 
 /// Insert a smooth G1 vertex blend face at a multi-fillet vertex.
 ///
@@ -51,7 +59,7 @@ pub(crate) fn insert_vertex_blend(
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
     precomputed_classification: Option<VertexBlendClassification>,
-) -> Result<(Vec<CornerPatchInfo>, Option<BlendBoundary>), String> {
+) -> Result<InsertVertexBlendOutput, String> {
     // §5.3 item #5 — callers pre-compute classification against the pre-modification BRep; post-Phase-C original edge handles are stale. Fallback for tests that call us on an untouched BRep.
     let classification = precomputed_classification.unwrap_or_else(|| {
         let filleted_edges: Vec<_> = edge_indices
@@ -229,7 +237,7 @@ pub(crate) fn insert_vertex_blend(
             boundary.bridge_fallbacks.clone(),
         )
     {
-        return Ok((patches, n_gon_boundary));
+        return Ok((patches, n_gon_boundary, Vec::new()));
     }
 
     // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
@@ -261,18 +269,18 @@ pub(crate) fn insert_vertex_blend(
             use_kp_polar_gregory,
         ) {
             Ok(result) if result.patches.len() == n_sides => {
-                return Ok((result.patches, n_gon_boundary));
+                return Ok((result.patches, n_gon_boundary, result.diagnostics));
             }
             Err(ThreeQuadFailure::Overlap) => {
                 let mut r = base_patch.clone();
                 r.overlap_remediated = true;
-                return Ok((vec![r], n_gon_boundary));
+                return Ok((vec![r], n_gon_boundary, Vec::new()));
             }
             _ => {}
         }
     }
 
-    Ok((vec![base_patch], n_gon_boundary))
+    Ok((vec![base_patch], n_gon_boundary, Vec::new()))
 }
 
 /// Phase 1: Split off corner regions from each face around V using

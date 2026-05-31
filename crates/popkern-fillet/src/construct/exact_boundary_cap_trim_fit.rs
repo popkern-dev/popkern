@@ -26,6 +26,7 @@ pub(super) fn greville_parameters(
     Some(params)
 }
 
+#[allow(clippy::needless_range_loop)]
 pub(super) fn interpolate_points_on_fixed_knots(
     points: &[Point3],
     params: &[f64],

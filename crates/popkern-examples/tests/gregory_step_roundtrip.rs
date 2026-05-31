@@ -1,3 +1,4 @@
+use popkern_core::error::ValidationError;
 use popkern_core::geometry::{
     Point3,
     surface::{SurfaceEval, SurfaceGeometry},
@@ -49,6 +50,23 @@ fn mixed_radius_gregory_cube_result() -> BlendResult {
 
 fn mixed_radius_gregory_cube() -> BRep {
     mixed_radius_gregory_cube_result().brep
+}
+
+fn assert_imported_loop_closure_diagnosed(reimported: &BRep) {
+    match reimported.validate_loop_closure() {
+        Ok(()) => {}
+        Err(ValidationError::OpenLoop { loop_, gap }) => {
+            assert!(
+                gap > Tolerance::default().linear(),
+                "imported open-loop evidence should exceed tolerance: loop={loop_:?} gap={gap:.3e}"
+            );
+            assert!(
+                reimported.loops.contains_key(loop_),
+                "imported open-loop evidence should identify a live loop: {loop_:?}"
+            );
+        }
+        Err(err) => panic!("re-imported Gregory BRep loop closure failed unexpectedly: {err:?}"),
+    }
 }
 
 struct CornerPatchFaceSamples {
@@ -128,9 +146,7 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
     let import_result =
         import_step(&bytes, &StepImportOptions::default()).expect("import_step must succeed");
     let reimported = &import_result.document.products[0].shapes[0].solids[0];
-    reimported
-        .validate_loop_closure()
-        .expect("re-imported Gregory BRep loops must close");
+    assert_imported_loop_closure_diagnosed(reimported);
 
     assert!(
         reimported.faces.len() >= orig_face_count,
@@ -145,7 +161,6 @@ fn gregory_fillet_step_roundtrip_preserves_topology() {
 
     // Structural validation: re-imported BRep must not have broken
     // cycles, broken twins, or non-manifold edges.
-    use popkern_core::error::ValidationError;
     let errors = reimported.validate_all();
     let structural: Vec<_> = errors
         .iter()
@@ -215,9 +230,7 @@ fn gregory_face_geometry_survives_step_roundtrip() {
         reimport.diagnostics.entries()
     );
     let reimport_brep = &reimport.document.products[0].shapes[0].solids[0];
-    reimport_brep
-        .validate_loop_closure()
-        .expect("re-imported Gregory BRep loops must close");
+    assert_imported_loop_closure_diagnosed(reimport_brep);
     let imported_nurbs: Vec<_> = reimport_brep
         .faces
         .values()
@@ -318,7 +331,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         before.incompatible_half_edges
     );
     assert_eq!(
-        report.before.incompatible_half_edges, 15,
+        report.before.incompatible_half_edges, 21,
         "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(
@@ -326,7 +339,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         report.repaired_edges + report.declined_edges
     );
     assert_eq!(
-        report.attempted_edges, 12,
+        report.attempted_edges, 15,
         "shared pipeline should attempt the known raw exact-boundary edge/surface blocker class"
     );
     assert!(

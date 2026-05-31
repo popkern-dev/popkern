@@ -31,6 +31,7 @@ mod kp_binonic_jacobian;
 pub(super) use kp_binonic_jacobian::{analytic_ring_jacobian, flatten_ring};
 
 use super::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
+use super::kp_exact_boundary_binonic_optimizer::optimize_exact_boundary_binonic;
 use super::kp_lm_solver::{LmConfig, LmEval, run_lm};
 use popkern_core::geometry::gregory::{
     DirectBoundaryInput, DirectConstructionOptions, GregoryPatch, KpGuidePatchBiNonic,
@@ -107,6 +108,16 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         return Some(KpBiNonicOptimizerResult {
             binonic: bq_result.binonic,
             final_residual: bq_result.final_residual,
+        });
+    }
+    if input.hex_boundaries.is_some()
+        && outer_fillets.is_none()
+        && let Some(direct) = optimize_exact_boundary_binonic(&initial)
+        && direct.final_residual < bq_result.final_residual
+    {
+        return Some(KpBiNonicOptimizerResult {
+            binonic: direct.binonic,
+            final_residual: direct.final_residual,
         });
     }
 

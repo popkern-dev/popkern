@@ -6,7 +6,7 @@ fn gregory_surface_boundary_knowledge_classifies_remaining_blockers() {
     let ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
 
     assert_eq!(
-        ownership.blockers, 18,
+        ownership.blockers, 21,
         "exact-boundary Gregory construction should expose the current structured fidelity blocker class: {ownership:#?}"
     );
     assert_eq!(

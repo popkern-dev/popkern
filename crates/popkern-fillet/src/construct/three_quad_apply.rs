@@ -8,6 +8,8 @@
 mod three_quad_apply_helpers;
 #[path = "three_quad_face_matching.rs"]
 mod three_quad_face_matching;
+#[path = "three_quad_kp_boundary_relock.rs"]
+mod three_quad_kp_boundary_relock;
 #[path = "three_quad_kp_promote.rs"]
 mod three_quad_kp_promote;
 #[path = "three_quad_planned_seam_authoring.rs"]
@@ -125,20 +127,23 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // coplanarity `c` exceeded the 5e-2 commercial gate.
     let mut relaxed_coplanarity: Option<f64> = None;
 
-    // Phase 6c-D Stage 1d: capture the substituted hex-side
-    // boundary CPs from `boundary` so the K-P bi-nonic ring
-    // builder can use them via `pick_hex_boundary` instead of
-    // `k_p_boundary` Hermite synthesis. When the boundary's
-    // `hex_boundary_cps_deg9` is empty (sphere-fit substitution
-    // didn't run / declined), the closure passes `None` and
-    // existing Hermite-blend behaviour is preserved.
+    // Capture or fit hex-side boundary CPs so K-P can measure exact
+    // live-boundary ownership instead of guide-only Hermite synthesis.
+    let fitted_hex_boundary_cps_deg9 = if boundary.hex_boundary_cps_deg9.is_empty() {
+        super::three_quad_boundary_fit::fit_hex_boundary_cps_deg9(boundary).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
     let hex_boundary_data: Option<&[([Point3; 10], [Point3; 10])]> =
-        if boundary.hex_boundary_cps_deg9.is_empty() {
-            None
-        } else {
+        if !boundary.hex_boundary_cps_deg9.is_empty() {
             Some(&boundary.hex_boundary_cps_deg9)
+        } else if !fitted_hex_boundary_cps_deg9.is_empty() {
+            Some(&fitted_hex_boundary_cps_deg9)
+        } else {
+            None
         };
     let unpromoted_constrained_decomp = decomp.clone();
+    let mut diagnostics = Vec::new();
 
     let mut promotion_result = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
@@ -155,11 +160,20 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let mut macro_family = macro_family_from_promotion(promotion_result);
 
     const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
-    if max_outer_boundary_residual(&decomp, boundary)
-        .is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
-        && max_outer_boundary_residual(&unpromoted_constrained_decomp, boundary)
+    let promoted_boundary_residual = max_outer_boundary_residual(&decomp, boundary);
+    let unpromoted_boundary_residual =
+        max_outer_boundary_residual(&unpromoted_constrained_decomp, boundary);
+    if promoted_boundary_residual.is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
+        && unpromoted_boundary_residual
             .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
     {
+        diagnostics.push(
+            super::three_quad_kp_diagnostics::outer_boundary_residual_exceeded(
+                promoted_boundary_residual.unwrap_or_default(),
+                unpromoted_boundary_residual,
+                PROMOTED_BOUNDARY_RESIDUAL_GATE,
+            ),
+        );
         decomp = unpromoted_constrained_decomp.clone();
         promotion_result = super::promotion_ladder::PromotionResult::Standard;
         macro_family = None;
@@ -175,7 +189,6 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     } else {
         None
     };
-    let mut diagnostics = Vec::new();
     if let Some(rejection) = &sphere_cap_boundary_rejection {
         diagnostics.push(rejection.to_diagnostic());
     }
@@ -479,7 +492,6 @@ pub(crate) fn author_model_level_support_face_boundary_seams(
         &semantic_cap_indices_for_subfaces(brep, boundary, sub_faces),
     )
 }
-
 #[cfg(test)]
 #[path = "three_quad_apply_tests.rs"]
 mod tests;

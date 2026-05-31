@@ -4,6 +4,7 @@ use super::*;
 use crate::construct::kp_binonic_optimizer;
 use crate::construct::kp_biquintic_optimizer::optimize_biquintic_and_build_binonic;
 use crate::construct::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
+use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
 /// Promote sub-patches from `RectangularTwoStripe` to
 /// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
@@ -91,23 +92,44 @@ pub(super) fn promote_decomp_to_kp_binonic(
             None
         };
 
-    let binonic = match kp_binonic_optimizer::optimize_binonic_with_outer_fillets(
-        &input,
+    let pre_worst = worst_ring_coplanarity(sub_patches);
+    let boundary_relock = input.hex_boundaries.clone();
+    let mut optimization_input = input.clone();
+    optimization_input.hex_boundaries = None;
+    let guide_binonic = match optimize_kp_binonic_candidate(
+        &optimization_input,
         &options,
         outer_fillets.as_deref(),
     ) {
-        Some(r) => r.binonic,
-        None => match optimize_biquintic_and_build_binonic(&input, &options) {
-            Some(r) => r.binonic,
-            None => {
-                let Some(result) = optimize_c_twists_and_build_binonic(&input, &options) else {
-                    trace_kp("optimize_binonic_and_build_binonic → None", n, None);
-                    return None;
-                };
-                result.binonic
-            }
-        },
+        Some(candidate) => candidate,
+        None => {
+            trace_kp("optimize_binonic_and_build_binonic → None", n, None);
+            return None;
+        }
     };
+    let mut binonic = guide_binonic.clone();
+    if let Some(boundaries) = boundary_relock.as_deref() {
+        let exact_candidate =
+            optimize_kp_binonic_candidate(&input, &options, outer_fillets.as_deref())
+                .filter(|candidate| candidate_passes_promotion_gates(candidate, pre_worst))
+                .filter(|candidate| {
+                    super::three_quad_kp_boundary_relock::boundary_residual_for_binonic(
+                        candidate, boundaries,
+                    )
+                    .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
+                });
+        if let Some(exact) = exact_candidate {
+            binonic = exact;
+        } else if let Some(relocked) =
+            super::three_quad_kp_boundary_relock::accepted_boundary_relock(
+                &guide_binonic,
+                boundaries,
+                pre_worst,
+            )
+        {
+            binonic = relocked;
+        }
+    }
 
     // Self-intersection gate — never commit a fold.
     let binonic_gp: Vec<GregoryPatch> = binonic
@@ -125,7 +147,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             return None;
         }
     }
-    const COMMERCIAL_G0_GATE: f64 = 1e-10;
+    const COMMERCIAL_G0_GATE: f64 = RING_G0_GATE;
     let post_g0 = worst_ring_g0_gap(&binonic_gp);
     if post_g0 > COMMERCIAL_G0_GATE {
         trace_kp(
@@ -142,20 +164,8 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // catastrophically worse than the predecessor rung. Threshold
     // 1.2× absorbs floating-point wobble while catching real
     // regressions.
-    let pre_worst = worst_ring_coplanarity(sub_patches);
     let post_worst = worst_ring_coplanarity(&binonic_gp);
-    // Phase 6c-D Stage 3: under boundary injection, the binonic
-    // patch is built from a boundary-consistent frame + Coons
-    // interior, NOT from the K-P guide-driven L-M optimum. Spoke
-    // G1 is determined entirely by the (analytic) row0/col9 +
-    // (input) row9/col0 geometry — the L-M can't refine it. The
-    // 1.2× regression guard was tuned for the guide-driven path
-    // and rejects legitimate-but-different geometry under
-    // injection. Skip residual gates that use this pre-assignment
-    // ring metric when injection is active; the self-intersection and
-    // G0 gates above remain the local quality floor.
-    let injection_active = hex_boundaries.is_some();
-    if !injection_active && pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
+    if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
         trace_kp(
             "quality regression",
             n,
@@ -164,7 +174,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
         return None;
     }
 
-    const COMMERCIAL_GATE: f64 = 5e-2;
+    const COMMERCIAL_GATE: f64 = RING_G1_GATE;
     if post_worst > COMMERCIAL_GATE {
         trace_kp(
             "g1 postcondition",
@@ -180,6 +190,50 @@ pub(super) fn promote_decomp_to_kp_binonic(
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
     None
+}
+
+const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
+const RING_G0_GATE: f64 = 1.0e-10;
+const RING_G1_GATE: f64 = 5.0e-2;
+
+fn optimize_kp_binonic_candidate(
+    input: &DirectBoundaryInput,
+    options: &DirectConstructionOptions,
+    outer_fillets: Option<&[popkern_core::geometry::surface::SurfaceGeometry]>,
+) -> Option<Vec<RectangularGregoryBiNonic>> {
+    kp_binonic_optimizer::optimize_binonic_with_outer_fillets(input, options, outer_fillets)
+        .map(|result| result.binonic)
+        .or_else(|| {
+            optimize_biquintic_and_build_binonic(input, options).map(|result| result.binonic)
+        })
+        .or_else(|| {
+            optimize_c_twists_and_build_binonic(input, options).map(|result| result.binonic)
+        })
+}
+
+fn candidate_passes_promotion_gates(
+    candidate: &[RectangularGregoryBiNonic],
+    pre_worst: f64,
+) -> bool {
+    let binonic_gp: Vec<GregoryPatch> = candidate
+        .iter()
+        .cloned()
+        .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
+        .collect();
+    if binonic_gp
+        .iter()
+        .any(|gp| gp.self_intersects_with_tolerance(1e-6))
+    {
+        return false;
+    }
+    if worst_ring_g0_gap(&binonic_gp) > RING_G0_GATE {
+        return false;
+    }
+    let post_worst = worst_ring_coplanarity(&binonic_gp);
+    if post_worst > RING_G1_GATE {
+        return false;
+    }
+    pre_worst <= 1e-12 || post_worst <= 1.2 * pre_worst
 }
 
 /// Worst-case G1 coplanarity across the full ring's shared spokes,

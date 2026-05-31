@@ -39,6 +39,7 @@ mod kp20_polar_dispatch;
 mod kp_bi5_macro_apply;
 mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;
+mod kp_exact_boundary_binonic_optimizer;
 mod kp_lm_solver;
 pub(crate) mod kp_polar_bi6_apply;
 pub(crate) mod kp_polar_bi6_promote;
@@ -46,6 +47,7 @@ mod kp_polar_deep_trace;
 mod kp_polar_lm_optimizer;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
+mod mixed_radius_direct_apex;
 mod multi_chord;
 pub(crate) mod pcurve_attach;
 mod pcurve_measured_repair;
@@ -65,7 +67,9 @@ mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
+mod three_quad_boundary_fit;
 pub(crate) mod three_quad_boundary_pcurve_diagnostics;
+mod three_quad_kp_diagnostics;
 pub(crate) mod three_quad_promotions;
 mod three_quad_support_pcurve_completion;
 pub(crate) mod topology_repair;
@@ -249,10 +253,11 @@ pub fn apply_blend_geometry(
                 //     today most commonly Gregory cap surface
                 //     assignment (deferred to direct-apex cap-surface).
                 let use_direct_apex_for_this_apex = use_direct_apex_construction
-                    || should_promote_mixed_radius_gregory_apex(
+                    || mixed_radius_direct_apex::should_promote_mixed_radius_gregory_apex(
                         edge_indices,
                         edge_geometries,
                         use_rational_gregory,
+                        use_kp_binonic_gregory,
                     );
                 let direct_apex_outcome = if use_direct_apex_for_this_apex {
                     Some(direct_apex_dispatch::try_direct_apex_construction(
@@ -386,7 +391,8 @@ pub fn apply_blend_geometry(
                     use_kp_polar_gregory,
                     Some(pre),
                 ) {
-                    Ok((infos, boundary_opt)) => {
+                    Ok((infos, boundary_opt, diagnostics)) => {
+                        repair_report.apex_diagnostics.extend(diagnostics);
                         if direct_apex_fell_back_to_legacy {
                             let cap_faces = infos.iter().map(|info| info.face).collect::<Vec<_>>();
                             if let Some(diagnostic) =
@@ -476,23 +482,4 @@ pub fn apply_blend_geometry(
         corner_patches,
         repair_report,
     })
-}
-
-fn should_promote_mixed_radius_gregory_apex(
-    edge_indices: &[usize],
-    edge_geometries: &[EdgeGeometry],
-    use_rational_gregory: bool,
-) -> bool {
-    if !use_rational_gregory || edge_indices.len() != 3 {
-        return false;
-    }
-    let mut radii = edge_indices.iter().filter_map(|&index| {
-        edge_geometries
-            .get(index)
-            .map(|geometry| geometry.effective_radius)
-    });
-    let Some(first) = radii.next() else {
-        return false;
-    };
-    radii.any(|radius| (radius - first).abs() > 1.0e-9)
 }
