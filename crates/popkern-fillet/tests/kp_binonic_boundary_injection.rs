@@ -164,68 +164,56 @@ fn boundary_injection_matrix_probe() {
     p4m_on.print("pyramid4_mixed");
 }
 
-/// Stage 1 wiring sanity: verify the *baseline* (no injection)
-/// path still ships binonic on cube_mixed. Guards against the
-/// Stage 1 plumbing accidentally regressing the inject-OFF path —
-/// the `Option<&[...]>` parameter must thread `None` through
-/// cleanly when the boundary's `hex_boundary_cps_deg9` is empty.
-#[ignore = "diagnostic gate: current logical macro-cap route exposes no committed rectangular binonic patches to measure"]
+/// Stage 1 wiring monitor. The baseline path currently preserves
+/// exact-boundary cap_outer quality but exposes no committed
+/// rectangular binonic patches through this diagnostic helper.
+#[ignore = "K-P/binonic boundary-injection monitor: cube_mixed baseline exposes no committed rectangular binonic patches"]
 #[test]
 fn cube_mixed_baseline_binonic_unaffected_by_stage1_plumbing() {
     let res = probe_cube(&[0.08, 0.10, 0.12], false);
     res.print("cube_mixed[no-inject]");
     assert!(
         res.n_binonic >= 1,
-        "Stage 1 plumbing broke the inject=OFF baseline — cube_mixed should still ship binonic"
+        "cube_mixed baseline should expose at least one committed rectangular binonic patch before this monitor is promoted"
     );
 }
 
-/// Same baseline guard for pyramid4_mixed (the fixture that
-/// already passes commercial gates per the H.7 matrix). With no
-/// injection the K-P binonic dispatch must continue to land.
-#[ignore = "diagnostic gate: current logical macro-cap route exposes no committed rectangular binonic patches to measure"]
+/// Same baseline monitor for pyramid4_mixed. Native exact-boundary
+/// cap_outer passes elsewhere; this helper still sees lower-rung
+/// Gregory output and poor cap_outer quality, not binonic patches.
+#[ignore = "K-P/binonic boundary-injection monitor: pyramid4_mixed baseline falls below binonic and has stale cap_outer quality"]
 #[test]
 fn pyramid4_mixed_baseline_binonic_unaffected_by_stage1_plumbing() {
     let res = probe_square_pyramid(&[0.04, 0.06, 0.05, 0.07], false);
     res.print("pyramid4_mixed[no-inject]");
     assert!(
         res.n_binonic >= 1,
-        "Stage 1 plumbing broke the inject=OFF baseline — pyramid4_mixed should still ship binonic"
+        "pyramid4_mixed baseline should expose at least one committed rectangular binonic patch before this monitor is promoted"
     );
 }
 
-/// Phase 6c-D Stage 3 lock-in: under injection, both cube_mixed
-/// and pyramid4_mixed must ship full binonic rings. The
-/// row-9-based mid-edge formula (`row1[j] = (8/9)·row0[j] +
-/// (1/9)·row9[j]`) + Coons interior fill produces fold-free
-/// patches by construction, and the quality regression guard is
-/// skipped under injection (the spoke-G1 metric is determined by
-/// boundary geometry, not the L-M optimum, so the 1.2× threshold
-/// doesn't apply).
-///
-/// Note: cap-outer continuity is **not** asserted yet. Stage 3
-/// proves the dispatch ladder accepts injection-mode binonic; the
-/// 3-D cap-vs-cylinder fidelity needs a follow-up (likely pcurve-
-/// refit under the new boundary or wider edge-match tolerance in
-/// `wire_substituted_boundary_to_edges`).
-#[ignore = "diagnostic gate: current logical macro-cap route exposes no committed rectangular binonic patches to measure"]
+/// Injection-mode monitor. Current exact-boundary routing leaves
+/// cube_mixed without committed rectangular binonic patches here,
+/// so this remains a measured dispatch blocker rather than a cap
+/// continuity gate.
+#[ignore = "K-P/binonic boundary-injection monitor: cube_mixed injection exposes no committed rectangular binonic patches"]
 #[test]
 fn cube_mixed_binonic_ships_under_injection() {
     let res = probe_cube(&[0.08, 0.10, 0.12], true);
     res.print("cube_mixed[inject]");
     assert!(
         res.n_binonic >= 1,
-        "Stage 3 regression: cube_mixed under injection should ship at least one binonic patch"
+        "cube_mixed injection should expose at least one committed rectangular binonic patch before this monitor is promoted"
     );
 }
 
-#[ignore = "diagnostic gate: current logical macro-cap route exposes no committed rectangular binonic patches to measure"]
+#[ignore = "K-P/binonic boundary-injection monitor: pyramid4_mixed injection falls below binonic and has stale cap_outer quality"]
 #[test]
 fn pyramid4_mixed_binonic_ships_under_injection() {
     let res = probe_square_pyramid(&[0.04, 0.06, 0.05, 0.07], true);
     res.print("pyramid4_mixed[inject]");
     assert!(
         res.n_binonic >= 1,
-        "Stage 3 regression: pyramid4_mixed under injection should ship at least one binonic patch"
+        "pyramid4_mixed injection should expose at least one committed rectangular binonic patch before this monitor is promoted"
     );
 }

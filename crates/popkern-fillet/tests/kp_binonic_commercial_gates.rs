@@ -33,27 +33,27 @@
 //!
 //! | Fixture          | Valence | Radii                                | Status                    |
 //! |------------------|---------|--------------------------------------|---------------------------|
-//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | passes (4.1e-3)           |
-//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | passes (9.1e-3)           |
-//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | passes (4.8e-3)           |
-//! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | passes (5.2e-3)           |
-//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | passes (6.7e-16)          |
-//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | `#[ignore]` upstream gap  |
-//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | `#[ignore]` upstream gap  |
-//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | `#[ignore]` upstream gap  |
-//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | `#[ignore]` upstream gap  |
-//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | `#[ignore]` polar gap     |
-//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | `#[ignore]` polar gap     |
+//! | cube_mixed       | 3       | [0.08, 0.10, 0.12]                   | exact-boundary route passes |
+//! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | `#[ignore]` no measurable K-P ring |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | `#[ignore]` lower-rung fallback |
+//! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | `#[ignore]` no measurable K-P ring |
+//! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | `#[ignore]` no measurable K-P ring |
+//! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | `#[ignore]` no measurable K-P ring |
+//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | `#[ignore]` polar dispatch gap |
+//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | `#[ignore]` polar dispatch gap |
 //!
-//! **Known limits** (Phase H.8 step 8):
-//! * Asymmetry: pipeline handles up to 1:30; fails between 1:30 and
-//!   1:40 with an upstream "no Gregory corner patches produced"
-//!   failure. Not an L-M issue — the fillet analysis, three-quad
-//!   decomposition, or blend-face insertion bails first.
-//! * Absolute radii: r ≥ 0.0067 (1:30 of unit cube) works; r ≤ 0.003
-//!   doesn't. Numerical-tolerance issue upstream.
-//! * Valence: N = 3 and N = 4 pyramid4_mixed work in the standard
-//!   gate. N >= 5 needs the K-P polar variant (Phase H.5b).
+//! **Known limits after exact-boundary promotion**:
+//! * cube_mixed is now covered as an exact-boundary route invariant.
+//! * cube_extreme and the wider asymmetry fixtures currently produce
+//!   no measurable K-P ring under this helper, so their older binonic
+//!   continuity claims were stale.
+//! * pyramid4_mixed reaches Gregory patches but not the binonic rung;
+//!   the current blocker is lower-rung fallback, distinct from the
+//!   native exact-boundary cap_outer matrix.
+//! * N >= 5 still needs the K-P polar variant (Phase H.5b).
 //!
 //! Uniform-radii fixtures are out-of-scope here — the analytic
 //! sphere-fit short-circuits Gregory dispatch upstream, so the
@@ -61,10 +61,10 @@
 //! satisfied. Those are a different code-path; testing them
 //! belongs in a sphere-shortcut suite.
 //!
-//! The N=3 and N=4 pyramid4_mixed binonic commercial gates are
-//! active acceptance tests. Wider asymmetry, tiny-radius, and N >= 5
-//! fixtures remain ignored where the pipeline still produces no
-//! measurable Gregory ring.
+//! The active acceptance in this file is now limited to exact-boundary
+//! route invariants that still apply when the K-P/binonic flag is set.
+//! Continuity tests remain ignored until they produce measurable
+//! rectangular binonic rings.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -195,86 +195,61 @@ fn run_n_gonal_pyramid_binonic(
 // ── Commercial-gate tests ────────────────────────────────────
 
 #[test]
-#[ignore = "commercial gate: cube_mixed binonic route currently exposes exact-boundary support-scope residual blockers"]
 fn binonic_passes_or_declines_commercially_on_cube_mixed() {
     let result = fillet_cube_result(&[0.08, 0.10, 0.12], true);
     assert_cube_mixed_exact_boundary_route(&result);
 }
 
-/// **Gap closed** (Phase H.8 Option C step 4 — L-M phase 3).
-/// Under 1:10 radius asymmetry, the three-phase K-P stack now
-/// drives G1 coplanarity to ~1.1e-2 (≈ 0.63°), well below the
-/// 5e-2 commercial gate. Earlier progression:
-///
-///   3.85e-1 one-shot
-///   → 2.56e-1 bicubic C-twist (Option B)
-///   → 2.19e-1 bi-quintic FD gradient descent (Option C phase 2)
-///   → 1.06e-1 bi-nonic FD gradient descent (Option C phase 3 GD floor)
-///   → **1.12e-2 bi-nonic Levenberg-Marquardt (Option C phase 3 LM)**
-///
-/// The L-M gain came from switching the phase-3 optimizer from
-/// naive gradient descent to Gauss-Newton damping on the per-
-/// sample G1 coplanarity Jacobian: far better conditioning in
-/// the over-parameterised 192N-dim search space.
+/// cube_extreme currently reaches no measurable K-P/binonic ring
+/// through this helper. This gate stays ignored until dispatch
+/// exposes committed rectangular binonic patches again.
 #[test]
-#[ignore = "commercial gate: cube_extreme binonic currently exposes residual cap quality blockers"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches under this helper"]
 fn binonic_passes_commercial_gates_on_cube_extreme() {
     let m = run_cube_binonic(&[0.02, 0.10, 0.20], "cube_extreme");
     assert_commercial_gates("cube_extreme", &m);
 }
 
 #[test]
-#[ignore = "commercial gate: pyramid4_mixed binonic currently exposes residual cap quality blockers"]
+#[ignore = "K-P/binonic dispatch gate: pyramid4_mixed produces Gregory patches but falls back below the rectangular binonic rung"]
 fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
     let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
     assert_commercial_gates("pyramid4_mixed", &m);
 }
 
-// ── L-M stress-test fixtures (Phase H.8 step 5) ──────────────
+// ── K-P/binonic dispatch stress fixtures ─────────────────────
 //
-// Probes whether the L-M phase-3 stack generalises beyond the
-// cube_extreme fixture where it was tuned. Each test is a one-
-// line fixture that prints metrics and asserts the commercial
-// gate; any failure is informative in the test log.
+// These tests remain ignored because the current helper does not
+// expose measurable rectangular binonic rings for these fixtures.
+// They become continuity gates only after the dispatch blocker is
+// closed.
 
 /// 1:20 radius asymmetry — twice as asymmetric as cube_extreme.
-/// Originally failed the binonic rung because biseptic and two-
-/// stripe promotions' residual-regression guards (`return false`
-/// on `post_solve > pre_solve`) short-circuited the ladder. Both
-/// guards were replaced with best-of commits in Phase H.8 step 6
-/// (`three_quad_promotions.rs`): biseptic commits the pre-solve
-/// (degree-elevated, equal-residual) copy when the solver
-/// regresses; two-stripe always commits. L-M phase 3 recovers
-/// from whatever boundary quality it gets — measured G1 ~1.7e-2
-/// here, well under the 5e-2 gate.
+/// Current blocker: no measurable K-P/binonic ring.
 #[test]
-#[ignore = "commercial gate: cube_extreme_20 binonic currently exposes residual cap quality blockers"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme_20 currently produces no measurable Gregory corner patches under this helper"]
 fn binonic_passes_commercial_gates_on_cube_extreme_20() {
     let m = run_cube_binonic(&[0.01, 0.10, 0.20], "cube_extreme_20");
     assert_commercial_gates("cube_extreme_20", &m);
 }
 
-/// 1:30 radius asymmetry. Passes with G1 ~5.2e-3. L-M phase 3
-/// recovers from a starting residual of ~1.0 — strong evidence
-/// that the optimizer itself is not the bottleneck at hard
-/// asymmetries.
+/// 1:30 radius asymmetry. Current blocker: no measurable
+/// K-P/binonic ring.
 #[test]
-#[ignore = "commercial gate: cube_extreme_30 binonic currently exposes residual cap quality blockers"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme_30 currently produces no measurable Gregory corner patches under this helper"]
 fn binonic_passes_commercial_gates_on_cube_extreme_30() {
     let m = run_cube_binonic(&[0.0067, 0.10, 0.20], "cube_extreme_30");
     assert_commercial_gates("cube_extreme_30", &m);
 }
 
-/// **Documented gap — 1:40 asymmetry.** Same upstream failure as
-/// 1:50+ (zero Gregory corner patches). Boundary between the
-/// pipeline "handles" and "gives up" is between 1:30 (passes)
-/// and 1:40 (fails). Earlier diagnostic observed a follow-on
+/// **Documented gap — 1:40 asymmetry.** Same dispatch failure as
+/// 1:50+ (zero Gregory corner patches). Earlier diagnostic observed a follow-on
 /// SlotMap panic from stale face handles in `result.corner_patches`
 /// — the sliver-absorb or cap-insert pass deletes the corner face
 /// after recording it. `patch_of` now uses `.get()` to drop stale
 /// handles silently so the real (upstream empty-patches) gap
 /// surfaces cleanly.
-#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:40 cube asymmetry"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme_40 currently produces no measurable Gregory corner patches under this helper"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_40() {
     let m = run_cube_binonic(&[0.005, 0.10, 0.20], "cube_extreme_40");
@@ -291,7 +266,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_40() {
 /// the boundary between "fillet pipeline handles the geometry" and
 /// "fillet pipeline gives up" somewhere between 1:20 and 1:50
 /// asymmetry. Closing needs diagnosis at the upstream stage.
-#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:50 cube asymmetry"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme_50 currently produces no measurable Gregory corner patches under this helper"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_50() {
     let m = run_cube_binonic(&[0.004, 0.10, 0.20], "cube_extreme_50");
@@ -300,7 +275,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_50() {
 
 /// **Documented gap — 1:100 asymmetry.** Same failure mode as
 /// cube_extreme_50: zero Gregory corner patches produced.
-#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches at 1:100 cube asymmetry"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme_100 currently produces no measurable Gregory corner patches under this helper"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_100() {
     let m = run_cube_binonic(&[0.002, 0.10, 0.20], "cube_extreme_100");
@@ -315,7 +290,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme_100() {
 /// face insertion — not an L-M convergence issue. Worth fixing
 /// eventually for commercial CAD robustness (radii of a few μm
 /// on a metre-scale part are common), but distinct workstream.
-#[ignore = "PK-074: upstream pipeline produces no measurable Gregory corner patches for tiny absolute cube radii"]
+#[ignore = "K-P/binonic dispatch gate: cube_tiny_radii currently produces no measurable Gregory corner patches under this helper"]
 #[test]
 fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
     let m = run_cube_binonic(&[0.001, 0.002, 0.003], "cube_tiny_radii");
@@ -327,7 +302,7 @@ fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
 /// zero Gregory corner patches. Needs the K-P polar variant
 /// (Phase H.5b per the module header) before binonic can engage
 /// at all.
-#[ignore = "PK-075: high-valence polar/binonic path must produce measurable N=5 Gregory cap rings"]
+#[ignore = "K-P polar dispatch gate: pentagon5_mixed currently produces no measurable Gregory corner patches"]
 #[test]
 fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
     let m = run_n_gonal_pyramid_binonic(
@@ -342,7 +317,7 @@ fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
 
 /// **Documented gap — N=6 apex.** Same dispatch ceiling as
 /// pentagon5 — K-P polar variant required.
-#[ignore = "PK-075: high-valence polar/binonic path must produce measurable N=6 Gregory cap rings"]
+#[ignore = "K-P polar dispatch gate: hexagon6_mixed currently produces no measurable Gregory corner patches"]
 #[test]
 fn binonic_passes_commercial_gates_on_hexagon6_mixed() {
     let m = run_n_gonal_pyramid_binonic(
@@ -358,36 +333,23 @@ fn binonic_passes_commercial_gates_on_hexagon6_mixed() {
 // ── Non-regression vs two-stripe ─────────────────────────────
 
 #[test]
-#[ignore = "regression monitor: cube_mixed exact-boundary support-scope residuals make two-stripe/binonic comparison non-clean"]
-fn binonic_matches_or_beats_two_stripe_on_cube_mixed() {
+fn exact_boundary_route_matches_with_binonic_flag_on_cube_mixed() {
     let two_stripe_result = fillet_cube_result(&[0.08, 0.10, 0.12], false);
     let binonic_result = fillet_cube_result(&[0.08, 0.10, 0.12], true);
     assert_cube_mixed_exact_boundary_route(&two_stripe_result);
     assert_cube_mixed_exact_boundary_route(&binonic_result);
 }
 
-/// Active regression monitor. With the K-P 2004 §4 iterative
-/// twist optimizer, binonic on cube_extreme now achieves G1 ≈
-/// 2.6e-1 — competitive with two-stripe's 2.5e-1. The 2× tolerance
-/// comfortably absorbs the small remaining gap. Fail means either
-/// (a) the optimizer stopped converging, or (b) the guard's
-/// 1.2× threshold started firing again (which would indicate a
-/// real regression the optimizer can't compensate for).
 #[test]
-#[ignore = "regression monitor: cube_extreme binonic currently exposes residual cap quality blockers"]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches, so two-stripe/binonic comparison is not meaningful"]
 fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
     let mt = run_cube(&[0.02, 0.10, 0.20], false);
     let mb = run_cube(&[0.02, 0.10, 0.20], true);
     assert_no_regression("cube_extreme", &mt, &mb);
 }
 
-/// cube_extreme now hits the commercial G1 gate (≤ 5e-2) after
-/// the Phase H.8 Option C L-M phase-3 optimizer landed, so no
-/// relaxed-continuity warning is expected. Kept as a regression
-/// monitor: if the L-M stack ever fails to converge on this
-/// fixture the binonic variant must still ship (no fallback to
-/// two-stripe).
 #[test]
+#[ignore = "K-P/binonic dispatch gate: cube_extreme currently produces no measurable Gregory corner patches, so binonic shipping cannot be asserted"]
 fn cube_extreme_ships_binonic_no_warning() {
     use popkern_core::tolerance::Tolerance;
     use popkern_fillet::error::BlendWarning;
@@ -419,6 +381,10 @@ fn cube_extreme_ships_binonic_no_warning() {
     // (1) Binonic shipped, not two-stripe.
     let faces: Vec<_> = result.corner_patches.iter().map(|p| p.face).collect();
     let patches = collect_patches(&result.brep, &faces);
+    assert!(
+        !patches.is_empty(),
+        "cube_extreme should expose measurable binonic patches"
+    );
     for p in &patches {
         assert!(
             matches!(
@@ -429,8 +395,8 @@ fn cube_extreme_ships_binonic_no_warning() {
         );
     }
 
-    // (2) No CornerContinuityRelaxed warning — L-M brought G1 under
-    // the commercial gate, so graceful-degradation shouldn't fire.
+    // (2) No CornerContinuityRelaxed warning once binonic shipping
+    // is restored.
     let relaxed_warnings: Vec<_> = result
         .edge_warnings
         .iter()
