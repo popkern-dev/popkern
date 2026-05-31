@@ -210,7 +210,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                         && cap.stage == "kp_polar_bi6.promotion.lm_rejected"
                         && cap.sector_name == "kp_polar_bi6_ring_n6"
                         && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("no fold-safe L-M iterate")
+                            detail.contains("L-M reason=")
                         })
             )),
         "hexagon6_mixed should expose its polar promotion rejection as structured diagnostics"

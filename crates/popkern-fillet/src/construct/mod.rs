@@ -47,6 +47,7 @@ mod kp_polar_bi6_diagnostics;
 pub(crate) mod kp_polar_bi6_promote;
 mod kp_polar_deep_trace;
 mod kp_polar_lm_optimizer;
+mod kp_polar_weighted_f5;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod mixed_radius_direct_apex;

@@ -37,16 +37,16 @@
 //! polar rung declined before lower-rung fallback.
 
 use popkern_core::geometry::gregory::{
-    Bi6CapInput, GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic,
-    RectangularGregoryTwoStripe, Side, Spoke, SpokeEnd, convert_polar_to_bi6_cap_input,
-    extract_bi3_tensor_border_from_polar_input, f_kappa_solve_optimal_bi6_cap,
-    f_kappa_solve_with_weights_optimal_bi6_cap,
+    GregoryPatch, PolarBoundaryInput, RectangularGregoryBiNonic, RectangularGregoryTwoStripe, Side,
+    Spoke, SpokeEnd, convert_polar_to_bi6_cap_input, extract_bi3_tensor_border_from_polar_input,
+    f_kappa_solve_optimal_bi6_cap,
 };
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::kp_polar_bi6_diagnostics::{self, trace_polar};
 use super::kp_polar_deep_trace::deep_trace_bi6_output;
-use super::kp_polar_lm_optimizer::try_polar_lm;
+use super::kp_polar_lm_optimizer::try_polar_lm_with_report;
+use super::kp_polar_weighted_f5::try_weighted_f5_profiles;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
@@ -327,27 +327,38 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             n,
             Some("attempting L-M refinement (option F)".into()),
         );
-        if let Some(warm_start) = last_free_params.as_ref()
-            && let Some(lm_patches) = try_polar_lm(&cap_input, warm_start)
-        {
-            trace_polar("L-M accepted", n, Some("escape via option F".into()));
-            let lm_wrapped: Vec<GregoryPatch> = lm_patches
-                .into_iter()
-                .map(|grid| {
-                    GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
-                })
-                .collect();
-            committed_patches = Some(lm_wrapped);
+        if let Some(warm_start) = last_free_params.as_ref() {
+            let lm_report = try_polar_lm_with_report(&cap_input, warm_start);
+            if let Some(lm_patches) = lm_report.patches {
+                trace_polar("L-M accepted", n, Some("escape via option F".into()));
+                let lm_wrapped: Vec<GregoryPatch> = lm_patches
+                    .into_iter()
+                    .map(|grid| {
+                        GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic {
+                            grid,
+                        }))
+                    })
+                    .collect();
+                committed_patches = Some(lm_wrapped);
+            } else {
+                let reason = lm_report.rejection_reason.unwrap_or("unknown");
+                trace_polar("L-M rejected", n, Some(reason.to_string()));
+                record_polar_decline(
+                    &mut diagnostics,
+                    "lm_rejected",
+                    n,
+                    Some(format!(
+                        "F_kappa and weighted F5 candidates folded; L-M reason={reason}"
+                    )),
+                );
+            }
         } else {
-            trace_polar("L-M rejected", n, Some("no fold-safe iterate found".into()));
+            trace_polar("L-M rejected", n, Some("missing warm start".into()));
             record_polar_decline(
                 &mut diagnostics,
                 "lm_rejected",
                 n,
-                Some(
-                    "F_kappa and weighted F5 candidates folded; no fold-safe L-M iterate found"
-                        .into(),
-                ),
+                Some("F_kappa and weighted F5 candidates folded; missing warm start".into()),
             );
         }
     }
@@ -404,66 +415,6 @@ pub(super) fn promote_and_update_relaxed_with_diagnostics(
         }
         PolarPromoteOutcome::Rejected { diagnostics } => (false, diagnostics),
     }
-}
-
-/// Option E — per-valence weight-tuning profiles. Try several
-/// empirical re-weightings of F_5's `κ!/(i!·j!)` defaults and
-/// commit the first non-folding cap.
-///
-/// F_5 term order: [(5,0), (4,1), (3,2), (2,3), (1,4), (0,5)].
-/// Default weights `[1, 5, 10, 10, 5, 1]`. Alternate profiles:
-/// - Relax pure radial/angular: halve (5,0) and (0,5) weights.
-/// - Amplify mixed: double (3,2) and (2,3) weights.
-/// - Relax all mixed: halve the four middle terms.
-fn try_weighted_f5_profiles(
-    cap_input: &Bi6CapInput,
-    n: usize,
-    last_free_params: &mut Option<popkern_core::geometry::gregory::Bi6CapFreeParams>,
-) -> Option<Vec<GregoryPatch>> {
-    let profiles: [(&str, [f64; 6]); 3] = [
-        ("relax-pure", [0.5, 1.0, 1.0, 1.0, 1.0, 0.5]),
-        ("amplify-mixed", [1.0, 1.0, 2.0, 2.0, 1.0, 1.0]),
-        ("relax-mixed", [1.0, 0.5, 0.5, 0.5, 0.5, 1.0]),
-    ];
-    for (name, weights) in profiles.iter() {
-        let (free_params, cap_out) =
-            match f_kappa_solve_with_weights_optimal_bi6_cap(cap_input, 5, weights) {
-                Ok(r) => r,
-                Err(e) => {
-                    trace_polar(&format!("F_5[{name}] solve error"), n, Some(e));
-                    continue;
-                }
-            };
-        *last_free_params = Some(free_params);
-        let bi9_grids = cap_out.patches_bi9;
-        if bi9_grids.len() != n {
-            continue;
-        }
-        let candidate: Vec<GregoryPatch> = bi9_grids
-            .into_iter()
-            .map(|grid| {
-                GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
-            })
-            .collect();
-        let mut folded = false;
-        for gp in candidate.iter() {
-            if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
-                folded = true;
-                break;
-            }
-        }
-        if folded {
-            trace_polar(&format!("F_5[{name}] self-intersection"), n, None);
-            continue;
-        }
-        trace_polar(
-            &format!("F_5[{name}] accepted"),
-            n,
-            Some("option E saved the ladder".into()),
-        );
-        return Some(candidate);
-    }
-    None
 }
 
 fn record_polar_decline(

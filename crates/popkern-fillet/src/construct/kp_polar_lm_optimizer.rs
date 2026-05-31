@@ -60,6 +60,17 @@ const FOLD_PENALTY_WEIGHT: f64 = 10.0;
 /// Sample count per patch for fold-proximity evaluation.
 const FOLD_PENALTY_SAMPLES: usize = 5;
 
+pub(super) struct PolarLmReport {
+    pub patches: Option<Vec<[[Point3; 10]; 10]>>,
+    pub rejection_reason: Option<&'static str>,
+}
+
+enum SingleLmOutcome {
+    Accepted(Vec<[[Point3; 10]; 10]>),
+    InfeasibleStart,
+    RejectedAfterFeasibleStart,
+}
+
 /// L-M evaluator wrapping a `Bi6CapInput`. Each residual is the
 /// coplanarity of the surface normals at one sample on one shared
 /// spoke between adjacent bi-9 patches in the polar ring.
@@ -266,10 +277,10 @@ fn pack(params: &Bi6CapFreeParams) -> Vec<f64> {
 /// 1. The caller-supplied F_κ output (best guess for where L-M
 ///    should converge — but may be already folded).
 /// 2. Pulled-back variants at α = 0.5, 0.25, 0.05 — interior CPs
-///    scaled toward origin to reduce curvature and likely find a
-///    fold-safe starting point.
-/// 3. All zeros — maximally-degenerate start; usually fold-safe
-///    because interior CPs collapse to origin.
+///    contracted toward the cap-local star to reduce curvature and
+///    likely find a fold-safe starting point.
+/// 3. All star — maximally-degenerate cap-local start; usually
+///    fold-safe because interior CPs collapse to the cap centre.
 ///
 /// Accepts the first warm-start that is itself fold-safe; then
 /// lets L-M refine. If none of the warm-starts are fold-safe,
@@ -288,28 +299,56 @@ pub(super) fn try_polar_lm(
     base: &Bi6CapInput,
     warm_start: &Bi6CapFreeParams,
 ) -> Option<Vec<[[Point3; 10]; 10]>> {
-    let scale = |s: f64| scale_params(warm_start, s);
-    let zero = zero_params(warm_start.p_23.len());
-    let candidates = [scale(1.0), scale(0.5), scale(0.25), scale(0.05), zero];
+    try_polar_lm_with_report(base, warm_start).patches
+}
 
+pub(super) fn try_polar_lm_with_report(
+    base: &Bi6CapInput,
+    warm_start: &Bi6CapFreeParams,
+) -> PolarLmReport {
+    let anchor = base.c7;
+    let contract = |s: f64| contract_params(warm_start, anchor, s);
+    let collapsed = collapsed_params(warm_start.p_23.len(), anchor);
+    let candidates = [
+        contract(1.0),
+        contract(0.5),
+        contract(0.25),
+        contract(0.05),
+        collapsed,
+    ];
+
+    let mut saw_feasible_start = false;
     for (idx, candidate) in candidates.iter().enumerate() {
-        if let Some(patches) = try_single_lm(base, candidate) {
-            if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
-                eprintln!("[kp_polar_bi6 lm] warm-start #{idx} produced fold-safe iterate");
+        match try_single_lm(base, candidate) {
+            SingleLmOutcome::Accepted(patches) => {
+                if std::env::var_os("POPKERN_KP_POLAR_TRACE").is_some() {
+                    eprintln!("[kp_polar_bi6 lm] warm-start #{idx} produced fold-safe iterate");
+                }
+                return PolarLmReport {
+                    patches: Some(patches),
+                    rejection_reason: None,
+                };
             }
-            return Some(patches);
+            SingleLmOutcome::InfeasibleStart => {}
+            SingleLmOutcome::RejectedAfterFeasibleStart => {
+                saw_feasible_start = true;
+            }
         }
     }
-    None
+    PolarLmReport {
+        patches: None,
+        rejection_reason: Some(if saw_feasible_start {
+            "feasible_warm_start_optimized_to_fold"
+        } else {
+            "no_fold_safe_warm_start"
+        }),
+    }
 }
 
 /// Run L-M once with a single warm-start. Returns `None` if the
 /// warm-start itself isn't fold-safe OR L-M doesn't produce a
 /// fold-safe final iterate.
-fn try_single_lm(
-    base: &Bi6CapInput,
-    warm_start: &Bi6CapFreeParams,
-) -> Option<Vec<[[Point3; 10]; 10]>> {
+fn try_single_lm(base: &Bi6CapInput, warm_start: &Bi6CapFreeParams) -> SingleLmOutcome {
     let eval_check = PolarLmEval { base };
     let x0 = pack(warm_start);
 
@@ -317,7 +356,7 @@ fn try_single_lm(
     // bail immediately.
     let mut eval_mut = PolarLmEval { base };
     if !eval_mut.fold_safe(&x0) {
-        return None;
+        return SingleLmOutcome::InfeasibleStart;
     }
 
     let config = LmConfig {
@@ -329,20 +368,27 @@ fn try_single_lm(
     };
     let n = eval_check.n();
     let result = run_lm(PolarLmEval { base }, x0, &config, &format!("polar N={n}"));
-    let params = eval_check.unpack(&result.x)?;
-    let patches = eval_check.build(&params)?;
+    let Some(params) = eval_check.unpack(&result.x) else {
+        return SingleLmOutcome::RejectedAfterFeasibleStart;
+    };
+    let Some(patches) = eval_check.build(&params) else {
+        return SingleLmOutcome::RejectedAfterFeasibleStart;
+    };
     use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
     for g in &patches {
         let gp = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid: *g }));
         if gp.self_intersects_with_tolerance(SELF_INT_TOL) {
-            return None;
+            return SingleLmOutcome::RejectedAfterFeasibleStart;
         }
     }
-    Some(patches)
+    SingleLmOutcome::Accepted(patches)
 }
 
-fn scale_params(p: &Bi6CapFreeParams, s: f64) -> Bi6CapFreeParams {
-    let sp = |q: Point3| Point3::new(q.x * s, q.y * s, q.z * s);
+fn contract_params(p: &Bi6CapFreeParams, anchor: Point3, s: f64) -> Bi6CapFreeParams {
+    let sp = |q: Point3| {
+        let v = q - anchor;
+        anchor + v * s
+    };
     Bi6CapFreeParams {
         p0_01: sp(p.p0_01),
         p0_02: sp(p.p0_02),
@@ -353,14 +399,13 @@ fn scale_params(p: &Bi6CapFreeParams, s: f64) -> Bi6CapFreeParams {
     }
 }
 
-fn zero_params(n: usize) -> Bi6CapFreeParams {
-    let z = Point3::new(0.0, 0.0, 0.0);
+fn collapsed_params(n: usize, anchor: Point3) -> Bi6CapFreeParams {
     Bi6CapFreeParams {
-        p0_01: z,
-        p0_02: z,
-        p0_11: z,
-        p0_22: z,
-        p_23: vec![z; n],
-        p_33: vec![z; n],
+        p0_01: anchor,
+        p0_02: anchor,
+        p0_11: anchor,
+        p0_22: anchor,
+        p_23: vec![anchor; n],
+        p_33: vec![anchor; n],
     }
 }
