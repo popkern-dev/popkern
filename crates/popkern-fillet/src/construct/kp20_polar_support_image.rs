@@ -21,6 +21,15 @@ pub(super) struct Kp20SupportImageCandidate {
     pub(super) summary: Kp20SamplerFoldSummary,
     pub(super) validation: Kp20Bi6ValidationReport,
     pub(super) macro_patches: Vec<Kp20MacroPatch>,
+    pub(super) params: Kp20SupportImageParams,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Kp20SupportImageParams {
+    uniform: f64,
+    du_scale: f64,
+    dv_scale: f64,
+    shear: f64,
 }
 
 pub(super) fn support_image_and_lift_candidate_summaries(
@@ -60,9 +69,13 @@ fn support_image_candidate(
             sample_kp20_macro_patch_from_piece_maps(sector, kp20_default_sector_piece_maps())
         })
         .collect::<Vec<_>>();
-    let baseline = candidate_from_sampled(tensor_border, default_sampled)?;
+    let baseline = candidate_from_sampled(
+        tensor_border,
+        default_sampled,
+        Kp20SupportImageParams::identity(),
+    )?;
     let mut best: Option<Kp20SupportImageCandidate> = None;
-    for strength in [0.85, 0.92, 1.08, 1.15] {
+    for params in Kp20SupportImageParams::bounded_family() {
         let sampled_macro_patches = guide
             .sectors
             .iter()
@@ -71,13 +84,13 @@ fn support_image_candidate(
                 let maps = support_image_piece_maps(
                     kp20_default_sector_piece_maps(),
                     sector,
-                    strength,
+                    params,
                     &baseline.summary.fold_sites,
                 );
                 sample_kp20_macro_patch_from_piece_maps(guide_sector, maps)
             })
             .collect::<Vec<_>>();
-        let candidate = candidate_from_sampled(tensor_border, sampled_macro_patches)?;
+        let candidate = candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
         if !validation_is_clean(candidate.validation) {
             continue;
         }
@@ -92,7 +105,14 @@ fn support_image_candidate(
             best = Some(candidate);
         }
     }
-    best.ok_or_else(|| {
+    best.map(|mut candidate| {
+        candidate
+            .summary
+            .fold_details
+            .push(format!("map_params={}", candidate.params.label()));
+        candidate
+    })
+    .ok_or_else(|| {
         "support-image reparameterization found no residual-clean improvement".to_string()
     })
 }
@@ -100,6 +120,7 @@ fn support_image_candidate(
 fn candidate_from_sampled(
     tensor_border: &TensorBorderBi3,
     sampled_macro_patches: Vec<Kp20MacroPatch>,
+    params: Kp20SupportImageParams,
 ) -> Result<Kp20SupportImageCandidate, String> {
     let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
         tensor_border: tensor_border.clone(),
@@ -112,13 +133,14 @@ fn candidate_from_sampled(
         summary,
         validation,
         macro_patches: cap.macro_patches,
+        params,
     })
 }
 
 fn support_image_piece_maps(
     mut maps: Kp20SectorPieceMaps,
     sector: usize,
-    strength: f64,
+    params: Kp20SupportImageParams,
     fold_sites: &[Kp20FoldSite],
 ) -> Kp20SectorPieceMaps {
     for (piece, corner_maps) in &mut maps {
@@ -126,7 +148,7 @@ fn support_image_piece_maps(
             .iter()
             .any(|site| site.sector == sector && site.piece == *piece)
         {
-            *corner_maps = reparameterized_corner_maps(*corner_maps, strength);
+            *corner_maps = reparameterized_corner_maps(*corner_maps, params);
         }
     }
     maps
@@ -134,22 +156,103 @@ fn support_image_piece_maps(
 
 fn reparameterized_corner_maps(
     corner_maps: Kp20PieceCornerMaps,
-    strength: f64,
+    params: Kp20SupportImageParams,
 ) -> Kp20PieceCornerMaps {
     let base = corner_maps[0].1;
     let center = [
         base.origin[0] + 0.5 * base.du[0] + 0.5 * base.dv[0],
         base.origin[1] + 0.5 * base.du[1] + 0.5 * base.dv[1],
     ];
-    let origin = [
-        center[0] + strength * (base.origin[0] - center[0]),
-        center[1] + strength * (base.origin[1] - center[1]),
+    let du = [
+        params.uniform * params.du_scale * base.du[0] + params.shear * base.dv[0],
+        params.uniform * params.du_scale * base.du[1] + params.shear * base.dv[1],
     ];
-    square_maps(
-        origin,
-        [base.du[0] * strength, base.du[1] * strength],
-        [base.dv[0] * strength, base.dv[1] * strength],
-    )
+    let dv = [
+        params.shear * base.du[0] + params.uniform * params.dv_scale * base.dv[0],
+        params.shear * base.du[1] + params.uniform * params.dv_scale * base.dv[1],
+    ];
+    let origin = [
+        center[0] - 0.5 * du[0] - 0.5 * dv[0],
+        center[1] - 0.5 * du[1] - 0.5 * dv[1],
+    ];
+    square_maps(origin, du, dv)
+}
+
+impl Kp20SupportImageParams {
+    fn identity() -> Self {
+        Self {
+            uniform: 1.0,
+            du_scale: 1.0,
+            dv_scale: 1.0,
+            shear: 0.0,
+        }
+    }
+
+    fn bounded_family() -> [Self; 9] {
+        [
+            Self {
+                uniform: 0.85,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 1.08,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 1.15,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.08,
+                dv_scale: 0.92,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 0.92,
+                dv_scale: 1.08,
+                shear: 0.0,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: -0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.05,
+                dv_scale: 0.95,
+                shear: -0.04,
+            },
+        ]
+    }
+
+    fn label(self) -> String {
+        format!(
+            "uniform:{:.3},du:{:.3},dv:{:.3},shear:{:.3}",
+            self.uniform, self.du_scale, self.dv_scale, self.shear
+        )
+    }
 }
 
 fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
