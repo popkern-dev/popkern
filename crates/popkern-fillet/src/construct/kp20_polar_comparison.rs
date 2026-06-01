@@ -14,19 +14,25 @@ use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, Kp20SupportNormalStep, normal_lift_candidate_summary,
 };
 use crate::types::ApexConstructionDiagnostic;
+use std::time::Instant;
 
 pub(super) fn sampler_comparison_diagnostic(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
     bounded_affine: Kp20SamplerFoldSummary,
 ) -> ApexConstructionDiagnostic {
-    let orientation_valid = orientation_valid_candidate_summary(star_point, tensor_border);
-    let normal_lift = normal_lift_candidate_summary(star_point, tensor_border);
-    let (support_image, support_image_lift) =
-        support_image_and_lift_candidate_summaries(star_point, tensor_border);
-    let sector_local_tau = tau_candidate_summary(star_point, tensor_border);
+    let total_start = Instant::now();
+    let (orientation_valid, orientation_valid_ms) =
+        timed(|| orientation_valid_candidate_summary(star_point, tensor_border));
+    let (normal_lift, normal_lift_ms) =
+        timed(|| normal_lift_candidate_summary(star_point, tensor_border));
+    let ((support_image, support_image_lift), support_image_composed_ms) =
+        timed(|| support_image_and_lift_candidate_summaries(star_point, tensor_border));
+    let (sector_local_tau, sector_local_tau_ms) =
+        timed(|| tau_candidate_summary(star_point, tensor_border));
+    let total_ms = elapsed_ms(total_start);
     let mut detail = format!(
-        "bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
+        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
         bounded_affine.fold_count,
         bounded_affine.min_jacobian_normal_cos,
         piece_counts_label(bounded_affine.piece_fold_counts)
@@ -44,6 +50,16 @@ pub(super) fn sampler_comparison_diagnostic(
             .ok()
             .map(|(summary, _)| summary.min_jacobian_normal_cos),
     )
+}
+
+fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
+    let start = Instant::now();
+    let value = f();
+    (value, elapsed_ms(start))
+}
+
+fn elapsed_ms(start: Instant) -> u128 {
+    start.elapsed().as_millis()
 }
 
 fn tau_candidate_summary(

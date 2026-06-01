@@ -275,6 +275,11 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                         && cap.sector_name == "kp20_polar_macro_ring_n6"
                         && cap.detail_code.as_deref().is_some_and(|detail| {
                             detail.contains("bounded_affine_folds=")
+                                && detail.contains("sampler_total_ms=")
+                                && detail.contains("orientation_valid_ms=")
+                                && detail.contains("support_normal_lift_ms=")
+                                && detail.contains("support_image_composed_ms=")
+                                && detail.contains("sector_local_tau_ms=")
                                 && detail.contains("bounded_affine_min_jacobian_cos=")
                                 && detail.contains("bounded_affine_piece_folds=")
                                 && detail.contains("support_normal_lift_status=")
@@ -299,6 +304,8 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("support_image_folds=20")
                                 && detail.contains("support_image_piece_folds=")
                                 && detail.contains("map_params=uniform:0.920,du:1.000,dv:1.000,shear:0.040")
+                                && detail.contains("image_ms:")
+                                && detail.contains("lift_ms:")
                                 && detail.contains("support_image_tensor_border_residual=0.000e0")
                                 && detail.contains("support_image_internal_c2_position=0.000e0")
                                 && detail.contains("support_image_internal_c2_first=0.000e0")

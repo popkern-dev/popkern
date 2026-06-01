@@ -15,6 +15,7 @@ use super::kp20_polar_fold_summary::{
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportImageCandidate {
@@ -75,6 +76,7 @@ fn support_image_composed_candidate(
         default_sampled,
         Kp20SupportImageParams::identity(),
     )?;
+    let image_search_start = Instant::now();
     let mut image_candidates = Vec::new();
     let mut evaluated = 0_usize;
     let mut rejected = 0_usize;
@@ -107,9 +109,11 @@ fn support_image_composed_candidate(
             rejected += 1;
         }
     }
+    let image_search_ms = elapsed_ms(image_search_start);
     image_candidates.sort_by(|a, b| compare_summaries(&a.summary, &b.summary));
     let mut best: Option<Kp20SupportImageSearchCandidate> = None;
     let mut composed_evaluated = 0_usize;
+    let lift_start = Instant::now();
     for candidate in image_candidates.into_iter().take(1) {
         composed_evaluated += 1;
         let lift = lift_candidate_from_support_image_macro_patches(
@@ -134,6 +138,7 @@ fn support_image_composed_candidate(
             rejected += 1;
         }
     }
+    let composed_lift_ms = elapsed_ms(lift_start);
     best.map(|mut candidate| {
         candidate
             .image
@@ -141,10 +146,10 @@ fn support_image_composed_candidate(
             .fold_details
             .push(format!("map_params={}", candidate.image.params.label()));
         candidate.image.summary.fold_details.push(format!(
-            "map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected}"
+            "map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
         ));
         candidate.lift.summary.fold_details.push(format!(
-            "map_params={};map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected}",
+            "map_params={};map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
             candidate.image.params.label()
         ));
         candidate
@@ -152,6 +157,10 @@ fn support_image_composed_candidate(
     .ok_or_else(|| {
         "support-image reparameterization found no residual-clean improvement".to_string()
     })
+}
+
+fn elapsed_ms(start: Instant) -> u128 {
+    start.elapsed().as_millis()
 }
 
 fn compare_summaries(a: &Kp20SamplerFoldSummary, b: &Kp20SamplerFoldSummary) -> std::cmp::Ordering {
