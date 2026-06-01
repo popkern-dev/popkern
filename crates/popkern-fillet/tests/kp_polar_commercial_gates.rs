@@ -339,6 +339,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("support_normal:eval=")
                                 && detail.contains("radial_bisector:eval=")
                                 && detail.contains("sector_chord:eval=")
+                                && detail.contains("coupled_support_ring:eval=")
                                 && detail.contains("exact_folds=")
                                 && detail.contains("support_surface_decline_reason=")
                                 && detail.contains("sector_local_tau_status=")

@@ -52,6 +52,7 @@ enum Kp20SupportSurfaceMode {
     SupportNormal,
     RadialBisector,
     SectorChord,
+    CoupledSupportRing,
 }
 
 pub(super) fn support_surface_candidate_summary(
@@ -173,8 +174,13 @@ fn active_fold_pieces(summary: &Kp20SamplerFoldSummary) -> Vec<Kp20PieceId> {
 }
 
 impl Kp20SupportSurfaceMode {
-    fn stages() -> [Self; 3] {
-        [Self::SupportNormal, Self::RadialBisector, Self::SectorChord]
+    fn stages() -> [Self; 4] {
+        [
+            Self::SupportNormal,
+            Self::RadialBisector,
+            Self::SectorChord,
+            Self::CoupledSupportRing,
+        ]
     }
 
     fn label(self) -> &'static str {
@@ -182,6 +188,7 @@ impl Kp20SupportSurfaceMode {
             Self::SupportNormal => "support_normal",
             Self::RadialBisector => "radial_bisector",
             Self::SectorChord => "sector_chord",
+            Self::CoupledSupportRing => "coupled_support_ring",
         }
     }
 }
@@ -224,10 +231,10 @@ fn apply_orientation_row_trial(
         let piece = macro_patches[site.sector].piece_mut(site.piece);
         for i in 0..7 {
             for j in 0..7 {
-                if !can_adjust_orientation_row(site.piece, i, j) {
+                if !can_adjust_orientation_row(trial.mode, site.piece, i, j) {
                     continue;
                 }
-                let weight = orientation_row_weight(site, i, j);
+                let weight = orientation_row_weight(trial.mode, site, i, j);
                 if weight == 0.0 {
                     continue;
                 }
@@ -246,7 +253,9 @@ fn support_surface_direction(
     normal: Vec3,
 ) -> Vec3 {
     match mode {
-        Kp20SupportSurfaceMode::SupportNormal => normal,
+        Kp20SupportSurfaceMode::SupportNormal | Kp20SupportSurfaceMode::CoupledSupportRing => {
+            normal
+        }
         Kp20SupportSurfaceMode::RadialBisector => {
             (spoke_a + spoke_b).normalized().unwrap_or(normal)
         }
@@ -254,18 +263,36 @@ fn support_surface_direction(
     }
 }
 
-fn can_adjust_orientation_row(piece: Kp20PieceId, i: usize, j: usize) -> bool {
+fn can_adjust_orientation_row(
+    mode: Kp20SupportSurfaceMode,
+    piece: Kp20PieceId,
+    i: usize,
+    j: usize,
+) -> bool {
     match piece {
         Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
-            i == 3 && (2..=4).contains(&j)
+            let row_ok = match mode {
+                Kp20SupportSurfaceMode::CoupledSupportRing => (2..=4).contains(&i),
+                _ => i == 3,
+            };
+            row_ok && (2..=4).contains(&j)
         }
         Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight => {
-            j == 3 && (2..=4).contains(&i)
+            let row_ok = match mode {
+                Kp20SupportSurfaceMode::CoupledSupportRing => (2..=4).contains(&j),
+                _ => j == 3,
+            };
+            row_ok && (2..=4).contains(&i)
         }
     }
 }
 
-fn orientation_row_weight(site: Kp20FoldSite, i: usize, j: usize) -> f64 {
+fn orientation_row_weight(
+    mode: Kp20SupportSurfaceMode,
+    site: Kp20FoldSite,
+    i: usize,
+    j: usize,
+) -> f64 {
     let u = i as f64 / 6.0;
     let v = j as f64 / 6.0;
     let du = u - site.u;
@@ -273,5 +300,28 @@ fn orientation_row_weight(site: Kp20FoldSite, i: usize, j: usize) -> f64 {
     let r2 = du * du + dv * dv;
     let locality = (1.0 - r2 / (0.42_f64 * 0.42_f64)).max(0.0);
     let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
-    locality * locality * severity.max(0.25)
+    let row_weight = match mode {
+        Kp20SupportSurfaceMode::CoupledSupportRing => match site.piece {
+            Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
+                coupled_row_weight(site, i)
+            }
+            Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight => {
+                coupled_row_weight(site, j)
+            }
+        },
+        _ => 1.0,
+    };
+    locality * locality * severity.max(0.25) * row_weight
+}
+
+fn coupled_row_weight(site: Kp20FoldSite, row: usize) -> f64 {
+    let center = match site.piece {
+        Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => 6.0 * site.u,
+        Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight => 6.0 * site.v,
+    };
+    match (row as f64 - center).abs() {
+        distance if distance <= 0.75 => 1.0,
+        distance if distance <= 1.75 => 0.45,
+        _ => 0.0,
+    }
 }
