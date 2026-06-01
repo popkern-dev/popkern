@@ -19,6 +19,21 @@ pub(super) struct Kp20SamplerFoldSummary {
     pub piece_fold_counts: [usize; 4],
 }
 
+#[derive(Debug, Clone)]
+struct Kp20SupportNormalLiftReport {
+    summary: Kp20SamplerFoldSummary,
+    validation: Kp20Bi6ValidationReport,
+    accepted_steps: Vec<Kp20SupportNormalStep>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Kp20SupportNormalStep {
+    piece_mask: [bool; 4],
+    scale: f64,
+    fold_count: usize,
+    piece_fold_counts: [usize; 4],
+}
+
 pub(super) fn sampler_comparison_diagnostic(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
@@ -34,7 +49,7 @@ pub(super) fn sampler_comparison_diagnostic(
         piece_counts_label(bounded_affine.piece_fold_counts)
     );
     append_candidate_detail(&mut detail, "orientation_valid", &orientation_valid);
-    append_candidate_detail(&mut detail, "support_normal_lift", &normal_lift);
+    append_support_lift_detail(&mut detail, &normal_lift);
     append_candidate_detail(&mut detail, "sector_local_tau", &sector_local_tau);
     comparison_diagnostic(
         tensor_border.sectors.len(),
@@ -119,7 +134,7 @@ fn candidate_summary_from_sampled(
 fn normal_lift_candidate_summary(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
-) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+) -> Result<Kp20SupportNormalLiftReport, String> {
     let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
         star_point,
         tensor_border: tensor_border.clone(),
@@ -137,9 +152,20 @@ fn normal_lift_candidate_summary(
     .map_err(|e| e.to_string())?;
     let mut accepted = cap.macro_patches.clone();
     let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
-    let target_masks = [[false, true, false, false]];
+    let mut accepted_steps = Vec::new();
+    let target_masks = [
+        [false, true, false, false],
+        [false, false, true, false],
+        [false, false, false, true],
+        [false, false, true, true],
+    ];
     for _ in 0..4 {
-        let mut best_step = None;
+        let mut best_step: Option<(
+            Vec<Kp20MacroPatch>,
+            (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+            f64,
+            [bool; 4],
+        )> = None;
         for scale in [-0.25, -0.1, 0.1, 0.25] {
             for piece_mask in target_masks {
                 let mut candidate = accepted.clone();
@@ -155,19 +181,29 @@ fn normal_lift_candidate_summary(
                     continue;
                 }
                 if is_better_summary(&summary, Some(&accepted_summary))
-                    && is_better_summary(&summary, best_step.as_ref().map(|(_, s)| s))
+                    && is_better_summary(&summary, best_step.as_ref().map(|(_, s, _, _)| s))
                 {
-                    best_step = Some((candidate, summary));
+                    best_step = Some((candidate, summary, scale, piece_mask));
                 }
             }
         }
-        let Some((candidate, summary)) = best_step else {
+        let Some((candidate, summary, scale, piece_mask)) = best_step else {
             break;
         };
         accepted = candidate;
         accepted_summary = summary;
+        accepted_steps.push(Kp20SupportNormalStep {
+            piece_mask,
+            scale,
+            fold_count: accepted_summary.0.fold_count,
+            piece_fold_counts: accepted_summary.0.piece_fold_counts,
+        });
     }
-    Ok(accepted_summary)
+    Ok(Kp20SupportNormalLiftReport {
+        summary: accepted_summary.0,
+        validation: accepted_summary.1,
+        accepted_steps,
+    })
 }
 
 fn candidate_summary_from_cap(
@@ -303,6 +339,33 @@ fn append_candidate_detail(
     }
 }
 
+fn append_support_lift_detail(
+    detail: &mut String,
+    report: &Result<Kp20SupportNormalLiftReport, String>,
+) {
+    match report {
+        Ok(report) => {
+            detail.push_str(&format!(
+                ";support_normal_lift_status=sampled;support_normal_lift_folds={};support_normal_lift_min_jacobian_cos={:.3e};support_normal_lift_piece_folds={};support_normal_lift_tensor_border_residual={:.3e};support_normal_lift_internal_c2_position={:.3e};support_normal_lift_internal_c2_first={:.3e};support_normal_lift_origin_g2_strip={:.3e};support_normal_lift_accepted_steps={};support_normal_lift_step_trace={}",
+                report.summary.fold_count,
+                report.summary.min_jacobian_normal_cos,
+                piece_counts_label(report.summary.piece_fold_counts),
+                report.validation.max_tensor_border_residual,
+                report.validation.max_internal_c2_position_residual,
+                report.validation.max_internal_c2_first_residual,
+                report.validation.max_origin_g2_strip_residual,
+                report.accepted_steps.len(),
+                step_trace_label(&report.accepted_steps),
+            ));
+        }
+        Err(err) => {
+            detail.push_str(&format!(
+                ";support_normal_lift_status=declined;support_normal_lift_error={err}"
+            ));
+        }
+    }
+}
+
 fn comparison_diagnostic(
     n_sides: usize,
     detail: String,
@@ -323,4 +386,35 @@ fn piece_counts_label(counts: [usize; 4]) -> String {
         "{:?}:{}|{:?}:{}|{:?}:{}|{:?}:{}",
         pieces[0], counts[0], pieces[1], counts[1], pieces[2], counts[2], pieces[3], counts[3]
     )
+}
+
+fn step_trace_label(steps: &[Kp20SupportNormalStep]) -> String {
+    if steps.is_empty() {
+        return "none".to_string();
+    }
+    steps
+        .iter()
+        .enumerate()
+        .map(|(idx, step)| {
+            format!(
+                "{}:{}@{:.3}->{}:{}",
+                idx,
+                piece_mask_label(step.piece_mask),
+                step.scale,
+                step.fold_count,
+                piece_counts_label(step.piece_fold_counts)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn piece_mask_label(mask: [bool; 4]) -> String {
+    let pieces = Kp20PieceId::all();
+    pieces
+        .into_iter()
+        .zip(mask)
+        .filter_map(|(piece, enabled)| enabled.then_some(format!("{piece:?}")))
+        .collect::<Vec<_>>()
+        .join("+")
 }
