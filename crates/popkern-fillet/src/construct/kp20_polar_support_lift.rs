@@ -17,6 +17,7 @@ use super::kp20_polar_fold_summary::{
 pub(super) struct Kp20SupportNormalLiftReport {
     pub(super) summary: Kp20SamplerFoldSummary,
     pub(super) validation: Kp20Bi6ValidationReport,
+    pub(super) macro_patches: Vec<Kp20MacroPatch>,
     pub(super) accepted_steps: Vec<Kp20SupportNormalStep>,
     pub(super) optimizer_stats: Kp20SupportOptimizerStats,
 }
@@ -218,6 +219,7 @@ fn lift_candidate_from_macro_patches_with_profile(
     Ok(Kp20SupportNormalLiftReport {
         summary: accepted_summary.0,
         validation: accepted_summary.1,
+        macro_patches: accepted,
         accepted_steps,
         optimizer_stats,
     })

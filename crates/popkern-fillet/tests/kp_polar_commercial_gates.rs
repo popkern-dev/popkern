@@ -323,7 +323,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("support_image_lift_origin_g2_strip=0.000e0")
                                 && detail.contains("support_image_lift_accepted_steps=4")
                                 && detail.contains("support_surface_status=sampled")
-                                && detail.contains("support_surface_folds=20")
+                                && detail.contains("support_surface_folds=17")
                                 && detail.contains("support_surface_piece_folds=")
                                 && detail.contains("support_surface_tensor_border_residual=0.000e0")
                                 && detail.contains("support_surface_internal_c2_position=0.000e0")

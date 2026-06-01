@@ -9,7 +9,7 @@ use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
 };
-use super::kp20_polar_support_image::Kp20SupportImageCandidate;
+use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportSurfaceReport {
@@ -58,11 +58,11 @@ enum Kp20SupportSurfaceMode {
 pub(super) fn support_surface_candidate_summary(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
-    support_image: &Kp20SupportImageCandidate,
+    support_lift: &Kp20SupportNormalLiftReport,
 ) -> Result<Kp20SupportSurfaceReport, String> {
-    let active_fold_pieces = active_fold_piece_count(&support_image.summary);
-    let mut accepted_patches = support_image.macro_patches.clone();
-    let mut accepted_summary = (support_image.summary.clone(), support_image.validation);
+    let active_fold_pieces = active_fold_piece_count(&support_lift.summary);
+    let mut accepted_patches = support_lift.macro_patches.clone();
+    let mut accepted_summary = (support_lift.summary.clone(), support_lift.validation);
     let mut stats = Kp20SupportSurfaceStats {
         active_fold_pieces,
         orientation_rows: active_fold_pieces,

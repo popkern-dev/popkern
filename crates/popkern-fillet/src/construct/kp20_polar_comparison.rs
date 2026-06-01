@@ -84,7 +84,7 @@ fn support_surface_result(
     report: &Result<super::kp20_polar_support_image::Kp20SupportImageSearchCandidate, String>,
 ) -> Result<Kp20SupportSurfaceReport, String> {
     report.as_ref().map_err(Clone::clone).and_then(|candidate| {
-        support_surface_candidate_summary(star_point, tensor_border, &candidate.image)
+        support_surface_candidate_summary(star_point, tensor_border, &candidate.lift)
     })
 }
 
