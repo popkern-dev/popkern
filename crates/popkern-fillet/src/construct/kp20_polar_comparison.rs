@@ -9,9 +9,12 @@ use popkern_core::geometry::gregory::{
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp20_polar_fold_summary::{Kp20SamplerFoldSummary, candidate_summary_from_sampled};
-use super::kp20_polar_support_image::support_image_and_lift_candidate_summaries;
+use super::kp20_polar_support_image::support_image_composed_candidate;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, Kp20SupportNormalStep, normal_lift_candidate_summary,
+};
+use super::kp20_polar_support_surface::{
+    Kp20SupportSurfaceReport, support_surface_candidate_summary,
 };
 use crate::types::ApexConstructionDiagnostic;
 use std::time::Instant;
@@ -26,8 +29,11 @@ pub(super) fn sampler_comparison_diagnostic(
         timed(|| orientation_valid_candidate_summary(star_point, tensor_border));
     let (normal_lift, normal_lift_ms) =
         timed(|| normal_lift_candidate_summary(star_point, tensor_border));
-    let ((support_image, support_image_lift), support_image_composed_ms) =
-        timed(|| support_image_and_lift_candidate_summaries(star_point, tensor_border));
+    let (support_image_composed, support_image_composed_ms) =
+        timed(|| support_image_composed_candidate(star_point, tensor_border));
+    let support_image = support_image_result(&support_image_composed);
+    let support_image_lift = support_image_lift_result(&support_image_composed);
+    let support_surface = support_surface_result(&support_image_composed);
     let (sector_local_tau, sector_local_tau_ms) =
         timed(|| tau_candidate_summary(star_point, tensor_border));
     let total_ms = elapsed_ms(total_start);
@@ -41,6 +47,7 @@ pub(super) fn sampler_comparison_diagnostic(
     append_support_lift_detail(&mut detail, "support_normal_lift", &normal_lift);
     append_candidate_detail(&mut detail, "support_image", &support_image);
     append_support_lift_detail(&mut detail, "support_image_lift", &support_image_lift);
+    append_support_surface_detail(&mut detail, "support_surface", &support_surface);
     append_candidate_detail(&mut detail, "sector_local_tau", &sector_local_tau);
     comparison_diagnostic(
         tensor_border.sectors.len(),
@@ -50,6 +57,33 @@ pub(super) fn sampler_comparison_diagnostic(
             .ok()
             .map(|(summary, _)| summary.min_jacobian_normal_cos),
     )
+}
+
+fn support_image_result(
+    report: &Result<super::kp20_polar_support_image::Kp20SupportImageSearchCandidate, String>,
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    report
+        .as_ref()
+        .map(|candidate| (candidate.image.summary.clone(), candidate.image.validation))
+        .map_err(Clone::clone)
+}
+
+fn support_image_lift_result(
+    report: &Result<super::kp20_polar_support_image::Kp20SupportImageSearchCandidate, String>,
+) -> Result<Kp20SupportNormalLiftReport, String> {
+    report
+        .as_ref()
+        .map(|candidate| candidate.lift.clone())
+        .map_err(Clone::clone)
+}
+
+fn support_surface_result(
+    report: &Result<super::kp20_polar_support_image::Kp20SupportImageSearchCandidate, String>,
+) -> Result<Kp20SupportSurfaceReport, String> {
+    report
+        .as_ref()
+        .map(|candidate| support_surface_candidate_summary(&candidate.image))
+        .map_err(Clone::clone)
 }
 
 fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
@@ -148,6 +182,37 @@ fn append_support_lift_detail(
                 report.optimizer_stats.rejected_candidates,
                 report.accepted_steps.len(),
                 step_trace_label(&report.accepted_steps),
+            ));
+        }
+        Err(err) => {
+            detail.push_str(&format!(";{label}_status=declined;{label}_error={err}"));
+        }
+    }
+}
+
+fn append_support_surface_detail(
+    detail: &mut String,
+    label: &str,
+    report: &Result<Kp20SupportSurfaceReport, String>,
+) {
+    match report {
+        Ok(report) => {
+            detail.push_str(&format!(
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_accepted={};{label}_rejected={};{label}_decline_reason={}",
+                report.summary.fold_count,
+                report.summary.min_jacobian_normal_cos,
+                piece_counts_label(report.summary.piece_fold_counts),
+                fold_details_label(&report.summary.fold_details),
+                report.validation.max_tensor_border_residual,
+                report.validation.max_internal_c2_position_residual,
+                report.validation.max_internal_c2_first_residual,
+                report.validation.max_origin_g2_strip_residual,
+                report.stats.active_fold_pieces,
+                report.stats.orientation_rows,
+                report.stats.evaluated_candidates,
+                report.stats.accepted_candidates,
+                report.stats.rejected_candidates,
+                report.decline_reason,
             ));
         }
         Err(err) => {

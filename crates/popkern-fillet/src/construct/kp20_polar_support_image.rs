@@ -25,9 +25,9 @@ pub(super) struct Kp20SupportImageCandidate {
     pub(super) params: Kp20SupportImageParams,
 }
 
-struct Kp20SupportImageSearchCandidate {
-    image: Kp20SupportImageCandidate,
-    lift: Kp20SupportNormalLiftReport,
+pub(super) struct Kp20SupportImageSearchCandidate {
+    pub(super) image: Kp20SupportImageCandidate,
+    pub(super) lift: Kp20SupportNormalLiftReport,
 }
 
 struct Kp20AssembledSupportImageCandidate {
@@ -43,24 +43,7 @@ pub(super) struct Kp20SupportImageParams {
     shear: f64,
 }
 
-pub(super) fn support_image_and_lift_candidate_summaries(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> (
-    Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
-    Result<Kp20SupportNormalLiftReport, String>,
-) {
-    match support_image_composed_candidate(star_point, tensor_border) {
-        Ok(candidate) => {
-            let summary = Ok((candidate.image.summary, candidate.image.validation));
-            let lift = Ok(candidate.lift);
-            (summary, lift)
-        }
-        Err(err) => (Err(err.clone()), Err(err)),
-    }
-}
-
-fn support_image_composed_candidate(
+pub(super) fn support_image_composed_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20SupportImageSearchCandidate, String> {
