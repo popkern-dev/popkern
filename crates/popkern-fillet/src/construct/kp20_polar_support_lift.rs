@@ -65,7 +65,15 @@ pub(super) fn normal_lift_candidate_summary(
         sampled_macro_patches,
     })
     .map_err(|e| e.to_string())?;
-    let mut accepted = cap.macro_patches.clone();
+    lift_candidate_from_macro_patches(star_point, tensor_border, cap.macro_patches)
+}
+
+pub(super) fn lift_candidate_from_macro_patches(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+) -> Result<Kp20SupportNormalLiftReport, String> {
+    let mut accepted = macro_patches;
     let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
     let mut accepted_steps = Vec::new();
     let mut optimizer_stats = Kp20SupportOptimizerStats::default();
