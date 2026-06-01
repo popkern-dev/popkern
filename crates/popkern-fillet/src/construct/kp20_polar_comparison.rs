@@ -1,37 +1,37 @@
 //! Structured comparison diagnostics for KP20 polar macro sampling.
 
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput,
     Kp20MacroPatch, Kp20PieceId, RectangularGregoryBiNonic, TensorBorderBi3,
     assemble_kp20_bi6_macro_cap, build_kp20_guide_ring, elevate_bi6_grid_to_bi9,
-    measure_kp20_bi6_macro_cap, sample_kp20_macro_patch_from_default_maps,
-    sample_kp20_macro_patch_from_orientation_valid_maps, sample_kp20_macro_patch_from_tau_maps,
+    measure_kp20_bi6_macro_cap, sample_kp20_macro_patch_from_orientation_valid_maps,
+    sample_kp20_macro_patch_from_tau_maps,
 };
-use popkern_core::geometry::{Point3, Vec3};
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
+use super::kp20_polar_support_lift::{
+    Kp20SupportNormalLiftReport, Kp20SupportNormalStep, normal_lift_candidate_summary,
+};
 use crate::types::ApexConstructionDiagnostic;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(super) struct Kp20SamplerFoldSummary {
     pub fold_count: usize,
     pub min_jacobian_normal_cos: f64,
     pub piece_fold_counts: [usize; 4],
-}
-
-#[derive(Debug, Clone)]
-struct Kp20SupportNormalLiftReport {
-    summary: Kp20SamplerFoldSummary,
-    validation: Kp20Bi6ValidationReport,
-    accepted_steps: Vec<Kp20SupportNormalStep>,
+    pub fold_details: Vec<String>,
+    pub(super) fold_sites: Vec<Kp20FoldSite>,
 }
 
 #[derive(Debug, Clone, Copy)]
-struct Kp20SupportNormalStep {
-    piece_mask: [bool; 4],
-    scale: f64,
-    fold_count: usize,
-    piece_fold_counts: [usize; 4],
+pub(super) struct Kp20FoldSite {
+    pub(super) sector: usize,
+    pub(super) piece: Kp20PieceId,
+    pub(super) u: f64,
+    pub(super) v: f64,
+    pub(super) min_jacobian_ratio: f64,
+    pub(super) min_jacobian_normal_cos: f64,
 }
 
 pub(super) fn sampler_comparison_diagnostic(
@@ -68,8 +68,15 @@ pub(super) fn summarize_intersections(
     )],
 ) -> Kp20SamplerFoldSummary {
     let mut piece_fold_counts = [0_usize; 4];
-    for (idx, _) in intersections {
+    let mut fold_details = Vec::new();
+    for (idx, report) in intersections {
         piece_fold_counts[idx % 4] += 1;
+        let sector = idx / 4;
+        let piece = Kp20PieceId::all()[idx % 4];
+        fold_details.push(format!(
+            "sector={sector},piece={piece:?},ratio={:.3e},cos={:.3e}",
+            report.min_jacobian_ratio, report.min_jacobian_normal_cos
+        ));
     }
     let min_jacobian_normal_cos = intersections
         .iter()
@@ -79,6 +86,8 @@ pub(super) fn summarize_intersections(
         fold_count: intersections.len(),
         min_jacobian_normal_cos,
         piece_fold_counts,
+        fold_details,
+        fold_sites: Vec::new(),
     }
 }
 
@@ -131,82 +140,7 @@ fn candidate_summary_from_sampled(
     candidate_summary_from_cap(tensor_border, cap.macro_patches)
 }
 
-fn normal_lift_candidate_summary(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> Result<Kp20SupportNormalLiftReport, String> {
-    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let sampled_macro_patches = guide
-        .sectors
-        .iter()
-        .map(sample_kp20_macro_patch_from_default_maps)
-        .collect::<Vec<_>>();
-    let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-        tensor_border: tensor_border.clone(),
-        sampled_macro_patches,
-    })
-    .map_err(|e| e.to_string())?;
-    let mut accepted = cap.macro_patches.clone();
-    let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
-    let mut accepted_steps = Vec::new();
-    let target_masks = [
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, true],
-        [false, false, true, true],
-    ];
-    for _ in 0..4 {
-        let mut best_step: Option<(
-            Vec<Kp20MacroPatch>,
-            (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-            f64,
-            [bool; 4],
-        )> = None;
-        for scale in [-0.25, -0.1, 0.1, 0.25] {
-            for piece_mask in target_masks {
-                let mut candidate = accepted.clone();
-                apply_support_normal_lift(
-                    &mut candidate,
-                    star_point,
-                    tensor_border,
-                    scale,
-                    piece_mask,
-                );
-                let summary = candidate_summary_from_cap(tensor_border, candidate.clone())?;
-                if !validation_is_clean(summary.1) {
-                    continue;
-                }
-                if is_better_summary(&summary, Some(&accepted_summary))
-                    && is_better_summary(&summary, best_step.as_ref().map(|(_, s, _, _)| s))
-                {
-                    best_step = Some((candidate, summary, scale, piece_mask));
-                }
-            }
-        }
-        let Some((candidate, summary, scale, piece_mask)) = best_step else {
-            break;
-        };
-        accepted = candidate;
-        accepted_summary = summary;
-        accepted_steps.push(Kp20SupportNormalStep {
-            piece_mask,
-            scale,
-            fold_count: accepted_summary.0.fold_count,
-            piece_fold_counts: accepted_summary.0.piece_fold_counts,
-        });
-    }
-    Ok(Kp20SupportNormalLiftReport {
-        summary: accepted_summary.0,
-        validation: accepted_summary.1,
-        accepted_steps,
-    })
-}
-
-fn candidate_summary_from_cap(
+pub(super) fn candidate_summary_from_cap(
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
 ) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
@@ -231,78 +165,104 @@ fn candidate_summary_from_cap(
             report.intersects().then_some((idx, report))
         })
         .collect::<Vec<_>>();
-    Ok((summarize_intersections(&intersections), validation))
+    Ok((
+        summarize_candidate_intersections(&candidate, &intersections),
+        validation,
+    ))
 }
 
-fn is_better_summary(
-    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-    best: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
-) -> bool {
-    let Some(best) = best else {
-        return true;
+fn summarize_candidate_intersections(
+    candidate: &[GregoryPatch],
+    intersections: &[(
+        usize,
+        popkern_core::geometry::gregory::GregorySelfIntersectionReport,
+    )],
+) -> Kp20SamplerFoldSummary {
+    let mut summary = summarize_intersections(intersections);
+    summary.fold_sites = intersections
+        .iter()
+        .map(|(idx, report)| {
+            let sector = idx / 4;
+            let piece = Kp20PieceId::all()[idx % 4];
+            let sample = worst_jacobian_sample(&candidate[*idx]);
+            Kp20FoldSite {
+                sector,
+                piece,
+                u: sample.u,
+                v: sample.v,
+                min_jacobian_ratio: report.min_jacobian_ratio,
+                min_jacobian_normal_cos: report.min_jacobian_normal_cos,
+            }
+        })
+        .collect();
+    summary.fold_details = summary
+        .fold_sites
+        .iter()
+        .map(|site| {
+            format!(
+                "sector={},piece={:?},u={:.3},v={:.3},ratio={:.3e},cos={:.3e}",
+                site.sector,
+                site.piece,
+                site.u,
+                site.v,
+                site.min_jacobian_ratio,
+                site.min_jacobian_normal_cos
+            )
+        })
+        .collect();
+    summary
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WorstJacobianSample {
+    u: f64,
+    v: f64,
+    min_jacobian_normal_cos: f64,
+}
+
+fn worst_jacobian_sample(patch: &GregoryPatch) -> WorstJacobianSample {
+    let n = 8_usize;
+    let mut samples = Vec::with_capacity(n * n);
+    for i in 0..n {
+        for j in 0..n {
+            let u = (i as f64 + 0.5) / n as f64;
+            let v = (j as f64 + 0.5) / n as f64;
+            let jacobian = patch.partial_u(u, v).cross(&patch.partial_v(u, v));
+            let mag = jacobian.length();
+            if mag >= 1.0e-14 {
+                samples.push((u, v, jacobian, mag));
+            }
+        }
+    }
+    let Some((_, _, reference, max_mag)) = samples
+        .iter()
+        .max_by(|a, b| a.3.partial_cmp(&b.3).unwrap_or(std::cmp::Ordering::Equal))
+        .copied()
+    else {
+        return WorstJacobianSample {
+            u: 0.5,
+            v: 0.5,
+            min_jacobian_normal_cos: 1.0,
+        };
     };
-    candidate.0.fold_count < best.0.fold_count
-        || (candidate.0.fold_count == best.0.fold_count
-            && candidate.0.min_jacobian_normal_cos > best.0.min_jacobian_normal_cos)
-}
-
-fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
-    validation.max_tensor_border_residual <= 1.0e-8
-        && validation.max_internal_c2_position_residual <= 1.0e-8
-        && validation.max_internal_c2_first_residual <= 1.0e-8
-        && validation.max_origin_g2_strip_residual <= 1.0e-8
-}
-
-fn apply_support_normal_lift(
-    macro_patches: &mut [Kp20MacroPatch],
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-    scale: f64,
-    piece_mask: [bool; 4],
-) {
-    for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {
-        let row = tensor_border.sectors[sector][0];
-        let spoke_a = row[0] - star_point;
-        let spoke_b = row[3] - star_point;
-        let normal = spoke_a
-            .cross(&spoke_b)
-            .normalized()
-            .unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-        let span = 0.5 * (spoke_a.length() + spoke_b.length());
-        let displacement = normal * (scale * span);
-        for id in Kp20PieceId::all() {
-            if !piece_mask[id.index()] {
-                continue;
-            }
-            let piece = macro_patch.piece_mut(id);
-            for i in 0..7 {
-                for j in 0..7 {
-                    if !can_lift_coefficient(id, i, j) {
-                        continue;
-                    }
-                    let weight = lift_weight(i, j);
-                    piece.cps[i][j] = piece.cps[i][j] + displacement * weight;
-                }
-            }
+    let mag_threshold = 0.01 * max_mag;
+    let mut worst = WorstJacobianSample {
+        u: 0.5,
+        v: 0.5,
+        min_jacobian_normal_cos: 1.0,
+    };
+    for (u, v, jacobian, mag) in samples {
+        if mag < mag_threshold {
+            continue;
+        }
+        let cos = jacobian.dot(&reference) / (mag * max_mag);
+        if cos < worst.min_jacobian_normal_cos {
+            worst.u = u;
+            worst.v = v;
+            worst.min_jacobian_normal_cos = cos;
         }
     }
-}
-
-fn can_lift_coefficient(id: Kp20PieceId, i: usize, j: usize) -> bool {
-    match id {
-        Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
-            i >= 3 && i != 4 && i != 6
-        }
-        Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight => {
-            i != 0 && i != 1 && i != 5 && !(i >= 4 && j <= 2)
-        }
-    }
-}
-
-fn lift_weight(i: usize, j: usize) -> f64 {
-    let u = i as f64 / 6.0;
-    let v = j as f64 / 6.0;
-    (core::f64::consts::PI * u).sin().max(0.0) * (core::f64::consts::PI * v).sin().max(0.0)
+    worst
 }
 
 fn flatten_macro_patches(macro_patches: &[Kp20MacroPatch]) -> Vec<[[Point3; 7]; 7]> {
@@ -323,10 +283,11 @@ fn append_candidate_detail(
     match summary {
         Ok((folds, validation)) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e}",
                 folds.fold_count,
                 folds.min_jacobian_normal_cos,
                 piece_counts_label(folds.piece_fold_counts),
+                fold_details_label(&folds.fold_details),
                 validation.max_tensor_border_residual,
                 validation.max_internal_c2_position_residual,
                 validation.max_internal_c2_first_residual,
@@ -346,10 +307,11 @@ fn append_support_lift_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";support_normal_lift_status=sampled;support_normal_lift_folds={};support_normal_lift_min_jacobian_cos={:.3e};support_normal_lift_piece_folds={};support_normal_lift_tensor_border_residual={:.3e};support_normal_lift_internal_c2_position={:.3e};support_normal_lift_internal_c2_first={:.3e};support_normal_lift_origin_g2_strip={:.3e};support_normal_lift_accepted_steps={};support_normal_lift_step_trace={}",
+                ";support_normal_lift_status=sampled;support_normal_lift_folds={};support_normal_lift_min_jacobian_cos={:.3e};support_normal_lift_piece_folds={};support_normal_lift_fold_details={};support_normal_lift_tensor_border_residual={:.3e};support_normal_lift_internal_c2_position={:.3e};support_normal_lift_internal_c2_first={:.3e};support_normal_lift_origin_g2_strip={:.3e};support_normal_lift_accepted_steps={};support_normal_lift_step_trace={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
+                fold_details_label(&report.summary.fold_details),
                 report.validation.max_tensor_border_residual,
                 report.validation.max_internal_c2_position_residual,
                 report.validation.max_internal_c2_first_residual,
@@ -386,6 +348,13 @@ fn piece_counts_label(counts: [usize; 4]) -> String {
         "{:?}:{}|{:?}:{}|{:?}:{}|{:?}:{}",
         pieces[0], counts[0], pieces[1], counts[1], pieces[2], counts[2], pieces[3], counts[3]
     )
+}
+
+fn fold_details_label(details: &[String]) -> String {
+    if details.is_empty() {
+        return "none".to_string();
+    }
+    details.join("|")
 }
 
 fn step_trace_label(steps: &[Kp20SupportNormalStep]) -> String {
