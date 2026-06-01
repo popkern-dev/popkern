@@ -10,6 +10,7 @@ use popkern_core::geometry::gregory::{
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
+use super::kp20_polar_support_image::support_image_candidate_summary;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, Kp20SupportNormalStep, normal_lift_candidate_summary,
 };
@@ -41,6 +42,7 @@ pub(super) fn sampler_comparison_diagnostic(
 ) -> ApexConstructionDiagnostic {
     let orientation_valid = orientation_valid_candidate_summary(star_point, tensor_border);
     let normal_lift = normal_lift_candidate_summary(star_point, tensor_border);
+    let support_image = support_image_candidate_summary(star_point, tensor_border);
     let sector_local_tau = tau_candidate_summary(star_point, tensor_border);
     let mut detail = format!(
         "bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
@@ -50,6 +52,7 @@ pub(super) fn sampler_comparison_diagnostic(
     );
     append_candidate_detail(&mut detail, "orientation_valid", &orientation_valid);
     append_support_lift_detail(&mut detail, &normal_lift);
+    append_candidate_detail(&mut detail, "support_image", &support_image);
     append_candidate_detail(&mut detail, "sector_local_tau", &sector_local_tau);
     comparison_diagnostic(
         tensor_border.sectors.len(),
@@ -128,7 +131,7 @@ fn orientation_valid_candidate_summary(
     candidate_summary_from_sampled(tensor_border, sampled_macro_patches)
 }
 
-fn candidate_summary_from_sampled(
+pub(super) fn candidate_summary_from_sampled(
     tensor_border: &TensorBorderBi3,
     sampled_macro_patches: Vec<popkern_core::geometry::gregory::Kp20MacroPatch>,
 ) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
@@ -138,6 +141,25 @@ fn candidate_summary_from_sampled(
     })
     .map_err(|e| e.to_string())?;
     candidate_summary_from_cap(tensor_border, cap.macro_patches)
+}
+
+pub(super) fn is_better_summary(
+    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    best: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
+) -> bool {
+    let Some(best) = best else {
+        return true;
+    };
+    candidate.0.fold_count < best.0.fold_count
+        || (candidate.0.fold_count == best.0.fold_count
+            && candidate.0.min_jacobian_normal_cos > best.0.min_jacobian_normal_cos)
+}
+
+pub(super) fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
+    validation.max_tensor_border_residual <= 1.0e-8
+        && validation.max_internal_c2_position_residual <= 1.0e-8
+        && validation.max_internal_c2_first_residual <= 1.0e-8
+        && validation.max_origin_g2_strip_residual <= 1.0e-8
 }
 
 pub(super) fn candidate_summary_from_cap(

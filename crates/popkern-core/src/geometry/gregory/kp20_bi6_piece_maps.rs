@@ -127,6 +127,15 @@ pub fn sample_kp20_macro_patch_from_default_maps(guide: &Kp20Tri6GuideSector) ->
     kp20_sample_macro_patch_from_guide(guide, kp20_default_sector_piece_maps())
 }
 
+/// Sample one guide sector into one KP20 macro-patch using caller-supplied
+/// sector-local piece maps.
+pub fn sample_kp20_macro_patch_from_piece_maps(
+    guide: &Kp20Tri6GuideSector,
+    maps: Kp20SectorPieceMaps,
+) -> Kp20MacroPatch {
+    kp20_sample_macro_patch_from_guide(guide, maps)
+}
+
 /// Sample one guide sector into one KP20 macro-patch using the
 /// orientation-valid comparison maps.
 pub fn sample_kp20_macro_patch_from_orientation_valid_maps(
