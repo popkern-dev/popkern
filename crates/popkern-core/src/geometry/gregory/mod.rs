@@ -442,6 +442,15 @@ impl GregoryPatch {
     pub fn self_intersection_report(&self, tolerance: f64) -> GregorySelfIntersectionReport {
         self_intersection::gregory_self_intersection_report(self, tolerance)
     }
+
+    /// Return only the fast sampled-Jacobian self-intersection terms.
+    ///
+    /// This is a conservative screening primitive for optimizers that need
+    /// cheap fold ordering before running full subdivision validation on the
+    /// candidate they intend to accept.
+    pub fn jacobian_self_intersection_report(&self) -> GregorySelfIntersectionReport {
+        self_intersection::gregory_jacobian_self_intersection_report(self)
+    }
 }
 
 #[cfg(test)]

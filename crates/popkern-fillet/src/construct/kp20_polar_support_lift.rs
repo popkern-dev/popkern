@@ -7,9 +7,10 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::{Point3, Vec3};
 
-use super::kp20_polar_comparison::{
+use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap,
-    candidate_summary_from_changed_patches,
+    candidate_summary_from_changed_patches, fast_candidate_summary_from_changed_patches,
+    is_better_summary, validation_is_clean,
 };
 
 #[derive(Debug, Clone)]
@@ -138,38 +139,60 @@ fn lift_candidate_from_macro_patches_with_profile(
                         &accepted_summary.0.fold_sites,
                     );
                     optimizer_stats.evaluated_candidates += 1;
+                    let fast_summary = fast_candidate_summary_from_changed_patches(
+                        tensor_border,
+                        candidate.clone(),
+                        &accepted_summary.0,
+                        &changed_patches,
+                        accepted_summary.0.fold_count,
+                    )?;
+                    if !validation_is_clean(fast_summary.1) {
+                        optimizer_stats.rejected_candidates += 1;
+                        continue;
+                    }
+                    if !is_better_summary(&fast_summary, Some(&accepted_summary)) {
+                        optimizer_stats.rejected_candidates += 1;
+                        continue;
+                    }
+                    if best_in_mode
+                        .as_ref()
+                        .is_some_and(|(_, s, _, _, _)| !is_better_summary(&fast_summary, Some(s)))
+                    {
+                        optimizer_stats.rejected_candidates += 1;
+                        continue;
+                    }
                     let summary = candidate_summary_from_changed_patches(
                         tensor_border,
                         candidate.clone(),
                         &accepted_summary.0,
                         &changed_patches,
+                        accepted_summary.0.fold_count,
                     )?;
-                    if !validation_is_clean(summary.1) {
+                    if !validation_is_clean(summary.1)
+                        || !is_better_summary(&summary, Some(&accepted_summary))
+                    {
                         optimizer_stats.rejected_candidates += 1;
                         continue;
                     }
-                    if !is_better_summary(Some(&summary), Some(&accepted_summary)) {
+                    if best_in_mode
+                        .as_ref()
+                        .is_some_and(|(_, s, _, _, _)| !is_better_summary(&summary, Some(s)))
+                    {
                         optimizer_stats.rejected_candidates += 1;
                         continue;
                     }
-                    if is_better_summary(
-                        Some(&summary),
-                        best_in_mode.as_ref().map(|(_, s, _, _, _)| s),
-                    ) {
-                        let drops_fold_count = summary.0.fold_count < accepted_summary.0.fold_count;
-                        best_in_mode = Some((candidate, summary, mode, scale, piece_mask));
-                        if profile == Kp20LiftSearchProfile::ComposedSupportImage
-                            && drops_fold_count
-                        {
-                            break 'mode_search;
-                        }
+                    let drops_fold_count = summary.0.fold_count < accepted_summary.0.fold_count;
+                    best_in_mode = Some((candidate, summary, mode, scale, piece_mask));
+                    if profile == Kp20LiftSearchProfile::ComposedSupportImage && drops_fold_count {
+                        break 'mode_search;
                     }
                 }
             }
-            if is_better_summary(
-                best_in_mode.as_ref().map(|(_, summary, _, _, _)| summary),
-                best_step.as_ref().map(|(_, summary, _, _, _)| summary),
-            ) {
+            if best_in_mode.as_ref().is_some_and(|(_, summary, _, _, _)| {
+                best_step
+                    .as_ref()
+                    .is_none_or(|(_, best, _, _, _)| is_better_summary(summary, Some(best)))
+            }) {
                 best_step = best_in_mode;
             }
             if best_step.as_ref().is_some_and(|(_, summary, _, _, _)| {
@@ -285,28 +308,6 @@ fn push_mask_if_active(masks: &mut Vec<[bool; 4]>, active: [bool; 4], mask: [boo
     if useful && !masks.contains(&mask) {
         masks.push(mask);
     }
-}
-
-fn is_better_summary(
-    candidate: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
-    best: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
-) -> bool {
-    let Some(candidate) = candidate else {
-        return false;
-    };
-    let Some(best) = best else {
-        return true;
-    };
-    candidate.0.fold_count < best.0.fold_count
-        || (candidate.0.fold_count == best.0.fold_count
-            && candidate.0.min_jacobian_normal_cos > best.0.min_jacobian_normal_cos)
-}
-
-fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
-    validation.max_tensor_border_residual <= 1.0e-8
-        && validation.max_internal_c2_position_residual <= 1.0e-8
-        && validation.max_internal_c2_first_residual <= 1.0e-8
-        && validation.max_origin_g2_strip_residual <= 1.0e-8
 }
 
 fn apply_support_row_update(
@@ -489,10 +490,7 @@ fn local_lift_weight(
         .fold(0.0, f64::max);
     if site_weight > 0.0 {
         site_weight.max(0.35)
-    } else if fold_sites
-        .iter()
-        .any(|site| site.sector == sector && site.piece == piece)
-    {
+    } else if has_fold_site(sector, piece, fold_sites) {
         0.35
     } else {
         0.0

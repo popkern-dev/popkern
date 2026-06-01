@@ -85,6 +85,12 @@ pub(super) fn gregory_self_intersection_report(
     report
 }
 
+pub(super) fn gregory_jacobian_self_intersection_report(
+    patch: &GregoryPatch,
+) -> GregorySelfIntersectionReport {
+    jacobian_report(patch)
+}
+
 /// Plan-mandated subdivision-based check: convert the Gregory
 /// patch to its exact rational-NURBS form, split into 2×2 = 4
 /// sub-patches at u = v = 0.5, then run `intersect_surfaces` on

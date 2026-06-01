@@ -10,7 +10,8 @@ use popkern_core::geometry::gregory::{
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp_polar_bi6_promote::extract_fillet_radius;
-use super::kp20_polar_comparison::{sampler_comparison_diagnostic, summarize_intersections};
+use super::kp20_polar_comparison::sampler_comparison_diagnostic;
+use super::kp20_polar_fold_summary::summarize_intersections;
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;

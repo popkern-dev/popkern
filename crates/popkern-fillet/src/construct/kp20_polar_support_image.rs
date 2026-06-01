@@ -8,7 +8,7 @@ use popkern_core::geometry::gregory::{
     sample_kp20_macro_patch_from_piece_maps,
 };
 
-use super::kp20_polar_comparison::{
+use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap, is_better_summary,
     validation_is_clean,
 };
