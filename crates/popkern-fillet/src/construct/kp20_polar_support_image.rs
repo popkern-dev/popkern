@@ -3,14 +3,14 @@
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput,
-    Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20SectorPieceMaps, TensorBorderBi3,
-    assemble_kp20_bi6_macro_cap, build_kp20_guide_ring, kp20_default_sector_piece_maps,
-    sample_kp20_macro_patch_from_piece_maps,
+    Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId, Kp20SectorPieceMaps,
+    TensorBorderBi3, assemble_kp20_bi6_macro_cap, build_kp20_guide_ring,
+    kp20_default_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::kp20_polar_fold_summary::{
-    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap, is_better_summary,
-    validation_is_clean,
+    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap,
+    fast_candidate_summary_from_changed_piece_sites, is_better_summary, validation_is_clean,
 };
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
@@ -28,6 +28,11 @@ pub(super) struct Kp20SupportImageCandidate {
 struct Kp20SupportImageSearchCandidate {
     image: Kp20SupportImageCandidate,
     lift: Kp20SupportNormalLiftReport,
+}
+
+struct Kp20AssembledSupportImageCandidate {
+    macro_patches: Vec<Kp20MacroPatch>,
+    params: Kp20SupportImageParams,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -77,36 +82,76 @@ fn support_image_composed_candidate(
         Kp20SupportImageParams::identity(),
     )?;
     let image_search_start = Instant::now();
-    let mut image_candidates = Vec::new();
+    let mut image_candidates: Vec<Kp20SupportImageCandidate> = Vec::new();
     let mut evaluated = 0_usize;
+    let mut fast_evaluated = 0_usize;
+    let mut exact_evaluated = 0_usize;
     let mut rejected = 0_usize;
+    let mut fast_rejected = 0_usize;
+    let mut exact_rejected = 0_usize;
+    let baseline_summary = (baseline.summary.clone(), baseline.validation);
     for params in Kp20SupportImageParams::coordinate_search_family() {
         evaluated += 1;
+        let mut changed_piece_sites = Vec::new();
         let sampled_macro_patches = guide
             .sectors
             .iter()
             .enumerate()
             .map(|(sector, guide_sector)| {
-                let maps = support_image_piece_maps(
+                let (maps, changed_sites) = support_image_piece_maps(
                     kp20_default_sector_piece_maps(),
                     sector,
                     params,
                     &baseline.summary.fold_sites,
                 );
+                changed_piece_sites.extend(changed_sites);
                 sample_kp20_macro_patch_from_piece_maps(guide_sector, maps)
             })
             .collect::<Vec<_>>();
-        let candidate = candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
+        let candidate =
+            assembled_candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
+        fast_evaluated += 1;
+        let fast_summary = fast_candidate_summary_from_changed_piece_sites(
+            tensor_border,
+            candidate.macro_patches.clone(),
+            &baseline.summary,
+            &changed_piece_sites,
+            baseline.summary.fold_count,
+        )?;
+        if !validation_is_clean(fast_summary.1) {
+            rejected += 1;
+            fast_rejected += 1;
+            continue;
+        }
+        if !is_better_summary(&fast_summary, Some(&baseline_summary)) {
+            rejected += 1;
+            fast_rejected += 1;
+            continue;
+        }
+        if image_candidates.first().is_some_and(|best| {
+            !is_better_summary(
+                &fast_summary,
+                Some(&(best.summary.clone(), best.validation)),
+            )
+        }) {
+            rejected += 1;
+            fast_rejected += 1;
+            continue;
+        }
+        exact_evaluated += 1;
+        let candidate = exact_summary_candidate(tensor_border, candidate)?;
         if !validation_is_clean(candidate.validation) {
             rejected += 1;
+            exact_rejected += 1;
             continue;
         }
         let candidate_summary = (candidate.summary.clone(), candidate.validation);
-        let baseline_summary = (baseline.summary.clone(), baseline.validation);
         if is_better_summary(&candidate_summary, Some(&baseline_summary)) {
             image_candidates.push(candidate);
+            image_candidates.sort_by(|a, b| compare_summaries(&a.summary, &b.summary));
         } else {
             rejected += 1;
+            exact_rejected += 1;
         }
     }
     let image_search_ms = elapsed_ms(image_search_start);
@@ -146,10 +191,10 @@ fn support_image_composed_candidate(
             .fold_details
             .push(format!("map_params={}", candidate.image.params.label()));
         candidate.image.summary.fold_details.push(format!(
-            "map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
+            "map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
         ));
         candidate.lift.summary.fold_details.push(format!(
-            "map_params={};map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
+            "map_params={};map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
             candidate.image.params.label()
         ));
         candidate
@@ -191,21 +236,53 @@ fn candidate_from_sampled(
     })
 }
 
+fn assembled_candidate_from_sampled(
+    tensor_border: &TensorBorderBi3,
+    sampled_macro_patches: Vec<Kp20MacroPatch>,
+    params: Kp20SupportImageParams,
+) -> Result<Kp20AssembledSupportImageCandidate, String> {
+    let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
+        tensor_border: tensor_border.clone(),
+        sampled_macro_patches,
+    })
+    .map_err(|e| e.to_string())?;
+    Ok(Kp20AssembledSupportImageCandidate {
+        macro_patches: cap.macro_patches,
+        params,
+    })
+}
+
+fn exact_summary_candidate(
+    tensor_border: &TensorBorderBi3,
+    candidate: Kp20AssembledSupportImageCandidate,
+) -> Result<Kp20SupportImageCandidate, String> {
+    let (summary, validation) =
+        candidate_summary_from_cap(tensor_border, candidate.macro_patches.clone())?;
+    Ok(Kp20SupportImageCandidate {
+        summary,
+        validation,
+        macro_patches: candidate.macro_patches,
+        params: candidate.params,
+    })
+}
+
 fn support_image_piece_maps(
     mut maps: Kp20SectorPieceMaps,
     sector: usize,
     params: Kp20SupportImageParams,
     fold_sites: &[Kp20FoldSite],
-) -> Kp20SectorPieceMaps {
+) -> (Kp20SectorPieceMaps, Vec<(usize, Kp20PieceId)>) {
+    let mut changed_sites = Vec::new();
     for (piece, corner_maps) in &mut maps {
         if fold_sites
             .iter()
             .any(|site| site.sector == sector && site.piece == *piece)
         {
             *corner_maps = reparameterized_corner_maps(*corner_maps, params);
+            changed_sites.push((sector, *piece));
         }
     }
-    maps
+    (maps, changed_sites)
 }
 
 fn reparameterized_corner_maps(

@@ -154,6 +154,27 @@ pub(super) fn fast_candidate_summary_from_changed_patches(
     )
 }
 
+pub(super) fn fast_candidate_summary_from_changed_piece_sites(
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+    unchanged_summary: &Kp20SamplerFoldSummary,
+    changed_piece_sites: &[(usize, Kp20PieceId)],
+    max_candidate_folds: usize,
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    let mut changed_patches = vec![[false; 4]; tensor_border.sectors.len()];
+    for &(sector, piece) in changed_piece_sites {
+        changed_patches[sector][piece.index()] = true;
+    }
+    candidate_summary_from_changed_patches_with_check(
+        tensor_border,
+        macro_patches,
+        unchanged_summary,
+        &changed_patches,
+        max_candidate_folds,
+        FoldCheck::JacobianOnly,
+    )
+}
+
 fn candidate_summary_from_changed_patches_with_check(
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
