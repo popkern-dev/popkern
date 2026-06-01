@@ -24,6 +24,11 @@ pub(super) struct Kp20SupportImageCandidate {
     pub(super) params: Kp20SupportImageParams,
 }
 
+struct Kp20SupportImageSearchCandidate {
+    image: Kp20SupportImageCandidate,
+    lift: Kp20SupportNormalLiftReport,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Kp20SupportImageParams {
     uniform: f64,
@@ -39,24 +44,20 @@ pub(super) fn support_image_and_lift_candidate_summaries(
     Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
     Result<Kp20SupportNormalLiftReport, String>,
 ) {
-    match support_image_candidate(star_point, tensor_border) {
+    match support_image_composed_candidate(star_point, tensor_border) {
         Ok(candidate) => {
-            let summary = Ok((candidate.summary.clone(), candidate.validation));
-            let lift = lift_candidate_from_macro_patches(
-                star_point,
-                tensor_border,
-                candidate.macro_patches,
-            );
+            let summary = Ok((candidate.image.summary, candidate.image.validation));
+            let lift = Ok(candidate.lift);
             (summary, lift)
         }
         Err(err) => (Err(err.clone()), Err(err)),
     }
 }
 
-fn support_image_candidate(
+fn support_image_composed_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
-) -> Result<Kp20SupportImageCandidate, String> {
+) -> Result<Kp20SupportImageSearchCandidate, String> {
     let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
         star_point,
         tensor_border: tensor_border.clone(),
@@ -74,8 +75,11 @@ fn support_image_candidate(
         default_sampled,
         Kp20SupportImageParams::identity(),
     )?;
-    let mut best: Option<Kp20SupportImageCandidate> = None;
-    for params in Kp20SupportImageParams::bounded_family() {
+    let mut image_candidates = Vec::new();
+    let mut evaluated = 0_usize;
+    let mut rejected = 0_usize;
+    for params in Kp20SupportImageParams::coordinate_search_family() {
+        evaluated += 1;
         let sampled_macro_patches = guide
             .sectors
             .iter()
@@ -92,28 +96,69 @@ fn support_image_candidate(
             .collect::<Vec<_>>();
         let candidate = candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
         if !validation_is_clean(candidate.validation) {
+            rejected += 1;
             continue;
         }
         let candidate_summary = (candidate.summary.clone(), candidate.validation);
         let baseline_summary = (baseline.summary.clone(), baseline.validation);
-        let best_summary = best
+        if is_better_summary(&candidate_summary, Some(&baseline_summary)) {
+            image_candidates.push(candidate);
+        } else {
+            rejected += 1;
+        }
+    }
+    image_candidates.sort_by(|a, b| compare_summaries(&a.summary, &b.summary));
+    let mut best: Option<Kp20SupportImageSearchCandidate> = None;
+    let mut composed_evaluated = 0_usize;
+    for candidate in image_candidates.into_iter().take(1) {
+        composed_evaluated += 1;
+        let lift = lift_candidate_from_macro_patches(
+            star_point,
+            tensor_border,
+            candidate.macro_patches.clone(),
+        )?;
+        if !validation_is_clean(lift.validation) {
+            rejected += 1;
+            continue;
+        }
+        let candidate_lift_summary = (lift.summary.clone(), lift.validation);
+        let best_lift_summary = best
             .as_ref()
-            .map(|candidate| (candidate.summary.clone(), candidate.validation));
-        if is_better_summary(&candidate_summary, Some(&baseline_summary))
-            && is_better_summary(&candidate_summary, best_summary.as_ref())
-        {
-            best = Some(candidate);
+            .map(|candidate| (candidate.lift.summary.clone(), candidate.lift.validation));
+        if is_better_summary(&candidate_lift_summary, best_lift_summary.as_ref()) {
+            best = Some(Kp20SupportImageSearchCandidate {
+                image: candidate,
+                lift,
+            });
+        } else {
+            rejected += 1;
         }
     }
     best.map(|mut candidate| {
         candidate
+            .image
             .summary
             .fold_details
-            .push(format!("map_params={}", candidate.params.label()));
+            .push(format!("map_params={}", candidate.image.params.label()));
+        candidate.image.summary.fold_details.push(format!(
+            "map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected}"
+        ));
+        candidate.lift.summary.fold_details.push(format!(
+            "map_params={};map_search=evaluated:{evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected}",
+            candidate.image.params.label()
+        ));
         candidate
     })
     .ok_or_else(|| {
         "support-image reparameterization found no residual-clean improvement".to_string()
+    })
+}
+
+fn compare_summaries(a: &Kp20SamplerFoldSummary, b: &Kp20SamplerFoldSummary) -> std::cmp::Ordering {
+    a.fold_count.cmp(&b.fold_count).then_with(|| {
+        b.min_jacobian_normal_cos
+            .partial_cmp(&a.min_jacobian_normal_cos)
+            .unwrap_or(std::cmp::Ordering::Equal)
     })
 }
 
@@ -188,44 +233,8 @@ impl Kp20SupportImageParams {
         }
     }
 
-    fn bounded_family() -> [Self; 9] {
+    fn coordinate_search_family() -> [Self; 9] {
         [
-            Self {
-                uniform: 0.85,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.0,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.0,
-            },
-            Self {
-                uniform: 1.08,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.0,
-            },
-            Self {
-                uniform: 1.15,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.0,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.08,
-                dv_scale: 0.92,
-                shear: 0.0,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 0.92,
-                dv_scale: 1.08,
-                shear: 0.0,
-            },
             Self {
                 uniform: 0.92,
                 du_scale: 1.0,
@@ -233,16 +242,52 @@ impl Kp20SupportImageParams {
                 shear: 0.04,
             },
             Self {
-                uniform: 0.92,
+                uniform: 0.89,
                 du_scale: 1.0,
                 dv_scale: 1.0,
-                shear: -0.04,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.95,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.04,
             },
             Self {
                 uniform: 0.92,
-                du_scale: 1.05,
-                dv_scale: 0.95,
-                shear: -0.04,
+                du_scale: 0.96,
+                dv_scale: 1.0,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.04,
+                dv_scale: 1.0,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 0.96,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.04,
+                shear: 0.04,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.02,
+            },
+            Self {
+                uniform: 0.92,
+                du_scale: 1.0,
+                dv_scale: 1.0,
+                shear: 0.06,
             },
         ]
     }
