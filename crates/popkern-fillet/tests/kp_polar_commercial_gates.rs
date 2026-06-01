@@ -332,6 +332,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("support_surface_active_fold_pieces=")
                                 && detail.contains("support_surface_orientation_rows=")
                                 && detail.contains("support_surface_evaluated=")
+                                && detail.contains("support_surface_exact_evaluated=")
                                 && detail.contains("support_surface_accepted=")
                                 && detail.contains("support_surface_rejected=")
                                 && detail.contains("support_surface_decline_reason=")
