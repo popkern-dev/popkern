@@ -9,6 +9,7 @@ use popkern_core::geometry::{Point3, Vec3};
 
 use super::kp20_polar_comparison::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap,
+    candidate_summary_from_changed_patches,
 };
 
 #[derive(Debug, Clone)]
@@ -21,9 +22,17 @@ pub(super) struct Kp20SupportNormalLiftReport {
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportNormalStep {
     pub(super) piece_mask: [bool; 4],
+    pub(super) mode: Kp20SupportLiftMode,
     pub(super) scale: f64,
     pub(super) fold_count: usize,
     pub(super) piece_fold_counts: [usize; 4],
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Kp20SupportLiftMode {
+    SupportNormal,
+    RadialBisector,
+    SectorChord,
 }
 
 pub(super) fn normal_lift_candidate_summary(
@@ -48,48 +57,74 @@ pub(super) fn normal_lift_candidate_summary(
     let mut accepted = cap.macro_patches.clone();
     let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
     let mut accepted_steps = Vec::new();
-    let target_masks = [
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, true],
-        [false, false, true, true],
-    ];
     for _ in 0..4 {
         let mut best_step: Option<(
             Vec<Kp20MacroPatch>,
             (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+            Kp20SupportLiftMode,
             f64,
             [bool; 4],
         )> = None;
-        for scale in [-0.25, -0.1, 0.1, 0.25] {
-            for piece_mask in target_masks {
-                let mut candidate = accepted.clone();
-                apply_support_normal_lift(
-                    &mut candidate,
-                    star_point,
-                    tensor_border,
-                    scale,
-                    piece_mask,
-                    &accepted_summary.0.fold_sites,
-                );
-                let summary = candidate_summary_from_cap(tensor_border, candidate.clone())?;
-                if !validation_is_clean(summary.1) {
-                    continue;
-                }
-                if is_better_summary(&summary, Some(&accepted_summary))
-                    && is_better_summary(&summary, best_step.as_ref().map(|(_, s, _, _)| s))
-                {
-                    best_step = Some((candidate, summary, scale, piece_mask));
+        for mode in Kp20SupportLiftMode::search_order() {
+            let mut best_in_mode: Option<(
+                Vec<Kp20MacroPatch>,
+                (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+                Kp20SupportLiftMode,
+                f64,
+                [bool; 4],
+            )> = None;
+            for scale in [-0.25, -0.1, 0.1, 0.25] {
+                for piece_mask in candidate_piece_masks(mode, &accepted_summary.0.fold_sites) {
+                    let mut candidate = accepted.clone();
+                    let changed_patches = apply_support_normal_lift(
+                        &mut candidate,
+                        star_point,
+                        tensor_border,
+                        mode,
+                        scale,
+                        piece_mask,
+                        &accepted_summary.0.fold_sites,
+                    );
+                    let summary = candidate_summary_from_changed_patches(
+                        tensor_border,
+                        candidate.clone(),
+                        &accepted_summary.0,
+                        &changed_patches,
+                    )?;
+                    if !validation_is_clean(summary.1) {
+                        continue;
+                    }
+                    if !is_better_summary(Some(&summary), Some(&accepted_summary)) {
+                        continue;
+                    }
+                    if is_better_summary(
+                        Some(&summary),
+                        best_in_mode.as_ref().map(|(_, s, _, _, _)| s),
+                    ) {
+                        best_in_mode = Some((candidate, summary, mode, scale, piece_mask));
+                    }
                 }
             }
+            if is_better_summary(
+                best_in_mode.as_ref().map(|(_, summary, _, _, _)| summary),
+                best_step.as_ref().map(|(_, summary, _, _, _)| summary),
+            ) {
+                best_step = best_in_mode;
+            }
+            if best_step.as_ref().is_some_and(|(_, summary, _, _, _)| {
+                summary.0.fold_count < accepted_summary.0.fold_count
+            }) {
+                break;
+            }
         }
-        let Some((candidate, summary, scale, piece_mask)) = best_step else {
+        let Some((candidate, summary, mode, scale, piece_mask)) = best_step else {
             break;
         };
         accepted = candidate;
         accepted_summary = summary;
         accepted_steps.push(Kp20SupportNormalStep {
             piece_mask,
+            mode,
             scale,
             fold_count: accepted_summary.0.fold_count,
             piece_fold_counts: accepted_summary.0.piece_fold_counts,
@@ -102,10 +137,51 @@ pub(super) fn normal_lift_candidate_summary(
     })
 }
 
+impl Kp20SupportLiftMode {
+    fn search_order() -> [Self; 3] {
+        [Self::SupportNormal, Self::RadialBisector, Self::SectorChord]
+    }
+}
+
+fn candidate_piece_masks(mode: Kp20SupportLiftMode, fold_sites: &[Kp20FoldSite]) -> Vec<[bool; 4]> {
+    let mut active = [false; 4];
+    for site in fold_sites {
+        active[site.piece.index()] = true;
+    }
+    if !matches!(mode, Kp20SupportLiftMode::SupportNormal) {
+        return vec![active];
+    }
+    let mut masks = Vec::new();
+    for piece in Kp20PieceId::all() {
+        if active[piece.index()] {
+            let mut mask = [false; 4];
+            mask[piece.index()] = true;
+            masks.push(mask);
+        }
+    }
+    push_mask_if_active(&mut masks, active, [true, true, false, false]);
+    push_mask_if_active(&mut masks, active, [false, false, true, true]);
+    masks
+}
+
+fn push_mask_if_active(masks: &mut Vec<[bool; 4]>, active: [bool; 4], mask: [bool; 4]) {
+    let useful = mask.iter().filter(|enabled| **enabled).count() >= 2
+        && mask
+            .into_iter()
+            .enumerate()
+            .all(|(idx, enabled)| !enabled || active[idx]);
+    if useful && !masks.contains(&mask) {
+        masks.push(mask);
+    }
+}
+
 fn is_better_summary(
-    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    candidate: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
     best: Option<&(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport)>,
 ) -> bool {
+    let Some(candidate) = candidate else {
+        return false;
+    };
     let Some(best) = best else {
         return true;
     };
@@ -125,10 +201,12 @@ fn apply_support_normal_lift(
     macro_patches: &mut [Kp20MacroPatch],
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
+    mode: Kp20SupportLiftMode,
     scale: f64,
     piece_mask: [bool; 4],
     fold_sites: &[Kp20FoldSite],
-) {
+) -> Vec<[bool; 4]> {
+    let mut changed_patches = vec![[false; 4]; macro_patches.len()];
     for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {
         let row = tensor_border.sectors[sector][0];
         let spoke_a = row[0] - star_point;
@@ -137,10 +215,14 @@ fn apply_support_normal_lift(
             .cross(&spoke_b)
             .normalized()
             .unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+        let direction = lift_direction(mode, spoke_a, spoke_b, normal);
         let span = 0.5 * (spoke_a.length() + spoke_b.length());
-        let displacement = normal * (scale * span);
+        let displacement = direction * (scale * span);
         for id in Kp20PieceId::all() {
             if !piece_mask[id.index()] {
+                continue;
+            }
+            if !has_fold_site(sector, id, fold_sites) {
                 continue;
             }
             let piece = macro_patch.piece_mut(id);
@@ -151,10 +233,29 @@ fn apply_support_normal_lift(
                     }
                     let weight =
                         lift_weight(i, j) * local_lift_weight(sector, id, i, j, fold_sites);
+                    if weight == 0.0 {
+                        continue;
+                    }
                     piece.cps[i][j] = piece.cps[i][j] + displacement * weight;
+                    changed_patches[sector][id.index()] = true;
                 }
             }
         }
+    }
+    changed_patches
+}
+
+fn has_fold_site(sector: usize, piece: Kp20PieceId, fold_sites: &[Kp20FoldSite]) -> bool {
+    fold_sites
+        .iter()
+        .any(|site| site.sector == sector && site.piece == piece)
+}
+
+fn lift_direction(mode: Kp20SupportLiftMode, spoke_a: Vec3, spoke_b: Vec3, normal: Vec3) -> Vec3 {
+    match mode {
+        Kp20SupportLiftMode::SupportNormal => normal,
+        Kp20SupportLiftMode::RadialBisector => (spoke_a + spoke_b).normalized().unwrap_or(normal),
+        Kp20SupportLiftMode::SectorChord => (spoke_b - spoke_a).normalized().unwrap_or(normal),
     }
 }
 

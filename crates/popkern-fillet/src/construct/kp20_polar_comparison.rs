@@ -171,6 +171,50 @@ pub(super) fn candidate_summary_from_cap(
     ))
 }
 
+pub(super) fn candidate_summary_from_changed_patches(
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+    unchanged_summary: &Kp20SamplerFoldSummary,
+    changed_patches: &[[bool; 4]],
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    let cap = popkern_core::geometry::gregory::Kp20Bi6MacroCapOutput {
+        n: tensor_border.sectors.len(),
+        patches_bi6: flatten_macro_patches(&macro_patches),
+        macro_patches,
+        strip_projections: Vec::new(),
+    };
+    let validation = measure_kp20_bi6_macro_cap(&cap, tensor_border).map_err(|e| e.to_string())?;
+    let mut fold_sites = unchanged_summary
+        .fold_sites
+        .iter()
+        .copied()
+        .filter(|site| !changed_patches[site.sector][site.piece.index()])
+        .collect::<Vec<_>>();
+    for (idx, grid) in cap.patches_bi6.into_iter().enumerate() {
+        let sector = idx / 4;
+        let piece = Kp20PieceId::all()[idx % 4];
+        if !changed_patches[sector][piece.index()] {
+            continue;
+        }
+        let patch = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic {
+            grid: elevate_bi6_grid_to_bi9(grid),
+        }));
+        let report = patch.self_intersection_report(SELF_INT_TOL);
+        if report.intersects() {
+            let sample = worst_jacobian_sample(&patch);
+            fold_sites.push(Kp20FoldSite {
+                sector,
+                piece,
+                u: sample.u,
+                v: sample.v,
+                min_jacobian_ratio: report.min_jacobian_ratio,
+                min_jacobian_normal_cos: report.min_jacobian_normal_cos,
+            });
+        }
+    }
+    Ok((summary_from_fold_sites(fold_sites), validation))
+}
+
 fn summarize_candidate_intersections(
     candidate: &[GregoryPatch],
     intersections: &[(
@@ -211,6 +255,38 @@ fn summarize_candidate_intersections(
         })
         .collect();
     summary
+}
+
+fn summary_from_fold_sites(fold_sites: Vec<Kp20FoldSite>) -> Kp20SamplerFoldSummary {
+    let mut piece_fold_counts = [0_usize; 4];
+    for site in &fold_sites {
+        piece_fold_counts[site.piece.index()] += 1;
+    }
+    let min_jacobian_normal_cos = fold_sites
+        .iter()
+        .map(|site| site.min_jacobian_normal_cos)
+        .fold(f64::INFINITY, f64::min);
+    let fold_details = fold_sites
+        .iter()
+        .map(|site| {
+            format!(
+                "sector={},piece={:?},u={:.3},v={:.3},ratio={:.3e},cos={:.3e}",
+                site.sector,
+                site.piece,
+                site.u,
+                site.v,
+                site.min_jacobian_ratio,
+                site.min_jacobian_normal_cos
+            )
+        })
+        .collect();
+    Kp20SamplerFoldSummary {
+        fold_count: fold_sites.len(),
+        min_jacobian_normal_cos,
+        piece_fold_counts,
+        fold_details,
+        fold_sites,
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -366,12 +442,13 @@ fn step_trace_label(steps: &[Kp20SupportNormalStep]) -> String {
         .enumerate()
         .map(|(idx, step)| {
             format!(
-                "{}:{}@{:.3}->{}:{}",
+                "{}:{}@{:.3}->{}:{}:{:?}",
                 idx,
                 piece_mask_label(step.piece_mask),
                 step.scale,
                 step.fold_count,
-                piece_counts_label(step.piece_fold_counts)
+                piece_counts_label(step.piece_fold_counts),
+                step.mode
             )
         })
         .collect::<Vec<_>>()
