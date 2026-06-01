@@ -73,6 +73,33 @@ pub(super) fn lift_candidate_from_macro_patches(
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
 ) -> Result<Kp20SupportNormalLiftReport, String> {
+    lift_candidate_from_macro_patches_with_profile(
+        star_point,
+        tensor_border,
+        macro_patches,
+        Kp20LiftSearchProfile::General,
+    )
+}
+
+pub(super) fn lift_candidate_from_support_image_macro_patches(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+) -> Result<Kp20SupportNormalLiftReport, String> {
+    lift_candidate_from_macro_patches_with_profile(
+        star_point,
+        tensor_border,
+        macro_patches,
+        Kp20LiftSearchProfile::ComposedSupportImage,
+    )
+}
+
+fn lift_candidate_from_macro_patches_with_profile(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+    profile: Kp20LiftSearchProfile,
+) -> Result<Kp20SupportNormalLiftReport, String> {
     let mut accepted = macro_patches;
     let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
     let mut accepted_steps = Vec::new();
@@ -88,7 +115,7 @@ pub(super) fn lift_candidate_from_macro_patches(
             f64,
             [bool; 4],
         )> = None;
-        for mode in Kp20SupportLiftMode::search_order() {
+        for &mode in Kp20SupportLiftMode::search_order(profile) {
             let mut best_in_mode: Option<(
                 Vec<Kp20MacroPatch>,
                 (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
@@ -96,8 +123,10 @@ pub(super) fn lift_candidate_from_macro_patches(
                 f64,
                 [bool; 4],
             )> = None;
-            for scale in [-0.25, -0.1, 0.1, 0.25] {
-                for piece_mask in candidate_piece_masks(mode, &accepted_summary.0.fold_sites) {
+            'mode_search: for &scale in Kp20SupportLiftMode::scale_order(profile) {
+                for piece_mask in
+                    candidate_piece_masks(profile, mode, &accepted_summary.0.fold_sites)
+                {
                     let mut candidate = accepted.clone();
                     let changed_patches = apply_support_row_update(
                         &mut candidate,
@@ -127,7 +156,13 @@ pub(super) fn lift_candidate_from_macro_patches(
                         Some(&summary),
                         best_in_mode.as_ref().map(|(_, s, _, _, _)| s),
                     ) {
+                        let drops_fold_count = summary.0.fold_count < accepted_summary.0.fold_count;
                         best_in_mode = Some((candidate, summary, mode, scale, piece_mask));
+                        if profile == Kp20LiftSearchProfile::ComposedSupportImage
+                            && drops_fold_count
+                        {
+                            break 'mode_search;
+                        }
                     }
                 }
             }
@@ -165,18 +200,42 @@ pub(super) fn lift_candidate_from_macro_patches(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kp20LiftSearchProfile {
+    General,
+    ComposedSupportImage,
+}
+
 impl Kp20SupportLiftMode {
-    fn search_order() -> [Self; 4] {
-        [
-            Self::SupportNormal,
-            Self::FoldSiteLeastSquares,
-            Self::RadialBisector,
-            Self::SectorChord,
-        ]
+    fn search_order(profile: Kp20LiftSearchProfile) -> &'static [Self] {
+        match profile {
+            Kp20LiftSearchProfile::General => &[
+                Self::SupportNormal,
+                Self::FoldSiteLeastSquares,
+                Self::RadialBisector,
+                Self::SectorChord,
+            ],
+            Kp20LiftSearchProfile::ComposedSupportImage => &[
+                Self::SupportNormal,
+                Self::FoldSiteLeastSquares,
+                Self::RadialBisector,
+            ],
+        }
+    }
+
+    fn scale_order(profile: Kp20LiftSearchProfile) -> &'static [f64] {
+        match profile {
+            Kp20LiftSearchProfile::General => &[-0.25, -0.1, 0.1, 0.25],
+            Kp20LiftSearchProfile::ComposedSupportImage => &[0.25, 0.1, -0.1, -0.25],
+        }
     }
 }
 
-fn candidate_piece_masks(mode: Kp20SupportLiftMode, fold_sites: &[Kp20FoldSite]) -> Vec<[bool; 4]> {
+fn candidate_piece_masks(
+    profile: Kp20LiftSearchProfile,
+    mode: Kp20SupportLiftMode,
+    fold_sites: &[Kp20FoldSite],
+) -> Vec<[bool; 4]> {
     let mut active = [false; 4];
     for site in fold_sites {
         active[site.piece.index()] = true;
@@ -187,7 +246,7 @@ fn candidate_piece_masks(mode: Kp20SupportLiftMode, fold_sites: &[Kp20FoldSite])
         return vec![active];
     }
     let mut masks = Vec::new();
-    for piece in Kp20PieceId::all() {
+    for piece in ordered_active_pieces(profile, fold_sites) {
         if active[piece.index()] {
             let mut mask = [false; 4];
             mask[piece.index()] = true;
@@ -197,6 +256,24 @@ fn candidate_piece_masks(mode: Kp20SupportLiftMode, fold_sites: &[Kp20FoldSite])
     push_mask_if_active(&mut masks, active, [true, true, false, false]);
     push_mask_if_active(&mut masks, active, [false, false, true, true]);
     masks
+}
+
+fn ordered_active_pieces(
+    profile: Kp20LiftSearchProfile,
+    fold_sites: &[Kp20FoldSite],
+) -> Vec<Kp20PieceId> {
+    let mut pieces = Kp20PieceId::all().to_vec();
+    if profile == Kp20LiftSearchProfile::ComposedSupportImage {
+        pieces.sort_by(|a, b| {
+            fold_sites
+                .iter()
+                .filter(|site| site.piece == *b)
+                .count()
+                .cmp(&fold_sites.iter().filter(|site| site.piece == *a).count())
+                .then_with(|| a.index().cmp(&b.index()))
+        });
+    }
+    pieces
 }
 
 fn push_mask_if_active(masks: &mut Vec<[bool; 4]>, active: [bool; 4], mask: [bool; 4]) {

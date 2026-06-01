@@ -13,7 +13,7 @@ use super::kp20_polar_comparison::{
     validation_is_clean,
 };
 use super::kp20_polar_support_lift::{
-    Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
+    Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
 
 #[derive(Debug, Clone)]
@@ -112,7 +112,7 @@ fn support_image_composed_candidate(
     let mut composed_evaluated = 0_usize;
     for candidate in image_candidates.into_iter().take(1) {
         composed_evaluated += 1;
-        let lift = lift_candidate_from_macro_patches(
+        let lift = lift_candidate_from_support_image_macro_patches(
             star_point,
             tensor_border,
             candidate.macro_patches.clone(),
