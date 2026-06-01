@@ -135,27 +135,39 @@ fn normal_lift_candidate_summary(
         sampled_macro_patches,
     })
     .map_err(|e| e.to_string())?;
-    let mut best = None;
-    let piece_masks = [
-        [true, true, true, true],
-        [true, false, false, false],
-        [false, true, false, false],
-        [false, false, true, false],
-        [false, false, false, true],
-        [true, true, false, false],
-        [false, false, true, true],
-    ];
-    for scale in [-0.25, -0.1, 0.1, 0.25] {
-        for piece_mask in piece_masks {
-            let mut candidate = cap.macro_patches.clone();
-            apply_support_normal_lift(&mut candidate, star_point, tensor_border, scale, piece_mask);
-            let summary = candidate_summary_from_cap(tensor_border, candidate)?;
-            if is_better_summary(&summary, best.as_ref()) {
-                best = Some(summary);
+    let mut accepted = cap.macro_patches.clone();
+    let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
+    let target_masks = [[false, true, false, false]];
+    for _ in 0..4 {
+        let mut best_step = None;
+        for scale in [-0.25, -0.1, 0.1, 0.25] {
+            for piece_mask in target_masks {
+                let mut candidate = accepted.clone();
+                apply_support_normal_lift(
+                    &mut candidate,
+                    star_point,
+                    tensor_border,
+                    scale,
+                    piece_mask,
+                );
+                let summary = candidate_summary_from_cap(tensor_border, candidate.clone())?;
+                if !validation_is_clean(summary.1) {
+                    continue;
+                }
+                if is_better_summary(&summary, Some(&accepted_summary))
+                    && is_better_summary(&summary, best_step.as_ref().map(|(_, s)| s))
+                {
+                    best_step = Some((candidate, summary));
+                }
             }
         }
+        let Some((candidate, summary)) = best_step else {
+            break;
+        };
+        accepted = candidate;
+        accepted_summary = summary;
     }
-    best.ok_or_else(|| "support-normal lift search had no candidates".to_string())
+    Ok(accepted_summary)
 }
 
 fn candidate_summary_from_cap(
@@ -196,6 +208,13 @@ fn is_better_summary(
     candidate.0.fold_count < best.0.fold_count
         || (candidate.0.fold_count == best.0.fold_count
             && candidate.0.min_jacobian_normal_cos > best.0.min_jacobian_normal_cos)
+}
+
+fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
+    validation.max_tensor_border_residual <= 1.0e-8
+        && validation.max_internal_c2_position_residual <= 1.0e-8
+        && validation.max_internal_c2_first_residual <= 1.0e-8
+        && validation.max_origin_g2_strip_residual <= 1.0e-8
 }
 
 fn apply_support_normal_lift(
