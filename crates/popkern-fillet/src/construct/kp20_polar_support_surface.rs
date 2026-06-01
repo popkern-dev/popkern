@@ -1,8 +1,14 @@
-//! Support-surface-owned KP20 polar candidate scaffold.
+//! Support-surface-owned KP20 polar candidates.
 
-use popkern_core::geometry::gregory::{Kp20Bi6ValidationReport, Kp20PieceId};
+use popkern_core::geometry::gregory::{
+    Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
+};
+use popkern_core::geometry::{Point3, Vec3};
 
-use super::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
+use super::kp20_polar_fold_summary::{
+    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
+    fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
+};
 use super::kp20_polar_support_image::Kp20SupportImageCandidate;
 
 #[derive(Debug, Clone)]
@@ -22,32 +28,89 @@ pub(super) struct Kp20SupportSurfaceStats {
     pub(super) rejected_candidates: usize,
 }
 
-/// Build the initial support-surface-owned candidate from the selected,
-/// exact-validated support-image macro cap.
-///
-/// The current slice establishes semantic ownership and diagnostics for the
-/// future construction primitive. It does not mutate rows or replace accepted
-/// behavior until a candidate improves fold validation while preserving the
-/// exact tensor-border and pole invariants.
+#[derive(Debug, Clone, Copy)]
+struct Kp20SupportSurfaceTrial {
+    mode: Kp20SupportSurfaceMode,
+    scale: f64,
+    piece: Kp20PieceId,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Kp20SupportSurfaceMode {
+    SupportNormal,
+}
+
 pub(super) fn support_surface_candidate_summary(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
     support_image: &Kp20SupportImageCandidate,
-) -> Kp20SupportSurfaceReport {
+) -> Result<Kp20SupportSurfaceReport, String> {
     let active_fold_pieces = active_fold_piece_count(&support_image.summary);
-    Kp20SupportSurfaceReport {
-        summary: support_image.summary.clone(),
-        validation: support_image.validation,
-        stats: Kp20SupportSurfaceStats {
-            active_fold_pieces,
-            orientation_rows: active_fold_pieces,
-            evaluated_candidates: 1,
-            accepted_candidates: 0,
-            rejected_candidates: 1,
-        },
-        decline_reason: "support_surface_orientation_rows_pending",
+    let mut accepted_patches = support_image.macro_patches.clone();
+    let mut accepted_summary = (support_image.summary.clone(), support_image.validation);
+    let mut stats = Kp20SupportSurfaceStats {
+        active_fold_pieces,
+        orientation_rows: active_fold_pieces,
+        evaluated_candidates: 0,
+        accepted_candidates: 0,
+        rejected_candidates: 0,
+    };
+    for trial in support_surface_trials(&support_image.summary) {
+        stats.evaluated_candidates += 1;
+        let mut candidate = accepted_patches.clone();
+        let changed_patches = apply_orientation_row_trial(
+            &mut candidate,
+            star_point,
+            tensor_border,
+            &accepted_summary.0.fold_sites,
+            trial,
+        );
+        let fast_summary = fast_candidate_summary_from_changed_patches(
+            tensor_border,
+            candidate.clone(),
+            &accepted_summary.0,
+            &changed_patches,
+            accepted_summary.0.fold_count,
+        )?;
+        if !validation_is_clean(fast_summary.1)
+            || !is_better_summary(&fast_summary, Some(&accepted_summary))
+        {
+            stats.rejected_candidates += 1;
+            continue;
+        }
+        let summary = candidate_summary_from_changed_patches(
+            tensor_border,
+            candidate.clone(),
+            &accepted_summary.0,
+            &changed_patches,
+            accepted_summary.0.fold_count,
+        )?;
+        if validation_is_clean(summary.1) && is_better_summary(&summary, Some(&accepted_summary)) {
+            accepted_patches = candidate;
+            accepted_summary = summary;
+            stats.accepted_candidates += 1;
+        } else {
+            stats.rejected_candidates += 1;
+        }
     }
+    let decline_reason = if stats.accepted_candidates > 0 {
+        "support_surface_orientation_rows_accepted"
+    } else {
+        "support_surface_no_improving_orientation_row"
+    };
+    Ok(Kp20SupportSurfaceReport {
+        summary: accepted_summary.0,
+        validation: accepted_summary.1,
+        stats,
+        decline_reason,
+    })
 }
 
 fn active_fold_piece_count(summary: &Kp20SamplerFoldSummary) -> usize {
+    active_fold_pieces(summary).len()
+}
+
+fn active_fold_pieces(summary: &Kp20SamplerFoldSummary) -> Vec<Kp20PieceId> {
     let mut active = [false; 4];
     for site in &summary.fold_sites {
         active[site.piece.index()] = true;
@@ -55,5 +118,87 @@ fn active_fold_piece_count(summary: &Kp20SamplerFoldSummary) -> usize {
     Kp20PieceId::all()
         .into_iter()
         .filter(|piece| active[piece.index()])
-        .count()
+        .collect()
+}
+
+fn support_surface_trials(summary: &Kp20SamplerFoldSummary) -> Vec<Kp20SupportSurfaceTrial> {
+    let mut trials = Vec::new();
+    for scale in [0.06, -0.06] {
+        for piece in active_fold_pieces(summary) {
+            trials.push(Kp20SupportSurfaceTrial {
+                mode: Kp20SupportSurfaceMode::SupportNormal,
+                scale,
+                piece,
+            });
+        }
+    }
+    trials
+}
+
+fn apply_orientation_row_trial(
+    macro_patches: &mut [Kp20MacroPatch],
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    fold_sites: &[Kp20FoldSite],
+    trial: Kp20SupportSurfaceTrial,
+) -> Vec<[bool; 4]> {
+    let mut changed_patches = vec![[false; 4]; macro_patches.len()];
+    for site in fold_sites
+        .iter()
+        .filter(|site| site.piece == trial.piece)
+        .copied()
+    {
+        let row = tensor_border.sectors[site.sector][0];
+        let spoke_a = row[0] - star_point;
+        let spoke_b = row[3] - star_point;
+        let normal = spoke_a
+            .cross(&spoke_b)
+            .normalized()
+            .unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+        let direction = support_surface_direction(trial.mode, normal);
+        let span = 0.5 * (spoke_a.length() + spoke_b.length());
+        let piece = macro_patches[site.sector].piece_mut(site.piece);
+        for i in 0..7 {
+            for j in 0..7 {
+                if !can_adjust_orientation_row(site.piece, i, j) {
+                    continue;
+                }
+                let weight = orientation_row_weight(site, i, j);
+                if weight == 0.0 {
+                    continue;
+                }
+                piece.cps[i][j] = piece.cps[i][j] + direction * (trial.scale * span * weight);
+                changed_patches[site.sector][site.piece.index()] = true;
+            }
+        }
+    }
+    changed_patches
+}
+
+fn support_surface_direction(mode: Kp20SupportSurfaceMode, normal: Vec3) -> Vec3 {
+    match mode {
+        Kp20SupportSurfaceMode::SupportNormal => normal,
+    }
+}
+
+fn can_adjust_orientation_row(piece: Kp20PieceId, i: usize, j: usize) -> bool {
+    match piece {
+        Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
+            i == 3 && (2..=4).contains(&j)
+        }
+        Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight => {
+            j == 3 && (2..=4).contains(&i)
+        }
+    }
+}
+
+fn orientation_row_weight(site: Kp20FoldSite, i: usize, j: usize) -> f64 {
+    let u = i as f64 / 6.0;
+    let v = j as f64 / 6.0;
+    let du = u - site.u;
+    let dv = v - site.v;
+    let r2 = du * du + dv * dv;
+    let locality = (1.0 - r2 / (0.42_f64 * 0.42_f64)).max(0.0);
+    let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
+    locality * locality * severity.max(0.25)
 }

@@ -33,7 +33,8 @@ pub(super) fn sampler_comparison_diagnostic(
         timed(|| support_image_composed_candidate(star_point, tensor_border));
     let support_image = support_image_result(&support_image_composed);
     let support_image_lift = support_image_lift_result(&support_image_composed);
-    let support_surface = support_surface_result(&support_image_composed);
+    let support_surface =
+        support_surface_result(star_point, tensor_border, &support_image_composed);
     let (sector_local_tau, sector_local_tau_ms) =
         timed(|| tau_candidate_summary(star_point, tensor_border));
     let total_ms = elapsed_ms(total_start);
@@ -78,12 +79,13 @@ fn support_image_lift_result(
 }
 
 fn support_surface_result(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
     report: &Result<super::kp20_polar_support_image::Kp20SupportImageSearchCandidate, String>,
 ) -> Result<Kp20SupportSurfaceReport, String> {
-    report
-        .as_ref()
-        .map(|candidate| support_surface_candidate_summary(&candidate.image))
-        .map_err(Clone::clone)
+    report.as_ref().map_err(Clone::clone).and_then(|candidate| {
+        support_surface_candidate_summary(star_point, tensor_border, &candidate.image)
+    })
 }
 
 fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
