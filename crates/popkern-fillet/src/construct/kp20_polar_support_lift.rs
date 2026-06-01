@@ -17,6 +17,7 @@ pub(super) struct Kp20SupportNormalLiftReport {
     pub(super) summary: Kp20SamplerFoldSummary,
     pub(super) validation: Kp20Bi6ValidationReport,
     pub(super) accepted_steps: Vec<Kp20SupportNormalStep>,
+    pub(super) optimizer_stats: Kp20SupportOptimizerStats,
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +34,16 @@ pub(super) enum Kp20SupportLiftMode {
     SupportNormal,
     RadialBisector,
     SectorChord,
+    FoldSiteLeastSquares,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(super) struct Kp20SupportOptimizerStats {
+    pub(super) active_fold_sites: usize,
+    pub(super) row_variable_count: usize,
+    pub(super) evaluated_candidates: usize,
+    pub(super) accepted_candidates: usize,
+    pub(super) rejected_candidates: usize,
 }
 
 pub(super) fn normal_lift_candidate_summary(
@@ -57,7 +68,11 @@ pub(super) fn normal_lift_candidate_summary(
     let mut accepted = cap.macro_patches.clone();
     let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
     let mut accepted_steps = Vec::new();
+    let mut optimizer_stats = Kp20SupportOptimizerStats::default();
     for _ in 0..4 {
+        optimizer_stats.active_fold_sites = accepted_summary.0.fold_sites.len();
+        optimizer_stats.row_variable_count =
+            movable_coefficient_count(&accepted_summary.0.fold_sites);
         let mut best_step: Option<(
             Vec<Kp20MacroPatch>,
             (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
@@ -76,7 +91,7 @@ pub(super) fn normal_lift_candidate_summary(
             for scale in [-0.25, -0.1, 0.1, 0.25] {
                 for piece_mask in candidate_piece_masks(mode, &accepted_summary.0.fold_sites) {
                     let mut candidate = accepted.clone();
-                    let changed_patches = apply_support_normal_lift(
+                    let changed_patches = apply_support_row_update(
                         &mut candidate,
                         star_point,
                         tensor_border,
@@ -85,6 +100,7 @@ pub(super) fn normal_lift_candidate_summary(
                         piece_mask,
                         &accepted_summary.0.fold_sites,
                     );
+                    optimizer_stats.evaluated_candidates += 1;
                     let summary = candidate_summary_from_changed_patches(
                         tensor_border,
                         candidate.clone(),
@@ -92,9 +108,11 @@ pub(super) fn normal_lift_candidate_summary(
                         &changed_patches,
                     )?;
                     if !validation_is_clean(summary.1) {
+                        optimizer_stats.rejected_candidates += 1;
                         continue;
                     }
                     if !is_better_summary(Some(&summary), Some(&accepted_summary)) {
+                        optimizer_stats.rejected_candidates += 1;
                         continue;
                     }
                     if is_better_summary(
@@ -122,6 +140,7 @@ pub(super) fn normal_lift_candidate_summary(
         };
         accepted = candidate;
         accepted_summary = summary;
+        optimizer_stats.accepted_candidates += 1;
         accepted_steps.push(Kp20SupportNormalStep {
             piece_mask,
             mode,
@@ -134,12 +153,18 @@ pub(super) fn normal_lift_candidate_summary(
         summary: accepted_summary.0,
         validation: accepted_summary.1,
         accepted_steps,
+        optimizer_stats,
     })
 }
 
 impl Kp20SupportLiftMode {
-    fn search_order() -> [Self; 3] {
-        [Self::SupportNormal, Self::RadialBisector, Self::SectorChord]
+    fn search_order() -> [Self; 4] {
+        [
+            Self::SupportNormal,
+            Self::FoldSiteLeastSquares,
+            Self::RadialBisector,
+            Self::SectorChord,
+        ]
     }
 }
 
@@ -148,7 +173,9 @@ fn candidate_piece_masks(mode: Kp20SupportLiftMode, fold_sites: &[Kp20FoldSite])
     for site in fold_sites {
         active[site.piece.index()] = true;
     }
-    if !matches!(mode, Kp20SupportLiftMode::SupportNormal) {
+    if matches!(mode, Kp20SupportLiftMode::FoldSiteLeastSquares)
+        || !matches!(mode, Kp20SupportLiftMode::SupportNormal)
+    {
         return vec![active];
     }
     let mut masks = Vec::new();
@@ -197,7 +224,7 @@ fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
         && validation.max_origin_g2_strip_residual <= 1.0e-8
 }
 
-fn apply_support_normal_lift(
+fn apply_support_row_update(
     macro_patches: &mut [Kp20MacroPatch],
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
@@ -215,9 +242,8 @@ fn apply_support_normal_lift(
             .cross(&spoke_b)
             .normalized()
             .unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-        let direction = lift_direction(mode, spoke_a, spoke_b, normal);
+        let frame = SupportLiftFrame::new(mode, spoke_a, spoke_b, normal);
         let span = 0.5 * (spoke_a.length() + spoke_b.length());
-        let displacement = direction * (scale * span);
         for id in Kp20PieceId::all() {
             if !piece_mask[id.index()] {
                 continue;
@@ -236,7 +262,9 @@ fn apply_support_normal_lift(
                     if weight == 0.0 {
                         continue;
                     }
-                    piece.cps[i][j] = piece.cps[i][j] + displacement * weight;
+                    let displacement =
+                        frame.displacement(sector, id, i, j, fold_sites) * (scale * span * weight);
+                    piece.cps[i][j] = piece.cps[i][j] + displacement;
                     changed_patches[sector][id.index()] = true;
                 }
             }
@@ -251,12 +279,90 @@ fn has_fold_site(sector: usize, piece: Kp20PieceId, fold_sites: &[Kp20FoldSite])
         .any(|site| site.sector == sector && site.piece == piece)
 }
 
-fn lift_direction(mode: Kp20SupportLiftMode, spoke_a: Vec3, spoke_b: Vec3, normal: Vec3) -> Vec3 {
-    match mode {
-        Kp20SupportLiftMode::SupportNormal => normal,
-        Kp20SupportLiftMode::RadialBisector => (spoke_a + spoke_b).normalized().unwrap_or(normal),
-        Kp20SupportLiftMode::SectorChord => (spoke_b - spoke_a).normalized().unwrap_or(normal),
+struct SupportLiftFrame {
+    mode: Kp20SupportLiftMode,
+    normal: Vec3,
+    radial: Vec3,
+    chord: Vec3,
+}
+
+impl SupportLiftFrame {
+    fn new(mode: Kp20SupportLiftMode, spoke_a: Vec3, spoke_b: Vec3, normal: Vec3) -> Self {
+        Self {
+            mode,
+            normal,
+            radial: (spoke_a + spoke_b).normalized().unwrap_or(normal),
+            chord: (spoke_b - spoke_a).normalized().unwrap_or(normal),
+        }
     }
+
+    fn displacement(
+        &self,
+        sector: usize,
+        piece: Kp20PieceId,
+        i: usize,
+        j: usize,
+        fold_sites: &[Kp20FoldSite],
+    ) -> Vec3 {
+        match self.mode {
+            Kp20SupportLiftMode::SupportNormal => self.normal,
+            Kp20SupportLiftMode::RadialBisector => self.radial,
+            Kp20SupportLiftMode::SectorChord => self.chord,
+            Kp20SupportLiftMode::FoldSiteLeastSquares => self
+                .least_squares_displacement(sector, piece, i, j, fold_sites)
+                .unwrap_or(self.normal),
+        }
+    }
+
+    fn least_squares_displacement(
+        &self,
+        sector: usize,
+        piece: Kp20PieceId,
+        i: usize,
+        j: usize,
+        fold_sites: &[Kp20FoldSite],
+    ) -> Option<Vec3> {
+        let u = i as f64 / 6.0;
+        let v = j as f64 / 6.0;
+        let mut normal_weight = 0.0;
+        let mut radial_weight = 0.0;
+        let mut chord_weight = 0.0;
+        for site in fold_sites
+            .iter()
+            .filter(|site| site.sector == sector && site.piece == piece)
+        {
+            let du = u - site.u;
+            let dv = v - site.v;
+            let r2 = du * du + dv * dv;
+            let radius2 = 0.3_f64 * 0.3_f64;
+            let locality = (1.0 - r2 / radius2).max(0.0);
+            if locality == 0.0 {
+                continue;
+            }
+            let severity = (1.0 - site.min_jacobian_normal_cos).max(0.0);
+            let weight = locality * locality * severity;
+            normal_weight += weight;
+            radial_weight += weight * du;
+            chord_weight += weight * dv;
+        }
+        let displacement =
+            self.normal * normal_weight + self.radial * radial_weight + self.chord * chord_weight;
+        displacement.normalized()
+    }
+}
+
+fn movable_coefficient_count(fold_sites: &[Kp20FoldSite]) -> usize {
+    let mut count = 0;
+    for site in fold_sites {
+        for i in 0..7 {
+            for j in 0..7 {
+                if can_lift_coefficient(site.piece, i, j) {
+                    count += 1;
+                }
+            }
+        }
+    }
+    count
 }
 
 fn can_lift_coefficient(id: Kp20PieceId, i: usize, j: usize) -> bool {

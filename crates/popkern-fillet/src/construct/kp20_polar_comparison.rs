@@ -383,7 +383,7 @@ fn append_support_lift_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";support_normal_lift_status=sampled;support_normal_lift_folds={};support_normal_lift_min_jacobian_cos={:.3e};support_normal_lift_piece_folds={};support_normal_lift_fold_details={};support_normal_lift_tensor_border_residual={:.3e};support_normal_lift_internal_c2_position={:.3e};support_normal_lift_internal_c2_first={:.3e};support_normal_lift_origin_g2_strip={:.3e};support_normal_lift_accepted_steps={};support_normal_lift_step_trace={}",
+                ";support_normal_lift_status=sampled;support_normal_lift_folds={};support_normal_lift_min_jacobian_cos={:.3e};support_normal_lift_piece_folds={};support_normal_lift_fold_details={};support_normal_lift_tensor_border_residual={:.3e};support_normal_lift_internal_c2_position={:.3e};support_normal_lift_internal_c2_first={:.3e};support_normal_lift_origin_g2_strip={:.3e};support_normal_lift_optimizer_active_fold_sites={};support_normal_lift_optimizer_row_variables={};support_normal_lift_optimizer_evaluated={};support_normal_lift_optimizer_accepted={};support_normal_lift_optimizer_rejected={};support_normal_lift_accepted_steps={};support_normal_lift_step_trace={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -392,6 +392,11 @@ fn append_support_lift_detail(
                 report.validation.max_internal_c2_position_residual,
                 report.validation.max_internal_c2_first_residual,
                 report.validation.max_origin_g2_strip_residual,
+                report.optimizer_stats.active_fold_sites,
+                report.optimizer_stats.row_variable_count,
+                report.optimizer_stats.evaluated_candidates,
+                report.optimizer_stats.accepted_candidates,
+                report.optimizer_stats.rejected_candidates,
                 report.accepted_steps.len(),
                 step_trace_label(&report.accepted_steps),
             ));
