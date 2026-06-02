@@ -141,8 +141,13 @@ pub(super) fn support_image_composed_candidate(
     image_candidates.sort_by(|a, b| compare_summaries(&a.summary, &b.summary));
     let mut best: Option<Kp20SupportImageSearchCandidate> = None;
     let mut composed_evaluated = 0_usize;
+    let mut lift_budget_skipped = 0_usize;
     let lift_start = Instant::now();
-    for candidate in image_candidates.into_iter().take(1) {
+    for candidate in image_candidates {
+        if composed_evaluated >= COUPLED_LIFT_FINALIST_BUDGET {
+            lift_budget_skipped += 1;
+            continue;
+        }
         composed_evaluated += 1;
         let lift = lift_candidate_from_support_image_macro_patches(
             star_point,
@@ -174,10 +179,10 @@ pub(super) fn support_image_composed_candidate(
             .fold_details
             .push(format!("map_params={}", candidate.image.params.label()));
         candidate.image.summary.fold_details.push(format!(
-            "map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
+            "map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
         ));
         candidate.lift.summary.fold_details.push(format!(
-            "map_params={};map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
+            "map_params={};map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
             candidate.image.params.label()
         ));
         candidate
@@ -186,6 +191,8 @@ pub(super) fn support_image_composed_candidate(
         "support-image reparameterization found no residual-clean improvement".to_string()
     })
 }
+
+const COUPLED_LIFT_FINALIST_BUDGET: usize = 1;
 
 fn elapsed_ms(start: Instant) -> u128 {
     start.elapsed().as_millis()

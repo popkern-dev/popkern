@@ -308,6 +308,8 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("exact_evaluated:")
                                 && detail.contains("fast_rejected:")
                                 && detail.contains("exact_rejected:")
+                                && detail.contains("lift_budget:")
+                                && detail.contains("lift_budget_skipped:")
                                 && detail.contains("image_ms:")
                                 && detail.contains("lift_ms:")
                                 && detail.contains("support_image_tensor_border_residual=0.000e0")
