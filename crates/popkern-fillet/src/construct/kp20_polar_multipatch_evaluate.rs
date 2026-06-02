@@ -10,6 +10,8 @@ use super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport;
 use super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport;
 use super::kp20_polar_multipatch_validate::Kp20MultiPatchValidationReport;
 
+const STRIP_INTERIOR_DAMPING_SCALES: [f64; 4] = [1.0, 0.75, 0.5, 0.25];
+
 #[derive(Debug, Clone)]
 pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) attempted_strip_patch_count: usize,
@@ -17,6 +19,8 @@ pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) changed_strip_piece_count: usize,
     pub(super) changed_inner_piece_count: usize,
     pub(super) changed_piece_count: usize,
+    pub(super) strip_optimizer_trial_count: usize,
+    pub(super) strip_optimizer_selected_scale: Option<f64>,
     pub(super) fast_evaluated: bool,
     pub(super) exact_evaluated: bool,
     pub(super) fast_fold_count: Option<usize>,
@@ -42,34 +46,81 @@ pub(super) fn evaluate_multipatch_candidate(
             inner,
             0,
             0,
+            0,
+            None,
             Some("multipatch_validation_declined"),
         ));
     }
 
-    let mut candidate = accepted_patches.to_vec();
-    let mut changed_patches = vec![[false; 4]; candidate.len()];
-    let changed_strip_piece_count =
-        apply_strip_patches_to_macro_candidate(&mut candidate, &mut changed_patches, strips);
-    let changed_inner_piece_count =
-        apply_inner_patches_to_macro_candidate(&mut candidate, &mut changed_patches, inner);
-    let changed_piece_count = changed_piece_count(&changed_patches);
+    let mut best_trial: Option<Kp20StripInteriorTrialCandidate> = None;
+    let mut trial_count = 0_usize;
+    for scale in STRIP_INTERIOR_DAMPING_SCALES {
+        trial_count += 1;
+        let mut candidate = accepted_patches.to_vec();
+        let mut changed_patches = vec![[false; 4]; candidate.len()];
+        let changed_strip_piece_count = apply_strip_patches_to_macro_candidate(
+            accepted_patches,
+            &mut candidate,
+            &mut changed_patches,
+            strips,
+            scale,
+        );
+        let changed_inner_piece_count =
+            apply_inner_patches_to_macro_candidate(&mut candidate, &mut changed_patches, inner);
+        let changed_piece_count = changed_piece_count(&changed_patches);
+        if changed_piece_count == 0 {
+            continue;
+        }
+        let fast = fast_candidate_summary_from_changed_patches(
+            tensor_border,
+            candidate.clone(),
+            accepted_summary,
+            &changed_patches,
+            accepted_summary.fold_count,
+        )?;
+        let trial = Kp20StripInteriorTrialCandidate {
+            candidate,
+            changed_patches,
+            changed_strip_piece_count,
+            changed_inner_piece_count,
+            changed_piece_count,
+            scale,
+            fast,
+        };
+        if best_trial
+            .as_ref()
+            .is_none_or(|best| trial_is_better(&trial, best))
+        {
+            best_trial = Some(trial);
+        }
+    }
+    let Some(best_trial) = best_trial else {
+        return Ok(declined_report(
+            strips,
+            inner,
+            0,
+            0,
+            trial_count,
+            None,
+            Some("multipatch_no_changed_pieces"),
+        ));
+    };
+    let changed_strip_piece_count = best_trial.changed_strip_piece_count;
+    let changed_inner_piece_count = best_trial.changed_inner_piece_count;
+    let changed_piece_count = best_trial.changed_piece_count;
     if changed_piece_count == 0 {
         return Ok(declined_report(
             strips,
             inner,
             changed_strip_piece_count,
             changed_piece_count,
+            trial_count,
+            None,
             Some("multipatch_no_changed_pieces"),
         ));
     }
 
-    let fast = fast_candidate_summary_from_changed_patches(
-        tensor_border,
-        candidate.clone(),
-        accepted_summary,
-        &changed_patches,
-        accepted_summary.fold_count,
-    )?;
+    let fast = best_trial.fast.clone();
     let fast_clean = validation_is_clean(fast.1);
     let fast_better = fast_clean && fast.0.fold_count < accepted_summary.fold_count;
     if !fast_better {
@@ -79,6 +130,8 @@ pub(super) fn evaluate_multipatch_candidate(
             changed_strip_piece_count,
             changed_inner_piece_count,
             changed_piece_count,
+            strip_optimizer_trial_count: trial_count,
+            strip_optimizer_selected_scale: Some(best_trial.scale),
             fast_evaluated: true,
             exact_evaluated: false,
             fast_fold_count: Some(fast.0.fold_count),
@@ -97,9 +150,9 @@ pub(super) fn evaluate_multipatch_candidate(
 
     let exact = candidate_summary_from_changed_patches(
         tensor_border,
-        candidate,
+        best_trial.candidate,
         accepted_summary,
-        &changed_patches,
+        &best_trial.changed_patches,
         accepted_summary.fold_count,
     )?;
     let exact_clean = validation_is_clean(exact.1);
@@ -110,6 +163,8 @@ pub(super) fn evaluate_multipatch_candidate(
         changed_strip_piece_count,
         changed_inner_piece_count,
         changed_piece_count,
+        strip_optimizer_trial_count: trial_count,
+        strip_optimizer_selected_scale: Some(best_trial.scale),
         fast_evaluated: true,
         exact_evaluated: true,
         fast_fold_count: Some(fast.0.fold_count),
@@ -133,6 +188,8 @@ fn declined_report(
     inner: &Kp20MultiPatchInnerBuildReport,
     changed_strip_piece_count: usize,
     changed_piece_count: usize,
+    strip_optimizer_trial_count: usize,
+    strip_optimizer_selected_scale: Option<f64>,
     decline_reason: Option<&'static str>,
 ) -> Kp20MultiPatchEvaluationReport {
     Kp20MultiPatchEvaluationReport {
@@ -141,6 +198,8 @@ fn declined_report(
         changed_strip_piece_count,
         changed_inner_piece_count: 0,
         changed_piece_count,
+        strip_optimizer_trial_count,
+        strip_optimizer_selected_scale,
         fast_evaluated: false,
         exact_evaluated: false,
         fast_fold_count: None,
@@ -153,23 +212,75 @@ fn declined_report(
     }
 }
 
+#[derive(Debug, Clone)]
+struct Kp20StripInteriorTrialCandidate {
+    candidate: Vec<Kp20MacroPatch>,
+    changed_patches: Vec<[bool; 4]>,
+    changed_strip_piece_count: usize,
+    changed_inner_piece_count: usize,
+    changed_piece_count: usize,
+    scale: f64,
+    fast: (
+        Kp20SamplerFoldSummary,
+        popkern_core::geometry::gregory::Kp20Bi6ValidationReport,
+    ),
+}
+
+fn trial_is_better(
+    candidate: &Kp20StripInteriorTrialCandidate,
+    best: &Kp20StripInteriorTrialCandidate,
+) -> bool {
+    let candidate_clean = validation_is_clean(candidate.fast.1);
+    let best_clean = validation_is_clean(best.fast.1);
+    if candidate_clean != best_clean {
+        return candidate_clean;
+    }
+    candidate.fast.0.fold_count < best.fast.0.fold_count
+        || (candidate.fast.0.fold_count == best.fast.0.fold_count
+            && candidate.fast.0.min_jacobian_normal_cos > best.fast.0.min_jacobian_normal_cos)
+}
+
 fn apply_strip_patches_to_macro_candidate(
+    accepted_patches: &[Kp20MacroPatch],
     macro_patches: &mut [Kp20MacroPatch],
     changed_patches: &mut [[bool; 4]],
     strips: &Kp20MultiPatchStripBuildReport,
+    interior_scale: f64,
 ) -> usize {
     let mut changed_count = 0_usize;
     for strip in &strips.strip_surfaces {
         if strip.sector_index >= macro_patches.len() {
             continue;
         }
-        *macro_patches[strip.sector_index].piece_mut(strip.strip_piece) = strip.surface;
+        *macro_patches[strip.sector_index].piece_mut(strip.strip_piece) =
+            scaled_strip_surface(accepted_patches, strip, interior_scale);
         if !changed_patches[strip.sector_index][strip.strip_piece.index()] {
             changed_count += 1;
         }
         changed_patches[strip.sector_index][strip.strip_piece.index()] = true;
     }
     changed_count
+}
+
+fn scaled_strip_surface(
+    accepted_patches: &[Kp20MacroPatch],
+    strip: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripSurface,
+    interior_scale: f64,
+) -> popkern_core::geometry::gregory::Kp20Bi6Patch {
+    let mut surface = strip.surface;
+    if let Some(accepted) = accepted_patches
+        .get(strip.sector_index)
+        .map(|patch| *patch.piece(strip.strip_piece))
+    {
+        for row in 2..=4 {
+            for column in 0..7 {
+                let base = accepted.cps[row][column];
+                let target = strip.surface.cps[row][column];
+                surface.cps[row][column] = base + (target - base) * interior_scale;
+            }
+        }
+    }
+    surface
 }
 
 fn apply_inner_patches_to_macro_candidate(
@@ -235,10 +346,16 @@ mod tests {
         let interfaces = build_multipatch_interfaces(&strips);
         let inner = build_multipatch_inner_patches(&inventory, &interfaces);
         let mut candidate = vec![Kp20MacroPatch::zero()];
+        let accepted = candidate.clone();
         let mut changed = vec![[false; 4]; candidate.len()];
 
-        let changed_strips =
-            apply_strip_patches_to_macro_candidate(&mut candidate, &mut changed, &strips);
+        let changed_strips = apply_strip_patches_to_macro_candidate(
+            &accepted,
+            &mut candidate,
+            &mut changed,
+            &strips,
+            1.0,
+        );
         let changed_inner =
             apply_inner_patches_to_macro_candidate(&mut candidate, &mut changed, &inner);
 
@@ -256,5 +373,30 @@ mod tests {
             candidate[0].piece(Kp20PieceId::NearOriginLeft).cps[0][3],
             Point3::new(1.0, 2.0, 3.0)
         );
+    }
+
+    #[test]
+    fn strip_damping_preserves_constrained_rows() {
+        let mut accepted = Kp20MacroPatch::zero();
+        let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
+        piece.cps[1][2] = Point3::new(1.0, 0.0, 0.0);
+        piece.cps[2][2] = Point3::new(2.0, 0.0, 0.0);
+        piece.cps[5][2] = Point3::new(5.0, 0.0, 0.0);
+        piece.cps[6][2] = Point3::new(6.0, 0.0, 0.0);
+        let mut strip_surface = *accepted.piece(Kp20PieceId::NearMidpointLeft);
+        strip_surface.cps[2][2] = Point3::new(10.0, 0.0, 0.0);
+        let strip = super::super::kp20_polar_multipatch_strip::Kp20MultiPatchStripSurface {
+            patch_name: "strip".to_string(),
+            sector_index: 0,
+            strip_piece: Kp20PieceId::NearMidpointLeft,
+            surface: strip_surface,
+        };
+
+        let scaled = scaled_strip_surface(&[accepted], &strip, 0.25);
+
+        assert_eq!(scaled.cps[1][2], Point3::new(1.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[2][2], Point3::new(4.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[5][2], Point3::new(5.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[6][2], Point3::new(6.0, 0.0, 0.0));
     }
 }
