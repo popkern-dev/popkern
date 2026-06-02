@@ -24,6 +24,25 @@ pub(super) fn multipatch_validation_label(
     )
 }
 
+pub(super) fn multipatch_evaluation_label(
+    evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
+) -> String {
+    format!(
+        "attempted_inners={},changed_pieces={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        evaluation.attempted_inner_patch_count,
+        evaluation.changed_piece_count,
+        evaluation.fast_evaluated,
+        evaluation.exact_evaluated,
+        optional_usize_label(evaluation.fast_fold_count),
+        optional_usize_label(evaluation.exact_fold_count),
+        optional_f64_label(evaluation.fast_min_jacobian_normal_cos),
+        optional_f64_label(evaluation.exact_min_jacobian_normal_cos),
+        evaluation.validation_clean,
+        evaluation.accepted,
+        evaluation.decline_reason.unwrap_or("none"),
+    )
+}
+
 pub(super) fn multipatch_inner_label(
     inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
 ) -> String {
@@ -199,4 +218,16 @@ fn strip_surface_sector_label(
     } else {
         sectors.join("|")
     }
+}
+
+fn optional_usize_label(value: Option<usize>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_f64_label(value: Option<f64>) -> String {
+    value
+        .map(|value| format!("{value:.3e}"))
+        .unwrap_or_else(|| "none".to_string())
 }

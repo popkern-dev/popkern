@@ -1,4 +1,4 @@
-//! Topology construction — apply fillet/chamfer geometry to the BRep. 3-phase single-pass (A: perp splits, B: multi-chord face splits, C: kef merge + surface assign) then surface-fix, sliver-absorb (§13.1(2)), and §8.3 cap insertion post-passes.
+//! Topology construction — apply fillet/chamfer geometry to the BRep.
 mod apex_face_lift;
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
@@ -22,7 +22,6 @@ mod gregory_pcurve_clamp;
 pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
     gregory_pcurve_clamp::clamp_bounded_pcurves(brep)
 }
-
 /// Restore exact-boundary cap trim authority after generic Phase 5 pcurve repair.
 pub fn restore_exact_boundary_cap_pcurves_post_phase5(
     brep: &mut popkern_core::topology::BRep,
@@ -38,6 +37,7 @@ mod kp20_polar_comparison;
 mod kp20_polar_diagnostics;
 mod kp20_polar_dispatch;
 mod kp20_polar_fold_summary;
+mod kp20_polar_multipatch_evaluate;
 mod kp20_polar_multipatch_inner;
 mod kp20_polar_multipatch_interface;
 mod kp20_polar_multipatch_inventory;

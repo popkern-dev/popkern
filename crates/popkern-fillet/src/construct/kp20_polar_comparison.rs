@@ -10,8 +10,8 @@ use popkern_core::geometry::gregory::{
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp20_polar_fold_summary::{Kp20SamplerFoldSummary, candidate_summary_from_sampled};
 use super::kp20_polar_multipatch_labels::{
-    multipatch_inner_label, multipatch_interfaces_label, multipatch_inventory_label,
-    multipatch_strips_label, multipatch_validation_label,
+    multipatch_evaluation_label, multipatch_inner_label, multipatch_interfaces_label,
+    multipatch_inventory_label, multipatch_strips_label, multipatch_validation_label,
 };
 use super::kp20_polar_support_image::support_image_composed_candidate;
 use super::kp20_polar_support_lift::{
@@ -204,7 +204,7 @@ fn append_support_surface_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_multipatch_inner={};{label}_multipatch_validation={};{label}_decline_reason={}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_multipatch_inner={};{label}_multipatch_validation={};{label}_multipatch_evaluation={};{label}_decline_reason={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -225,6 +225,7 @@ fn append_support_surface_detail(
                 multipatch_interfaces_label(&report.multipatch_interfaces),
                 multipatch_inner_label(&report.multipatch_inner),
                 multipatch_validation_label(&report.multipatch_validation),
+                multipatch_evaluation_label(&report.multipatch_evaluation),
                 report.decline_reason,
             ));
         }
