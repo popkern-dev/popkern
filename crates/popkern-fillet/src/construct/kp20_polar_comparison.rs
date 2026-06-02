@@ -9,6 +9,10 @@ use popkern_core::geometry::gregory::{
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp20_polar_fold_summary::{Kp20SamplerFoldSummary, candidate_summary_from_sampled};
+use super::kp20_polar_multipatch_labels::{
+    multipatch_inner_label, multipatch_interfaces_label, multipatch_inventory_label,
+    multipatch_strips_label, multipatch_validation_label,
+};
 use super::kp20_polar_support_image::support_image_composed_candidate;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, Kp20SupportNormalStep, normal_lift_candidate_summary,
@@ -200,7 +204,7 @@ fn append_support_surface_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_multipatch_inner={};{label}_decline_reason={}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_multipatch_inner={};{label}_multipatch_validation={};{label}_decline_reason={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -220,6 +224,7 @@ fn append_support_surface_detail(
                 multipatch_strips_label(&report.multipatch_strips),
                 multipatch_interfaces_label(&report.multipatch_interfaces),
                 multipatch_inner_label(&report.multipatch_inner),
+                multipatch_validation_label(&report.multipatch_validation),
                 report.decline_reason,
             ));
         }
@@ -227,180 +232,6 @@ fn append_support_surface_detail(
             detail.push_str(&format!(";{label}_status=declined;{label}_error={err}"));
         }
     }
-}
-
-fn multipatch_inner_label(
-    inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
-) -> String {
-    format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},max_g0={:.3e},max_adjacent={:.3e},min_adjacent_step={:.3e},patches={},decline={},names={}",
-        inner.attempted_inner_patch_count,
-        inner.built_inner_patch_count,
-        inner.finite_control_point_count,
-        inner.invalid_control_point_count,
-        inner.boundary_constraint_count,
-        inner.adjacent_row_constraint_count,
-        inner.max_boundary_g0_residual,
-        inner.max_adjacent_row_residual,
-        inner.min_adjacent_row_step,
-        inner_patch_anchor_label(inner),
-        inner.decline_reason.unwrap_or("none"),
-        if inner.inner_patch_names.is_empty() {
-            "none".to_string()
-        } else {
-            inner.inner_patch_names.join(",")
-        },
-    )
-}
-
-fn inner_patch_anchor_label(
-    inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
-) -> String {
-    let mut patches = inner
-        .inner_patches
-        .iter()
-        .map(|patch| {
-            let center = patch.surface.cps[3][3];
-            format!(
-                "{}@{}:[{}]({:.3e},{:.3e},{:.3e})",
-                patch.patch_name,
-                patch.sector_index,
-                patch.boundary_interface_names.join(","),
-                center.x,
-                center.y,
-                center.z
-            )
-        })
-        .collect::<Vec<_>>();
-    patches.sort();
-    if patches.is_empty() {
-        "none".to_string()
-    } else {
-        patches.join("|")
-    }
-}
-
-fn multipatch_interfaces_label(
-    interfaces: &super::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport,
-) -> String {
-    format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},anchors={},decline={},names={}",
-        interfaces.attempted_interface_count,
-        interfaces.built_interface_count,
-        interfaces.finite_control_point_count,
-        interfaces.invalid_control_point_count,
-        interface_anchor_label(interfaces),
-        interfaces.decline_reason.unwrap_or("none"),
-        if interfaces.interface_names.is_empty() {
-            "none".to_string()
-        } else {
-            interfaces.interface_names.join(",")
-        },
-    )
-}
-
-fn interface_anchor_label(
-    interfaces: &super::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport,
-) -> String {
-    let mut anchors = interfaces
-        .interface_curves
-        .iter()
-        .map(|interface| {
-            let start = interface.controls[0];
-            let end = interface.controls[6];
-            format!(
-                "{}@{}:{}({:.3e},{:.3e},{:.3e})->({:.3e},{:.3e},{:.3e})",
-                interface.interface_name,
-                interface.sector_index,
-                interface.strip_name,
-                start.x,
-                start.y,
-                start.z,
-                end.x,
-                end.y,
-                end.z
-            )
-        })
-        .collect::<Vec<_>>();
-    anchors.sort();
-    if anchors.is_empty() {
-        "none".to_string()
-    } else {
-        anchors.join("|")
-    }
-}
-
-fn multipatch_strips_label(
-    strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
-) -> String {
-    format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
-        strips.attempted_strip_patch_count,
-        strips.built_strip_patch_count,
-        strips.finite_control_point_count,
-        strips.invalid_control_point_count,
-        strips.strip_control_point_count,
-        strips.strip_surfaces.len(),
-        strip_surface_sector_label(strips),
-        strips.decline_reason.unwrap_or("none"),
-        if strips.strip_names.is_empty() {
-            "none".to_string()
-        } else {
-            strips.strip_names.join(",")
-        },
-    )
-}
-
-fn strip_surface_sector_label(
-    strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
-) -> String {
-    let mut sectors = strips
-        .strip_surfaces
-        .iter()
-        .map(|strip| {
-            let anchor = strip.surface.cps[0][0];
-            format!(
-                "{}@{}({:.3e},{:.3e},{:.3e})",
-                strip.patch_name, strip.sector_index, anchor.x, anchor.y, anchor.z
-            )
-        })
-        .collect::<Vec<_>>();
-    sectors.sort();
-    if sectors.is_empty() {
-        "none".to_string()
-    } else {
-        sectors.join("|")
-    }
-}
-
-fn multipatch_inventory_label(
-    inventory: &super::kp20_polar_multipatch_inventory::Kp20MultiPatchInventoryReport,
-) -> String {
-    let sectors = inventory
-        .sector_reports
-        .iter()
-        .map(|sector| {
-            format!(
-                "{}:strips=[{}],inner={},interfaces=[{}]",
-                sector.sector_name,
-                sector.strip_names.join(","),
-                sector.inner_patch_name,
-                sector.interface_names.join(","),
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("|");
-    format!(
-        "sectors={},strips={},inners={},interfaces={},strip_cps={},inner_cps={},mismatch={},names={}",
-        inventory.attempted_sector_count,
-        inventory.attempted_strip_patch_count,
-        inventory.attempted_inner_patch_count,
-        inventory.attempted_interface_count,
-        inventory.strip_control_point_count,
-        inventory.inner_control_point_count,
-        inventory.inventory_mismatch.unwrap_or("none"),
-        if sectors.is_empty() { "none" } else { &sectors },
-    )
 }
 
 fn support_surface_stage_trace_label(
