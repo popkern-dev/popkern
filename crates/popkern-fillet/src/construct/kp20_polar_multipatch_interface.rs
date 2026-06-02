@@ -21,6 +21,7 @@ pub(super) struct Kp20MultiPatchInterfaceCurve {
     pub(super) strip_name: String,
     pub(super) sector_index: usize,
     pub(super) controls: [Point3; 7],
+    pub(super) support_adjacent_controls: [Point3; 7],
 }
 
 pub(super) fn build_multipatch_interfaces(
@@ -31,7 +32,8 @@ pub(super) fn build_multipatch_interfaces(
     let mut invalid_control_point_count = 0_usize;
     for strip in &strips.strip_surfaces {
         let controls = strip.surface.cps[6];
-        let (finite, invalid) = count_control_points(&controls);
+        let support_adjacent_controls = strip.surface.cps[5];
+        let (finite, invalid) = count_control_points(&controls, &support_adjacent_controls);
         finite_control_point_count += finite;
         invalid_control_point_count += invalid;
         interface_curves.push(Kp20MultiPatchInterfaceCurve {
@@ -39,6 +41,7 @@ pub(super) fn build_multipatch_interfaces(
             strip_name: strip.patch_name.clone(),
             sector_index: strip.sector_index,
             controls,
+            support_adjacent_controls,
         });
     }
     let interface_names = interface_curves
@@ -67,10 +70,13 @@ fn interface_name_from_strip(strip_name: &str) -> String {
     strip_name.replace("_support_strip", "_support_interface")
 }
 
-fn count_control_points(controls: &[Point3; 7]) -> (usize, usize) {
+fn count_control_points(
+    controls: &[Point3; 7],
+    support_adjacent_controls: &[Point3; 7],
+) -> (usize, usize) {
     let mut finite = 0_usize;
     let mut invalid = 0_usize;
-    for point in controls {
+    for point in controls.iter().chain(support_adjacent_controls) {
         if point.x.is_finite() && point.y.is_finite() && point.z.is_finite() {
             finite += 1;
         } else {
@@ -114,7 +120,7 @@ mod tests {
 
         assert_eq!(interfaces.attempted_interface_count, 1);
         assert_eq!(interfaces.built_interface_count, 1);
-        assert_eq!(interfaces.finite_control_point_count, 7);
+        assert_eq!(interfaces.finite_control_point_count, 14);
         assert_eq!(interfaces.invalid_control_point_count, 0);
         assert_eq!(interfaces.decline_reason, None);
         assert_eq!(interfaces.interface_curves[0].sector_index, 0);
@@ -131,6 +137,10 @@ mod tests {
         assert_eq!(
             interfaces.interface_curves[0].controls[3],
             Point3::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(
+            interfaces.interface_curves[0].support_adjacent_controls[3],
+            Point3::new(0.0, 0.0, 0.0)
         );
     }
 }
