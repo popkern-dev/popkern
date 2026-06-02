@@ -4,7 +4,7 @@ pub(super) fn multipatch_validation_label(
     validation: &super::kp20_polar_multipatch_validate::Kp20MultiPatchValidationReport,
 ) -> String {
     format!(
-        "sectors={},strips={},interfaces={},inners={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},unowned_endpoint_adjacent={},strip_g0={:.3e},strip_adjacent={:.3e},inner_g0={:.3e},inner_adjacent={:.3e},decline={}",
+        "sectors={},strips={},interfaces={},inners={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},exact_endpoint_adjacent={},strip_g0={:.3e},strip_adjacent={:.3e},inner_g0={:.3e},inner_adjacent={:.3e},decline={}",
         validation.validated_sector_count,
         validation.validated_strip_count,
         validation.validated_interface_count,
@@ -13,7 +13,7 @@ pub(super) fn multipatch_validation_label(
         validation.invalid_control_point_count,
         validation.validated_boundary_constraint_count,
         validation.validated_adjacent_constraint_count,
-        validation.unowned_endpoint_adjacent_count,
+        validation.exact_boundary_owned_endpoint_count,
         validation.max_strip_interface_g0_residual,
         validation.max_strip_adjacent_residual,
         validation.max_inner_boundary_g0_residual,
@@ -26,13 +26,14 @@ pub(super) fn multipatch_inner_label(
     inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
 ) -> String {
     format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},max_g0={:.3e},max_adjacent={:.3e},min_adjacent_step={:.3e},patches={},decline={},names={}",
+        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},exact_endpoint_adjacent={},max_g0={:.3e},max_adjacent={:.3e},min_adjacent_step={:.3e},patches={},decline={},names={}",
         inner.attempted_inner_patch_count,
         inner.built_inner_patch_count,
         inner.finite_control_point_count,
         inner.invalid_control_point_count,
         inner.boundary_constraint_count,
         inner.adjacent_row_constraint_count,
+        inner.exact_boundary_owned_endpoint_count,
         inner.max_boundary_g0_residual,
         inner.max_adjacent_row_residual,
         inner.min_adjacent_row_step,

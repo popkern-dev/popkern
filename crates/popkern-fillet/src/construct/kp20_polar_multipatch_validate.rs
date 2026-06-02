@@ -21,7 +21,7 @@ pub(super) struct Kp20MultiPatchValidationReport {
     pub(super) invalid_control_point_count: usize,
     pub(super) validated_boundary_constraint_count: usize,
     pub(super) validated_adjacent_constraint_count: usize,
-    pub(super) unowned_endpoint_adjacent_count: usize,
+    pub(super) exact_boundary_owned_endpoint_count: usize,
     pub(super) max_strip_interface_g0_residual: f64,
     pub(super) max_strip_adjacent_residual: f64,
     pub(super) max_inner_boundary_g0_residual: f64,
@@ -44,7 +44,7 @@ pub(super) fn validate_multipatch_candidate(
         invalid_control_point_count: 0,
         validated_boundary_constraint_count: 0,
         validated_adjacent_constraint_count: 0,
-        unowned_endpoint_adjacent_count: 0,
+        exact_boundary_owned_endpoint_count: 0,
         max_strip_interface_g0_residual: 0.0,
         max_strip_adjacent_residual: 0.0,
         max_inner_boundary_g0_residual: 0.0,
@@ -102,10 +102,14 @@ pub(super) fn validate_multipatch_candidate(
                         inner_patch,
                         boundary_index,
                         interface,
+                        sector.interface_names.len(),
                     ));
             report.validated_boundary_constraint_count += interface.controls.len();
-            report.validated_adjacent_constraint_count += ADJACENT_INTERIOR_CONTROL_COUNT;
-            report.unowned_endpoint_adjacent_count += ENDPOINT_ADJACENT_CONTROL_COUNT;
+            report.validated_adjacent_constraint_count += ADJACENT_CONTROL_COUNT;
+            report.exact_boundary_owned_endpoint_count += exact_boundary_owned_endpoint_count_for(
+                boundary_index,
+                sector.interface_names.len(),
+            );
         }
     }
     report.decline_reason = report
@@ -200,9 +204,15 @@ fn inner_adjacent_residual(
     patch: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerPatch,
     boundary_index: usize,
     interface: &Kp20MultiPatchInterfaceCurve,
+    boundary_count: usize,
 ) -> f64 {
     let mut residual = 0.0_f64;
-    for idx in 1..6 {
+    for idx in 0..7 {
+        if endpoint_exact_boundary_owner(boundary_index, idx)
+            .is_some_and(|owner| owner < boundary_count)
+        {
+            continue;
+        }
         let expected = support_tangent_adjacent_control(
             interface.controls[idx],
             interface.support_adjacent_controls[idx],
@@ -239,6 +249,26 @@ fn inner_adjacent_control(
     }
 }
 
+fn exact_boundary_owned_endpoint_count_for(boundary_index: usize, boundary_count: usize) -> usize {
+    [0_usize, 6]
+        .into_iter()
+        .filter(|idx| {
+            endpoint_exact_boundary_owner(boundary_index, *idx)
+                .is_some_and(|owner| owner < boundary_count)
+        })
+        .count()
+}
+
+fn endpoint_exact_boundary_owner(boundary_index: usize, idx: usize) -> Option<usize> {
+    match (boundary_index, idx) {
+        (0, 0) | (1, 0) => Some(2),
+        (0, 6) | (1, 6) => Some(3),
+        (2, 0) | (3, 0) => Some(0),
+        (2, 6) | (3, 6) => Some(1),
+        _ => None,
+    }
+}
+
 fn support_tangent_adjacent_control(boundary: Point3, support_adjacent: Point3) -> Point3 {
     boundary + (boundary - support_adjacent)
 }
@@ -252,8 +282,7 @@ fn max_row_residual(a: &[Point3; 7], b: &[Point3; 7]) -> f64 {
 }
 
 const EXACT_BOUNDARY_G0_TOLERANCE: f64 = 1.0e-12;
-const ADJACENT_INTERIOR_CONTROL_COUNT: usize = 5;
-const ENDPOINT_ADJACENT_CONTROL_COUNT: usize = 2;
+const ADJACENT_CONTROL_COUNT: usize = 7;
 
 #[cfg(test)]
 mod tests {
@@ -299,8 +328,8 @@ mod tests {
         assert_eq!(report.validated_inner_patch_count, 1);
         assert_eq!(report.invalid_control_point_count, 0);
         assert_eq!(report.validated_boundary_constraint_count, 7);
-        assert_eq!(report.validated_adjacent_constraint_count, 5);
-        assert_eq!(report.unowned_endpoint_adjacent_count, 2);
+        assert_eq!(report.validated_adjacent_constraint_count, 7);
+        assert_eq!(report.exact_boundary_owned_endpoint_count, 0);
         assert_eq!(report.max_strip_interface_g0_residual, 0.0);
         assert_eq!(report.max_strip_adjacent_residual, 0.0);
         assert_eq!(report.max_inner_boundary_g0_residual, 0.0);

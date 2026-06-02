@@ -16,6 +16,7 @@ pub(super) struct Kp20MultiPatchInnerBuildReport {
     pub(super) invalid_control_point_count: usize,
     pub(super) boundary_constraint_count: usize,
     pub(super) adjacent_row_constraint_count: usize,
+    pub(super) exact_boundary_owned_endpoint_count: usize,
     pub(super) max_boundary_g0_residual: f64,
     pub(super) max_adjacent_row_residual: f64,
     pub(super) min_adjacent_row_step: f64,
@@ -41,6 +42,7 @@ pub(super) fn build_multipatch_inner_patches(
     let mut invalid_control_point_count = 0_usize;
     let mut boundary_constraint_count = 0_usize;
     let mut adjacent_row_constraint_count = 0_usize;
+    let mut exact_boundary_owned_endpoint_count = 0_usize;
     let mut max_boundary_g0_residual = 0.0_f64;
     let mut max_adjacent_row_residual = 0.0_f64;
     let mut min_adjacent_row_step = f64::INFINITY;
@@ -67,8 +69,11 @@ pub(super) fn build_multipatch_inner_patches(
                 boundary_index,
                 interface.controls,
                 interface.support_adjacent_controls,
+                sector_interfaces.len(),
             );
-            adjacent_row_constraint_count += ADJACENT_INTERIOR_CONTROL_COUNT;
+            adjacent_row_constraint_count += ADJACENT_CONTROL_COUNT;
+            exact_boundary_owned_endpoint_count +=
+                exact_boundary_owned_endpoint_count_for(boundary_index, sector_interfaces.len());
         }
         for (boundary_index, interface) in sector_interfaces.iter().enumerate() {
             max_boundary_g0_residual = max_boundary_g0_residual.max(boundary_residual(
@@ -81,6 +86,7 @@ pub(super) fn build_multipatch_inner_patches(
                 boundary_index,
                 interface.controls,
                 interface.support_adjacent_controls,
+                sector_interfaces.len(),
             );
             max_adjacent_row_residual =
                 max_adjacent_row_residual.max(adjacent.max_construction_residual);
@@ -124,6 +130,7 @@ pub(super) fn build_multipatch_inner_patches(
         invalid_control_point_count,
         boundary_constraint_count,
         adjacent_row_constraint_count,
+        exact_boundary_owned_endpoint_count,
         max_boundary_g0_residual,
         max_adjacent_row_residual,
         min_adjacent_row_step,
@@ -189,8 +196,14 @@ fn assign_boundary_adjacent_controls(
     boundary_index: usize,
     controls: [Point3; 7],
     support_adjacent_controls: [Point3; 7],
+    boundary_count: usize,
 ) {
-    for idx in 1..6 {
+    for idx in 0..7 {
+        if endpoint_exact_boundary_owner(boundary_index, idx)
+            .is_some_and(|owner| owner < boundary_count)
+        {
+            continue;
+        }
         let expected =
             support_tangent_adjacent_control(controls[idx], support_adjacent_controls[idx]);
         assign_adjacent_control(surface, boundary_index, idx, expected);
@@ -202,10 +215,16 @@ fn adjacent_row_residual(
     boundary_index: usize,
     controls: [Point3; 7],
     support_adjacent_controls: [Point3; 7],
+    boundary_count: usize,
 ) -> Kp20InnerAdjacentRowReport {
     let mut max_construction_residual = 0.0_f64;
     let mut min_step = f64::INFINITY;
-    for idx in 1..6 {
+    for idx in 0..7 {
+        if endpoint_exact_boundary_owner(boundary_index, idx)
+            .is_some_and(|owner| owner < boundary_count)
+        {
+            continue;
+        }
         let boundary = controls[idx];
         let expected = support_tangent_adjacent_control(boundary, support_adjacent_controls[idx]);
         let assigned = adjacent_control(surface, boundary_index, idx);
@@ -215,6 +234,26 @@ fn adjacent_row_residual(
     Kp20InnerAdjacentRowReport {
         max_construction_residual,
         min_step,
+    }
+}
+
+fn exact_boundary_owned_endpoint_count_for(boundary_index: usize, boundary_count: usize) -> usize {
+    [0_usize, 6]
+        .into_iter()
+        .filter(|idx| {
+            endpoint_exact_boundary_owner(boundary_index, *idx)
+                .is_some_and(|owner| owner < boundary_count)
+        })
+        .count()
+}
+
+fn endpoint_exact_boundary_owner(boundary_index: usize, idx: usize) -> Option<usize> {
+    match (boundary_index, idx) {
+        (0, 0) | (1, 0) => Some(2),
+        (0, 6) | (1, 6) => Some(3),
+        (2, 0) | (3, 0) => Some(0),
+        (2, 6) | (3, 6) => Some(1),
+        _ => None,
     }
 }
 
@@ -279,7 +318,7 @@ fn count_control_points(surface: &Kp20Bi6Patch) -> (usize, usize) {
 }
 
 const EXACT_BOUNDARY_G0_TOLERANCE: f64 = 1.0e-12;
-const ADJACENT_INTERIOR_CONTROL_COUNT: usize = 5;
+const ADJACENT_CONTROL_COUNT: usize = 7;
 
 #[cfg(test)]
 mod tests {
@@ -322,7 +361,8 @@ mod tests {
         assert_eq!(report.finite_control_point_count, 49);
         assert_eq!(report.invalid_control_point_count, 0);
         assert_eq!(report.boundary_constraint_count, 7);
-        assert_eq!(report.adjacent_row_constraint_count, 5);
+        assert_eq!(report.adjacent_row_constraint_count, 7);
+        assert_eq!(report.exact_boundary_owned_endpoint_count, 0);
         assert_eq!(report.max_boundary_g0_residual, 0.0);
         assert_eq!(report.max_adjacent_row_residual, 0.0);
         assert!(report.min_adjacent_row_step.is_finite());
