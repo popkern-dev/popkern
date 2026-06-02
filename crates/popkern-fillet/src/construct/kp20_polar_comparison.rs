@@ -200,7 +200,7 @@ fn append_support_surface_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_decline_reason={}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_multipatch_inner={};{label}_decline_reason={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -219,12 +219,61 @@ fn append_support_surface_detail(
                 multipatch_inventory_label(&report.multipatch_inventory),
                 multipatch_strips_label(&report.multipatch_strips),
                 multipatch_interfaces_label(&report.multipatch_interfaces),
+                multipatch_inner_label(&report.multipatch_inner),
                 report.decline_reason,
             ));
         }
         Err(err) => {
             detail.push_str(&format!(";{label}_status=declined;{label}_error={err}"));
         }
+    }
+}
+
+fn multipatch_inner_label(
+    inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
+) -> String {
+    format!(
+        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},max_g0={:.3e},patches={},decline={},names={}",
+        inner.attempted_inner_patch_count,
+        inner.built_inner_patch_count,
+        inner.finite_control_point_count,
+        inner.invalid_control_point_count,
+        inner.boundary_constraint_count,
+        inner.max_boundary_g0_residual,
+        inner_patch_anchor_label(inner),
+        inner.decline_reason.unwrap_or("none"),
+        if inner.inner_patch_names.is_empty() {
+            "none".to_string()
+        } else {
+            inner.inner_patch_names.join(",")
+        },
+    )
+}
+
+fn inner_patch_anchor_label(
+    inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
+) -> String {
+    let mut patches = inner
+        .inner_patches
+        .iter()
+        .map(|patch| {
+            let center = patch.surface.cps[3][3];
+            format!(
+                "{}@{}:[{}]({:.3e},{:.3e},{:.3e})",
+                patch.patch_name,
+                patch.sector_index,
+                patch.boundary_interface_names.join(","),
+                center.x,
+                center.y,
+                center.z
+            )
+        })
+        .collect::<Vec<_>>();
+    patches.sort();
+    if patches.is_empty() {
+        "none".to_string()
+    } else {
+        patches.join("|")
     }
 }
 

@@ -9,6 +9,9 @@ use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
 };
+use super::kp20_polar_multipatch_inner::{
+    Kp20MultiPatchInnerBuildReport, build_multipatch_inner_patches,
+};
 use super::kp20_polar_multipatch_interface::{
     Kp20MultiPatchInterfaceBuildReport, build_multipatch_interfaces,
 };
@@ -33,6 +36,7 @@ pub(super) struct Kp20SupportSurfaceReport {
     pub(super) multipatch_inventory: Kp20MultiPatchInventoryReport,
     pub(super) multipatch_strips: Kp20MultiPatchStripBuildReport,
     pub(super) multipatch_interfaces: Kp20MultiPatchInterfaceBuildReport,
+    pub(super) multipatch_inner: Kp20MultiPatchInnerBuildReport,
     pub(super) decline_reason: &'static str,
 }
 
@@ -172,10 +176,13 @@ pub(super) fn support_surface_candidate_summary(
     let multipatch_strips =
         build_multipatch_strip_surfaces(&multipatch_inventory, &accepted_patches);
     let multipatch_interfaces = build_multipatch_interfaces(&multipatch_strips);
+    let multipatch_inner =
+        build_multipatch_inner_patches(&multipatch_inventory, &multipatch_interfaces);
     Ok(Kp20SupportSurfaceReport {
         multipatch_inventory,
         multipatch_strips,
         multipatch_interfaces,
+        multipatch_inner,
         summary: accepted_summary.0,
         validation: accepted_summary.1,
         stats,
