@@ -12,6 +12,9 @@ use super::kp20_polar_fold_summary::{
 use super::kp20_polar_multipatch_inventory::{
     Kp20MultiPatchInventoryReport, multipatch_inventory_from_fold_summary,
 };
+use super::kp20_polar_multipatch_strip::{
+    Kp20MultiPatchStripBuildReport, build_multipatch_strip_surfaces,
+};
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_surface_split::{
     evaluate_bi6_normal, evaluate_bi6_patch, propagate_support_pole_interfaces,
@@ -25,6 +28,7 @@ pub(super) struct Kp20SupportSurfaceReport {
     pub(super) stats: Kp20SupportSurfaceStats,
     pub(super) stage_trace: Vec<Kp20SupportSurfaceStageReport>,
     pub(super) multipatch_inventory: Kp20MultiPatchInventoryReport,
+    pub(super) multipatch_strips: Kp20MultiPatchStripBuildReport,
     pub(super) decline_reason: &'static str,
 }
 
@@ -160,8 +164,12 @@ pub(super) fn support_surface_candidate_summary(
     } else {
         "support_surface_no_fold_reducing_orientation_row"
     };
+    let multipatch_inventory = multipatch_inventory_from_fold_summary(&accepted_summary.0);
+    let multipatch_strips =
+        build_multipatch_strip_surfaces(&multipatch_inventory, &accepted_patches);
     Ok(Kp20SupportSurfaceReport {
-        multipatch_inventory: multipatch_inventory_from_fold_summary(&accepted_summary.0),
+        multipatch_inventory,
+        multipatch_strips,
         summary: accepted_summary.0,
         validation: accepted_summary.1,
         stats,

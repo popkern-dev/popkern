@@ -200,7 +200,7 @@ fn append_support_surface_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_decline_reason={}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_decline_reason={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -217,12 +217,56 @@ fn append_support_surface_detail(
                 report.stats.rejected_candidates,
                 support_surface_stage_trace_label(&report.stage_trace),
                 multipatch_inventory_label(&report.multipatch_inventory),
+                multipatch_strips_label(&report.multipatch_strips),
                 report.decline_reason,
             ));
         }
         Err(err) => {
             detail.push_str(&format!(";{label}_status=declined;{label}_error={err}"));
         }
+    }
+}
+
+fn multipatch_strips_label(
+    strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
+) -> String {
+    format!(
+        "attempted={},built={},finite_cps={},invalid_cps={},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
+        strips.attempted_strip_patch_count,
+        strips.built_strip_patch_count,
+        strips.finite_control_point_count,
+        strips.invalid_control_point_count,
+        strips.strip_control_point_count,
+        strips.strip_surfaces.len(),
+        strip_surface_sector_label(strips),
+        strips.decline_reason.unwrap_or("none"),
+        if strips.strip_names.is_empty() {
+            "none".to_string()
+        } else {
+            strips.strip_names.join(",")
+        },
+    )
+}
+
+fn strip_surface_sector_label(
+    strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
+) -> String {
+    let mut sectors = strips
+        .strip_surfaces
+        .iter()
+        .map(|strip| {
+            let anchor = strip.surface.cps[0][0];
+            format!(
+                "{}@{}({:.3e},{:.3e},{:.3e})",
+                strip.patch_name, strip.sector_index, anchor.x, anchor.y, anchor.z
+            )
+        })
+        .collect::<Vec<_>>();
+    sectors.sort();
+    if sectors.is_empty() {
+        "none".to_string()
+    } else {
+        sectors.join("|")
     }
 }
 

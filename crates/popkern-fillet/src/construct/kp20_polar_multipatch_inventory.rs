@@ -19,7 +19,9 @@ pub(super) struct Kp20MultiPatchInventoryReport {
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20MultiPatchSectorInventory {
+    pub(super) sector_index: usize,
     pub(super) sector_name: String,
+    pub(super) strip_sides: Vec<Kp20PieceId>,
     pub(super) strip_names: Vec<String>,
     pub(super) inner_patch_name: String,
     pub(super) interface_names: Vec<String>,
@@ -54,7 +56,9 @@ pub(super) fn multipatch_inventory_from_fold_summary(
             .map(|side| format!("{sector_name}.{}_support_interface", side_label(*side)))
             .collect::<Vec<_>>();
         sector_reports.push(Kp20MultiPatchSectorInventory {
+            sector_index: sector,
             sector_name,
+            strip_sides: sides,
             strip_names,
             inner_patch_name,
             interface_names,
@@ -150,7 +154,15 @@ mod tests {
         assert_eq!(inventory.inner_control_point_count, 49);
         assert_eq!(inventory.inventory_mismatch, None);
         let sector = &inventory.sector_reports[0];
+        assert_eq!(sector.sector_index, 4);
         assert_eq!(sector.sector_name, "kp20_polar_macro.sector_4");
+        assert_eq!(
+            sector.strip_sides,
+            vec![
+                Kp20PieceId::NearMidpointRight,
+                Kp20PieceId::NearMidpointLeft
+            ]
+        );
         assert!(
             sector
                 .strip_names
