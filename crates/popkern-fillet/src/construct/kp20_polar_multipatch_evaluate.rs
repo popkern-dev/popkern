@@ -7,11 +7,15 @@ use super::kp20_polar_fold_summary::{
     fast_candidate_summary_from_changed_patches, validation_is_clean,
 };
 use super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport;
+use super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport;
 use super::kp20_polar_multipatch_validate::Kp20MultiPatchValidationReport;
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20MultiPatchEvaluationReport {
+    pub(super) attempted_strip_patch_count: usize,
     pub(super) attempted_inner_patch_count: usize,
+    pub(super) changed_strip_piece_count: usize,
+    pub(super) changed_inner_piece_count: usize,
     pub(super) changed_piece_count: usize,
     pub(super) fast_evaluated: bool,
     pub(super) exact_evaluated: bool,
@@ -29,22 +33,31 @@ pub(super) fn evaluate_multipatch_candidate(
     accepted_patches: &[Kp20MacroPatch],
     accepted_summary: &Kp20SamplerFoldSummary,
     validation: &Kp20MultiPatchValidationReport,
+    strips: &Kp20MultiPatchStripBuildReport,
     inner: &Kp20MultiPatchInnerBuildReport,
 ) -> Result<Kp20MultiPatchEvaluationReport, String> {
     if validation.decline_reason.is_some() {
         return Ok(declined_report(
+            strips,
             inner,
+            0,
             0,
             Some("multipatch_validation_declined"),
         ));
     }
 
     let mut candidate = accepted_patches.to_vec();
-    let changed_patches = apply_inner_patches_to_macro_candidate(&mut candidate, inner);
+    let mut changed_patches = vec![[false; 4]; candidate.len()];
+    let changed_strip_piece_count =
+        apply_strip_patches_to_macro_candidate(&mut candidate, &mut changed_patches, strips);
+    let changed_inner_piece_count =
+        apply_inner_patches_to_macro_candidate(&mut candidate, &mut changed_patches, inner);
     let changed_piece_count = changed_piece_count(&changed_patches);
     if changed_piece_count == 0 {
         return Ok(declined_report(
+            strips,
             inner,
+            changed_strip_piece_count,
             changed_piece_count,
             Some("multipatch_no_changed_pieces"),
         ));
@@ -61,7 +74,10 @@ pub(super) fn evaluate_multipatch_candidate(
     let fast_better = fast_clean && fast.0.fold_count < accepted_summary.fold_count;
     if !fast_better {
         return Ok(Kp20MultiPatchEvaluationReport {
-            attempted_inner_patch_count: inner.built_inner_patch_count,
+            attempted_strip_patch_count: strips.attempted_strip_patch_count,
+            attempted_inner_patch_count: inner.attempted_inner_patch_count,
+            changed_strip_piece_count,
+            changed_inner_piece_count,
             changed_piece_count,
             fast_evaluated: true,
             exact_evaluated: false,
@@ -89,7 +105,10 @@ pub(super) fn evaluate_multipatch_candidate(
     let exact_clean = validation_is_clean(exact.1);
     let accepted = exact_clean && exact.0.fold_count < accepted_summary.fold_count;
     Ok(Kp20MultiPatchEvaluationReport {
-        attempted_inner_patch_count: inner.built_inner_patch_count,
+        attempted_strip_patch_count: strips.attempted_strip_patch_count,
+        attempted_inner_patch_count: inner.attempted_inner_patch_count,
+        changed_strip_piece_count,
+        changed_inner_piece_count,
         changed_piece_count,
         fast_evaluated: true,
         exact_evaluated: true,
@@ -110,12 +129,17 @@ pub(super) fn evaluate_multipatch_candidate(
 }
 
 fn declined_report(
+    strips: &Kp20MultiPatchStripBuildReport,
     inner: &Kp20MultiPatchInnerBuildReport,
+    changed_strip_piece_count: usize,
     changed_piece_count: usize,
     decline_reason: Option<&'static str>,
 ) -> Kp20MultiPatchEvaluationReport {
     Kp20MultiPatchEvaluationReport {
-        attempted_inner_patch_count: inner.built_inner_patch_count,
+        attempted_strip_patch_count: strips.attempted_strip_patch_count,
+        attempted_inner_patch_count: inner.attempted_inner_patch_count,
+        changed_strip_piece_count,
+        changed_inner_piece_count: 0,
         changed_piece_count,
         fast_evaluated: false,
         exact_evaluated: false,
@@ -129,21 +153,44 @@ fn declined_report(
     }
 }
 
+fn apply_strip_patches_to_macro_candidate(
+    macro_patches: &mut [Kp20MacroPatch],
+    changed_patches: &mut [[bool; 4]],
+    strips: &Kp20MultiPatchStripBuildReport,
+) -> usize {
+    let mut changed_count = 0_usize;
+    for strip in &strips.strip_surfaces {
+        if strip.sector_index >= macro_patches.len() {
+            continue;
+        }
+        *macro_patches[strip.sector_index].piece_mut(strip.strip_piece) = strip.surface;
+        if !changed_patches[strip.sector_index][strip.strip_piece.index()] {
+            changed_count += 1;
+        }
+        changed_patches[strip.sector_index][strip.strip_piece.index()] = true;
+    }
+    changed_count
+}
+
 fn apply_inner_patches_to_macro_candidate(
     macro_patches: &mut [Kp20MacroPatch],
+    changed_patches: &mut [[bool; 4]],
     inner: &Kp20MultiPatchInnerBuildReport,
-) -> Vec<[bool; 4]> {
-    let mut changed_patches = vec![[false; 4]; macro_patches.len()];
+) -> usize {
+    let mut changed_count = 0_usize;
     for patch in &inner.inner_patches {
         if patch.sector_index >= macro_patches.len() {
             continue;
         }
         for piece in [Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight] {
             *macro_patches[patch.sector_index].piece_mut(piece) = patch.surface;
+            if !changed_patches[patch.sector_index][piece.index()] {
+                changed_count += 1;
+            }
             changed_patches[patch.sector_index][piece.index()] = true;
         }
     }
-    changed_patches
+    changed_count
 }
 
 fn changed_piece_count(changed_patches: &[[bool; 4]]) -> usize {
@@ -167,7 +214,7 @@ mod tests {
     use crate::construct::kp20_polar_multipatch_strip::build_multipatch_strip_surfaces;
 
     #[test]
-    fn adapter_marks_near_origin_pieces_for_inner_candidate() {
+    fn adapter_marks_support_and_near_origin_pieces_for_candidate() {
         let inventory = multipatch_inventory_from_fold_summary(&Kp20SamplerFoldSummary {
             fold_count: 1,
             min_jacobian_normal_cos: -0.1,
@@ -188,12 +235,23 @@ mod tests {
         let interfaces = build_multipatch_interfaces(&strips);
         let inner = build_multipatch_inner_patches(&inventory, &interfaces);
         let mut candidate = vec![Kp20MacroPatch::zero()];
+        let mut changed = vec![[false; 4]; candidate.len()];
 
-        let changed = apply_inner_patches_to_macro_candidate(&mut candidate, &inner);
+        let changed_strips =
+            apply_strip_patches_to_macro_candidate(&mut candidate, &mut changed, &strips);
+        let changed_inner =
+            apply_inner_patches_to_macro_candidate(&mut candidate, &mut changed, &inner);
 
+        assert_eq!(changed_strips, 1);
+        assert_eq!(changed_inner, 2);
+        assert!(changed[0][Kp20PieceId::NearMidpointLeft.index()]);
         assert!(changed[0][Kp20PieceId::NearOriginLeft.index()]);
         assert!(changed[0][Kp20PieceId::NearOriginRight.index()]);
-        assert_eq!(changed_piece_count(&changed), 2);
+        assert_eq!(changed_piece_count(&changed), 3);
+        assert_eq!(
+            candidate[0].piece(Kp20PieceId::NearMidpointLeft).cps[6][3],
+            Point3::new(1.0, 2.0, 3.0)
+        );
         assert_eq!(
             candidate[0].piece(Kp20PieceId::NearOriginLeft).cps[0][3],
             Point3::new(1.0, 2.0, 3.0)

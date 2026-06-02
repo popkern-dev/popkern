@@ -386,6 +386,8 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("inner_core=0.000e0")
                                 && detail.contains("support_surface_multipatch_evaluation=")
                                 && detail.contains("changed_pieces=")
+                                && detail.contains("changed_strips=")
+                                && detail.contains("changed_inners=")
                                 && detail.contains("fast_evaluated=true")
                                 && detail.contains("fast_folds=")
                                 && detail.contains("support_surface_decline_reason=")

@@ -1,6 +1,6 @@
 //! Candidate-only KP20 support-strip surface builder.
 
-use popkern_core::geometry::gregory::{Kp20Bi6Patch, Kp20MacroPatch};
+use popkern_core::geometry::gregory::{Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId};
 
 use super::kp20_polar_multipatch_inventory::Kp20MultiPatchInventoryReport;
 
@@ -20,6 +20,7 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
 pub(super) struct Kp20MultiPatchStripSurface {
     pub(super) patch_name: String,
     pub(super) sector_index: usize,
+    pub(super) strip_piece: Kp20PieceId,
     pub(super) surface: Kp20Bi6Patch,
 }
 
@@ -42,6 +43,7 @@ pub(super) fn build_multipatch_strip_surfaces(
             strip_surfaces.push(Kp20MultiPatchStripSurface {
                 patch_name: sector.strip_names[idx].clone(),
                 sector_index: sector.sector_index,
+                strip_piece: side,
                 surface,
             });
         }
@@ -122,6 +124,10 @@ mod tests {
         assert_eq!(report.invalid_control_point_count, 0);
         assert_eq!(report.decline_reason, None);
         assert_eq!(report.strip_surfaces[0].sector_index, 0);
+        assert_eq!(
+            report.strip_surfaces[0].strip_piece,
+            Kp20PieceId::NearMidpointLeft
+        );
         assert_eq!(
             report.strip_surfaces[0].surface.cps[2][2],
             Point3::new(1.0, 2.0, 3.0)

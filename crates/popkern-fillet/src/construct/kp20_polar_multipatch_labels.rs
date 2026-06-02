@@ -28,8 +28,11 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_inners={},changed_pieces={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
+        evaluation.changed_strip_piece_count,
+        evaluation.changed_inner_piece_count,
         evaluation.changed_piece_count,
         evaluation.fast_evaluated,
         evaluation.exact_evaluated,
@@ -207,8 +210,13 @@ fn strip_surface_sector_label(
         .map(|strip| {
             let anchor = strip.surface.cps[0][0];
             format!(
-                "{}@{}({:.3e},{:.3e},{:.3e})",
-                strip.patch_name, strip.sector_index, anchor.x, anchor.y, anchor.z
+                "{}@{}:{:?}({:.3e},{:.3e},{:.3e})",
+                strip.patch_name,
+                strip.sector_index,
+                strip.strip_piece,
+                anchor.x,
+                anchor.y,
+                anchor.z
             )
         })
         .collect::<Vec<_>>();
