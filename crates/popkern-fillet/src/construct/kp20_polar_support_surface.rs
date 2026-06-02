@@ -9,6 +9,9 @@ use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
 };
+use super::kp20_polar_multipatch_interface::{
+    Kp20MultiPatchInterfaceBuildReport, build_multipatch_interfaces,
+};
 use super::kp20_polar_multipatch_inventory::{
     Kp20MultiPatchInventoryReport, multipatch_inventory_from_fold_summary,
 };
@@ -29,6 +32,7 @@ pub(super) struct Kp20SupportSurfaceReport {
     pub(super) stage_trace: Vec<Kp20SupportSurfaceStageReport>,
     pub(super) multipatch_inventory: Kp20MultiPatchInventoryReport,
     pub(super) multipatch_strips: Kp20MultiPatchStripBuildReport,
+    pub(super) multipatch_interfaces: Kp20MultiPatchInterfaceBuildReport,
     pub(super) decline_reason: &'static str,
 }
 
@@ -167,9 +171,11 @@ pub(super) fn support_surface_candidate_summary(
     let multipatch_inventory = multipatch_inventory_from_fold_summary(&accepted_summary.0);
     let multipatch_strips =
         build_multipatch_strip_surfaces(&multipatch_inventory, &accepted_patches);
+    let multipatch_interfaces = build_multipatch_interfaces(&multipatch_strips);
     Ok(Kp20SupportSurfaceReport {
         multipatch_inventory,
         multipatch_strips,
+        multipatch_interfaces,
         summary: accepted_summary.0,
         validation: accepted_summary.1,
         stats,

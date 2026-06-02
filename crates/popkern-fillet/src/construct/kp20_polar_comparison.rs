@@ -200,7 +200,7 @@ fn append_support_surface_detail(
     match report {
         Ok(report) => {
             detail.push_str(&format!(
-                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_decline_reason={}",
+                ";{label}_status=sampled;{label}_folds={};{label}_min_jacobian_cos={:.3e};{label}_piece_folds={};{label}_fold_details={};{label}_tensor_border_residual={:.3e};{label}_internal_c2_position={:.3e};{label}_internal_c2_first={:.3e};{label}_origin_g2_strip={:.3e};{label}_active_fold_pieces={};{label}_orientation_rows={};{label}_evaluated={};{label}_exact_evaluated={};{label}_accepted={};{label}_rejected={};{label}_stage_trace={};{label}_multipatch_inventory={};{label}_multipatch_strips={};{label}_multipatch_interfaces={};{label}_decline_reason={}",
                 report.summary.fold_count,
                 report.summary.min_jacobian_normal_cos,
                 piece_counts_label(report.summary.piece_fold_counts),
@@ -218,12 +218,63 @@ fn append_support_surface_detail(
                 support_surface_stage_trace_label(&report.stage_trace),
                 multipatch_inventory_label(&report.multipatch_inventory),
                 multipatch_strips_label(&report.multipatch_strips),
+                multipatch_interfaces_label(&report.multipatch_interfaces),
                 report.decline_reason,
             ));
         }
         Err(err) => {
             detail.push_str(&format!(";{label}_status=declined;{label}_error={err}"));
         }
+    }
+}
+
+fn multipatch_interfaces_label(
+    interfaces: &super::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport,
+) -> String {
+    format!(
+        "attempted={},built={},finite_cps={},invalid_cps={},anchors={},decline={},names={}",
+        interfaces.attempted_interface_count,
+        interfaces.built_interface_count,
+        interfaces.finite_control_point_count,
+        interfaces.invalid_control_point_count,
+        interface_anchor_label(interfaces),
+        interfaces.decline_reason.unwrap_or("none"),
+        if interfaces.interface_names.is_empty() {
+            "none".to_string()
+        } else {
+            interfaces.interface_names.join(",")
+        },
+    )
+}
+
+fn interface_anchor_label(
+    interfaces: &super::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport,
+) -> String {
+    let mut anchors = interfaces
+        .interface_curves
+        .iter()
+        .map(|interface| {
+            let start = interface.controls[0];
+            let end = interface.controls[6];
+            format!(
+                "{}@{}:{}({:.3e},{:.3e},{:.3e})->({:.3e},{:.3e},{:.3e})",
+                interface.interface_name,
+                interface.sector_index,
+                interface.strip_name,
+                start.x,
+                start.y,
+                start.z,
+                end.x,
+                end.y,
+                end.z
+            )
+        })
+        .collect::<Vec<_>>();
+    anchors.sort();
+    if anchors.is_empty() {
+        "none".to_string()
+    } else {
+        anchors.join("|")
     }
 }
 
