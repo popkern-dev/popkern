@@ -8,8 +8,10 @@ use super::kp20_polar_multipatch_inventory::Kp20MultiPatchInventoryReport;
 pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) attempted_strip_patch_count: usize,
     pub(super) built_strip_patch_count: usize,
+    pub(super) reauthored_strip_patch_count: usize,
     pub(super) finite_control_point_count: usize,
     pub(super) invalid_control_point_count: usize,
+    pub(super) max_reauthored_interior_displacement: f64,
     pub(super) strip_control_point_count: usize,
     pub(super) decline_reason: Option<&'static str>,
     pub(super) strip_names: Vec<String>,
@@ -31,12 +33,20 @@ pub(super) fn build_multipatch_strip_surfaces(
     let mut strip_surfaces = Vec::new();
     let mut finite_control_point_count = 0_usize;
     let mut invalid_control_point_count = 0_usize;
+    let mut reauthored_strip_patch_count = 0_usize;
+    let mut max_reauthored_interior_displacement = 0.0_f64;
     for sector in &inventory.sector_reports {
         if sector.sector_index >= macro_patches.len() {
             continue;
         }
         for (idx, side) in sector.strip_sides.iter().copied().enumerate() {
-            let surface = *macro_patches[sector.sector_index].piece(side);
+            let mut surface = *macro_patches[sector.sector_index].piece(side);
+            let displacement = reauthor_strip_interior_rows(&mut surface);
+            if displacement > 0.0 {
+                reauthored_strip_patch_count += 1;
+                max_reauthored_interior_displacement =
+                    max_reauthored_interior_displacement.max(displacement);
+            }
             let (finite, invalid) = count_control_points(&surface);
             finite_control_point_count += finite;
             invalid_control_point_count += invalid;
@@ -62,13 +72,40 @@ pub(super) fn build_multipatch_strip_surfaces(
     Kp20MultiPatchStripBuildReport {
         attempted_strip_patch_count: inventory.attempted_strip_patch_count,
         built_strip_patch_count: strip_surfaces.len(),
+        reauthored_strip_patch_count,
         finite_control_point_count,
         invalid_control_point_count,
+        max_reauthored_interior_displacement,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
         decline_reason,
         strip_names,
         strip_surfaces,
     }
+}
+
+fn reauthor_strip_interior_rows(surface: &mut Kp20Bi6Patch) -> f64 {
+    let original = *surface;
+    for column in 0..7 {
+        let support_adjacent = original.cps[1][column];
+        let interface_adjacent = original.cps[5][column];
+        for row in 2..=4 {
+            let t = (row - 1) as f64 / 4.0;
+            surface.cps[row][column] =
+                support_adjacent + (interface_adjacent - support_adjacent) * t;
+        }
+    }
+    max_interior_displacement(&original, surface)
+}
+
+fn max_interior_displacement(before: &Kp20Bi6Patch, after: &Kp20Bi6Patch) -> f64 {
+    let mut max_displacement = 0.0_f64;
+    for row in 2..=4 {
+        for column in 0..7 {
+            max_displacement =
+                max_displacement.max(before.cps[row][column].distance_to(&after.cps[row][column]));
+        }
+    }
+    max_displacement
 }
 
 fn count_control_points(surface: &Kp20Bi6Patch) -> (usize, usize) {
@@ -98,7 +135,7 @@ mod tests {
     use crate::construct::kp20_polar_multipatch_inventory::multipatch_inventory_from_fold_summary;
 
     #[test]
-    fn strip_builder_clones_inventory_owned_support_surfaces() {
+    fn strip_builder_reauthors_unconstrained_interior_rows() {
         let inventory = multipatch_inventory_from_fold_summary(&Kp20SamplerFoldSummary {
             fold_count: 1,
             min_jacobian_normal_cos: -0.1,
@@ -115,11 +152,16 @@ mod tests {
         });
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[2][2] = Point3::new(1.0, 2.0, 3.0);
+        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[1][2] = Point3::new(0.0, 0.0, 0.0);
+        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][2] = Point3::new(0.0, 0.0, 4.0);
+        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][2] = Point3::new(0.0, 0.0, 5.0);
 
         let report = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
 
         assert_eq!(report.attempted_strip_patch_count, 1);
         assert_eq!(report.built_strip_patch_count, 1);
+        assert_eq!(report.reauthored_strip_patch_count, 1);
+        assert!(report.max_reauthored_interior_displacement > 0.0);
         assert_eq!(report.finite_control_point_count, 49);
         assert_eq!(report.invalid_control_point_count, 0);
         assert_eq!(report.decline_reason, None);
@@ -130,7 +172,15 @@ mod tests {
         );
         assert_eq!(
             report.strip_surfaces[0].surface.cps[2][2],
-            Point3::new(1.0, 2.0, 3.0)
+            Point3::new(0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            report.strip_surfaces[0].surface.cps[5][2],
+            Point3::new(0.0, 0.0, 4.0)
+        );
+        assert_eq!(
+            report.strip_surfaces[0].surface.cps[6][2],
+            Point3::new(0.0, 0.0, 5.0)
         );
     }
 }

@@ -96,11 +96,13 @@ pub(super) fn multipatch_strips_label(
     strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
 ) -> String {
     format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
+        "attempted={},built={},reauthored={},finite_cps={},invalid_cps={},max_interior_displacement={:.3e},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
         strips.attempted_strip_patch_count,
         strips.built_strip_patch_count,
+        strips.reauthored_strip_patch_count,
         strips.finite_control_point_count,
         strips.invalid_control_point_count,
+        strips.max_reauthored_interior_displacement,
         strips.strip_control_point_count,
         strips.strip_surfaces.len(),
         strip_surface_sector_label(strips),
