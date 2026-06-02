@@ -39,6 +39,7 @@ mod kp20_polar_comparison;
 mod kp20_polar_diagnostics;
 mod kp20_polar_dispatch;
 mod kp20_polar_fold_summary;
+mod kp20_polar_multipatch_inventory;
 mod kp20_polar_support_image;
 mod kp20_polar_support_lift;
 mod kp20_polar_support_surface;
