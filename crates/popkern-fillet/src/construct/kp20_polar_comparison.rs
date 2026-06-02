@@ -233,13 +233,16 @@ fn multipatch_inner_label(
     inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
 ) -> String {
     format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},max_g0={:.3e},patches={},decline={},names={}",
+        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},max_g0={:.3e},max_adjacent={:.3e},min_adjacent_step={:.3e},patches={},decline={},names={}",
         inner.attempted_inner_patch_count,
         inner.built_inner_patch_count,
         inner.finite_control_point_count,
         inner.invalid_control_point_count,
         inner.boundary_constraint_count,
+        inner.adjacent_row_constraint_count,
         inner.max_boundary_g0_residual,
+        inner.max_adjacent_row_residual,
+        inner.min_adjacent_row_step,
         inner_patch_anchor_label(inner),
         inner.decline_reason.unwrap_or("none"),
         if inner.inner_patch_names.is_empty() {

@@ -15,7 +15,10 @@ pub(super) struct Kp20MultiPatchInnerBuildReport {
     pub(super) finite_control_point_count: usize,
     pub(super) invalid_control_point_count: usize,
     pub(super) boundary_constraint_count: usize,
+    pub(super) adjacent_row_constraint_count: usize,
     pub(super) max_boundary_g0_residual: f64,
+    pub(super) max_adjacent_row_residual: f64,
+    pub(super) min_adjacent_row_step: f64,
     pub(super) decline_reason: Option<&'static str>,
     pub(super) inner_patch_names: Vec<String>,
     pub(super) inner_patches: Vec<Kp20MultiPatchInnerPatch>,
@@ -37,7 +40,10 @@ pub(super) fn build_multipatch_inner_patches(
     let mut finite_control_point_count = 0_usize;
     let mut invalid_control_point_count = 0_usize;
     let mut boundary_constraint_count = 0_usize;
+    let mut adjacent_row_constraint_count = 0_usize;
     let mut max_boundary_g0_residual = 0.0_f64;
+    let mut max_adjacent_row_residual = 0.0_f64;
+    let mut min_adjacent_row_step = f64::INFINITY;
 
     for sector in &inventory.sector_reports {
         let sector_interfaces = sector
@@ -49,17 +55,32 @@ pub(super) fn build_multipatch_inner_patches(
             continue;
         }
 
+        let centroid = interface_centroid(&sector_interfaces);
         let mut surface = Kp20Bi6Patch {
-            cps: [[interface_centroid(&sector_interfaces); 7]; 7],
+            cps: [[centroid; 7]; 7],
         };
         for (boundary_index, interface) in sector_interfaces.iter().enumerate() {
             assign_boundary_controls(&mut surface, boundary_index, interface.controls);
             boundary_constraint_count += interface.controls.len();
+            assign_boundary_adjacent_controls(
+                &mut surface,
+                boundary_index,
+                interface.controls,
+                centroid,
+            );
+            adjacent_row_constraint_count += interface.controls.len();
+        }
+        for (boundary_index, interface) in sector_interfaces.iter().enumerate() {
             max_boundary_g0_residual = max_boundary_g0_residual.max(boundary_residual(
                 &surface,
                 boundary_index,
                 interface,
             ));
+            let adjacent =
+                adjacent_row_residual(&surface, boundary_index, interface.controls, centroid);
+            max_adjacent_row_residual =
+                max_adjacent_row_residual.max(adjacent.max_construction_residual);
+            min_adjacent_row_step = min_adjacent_row_step.min(adjacent.min_step);
         }
         let (finite, invalid) = count_control_points(&surface);
         finite_control_point_count += finite;
@@ -85,6 +106,10 @@ pub(super) fn build_multipatch_inner_patches(
         Some("non_finite_inner_control_point")
     } else if max_boundary_g0_residual > EXACT_BOUNDARY_G0_TOLERANCE {
         Some("inner_boundary_g0_residual")
+    } else if max_adjacent_row_residual > EXACT_BOUNDARY_G0_TOLERANCE {
+        Some("inner_adjacent_row_residual")
+    } else if !min_adjacent_row_step.is_finite() {
+        Some("missing_inner_adjacent_row")
     } else {
         None
     };
@@ -94,7 +119,10 @@ pub(super) fn build_multipatch_inner_patches(
         finite_control_point_count,
         invalid_control_point_count,
         boundary_constraint_count,
+        adjacent_row_constraint_count,
         max_boundary_g0_residual,
+        max_adjacent_row_residual,
+        min_adjacent_row_step,
         decline_reason,
         inner_patch_names,
         inner_patches,
@@ -146,6 +174,71 @@ fn assign_boundary_controls(
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Kp20InnerAdjacentRowReport {
+    max_construction_residual: f64,
+    min_step: f64,
+}
+
+fn assign_boundary_adjacent_controls(
+    surface: &mut Kp20Bi6Patch,
+    boundary_index: usize,
+    controls: [Point3; 7],
+    centroid: Point3,
+) {
+    for (idx, boundary) in controls.into_iter().enumerate() {
+        let expected = adjacent_control_toward_centroid(boundary, centroid);
+        assign_adjacent_control(surface, boundary_index, idx, expected);
+    }
+}
+
+fn adjacent_row_residual(
+    surface: &Kp20Bi6Patch,
+    boundary_index: usize,
+    controls: [Point3; 7],
+    centroid: Point3,
+) -> Kp20InnerAdjacentRowReport {
+    let mut max_construction_residual = 0.0_f64;
+    let mut min_step = f64::INFINITY;
+    for (idx, boundary) in controls.into_iter().enumerate() {
+        let expected = adjacent_control_toward_centroid(boundary, centroid);
+        let assigned = adjacent_control(surface, boundary_index, idx);
+        max_construction_residual = max_construction_residual.max(assigned.distance_to(&expected));
+        min_step = min_step.min(assigned.distance_to(&boundary));
+    }
+    Kp20InnerAdjacentRowReport {
+        max_construction_residual,
+        min_step,
+    }
+}
+
+fn adjacent_control_toward_centroid(boundary: Point3, centroid: Point3) -> Point3 {
+    boundary + (centroid - boundary) * INNER_ADJACENT_ROW_STEP
+}
+
+fn assign_adjacent_control(
+    surface: &mut Kp20Bi6Patch,
+    boundary_index: usize,
+    idx: usize,
+    control: Point3,
+) {
+    match boundary_index {
+        0 => surface.cps[1][idx] = control,
+        1 => surface.cps[5][idx] = control,
+        2 => surface.cps[idx][1] = control,
+        _ => surface.cps[idx][5] = control,
+    }
+}
+
+fn adjacent_control(surface: &Kp20Bi6Patch, boundary_index: usize, idx: usize) -> Point3 {
+    match boundary_index {
+        0 => surface.cps[1][idx],
+        1 => surface.cps[5][idx],
+        2 => surface.cps[idx][1],
+        _ => surface.cps[idx][5],
+    }
+}
+
 fn boundary_residual(
     surface: &Kp20Bi6Patch,
     boundary_index: usize,
@@ -180,6 +273,7 @@ fn count_control_points(surface: &Kp20Bi6Patch) -> (usize, usize) {
 }
 
 const EXACT_BOUNDARY_G0_TOLERANCE: f64 = 1.0e-12;
+const INNER_ADJACENT_ROW_STEP: f64 = 1.0 / 6.0;
 
 #[cfg(test)]
 mod tests {
@@ -220,7 +314,10 @@ mod tests {
         assert_eq!(report.finite_control_point_count, 49);
         assert_eq!(report.invalid_control_point_count, 0);
         assert_eq!(report.boundary_constraint_count, 7);
+        assert_eq!(report.adjacent_row_constraint_count, 7);
         assert_eq!(report.max_boundary_g0_residual, 0.0);
+        assert_eq!(report.max_adjacent_row_residual, 0.0);
+        assert!(report.min_adjacent_row_step.is_finite());
         assert_eq!(report.decline_reason, None);
         assert_eq!(report.inner_patches[0].sector_index, 0);
         assert_eq!(
@@ -234,6 +331,10 @@ mod tests {
         assert_eq!(
             report.inner_patches[0].surface.cps[0][3],
             Point3::new(1.0, 2.0, 3.0)
+        );
+        assert_ne!(
+            report.inner_patches[0].surface.cps[1][3],
+            report.inner_patches[0].surface.cps[0][3]
         );
     }
 }
