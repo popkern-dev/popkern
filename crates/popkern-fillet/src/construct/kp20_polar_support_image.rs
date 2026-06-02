@@ -25,6 +25,7 @@ pub(super) struct Kp20SupportImageCandidate {
     pub(super) params: Kp20SupportImageParams,
 }
 
+#[derive(Debug, Clone)]
 pub(super) struct Kp20SupportImageSearchCandidate {
     pub(super) image: Kp20SupportImageCandidate,
     pub(super) lift: Kp20SupportNormalLiftReport,
@@ -142,6 +143,8 @@ pub(super) fn support_image_composed_candidate(
     let mut best: Option<Kp20SupportImageSearchCandidate> = None;
     let mut composed_evaluated = 0_usize;
     let mut lift_budget_skipped = 0_usize;
+    let mut targeted_evaluated = 0_usize;
+    let mut targeted_accepted = 0_usize;
     let lift_start = Instant::now();
     for candidate in image_candidates {
         if composed_evaluated >= COUPLED_LIFT_FINALIST_BUDGET {
@@ -171,6 +174,80 @@ pub(super) fn support_image_composed_candidate(
             rejected += 1;
         }
     }
+    if let Some(current) = best.clone() {
+        let fold_sites = current.lift.summary.fold_sites.clone();
+        for params in Kp20SupportImageParams::lift_informed_family(current.image.params) {
+            if fold_sites.is_empty() {
+                break;
+            }
+            evaluated += 1;
+            targeted_evaluated += 1;
+            let mut changed_piece_sites = Vec::new();
+            let sampled_macro_patches = guide
+                .sectors
+                .iter()
+                .enumerate()
+                .map(|(sector, guide_sector)| {
+                    let (maps, changed_sites) = support_image_piece_maps(
+                        kp20_default_sector_piece_maps(),
+                        sector,
+                        params,
+                        &fold_sites,
+                    );
+                    changed_piece_sites.extend(changed_sites);
+                    sample_kp20_macro_patch_from_piece_maps(guide_sector, maps)
+                })
+                .collect::<Vec<_>>();
+            let candidate =
+                assembled_candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
+            fast_evaluated += 1;
+            let fast_summary = fast_candidate_summary_from_changed_piece_sites(
+                tensor_border,
+                candidate.macro_patches.clone(),
+                &baseline.summary,
+                &changed_piece_sites,
+                baseline.summary.fold_count,
+            )?;
+            if !validation_is_clean(fast_summary.1)
+                || fast_summary.0.fold_count > baseline.summary.fold_count
+            {
+                rejected += 1;
+                fast_rejected += 1;
+                continue;
+            }
+            exact_evaluated += 1;
+            let candidate = exact_summary_candidate(tensor_border, candidate)?;
+            if !validation_is_clean(candidate.validation)
+                || candidate.summary.fold_count > baseline.summary.fold_count
+            {
+                rejected += 1;
+                exact_rejected += 1;
+                continue;
+            }
+            let lift = lift_candidate_from_support_image_macro_patches(
+                star_point,
+                tensor_border,
+                candidate.macro_patches.clone(),
+            )?;
+            if !validation_is_clean(lift.validation) {
+                rejected += 1;
+                continue;
+            }
+            let candidate_lift_summary = (lift.summary.clone(), lift.validation);
+            let best_lift_summary = best
+                .as_ref()
+                .map(|candidate| (candidate.lift.summary.clone(), candidate.lift.validation));
+            if is_better_summary(&candidate_lift_summary, best_lift_summary.as_ref()) {
+                targeted_accepted += 1;
+                best = Some(Kp20SupportImageSearchCandidate {
+                    image: candidate,
+                    lift,
+                });
+            } else {
+                rejected += 1;
+            }
+        }
+    }
     let composed_lift_ms = elapsed_ms(lift_start);
     best.map(|mut candidate| {
         candidate
@@ -179,10 +256,10 @@ pub(super) fn support_image_composed_candidate(
             .fold_details
             .push(format!("map_params={}", candidate.image.params.label()));
         candidate.image.summary.fold_details.push(format!(
-            "map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
+            "map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},targeted_evaluated:{targeted_evaluated},targeted_accepted:{targeted_accepted},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}"
         ));
         candidate.lift.summary.fold_details.push(format!(
-            "map_params={};map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
+            "map_params={};map_search=evaluated:{evaluated},fast_evaluated:{fast_evaluated},exact_evaluated:{exact_evaluated},composed:{composed_evaluated},lift_budget:{COUPLED_LIFT_FINALIST_BUDGET},lift_budget_skipped:{lift_budget_skipped},targeted_evaluated:{targeted_evaluated},targeted_accepted:{targeted_accepted},accepted:1,rejected:{rejected},fast_rejected:{fast_rejected},exact_rejected:{exact_rejected},image_ms:{image_search_ms},lift_ms:{composed_lift_ms}",
             candidate.image.params.label()
         ));
         candidate
@@ -301,71 +378,59 @@ fn reparameterized_corner_maps(
 
 impl Kp20SupportImageParams {
     fn identity() -> Self {
-        Self {
-            uniform: 1.0,
-            du_scale: 1.0,
-            dv_scale: 1.0,
-            shear: 0.0,
-        }
+        Self::new(1.0, 1.0, 1.0, 0.0)
     }
 
     fn coordinate_search_family() -> [Self; 9] {
         [
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.89,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.95,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 0.96,
-                dv_scale: 1.0,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.04,
-                dv_scale: 1.0,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 0.96,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 1.04,
-                shear: 0.04,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.02,
-            },
-            Self {
-                uniform: 0.92,
-                du_scale: 1.0,
-                dv_scale: 1.0,
-                shear: 0.06,
-            },
+            Self::new(0.92, 1.0, 1.0, 0.04),
+            Self::new(0.89, 1.0, 1.0, 0.04),
+            Self::new(0.95, 1.0, 1.0, 0.04),
+            Self::new(0.92, 0.96, 1.0, 0.04),
+            Self::new(0.92, 1.04, 1.0, 0.04),
+            Self::new(0.92, 1.0, 0.96, 0.04),
+            Self::new(0.92, 1.0, 1.04, 0.04),
+            Self::new(0.92, 1.0, 1.0, 0.02),
+            Self::new(0.92, 1.0, 1.0, 0.06),
         ]
+    }
+
+    fn lift_informed_family(anchor: Self) -> [Self; 4] {
+        [
+            Self::new(
+                (anchor.uniform - 0.04).max(0.84),
+                anchor.du_scale,
+                anchor.dv_scale,
+                anchor.shear,
+            ),
+            Self::new(
+                (anchor.uniform + 0.04).min(1.02),
+                anchor.du_scale,
+                anchor.dv_scale,
+                anchor.shear,
+            ),
+            Self::new(
+                anchor.uniform,
+                (anchor.du_scale + 0.04).min(1.08),
+                (anchor.dv_scale - 0.04).max(0.92),
+                anchor.shear,
+            ),
+            Self::new(
+                anchor.uniform,
+                (anchor.du_scale - 0.04).max(0.92),
+                (anchor.dv_scale + 0.04).min(1.08),
+                anchor.shear,
+            ),
+        ]
+    }
+
+    const fn new(uniform: f64, du_scale: f64, dv_scale: f64, shear: f64) -> Self {
+        Self {
+            uniform,
+            du_scale,
+            dv_scale,
+            shear,
+        }
     }
 
     fn label(self) -> String {
