@@ -42,6 +42,7 @@ mod kp20_polar_fold_summary;
 mod kp20_polar_support_image;
 mod kp20_polar_support_lift;
 mod kp20_polar_support_surface;
+mod kp20_polar_support_surface_split;
 mod kp_bi5_macro_apply;
 mod kp_binonic_optimizer;
 mod kp_biquintic_optimizer;

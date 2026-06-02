@@ -2,7 +2,6 @@
 
 use popkern_core::geometry::gregory::{
     Kp20Bi6Patch, Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
-    bernstein_bi6_all, bernstein_bi6_deriv_all,
 };
 use popkern_core::geometry::{Point3, Vec3};
 
@@ -11,6 +10,10 @@ use super::kp20_polar_fold_summary::{
     fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
 };
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
+use super::kp20_polar_support_surface_split::{
+    evaluate_bi6_normal, evaluate_bi6_patch, propagate_support_pole_interfaces,
+    support_owner_piece, support_side_index,
+};
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportSurfaceReport {
@@ -56,6 +59,7 @@ enum Kp20SupportSurfaceMode {
     CoupledSupportRing,
     FoldAwareSurfaceFrame,
     FoldAwareNormalFrame,
+    SupportPoleInterfaceSplit,
 }
 
 pub(super) fn support_surface_candidate_summary(
@@ -184,7 +188,7 @@ fn active_fold_pieces(summary: &Kp20SamplerFoldSummary) -> Vec<Kp20PieceId> {
 }
 
 impl Kp20SupportSurfaceMode {
-    fn stages() -> [Self; 6] {
+    fn stages() -> [Self; 7] {
         [
             Self::SupportNormal,
             Self::RadialBisector,
@@ -192,6 +196,7 @@ impl Kp20SupportSurfaceMode {
             Self::CoupledSupportRing,
             Self::FoldAwareSurfaceFrame,
             Self::FoldAwareNormalFrame,
+            Self::SupportPoleInterfaceSplit,
         ]
     }
 
@@ -203,6 +208,7 @@ impl Kp20SupportSurfaceMode {
             Self::CoupledSupportRing => "coupled_support_ring",
             Self::FoldAwareSurfaceFrame => "fold_aware_surface_frame",
             Self::FoldAwareNormalFrame => "fold_aware_normal_frame",
+            Self::SupportPoleInterfaceSplit => "support_pole_interface_split",
         }
     }
 }
@@ -213,11 +219,24 @@ fn support_surface_trials(
 ) -> Vec<Kp20SupportSurfaceTrial> {
     let mut trials = Vec::new();
     for scale in [0.06, -0.06] {
-        for piece in active_fold_pieces(summary) {
+        for piece in active_trial_pieces(mode, summary) {
             trials.push(Kp20SupportSurfaceTrial { mode, scale, piece });
         }
     }
     trials
+}
+
+fn active_trial_pieces(
+    mode: Kp20SupportSurfaceMode,
+    summary: &Kp20SamplerFoldSummary,
+) -> Vec<Kp20PieceId> {
+    let mut pieces = active_fold_pieces(summary);
+    if matches!(mode, Kp20SupportSurfaceMode::SupportPoleInterfaceSplit) {
+        pieces = pieces.into_iter().map(support_owner_piece).collect();
+        pieces.sort_by_key(|piece| piece.index());
+        pieces.dedup();
+    }
+    pieces
 }
 
 fn apply_orientation_row_trial(
@@ -228,9 +247,10 @@ fn apply_orientation_row_trial(
     trial: Kp20SupportSurfaceTrial,
 ) -> Vec<[bool; 4]> {
     let mut changed_patches = vec![[false; 4]; macro_patches.len()];
+    let mut split_support_changed = vec![[false; 2]; macro_patches.len()];
     for site in fold_sites
         .iter()
-        .filter(|site| site.piece == trial.piece)
+        .filter(|site| trial_affects_site(trial, **site))
         .copied()
     {
         let row = tensor_border.sectors[site.sector][0];
@@ -250,22 +270,61 @@ fn apply_orientation_row_trial(
             macro_patches[site.sector].piece(site.piece),
         );
         let span = 0.5 * (spoke_a.length() + spoke_b.length());
-        let piece = macro_patches[site.sector].piece_mut(site.piece);
+        let target_piece = target_piece_for_trial(trial, site.piece);
+        let piece = macro_patches[site.sector].piece_mut(target_piece);
         for i in 0..7 {
             for j in 0..7 {
-                if !can_adjust_orientation_row(trial.mode, site.piece, i, j) {
+                if !can_adjust_orientation_row(trial.mode, target_piece, i, j) {
                     continue;
                 }
-                let weight = orientation_row_weight(trial.mode, site, i, j);
+                let weight = orientation_row_weight(trial.mode, site, target_piece, i, j);
                 if weight == 0.0 {
                     continue;
                 }
                 piece.cps[i][j] = piece.cps[i][j] + direction * (trial.scale * span * weight);
-                changed_patches[site.sector][site.piece.index()] = true;
+                changed_patches[site.sector][target_piece.index()] = true;
+                if matches!(
+                    trial.mode,
+                    Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
+                ) {
+                    split_support_changed[site.sector][support_side_index(target_piece)] = true;
+                }
             }
         }
     }
+    if matches!(
+        trial.mode,
+        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
+    ) {
+        propagate_support_pole_interfaces(
+            macro_patches,
+            &mut changed_patches,
+            split_support_changed,
+        );
+    }
     changed_patches
+}
+
+fn trial_affects_site(trial: Kp20SupportSurfaceTrial, site: Kp20FoldSite) -> bool {
+    if matches!(
+        trial.mode,
+        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
+    ) {
+        support_owner_piece(site.piece) == trial.piece
+    } else {
+        site.piece == trial.piece
+    }
+}
+
+fn target_piece_for_trial(trial: Kp20SupportSurfaceTrial, site_piece: Kp20PieceId) -> Kp20PieceId {
+    if matches!(
+        trial.mode,
+        Kp20SupportSurfaceMode::SupportPoleInterfaceSplit
+    ) {
+        support_owner_piece(site_piece)
+    } else {
+        site_piece
+    }
 }
 
 fn support_surface_direction(
@@ -289,50 +348,19 @@ fn support_surface_direction(
             let point = evaluate_bi6_patch(piece, site.u, site.v);
             (point - star_point).normalized().unwrap_or(normal)
         }
-        Kp20SupportSurfaceMode::FoldAwareNormalFrame => evaluate_bi6_normal(piece, site.u, site.v)
-            .map(|local| {
-                if local.dot(&normal) < 0.0 {
-                    -local
-                } else {
-                    local
-                }
-            })
-            .unwrap_or(normal),
-    }
-}
-
-fn evaluate_bi6_patch(piece: &Kp20Bi6Patch, u: f64, v: f64) -> Point3 {
-    let bu = bernstein_bi6_all(u.clamp(0.0, 1.0));
-    let bv = bernstein_bi6_all(v.clamp(0.0, 1.0));
-    let mut out = Point3::new(0.0, 0.0, 0.0);
-    for i in 0..7 {
-        for j in 0..7 {
-            let w = bu[i] * bv[j];
-            out.x += w * piece.cps[i][j].x;
-            out.y += w * piece.cps[i][j].y;
-            out.z += w * piece.cps[i][j].z;
+        Kp20SupportSurfaceMode::FoldAwareNormalFrame
+        | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => {
+            evaluate_bi6_normal(piece, site.u, site.v)
+                .map(|local| {
+                    if local.dot(&normal) < 0.0 {
+                        -local
+                    } else {
+                        local
+                    }
+                })
+                .unwrap_or(normal)
         }
     }
-    out
-}
-
-fn evaluate_bi6_normal(piece: &Kp20Bi6Patch, u: f64, v: f64) -> Option<Vec3> {
-    let u = u.clamp(0.0, 1.0);
-    let v = v.clamp(0.0, 1.0);
-    let bu = bernstein_bi6_all(u);
-    let bv = bernstein_bi6_all(v);
-    let du = bernstein_bi6_deriv_all(u);
-    let dv = bernstein_bi6_deriv_all(v);
-    let mut tangent_u = Vec3::new(0.0, 0.0, 0.0);
-    let mut tangent_v = Vec3::new(0.0, 0.0, 0.0);
-    for i in 0..7 {
-        for j in 0..7 {
-            let p = piece.cps[i][j];
-            tangent_u = tangent_u + (p - Point3::new(0.0, 0.0, 0.0)) * (du[i] * bv[j]);
-            tangent_v = tangent_v + (p - Point3::new(0.0, 0.0, 0.0)) * (bu[i] * dv[j]);
-        }
-    }
-    tangent_u.cross(&tangent_v).normalized()
 }
 
 fn can_adjust_orientation_row(
@@ -346,7 +374,8 @@ fn can_adjust_orientation_row(
             let row_ok = match mode {
                 Kp20SupportSurfaceMode::CoupledSupportRing
                 | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
-                | Kp20SupportSurfaceMode::FoldAwareNormalFrame => (2..=4).contains(&i),
+                | Kp20SupportSurfaceMode::FoldAwareNormalFrame
+                | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => (2..=4).contains(&i),
                 _ => i == 3,
             };
             row_ok && (2..=4).contains(&j)
@@ -355,7 +384,8 @@ fn can_adjust_orientation_row(
             let row_ok = match mode {
                 Kp20SupportSurfaceMode::CoupledSupportRing
                 | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
-                | Kp20SupportSurfaceMode::FoldAwareNormalFrame => (2..=4).contains(&j),
+                | Kp20SupportSurfaceMode::FoldAwareNormalFrame
+                | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => (2..=4).contains(&j),
                 _ => j == 3,
             };
             row_ok && (2..=4).contains(&i)
@@ -366,6 +396,7 @@ fn can_adjust_orientation_row(
 fn orientation_row_weight(
     mode: Kp20SupportSurfaceMode,
     site: Kp20FoldSite,
+    target_piece: Kp20PieceId,
     i: usize,
     j: usize,
 ) -> f64 {
@@ -379,7 +410,8 @@ fn orientation_row_weight(
     let row_weight = match mode {
         Kp20SupportSurfaceMode::CoupledSupportRing
         | Kp20SupportSurfaceMode::FoldAwareSurfaceFrame
-        | Kp20SupportSurfaceMode::FoldAwareNormalFrame => match site.piece {
+        | Kp20SupportSurfaceMode::FoldAwareNormalFrame
+        | Kp20SupportSurfaceMode::SupportPoleInterfaceSplit => match target_piece {
             Kp20PieceId::NearMidpointLeft | Kp20PieceId::NearMidpointRight => {
                 coupled_row_weight(site, i)
             }
