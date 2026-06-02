@@ -391,6 +391,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("changed_strips=")
                                 && detail.contains("changed_inners=")
                                 && detail.contains("strip_optimizer_trials=")
+                                && detail.contains("strip_optimizer_mode=")
                                 && detail.contains("strip_optimizer_scale=")
                                 && detail.contains("fast_evaluated=true")
                                 && detail.contains("fast_folds=")

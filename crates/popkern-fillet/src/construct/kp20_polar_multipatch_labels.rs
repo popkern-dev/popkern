@@ -28,13 +28,14 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_scale={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
         evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
         evaluation.changed_strip_piece_count,
         evaluation.changed_inner_piece_count,
         evaluation.changed_piece_count,
         evaluation.strip_optimizer_trial_count,
+        evaluation.strip_optimizer_mode.unwrap_or("none"),
         optional_f64_label(evaluation.strip_optimizer_selected_scale),
         evaluation.fast_evaluated,
         evaluation.exact_evaluated,

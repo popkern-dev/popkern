@@ -17,8 +17,7 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
-/// Re-export of the late-pipeline clamp pass for use by `fillet_edges`
-/// after `fix_stale_pcurves` has run.
+/// Re-export of the late-pipeline clamp pass for use by `fillet_edges`.
 pub fn clamp_bounded_pcurves_post_phase5(brep: &mut popkern_core::topology::BRep) -> usize {
     gregory_pcurve_clamp::clamp_bounded_pcurves(brep)
 }
@@ -43,6 +42,7 @@ mod kp20_polar_multipatch_interface;
 mod kp20_polar_multipatch_inventory;
 mod kp20_polar_multipatch_labels;
 mod kp20_polar_multipatch_strip;
+mod kp20_polar_multipatch_strip_optimize;
 mod kp20_polar_multipatch_validate;
 mod kp20_polar_support_image;
 mod kp20_polar_support_lift;
