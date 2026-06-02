@@ -105,7 +105,7 @@ pub(super) fn support_surface_candidate_summary(
                 accepted_summary.0.fold_count,
             )?;
             if !validation_is_clean(fast_summary.1)
-                || !is_better_summary(&fast_summary, Some(&accepted_summary))
+                || !is_fold_reducing_summary(&fast_summary, &accepted_summary)
             {
                 stats.rejected_candidates += 1;
                 continue;
@@ -134,7 +134,7 @@ pub(super) fn support_surface_candidate_summary(
             accepted_summary.0.fold_count,
         )?;
         stage.exact_folds = Some(summary.0.fold_count);
-        if validation_is_clean(summary.1) && is_better_summary(&summary, Some(&accepted_summary)) {
+        if validation_is_clean(summary.1) && is_fold_reducing_summary(&summary, &accepted_summary) {
             accepted_patches = candidate;
             accepted_summary = summary;
             stats.accepted_candidates += 1;
@@ -147,7 +147,7 @@ pub(super) fn support_surface_candidate_summary(
     let decline_reason = if stats.accepted_candidates > 0 {
         "support_surface_orientation_rows_accepted"
     } else {
-        "support_surface_no_improving_orientation_row"
+        "support_surface_no_fold_reducing_orientation_row"
     };
     Ok(Kp20SupportSurfaceReport {
         summary: accepted_summary.0,
@@ -156,6 +156,13 @@ pub(super) fn support_surface_candidate_summary(
         stage_trace,
         decline_reason,
     })
+}
+
+fn is_fold_reducing_summary(
+    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    accepted: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+) -> bool {
+    candidate.0.fold_count < accepted.0.fold_count
 }
 
 fn active_fold_piece_count(summary: &Kp20SamplerFoldSummary) -> usize {
