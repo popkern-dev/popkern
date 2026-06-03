@@ -282,7 +282,7 @@ fn exact_guided_accepted_trial(
     trial_count: &mut usize,
 ) -> Result<Option<Kp20ExactGuidedAcceptedTrial>, String> {
     for strip_mode in Kp20StripInteriorOptimizerMode::exact_guided_all() {
-        for inner_mode in Kp20InnerConstructionMode::all() {
+        for inner_mode in Kp20InnerConstructionMode::exact_guided_all() {
             for scale in EXACT_GUIDED_DAMPING_SCALES {
                 *trial_count += 1;
                 let applied = apply_multipatch_candidate(
