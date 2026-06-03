@@ -13,6 +13,8 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) finite_control_point_count: usize,
     pub(super) invalid_control_point_count: usize,
     pub(super) max_reauthored_interior_displacement: f64,
+    pub(super) min_parameter_step: f64,
+    pub(super) max_parameter_skew: f64,
     pub(super) max_row_spacing_ratio: f64,
     pub(super) max_row_curvature_ratio: f64,
     pub(super) strip_control_point_count: usize,
@@ -39,6 +41,8 @@ pub(super) fn build_multipatch_strip_surfaces(
     let mut invalid_control_point_count = 0_usize;
     let mut reauthored_strip_patch_count = 0_usize;
     let mut max_reauthored_interior_displacement = 0.0_f64;
+    let mut min_parameter_step = f64::INFINITY;
+    let mut max_parameter_skew = 0.0_f64;
     let mut max_row_spacing_ratio = 0.0_f64;
     let mut max_row_curvature_ratio = 0.0_f64;
     for sector in &inventory.sector_reports {
@@ -47,13 +51,15 @@ pub(super) fn build_multipatch_strip_surfaces(
         }
         for (idx, side) in sector.strip_sides.iter().copied().enumerate() {
             let mut surface = *macro_patches[sector.sector_index].piece(side);
-            let displacement =
+            let reauthor =
                 reauthor_strip_interior_rows(&mut surface, fold_summary, sector.sector_index, side);
-            if displacement > 0.0 {
+            if reauthor.max_displacement > 0.0 {
                 reauthored_strip_patch_count += 1;
                 max_reauthored_interior_displacement =
-                    max_reauthored_interior_displacement.max(displacement);
+                    max_reauthored_interior_displacement.max(reauthor.max_displacement);
             }
+            min_parameter_step = min_parameter_step.min(reauthor.min_parameter_step);
+            max_parameter_skew = max_parameter_skew.max(reauthor.max_parameter_skew);
             let (finite, invalid) = count_control_points(&surface);
             let row_shape = row_shape_metrics(&surface);
             max_row_spacing_ratio = max_row_spacing_ratio.max(row_shape.max_spacing_ratio);
@@ -86,6 +92,12 @@ pub(super) fn build_multipatch_strip_surfaces(
         finite_control_point_count,
         invalid_control_point_count,
         max_reauthored_interior_displacement,
+        min_parameter_step: if min_parameter_step.is_finite() {
+            min_parameter_step
+        } else {
+            0.0
+        },
+        max_parameter_skew,
         max_row_spacing_ratio,
         max_row_curvature_ratio,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
@@ -100,30 +112,49 @@ fn reauthor_strip_interior_rows(
     fold_summary: &Kp20SamplerFoldSummary,
     sector_index: usize,
     strip_piece: Kp20PieceId,
-) -> f64 {
+) -> Kp20StripReauthorReport {
     let original = *surface;
+    let mut min_parameter_step = f64::INFINITY;
+    let mut max_parameter_skew = 0.0_f64;
     for column in 0..7 {
         let support_adjacent = original.cps[1][column];
         let interface_adjacent = original.cps[5][column];
-        let bias = fold_aware_column_bias(fold_summary, sector_index, strip_piece, column);
-        for row in 2..=4 {
-            let t = (row - 1) as f64 / 4.0;
-            let t = (t + bias * t * (1.0 - t)).clamp(0.15, 0.85);
+        let map = strip_column_parameter_map(fold_summary, sector_index, strip_piece, column);
+        min_parameter_step = min_parameter_step.min(map.min_step());
+        max_parameter_skew = max_parameter_skew.max(map.max_skew());
+        for (idx, row) in (2..=4).enumerate() {
+            let t = map.row_parameters[idx];
             surface.cps[row][column] =
                 support_adjacent + (interface_adjacent - support_adjacent) * t;
         }
     }
-    max_interior_displacement(&original, surface)
+    Kp20StripReauthorReport {
+        max_displacement: max_interior_displacement(&original, surface),
+        min_parameter_step,
+        max_parameter_skew,
+    }
 }
 
-fn fold_aware_column_bias(
+#[derive(Debug, Clone, Copy)]
+struct Kp20StripReauthorReport {
+    max_displacement: f64,
+    min_parameter_step: f64,
+    max_parameter_skew: f64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Kp20StripParameterMap {
+    row_parameters: [f64; 3],
+}
+
+fn strip_column_parameter_map(
     fold_summary: &Kp20SamplerFoldSummary,
     sector_index: usize,
     strip_piece: Kp20PieceId,
     column: usize,
-) -> f64 {
+) -> Kp20StripParameterMap {
     let control_v = column as f64 / 6.0;
-    let mut weighted_bias = 0.0_f64;
+    let mut weighted_u = 0.0_f64;
     let mut total_weight = 0.0_f64;
     for site in fold_summary.fold_sites.iter().filter(|site| {
         site.sector == sector_index
@@ -133,13 +164,53 @@ fn fold_aware_column_bias(
         let distance = (control_v - site.v).abs();
         let weight = (1.0 - distance / 0.35).max(0.0).powi(2);
         let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
-        weighted_bias += (site.u - 0.5).clamp(-0.5, 0.5) * weight * severity;
+        weighted_u += site.u.clamp(0.0, 1.0) * weight * severity;
         total_weight += weight * severity;
     }
     if total_weight <= 1.0e-12 {
-        return 0.0;
+        return Kp20StripParameterMap::uniform();
     }
-    (weighted_bias / total_weight * 0.35).clamp(-0.12, 0.12)
+    let target_u = weighted_u / total_weight;
+    let strength = (total_weight / (total_weight + 1.0)).clamp(0.0, 0.55);
+    Kp20StripParameterMap::from_target(target_u, strength)
+}
+
+impl Kp20StripParameterMap {
+    fn uniform() -> Self {
+        Self {
+            row_parameters: UNIFORM_ROW_PARAMETERS,
+        }
+    }
+
+    fn from_target(target_u: f64, strength: f64) -> Self {
+        let mut rows = UNIFORM_ROW_PARAMETERS;
+        for (row, base) in rows.iter_mut().zip(UNIFORM_ROW_PARAMETERS) {
+            *row = (base + (target_u - base) * strength).clamp(0.12, 0.88);
+        }
+        enforce_minimum_parameter_steps(&mut rows);
+        Self {
+            row_parameters: rows,
+        }
+    }
+
+    fn min_step(self) -> f64 {
+        let [a, b, c] = self.row_parameters;
+        a.min(b - a).min(c - b).min(1.0 - c)
+    }
+
+    fn max_skew(self) -> f64 {
+        self.row_parameters
+            .into_iter()
+            .zip(UNIFORM_ROW_PARAMETERS)
+            .map(|(actual, uniform)| (actual - uniform).abs())
+            .fold(0.0_f64, f64::max)
+    }
+}
+
+fn enforce_minimum_parameter_steps(rows: &mut [f64; 3]) {
+    rows[0] = rows[0].clamp(MIN_PARAMETER_STEP, 1.0 - 3.0 * MIN_PARAMETER_STEP);
+    rows[1] = rows[1].clamp(rows[0] + MIN_PARAMETER_STEP, 1.0 - 2.0 * MIN_PARAMETER_STEP);
+    rows[2] = rows[2].clamp(rows[1] + MIN_PARAMETER_STEP, 1.0 - MIN_PARAMETER_STEP);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -199,6 +270,8 @@ fn count_control_points(surface: &Kp20Bi6Patch) -> (usize, usize) {
 }
 
 const BI6_CONTROL_POINTS: usize = 49;
+const MIN_PARAMETER_STEP: f64 = 0.12;
+const UNIFORM_ROW_PARAMETERS: [f64; 3] = [0.25, 0.5, 0.75];
 
 #[cfg(test)]
 mod tests {
@@ -248,10 +321,8 @@ mod tests {
             report.strip_surfaces[0].strip_piece,
             Kp20PieceId::NearMidpointLeft
         );
-        assert_eq!(
-            report.strip_surfaces[0].surface.cps[2][2],
-            Point3::new(0.0, 0.0, 1.0)
-        );
+        assert!(report.strip_surfaces[0].surface.cps[2][2].z > 1.0);
+        assert!(report.strip_surfaces[0].surface.cps[2][2].z < 2.0);
         assert_eq!(
             report.strip_surfaces[0].surface.cps[5][2],
             Point3::new(0.0, 0.0, 4.0)
@@ -260,5 +331,45 @@ mod tests {
             report.strip_surfaces[0].surface.cps[6][2],
             Point3::new(0.0, 0.0, 5.0)
         );
+    }
+
+    #[test]
+    fn strip_parameter_map_is_monotone_and_fold_site_aware() {
+        let summary = Kp20SamplerFoldSummary {
+            fold_count: 1,
+            min_jacobian_normal_cos: -0.9,
+            piece_fold_counts: [1, 0, 0, 0],
+            fold_details: Vec::new(),
+            fold_sites: vec![Kp20FoldSite {
+                sector: 0,
+                piece: Kp20PieceId::NearOriginLeft,
+                u: 0.85,
+                v: 0.5,
+                min_jacobian_ratio: -0.1,
+                min_jacobian_normal_cos: -0.9,
+            }],
+        };
+
+        let map = strip_column_parameter_map(&summary, 0, Kp20PieceId::NearMidpointLeft, 3);
+
+        assert!(map.row_parameters[0] > UNIFORM_ROW_PARAMETERS[0]);
+        assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
+        assert!(map.max_skew() > 0.0);
+    }
+
+    #[test]
+    fn strip_parameter_map_uses_uniform_rows_without_owned_fold_sites() {
+        let summary = Kp20SamplerFoldSummary {
+            fold_count: 0,
+            min_jacobian_normal_cos: 1.0,
+            piece_fold_counts: [0; 4],
+            fold_details: Vec::new(),
+            fold_sites: Vec::new(),
+        };
+
+        let map = strip_column_parameter_map(&summary, 0, Kp20PieceId::NearMidpointLeft, 3);
+
+        assert_eq!(map.row_parameters, UNIFORM_ROW_PARAMETERS);
+        assert_eq!(map.max_skew(), 0.0);
     }
 }
