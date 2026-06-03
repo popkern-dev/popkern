@@ -38,6 +38,58 @@ pub(super) fn select_exact_guided_trial(
     inner: &Kp20MultiPatchInnerBuildReport,
     trial_count: &mut usize,
 ) -> Result<Kp20ExactGuidedSelection, String> {
+    let mut selection = select_exact_guided_pass(
+        tensor_border,
+        accepted_patches,
+        accepted_summary,
+        exact_guidance,
+        strips,
+        interfaces,
+        inner,
+        trial_count,
+    )?;
+    if selection.accepted.is_some() {
+        return Ok(selection);
+    }
+    if let Some(best) = selection.best_rejected.as_ref() {
+        let second_stage = select_exact_guided_pass(
+            tensor_border,
+            &best.trial.applied.candidate,
+            accepted_summary,
+            &best.exact.0,
+            strips,
+            interfaces,
+            inner,
+            trial_count,
+        )?;
+        if second_stage.accepted.is_some() {
+            return Ok(Kp20ExactGuidedSelection {
+                accepted: second_stage.accepted,
+                best_rejected: selection.best_rejected,
+            });
+        }
+        if let Some(rejected) = second_stage.best_rejected
+            && selection
+                .best_rejected
+                .as_ref()
+                .is_none_or(|best| trial_is_better_by_exact(&rejected, best))
+        {
+            selection.best_rejected = Some(rejected);
+        }
+    }
+    Ok(selection)
+}
+
+fn select_exact_guided_pass(
+    tensor_border: &TensorBorderBi3,
+    accepted_patches: &[Kp20MacroPatch],
+    accepted_summary: &Kp20SamplerFoldSummary,
+    exact_guidance: &Kp20SamplerFoldSummary,
+    strips: &Kp20MultiPatchStripBuildReport,
+    interfaces: &Kp20MultiPatchInterfaceBuildReport,
+    inner: &Kp20MultiPatchInnerBuildReport,
+    trial_count: &mut usize,
+) -> Result<Kp20ExactGuidedSelection, String> {
     let mut best_rejected = None;
     for strip_mode in Kp20StripInteriorOptimizerMode::exact_guided_all() {
         for inner_mode in Kp20InnerConstructionMode::exact_guided_all() {
