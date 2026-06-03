@@ -16,6 +16,7 @@ use super::kp20_polar_multipatch_strip_optimize::Kp20StripInteriorOptimizerMode;
 use super::kp20_polar_multipatch_validate::Kp20MultiPatchValidationReport;
 
 const STRIP_INTERIOR_DAMPING_SCALES: [f64; 6] = [2.0, 1.5, 1.0, 0.75, 0.5, 0.25];
+const EXACT_GUIDED_DAMPING_SCALES: [f64; 3] = [2.0, 1.5, 1.0];
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20MultiPatchEvaluationReport {
@@ -174,6 +175,50 @@ pub(super) fn evaluate_multipatch_candidate(
     let exact_clean = validation_is_clean(exact.1);
     let exact_ownership = fold_ownership_counts(&exact.0);
     let accepted = exact_clean && exact.0.fold_count < accepted_summary.fold_count;
+    if !accepted
+        && exact_clean
+        && let Some(refined) = exact_guided_accepted_trial(
+            tensor_border,
+            accepted_patches,
+            accepted_summary,
+            &exact.0,
+            strips,
+            interfaces,
+            inner,
+            &mut trial_count,
+        )?
+    {
+        let refined_fast_ownership = fold_ownership_counts(&refined.trial.fast.0);
+        let refined_exact_ownership = fold_ownership_counts(&refined.exact.0);
+        return Ok(Kp20MultiPatchEvaluationReport {
+            attempted_strip_patch_count: strips.attempted_strip_patch_count,
+            attempted_inner_patch_count: inner.attempted_inner_patch_count,
+            changed_strip_piece_count: refined.trial.applied.changed_strip_piece_count,
+            changed_inner_piece_count: refined.trial.applied.changed_inner_piece_count,
+            changed_piece_count: refined.trial.applied.changed_piece_count,
+            strip_optimizer_trial_count: trial_count,
+            strip_optimizer_mode: Some(refined.trial.strip_mode.label()),
+            strip_optimizer_selected_scale: Some(refined.trial.scale),
+            inner_construction_mode: Some(refined.trial.inner_mode.label()),
+            fast_evaluated: true,
+            exact_evaluated: true,
+            fast_fold_count: Some(refined.trial.fast.0.fold_count),
+            exact_fold_count: Some(refined.exact.0.fold_count),
+            fast_support_fold_count: Some(refined_fast_ownership.support_fold_count),
+            fast_inner_fold_count: Some(refined_fast_ownership.inner_fold_count),
+            exact_support_fold_count: Some(refined_exact_ownership.support_fold_count),
+            exact_inner_fold_count: Some(refined_exact_ownership.inner_fold_count),
+            fast_piece_fold_counts: Some(refined.trial.fast.0.piece_fold_counts),
+            exact_piece_fold_counts: Some(refined.exact.0.piece_fold_counts),
+            fast_min_jacobian_normal_cos: Some(refined.trial.fast.0.min_jacobian_normal_cos),
+            exact_min_jacobian_normal_cos: Some(refined.exact.0.min_jacobian_normal_cos),
+            fast_validation: Some(Kp20CandidateValidationResiduals::from(refined.trial.fast.1)),
+            exact_validation: Some(Kp20CandidateValidationResiduals::from(refined.exact.1)),
+            validation_clean: true,
+            accepted: true,
+            decline_reason: None,
+        });
+    }
     Ok(Kp20MultiPatchEvaluationReport {
         attempted_strip_patch_count: strips.attempted_strip_patch_count,
         attempted_inner_patch_count: inner.attempted_inner_patch_count,
@@ -208,6 +253,78 @@ pub(super) fn evaluate_multipatch_candidate(
             Some("multipatch_exact_validation_not_clean")
         },
     })
+}
+
+struct Kp20ExactGuidedAcceptedTrial {
+    trial: Kp20MultiPatchTrialCandidate,
+    exact: (
+        Kp20SamplerFoldSummary,
+        popkern_core::geometry::gregory::Kp20Bi6ValidationReport,
+    ),
+}
+
+fn exact_guided_accepted_trial(
+    tensor_border: &popkern_core::geometry::gregory::TensorBorderBi3,
+    accepted_patches: &[Kp20MacroPatch],
+    accepted_summary: &Kp20SamplerFoldSummary,
+    exact_guidance: &Kp20SamplerFoldSummary,
+    strips: &Kp20MultiPatchStripBuildReport,
+    interfaces: &Kp20MultiPatchInterfaceBuildReport,
+    inner: &Kp20MultiPatchInnerBuildReport,
+    trial_count: &mut usize,
+) -> Result<Option<Kp20ExactGuidedAcceptedTrial>, String> {
+    for strip_mode in Kp20StripInteriorOptimizerMode::all() {
+        for inner_mode in Kp20InnerConstructionMode::all() {
+            for scale in EXACT_GUIDED_DAMPING_SCALES {
+                *trial_count += 1;
+                let applied = apply_multipatch_candidate(
+                    accepted_patches,
+                    exact_guidance,
+                    strips,
+                    interfaces,
+                    inner,
+                    strip_mode,
+                    inner_mode,
+                    scale,
+                );
+                if applied.changed_piece_count == 0 {
+                    continue;
+                }
+                let fast = fast_candidate_summary_from_changed_patches(
+                    tensor_border,
+                    applied.candidate.clone(),
+                    accepted_summary,
+                    &applied.changed_patches,
+                    accepted_summary.fold_count,
+                )?;
+                if !(validation_is_clean(fast.1) && fast.0.fold_count < accepted_summary.fold_count)
+                {
+                    continue;
+                }
+                let exact = candidate_summary_from_changed_patches(
+                    tensor_border,
+                    applied.candidate.clone(),
+                    accepted_summary,
+                    &applied.changed_patches,
+                    accepted_summary.fold_count,
+                )?;
+                if validation_is_clean(exact.1) && exact.0.fold_count < accepted_summary.fold_count
+                {
+                    return Ok(Some(Kp20ExactGuidedAcceptedTrial {
+                        trial: Kp20MultiPatchTrialCandidate {
+                            applied,
+                            strip_mode,
+                            inner_mode,
+                            scale,
+                            fast,
+                        },
+                        exact,
+                    }));
+                }
+            }
+        }
+    }
+    Ok(None)
 }
 
 fn declined_report(
