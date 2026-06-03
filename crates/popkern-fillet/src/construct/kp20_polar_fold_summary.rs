@@ -26,6 +26,20 @@ impl Kp20SamplerFoldSummary {
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
     }
+
+    pub(super) fn fold_zone_counts(&self) -> Kp20FoldZoneCounts {
+        let mut counts = Kp20FoldZoneCounts::default();
+        for site in &self.fold_sites {
+            if site.u >= 0.80 && site.v >= 0.80 {
+                counts.origin_corner += 1;
+            } else if site.u >= 0.80 || site.v >= 0.80 {
+                counts.edge_shoulder += 1;
+            } else {
+                counts.interior += 1;
+            }
+        }
+        counts
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -36,6 +50,13 @@ pub(super) struct Kp20FoldSite {
     pub(super) v: f64,
     pub(super) min_jacobian_ratio: f64,
     pub(super) min_jacobian_normal_cos: f64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Kp20FoldZoneCounts {
+    pub(super) origin_corner: usize,
+    pub(super) edge_shoulder: usize,
+    pub(super) interior: usize,
 }
 
 pub(super) fn summarize_intersections(
@@ -402,4 +423,41 @@ fn flatten_macro_patches(macro_patches: &[Kp20MacroPatch]) -> Vec<[[Point3; 7]; 
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fold_zone_counts_classify_sampler_edge_and_corner_sites() {
+        let summary = Kp20SamplerFoldSummary {
+            fold_count: 3,
+            min_jacobian_normal_cos: -0.1,
+            piece_fold_counts: [0; 4],
+            fold_details: Vec::new(),
+            fold_sites: vec![
+                fold_site(0.8125, 0.9375),
+                fold_site(0.8125, 0.1875),
+                fold_site(0.5, 0.5),
+            ],
+        };
+
+        let zones = summary.fold_zone_counts();
+
+        assert_eq!(zones.origin_corner, 1);
+        assert_eq!(zones.edge_shoulder, 1);
+        assert_eq!(zones.interior, 1);
+    }
+
+    fn fold_site(u: f64, v: f64) -> Kp20FoldSite {
+        Kp20FoldSite {
+            sector: 0,
+            piece: Kp20PieceId::NearOriginLeft,
+            u,
+            v,
+            min_jacobian_ratio: -0.1,
+            min_jacobian_normal_cos: -0.1,
+        }
+    }
 }

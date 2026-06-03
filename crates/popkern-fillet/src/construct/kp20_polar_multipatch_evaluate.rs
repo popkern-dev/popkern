@@ -3,8 +3,9 @@
 use popkern_core::geometry::gregory::{Kp20MacroPatch, Kp20PieceId};
 
 use super::kp20_polar_fold_summary::{
-    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
-    fast_candidate_summary_from_changed_patches, validation_is_clean,
+    Kp20FoldSite, Kp20FoldZoneCounts, Kp20SamplerFoldSummary,
+    candidate_summary_from_changed_patches, fast_candidate_summary_from_changed_patches,
+    validation_is_clean,
 };
 use super::kp20_polar_multipatch_apply::{
     Kp20AppliedMultiPatchCandidate, Kp20InnerConstructionMode, apply_multipatch_candidate,
@@ -43,6 +44,8 @@ pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) exact_min_jacobian_normal_cos: Option<f64>,
     pub(super) fast_worst_fold_site: Option<Kp20FoldSite>,
     pub(super) exact_worst_fold_site: Option<Kp20FoldSite>,
+    pub(super) fast_fold_zone_counts: Option<Kp20FoldZoneCounts>,
+    pub(super) exact_fold_zone_counts: Option<Kp20FoldZoneCounts>,
     pub(super) fast_validation: Option<Kp20CandidateValidationResiduals>,
     pub(super) exact_validation: Option<Kp20CandidateValidationResiduals>,
     pub(super) best_rejected_exact_guided: Option<Kp20RejectedExactGuidedReport>,
@@ -158,6 +161,8 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_min_jacobian_normal_cos: None,
             fast_worst_fold_site: fast.0.worst_fold_site(),
             exact_worst_fold_site: None,
+            fast_fold_zone_counts: Some(fast.0.fold_zone_counts()),
+            exact_fold_zone_counts: None,
             fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
             exact_validation: None,
             best_rejected_exact_guided: None,
@@ -225,6 +230,8 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_min_jacobian_normal_cos: Some(refined.exact.0.min_jacobian_normal_cos),
             fast_worst_fold_site: refined.trial.fast.0.worst_fold_site(),
             exact_worst_fold_site: refined.exact.0.worst_fold_site(),
+            fast_fold_zone_counts: Some(refined.trial.fast.0.fold_zone_counts()),
+            exact_fold_zone_counts: Some(refined.exact.0.fold_zone_counts()),
             fast_validation: Some(Kp20CandidateValidationResiduals::from(refined.trial.fast.1)),
             exact_validation: Some(Kp20CandidateValidationResiduals::from(refined.exact.1)),
             best_rejected_exact_guided: exact_guided
@@ -259,6 +266,8 @@ pub(super) fn evaluate_multipatch_candidate(
         exact_min_jacobian_normal_cos: Some(exact.0.min_jacobian_normal_cos),
         fast_worst_fold_site: fast.0.worst_fold_site(),
         exact_worst_fold_site: exact.0.worst_fold_site(),
+        fast_fold_zone_counts: Some(fast.0.fold_zone_counts()),
+        exact_fold_zone_counts: Some(exact.0.fold_zone_counts()),
         fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
         exact_validation: Some(Kp20CandidateValidationResiduals::from(exact.1)),
         best_rejected_exact_guided: exact_guided
@@ -311,6 +320,8 @@ fn declined_report(
         exact_min_jacobian_normal_cos: None,
         fast_worst_fold_site: None,
         exact_worst_fold_site: None,
+        fast_fold_zone_counts: None,
+        exact_fold_zone_counts: None,
         fast_validation: None,
         exact_validation: None,
         best_rejected_exact_guided: None,
@@ -337,6 +348,7 @@ pub(super) struct Kp20RejectedExactGuidedReport {
     pub(super) exact_fold_count: usize,
     pub(super) exact_min_jacobian_normal_cos: f64,
     pub(super) exact_worst_fold_site: Option<Kp20FoldSite>,
+    pub(super) exact_fold_zone_counts: Kp20FoldZoneCounts,
     pub(super) exact_validation: Kp20CandidateValidationResiduals,
 }
 
@@ -350,6 +362,7 @@ impl From<Kp20ExactGuidedTrial> for Kp20RejectedExactGuidedReport {
             exact_fold_count: trial.exact.0.fold_count,
             exact_min_jacobian_normal_cos: trial.exact.0.min_jacobian_normal_cos,
             exact_worst_fold_site: trial.exact.0.worst_fold_site(),
+            exact_fold_zone_counts: trial.exact.0.fold_zone_counts(),
             exact_validation: Kp20CandidateValidationResiduals::from(trial.exact.1),
         }
     }

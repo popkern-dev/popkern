@@ -28,7 +28,7 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},fast_worst_site={},exact_worst_site={},fast_validation={},exact_validation={},best_rejected_exact_guided={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},fast_worst_site={},exact_worst_site={},fast_fold_zones={},exact_fold_zones={},fast_validation={},exact_validation={},best_rejected_exact_guided={},validation_clean={},accepted={},decline={}",
         evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
         evaluation.changed_strip_piece_count,
@@ -52,6 +52,8 @@ pub(super) fn multipatch_evaluation_label(
         optional_f64_label(evaluation.exact_min_jacobian_normal_cos),
         optional_fold_site_label(evaluation.fast_worst_fold_site),
         optional_fold_site_label(evaluation.exact_worst_fold_site),
+        optional_fold_zone_counts_label(evaluation.fast_fold_zone_counts),
+        optional_fold_zone_counts_label(evaluation.exact_fold_zone_counts),
         optional_validation_label(evaluation.fast_validation),
         optional_validation_label(evaluation.exact_validation),
         optional_rejected_exact_guided_label(evaluation.best_rejected_exact_guided),
@@ -68,7 +70,7 @@ fn optional_rejected_exact_guided_label(
         || "none".to_string(),
         |rejected| {
             format!(
-                "strip:{}|inner:{}|scale:{:.3e}|fast_folds:{}|exact_folds:{}|exact_min_cos:{:.3e}|exact_worst_site:{}|exact_validation:{}",
+                "strip:{}|inner:{}|scale:{:.3e}|fast_folds:{}|exact_folds:{}|exact_min_cos:{:.3e}|exact_worst_site:{}|exact_fold_zones:{}|exact_validation:{}",
                 rejected.strip_mode,
                 rejected.inner_mode,
                 rejected.scale,
@@ -76,9 +78,23 @@ fn optional_rejected_exact_guided_label(
                 rejected.exact_fold_count,
                 rejected.exact_min_jacobian_normal_cos,
                 optional_fold_site_label(rejected.exact_worst_fold_site),
+                fold_zone_counts_label(rejected.exact_fold_zone_counts),
                 optional_validation_label(Some(rejected.exact_validation)),
             )
         },
+    )
+}
+
+fn optional_fold_zone_counts_label(
+    counts: Option<super::kp20_polar_fold_summary::Kp20FoldZoneCounts>,
+) -> String {
+    counts.map_or_else(|| "none".to_string(), fold_zone_counts_label)
+}
+
+fn fold_zone_counts_label(counts: super::kp20_polar_fold_summary::Kp20FoldZoneCounts) -> String {
+    format!(
+        "corner:{}|edge:{}|interior:{}",
+        counts.origin_corner, counts.edge_shoulder, counts.interior
     )
 }
 
