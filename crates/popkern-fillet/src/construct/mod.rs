@@ -17,7 +17,6 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
-/// Re-export of the late-pipeline clamp pass for use by `fillet_edges`.
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
 /// Restore exact-boundary cap trim authority after generic Phase 5 pcurve repair.
 pub fn restore_exact_boundary_cap_pcurves_post_phase5(
@@ -38,6 +37,7 @@ mod kp20_polar_multipatch_apply;
 mod kp20_polar_multipatch_evaluate;
 mod kp20_polar_multipatch_exact_guided;
 mod kp20_polar_multipatch_inner;
+mod kp20_polar_multipatch_inner_shoulder;
 mod kp20_polar_multipatch_interface;
 mod kp20_polar_multipatch_inventory;
 mod kp20_polar_multipatch_labels;
