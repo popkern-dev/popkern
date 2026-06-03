@@ -26,6 +26,8 @@ pub(super) enum Kp20InnerConstructionMode {
     ExactWorstInnerCoreNegative,
     ExactWorstInnerShoulderPositive,
     ExactWorstInnerShoulderNegative,
+    ExactWorstPropagatedShoulderPositive,
+    ExactWorstPropagatedShoulderNegative,
 }
 
 impl Kp20InnerConstructionMode {
@@ -33,7 +35,7 @@ impl Kp20InnerConstructionMode {
         [Self::SupportPropagation, Self::SideAlignedInnerPatch]
     }
 
-    pub(super) const fn exact_guided_all() -> [Self; 6] {
+    pub(super) const fn exact_guided_all() -> [Self; 8] {
         [
             Self::SupportPropagation,
             Self::SideAlignedInnerPatch,
@@ -41,6 +43,8 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstInnerCoreNegative,
             Self::ExactWorstInnerShoulderPositive,
             Self::ExactWorstInnerShoulderNegative,
+            Self::ExactWorstPropagatedShoulderPositive,
+            Self::ExactWorstPropagatedShoulderNegative,
         ]
     }
 
@@ -52,6 +56,12 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstInnerCoreNegative => "exact_worst_inner_core_negative",
             Self::ExactWorstInnerShoulderPositive => "exact_worst_inner_shoulder_positive",
             Self::ExactWorstInnerShoulderNegative => "exact_worst_inner_shoulder_negative",
+            Self::ExactWorstPropagatedShoulderPositive => {
+                "exact_worst_propagated_shoulder_positive"
+            }
+            Self::ExactWorstPropagatedShoulderNegative => {
+                "exact_worst_propagated_shoulder_negative"
+            }
         }
     }
 }
@@ -109,6 +119,17 @@ pub(super) fn apply_multipatch_candidate(
                 accepted_summary,
                 interfaces,
                 inner,
+                inner_mode,
+                interior_scale,
+            )
+        }
+        Kp20InnerConstructionMode::ExactWorstPropagatedShoulderPositive
+        | Kp20InnerConstructionMode::ExactWorstPropagatedShoulderNegative => {
+            apply_exact_worst_propagated_shoulder(
+                &mut candidate,
+                &mut changed_patches,
+                accepted_summary,
+                strip_apply.support_changed,
                 inner_mode,
                 interior_scale,
             )
@@ -182,6 +203,35 @@ fn propagate_strip_owned_inner_pieces(
         .sum()
 }
 
+fn apply_exact_worst_propagated_shoulder(
+    macro_patches: &mut [Kp20MacroPatch],
+    changed_patches: &mut [[bool; 4]],
+    accepted_summary: &Kp20SamplerFoldSummary,
+    support_changed: Vec<[bool; 2]>,
+    mode: Kp20InnerConstructionMode,
+    interior_scale: f64,
+) -> usize {
+    let Some(site) = accepted_summary.worst_fold_site() else {
+        return 0;
+    };
+    if !matches!(
+        site.piece,
+        Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight
+    ) {
+        return 0;
+    }
+    let before = changed_patches.to_vec();
+    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    if site.sector >= macro_patches.len() {
+        return changed_inner_count(changed_patches, &before);
+    }
+    let base = *macro_patches[site.sector].piece(site.piece);
+    *macro_patches[site.sector].piece_mut(site.piece) =
+        exact_worst_origin_surface(&base, base, site, origin_lift_mode(mode), interior_scale);
+    changed_patches[site.sector][site.piece.index()] = true;
+    changed_inner_count(changed_patches, &before)
+}
+
 fn apply_exact_worst_inner_core(
     accepted_patches: &[Kp20MacroPatch],
     macro_patches: &mut [Kp20MacroPatch],
@@ -212,32 +262,16 @@ fn apply_exact_worst_inner_core(
     else {
         return changed_inner_count(changed_patches, &before);
     };
-    let lifted = exact_worst_inner_core_surface(
+    let lifted = exact_worst_origin_surface(
         &accepted_piece,
         *macro_patches[site.sector].piece(site.piece),
         site,
-        mode,
+        origin_lift_mode(mode),
         interior_scale,
     );
     *macro_patches[site.sector].piece_mut(site.piece) = lifted;
     changed_patches[site.sector][site.piece.index()] = true;
     changed_inner_count(changed_patches, &before)
-}
-
-fn exact_worst_inner_core_surface(
-    accepted: &Kp20Bi6Patch,
-    surface: Kp20Bi6Patch,
-    site: super::kp20_polar_fold_summary::Kp20FoldSite,
-    mode: Kp20InnerConstructionMode,
-    interior_scale: f64,
-) -> Kp20Bi6Patch {
-    exact_worst_origin_surface(
-        accepted,
-        surface,
-        site,
-        origin_lift_mode(mode),
-        interior_scale,
-    )
 }
 
 fn apply_side_aligned_inner_patches(
@@ -325,6 +359,12 @@ fn origin_lift_mode(mode: Kp20InnerConstructionMode) -> Kp20OriginLiftMode {
             Kp20OriginLiftMode::ShoulderPositive
         }
         Kp20InnerConstructionMode::ExactWorstInnerShoulderNegative => {
+            Kp20OriginLiftMode::ShoulderNegative
+        }
+        Kp20InnerConstructionMode::ExactWorstPropagatedShoulderPositive => {
+            Kp20OriginLiftMode::ShoulderPositive
+        }
+        Kp20InnerConstructionMode::ExactWorstPropagatedShoulderNegative => {
             Kp20OriginLiftMode::ShoulderNegative
         }
         _ => Kp20OriginLiftMode::CorePositive,
