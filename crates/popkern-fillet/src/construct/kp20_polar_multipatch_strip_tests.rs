@@ -58,20 +58,7 @@ fn strip_builder_reauthors_unconstrained_interior_rows() {
 
 #[test]
 fn strip_parameter_map_is_monotone_and_fold_site_aware() {
-    let summary = Kp20SamplerFoldSummary {
-        fold_count: 1,
-        min_jacobian_normal_cos: -0.9,
-        piece_fold_counts: [1, 0, 0, 0],
-        fold_details: Vec::new(),
-        fold_sites: vec![Kp20FoldSite {
-            sector: 0,
-            piece: Kp20PieceId::NearOriginLeft,
-            u: 0.85,
-            v: 0.5,
-            min_jacobian_ratio: -0.1,
-            min_jacobian_normal_cos: -0.9,
-        }],
-    };
+    let summary = single_fold_summary();
 
     let map = strip_column_parameter_map(
         &summary,
@@ -82,6 +69,7 @@ fn strip_parameter_map_is_monotone_and_fold_site_aware() {
     );
 
     assert!(map.row_parameters[0] > UNIFORM_ROW_PARAMETERS[0]);
+    assert_eq!(map.strategy, Kp20StripRowPlacementStrategy::FoldSiteGuided);
     assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
     assert!(map.max_skew() > 0.0);
 }
@@ -99,6 +87,7 @@ fn strip_parameter_map_uses_uniform_rows_without_owned_fold_sites() {
     );
 
     assert_eq!(map.row_parameters, UNIFORM_ROW_PARAMETERS);
+    assert_eq!(map.strategy, Kp20StripRowPlacementStrategy::UniformBlend);
     assert_eq!(map.max_skew(), 0.0);
 }
 
@@ -120,9 +109,51 @@ fn strip_parameter_map_applies_bounded_tangent_balance_bias() {
     );
 
     assert!(map.row_parameters[0] > UNIFORM_ROW_PARAMETERS[0]);
+    assert_eq!(map.strategy, Kp20StripRowPlacementStrategy::TangentBalanced);
     assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
     assert!(geometry.tangent_step_imbalance() > 0.0);
     assert!(geometry.tangent_alignment() > 0.0);
+}
+
+#[test]
+fn strip_parameter_map_combines_fold_site_and_tangent_strategy() {
+    let geometry = Kp20StripColumnGeometry {
+        support_boundary: Point3::new(0.0, 0.0, 0.0),
+        support_adjacent: Point3::new(2.0, 0.0, 0.0),
+        interface_adjacent: Point3::new(4.5, 0.0, 0.0),
+        interface_boundary: Point3::new(5.0, 0.0, 0.0),
+    };
+
+    let map = strip_column_parameter_map(
+        &single_fold_summary(),
+        0,
+        Kp20PieceId::NearMidpointLeft,
+        3,
+        geometry,
+    );
+
+    assert_eq!(
+        map.strategy,
+        Kp20StripRowPlacementStrategy::FoldSiteTangentBalanced
+    );
+    assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
+}
+
+fn single_fold_summary() -> Kp20SamplerFoldSummary {
+    Kp20SamplerFoldSummary {
+        fold_count: 1,
+        min_jacobian_normal_cos: -0.9,
+        piece_fold_counts: [1, 0, 0, 0],
+        fold_details: Vec::new(),
+        fold_sites: vec![Kp20FoldSite {
+            sector: 0,
+            piece: Kp20PieceId::NearOriginLeft,
+            u: 0.85,
+            v: 0.5,
+            min_jacobian_ratio: -0.1,
+            min_jacobian_normal_cos: -0.9,
+        }],
+    }
 }
 
 fn empty_fold_summary() -> Kp20SamplerFoldSummary {

@@ -17,6 +17,10 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) max_parameter_skew: f64,
     pub(super) max_tangent_step_imbalance: f64,
     pub(super) min_tangent_alignment: f64,
+    pub(super) uniform_row_strategy_columns: usize,
+    pub(super) fold_site_row_strategy_columns: usize,
+    pub(super) tangent_balance_row_strategy_columns: usize,
+    pub(super) combined_row_strategy_columns: usize,
     pub(super) max_row_spacing_ratio: f64,
     pub(super) max_row_curvature_ratio: f64,
     pub(super) strip_control_point_count: usize,
@@ -47,6 +51,7 @@ pub(super) fn build_multipatch_strip_surfaces(
     let mut max_parameter_skew = 0.0_f64;
     let mut max_tangent_step_imbalance = 0.0_f64;
     let mut min_tangent_alignment = f64::INFINITY;
+    let mut row_strategy_counts = Kp20StripRowStrategyCounts::default();
     let mut max_row_spacing_ratio = 0.0_f64;
     let mut max_row_curvature_ratio = 0.0_f64;
     for sector in &inventory.sector_reports {
@@ -67,6 +72,7 @@ pub(super) fn build_multipatch_strip_surfaces(
             max_tangent_step_imbalance =
                 max_tangent_step_imbalance.max(reauthor.max_tangent_step_imbalance);
             min_tangent_alignment = min_tangent_alignment.min(reauthor.min_tangent_alignment);
+            row_strategy_counts.add(reauthor.row_strategy_counts);
             let (finite, invalid) = count_control_points(&surface);
             let row_shape = row_shape_metrics(&surface);
             max_row_spacing_ratio = max_row_spacing_ratio.max(row_shape.max_spacing_ratio);
@@ -111,6 +117,10 @@ pub(super) fn build_multipatch_strip_surfaces(
         } else {
             1.0
         },
+        uniform_row_strategy_columns: row_strategy_counts.uniform,
+        fold_site_row_strategy_columns: row_strategy_counts.fold_site,
+        tangent_balance_row_strategy_columns: row_strategy_counts.tangent_balance,
+        combined_row_strategy_columns: row_strategy_counts.combined,
         max_row_spacing_ratio,
         max_row_curvature_ratio,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
@@ -131,10 +141,12 @@ fn reauthor_strip_interior_rows(
     let mut max_parameter_skew = 0.0_f64;
     let mut max_tangent_step_imbalance = 0.0_f64;
     let mut min_tangent_alignment = f64::INFINITY;
+    let mut row_strategy_counts = Kp20StripRowStrategyCounts::default();
     for column in 0..7 {
         let geometry = Kp20StripColumnGeometry::from_surface(&original, column);
         let map =
             strip_column_parameter_map(fold_summary, sector_index, strip_piece, column, geometry);
+        row_strategy_counts.record(map.strategy);
         min_parameter_step = min_parameter_step.min(map.min_step());
         max_parameter_skew = max_parameter_skew.max(map.max_skew());
         max_tangent_step_imbalance =
@@ -152,6 +164,7 @@ fn reauthor_strip_interior_rows(
         max_parameter_skew,
         max_tangent_step_imbalance,
         min_tangent_alignment,
+        row_strategy_counts,
     }
 }
 
@@ -162,11 +175,47 @@ struct Kp20StripReauthorReport {
     max_parameter_skew: f64,
     max_tangent_step_imbalance: f64,
     min_tangent_alignment: f64,
+    row_strategy_counts: Kp20StripRowStrategyCounts,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct Kp20StripParameterMap {
     row_parameters: [f64; 3],
+    strategy: Kp20StripRowPlacementStrategy,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct Kp20StripRowStrategyCounts {
+    uniform: usize,
+    fold_site: usize,
+    tangent_balance: usize,
+    combined: usize,
+}
+
+impl Kp20StripRowStrategyCounts {
+    fn record(&mut self, strategy: Kp20StripRowPlacementStrategy) {
+        match strategy {
+            Kp20StripRowPlacementStrategy::UniformBlend => self.uniform += 1,
+            Kp20StripRowPlacementStrategy::FoldSiteGuided => self.fold_site += 1,
+            Kp20StripRowPlacementStrategy::TangentBalanced => self.tangent_balance += 1,
+            Kp20StripRowPlacementStrategy::FoldSiteTangentBalanced => self.combined += 1,
+        }
+    }
+
+    fn add(&mut self, other: Self) {
+        self.uniform += other.uniform;
+        self.fold_site += other.fold_site;
+        self.tangent_balance += other.tangent_balance;
+        self.combined += other.combined;
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kp20StripRowPlacementStrategy {
+    UniformBlend,
+    FoldSiteGuided,
+    TangentBalanced,
+    FoldSiteTangentBalanced,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -224,6 +273,10 @@ impl Kp20StripColumnGeometry {
         let alignment_scale = self.tangent_alignment().max(0.0);
         (balance * alignment_scale * 0.18).clamp(-0.12, 0.12)
     }
+
+    fn needs_tangent_balanced_strategy(self) -> bool {
+        self.tangent_step_imbalance() > 0.15 && self.tangent_alignment() > 0.35
+    }
 }
 
 fn strip_column_parameter_map(
@@ -247,24 +300,33 @@ fn strip_column_parameter_map(
         weighted_u += site.u.clamp(0.0, 1.0) * weight * severity;
         total_weight += weight * severity;
     }
-    if total_weight <= 1.0e-12 {
-        return Kp20StripParameterMap::uniform()
-            .with_tangent_bias(geometry.tangent_parameter_bias());
+    let has_fold_site_target = total_weight > 1.0e-12;
+    let needs_tangent_balance = geometry.needs_tangent_balanced_strategy();
+    let strategy =
+        Kp20StripRowPlacementStrategy::select(has_fold_site_target, needs_tangent_balance);
+    let map = if has_fold_site_target {
+        let target_u = weighted_u / total_weight;
+        let strength = (total_weight / (total_weight + 1.0)).clamp(0.0, 0.55);
+        Kp20StripParameterMap::from_target(target_u, strength, strategy)
+    } else {
+        Kp20StripParameterMap::uniform(strategy)
+    };
+    if needs_tangent_balance {
+        map.with_tangent_bias(geometry.tangent_parameter_bias())
+    } else {
+        map
     }
-    let target_u = weighted_u / total_weight;
-    let strength = (total_weight / (total_weight + 1.0)).clamp(0.0, 0.55);
-    Kp20StripParameterMap::from_target(target_u, strength)
-        .with_tangent_bias(geometry.tangent_parameter_bias())
 }
 
 impl Kp20StripParameterMap {
-    fn uniform() -> Self {
+    fn uniform(strategy: Kp20StripRowPlacementStrategy) -> Self {
         Self {
             row_parameters: UNIFORM_ROW_PARAMETERS,
+            strategy,
         }
     }
 
-    fn from_target(target_u: f64, strength: f64) -> Self {
+    fn from_target(target_u: f64, strength: f64, strategy: Kp20StripRowPlacementStrategy) -> Self {
         let mut rows = UNIFORM_ROW_PARAMETERS;
         for (row, base) in rows.iter_mut().zip(UNIFORM_ROW_PARAMETERS) {
             *row = (base + (target_u - base) * strength).clamp(0.12, 0.88);
@@ -272,6 +334,7 @@ impl Kp20StripParameterMap {
         enforce_minimum_parameter_steps(&mut rows);
         Self {
             row_parameters: rows,
+            strategy,
         }
     }
 
@@ -294,6 +357,17 @@ impl Kp20StripParameterMap {
             .zip(UNIFORM_ROW_PARAMETERS)
             .map(|(actual, uniform)| (actual - uniform).abs())
             .fold(0.0_f64, f64::max)
+    }
+}
+
+impl Kp20StripRowPlacementStrategy {
+    fn select(has_fold_site_target: bool, needs_tangent_balance: bool) -> Self {
+        match (has_fold_site_target, needs_tangent_balance) {
+            (false, false) => Self::UniformBlend,
+            (true, false) => Self::FoldSiteGuided,
+            (false, true) => Self::TangentBalanced,
+            (true, true) => Self::FoldSiteTangentBalanced,
+        }
     }
 }
 

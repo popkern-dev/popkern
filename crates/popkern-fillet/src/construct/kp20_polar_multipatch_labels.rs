@@ -182,7 +182,7 @@ pub(super) fn multipatch_strips_label(
     strips: &super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport,
 ) -> String {
     format!(
-        "attempted={},built={},reauthored={},finite_cps={},invalid_cps={},max_interior_displacement={:.3e},min_parameter_step={:.3e},max_parameter_skew={:.3e},max_tangent_step_imbalance={:.3e},min_tangent_alignment={:.3e},max_row_spacing_ratio={:.3e},max_row_curvature_ratio={:.3e},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
+        "attempted={},built={},reauthored={},finite_cps={},invalid_cps={},max_interior_displacement={:.3e},min_parameter_step={:.3e},max_parameter_skew={:.3e},max_tangent_step_imbalance={:.3e},min_tangent_alignment={:.3e},row_strategy_columns=uniform:{}|fold_site:{}|tangent_balance:{}|combined:{},max_row_spacing_ratio={:.3e},max_row_curvature_ratio={:.3e},strip_cps={},surface_count={},surface_sectors={},decline={},names={}",
         strips.attempted_strip_patch_count,
         strips.built_strip_patch_count,
         strips.reauthored_strip_patch_count,
@@ -193,6 +193,10 @@ pub(super) fn multipatch_strips_label(
         strips.max_parameter_skew,
         strips.max_tangent_step_imbalance,
         strips.min_tangent_alignment,
+        strips.uniform_row_strategy_columns,
+        strips.fold_site_row_strategy_columns,
+        strips.tangent_balance_row_strategy_columns,
+        strips.combined_row_strategy_columns,
         strips.max_row_spacing_ratio,
         strips.max_row_curvature_ratio,
         strips.strip_control_point_count,
