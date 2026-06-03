@@ -36,6 +36,7 @@ mod kp20_polar_dispatch;
 mod kp20_polar_fold_summary;
 mod kp20_polar_multipatch_apply;
 mod kp20_polar_multipatch_evaluate;
+mod kp20_polar_multipatch_exact_guided;
 mod kp20_polar_multipatch_inner;
 mod kp20_polar_multipatch_interface;
 mod kp20_polar_multipatch_inventory;

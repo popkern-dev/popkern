@@ -370,7 +370,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("decline=none")
                                 && detail.contains("support_surface_multipatch_interfaces=")
                                 && detail.contains("anchors=")
-                                && detail.contains("invalid_cps=0")
+                                && detail.contains("best_rejected_exact_guided=strip:")
                                 && detail.contains("_support_interface")
                                 && detail.contains("support_surface_multipatch_inner=")
                                 && detail.contains("boundary_constraints=")
