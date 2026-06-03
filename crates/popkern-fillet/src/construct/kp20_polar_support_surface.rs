@@ -198,6 +198,7 @@ pub(super) fn support_surface_candidate_summary(
         &accepted_summary.0,
         &multipatch_validation,
         &multipatch_strips,
+        &multipatch_interfaces,
         &multipatch_inner,
     )?;
     Ok(Kp20SupportSurfaceReport {

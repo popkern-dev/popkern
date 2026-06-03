@@ -1,6 +1,7 @@
 //! Candidate-only KP20 strip/inner interface curve extraction.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::gregory::Kp20PieceId;
 
 use super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport;
 
@@ -20,6 +21,7 @@ pub(super) struct Kp20MultiPatchInterfaceCurve {
     pub(super) interface_name: String,
     pub(super) strip_name: String,
     pub(super) sector_index: usize,
+    pub(super) strip_piece: Kp20PieceId,
     pub(super) controls: [Point3; 7],
     pub(super) support_adjacent_controls: [Point3; 7],
 }
@@ -40,6 +42,7 @@ pub(super) fn build_multipatch_interfaces(
             interface_name: interface_name_from_strip(&strip.patch_name),
             strip_name: strip.patch_name.clone(),
             sector_index: strip.sector_index,
+            strip_piece: strip.strip_piece,
             controls,
             support_adjacent_controls,
         });
@@ -124,6 +127,10 @@ mod tests {
         assert_eq!(interfaces.invalid_control_point_count, 0);
         assert_eq!(interfaces.decline_reason, None);
         assert_eq!(interfaces.interface_curves[0].sector_index, 0);
+        assert_eq!(
+            interfaces.interface_curves[0].strip_piece,
+            Kp20PieceId::NearMidpointLeft
+        );
         assert!(
             interfaces.interface_curves[0]
                 .interface_name
