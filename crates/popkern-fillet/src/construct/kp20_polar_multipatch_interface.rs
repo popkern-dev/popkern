@@ -101,7 +101,7 @@ mod tests {
 
     #[test]
     fn interface_builder_extracts_strip_inner_boundary() {
-        let inventory = multipatch_inventory_from_fold_summary(&Kp20SamplerFoldSummary {
+        let summary = Kp20SamplerFoldSummary {
             fold_count: 1,
             min_jacobian_normal_cos: -0.1,
             piece_fold_counts: [1, 0, 0, 0],
@@ -114,10 +114,11 @@ mod tests {
                 min_jacobian_ratio: -0.1,
                 min_jacobian_normal_cos: -0.1,
             }],
-        });
+        };
+        let inventory = multipatch_inventory_from_fold_summary(&summary);
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
-        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
+        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
 
         let interfaces = build_multipatch_interfaces(&strips);
 

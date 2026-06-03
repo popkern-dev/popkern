@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn validator_accepts_candidate_object_invariants() {
-        let inventory = multipatch_inventory_from_fold_summary(&Kp20SamplerFoldSummary {
+        let summary = Kp20SamplerFoldSummary {
             fold_count: 1,
             min_jacobian_normal_cos: -0.1,
             piece_fold_counts: [1, 0, 0, 0],
@@ -358,12 +358,13 @@ mod tests {
                 min_jacobian_ratio: -0.1,
                 min_jacobian_normal_cos: -0.1,
             }],
-        });
+        };
+        let inventory = multipatch_inventory_from_fold_summary(&summary);
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][3] =
             Point3::new(0.25, 0.5, 0.75);
-        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
+        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
         let interfaces = build_multipatch_interfaces(&strips);
         let inner = build_multipatch_inner_patches(&inventory, &interfaces);
 

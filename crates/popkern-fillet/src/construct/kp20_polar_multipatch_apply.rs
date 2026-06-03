@@ -403,10 +403,11 @@ mod tests {
 
     #[test]
     fn support_propagation_marks_matching_near_origin_piece() {
-        let inventory = multipatch_inventory_from_fold_summary(&single_left_fold_summary());
+        let summary = single_left_fold_summary();
+        let inventory = multipatch_inventory_from_fold_summary(&summary);
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
-        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
+        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
         let interfaces = build_multipatch_interfaces(&strips);
         let inner = build_multipatch_inner_patches(&inventory, &interfaces);
 
@@ -435,12 +436,13 @@ mod tests {
 
     #[test]
     fn side_aligned_inner_patch_targets_matching_origin_side() {
-        let inventory = multipatch_inventory_from_fold_summary(&single_left_fold_summary());
+        let summary = single_left_fold_summary();
+        let inventory = multipatch_inventory_from_fold_summary(&summary);
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][3] =
             Point3::new(0.25, 0.5, 0.75);
-        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
+        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
         let interfaces = build_multipatch_interfaces(&strips);
         let inner = build_multipatch_inner_patches(&inventory, &interfaces);
 

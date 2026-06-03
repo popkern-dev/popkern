@@ -181,8 +181,11 @@ pub(super) fn support_surface_candidate_summary(
         "support_surface_no_fold_reducing_orientation_row"
     };
     let multipatch_inventory = multipatch_inventory_from_fold_summary(&accepted_summary.0);
-    let multipatch_strips =
-        build_multipatch_strip_surfaces(&multipatch_inventory, &accepted_patches);
+    let multipatch_strips = build_multipatch_strip_surfaces(
+        &multipatch_inventory,
+        &accepted_patches,
+        &accepted_summary.0,
+    );
     let multipatch_interfaces = build_multipatch_interfaces(&multipatch_strips);
     let multipatch_inner =
         build_multipatch_inner_patches(&multipatch_inventory, &multipatch_interfaces);

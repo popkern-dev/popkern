@@ -2,6 +2,7 @@
 
 use popkern_core::geometry::gregory::{Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId};
 
+use super::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
 use super::kp20_polar_multipatch_inventory::Kp20MultiPatchInventoryReport;
 
 #[derive(Debug, Clone)]
@@ -12,6 +13,8 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) finite_control_point_count: usize,
     pub(super) invalid_control_point_count: usize,
     pub(super) max_reauthored_interior_displacement: f64,
+    pub(super) max_row_spacing_ratio: f64,
+    pub(super) max_row_curvature_ratio: f64,
     pub(super) strip_control_point_count: usize,
     pub(super) decline_reason: Option<&'static str>,
     pub(super) strip_names: Vec<String>,
@@ -29,25 +32,32 @@ pub(super) struct Kp20MultiPatchStripSurface {
 pub(super) fn build_multipatch_strip_surfaces(
     inventory: &Kp20MultiPatchInventoryReport,
     macro_patches: &[Kp20MacroPatch],
+    fold_summary: &Kp20SamplerFoldSummary,
 ) -> Kp20MultiPatchStripBuildReport {
     let mut strip_surfaces = Vec::new();
     let mut finite_control_point_count = 0_usize;
     let mut invalid_control_point_count = 0_usize;
     let mut reauthored_strip_patch_count = 0_usize;
     let mut max_reauthored_interior_displacement = 0.0_f64;
+    let mut max_row_spacing_ratio = 0.0_f64;
+    let mut max_row_curvature_ratio = 0.0_f64;
     for sector in &inventory.sector_reports {
         if sector.sector_index >= macro_patches.len() {
             continue;
         }
         for (idx, side) in sector.strip_sides.iter().copied().enumerate() {
             let mut surface = *macro_patches[sector.sector_index].piece(side);
-            let displacement = reauthor_strip_interior_rows(&mut surface);
+            let displacement =
+                reauthor_strip_interior_rows(&mut surface, fold_summary, sector.sector_index, side);
             if displacement > 0.0 {
                 reauthored_strip_patch_count += 1;
                 max_reauthored_interior_displacement =
                     max_reauthored_interior_displacement.max(displacement);
             }
             let (finite, invalid) = count_control_points(&surface);
+            let row_shape = row_shape_metrics(&surface);
+            max_row_spacing_ratio = max_row_spacing_ratio.max(row_shape.max_spacing_ratio);
+            max_row_curvature_ratio = max_row_curvature_ratio.max(row_shape.max_curvature_ratio);
             finite_control_point_count += finite;
             invalid_control_point_count += invalid;
             strip_surfaces.push(Kp20MultiPatchStripSurface {
@@ -76,6 +86,8 @@ pub(super) fn build_multipatch_strip_surfaces(
         finite_control_point_count,
         invalid_control_point_count,
         max_reauthored_interior_displacement,
+        max_row_spacing_ratio,
+        max_row_curvature_ratio,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
         decline_reason,
         strip_names,
@@ -83,18 +95,81 @@ pub(super) fn build_multipatch_strip_surfaces(
     }
 }
 
-fn reauthor_strip_interior_rows(surface: &mut Kp20Bi6Patch) -> f64 {
+fn reauthor_strip_interior_rows(
+    surface: &mut Kp20Bi6Patch,
+    fold_summary: &Kp20SamplerFoldSummary,
+    sector_index: usize,
+    strip_piece: Kp20PieceId,
+) -> f64 {
     let original = *surface;
     for column in 0..7 {
         let support_adjacent = original.cps[1][column];
         let interface_adjacent = original.cps[5][column];
+        let bias = fold_aware_column_bias(fold_summary, sector_index, strip_piece, column);
         for row in 2..=4 {
             let t = (row - 1) as f64 / 4.0;
+            let t = (t + bias * t * (1.0 - t)).clamp(0.15, 0.85);
             surface.cps[row][column] =
                 support_adjacent + (interface_adjacent - support_adjacent) * t;
         }
     }
     max_interior_displacement(&original, surface)
+}
+
+fn fold_aware_column_bias(
+    fold_summary: &Kp20SamplerFoldSummary,
+    sector_index: usize,
+    strip_piece: Kp20PieceId,
+    column: usize,
+) -> f64 {
+    let control_v = column as f64 / 6.0;
+    let mut weighted_bias = 0.0_f64;
+    let mut total_weight = 0.0_f64;
+    for site in fold_summary.fold_sites.iter().filter(|site| {
+        site.sector == sector_index
+            && super::kp20_polar_support_surface_split::support_owner_piece(site.piece)
+                == strip_piece
+    }) {
+        let distance = (control_v - site.v).abs();
+        let weight = (1.0 - distance / 0.35).max(0.0).powi(2);
+        let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
+        weighted_bias += (site.u - 0.5).clamp(-0.5, 0.5) * weight * severity;
+        total_weight += weight * severity;
+    }
+    if total_weight <= 1.0e-12 {
+        return 0.0;
+    }
+    (weighted_bias / total_weight * 0.35).clamp(-0.12, 0.12)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Kp20StripRowShapeMetrics {
+    max_spacing_ratio: f64,
+    max_curvature_ratio: f64,
+}
+
+fn row_shape_metrics(surface: &Kp20Bi6Patch) -> Kp20StripRowShapeMetrics {
+    let mut min_spacing = f64::INFINITY;
+    let mut max_spacing = 0.0_f64;
+    let mut max_curvature = 0.0_f64;
+    for column in 0..7 {
+        for row in 1..5 {
+            let spacing = surface.cps[row][column].distance_to(&surface.cps[row + 1][column]);
+            min_spacing = min_spacing.min(spacing);
+            max_spacing = max_spacing.max(spacing);
+        }
+        for row in 2..=4 {
+            let mid = surface.cps[row][column];
+            let prev = surface.cps[row - 1][column];
+            let next = surface.cps[row + 1][column];
+            let fair = prev + (next - prev) * 0.5;
+            max_curvature = max_curvature.max(mid.distance_to(&fair));
+        }
+    }
+    Kp20StripRowShapeMetrics {
+        max_spacing_ratio: max_spacing / min_spacing.max(1.0e-12),
+        max_curvature_ratio: max_curvature / max_spacing.max(1.0e-12),
+    }
 }
 
 fn max_interior_displacement(before: &Kp20Bi6Patch, after: &Kp20Bi6Patch) -> f64 {
@@ -136,7 +211,7 @@ mod tests {
 
     #[test]
     fn strip_builder_reauthors_unconstrained_interior_rows() {
-        let inventory = multipatch_inventory_from_fold_summary(&Kp20SamplerFoldSummary {
+        let summary = Kp20SamplerFoldSummary {
             fold_count: 1,
             min_jacobian_normal_cos: -0.1,
             piece_fold_counts: [1, 0, 0, 0],
@@ -149,14 +224,15 @@ mod tests {
                 min_jacobian_ratio: -0.1,
                 min_jacobian_normal_cos: -0.1,
             }],
-        });
+        };
+        let inventory = multipatch_inventory_from_fold_summary(&summary);
         let mut macro_patch = Kp20MacroPatch::zero();
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[2][2] = Point3::new(1.0, 2.0, 3.0);
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[1][2] = Point3::new(0.0, 0.0, 0.0);
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][2] = Point3::new(0.0, 0.0, 4.0);
         macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][2] = Point3::new(0.0, 0.0, 5.0);
 
-        let report = build_multipatch_strip_surfaces(&inventory, &[macro_patch]);
+        let report = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
 
         assert_eq!(report.attempted_strip_patch_count, 1);
         assert_eq!(report.built_strip_patch_count, 1);
@@ -164,6 +240,8 @@ mod tests {
         assert!(report.max_reauthored_interior_displacement > 0.0);
         assert_eq!(report.finite_control_point_count, 49);
         assert_eq!(report.invalid_control_point_count, 0);
+        assert!(report.max_row_spacing_ratio.is_finite());
+        assert!(report.max_row_curvature_ratio.is_finite());
         assert_eq!(report.decline_reason, None);
         assert_eq!(report.strip_surfaces[0].sector_index, 0);
         assert_eq!(
