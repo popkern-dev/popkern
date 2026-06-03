@@ -15,6 +15,8 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) max_reauthored_interior_displacement: f64,
     pub(super) min_parameter_step: f64,
     pub(super) max_parameter_skew: f64,
+    pub(super) max_tangent_step_imbalance: f64,
+    pub(super) min_tangent_alignment: f64,
     pub(super) max_row_spacing_ratio: f64,
     pub(super) max_row_curvature_ratio: f64,
     pub(super) strip_control_point_count: usize,
@@ -43,6 +45,8 @@ pub(super) fn build_multipatch_strip_surfaces(
     let mut max_reauthored_interior_displacement = 0.0_f64;
     let mut min_parameter_step = f64::INFINITY;
     let mut max_parameter_skew = 0.0_f64;
+    let mut max_tangent_step_imbalance = 0.0_f64;
+    let mut min_tangent_alignment = f64::INFINITY;
     let mut max_row_spacing_ratio = 0.0_f64;
     let mut max_row_curvature_ratio = 0.0_f64;
     for sector in &inventory.sector_reports {
@@ -60,6 +64,9 @@ pub(super) fn build_multipatch_strip_surfaces(
             }
             min_parameter_step = min_parameter_step.min(reauthor.min_parameter_step);
             max_parameter_skew = max_parameter_skew.max(reauthor.max_parameter_skew);
+            max_tangent_step_imbalance =
+                max_tangent_step_imbalance.max(reauthor.max_tangent_step_imbalance);
+            min_tangent_alignment = min_tangent_alignment.min(reauthor.min_tangent_alignment);
             let (finite, invalid) = count_control_points(&surface);
             let row_shape = row_shape_metrics(&surface);
             max_row_spacing_ratio = max_row_spacing_ratio.max(row_shape.max_spacing_ratio);
@@ -98,6 +105,12 @@ pub(super) fn build_multipatch_strip_surfaces(
             0.0
         },
         max_parameter_skew,
+        max_tangent_step_imbalance,
+        min_tangent_alignment: if min_tangent_alignment.is_finite() {
+            min_tangent_alignment
+        } else {
+            1.0
+        },
         max_row_spacing_ratio,
         max_row_curvature_ratio,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
@@ -116,22 +129,29 @@ fn reauthor_strip_interior_rows(
     let original = *surface;
     let mut min_parameter_step = f64::INFINITY;
     let mut max_parameter_skew = 0.0_f64;
+    let mut max_tangent_step_imbalance = 0.0_f64;
+    let mut min_tangent_alignment = f64::INFINITY;
     for column in 0..7 {
-        let support_adjacent = original.cps[1][column];
-        let interface_adjacent = original.cps[5][column];
-        let map = strip_column_parameter_map(fold_summary, sector_index, strip_piece, column);
+        let geometry = Kp20StripColumnGeometry::from_surface(&original, column);
+        let map =
+            strip_column_parameter_map(fold_summary, sector_index, strip_piece, column, geometry);
         min_parameter_step = min_parameter_step.min(map.min_step());
         max_parameter_skew = max_parameter_skew.max(map.max_skew());
+        max_tangent_step_imbalance =
+            max_tangent_step_imbalance.max(geometry.tangent_step_imbalance());
+        min_tangent_alignment = min_tangent_alignment.min(geometry.tangent_alignment());
         for (idx, row) in (2..=4).enumerate() {
             let t = map.row_parameters[idx];
-            surface.cps[row][column] =
-                support_adjacent + (interface_adjacent - support_adjacent) * t;
+            surface.cps[row][column] = geometry.support_adjacent
+                + (geometry.interface_adjacent - geometry.support_adjacent) * t;
         }
     }
     Kp20StripReauthorReport {
         max_displacement: max_interior_displacement(&original, surface),
         min_parameter_step,
         max_parameter_skew,
+        max_tangent_step_imbalance,
+        min_tangent_alignment,
     }
 }
 
@@ -140,6 +160,8 @@ struct Kp20StripReauthorReport {
     max_displacement: f64,
     min_parameter_step: f64,
     max_parameter_skew: f64,
+    max_tangent_step_imbalance: f64,
+    min_tangent_alignment: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -147,11 +169,69 @@ struct Kp20StripParameterMap {
     row_parameters: [f64; 3],
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Kp20StripColumnGeometry {
+    support_boundary: popkern_core::geometry::Point3,
+    support_adjacent: popkern_core::geometry::Point3,
+    interface_adjacent: popkern_core::geometry::Point3,
+    interface_boundary: popkern_core::geometry::Point3,
+}
+
+impl Kp20StripColumnGeometry {
+    fn from_surface(surface: &Kp20Bi6Patch, column: usize) -> Self {
+        Self {
+            support_boundary: surface.cps[0][column],
+            support_adjacent: surface.cps[1][column],
+            interface_adjacent: surface.cps[5][column],
+            interface_boundary: surface.cps[6][column],
+        }
+    }
+
+    fn tangent_step_imbalance(self) -> f64 {
+        let support_step = self
+            .support_adjacent
+            .distance_to(&self.support_boundary)
+            .max(1.0e-12);
+        let interface_step = self
+            .interface_adjacent
+            .distance_to(&self.interface_boundary)
+            .max(1.0e-12);
+        (support_step - interface_step).abs() / support_step.max(interface_step)
+    }
+
+    fn tangent_alignment(self) -> f64 {
+        let support = self.support_adjacent - self.support_boundary;
+        let interface = self.interface_adjacent - self.interface_boundary;
+        let Some(support) = support.normalized() else {
+            return 1.0;
+        };
+        let Some(interface) = interface.normalized() else {
+            return 1.0;
+        };
+        support.dot(&interface).abs().clamp(0.0, 1.0)
+    }
+
+    fn tangent_parameter_bias(self) -> f64 {
+        let support_step = self
+            .support_adjacent
+            .distance_to(&self.support_boundary)
+            .max(1.0e-12);
+        let interface_step = self
+            .interface_adjacent
+            .distance_to(&self.interface_boundary)
+            .max(1.0e-12);
+        let balance = (support_step - interface_step) / (support_step + interface_step);
+        let alignment_scale = self.tangent_alignment().max(0.0);
+        (balance * alignment_scale * 0.18).clamp(-0.12, 0.12)
+    }
+}
+
 fn strip_column_parameter_map(
     fold_summary: &Kp20SamplerFoldSummary,
     sector_index: usize,
     strip_piece: Kp20PieceId,
     column: usize,
+    geometry: Kp20StripColumnGeometry,
 ) -> Kp20StripParameterMap {
     let control_v = column as f64 / 6.0;
     let mut weighted_u = 0.0_f64;
@@ -168,11 +248,13 @@ fn strip_column_parameter_map(
         total_weight += weight * severity;
     }
     if total_weight <= 1.0e-12 {
-        return Kp20StripParameterMap::uniform();
+        return Kp20StripParameterMap::uniform()
+            .with_tangent_bias(geometry.tangent_parameter_bias());
     }
     let target_u = weighted_u / total_weight;
     let strength = (total_weight / (total_weight + 1.0)).clamp(0.0, 0.55);
     Kp20StripParameterMap::from_target(target_u, strength)
+        .with_tangent_bias(geometry.tangent_parameter_bias())
 }
 
 impl Kp20StripParameterMap {
@@ -191,6 +273,14 @@ impl Kp20StripParameterMap {
         Self {
             row_parameters: rows,
         }
+    }
+
+    fn with_tangent_bias(mut self, bias: f64) -> Self {
+        for row in &mut self.row_parameters {
+            *row = (*row + bias * *row * (1.0 - *row)).clamp(0.12, 0.88);
+        }
+        enforce_minimum_parameter_steps(&mut self.row_parameters);
+        self
     }
 
     fn min_step(self) -> f64 {
@@ -274,102 +364,5 @@ const MIN_PARAMETER_STEP: f64 = 0.12;
 const UNIFORM_ROW_PARAMETERS: [f64; 3] = [0.25, 0.5, 0.75];
 
 #[cfg(test)]
-mod tests {
-    use popkern_core::geometry::Point3;
-    use popkern_core::geometry::gregory::{Kp20MacroPatch, Kp20PieceId};
-
-    use super::*;
-    use crate::construct::kp20_polar_fold_summary::{Kp20FoldSite, Kp20SamplerFoldSummary};
-    use crate::construct::kp20_polar_multipatch_inventory::multipatch_inventory_from_fold_summary;
-
-    #[test]
-    fn strip_builder_reauthors_unconstrained_interior_rows() {
-        let summary = Kp20SamplerFoldSummary {
-            fold_count: 1,
-            min_jacobian_normal_cos: -0.1,
-            piece_fold_counts: [1, 0, 0, 0],
-            fold_details: Vec::new(),
-            fold_sites: vec![Kp20FoldSite {
-                sector: 0,
-                piece: Kp20PieceId::NearOriginLeft,
-                u: 0.5,
-                v: 0.5,
-                min_jacobian_ratio: -0.1,
-                min_jacobian_normal_cos: -0.1,
-            }],
-        };
-        let inventory = multipatch_inventory_from_fold_summary(&summary);
-        let mut macro_patch = Kp20MacroPatch::zero();
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[2][2] = Point3::new(1.0, 2.0, 3.0);
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[1][2] = Point3::new(0.0, 0.0, 0.0);
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][2] = Point3::new(0.0, 0.0, 4.0);
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][2] = Point3::new(0.0, 0.0, 5.0);
-
-        let report = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
-
-        assert_eq!(report.attempted_strip_patch_count, 1);
-        assert_eq!(report.built_strip_patch_count, 1);
-        assert_eq!(report.reauthored_strip_patch_count, 1);
-        assert!(report.max_reauthored_interior_displacement > 0.0);
-        assert_eq!(report.finite_control_point_count, 49);
-        assert_eq!(report.invalid_control_point_count, 0);
-        assert!(report.max_row_spacing_ratio.is_finite());
-        assert!(report.max_row_curvature_ratio.is_finite());
-        assert_eq!(report.decline_reason, None);
-        assert_eq!(report.strip_surfaces[0].sector_index, 0);
-        assert_eq!(
-            report.strip_surfaces[0].strip_piece,
-            Kp20PieceId::NearMidpointLeft
-        );
-        assert!(report.strip_surfaces[0].surface.cps[2][2].z > 1.0);
-        assert!(report.strip_surfaces[0].surface.cps[2][2].z < 2.0);
-        assert_eq!(
-            report.strip_surfaces[0].surface.cps[5][2],
-            Point3::new(0.0, 0.0, 4.0)
-        );
-        assert_eq!(
-            report.strip_surfaces[0].surface.cps[6][2],
-            Point3::new(0.0, 0.0, 5.0)
-        );
-    }
-
-    #[test]
-    fn strip_parameter_map_is_monotone_and_fold_site_aware() {
-        let summary = Kp20SamplerFoldSummary {
-            fold_count: 1,
-            min_jacobian_normal_cos: -0.9,
-            piece_fold_counts: [1, 0, 0, 0],
-            fold_details: Vec::new(),
-            fold_sites: vec![Kp20FoldSite {
-                sector: 0,
-                piece: Kp20PieceId::NearOriginLeft,
-                u: 0.85,
-                v: 0.5,
-                min_jacobian_ratio: -0.1,
-                min_jacobian_normal_cos: -0.9,
-            }],
-        };
-
-        let map = strip_column_parameter_map(&summary, 0, Kp20PieceId::NearMidpointLeft, 3);
-
-        assert!(map.row_parameters[0] > UNIFORM_ROW_PARAMETERS[0]);
-        assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
-        assert!(map.max_skew() > 0.0);
-    }
-
-    #[test]
-    fn strip_parameter_map_uses_uniform_rows_without_owned_fold_sites() {
-        let summary = Kp20SamplerFoldSummary {
-            fold_count: 0,
-            min_jacobian_normal_cos: 1.0,
-            piece_fold_counts: [0; 4],
-            fold_details: Vec::new(),
-            fold_sites: Vec::new(),
-        };
-
-        let map = strip_column_parameter_map(&summary, 0, Kp20PieceId::NearMidpointLeft, 3);
-
-        assert_eq!(map.row_parameters, UNIFORM_ROW_PARAMETERS);
-        assert_eq!(map.max_skew(), 0.0);
-    }
-}
+#[path = "kp20_polar_multipatch_strip_tests.rs"]
+mod tests;
