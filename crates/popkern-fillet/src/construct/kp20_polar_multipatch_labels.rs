@@ -28,7 +28,7 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
         evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
         evaluation.changed_strip_piece_count,
@@ -41,6 +41,12 @@ pub(super) fn multipatch_evaluation_label(
         evaluation.exact_evaluated,
         optional_usize_label(evaluation.fast_fold_count),
         optional_usize_label(evaluation.exact_fold_count),
+        optional_usize_label(evaluation.fast_support_fold_count),
+        optional_usize_label(evaluation.fast_inner_fold_count),
+        optional_usize_label(evaluation.exact_support_fold_count),
+        optional_usize_label(evaluation.exact_inner_fold_count),
+        optional_piece_counts_label(evaluation.fast_piece_fold_counts),
+        optional_piece_counts_label(evaluation.exact_piece_fold_counts),
         optional_f64_label(evaluation.fast_min_jacobian_normal_cos),
         optional_f64_label(evaluation.exact_min_jacobian_normal_cos),
         evaluation.validation_clean,
@@ -242,5 +248,16 @@ fn optional_usize_label(value: Option<usize>) -> String {
 fn optional_f64_label(value: Option<f64>) -> String {
     value
         .map(|value| format!("{value:.3e}"))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn optional_piece_counts_label(value: Option<[usize; 4]>) -> String {
+    value
+        .map(|counts| {
+            format!(
+                "NearOriginLeft:{}|NearOriginRight:{}|NearMidpointRight:{}|NearMidpointLeft:{}",
+                counts[0], counts[1], counts[2], counts[3]
+            )
+        })
         .unwrap_or_else(|| "none".to_string())
 }

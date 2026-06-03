@@ -29,6 +29,12 @@ pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) exact_evaluated: bool,
     pub(super) fast_fold_count: Option<usize>,
     pub(super) exact_fold_count: Option<usize>,
+    pub(super) fast_support_fold_count: Option<usize>,
+    pub(super) fast_inner_fold_count: Option<usize>,
+    pub(super) exact_support_fold_count: Option<usize>,
+    pub(super) exact_inner_fold_count: Option<usize>,
+    pub(super) fast_piece_fold_counts: Option<[usize; 4]>,
+    pub(super) exact_piece_fold_counts: Option<[usize; 4]>,
     pub(super) fast_min_jacobian_normal_cos: Option<f64>,
     pub(super) exact_min_jacobian_normal_cos: Option<f64>,
     pub(super) validation_clean: bool,
@@ -136,6 +142,7 @@ pub(super) fn evaluate_multipatch_candidate(
     let fast_clean = validation_is_clean(fast.1);
     let fast_better = fast_clean && fast.0.fold_count < accepted_summary.fold_count;
     if !fast_better {
+        let fast_ownership = fold_ownership_counts(&fast.0);
         return Ok(Kp20MultiPatchEvaluationReport {
             attempted_strip_patch_count: strips.attempted_strip_patch_count,
             attempted_inner_patch_count: inner.attempted_inner_patch_count,
@@ -149,6 +156,12 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_evaluated: false,
             fast_fold_count: Some(fast.0.fold_count),
             exact_fold_count: None,
+            fast_support_fold_count: Some(fast_ownership.support_fold_count),
+            fast_inner_fold_count: Some(fast_ownership.inner_fold_count),
+            exact_support_fold_count: None,
+            exact_inner_fold_count: None,
+            fast_piece_fold_counts: Some(fast.0.piece_fold_counts),
+            exact_piece_fold_counts: None,
             fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
             exact_min_jacobian_normal_cos: None,
             validation_clean: fast_clean,
@@ -170,6 +183,8 @@ pub(super) fn evaluate_multipatch_candidate(
     )?;
     let exact_clean = validation_is_clean(exact.1);
     let accepted = exact_clean && exact.0.fold_count < accepted_summary.fold_count;
+    let fast_ownership = fold_ownership_counts(&fast.0);
+    let exact_ownership = fold_ownership_counts(&exact.0);
     Ok(Kp20MultiPatchEvaluationReport {
         attempted_strip_patch_count: strips.attempted_strip_patch_count,
         attempted_inner_patch_count: inner.attempted_inner_patch_count,
@@ -183,6 +198,12 @@ pub(super) fn evaluate_multipatch_candidate(
         exact_evaluated: true,
         fast_fold_count: Some(fast.0.fold_count),
         exact_fold_count: Some(exact.0.fold_count),
+        fast_support_fold_count: Some(fast_ownership.support_fold_count),
+        fast_inner_fold_count: Some(fast_ownership.inner_fold_count),
+        exact_support_fold_count: Some(exact_ownership.support_fold_count),
+        exact_inner_fold_count: Some(exact_ownership.inner_fold_count),
+        fast_piece_fold_counts: Some(fast.0.piece_fold_counts),
+        exact_piece_fold_counts: Some(exact.0.piece_fold_counts),
         fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
         exact_min_jacobian_normal_cos: Some(exact.0.min_jacobian_normal_cos),
         validation_clean: exact_clean,
@@ -220,11 +241,34 @@ fn declined_report(
         exact_evaluated: false,
         fast_fold_count: None,
         exact_fold_count: None,
+        fast_support_fold_count: None,
+        fast_inner_fold_count: None,
+        exact_support_fold_count: None,
+        exact_inner_fold_count: None,
+        fast_piece_fold_counts: None,
+        exact_piece_fold_counts: None,
         fast_min_jacobian_normal_cos: None,
         exact_min_jacobian_normal_cos: None,
         validation_clean: false,
         accepted: false,
         decline_reason,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Kp20FoldOwnershipCounts {
+    support_fold_count: usize,
+    inner_fold_count: usize,
+}
+
+fn fold_ownership_counts(summary: &Kp20SamplerFoldSummary) -> Kp20FoldOwnershipCounts {
+    let support_fold_count = summary.piece_fold_counts[Kp20PieceId::NearMidpointLeft.index()]
+        + summary.piece_fold_counts[Kp20PieceId::NearMidpointRight.index()];
+    let inner_fold_count = summary.piece_fold_counts[Kp20PieceId::NearOriginLeft.index()]
+        + summary.piece_fold_counts[Kp20PieceId::NearOriginRight.index()];
+    Kp20FoldOwnershipCounts {
+        support_fold_count,
+        inner_fold_count,
     }
 }
 
@@ -378,6 +422,27 @@ mod tests {
             candidate[0].piece(Kp20PieceId::NearOriginLeft).cps[0][3],
             Point3::new(1.0, 2.0, 3.0)
         );
+    }
+
+    #[test]
+    fn fold_ownership_counts_split_support_and_inner_pieces() {
+        let mut piece_fold_counts = [0_usize; 4];
+        piece_fold_counts[Kp20PieceId::NearMidpointLeft.index()] = 2;
+        piece_fold_counts[Kp20PieceId::NearMidpointRight.index()] = 3;
+        piece_fold_counts[Kp20PieceId::NearOriginLeft.index()] = 1;
+        piece_fold_counts[Kp20PieceId::NearOriginRight.index()] = 1;
+        let summary = Kp20SamplerFoldSummary {
+            fold_count: 7,
+            min_jacobian_normal_cos: -0.1,
+            piece_fold_counts,
+            fold_details: Vec::new(),
+            fold_sites: Vec::new(),
+        };
+
+        let ownership = fold_ownership_counts(&summary);
+
+        assert_eq!(ownership.support_fold_count, 5);
+        assert_eq!(ownership.inner_fold_count, 2);
     }
 
     fn empty_fold_summary() -> Kp20SamplerFoldSummary {
