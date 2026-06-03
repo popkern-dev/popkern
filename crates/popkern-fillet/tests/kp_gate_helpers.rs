@@ -63,6 +63,43 @@ pub fn fillet_corner(
     fillet_corner_full(brep, edges, radii, use_kp_binonic, false)
 }
 
+/// Fillet a prepared tuple and collect cap faces by cap-surface semantics.
+///
+/// This is intentionally separate from [`fillet_corner`]: ring-continuity
+/// tests need construction-order Gregory faces, while cap-outer tests need the
+/// unordered set of actual cap surfaces, including PnS/sphere-cap faces that
+/// are not reported as Gregory corner patches.
+pub fn fillet_corner_cap_outer_faces(
+    brep: &BRep,
+    edges: &[EdgeHandle],
+    radii: &[f64],
+    use_kp_binonic: bool,
+    use_kp_polar: bool,
+) -> (BRep, Vec<FaceHandle>) {
+    assert_eq!(edges.len(), radii.len());
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        use_biquintic_full_gregory: true,
+        use_biseptic_gregory: true,
+        use_two_stripe_gregory: true,
+        use_kp_binonic_gregory: use_kp_binonic,
+        use_kp_polar_gregory: use_kp_polar,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();
+    let faces = cap_outer_faces_from_result(&result);
+    (result.brep, faces)
+}
+
 /// Same as [`fillet_corner`], with an extra flag to enable the
 /// Phase I polar K-P rung. `use_kp_polar = true` turns on the N ≥ 5
 /// bi-6 → bi-9 promotion behind the `use_kp_polar_gregory` option.
@@ -110,6 +147,23 @@ fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
             .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied()),
     ) {
         if !faces.contains(&face) {
+            faces.push(face);
+        }
+    }
+    faces
+}
+
+fn cap_outer_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
+    let mut faces = cap_faces_from_result(result);
+    for (face, face_data) in result.brep.faces.iter() {
+        let Some(surface) = face_data.surface.as_ref() else {
+            continue;
+        };
+        if matches!(
+            surface.geometry,
+            SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
+        ) && !faces.contains(&face)
+        {
             faces.push(face);
         }
     }

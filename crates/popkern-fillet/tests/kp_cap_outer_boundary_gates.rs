@@ -34,8 +34,8 @@ use popkern_core::topology::BRep;
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 use helpers::{
-    G0_GATE, G1_GATE, N_SAMPLES, fillet_corner, incident_edges, measure_cap_outer_boundary,
-    pick_vertex_with_valence,
+    G0_GATE, G1_GATE, N_SAMPLES, fillet_corner, fillet_corner_cap_outer_faces, incident_edges,
+    measure_cap_outer_boundary, pick_vertex_with_valence,
 };
 
 fn assert_cap_outer_gates(fixture: &str, m: &helpers::CapOuterMetrics) {
@@ -124,18 +124,33 @@ fn cap_outer_boundary_passes_on_pyramid4_mixed() {
     assert_cap_outer_gates("pyramid4_mixed", &m);
 }
 
-/// N=5 — PnS path, not Gregory caps. Helper only counts cap edges
-/// where one side is a Gregory face; PnS produces Sphere-surface
-/// caps, so this fixture should report 0 edges measured. Kept here
-/// so the matrix is documented; will be skipped or replaced when
-/// the PnS sibling helper lands.
-#[ignore = "PK-079: replace Gregory-only helper with PnS/sphere-cap cap-outer coverage"]
+fn run_n_pyramid_cap_outer_faces(n: usize, h: f64, radii: &[f64]) -> helpers::CapOuterMetrics {
+    let pyr = BRep::n_gonal_pyramid(n, 1.0, h, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, n).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let (brep, faces) = fillet_corner_cap_outer_faces(&pyr, &edges, radii, true, true);
+    measure_cap_outer_boundary(&brep, &faces, N_SAMPLES)
+}
+
+/// N=5 — PnS/sphere-cap path. This uses cap-surface-aware collection
+/// because the construction does not necessarily report a measurable
+/// Gregory corner ring. The row is active coverage for the remaining
+/// measured construction blocker: cap-outer edges are now visible, but
+/// the selected sphere-cap geometry is not yet commercial-grade.
 #[test]
-fn cap_outer_boundary_pyramid5_mixed_path_check() {
-    let m = run_n_pyramid(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
+fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
+    let m = run_n_pyramid_cap_outer_faces(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     println!(
         "cap_outer pyramid5_mixed: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+    );
+    assert!(
+        m.edges_measured >= 1,
+        "pyramid5_mixed sphere-cap coverage should expose cap/support edges"
+    );
+    assert!(
+        m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
+        "pyramid5_mixed blocker should remain measured until the PnS/sphere-cap construction is repaired"
     );
 }
 
