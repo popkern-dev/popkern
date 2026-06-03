@@ -15,7 +15,7 @@ use super::kp20_polar_multipatch_strip::Kp20MultiPatchStripBuildReport;
 use super::kp20_polar_multipatch_strip_optimize::Kp20StripInteriorOptimizerMode;
 use super::kp20_polar_multipatch_validate::Kp20MultiPatchValidationReport;
 
-const STRIP_INTERIOR_DAMPING_SCALES: [f64; 4] = [1.0, 0.75, 0.5, 0.25];
+const STRIP_INTERIOR_DAMPING_SCALES: [f64; 6] = [2.0, 1.5, 1.0, 0.75, 0.5, 0.25];
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20MultiPatchEvaluationReport {
@@ -40,6 +40,8 @@ pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) exact_piece_fold_counts: Option<[usize; 4]>,
     pub(super) fast_min_jacobian_normal_cos: Option<f64>,
     pub(super) exact_min_jacobian_normal_cos: Option<f64>,
+    pub(super) fast_validation: Option<Kp20CandidateValidationResiduals>,
+    pub(super) exact_validation: Option<Kp20CandidateValidationResiduals>,
     pub(super) validation_clean: bool,
     pub(super) accepted: bool,
     pub(super) decline_reason: Option<&'static str>,
@@ -150,6 +152,8 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_piece_fold_counts: None,
             fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
             exact_min_jacobian_normal_cos: None,
+            fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
+            exact_validation: None,
             validation_clean: fast_clean,
             accepted: false,
             decline_reason: Some(if fast_clean {
@@ -192,6 +196,8 @@ pub(super) fn evaluate_multipatch_candidate(
         exact_piece_fold_counts: Some(exact.0.piece_fold_counts),
         fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
         exact_min_jacobian_normal_cos: Some(exact.0.min_jacobian_normal_cos),
+        fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
+        exact_validation: Some(Kp20CandidateValidationResiduals::from(exact.1)),
         validation_clean: exact_clean,
         accepted,
         decline_reason: if accepted {
@@ -237,9 +243,32 @@ fn declined_report(
         exact_piece_fold_counts: None,
         fast_min_jacobian_normal_cos: None,
         exact_min_jacobian_normal_cos: None,
+        fast_validation: None,
+        exact_validation: None,
         validation_clean: false,
         accepted: false,
         decline_reason,
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Kp20CandidateValidationResiduals {
+    pub(super) tensor_border: f64,
+    pub(super) internal_c2_position: f64,
+    pub(super) internal_c2_first: f64,
+    pub(super) origin_g2_strip: f64,
+}
+
+impl From<popkern_core::geometry::gregory::Kp20Bi6ValidationReport>
+    for Kp20CandidateValidationResiduals
+{
+    fn from(report: popkern_core::geometry::gregory::Kp20Bi6ValidationReport) -> Self {
+        Self {
+            tensor_border: report.max_tensor_border_residual,
+            internal_c2_position: report.max_internal_c2_position_residual,
+            internal_c2_first: report.max_internal_c2_first_residual,
+            origin_g2_strip: report.max_origin_g2_strip_residual,
+        }
     }
 }
 

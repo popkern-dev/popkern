@@ -28,7 +28,7 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},fast_validation={},exact_validation={},validation_clean={},accepted={},decline={}",
         evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
         evaluation.changed_strip_piece_count,
@@ -50,9 +50,28 @@ pub(super) fn multipatch_evaluation_label(
         optional_piece_counts_label(evaluation.exact_piece_fold_counts),
         optional_f64_label(evaluation.fast_min_jacobian_normal_cos),
         optional_f64_label(evaluation.exact_min_jacobian_normal_cos),
+        optional_validation_label(evaluation.fast_validation),
+        optional_validation_label(evaluation.exact_validation),
         evaluation.validation_clean,
         evaluation.accepted,
         evaluation.decline_reason.unwrap_or("none"),
+    )
+}
+
+fn optional_validation_label(
+    residuals: Option<super::kp20_polar_multipatch_evaluate::Kp20CandidateValidationResiduals>,
+) -> String {
+    residuals.map_or_else(
+        || "none".to_string(),
+        |residuals| {
+            format!(
+                "tensor:{:.3e}|c2_pos:{:.3e}|c2_first:{:.3e}|origin_g2:{:.3e}",
+                residuals.tensor_border,
+                residuals.internal_c2_position,
+                residuals.internal_c2_first,
+                residuals.origin_g2_strip,
+            )
+        },
     )
 }
 

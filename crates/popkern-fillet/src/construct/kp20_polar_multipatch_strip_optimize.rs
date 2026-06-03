@@ -39,13 +39,16 @@ pub(super) fn optimized_strip_surface(
     mode: Kp20StripInteriorOptimizerMode,
     interior_scale: f64,
 ) -> Kp20Bi6Patch {
-    let mut surface = strip.surface;
+    let mut surface = accepted_patches
+        .get(strip.sector_index)
+        .map(|patch| *patch.piece(strip.strip_piece))
+        .unwrap_or(strip.surface);
     if let Some(accepted) = accepted_patches
         .get(strip.sector_index)
         .map(|patch| *patch.piece(strip.strip_piece))
     {
         let span = average_strip_span(&accepted);
-        for row in 2..=4 {
+        for row in 3..=4 {
             for column in 0..7 {
                 let base = accepted.cps[row][column];
                 let target = strip.surface.cps[row][column];
@@ -140,15 +143,18 @@ mod tests {
     use crate::construct::kp20_polar_fold_summary::{Kp20FoldSite, Kp20SamplerFoldSummary};
 
     #[test]
-    fn strip_damping_preserves_constrained_rows() {
+    fn strip_damping_preserves_tensor_boundary_and_interface_rows() {
         let mut accepted = Kp20MacroPatch::zero();
         let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
+        piece.cps[0][2] = Point3::new(0.0, 0.0, 0.0);
         piece.cps[1][2] = Point3::new(1.0, 0.0, 0.0);
         piece.cps[2][2] = Point3::new(2.0, 0.0, 0.0);
+        piece.cps[3][2] = Point3::new(3.0, 0.0, 0.0);
         piece.cps[5][2] = Point3::new(5.0, 0.0, 0.0);
         piece.cps[6][2] = Point3::new(6.0, 0.0, 0.0);
         let mut strip_surface = *accepted.piece(Kp20PieceId::NearMidpointLeft);
         strip_surface.cps[2][2] = Point3::new(10.0, 0.0, 0.0);
+        strip_surface.cps[3][2] = Point3::new(11.0, 0.0, 0.0);
         let strip = Kp20MultiPatchStripSurface {
             patch_name: "strip".to_string(),
             sector_index: 0,
@@ -164,8 +170,10 @@ mod tests {
             0.25,
         );
 
+        assert_eq!(scaled.cps[0][2], Point3::new(0.0, 0.0, 0.0));
         assert_eq!(scaled.cps[1][2], Point3::new(1.0, 0.0, 0.0));
-        assert_eq!(scaled.cps[2][2], Point3::new(4.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[2][2], Point3::new(2.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[3][2], Point3::new(5.0, 0.0, 0.0));
         assert_eq!(scaled.cps[5][2], Point3::new(5.0, 0.0, 0.0));
         assert_eq!(scaled.cps[6][2], Point3::new(6.0, 0.0, 0.0));
     }
@@ -195,6 +203,7 @@ mod tests {
             1.0,
         );
 
+        assert_eq!(shifted.cps[2][3], Point3::new(2.0, 3.0, 0.0));
         assert_eq!(shifted.cps[1][3], Point3::new(1.0, 3.0, 0.0));
         assert!(shifted.cps[3][3].z > 0.0);
         assert_eq!(shifted.cps[5][3], Point3::new(5.0, 3.0, 0.0));
