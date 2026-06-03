@@ -44,8 +44,6 @@ pub(super) fn optimized_strip_surface(
         .get(strip.sector_index)
         .map(|patch| *patch.piece(strip.strip_piece))
     {
-        let normal_direction =
-            strip_fold_normal_direction(&accepted, accepted_summary, strip, mode);
         let span = average_strip_span(&accepted);
         for row in 2..=4 {
             for column in 0..7 {
@@ -58,9 +56,15 @@ pub(super) fn optimized_strip_surface(
                     Kp20StripInteriorOptimizerMode::FoldNormalPositive
                     | Kp20StripInteriorOptimizerMode::FoldNormalNegative => {
                         let fair = base + (target - base) * interior_scale;
-                        let weight =
-                            strip_fold_interior_weight(accepted_summary, strip, row, column);
-                        fair + normal_direction * (span * interior_scale * weight)
+                        let displacement = strip_fold_displacement(
+                            &accepted,
+                            accepted_summary,
+                            strip,
+                            mode,
+                            row,
+                            column,
+                        );
+                        fair + displacement * (span * interior_scale)
                     }
                 };
             }
@@ -69,48 +73,55 @@ pub(super) fn optimized_strip_surface(
     surface
 }
 
-fn strip_fold_normal_direction(
+fn strip_fold_displacement(
     accepted: &Kp20Bi6Patch,
     accepted_summary: &Kp20SamplerFoldSummary,
     strip: &Kp20MultiPatchStripSurface,
     mode: Kp20StripInteriorOptimizerMode,
+    row: usize,
+    column: usize,
 ) -> Vec3 {
-    let mut direction = Vec3::new(0.0, 0.0, 0.0);
+    let u = row as f64 / 6.0;
+    let v = column as f64 / 6.0;
+    let mut displacement = Vec3::zero();
     for site in accepted_summary.fold_sites.iter().filter(|site| {
         site.sector == strip.sector_index && support_owner_piece(site.piece) == strip.strip_piece
     }) {
         let normal =
             evaluate_bi6_normal(accepted, site.u, site.v).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-        let weight = (1.0 - site.min_jacobian_normal_cos).max(0.0);
-        direction = direction + normal * weight;
+        let weight = fold_site_weight(site.u, site.v, u, v, site.min_jacobian_normal_cos);
+        displacement = displacement + normal * weight;
     }
-    let direction = direction.normalized().unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+    let displacement = capped_displacement(displacement, 0.08);
     match mode {
-        Kp20StripInteriorOptimizerMode::FoldNormalNegative => -direction,
-        _ => direction,
+        Kp20StripInteriorOptimizerMode::FoldNormalNegative => -displacement,
+        _ => displacement,
     }
 }
 
-fn strip_fold_interior_weight(
-    accepted_summary: &Kp20SamplerFoldSummary,
-    strip: &Kp20MultiPatchStripSurface,
-    row: usize,
-    column: usize,
+fn fold_site_weight(
+    site_u: f64,
+    site_v: f64,
+    control_u: f64,
+    control_v: f64,
+    normal_cos: f64,
 ) -> f64 {
-    let u = row as f64 / 6.0;
-    let v = column as f64 / 6.0;
-    let mut weight = 0.0_f64;
-    for site in accepted_summary.fold_sites.iter().filter(|site| {
-        site.sector == strip.sector_index && support_owner_piece(site.piece) == strip.strip_piece
-    }) {
-        let du = u - site.u;
-        let dv = v - site.v;
-        let r2 = du * du + dv * dv;
-        let locality = (1.0 - r2 / (0.35_f64 * 0.35_f64)).max(0.0);
-        let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
-        weight = weight.max(locality * locality * severity);
+    let du = control_u - site_u;
+    let dv = control_v - site_v;
+    let r2 = du * du + dv * dv;
+    let locality = (1.0 - r2 / (0.35_f64 * 0.35_f64)).max(0.0);
+    let severity = (1.0 - normal_cos).clamp(0.0, 1.0);
+    locality * locality * severity
+}
+
+fn capped_displacement(displacement: Vec3, max_length: f64) -> Vec3 {
+    let length = displacement.length();
+    if length > max_length {
+        if let Some(direction) = displacement.normalized() {
+            return direction * max_length;
+        }
     }
-    0.08 * weight
+    displacement
 }
 
 fn average_strip_span(surface: &Kp20Bi6Patch) -> f64 {
@@ -188,6 +199,29 @@ mod tests {
         assert!(shifted.cps[3][3].z > 0.0);
         assert_eq!(shifted.cps[5][3], Point3::new(5.0, 3.0, 0.0));
         assert_eq!(shifted.cps[6][3], Point3::new(6.0, 3.0, 0.0));
+    }
+
+    #[test]
+    fn fold_site_weight_is_local_and_severity_bounded() {
+        let center_weight = fold_site_weight(0.5, 0.5, 0.5, 0.5, -1.0);
+        let adjacent_weight = fold_site_weight(0.5, 0.5, 0.5, 0.65, -1.0);
+        let distant_weight = fold_site_weight(0.5, 0.5, 0.5, 1.0, -1.0);
+        let mild_weight = fold_site_weight(0.5, 0.5, 0.5, 0.5, 0.75);
+
+        assert_eq!(center_weight, 1.0);
+        assert!(adjacent_weight > 0.0);
+        assert!(adjacent_weight < center_weight);
+        assert_eq!(distant_weight, 0.0);
+        assert_eq!(mild_weight, 0.25);
+    }
+
+    #[test]
+    fn fold_site_displacement_is_capped() {
+        let capped = capped_displacement(Vec3::new(1.0, 0.0, 0.0), 0.08);
+        let uncapped = capped_displacement(Vec3::new(0.01, 0.02, 0.0), 0.08);
+
+        assert!((capped.length() - 0.08).abs() < 1.0e-12);
+        assert_eq!(uncapped, Vec3::new(0.01, 0.02, 0.0));
     }
 
     fn empty_fold_summary() -> Kp20SamplerFoldSummary {
