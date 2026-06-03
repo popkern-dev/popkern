@@ -21,6 +21,7 @@ pub(super) struct Kp20MultiPatchStripBuildReport {
     pub(super) fold_site_row_strategy_columns: usize,
     pub(super) tangent_balance_row_strategy_columns: usize,
     pub(super) combined_row_strategy_columns: usize,
+    pub(super) row_strategy_assessment: &'static str,
     pub(super) max_row_spacing_ratio: f64,
     pub(super) max_row_curvature_ratio: f64,
     pub(super) strip_control_point_count: usize,
@@ -121,6 +122,11 @@ pub(super) fn build_multipatch_strip_surfaces(
         fold_site_row_strategy_columns: row_strategy_counts.fold_site,
         tangent_balance_row_strategy_columns: row_strategy_counts.tangent_balance,
         combined_row_strategy_columns: row_strategy_counts.combined,
+        row_strategy_assessment: row_strategy_assessment(
+            row_strategy_counts,
+            max_tangent_step_imbalance,
+            min_tangent_alignment,
+        ),
         max_row_spacing_ratio,
         max_row_curvature_ratio,
         strip_control_point_count: strip_surfaces.len() * BI6_CONTROL_POINTS,
@@ -207,6 +213,14 @@ impl Kp20StripRowStrategyCounts {
         self.fold_site += other.fold_site;
         self.tangent_balance += other.tangent_balance;
         self.combined += other.combined;
+    }
+
+    fn total(self) -> usize {
+        self.uniform + self.fold_site + self.tangent_balance + self.combined
+    }
+
+    fn tangent_aware(self) -> usize {
+        self.tangent_balance + self.combined
     }
 }
 
@@ -368,6 +382,31 @@ impl Kp20StripRowPlacementStrategy {
             (false, true) => Self::TangentBalanced,
             (true, true) => Self::FoldSiteTangentBalanced,
         }
+    }
+}
+
+fn row_strategy_assessment(
+    counts: Kp20StripRowStrategyCounts,
+    max_tangent_step_imbalance: f64,
+    min_tangent_alignment: f64,
+) -> &'static str {
+    let total = counts.total();
+    if total == 0 {
+        return "no_strip_columns";
+    }
+    if max_tangent_step_imbalance > 0.5
+        && min_tangent_alignment < 0.2
+        && counts.tangent_aware() * 2 >= total
+    {
+        "support_tangent_alignment_limited"
+    } else if max_tangent_step_imbalance > 0.5 && counts.tangent_aware() * 2 < total {
+        "tangent_strategy_underactive"
+    } else if counts.combined > 0 {
+        "combined_strategy_active"
+    } else if counts.fold_site > 0 {
+        "fold_site_strategy_active"
+    } else {
+        "uniform_strategy_active"
     }
 }
 

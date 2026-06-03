@@ -139,6 +139,36 @@ fn strip_parameter_map_combines_fold_site_and_tangent_strategy() {
     assert!(map.min_step() >= MIN_PARAMETER_STEP - 1.0e-12);
 }
 
+#[test]
+fn row_strategy_assessment_classifies_tangent_limited_coverage() {
+    let counts = Kp20StripRowStrategyCounts {
+        uniform: 7,
+        fold_site: 12,
+        tangent_balance: 19,
+        combined: 32,
+    };
+
+    assert_eq!(
+        row_strategy_assessment(counts, 0.9042, 0.03232),
+        "support_tangent_alignment_limited"
+    );
+}
+
+#[test]
+fn row_strategy_assessment_classifies_underactive_tangent_strategy() {
+    let counts = Kp20StripRowStrategyCounts {
+        uniform: 35,
+        fold_site: 20,
+        tangent_balance: 5,
+        combined: 10,
+    };
+
+    assert_eq!(
+        row_strategy_assessment(counts, 0.9042, 0.03232),
+        "tangent_strategy_underactive"
+    );
+}
+
 fn single_fold_summary() -> Kp20SamplerFoldSummary {
     Kp20SamplerFoldSummary {
         fold_count: 1,
