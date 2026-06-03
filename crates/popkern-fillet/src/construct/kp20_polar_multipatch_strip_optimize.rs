@@ -12,6 +12,8 @@ pub(super) enum Kp20StripInteriorOptimizerMode {
     FairBlend,
     FoldNormalPositive,
     FoldNormalNegative,
+    WorstFoldNormalPositive,
+    WorstFoldNormalNegative,
 }
 
 impl Kp20StripInteriorOptimizerMode {
@@ -23,11 +25,23 @@ impl Kp20StripInteriorOptimizerMode {
         ]
     }
 
+    pub(super) fn exact_guided_all() -> [Self; 5] {
+        [
+            Self::FairBlend,
+            Self::FoldNormalPositive,
+            Self::FoldNormalNegative,
+            Self::WorstFoldNormalPositive,
+            Self::WorstFoldNormalNegative,
+        ]
+    }
+
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::FairBlend => "fair_blend",
             Self::FoldNormalPositive => "fold_normal_positive",
             Self::FoldNormalNegative => "fold_normal_negative",
+            Self::WorstFoldNormalPositive => "worst_fold_normal_positive",
+            Self::WorstFoldNormalNegative => "worst_fold_normal_negative",
         }
     }
 }
@@ -57,7 +71,9 @@ pub(super) fn optimized_strip_surface(
                         base + (target - base) * interior_scale
                     }
                     Kp20StripInteriorOptimizerMode::FoldNormalPositive
-                    | Kp20StripInteriorOptimizerMode::FoldNormalNegative => {
+                    | Kp20StripInteriorOptimizerMode::FoldNormalNegative
+                    | Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
+                    | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => {
                         let fair = base + (target - base) * interior_scale;
                         let displacement = strip_fold_displacement(
                             &accepted,
@@ -87,8 +103,17 @@ fn strip_fold_displacement(
     let u = row as f64 / 6.0;
     let v = column as f64 / 6.0;
     let mut displacement = Vec3::zero();
+    let worst_site = accepted_summary.worst_fold_site();
     for site in accepted_summary.fold_sites.iter().filter(|site| {
-        site.sector == strip.sector_index && support_owner_piece(site.piece) == strip.strip_piece
+        let strip_owned = site.sector == strip.sector_index
+            && support_owner_piece(site.piece) == strip.strip_piece;
+        let mode_owned = match mode {
+            Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
+            | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => worst_site
+                .is_some_and(|worst| worst.sector == site.sector && worst.piece == site.piece),
+            _ => true,
+        };
+        strip_owned && mode_owned
     }) {
         let normal =
             evaluate_bi6_normal(accepted, site.u, site.v).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
@@ -97,7 +122,8 @@ fn strip_fold_displacement(
     }
     let displacement = capped_displacement(displacement, 0.08);
     match mode {
-        Kp20StripInteriorOptimizerMode::FoldNormalNegative => -displacement,
+        Kp20StripInteriorOptimizerMode::FoldNormalNegative
+        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => -displacement,
         _ => displacement,
     }
 }
