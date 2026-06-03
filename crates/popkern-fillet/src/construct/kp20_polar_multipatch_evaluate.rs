@@ -3,7 +3,7 @@
 use popkern_core::geometry::gregory::{Kp20MacroPatch, Kp20PieceId};
 
 use super::kp20_polar_fold_summary::{
-    Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
+    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_changed_patches, validation_is_clean,
 };
 use super::kp20_polar_multipatch_apply::{
@@ -41,6 +41,8 @@ pub(super) struct Kp20MultiPatchEvaluationReport {
     pub(super) exact_piece_fold_counts: Option<[usize; 4]>,
     pub(super) fast_min_jacobian_normal_cos: Option<f64>,
     pub(super) exact_min_jacobian_normal_cos: Option<f64>,
+    pub(super) fast_worst_fold_site: Option<Kp20FoldSite>,
+    pub(super) exact_worst_fold_site: Option<Kp20FoldSite>,
     pub(super) fast_validation: Option<Kp20CandidateValidationResiduals>,
     pub(super) exact_validation: Option<Kp20CandidateValidationResiduals>,
     pub(super) validation_clean: bool,
@@ -153,6 +155,8 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_piece_fold_counts: None,
             fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
             exact_min_jacobian_normal_cos: None,
+            fast_worst_fold_site: fast.0.worst_fold_site(),
+            exact_worst_fold_site: None,
             fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
             exact_validation: None,
             validation_clean: fast_clean,
@@ -212,6 +216,8 @@ pub(super) fn evaluate_multipatch_candidate(
             exact_piece_fold_counts: Some(refined.exact.0.piece_fold_counts),
             fast_min_jacobian_normal_cos: Some(refined.trial.fast.0.min_jacobian_normal_cos),
             exact_min_jacobian_normal_cos: Some(refined.exact.0.min_jacobian_normal_cos),
+            fast_worst_fold_site: refined.trial.fast.0.worst_fold_site(),
+            exact_worst_fold_site: refined.exact.0.worst_fold_site(),
             fast_validation: Some(Kp20CandidateValidationResiduals::from(refined.trial.fast.1)),
             exact_validation: Some(Kp20CandidateValidationResiduals::from(refined.exact.1)),
             validation_clean: true,
@@ -241,6 +247,8 @@ pub(super) fn evaluate_multipatch_candidate(
         exact_piece_fold_counts: Some(exact.0.piece_fold_counts),
         fast_min_jacobian_normal_cos: Some(fast.0.min_jacobian_normal_cos),
         exact_min_jacobian_normal_cos: Some(exact.0.min_jacobian_normal_cos),
+        fast_worst_fold_site: fast.0.worst_fold_site(),
+        exact_worst_fold_site: exact.0.worst_fold_site(),
         fast_validation: Some(Kp20CandidateValidationResiduals::from(fast.1)),
         exact_validation: Some(Kp20CandidateValidationResiduals::from(exact.1)),
         validation_clean: exact_clean,
@@ -360,6 +368,8 @@ fn declined_report(
         exact_piece_fold_counts: None,
         fast_min_jacobian_normal_cos: None,
         exact_min_jacobian_normal_cos: None,
+        fast_worst_fold_site: None,
+        exact_worst_fold_site: None,
         fast_validation: None,
         exact_validation: None,
         validation_clean: false,

@@ -398,6 +398,8 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("fast_support_folds=")
                                 && detail.contains("fast_inner_folds=")
                                 && detail.contains("fast_piece_folds=")
+                                && detail.contains("fast_worst_site=")
+                                && detail.contains("exact_worst_site=")
                                 && detail.contains("support_surface_decline_reason=")
                                 && detail.contains("sector_local_tau_status=")
                                 && (detail.contains("sector_local_tau_folds=")

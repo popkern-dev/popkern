@@ -18,6 +18,16 @@ pub(super) struct Kp20SamplerFoldSummary {
     pub(super) fold_sites: Vec<Kp20FoldSite>,
 }
 
+impl Kp20SamplerFoldSummary {
+    pub(super) fn worst_fold_site(&self) -> Option<Kp20FoldSite> {
+        self.fold_sites.iter().copied().min_by(|a, b| {
+            a.min_jacobian_normal_cos
+                .partial_cmp(&b.min_jacobian_normal_cos)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Kp20FoldSite {
     pub(super) sector: usize,
