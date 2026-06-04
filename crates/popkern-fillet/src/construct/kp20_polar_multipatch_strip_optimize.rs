@@ -99,6 +99,7 @@ pub(super) fn optimized_strip_surface(
                 span,
                 interior_scale,
             );
+            surface.cps[6][column] = strip.surface.cps[6][column];
         }
     }
     surface
@@ -207,7 +208,7 @@ mod tests {
     use crate::construct::kp20_polar_fold_summary::{Kp20FoldSite, Kp20SamplerFoldSummary};
 
     #[test]
-    fn strip_damping_preserves_tensor_boundary_and_interface_g0_row() {
+    fn strip_damping_preserves_tensor_boundary_and_applies_interface_g0_row() {
         let mut accepted = Kp20MacroPatch::zero();
         let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
         piece.cps[0][2] = Point3::new(0.0, 0.0, 0.0);
@@ -220,6 +221,7 @@ mod tests {
         strip_surface.cps[2][2] = Point3::new(10.0, 0.0, 0.0);
         strip_surface.cps[3][2] = Point3::new(11.0, 0.0, 0.0);
         strip_surface.cps[5][2] = Point3::new(9.0, 0.0, 0.0);
+        strip_surface.cps[6][2] = Point3::new(12.0, 0.0, 0.0);
         let strip = Kp20MultiPatchStripSurface {
             patch_name: "strip".to_string(),
             sector_index: 0,
@@ -240,11 +242,11 @@ mod tests {
         assert_eq!(scaled.cps[2][2], Point3::new(2.0, 0.0, 0.0));
         assert_eq!(scaled.cps[3][2], Point3::new(5.0, 0.0, 0.0));
         assert_eq!(scaled.cps[5][2], Point3::new(6.0, 0.0, 0.0));
-        assert_eq!(scaled.cps[6][2], Point3::new(6.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[6][2], Point3::new(12.0, 0.0, 0.0));
     }
 
     #[test]
-    fn fold_normal_mode_moves_unconstrained_rows_and_preserves_interface_g0() {
+    fn fold_normal_mode_moves_unconstrained_rows_and_keeps_interface_g0_constructed() {
         let mut accepted = Kp20MacroPatch::zero();
         let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
         for row in 0..7 {
