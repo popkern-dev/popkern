@@ -89,8 +89,16 @@ pub(super) fn optimized_strip_surface(
             }
         }
         for column in 0..7 {
-            surface.cps[5][column] =
-                shoulder_row_target(&accepted, &strip.surface, column, interior_scale);
+            surface.cps[5][column] = shoulder_row_target(
+                &accepted,
+                &strip.surface,
+                accepted_summary,
+                strip,
+                mode,
+                column,
+                span,
+                interior_scale,
+            );
         }
     }
     surface
@@ -99,12 +107,27 @@ pub(super) fn optimized_strip_surface(
 fn shoulder_row_target(
     accepted: &Kp20Bi6Patch,
     constructed: &Kp20Bi6Patch,
+    accepted_summary: &Kp20SamplerFoldSummary,
+    strip: &Kp20MultiPatchStripSurface,
+    mode: Kp20StripInteriorOptimizerMode,
     column: usize,
+    span: f64,
     interior_scale: f64,
 ) -> popkern_core::geometry::Point3 {
     let base = accepted.cps[5][column];
     let target = constructed.cps[5][column];
-    base + (target - base) * interior_scale.clamp(0.0, 1.0)
+    let fair = base + (target - base) * interior_scale.clamp(0.0, 1.0);
+    match mode {
+        Kp20StripInteriorOptimizerMode::FairBlend => fair,
+        Kp20StripInteriorOptimizerMode::FoldNormalPositive
+        | Kp20StripInteriorOptimizerMode::FoldNormalNegative
+        | Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
+        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => {
+            let displacement =
+                strip_fold_displacement(accepted, accepted_summary, strip, mode, 5, column);
+            fair + displacement * (0.5 * span * interior_scale)
+        }
+    }
 }
 
 fn strip_fold_displacement(
@@ -248,7 +271,7 @@ mod tests {
         assert_eq!(shifted.cps[2][3], Point3::new(2.0, 3.0, 0.0));
         assert_eq!(shifted.cps[1][3], Point3::new(1.0, 3.0, 0.0));
         assert!(shifted.cps[3][3].z > 0.0);
-        assert_eq!(shifted.cps[5][3], Point3::new(5.0, 3.0, 0.0));
+        assert!(shifted.cps[5][3].z > 0.0);
         assert_eq!(shifted.cps[6][3], Point3::new(6.0, 3.0, 0.0));
     }
 
@@ -260,11 +283,29 @@ mod tests {
         constructed.cps[5][4] = Point3::new(5.0, 0.0, 0.0);
 
         assert_eq!(
-            shoulder_row_target(&accepted, &constructed, 4, 0.25),
+            shoulder_row_target(
+                &accepted,
+                &constructed,
+                &empty_fold_summary(),
+                &test_strip(constructed),
+                Kp20StripInteriorOptimizerMode::FairBlend,
+                4,
+                1.0,
+                0.25
+            ),
             Point3::new(2.0, 0.0, 0.0)
         );
         assert_eq!(
-            shoulder_row_target(&accepted, &constructed, 4, 3.0),
+            shoulder_row_target(
+                &accepted,
+                &constructed,
+                &empty_fold_summary(),
+                &test_strip(constructed),
+                Kp20StripInteriorOptimizerMode::FairBlend,
+                4,
+                1.0,
+                3.0
+            ),
             Point3::new(5.0, 0.0, 0.0)
         );
     }
@@ -316,6 +357,15 @@ mod tests {
                 min_jacobian_ratio: -0.5,
                 min_jacobian_normal_cos: -0.5,
             }],
+        }
+    }
+
+    fn test_strip(surface: Kp20Bi6Patch) -> Kp20MultiPatchStripSurface {
+        Kp20MultiPatchStripSurface {
+            patch_name: "strip".to_string(),
+            sector_index: 0,
+            strip_piece: Kp20PieceId::NearMidpointLeft,
+            surface,
         }
     }
 }
