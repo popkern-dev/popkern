@@ -2,10 +2,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput,
-    Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId, Kp20SectorPieceMaps,
-    TensorBorderBi3, assemble_kp20_bi6_macro_cap, build_kp20_guide_ring,
-    kp20_default_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20MacroPatch,
+    Kp20PieceId, Kp20SectorPieceMaps, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
+    build_kp20_guide_ring, kp20_default_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::kp20_polar_fold_summary::{
@@ -15,6 +14,9 @@ use super::kp20_polar_fold_summary::{
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
+#[path = "kp20_polar_support_image_params.rs"]
+mod params;
+use params::Kp20SupportImageParams;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -34,14 +36,6 @@ pub(super) struct Kp20SupportImageSearchCandidate {
 struct Kp20AssembledSupportImageCandidate {
     macro_patches: Vec<Kp20MacroPatch>,
     params: Kp20SupportImageParams,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Kp20SupportImageParams {
-    uniform: f64,
-    du_scale: f64,
-    dv_scale: f64,
-    shear: f64,
 }
 
 pub(super) fn support_image_composed_candidate(
@@ -341,135 +335,26 @@ fn support_image_piece_maps(
 ) -> (Kp20SectorPieceMaps, Vec<(usize, Kp20PieceId)>) {
     let mut changed_sites = Vec::new();
     for (piece, corner_maps) in &mut maps {
-        if fold_sites
-            .iter()
-            .any(|site| site.sector == sector && site.piece == *piece)
-        {
-            *corner_maps = reparameterized_corner_maps(*corner_maps, params);
+        if let Some(site) = worst_site_for_piece(fold_sites, sector, *piece) {
+            *corner_maps = params.reparameterized_maps(*corner_maps, site);
             changed_sites.push((sector, *piece));
         }
     }
     (maps, changed_sites)
 }
 
-fn reparameterized_corner_maps(
-    corner_maps: Kp20PieceCornerMaps,
-    params: Kp20SupportImageParams,
-) -> Kp20PieceCornerMaps {
-    let base = corner_maps[0].1;
-    let center = [
-        base.origin[0] + 0.5 * base.du[0] + 0.5 * base.dv[0],
-        base.origin[1] + 0.5 * base.du[1] + 0.5 * base.dv[1],
-    ];
-    let du = [
-        params.uniform * params.du_scale * base.du[0] + params.shear * base.dv[0],
-        params.uniform * params.du_scale * base.du[1] + params.shear * base.dv[1],
-    ];
-    let dv = [
-        params.shear * base.du[0] + params.uniform * params.dv_scale * base.dv[0],
-        params.shear * base.du[1] + params.uniform * params.dv_scale * base.dv[1],
-    ];
-    let origin = [
-        center[0] - 0.5 * du[0] - 0.5 * dv[0],
-        center[1] - 0.5 * du[1] - 0.5 * dv[1],
-    ];
-    square_maps(origin, du, dv)
-}
-
-impl Kp20SupportImageParams {
-    fn identity() -> Self {
-        Self::new(1.0, 1.0, 1.0, 0.0)
-    }
-
-    fn coordinate_search_family() -> [Self; 9] {
-        [
-            Self::new(0.92, 1.0, 1.0, 0.04),
-            Self::new(0.89, 1.0, 1.0, 0.04),
-            Self::new(0.95, 1.0, 1.0, 0.04),
-            Self::new(0.92, 0.96, 1.0, 0.04),
-            Self::new(0.92, 1.04, 1.0, 0.04),
-            Self::new(0.92, 1.0, 0.96, 0.04),
-            Self::new(0.92, 1.0, 1.04, 0.04),
-            Self::new(0.92, 1.0, 1.0, 0.02),
-            Self::new(0.92, 1.0, 1.0, 0.06),
-        ]
-    }
-
-    fn lift_informed_family(anchor: Self) -> [Self; 4] {
-        [
-            Self::new(
-                (anchor.uniform - 0.04).max(0.84),
-                anchor.du_scale,
-                anchor.dv_scale,
-                anchor.shear,
-            ),
-            Self::new(
-                (anchor.uniform + 0.04).min(1.02),
-                anchor.du_scale,
-                anchor.dv_scale,
-                anchor.shear,
-            ),
-            Self::new(
-                anchor.uniform,
-                (anchor.du_scale + 0.04).min(1.08),
-                (anchor.dv_scale - 0.04).max(0.92),
-                anchor.shear,
-            ),
-            Self::new(
-                anchor.uniform,
-                (anchor.du_scale - 0.04).max(0.92),
-                (anchor.dv_scale + 0.04).min(1.08),
-                anchor.shear,
-            ),
-        ]
-    }
-
-    const fn new(uniform: f64, du_scale: f64, dv_scale: f64, shear: f64) -> Self {
-        Self {
-            uniform,
-            du_scale,
-            dv_scale,
-            shear,
-        }
-    }
-
-    fn label(self) -> String {
-        format!(
-            "uniform:{:.3},du:{:.3},dv:{:.3},shear:{:.3}",
-            self.uniform, self.du_scale, self.dv_scale, self.shear
-        )
-    }
-}
-
-fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
-    [
-        (
-            Kp20PatchCorner::U0V0,
-            Kp20AffineGuideMap::new(origin, du, dv),
-        ),
-        (
-            Kp20PatchCorner::U1V0,
-            Kp20AffineGuideMap::new(add2(origin, du), scale2(du, -1.0), dv),
-        ),
-        (
-            Kp20PatchCorner::U0V1,
-            Kp20AffineGuideMap::new(add2(origin, dv), du, scale2(dv, -1.0)),
-        ),
-        (
-            Kp20PatchCorner::U1V1,
-            Kp20AffineGuideMap::new(
-                add2(add2(origin, du), dv),
-                scale2(du, -1.0),
-                scale2(dv, -1.0),
-            ),
-        ),
-    ]
-}
-
-const fn add2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
-    [a[0] + b[0], a[1] + b[1]]
-}
-
-const fn scale2(a: [f64; 2], s: f64) -> [f64; 2] {
-    [a[0] * s, a[1] * s]
+fn worst_site_for_piece(
+    fold_sites: &[Kp20FoldSite],
+    sector: usize,
+    piece: Kp20PieceId,
+) -> Option<Kp20FoldSite> {
+    fold_sites
+        .iter()
+        .copied()
+        .filter(|site| site.sector == sector && site.piece == piece)
+        .min_by(|a, b| {
+            a.min_jacobian_normal_cos
+                .partial_cmp(&b.min_jacobian_normal_cos)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
 }
