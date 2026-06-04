@@ -178,7 +178,7 @@ pub(super) fn evaluate_multipatch_candidate(
 
     let exact = candidate_summary_from_changed_patches(
         tensor_border,
-        best_trial.applied.candidate,
+        best_trial.applied.candidate.clone(),
         accepted_summary,
         &best_trial.applied.changed_patches,
         accepted_summary.fold_count,
@@ -186,11 +186,15 @@ pub(super) fn evaluate_multipatch_candidate(
     let exact_clean = validation_is_clean(exact.1);
     let exact_ownership = fold_ownership_counts(&exact.0);
     let accepted = exact_clean && exact.0.fold_count < accepted_summary.fold_count;
-    let exact_guided = if !accepted && exact_clean {
+    let exact_guided = if exact_clean {
         Some(select_exact_guided_trial(
             tensor_border,
-            accepted_patches,
-            accepted_summary,
+            if accepted {
+                &best_trial.applied.candidate
+            } else {
+                accepted_patches
+            },
+            if accepted { &exact.0 } else { accepted_summary },
             &exact.0,
             strips,
             interfaces,
