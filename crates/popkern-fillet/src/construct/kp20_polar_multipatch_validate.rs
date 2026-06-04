@@ -272,37 +272,26 @@ fn exact_boundary_owned_endpoint_count_for(boundary_index: usize, boundary_count
 fn inner_core_residual(
     patch: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerPatch,
 ) -> f64 {
-    let target = adjacent_frame_centroid(patch);
     let mut residual = 0.0_f64;
     for u in 2..=4 {
         for v in 2..=4 {
+            let target = coupled_inner_core_target(&patch.surface, u, v);
             residual = residual.max(patch.surface.cps[u][v].distance_to(&target));
         }
     }
     residual
 }
 
-fn adjacent_frame_centroid(
-    patch: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerPatch,
+fn coupled_inner_core_target(
+    surface: &popkern_core::geometry::gregory::Kp20Bi6Patch,
+    u: usize,
+    v: usize,
 ) -> Point3 {
-    let mut x = 0.0_f64;
-    let mut y = 0.0_f64;
-    let mut z = 0.0_f64;
-    let mut count = 0_usize;
-    for u in 0..7 {
-        for v in 0..7 {
-            if (2..=4).contains(&u) && (2..=4).contains(&v) {
-                continue;
-            }
-            let point = patch.surface.cps[u][v];
-            x += point.x;
-            y += point.y;
-            z += point.z;
-            count += 1;
-        }
-    }
-    let scale = 1.0 / count as f64;
-    Point3::new(x * scale, y * scale, z * scale)
+    let su = (u - 2) as f64 / 2.0;
+    let sv = (v - 2) as f64 / 2.0;
+    let horizontal = surface.cps[u][1] + (surface.cps[u][5] - surface.cps[u][1]) * sv;
+    let vertical = surface.cps[1][v] + (surface.cps[5][v] - surface.cps[1][v]) * su;
+    horizontal + (vertical - horizontal) * 0.5
 }
 
 fn endpoint_exact_boundary_owner(boundary_index: usize, idx: usize) -> Option<usize> {

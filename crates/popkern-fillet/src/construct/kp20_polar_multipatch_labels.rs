@@ -154,7 +154,7 @@ pub(super) fn multipatch_inner_label(
     inner: &super::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildReport,
 ) -> String {
     format!(
-        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},interior_constraints={},exact_endpoint_adjacent={},max_g0={:.3e},max_adjacent={:.3e},max_inner_core={:.3e},min_adjacent_step={:.3e},patches={},decline={},names={}",
+        "attempted={},built={},finite_cps={},invalid_cps={},boundary_constraints={},adjacent_constraints={},interior_constraints={},exact_endpoint_adjacent={},max_g0={:.3e},max_adjacent={:.3e},max_inner_core={:.3e},min_adjacent_step={:.3e},max_coupled_core_displacement={:.3e},patches={},decline={},names={}",
         inner.attempted_inner_patch_count,
         inner.built_inner_patch_count,
         inner.finite_control_point_count,
@@ -167,6 +167,7 @@ pub(super) fn multipatch_inner_label(
         inner.max_adjacent_row_residual,
         inner.max_interior_residual,
         inner.min_adjacent_row_step,
+        inner.max_coupled_core_displacement,
         inner_patch_anchor_label(inner),
         inner.decline_reason.unwrap_or("none"),
         if inner.inner_patch_names.is_empty() {

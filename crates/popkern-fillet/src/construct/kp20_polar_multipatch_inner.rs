@@ -22,6 +22,7 @@ pub(super) struct Kp20MultiPatchInnerBuildReport {
     pub(super) max_adjacent_row_residual: f64,
     pub(super) max_interior_residual: f64,
     pub(super) min_adjacent_row_step: f64,
+    pub(super) max_coupled_core_displacement: f64,
     pub(super) decline_reason: Option<&'static str>,
     pub(super) inner_patch_names: Vec<String>,
     pub(super) inner_patches: Vec<Kp20MultiPatchInnerPatch>,
@@ -50,6 +51,7 @@ pub(super) fn build_multipatch_inner_patches(
     let mut max_adjacent_row_residual = 0.0_f64;
     let mut max_interior_residual = 0.0_f64;
     let mut min_adjacent_row_step = f64::INFINITY;
+    let mut max_coupled_core_displacement = 0.0_f64;
 
     for sector in &inventory.sector_reports {
         let sector_interfaces = sector
@@ -79,8 +81,7 @@ pub(super) fn build_multipatch_inner_patches(
             exact_boundary_owned_endpoint_count +=
                 exact_boundary_owned_endpoint_count_for(boundary_index, sector_interfaces.len());
         }
-        let interior_target = adjacent_frame_centroid(&surface);
-        assign_inner_core_controls(&mut surface, interior_target);
+        let core_report = assign_inner_core_controls(&mut surface);
         interior_constraint_count += INNER_CORE_CONTROL_COUNT;
         for (boundary_index, interface) in sector_interfaces.iter().enumerate() {
             max_boundary_g0_residual = max_boundary_g0_residual.max(boundary_residual(
@@ -99,8 +100,9 @@ pub(super) fn build_multipatch_inner_patches(
                 max_adjacent_row_residual.max(adjacent.max_construction_residual);
             min_adjacent_row_step = min_adjacent_row_step.min(adjacent.min_step);
         }
-        max_interior_residual =
-            max_interior_residual.max(inner_core_residual(&surface, interior_target));
+        max_interior_residual = max_interior_residual.max(inner_core_residual(&surface));
+        max_coupled_core_displacement =
+            max_coupled_core_displacement.max(core_report.max_displacement_from_centroid);
         let (finite, invalid) = count_control_points(&surface);
         finite_control_point_count += finite;
         invalid_control_point_count += invalid;
@@ -147,6 +149,7 @@ pub(super) fn build_multipatch_inner_patches(
         max_adjacent_row_residual,
         max_interior_residual,
         min_adjacent_row_step,
+        max_coupled_core_displacement,
         decline_reason,
         inner_patch_names,
         inner_patches,
@@ -281,22 +284,44 @@ fn adjacent_frame_centroid(surface: &Kp20Bi6Patch) -> Point3 {
     Point3::new(x * scale, y * scale, z * scale)
 }
 
-fn assign_inner_core_controls(surface: &mut Kp20Bi6Patch, target: Point3) {
+#[derive(Debug, Clone, Copy)]
+struct Kp20InnerCoreConstructionReport {
+    max_displacement_from_centroid: f64,
+}
+
+fn assign_inner_core_controls(surface: &mut Kp20Bi6Patch) -> Kp20InnerCoreConstructionReport {
+    let centroid = adjacent_frame_centroid(surface);
+    let mut max_displacement_from_centroid = 0.0_f64;
     for u in 2..=4 {
         for v in 2..=4 {
+            let target = coupled_inner_core_target(surface, u, v);
             surface.cps[u][v] = target;
+            max_displacement_from_centroid =
+                max_displacement_from_centroid.max(target.distance_to(&centroid));
         }
+    }
+    Kp20InnerCoreConstructionReport {
+        max_displacement_from_centroid,
     }
 }
 
-fn inner_core_residual(surface: &Kp20Bi6Patch, target: Point3) -> f64 {
+fn inner_core_residual(surface: &Kp20Bi6Patch) -> f64 {
     let mut residual = 0.0_f64;
     for u in 2..=4 {
         for v in 2..=4 {
+            let target = coupled_inner_core_target(surface, u, v);
             residual = residual.max(surface.cps[u][v].distance_to(&target));
         }
     }
     residual
+}
+
+fn coupled_inner_core_target(surface: &Kp20Bi6Patch, u: usize, v: usize) -> Point3 {
+    let su = (u - 2) as f64 / 2.0;
+    let sv = (v - 2) as f64 / 2.0;
+    let horizontal = surface.cps[u][1] + (surface.cps[u][5] - surface.cps[u][1]) * sv;
+    let vertical = surface.cps[1][v] + (surface.cps[5][v] - surface.cps[1][v]) * su;
+    horizontal + (vertical - horizontal) * 0.5
 }
 
 fn is_inner_core_control(u: usize, v: usize) -> bool {
@@ -378,79 +403,5 @@ const ADJACENT_CONTROL_COUNT: usize = 7;
 const INNER_CORE_CONTROL_COUNT: usize = 9;
 
 #[cfg(test)]
-mod tests {
-    use popkern_core::geometry::Point3;
-    use popkern_core::geometry::gregory::{Kp20MacroPatch, Kp20PieceId};
-
-    use super::*;
-    use crate::construct::kp20_polar_fold_summary::{Kp20FoldSite, Kp20SamplerFoldSummary};
-    use crate::construct::kp20_polar_multipatch_interface::build_multipatch_interfaces;
-    use crate::construct::kp20_polar_multipatch_inventory::multipatch_inventory_from_fold_summary;
-    use crate::construct::kp20_polar_multipatch_strip::build_multipatch_strip_surfaces;
-
-    #[test]
-    fn inner_builder_copies_named_interface_boundary_controls() {
-        let summary = Kp20SamplerFoldSummary {
-            fold_count: 1,
-            min_jacobian_normal_cos: -0.1,
-            piece_fold_counts: [1, 0, 0, 0],
-            fold_details: Vec::new(),
-            fold_sites: vec![Kp20FoldSite {
-                sector: 0,
-                piece: Kp20PieceId::NearOriginLeft,
-                u: 0.5,
-                v: 0.5,
-                min_jacobian_ratio: -0.1,
-                min_jacobian_normal_cos: -0.1,
-            }],
-        };
-        let inventory = multipatch_inventory_from_fold_summary(&summary);
-        let mut macro_patch = Kp20MacroPatch::zero();
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
-        macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][3] =
-            Point3::new(0.25, 0.5, 0.75);
-        let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
-        let interfaces = build_multipatch_interfaces(&strips);
-
-        let report = build_multipatch_inner_patches(&inventory, &interfaces);
-
-        assert_eq!(report.attempted_inner_patch_count, 1);
-        assert_eq!(report.built_inner_patch_count, 1);
-        assert_eq!(report.finite_control_point_count, 49);
-        assert_eq!(report.invalid_control_point_count, 0);
-        assert_eq!(report.boundary_constraint_count, 7);
-        assert_eq!(report.adjacent_row_constraint_count, 7);
-        assert_eq!(report.interior_constraint_count, 9);
-        assert_eq!(report.exact_boundary_owned_endpoint_count, 0);
-        assert_eq!(report.max_boundary_g0_residual, 0.0);
-        assert_eq!(report.max_adjacent_row_residual, 0.0);
-        assert_eq!(report.max_interior_residual, 0.0);
-        assert!(report.min_adjacent_row_step.is_finite());
-        assert_eq!(report.decline_reason, None);
-        assert_eq!(report.inner_patches[0].sector_index, 0);
-        assert_eq!(
-            report.inner_patches[0].patch_name,
-            "kp20_polar_macro.sector_0.inner_pole_patch"
-        );
-        assert_eq!(
-            report.inner_patches[0].boundary_interface_names,
-            vec!["kp20_polar_macro.sector_0.left_support_interface"]
-        );
-        assert_eq!(
-            report.inner_patches[0].surface.cps[0][3],
-            Point3::new(1.0, 2.0, 3.0)
-        );
-        assert_ne!(
-            report.inner_patches[0].surface.cps[1][3],
-            report.inner_patches[0].surface.cps[0][3]
-        );
-        assert_eq!(
-            report.inner_patches[0].surface.cps[1][3],
-            Point3::new(1.75, 3.5, 5.25)
-        );
-        assert_ne!(
-            report.inner_patches[0].surface.cps[3][3],
-            Point3::new(0.0, 0.0, 0.0)
-        );
-    }
-}
+#[path = "kp20_polar_multipatch_inner_tests.rs"]
+mod tests;

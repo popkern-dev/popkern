@@ -379,7 +379,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("max_g0=0.000e0")
                                 && detail.contains("max_adjacent=0.000e0")
                                 && detail.contains("max_inner_core=0.000e0")
-                                && detail.contains("min_adjacent_step=")
+                                && detail.contains("max_coupled_core_displacement=")
                                 && detail.contains(".inner_pole_patch")
                                 && detail.contains("support_surface_multipatch_validation=")
                                 && detail.contains("exact_endpoint_adjacent=")
