@@ -22,6 +22,7 @@ use super::kp20_polar_support_surface_split::{
 pub(super) enum Kp20InnerConstructionMode {
     SupportPropagation,
     SideAlignedInnerPatch,
+    SideAlignedPropagatedInnerPatch,
     ExactWorstInnerCorePositive,
     ExactWorstInnerCoreNegative,
     ExactWorstInnerShoulderPositive,
@@ -31,14 +32,19 @@ pub(super) enum Kp20InnerConstructionMode {
 }
 
 impl Kp20InnerConstructionMode {
-    pub(super) const fn all() -> [Self; 2] {
-        [Self::SupportPropagation, Self::SideAlignedInnerPatch]
-    }
-
-    pub(super) const fn exact_guided_all() -> [Self; 8] {
+    pub(super) const fn all() -> [Self; 3] {
         [
             Self::SupportPropagation,
             Self::SideAlignedInnerPatch,
+            Self::SideAlignedPropagatedInnerPatch,
+        ]
+    }
+
+    pub(super) const fn exact_guided_all() -> [Self; 9] {
+        [
+            Self::SupportPropagation,
+            Self::SideAlignedInnerPatch,
+            Self::SideAlignedPropagatedInnerPatch,
             Self::ExactWorstInnerCorePositive,
             Self::ExactWorstInnerCoreNegative,
             Self::ExactWorstInnerShoulderPositive,
@@ -52,6 +58,7 @@ impl Kp20InnerConstructionMode {
         match self {
             Self::SupportPropagation => "support_propagation",
             Self::SideAlignedInnerPatch => "side_aligned_inner_patch",
+            Self::SideAlignedPropagatedInnerPatch => "side_aligned_propagated_inner_patch",
             Self::ExactWorstInnerCorePositive => "exact_worst_inner_core_positive",
             Self::ExactWorstInnerCoreNegative => "exact_worst_inner_core_negative",
             Self::ExactWorstInnerShoulderPositive => "exact_worst_inner_shoulder_positive",
@@ -108,6 +115,15 @@ pub(super) fn apply_multipatch_candidate(
             interfaces,
             inner,
         ),
+        Kp20InnerConstructionMode::SideAlignedPropagatedInnerPatch => {
+            apply_side_aligned_propagated_inner_patches(
+                &mut candidate,
+                &mut changed_patches,
+                interfaces,
+                inner,
+                strip_apply.support_changed,
+            )
+        }
         Kp20InnerConstructionMode::ExactWorstInnerCorePositive
         | Kp20InnerConstructionMode::ExactWorstInnerCoreNegative
         | Kp20InnerConstructionMode::ExactWorstInnerShoulderPositive
@@ -201,6 +217,19 @@ fn propagate_strip_owned_inner_pieces(
                 .count()
         })
         .sum()
+}
+
+fn apply_side_aligned_propagated_inner_patches(
+    macro_patches: &mut [Kp20MacroPatch],
+    changed_patches: &mut [[bool; 4]],
+    interfaces: &Kp20MultiPatchInterfaceBuildReport,
+    inner: &Kp20MultiPatchInnerBuildReport,
+    support_changed: Vec<[bool; 2]>,
+) -> usize {
+    let before = changed_patches.to_vec();
+    apply_side_aligned_inner_patches(macro_patches, changed_patches, interfaces, inner);
+    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    changed_inner_count(changed_patches, &before)
 }
 
 fn apply_exact_worst_propagated_shoulder(

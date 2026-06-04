@@ -76,6 +76,34 @@ fn side_aligned_inner_patch_targets_matching_origin_side() {
     );
 }
 
+#[test]
+fn side_aligned_propagated_inner_patch_preserves_constructed_interface_g0() {
+    let summary = single_left_fold_summary();
+    let inventory = multipatch_inventory_from_fold_summary(&summary);
+    let mut macro_patch = Kp20MacroPatch::zero();
+    macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[6][3] = Point3::new(1.0, 2.0, 3.0);
+    macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft).cps[5][3] = Point3::new(0.25, 0.5, 0.75);
+    let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
+    let interfaces = build_multipatch_interfaces(&strips);
+    let inner = build_multipatch_inner_patches(&inventory, &interfaces);
+
+    let applied = apply_multipatch_candidate(
+        &[Kp20MacroPatch::zero()],
+        &empty_fold_summary(),
+        &strips,
+        &interfaces,
+        &inner,
+        Kp20StripInteriorOptimizerMode::FairBlend,
+        Kp20InnerConstructionMode::SideAlignedPropagatedInnerPatch,
+        1.0,
+    );
+
+    let origin = applied.candidate[0].piece(Kp20PieceId::NearOriginLeft);
+    assert_eq!(applied.changed_inner_piece_count, 1);
+    assert_eq!(origin.cps[0][3], Point3::new(1.0, 2.0, 3.0));
+    assert_ne!(origin.cps[1][3], origin.cps[0][3]);
+}
+
 fn single_left_fold_summary() -> Kp20SamplerFoldSummary {
     Kp20SamplerFoldSummary {
         fold_count: 1,
