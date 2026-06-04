@@ -88,8 +88,23 @@ pub(super) fn optimized_strip_surface(
                 };
             }
         }
+        for column in 0..7 {
+            surface.cps[5][column] =
+                shoulder_row_target(&accepted, &strip.surface, column, interior_scale);
+        }
     }
     surface
+}
+
+fn shoulder_row_target(
+    accepted: &Kp20Bi6Patch,
+    constructed: &Kp20Bi6Patch,
+    column: usize,
+    interior_scale: f64,
+) -> popkern_core::geometry::Point3 {
+    let base = accepted.cps[5][column];
+    let target = constructed.cps[5][column];
+    base + (target - base) * interior_scale.clamp(0.0, 1.0)
 }
 
 fn strip_fold_displacement(
@@ -169,7 +184,7 @@ mod tests {
     use crate::construct::kp20_polar_fold_summary::{Kp20FoldSite, Kp20SamplerFoldSummary};
 
     #[test]
-    fn strip_damping_preserves_tensor_boundary_and_interface_rows() {
+    fn strip_damping_preserves_tensor_boundary_and_interface_g0_row() {
         let mut accepted = Kp20MacroPatch::zero();
         let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
         piece.cps[0][2] = Point3::new(0.0, 0.0, 0.0);
@@ -181,6 +196,7 @@ mod tests {
         let mut strip_surface = *accepted.piece(Kp20PieceId::NearMidpointLeft);
         strip_surface.cps[2][2] = Point3::new(10.0, 0.0, 0.0);
         strip_surface.cps[3][2] = Point3::new(11.0, 0.0, 0.0);
+        strip_surface.cps[5][2] = Point3::new(9.0, 0.0, 0.0);
         let strip = Kp20MultiPatchStripSurface {
             patch_name: "strip".to_string(),
             sector_index: 0,
@@ -200,12 +216,12 @@ mod tests {
         assert_eq!(scaled.cps[1][2], Point3::new(1.0, 0.0, 0.0));
         assert_eq!(scaled.cps[2][2], Point3::new(2.0, 0.0, 0.0));
         assert_eq!(scaled.cps[3][2], Point3::new(5.0, 0.0, 0.0));
-        assert_eq!(scaled.cps[5][2], Point3::new(5.0, 0.0, 0.0));
+        assert_eq!(scaled.cps[5][2], Point3::new(6.0, 0.0, 0.0));
         assert_eq!(scaled.cps[6][2], Point3::new(6.0, 0.0, 0.0));
     }
 
     #[test]
-    fn fold_normal_mode_moves_only_unconstrained_rows() {
+    fn fold_normal_mode_moves_unconstrained_rows_and_preserves_interface_g0() {
         let mut accepted = Kp20MacroPatch::zero();
         let piece = accepted.piece_mut(Kp20PieceId::NearMidpointLeft);
         for row in 0..7 {
@@ -234,6 +250,23 @@ mod tests {
         assert!(shifted.cps[3][3].z > 0.0);
         assert_eq!(shifted.cps[5][3], Point3::new(5.0, 3.0, 0.0));
         assert_eq!(shifted.cps[6][3], Point3::new(6.0, 3.0, 0.0));
+    }
+
+    #[test]
+    fn shoulder_row_target_is_bounded_to_constructed_row() {
+        let mut accepted = Kp20Bi6Patch::zero();
+        let mut constructed = Kp20Bi6Patch::zero();
+        accepted.cps[5][4] = Point3::new(1.0, 0.0, 0.0);
+        constructed.cps[5][4] = Point3::new(5.0, 0.0, 0.0);
+
+        assert_eq!(
+            shoulder_row_target(&accepted, &constructed, 4, 0.25),
+            Point3::new(2.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            shoulder_row_target(&accepted, &constructed, 4, 3.0),
+            Point3::new(5.0, 0.0, 0.0)
+        );
     }
 
     #[test]
