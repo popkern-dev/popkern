@@ -17,6 +17,8 @@ use super::kp20_polar_multipatch_strip_optimize::{
 use super::kp20_polar_support_surface_split::{
     propagate_support_pole_interfaces, support_side_index,
 };
+#[path = "kp20_polar_multipatch_apply_coupled.rs"]
+mod coupled;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Kp20InnerConstructionMode {
@@ -29,6 +31,8 @@ pub(super) enum Kp20InnerConstructionMode {
     ExactWorstInnerShoulderNegative,
     ExactWorstPropagatedShoulderPositive,
     ExactWorstPropagatedShoulderNegative,
+    ExactWorstCoupledSupportInnerExpand,
+    ExactWorstCoupledSupportInnerContract,
 }
 
 impl Kp20InnerConstructionMode {
@@ -40,7 +44,7 @@ impl Kp20InnerConstructionMode {
         ]
     }
 
-    pub(super) const fn exact_guided_all() -> [Self; 9] {
+    pub(super) const fn exact_guided_all() -> [Self; 11] {
         [
             Self::SupportPropagation,
             Self::SideAlignedInnerPatch,
@@ -51,6 +55,8 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstInnerShoulderNegative,
             Self::ExactWorstPropagatedShoulderPositive,
             Self::ExactWorstPropagatedShoulderNegative,
+            Self::ExactWorstCoupledSupportInnerExpand,
+            Self::ExactWorstCoupledSupportInnerContract,
         ]
     }
 
@@ -68,6 +74,10 @@ impl Kp20InnerConstructionMode {
             }
             Self::ExactWorstPropagatedShoulderNegative => {
                 "exact_worst_propagated_shoulder_negative"
+            }
+            Self::ExactWorstCoupledSupportInnerExpand => "exact_worst_coupled_support_inner_expand",
+            Self::ExactWorstCoupledSupportInnerContract => {
+                "exact_worst_coupled_support_inner_contract"
             }
         }
     }
@@ -145,6 +155,19 @@ pub(super) fn apply_multipatch_candidate(
                 &mut candidate,
                 &mut changed_patches,
                 accepted_summary,
+                strip_apply.support_changed,
+                inner_mode,
+                interior_scale,
+            )
+        }
+        Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerExpand
+        | Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerContract => {
+            coupled::apply_exact_worst_coupled_support_inner(
+                &mut candidate,
+                &mut changed_patches,
+                accepted_summary,
+                interfaces,
+                inner,
                 strip_apply.support_changed,
                 inner_mode,
                 interior_scale,
