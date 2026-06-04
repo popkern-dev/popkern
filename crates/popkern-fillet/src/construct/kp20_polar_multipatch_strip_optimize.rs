@@ -14,6 +14,8 @@ pub(super) enum Kp20StripInteriorOptimizerMode {
     FoldNormalNegative,
     WorstFoldNormalPositive,
     WorstFoldNormalNegative,
+    WorstEdgeColumnPositive,
+    WorstEdgeColumnNegative,
 }
 
 impl Kp20StripInteriorOptimizerMode {
@@ -25,13 +27,15 @@ impl Kp20StripInteriorOptimizerMode {
         ]
     }
 
-    pub(super) fn exact_guided_all() -> [Self; 5] {
+    pub(super) fn exact_guided_all() -> [Self; 7] {
         [
             Self::FairBlend,
             Self::FoldNormalPositive,
             Self::FoldNormalNegative,
             Self::WorstFoldNormalPositive,
             Self::WorstFoldNormalNegative,
+            Self::WorstEdgeColumnPositive,
+            Self::WorstEdgeColumnNegative,
         ]
     }
 
@@ -42,6 +46,8 @@ impl Kp20StripInteriorOptimizerMode {
             Self::FoldNormalNegative => "fold_normal_negative",
             Self::WorstFoldNormalPositive => "worst_fold_normal_positive",
             Self::WorstFoldNormalNegative => "worst_fold_normal_negative",
+            Self::WorstEdgeColumnPositive => "worst_edge_column_positive",
+            Self::WorstEdgeColumnNegative => "worst_edge_column_negative",
         }
     }
 }
@@ -73,9 +79,11 @@ pub(super) fn optimized_strip_surface(
                     Kp20StripInteriorOptimizerMode::FoldNormalPositive
                     | Kp20StripInteriorOptimizerMode::FoldNormalNegative
                     | Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
-                    | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => {
+                    | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative
+                    | Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive
+                    | Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => {
                         let fair = base + (target - base) * interior_scale;
-                        let displacement = strip_fold_displacement(
+                        let displacement = strip_mode_displacement(
                             &accepted,
                             accepted_summary,
                             strip,
@@ -123,11 +131,30 @@ fn shoulder_row_target(
         Kp20StripInteriorOptimizerMode::FoldNormalPositive
         | Kp20StripInteriorOptimizerMode::FoldNormalNegative
         | Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
-        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => {
+        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative
+        | Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive
+        | Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => {
             let displacement =
-                strip_fold_displacement(accepted, accepted_summary, strip, mode, 5, column);
+                strip_mode_displacement(accepted, accepted_summary, strip, mode, 5, column);
             fair + displacement * (0.5 * span * interior_scale)
         }
+    }
+}
+
+fn strip_mode_displacement(
+    accepted: &Kp20Bi6Patch,
+    accepted_summary: &Kp20SamplerFoldSummary,
+    strip: &Kp20MultiPatchStripSurface,
+    mode: Kp20StripInteriorOptimizerMode,
+    row: usize,
+    column: usize,
+) -> Vec3 {
+    match mode {
+        Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive
+        | Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => {
+            worst_edge_column_displacement(accepted, accepted_summary, strip, mode, row, column)
+        }
+        _ => strip_fold_displacement(accepted, accepted_summary, strip, mode, row, column),
     }
 }
 
@@ -148,7 +175,9 @@ fn strip_fold_displacement(
             && support_owner_piece(site.piece) == strip.strip_piece;
         let mode_owned = match mode {
             Kp20StripInteriorOptimizerMode::WorstFoldNormalPositive
-            | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => worst_site
+            | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative
+            | Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive
+            | Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => worst_site
                 .is_some_and(|worst| worst.sector == site.sector && worst.piece == site.piece),
             _ => true,
         };
@@ -162,7 +191,42 @@ fn strip_fold_displacement(
     let displacement = capped_displacement(displacement, 0.08);
     match mode {
         Kp20StripInteriorOptimizerMode::FoldNormalNegative
-        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative => -displacement,
+        | Kp20StripInteriorOptimizerMode::WorstFoldNormalNegative
+        | Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => -displacement,
+        _ => displacement,
+    }
+}
+
+fn worst_edge_column_displacement(
+    accepted: &Kp20Bi6Patch,
+    accepted_summary: &Kp20SamplerFoldSummary,
+    strip: &Kp20MultiPatchStripSurface,
+    mode: Kp20StripInteriorOptimizerMode,
+    row: usize,
+    column: usize,
+) -> Vec3 {
+    let Some(site) = accepted_summary.worst_fold_site() else {
+        return Vec3::zero();
+    };
+    if site.sector != strip.sector_index || support_owner_piece(site.piece) != strip.strip_piece {
+        return Vec3::zero();
+    }
+    let target_column = if site.v <= 0.5 { 1_usize } else { 5_usize };
+    if column.abs_diff(target_column) > 1 {
+        return Vec3::zero();
+    }
+    let control_u = row as f64 / 6.0;
+    let row_weight = (1.0 - ((control_u - site.u).abs() / 0.35)).max(0.0);
+    let column_weight = match column.abs_diff(target_column) {
+        0 => 1.0,
+        1 => 0.35,
+        _ => 0.0,
+    };
+    let severity = (1.0 - site.min_jacobian_normal_cos).clamp(0.0, 1.0);
+    let normal = evaluate_bi6_normal(accepted, site.u, site.v).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+    let displacement = capped_displacement(normal * row_weight * column_weight * severity, 0.12);
+    match mode {
+        Kp20StripInteriorOptimizerMode::WorstEdgeColumnNegative => -displacement,
         _ => displacement,
     }
 }
@@ -310,6 +374,51 @@ mod tests {
             ),
             Point3::new(5.0, 0.0, 0.0)
         );
+    }
+
+    #[test]
+    fn worst_edge_column_displacement_is_local_to_worst_support_edge() {
+        let mut accepted = Kp20Bi6Patch::zero();
+        for row in 0..7 {
+            for column in 0..7 {
+                accepted.cps[row][column] = Point3::new(row as f64, column as f64, 0.0);
+            }
+        }
+        let strip = test_strip(accepted);
+        let summary = Kp20SamplerFoldSummary {
+            fold_count: 1,
+            min_jacobian_normal_cos: -1.0,
+            piece_fold_counts: [0, 0, 0, 1],
+            fold_details: Vec::new(),
+            fold_sites: vec![Kp20FoldSite {
+                sector: 0,
+                piece: Kp20PieceId::NearMidpointLeft,
+                u: 0.68,
+                v: 0.06,
+                min_jacobian_ratio: -1.0,
+                min_jacobian_normal_cos: -1.0,
+            }],
+        };
+
+        let local = worst_edge_column_displacement(
+            &accepted,
+            &summary,
+            &strip,
+            Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive,
+            4,
+            1,
+        );
+        let distant = worst_edge_column_displacement(
+            &accepted,
+            &summary,
+            &strip,
+            Kp20StripInteriorOptimizerMode::WorstEdgeColumnPositive,
+            4,
+            4,
+        );
+
+        assert!(local.length() > 0.0);
+        assert_eq!(distant, Vec3::zero());
     }
 
     #[test]
