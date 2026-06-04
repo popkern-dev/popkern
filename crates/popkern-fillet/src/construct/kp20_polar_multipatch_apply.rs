@@ -35,6 +35,8 @@ pub(super) enum Kp20InnerConstructionMode {
     ExactWorstCoupledSupportInnerContract,
     ExactWorstSharedSupportInnerExpand,
     ExactWorstSharedSupportInnerContract,
+    ExactFoldSetSharedSupportInnerExpand,
+    ExactFoldSetSharedSupportInnerContract,
 }
 
 impl Kp20InnerConstructionMode {
@@ -46,7 +48,7 @@ impl Kp20InnerConstructionMode {
         ]
     }
 
-    pub(super) const fn exact_guided_all() -> [Self; 13] {
+    pub(super) const fn exact_guided_all() -> [Self; 15] {
         [
             Self::SupportPropagation,
             Self::SideAlignedInnerPatch,
@@ -61,6 +63,8 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstCoupledSupportInnerContract,
             Self::ExactWorstSharedSupportInnerExpand,
             Self::ExactWorstSharedSupportInnerContract,
+            Self::ExactFoldSetSharedSupportInnerExpand,
+            Self::ExactFoldSetSharedSupportInnerContract,
         ]
     }
 
@@ -86,6 +90,12 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstSharedSupportInnerExpand => "exact_worst_shared_support_inner_expand",
             Self::ExactWorstSharedSupportInnerContract => {
                 "exact_worst_shared_support_inner_contract"
+            }
+            Self::ExactFoldSetSharedSupportInnerExpand => {
+                "exact_fold_set_shared_support_inner_expand"
+            }
+            Self::ExactFoldSetSharedSupportInnerContract => {
+                "exact_fold_set_shared_support_inner_contract"
             }
         }
     }
@@ -171,7 +181,9 @@ pub(super) fn apply_multipatch_candidate(
         Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerExpand
         | Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerContract
         | Kp20InnerConstructionMode::ExactWorstSharedSupportInnerExpand
-        | Kp20InnerConstructionMode::ExactWorstSharedSupportInnerContract => {
+        | Kp20InnerConstructionMode::ExactWorstSharedSupportInnerContract
+        | Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerExpand
+        | Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerContract => {
             coupled::apply_exact_worst_coupled_support_inner(
                 &mut candidate,
                 &mut changed_patches,

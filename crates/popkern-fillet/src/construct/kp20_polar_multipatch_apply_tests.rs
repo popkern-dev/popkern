@@ -192,6 +192,54 @@ fn exact_worst_shared_support_inner_reauthors_both_sides_of_interface() {
     assert_eq!(origin.cps[1][4], baseline_origin.cps[1][4]);
 }
 
+#[test]
+fn exact_fold_set_shared_support_inner_reauthors_each_active_column_band() {
+    let summary = support_left_two_column_fold_summary();
+    let inventory = multipatch_inventory_from_fold_summary(&summary);
+    let mut macro_patch = Kp20MacroPatch::zero();
+    let support = macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft);
+    for column in 0..7 {
+        support.cps[5][column] = Point3::new(0.5, column as f64, 0.0);
+        support.cps[6][column] = Point3::new(1.0, column as f64, 0.0);
+    }
+    let strips = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
+    let interfaces = build_multipatch_interfaces(&strips);
+    let inner = build_multipatch_inner_patches(&inventory, &interfaces);
+
+    let baseline = apply_multipatch_candidate(
+        &[macro_patch],
+        &summary,
+        &strips,
+        &interfaces,
+        &inner,
+        Kp20StripInteriorOptimizerMode::FoldNormalPositive,
+        Kp20InnerConstructionMode::SideAlignedPropagatedInnerPatch,
+        1.0,
+    );
+    let applied = apply_multipatch_candidate(
+        &[macro_patch],
+        &summary,
+        &strips,
+        &interfaces,
+        &inner,
+        Kp20StripInteriorOptimizerMode::FoldNormalPositive,
+        Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerExpand,
+        1.0,
+    );
+
+    let support = applied.candidate[0].piece(Kp20PieceId::NearMidpointLeft);
+    let origin = applied.candidate[0].piece(Kp20PieceId::NearOriginLeft);
+    let baseline_support = baseline.candidate[0].piece(Kp20PieceId::NearMidpointLeft);
+    let baseline_origin = baseline.candidate[0].piece(Kp20PieceId::NearOriginLeft);
+    assert_ne!(support.cps[5][1], baseline_support.cps[5][1]);
+    assert_ne!(origin.cps[1][1], baseline_origin.cps[1][1]);
+    assert_ne!(support.cps[5][5], baseline_support.cps[5][5]);
+    assert_ne!(origin.cps[1][5], baseline_origin.cps[1][5]);
+    assert_eq!(support.cps[6][1], baseline_support.cps[6][1]);
+    assert_eq!(support.cps[5][3], baseline_support.cps[5][3]);
+    assert_eq!(origin.cps[1][3], baseline_origin.cps[1][3]);
+}
+
 fn single_left_fold_summary() -> Kp20SamplerFoldSummary {
     Kp20SamplerFoldSummary {
         fold_count: 1,
@@ -223,6 +271,33 @@ fn support_left_fold_summary() -> Kp20SamplerFoldSummary {
             min_jacobian_ratio: -0.1,
             min_jacobian_normal_cos: -0.1,
         }],
+    }
+}
+
+fn support_left_two_column_fold_summary() -> Kp20SamplerFoldSummary {
+    Kp20SamplerFoldSummary {
+        fold_count: 2,
+        min_jacobian_normal_cos: -0.1,
+        piece_fold_counts: [0, 0, 0, 2],
+        fold_details: Vec::new(),
+        fold_sites: vec![
+            Kp20FoldSite {
+                sector: 0,
+                piece: Kp20PieceId::NearMidpointLeft,
+                u: 0.68,
+                v: 0.06,
+                min_jacobian_ratio: -0.1,
+                min_jacobian_normal_cos: -0.1,
+            },
+            Kp20FoldSite {
+                sector: 0,
+                piece: Kp20PieceId::NearMidpointLeft,
+                u: 0.68,
+                v: 0.94,
+                min_jacobian_ratio: -0.1,
+                min_jacobian_normal_cos: -0.1,
+            },
+        ],
     }
 }
 

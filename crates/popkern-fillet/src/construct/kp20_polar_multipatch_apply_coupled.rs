@@ -19,6 +19,22 @@ pub(super) fn apply_exact_worst_coupled_support_inner(
     mode: Kp20InnerConstructionMode,
     interior_scale: f64,
 ) -> usize {
+    if matches!(
+        mode,
+        Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerExpand
+            | Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerContract
+    ) {
+        return apply_exact_fold_set_shared_support_inner(
+            macro_patches,
+            changed_patches,
+            accepted_summary,
+            interfaces,
+            inner,
+            support_changed,
+            mode,
+            interior_scale,
+        );
+    }
     let Some(site) = accepted_summary.worst_fold_site() else {
         return 0;
     };
@@ -39,6 +55,73 @@ pub(super) fn apply_exact_worst_coupled_support_inner(
         interior_scale,
     );
     changed_inner_count(changed_patches, &before)
+}
+
+fn apply_exact_fold_set_shared_support_inner(
+    macro_patches: &mut [Kp20MacroPatch],
+    changed_patches: &mut [[bool; 4]],
+    accepted_summary: &Kp20SamplerFoldSummary,
+    interfaces: &Kp20MultiPatchInterfaceBuildReport,
+    inner: &Kp20MultiPatchInnerBuildReport,
+    support_changed: Vec<[bool; 2]>,
+    mode: Kp20InnerConstructionMode,
+    interior_scale: f64,
+) -> usize {
+    let before = changed_patches.to_vec();
+    apply_side_aligned_inner_patches(macro_patches, changed_patches, interfaces, inner);
+    propagate_support_pole_interfaces(macro_patches, changed_patches, support_changed);
+    let expand = matches!(
+        mode,
+        Kp20InnerConstructionMode::ExactFoldSetSharedSupportInnerExpand
+    );
+    for target in fold_set_targets(accepted_summary, macro_patches.len()) {
+        reauthor_coupled_inner_shoulder(
+            macro_patches,
+            changed_patches,
+            target.sector,
+            target.support_piece,
+            target.site_v,
+            CoupledShoulderMode {
+                expand,
+                shared_frame: true,
+            },
+            interior_scale,
+        );
+    }
+    changed_inner_count(changed_patches, &before)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct FoldSetTarget {
+    sector: usize,
+    support_piece: Kp20PieceId,
+    target_column: usize,
+    site_v: f64,
+}
+
+fn fold_set_targets(summary: &Kp20SamplerFoldSummary, sector_count: usize) -> Vec<FoldSetTarget> {
+    let mut targets = Vec::new();
+    for site in &summary.fold_sites {
+        if site.sector >= sector_count {
+            continue;
+        }
+        let support_piece = support_piece_for_site(site.piece);
+        let target_column = if site.v <= 0.5 { 1_usize } else { 5_usize };
+        if targets.iter().any(|target: &FoldSetTarget| {
+            target.sector == site.sector
+                && target.support_piece == support_piece
+                && target.target_column == target_column
+        }) {
+            continue;
+        }
+        targets.push(FoldSetTarget {
+            sector: site.sector,
+            support_piece,
+            target_column,
+            site_v: if target_column == 1 { 0.0 } else { 1.0 },
+        });
+    }
+    targets
 }
 
 fn support_piece_for_site(piece: Kp20PieceId) -> Kp20PieceId {

@@ -397,7 +397,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("fast_support_folds=") && detail.contains("fast_inner_folds=")
                                 && detail.contains("fast_piece_folds=")
                                 && detail.contains("exact_fold_assessment=mixed_exact_folds")
-                                && detail.contains("exact_worst_site=")
+                                && detail.contains("exact_fold_details=sector=1,piece=NearOriginLeft")
                                 && detail.contains("best_rejected_exact_guided=none")
                                 && detail.contains("accepted=true") && detail.contains("decline=none")
                                 && detail.contains("support_surface_decline_reason=")
