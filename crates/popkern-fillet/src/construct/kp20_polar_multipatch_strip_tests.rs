@@ -57,6 +57,29 @@ fn strip_builder_reauthors_unconstrained_interior_rows() {
 }
 
 #[test]
+fn strip_builder_reauthors_interface_adjacent_tangent_row() {
+    let summary = single_fold_summary();
+    let inventory = multipatch_inventory_from_fold_summary(&summary);
+    let mut macro_patch = Kp20MacroPatch::zero();
+    let piece = macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft);
+    piece.cps[0][3] = Point3::new(0.0, 0.0, 0.0);
+    piece.cps[1][3] = Point3::new(2.0, 0.0, 0.0);
+    piece.cps[5][3] = Point3::new(4.5, 0.0, 0.0);
+    piece.cps[6][3] = Point3::new(5.0, 0.0, 0.0);
+
+    let report = build_multipatch_strip_surfaces(&inventory, &[macro_patch], &summary);
+
+    let column = report.strip_surfaces[0].surface.cps[5][3];
+    assert!(report.tangent_row_reauthored_columns > 0);
+    assert!(report.max_tangent_row_displacement > 0.0);
+    assert!(column.x < 4.5);
+    assert_eq!(
+        report.strip_surfaces[0].surface.cps[6][3],
+        Point3::new(5.0, 0.0, 0.0)
+    );
+}
+
+#[test]
 fn strip_parameter_map_is_monotone_and_fold_site_aware() {
     let summary = single_fold_summary();
 

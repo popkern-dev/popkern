@@ -366,7 +366,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("invalid_cps=0")
                                 && detail.contains("max_interior_displacement=")
                                 && detail.contains("min_parameter_step=")
-                                && detail.contains("row_strategy_assessment=support_tangent_alignment_limited")
+                                && detail.contains("row_strategy_assessment=combined_strategy_active")
                                 && detail.contains("decline=none")
                                 && detail.contains("support_surface_multipatch_interfaces=")
                                 && detail.contains("anchors=")
