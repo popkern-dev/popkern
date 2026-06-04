@@ -33,6 +33,8 @@ pub(super) enum Kp20InnerConstructionMode {
     ExactWorstPropagatedShoulderNegative,
     ExactWorstCoupledSupportInnerExpand,
     ExactWorstCoupledSupportInnerContract,
+    ExactWorstSharedSupportInnerExpand,
+    ExactWorstSharedSupportInnerContract,
 }
 
 impl Kp20InnerConstructionMode {
@@ -44,7 +46,7 @@ impl Kp20InnerConstructionMode {
         ]
     }
 
-    pub(super) const fn exact_guided_all() -> [Self; 11] {
+    pub(super) const fn exact_guided_all() -> [Self; 13] {
         [
             Self::SupportPropagation,
             Self::SideAlignedInnerPatch,
@@ -57,6 +59,8 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstPropagatedShoulderNegative,
             Self::ExactWorstCoupledSupportInnerExpand,
             Self::ExactWorstCoupledSupportInnerContract,
+            Self::ExactWorstSharedSupportInnerExpand,
+            Self::ExactWorstSharedSupportInnerContract,
         ]
     }
 
@@ -78,6 +82,10 @@ impl Kp20InnerConstructionMode {
             Self::ExactWorstCoupledSupportInnerExpand => "exact_worst_coupled_support_inner_expand",
             Self::ExactWorstCoupledSupportInnerContract => {
                 "exact_worst_coupled_support_inner_contract"
+            }
+            Self::ExactWorstSharedSupportInnerExpand => "exact_worst_shared_support_inner_expand",
+            Self::ExactWorstSharedSupportInnerContract => {
+                "exact_worst_shared_support_inner_contract"
             }
         }
     }
@@ -161,7 +169,9 @@ pub(super) fn apply_multipatch_candidate(
             )
         }
         Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerExpand
-        | Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerContract => {
+        | Kp20InnerConstructionMode::ExactWorstCoupledSupportInnerContract
+        | Kp20InnerConstructionMode::ExactWorstSharedSupportInnerExpand
+        | Kp20InnerConstructionMode::ExactWorstSharedSupportInnerContract => {
             coupled::apply_exact_worst_coupled_support_inner(
                 &mut candidate,
                 &mut changed_patches,
