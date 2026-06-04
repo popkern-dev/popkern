@@ -28,7 +28,7 @@ pub(super) fn multipatch_evaluation_label(
     evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
 ) -> String {
     format!(
-        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},fast_worst_site={},exact_worst_site={},fast_fold_zones={},exact_fold_zones={},fast_validation={},exact_validation={},best_rejected_exact_guided={},validation_clean={},accepted={},decline={}",
+        "attempted_strips={},attempted_inners={},changed_strips={},changed_inners={},changed_pieces={},strip_optimizer_trials={},strip_optimizer_mode={},strip_optimizer_scale={},inner_construction_mode={},fast_evaluated={},exact_evaluated={},fast_folds={},exact_folds={},fast_support_folds={},fast_inner_folds={},exact_support_folds={},exact_inner_folds={},exact_fold_assessment={},fast_piece_folds={},exact_piece_folds={},fast_min_cos={},exact_min_cos={},fast_worst_site={},exact_worst_site={},fast_fold_zones={},exact_fold_zones={},fast_validation={},exact_validation={},best_rejected_exact_guided={},validation_clean={},accepted={},decline={}",
         evaluation.attempted_strip_patch_count,
         evaluation.attempted_inner_patch_count,
         evaluation.changed_strip_piece_count,
@@ -46,6 +46,7 @@ pub(super) fn multipatch_evaluation_label(
         optional_usize_label(evaluation.fast_inner_fold_count),
         optional_usize_label(evaluation.exact_support_fold_count),
         optional_usize_label(evaluation.exact_inner_fold_count),
+        exact_fold_assessment(evaluation),
         optional_piece_counts_label(evaluation.fast_piece_fold_counts),
         optional_piece_counts_label(evaluation.exact_piece_fold_counts),
         optional_f64_label(evaluation.fast_min_jacobian_normal_cos),
@@ -61,6 +62,23 @@ pub(super) fn multipatch_evaluation_label(
         evaluation.accepted,
         evaluation.decline_reason.unwrap_or("none"),
     )
+}
+
+fn exact_fold_assessment(
+    evaluation: &super::kp20_polar_multipatch_evaluate::Kp20MultiPatchEvaluationReport,
+) -> &'static str {
+    match (
+        evaluation.exact_fold_count,
+        evaluation.exact_support_fold_count,
+        evaluation.exact_inner_fold_count,
+    ) {
+        (None, _, _) => "not_exact_evaluated",
+        (Some(0), _, _) => "no_exact_folds",
+        (Some(_), Some(support), Some(0)) if support > 0 => "support_exact_folds",
+        (Some(_), Some(0), Some(inner)) if inner > 0 => "inner_exact_folds",
+        (Some(_), Some(support), Some(inner)) if support > 0 && inner > 0 => "mixed_exact_folds",
+        _ => "unknown_exact_fold_distribution",
+    }
 }
 
 fn optional_rejected_exact_guided_label(
