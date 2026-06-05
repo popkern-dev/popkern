@@ -120,6 +120,16 @@ pub(super) fn validation_is_clean(validation: Kp20Bi6ValidationReport) -> bool {
         && validation.max_origin_g2_strip_residual <= 1.0e-8
 }
 
+pub(super) fn gregory_patches_from_macro_patches(
+    macro_patches: &[Kp20MacroPatch],
+) -> Vec<GregoryPatch> {
+    flatten_macro_patches(macro_patches)
+        .into_iter()
+        .map(elevate_bi6_grid_to_bi9)
+        .map(|grid| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid })))
+        .collect()
+}
+
 pub(super) fn candidate_summary_from_cap(
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
@@ -131,12 +141,7 @@ pub(super) fn candidate_summary_from_cap(
         strip_projections: Vec::new(),
     };
     let validation = measure_kp20_bi6_macro_cap(&cap, tensor_border).map_err(|e| e.to_string())?;
-    let candidate = cap
-        .patches_bi6
-        .into_iter()
-        .map(elevate_bi6_grid_to_bi9)
-        .map(|grid| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid })))
-        .collect::<Vec<_>>();
+    let candidate = gregory_patches_from_macro_patches(&cap.macro_patches);
     let intersections = candidate
         .iter()
         .enumerate()
@@ -299,7 +304,7 @@ fn previous_fold_count(idx: usize, summary: &Kp20SamplerFoldSummary) -> usize {
         .count()
 }
 
-fn summarize_candidate_intersections(
+pub(super) fn summarize_candidate_intersections(
     candidate: &[GregoryPatch],
     intersections: &[(
         usize,
