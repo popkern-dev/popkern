@@ -35,6 +35,8 @@ use origin_inner_row::{
 use support_domain::support_domain_basis_candidate;
 use support_transition::refine_support_transition_sheet;
 
+#[path = "kp20_polar_inner_field.rs"]
+mod inner_field;
 #[path = "kp20_polar_dispatch_labels.rs"]
 mod labels;
 #[path = "kp20_polar_origin_inner_row.rs"]
