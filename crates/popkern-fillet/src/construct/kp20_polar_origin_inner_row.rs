@@ -22,6 +22,17 @@ pub(super) struct Kp20OriginInnerRowReport {
     pub(super) scale: f64,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct Kp20PairedInnerRowReport {
+    pub(super) evaluated: usize,
+    pub(super) accepted: usize,
+    pub(super) rejected: usize,
+    pub(super) start_folds: usize,
+    pub(super) end_folds: usize,
+    pub(super) mode: &'static str,
+    pub(super) scale: f64,
+}
+
 pub(super) fn refine_origin_inner_interior_row(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
@@ -114,6 +125,99 @@ pub(super) fn refine_origin_inner_interior_row(
     ))
 }
 
+pub(super) fn refine_paired_inner_interior_row(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    lift: Kp20SupportNormalLiftReport,
+) -> Result<(Kp20SupportNormalLiftReport, Kp20PairedInnerRowReport), String> {
+    let start_folds = lift.summary.fold_count;
+    let mut best: Option<(
+        Vec<Kp20MacroPatch>,
+        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+        Kp20OriginInnerMode,
+        f64,
+    )> = None;
+    let mut stats = Kp20PairedInnerRowReport {
+        evaluated: 0,
+        accepted: 0,
+        rejected: 0,
+        start_folds,
+        end_folds: start_folds,
+        mode: "none",
+        scale: 0.0,
+    };
+    for mode in Kp20OriginInnerMode::all() {
+        for scale in [-0.16, -0.08, 0.08, 0.16] {
+            let mut candidate = lift.macro_patches.clone();
+            let changed = apply_inner_row_update(
+                &mut candidate,
+                star_point,
+                tensor_border,
+                mode,
+                scale,
+                &lift.summary.fold_sites,
+                &Kp20PieceId::all(),
+            );
+            stats.evaluated += 1;
+            let fast = fast_candidate_summary_from_changed_patches(
+                tensor_border,
+                candidate.clone(),
+                &lift.summary,
+                &changed,
+                lift.summary.fold_count,
+            )?;
+            if !validation_is_clean(fast.1)
+                || !is_better_summary(&fast, Some(&(lift.summary.clone(), lift.validation)))
+            {
+                stats.rejected += 1;
+                continue;
+            }
+            let exact = candidate_summary_from_changed_patches(
+                tensor_border,
+                candidate.clone(),
+                &lift.summary,
+                &changed,
+                lift.summary.fold_count,
+            )?;
+            if !validation_is_clean(exact.1)
+                || !is_better_summary(&exact, Some(&(lift.summary.clone(), lift.validation)))
+            {
+                stats.rejected += 1;
+                continue;
+            }
+            if best
+                .as_ref()
+                .is_none_or(|(_, summary, _, _)| is_better_summary(&exact, Some(summary)))
+            {
+                best = Some((candidate, exact, mode, scale));
+            } else {
+                stats.rejected += 1;
+            }
+        }
+    }
+    let Some((macro_patches, summary, mode, scale)) = best else {
+        return Ok((lift, stats));
+    };
+    stats.accepted = 1;
+    stats.end_folds = summary.0.fold_count;
+    stats.mode = mode.label();
+    stats.scale = scale;
+    let mut optimizer_stats = lift.optimizer_stats.clone();
+    optimizer_stats.evaluated_candidates += stats.evaluated;
+    optimizer_stats.accepted_candidates += stats.accepted;
+    optimizer_stats.rejected_candidates += stats.rejected;
+    Ok((
+        Kp20SupportNormalLiftReport {
+            summary: summary.0,
+            validation: summary.1,
+            macro_patches,
+            accepted_steps: lift.accepted_steps,
+            optimizer_stats,
+        },
+        stats,
+    ))
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Kp20OriginInnerMode {
     Normal,
@@ -143,11 +247,31 @@ fn apply_origin_inner_row_update(
     scale: f64,
     fold_sites: &[Kp20FoldSite],
 ) -> Vec<[bool; 4]> {
+    apply_inner_row_update(
+        macro_patches,
+        star_point,
+        tensor_border,
+        mode,
+        scale,
+        fold_sites,
+        &[Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight],
+    )
+}
+
+fn apply_inner_row_update(
+    macro_patches: &mut [Kp20MacroPatch],
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    mode: Kp20OriginInnerMode,
+    scale: f64,
+    fold_sites: &[Kp20FoldSite],
+    target_pieces: &[Kp20PieceId],
+) -> Vec<[bool; 4]> {
     let mut changed = vec![[false; 4]; macro_patches.len()];
     for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {
         let direction = origin_inner_direction(star_point, tensor_border, sector, mode);
         let span = sector_span(star_point, tensor_border, sector);
-        for piece_id in [Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight] {
+        for &piece_id in target_pieces {
             let sites = fold_sites
                 .iter()
                 .filter(|site| {
