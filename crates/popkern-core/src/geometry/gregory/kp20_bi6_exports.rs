@@ -39,11 +39,13 @@ pub use super::kp20_bi6_math::{
 };
 pub use super::kp20_bi6_piece_maps::{
     Kp20PieceCornerMaps, Kp20PieceMapDomainReport, Kp20SectorPieceMaps,
-    kp20_c2_stitched_sector_piece_maps, kp20_default_piece_map_domain_report,
-    kp20_default_sector_piece_maps, kp20_orientation_valid_sector_piece_maps,
-    kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
-    kp20_piece_map_stitch_report, sample_kp20_macro_patch_from_c2_stitched_maps,
-    sample_kp20_macro_patch_from_default_maps, sample_kp20_macro_patch_from_orientation_valid_maps,
+    kp20_c2_stitched_sector_piece_maps, kp20_coupled_stitched_sector_piece_maps,
+    kp20_default_piece_map_domain_report, kp20_default_sector_piece_maps,
+    kp20_orientation_valid_sector_piece_maps, kp20_paper_oriented_sector_piece_maps,
+    kp20_piece_map_domain_report, kp20_piece_map_stitch_report,
+    sample_kp20_macro_patch_from_c2_stitched_maps,
+    sample_kp20_macro_patch_from_coupled_stitched_maps, sample_kp20_macro_patch_from_default_maps,
+    sample_kp20_macro_patch_from_orientation_valid_maps,
     sample_kp20_macro_patch_from_paper_oriented_maps, sample_kp20_macro_patch_from_piece_maps,
     sample_kp20_macro_patch_from_tau_maps,
 };
