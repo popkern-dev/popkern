@@ -2,12 +2,10 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    GregoryPatch, Kp20Bi6CapInput, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport,
-    Kp20GuideBuildInput, Kp20PieceId, PolarBoundaryInput, RectangularGregoryBiNonic, Side, Spoke,
-    SpokeEnd, TensorBorder, TensorBorderBi3, assemble_kp20_bi6_cap, assemble_kp20_bi6_macro_cap,
-    build_kp20_guide_ring, elevate_bi6_grid_to_bi9, extract_bi3_tensor_border_from_polar_input,
-    kp20_default_piece_map_domain_report, kp20_nonoverlap_coupled_sector_piece_maps,
-    measure_kp20_bi6_macro_cap, sample_kp20_macro_patch_from_piece_maps,
+    GregoryPatch, Kp20Bi6CapInput, Kp20Bi6ValidationReport, Kp20PieceId, PolarBoundaryInput,
+    RectangularGregoryBiNonic, Side, Spoke, SpokeEnd, TensorBorder, TensorBorderBi3,
+    assemble_kp20_bi6_cap, elevate_bi6_grid_to_bi9, extract_bi3_tensor_border_from_polar_input,
+    kp20_default_piece_map_domain_report, measure_kp20_bi6_macro_cap,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -22,7 +20,7 @@ use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
 };
 use super::kp20_polar_support_reparameterization::{
-    Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
+    Kp20SupportDomainReport, Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
 };
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -33,12 +31,15 @@ use origin_inner_row::{
     refine_origin_inner_interior_row, refine_paired_inner_interior_row,
     refine_support_inner_interior_row,
 };
+use support_domain::support_domain_basis_candidate;
 use support_transition::refine_support_transition_sheet;
 
 #[path = "kp20_polar_dispatch_labels.rs"]
 mod labels;
 #[path = "kp20_polar_origin_inner_row.rs"]
 mod origin_inner_row;
+#[path = "kp20_polar_support_domain.rs"]
+mod support_domain;
 #[path = "kp20_polar_support_transition.rs"]
 mod support_transition;
 
@@ -218,6 +219,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.support_inner,
                     &lifted.support_reparameterization,
                     &lifted.support_transition,
+                    &lifted.support_domain,
                 ));
                 if lifted_intersections.is_empty() {
                     trace(
@@ -292,34 +294,17 @@ struct Kp20LiftedDispatchCandidate {
     support_inner: Kp20SupportInnerRowReport,
     support_reparameterization: Kp20SupportReparameterizationReport,
     support_transition: Kp20SupportTransitionReport,
+    support_domain: Kp20SupportDomainReport,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LiftedDispatchCandidate, String> {
-    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let sampled_macro_patches = guide
-        .sectors
-        .iter()
-        .map(|sector| {
-            sample_kp20_macro_patch_from_piece_maps(
-                sector,
-                kp20_nonoverlap_coupled_sector_piece_maps(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-        tensor_border: tensor_border.clone(),
-        sampled_macro_patches,
-    })
-    .map_err(|e| e.to_string())?;
+    let (macro_patches, support_domain) =
+        support_domain_basis_candidate(star_point, tensor_border)?;
     let (macro_patches, support_transition) =
-        refine_support_transition_sheet(tensor_border, cap.macro_patches)?;
+        refine_support_transition_sheet(tensor_border, macro_patches)?;
     let report = lift_candidate_from_macro_patches(star_point, tensor_border, macro_patches)?;
     let (report, origin_inner) =
         refine_origin_inner_interior_row(star_point, tensor_border, report)?;
@@ -344,6 +329,7 @@ fn try_nonoverlap_coupled_lift_candidate(
         support_inner,
         support_reparameterization,
         support_transition,
+        support_domain,
     })
 }
 
@@ -357,6 +343,7 @@ fn nonoverlap_coupled_lift_fact(
     support_inner: &Kp20SupportInnerRowReport,
     support_reparameterization: &Kp20SupportReparameterizationReport,
     support_transition: &Kp20SupportTransitionReport,
+    support_domain: &Kp20SupportDomainReport,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
@@ -370,6 +357,7 @@ fn nonoverlap_coupled_lift_fact(
             support_inner,
             support_reparameterization,
             support_transition,
+            support_domain,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),

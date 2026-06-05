@@ -30,3 +30,19 @@ pub(super) struct Kp20SupportTransitionReport {
     pub(super) skew_scale: f64,
     pub(super) decline_reason: &'static str,
 }
+
+#[derive(Debug, Clone)]
+pub(super) struct Kp20SupportDomainReport {
+    pub(super) evaluated: usize,
+    pub(super) accepted: usize,
+    pub(super) rejected: usize,
+    pub(super) start_folds: usize,
+    pub(super) end_folds: usize,
+    pub(super) target_piece: Kp20PieceId,
+    pub(super) origin_u: f64,
+    pub(super) origin_v: f64,
+    pub(super) span_u: f64,
+    pub(super) span_v: f64,
+    pub(super) skew: f64,
+    pub(super) decline_reason: &'static str,
+}
