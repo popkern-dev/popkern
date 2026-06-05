@@ -27,7 +27,7 @@ pub(super) fn fold_ownership_label(summary: &Kp20SamplerFoldSummary) -> String {
     let support_folds = summary.piece_fold_counts[Kp20PieceId::NearMidpointRight.index()]
         + summary.piece_fold_counts[Kp20PieceId::NearMidpointLeft.index()];
     format!(
-        "fold_zones=origin_corner:{}|edge_shoulder:{}|interior:{};fold_ownership=origin_pieces:{}|support_pieces:{};dominant_fold_zone={};recommended_next_move={}",
+        "fold_zones=origin_corner:{}|edge_shoulder:{}|interior:{};fold_ownership=origin_pieces:{}|support_pieces:{};dominant_fold_zone={};recommended_next_move={};{}",
         zones.origin_corner,
         zones.edge_shoulder,
         zones.interior,
@@ -35,7 +35,59 @@ pub(super) fn fold_ownership_label(summary: &Kp20SamplerFoldSummary) -> String {
         support_folds,
         dominant_fold_zone_label(zones.origin_corner, zones.edge_shoulder, zones.interior),
         recommended_next_move_label(origin_folds, support_folds, zones.interior),
+        fold_site_localization_label(summary),
     )
+}
+
+fn fold_site_localization_label(summary: &Kp20SamplerFoldSummary) -> String {
+    let target = Kp20PieceId::NearMidpointLeft;
+    let target_sites = summary
+        .fold_sites
+        .iter()
+        .filter(|site| site.piece == target)
+        .count();
+    let worst = summary
+        .worst_fold_site()
+        .map(|site| {
+            format!(
+                "sector:{}|piece:{:?}|uv:({:.3e},{:.3e})|cos:{:.3e}|ratio:{:.3e}",
+                site.sector,
+                site.piece,
+                site.u,
+                site.v,
+                site.min_jacobian_normal_cos,
+                site.min_jacobian_ratio
+            )
+        })
+        .unwrap_or_else(|| "none".to_string());
+    format!(
+        "fold_site_count={};fold_site_target_piece={:?};fold_site_target_count={};fold_site_worst={};fold_site_touching={}",
+        summary.fold_sites.len(),
+        target,
+        target_sites,
+        worst,
+        fold_site_touching_label(summary),
+    )
+}
+
+fn fold_site_touching_label(summary: &Kp20SamplerFoldSummary) -> String {
+    let mut touched = Vec::new();
+    for piece in Kp20PieceId::all() {
+        let sectors = summary
+            .fold_sites
+            .iter()
+            .filter(|site| site.piece == piece)
+            .map(|site| site.sector.to_string())
+            .collect::<Vec<_>>();
+        if !sectors.is_empty() {
+            touched.push(format!("{piece:?}:[{}]", sectors.join(",")));
+        }
+    }
+    if touched.is_empty() {
+        "none".to_string()
+    } else {
+        touched.join("|")
+    }
 }
 
 pub(super) fn validation_label(validation: Kp20Bi6ValidationReport) -> String {
