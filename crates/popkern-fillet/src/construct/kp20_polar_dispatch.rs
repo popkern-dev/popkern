@@ -20,8 +20,8 @@ use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
 };
 use super::kp20_polar_support_reparameterization::{
-    Kp20SupportDomainRefineReport, Kp20SupportDomainReport, Kp20SupportReparameterizationReport,
-    Kp20SupportTransitionReport,
+    Kp20CoupledDomainReport, Kp20SupportDomainRefineReport, Kp20SupportDomainReport,
+    Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
 };
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
@@ -222,6 +222,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.support_transition,
                     &lifted.support_domain,
                     &lifted.support_domain_refine,
+                    &lifted.coupled_domain,
                 ));
                 if lifted_intersections.is_empty() {
                     trace(
@@ -298,13 +299,14 @@ struct Kp20LiftedDispatchCandidate {
     support_transition: Kp20SupportTransitionReport,
     support_domain: Kp20SupportDomainReport,
     support_domain_refine: Kp20SupportDomainRefineReport,
+    coupled_domain: Kp20CoupledDomainReport,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LiftedDispatchCandidate, String> {
-    let (macro_patches, support_domain, support_domain_refine) =
+    let (macro_patches, support_domain, support_domain_refine, coupled_domain) =
         support_domain_basis_candidate(star_point, tensor_border)?;
     let (macro_patches, support_transition) =
         refine_support_transition_sheet(tensor_border, macro_patches)?;
@@ -334,6 +336,7 @@ fn try_nonoverlap_coupled_lift_candidate(
         support_transition,
         support_domain,
         support_domain_refine,
+        coupled_domain,
     })
 }
 
@@ -349,6 +352,7 @@ fn nonoverlap_coupled_lift_fact(
     support_transition: &Kp20SupportTransitionReport,
     support_domain: &Kp20SupportDomainReport,
     support_domain_refine: &Kp20SupportDomainRefineReport,
+    coupled_domain: &Kp20CoupledDomainReport,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
@@ -364,6 +368,7 @@ fn nonoverlap_coupled_lift_fact(
             support_transition,
             support_domain,
             support_domain_refine,
+            coupled_domain,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),

@@ -5,8 +5,8 @@ use popkern_core::geometry::gregory::{Kp20Bi6ValidationReport, Kp20PieceId};
 use super::super::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
 use super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::super::kp20_polar_support_reparameterization::{
-    Kp20SupportDomainRefineReport, Kp20SupportDomainReport, Kp20SupportReparameterizationReport,
-    Kp20SupportTransitionReport,
+    Kp20CoupledDomainReport, Kp20SupportDomainRefineReport, Kp20SupportDomainReport,
+    Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
 };
 use super::origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
@@ -59,9 +59,10 @@ pub(super) fn nonoverlap_coupled_lift_detail(
     support_transition: &Kp20SupportTransitionReport,
     support_domain: &Kp20SupportDomainReport,
     support_domain_refine: &Kp20SupportDomainRefineReport,
+    coupled_domain: &Kp20CoupledDomainReport,
 ) -> String {
     format!(
-        "status=sampled;default_folds={};folds={};piece_folds={};{};{};origin_inner_evaluated={};origin_inner_accepted={};origin_inner_rejected={};origin_inner_start_folds={};origin_inner_end_folds={};origin_inner_mode={};origin_inner_scale={:.3e};paired_inner_evaluated={};paired_inner_accepted={};paired_inner_rejected={};paired_inner_start_folds={};paired_inner_end_folds={};paired_inner_mode={};paired_inner_scale={:.3e};support_inner_evaluated={};support_inner_accepted={};support_inner_rejected={};support_inner_start_folds={};support_inner_end_folds={};support_inner_mode={};support_inner_scale={:.3e};support_domain_evaluated={};support_domain_accepted={};support_domain_rejected={};support_domain_start_folds={};support_domain_end_folds={};support_domain_target_piece={:?};support_domain_origin=({:.3e},{:.3e});support_domain_span=({:.3e},{:.3e});support_domain_skew={:.3e};support_domain_decline_reason={};support_domain_refine_evaluated={};support_domain_refine_accepted={};support_domain_refine_rejected={};support_domain_refine_start_folds={};support_domain_refine_end_folds={};support_domain_refine_target_piece={:?};support_domain_refine_origin=({:.3e},{:.3e});support_domain_refine_span=({:.3e},{:.3e});support_domain_refine_skew={:.3e};support_domain_refine_decline_reason={};support_transition_evaluated={};support_transition_accepted={};support_transition_rejected={};support_transition_start_folds={};support_transition_end_folds={};support_transition_target_piece={:?};support_transition_alpha={:.3e};support_transition_normal_scale={:.3e};support_transition_skew_scale={:.3e};support_transition_decline_reason={};support_reparam_evaluated={};support_reparam_fast_accepted={};support_reparam_fast_rejected={};support_reparam_lift_evaluated={};support_reparam_accepted={};support_reparam_rejected={};support_reparam_start_folds={};support_reparam_end_folds={};support_reparam_target_piece={:?};support_reparam_params={};support_reparam_decline_reason={};optimizer_active_fold_sites={};optimizer_row_variables={};optimizer_evaluated={};optimizer_accepted={};optimizer_rejected={};accepted_steps={}",
+        "status=sampled;default_folds={};folds={};piece_folds={};{};{};origin_inner_evaluated={};origin_inner_accepted={};origin_inner_rejected={};origin_inner_start_folds={};origin_inner_end_folds={};origin_inner_mode={};origin_inner_scale={:.3e};paired_inner_evaluated={};paired_inner_accepted={};paired_inner_rejected={};paired_inner_start_folds={};paired_inner_end_folds={};paired_inner_mode={};paired_inner_scale={:.3e};support_inner_evaluated={};support_inner_accepted={};support_inner_rejected={};support_inner_start_folds={};support_inner_end_folds={};support_inner_mode={};support_inner_scale={:.3e};support_domain_evaluated={};support_domain_accepted={};support_domain_rejected={};support_domain_start_folds={};support_domain_end_folds={};support_domain_target_piece={:?};support_domain_origin=({:.3e},{:.3e});support_domain_span=({:.3e},{:.3e});support_domain_skew={:.3e};support_domain_decline_reason={};support_domain_refine_evaluated={};support_domain_refine_accepted={};support_domain_refine_rejected={};support_domain_refine_start_folds={};support_domain_refine_end_folds={};support_domain_refine_target_piece={:?};support_domain_refine_origin=({:.3e},{:.3e});support_domain_refine_span=({:.3e},{:.3e});support_domain_refine_skew={:.3e};support_domain_refine_decline_reason={};coupled_domain_evaluated={};coupled_domain_accepted={};coupled_domain_rejected={};coupled_domain_start_folds={};coupled_domain_end_folds={};coupled_domain_support_origin=({:.3e},{:.3e});coupled_domain_support_span=({:.3e},{:.3e});coupled_domain_support_skew={:.3e};coupled_domain_origin_shift={:.3e};coupled_domain_origin_scale={:.3e};coupled_domain_decline_reason={};support_transition_evaluated={};support_transition_accepted={};support_transition_rejected={};support_transition_start_folds={};support_transition_end_folds={};support_transition_target_piece={:?};support_transition_alpha={:.3e};support_transition_normal_scale={:.3e};support_transition_skew_scale={:.3e};support_transition_decline_reason={};support_reparam_evaluated={};support_reparam_fast_accepted={};support_reparam_fast_rejected={};support_reparam_lift_evaluated={};support_reparam_accepted={};support_reparam_rejected={};support_reparam_start_folds={};support_reparam_end_folds={};support_reparam_target_piece={:?};support_reparam_params={};support_reparam_decline_reason={};optimizer_active_fold_sites={};optimizer_row_variables={};optimizer_evaluated={};optimizer_accepted={};optimizer_rejected={};accepted_steps={}",
         default.fold_count,
         lifted.fold_count,
         piece_counts_label(lifted.piece_fold_counts),
@@ -112,6 +113,19 @@ pub(super) fn nonoverlap_coupled_lift_detail(
         support_domain_refine.span_v,
         support_domain_refine.skew,
         support_domain_refine.decline_reason,
+        coupled_domain.evaluated,
+        coupled_domain.accepted,
+        coupled_domain.rejected,
+        coupled_domain.start_folds,
+        coupled_domain.end_folds,
+        coupled_domain.support_origin_u,
+        coupled_domain.support_origin_v,
+        coupled_domain.support_span_u,
+        coupled_domain.support_span_v,
+        coupled_domain.support_skew,
+        coupled_domain.origin_shift,
+        coupled_domain.origin_scale,
+        coupled_domain.decline_reason,
         support_transition.evaluated,
         support_transition.accepted,
         support_transition.rejected,
