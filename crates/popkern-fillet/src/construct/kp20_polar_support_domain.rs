@@ -15,7 +15,7 @@ use super::super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
     Kp20SupportDomainReport,
 };
-use domain_candidates::{refine_coupled_domain, refine_split_domain};
+use domain_candidates::{refine_coupled_domain, refine_preassembly_interior, refine_split_domain};
 
 #[path = "kp20_polar_support_domain_candidates.rs"]
 mod domain_candidates;
@@ -113,6 +113,14 @@ pub(super) fn support_domain_basis_candidate(
         split_fraction: 0.5,
         interface_pull: 0.0,
         decline_reason: "split_domain_not_run",
+        assembly_evaluated: 0,
+        assembly_accepted: 0,
+        assembly_rejected: 0,
+        assembly_start_folds: baseline.0.fold_count,
+        assembly_end_folds: baseline.0.fold_count,
+        assembly_normal_scale: 0.0,
+        assembly_radial_scale: 0.0,
+        assembly_decline_reason: "preassembly_interior_not_run",
     };
     let mut best: Option<(
         Vec<Kp20MacroPatch>,
@@ -215,6 +223,26 @@ pub(super) fn support_domain_basis_candidate(
         &coupled_summary,
         &mut best,
         coupled_params,
+    )?;
+    let Some((_, split_summary, split_params)) = best.as_ref() else {
+        return Ok((
+            macro_patches,
+            report,
+            refine_report,
+            coupled_report,
+            split_report,
+        ));
+    };
+    let split_summary = split_summary.clone();
+    let split_params = *split_params;
+    refine_preassembly_interior(
+        star_point,
+        &guide,
+        tensor_border,
+        &split_summary,
+        &mut best,
+        split_params,
+        &mut split_report,
     )?;
     let Some((macro_patches, split_summary, _support_params)) = best else {
         return Ok((

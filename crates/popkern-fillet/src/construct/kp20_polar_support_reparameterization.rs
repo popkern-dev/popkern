@@ -95,4 +95,12 @@ pub(super) struct Kp20SplitDomainReport {
     pub(super) split_fraction: f64,
     pub(super) interface_pull: f64,
     pub(super) decline_reason: &'static str,
+    pub(super) assembly_evaluated: usize,
+    pub(super) assembly_accepted: usize,
+    pub(super) assembly_rejected: usize,
+    pub(super) assembly_start_folds: usize,
+    pub(super) assembly_end_folds: usize,
+    pub(super) assembly_normal_scale: f64,
+    pub(super) assembly_radial_scale: f64,
+    pub(super) assembly_decline_reason: &'static str,
 }
