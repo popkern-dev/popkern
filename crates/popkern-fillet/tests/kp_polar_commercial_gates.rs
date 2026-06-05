@@ -276,7 +276,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                         && cap.detail_code.as_deref().is_some_and(|detail| {
                             detail.contains("bounded_affine_folds=")
                                 && detail.contains("sampler_total_ms=")
-                                && detail.contains("orientation_valid_ms=")
+                                && detail.contains("paper_oriented_ms=")
                                 && detail.contains("support_normal_lift_ms=")
                                 && detail.contains("support_image_composed_ms=")
                                 && detail.contains("sector_local_tau_ms=")
@@ -404,6 +404,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("kp20_paper_alignment=valence:6|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9")
                                 && detail.contains("paper_domain_inside:true")
                                 && detail.contains("non_positive_orientation_maps:3")
+                                && detail.contains("paper_oriented_non_positive_maps:0")
                                 && detail.contains("tau_available:true")
                         })
             )),

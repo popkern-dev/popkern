@@ -62,6 +62,20 @@ pub fn kp20_orientation_valid_sector_piece_maps() -> Kp20SectorPieceMaps {
     ]
 }
 
+/// Default-footprint piece maps with every base affine map oriented
+/// positively in the sector-local guide domain.
+pub fn kp20_paper_oriented_sector_piece_maps() -> Kp20SectorPieceMaps {
+    let mut maps = kp20_default_sector_piece_maps();
+    for (_, corner_maps) in &mut maps {
+        let base = corner_maps[0].1;
+        let det = base.du[0] * base.dv[1] - base.du[1] * base.dv[0];
+        if det < 0.0 {
+            *corner_maps = square_maps(base.origin, base.dv, base.du);
+        }
+    }
+    maps
+}
+
 /// Domain-coverage report for the current affine piece-map scaffold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20PieceMapDomainReport {
@@ -88,12 +102,18 @@ impl Kp20PieceMapDomainReport {
 /// Measure whether the current affine piece maps extrapolate outside the
 /// sector-local triangular guide domain.
 pub fn kp20_default_piece_map_domain_report() -> Kp20PieceMapDomainReport {
+    kp20_piece_map_domain_report(kp20_default_sector_piece_maps())
+}
+
+/// Measure whether caller-supplied affine piece maps stay inside the
+/// sector-local triangular guide domain and preserve positive orientation.
+pub fn kp20_piece_map_domain_report(maps: Kp20SectorPieceMaps) -> Kp20PieceMapDomainReport {
     let mut outside_triangle_corners = 0;
     let mut max_simplex_excess = 0.0_f64;
     let mut offending_corners = Vec::new();
     let mut non_positive_orientation_maps = 0;
     let mut orientation_offenders = Vec::new();
-    for (piece, maps) in kp20_default_sector_piece_maps() {
+    for (piece, maps) in maps {
         let base_map = maps[0].1;
         let det = base_map.du[0] * base_map.dv[1] - base_map.du[1] * base_map.dv[0];
         if det <= 1.0e-12 {
@@ -142,6 +162,14 @@ pub fn sample_kp20_macro_patch_from_orientation_valid_maps(
     guide: &Kp20Tri6GuideSector,
 ) -> Kp20MacroPatch {
     kp20_sample_macro_patch_from_guide(guide, kp20_orientation_valid_sector_piece_maps())
+}
+
+/// Sample one guide sector into one KP20 macro-patch using the
+/// paper-oriented default-footprint comparison maps.
+pub fn sample_kp20_macro_patch_from_paper_oriented_maps(
+    guide: &Kp20Tri6GuideSector,
+) -> Kp20MacroPatch {
+    kp20_sample_macro_patch_from_guide(guide, kp20_paper_oriented_sector_piece_maps())
 }
 
 /// Sample one guide sector into one KP20 macro-patch using the

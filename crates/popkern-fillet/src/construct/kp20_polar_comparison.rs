@@ -4,7 +4,9 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PieceId, Kp20TauMap, TensorBorderBi3,
     build_kp20_guide_ring, kp20_default_piece_map_domain_report,
-    sample_kp20_macro_patch_from_orientation_valid_maps, sample_kp20_macro_patch_from_tau_maps,
+    kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
+    sample_kp20_macro_patch_from_orientation_valid_maps,
+    sample_kp20_macro_patch_from_paper_oriented_maps, sample_kp20_macro_patch_from_tau_maps,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -31,6 +33,8 @@ pub(super) fn sampler_comparison_diagnostic(
     let total_start = Instant::now();
     let (orientation_valid, orientation_valid_ms) =
         timed(|| orientation_valid_candidate_summary(star_point, tensor_border));
+    let (paper_oriented, paper_oriented_ms) =
+        timed(|| paper_oriented_candidate_summary(star_point, tensor_border));
     let (normal_lift, normal_lift_ms) =
         timed(|| normal_lift_candidate_summary(star_point, tensor_border));
     let (support_image_composed, support_image_composed_ms) =
@@ -43,12 +47,13 @@ pub(super) fn sampler_comparison_diagnostic(
         timed(|| tau_candidate_summary(star_point, tensor_border));
     let total_ms = elapsed_ms(total_start);
     let mut detail = format!(
-        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
+        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};paper_oriented_ms={paper_oriented_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
         bounded_affine.fold_count,
         bounded_affine.min_jacobian_normal_cos,
         piece_counts_label(bounded_affine.piece_fold_counts)
     );
     append_candidate_detail(&mut detail, "orientation_valid", &orientation_valid);
+    append_candidate_detail(&mut detail, "paper_oriented", &paper_oriented);
     append_support_lift_detail(&mut detail, "support_normal_lift", &normal_lift);
     append_candidate_detail(&mut detail, "support_image", &support_image);
     append_support_lift_detail(&mut detail, "support_image_lift", &support_image_lift);
@@ -58,6 +63,7 @@ pub(super) fn sampler_comparison_diagnostic(
         &mut detail,
         tensor_border,
         &bounded_affine,
+        &paper_oriented,
         &sector_local_tau,
     );
     comparison_diagnostic(
@@ -74,9 +80,11 @@ fn append_paper_alignment_detail(
     detail: &mut String,
     tensor_border: &TensorBorderBi3,
     bounded_affine: &Kp20SamplerFoldSummary,
+    paper_oriented: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
     sector_local_tau: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
 ) {
     let domain = kp20_default_piece_map_domain_report();
+    let paper_domain = kp20_piece_map_domain_report(kp20_paper_oriented_sector_piece_maps());
     let tau_available = (0..tensor_border.sectors.len())
         .all(|sector| Kp20TauMap::for_sector_local(tensor_border.sectors.len(), sector).is_ok());
     let tau_label = sector_local_tau.as_ref().map_or_else(
@@ -90,17 +98,31 @@ fn append_paper_alignment_detail(
             )
         },
     );
+    let paper_label = paper_oriented.as_ref().map_or_else(
+        |err| format!("declined:{err}"),
+        |(summary, validation)| {
+            format!(
+                "sampled|folds:{}|piece_folds:{}|validation:{}",
+                summary.fold_count,
+                piece_counts_label(summary.piece_fold_counts),
+                validation_label(validation)
+            )
+        },
+    );
     detail.push_str(&format!(
-        ";kp20_paper_alignment=valence:{}|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9|paper_domain_inside:{}|outside_corners:{}|max_simplex_excess:{:.3e}|positive_orientation_maps:{}|non_positive_orientation_maps:{}|tau_available:{}|bounded_affine_folds:{}|bounded_affine_piece_folds:{}|sector_local_tau:{}",
+        ";kp20_paper_alignment=valence:{}|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9|paper_domain_inside:{}|outside_corners:{}|max_simplex_excess:{:.3e}|positive_orientation_maps:{}|non_positive_orientation_maps:{}|paper_oriented_inside:{}|paper_oriented_non_positive_maps:{}|tau_available:{}|bounded_affine_folds:{}|bounded_affine_piece_folds:{}|paper_oriented:{}|sector_local_tau:{}",
         tensor_border.sectors.len(),
         domain.stays_inside_triangle(),
         domain.outside_triangle_corners,
         domain.max_simplex_excess,
         4_usize.saturating_sub(domain.non_positive_orientation_maps),
         domain.non_positive_orientation_maps,
+        paper_domain.stays_inside_triangle(),
+        paper_domain.non_positive_orientation_maps,
         tau_available,
         bounded_affine.fold_count,
         piece_counts_label(bounded_affine.piece_fold_counts),
+        paper_label,
         tau_label,
     ));
 }
@@ -176,6 +198,23 @@ fn orientation_valid_candidate_summary(
         .sectors
         .iter()
         .map(sample_kp20_macro_patch_from_orientation_valid_maps)
+        .collect::<Vec<_>>();
+    candidate_summary_from_sampled(tensor_border, sampled_macro_patches)
+}
+
+fn paper_oriented_candidate_summary(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+        star_point,
+        tensor_border: tensor_border.clone(),
+    })
+    .map_err(|e| e.to_string())?;
+    let sampled_macro_patches = guide
+        .sectors
+        .iter()
+        .map(sample_kp20_macro_patch_from_paper_oriented_maps)
         .collect::<Vec<_>>();
     candidate_summary_from_sampled(tensor_border, sampled_macro_patches)
 }

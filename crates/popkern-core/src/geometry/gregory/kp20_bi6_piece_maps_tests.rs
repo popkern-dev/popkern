@@ -67,6 +67,35 @@ fn orientation_valid_piece_maps_sample_all_pieces_from_guide() {
 }
 
 #[test]
+fn paper_oriented_piece_maps_preserve_default_footprint_with_positive_orientation() {
+    let default_report = kp20_default_piece_map_domain_report();
+    let paper_report = kp20_piece_map_domain_report(kp20_paper_oriented_sector_piece_maps());
+
+    assert_eq!(default_report.outside_triangle_corners, 0);
+    assert_eq!(paper_report.outside_triangle_corners, 0);
+    assert_eq!(paper_report.non_positive_orientation_maps, 0);
+    assert!(paper_report.orientation_offenders.is_empty());
+}
+
+#[test]
+fn paper_oriented_piece_maps_sample_all_pieces_from_guide() {
+    let guide = affine_guide();
+
+    let macro_patch = sample_kp20_macro_patch_from_paper_oriented_maps(&guide);
+
+    for id in Kp20PieceId::all() {
+        let piece = macro_patch.piece(id);
+        for row in piece.cps {
+            for cp in row {
+                assert!(cp.x.is_finite());
+                assert!(cp.y.is_finite());
+                assert!(cp.z.is_finite());
+            }
+        }
+    }
+}
+
+#[test]
 fn tau_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
