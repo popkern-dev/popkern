@@ -35,6 +35,11 @@ pub(super) fn refine_origin_inner_interior_row(
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20OriginInnerRowReport), String> {
+    let (lift, coupled_report) =
+        super::inner_field::refine_coupled_origin_support_field(star_point, tensor_border, lift)?;
+    if coupled_report.accepted > 0 {
+        return Ok((lift, coupled_report));
+    }
     let (lift, corner_report) =
         super::inner_field::refine_origin_corner_field(star_point, tensor_border, lift)?;
     if corner_report.accepted > 0 {
@@ -47,10 +52,14 @@ pub(super) fn refine_origin_inner_interior_row(
         &[-0.20, -0.12, 0.12, 0.20],
         &[Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight],
     )?;
-    fallback_report.pre_evaluated = corner_report.evaluated;
-    fallback_report.pre_accepted = corner_report.accepted;
-    fallback_report.pre_rejected = corner_report.rejected;
-    fallback_report.pre_mode = corner_report.mode;
+    fallback_report.pre_evaluated = coupled_report.evaluated + corner_report.evaluated;
+    fallback_report.pre_accepted = coupled_report.accepted + corner_report.accepted;
+    fallback_report.pre_rejected = coupled_report.rejected + corner_report.rejected;
+    fallback_report.pre_mode = if coupled_report.accepted == 0 && corner_report.accepted == 0 {
+        "coupled_origin_support_none|origin_corner_none"
+    } else {
+        corner_report.mode
+    };
     Ok((lift, fallback_report))
 }
 
@@ -208,6 +217,14 @@ impl Kp20OriginInnerMode {
             Self::Normal => "origin_corner_normal",
             Self::Radial => "origin_corner_radial",
             Self::Chord => "origin_corner_chord",
+        }
+    }
+
+    pub(super) const fn coupled_field_label(self) -> &'static str {
+        match self {
+            Self::Normal => "coupled_origin_support_normal",
+            Self::Radial => "coupled_origin_support_radial",
+            Self::Chord => "coupled_origin_support_chord",
         }
     }
 }

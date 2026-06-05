@@ -30,6 +30,21 @@ pub(super) fn refine_origin_corner_field(
     )
 }
 
+pub(super) fn refine_coupled_origin_support_field(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    lift: Kp20SupportNormalLiftReport,
+) -> Result<(Kp20SupportNormalLiftReport, Kp20OriginInnerRowReport), String> {
+    refine_field(
+        star_point,
+        tensor_border,
+        lift,
+        "coupled_origin_support_none",
+        &[-0.24, -0.16, -0.08, 0.08, 0.16, 0.24],
+        Kp20InnerFieldKind::CoupledOriginSupport,
+    )
+}
+
 pub(super) fn refine_support_interior_field(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
@@ -147,6 +162,7 @@ fn refine_field(
 
 #[derive(Debug, Clone, Copy)]
 enum Kp20InnerFieldKind {
+    CoupledOriginSupport,
     OriginCorner,
     SupportInterior,
 }
@@ -154,6 +170,7 @@ enum Kp20InnerFieldKind {
 impl Kp20InnerFieldKind {
     fn label(self, mode: Kp20OriginInnerMode) -> &'static str {
         match self {
+            Self::CoupledOriginSupport => mode.coupled_field_label(),
             Self::OriginCorner => mode.origin_corner_label(),
             Self::SupportInterior => mode.field_label(),
         }
@@ -170,6 +187,14 @@ fn apply_field_update(
     kind: Kp20InnerFieldKind,
 ) -> Vec<[bool; 4]> {
     match kind {
+        Kp20InnerFieldKind::CoupledOriginSupport => apply_coupled_origin_support_update(
+            macro_patches,
+            star_point,
+            tensor_border,
+            mode,
+            scale,
+            fold_sites,
+        ),
         Kp20InnerFieldKind::OriginCorner => apply_origin_corner_field_update(
             macro_patches,
             star_point,
@@ -187,6 +212,73 @@ fn apply_field_update(
             fold_sites,
         ),
     }
+}
+
+fn apply_coupled_origin_support_update(
+    macro_patches: &mut [Kp20MacroPatch],
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    mode: Kp20OriginInnerMode,
+    scale: f64,
+    fold_sites: &[Kp20FoldSite],
+) -> Vec<[bool; 4]> {
+    let mut changed = vec![[false; 4]; macro_patches.len()];
+    for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {
+        let direction = origin_inner_direction(star_point, tensor_border, sector, mode);
+        let span = sector_span(star_point, tensor_border, sector);
+        let origin_sites = fold_sites
+            .iter()
+            .filter(|site| {
+                site.sector == sector
+                    && matches!(
+                        site.piece,
+                        Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight
+                    )
+            })
+            .copied()
+            .collect::<Vec<_>>();
+        let support_sites = fold_sites
+            .iter()
+            .filter(|site| site.sector == sector && site.piece == Kp20PieceId::NearMidpointLeft)
+            .copied()
+            .collect::<Vec<_>>();
+        if origin_sites.is_empty() && support_sites.is_empty() {
+            continue;
+        }
+        for piece_id in [Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight] {
+            let sites = origin_sites
+                .iter()
+                .filter(|site| site.piece == piece_id)
+                .copied()
+                .collect::<Vec<_>>();
+            if sites.is_empty() {
+                continue;
+            }
+            let piece = macro_patch.piece_mut(piece_id);
+            for i in 1..=3 {
+                for j in 1..=3 {
+                    let weight = origin_corner_weight(i, j, &sites);
+                    if weight > 0.0 {
+                        piece.cps[i][j] = piece.cps[i][j] + direction * (scale * span * weight);
+                        changed[sector][piece_id.index()] = true;
+                    }
+                }
+            }
+        }
+        if !support_sites.is_empty() {
+            let piece = macro_patch.piece_mut(Kp20PieceId::NearMidpointLeft);
+            for i in 1..=5 {
+                for j in 1..=5 {
+                    let weight = 0.65 * support_field_weight(i, j, &support_sites);
+                    if weight > 0.0 {
+                        piece.cps[i][j] = piece.cps[i][j] + direction * (-scale * span * weight);
+                        changed[sector][Kp20PieceId::NearMidpointLeft.index()] = true;
+                    }
+                }
+            }
+        }
+    }
+    changed
 }
 
 fn apply_origin_corner_field_update(
