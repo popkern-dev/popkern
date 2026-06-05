@@ -122,6 +122,29 @@ pub fn kp20_coupled_stitched_sector_piece_maps() -> Kp20SectorPieceMaps {
     ]
 }
 
+/// Positive-orientation adjacent maps with C2-compatible support-origin
+/// edges and a reversed-parameter origin-strip seam.
+pub fn kp20_nonoverlap_coupled_sector_piece_maps() -> Kp20SectorPieceMaps {
+    [
+        (
+            Kp20PieceId::NearOriginLeft,
+            square_maps([0.25, 0.25], [0.25, 0.0], [0.0, 0.25]),
+        ),
+        (
+            Kp20PieceId::NearOriginRight,
+            square_maps([0.5, 0.25], [-0.25, 0.0], [0.0, -0.25]),
+        ),
+        (
+            Kp20PieceId::NearMidpointRight,
+            square_maps([0.75, 0.25], [-0.25, 0.0], [0.0, -0.25]),
+        ),
+        (
+            Kp20PieceId::NearMidpointLeft,
+            square_maps([0.0, 0.25], [0.25, 0.0], [0.0, 0.25]),
+        ),
+    ]
+}
+
 /// Domain-coverage report for the current affine piece-map scaffold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20PieceMapDomainReport {
@@ -147,6 +170,8 @@ pub struct Kp20PieceMapStitchReport {
     /// Largest mismatch between origin-piece `v=0` rows used by KP20
     /// equation (13)'s origin strip.
     pub max_origin_strip_edge_mismatch: f64,
+    /// Whether the origin-strip edge match uses reversed parameter order.
+    pub origin_strip_reversed: bool,
     /// Smallest center-to-center distance between semantic piece maps.
     pub min_piece_center_separation: f64,
 }
@@ -219,19 +244,34 @@ pub fn kp20_piece_map_stitch_report(maps: Kp20SectorPieceMaps) -> Kp20PieceMapSt
         EdgeCoord::U1,
         near_origin_left,
         EdgeCoord::U0,
+        false,
     )
     .max(max_edge_mismatch(
         near_midpoint_right,
         EdgeCoord::U1,
         near_origin_right,
         EdgeCoord::U0,
+        false,
     ));
-    let max_origin_strip_edge_mismatch = max_edge_mismatch(
+    let origin_same = max_edge_mismatch(
         near_origin_left,
         EdgeCoord::V0,
         near_origin_right,
         EdgeCoord::V0,
+        false,
     );
+    let origin_reversed = max_edge_mismatch(
+        near_origin_left,
+        EdgeCoord::V0,
+        near_origin_right,
+        EdgeCoord::V0,
+        true,
+    );
+    let (max_origin_strip_edge_mismatch, origin_strip_reversed) = if origin_reversed < origin_same {
+        (origin_reversed, true)
+    } else {
+        (origin_same, false)
+    };
     let min_piece_center_separation = min_center_separation([
         near_origin_left,
         near_origin_right,
@@ -241,6 +281,7 @@ pub fn kp20_piece_map_stitch_report(maps: Kp20SectorPieceMaps) -> Kp20PieceMapSt
     Kp20PieceMapStitchReport {
         max_internal_c2_edge_mismatch,
         max_origin_strip_edge_mismatch,
+        origin_strip_reversed,
         min_piece_center_separation,
     }
 }
@@ -258,38 +299,6 @@ pub fn sample_kp20_macro_patch_from_piece_maps(
     maps: Kp20SectorPieceMaps,
 ) -> Kp20MacroPatch {
     kp20_sample_macro_patch_from_guide(guide, maps)
-}
-
-/// Sample one guide sector into one KP20 macro-patch using the
-/// orientation-valid comparison maps.
-pub fn sample_kp20_macro_patch_from_orientation_valid_maps(
-    guide: &Kp20Tri6GuideSector,
-) -> Kp20MacroPatch {
-    kp20_sample_macro_patch_from_guide(guide, kp20_orientation_valid_sector_piece_maps())
-}
-
-/// Sample one guide sector into one KP20 macro-patch using the
-/// paper-oriented default-footprint comparison maps.
-pub fn sample_kp20_macro_patch_from_paper_oriented_maps(
-    guide: &Kp20Tri6GuideSector,
-) -> Kp20MacroPatch {
-    kp20_sample_macro_patch_from_guide(guide, kp20_paper_oriented_sector_piece_maps())
-}
-
-/// Sample one guide sector into one KP20 macro-patch using the
-/// C2-stitched comparison maps.
-pub fn sample_kp20_macro_patch_from_c2_stitched_maps(
-    guide: &Kp20Tri6GuideSector,
-) -> Kp20MacroPatch {
-    kp20_sample_macro_patch_from_guide(guide, kp20_c2_stitched_sector_piece_maps())
-}
-
-/// Sample one guide sector into one KP20 macro-patch using the
-/// coupled stitched comparison maps.
-pub fn sample_kp20_macro_patch_from_coupled_stitched_maps(
-    guide: &Kp20Tri6GuideSector,
-) -> Kp20MacroPatch {
-    kp20_sample_macro_patch_from_guide(guide, kp20_coupled_stitched_sector_piece_maps())
 }
 
 /// Sample one guide sector into one KP20 macro-patch using the
@@ -380,6 +389,7 @@ fn invalid_stitch_report() -> Kp20PieceMapStitchReport {
     Kp20PieceMapStitchReport {
         max_internal_c2_edge_mismatch: f64::INFINITY,
         max_origin_strip_edge_mismatch: f64::INFINITY,
+        origin_strip_reversed: false,
         min_piece_center_separation: 0.0,
     }
 }
@@ -398,13 +408,18 @@ fn max_edge_mismatch(
     first_edge: EdgeCoord,
     second: Kp20AffineGuideMap,
     second_edge: EdgeCoord,
+    reverse_second: bool,
 ) -> f64 {
     [0.0, 0.5, 1.0]
         .into_iter()
         .map(|t| {
             distance2(
                 edge_point(first, first_edge, t),
-                edge_point(second, second_edge, t),
+                edge_point(
+                    second,
+                    second_edge,
+                    if reverse_second { 1.0 - t } else { t },
+                ),
             )
         })
         .fold(0.0, f64::max)

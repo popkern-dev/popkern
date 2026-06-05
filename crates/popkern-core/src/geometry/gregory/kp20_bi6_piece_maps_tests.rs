@@ -53,7 +53,8 @@ fn default_piece_maps_sample_all_pieces_from_guide() {
 fn orientation_valid_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
-    let macro_patch = sample_kp20_macro_patch_from_orientation_valid_maps(&guide);
+    let macro_patch =
+        sample_kp20_macro_patch_from_piece_maps(&guide, kp20_orientation_valid_sector_piece_maps());
 
     for id in Kp20PieceId::all() {
         let piece = macro_patch.piece(id);
@@ -81,7 +82,8 @@ fn paper_oriented_piece_maps_preserve_default_footprint_with_positive_orientatio
 fn paper_oriented_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
-    let macro_patch = sample_kp20_macro_patch_from_paper_oriented_maps(&guide);
+    let macro_patch =
+        sample_kp20_macro_patch_from_piece_maps(&guide, kp20_paper_oriented_sector_piece_maps());
 
     for id in Kp20PieceId::all() {
         let piece = macro_patch.piece(id);
@@ -111,7 +113,8 @@ fn c2_stitched_piece_maps_are_inside_positive_and_edge_compatible() {
 fn c2_stitched_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
-    let macro_patch = sample_kp20_macro_patch_from_c2_stitched_maps(&guide);
+    let macro_patch =
+        sample_kp20_macro_patch_from_piece_maps(&guide, kp20_c2_stitched_sector_piece_maps());
 
     for id in Kp20PieceId::all() {
         let piece = macro_patch.piece(id);
@@ -135,14 +138,51 @@ fn coupled_stitched_piece_maps_are_inside_positive_and_edge_compatible() {
     assert_eq!(domain.non_positive_orientation_maps, 0);
     assert!(stitch.max_internal_c2_edge_mismatch <= 1.0e-12);
     assert!(stitch.max_origin_strip_edge_mismatch <= 1.0e-12);
+    assert!(!stitch.origin_strip_reversed);
     assert!(stitch.min_piece_center_separation <= 1.0e-12);
+}
+
+#[test]
+fn nonoverlap_coupled_piece_maps_are_inside_positive_and_separated() {
+    let maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let domain = kp20_piece_map_domain_report(maps);
+    let stitch = kp20_piece_map_stitch_report(maps);
+
+    assert!(domain.stays_inside_triangle());
+    assert_eq!(domain.non_positive_orientation_maps, 0);
+    assert!(stitch.max_internal_c2_edge_mismatch <= 1.0e-12);
+    assert!(stitch.max_origin_strip_edge_mismatch <= 1.0e-12);
+    assert!(stitch.origin_strip_reversed);
+    assert!(stitch.min_piece_center_separation > 0.24);
 }
 
 #[test]
 fn coupled_stitched_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
-    let macro_patch = sample_kp20_macro_patch_from_coupled_stitched_maps(&guide);
+    let macro_patch =
+        sample_kp20_macro_patch_from_piece_maps(&guide, kp20_coupled_stitched_sector_piece_maps());
+
+    for id in Kp20PieceId::all() {
+        let piece = macro_patch.piece(id);
+        for row in piece.cps {
+            for cp in row {
+                assert!(cp.x.is_finite());
+                assert!(cp.y.is_finite());
+                assert!(cp.z.is_finite());
+            }
+        }
+    }
+}
+
+#[test]
+fn nonoverlap_coupled_piece_maps_sample_all_pieces_from_guide() {
+    let guide = affine_guide();
+
+    let macro_patch = sample_kp20_macro_patch_from_piece_maps(
+        &guide,
+        kp20_nonoverlap_coupled_sector_piece_maps(),
+    );
 
     for id in Kp20PieceId::all() {
         let piece = macro_patch.piece(id);

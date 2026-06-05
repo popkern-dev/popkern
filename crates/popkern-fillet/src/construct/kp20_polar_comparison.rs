@@ -5,9 +5,9 @@ use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PieceId, Kp20SectorPieceMaps, Kp20TauMap,
     TensorBorderBi3, build_kp20_guide_ring, kp20_c2_stitched_sector_piece_maps,
     kp20_coupled_stitched_sector_piece_maps, kp20_default_piece_map_domain_report,
-    kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
-    kp20_piece_map_stitch_report, sample_kp20_macro_patch_from_piece_maps,
-    sample_kp20_macro_patch_from_tau_maps,
+    kp20_nonoverlap_coupled_sector_piece_maps, kp20_paper_oriented_sector_piece_maps,
+    kp20_piece_map_domain_report, kp20_piece_map_stitch_report,
+    sample_kp20_macro_patch_from_piece_maps, sample_kp20_macro_patch_from_tau_maps,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -60,6 +60,13 @@ pub(super) fn sampler_comparison_diagnostic(
             kp20_coupled_stitched_sector_piece_maps(),
         )
     });
+    let (nonoverlap_coupled, nonoverlap_coupled_ms) = timed(|| {
+        mapped_candidate_summary(
+            star_point,
+            tensor_border,
+            kp20_nonoverlap_coupled_sector_piece_maps(),
+        )
+    });
     let (normal_lift, normal_lift_ms) =
         timed(|| normal_lift_candidate_summary(star_point, tensor_border));
     let (support_image_composed, support_image_composed_ms) =
@@ -72,7 +79,7 @@ pub(super) fn sampler_comparison_diagnostic(
         timed(|| tau_candidate_summary(star_point, tensor_border));
     let total_ms = elapsed_ms(total_start);
     let mut detail = format!(
-        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};paper_oriented_ms={paper_oriented_ms};c2_stitched_ms={c2_stitched_ms};coupled_stitched_ms={coupled_stitched_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
+        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};paper_oriented_ms={paper_oriented_ms};c2_stitched_ms={c2_stitched_ms};coupled_stitched_ms={coupled_stitched_ms};nonoverlap_coupled_ms={nonoverlap_coupled_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
         bounded_affine.fold_count,
         bounded_affine.min_jacobian_normal_cos,
         piece_counts_label(bounded_affine.piece_fold_counts)
@@ -81,6 +88,7 @@ pub(super) fn sampler_comparison_diagnostic(
     append_candidate_detail(&mut detail, "paper_oriented", &paper_oriented);
     append_candidate_detail(&mut detail, "c2_stitched", &c2_stitched);
     append_candidate_detail(&mut detail, "coupled_stitched", &coupled_stitched);
+    append_candidate_detail(&mut detail, "nonoverlap_coupled", &nonoverlap_coupled);
     append_support_lift_detail(&mut detail, "support_normal_lift", &normal_lift);
     append_candidate_detail(&mut detail, "support_image", &support_image);
     append_support_lift_detail(&mut detail, "support_image_lift", &support_image_lift);
@@ -93,6 +101,7 @@ pub(super) fn sampler_comparison_diagnostic(
         &paper_oriented,
         &c2_stitched,
         &coupled_stitched,
+        &nonoverlap_coupled,
         &sector_local_tau,
     );
     comparison_diagnostic(
@@ -112,6 +121,7 @@ fn append_paper_alignment_detail(
     paper_oriented: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
     c2_stitched: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
     coupled_stitched: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
+    nonoverlap_coupled: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
     sector_local_tau: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
 ) {
     let domain = kp20_default_piece_map_domain_report();
@@ -124,54 +134,19 @@ fn append_paper_alignment_detail(
     let c2_stitch = kp20_piece_map_stitch_report(kp20_c2_stitched_sector_piece_maps());
     let coupled_domain = kp20_piece_map_domain_report(kp20_coupled_stitched_sector_piece_maps());
     let coupled_stitch = kp20_piece_map_stitch_report(kp20_coupled_stitched_sector_piece_maps());
+    let nonoverlap_domain =
+        kp20_piece_map_domain_report(kp20_nonoverlap_coupled_sector_piece_maps());
+    let nonoverlap_stitch =
+        kp20_piece_map_stitch_report(kp20_nonoverlap_coupled_sector_piece_maps());
     let tau_available = (0..tensor_border.sectors.len())
         .all(|sector| Kp20TauMap::for_sector_local(tensor_border.sectors.len(), sector).is_ok());
-    let tau_label = sector_local_tau.as_ref().map_or_else(
-        |err| format!("declined:{err}"),
-        |(summary, validation)| {
-            format!(
-                "sampled|folds:{}|piece_folds:{}|validation:{}",
-                summary.fold_count,
-                piece_counts_label(summary.piece_fold_counts),
-                validation_label(validation)
-            )
-        },
-    );
-    let paper_label = paper_oriented.as_ref().map_or_else(
-        |err| format!("declined:{err}"),
-        |(summary, validation)| {
-            format!(
-                "sampled|folds:{}|piece_folds:{}|validation:{}",
-                summary.fold_count,
-                piece_counts_label(summary.piece_fold_counts),
-                validation_label(validation)
-            )
-        },
-    );
-    let c2_label = c2_stitched.as_ref().map_or_else(
-        |err| format!("declined:{err}"),
-        |(summary, validation)| {
-            format!(
-                "sampled|folds:{}|piece_folds:{}|validation:{}",
-                summary.fold_count,
-                piece_counts_label(summary.piece_fold_counts),
-                validation_label(validation)
-            )
-        },
-    );
-    let coupled_label = coupled_stitched.as_ref().map_or_else(
-        |err| format!("declined:{err}"),
-        |(summary, validation)| {
-            format!(
-                "sampled|folds:{}|piece_folds:{}|validation:{}",
-                summary.fold_count,
-                piece_counts_label(summary.piece_fold_counts),
-                validation_label(validation)
-            )
-        },
-    );
+    let tau_label = candidate_label(sector_local_tau);
+    let paper_label = candidate_label(paper_oriented);
+    let c2_label = candidate_label(c2_stitched);
+    let coupled_label = candidate_label(coupled_stitched);
+    let nonoverlap_label = candidate_label(nonoverlap_coupled);
     detail.push_str(&format!(
-        ";kp20_paper_alignment=valence:{}|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9|paper_domain_inside:{}|outside_corners:{}|max_simplex_excess:{:.3e}|positive_orientation_maps:{}|non_positive_orientation_maps:{}|paper_oriented_inside:{}|paper_oriented_non_positive_maps:{}|c2_stitched_inside:{}|c2_stitched_non_positive_maps:{}|coupled_stitched_inside:{}|coupled_stitched_non_positive_maps:{}|default_c2_edge:{:.3e}|paper_c2_edge:{:.3e}|c2_stitched_c2_edge:{:.3e}|c2_stitched_origin_strip_edge:{:.3e}|coupled_stitched_c2_edge:{:.3e}|coupled_stitched_origin_strip_edge:{:.3e}|coupled_stitched_min_center_sep:{:.3e}|tau_available:{}|bounded_affine_folds:{}|bounded_affine_piece_folds:{}|paper_oriented:{}|c2_stitched:{}|coupled_stitched:{}|sector_local_tau:{}",
+        ";kp20_paper_alignment=valence:{}|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9|paper_domain_inside:{}|outside_corners:{}|max_simplex_excess:{:.3e}|positive_orientation_maps:{}|non_positive_orientation_maps:{}|paper_oriented_inside:{}|paper_oriented_non_positive_maps:{}|c2_stitched_inside:{}|c2_stitched_non_positive_maps:{}|coupled_stitched_inside:{}|coupled_stitched_non_positive_maps:{}|nonoverlap_coupled_inside:{}|nonoverlap_coupled_non_positive_maps:{}|default_c2_edge:{:.3e}|paper_c2_edge:{:.3e}|c2_stitched_c2_edge:{:.3e}|c2_stitched_origin_strip_edge:{:.3e}|coupled_stitched_c2_edge:{:.3e}|coupled_stitched_origin_strip_edge:{:.3e}|coupled_stitched_min_center_sep:{:.3e}|nonoverlap_coupled_c2_edge:{:.3e}|nonoverlap_coupled_origin_strip_edge:{:.3e}|nonoverlap_coupled_origin_reversed:{}|nonoverlap_coupled_min_center_sep:{:.3e}|tau_available:{}|bounded_affine_folds:{}|bounded_affine_piece_folds:{}|paper_oriented:{}|c2_stitched:{}|coupled_stitched:{}|nonoverlap_coupled:{}|sector_local_tau:{}",
         tensor_border.sectors.len(),
         domain.stays_inside_triangle(),
         domain.outside_triangle_corners,
@@ -184,6 +159,8 @@ fn append_paper_alignment_detail(
         c2_domain.non_positive_orientation_maps,
         coupled_domain.stays_inside_triangle(),
         coupled_domain.non_positive_orientation_maps,
+        nonoverlap_domain.stays_inside_triangle(),
+        nonoverlap_domain.non_positive_orientation_maps,
         default_stitch.max_internal_c2_edge_mismatch,
         paper_stitch.max_internal_c2_edge_mismatch,
         c2_stitch.max_internal_c2_edge_mismatch,
@@ -191,14 +168,35 @@ fn append_paper_alignment_detail(
         coupled_stitch.max_internal_c2_edge_mismatch,
         coupled_stitch.max_origin_strip_edge_mismatch,
         coupled_stitch.min_piece_center_separation,
+        nonoverlap_stitch.max_internal_c2_edge_mismatch,
+        nonoverlap_stitch.max_origin_strip_edge_mismatch,
+        nonoverlap_stitch.origin_strip_reversed,
+        nonoverlap_stitch.min_piece_center_separation,
         tau_available,
         bounded_affine.fold_count,
         piece_counts_label(bounded_affine.piece_fold_counts),
         paper_label,
         c2_label,
         coupled_label,
+        nonoverlap_label,
         tau_label,
     ));
+}
+
+fn candidate_label(
+    candidate: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
+) -> String {
+    candidate.as_ref().map_or_else(
+        |err| format!("declined:{err}"),
+        |(summary, validation)| {
+            format!(
+                "sampled|folds:{}|piece_folds:{}|validation:{}",
+                summary.fold_count,
+                piece_counts_label(summary.piece_fold_counts),
+                validation_label(validation)
+            )
+        },
+    )
 }
 
 fn support_image_result(
