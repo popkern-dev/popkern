@@ -96,6 +96,47 @@ fn paper_oriented_piece_maps_sample_all_pieces_from_guide() {
 }
 
 #[test]
+fn c2_stitched_piece_maps_are_inside_positive_and_edge_compatible() {
+    let maps = kp20_c2_stitched_sector_piece_maps();
+    let domain = kp20_piece_map_domain_report(maps);
+    let stitch = kp20_piece_map_stitch_report(maps);
+
+    assert!(domain.stays_inside_triangle());
+    assert_eq!(domain.non_positive_orientation_maps, 0);
+    assert!(stitch.max_internal_c2_edge_mismatch <= 1.0e-12);
+    assert!(stitch.max_origin_strip_edge_mismatch > 1.0e-12);
+}
+
+#[test]
+fn c2_stitched_piece_maps_sample_all_pieces_from_guide() {
+    let guide = affine_guide();
+
+    let macro_patch = sample_kp20_macro_patch_from_c2_stitched_maps(&guide);
+
+    for id in Kp20PieceId::all() {
+        let piece = macro_patch.piece(id);
+        for row in piece.cps {
+            for cp in row {
+                assert!(cp.x.is_finite());
+                assert!(cp.y.is_finite());
+                assert!(cp.z.is_finite());
+            }
+        }
+    }
+}
+
+#[test]
+fn stitch_report_fails_closed_for_missing_semantic_piece() {
+    let mut maps = kp20_c2_stitched_sector_piece_maps();
+    maps[0].0 = Kp20PieceId::NearMidpointLeft;
+
+    let stitch = kp20_piece_map_stitch_report(maps);
+
+    assert!(stitch.max_internal_c2_edge_mismatch.is_infinite());
+    assert!(stitch.max_origin_strip_edge_mismatch.is_infinite());
+}
+
+#[test]
 fn tau_piece_maps_sample_all_pieces_from_guide() {
     let guide = affine_guide();
 
