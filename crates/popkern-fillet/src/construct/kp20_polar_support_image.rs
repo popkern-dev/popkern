@@ -4,7 +4,8 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20MacroPatch,
     Kp20PieceId, Kp20SectorPieceMaps, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
-    build_kp20_guide_ring, kp20_default_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    build_kp20_guide_ring, kp20_default_sector_piece_maps,
+    kp20_nonoverlap_coupled_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::kp20_polar_fold_summary::{
@@ -14,6 +15,7 @@ use super::kp20_polar_fold_summary::{
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
+use super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
 #[path = "kp20_polar_support_image_params.rs"]
 mod params;
 use params::Kp20SupportImageParams;
@@ -36,6 +38,116 @@ pub(super) struct Kp20SupportImageSearchCandidate {
 struct Kp20AssembledSupportImageCandidate {
     macro_patches: Vec<Kp20MacroPatch>,
     params: Kp20SupportImageParams,
+}
+
+type LiftReport = Kp20SupportNormalLiftReport;
+type ReparamReport = Kp20SupportReparameterizationReport;
+type SupportReparamResult = Result<(LiftReport, ReparamReport), String>;
+
+pub(super) fn refine_support_side_reparameterization(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    baseline: Kp20SupportNormalLiftReport,
+) -> SupportReparamResult {
+    let target_piece = Kp20PieceId::NearMidpointLeft;
+    let mut report = Kp20SupportReparameterizationReport {
+        evaluated: 0,
+        fast_accepted: 0,
+        fast_rejected: 0,
+        lift_evaluated: 0,
+        accepted: 0,
+        rejected: 0,
+        start_folds: baseline.summary.fold_count,
+        end_folds: baseline.summary.fold_count,
+        target_piece,
+        params: "none".to_string(),
+        decline_reason: "support_reparameterization_no_candidate",
+    };
+    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+        star_point,
+        tensor_border: tensor_border.clone(),
+    })
+    .map_err(|e| e.to_string())?;
+    let baseline_summary = (baseline.summary.clone(), baseline.validation);
+    let mut best_fast: Option<(
+        Kp20AssembledSupportImageCandidate,
+        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    )> = None;
+    for params in Kp20SupportImageParams::support_side_reparameterization_family() {
+        report.evaluated += 1;
+        let mut changed_piece_sites = Vec::new();
+        let sampled_macro_patches = guide
+            .sectors
+            .iter()
+            .enumerate()
+            .map(|(sector, guide_sector)| {
+                let (maps, changed_sites) = targeted_support_image_piece_maps(
+                    kp20_nonoverlap_coupled_sector_piece_maps(),
+                    sector,
+                    params,
+                    &baseline.summary.fold_sites,
+                    target_piece,
+                );
+                changed_piece_sites.extend(changed_sites);
+                sample_kp20_macro_patch_from_piece_maps(guide_sector, maps)
+            })
+            .collect::<Vec<_>>();
+        if changed_piece_sites.is_empty() {
+            report.rejected += 1;
+            continue;
+        }
+        let candidate =
+            assembled_candidate_from_sampled(tensor_border, sampled_macro_patches, params)?;
+        let fast = fast_candidate_summary_from_changed_piece_sites(
+            tensor_border,
+            candidate.macro_patches.clone(),
+            &baseline.summary,
+            &changed_piece_sites,
+            baseline.summary.fold_count,
+        )?;
+        if !validation_is_clean(fast.1) || fast.0.fold_count > baseline.summary.fold_count {
+            report.fast_rejected += 1;
+            report.rejected += 1;
+            continue;
+        }
+        report.fast_accepted += 1;
+        if best_fast
+            .as_ref()
+            .is_none_or(|(_, best)| is_better_summary(&fast, Some(best)))
+        {
+            best_fast = Some((candidate, fast));
+        } else {
+            report.rejected += 1;
+        }
+    }
+    let Some((candidate, _)) = best_fast else {
+        report.rejected = report.evaluated;
+        return Ok((baseline, report));
+    };
+    report.lift_evaluated = 1;
+    let params = candidate.params;
+    let lift = lift_candidate_from_support_image_macro_patches(
+        star_point,
+        tensor_border,
+        candidate.macro_patches,
+    )?;
+    if !validation_is_clean(lift.validation) {
+        report.rejected = report.evaluated;
+        report.decline_reason = "support_reparameterization_lift_validation_not_clean";
+        return Ok((baseline, report));
+    }
+    let lift_summary = (lift.summary.clone(), lift.validation);
+    if !is_better_summary(&lift_summary, Some(&baseline_summary)) {
+        report.rejected = report.evaluated;
+        report.decline_reason = "support_reparameterization_no_lift_improvement";
+        return Ok((baseline, report));
+    }
+    report.end_folds = lift.summary.fold_count;
+    report.params = params.label();
+    report.accepted = 1;
+    report.rejected = report.evaluated - report.accepted;
+    report.decline_reason = "none";
+    Ok((lift, report))
 }
 
 pub(super) fn support_image_composed_candidate(
@@ -335,6 +447,26 @@ fn support_image_piece_maps(
 ) -> (Kp20SectorPieceMaps, Vec<(usize, Kp20PieceId)>) {
     let mut changed_sites = Vec::new();
     for (piece, corner_maps) in &mut maps {
+        if let Some(site) = worst_site_for_piece(fold_sites, sector, *piece) {
+            *corner_maps = params.reparameterized_maps(*corner_maps, site);
+            changed_sites.push((sector, *piece));
+        }
+    }
+    (maps, changed_sites)
+}
+
+fn targeted_support_image_piece_maps(
+    mut maps: Kp20SectorPieceMaps,
+    sector: usize,
+    params: Kp20SupportImageParams,
+    fold_sites: &[Kp20FoldSite],
+    target_piece: Kp20PieceId,
+) -> (Kp20SectorPieceMaps, Vec<(usize, Kp20PieceId)>) {
+    let mut changed_sites = Vec::new();
+    for (piece, corner_maps) in &mut maps {
+        if *piece != target_piece {
+            continue;
+        }
         if let Some(site) = worst_site_for_piece(fold_sites, sector, *piece) {
             *corner_maps = params.reparameterized_maps(*corner_maps, site);
             changed_sites.push((sector, *piece));

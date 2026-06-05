@@ -98,6 +98,19 @@ impl Kp20SupportImageParams {
         ]
     }
 
+    pub(super) fn support_side_reparameterization_family() -> Vec<Self> {
+        vec![
+            Self::sector_local_exact_boundary(0.30, 0.00),
+            Self::sector_local_exact_boundary(0.28, 0.08),
+            Self::sector_local_exact_boundary(0.28, -0.08),
+            Self::sector_local_exact_boundary(0.24, 0.12),
+            Self::sector_local_exact_boundary(0.24, -0.12),
+            Self::default_affine(0.88, 0.96, 1.04, 0.02, 0.10),
+            Self::default_affine(0.88, 1.04, 0.96, 0.02, -0.10),
+            Self::default_affine(0.84, 1.0, 1.0, 0.04, 0.0),
+        ]
+    }
+
     const fn default_affine(
         uniform: f64,
         du_scale: f64,

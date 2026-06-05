@@ -4,6 +4,7 @@ use popkern_core::geometry::gregory::{Kp20Bi6ValidationReport, Kp20PieceId};
 
 use super::super::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
 use super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
+use super::super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
 use super::origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
 };
@@ -51,9 +52,10 @@ pub(super) fn nonoverlap_coupled_lift_detail(
     origin_inner: &Kp20OriginInnerRowReport,
     paired_inner: &Kp20PairedInnerRowReport,
     support_inner: &Kp20SupportInnerRowReport,
+    support_reparameterization: &Kp20SupportReparameterizationReport,
 ) -> String {
     format!(
-        "status=sampled;default_folds={};folds={};piece_folds={};{};{};origin_inner_evaluated={};origin_inner_accepted={};origin_inner_rejected={};origin_inner_start_folds={};origin_inner_end_folds={};origin_inner_mode={};origin_inner_scale={:.3e};paired_inner_evaluated={};paired_inner_accepted={};paired_inner_rejected={};paired_inner_start_folds={};paired_inner_end_folds={};paired_inner_mode={};paired_inner_scale={:.3e};support_inner_evaluated={};support_inner_accepted={};support_inner_rejected={};support_inner_start_folds={};support_inner_end_folds={};support_inner_mode={};support_inner_scale={:.3e};optimizer_active_fold_sites={};optimizer_row_variables={};optimizer_evaluated={};optimizer_accepted={};optimizer_rejected={};accepted_steps={}",
+        "status=sampled;default_folds={};folds={};piece_folds={};{};{};origin_inner_evaluated={};origin_inner_accepted={};origin_inner_rejected={};origin_inner_start_folds={};origin_inner_end_folds={};origin_inner_mode={};origin_inner_scale={:.3e};paired_inner_evaluated={};paired_inner_accepted={};paired_inner_rejected={};paired_inner_start_folds={};paired_inner_end_folds={};paired_inner_mode={};paired_inner_scale={:.3e};support_inner_evaluated={};support_inner_accepted={};support_inner_rejected={};support_inner_start_folds={};support_inner_end_folds={};support_inner_mode={};support_inner_scale={:.3e};support_reparam_evaluated={};support_reparam_fast_accepted={};support_reparam_fast_rejected={};support_reparam_lift_evaluated={};support_reparam_accepted={};support_reparam_rejected={};support_reparam_start_folds={};support_reparam_end_folds={};support_reparam_target_piece={:?};support_reparam_params={};support_reparam_decline_reason={};optimizer_active_fold_sites={};optimizer_row_variables={};optimizer_evaluated={};optimizer_accepted={};optimizer_rejected={};accepted_steps={}",
         default.fold_count,
         lifted.fold_count,
         piece_counts_label(lifted.piece_fold_counts),
@@ -80,6 +82,17 @@ pub(super) fn nonoverlap_coupled_lift_detail(
         support_inner.end_folds,
         support_inner.mode,
         support_inner.scale,
+        support_reparameterization.evaluated,
+        support_reparameterization.fast_accepted,
+        support_reparameterization.fast_rejected,
+        support_reparameterization.lift_evaluated,
+        support_reparameterization.accepted,
+        support_reparameterization.rejected,
+        support_reparameterization.start_folds,
+        support_reparameterization.end_folds,
+        support_reparameterization.target_piece,
+        support_reparameterization.params,
+        support_reparameterization.decline_reason,
         report.optimizer_stats.active_fold_sites,
         report.optimizer_stats.row_variable_count,
         report.optimizer_stats.evaluated_candidates,

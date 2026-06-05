@@ -17,9 +17,11 @@ use super::kp20_polar_fold_summary::{
     Kp20SamplerFoldSummary, gregory_patches_from_macro_patches, summarize_candidate_intersections,
     summarize_intersections, validation_is_clean,
 };
+use super::kp20_polar_support_image::refine_support_side_reparameterization;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
 };
+use super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
@@ -209,6 +211,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.origin_inner,
                     &lifted.paired_inner,
                     &lifted.support_inner,
+                    &lifted.support_reparameterization,
                 ));
                 if lifted_intersections.is_empty() {
                     trace(
@@ -281,6 +284,7 @@ struct Kp20LiftedDispatchCandidate {
     origin_inner: Kp20OriginInnerRowReport,
     paired_inner: Kp20PairedInnerRowReport,
     support_inner: Kp20SupportInnerRowReport,
+    support_reparameterization: Kp20SupportReparameterizationReport,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
@@ -314,6 +318,8 @@ fn try_nonoverlap_coupled_lift_candidate(
         refine_paired_inner_interior_row(star_point, tensor_border, report)?;
     let (report, support_inner) =
         refine_support_inner_interior_row(star_point, tensor_border, report)?;
+    let (report, support_reparameterization) =
+        refine_support_side_reparameterization(star_point, tensor_border, report)?;
     if !validation_is_clean(report.validation) {
         return Err(format!(
             "validation residuals exceed tolerance: {}",
@@ -327,6 +333,7 @@ fn try_nonoverlap_coupled_lift_candidate(
         origin_inner,
         paired_inner,
         support_inner,
+        support_reparameterization,
     })
 }
 
@@ -338,6 +345,7 @@ fn nonoverlap_coupled_lift_fact(
     origin_inner: &Kp20OriginInnerRowReport,
     paired_inner: &Kp20PairedInnerRowReport,
     support_inner: &Kp20SupportInnerRowReport,
+    support_reparameterization: &Kp20SupportReparameterizationReport,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
@@ -349,6 +357,7 @@ fn nonoverlap_coupled_lift_fact(
             origin_inner,
             paired_inner,
             support_inner,
+            support_reparameterization,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),

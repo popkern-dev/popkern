@@ -46,6 +46,7 @@ mod kp20_polar_multipatch_strip_optimize;
 mod kp20_polar_multipatch_validate;
 mod kp20_polar_support_image;
 mod kp20_polar_support_lift;
+mod kp20_polar_support_reparameterization;
 mod kp20_polar_support_surface;
 mod kp20_polar_support_surface_split;
 mod kp_bi5_macro_apply;
@@ -490,7 +491,6 @@ pub fn apply_blend_geometry(
         corner_patches: &mut corner_patches,
         repair_report: &mut repair_report,
     });
-
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
