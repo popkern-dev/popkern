@@ -15,10 +15,13 @@ use super::super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
     Kp20SupportDomainReport,
 };
-use domain_candidates::{refine_coupled_domain, refine_preassembly_interior, refine_split_domain};
+use domain_candidates::{refine_coupled_domain, refine_split_domain};
+use preassembly_candidates::refine_preassembly_interior;
 
 #[path = "kp20_polar_support_domain_candidates.rs"]
 mod domain_candidates;
+#[path = "kp20_polar_support_preassembly.rs"]
+mod preassembly_candidates;
 
 pub(super) const TARGET_PIECE: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
 
