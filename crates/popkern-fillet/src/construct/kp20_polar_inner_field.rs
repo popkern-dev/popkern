@@ -1,6 +1,7 @@
 //! Fold-site-local interior-field refinements for KP20 lifted candidates.
 
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
 };
@@ -27,6 +28,21 @@ pub(super) fn refine_origin_corner_field(
         "origin_corner_none",
         &[-0.30, -0.20, -0.12, -0.06, 0.06, 0.12, 0.20, 0.30],
         Kp20InnerFieldKind::OriginCorner,
+    )
+}
+
+pub(super) fn refine_constrained_interior_solve(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    lift: Kp20SupportNormalLiftReport,
+) -> Result<(Kp20SupportNormalLiftReport, Kp20OriginInnerRowReport), String> {
+    refine_field(
+        star_point,
+        tensor_border,
+        lift,
+        "constrained_interior_solve_none",
+        &[-0.20, -0.12, -0.06, 0.06, 0.12, 0.20],
+        Kp20InnerFieldKind::ConstrainedInteriorSolve,
     )
 }
 
@@ -162,6 +178,7 @@ fn refine_field(
 
 #[derive(Debug, Clone, Copy)]
 enum Kp20InnerFieldKind {
+    ConstrainedInteriorSolve,
     CoupledOriginSupport,
     OriginCorner,
     SupportInterior,
@@ -170,6 +187,7 @@ enum Kp20InnerFieldKind {
 impl Kp20InnerFieldKind {
     fn label(self, mode: Kp20OriginInnerMode) -> &'static str {
         match self {
+            Self::ConstrainedInteriorSolve => mode.constrained_solve_label(),
             Self::CoupledOriginSupport => mode.coupled_field_label(),
             Self::OriginCorner => mode.origin_corner_label(),
             Self::SupportInterior => mode.field_label(),
@@ -187,6 +205,14 @@ fn apply_field_update(
     kind: Kp20InnerFieldKind,
 ) -> Vec<[bool; 4]> {
     match kind {
+        Kp20InnerFieldKind::ConstrainedInteriorSolve => apply_constrained_interior_solve(
+            macro_patches,
+            star_point,
+            tensor_border,
+            mode,
+            scale,
+            fold_sites,
+        ),
         Kp20InnerFieldKind::CoupledOriginSupport => apply_coupled_origin_support_update(
             macro_patches,
             star_point,
@@ -211,6 +237,76 @@ fn apply_field_update(
             scale,
             fold_sites,
         ),
+    }
+}
+
+fn apply_constrained_interior_solve(
+    macro_patches: &mut [Kp20MacroPatch],
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    mode: Kp20OriginInnerMode,
+    scale: f64,
+    fold_sites: &[Kp20FoldSite],
+) -> Vec<[bool; 4]> {
+    let mut changed = vec![[false; 4]; macro_patches.len()];
+    for (sector, macro_patch) in macro_patches.iter_mut().enumerate() {
+        let direction = origin_inner_direction(star_point, tensor_border, sector, mode);
+        let span = sector_span(star_point, tensor_border, sector);
+        for piece_id in Kp20PieceId::all() {
+            let sites = fold_sites
+                .iter()
+                .filter(|site| site.sector == sector && site.piece == piece_id)
+                .copied()
+                .collect::<Vec<_>>();
+            if sites.is_empty() {
+                continue;
+            }
+            let piece = macro_patch.piece_mut(piece_id);
+            for i in 1..=5 {
+                for j in 1..=5 {
+                    let Some(displacement) =
+                        constrained_control_delta(i, j, direction, scale * span, &sites)
+                    else {
+                        continue;
+                    };
+                    piece.cps[i][j] = piece.cps[i][j] + displacement;
+                    changed[sector][piece_id.index()] = true;
+                }
+            }
+        }
+    }
+    changed
+}
+
+fn constrained_control_delta(
+    i: usize,
+    j: usize,
+    direction: Vec3,
+    scale: f64,
+    sites: &[Kp20FoldSite],
+) -> Option<Vec3> {
+    let u = i as f64 / 6.0;
+    let v = j as f64 / 6.0;
+    let mut numerator = 0.0;
+    let mut denominator = 2.0e-2;
+    for site in sites {
+        let du = u - site.u;
+        let dv = v - site.v;
+        let r2 = du * du + dv * dv;
+        let radius2 = 0.42_f64 * 0.42_f64;
+        let basis = (1.0 - r2 / radius2).max(0.0).powi(2);
+        if basis == 0.0 {
+            continue;
+        }
+        let severity = (1.0 - site.min_jacobian_normal_cos).max(0.0);
+        numerator += basis * severity;
+        denominator += basis * basis;
+    }
+    if numerator == 0.0 {
+        None
+    } else {
+        let boundary_fade = (core::f64::consts::PI * u).sin() * (core::f64::consts::PI * v).sin();
+        Some(direction * (scale * boundary_fade.max(0.0) * numerator / denominator))
     }
 }
 

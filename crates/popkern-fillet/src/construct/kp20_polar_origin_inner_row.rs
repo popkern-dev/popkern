@@ -35,6 +35,11 @@ pub(super) fn refine_origin_inner_interior_row(
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20OriginInnerRowReport), String> {
+    let (lift, solve_report) =
+        super::inner_field::refine_constrained_interior_solve(star_point, tensor_border, lift)?;
+    if solve_report.accepted > 0 {
+        return Ok((lift, solve_report));
+    }
     let (lift, coupled_report) =
         super::inner_field::refine_coupled_origin_support_field(star_point, tensor_border, lift)?;
     if coupled_report.accepted > 0 {
@@ -52,11 +57,17 @@ pub(super) fn refine_origin_inner_interior_row(
         &[-0.20, -0.12, 0.12, 0.20],
         &[Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight],
     )?;
-    fallback_report.pre_evaluated = coupled_report.evaluated + corner_report.evaluated;
-    fallback_report.pre_accepted = coupled_report.accepted + corner_report.accepted;
-    fallback_report.pre_rejected = coupled_report.rejected + corner_report.rejected;
-    fallback_report.pre_mode = if coupled_report.accepted == 0 && corner_report.accepted == 0 {
-        "coupled_origin_support_none|origin_corner_none"
+    fallback_report.pre_evaluated =
+        solve_report.evaluated + coupled_report.evaluated + corner_report.evaluated;
+    fallback_report.pre_accepted =
+        solve_report.accepted + coupled_report.accepted + corner_report.accepted;
+    fallback_report.pre_rejected =
+        solve_report.rejected + coupled_report.rejected + corner_report.rejected;
+    fallback_report.pre_mode = if solve_report.accepted == 0
+        && coupled_report.accepted == 0
+        && corner_report.accepted == 0
+    {
+        "constrained_interior_solve_none|coupled_origin_support_none|origin_corner_none"
     } else {
         corner_report.mode
     };
@@ -225,6 +236,14 @@ impl Kp20OriginInnerMode {
             Self::Normal => "coupled_origin_support_normal",
             Self::Radial => "coupled_origin_support_radial",
             Self::Chord => "coupled_origin_support_chord",
+        }
+    }
+
+    pub(super) const fn constrained_solve_label(self) -> &'static str {
+        match self {
+            Self::Normal => "constrained_interior_solve_normal",
+            Self::Radial => "constrained_interior_solve_radial",
+            Self::Chord => "constrained_interior_solve_chord",
         }
     }
 }
