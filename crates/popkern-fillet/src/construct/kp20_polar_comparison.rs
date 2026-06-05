@@ -2,16 +2,15 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PieceId, Kp20SectorPieceMaps, Kp20TauMap,
-    TensorBorderBi3, build_kp20_guide_ring, kp20_c2_stitched_sector_piece_maps,
-    kp20_coupled_stitched_sector_piece_maps, kp20_default_piece_map_domain_report,
-    kp20_nonoverlap_coupled_sector_piece_maps, kp20_paper_oriented_sector_piece_maps,
-    kp20_piece_map_domain_report, kp20_piece_map_stitch_report,
-    sample_kp20_macro_patch_from_piece_maps, sample_kp20_macro_patch_from_tau_maps,
+    Kp20Bi6ValidationReport, Kp20PieceId, Kp20TauMap, TensorBorderBi3,
+    kp20_c2_stitched_sector_piece_maps, kp20_coupled_stitched_sector_piece_maps,
+    kp20_default_piece_map_domain_report, kp20_nonoverlap_coupled_sector_piece_maps,
+    kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
+    kp20_piece_map_stitch_report,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
-use super::kp20_polar_fold_summary::{Kp20SamplerFoldSummary, candidate_summary_from_sampled};
+use super::kp20_polar_fold_summary::Kp20SamplerFoldSummary;
 use super::kp20_polar_multipatch_labels::{
     multipatch_evaluation_label, multipatch_inner_label, multipatch_interfaces_label,
     multipatch_inventory_label, multipatch_strips_label, multipatch_validation_label,
@@ -24,7 +23,13 @@ use super::kp20_polar_support_surface::{
     Kp20SupportSurfaceReport, support_surface_candidate_summary,
 };
 use crate::types::ApexConstructionDiagnostic;
+use candidates::{
+    lifted_mapped_candidate_summary, mapped_candidate_summary, tau_candidate_summary,
+};
 use std::time::Instant;
+
+#[path = "kp20_polar_comparison_candidates.rs"]
+mod candidates;
 
 pub(super) fn sampler_comparison_diagnostic(
     star_point: Point3,
@@ -67,6 +72,13 @@ pub(super) fn sampler_comparison_diagnostic(
             kp20_nonoverlap_coupled_sector_piece_maps(),
         )
     });
+    let (nonoverlap_coupled_lift, nonoverlap_coupled_lift_ms) = timed(|| {
+        lifted_mapped_candidate_summary(
+            star_point,
+            tensor_border,
+            kp20_nonoverlap_coupled_sector_piece_maps(),
+        )
+    });
     let (normal_lift, normal_lift_ms) =
         timed(|| normal_lift_candidate_summary(star_point, tensor_border));
     let (support_image_composed, support_image_composed_ms) =
@@ -79,7 +91,7 @@ pub(super) fn sampler_comparison_diagnostic(
         timed(|| tau_candidate_summary(star_point, tensor_border));
     let total_ms = elapsed_ms(total_start);
     let mut detail = format!(
-        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};paper_oriented_ms={paper_oriented_ms};c2_stitched_ms={c2_stitched_ms};coupled_stitched_ms={coupled_stitched_ms};nonoverlap_coupled_ms={nonoverlap_coupled_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
+        "sampler_total_ms={total_ms};orientation_valid_ms={orientation_valid_ms};paper_oriented_ms={paper_oriented_ms};c2_stitched_ms={c2_stitched_ms};coupled_stitched_ms={coupled_stitched_ms};nonoverlap_coupled_ms={nonoverlap_coupled_ms};nonoverlap_coupled_lift_ms={nonoverlap_coupled_lift_ms};support_normal_lift_ms={normal_lift_ms};support_image_composed_ms={support_image_composed_ms};sector_local_tau_ms={sector_local_tau_ms};bounded_affine_folds={};bounded_affine_min_jacobian_cos={:.3e};bounded_affine_piece_folds={}",
         bounded_affine.fold_count,
         bounded_affine.min_jacobian_normal_cos,
         piece_counts_label(bounded_affine.piece_fold_counts)
@@ -89,6 +101,11 @@ pub(super) fn sampler_comparison_diagnostic(
     append_candidate_detail(&mut detail, "c2_stitched", &c2_stitched);
     append_candidate_detail(&mut detail, "coupled_stitched", &coupled_stitched);
     append_candidate_detail(&mut detail, "nonoverlap_coupled", &nonoverlap_coupled);
+    append_support_lift_detail(
+        &mut detail,
+        "nonoverlap_coupled_lift",
+        &nonoverlap_coupled_lift,
+    );
     append_support_lift_detail(&mut detail, "support_normal_lift", &normal_lift);
     append_candidate_detail(&mut detail, "support_image", &support_image);
     append_support_lift_detail(&mut detail, "support_image_lift", &support_image_lift);
@@ -235,44 +252,6 @@ fn timed<T>(f: impl FnOnce() -> T) -> (T, u128) {
 
 fn elapsed_ms(start: Instant) -> u128 {
     start.elapsed().as_millis()
-}
-
-fn tau_candidate_summary(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
-    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let sampled_macro_patches = guide
-        .sectors
-        .iter()
-        .enumerate()
-        .map(|(sector, guide_sector)| {
-            sample_kp20_macro_patch_from_tau_maps(guide_sector, guide.n, sector)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    candidate_summary_from_sampled(tensor_border, sampled_macro_patches)
-}
-
-fn mapped_candidate_summary(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-    maps: Kp20SectorPieceMaps,
-) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
-    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let sampled_macro_patches = guide
-        .sectors
-        .iter()
-        .map(|sector| sample_kp20_macro_patch_from_piece_maps(sector, maps))
-        .collect::<Vec<_>>();
-    candidate_summary_from_sampled(tensor_border, sampled_macro_patches)
 }
 
 fn append_candidate_detail(
