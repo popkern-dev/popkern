@@ -401,11 +401,10 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                                 && detail.contains("best_rejected_exact_guided=none")
                                 && detail.contains("accepted=true") && detail.contains("decline=none")
                                 && detail.contains("support_surface_decline_reason=")
-                                && detail.contains("sector_local_tau_status=")
-                                && (detail.contains("sector_local_tau_folds=")
-                                    || detail.contains("sector_local_tau_error="))
-                                && (detail.contains("sector_local_tau_piece_folds=")
-                                    || detail.contains("sector_local_tau_error="))
+                                && detail.contains("kp20_paper_alignment=valence:6|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9")
+                                && detail.contains("paper_domain_inside:true")
+                                && detail.contains("non_positive_orientation_maps:3")
+                                && detail.contains("tau_available:true")
                         })
             )),
         "hexagon6_mixed should compare bounded-affine and sector-local τ sampling structurally"

@@ -2,9 +2,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PieceId, TensorBorderBi3,
-    build_kp20_guide_ring, sample_kp20_macro_patch_from_orientation_valid_maps,
-    sample_kp20_macro_patch_from_tau_maps,
+    Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PieceId, Kp20TauMap, TensorBorderBi3,
+    build_kp20_guide_ring, kp20_default_piece_map_domain_report,
+    sample_kp20_macro_patch_from_orientation_valid_maps, sample_kp20_macro_patch_from_tau_maps,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -54,6 +54,12 @@ pub(super) fn sampler_comparison_diagnostic(
     append_support_lift_detail(&mut detail, "support_image_lift", &support_image_lift);
     append_support_surface_detail(&mut detail, "support_surface", &support_surface);
     append_candidate_detail(&mut detail, "sector_local_tau", &sector_local_tau);
+    append_paper_alignment_detail(
+        &mut detail,
+        tensor_border,
+        &bounded_affine,
+        &sector_local_tau,
+    );
     comparison_diagnostic(
         tensor_border.sectors.len(),
         detail,
@@ -62,6 +68,41 @@ pub(super) fn sampler_comparison_diagnostic(
             .ok()
             .map(|(summary, _)| summary.min_jacobian_normal_cos),
     )
+}
+
+fn append_paper_alignment_detail(
+    detail: &mut String,
+    tensor_border: &TensorBorderBi3,
+    bounded_affine: &Kp20SamplerFoldSummary,
+    sector_local_tau: &Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String>,
+) {
+    let domain = kp20_default_piece_map_domain_report();
+    let tau_available = (0..tensor_border.sectors.len())
+        .all(|sector| Kp20TauMap::for_sector_local(tensor_border.sectors.len(), sector).is_ok());
+    let tau_label = sector_local_tau.as_ref().map_or_else(
+        |err| format!("declined:{err}"),
+        |(summary, validation)| {
+            format!(
+                "sampled|folds:{}|piece_folds:{}|validation:{}",
+                summary.fold_count,
+                piece_counts_label(summary.piece_fold_counts),
+                validation_label(validation)
+            )
+        },
+    );
+    detail.push_str(&format!(
+        ";kp20_paper_alignment=valence:{}|pieces_per_sector:4|piece_degree:bi6|diagnostic_degree:bi9|paper_domain_inside:{}|outside_corners:{}|max_simplex_excess:{:.3e}|positive_orientation_maps:{}|non_positive_orientation_maps:{}|tau_available:{}|bounded_affine_folds:{}|bounded_affine_piece_folds:{}|sector_local_tau:{}",
+        tensor_border.sectors.len(),
+        domain.stays_inside_triangle(),
+        domain.outside_triangle_corners,
+        domain.max_simplex_excess,
+        4_usize.saturating_sub(domain.non_positive_orientation_maps),
+        domain.non_positive_orientation_maps,
+        tau_available,
+        bounded_affine.fold_count,
+        piece_counts_label(bounded_affine.piece_fold_counts),
+        tau_label,
+    ));
 }
 
 fn support_image_result(
@@ -283,6 +324,16 @@ fn piece_counts_label(counts: [usize; 4]) -> String {
     format!(
         "{:?}:{}|{:?}:{}|{:?}:{}|{:?}:{}",
         pieces[0], counts[0], pieces[1], counts[1], pieces[2], counts[2], pieces[3], counts[3]
+    )
+}
+
+fn validation_label(validation: &Kp20Bi6ValidationReport) -> String {
+    format!(
+        "tensor:{:.3e}|c2_pos:{:.3e}|c2_first:{:.3e}|origin_g2:{:.3e}",
+        validation.max_tensor_border_residual,
+        validation.max_internal_c2_position_residual,
+        validation.max_internal_c2_first_residual,
+        validation.max_origin_g2_strip_residual,
     )
 }
 
