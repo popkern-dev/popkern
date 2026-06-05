@@ -79,3 +79,20 @@ pub(super) struct Kp20CoupledDomainReport {
     pub(super) origin_scale: f64,
     pub(super) decline_reason: &'static str,
 }
+
+#[derive(Debug, Clone)]
+pub(super) struct Kp20SplitDomainReport {
+    pub(super) evaluated: usize,
+    pub(super) accepted: usize,
+    pub(super) rejected: usize,
+    pub(super) start_folds: usize,
+    pub(super) end_folds: usize,
+    pub(super) support_origin_u: f64,
+    pub(super) support_origin_v: f64,
+    pub(super) support_span_u: f64,
+    pub(super) support_span_v: f64,
+    pub(super) support_skew: f64,
+    pub(super) split_fraction: f64,
+    pub(super) interface_pull: f64,
+    pub(super) decline_reason: &'static str,
+}

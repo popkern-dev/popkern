@@ -12,10 +12,15 @@ use super::super::kp20_polar_fold_summary::{
     Kp20SamplerFoldSummary, candidate_summary_from_cap, is_better_summary, validation_is_clean,
 };
 use super::super::kp20_polar_support_reparameterization::{
-    Kp20CoupledDomainReport, Kp20SupportDomainRefineReport, Kp20SupportDomainReport,
+    Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
+    Kp20SupportDomainReport,
 };
+use domain_candidates::{refine_coupled_domain, refine_split_domain};
 
-const TARGET_PIECE: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
+#[path = "kp20_polar_support_domain_candidates.rs"]
+mod domain_candidates;
+
+pub(super) const TARGET_PIECE: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
 
 pub(super) fn support_domain_basis_candidate(
     star_point: Point3,
@@ -26,6 +31,7 @@ pub(super) fn support_domain_basis_candidate(
         Kp20SupportDomainReport,
         Kp20SupportDomainRefineReport,
         Kp20CoupledDomainReport,
+        Kp20SplitDomainReport,
     ),
     String,
 > {
@@ -93,6 +99,21 @@ pub(super) fn support_domain_basis_candidate(
         origin_scale: 1.0,
         decline_reason: "coupled_domain_not_run",
     };
+    let mut split_report = Kp20SplitDomainReport {
+        evaluated: 0,
+        accepted: 0,
+        rejected: 0,
+        start_folds: baseline.0.fold_count,
+        end_folds: baseline.0.fold_count,
+        support_origin_u: 0.0,
+        support_origin_v: 0.0,
+        support_span_u: 0.0,
+        support_span_v: 0.0,
+        support_skew: 0.0,
+        split_fraction: 0.5,
+        interface_pull: 0.0,
+        decline_reason: "split_domain_not_run",
+    };
     let mut best: Option<(
         Vec<Kp20MacroPatch>,
         (Kp20SamplerFoldSummary, _),
@@ -139,6 +160,7 @@ pub(super) fn support_domain_basis_candidate(
             report,
             refine_report,
             coupled_report,
+            split_report,
         ));
     };
     report.accepted = 1;
@@ -152,7 +174,13 @@ pub(super) fn support_domain_basis_candidate(
     report.decline_reason = "none";
     refine_report = refine_support_domain(&guide, tensor_border, &summary, &mut best, params)?;
     let Some((_, refined_summary, refined_params)) = best.as_ref() else {
-        return Ok((macro_patches, report, refine_report, coupled_report));
+        return Ok((
+            macro_patches,
+            report,
+            refine_report,
+            coupled_report,
+            split_report,
+        ));
     };
     let refined_summary = refined_summary.clone();
     let refined_params = *refined_params;
@@ -169,11 +197,42 @@ pub(super) fn support_domain_basis_candidate(
         &mut best,
         refined_params,
     )?;
-    let Some((macro_patches, coupled_summary, _support_params)) = best else {
-        return Ok((macro_patches, report, refine_report, coupled_report));
+    let Some((_, coupled_summary, coupled_params)) = best.as_ref() else {
+        return Ok((
+            macro_patches,
+            report,
+            refine_report,
+            coupled_report,
+            split_report,
+        ));
     };
+    let coupled_summary = coupled_summary.clone();
+    let coupled_params = *coupled_params;
     coupled_report.end_folds = coupled_summary.0.fold_count;
-    Ok((macro_patches, report, refine_report, coupled_report))
+    split_report = refine_split_domain(
+        &guide,
+        tensor_border,
+        &coupled_summary,
+        &mut best,
+        coupled_params,
+    )?;
+    let Some((macro_patches, split_summary, _support_params)) = best else {
+        return Ok((
+            macro_patches,
+            report,
+            refine_report,
+            coupled_report,
+            split_report,
+        ));
+    };
+    split_report.end_folds = split_summary.0.fold_count;
+    Ok((
+        macro_patches,
+        report,
+        refine_report,
+        coupled_report,
+        split_report,
+    ))
 }
 
 fn refine_support_domain(
@@ -241,85 +300,12 @@ fn refine_support_domain(
     Ok(report)
 }
 
-fn refine_coupled_domain(
-    guide: &Kp20GuideRing,
-    tensor_border: &TensorBorderBi3,
-    accepted: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-    best: &mut Option<(
-        Vec<Kp20MacroPatch>,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20SupportDomainParams,
-    )>,
-    anchor: Kp20SupportDomainParams,
-) -> Result<Kp20CoupledDomainReport, String> {
-    let mut report = Kp20CoupledDomainReport {
-        evaluated: 0,
-        accepted: 0,
-        rejected: 0,
-        start_folds: accepted.0.fold_count,
-        end_folds: accepted.0.fold_count,
-        support_origin_u: anchor.origin[0],
-        support_origin_v: anchor.origin[1],
-        support_span_u: anchor.span_u,
-        support_span_v: anchor.span_v,
-        support_skew: anchor.skew,
-        origin_shift: 0.0,
-        origin_scale: 1.0,
-        decline_reason: "coupled_domain_no_candidate",
-    };
-    for params in Kp20CoupledDomainParams::family(anchor) {
-        report.evaluated += 1;
-        let sampled = guide
-            .sectors
-            .iter()
-            .map(|sector| {
-                sample_kp20_macro_patch_from_piece_maps(sector, coupled_domain_piece_maps(params))
-            })
-            .collect::<Vec<_>>();
-        let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-            tensor_border: tensor_border.clone(),
-            sampled_macro_patches: sampled,
-        })
-        .map_err(|e| e.to_string())?;
-        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
-        if !validation_is_clean(summary.1) {
-            report.rejected += 1;
-            report.decline_reason = "coupled_domain_validation_not_clean";
-            continue;
-        }
-        if !is_better_summary(&summary, Some(accepted)) {
-            report.rejected += 1;
-            report.decline_reason = "coupled_domain_no_fold_reduction";
-            continue;
-        }
-        if best
-            .as_ref()
-            .is_none_or(|(_, best_summary, _)| is_better_summary(&summary, Some(best_summary)))
-        {
-            *best = Some((cap.macro_patches, summary, params.support));
-            report.accepted = 1;
-            report.support_origin_u = params.support.origin[0];
-            report.support_origin_v = params.support.origin[1];
-            report.support_span_u = params.support.span_u;
-            report.support_span_v = params.support.span_v;
-            report.support_skew = params.support.skew;
-            report.origin_shift = params.origin_shift;
-            report.origin_scale = params.origin_scale;
-            report.decline_reason = "none";
-        } else {
-            report.rejected += 1;
-        }
-    }
-    report.rejected = report.evaluated - report.accepted;
-    Ok(report)
-}
-
 #[derive(Debug, Clone, Copy)]
-struct Kp20SupportDomainParams {
-    origin: [f64; 2],
-    span_u: f64,
-    span_v: f64,
-    skew: f64,
+pub(super) struct Kp20SupportDomainParams {
+    pub(super) origin: [f64; 2],
+    pub(super) span_u: f64,
+    pub(super) span_v: f64,
+    pub(super) skew: f64,
 }
 
 impl Kp20SupportDomainParams {
@@ -360,7 +346,14 @@ impl Kp20SupportDomainParams {
         ]
     }
 
-    fn shifted(self, origin_u: f64, origin_v: f64, span_u: f64, span_v: f64, skew: f64) -> Self {
+    pub(super) fn shifted(
+        self,
+        origin_u: f64,
+        origin_v: f64,
+        span_u: f64,
+        span_v: f64,
+        skew: f64,
+    ) -> Self {
         Self::new(
             [
                 (self.origin[0] + origin_u).clamp(0.0, 0.10),
@@ -370,36 +363,6 @@ impl Kp20SupportDomainParams {
             (self.span_v + span_v).clamp(0.22, 0.34),
             (self.skew + skew).clamp(-0.06, 0.06),
         )
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Kp20CoupledDomainParams {
-    support: Kp20SupportDomainParams,
-    origin_shift: f64,
-    origin_scale: f64,
-}
-
-impl Kp20CoupledDomainParams {
-    fn family(anchor: Kp20SupportDomainParams) -> [Self; 8] {
-        [
-            Self::new(anchor, -0.015, 0.92),
-            Self::new(anchor, 0.015, 0.92),
-            Self::new(anchor, -0.015, 1.08),
-            Self::new(anchor, 0.015, 1.08),
-            Self::new(anchor.shifted(0.0, -0.01, 0.01, 0.0, 0.0), -0.02, 1.0),
-            Self::new(anchor.shifted(0.0, 0.01, -0.01, 0.0, 0.0), 0.02, 1.0),
-            Self::new(anchor.shifted(0.01, 0.0, 0.0, -0.01, 0.01), -0.01, 1.05),
-            Self::new(anchor.shifted(-0.01, 0.0, 0.0, 0.01, -0.01), 0.01, 0.95),
-        ]
-    }
-
-    const fn new(support: Kp20SupportDomainParams, origin_shift: f64, origin_scale: f64) -> Self {
-        Self {
-            support,
-            origin_shift,
-            origin_scale,
-        }
     }
 }
 
@@ -413,47 +376,12 @@ fn support_domain_piece_maps(params: Kp20SupportDomainParams) -> Kp20SectorPiece
     maps
 }
 
-fn coupled_domain_piece_maps(params: Kp20CoupledDomainParams) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_nonoverlap_coupled_sector_piece_maps();
-    for (piece, corner_maps) in &mut maps {
-        match *piece {
-            TARGET_PIECE => *corner_maps = support_domain_corner_maps(params.support),
-            Kp20PieceId::NearOriginLeft => {
-                *corner_maps = origin_left_corner_maps(params.origin_shift, params.origin_scale);
-            }
-            Kp20PieceId::NearOriginRight => {
-                *corner_maps = origin_right_corner_maps(params.origin_shift, params.origin_scale);
-            }
-            Kp20PieceId::NearMidpointRight => {}
-        }
-    }
-    maps
-}
-
 fn support_domain_corner_maps(params: Kp20SupportDomainParams) -> Kp20PieceCornerMaps {
     square_maps(
         params.origin,
         [params.span_u, params.skew],
         [params.skew, params.span_v],
     )
-}
-
-fn origin_left_corner_maps(shift: f64, scale: f64) -> Kp20PieceCornerMaps {
-    let span = (0.25 * scale).clamp(0.20, 0.30);
-    let origin = [
-        (0.25 + shift).clamp(0.20, 0.30),
-        (0.25 + shift).clamp(0.20, 0.30),
-    ];
-    square_maps(origin, [span, 0.0], [0.0, span])
-}
-
-fn origin_right_corner_maps(shift: f64, scale: f64) -> Kp20PieceCornerMaps {
-    let span = (0.25 * scale).clamp(0.20, 0.30);
-    let origin = [
-        (0.50 - shift).clamp(0.45, 0.55),
-        (0.25 + shift).clamp(0.20, 0.30),
-    ];
-    square_maps(origin, [-span, 0.0], [0.0, -span])
 }
 
 fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
