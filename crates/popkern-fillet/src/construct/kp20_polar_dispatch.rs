@@ -21,7 +21,9 @@ use super::kp20_polar_support_image::refine_support_side_reparameterization;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
 };
-use super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
+use super::kp20_polar_support_reparameterization::{
+    Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
+};
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
@@ -31,11 +33,14 @@ use origin_inner_row::{
     refine_origin_inner_interior_row, refine_paired_inner_interior_row,
     refine_support_inner_interior_row,
 };
+use support_transition::refine_support_transition_sheet;
 
 #[path = "kp20_polar_dispatch_labels.rs"]
 mod labels;
 #[path = "kp20_polar_origin_inner_row.rs"]
 mod origin_inner_row;
+#[path = "kp20_polar_support_transition.rs"]
+mod support_transition;
 
 pub(super) struct Kp20PolarDispatchReport {
     pub patches: Option<Vec<GregoryPatch>>,
@@ -212,6 +217,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.paired_inner,
                     &lifted.support_inner,
                     &lifted.support_reparameterization,
+                    &lifted.support_transition,
                 ));
                 if lifted_intersections.is_empty() {
                     trace(
@@ -285,6 +291,7 @@ struct Kp20LiftedDispatchCandidate {
     paired_inner: Kp20PairedInnerRowReport,
     support_inner: Kp20SupportInnerRowReport,
     support_reparameterization: Kp20SupportReparameterizationReport,
+    support_transition: Kp20SupportTransitionReport,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
@@ -311,7 +318,9 @@ fn try_nonoverlap_coupled_lift_candidate(
         sampled_macro_patches,
     })
     .map_err(|e| e.to_string())?;
-    let report = lift_candidate_from_macro_patches(star_point, tensor_border, cap.macro_patches)?;
+    let (macro_patches, support_transition) =
+        refine_support_transition_sheet(tensor_border, cap.macro_patches)?;
+    let report = lift_candidate_from_macro_patches(star_point, tensor_border, macro_patches)?;
     let (report, origin_inner) =
         refine_origin_inner_interior_row(star_point, tensor_border, report)?;
     let (report, paired_inner) =
@@ -334,6 +343,7 @@ fn try_nonoverlap_coupled_lift_candidate(
         paired_inner,
         support_inner,
         support_reparameterization,
+        support_transition,
     })
 }
 
@@ -346,6 +356,7 @@ fn nonoverlap_coupled_lift_fact(
     paired_inner: &Kp20PairedInnerRowReport,
     support_inner: &Kp20SupportInnerRowReport,
     support_reparameterization: &Kp20SupportReparameterizationReport,
+    support_transition: &Kp20SupportTransitionReport,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
@@ -358,6 +369,7 @@ fn nonoverlap_coupled_lift_fact(
             paired_inner,
             support_inner,
             support_reparameterization,
+            support_transition,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),
