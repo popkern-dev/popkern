@@ -86,10 +86,14 @@ enum Kp20SupportLayout {
     ShoulderTall,
     OriginPulled,
     MidpointPulled,
+    BoundaryFixedBendLeft,
+    BoundaryFixedBendRight,
+    BoundaryFixedFanOut,
+    BoundaryFixedFanIn,
 }
 
 impl Kp20PreassemblyInteriorParams {
-    fn family() -> [Self; 18] {
+    fn family() -> [Self; 24] {
         [
             Self::field(0.010, 0.000),
             Self::field(-0.010, 0.000),
@@ -109,6 +113,12 @@ impl Kp20PreassemblyInteriorParams {
             Self::layout(Kp20SupportLayout::MidpointPulled),
             Self::new(0.010, 0.000, Kp20SupportLayout::ShoulderWide),
             Self::new(-0.010, 0.000, Kp20SupportLayout::OriginPulled),
+            Self::layout(Kp20SupportLayout::BoundaryFixedBendLeft),
+            Self::layout(Kp20SupportLayout::BoundaryFixedBendRight),
+            Self::layout(Kp20SupportLayout::BoundaryFixedFanOut),
+            Self::layout(Kp20SupportLayout::BoundaryFixedFanIn),
+            Self::new(0.010, 0.000, Kp20SupportLayout::BoundaryFixedBendLeft),
+            Self::new(-0.010, 0.000, Kp20SupportLayout::BoundaryFixedFanOut),
         ]
     }
 
@@ -131,6 +141,10 @@ impl Kp20PreassemblyInteriorParams {
     fn decline_reason(self) -> &'static str {
         match self.layout {
             Kp20SupportLayout::Anchor => "preassembly_interior_no_fold_reduction",
+            Kp20SupportLayout::BoundaryFixedBendLeft
+            | Kp20SupportLayout::BoundaryFixedBendRight
+            | Kp20SupportLayout::BoundaryFixedFanOut
+            | Kp20SupportLayout::BoundaryFixedFanIn => "preassembly_warp_no_fold_reduction",
             _ => "preassembly_layout_no_fold_reduction",
         }
     }
@@ -209,12 +223,25 @@ fn support_layout_corner_maps(
     let origin = params.origin;
     let du = [params.span_u, params.skew];
     let dv = [params.skew, params.span_v];
+    if matches!(
+        layout,
+        Kp20SupportLayout::BoundaryFixedBendLeft
+            | Kp20SupportLayout::BoundaryFixedBendRight
+            | Kp20SupportLayout::BoundaryFixedFanOut
+            | Kp20SupportLayout::BoundaryFixedFanIn
+    ) {
+        return boundary_fixed_warp_corner_maps(origin, du, dv, layout);
+    }
     let shoulder = match layout {
         Kp20SupportLayout::ShoulderWide => add2(add2(origin, dv), scale2(du, 0.16)),
         Kp20SupportLayout::ShoulderTall => add2(add2(origin, dv), scale2(dv, 0.14)),
         Kp20SupportLayout::OriginPulled => add2(add2(origin, dv), scale2(du, -0.08)),
         Kp20SupportLayout::MidpointPulled => add2(add2(origin, dv), scale2(du, 0.08)),
         Kp20SupportLayout::Anchor => add2(origin, dv),
+        Kp20SupportLayout::BoundaryFixedBendLeft
+        | Kp20SupportLayout::BoundaryFixedBendRight
+        | Kp20SupportLayout::BoundaryFixedFanOut
+        | Kp20SupportLayout::BoundaryFixedFanIn => unreachable!("warp layouts return above"),
     };
     [
         (
@@ -232,6 +259,55 @@ fn support_layout_corner_maps(
         (
             Kp20PatchCorner::U1V1,
             Kp20AffineGuideMap::new(add2(shoulder, du), scale2(du, -1.0), scale2(dv, -1.0)),
+        ),
+    ]
+}
+
+fn boundary_fixed_warp_corner_maps(
+    origin: [f64; 2],
+    du: [f64; 2],
+    dv: [f64; 2],
+    layout: Kp20SupportLayout,
+) -> Kp20PieceCornerMaps {
+    let (along, across) = match layout {
+        Kp20SupportLayout::BoundaryFixedBendLeft => (0.18, -0.08),
+        Kp20SupportLayout::BoundaryFixedBendRight => (-0.18, 0.08),
+        Kp20SupportLayout::BoundaryFixedFanOut => (0.10, 0.14),
+        Kp20SupportLayout::BoundaryFixedFanIn => (-0.10, -0.14),
+        _ => (0.0, 0.0),
+    };
+    [
+        (
+            Kp20PatchCorner::U0V0,
+            Kp20AffineGuideMap::new(
+                origin,
+                add2(du, scale2(dv, across)),
+                add2(dv, scale2(du, along)),
+            ),
+        ),
+        (
+            Kp20PatchCorner::U1V0,
+            Kp20AffineGuideMap::new(
+                add2(origin, du),
+                add2(scale2(du, -1.0), scale2(dv, -across)),
+                add2(dv, scale2(du, -along)),
+            ),
+        ),
+        (
+            Kp20PatchCorner::U0V1,
+            Kp20AffineGuideMap::new(
+                add2(origin, dv),
+                add2(du, scale2(dv, -across)),
+                add2(scale2(dv, -1.0), scale2(du, -along)),
+            ),
+        ),
+        (
+            Kp20PatchCorner::U1V1,
+            Kp20AffineGuideMap::new(
+                add2(add2(origin, du), dv),
+                add2(scale2(du, -1.0), scale2(dv, across)),
+                add2(scale2(dv, -1.0), scale2(du, along)),
+            ),
         ),
     ]
 }
