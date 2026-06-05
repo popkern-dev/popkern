@@ -23,10 +23,11 @@ use super::kp20_polar_support_lift::{
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
-use labels::{fold_ownership_label, piece_counts_label, validation_label};
+use labels::{nonoverlap_coupled_lift_detail, piece_counts_label, validation_label};
 use origin_inner_row::{
-    Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, refine_origin_inner_interior_row,
-    refine_paired_inner_interior_row,
+    Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
+    refine_origin_inner_interior_row, refine_paired_inner_interior_row,
+    refine_support_inner_interior_row,
 };
 
 #[path = "kp20_polar_dispatch_labels.rs"]
@@ -207,6 +208,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.report,
                     &lifted.origin_inner,
                     &lifted.paired_inner,
+                    &lifted.support_inner,
                 ));
                 if lifted_intersections.is_empty() {
                     trace(
@@ -278,6 +280,7 @@ struct Kp20LiftedDispatchCandidate {
     report: Kp20SupportNormalLiftReport,
     origin_inner: Kp20OriginInnerRowReport,
     paired_inner: Kp20PairedInnerRowReport,
+    support_inner: Kp20SupportInnerRowReport,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
@@ -309,6 +312,8 @@ fn try_nonoverlap_coupled_lift_candidate(
         refine_origin_inner_interior_row(star_point, tensor_border, report)?;
     let (report, paired_inner) =
         refine_paired_inner_interior_row(star_point, tensor_border, report)?;
+    let (report, support_inner) =
+        refine_support_inner_interior_row(star_point, tensor_border, report)?;
     if !validation_is_clean(report.validation) {
         return Err(format!(
             "validation residuals exceed tolerance: {}",
@@ -321,6 +326,7 @@ fn try_nonoverlap_coupled_lift_candidate(
         report,
         origin_inner,
         paired_inner,
+        support_inner,
     })
 }
 
@@ -331,37 +337,18 @@ fn nonoverlap_coupled_lift_fact(
     report: &Kp20SupportNormalLiftReport,
     origin_inner: &Kp20OriginInnerRowReport,
     paired_inner: &Kp20PairedInnerRowReport,
+    support_inner: &Kp20SupportInnerRowReport,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
         n,
-        Some(format!(
-            "status=sampled;default_folds={};folds={};piece_folds={};{};{};origin_inner_evaluated={};origin_inner_accepted={};origin_inner_rejected={};origin_inner_start_folds={};origin_inner_end_folds={};origin_inner_mode={};origin_inner_scale={:.3e};paired_inner_evaluated={};paired_inner_accepted={};paired_inner_rejected={};paired_inner_start_folds={};paired_inner_end_folds={};paired_inner_mode={};paired_inner_scale={:.3e};optimizer_active_fold_sites={};optimizer_row_variables={};optimizer_evaluated={};optimizer_accepted={};optimizer_rejected={};accepted_steps={}",
-            default.fold_count,
-            lifted.fold_count,
-            piece_counts_label(lifted.piece_fold_counts),
-            fold_ownership_label(lifted),
-            validation_label(report.validation),
-            origin_inner.evaluated,
-            origin_inner.accepted,
-            origin_inner.rejected,
-            origin_inner.start_folds,
-            origin_inner.end_folds,
-            origin_inner.mode,
-            origin_inner.scale,
-            paired_inner.evaluated,
-            paired_inner.accepted,
-            paired_inner.rejected,
-            paired_inner.start_folds,
-            paired_inner.end_folds,
-            paired_inner.mode,
-            paired_inner.scale,
-            report.optimizer_stats.active_fold_sites,
-            report.optimizer_stats.row_variable_count,
-            report.optimizer_stats.evaluated_candidates,
-            report.optimizer_stats.accepted_candidates,
-            report.optimizer_stats.rejected_candidates,
-            report.accepted_steps.len(),
+        Some(nonoverlap_coupled_lift_detail(
+            default,
+            lifted,
+            report,
+            origin_inner,
+            paired_inner,
+            support_inner,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),

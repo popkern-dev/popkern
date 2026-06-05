@@ -1,4 +1,4 @@
-//! Bounded origin-owned interior-row refinement for KP20 lifted candidates.
+//! Bounded interior-row refinement for KP20 lifted candidates.
 
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20MacroPatch, Kp20PieceId, TensorBorderBi3,
@@ -12,7 +12,7 @@ use super::super::kp20_polar_fold_summary::{
 use super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 
 #[derive(Debug, Clone)]
-pub(super) struct Kp20OriginInnerRowReport {
+pub(super) struct Kp20InnerRowReport {
     pub(super) evaluated: usize,
     pub(super) accepted: usize,
     pub(super) rejected: usize,
@@ -22,107 +22,22 @@ pub(super) struct Kp20OriginInnerRowReport {
     pub(super) scale: f64,
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct Kp20PairedInnerRowReport {
-    pub(super) evaluated: usize,
-    pub(super) accepted: usize,
-    pub(super) rejected: usize,
-    pub(super) start_folds: usize,
-    pub(super) end_folds: usize,
-    pub(super) mode: &'static str,
-    pub(super) scale: f64,
-}
+pub(super) type Kp20OriginInnerRowReport = Kp20InnerRowReport;
+pub(super) type Kp20PairedInnerRowReport = Kp20InnerRowReport;
+pub(super) type Kp20SupportInnerRowReport = Kp20InnerRowReport;
 
 pub(super) fn refine_origin_inner_interior_row(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20OriginInnerRowReport), String> {
-    let start_folds = lift.summary.fold_count;
-    let mut best: Option<(
-        Vec<Kp20MacroPatch>,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20OriginInnerMode,
-        f64,
-    )> = None;
-    let mut stats = Kp20OriginInnerRowReport {
-        evaluated: 0,
-        accepted: 0,
-        rejected: 0,
-        start_folds,
-        end_folds: start_folds,
-        mode: "none",
-        scale: 0.0,
-    };
-    for mode in Kp20OriginInnerMode::all() {
-        for scale in [-0.20, -0.12, 0.12, 0.20] {
-            let mut candidate = lift.macro_patches.clone();
-            let changed = apply_origin_inner_row_update(
-                &mut candidate,
-                star_point,
-                tensor_border,
-                mode,
-                scale,
-                &lift.summary.fold_sites,
-            );
-            stats.evaluated += 1;
-            let fast = fast_candidate_summary_from_changed_patches(
-                tensor_border,
-                candidate.clone(),
-                &lift.summary,
-                &changed,
-                lift.summary.fold_count,
-            )?;
-            if !validation_is_clean(fast.1)
-                || !is_better_summary(&fast, Some(&(lift.summary.clone(), lift.validation)))
-            {
-                stats.rejected += 1;
-                continue;
-            }
-            let exact = candidate_summary_from_changed_patches(
-                tensor_border,
-                candidate.clone(),
-                &lift.summary,
-                &changed,
-                lift.summary.fold_count,
-            )?;
-            if !validation_is_clean(exact.1)
-                || !is_better_summary(&exact, Some(&(lift.summary.clone(), lift.validation)))
-            {
-                stats.rejected += 1;
-                continue;
-            }
-            if best
-                .as_ref()
-                .is_none_or(|(_, summary, _, _)| is_better_summary(&exact, Some(summary)))
-            {
-                best = Some((candidate, exact, mode, scale));
-            } else {
-                stats.rejected += 1;
-            }
-        }
-    }
-    let Some((macro_patches, summary, mode, scale)) = best else {
-        return Ok((lift, stats));
-    };
-    stats.accepted = 1;
-    stats.end_folds = summary.0.fold_count;
-    stats.mode = mode.label();
-    stats.scale = scale;
-    let mut optimizer_stats = lift.optimizer_stats.clone();
-    optimizer_stats.evaluated_candidates += stats.evaluated;
-    optimizer_stats.accepted_candidates += stats.accepted;
-    optimizer_stats.rejected_candidates += stats.rejected;
-    Ok((
-        Kp20SupportNormalLiftReport {
-            summary: summary.0,
-            validation: summary.1,
-            macro_patches,
-            accepted_steps: lift.accepted_steps,
-            optimizer_stats,
-        },
-        stats,
-    ))
+    refine_inner_interior_row(
+        star_point,
+        tensor_border,
+        lift,
+        &[-0.20, -0.12, 0.12, 0.20],
+        &[Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight],
+    )
 }
 
 pub(super) fn refine_paired_inner_interior_row(
@@ -130,6 +45,36 @@ pub(super) fn refine_paired_inner_interior_row(
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20PairedInnerRowReport), String> {
+    refine_inner_interior_row(
+        star_point,
+        tensor_border,
+        lift,
+        &[-0.16, -0.08, 0.08, 0.16],
+        &Kp20PieceId::all(),
+    )
+}
+
+pub(super) fn refine_support_inner_interior_row(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    lift: Kp20SupportNormalLiftReport,
+) -> Result<(Kp20SupportNormalLiftReport, Kp20SupportInnerRowReport), String> {
+    refine_inner_interior_row(
+        star_point,
+        tensor_border,
+        lift,
+        &[-0.18, -0.10, -0.05, 0.05, 0.10, 0.18],
+        &[Kp20PieceId::NearMidpointLeft],
+    )
+}
+
+fn refine_inner_interior_row(
+    star_point: Point3,
+    tensor_border: &TensorBorderBi3,
+    lift: Kp20SupportNormalLiftReport,
+    scales: &[f64],
+    target_pieces: &[Kp20PieceId],
+) -> Result<(Kp20SupportNormalLiftReport, Kp20InnerRowReport), String> {
     let start_folds = lift.summary.fold_count;
     let mut best: Option<(
         Vec<Kp20MacroPatch>,
@@ -137,7 +82,7 @@ pub(super) fn refine_paired_inner_interior_row(
         Kp20OriginInnerMode,
         f64,
     )> = None;
-    let mut stats = Kp20PairedInnerRowReport {
+    let mut stats = Kp20InnerRowReport {
         evaluated: 0,
         accepted: 0,
         rejected: 0,
@@ -147,7 +92,7 @@ pub(super) fn refine_paired_inner_interior_row(
         scale: 0.0,
     };
     for mode in Kp20OriginInnerMode::all() {
-        for scale in [-0.16, -0.08, 0.08, 0.16] {
+        for &scale in scales {
             let mut candidate = lift.macro_patches.clone();
             let changed = apply_inner_row_update(
                 &mut candidate,
@@ -156,7 +101,7 @@ pub(super) fn refine_paired_inner_interior_row(
                 mode,
                 scale,
                 &lift.summary.fold_sites,
-                &Kp20PieceId::all(),
+                target_pieces,
             );
             stats.evaluated += 1;
             let fast = fast_candidate_summary_from_changed_patches(
@@ -237,25 +182,6 @@ impl Kp20OriginInnerMode {
             Self::Chord => "chord",
         }
     }
-}
-
-fn apply_origin_inner_row_update(
-    macro_patches: &mut [Kp20MacroPatch],
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-    mode: Kp20OriginInnerMode,
-    scale: f64,
-    fold_sites: &[Kp20FoldSite],
-) -> Vec<[bool; 4]> {
-    apply_inner_row_update(
-        macro_patches,
-        star_point,
-        tensor_border,
-        mode,
-        scale,
-        fold_sites,
-        &[Kp20PieceId::NearOriginLeft, Kp20PieceId::NearOriginRight],
-    )
 }
 
 fn apply_inner_row_update(
