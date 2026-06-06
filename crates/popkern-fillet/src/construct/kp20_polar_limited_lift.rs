@@ -17,7 +17,7 @@ use super::super::kp20_polar_support_lift::{
 use super::super::kp20_polar_support_reparameterization::{
     Kp20SupportDomainReport, Kp20SupportReparameterizationReport,
 };
-use super::labels::{piece_counts_label, validation_label};
+use super::labels::{fold_ownership_label, piece_counts_label, validation_label};
 use super::origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
     refine_origin_inner_interior_row, refine_paired_inner_interior_row,
@@ -87,28 +87,15 @@ impl Kp20LimitedLiftCandidate {
         let support_reparameterization = self
             .support_reparameterization
             .as_ref()
-            .map(|report| {
-                format!(
-                    ";support_reparam_evaluated={};support_reparam_fast_accepted={};support_reparam_fast_rejected={};support_reparam_lift_evaluated={};support_reparam_accepted={};support_reparam_rejected={};support_reparam_start_folds={};support_reparam_end_folds={};support_reparam_target_piece={:?};support_reparam_decline_reason={}",
-                    report.evaluated,
-                    report.fast_accepted,
-                    report.fast_rejected,
-                    report.lift_evaluated,
-                    report.accepted,
-                    report.rejected,
-                    report.start_folds,
-                    report.end_folds,
-                    report.target_piece,
-                    report.decline_reason,
-                )
-            })
+            .map(|report| support_reparameterization_detail("support_reparam", report))
             .unwrap_or_default();
         format!(
-            "status=sampled;strategy={};default_folds={};folds={};piece_folds={};validation:{};optimizer_evaluated={};optimizer_accepted={};accepted_steps={};elapsed_ms={}{}{}{}{}{}",
+            "status=sampled;strategy={};default_folds={};folds={};piece_folds={};{};validation:{};optimizer_evaluated={};optimizer_accepted={};accepted_steps={};elapsed_ms={}{}{}{}{}{}",
             self.strategy,
             default.fold_count,
             lifted.fold_count,
             piece_counts_label(lifted.piece_fold_counts),
+            fold_ownership_label(lifted),
             validation_label(self.report.validation),
             self.report.optimizer_stats.evaluated_candidates,
             self.report.optimizer_stats.accepted_candidates,
@@ -133,6 +120,25 @@ fn inner_report_detail(label: &str, report: &Kp20OriginInnerRowReport) -> String
         report.end_folds,
         report.mode,
         report.scale,
+    )
+}
+
+fn support_reparameterization_detail(
+    label: &str,
+    report: &Kp20SupportReparameterizationReport,
+) -> String {
+    format!(
+        ";{label}_evaluated={};{label}_fast_accepted={};{label}_fast_rejected={};{label}_lift_evaluated={};{label}_accepted={};{label}_rejected={};{label}_start_folds={};{label}_end_folds={};{label}_target_piece={:?};{label}_decline_reason={}",
+        report.evaluated,
+        report.fast_accepted,
+        report.fast_rejected,
+        report.lift_evaluated,
+        report.accepted,
+        report.rejected,
+        report.start_folds,
+        report.end_folds,
+        report.target_piece,
+        report.decline_reason,
     )
 }
 
