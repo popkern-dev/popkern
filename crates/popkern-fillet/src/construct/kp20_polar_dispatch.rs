@@ -31,8 +31,8 @@ use origin_inner_row::{
     refine_origin_inner_interior_row, refine_paired_inner_interior_row,
     refine_support_inner_interior_row,
 };
+use primary_candidate::evaluate_positive_primary_candidates;
 pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
-use primary_candidate::try_positive_nonoverlap_c2_macro_candidate;
 use support_domain::support_domain_basis_candidate;
 use support_transition::refine_support_transition_sheet;
 
@@ -152,29 +152,14 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             };
         }
     };
-    match try_positive_nonoverlap_c2_macro_candidate(polar.central_vertex, &tensor_border) {
-        Ok(mapped) => {
-            diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
-                "positive_nonoverlap_c2_primary",
-                n,
-                Some(mapped.detail()),
-                Some(mapped.summary.min_jacobian_normal_cos),
-                Some(SELF_INT_TOL),
-            ));
-            if mapped.is_acceptable() {
-                return Kp20PolarDispatchReport {
-                    patches: Some(mapped.patches),
-                    diagnostics,
-                };
-            }
-        }
-        Err(e) => record_decline(
-            &mut diagnostics,
-            "positive_nonoverlap_c2_primary",
-            n,
-            Some(e),
-            None,
-        ),
+    let (mut primary_diagnostics, primary_patches) =
+        evaluate_positive_primary_candidates(n, polar.central_vertex, &tensor_border);
+    diagnostics.append(&mut primary_diagnostics);
+    if let Some(patches) = primary_patches {
+        return Kp20PolarDispatchReport {
+            patches: Some(patches),
+            diagnostics,
+        };
     }
     let candidate = match try_kp20_polar_macro_candidate(polar.central_vertex, &tensor_border) {
         Ok(candidate) => candidate,

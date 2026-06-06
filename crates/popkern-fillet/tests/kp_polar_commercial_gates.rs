@@ -245,6 +245,19 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.stage == "kp20_polar_macro.dispatch.positive_nonoverlap_c2_support_domain_primary"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("support_domain_evaluated=8")
+                            && detail.contains("support_domain_target_piece=NearMidpointLeft")
+                            && detail.contains("decline_reason=support_domain_primary_fold_remaining")
+                    })
+        )),
+        "hexagon6_mixed should measure the support-domain primary candidate structurally"
+    );
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                 if cap.code == "kp20_polar_macro.dispatch.fact"
                     && cap.stage == "kp20_polar_macro.dispatch.piece_map_orientation"
                     && cap.sector_name == "kp20_polar_macro_ring_n6"
