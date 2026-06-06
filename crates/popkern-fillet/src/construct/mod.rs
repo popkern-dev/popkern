@@ -70,6 +70,7 @@ mod pcurve_measured_repair;
 mod pcurve_refit;
 mod perpendicular_splits;
 mod phase_split;
+mod pipeline_timing;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
 mod post_pipeline;
@@ -183,23 +184,30 @@ pub fn apply_blend_geometry(
     // don't re-author or absorb the direct-apex-built cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
 
-    let mut split_state = perpendicular_splits::run_perpendicular_splits(
-        brep,
-        &mut result,
-        edge_geometries,
-        tolerance,
-        use_direct_apex_construction,
-        &mut failures,
-    );
-    phase_split::apply_face_trim_pipeline(
-        brep,
-        &mut result,
-        edge_geometries,
-        tolerance,
-        &split_state.perp_data,
-        &mut split_state.descendants,
-        &mut failures,
-    );
+    let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
+    let (mut split_state, ms) = pipeline_timing::timed(|| {
+        perpendicular_splits::run_perpendicular_splits(
+            brep,
+            &mut result,
+            edge_geometries,
+            tolerance,
+            use_direct_apex_construction,
+            &mut failures,
+        )
+    });
+    pipeline_timing.perpendicular_split_ms = ms;
+    let (_, ms) = pipeline_timing::timed(|| {
+        phase_split::apply_face_trim_pipeline(
+            brep,
+            &mut result,
+            edge_geometries,
+            tolerance,
+            &split_state.perp_data,
+            &mut split_state.descendants,
+            &mut failures,
+        )
+    });
+    pipeline_timing.face_trim_ms = ms;
 
     if !failures.is_empty() && failures.len() == edge_geometries.len() {
         return Err(failures);
@@ -207,132 +215,110 @@ pub fn apply_blend_geometry(
 
     // Vertex blend handling. `BTreeMap` keyed on VertexHandle for
     // deterministic insertion order across runs.
-    if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
-        let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
-            std::collections::BTreeMap::new();
-        for (idx, eg) in edge_geometries.iter().enumerate() {
-            vertex_edges
-                .entry(eg.analysis.vertex_start)
-                .or_default()
-                .push(idx);
-            vertex_edges
-                .entry(eg.analysis.vertex_end)
-                .or_default()
-                .push(idx);
-        }
-        // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
-        // A-through-C). Post-modification, original edge handles are
-        // stale and `classify_vertex_blend` silently defaults to
-        // `SameSideConvex`, masking `OppositeSide` saddles.
-        type VC = crate::vertex_classifier::VertexBlendClassification;
-        let precomputed: std::collections::BTreeMap<VertexHandle, VC> = vertex_edges
-            .iter()
-            .map(|(v, eis)| {
-                let edges: Vec<_> = eis
-                    .iter()
-                    .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
-                    .collect();
-                let c =
-                    crate::vertex_classifier::classify_vertex_blend(brep, *v, &edges, tolerance)
-                        .classification;
-                (*v, c)
-            })
-            .collect();
-        for (vertex, edge_indices) in &vertex_edges {
-            if edge_indices.len() >= 2 {
-                let pre = precomputed
-                    .get(vertex)
-                    .copied()
-                    .unwrap_or(crate::vertex_classifier::VertexBlendClassification::SameSideConvex);
-
-                // §6c-direct-apex dispatch.b/d — when use_direct_apex_construction is set,
-                // try the direct-apex planner + builder for this apex.
-                //   * On success, the BRep already has the direct-apex-built
-                //     cap.  We collect the cap face handles into
-                //     `direct_apex_built_faces` so the post-loop protected
-                //     set (sliver_absorb / cap_insert /
-                //     late_wire_jobs) leaves them alone, then skip
-                //     the legacy insert_vertex_blend call entirely.
-                //   * On direct-apex error (plan or build), fall back to
-                //     legacy with a typed
-                //     BlendWarning::DirectApexFellBackToLegacy recording the
-                //     reason.  `construct_apex`'s snapshot has
-                //     already rolled the BRep back to its pre-call
-                //     state, so legacy can run cleanly.
-                //
-                // DirectApex's failure modes:
-                //   * plan_apex_resolution returns ApexPlanError
-                //     (e.g. SphereCylinderNoIntersection on extreme
-                //     radii, SingularCapCentre on nearly-coplanar
-                //     faces).
-                //   * construct_apex returns ApexBuildError —
-                //     today most commonly Gregory cap surface
-                //     assignment (deferred to direct-apex cap-surface).
-                let use_direct_apex_for_this_apex = use_direct_apex_construction
-                    || mixed_radius_direct_apex::should_promote_mixed_radius_gregory_apex(
-                        edge_indices,
-                        edge_geometries,
-                        use_rational_gregory,
-                        use_kp_binonic_gregory,
+    let (_, ms) = pipeline_timing::timed(|| {
+        if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
+            let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
+                std::collections::BTreeMap::new();
+            for (idx, eg) in edge_geometries.iter().enumerate() {
+                vertex_edges
+                    .entry(eg.analysis.vertex_start)
+                    .or_default()
+                    .push(idx);
+                vertex_edges
+                    .entry(eg.analysis.vertex_end)
+                    .or_default()
+                    .push(idx);
+            }
+            // §5.3 item #5 — classify on the ORIGINAL `brep` (pre-Phase
+            // A-through-C). Post-modification, original edge handles are
+            // stale and `classify_vertex_blend` silently defaults to
+            // `SameSideConvex`, masking `OppositeSide` saddles.
+            type VC = crate::vertex_classifier::VertexBlendClassification;
+            let precomputed: std::collections::BTreeMap<VertexHandle, VC> = vertex_edges
+                .iter()
+                .map(|(v, eis)| {
+                    let edges: Vec<_> = eis
+                        .iter()
+                        .filter_map(|&i| edge_geometries.get(i).map(|g| g.analysis.edge))
+                        .collect();
+                    let c = crate::vertex_classifier::classify_vertex_blend(
+                        brep, *v, &edges, tolerance,
+                    )
+                    .classification;
+                    (*v, c)
+                })
+                .collect();
+            for (vertex, edge_indices) in &vertex_edges {
+                if edge_indices.len() >= 2 {
+                    let pre = precomputed.get(vertex).copied().unwrap_or(
+                        crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );
-                let direct_apex_outcome = if use_direct_apex_for_this_apex {
-                    Some(direct_apex_dispatch::try_direct_apex_construction(
-                        &mut result,
-                        *vertex,
-                        edge_indices,
-                        edge_geometries,
-                        &split_state.descendants,
-                        tolerance,
-                    ))
-                } else {
-                    None
-                };
-                let mut direct_apex_succeeded = false;
-                let mut direct_apex_fell_back_to_legacy = false;
-                if let Some(outcome) = direct_apex_outcome {
-                    match outcome {
-                        Ok(success) => {
-                            repair_report.apex_routes.push(apex_route_decision(
-                                ApexRouteDecisionInput {
-                                    vertex: *vertex,
-                                    edge_indices,
-                                    edge_geometries,
-                                    route: crate::types::ApexConstructionRoute::DirectApex,
-                                    built_faces: success.built_faces.clone(),
-                                    corner_patch_count: success.corner_patches.len(),
-                                    exact_boundary_sector_count: success
-                                        .exact_boundary_sector_count,
-                                    exact_boundary_prepared_curve_count: success
-                                        .exact_boundary_prepared_curve_count,
-                                    exact_boundary_inner_spoke_count: success
-                                        .exact_boundary_inner_spoke_count,
-                                    exact_boundary_ribbon_count: success
-                                        .exact_boundary_ribbon_count,
-                                    exact_boundary_solved_surface_count: success
-                                        .exact_boundary_solved_surface_count,
-                                    exact_boundary_pcurve_pair_count: success
-                                        .exact_boundary_pcurve_pair_count,
-                                    exact_boundary_performance: success
-                                        .exact_boundary_performance
-                                        .clone(),
-                                    exact_boundary_report: success
-                                        .exact_boundary_report
-                                        .clone()
-                                        .with_route_label("direct_apex"),
-                                    fallback_reason: None,
-                                },
-                            ));
-                            repair_report.apex_diagnostics.extend(success.diagnostics);
-                            direct_apex_built_faces.extend(success.built_faces);
-                            corner_patches.extend(success.corner_patches);
-                            direct_apex_succeeded = true;
-                        }
-                        Err(error) => {
-                            direct_apex_fell_back_to_legacy = true;
-                            let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
-                            let reason = error.reason;
-                            repair_report.apex_diagnostics.extend(error.diagnostics);
-                            repair_report
+
+                    let use_direct_apex_for_this_apex = use_direct_apex_construction
+                        || mixed_radius_direct_apex::should_promote_mixed_radius_gregory_apex(
+                            edge_indices,
+                            edge_geometries,
+                            use_rational_gregory,
+                            use_kp_binonic_gregory,
+                        );
+                    let direct_apex_outcome = if use_direct_apex_for_this_apex {
+                        Some(direct_apex_dispatch::try_direct_apex_construction(
+                            &mut result,
+                            *vertex,
+                            edge_indices,
+                            edge_geometries,
+                            &split_state.descendants,
+                            tolerance,
+                        ))
+                    } else {
+                        None
+                    };
+                    let mut direct_apex_succeeded = false;
+                    let mut direct_apex_fell_back_to_legacy = false;
+                    if let Some(outcome) = direct_apex_outcome {
+                        match outcome {
+                            Ok(success) => {
+                                repair_report.apex_routes.push(apex_route_decision(
+                                    ApexRouteDecisionInput {
+                                        vertex: *vertex,
+                                        edge_indices,
+                                        edge_geometries,
+                                        route: crate::types::ApexConstructionRoute::DirectApex,
+                                        built_faces: success.built_faces.clone(),
+                                        corner_patch_count: success.corner_patches.len(),
+                                        exact_boundary_sector_count: success
+                                            .exact_boundary_sector_count,
+                                        exact_boundary_prepared_curve_count: success
+                                            .exact_boundary_prepared_curve_count,
+                                        exact_boundary_inner_spoke_count: success
+                                            .exact_boundary_inner_spoke_count,
+                                        exact_boundary_ribbon_count: success
+                                            .exact_boundary_ribbon_count,
+                                        exact_boundary_solved_surface_count: success
+                                            .exact_boundary_solved_surface_count,
+                                        exact_boundary_pcurve_pair_count: success
+                                            .exact_boundary_pcurve_pair_count,
+                                        exact_boundary_performance: success
+                                            .exact_boundary_performance
+                                            .clone(),
+                                        exact_boundary_report: success
+                                            .exact_boundary_report
+                                            .clone()
+                                            .with_route_label("direct_apex"),
+                                        fallback_reason: None,
+                                    },
+                                ));
+                                repair_report.apex_diagnostics.extend(success.diagnostics);
+                                direct_apex_built_faces.extend(success.built_faces);
+                                corner_patches.extend(success.corner_patches);
+                                direct_apex_succeeded = true;
+                            }
+                            Err(error) => {
+                                direct_apex_fell_back_to_legacy = true;
+                                let warn_edge = edge_geometries[edge_indices[0]].analysis.edge;
+                                let reason = error.reason;
+                                repair_report.apex_diagnostics.extend(error.diagnostics);
+                                repair_report
                                 .apex_routes
                                 .push(apex_route_decision(ApexRouteDecisionInput {
                                 vertex: *vertex,
@@ -355,142 +341,141 @@ pub fn apply_blend_geometry(
                                     ),
                                 fallback_reason: Some(reason.clone()),
                             }));
-                            warnings.push((
-                                warn_edge,
-                                BlendWarning::DirectApexFellBackToLegacy {
-                                    vertex: *vertex,
-                                    reason,
-                                },
-                            ));
-                            // Fall through to legacy below.
-                        }
-                    }
-                }
-                if direct_apex_succeeded {
-                    continue;
-                }
-                if !use_direct_apex_for_this_apex {
-                    repair_report
-                        .apex_routes
-                        .push(apex_route_decision(ApexRouteDecisionInput {
-                            vertex: *vertex,
-                            edge_indices,
-                            edge_geometries,
-                            route: crate::types::ApexConstructionRoute::Legacy,
-                            built_faces: Vec::new(),
-                            corner_patch_count: 0,
-                            exact_boundary_sector_count: 0,
-                            exact_boundary_prepared_curve_count: 0,
-                            exact_boundary_inner_spoke_count: 0,
-                            exact_boundary_ribbon_count: 0,
-                            exact_boundary_solved_surface_count: 0,
-                            exact_boundary_pcurve_pair_count: 0,
-                            exact_boundary_performance: Default::default(),
-                            exact_boundary_report:
-                                crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
-                            fallback_reason: None,
-                        }));
-                }
-
-                match blend_insert::insert_vertex_blend(
-                    &mut result,
-                    *vertex,
-                    edge_indices,
-                    edge_geometries,
-                    tolerance,
-                    use_rational_gregory,
-                    use_deg5_gregory,
-                    use_biquintic_full_gregory,
-                    use_biseptic_gregory,
-                    use_two_stripe_gregory,
-                    use_kp_binonic_gregory,
-                    use_kp_polar_gregory,
-                    Some(pre),
-                ) {
-                    Ok((infos, boundary_opt, diagnostics)) => {
-                        repair_report.apex_diagnostics.extend(diagnostics);
-                        if direct_apex_fell_back_to_legacy {
-                            let cap_faces = infos.iter().map(|info| info.face).collect::<Vec<_>>();
-                            if let Some(diagnostic) =
-                                cap_outer_acceptance::cap_support_continuity_diagnostic(
-                                    &result, &cap_faces, 5.0e-3, 5.0e-2,
-                                )
-                            {
-                                repair_report.apex_diagnostics.push(diagnostic);
+                                warnings.push((
+                                    warn_edge,
+                                    BlendWarning::DirectApexFellBackToLegacy {
+                                        vertex: *vertex,
+                                        reason,
+                                    },
+                                ));
+                                // Fall through to legacy below.
                             }
                         }
-                        for emit in [
-                            bridge_warnings::emit_bridge_fallback_warnings,
-                            bridge_warnings::emit_tangent_corner_warning,
-                            bridge_warnings::emit_overlap_remediation_warning,
-                            bridge_warnings::emit_corner_continuity_relaxed_warning,
-                        ] {
-                            emit(
-                                &infos,
-                                *vertex,
+                    }
+                    if direct_apex_succeeded {
+                        continue;
+                    }
+                    if !use_direct_apex_for_this_apex {
+                        repair_report.apex_routes.push(apex_route_decision(
+                            ApexRouteDecisionInput {
+                                vertex: *vertex,
                                 edge_indices,
                                 edge_geometries,
-                                &mut warnings,
-                            );
-                        }
-                        if let Some(b) = boundary_opt {
-                            if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
-                                eprintln!(
-                                    "[apex-path-a/dispatch] vertex={vertex:?} \
-                                     sphere_fit_substituted={} -> late_wire_jobs {}",
-                                    b.sphere_fit_substituted,
-                                    if b.sphere_fit_substituted {
-                                        "PUSHED"
-                                    } else {
-                                        "skipped"
-                                    },
+                                route: crate::types::ApexConstructionRoute::Legacy,
+                                built_faces: Vec::new(),
+                                corner_patch_count: 0,
+                                exact_boundary_sector_count: 0,
+                                exact_boundary_prepared_curve_count: 0,
+                                exact_boundary_inner_spoke_count: 0,
+                                exact_boundary_ribbon_count: 0,
+                                exact_boundary_solved_surface_count: 0,
+                                exact_boundary_pcurve_pair_count: 0,
+                                exact_boundary_performance: Default::default(),
+                                exact_boundary_report:
+                                    crate::types::ExactBoundaryCapReport::not_applicable("legacy"),
+                                fallback_reason: None,
+                            },
+                        ));
+                    }
+
+                    match blend_insert::insert_vertex_blend(
+                        &mut result,
+                        *vertex,
+                        edge_indices,
+                        edge_geometries,
+                        tolerance,
+                        use_rational_gregory,
+                        use_deg5_gregory,
+                        use_biquintic_full_gregory,
+                        use_biseptic_gregory,
+                        use_two_stripe_gregory,
+                        use_kp_binonic_gregory,
+                        use_kp_polar_gregory,
+                        Some(pre),
+                    ) {
+                        Ok((infos, boundary_opt, diagnostics)) => {
+                            repair_report.apex_diagnostics.extend(diagnostics);
+                            if direct_apex_fell_back_to_legacy {
+                                let cap_faces =
+                                    infos.iter().map(|info| info.face).collect::<Vec<_>>();
+                                if let Some(diagnostic) =
+                                    cap_outer_acceptance::cap_support_continuity_diagnostic(
+                                        &result, &cap_faces, 5.0e-3, 5.0e-2,
+                                    )
+                                {
+                                    repair_report.apex_diagnostics.push(diagnostic);
+                                }
+                            }
+                            for emit in [
+                                bridge_warnings::emit_bridge_fallback_warnings,
+                                bridge_warnings::emit_tangent_corner_warning,
+                                bridge_warnings::emit_overlap_remediation_warning,
+                                bridge_warnings::emit_corner_continuity_relaxed_warning,
+                            ] {
+                                emit(
+                                    &infos,
+                                    *vertex,
+                                    edge_indices,
+                                    edge_geometries,
+                                    &mut warnings,
                                 );
                             }
-                            let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
-                            if !face_handles.is_empty() {
-                                support_seam_jobs.push((b.clone(), face_handles.clone()));
+                            if let Some(b) = boundary_opt {
+                                let face_handles: Vec<_> = infos.iter().map(|cp| cp.face).collect();
+                                if !face_handles.is_empty() {
+                                    support_seam_jobs.push((b.clone(), face_handles.clone()));
+                                }
+                                if b.sphere_fit_substituted {
+                                    late_wire_jobs.push((b, face_handles));
+                                }
                             }
-                            if b.sphere_fit_substituted {
-                                late_wire_jobs.push((b, face_handles));
-                            }
-                        } else if std::env::var_os("POPKERN_APEX_PATH_A_TRACE").is_some() {
-                            eprintln!(
-                                "[apex-path-a/dispatch] vertex={vertex:?} \
-                                 boundary_opt=None -> late_wire_jobs skipped"
-                            );
+                            corner_patches.extend(infos);
                         }
-                        corner_patches.extend(infos);
-                    }
-                    Err(_) => {
-                        let edge_idx = edge_indices[0];
-                        if edge_idx < edge_geometries.len() {
-                            warnings.push((
-                                edge_geometries[edge_idx].analysis.edge,
-                                BlendWarning::VertexModeFallback {
-                                    requested: VertexMode::Smooth,
-                                    actual: VertexMode::Mitred,
-                                    vertex: Some(*vertex),
-                                },
-                            ));
+                        Err(_) => {
+                            let edge_idx = edge_indices[0];
+                            if edge_idx < edge_geometries.len() {
+                                warnings.push((
+                                    edge_geometries[edge_idx].analysis.edge,
+                                    BlendWarning::VertexModeFallback {
+                                        requested: VertexMode::Smooth,
+                                        actual: VertexMode::Mitred,
+                                        vertex: Some(*vertex),
+                                    },
+                                ));
+                            }
                         }
                     }
                 }
             }
         }
-    }
-
-    post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {
-        source_brep: brep,
-        result: &mut result,
-        edge_geometries,
-        tolerance,
-        late_wire_jobs: &late_wire_jobs,
-        support_seam_jobs: &support_seam_jobs,
-        direct_apex_built_faces: &direct_apex_built_faces,
-        warnings: &mut warnings,
-        corner_patches: &mut corner_patches,
-        repair_report: &mut repair_report,
     });
+    pipeline_timing.vertex_blend_ms = ms;
+
+    let (_, ms) = pipeline_timing::timed(|| {
+        post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {
+            source_brep: brep,
+            result: &mut result,
+            edge_geometries,
+            tolerance,
+            late_wire_jobs: &late_wire_jobs,
+            support_seam_jobs: &support_seam_jobs,
+            direct_apex_built_faces: &direct_apex_built_faces,
+            warnings: &mut warnings,
+            corner_patches: &mut corner_patches,
+            repair_report: &mut repair_report,
+        })
+    });
+    pipeline_timing.post_pipeline_ms = ms;
+    repair_report
+        .apex_diagnostics
+        .push(pipeline_timing.diagnostic(
+            edge_geometries.len(),
+            corner_patches.len(),
+            warnings.len(),
+            direct_apex_built_faces.len(),
+            late_wire_jobs.len(),
+            support_seam_jobs.len(),
+        ));
     Ok(ApplyBlendResult {
         brep: result,
         warnings,
