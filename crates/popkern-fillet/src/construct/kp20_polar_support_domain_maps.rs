@@ -1,7 +1,7 @@
 //! Support-domain map parameters for KP20 support-owned fold repair.
 
 use popkern_core::geometry::gregory::{
-    Kp20AffineGuideMap, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20SectorPieceMaps,
+    Kp20AffineGuideMap, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId, Kp20SectorPieceMaps,
     kp20_positive_nonoverlap_c2_sector_piece_maps,
 };
 
@@ -74,9 +74,23 @@ impl Kp20SupportDomainParams {
 }
 
 pub(super) fn support_domain_piece_maps(params: Kp20SupportDomainParams) -> Kp20SectorPieceMaps {
+    support_domain_piece_maps_for_target(TARGET_PIECE, params)
+}
+
+pub(super) fn support_domain_piece_maps_for_target(
+    target_piece: Kp20PieceId,
+    params: Kp20SupportDomainParams,
+) -> Kp20SectorPieceMaps {
+    support_domain_piece_maps_for_targets(&[target_piece], params)
+}
+
+pub(super) fn support_domain_piece_maps_for_targets(
+    target_pieces: &[Kp20PieceId],
+    params: Kp20SupportDomainParams,
+) -> Kp20SectorPieceMaps {
     let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     for (piece, corner_maps) in &mut maps {
-        if *piece == TARGET_PIECE {
+        if target_pieces.contains(piece) {
             *corner_maps = support_domain_corner_maps(params);
         }
     }
@@ -92,9 +106,22 @@ pub(super) fn support_domain_corner_maps(params: Kp20SupportDomainParams) -> Kp2
 }
 
 pub(super) fn changed_target_pieces(n: usize) -> Vec<[bool; 4]> {
+    changed_pieces_for_target(n, TARGET_PIECE)
+}
+
+pub(super) fn changed_pieces_for_target(n: usize, target_piece: Kp20PieceId) -> Vec<[bool; 4]> {
+    changed_pieces_for_targets(n, &[target_piece])
+}
+
+pub(super) fn changed_pieces_for_targets(
+    n: usize,
+    target_pieces: &[Kp20PieceId],
+) -> Vec<[bool; 4]> {
     let mut changed = vec![[false; 4]; n];
     for pieces in &mut changed {
-        pieces[TARGET_PIECE.index()] = true;
+        for target_piece in target_pieces {
+            pieces[target_piece.index()] = true;
+        }
     }
     changed
 }
