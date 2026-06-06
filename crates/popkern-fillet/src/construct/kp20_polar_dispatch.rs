@@ -1,23 +1,17 @@
 //! Gated KP20 polar macro-cap candidate construction for fillet dispatch.
 
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6ValidationReport, Kp20PieceId, PolarBoundaryInput, Side, Spoke, SpokeEnd,
-    TensorBorder, TensorBorderBi3, extract_bi3_tensor_border_from_polar_input,
-    kp20_default_piece_map_domain_report,
+    TensorBorder, extract_bi3_tensor_border_from_polar_input, kp20_default_piece_map_domain_report,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp_polar_bi6_promote::extract_fillet_radius;
 use super::kp20_polar_comparison::sampler_comparison_diagnostic;
 use super::kp20_polar_fold_summary::{
-    Kp20SamplerFoldSummary, gregory_patches_from_macro_patches, summarize_candidate_intersections,
-    summarize_intersections, validation_is_clean,
+    Kp20SamplerFoldSummary, summarize_candidate_intersections, summarize_intersections,
 };
-use super::kp20_polar_support_image::refine_support_side_reparameterization;
-use super::kp20_polar_support_lift::{
-    Kp20SupportNormalLiftReport, lift_candidate_from_macro_patches,
-};
+use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
     Kp20SupportDomainReport, Kp20SupportReparameterizationReport, Kp20SupportTransitionReport,
@@ -25,25 +19,27 @@ use super::kp20_polar_support_reparameterization::{
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
+use coupled_lift::try_nonoverlap_coupled_lift_candidate;
 use intersections::acceptance_screen;
 use labels::{nonoverlap_coupled_lift_detail, piece_counts_label, validation_label};
+use limited_lift::try_limited_nonoverlap_lift;
 use origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
-    refine_origin_inner_interior_row, refine_paired_inner_interior_row,
-    refine_support_inner_interior_row,
 };
 use primary_candidate::evaluate_positive_primary_candidates;
 pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
-use support_domain::support_domain_basis_candidate;
-use support_transition::refine_support_transition_sheet;
-use timing::{Kp20DispatchStageTiming, timed};
+use timing::Kp20DispatchStageTiming;
 
+#[path = "kp20_polar_coupled_lift.rs"]
+mod coupled_lift;
 #[path = "kp20_polar_inner_field.rs"]
 mod inner_field;
 #[path = "kp20_polar_dispatch_intersections.rs"]
 mod intersections;
 #[path = "kp20_polar_dispatch_labels.rs"]
 mod labels;
+#[path = "kp20_polar_limited_lift.rs"]
+mod limited_lift;
 #[path = "kp20_polar_origin_inner_row.rs"]
 mod origin_inner_row;
 #[path = "kp20_polar_primary_candidate.rs"]
@@ -219,20 +215,41 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     if !intersections.is_empty() {
         let default_summary = summarize_intersections(&intersections);
         if n >= 6 {
-            record_decline(
-                &mut diagnostics,
-                "nonoverlap_coupled_lift_budget_exceeded",
-                n,
-                Some(format!(
-                    "folds={};piece_folds={};lift_solver_budget=disabled_for_valence_ge_6",
-                    default_summary.fold_count,
-                    piece_counts_label(default_summary.piece_fold_counts),
-                )),
-                Some(default_summary.min_jacobian_normal_cos),
-            );
-            for (idx, detail) in intersections {
-                record_self_intersection(&mut diagnostics, idx, &detail, n);
+            match try_limited_nonoverlap_lift(polar.central_vertex, &tensor_border) {
+                Ok(lifted) => {
+                    let lifted_intersections = acceptance_screen(&lifted.patches);
+                    let lifted_summary =
+                        summarize_candidate_intersections(&lifted.patches, &lifted_intersections);
+                    diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                        "nonoverlap_limited_lift",
+                        n,
+                        Some(lifted.detail(&default_summary, &lifted_summary)),
+                        Some(lifted_summary.min_jacobian_normal_cos),
+                        Some(SELF_INT_TOL),
+                    ));
+                    if lifted_intersections.is_empty() {
+                        return Kp20PolarDispatchReport {
+                            patches: Some(lifted.patches),
+                            diagnostics,
+                        };
+                    }
+                    record_candidate_decline(
+                        &mut diagnostics,
+                        "nonoverlap_limited_lift_self_intersection",
+                        n,
+                        &lifted_summary,
+                        lifted.report.validation,
+                    );
+                }
+                Err(error) => record_decline(
+                    &mut diagnostics,
+                    "nonoverlap_limited_lift",
+                    n,
+                    Some(error),
+                    None,
+                ),
             }
+            record_lift_budget_decline(&mut diagnostics, n, &default_summary);
             return Kp20PolarDispatchReport {
                 patches: None,
                 diagnostics,
@@ -316,85 +333,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
         patches: Some(candidate),
         diagnostics,
     }
-}
-
-struct Kp20LiftedDispatchCandidate {
-    patches: Vec<GregoryPatch>,
-    report: Kp20SupportNormalLiftReport,
-    origin_inner: Kp20OriginInnerRowReport,
-    paired_inner: Kp20PairedInnerRowReport,
-    support_inner: Kp20SupportInnerRowReport,
-    support_reparameterization: Kp20SupportReparameterizationReport,
-    support_transition: Kp20SupportTransitionReport,
-    support_domain: Kp20SupportDomainReport,
-    support_domain_refine: Kp20SupportDomainRefineReport,
-    coupled_domain: Kp20CoupledDomainReport,
-    split_domain: Kp20SplitDomainReport,
-    timing: Kp20DispatchStageTiming,
-}
-
-fn try_nonoverlap_coupled_lift_candidate(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> Result<Kp20LiftedDispatchCandidate, String> {
-    let mut timing = Kp20DispatchStageTiming::default();
-    let (support_domain_result, elapsed) =
-        timed(|| support_domain_basis_candidate(star_point, tensor_border));
-    timing.support_domain_ms = elapsed;
-    let (macro_patches, support_domain, support_domain_refine, coupled_domain, split_domain) =
-        support_domain_result.map_err(|e| timed_error(e, timing))?;
-    let (transition_result, elapsed) =
-        timed(|| refine_support_transition_sheet(tensor_border, macro_patches));
-    timing.support_transition_ms = elapsed;
-    let (macro_patches, support_transition) =
-        transition_result.map_err(|e| timed_error(e, timing))?;
-    let (lift_result, elapsed) =
-        timed(|| lift_candidate_from_macro_patches(star_point, tensor_border, macro_patches));
-    timing.support_normal_lift_ms = elapsed;
-    let report = lift_result.map_err(|e| timed_error(e, timing))?;
-    let (origin_inner_result, elapsed) =
-        timed(|| refine_origin_inner_interior_row(star_point, tensor_border, report));
-    timing.origin_inner_ms = elapsed;
-    let (report, origin_inner) = origin_inner_result.map_err(|e| timed_error(e, timing))?;
-    let (paired_inner_result, elapsed) =
-        timed(|| refine_paired_inner_interior_row(star_point, tensor_border, report));
-    timing.paired_inner_ms = elapsed;
-    let (report, paired_inner) = paired_inner_result.map_err(|e| timed_error(e, timing))?;
-    let (support_inner_result, elapsed) =
-        timed(|| refine_support_inner_interior_row(star_point, tensor_border, report));
-    timing.support_inner_ms = elapsed;
-    let (report, support_inner) = support_inner_result.map_err(|e| timed_error(e, timing))?;
-    let (support_reparameterization_result, elapsed) =
-        timed(|| refine_support_side_reparameterization(star_point, tensor_border, report));
-    timing.support_reparameterization_ms = elapsed;
-    let (report, support_reparameterization) =
-        support_reparameterization_result.map_err(|e| timed_error(e, timing))?;
-    if !validation_is_clean(report.validation) {
-        return Err(format!(
-            "validation residuals exceed tolerance: {};{}",
-            validation_label(report.validation),
-            timing.label()
-        ));
-    }
-    let patches = gregory_patches_from_macro_patches(&report.macro_patches);
-    Ok(Kp20LiftedDispatchCandidate {
-        patches,
-        report,
-        origin_inner,
-        paired_inner,
-        support_inner,
-        support_reparameterization,
-        support_transition,
-        support_domain,
-        support_domain_refine,
-        coupled_domain,
-        split_domain,
-        timing,
-    })
-}
-
-fn timed_error(error: String, timing: Kp20DispatchStageTiming) -> String {
-    format!("{error};{}", timing.label())
 }
 
 fn nonoverlap_coupled_lift_fact(
@@ -491,6 +429,24 @@ fn record_decline(
         residual,
         Some(SELF_INT_TOL),
     ));
+}
+
+fn record_lift_budget_decline(
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+    n: usize,
+    default_summary: &Kp20SamplerFoldSummary,
+) {
+    record_decline(
+        diagnostics,
+        "nonoverlap_coupled_lift_budget_exceeded",
+        n,
+        Some(format!(
+            "folds={};piece_folds={};lift_solver_budget=limited_lift_only_for_valence_ge_6",
+            default_summary.fold_count,
+            piece_counts_label(default_summary.piece_fold_counts),
+        )),
+        Some(default_summary.min_jacobian_normal_cos),
+    );
 }
 
 #[cfg(test)]

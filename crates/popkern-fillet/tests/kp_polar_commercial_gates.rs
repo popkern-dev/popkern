@@ -243,11 +243,26 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_limited_lift"
+                    && cap.sector_name == "kp20_polar_macro_ring_n6"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("strategy=direct_support_normal_lift")
+                            && detail.contains("optimizer_evaluated=")
+                            && detail.contains("elapsed_ms=")
+                    })
+        )),
+        "hexagon6_mixed should attempt the bounded KP20 limited lift structurally"
+    );
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                 if cap.code == "kp20_polar_macro.dispatch.declined"
                     && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_coupled_lift_budget_exceeded"
                     && cap.sector_name == "kp20_polar_macro_ring_n6"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("lift_solver_budget=disabled_for_valence_ge_6")
+                        detail.contains("lift_solver_budget=limited_lift_only_for_valence_ge_6")
                             && detail.contains("folds=")
                             && detail.contains("piece_folds=")
                     })

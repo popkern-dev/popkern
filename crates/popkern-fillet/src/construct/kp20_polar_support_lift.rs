@@ -1,5 +1,3 @@
-//! Transactional support-normal strip adjustment for KP20 polar macro candidates.
-
 use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
     fast_candidate_summary_from_cap, fast_candidate_summary_from_changed_patches,
@@ -76,6 +74,7 @@ pub(super) fn lift_candidate_from_macro_patches(
         tensor_border,
         macro_patches,
         Kp20LiftSearchProfile::General,
+        MAX_SUPPORT_LIFT_CANDIDATES,
     )
 }
 
@@ -89,14 +88,16 @@ pub(super) fn lift_candidate_from_support_image_macro_patches(
         tensor_border,
         macro_patches,
         Kp20LiftSearchProfile::ComposedSupportImage,
+        MAX_SUPPORT_LIFT_CANDIDATES,
     )
 }
 
-fn lift_candidate_from_macro_patches_with_profile(
+pub(super) fn lift_candidate_from_macro_patches_with_profile(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
     profile: Kp20LiftSearchProfile,
+    max_candidates: usize,
 ) -> Result<Kp20SupportNormalLiftReport, String> {
     let mut accepted = macro_patches;
     let mut accepted_summary = fast_candidate_summary_from_cap(tensor_border, accepted.clone())?;
@@ -125,7 +126,7 @@ fn lift_candidate_from_macro_patches_with_profile(
                 for piece_mask in
                     candidate_piece_masks(profile, mode, &accepted_summary.0.fold_sites)
                 {
-                    if optimizer_stats.evaluated_candidates >= MAX_SUPPORT_LIFT_CANDIDATES {
+                    if optimizer_stats.evaluated_candidates >= max_candidates {
                         break 'lift_search;
                     }
                     let mut candidate = accepted.clone();
@@ -225,7 +226,7 @@ fn lift_candidate_from_macro_patches_with_profile(
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Kp20LiftSearchProfile {
+pub(super) enum Kp20LiftSearchProfile {
     General,
     ComposedSupportImage,
 }
