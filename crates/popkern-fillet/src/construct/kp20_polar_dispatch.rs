@@ -215,6 +215,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     if !intersections.is_empty() {
         let default_summary = summarize_intersections(&intersections);
         if n >= 6 {
+            let mut bounded_summary = None;
             match try_limited_nonoverlap_lift(polar.central_vertex, &tensor_border) {
                 Ok(lifted) => {
                     let lifted_intersections = acceptance_screen(&lifted.patches);
@@ -233,13 +234,21 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                             diagnostics,
                         };
                     }
+                    let decline_reason = if lifted_summary.fold_count >= default_summary.fold_count
+                        && lifted.report.optimizer_stats.accepted_candidates == 0
+                    {
+                        "nonoverlap_limited_lift_no_improving_candidate"
+                    } else {
+                        "nonoverlap_limited_lift_self_intersection"
+                    };
                     record_candidate_decline(
                         &mut diagnostics,
-                        "nonoverlap_limited_lift_self_intersection",
+                        decline_reason,
                         n,
                         &lifted_summary,
                         lifted.report.validation,
                     );
+                    bounded_summary = Some(lifted_summary);
                 }
                 Err(error) => record_decline(
                     &mut diagnostics,
@@ -249,7 +258,12 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     None,
                 ),
             }
-            record_lift_budget_decline(&mut diagnostics, n, &default_summary);
+            record_lift_budget_decline(
+                &mut diagnostics,
+                n,
+                &default_summary,
+                bounded_summary.as_ref(),
+            );
             return Kp20PolarDispatchReport {
                 patches: None,
                 diagnostics,
@@ -435,15 +449,26 @@ fn record_lift_budget_decline(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
     n: usize,
     default_summary: &Kp20SamplerFoldSummary,
+    bounded_summary: Option<&Kp20SamplerFoldSummary>,
 ) {
+    let bounded_detail = bounded_summary
+        .map(|summary| {
+            format!(
+                ";bounded_folds={};bounded_piece_folds={}",
+                summary.fold_count,
+                piece_counts_label(summary.piece_fold_counts),
+            )
+        })
+        .unwrap_or_default();
     record_decline(
         diagnostics,
         "nonoverlap_coupled_lift_budget_exceeded",
         n,
         Some(format!(
-            "folds={};piece_folds={};lift_solver_budget=limited_lift_only_for_valence_ge_6",
+            "folds={};piece_folds={};lift_solver_budget=limited_lift_only_for_valence_ge_6{}",
             default_summary.fold_count,
             piece_counts_label(default_summary.piece_fold_counts),
+            bounded_detail,
         )),
         Some(default_summary.min_jacobian_normal_cos),
     );
