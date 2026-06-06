@@ -14,6 +14,17 @@ pub(super) struct Kp20GuideQualityReport {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct Kp20GuideRepairReport {
+    pub(super) evaluated: usize,
+    pub(super) accepted: usize,
+    pub(super) rejected: usize,
+    pub(super) start_reversals: usize,
+    pub(super) end_reversals: usize,
+    pub(super) blend: f64,
+    pub(super) decline_reason: &'static str,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct Kp20SupportReparameterizationReport {
     pub(super) evaluated: usize,
     pub(super) fast_accepted: usize,
@@ -100,6 +111,13 @@ pub(super) struct Kp20SplitDomainReport {
     pub(super) guide_worst_u: f64,
     pub(super) guide_worst_v: f64,
     pub(super) guide_classification: &'static str,
+    pub(super) guide_repair_evaluated: usize,
+    pub(super) guide_repair_accepted: usize,
+    pub(super) guide_repair_rejected: usize,
+    pub(super) guide_repair_start_reversals: usize,
+    pub(super) guide_repair_end_reversals: usize,
+    pub(super) guide_repair_blend: f64,
+    pub(super) guide_repair_decline_reason: &'static str,
     pub(super) evaluated: usize,
     pub(super) accepted: usize,
     pub(super) rejected: usize,

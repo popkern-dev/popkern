@@ -16,13 +16,15 @@ use super::super::kp20_polar_support_reparameterization::{
     Kp20SupportDomainReport,
 };
 use domain_candidates::{refine_coupled_domain, refine_split_domain};
-use guide_quality::measure_kp20_guide_quality;
+use guide_repair::transactional_kp20_guide_repair;
 use preassembly_candidates::refine_preassembly_interior;
 
 #[path = "kp20_polar_support_domain_candidates.rs"]
 mod domain_candidates;
 #[path = "kp20_polar_support_guide_quality.rs"]
 mod guide_quality;
+#[path = "kp20_polar_support_guide_repair.rs"]
+mod guide_repair;
 #[path = "kp20_polar_support_preassembly.rs"]
 mod preassembly_candidates;
 
@@ -46,7 +48,6 @@ pub(super) fn support_domain_basis_candidate(
         tensor_border: tensor_border.clone(),
     })
     .map_err(|e| e.to_string())?;
-    let guide_quality = measure_kp20_guide_quality(&guide);
     let baseline_sampled = guide
         .sectors
         .iter()
@@ -63,6 +64,8 @@ pub(super) fn support_domain_basis_candidate(
     })
     .map_err(|e| e.to_string())?;
     let baseline = candidate_summary_from_cap(tensor_border, baseline_cap.macro_patches.clone())?;
+    let (guide, guide_quality, guide_repair) =
+        transactional_kp20_guide_repair(&guide, tensor_border, star_point, &baseline)?;
     let mut report = Kp20SupportDomainReport {
         evaluated: 0,
         accepted: 0,
@@ -114,6 +117,13 @@ pub(super) fn support_domain_basis_candidate(
         guide_worst_u: guide_quality.worst_u,
         guide_worst_v: guide_quality.worst_v,
         guide_classification: guide_quality.classification,
+        guide_repair_evaluated: guide_repair.evaluated,
+        guide_repair_accepted: guide_repair.accepted,
+        guide_repair_rejected: guide_repair.rejected,
+        guide_repair_start_reversals: guide_repair.start_reversals,
+        guide_repair_end_reversals: guide_repair.end_reversals,
+        guide_repair_blend: guide_repair.blend,
+        guide_repair_decline_reason: guide_repair.decline_reason,
         evaluated: 0,
         accepted: 0,
         rejected: 0,
@@ -245,6 +255,13 @@ pub(super) fn support_domain_basis_candidate(
     split_report.guide_worst_u = guide_quality.worst_u;
     split_report.guide_worst_v = guide_quality.worst_v;
     split_report.guide_classification = guide_quality.classification;
+    split_report.guide_repair_evaluated = guide_repair.evaluated;
+    split_report.guide_repair_accepted = guide_repair.accepted;
+    split_report.guide_repair_rejected = guide_repair.rejected;
+    split_report.guide_repair_start_reversals = guide_repair.start_reversals;
+    split_report.guide_repair_end_reversals = guide_repair.end_reversals;
+    split_report.guide_repair_blend = guide_repair.blend;
+    split_report.guide_repair_decline_reason = guide_repair.decline_reason;
     let Some((_, split_summary, split_params)) = best.as_ref() else {
         return Ok((
             macro_patches,
