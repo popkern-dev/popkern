@@ -25,6 +25,7 @@ use super::kp20_polar_support_reparameterization::{
 use super::three_quad_apply::extract_direct_boundary_input;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
+use intersections::acceptance_screen;
 use labels::{nonoverlap_coupled_lift_detail, piece_counts_label, validation_label};
 use origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
@@ -39,6 +40,8 @@ use timing::{Kp20DispatchStageTiming, timed};
 
 #[path = "kp20_polar_inner_field.rs"]
 mod inner_field;
+#[path = "kp20_polar_dispatch_intersections.rs"]
+mod intersections;
 #[path = "kp20_polar_dispatch_labels.rs"]
 mod labels;
 #[path = "kp20_polar_origin_inner_row.rs"]
@@ -212,12 +215,12 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             None,
         ));
     }
-    let intersections = self_intersecting_patches(&candidate);
+    let intersections = acceptance_screen(&candidate);
     if !intersections.is_empty() {
         let default_summary = summarize_intersections(&intersections);
         match try_nonoverlap_coupled_lift_candidate(polar.central_vertex, &tensor_border) {
             Ok(lifted) => {
-                let lifted_intersections = self_intersecting_patches(&lifted.patches);
+                let lifted_intersections = acceptance_screen(&lifted.patches);
                 let lifted_summary =
                     summarize_candidate_intersections(&lifted.patches, &lifted_intersections);
                 diagnostics.push(nonoverlap_coupled_lift_fact(
@@ -434,22 +437,6 @@ fn record_candidate_decline(
     );
 }
 
-pub(super) fn self_intersecting_patches(
-    candidate: &[GregoryPatch],
-) -> Vec<(
-    usize,
-    popkern_core::geometry::gregory::GregorySelfIntersectionReport,
-)> {
-    candidate
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, gp)| {
-            let report = gp.self_intersection_report(SELF_INT_TOL);
-            report.intersects().then_some((idx, report))
-        })
-        .collect()
-}
-
 fn record_self_intersection(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
     idx: usize,
@@ -485,3 +472,7 @@ fn record_decline(
         Some(SELF_INT_TOL),
     ));
 }
+
+#[cfg(test)]
+#[path = "kp20_polar_dispatch_tests.rs"]
+mod tests;

@@ -1,18 +1,17 @@
 //! Transactional support-normal strip adjustment for KP20 polar macro candidates.
 
+use super::kp20_polar_fold_summary::{
+    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_changed_patches,
+    fast_candidate_summary_from_cap, fast_candidate_summary_from_changed_patches,
+    is_better_summary, validation_is_clean,
+};
 use popkern_core::geometry::gregory::{
     Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20MacroPatch,
     Kp20PieceId, TensorBorderBi3, assemble_kp20_bi6_macro_cap, build_kp20_guide_ring,
     sample_kp20_macro_patch_from_default_maps,
 };
 use popkern_core::geometry::{Point3, Vec3};
-
-use super::kp20_polar_fold_summary::{
-    Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap,
-    candidate_summary_from_changed_patches, fast_candidate_summary_from_changed_patches,
-    is_better_summary, validation_is_clean,
-};
-
+const MAX_SUPPORT_LIFT_CANDIDATES: usize = 64;
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportNormalLiftReport {
     pub(super) summary: Kp20SamplerFoldSummary,
@@ -21,7 +20,6 @@ pub(super) struct Kp20SupportNormalLiftReport {
     pub(super) accepted_steps: Vec<Kp20SupportNormalStep>,
     pub(super) optimizer_stats: Kp20SupportOptimizerStats,
 }
-
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportNormalStep {
     pub(super) piece_mask: [bool; 4],
@@ -30,7 +28,6 @@ pub(super) struct Kp20SupportNormalStep {
     pub(super) fold_count: usize,
     pub(super) piece_fold_counts: [usize; 4],
 }
-
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Kp20SupportLiftMode {
     SupportNormal,
@@ -38,7 +35,6 @@ pub(super) enum Kp20SupportLiftMode {
     SectorChord,
     FoldSiteLeastSquares,
 }
-
 #[derive(Debug, Default, Clone)]
 pub(super) struct Kp20SupportOptimizerStats {
     pub(super) active_fold_sites: usize,
@@ -103,10 +99,10 @@ fn lift_candidate_from_macro_patches_with_profile(
     profile: Kp20LiftSearchProfile,
 ) -> Result<Kp20SupportNormalLiftReport, String> {
     let mut accepted = macro_patches;
-    let mut accepted_summary = candidate_summary_from_cap(tensor_border, accepted.clone())?;
+    let mut accepted_summary = fast_candidate_summary_from_cap(tensor_border, accepted.clone())?;
     let mut accepted_steps = Vec::new();
     let mut optimizer_stats = Kp20SupportOptimizerStats::default();
-    for _ in 0..4 {
+    'lift_search: for _ in 0..4 {
         optimizer_stats.active_fold_sites = accepted_summary.0.fold_sites.len();
         optimizer_stats.row_variable_count =
             movable_coefficient_count(&accepted_summary.0.fold_sites);
@@ -129,6 +125,9 @@ fn lift_candidate_from_macro_patches_with_profile(
                 for piece_mask in
                     candidate_piece_masks(profile, mode, &accepted_summary.0.fold_sites)
                 {
+                    if optimizer_stats.evaluated_candidates >= MAX_SUPPORT_LIFT_CANDIDATES {
+                        break 'lift_search;
+                    }
                     let mut candidate = accepted.clone();
                     let changed_patches = apply_support_row_update(
                         &mut candidate,

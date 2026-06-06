@@ -2,14 +2,15 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput,
-    Kp20GuideRing, Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId,
-    Kp20SectorPieceMaps, TensorBorderBi3, assemble_kp20_bi6_macro_cap, build_kp20_guide_ring,
-    kp20_positive_nonoverlap_c2_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20GuideRing,
+    Kp20MacroPatch, Kp20PieceId, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
+    build_kp20_guide_ring, kp20_positive_nonoverlap_c2_sector_piece_maps,
+    sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::super::kp20_polar_fold_summary::{
-    Kp20SamplerFoldSummary, candidate_summary_from_cap, is_better_summary, validation_is_clean,
+    Kp20SamplerFoldSummary, candidate_summary_from_cap, fast_candidate_summary_from_cap,
+    fast_candidate_summary_from_changed_patches, is_better_summary, validation_is_clean,
 };
 use super::super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
@@ -17,6 +18,8 @@ use super::super::kp20_polar_support_reparameterization::{
 };
 use domain_candidates::{refine_coupled_domain, refine_split_domain};
 use guide_repair::transactional_kp20_guide_repair;
+pub(super) use maps::Kp20SupportDomainParams;
+use maps::{changed_target_pieces, support_domain_piece_maps};
 use preassembly_candidates::refine_preassembly_interior;
 
 #[path = "kp20_polar_support_domain_candidates.rs"]
@@ -25,6 +28,8 @@ mod domain_candidates;
 mod guide_quality;
 #[path = "kp20_polar_support_guide_repair.rs"]
 mod guide_repair;
+#[path = "kp20_polar_support_domain_maps.rs"]
+mod maps;
 #[path = "kp20_polar_support_preassembly.rs"]
 mod preassembly_candidates;
 
@@ -63,7 +68,8 @@ pub(super) fn support_domain_basis_candidate(
         sampled_macro_patches: baseline_sampled,
     })
     .map_err(|e| e.to_string())?;
-    let baseline = candidate_summary_from_cap(tensor_border, baseline_cap.macro_patches.clone())?;
+    let baseline =
+        fast_candidate_summary_from_cap(tensor_border, baseline_cap.macro_patches.clone())?;
     let (guide, guide_quality, guide_repair) =
         transactional_kp20_guide_repair(&guide, tensor_border, star_point, &baseline)?;
     let mut report = Kp20SupportDomainReport {
@@ -151,6 +157,7 @@ pub(super) fn support_domain_basis_candidate(
         (Kp20SamplerFoldSummary, _),
         Kp20SupportDomainParams,
     )> = None;
+    let changed_patches = changed_target_pieces(tensor_border.sectors.len());
     for params in Kp20SupportDomainParams::family() {
         report.evaluated += 1;
         let sampled = guide
@@ -165,15 +172,27 @@ pub(super) fn support_domain_basis_candidate(
             sampled_macro_patches: sampled,
         })
         .map_err(|e| e.to_string())?;
-        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
-        if !validation_is_clean(summary.1) {
+        let fast = fast_candidate_summary_from_changed_patches(
+            tensor_border,
+            cap.macro_patches.clone(),
+            &baseline.0,
+            &changed_patches,
+            baseline.0.fold_count,
+        )?;
+        if !validation_is_clean(fast.1) {
             report.rejected += 1;
             report.decline_reason = "support_domain_validation_not_clean";
             continue;
         }
-        if !is_better_summary(&summary, Some(&baseline)) {
+        if !is_better_summary(&fast, Some(&baseline)) {
             report.rejected += 1;
             report.decline_reason = "support_domain_no_fold_reduction";
+            continue;
+        }
+        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
+        if !validation_is_clean(summary.1) || !is_better_summary(&summary, Some(&baseline)) {
+            report.rejected += 1;
+            report.decline_reason = "support_domain_exact_no_fold_reduction";
             continue;
         }
         if best
@@ -312,6 +331,7 @@ fn refine_support_domain(
     )>,
     anchor: Kp20SupportDomainParams,
 ) -> Result<Kp20SupportDomainRefineReport, String> {
+    let changed_patches = changed_target_pieces(tensor_border.sectors.len());
     let mut report = Kp20SupportDomainRefineReport {
         evaluated: 0,
         accepted: 0,
@@ -340,15 +360,27 @@ fn refine_support_domain(
             sampled_macro_patches: sampled,
         })
         .map_err(|e| e.to_string())?;
-        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
-        if !validation_is_clean(summary.1) {
+        let fast = fast_candidate_summary_from_changed_patches(
+            tensor_border,
+            cap.macro_patches.clone(),
+            &accepted.0,
+            &changed_patches,
+            accepted.0.fold_count,
+        )?;
+        if !validation_is_clean(fast.1) {
             report.rejected += 1;
             report.decline_reason = "support_domain_refine_validation_not_clean";
             continue;
         }
-        if !is_better_summary(&summary, Some(accepted)) {
+        if !is_better_summary(&fast, Some(accepted)) {
             report.rejected += 1;
             report.decline_reason = "support_domain_refine_no_fold_reduction";
+            continue;
+        }
+        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
+        if !validation_is_clean(summary.1) || !is_better_summary(&summary, Some(accepted)) {
+            report.rejected += 1;
+            report.decline_reason = "support_domain_refine_exact_no_fold_reduction";
             continue;
         }
         if best
@@ -364,121 +396,4 @@ fn refine_support_domain(
     }
     report.rejected = report.evaluated - report.accepted;
     Ok(report)
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Kp20SupportDomainParams {
-    pub(super) origin: [f64; 2],
-    pub(super) span_u: f64,
-    pub(super) span_v: f64,
-    pub(super) skew: f64,
-}
-
-impl Kp20SupportDomainParams {
-    const fn family() -> [Self; 8] {
-        [
-            Self::new([0.00, 0.20], 0.30, 0.30, 0.00),
-            Self::new([0.00, 0.22], 0.30, 0.28, 0.02),
-            Self::new([0.02, 0.20], 0.28, 0.30, -0.02),
-            Self::new([0.00, 0.18], 0.32, 0.30, 0.00),
-            Self::new([0.00, 0.24], 0.28, 0.28, 0.04),
-            Self::new([0.04, 0.20], 0.26, 0.30, -0.04),
-            Self::new([0.00, 0.16], 0.34, 0.30, 0.02),
-            Self::new([0.02, 0.22], 0.30, 0.26, -0.02),
-        ]
-    }
-
-    const fn new(origin: [f64; 2], span_u: f64, span_v: f64, skew: f64) -> Self {
-        Self {
-            origin,
-            span_u,
-            span_v,
-            skew,
-        }
-    }
-
-    fn refinement_family(self) -> [Self; 10] {
-        [
-            self.shifted(0.00, -0.02, 0.00, 0.02, 0.00),
-            self.shifted(0.00, 0.02, 0.00, -0.02, 0.00),
-            self.shifted(0.02, 0.00, -0.02, 0.00, 0.00),
-            self.shifted(-0.02, 0.00, 0.02, 0.00, 0.00),
-            self.shifted(0.00, 0.00, 0.02, -0.02, 0.02),
-            self.shifted(0.00, 0.00, -0.02, 0.02, -0.02),
-            self.shifted(0.01, -0.01, 0.01, 0.00, 0.02),
-            self.shifted(-0.01, 0.01, 0.00, 0.01, -0.02),
-            self.shifted(0.00, -0.01, 0.02, 0.02, 0.00),
-            self.shifted(0.02, 0.00, 0.00, 0.02, 0.02),
-        ]
-    }
-
-    pub(super) fn shifted(
-        self,
-        origin_u: f64,
-        origin_v: f64,
-        span_u: f64,
-        span_v: f64,
-        skew: f64,
-    ) -> Self {
-        Self::new(
-            [
-                (self.origin[0] + origin_u).clamp(0.0, 0.10),
-                (self.origin[1] + origin_v).clamp(0.14, 0.30),
-            ],
-            (self.span_u + span_u).clamp(0.24, 0.36),
-            (self.span_v + span_v).clamp(0.22, 0.34),
-            (self.skew + skew).clamp(-0.06, 0.06),
-        )
-    }
-}
-
-fn support_domain_piece_maps(params: Kp20SupportDomainParams) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
-    for (piece, corner_maps) in &mut maps {
-        if *piece == TARGET_PIECE {
-            *corner_maps = support_domain_corner_maps(params);
-        }
-    }
-    maps
-}
-
-fn support_domain_corner_maps(params: Kp20SupportDomainParams) -> Kp20PieceCornerMaps {
-    square_maps(
-        params.origin,
-        [params.span_u, params.skew],
-        [params.skew, params.span_v],
-    )
-}
-
-fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
-    [
-        (
-            Kp20PatchCorner::U0V0,
-            Kp20AffineGuideMap::new(origin, du, dv),
-        ),
-        (
-            Kp20PatchCorner::U1V0,
-            Kp20AffineGuideMap::new(add2(origin, du), scale2(du, -1.0), dv),
-        ),
-        (
-            Kp20PatchCorner::U0V1,
-            Kp20AffineGuideMap::new(add2(origin, dv), du, scale2(dv, -1.0)),
-        ),
-        (
-            Kp20PatchCorner::U1V1,
-            Kp20AffineGuideMap::new(
-                add2(add2(origin, du), dv),
-                scale2(du, -1.0),
-                scale2(dv, -1.0),
-            ),
-        ),
-    ]
-}
-
-const fn add2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
-    [a[0] + b[0], a[1] + b[1]]
-}
-
-const fn scale2(a: [f64; 2], s: f64) -> [f64; 2] {
-    [a[0] * s, a[1] * s]
 }

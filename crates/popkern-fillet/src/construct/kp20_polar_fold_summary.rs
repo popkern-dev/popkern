@@ -156,6 +156,32 @@ pub(super) fn candidate_summary_from_cap(
     ))
 }
 
+pub(super) fn fast_candidate_summary_from_cap(
+    tensor_border: &TensorBorderBi3,
+    macro_patches: Vec<Kp20MacroPatch>,
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    let cap = popkern_core::geometry::gregory::Kp20Bi6MacroCapOutput {
+        n: tensor_border.sectors.len(),
+        patches_bi6: flatten_macro_patches(&macro_patches),
+        macro_patches,
+        strip_projections: Vec::new(),
+    };
+    let validation = measure_kp20_bi6_macro_cap(&cap, tensor_border).map_err(|e| e.to_string())?;
+    let candidate = gregory_patches_from_macro_patches(&cap.macro_patches);
+    let intersections = candidate
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, gp)| {
+            let report = gp.jacobian_self_intersection_report();
+            report.intersects().then_some((idx, report))
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        summarize_candidate_intersections(&candidate, &intersections),
+        validation,
+    ))
+}
+
 pub(super) fn candidate_summary_from_changed_patches(
     tensor_border: &TensorBorderBi3,
     macro_patches: Vec<Kp20MacroPatch>,
