@@ -15,7 +15,7 @@ use super::super::kp20_polar_support_lift::{
 };
 use super::super::kp20_polar_support_reparameterization::Kp20SupportDomainReport;
 use super::labels::{piece_counts_label, validation_label};
-use super::support_domain::support_domain_basis_candidate;
+use super::support_domain::support_domain_initial_basis_candidate;
 
 pub(super) struct Kp20LimitedLiftCandidate {
     pub(super) patches: Vec<GregoryPatch>,
@@ -78,8 +78,8 @@ fn try_support_domain_limited_lift(
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LimitedLiftCandidate, String> {
     let start = Instant::now();
-    let (macro_patches, support_domain, _, _, _) =
-        support_domain_basis_candidate(star_point, tensor_border)?;
+    let (macro_patches, support_domain) =
+        support_domain_initial_basis_candidate(star_point, tensor_border)?;
     let report = lift_candidate_from_macro_patches_with_profile(
         star_point,
         tensor_border,
