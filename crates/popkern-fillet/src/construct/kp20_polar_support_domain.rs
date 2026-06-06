@@ -28,11 +28,14 @@ mod domain_candidates;
 mod guide_quality;
 #[path = "kp20_polar_support_guide_repair.rs"]
 mod guide_repair;
+#[path = "kp20_polar_support_domain_initial.rs"]
+mod initial;
 #[path = "kp20_polar_support_domain_maps.rs"]
 mod maps;
 #[path = "kp20_polar_support_preassembly.rs"]
 mod preassembly_candidates;
 
+pub(super) use initial::support_domain_initial_basis_candidate;
 pub(super) const TARGET_PIECE: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
 
 pub(super) fn support_domain_basis_candidate(
@@ -318,107 +321,6 @@ pub(super) fn support_domain_basis_candidate(
         coupled_report,
         split_report,
     ))
-}
-
-pub(super) fn support_domain_initial_basis_candidate(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> Result<(Vec<Kp20MacroPatch>, Kp20SupportDomainReport), String> {
-    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let baseline_sampled = guide
-        .sectors
-        .iter()
-        .map(|sector| {
-            sample_kp20_macro_patch_from_piece_maps(
-                sector,
-                kp20_positive_nonoverlap_c2_sector_piece_maps(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let baseline_cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-        tensor_border: tensor_border.clone(),
-        sampled_macro_patches: baseline_sampled,
-    })
-    .map_err(|e| e.to_string())?;
-    let baseline =
-        fast_candidate_summary_from_cap(tensor_border, baseline_cap.macro_patches.clone())?;
-    let (guide, _, _) =
-        transactional_kp20_guide_repair(&guide, tensor_border, star_point, &baseline)?;
-    let mut report = Kp20SupportDomainReport {
-        evaluated: 0,
-        accepted: 0,
-        rejected: 0,
-        start_folds: baseline.0.fold_count,
-        end_folds: baseline.0.fold_count,
-        target_piece: TARGET_PIECE,
-        origin_u: 0.0,
-        origin_v: 0.0,
-        span_u: 0.0,
-        span_v: 0.0,
-        skew: 0.0,
-        decline_reason: "support_domain_no_candidate",
-    };
-    let mut best = None;
-    let changed_patches = changed_target_pieces(tensor_border.sectors.len());
-    for params in Kp20SupportDomainParams::family() {
-        report.evaluated += 1;
-        let sampled = guide
-            .sectors
-            .iter()
-            .map(|sector| {
-                sample_kp20_macro_patch_from_piece_maps(sector, support_domain_piece_maps(params))
-            })
-            .collect::<Vec<_>>();
-        let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-            tensor_border: tensor_border.clone(),
-            sampled_macro_patches: sampled,
-        })
-        .map_err(|e| e.to_string())?;
-        let fast = fast_candidate_summary_from_changed_patches(
-            tensor_border,
-            cap.macro_patches.clone(),
-            &baseline.0,
-            &changed_patches,
-            baseline.0.fold_count,
-        )?;
-        if !validation_is_clean(fast.1) || !is_better_summary(&fast, Some(&baseline)) {
-            report.rejected += 1;
-            report.decline_reason = "support_domain_initial_fast_declined";
-            continue;
-        }
-        let summary = candidate_summary_from_cap(tensor_border, cap.macro_patches.clone())?;
-        if !validation_is_clean(summary.1) || !is_better_summary(&summary, Some(&baseline)) {
-            report.rejected += 1;
-            report.decline_reason = "support_domain_initial_exact_declined";
-            continue;
-        }
-        if best
-            .as_ref()
-            .is_none_or(|(_, best_summary, _)| is_better_summary(&summary, Some(best_summary)))
-        {
-            best = Some((cap.macro_patches, summary, params));
-        } else {
-            report.rejected += 1;
-        }
-    }
-    let Some((macro_patches, summary, params)) = best else {
-        report.rejected = report.evaluated;
-        return Ok((baseline_cap.macro_patches, report));
-    };
-    report.accepted = 1;
-    report.rejected = report.evaluated - report.accepted;
-    report.end_folds = summary.0.fold_count;
-    report.origin_u = params.origin[0];
-    report.origin_v = params.origin[1];
-    report.span_u = params.span_u;
-    report.span_v = params.span_v;
-    report.skew = params.skew;
-    report.decline_reason = "none";
-    Ok((macro_patches, report))
 }
 
 fn refine_support_domain(
