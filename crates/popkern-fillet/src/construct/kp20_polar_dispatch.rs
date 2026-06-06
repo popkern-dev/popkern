@@ -35,6 +35,7 @@ use primary_candidate::evaluate_positive_primary_candidates;
 pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
 use support_domain::support_domain_basis_candidate;
 use support_transition::refine_support_transition_sheet;
+use timing::{Kp20DispatchStageTiming, timed};
 
 #[path = "kp20_polar_inner_field.rs"]
 mod inner_field;
@@ -48,6 +49,8 @@ mod primary_candidate;
 mod support_domain;
 #[path = "kp20_polar_support_transition.rs"]
 mod support_transition;
+#[path = "kp20_polar_dispatch_timing.rs"]
+mod timing;
 
 pub(super) struct Kp20PolarDispatchReport {
     pub patches: Option<Vec<GregoryPatch>>,
@@ -64,7 +67,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     for (idx, patch) in sub_patches.iter().enumerate() {
         let GregoryPatch::RectangularTwoStripe(ts) = patch else {
             let detail = format!("sub-patch {idx}");
-            trace("non-two-stripe input", n, Some(detail.clone()));
             record_decline(
                 &mut diagnostics,
                 "non_two_stripe_input",
@@ -95,7 +97,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
         })
         .collect();
     let Some(mut direct) = extract_direct_boundary_input(&two_stripe, &spokes, None) else {
-        trace("extract_direct_boundary_input", n, None);
         record_decline(
             &mut diagnostics,
             "direct_boundary_unavailable",
@@ -119,7 +120,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     let polar = match PolarBoundaryInput::from_direct_boundary_input(&direct) {
         Ok(polar) => polar,
         Err(e) => {
-            trace("from_direct_boundary_input", n, Some(e.clone()));
             record_decline(&mut diagnostics, "polar_boundary_input", n, Some(e), None);
             return Kp20PolarDispatchReport {
                 patches: None,
@@ -130,7 +130,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
         Ok(TensorBorder::Bi3(tensor_border)) => tensor_border,
         Ok(TensorBorder::Bi5(_)) => {
-            trace("tensor-border kind", n, Some("expected bi-3".into()));
             record_decline(
                 &mut diagnostics,
                 "tensor_border_kind",
@@ -144,7 +143,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             };
         }
         Err(e) => {
-            trace("tensor-border extract", n, Some(e.clone()));
             record_decline(&mut diagnostics, "tensor_border_extract", n, Some(e), None);
             return Kp20PolarDispatchReport {
                 patches: None,
@@ -164,7 +162,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     let candidate = match try_kp20_polar_macro_candidate(polar.central_vertex, &tensor_border) {
         Ok(candidate) => candidate,
         Err(e) => {
-            trace("candidate", n, Some(e.clone()));
             record_decline(&mut diagnostics, "candidate", n, Some(e), None);
             return Kp20PolarDispatchReport {
                 patches: None,
@@ -174,7 +171,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     };
     if candidate.len() != 4 * n {
         let detail = format!("expected {}, got {}", 4 * n, candidate.len());
-        trace("output length mismatch", n, Some(detail.clone()));
         record_decline(
             &mut diagnostics,
             "output_length_mismatch",
@@ -238,13 +234,9 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     &lifted.support_domain_refine,
                     &lifted.coupled_domain,
                     &lifted.split_domain,
+                    lifted.timing,
                 ));
                 if lifted_intersections.is_empty() {
-                    trace(
-                        "accepted nonoverlap_coupled_lift",
-                        n,
-                        Some("4N bi-9 patches".into()),
-                    );
                     return Kp20PolarDispatchReport {
                         patches: Some(lifted.patches),
                         diagnostics,
@@ -297,7 +289,6 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             diagnostics,
         };
     }
-    trace("accepted", n, Some(format!("4N={} bi-9 patches", 4 * n)));
     Kp20PolarDispatchReport {
         patches: Some(candidate),
         diagnostics,
@@ -316,29 +307,50 @@ struct Kp20LiftedDispatchCandidate {
     support_domain_refine: Kp20SupportDomainRefineReport,
     coupled_domain: Kp20CoupledDomainReport,
     split_domain: Kp20SplitDomainReport,
+    timing: Kp20DispatchStageTiming,
 }
 
 fn try_nonoverlap_coupled_lift_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LiftedDispatchCandidate, String> {
+    let mut timing = Kp20DispatchStageTiming::default();
+    let (support_domain_result, elapsed) =
+        timed(|| support_domain_basis_candidate(star_point, tensor_border));
+    timing.support_domain_ms = elapsed;
     let (macro_patches, support_domain, support_domain_refine, coupled_domain, split_domain) =
-        support_domain_basis_candidate(star_point, tensor_border)?;
+        support_domain_result.map_err(|e| timed_error(e, timing))?;
+    let (transition_result, elapsed) =
+        timed(|| refine_support_transition_sheet(tensor_border, macro_patches));
+    timing.support_transition_ms = elapsed;
     let (macro_patches, support_transition) =
-        refine_support_transition_sheet(tensor_border, macro_patches)?;
-    let report = lift_candidate_from_macro_patches(star_point, tensor_border, macro_patches)?;
-    let (report, origin_inner) =
-        refine_origin_inner_interior_row(star_point, tensor_border, report)?;
-    let (report, paired_inner) =
-        refine_paired_inner_interior_row(star_point, tensor_border, report)?;
-    let (report, support_inner) =
-        refine_support_inner_interior_row(star_point, tensor_border, report)?;
+        transition_result.map_err(|e| timed_error(e, timing))?;
+    let (lift_result, elapsed) =
+        timed(|| lift_candidate_from_macro_patches(star_point, tensor_border, macro_patches));
+    timing.support_normal_lift_ms = elapsed;
+    let report = lift_result.map_err(|e| timed_error(e, timing))?;
+    let (origin_inner_result, elapsed) =
+        timed(|| refine_origin_inner_interior_row(star_point, tensor_border, report));
+    timing.origin_inner_ms = elapsed;
+    let (report, origin_inner) = origin_inner_result.map_err(|e| timed_error(e, timing))?;
+    let (paired_inner_result, elapsed) =
+        timed(|| refine_paired_inner_interior_row(star_point, tensor_border, report));
+    timing.paired_inner_ms = elapsed;
+    let (report, paired_inner) = paired_inner_result.map_err(|e| timed_error(e, timing))?;
+    let (support_inner_result, elapsed) =
+        timed(|| refine_support_inner_interior_row(star_point, tensor_border, report));
+    timing.support_inner_ms = elapsed;
+    let (report, support_inner) = support_inner_result.map_err(|e| timed_error(e, timing))?;
+    let (support_reparameterization_result, elapsed) =
+        timed(|| refine_support_side_reparameterization(star_point, tensor_border, report));
+    timing.support_reparameterization_ms = elapsed;
     let (report, support_reparameterization) =
-        refine_support_side_reparameterization(star_point, tensor_border, report)?;
+        support_reparameterization_result.map_err(|e| timed_error(e, timing))?;
     if !validation_is_clean(report.validation) {
         return Err(format!(
-            "validation residuals exceed tolerance: {}",
-            validation_label(report.validation)
+            "validation residuals exceed tolerance: {};{}",
+            validation_label(report.validation),
+            timing.label()
         ));
     }
     let patches = gregory_patches_from_macro_patches(&report.macro_patches);
@@ -354,7 +366,12 @@ fn try_nonoverlap_coupled_lift_candidate(
         support_domain_refine,
         coupled_domain,
         split_domain,
+        timing,
     })
+}
+
+fn timed_error(error: String, timing: Kp20DispatchStageTiming) -> String {
+    format!("{error};{}", timing.label())
 }
 
 fn nonoverlap_coupled_lift_fact(
@@ -371,6 +388,7 @@ fn nonoverlap_coupled_lift_fact(
     support_domain_refine: &Kp20SupportDomainRefineReport,
     coupled_domain: &Kp20CoupledDomainReport,
     split_domain: &Kp20SplitDomainReport,
+    timing: Kp20DispatchStageTiming,
 ) -> ApexConstructionDiagnostic {
     super::kp20_polar_diagnostics::dispatch_fact(
         "nonoverlap_coupled_lift",
@@ -388,6 +406,7 @@ fn nonoverlap_coupled_lift_fact(
             support_domain_refine,
             coupled_domain,
             split_domain,
+            timing,
         )),
         Some(lifted.min_jacobian_normal_cos),
         Some(SELF_INT_TOL),
@@ -431,15 +450,6 @@ pub(super) fn self_intersecting_patches(
         .collect()
 }
 
-fn trace(stage: &str, n: usize, detail: Option<String>) {
-    if std::env::var_os("POPKERN_KP20_POLAR_TRACE").is_some() {
-        match detail {
-            Some(d) => eprintln!("[kp20_polar N={n}] {stage}: {d}"),
-            None => eprintln!("[kp20_polar N={n}] {stage}"),
-        }
-    }
-}
-
 fn record_self_intersection(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
     idx: usize,
@@ -449,13 +459,6 @@ fn record_self_intersection(
     let label = detail.diagnostic_label();
     let sector = idx / 4;
     let piece = Kp20PieceId::all()[idx % 4];
-    trace(
-        "self-intersection",
-        n,
-        Some(format!(
-            "sector {sector}; piece {piece:?}; patch index {idx}; {label}"
-        )),
-    );
     record_decline(
         diagnostics,
         "self_intersection",
