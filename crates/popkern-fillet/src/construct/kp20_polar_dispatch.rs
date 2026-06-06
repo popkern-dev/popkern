@@ -2,10 +2,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    GregoryPatch, Kp20Bi6CapInput, Kp20Bi6ValidationReport, Kp20PieceId, PolarBoundaryInput,
-    RectangularGregoryBiNonic, Side, Spoke, SpokeEnd, TensorBorder, TensorBorderBi3,
-    assemble_kp20_bi6_cap, elevate_bi6_grid_to_bi9, extract_bi3_tensor_border_from_polar_input,
-    kp20_default_piece_map_domain_report, measure_kp20_bi6_macro_cap,
+    GregoryPatch, Kp20Bi6ValidationReport, Kp20PieceId, PolarBoundaryInput, Side, Spoke, SpokeEnd,
+    TensorBorder, TensorBorderBi3, extract_bi3_tensor_border_from_polar_input,
+    kp20_default_piece_map_domain_report,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -32,6 +31,8 @@ use origin_inner_row::{
     refine_origin_inner_interior_row, refine_paired_inner_interior_row,
     refine_support_inner_interior_row,
 };
+pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
+use primary_candidate::try_positive_nonoverlap_c2_macro_candidate;
 use support_domain::support_domain_basis_candidate;
 use support_transition::refine_support_transition_sheet;
 
@@ -41,6 +42,8 @@ mod inner_field;
 mod labels;
 #[path = "kp20_polar_origin_inner_row.rs"]
 mod origin_inner_row;
+#[path = "kp20_polar_primary_candidate.rs"]
+mod primary_candidate;
 #[path = "kp20_polar_support_domain.rs"]
 mod support_domain;
 #[path = "kp20_polar_support_transition.rs"]
@@ -149,6 +152,30 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             };
         }
     };
+    match try_positive_nonoverlap_c2_macro_candidate(polar.central_vertex, &tensor_border) {
+        Ok(mapped) => {
+            diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                "positive_nonoverlap_c2_primary",
+                n,
+                Some(mapped.detail()),
+                Some(mapped.summary.min_jacobian_normal_cos),
+                Some(SELF_INT_TOL),
+            ));
+            if mapped.is_acceptable() {
+                return Kp20PolarDispatchReport {
+                    patches: Some(mapped.patches),
+                    diagnostics,
+                };
+            }
+        }
+        Err(e) => record_decline(
+            &mut diagnostics,
+            "positive_nonoverlap_c2_primary",
+            n,
+            Some(e),
+            None,
+        ),
+    }
     let candidate = match try_kp20_polar_macro_candidate(polar.central_vertex, &tensor_border) {
         Ok(candidate) => candidate,
         Err(e) => {
@@ -401,28 +428,6 @@ fn record_candidate_decline(
         )),
         Some(summary.min_jacobian_normal_cos),
     );
-}
-
-pub(super) fn try_kp20_polar_macro_candidate(
-    star_point: Point3,
-    tensor_border: &TensorBorderBi3,
-) -> Result<Vec<GregoryPatch>, String> {
-    let cap = assemble_kp20_bi6_cap(&Kp20Bi6CapInput {
-        star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let report = measure_kp20_bi6_macro_cap(&cap, tensor_border).map_err(|e| e.to_string())?;
-    if !report.passes(1e-8) {
-        return Err(format!("validation residuals exceed tolerance: {report:?}"));
-    }
-
-    Ok(cap
-        .patches_bi6
-        .into_iter()
-        .map(elevate_bi6_grid_to_bi9)
-        .map(|grid| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid })))
-        .collect())
 }
 
 pub(super) fn self_intersecting_patches(

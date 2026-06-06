@@ -198,75 +198,64 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         .brep
         .validate()
         .expect("hexagon6_mixed fallback route must leave a valid BRep");
+    let diagnostics = &result.repair_report.apex_diagnostics;
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp_polar_bi6.promotion.declined"
-                        && cap.stage == "kp_polar_bi6.promotion.lm_rejected"
-                        && cap.sector_name == "kp_polar_bi6_ring_n6"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("L-M reason=full_deep_lm_no_fold_safe_iterate")
-                        })
-            )),
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp_polar_bi6.promotion.declined"
+                    && cap.stage == "kp_polar_bi6.promotion.lm_rejected"
+                    && cap.sector_name == "kp_polar_bi6_ring_n6"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("L-M reason=full_deep_lm_no_fold_safe_iterate")
+                    })
+        )),
         "hexagon6_mixed should expose its polar promotion rejection as structured diagnostics"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp_polar_bi6.promotion.declined"
-                        && cap.stage == "kp_polar_bi6.promotion.deep_fill_rejected"
-                        && cap.sector_name == "kp_polar_bi6_ring_n6"
-                        && cap.detail_code.as_deref() == Some("deep_fill_self_intersection")
-            )),
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp_polar_bi6.promotion.declined"
+                    && cap.stage == "kp_polar_bi6.promotion.deep_fill_rejected"
+                    && cap.sector_name == "kp_polar_bi6_ring_n6"
+                    && cap.detail_code.as_deref() == Some("deep_fill_self_intersection")
+        )),
         "hexagon6_mixed should classify boundary-owned deep-fill rejection structurally"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .all(|diagnostic| !matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.stage == "kp20_polar_macro.dispatch.piece_map_extrapolates"
-            )),
-        "bounded KP20 piece maps should no longer report triangle-domain extrapolation"
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.positive_nonoverlap_c2_primary"
+                    && cap.sector_name == "kp20_polar_macro_ring_n6"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("map_family=positive_nonoverlap_c2")
+                            && detail.contains("non_positive_orientation_maps=0")
+                            && detail.contains("origin_strip_reversed=true")
+                    })
+        )),
+        "hexagon6_mixed should measure the positive nonoverlap C2 primary candidate structurally"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp20_polar_macro.dispatch.fact"
-                        && cap.stage == "kp20_polar_macro.dispatch.piece_map_orientation"
-                        && cap.sector_name == "kp20_polar_macro_ring_n6"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("non_positive_orientation_maps=3")
-                                && detail.contains("NearOriginRight:")
-                                && detail.contains("NearMidpointRight:")
-                                && detail.contains("NearMidpointLeft:")
-                        })
-            )),
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.piece_map_orientation"
+                    && cap.sector_name == "kp20_polar_macro_ring_n6"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("non_positive_orientation_maps=3")
+                            && detail.contains("NearOriginRight:")
+                            && detail.contains("NearMidpointRight:")
+                            && detail.contains("NearMidpointLeft:")
+                    })
+        )),
         "hexagon6_mixed should expose KP20 piece-map orientation facts structurally"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
+        diagnostics.iter()
             .any(|diagnostic| matches!(
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
@@ -390,10 +379,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         "hexagon6_mixed should expose the bounded nonoverlap-coupled lift candidate structurally"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
+        diagnostics.iter()
             .any(|diagnostic| matches!(
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
@@ -409,20 +395,16 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         "hexagon6_mixed should decline the bounded lift candidate until it is fold-free"
     );
     assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp20_polar_macro.dispatch.declined"
-                        && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
-                        && cap.sector_name == "kp20_polar_macro_ring_n6"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("piece=") && detail.contains("jacobian_reversal=true")
-                        })
-            )),
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.declined"
+                    && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
+                    && cap.sector_name == "kp20_polar_macro_ring_n6"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("piece=") && detail.contains("jacobian_reversal=true")
+                    })
+        )),
         "hexagon6_mixed should expose the bounded KP20 candidate rejection structurally"
     );
 }
