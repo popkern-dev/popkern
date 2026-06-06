@@ -106,15 +106,16 @@ pub(super) fn promote_decomp_to_kp_binonic(
     };
     let mut binonic = guide_binonic.clone();
     if let Some(boundaries) = boundary_relock.as_deref() {
-        let exact_candidate =
-            optimize_kp_binonic_candidate(&input, &options, outer_fillets.as_deref())
-                .filter(|candidate| candidate_passes_promotion_gates(candidate, pre_worst))
-                .filter(|candidate| {
-                    super::three_quad_kp_boundary_relock::boundary_residual_for_binonic(
-                        candidate, boundaries,
-                    )
-                    .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
-                });
+        let exact_candidate = (n < 6)
+            .then(|| optimize_kp_binonic_candidate(&input, &options, outer_fillets.as_deref()))
+            .flatten()
+            .filter(|candidate| candidate_passes_promotion_gates(candidate, pre_worst))
+            .filter(|candidate| {
+                super::three_quad_kp_boundary_relock::boundary_residual_for_binonic(
+                    candidate, boundaries,
+                )
+                .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
+            });
         if let Some(exact) = exact_candidate {
             binonic = exact;
         } else if let Some(relocked) =
@@ -221,20 +222,14 @@ fn candidate_passes_promotion_gates(
         .cloned()
         .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
         .collect();
-    if binonic_gp
+    !binonic_gp
         .iter()
         .any(|gp| gp.self_intersects_with_tolerance(1e-6))
-    {
-        return false;
-    }
-    if worst_ring_g0_gap(&binonic_gp) > RING_G0_GATE {
-        return false;
-    }
-    let post_worst = worst_ring_coplanarity(&binonic_gp);
-    if post_worst > RING_G1_GATE {
-        return false;
-    }
-    pre_worst <= 1e-12 || post_worst <= 1.2 * pre_worst
+        && worst_ring_g0_gap(&binonic_gp) <= RING_G0_GATE
+        && {
+            let post_worst = worst_ring_coplanarity(&binonic_gp);
+            post_worst <= RING_G1_GATE && (pre_worst <= 1e-12 || post_worst <= 1.2 * pre_worst)
+        }
 }
 
 /// Worst-case G1 coplanarity across the full ring's shared spokes,

@@ -348,14 +348,8 @@ fn fillet_edges_internal(
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
-    // Final pcurve sanity: clamp any control point that escapes its
-    // surface's bounded UV range (Gregory `[0, 1]²`, Sphere/Torus,
-    // bounded NURBS). `fix_stale_pcurves` -> `recompute_all_pcurves`
-    // can re-create pcurves by sampling 3-D curves and projecting,
-    // and on Gregory caps the closest-point projection sometimes
-    // overshoots the unit square — which the surface then evaluates
-    // as garbage extrapolation. Clamping CPs guarantees evaluations
-    // stay inside the valid domain.
+    // Clamp regenerated pcurves to bounded UV domains so Gregory
+    // and analytic bounded surfaces are not evaluated outside their range.
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
         BlendError::PartialFailure {
@@ -458,20 +452,26 @@ fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry
 }
 
 fn first_structural_validation_error(brep: &BRep) -> Option<String> {
-    let errors = brep.validate_all();
-    errors
-        .into_iter()
-        .find(|err| {
-            matches!(
-                err,
-                popkern_core::error::ValidationError::BrokenCycle { .. }
-                    | popkern_core::error::ValidationError::BrokenTwin { .. }
-                    | popkern_core::error::ValidationError::InconsistentVertex { .. }
-                    | popkern_core::error::ValidationError::NonManifoldEdge { .. }
-                    | popkern_core::error::ValidationError::OpenLoop { .. }
-            )
-        })
-        .map(|err| format!("post-blend structural validation failed: {err:?}"))
+    [
+        brep.validate_half_edge_pairing().err(),
+        brep.validate_half_edge_cycles().err(),
+        brep.validate_vertex_consistency().err(),
+        brep.validate_manifold_edges().err(),
+        brep.validate_loop_closure().err(),
+    ]
+    .into_iter()
+    .flatten()
+    .find(|err| {
+        matches!(
+            err,
+            popkern_core::error::ValidationError::BrokenCycle { .. }
+                | popkern_core::error::ValidationError::BrokenTwin { .. }
+                | popkern_core::error::ValidationError::InconsistentVertex { .. }
+                | popkern_core::error::ValidationError::NonManifoldEdge { .. }
+                | popkern_core::error::ValidationError::OpenLoop { .. }
+        )
+    })
+    .map(|err| format!("post-blend structural validation failed: {err:?}"))
 }
 
 #[path = "lib_chamfer.rs"]

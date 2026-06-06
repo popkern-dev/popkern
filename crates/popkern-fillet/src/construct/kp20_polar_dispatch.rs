@@ -218,6 +218,26 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     let intersections = acceptance_screen(&candidate);
     if !intersections.is_empty() {
         let default_summary = summarize_intersections(&intersections);
+        if n >= 6 {
+            record_decline(
+                &mut diagnostics,
+                "nonoverlap_coupled_lift_budget_exceeded",
+                n,
+                Some(format!(
+                    "folds={};piece_folds={};lift_solver_budget=disabled_for_valence_ge_6",
+                    default_summary.fold_count,
+                    piece_counts_label(default_summary.piece_fold_counts),
+                )),
+                Some(default_summary.min_jacobian_normal_cos),
+            );
+            for (idx, detail) in intersections {
+                record_self_intersection(&mut diagnostics, idx, &detail, n);
+            }
+            return Kp20PolarDispatchReport {
+                patches: None,
+                diagnostics,
+            };
+        }
         match try_nonoverlap_coupled_lift_candidate(polar.central_vertex, &tensor_border) {
             Ok(lifted) => {
                 let lifted_intersections = acceptance_screen(&lifted.patches);

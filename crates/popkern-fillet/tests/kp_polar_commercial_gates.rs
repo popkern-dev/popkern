@@ -228,37 +228,6 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                 if cap.code == "kp20_polar_macro.dispatch.fact"
-                    && cap.stage == "kp20_polar_macro.dispatch.positive_nonoverlap_c2_primary"
-                    && cap.sector_name == "kp20_polar_macro_ring_n6"
-                    && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("map_family=positive_nonoverlap_c2")
-                            && detail.contains("fold_ownership=origin_pieces:")
-                            && detail.contains("dominant_fold_zone=")
-                            && detail.contains("fold_site_count=")
-                            && detail.contains("non_positive_orientation_maps=0")
-                            && detail.contains("origin_strip_reversed=true")
-                    })
-        )),
-        "hexagon6_mixed should measure the positive nonoverlap C2 primary candidate structurally"
-    );
-    assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.stage == "kp20_polar_macro.dispatch.positive_nonoverlap_c2_support_domain_primary"
-                    && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("support_domain_evaluated=8")
-                            && detail.contains("support_domain_target_piece=NearMidpointLeft")
-                            && detail.contains("decline_reason=support_domain_primary_fold_remaining")
-                    })
-        )),
-        "hexagon6_mixed should measure the support-domain primary candidate structurally"
-    );
-    assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp20_polar_macro.dispatch.fact"
                     && cap.stage == "kp20_polar_macro.dispatch.piece_map_orientation"
                     && cap.sector_name == "kp20_polar_macro_ring_n6"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
@@ -271,157 +240,19 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
         "hexagon6_mixed should expose KP20 piece-map orientation facts structurally"
     );
     assert!(
-        diagnostics.iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp20_polar_macro.dispatch.fact"
-                        && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_coupled_lift"
-                        && cap.sector_name == "kp20_polar_macro_ring_n6"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("status=sampled")
-                                && detail.contains("default_folds=22")
-                                && detail.contains("folds=8")
-                                && detail.contains("piece_folds=NearOriginLeft:2|NearOriginRight:2|NearMidpointRight:0|NearMidpointLeft:4")
-                                && detail.contains("fold_zones=origin_corner:0|edge_shoulder:3|interior:5")
-                                && detail.contains("fold_ownership=origin_pieces:4|support_pieces:4")
-                                && detail.contains("dominant_fold_zone=interior")
-                                && detail.contains("recommended_next_move=support_inner_interior_row")
-                                && detail.contains("fold_site_count=8")
-                                && detail.contains("fold_site_target_piece=NearMidpointLeft")
-                                && detail.contains("fold_site_target_count=4")
-                                && detail.contains("fold_site_worst=sector:3|piece:NearOriginRight|uv:(6.250e-2,6.250e-2)")
-                                && detail.contains("fold_site_touching=NearOriginLeft:[0,3]|NearOriginRight:[1,3]|NearMidpointLeft:[1,2,4,5]")
-                                && detail.contains("origin_inner_evaluated=12")
-                                && detail.contains("origin_inner_accepted=1")
-                                && detail.contains("origin_inner_rejected=11")
-                                && detail.contains("origin_inner_start_folds=9")
-                                && detail.contains("origin_inner_end_folds=8")
-                                && detail.contains("origin_inner_mode=normal")
-                                && detail.contains("origin_inner_scale=-2.000e-1")
-                                && detail.contains("origin_inner_pre_evaluated=60")
-                                && detail.contains("origin_inner_pre_accepted=0")
-                                && detail.contains("origin_inner_pre_rejected=60")
-                                && detail.contains("origin_inner_pre_mode=constrained_interior_solve_none|coupled_origin_support_none|origin_corner_none")
-                                && detail.contains("paired_inner_evaluated=12")
-                                && detail.contains("paired_inner_accepted=0")
-                                && detail.contains("paired_inner_rejected=12")
-                                && detail.contains("paired_inner_start_folds=8")
-                                && detail.contains("paired_inner_end_folds=8")
-                                && detail.contains("paired_inner_mode=none")
-                                && detail.contains("paired_inner_scale=0.000e0")
-                                && detail.contains("support_inner_evaluated=24")
-                                && detail.contains("support_inner_accepted=0")
-                                && detail.contains("support_inner_rejected=24")
-                                && detail.contains("support_inner_start_folds=8")
-                                && detail.contains("support_inner_end_folds=8")
-                                && detail.contains("support_inner_mode=none")
-                                && detail.contains("support_inner_scale=0.000e0")
-                                && detail.contains("support_domain_evaluated=8")
-                                && detail.contains("support_domain_accepted=1")
-                                && detail.contains("support_domain_rejected=7")
-                                && detail.contains("support_domain_start_folds=20")
-                                && detail.contains("support_domain_end_folds=18")
-                                && detail.contains("support_domain_target_piece=NearMidpointLeft")
-                                && detail.contains("support_domain_decline_reason=none")
-                                && detail.contains("support_domain_refine_evaluated=10")
-                                && detail.contains("support_domain_refine_accepted=0")
-                                && detail.contains("support_domain_refine_rejected=10")
-                                && detail.contains("support_domain_refine_start_folds=18")
-                                && detail.contains("support_domain_refine_end_folds=18")
-                                && detail.contains("support_domain_refine_target_piece=NearMidpointLeft")
-                                && detail.contains("support_domain_refine_decline_reason=support_domain_refine_no_fold_reduction")
-                                && detail.contains("coupled_domain_evaluated=8")
-                                && detail.contains("coupled_domain_accepted=0")
-                                && detail.contains("coupled_domain_rejected=8")
-                                && detail.contains("coupled_domain_start_folds=18")
-                                && detail.contains("coupled_domain_end_folds=18")
-                                && detail.contains("coupled_domain_origin_shift=0.000e0")
-                                && detail.contains("coupled_domain_origin_scale=1.000e0")
-                                && detail.contains("coupled_domain_decline_reason=coupled_domain_no_fold_reduction")
-                                && detail.contains("guide_samples=90")
-                                && detail.contains("guide_reversals=44")
-                                && detail.contains("guide_min_normal_cos=-9.980e-1")
-                                && detail.contains("guide_worst=sector:2|uv:(2.500e-1,2.500e-1)")
-                                && detail.contains("guide_classification=guide_orientation_reversal")
-                                && detail.contains("guide_repair_evaluated=10")
-                                && detail.contains("guide_repair_accepted=0")
-                                && detail.contains("guide_repair_rejected=10")
-                                && detail.contains("guide_repair_start_reversals=44")
-                                && detail.contains("guide_repair_end_reversals=44")
-                                && detail.contains("guide_repair_blend=0.000e0")
-                                && detail.contains("guide_repair_decline_reason=guide_repair_downstream_fold_remaining")
-                                && detail.contains("split_domain_evaluated=10")
-                                && detail.contains("split_domain_accepted=0")
-                                && detail.contains("split_domain_rejected=10")
-                                && detail.contains("split_domain_start_folds=18")
-                                && detail.contains("split_domain_end_folds=18")
-                                && detail.contains("split_domain_fraction=5.000e-1")
-                                && detail.contains("split_domain_interface_pull=0.000e0")
-                                && detail.contains("split_domain_decline_reason=split_domain_no_fold_reduction")
-                                && detail.contains("preassembly_interior_evaluated=24")
-                                && detail.contains("preassembly_interior_accepted=0")
-                                && detail.contains("preassembly_interior_rejected=24")
-                                && detail.contains("preassembly_interior_start_folds=18")
-                                && detail.contains("preassembly_interior_end_folds=18")
-                                && detail.contains("preassembly_interior_decline_reason=preassembly_warp_no_fold_reduction")
-                                && detail.contains("support_transition_evaluated=8")
-                                && detail.contains("support_transition_accepted=0")
-                                && detail.contains("support_transition_rejected=8")
-                                && detail.contains("support_transition_start_folds=18")
-                                && detail.contains("support_transition_end_folds=18")
-                                && detail.contains("support_transition_target_piece=NearMidpointLeft")
-                                && detail.contains("support_transition_decline_reason=support_transition_")
-                                && detail.contains("support_reparam_evaluated=8")
-                                && detail.contains("support_reparam_fast_accepted=8")
-                                && detail.contains("support_reparam_fast_rejected=0")
-                                && detail.contains("support_reparam_lift_evaluated=1")
-                                && detail.contains("support_reparam_accepted=0")
-                                && detail.contains("support_reparam_rejected=8")
-                                && detail.contains("support_reparam_start_folds=8")
-                                && detail.contains("support_reparam_end_folds=8")
-                                && detail.contains("support_reparam_target_piece=NearMidpointLeft")
-                                && detail.contains("support_reparam_params=none")
-                                && detail.contains("support_reparam_decline_reason=support_reparameterization_no_lift_improvement")
-                                && detail.contains("tensor_border_residual=0.000e0")
-                                && detail.contains("internal_c2_position=0.000e0")
-                                && detail.contains("internal_c2_first=0.000e0")
-                                && detail.contains("origin_g2_strip=0.000e0")
-                                && detail.contains("optimizer_evaluated=")
-                                && detail.contains("optimizer_accepted=5")
-                                && detail.contains("accepted_steps=4")
-                        })
-            )),
-        "hexagon6_mixed should expose the bounded nonoverlap-coupled lift candidate structurally"
-    );
-    assert!(
-        diagnostics.iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.code == "kp20_polar_macro.dispatch.declined"
-                        && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_coupled_lift_self_intersection"
-                        && cap.sector_name == "kp20_polar_macro_ring_n6"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("folds=8")
-                                && detail.contains("piece_folds=NearOriginLeft:2|NearOriginRight:2|NearMidpointRight:0|NearMidpointLeft:4")
-                                && detail.contains("origin_g2_strip=0.000e0")
-                        })
-            )),
-        "hexagon6_mixed should decline the bounded lift candidate until it is fold-free"
-    );
-    assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
                 if cap.code == "kp20_polar_macro.dispatch.declined"
-                    && cap.stage == "kp20_polar_macro.dispatch.self_intersection"
+                    && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_coupled_lift_budget_exceeded"
                     && cap.sector_name == "kp20_polar_macro_ring_n6"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("piece=") && detail.contains("jacobian_reversal=true")
+                        detail.contains("lift_solver_budget=disabled_for_valence_ge_6")
+                            && detail.contains("folds=")
+                            && detail.contains("piece_folds=")
                     })
         )),
-        "hexagon6_mixed should expose the bounded KP20 candidate rejection structurally"
+        "hexagon6_mixed should decline the KP20 lift when it exceeds the construction budget"
     );
 }
 

@@ -37,6 +37,7 @@ const FD_EPS: f64 = 1e-5;
 const LAMBDA_INIT: f64 = 1e-3;
 const LAMBDA_MAX: f64 = 1e10;
 const MAX_ITER: usize = 40;
+const MAX_FINITE_DIFFERENCE_EVALUATIONS: usize = 2_500;
 const TARGET_RESIDUAL: f64 = 1e-8;
 const N_SAMPLES_PER_SPOKE: usize = 10;
 const SELF_INT_TOL: f64 = 1e-6;
@@ -362,6 +363,16 @@ pub(super) fn try_polar_lm_with_report(
         contract(0.05),
         collapsed,
     ];
+    let n_dof = pack(base, warm_start).len();
+    let estimated_evaluations = candidates.len() * MAX_ITER * (n_dof + 1);
+    if estimated_evaluations > MAX_FINITE_DIFFERENCE_EVALUATIONS {
+        return PolarLmReport {
+            patches: None,
+            rejection_reason: Some(
+                "full_deep_lm_no_fold_safe_iterate;lm_fd_evaluation_budget_exceeded",
+            ),
+        };
+    }
 
     let mut saw_feasible_start = false;
     for (idx, candidate) in candidates.iter().enumerate() {

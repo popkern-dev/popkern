@@ -124,6 +124,12 @@ pub(super) fn optimize_binonic_with_outer_fillets(
     // Pack the 64 interior CPs × 3 axes × N patches into a flat
     // parameter vector. Order: sub-patch k, slot s ∈ 0..64, axis a.
     let x0 = pack_guides(&bn_guides);
+    if x0.len() > MAX_PHASE3_DOF {
+        return Some(KpBiNonicOptimizerResult {
+            binonic: bq_result.binonic,
+            final_residual: bq_result.final_residual,
+        });
+    }
 
     let eval = BinonicEval {
         base: bn_guides.clone(),
@@ -199,6 +205,8 @@ pub(super) fn optimize_binonic_with_outer_fillets(
         })
     }
 }
+
+const MAX_PHASE3_DOF: usize = 1_000;
 
 /// L-M residual callback for phase 3. Keeps a base copy of the
 /// guide ring and a reference to the input; each `eval` clones
