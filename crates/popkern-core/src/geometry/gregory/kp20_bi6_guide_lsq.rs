@@ -76,6 +76,26 @@ pub fn solve_kp20_guide_lsq_with_report(
     tensor_border: &TensorBorderBi3,
     star_point: Point3,
 ) -> Result<Kp20GuideLsqOutput, Kp20GuideLsqError> {
+    solve_kp20_guide_lsq_inner(tensor_border, star_point, None, 0.0)
+}
+
+/// Build a KP18/KP20 guide with bounded least-squares prior rows.
+pub fn solve_kp20_guide_lsq_with_prior(
+    tensor_border: &TensorBorderBi3,
+    star_point: Point3,
+    prior: &[Kp20Tri6GuideSector],
+    prior_weight: f64,
+) -> Result<Vec<Kp20Tri6GuideSector>, Kp20GuideLsqError> {
+    solve_kp20_guide_lsq_inner(tensor_border, star_point, Some(prior), prior_weight)
+        .map(|solved| solved.sectors)
+}
+
+fn solve_kp20_guide_lsq_inner(
+    tensor_border: &TensorBorderBi3,
+    star_point: Point3,
+    prior: Option<&[Kp20Tri6GuideSector]>,
+    prior_weight: f64,
+) -> Result<Kp20GuideLsqOutput, Kp20GuideLsqError> {
     let n = tensor_border.sectors.len();
     if n < 3 || n == 4 || n > 10 {
         return Err(Kp20GuideLsqError::UnsupportedValence(n));
@@ -87,7 +107,15 @@ pub fn solve_kp20_guide_lsq_with_report(
     }
     validate_tensor_border(tensor_border)?;
 
-    let rows = residual_rows(tensor_border);
+    let mut rows = residual_rows(tensor_border);
+    if let Some(prior) = prior {
+        if prior.len() != n || !prior_weight.is_finite() || prior_weight <= 0.0 {
+            return Err(Kp20GuideLsqError::InvalidTensorBorder(
+                "guide prior is invalid".to_string(),
+            ));
+        }
+        append_prior_rows(&mut rows, prior, prior_weight);
+    }
     let all_constraints = constraint_rows(n)?;
     let vars = n * TRI6_CP_COUNT;
     let constraints = independent_rows(vars, &all_constraints);
@@ -186,6 +214,19 @@ fn residual_rows(t: &TensorBorderBi3) -> ResidualRows {
         }
     }
     ResidualRows { rows, targets }
+}
+
+fn append_prior_rows(rows: &mut ResidualRows, prior: &[Kp20Tri6GuideSector], weight: f64) {
+    for (s, sector) in prior.iter().enumerate() {
+        for (cp, p) in sector.cps.iter().enumerate() {
+            rows.rows.push(LinearRow {
+                terms: vec![(var_index(s, cp), weight)],
+            });
+            rows.targets[0].push(weight * p.x);
+            rows.targets[1].push(weight * p.y);
+            rows.targets[2].push(weight * p.z);
+        }
+    }
 }
 
 fn outer_edge_derivative_row(sector: usize, order: usize, u: f64, v: f64) -> LinearRow {

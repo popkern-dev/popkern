@@ -21,7 +21,7 @@ pub use super::kp20_bi6_guide_continuity::{
 };
 pub use super::kp20_bi6_guide_lsq::{
     Kp20GuideLsqError, Kp20GuideLsqOutput, Kp20GuideLsqReport, solve_kp20_guide_lsq,
-    solve_kp20_guide_lsq_with_report,
+    solve_kp20_guide_lsq_with_prior, solve_kp20_guide_lsq_with_report,
 };
 pub use super::kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20GuideJet3, Kp20PatchCorner, Kp20Tri6GuideSector,

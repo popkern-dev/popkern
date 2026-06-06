@@ -65,7 +65,7 @@ pub(super) fn support_domain_basis_candidate(
     .map_err(|e| e.to_string())?;
     let baseline = candidate_summary_from_cap(tensor_border, baseline_cap.macro_patches.clone())?;
     let (guide, guide_quality, guide_repair) =
-        transactional_kp20_guide_repair(&guide, tensor_border, star_point, &baseline)?;
+        transactional_kp20_guide_repair(&guide, tensor_border, star_point)?;
     let mut report = Kp20SupportDomainReport {
         evaluated: 0,
         accepted: 0,

@@ -5,11 +5,11 @@ use popkern_core::geometry::gregory::{
     Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideRing, Kp20Tri6GuideSector,
     TRI6_CP_COUNT, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
     kp20_nonoverlap_coupled_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
-    tri6_flat_index,
+    solve_kp20_guide_lsq_with_prior, tri6_flat_index,
 };
 
 use super::super::super::kp20_polar_fold_summary::{
-    Kp20SamplerFoldSummary, candidate_summary_from_cap, is_better_summary, validation_is_clean,
+    Kp20SamplerFoldSummary, candidate_summary_from_cap, validation_is_clean,
 };
 use super::super::super::kp20_polar_support_reparameterization::{
     Kp20GuideQualityReport, Kp20GuideRepairReport,
@@ -20,7 +20,6 @@ pub(super) fn transactional_kp20_guide_repair(
     guide: &Kp20GuideRing,
     tensor_border: &TensorBorderBi3,
     star_point: Point3,
-    baseline: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
 ) -> Result<(Kp20GuideRing, Kp20GuideQualityReport, Kp20GuideRepairReport), String> {
     let start = measure_kp20_guide_quality(guide);
     let mut report = Kp20GuideRepairReport {
@@ -35,11 +34,16 @@ pub(super) fn transactional_kp20_guide_repair(
     let radial = radial_guide_ring(tensor_border, star_point);
     let mut best_guide = guide.clone();
     let mut best_quality = start.clone();
-    let mut best_summary = baseline.clone();
     let mut downstream_rejected = false;
-    for blend in [0.05, 0.10, 0.15, 0.20, 0.25, 0.35, 0.50, 0.75, 1.00] {
+    for weight in [1.0e-6, 1.0e-5, 1.0e-4, 1.0e-3, 1.0e-2, 1.0e-1] {
         report.evaluated += 1;
-        let candidate = blend_guides(guide, &radial, blend);
+        let candidate =
+            solve_kp20_guide_lsq_with_prior(tensor_border, star_point, &radial.sectors, weight)
+                .map(|sectors| Kp20GuideRing {
+                    n: guide.n,
+                    sectors,
+                })
+                .map_err(|e| e.to_string())?;
         let quality = measure_kp20_guide_quality(&candidate);
         if !is_better_guide_quality(&quality, &best_quality) {
             report.rejected += 1;
@@ -52,30 +56,22 @@ pub(super) fn transactional_kp20_guide_repair(
             report.decline_reason = "guide_repair_downstream_validation_not_clean";
             continue;
         }
-        if !preserves_fold_summary(&summary, baseline) {
+        if summary.0.fold_count > 0 {
             report.rejected += 1;
             downstream_rejected = true;
-            report.decline_reason = "guide_repair_downstream_no_fold_reduction";
+            report.decline_reason = "guide_repair_downstream_fold_remaining";
             continue;
         }
-        if is_better_summary(&summary, Some(&best_summary))
-            || (!is_better_summary(&best_summary, Some(&summary))
-                && is_better_guide_quality(&quality, &best_quality))
-        {
-            best_guide = candidate;
-            best_quality = quality;
-            best_summary = summary;
-            report.accepted = 1;
-            report.blend = blend;
-            report.decline_reason = "none";
-        } else {
-            report.rejected += 1;
-        }
+        best_guide = candidate;
+        best_quality = quality;
+        report.accepted = 1;
+        report.blend = weight;
+        report.decline_reason = "none";
     }
     report.rejected = report.evaluated - report.accepted;
     report.end_reversals = best_quality.reversals;
     if report.accepted == 0 && downstream_rejected {
-        report.decline_reason = "guide_repair_downstream_no_fold_reduction";
+        report.decline_reason = "guide_repair_downstream_fold_remaining";
     }
     Ok((best_guide, best_quality, report))
 }
@@ -86,15 +82,6 @@ fn is_better_guide_quality(
 ) -> bool {
     candidate.reversals < best.reversals
         || (candidate.reversals == best.reversals && candidate.min_normal_cos > best.min_normal_cos)
-}
-
-fn preserves_fold_summary(
-    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-    baseline: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-) -> bool {
-    candidate.0.fold_count < baseline.0.fold_count
-        || (candidate.0.fold_count == baseline.0.fold_count
-            && candidate.0.min_jacobian_normal_cos >= baseline.0.min_jacobian_normal_cos)
 }
 
 fn candidate_summary_for_guide(
@@ -147,22 +134,6 @@ fn radial_sector(star_point: Point3, boundary_cubic: [Point3; 4]) -> Kp20Tri6Gui
         }
     }
     Kp20Tri6GuideSector { cps }
-}
-
-fn blend_guides(base: &Kp20GuideRing, target: &Kp20GuideRing, blend: f64) -> Kp20GuideRing {
-    Kp20GuideRing {
-        n: base.n,
-        sectors: base
-            .sectors
-            .iter()
-            .zip(&target.sectors)
-            .map(|(base_sector, target_sector)| Kp20Tri6GuideSector {
-                cps: core::array::from_fn(|idx| {
-                    lerp(base_sector.cps[idx], target_sector.cps[idx], blend)
-                }),
-            })
-            .collect(),
-    }
 }
 
 fn elevate_cubic_to_degree6(row: [Point3; 4]) -> [Point3; 7] {
