@@ -23,46 +23,6 @@ pub(super) fn transactional_kp20_guide_repair(
     baseline: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
 ) -> Result<(Kp20GuideRing, Kp20GuideQualityReport, Kp20GuideRepairReport), String> {
     let start = measure_kp20_guide_quality(guide);
-    let (candidate_guide, candidate_quality, mut report) =
-        repair_kp20_guide_orientation(guide, tensor_border, star_point, &start);
-    if report.accepted == 0 {
-        return Ok((guide.clone(), start, report));
-    }
-    let candidate_sampled = candidate_guide
-        .sectors
-        .iter()
-        .map(|sector| {
-            sample_kp20_macro_patch_from_piece_maps(
-                sector,
-                kp20_nonoverlap_coupled_sector_piece_maps(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let candidate_cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
-        tensor_border: tensor_border.clone(),
-        sampled_macro_patches: candidate_sampled,
-    })
-    .map_err(|e| e.to_string())?;
-    let candidate_summary = candidate_summary_from_cap(tensor_border, candidate_cap.macro_patches)?;
-    if validation_is_clean(candidate_summary.1)
-        && is_better_summary(&candidate_summary, Some(baseline))
-    {
-        return Ok((candidate_guide, candidate_quality, report));
-    }
-    report.accepted = 0;
-    report.rejected = report.evaluated;
-    report.end_reversals = report.start_reversals;
-    report.blend = 0.0;
-    report.decline_reason = "guide_repair_downstream_no_fold_reduction";
-    Ok((guide.clone(), start, report))
-}
-
-fn repair_kp20_guide_orientation(
-    guide: &Kp20GuideRing,
-    tensor_border: &TensorBorderBi3,
-    star_point: Point3,
-    start: &Kp20GuideQualityReport,
-) -> (Kp20GuideRing, Kp20GuideQualityReport, Kp20GuideRepairReport) {
     let mut report = Kp20GuideRepairReport {
         evaluated: 0,
         accepted: 0,
@@ -75,7 +35,9 @@ fn repair_kp20_guide_orientation(
     let radial = radial_guide_ring(tensor_border, star_point);
     let mut best_guide = guide.clone();
     let mut best_quality = start.clone();
-    for blend in [0.25, 0.50, 0.75, 1.00] {
+    let mut best_summary = baseline.clone();
+    let mut downstream_rejected = false;
+    for blend in [0.05, 0.10, 0.15, 0.20, 0.25, 0.35, 0.50, 0.75, 1.00] {
         report.evaluated += 1;
         let candidate = blend_guides(guide, &radial, blend);
         let quality = measure_kp20_guide_quality(&candidate);
@@ -84,15 +46,38 @@ fn repair_kp20_guide_orientation(
             report.decline_reason = "guide_repair_no_orientation_improvement";
             continue;
         }
-        best_guide = candidate;
-        best_quality = quality;
-        report.accepted = 1;
-        report.blend = blend;
-        report.decline_reason = "none";
+        let summary = candidate_summary_for_guide(tensor_border, &candidate)?;
+        if !validation_is_clean(summary.1) {
+            report.rejected += 1;
+            report.decline_reason = "guide_repair_downstream_validation_not_clean";
+            continue;
+        }
+        if !preserves_fold_summary(&summary, baseline) {
+            report.rejected += 1;
+            downstream_rejected = true;
+            report.decline_reason = "guide_repair_downstream_no_fold_reduction";
+            continue;
+        }
+        if is_better_summary(&summary, Some(&best_summary))
+            || (!is_better_summary(&best_summary, Some(&summary))
+                && is_better_guide_quality(&quality, &best_quality))
+        {
+            best_guide = candidate;
+            best_quality = quality;
+            best_summary = summary;
+            report.accepted = 1;
+            report.blend = blend;
+            report.decline_reason = "none";
+        } else {
+            report.rejected += 1;
+        }
     }
     report.rejected = report.evaluated - report.accepted;
     report.end_reversals = best_quality.reversals;
-    (best_guide, best_quality, report)
+    if report.accepted == 0 && downstream_rejected {
+        report.decline_reason = "guide_repair_downstream_no_fold_reduction";
+    }
+    Ok((best_guide, best_quality, report))
 }
 
 fn is_better_guide_quality(
@@ -101,6 +86,37 @@ fn is_better_guide_quality(
 ) -> bool {
     candidate.reversals < best.reversals
         || (candidate.reversals == best.reversals && candidate.min_normal_cos > best.min_normal_cos)
+}
+
+fn preserves_fold_summary(
+    candidate: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    baseline: &(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+) -> bool {
+    candidate.0.fold_count < baseline.0.fold_count
+        || (candidate.0.fold_count == baseline.0.fold_count
+            && candidate.0.min_jacobian_normal_cos >= baseline.0.min_jacobian_normal_cos)
+}
+
+fn candidate_summary_for_guide(
+    tensor_border: &TensorBorderBi3,
+    guide: &Kp20GuideRing,
+) -> Result<(Kp20SamplerFoldSummary, Kp20Bi6ValidationReport), String> {
+    let sampled = guide
+        .sectors
+        .iter()
+        .map(|sector| {
+            sample_kp20_macro_patch_from_piece_maps(
+                sector,
+                kp20_nonoverlap_coupled_sector_piece_maps(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
+        tensor_border: tensor_border.clone(),
+        sampled_macro_patches: sampled,
+    })
+    .map_err(|e| e.to_string())?;
+    candidate_summary_from_cap(tensor_border, cap.macro_patches)
 }
 
 fn radial_guide_ring(tensor_border: &TensorBorderBi3, star_point: Point3) -> Kp20GuideRing {
