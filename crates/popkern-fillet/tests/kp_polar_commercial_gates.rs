@@ -232,6 +232,9 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                     && cap.sector_name == "kp20_polar_macro_ring_n6"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
                         detail.contains("map_family=positive_nonoverlap_c2")
+                            && detail.contains("fold_ownership=origin_pieces:")
+                            && detail.contains("dominant_fold_zone=")
+                            && detail.contains("fold_site_count=")
                             && detail.contains("non_positive_orientation_maps=0")
                             && detail.contains("origin_strip_reversed=true")
                     })

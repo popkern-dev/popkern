@@ -14,7 +14,7 @@ use super::super::kp20_polar_fold_summary::{
     Kp20SamplerFoldSummary, candidate_summary_from_cap, gregory_patches_from_macro_patches,
     validation_is_clean,
 };
-use super::labels::{piece_counts_label, validation_label};
+use super::labels::{fold_ownership_label, piece_counts_label, validation_label};
 
 pub(super) struct Kp20PrimaryMappedCandidate {
     pub(super) patches: Vec<GregoryPatch>,
@@ -31,9 +31,10 @@ impl Kp20PrimaryMappedCandidate {
 
     pub(super) fn detail(&self) -> String {
         format!(
-            "map_family=positive_nonoverlap_c2;status=sampled;folds={};piece_folds={};validation:{};inside_triangle={};non_positive_orientation_maps={};c2_edge={:.3e};origin_strip_edge={:.3e};origin_strip_reversed={};min_center_sep={:.3e}",
+            "map_family=positive_nonoverlap_c2;status=sampled;folds={};piece_folds={};{};validation:{};inside_triangle={};non_positive_orientation_maps={};c2_edge={:.3e};origin_strip_edge={:.3e};origin_strip_reversed={};min_center_sep={:.3e}",
             self.summary.fold_count,
             piece_counts_label(self.summary.piece_fold_counts),
+            fold_ownership_label(&self.summary),
             validation_label(self.validation),
             self.domain.stays_inside_triangle(),
             self.domain.non_positive_orientation_maps,
