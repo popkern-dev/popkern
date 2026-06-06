@@ -27,6 +27,13 @@ pub(super) fn refine_split_domain(
     anchor: Kp20SupportDomainParams,
 ) -> Result<Kp20SplitDomainReport, String> {
     let mut report = Kp20SplitDomainReport {
+        guide_samples: 0,
+        guide_reversals: 0,
+        guide_min_normal_cos: 1.0,
+        guide_worst_sector: 0,
+        guide_worst_u: 0.0,
+        guide_worst_v: 0.0,
+        guide_classification: "guide_quality_not_measured",
         evaluated: 0,
         accepted: 0,
         rejected: 0,

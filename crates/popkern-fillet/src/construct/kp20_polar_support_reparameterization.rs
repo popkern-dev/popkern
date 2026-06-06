@@ -3,6 +3,17 @@
 use popkern_core::geometry::gregory::Kp20PieceId;
 
 #[derive(Debug, Clone)]
+pub(super) struct Kp20GuideQualityReport {
+    pub(super) samples: usize,
+    pub(super) reversals: usize,
+    pub(super) min_normal_cos: f64,
+    pub(super) worst_sector: usize,
+    pub(super) worst_u: f64,
+    pub(super) worst_v: f64,
+    pub(super) classification: &'static str,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct Kp20SupportReparameterizationReport {
     pub(super) evaluated: usize,
     pub(super) fast_accepted: usize,
@@ -82,6 +93,13 @@ pub(super) struct Kp20CoupledDomainReport {
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SplitDomainReport {
+    pub(super) guide_samples: usize,
+    pub(super) guide_reversals: usize,
+    pub(super) guide_min_normal_cos: f64,
+    pub(super) guide_worst_sector: usize,
+    pub(super) guide_worst_u: f64,
+    pub(super) guide_worst_v: f64,
+    pub(super) guide_classification: &'static str,
     pub(super) evaluated: usize,
     pub(super) accepted: usize,
     pub(super) rejected: usize,

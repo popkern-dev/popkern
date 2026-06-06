@@ -16,10 +16,13 @@ use super::super::kp20_polar_support_reparameterization::{
     Kp20SupportDomainReport,
 };
 use domain_candidates::{refine_coupled_domain, refine_split_domain};
+use guide_quality::measure_kp20_guide_quality;
 use preassembly_candidates::refine_preassembly_interior;
 
 #[path = "kp20_polar_support_domain_candidates.rs"]
 mod domain_candidates;
+#[path = "kp20_polar_support_guide_quality.rs"]
+mod guide_quality;
 #[path = "kp20_polar_support_preassembly.rs"]
 mod preassembly_candidates;
 
@@ -43,6 +46,7 @@ pub(super) fn support_domain_basis_candidate(
         tensor_border: tensor_border.clone(),
     })
     .map_err(|e| e.to_string())?;
+    let guide_quality = measure_kp20_guide_quality(&guide);
     let baseline_sampled = guide
         .sectors
         .iter()
@@ -103,6 +107,13 @@ pub(super) fn support_domain_basis_candidate(
         decline_reason: "coupled_domain_not_run",
     };
     let mut split_report = Kp20SplitDomainReport {
+        guide_samples: guide_quality.samples,
+        guide_reversals: guide_quality.reversals,
+        guide_min_normal_cos: guide_quality.min_normal_cos,
+        guide_worst_sector: guide_quality.worst_sector,
+        guide_worst_u: guide_quality.worst_u,
+        guide_worst_v: guide_quality.worst_v,
+        guide_classification: guide_quality.classification,
         evaluated: 0,
         accepted: 0,
         rejected: 0,
@@ -227,6 +238,13 @@ pub(super) fn support_domain_basis_candidate(
         &mut best,
         coupled_params,
     )?;
+    split_report.guide_samples = guide_quality.samples;
+    split_report.guide_reversals = guide_quality.reversals;
+    split_report.guide_min_normal_cos = guide_quality.min_normal_cos;
+    split_report.guide_worst_sector = guide_quality.worst_sector;
+    split_report.guide_worst_u = guide_quality.worst_u;
+    split_report.guide_worst_v = guide_quality.worst_v;
+    split_report.guide_classification = guide_quality.classification;
     let Some((_, split_summary, split_params)) = best.as_ref() else {
         return Ok((
             macro_patches,
