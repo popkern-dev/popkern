@@ -43,8 +43,9 @@ pub use super::kp20_bi6_piece_maps::{
     kp20_default_piece_map_domain_report, kp20_default_sector_piece_maps,
     kp20_nonoverlap_coupled_sector_piece_maps, kp20_orientation_valid_sector_piece_maps,
     kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
-    kp20_piece_map_stitch_report, sample_kp20_macro_patch_from_default_maps,
-    sample_kp20_macro_patch_from_piece_maps, sample_kp20_macro_patch_from_tau_maps,
+    kp20_piece_map_stitch_report, kp20_positive_nonoverlap_c2_sector_piece_maps,
+    sample_kp20_macro_patch_from_default_maps, sample_kp20_macro_patch_from_piece_maps,
+    sample_kp20_macro_patch_from_tau_maps,
 };
 pub use super::kp20_bi6_s0_solve::{
     Kp20S0Projection, Kp20S0Sample, Kp20S0SolveError, build_kp20_g2_strip_samples,

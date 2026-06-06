@@ -3,7 +3,7 @@
 use popkern_core::geometry::gregory::{
     Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideRing,
     Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20SectorPieceMaps, TensorBorderBi3,
-    assemble_kp20_bi6_macro_cap, kp20_nonoverlap_coupled_sector_piece_maps,
+    assemble_kp20_bi6_macro_cap, kp20_positive_nonoverlap_c2_sector_piece_maps,
     sample_kp20_macro_patch_from_piece_maps,
 };
 use popkern_core::geometry::{Point3, Vec3};
@@ -207,7 +207,7 @@ fn support_layout_piece_maps(
     params: Kp20SupportDomainParams,
     layout: Kp20SupportLayout,
 ) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     for (piece, corner_maps) in &mut maps {
         if *piece == TARGET_PIECE {
             *corner_maps = support_layout_corner_maps(params, layout);

@@ -5,7 +5,7 @@ use popkern_core::geometry::gregory::{
     Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput,
     Kp20GuideRing, Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId,
     Kp20SectorPieceMaps, TensorBorderBi3, assemble_kp20_bi6_macro_cap, build_kp20_guide_ring,
-    kp20_nonoverlap_coupled_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    kp20_positive_nonoverlap_c2_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::super::kp20_polar_fold_summary::{
@@ -54,7 +54,7 @@ pub(super) fn support_domain_basis_candidate(
         .map(|sector| {
             sample_kp20_macro_patch_from_piece_maps(
                 sector,
-                kp20_nonoverlap_coupled_sector_piece_maps(),
+                kp20_positive_nonoverlap_c2_sector_piece_maps(),
             )
         })
         .collect::<Vec<_>>();
@@ -433,7 +433,7 @@ impl Kp20SupportDomainParams {
 }
 
 fn support_domain_piece_maps(params: Kp20SupportDomainParams) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     for (piece, corner_maps) in &mut maps {
         if *piece == TARGET_PIECE {
             *corner_maps = support_domain_corner_maps(params);

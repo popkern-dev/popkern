@@ -4,9 +4,9 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
     Kp20Bi6ValidationReport, Kp20PieceId, Kp20TauMap, TensorBorderBi3,
     kp20_c2_stitched_sector_piece_maps, kp20_coupled_stitched_sector_piece_maps,
-    kp20_default_piece_map_domain_report, kp20_nonoverlap_coupled_sector_piece_maps,
-    kp20_paper_oriented_sector_piece_maps, kp20_piece_map_domain_report,
-    kp20_piece_map_stitch_report,
+    kp20_default_piece_map_domain_report, kp20_paper_oriented_sector_piece_maps,
+    kp20_piece_map_domain_report, kp20_piece_map_stitch_report,
+    kp20_positive_nonoverlap_c2_sector_piece_maps,
 };
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
@@ -69,14 +69,14 @@ pub(super) fn sampler_comparison_diagnostic(
         mapped_candidate_summary(
             star_point,
             tensor_border,
-            kp20_nonoverlap_coupled_sector_piece_maps(),
+            kp20_positive_nonoverlap_c2_sector_piece_maps(),
         )
     });
     let (nonoverlap_coupled_lift, nonoverlap_coupled_lift_ms) = timed(|| {
         lifted_mapped_candidate_summary(
             star_point,
             tensor_border,
-            kp20_nonoverlap_coupled_sector_piece_maps(),
+            kp20_positive_nonoverlap_c2_sector_piece_maps(),
         )
     });
     let (normal_lift, normal_lift_ms) =
@@ -152,9 +152,9 @@ fn append_paper_alignment_detail(
     let coupled_domain = kp20_piece_map_domain_report(kp20_coupled_stitched_sector_piece_maps());
     let coupled_stitch = kp20_piece_map_stitch_report(kp20_coupled_stitched_sector_piece_maps());
     let nonoverlap_domain =
-        kp20_piece_map_domain_report(kp20_nonoverlap_coupled_sector_piece_maps());
+        kp20_piece_map_domain_report(kp20_positive_nonoverlap_c2_sector_piece_maps());
     let nonoverlap_stitch =
-        kp20_piece_map_stitch_report(kp20_nonoverlap_coupled_sector_piece_maps());
+        kp20_piece_map_stitch_report(kp20_positive_nonoverlap_c2_sector_piece_maps());
     let tau_available = (0..tensor_border.sectors.len())
         .all(|sector| Kp20TauMap::for_sector_local(tensor_border.sectors.len(), sector).is_ok());
     let tau_label = candidate_label(sector_local_tau);

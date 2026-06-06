@@ -145,6 +145,12 @@ pub fn kp20_nonoverlap_coupled_sector_piece_maps() -> Kp20SectorPieceMaps {
     ]
 }
 
+/// Positive-orientation nonoverlapping maps with C2-compatible support-origin
+/// edges and reversed origin-strip compatibility.
+pub fn kp20_positive_nonoverlap_c2_sector_piece_maps() -> Kp20SectorPieceMaps {
+    kp20_nonoverlap_coupled_sector_piece_maps()
+}
+
 /// Domain-coverage report for the current affine piece-map scaffold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20PieceMapDomainReport {

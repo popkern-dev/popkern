@@ -144,7 +144,7 @@ fn coupled_stitched_piece_maps_are_inside_positive_and_edge_compatible() {
 
 #[test]
 fn nonoverlap_coupled_piece_maps_are_inside_positive_and_separated() {
-    let maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     let domain = kp20_piece_map_domain_report(maps);
     let stitch = kp20_piece_map_stitch_report(maps);
 
@@ -181,7 +181,7 @@ fn nonoverlap_coupled_piece_maps_sample_all_pieces_from_guide() {
 
     let macro_patch = sample_kp20_macro_patch_from_piece_maps(
         &guide,
-        kp20_nonoverlap_coupled_sector_piece_maps(),
+        kp20_positive_nonoverlap_c2_sector_piece_maps(),
     );
 
     for id in Kp20PieceId::all() {

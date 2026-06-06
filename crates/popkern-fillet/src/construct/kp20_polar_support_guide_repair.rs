@@ -3,7 +3,7 @@
 use popkern_core::geometry::gregory::{
     Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideRing, Kp20Tri6GuideSector,
     TRI6_CP_COUNT, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
-    kp20_nonoverlap_coupled_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    kp20_positive_nonoverlap_c2_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
     solve_kp20_guide_lsq_with_prior, tri6_flat_index,
 };
 use popkern_core::geometry::{Point3, Vec3};
@@ -162,7 +162,7 @@ fn candidate_summary_for_guide(
         .map(|sector| {
             sample_kp20_macro_patch_from_piece_maps(
                 sector,
-                kp20_nonoverlap_coupled_sector_piece_maps(),
+                kp20_positive_nonoverlap_c2_sector_piece_maps(),
             )
         })
         .collect::<Vec<_>>();
@@ -213,7 +213,7 @@ fn fold_site_guide_ring(
 }
 
 fn guide_uv_for_fold_site(site: Kp20FoldSite) -> Option<[f64; 2]> {
-    let maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     let (_, corner_maps) = maps.into_iter().find(|(piece, _)| *piece == site.piece)?;
     let map = corner_maps[0].1;
     Some([

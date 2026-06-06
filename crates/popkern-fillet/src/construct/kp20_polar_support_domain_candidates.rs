@@ -3,7 +3,7 @@
 use popkern_core::geometry::gregory::{
     Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideRing,
     Kp20MacroPatch, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId, Kp20SectorPieceMaps,
-    TensorBorderBi3, assemble_kp20_bi6_macro_cap, kp20_nonoverlap_coupled_sector_piece_maps,
+    TensorBorderBi3, assemble_kp20_bi6_macro_cap, kp20_positive_nonoverlap_c2_sector_piece_maps,
     sample_kp20_macro_patch_from_piece_maps,
 };
 
@@ -250,7 +250,7 @@ impl Kp20CoupledDomainParams {
 }
 
 fn coupled_domain_piece_maps(params: Kp20CoupledDomainParams) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     for (piece, corner_maps) in &mut maps {
         match *piece {
             TARGET_PIECE => *corner_maps = support_domain_corner_maps(params.support),
@@ -267,7 +267,7 @@ fn coupled_domain_piece_maps(params: Kp20CoupledDomainParams) -> Kp20SectorPiece
 }
 
 fn split_domain_piece_maps(params: Kp20SplitDomainParams) -> Kp20SectorPieceMaps {
-    let mut maps = kp20_nonoverlap_coupled_sector_piece_maps();
+    let mut maps = kp20_positive_nonoverlap_c2_sector_piece_maps();
     for (piece, corner_maps) in &mut maps {
         if *piece == TARGET_PIECE {
             *corner_maps = split_support_corner_maps(params);

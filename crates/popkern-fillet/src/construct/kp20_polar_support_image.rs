@@ -5,7 +5,7 @@ use popkern_core::geometry::gregory::{
     Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20MacroPatch,
     Kp20PieceId, Kp20SectorPieceMaps, TensorBorderBi3, assemble_kp20_bi6_macro_cap,
     build_kp20_guide_ring, kp20_default_sector_piece_maps,
-    kp20_nonoverlap_coupled_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
+    kp20_positive_nonoverlap_c2_sector_piece_maps, sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::kp20_polar_fold_summary::{
@@ -82,7 +82,7 @@ pub(super) fn refine_support_side_reparameterization(
             .enumerate()
             .map(|(sector, guide_sector)| {
                 let (maps, changed_sites) = targeted_support_image_piece_maps(
-                    kp20_nonoverlap_coupled_sector_piece_maps(),
+                    kp20_positive_nonoverlap_c2_sector_piece_maps(),
                     sector,
                     params,
                     &baseline.summary.fold_sites,
