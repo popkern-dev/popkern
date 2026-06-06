@@ -249,9 +249,11 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                     && cap.detail_code.as_deref().is_some_and(|detail| {
                         detail.contains("strategy=support_domain_basis_lift")
                             && detail.contains("default_folds=21")
-                            && detail.contains("folds=18")
+                            && detail.contains("folds=12")
                             && detail.contains("support_domain_accepted=1")
                             && detail.contains("support_domain_end_folds=18")
+                            && detail.contains("support_reparam_accepted=1")
+                            && detail.contains("support_reparam_end_folds=12")
                             && detail.contains("optimizer_evaluated=")
                             && detail.contains("elapsed_ms=")
                     })
@@ -269,7 +271,7 @@ fn hexagon6_mixed_records_structured_polar_promotion_decline() {
                         detail.contains("lift_solver_budget=limited_lift_only_for_valence_ge_6")
                             && detail.contains("folds=")
                             && detail.contains("piece_folds=")
-                            && detail.contains("bounded_folds=18")
+                            && detail.contains("bounded_folds=12")
                     })
         )),
         "hexagon6_mixed should decline the KP20 lift when it exceeds the construction budget"
