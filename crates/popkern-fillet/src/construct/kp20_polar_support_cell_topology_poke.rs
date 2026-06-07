@@ -8,9 +8,12 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use super::Kp20ExpandedSupportPokeShape;
 use crate::construct::kp20_polar_expanded_support_binding::{
     Kp20ExpandedSupportSurfaceAssignment, Kp20ExpandedSupportSurfaceSlot,
-    attach_kp20_expanded_support_surfaces, author_kp20_expanded_support_pcurves,
+    attach_kp20_expanded_support_surfaces,
     plan_kp20_expanded_support_surface_bindings_with_sources,
 };
+
+#[path = "kp20_polar_support_cell_pcurve_author.rs"]
+mod support_cell_pcurve_author;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Kp20SupportCellPokeResult {
@@ -64,7 +67,12 @@ fn commit_kp20_support_cell_patchwork_inner(
         &source_map,
     )?;
     attach_kp20_expanded_support_surfaces(brep, &binding_plan, support_surfaces)?;
-    author_kp20_expanded_support_pcurves(brep, &binding_plan)?;
+    support_cell_pcurve_author::author_optimized_support_cell_pcurves(
+        brep,
+        &poke.surface_slots,
+        support_surfaces,
+        &source_map,
+    )?;
     let support_surface_indices = binding_plan
         .bindings
         .iter()

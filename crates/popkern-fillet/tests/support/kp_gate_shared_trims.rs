@@ -7,7 +7,11 @@ use popkern_core::topology::{BRep, FaceHandle};
 pub struct SharedTrimMetrics {
     pub shared_trim_count: usize,
     pub pcurve_out_of_unit_count: usize,
+    pub degenerate_pcurve_count: usize,
+    pub degenerate_source_pair: Option<(usize, usize)>,
+    pub degenerate_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
     pub worst_source_pair: Option<(usize, usize)>,
+    pub worst_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
     pub worst_abs_uv: f64,
     pub worst_g0_gap: f64,
     pub worst_normal_disagreement: f64,
@@ -32,7 +36,11 @@ pub fn measure_shared_gregory_trims_with_sources(
     let mut metrics = SharedTrimMetrics {
         shared_trim_count: 0,
         pcurve_out_of_unit_count: 0,
+        degenerate_pcurve_count: 0,
+        degenerate_source_pair: None,
+        degenerate_uv_edges: None,
         worst_source_pair: None,
+        worst_uv_edges: None,
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
@@ -107,6 +115,7 @@ fn measure_shared_trim_pair(
         return;
     };
     metrics.shared_trim_count += 1;
+    record_pcurve_span(metrics, pcurve_a, pcurve_b, face_sources, face_a, face_b);
     for index in 0..n_samples {
         let fraction = if n_samples <= 1 {
             0.5
@@ -123,6 +132,7 @@ fn measure_shared_trim_pair(
         if gap > metrics.worst_g0_gap {
             metrics.worst_g0_gap = gap;
             metrics.worst_source_pair = source_pair(face_sources, face_a, face_b);
+            metrics.worst_uv_edges = Some(edge_uvs(pcurve_a, pcurve_b));
         }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
@@ -145,6 +155,51 @@ fn source_pair(
         .iter()
         .find_map(|&(face, source)| (face == face_b).then_some(source))?;
     Some((source_a, source_b))
+}
+
+fn record_pcurve_span(
+    metrics: &mut SharedTrimMetrics,
+    pcurve_a: &popkern_core::geometry::pcurve::Pcurve,
+    pcurve_b: &popkern_core::geometry::pcurve::Pcurve,
+    face_sources: &[(FaceHandle, usize)],
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+) {
+    let span_a = pcurve_span(pcurve_a);
+    let span_b = pcurve_span(pcurve_b);
+    if span_a <= 1.0e-12 || span_b <= 1.0e-12 {
+        metrics.degenerate_pcurve_count += usize::from(span_a <= 1.0e-12);
+        metrics.degenerate_pcurve_count += usize::from(span_b <= 1.0e-12);
+        if metrics.degenerate_source_pair.is_none() {
+            metrics.degenerate_source_pair = source_pair(face_sources, face_a, face_b);
+            metrics.degenerate_uv_edges = Some(edge_uvs(pcurve_a, pcurve_b));
+        }
+    }
+}
+
+fn pcurve_span(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> f64 {
+    let (t0, t1) = pcurve.parameter_range();
+    let start = pcurve.point_at(t0);
+    let end = pcurve.point_at(t1);
+    ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt()
+}
+
+fn edge_uvs(
+    pcurve_a: &popkern_core::geometry::pcurve::Pcurve,
+    pcurve_b: &popkern_core::geometry::pcurve::Pcurve,
+) -> ((f64, f64), (f64, f64), (f64, f64), (f64, f64)) {
+    let (a0, a1) = pcurve_a.parameter_range();
+    let (b0, b1) = pcurve_b.parameter_range();
+    let a_start = pcurve_a.point_at(a0);
+    let a_end = pcurve_a.point_at(a1);
+    let b_start = pcurve_b.point_at(b0);
+    let b_end = pcurve_b.point_at(b1);
+    (
+        (a_start.x, a_start.y),
+        (a_end.x, a_end.y),
+        (b_start.x, b_start.y),
+        (b_end.x, b_end.y),
+    )
 }
 
 fn record_uv(metrics: &mut SharedTrimMetrics, uv: Vec3) {

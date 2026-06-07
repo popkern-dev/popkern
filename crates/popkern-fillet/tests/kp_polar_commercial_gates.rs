@@ -225,10 +225,15 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         trim_metrics.shared_trim_count
     );
     assert!(
-        trim_metrics.pcurve_out_of_unit_count == 0 && trim_metrics.worst_abs_uv <= 1.0 + 1.0e-9,
-        "hexagon6_mixed support-cell pcurves should stay in unit support domains; out_of_unit={} worst_abs_uv={:.3e}",
+        trim_metrics.pcurve_out_of_unit_count == 0
+            && trim_metrics.degenerate_pcurve_count == 0
+            && trim_metrics.worst_abs_uv <= 1.0 + 1.0e-9,
+        "hexagon6_mixed support-cell pcurves should stay in unit nondegenerate support domains; out_of_unit={} degenerate={} worst_abs_uv={:.3e} degenerate_source_pair={:?} degenerate_uv_edges={:?}",
         trim_metrics.pcurve_out_of_unit_count,
-        trim_metrics.worst_abs_uv
+        trim_metrics.degenerate_pcurve_count,
+        trim_metrics.worst_abs_uv,
+        trim_metrics.degenerate_source_pair,
+        trim_metrics.degenerate_uv_edges
     );
     assert!(
         trim_metrics.worst_g0_gap.is_finite()

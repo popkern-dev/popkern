@@ -4,10 +4,24 @@ use popkern_core::topology::BRep;
 
 use crate::types::{CornerPatchInfo, CornerSubPatchRole};
 
+#[path = "kp20_polar_support_cell_pcurve_author.rs"]
+mod support_cell_pcurve_author;
+
 pub(crate) fn complete_corner_patch_support_pcurves(
     brep: &mut BRep,
     corner_patches: &[CornerPatchInfo],
 ) {
+    let support_cell_faces = corner_patches
+        .iter()
+        .filter(|patch| {
+            patch
+                .sub_patch_provenance
+                .is_some_and(|provenance| provenance.role == CornerSubPatchRole::SupportCell)
+        })
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    let _ =
+        support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, &support_cell_faces);
     let mut completed_cap_faces = Vec::new();
     for patch in corner_patches {
         if patch

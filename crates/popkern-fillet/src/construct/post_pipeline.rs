@@ -322,11 +322,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
 
     exact_boundary_export_repair::repair_exact_boundary_export_blockers(result, repair_report);
 
-    corner_patch_support_completion::complete_corner_patch_support_pcurves(result, corner_patches);
-
     repair_report.edge_curve_endpoint_coherence_repairs += result.separate_nonmanifold_edge_uses();
     repair_report.edge_curve_endpoint_coherence_repairs +=
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
+
+    corner_patch_support_completion::complete_corner_patch_support_pcurves(result, corner_patches);
 }
 
 fn support_seam_relocation_enabled() -> bool {

@@ -366,10 +366,6 @@ fn fillet_edges_internal(
         }
     })?;
     surface_boundary_evidence::audit_gregory_analytic_boundary_evidence(&mut apply_result.brep);
-    construct::corner_patch_support_completion::complete_corner_patch_support_pcurves(
-        &mut apply_result.brep,
-        &apply_result.corner_patches,
-    );
     construct::restore_exact_boundary_cap_pcurves_post_phase5(
         &mut apply_result.brep,
         &mut apply_result.repair_report,
@@ -383,6 +379,10 @@ fn fillet_edges_internal(
         .edge_curve_endpoint_coherence_repairs += apply_result
         .brep
         .repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
+    construct::corner_patch_support_completion::complete_corner_patch_support_pcurves(
+        &mut apply_result.brep,
+        &apply_result.corner_patches,
+    );
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
