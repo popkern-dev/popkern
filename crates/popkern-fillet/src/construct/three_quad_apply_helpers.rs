@@ -60,7 +60,9 @@ pub(super) fn macro_family_from_promotion(
     promotion_result: PromotionResult,
 ) -> Option<CornerSubPatchFamily> {
     match promotion_result {
-        PromotionResult::Standard => None,
+        PromotionResult::Standard
+        | PromotionResult::ExpandedKp20Support
+        | PromotionResult::Kp20SupportCell => None,
         PromotionResult::Macro4n(family) => Some(family),
     }
 }

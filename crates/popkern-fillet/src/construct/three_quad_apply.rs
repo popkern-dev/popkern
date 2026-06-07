@@ -30,9 +30,10 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+pub(crate) use three_quad_apply_helpers::ThreeQuadApplyResult;
 use three_quad_apply_helpers::{
-    ThreeQuadApplyResult, decomp_self_intersects, macro_family_from_promotion,
-    max_outer_boundary_residual, sub_patch_provenance,
+    decomp_self_intersects, macro_family_from_promotion, max_outer_boundary_residual,
+    sub_patch_provenance,
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
@@ -235,6 +236,27 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
+    if let Some(result) =
+        super::three_quad_expanded_kp20_apply::try_apply_kp20_specialized_patchwork(
+            super::three_quad_expanded_kp20_apply::ExpandedKp20ApplyInput {
+                brep,
+                blend_face,
+                central_point: decomp.central_point,
+                support_surfaces: &decomp.sub_patches,
+                promotion_result: promotion_report.result,
+                vertex,
+                n_sides,
+                classification,
+                bridge_fallbacks: &boundary.bridge_fallbacks,
+                relaxed_coplanarity,
+                diagnostics: std::mem::take(&mut diagnostics),
+            },
+        )
+        .map_err(ThreeQuadFailure::Other)?
+    {
+        return Ok(result);
+    }
+
     let sub_faces_raw: Vec<FaceHandle> = if matches!(
         promotion_report.result,
         super::promotion_ladder::PromotionResult::Macro4n(_)
@@ -258,22 +280,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "raw", &sub_faces_raw);
     }
-    // Phase 6c-D Stage 4.7e: re-order `sub_faces` so each
-    // `sub_faces[k]` is paired with the `sub_patches[k]` whose
-    // row 0 (= FilletEnd[k] in the boundary's segment order)
-    // matches that sub_face's actual geometric cyl-twin.  The
-    // poke produces sub_faces in BRep half-edge traversal
-    // order, which generally does NOT match the boundary's
-    // segments[2k] order — without reordering, sub_face[k] is
-    // adjacent to fillet[(k+rot) % N]'s cylinder for some
-    // unpredictable rotation, and downstream cap surfaces
-    // describe the wrong fillet's arc on each edge.
-    //
-    // We match by cylinder identity (origin on axis, axis dir,
-    // radius) — robust to BRep face surface normalisations.
-    // Fixtures where the poke happens to align with the
-    // boundary order (e.g. cube_uniform with isotropic radii)
-    // produce the identity permutation and behave unchanged.
+    // Re-order by cylinder identity so sub-face order matches boundary order.
     let sub_faces = match boundary_segment_to_sub_face_permutation(
         brep,
         &sub_faces_raw,
@@ -291,26 +298,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     }
     brep.normalize_edge_representatives();
 
-    // Phase 6c-D: write Phase-6c-A-substituted boundary curves
-    // into BRep edges so the pcurve refit
-    // (`reproject_loop_pcurves_onto_gregory`) propagates them to
-    // the cap-vs-fillet seam pcurves. Gated on the boundary's
-    // success flag set in `compute_blend_boundary` — when
-    // substitution declined, edges are untouched and the legacy
-    // hermite-cubic synthesis path runs unchanged.
-    //
-    // **Known limitation (Phase 6c-D blocker):** the rational-
-    // Gregory dispatch this branch sits in fires from the *second*
-    // `blend_insert` invocation per vertex, where the substitution
-    // typically declines (the BRep face state has been mutated
-    // between calls). The substituted boundary from the *first*
-    // invocation never reaches us because the first invocation's
-    // `face_has_2n_outer_half_edges` check returns `false`. Net:
-    // `boundary.sphere_fit_substituted` is `false` here today even
-    // for fixtures where Phase 6c-A's math fully applies (e.g.,
-    // `cube_uniform`). Remediation = Phase 6c-C (apex-region
-    // topology rebuild) so face handles in the boundary stay valid
-    // through the surgery.
+    // Write substituted boundary curves into BRep edges when available.
     if boundary.sphere_fit_substituted {
         let wired = super::sphere_fit_edge_wire::wire_substituted_boundary_to_edges(
             brep, boundary, &sub_faces,

@@ -1,8 +1,4 @@
 //! Vertex blend face insertion into BRep topology.
-//!
-//! At a vertex where multiple fillets meet, carves a blend face from the
-//! surrounding faces using Euler operators (`mef` / `kef`). The blend face
-//! replaces the small triangular region around the vertex.
 
 use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
@@ -20,6 +16,8 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 
 #[path = "blend_insert_diagnostics.rs"]
 mod blend_insert_diagnostics;
+#[path = "blend_insert_support_cell_acceptance.rs"]
+mod blend_insert_support_cell_acceptance;
 #[path = "blend_insert_surface.rs"]
 mod blend_insert_surface;
 #[path = "blend_insert_topology.rs"]
@@ -309,7 +307,12 @@ pub(crate) fn insert_vertex_blend(
             use_kp_binonic_gregory,
             use_kp_polar_gregory,
         ) {
-            Ok(result) if result.patches.len() == n_sides => {
+            Ok(result)
+                if blend_insert_support_cell_acceptance::corner_patch_count_is_acceptable(
+                    &result.patches,
+                    n_sides,
+                ) =>
+            {
                 return Ok((
                     result.patches,
                     Some(dispatch_boundary.clone()),

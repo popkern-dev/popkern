@@ -2,7 +2,7 @@
 
 use popkern_core::topology::BRep;
 
-use crate::types::CornerPatchInfo;
+use crate::types::{CornerPatchInfo, CornerSubPatchRole};
 
 pub(crate) fn complete_corner_patch_support_pcurves(
     brep: &mut BRep,
@@ -10,6 +10,12 @@ pub(crate) fn complete_corner_patch_support_pcurves(
 ) {
     let mut completed_cap_faces = Vec::new();
     for patch in corner_patches {
+        if patch
+            .sub_patch_provenance
+            .is_some_and(|provenance| provenance.role == CornerSubPatchRole::SupportCell)
+        {
+            continue;
+        }
         if completed_cap_faces.contains(&patch.face) {
             continue;
         }

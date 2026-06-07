@@ -73,6 +73,28 @@ pub(crate) fn poke_n_gon_face_into_4n_quads(
 ) -> Result<HexPoke4nResult, CoreError> {
     // Phase 1 — N-way poke.
     let n_result = poke_n_gon_face_into_n_quads(brep, face, central_point)?;
+    poke_n_gon_face_into_4n_quads_from_n_poke(brep, n_result)
+}
+
+pub(crate) fn poke_n_gon_face_into_expected_4n_quads(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    expected_n: usize,
+) -> Result<HexPoke4nResult, CoreError> {
+    let n_result = super::poke_hex::poke_n_gon_face_into_expected_n_quads(
+        brep,
+        face,
+        central_point,
+        expected_n,
+    )?;
+    poke_n_gon_face_into_4n_quads_from_n_poke(brep, n_result)
+}
+
+fn poke_n_gon_face_into_4n_quads_from_n_poke(
+    brep: &mut BRep,
+    n_result: super::poke_hex::HexPokeResult,
+) -> Result<HexPoke4nResult, CoreError> {
     let n = n_result.sub_faces.len();
     let central_vertex = n_result.central_vertex;
 

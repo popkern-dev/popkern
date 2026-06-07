@@ -66,6 +66,12 @@ pub enum CornerSubPatchRole {
     NearMidpointRight,
     /// KP20 piece closer to the outer midpoint, left of the sector median.
     NearMidpointLeft,
+    /// Boundary-side lane emitted from a split KP20 support-owned piece.
+    SupportBoundaryLane,
+    /// Interior-side lane emitted from a split KP20 support-owned piece.
+    SupportInteriorLane,
+    /// Rectangular support-cell emitted from a KP20 support-owned cell primitive.
+    SupportCell,
 }
 
 impl CornerSubPatchProvenance {
@@ -89,6 +95,63 @@ impl CornerSubPatchProvenance {
             sector_count,
             piece_index,
             piece_count: 4,
+            role,
+        }
+    }
+
+    /// Build provenance for a KP20 expanded support-lane patchwork.
+    pub fn kp20_expanded_support_lane(
+        sector_index: usize,
+        sector_count: usize,
+        patch_index: usize,
+        patch_count: usize,
+        boundary_lane: bool,
+    ) -> Self {
+        Self {
+            family: CornerSubPatchFamily::Kp20Bi6,
+            sector_index,
+            sector_count,
+            piece_index: patch_index,
+            piece_count: patch_count,
+            role: if boundary_lane {
+                CornerSubPatchRole::SupportBoundaryLane
+            } else {
+                CornerSubPatchRole::SupportInteriorLane
+            },
+        }
+    }
+
+    /// Build provenance for a KP20 support-cell primitive surface.
+    pub fn kp20_support_cell(
+        sector_index: usize,
+        sector_count: usize,
+        patch_index: usize,
+        patch_count: usize,
+    ) -> Self {
+        Self {
+            family: CornerSubPatchFamily::Kp20Bi6,
+            sector_index,
+            sector_count,
+            piece_index: patch_index,
+            piece_count: patch_count,
+            role: CornerSubPatchRole::SupportCell,
+        }
+    }
+
+    /// Build provenance for a macro piece fragmented by expanded KP20 support topology.
+    pub fn kp20_expanded_macro_fragment(
+        sector_index: usize,
+        sector_count: usize,
+        patch_index: usize,
+        patch_count: usize,
+        role: CornerSubPatchRole,
+    ) -> Self {
+        Self {
+            family: CornerSubPatchFamily::Kp20Bi6,
+            sector_index,
+            sector_count,
+            piece_index: patch_index,
+            piece_count: patch_count,
             role,
         }
     }
@@ -168,5 +231,49 @@ mod tests {
 
         assert_ne!(kp13.family, kp20.family);
         assert_eq!(kp13.role, kp20.role);
+    }
+
+    #[test]
+    fn kp20_expanded_support_lane_provenance_records_lane_role() {
+        let boundary = CornerSubPatchProvenance::kp20_expanded_support_lane(1, 6, 7, 30, true);
+        let interior = CornerSubPatchProvenance::kp20_expanded_support_lane(1, 6, 8, 30, false);
+
+        assert_eq!(boundary.family, CornerSubPatchFamily::Kp20Bi6);
+        assert_eq!(boundary.sector_index, 1);
+        assert_eq!(boundary.sector_count, 6);
+        assert_eq!(boundary.piece_index, 7);
+        assert_eq!(boundary.piece_count, 30);
+        assert_eq!(boundary.role, CornerSubPatchRole::SupportBoundaryLane);
+        assert_eq!(interior.role, CornerSubPatchRole::SupportInteriorLane);
+    }
+
+    #[test]
+    fn kp20_support_cell_provenance_records_cell_role() {
+        let cell = CornerSubPatchProvenance::kp20_support_cell(2, 6, 9, 24);
+
+        assert_eq!(cell.family, CornerSubPatchFamily::Kp20Bi6);
+        assert_eq!(cell.sector_index, 2);
+        assert_eq!(cell.sector_count, 6);
+        assert_eq!(cell.piece_index, 9);
+        assert_eq!(cell.piece_count, 24);
+        assert_eq!(cell.role, CornerSubPatchRole::SupportCell);
+    }
+
+    #[test]
+    fn kp20_expanded_macro_fragment_provenance_preserves_macro_role() {
+        let fragment = CornerSubPatchProvenance::kp20_expanded_macro_fragment(
+            2,
+            6,
+            12,
+            36,
+            CornerSubPatchRole::NearOriginLeft,
+        );
+
+        assert_eq!(fragment.family, CornerSubPatchFamily::Kp20Bi6);
+        assert_eq!(fragment.sector_index, 2);
+        assert_eq!(fragment.sector_count, 6);
+        assert_eq!(fragment.piece_index, 12);
+        assert_eq!(fragment.piece_count, 36);
+        assert_eq!(fragment.role, CornerSubPatchRole::NearOriginLeft);
     }
 }

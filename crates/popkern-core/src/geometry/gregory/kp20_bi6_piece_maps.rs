@@ -333,12 +333,12 @@ fn kp20_sample_patch_from_tau_maps(
 
     for (corner, map) in corner_maps {
         let block = kp20_sample_corner_block_with_tau_affine(guide, tau, map);
-        for i in 0..4 {
-            for j in 0..4 {
+        for (i, row) in block.iter().enumerate() {
+            for (j, point) in row.iter().enumerate() {
                 let (ii, jj) = oriented_index(corner, i, j);
-                sums[ii][jj].x += block[i][j].x;
-                sums[ii][jj].y += block[i][j].y;
-                sums[ii][jj].z += block[i][j].z;
+                sums[ii][jj].x += point.x;
+                sums[ii][jj].y += point.y;
+                sums[ii][jj].z += point.z;
                 counts[ii][jj] += 1;
             }
         }

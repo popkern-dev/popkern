@@ -59,7 +59,8 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 mod helpers;
 use helpers::{
     N_SAMPLES, assert_all_binonic, assert_commercial_gates, collect_patches, fillet_corner_full,
-    incident_edges, measure_ring, pick_vertex_with_valence,
+    incident_edges, measure_ring, measure_shared_gregory_trims_with_sources,
+    pick_vertex_with_valence,
 };
 
 fn run_n_gonal_pyramid_polar(
@@ -130,7 +131,6 @@ fn pentagon5_blunt_takes_sphere_fit_path() {
     let m = run_n_gonal_pyramid_polar(5, 1.0, 3.0, &[0.05; 5], "pentagon5_blunt");
     assert_commercial_gates("pentagon5_blunt", &m);
 }
-
 #[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_uniform() {
@@ -192,92 +192,86 @@ fn polar_passes_commercial_gates_on_hexagon6_mixed() {
 }
 
 #[test]
-fn hexagon6_mixed_records_structured_polar_promotion_decline() {
+fn hexagon6_mixed_accepts_support_cell_topology() {
     let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06]);
     result
         .brep
         .validate()
-        .expect("hexagon6_mixed fallback route must leave a valid BRep");
+        .expect("hexagon6_mixed support-cell route must leave a valid BRep");
+    assert_eq!(result.corner_patches.len(), 24);
+    let support_cell_faces = result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    let support_cell_sources = result
+        .corner_patches
+        .iter()
+        .filter_map(|patch| {
+            patch
+                .sub_patch_provenance
+                .map(|provenance| (patch.face, provenance.piece_index))
+        })
+        .collect::<Vec<_>>();
+    let trim_metrics = measure_shared_gregory_trims_with_sources(
+        &result.brep,
+        &support_cell_faces,
+        &support_cell_sources,
+        N_SAMPLES,
+    );
+    assert!(
+        trim_metrics.shared_trim_count >= 18,
+        "hexagon6_mixed support-cell topology should expose internal shared Gregory trims, got {}",
+        trim_metrics.shared_trim_count
+    );
+    assert!(
+        trim_metrics.pcurve_out_of_unit_count == 0 && trim_metrics.worst_abs_uv <= 1.0 + 1.0e-9,
+        "hexagon6_mixed support-cell pcurves should stay in unit support domains; out_of_unit={} worst_abs_uv={:.3e}",
+        trim_metrics.pcurve_out_of_unit_count,
+        trim_metrics.worst_abs_uv
+    );
+    assert!(
+        trim_metrics.worst_g0_gap.is_finite()
+            && trim_metrics.worst_normal_disagreement.is_finite()
+            && trim_metrics.worst_source_pair.is_some(),
+        "hexagon6_mixed support-cell shared-trim metrics should remain observable; g0={:.3e} normal={:.3e} worst_source_pair={:?}",
+        trim_metrics.worst_g0_gap,
+        trim_metrics.worst_normal_disagreement,
+        trim_metrics.worst_source_pair
+    );
+    assert!(result.corner_patches.iter().all(|patch| {
+        patch.n_sides == 6
+            && patch.sub_patch_provenance.is_some_and(|provenance| {
+                provenance.sector_count == 6
+                    && provenance.piece_count == 24
+                    && matches!(
+                        provenance.role,
+                        popkern_fillet::CornerSubPatchRole::SupportCell
+                    )
+            })
+    }));
     let diagnostics = &result.repair_report.apex_diagnostics;
     assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
+        diagnostics.iter().all(|diagnostic| !matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp_polar_bi6.promotion.declined"
-                    && cap.stage == "kp_polar_bi6.promotion.lm_rejected"
-                    && cap.sector_name == "kp_polar_bi6_ring_n6"
-                    && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("L-M reason=full_deep_lm_no_fold_safe_iterate")
-                    })
+                if cap.code == "rational_gregory.dispatch.declined"
+                    && cap.sector_name == "n6_corner_cap"
         )),
-        "hexagon6_mixed should expose its polar promotion rejection as structured diagnostics"
+        "hexagon6_mixed support-cell route should not fall back through rational Gregory decline"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp_polar_bi6.promotion.declined"
-                    && cap.stage == "kp_polar_bi6.promotion.deep_fill_rejected"
-                    && cap.sector_name == "kp_polar_bi6_ring_n6"
-                    && cap.detail_code.as_deref() == Some("deep_fill_self_intersection")
-        )),
-        "hexagon6_mixed should classify boundary-owned deep-fill rejection structurally"
-    );
-    assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp20_polar_macro.dispatch.fact"
-                    && cap.stage == "kp20_polar_macro.dispatch.piece_map_orientation"
-                    && cap.sector_name == "kp20_polar_macro_ring_n6"
+                if cap.code == "fillet.apply_blend.pipeline.fact"
+                    && cap.stage == "fillet.apply_blend.pipeline.timing"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("non_positive_orientation_maps=3")
-                            && detail.contains("NearOriginRight:")
-                            && detail.contains("NearMidpointRight:")
-                            && detail.contains("NearMidpointLeft:")
+                        detail.contains("corner_patch_count=24")
+                            && detail.contains("support_seam_job_count=1")
                     })
         )),
-        "hexagon6_mixed should expose KP20 piece-map orientation facts structurally"
-    );
-    assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp20_polar_macro.dispatch.fact"
-                    && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_limited_lift"
-                    && cap.sector_name == "kp20_polar_macro_ring_n6"
-                    && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("strategy=support_domain_basis_lift")
-                            && detail.contains("default_folds=21")
-                            && detail.contains("folds=12")
-                            && detail.contains("fold_site_count=12")
-                            && detail.contains("fold_site_target_count=6")
-                            && detail.contains("fold_site_touching=")
-                            && detail.contains("support_domain_accepted=1")
-                            && detail.contains("support_domain_end_folds=18")
-                            && detail.contains("support_reparam_accepted=1")
-                            && detail.contains("support_reparam_end_folds=12")
-                            && detail.contains("optimizer_evaluated=")
-                            && detail.contains("elapsed_ms=")
-                    })
-        )),
-        "hexagon6_mixed should attempt the bounded KP20 limited lift structurally"
-    );
-    assert!(
-        diagnostics.iter().any(|diagnostic| matches!(
-            diagnostic,
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                if cap.code == "kp20_polar_macro.dispatch.declined"
-                    && cap.stage == "kp20_polar_macro.dispatch.nonoverlap_coupled_lift_budget_exceeded"
-                    && cap.sector_name == "kp20_polar_macro_ring_n6"
-                    && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("lift_solver_budget=limited_lift_only_for_valence_ge_6")
-                            && detail.contains("folds=")
-                            && detail.contains("piece_folds=")
-                            && detail.contains("bounded_folds=12")
-                    })
-        )),
-        "hexagon6_mixed should decline the KP20 lift when it exceeds the construction budget"
+        "hexagon6_mixed support-cell acceptance should remain observable through pipeline timing diagnostics"
     );
 }
 

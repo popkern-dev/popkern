@@ -27,6 +27,10 @@ pub(super) enum PromotionResult {
     Standard,
     /// Caller should use the 4N macro-cap poke with this construction family.
     Macro4n(CornerSubPatchFamily),
+    /// Caller should use the expanded KP20 shared-trim support topology.
+    ExpandedKp20Support,
+    /// Caller should use the KP20 support-cell topology.
+    Kp20SupportCell,
 }
 
 impl Default for PromotionResult {
@@ -123,8 +127,15 @@ pub(super) fn run_promotion_ladder(
         diagnostics.append(&mut report.diagnostics);
         if let Some(patches_4n) = report.patches {
             decomp.sub_patches = patches_4n;
+            let result = if report.expanded_support_topology_accepted {
+                PromotionResult::ExpandedKp20Support
+            } else if report.support_cell_topology_accepted {
+                PromotionResult::Kp20SupportCell
+            } else {
+                PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6)
+            };
             return PromotionLadderReport {
-                result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp20Bi6),
+                result,
                 diagnostics,
             };
         }

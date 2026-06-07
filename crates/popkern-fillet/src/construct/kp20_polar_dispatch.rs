@@ -53,7 +53,53 @@ mod timing;
 
 pub(super) struct Kp20PolarDispatchReport {
     pub patches: Option<Vec<GregoryPatch>>,
+    pub expanded_support_topology_accepted: bool,
+    pub support_cell_topology_accepted: bool,
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+impl Kp20PolarDispatchReport {
+    fn declined(diagnostics: Vec<ApexConstructionDiagnostic>) -> Self {
+        Self {
+            patches: None,
+            expanded_support_topology_accepted: false,
+            support_cell_topology_accepted: false,
+            diagnostics,
+        }
+    }
+
+    fn accepted(patches: Vec<GregoryPatch>, diagnostics: Vec<ApexConstructionDiagnostic>) -> Self {
+        Self {
+            patches: Some(patches),
+            expanded_support_topology_accepted: false,
+            support_cell_topology_accepted: false,
+            diagnostics,
+        }
+    }
+
+    fn accepted_expanded_support(
+        patches: Vec<GregoryPatch>,
+        diagnostics: Vec<ApexConstructionDiagnostic>,
+    ) -> Self {
+        Self {
+            patches: Some(patches),
+            expanded_support_topology_accepted: true,
+            support_cell_topology_accepted: false,
+            diagnostics,
+        }
+    }
+
+    fn accepted_support_cell(
+        patches: Vec<GregoryPatch>,
+        diagnostics: Vec<ApexConstructionDiagnostic>,
+    ) -> Self {
+        Self {
+            patches: Some(patches),
+            expanded_support_topology_accepted: false,
+            support_cell_topology_accepted: true,
+            diagnostics,
+        }
+    }
 }
 
 pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
@@ -73,10 +119,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                 Some(detail),
                 None,
             );
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         };
         two_stripe.push((**ts).clone());
     }
@@ -103,10 +146,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             None,
             None,
         );
-        return Kp20PolarDispatchReport {
-            patches: None,
-            diagnostics,
-        };
+        return Kp20PolarDispatchReport::declined(diagnostics);
     };
     if fillet_surfaces.len() >= n {
         for (k, spoke) in direct.spokes.iter_mut().enumerate() {
@@ -120,10 +160,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
         Ok(polar) => polar,
         Err(e) => {
             record_decline(&mut diagnostics, "polar_boundary_input", n, Some(e), None);
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         }
     };
     let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
@@ -136,36 +173,24 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                 Some("expected bi-3".into()),
                 None,
             );
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         }
         Err(e) => {
             record_decline(&mut diagnostics, "tensor_border_extract", n, Some(e), None);
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         }
     };
     let (mut primary_diagnostics, primary_patches) =
         evaluate_positive_primary_candidates(n, polar.central_vertex, &tensor_border);
     diagnostics.append(&mut primary_diagnostics);
     if let Some(patches) = primary_patches {
-        return Kp20PolarDispatchReport {
-            patches: Some(patches),
-            diagnostics,
-        };
+        return Kp20PolarDispatchReport::accepted(patches, diagnostics);
     }
     let candidate = match try_kp20_polar_macro_candidate(polar.central_vertex, &tensor_border) {
         Ok(candidate) => candidate,
         Err(e) => {
             record_decline(&mut diagnostics, "candidate", n, Some(e), None);
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         }
     };
     if candidate.len() != 4 * n {
@@ -177,10 +202,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             Some(detail),
             None,
         );
-        return Kp20PolarDispatchReport {
-            patches: None,
-            diagnostics,
-        };
+        return Kp20PolarDispatchReport::declined(diagnostics);
     }
     let map_report = kp20_default_piece_map_domain_report();
     if !map_report.stays_inside_triangle() {
@@ -228,11 +250,25 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                         Some(lifted_summary.min_jacobian_normal_cos),
                         Some(SELF_INT_TOL),
                     ));
-                    if lifted_intersections.is_empty() {
-                        return Kp20PolarDispatchReport {
-                            patches: Some(lifted.patches),
+                    if let Some(expanded_patches) = lifted.accepted_expanded_support_patches() {
+                        let expanded_intersections = acceptance_screen(expanded_patches);
+                        if expanded_intersections.is_empty() {
+                            return Kp20PolarDispatchReport::accepted_expanded_support(
+                                expanded_patches.to_vec(),
+                                diagnostics,
+                            );
+                        }
+                    }
+                    if let Some(support_cell_patches) = lifted.accepted_support_cell_patches()
+                        && support_cell_patches.len() == 4 * n
+                    {
+                        return Kp20PolarDispatchReport::accepted_support_cell(
+                            support_cell_patches.to_vec(),
                             diagnostics,
-                        };
+                        );
+                    }
+                    if lifted_intersections.is_empty() {
+                        return Kp20PolarDispatchReport::accepted(lifted.patches, diagnostics);
                     }
                     let decline_reason = if lifted_summary.fold_count >= default_summary.fold_count
                         && lifted.report.optimizer_stats.accepted_candidates == 0
@@ -264,10 +300,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                 &default_summary,
                 bounded_summary.as_ref(),
             );
-            return Kp20PolarDispatchReport {
-                patches: None,
-                diagnostics,
-            };
+            return Kp20PolarDispatchReport::declined(diagnostics);
         }
         match try_nonoverlap_coupled_lift_candidate(polar.central_vertex, &tensor_border) {
             Ok(lifted) => {
@@ -291,10 +324,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     lifted.timing,
                 ));
                 if lifted_intersections.is_empty() {
-                    return Kp20PolarDispatchReport {
-                        patches: Some(lifted.patches),
-                        diagnostics,
-                    };
+                    return Kp20PolarDispatchReport::accepted(lifted.patches, diagnostics);
                 }
                 record_candidate_decline(
                     &mut diagnostics,
@@ -313,10 +343,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                 for (idx, detail) in lifted_intersections {
                     record_self_intersection(&mut diagnostics, idx, &detail, n);
                 }
-                return Kp20PolarDispatchReport {
-                    patches: None,
-                    diagnostics,
-                };
+                return Kp20PolarDispatchReport::declined(diagnostics);
             }
             Err(e) => record_decline(
                 &mut diagnostics,
@@ -338,15 +365,9 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
         for (idx, detail) in intersections {
             record_self_intersection(&mut diagnostics, idx, &detail, n);
         }
-        return Kp20PolarDispatchReport {
-            patches: None,
-            diagnostics,
-        };
+        return Kp20PolarDispatchReport::declined(diagnostics);
     }
-    Kp20PolarDispatchReport {
-        patches: Some(candidate),
-        diagnostics,
-    }
+    Kp20PolarDispatchReport::accepted(candidate, diagnostics)
 }
 
 fn nonoverlap_coupled_lift_fact(

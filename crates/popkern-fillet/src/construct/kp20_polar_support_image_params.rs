@@ -15,6 +15,12 @@ pub(in crate::construct) struct Kp20SupportImageParams {
     frame_kind: Kp20SupportImageFrameKind,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(in crate::construct) struct Kp20SeparatedSupportImageParams {
+    boundary: Kp20SupportImageParams,
+    interior: Kp20SupportImageParams,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kp20SupportImageFrameKind {
     DefaultAffine,
@@ -111,6 +117,27 @@ impl Kp20SupportImageParams {
         ]
     }
 
+    pub(super) fn fold_site_separated_family() -> Vec<Kp20SeparatedSupportImageParams> {
+        vec![
+            Kp20SeparatedSupportImageParams::new(
+                Self::sector_local_exact_boundary(0.30, 0.00),
+                Self::sector_local_exact_boundary(0.22, 0.12),
+            ),
+            Kp20SeparatedSupportImageParams::new(
+                Self::sector_local_exact_boundary(0.30, 0.00),
+                Self::sector_local_exact_boundary(0.22, -0.12),
+            ),
+            Kp20SeparatedSupportImageParams::new(
+                Self::sector_local_exact_boundary(0.28, 0.00),
+                Self::sector_local_exact_boundary(0.20, 0.16),
+            ),
+            Kp20SeparatedSupportImageParams::new(
+                Self::sector_local_exact_boundary(0.28, 0.00),
+                Self::sector_local_exact_boundary(0.20, -0.16),
+            ),
+        ]
+    }
+
     const fn default_affine(
         uniform: f64,
         du_scale: f64,
@@ -162,8 +189,17 @@ impl Kp20SupportImageParams {
         corner_maps: Kp20PieceCornerMaps,
         fold_site: Kp20FoldSite,
     ) -> Kp20PieceCornerMaps {
+        self.reparameterized_maps_for_piece(corner_maps, fold_site.piece, fold_site)
+    }
+
+    pub(super) fn reparameterized_maps_for_piece(
+        self,
+        corner_maps: Kp20PieceCornerMaps,
+        target_piece: Kp20PieceId,
+        fold_site: Kp20FoldSite,
+    ) -> Kp20PieceCornerMaps {
         if self.frame_kind == Kp20SupportImageFrameKind::SectorLocalExactBoundary {
-            return self.sector_local_exact_boundary_maps(fold_site);
+            return self.sector_local_exact_boundary_maps(target_piece, fold_site);
         }
         let base = corner_maps[0].1;
         let mut center = [
@@ -190,8 +226,12 @@ impl Kp20SupportImageParams {
         square_maps(origin, du, dv)
     }
 
-    fn sector_local_exact_boundary_maps(self, fold_site: Kp20FoldSite) -> Kp20PieceCornerMaps {
-        let center = sector_piece_center(fold_site.piece);
+    fn sector_local_exact_boundary_maps(
+        self,
+        target_piece: Kp20PieceId,
+        fold_site: Kp20FoldSite,
+    ) -> Kp20PieceCornerMaps {
+        let center = sector_piece_center(target_piece);
         let site_offset = [fold_site.u - 0.5, fold_site.v - 0.5];
         let center = [
             center[0] + self.fold_center_shift * site_offset[0] * self.uniform,
@@ -224,6 +264,35 @@ impl Kp20SupportImageParams {
                 self.uniform, self.du_scale, self.dv_scale, self.shear, self.fold_center_shift
             )
         }
+    }
+}
+
+impl Kp20SeparatedSupportImageParams {
+    const fn new(boundary: Kp20SupportImageParams, interior: Kp20SupportImageParams) -> Self {
+        Self { boundary, interior }
+    }
+
+    pub(super) fn reparameterized_maps_for_piece(
+        self,
+        corner_maps: Kp20PieceCornerMaps,
+        target_piece: Kp20PieceId,
+        fold_site: Kp20FoldSite,
+    ) -> Kp20PieceCornerMaps {
+        let boundary =
+            self.boundary
+                .reparameterized_maps_for_piece(corner_maps, target_piece, fold_site);
+        let interior =
+            self.interior
+                .reparameterized_maps_for_piece(corner_maps, target_piece, fold_site);
+        [boundary[0], boundary[1], interior[2], interior[3]]
+    }
+
+    pub(super) fn label(self) -> String {
+        format!(
+            "separated_support_image:boundary=({});interior=({})",
+            self.boundary.label(),
+            self.interior.label()
+        )
     }
 }
 

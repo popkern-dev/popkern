@@ -15,6 +15,7 @@
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::GregoryPatch;
+
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
@@ -26,6 +27,10 @@ mod kp_gate_cap_outer;
 pub use kp_gate_cap_outer::{
     CapOuterMetrics, measure_cap_outer_boundary, measure_cap_outer_boundary_including_pcurve_only,
 };
+#[path = "support/kp_gate_shared_trims.rs"]
+mod kp_gate_shared_trims;
+#[allow(unused_imports)]
+pub use kp_gate_shared_trims::measure_shared_gregory_trims_with_sources;
 
 /// Commercial-grade gate thresholds. Discussion in
 /// `kp_binonic_commercial_gates.rs` module header.

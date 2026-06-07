@@ -11,6 +11,9 @@ use super::super::kp20_polar_fold_summary::{
 };
 use super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 
+#[path = "kp20_polar_support_boundary_row.rs"]
+mod support_boundary_row;
+
 #[derive(Debug, Clone)]
 pub(super) struct Kp20InnerRowReport {
     pub(super) evaluated: usize,
@@ -93,7 +96,46 @@ pub(super) fn refine_support_inner_interior_row(
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20SupportInnerRowReport), String> {
-    super::inner_field::refine_support_interior_field(star_point, tensor_border, lift)
+    let (lift, boundary_report) = support_boundary_row::refine_support_boundary_adjacent_row(
+        star_point,
+        tensor_border,
+        lift,
+    )?;
+    if boundary_report.accepted > 0 {
+        return Ok((lift, boundary_report));
+    }
+    let (lift, row_report) = refine_inner_interior_row(
+        star_point,
+        tensor_border,
+        lift,
+        &[-0.24, -0.16, -0.08, 0.08, 0.16, 0.24],
+        &[Kp20PieceId::NearMidpointLeft],
+    )?;
+    if row_report.accepted > 0 {
+        let mut report = support_row_report(row_report);
+        report.pre_evaluated = boundary_report.evaluated;
+        report.pre_accepted = boundary_report.accepted;
+        report.pre_rejected = boundary_report.rejected;
+        report.pre_mode = "support_boundary_row_none";
+        return Ok((lift, report));
+    }
+    let (lift, mut field_report) =
+        super::inner_field::refine_support_interior_field(star_point, tensor_border, lift)?;
+    field_report.pre_evaluated = boundary_report.evaluated + row_report.evaluated;
+    field_report.pre_accepted = boundary_report.accepted + row_report.accepted;
+    field_report.pre_rejected = boundary_report.rejected + row_report.rejected;
+    field_report.pre_mode = "support_boundary_row_none|support_row_none";
+    Ok((lift, field_report))
+}
+
+fn support_row_report(mut report: Kp20InnerRowReport) -> Kp20InnerRowReport {
+    report.mode = match report.mode {
+        "normal" => "support_row_normal",
+        "radial" => "support_row_radial",
+        "chord" => "support_row_chord",
+        _ => report.mode,
+    };
+    report
 }
 
 fn refine_inner_interior_row(

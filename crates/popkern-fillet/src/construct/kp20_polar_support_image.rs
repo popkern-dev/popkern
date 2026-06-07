@@ -12,13 +12,11 @@ use super::kp20_polar_fold_summary::{
     Kp20FoldSite, Kp20SamplerFoldSummary, candidate_summary_from_cap,
     fast_candidate_summary_from_changed_piece_sites, is_better_summary, validation_is_clean,
 };
+use super::kp20_polar_support_image_params::Kp20SupportImageParams;
 use super::kp20_polar_support_lift::{
     Kp20SupportNormalLiftReport, lift_candidate_from_support_image_macro_patches,
 };
 use super::kp20_polar_support_reparameterization::Kp20SupportReparameterizationReport;
-#[path = "kp20_polar_support_image_params.rs"]
-mod params;
-use params::Kp20SupportImageParams;
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
