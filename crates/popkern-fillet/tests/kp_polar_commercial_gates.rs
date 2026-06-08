@@ -337,6 +337,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed support-cell selector should emit per-candidate score diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains("candidate=pcurve_then_boundary_if_g0_safe")),
+        "hexagon6_mixed support-cell selector should score the split boundary-safe candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
