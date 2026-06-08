@@ -341,6 +341,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed support-cell route should emit post-apply assembled quality diagnostics"
     );
     assert!(
+        support_cell_dispatch_details.iter().any(|detail| detail
+            .contains("repair_status=accepted_non_regressing_final_repair")
+            || detail.contains("repair_status=declined_to_preserve_final_quality")),
+        "hexagon6_mixed support-cell route should emit transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
