@@ -10,6 +10,8 @@ mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
 
+const BOUNDARY_SAFE_G0_PREFERENCE_RELATIVE_BAND: f64 = 5.0e-3;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportCellCompletionCandidate {
     PcurveOnly,
@@ -33,6 +35,10 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenBoundary => "pcurve_then_boundary",
             Self::PcurveThenBoundaryIfG0Safe => "pcurve_then_boundary_if_g0_safe",
         }
+    }
+
+    fn is_boundary_safe(self) -> bool {
+        matches!(self, Self::PcurveThenBoundaryIfG0Safe)
     }
 }
 
@@ -298,10 +304,34 @@ fn support_cell_completion_selection_is_better(
     };
     let a = candidate.quality;
     let b = current.quality;
-    (a.pcurve_out_of_unit_count, a.degenerate_pcurve_count)
+    match (a.pcurve_out_of_unit_count, a.degenerate_pcurve_count)
         .cmp(&(b.pcurve_out_of_unit_count, b.degenerate_pcurve_count))
-        == std::cmp::Ordering::Less
-        || (a.pcurve_out_of_unit_count == b.pcurve_out_of_unit_count
-            && a.degenerate_pcurve_count == b.degenerate_pcurve_count
-            && a.worst_g0_gap + 1.0e-12 < b.worst_g0_gap)
+    {
+        std::cmp::Ordering::Less => true,
+        std::cmp::Ordering::Greater => false,
+        std::cmp::Ordering::Equal => g0_tie_break_prefers_candidate(candidate, current),
+    }
+}
+
+fn g0_tie_break_prefers_candidate(
+    candidate: &SupportCellCompletionSelection,
+    current: &SupportCellCompletionSelection,
+) -> bool {
+    if boundary_safe_quality_is_equivalent(candidate, current) {
+        return true;
+    }
+    if boundary_safe_quality_is_equivalent(current, candidate) {
+        return false;
+    }
+    candidate.quality.worst_g0_gap + 1.0e-12 < current.quality.worst_g0_gap
+}
+
+fn boundary_safe_quality_is_equivalent(
+    boundary_safe: &SupportCellCompletionSelection,
+    other: &SupportCellCompletionSelection,
+) -> bool {
+    boundary_safe.candidate.is_boundary_safe()
+        && !other.candidate.is_boundary_safe()
+        && boundary_safe.quality.worst_g0_gap
+            <= other.quality.worst_g0_gap * (1.0 + BOUNDARY_SAFE_G0_PREFERENCE_RELATIVE_BAND)
 }
