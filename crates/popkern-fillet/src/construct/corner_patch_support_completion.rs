@@ -18,14 +18,16 @@ enum SupportCellCompletionCandidate {
     BoundaryOnly,
     PcurveThenBoundary,
     PcurveThenBoundaryIfG0Safe,
+    PcurveThenWorstBoundaryIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 4] = [
+    const ALL: [Self; 5] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
         Self::PcurveThenBoundaryIfG0Safe,
+        Self::PcurveThenWorstBoundaryIfG0Safe,
     ];
 
     fn label(self) -> &'static str {
@@ -34,11 +36,15 @@ impl SupportCellCompletionCandidate {
             Self::BoundaryOnly => "boundary_only",
             Self::PcurveThenBoundary => "pcurve_then_boundary",
             Self::PcurveThenBoundaryIfG0Safe => "pcurve_then_boundary_if_g0_safe",
+            Self::PcurveThenWorstBoundaryIfG0Safe => "pcurve_then_worst_boundary_if_g0_safe",
         }
     }
 
     fn is_boundary_safe(self) -> bool {
-        matches!(self, Self::PcurveThenBoundaryIfG0Safe)
+        matches!(
+            self,
+            Self::PcurveThenBoundaryIfG0Safe | Self::PcurveThenWorstBoundaryIfG0Safe
+        )
     }
 }
 
@@ -231,7 +237,18 @@ fn apply_support_cell_completion_candidate(
             )
         }
         SupportCellCompletionCandidate::PcurveThenBoundaryIfG0Safe => {
-            apply_boundary_after_pcurve_if_quality_safe(brep, faces)
+            apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_full_boundaries(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenWorstBoundaryIfG0Safe => {
+            apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_worst_full_boundary(
+                    brep, faces,
+                )
+            })
         }
     }
 }
@@ -254,6 +271,10 @@ fn support_cell_operation_result(
 fn apply_boundary_after_pcurve_if_quality_safe(
     brep: &mut BRep,
     faces: &[popkern_core::topology::FaceHandle],
+    reconcile_boundary: impl FnOnce(
+        &mut BRep,
+        &[popkern_core::topology::FaceHandle],
+    ) -> Result<(), popkern_core::error::CoreError>,
 ) -> SupportCellCompletionApplication {
     if support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_err() {
         return SupportCellCompletionApplication {
@@ -264,9 +285,7 @@ fn apply_boundary_after_pcurve_if_quality_safe(
     let after_pcurve =
         shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     let before_boundary = brep.clone();
-    if support_cell_boundary_reconcile::reconcile_assigned_support_cell_full_boundaries(brep, faces)
-        .is_err()
-    {
+    if reconcile_boundary(brep, faces).is_err() {
         *brep = before_boundary;
         return SupportCellCompletionApplication {
             operator_succeeded: true,

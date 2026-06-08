@@ -58,6 +58,32 @@ pub(crate) fn reconcile_assigned_support_cell_full_boundaries(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<(), CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    reconcile_support_cell_full_boundaries(brep, &slots)
+}
+
+pub(crate) fn reconcile_assigned_support_cell_worst_full_boundary(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<(), CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let trims = full_boundary_trims(brep, &slots)?;
+    let Some(worst_trim) = worst_boundary_trim(brep, &trims)? else {
+        return Ok(());
+    };
+    reconcile_full_boundary_trim(brep, worst_trim)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell worst-boundary reconciliation produced invalid BRep: {error}"
+        ))
+    })
+}
+
+fn assigned_support_cell_slots(
+    brep: &BRep,
+    faces: &[FaceHandle],
+) -> Vec<Kp20ExpandedSupportSurfaceSlot> {
     let mut slots = Vec::with_capacity(faces.len());
     for &face in faces {
         let Ok(half_edges) = face_outer_half_edges(brep, face) else {
@@ -75,7 +101,23 @@ pub(crate) fn reconcile_assigned_support_cell_full_boundaries(
             assignment,
         });
     }
-    reconcile_support_cell_full_boundaries(brep, &slots)
+    slots
+}
+
+fn worst_boundary_trim(
+    brep: &BRep,
+    trims: &[FullBoundaryTrim],
+) -> Result<Option<FullBoundaryTrim>, CoreError> {
+    let mut worst = None;
+    for &trim in trims {
+        let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
+        let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
+        let gap = trim_gap(&patch_a, &patch_b, trim);
+        if worst.is_none_or(|(_, worst_gap)| gap > worst_gap) {
+            worst = Some((trim, gap));
+        }
+    }
+    Ok(worst.map(|(trim, _)| trim))
 }
 
 fn full_boundary_trims(

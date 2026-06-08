@@ -6,26 +6,6 @@
 //! [`FilletOptions::use_kp_polar_gregory`]. Metric definitions and
 //! gate thresholds (G0 ≤ 1e-10, G1 ≤ 5e-2, G2 ≤ 5e-2) come from
 //! `kp_gate_helpers.rs`.
-//!
-//! # Apex-angle regimes (important for fixture selection)
-//!
-//! The polar path is **not** the commercial-grade answer for every
-//! N-valent corner — it's the answer specifically for corners where
-//! the simpler paths (sphere-fit, polar-NURBS) fail. Empirical probe
-//! (`kp_polar_pipeline_probe.rs`) shows three distinct regimes by
-//! apex half-angle `θ = atan(base_radius / height)`:
-//!
-//! | θ     | Polar reachable? | Pipeline choice                  |
-//! |-------|------------------|----------------------------------|
-//! | ≤ 27° | No               | Sphere-fit / single-surface path |
-//! | 27°–45° | Sometimes (depends on r) | Polar when polar-NURBS insufficient |
-//! | > 45° | Yes (sharp apex) | Polar attempted; folds likely    |
-//!
-//! Blunt-apex fixtures (θ ≤ 27° — commercial-CAD typical) bypass
-//! polar entirely and take sphere-fit. They're positive controls
-//! for the sphere-fit path, not tests of polar. Tests below mark
-//! this explicitly in their names (`_blunt` = expected sphere-fit;
-//! `_sharp` or unqualified = polar-engaged).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -334,6 +314,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
             .iter()
             .any(|detail| detail.contains("candidate=pcurve_then_boundary_if_g0_safe")),
         "hexagon6_mixed support-cell selector should score the split boundary-safe candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains("candidate=pcurve_then_worst_boundary_if_g0_safe")),
+        "hexagon6_mixed support-cell selector should score the targeted worst-boundary candidate; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details
