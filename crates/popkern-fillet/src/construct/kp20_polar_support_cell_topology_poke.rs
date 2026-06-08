@@ -166,9 +166,15 @@ fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
                 out
             })
             .collect()
+    } else if edge_count > 5 {
+        boundary_aligned_unit_square_loops(edge_count)
     } else {
         Vec::new()
     };
+    oriented_loop_candidates(bases)
+}
+
+fn oriented_loop_candidates(bases: Vec<Vec<(f64, f64)>>) -> Vec<Vec<(f64, f64)>> {
     let mut candidates = Vec::new();
     for base in bases {
         for shift in 0..base.len() {
@@ -180,6 +186,45 @@ fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
         }
     }
     candidates
+}
+
+fn boundary_aligned_unit_square_loops(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
+    let extra_count = edge_count.saturating_sub(4);
+    let mut loops = Vec::new();
+    for bottom_extra in 0..=extra_count {
+        for right_extra in 0..=extra_count - bottom_extra {
+            for top_extra in 0..=extra_count - bottom_extra - right_extra {
+                let left_extra = extra_count - bottom_extra - right_extra - top_extra;
+                loops.push(boundary_aligned_unit_square_loop([
+                    bottom_extra,
+                    right_extra,
+                    top_extra,
+                    left_extra,
+                ]));
+            }
+        }
+    }
+    loops
+}
+
+fn boundary_aligned_unit_square_loop(side_extra_counts: [usize; 4]) -> Vec<(f64, f64)> {
+    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+    let mut out = Vec::with_capacity(4 + side_extra_counts.iter().sum::<usize>());
+    for side in 0..4 {
+        let start = corners[side];
+        let end = corners[(side + 1) % 4];
+        out.push(start);
+        let extra = side_extra_counts[side];
+        for split in 0..extra {
+            let t = (split + 1) as f64 / (extra + 1) as f64;
+            out.push(lerp_uv(start, end, t));
+        }
+    }
+    out
+}
+
+fn lerp_uv(a: (f64, f64), b: (f64, f64), t: f64) -> (f64, f64) {
+    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
 }
 
 pub(crate) fn poke_kp20_support_cell_patchwork(
@@ -250,7 +295,7 @@ fn support_cell_poke_shape(
     for &face in support_cell_faces {
         match face_outer_half_edges(brep, face)?.len() {
             4 => quad_count += 1,
-            5 => pentagon_count += 1,
+            5.. => pentagon_count += 1,
             len => {
                 return Err(CoreError::PreconditionFailed(format!(
                     "kp20 support-cell poke emitted unsupported {len}-edge support cell"
@@ -274,10 +319,10 @@ fn support_cell_surface_slots(
         let boundary_edge_count = face_outer_half_edges(brep, face)?.len();
         let assignment = match boundary_edge_count {
             4 => Kp20ExpandedSupportSurfaceAssignment::FullDomainRectangularPatch,
-            5 => Kp20ExpandedSupportSurfaceAssignment::TrimmedMacroFace,
+            5.. => Kp20ExpandedSupportSurfaceAssignment::TrimmedMacroFace,
             _ => {
                 return Err(CoreError::PreconditionFailed(format!(
-                    "kp20 support-cell slot expected 4- or 5-edge support cell, got {boundary_edge_count}"
+                    "kp20 support-cell slot expected at least 4 support-cell edges, got {boundary_edge_count}"
                 )));
             }
         };

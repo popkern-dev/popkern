@@ -102,16 +102,7 @@ fn poke_n_gon_face_into_4n_quads_from_n_poke(
     //
     // Edges are collected BEFORE any split, since split_edge creates
     // new edges + half-edges that would confuse the vertex-fan walk.
-    let radial_edges = collect_vertex_outgoing_edges(brep, central_vertex)?;
-    if radial_edges.len() != n {
-        return Err(CoreError::PreconditionFailed(format!(
-            "poke_4n: central vertex has {} outgoing edges, expected {n}",
-            radial_edges.len()
-        )));
-    }
-    for edge in radial_edges {
-        brep.split_edge(edge, 0.5)?;
-    }
+    split_radial_edges_for_4n_poke(brep, central_vertex, n)?;
 
     // Phase 3 — per-sector: split 2 outer edges, then subdivide into 4.
     let mut sub_faces: Vec<FaceHandle> = Vec::with_capacity(4 * n);
@@ -124,6 +115,24 @@ fn poke_n_gon_face_into_4n_quads_from_n_poke(
         sub_faces,
         central_vertex,
     })
+}
+
+fn split_radial_edges_for_4n_poke(
+    brep: &mut BRep,
+    central_vertex: VertexHandle,
+    n: usize,
+) -> Result<(), CoreError> {
+    let radial_edges = collect_vertex_outgoing_edges(brep, central_vertex)?;
+    if radial_edges.len() != n {
+        return Err(CoreError::PreconditionFailed(format!(
+            "poke_4n: central vertex has {} outgoing edges, expected {n}",
+            radial_edges.len()
+        )));
+    }
+    for edge in radial_edges {
+        brep.split_edge(edge, 0.5)?;
+    }
+    Ok(())
 }
 
 /// Walk the vertex fan of `vertex` and return the `EdgeHandle`s of

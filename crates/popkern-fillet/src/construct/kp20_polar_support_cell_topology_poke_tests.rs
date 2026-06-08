@@ -4,7 +4,9 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::poke_kp20_support_cell_patchwork;
+use super::support_cell_surface_slots;
+use super::support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
+use super::{poke_kp20_support_cell_patchwork, support_cell_poke_shape};
 use crate::construct::kp20_polar_expanded_support_binding::{
     attach_kp20_expanded_support_surfaces, author_kp20_expanded_support_pcurves,
     plan_kp20_expanded_support_surface_bindings,
@@ -81,6 +83,41 @@ fn support_cell_poke_emits_bindable_rectangular_support_cells() {
     );
     brep.validate()
         .expect("support-cell poke leaves valid BRep");
+}
+
+#[test]
+fn batched_eight_cell_poke_emits_bindable_rectangular_support_cells() {
+    let (mut brep, face) = build_flat_2ngon(6);
+    let pattern = Kp20SupportCellTopologyPattern::eight_cell_support_grid();
+    let macro_poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
+        &mut brep,
+        face,
+        Point3::new(0.0, 0.0, 0.0),
+        6,
+    )
+    .expect("macro support-cell poke");
+    let support_faces = macro_poke
+        .sub_faces
+        .chunks_exact(4)
+        .map(|sector| sector[3])
+        .collect::<Vec<_>>();
+    let support_faces = pattern
+        .split_sector_support_faces(&mut brep, &support_faces)
+        .expect("batched eight-cell support split");
+
+    assert_eq!(macro_poke.sub_faces.len(), 24);
+    assert_eq!(support_faces.len(), 48);
+    let shape = support_cell_poke_shape(&brep, &support_faces).expect("support-cell shape");
+    assert_eq!(shape.face_count, 48);
+    assert_eq!(shape.quad_count + shape.pentagon_count, shape.face_count);
+    let surface_slots = support_cell_surface_slots(&brep, &support_faces)
+        .expect("eight-cell support surface slots");
+    let binding_plan = plan_kp20_expanded_support_surface_bindings(&surface_slots, 48)
+        .expect("one-to-one eight-cell binding plan");
+    assert_eq!(binding_plan.bindings.len(), 48);
+    assert_eq!(binding_plan.reused_source_count, 0);
+    brep.validate()
+        .expect("batched eight-cell support split leaves valid BRep");
 }
 
 fn dummy_gregory_surface(index: usize) -> GregoryPatch {

@@ -6,6 +6,7 @@ use super::face_outer_half_edges;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kp20SupportCellTopologyPattern {
     FourCellSupportGrid,
+    EightCellSupportGrid,
 }
 
 impl Kp20SupportCellTopologyPattern {
@@ -13,9 +14,14 @@ impl Kp20SupportCellTopologyPattern {
         Self::FourCellSupportGrid
     }
 
+    pub(crate) fn eight_cell_support_grid() -> Self {
+        Self::EightCellSupportGrid
+    }
+
     pub(crate) fn cells_per_sector(self) -> usize {
         match self {
             Self::FourCellSupportGrid => 4,
+            Self::EightCellSupportGrid => 8,
         }
     }
 
@@ -48,20 +54,33 @@ impl Kp20SupportCellTopologyPattern {
         brep: &mut BRep,
         face: FaceHandle,
     ) -> Result<Vec<FaceHandle>, CoreError> {
+        self.split_sector_support_faces(brep, &[face])
+    }
+
+    pub(crate) fn split_sector_support_faces(
+        self,
+        brep: &mut BRep,
+        faces: &[FaceHandle],
+    ) -> Result<Vec<FaceHandle>, CoreError> {
         match self {
-            Self::FourCellSupportGrid => split_support_face_into_four_cells(brep, face),
+            Self::FourCellSupportGrid => split_support_faces_into_binary_grid(brep, faces, 2),
+            Self::EightCellSupportGrid => split_support_faces_into_binary_grid(brep, faces, 3),
         }
     }
 }
 
-fn split_support_face_into_four_cells(
+fn split_support_faces_into_binary_grid(
     brep: &mut BRep,
-    face: FaceHandle,
+    faces: &[FaceHandle],
+    split_levels: usize,
 ) -> Result<Vec<FaceHandle>, CoreError> {
-    let lanes = split_quad_like_face_into_two_lanes(brep, face)?;
-    let mut cells = Vec::with_capacity(4);
-    for lane in lanes {
-        cells.extend(split_quad_like_face_into_two_lanes(brep, lane)?);
+    let mut cells = faces.to_vec();
+    for _ in 0..split_levels {
+        let mut next = Vec::with_capacity(cells.len() * 2);
+        for cell in cells {
+            next.extend(split_quad_like_face_into_two_lanes(brep, cell)?);
+        }
+        cells = next;
     }
     Ok(cells)
 }
