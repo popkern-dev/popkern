@@ -10,6 +10,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_group_reconcile.rs"]
+mod group_reconcile;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 mod row_fit;
 #[path = "kp20_polar_support_cell_segment_transfer.rs"]
@@ -40,9 +42,10 @@ pub(crate) fn reconcile_support_cell_full_boundaries(
     slots: &[Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<(), CoreError> {
     let trims = full_boundary_trims(brep, slots)?;
-    for trim in trims {
-        reconcile_full_boundary_trim(brep, trim)?;
+    for trim in &trims {
+        reconcile_full_boundary_trim(brep, *trim)?;
     }
+    group_reconcile::reconcile_grouped_boundary_rows(brep, &trims)?;
     reauthor_support_cell_shared_edge_curves(brep, slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
