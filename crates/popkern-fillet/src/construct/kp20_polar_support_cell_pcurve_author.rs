@@ -37,6 +37,30 @@ pub(crate) fn author_optimized_support_cell_pcurves(
     }
     let adjacencies = support_cell_adjacencies(brep, slots)?;
     let candidates = slot_uv_candidates(brep, slots, support_surfaces, source_map)?;
+    let selected =
+        select_candidate_indices(&candidates, support_surfaces, source_map, &adjacencies);
+    for (slot_index, slot) in slots.iter().enumerate() {
+        let half_edges = face_outer_half_edges(brep, slot.face)?;
+        let uvs = &candidates[slot_index][selected[slot_index]].uvs;
+        for (index, &half_edge) in half_edges.iter().enumerate() {
+            let start = uvs[index];
+            let end = uvs[(index + 1) % uvs.len()];
+            brep.half_edges[half_edge].pcurve = Some(Pcurve::linear(start, end, 0.0, 1.0));
+        }
+    }
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell optimized pcurve authoring produced invalid BRep: {error}"
+        ))
+    })
+}
+
+fn select_candidate_indices(
+    candidates: &[Vec<SlotUvCandidate>],
+    support_surfaces: &[GregoryPatch],
+    source_map: &[usize],
+    adjacencies: &[SlotAdjacency],
+) -> Vec<usize> {
     let mut selected = candidates
         .iter()
         .map(|slot_candidates| {
@@ -57,7 +81,7 @@ pub(crate) fn author_optimized_support_cell_pcurves(
     );
     for _ in 0..3 {
         let mut improved = false;
-        for slot in 0..slots.len() {
+        for slot in 0..candidates.len() {
             let current = selected[slot];
             let mut slot_best = current;
             let mut slot_score = best_score;
@@ -85,20 +109,7 @@ pub(crate) fn author_optimized_support_cell_pcurves(
             break;
         }
     }
-    for (slot_index, slot) in slots.iter().enumerate() {
-        let half_edges = face_outer_half_edges(brep, slot.face)?;
-        let uvs = &candidates[slot_index][selected[slot_index]].uvs;
-        for (index, &half_edge) in half_edges.iter().enumerate() {
-            let start = uvs[index];
-            let end = uvs[(index + 1) % uvs.len()];
-            brep.half_edges[half_edge].pcurve = Some(Pcurve::linear(start, end, 0.0, 1.0));
-        }
-    }
-    brep.validate().map_err(|error| {
-        CoreError::PreconditionFailed(format!(
-            "kp20 support-cell optimized pcurve authoring produced invalid BRep: {error}"
-        ))
-    })
+    selected
 }
 
 pub(crate) fn author_assigned_support_cell_pcurves(
@@ -279,7 +290,7 @@ fn lerp_uv(a: (f64, f64), b: (f64, f64), t: f64) -> (f64, f64) {
 fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
     let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
     let bases = if edge_count == 4 {
-        vec![corners.to_vec()]
+        rectangular_unit_domain_loops()
     } else if edge_count == 5 {
         (0..4)
             .map(|split| {
@@ -298,7 +309,7 @@ fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
             })
             .collect()
     } else if edge_count > 5 {
-        vec![uniform_unit_square_perimeter_loop(edge_count)]
+        boundary_aligned_unit_square_loops(edge_count)
     } else {
         Vec::new()
     };
@@ -315,21 +326,59 @@ fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
     candidates
 }
 
-fn uniform_unit_square_perimeter_loop(edge_count: usize) -> Vec<(f64, f64)> {
-    (0..edge_count)
-        .map(|index| {
-            let perimeter_t = 4.0 * index as f64 / edge_count as f64;
-            if perimeter_t < 1.0 {
-                (perimeter_t, 0.0)
-            } else if perimeter_t < 2.0 {
-                (1.0, perimeter_t - 1.0)
-            } else if perimeter_t < 3.0 {
-                (3.0 - perimeter_t, 1.0)
-            } else {
-                (0.0, 4.0 - perimeter_t)
+fn boundary_aligned_unit_square_loops(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
+    let extra_count = edge_count.saturating_sub(4);
+    let mut loops = Vec::new();
+    for bottom_extra in 0..=extra_count {
+        for right_extra in 0..=extra_count - bottom_extra {
+            for top_extra in 0..=extra_count - bottom_extra - right_extra {
+                let left_extra = extra_count - bottom_extra - right_extra - top_extra;
+                loops.push(boundary_aligned_unit_square_loop([
+                    bottom_extra,
+                    right_extra,
+                    top_extra,
+                    left_extra,
+                ]));
             }
-        })
-        .collect()
+        }
+    }
+    loops
+}
+
+fn rectangular_unit_domain_loops() -> Vec<Vec<(f64, f64)>> {
+    let splits = [0.0, 0.5, 1.0];
+    let mut loops = Vec::new();
+    for u_min_index in 0..splits.len() {
+        for u_max_index in u_min_index + 1..splits.len() {
+            for v_min_index in 0..splits.len() {
+                for v_max_index in v_min_index + 1..splits.len() {
+                    loops.push(vec![
+                        (splits[u_min_index], splits[v_min_index]),
+                        (splits[u_max_index], splits[v_min_index]),
+                        (splits[u_max_index], splits[v_max_index]),
+                        (splits[u_min_index], splits[v_max_index]),
+                    ]);
+                }
+            }
+        }
+    }
+    loops
+}
+
+fn boundary_aligned_unit_square_loop(side_extra_counts: [usize; 4]) -> Vec<(f64, f64)> {
+    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+    let mut out = Vec::with_capacity(4 + side_extra_counts.iter().sum::<usize>());
+    for side in 0..4 {
+        let start = corners[side];
+        let end = corners[(side + 1) % 4];
+        out.push(start);
+        let extra = side_extra_counts[side];
+        for split in 0..extra {
+            let t = (split + 1) as f64 / (extra + 1) as f64;
+            out.push(lerp_uv(start, end, t));
+        }
+    }
+    out
 }
 
 fn face_outer_half_edges(brep: &BRep, face: FaceHandle) -> Result<Vec<HalfEdgeHandle>, CoreError> {
