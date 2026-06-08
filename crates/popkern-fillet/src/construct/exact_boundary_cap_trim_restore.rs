@@ -8,7 +8,7 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, HalfEdgeHandle};
 
-pub(super) fn restore_exact_boundary_cap_pcurves(
+pub(crate) fn restore_exact_boundary_cap_pcurves(
     result: &mut BRep,
     repair_report: &mut crate::types::BlendRepairReport,
 ) {

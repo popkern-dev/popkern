@@ -17,14 +17,8 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
+pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
-/// Restore exact-boundary cap trim authority after generic Phase 5 pcurve repair.
-pub fn restore_exact_boundary_cap_pcurves_post_phase5(
-    brep: &mut popkern_core::topology::BRep,
-    repair_report: &mut crate::types::BlendRepairReport,
-) {
-    exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves(brep, repair_report);
-}
 #[cfg(test)]
 mod apex_termination_spike;
 pub(crate) mod helpers;
@@ -51,6 +45,7 @@ mod kp20_polar_multipatch_strip;
 mod kp20_polar_multipatch_strip_optimize;
 mod kp20_polar_multipatch_topology_split;
 mod kp20_polar_multipatch_validate;
+mod kp20_polar_support_cell_shared_trim_quality;
 mod kp20_polar_support_image;
 mod kp20_polar_support_image_ownership;
 mod kp20_polar_support_image_params;
@@ -481,6 +476,11 @@ pub fn apply_blend_geometry(
         })
     });
     pipeline_timing.post_pipeline_ms = ms;
+    kp20_polar_support_cell_shared_trim_quality::append_final_support_cell_shared_trim_quality(
+        &result,
+        &corner_patches,
+        &mut repair_report.apex_diagnostics,
+    );
     repair_report
         .apex_diagnostics
         .push(pipeline_timing.diagnostic(

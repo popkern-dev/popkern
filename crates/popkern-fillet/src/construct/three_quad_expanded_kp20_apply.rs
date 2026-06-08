@@ -324,7 +324,6 @@ fn apply_kp20_support_cell_surfaces(
             )),
         })
         .collect();
-
     Ok(ThreeQuadApplyResult {
         patches,
         diagnostics: apply.diagnostics,

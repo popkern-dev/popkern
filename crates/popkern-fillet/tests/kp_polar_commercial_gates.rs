@@ -340,6 +340,29 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         )),
         "hexagon6_mixed support-cell route should emit post-apply assembled quality diagnostics"
     );
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.support_cell_shared_trim_quality"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("selected=promoted")
+                            && detail.contains("measurement_scope=final_post_pipeline")
+                            && detail.contains(&format!(
+                                "shared_trim_count={}",
+                                trim_metrics.shared_trim_count
+                            ))
+                            && detail.contains("pcurve_out_of_unit_count=0")
+                            && detail.contains("degenerate_pcurve_count=0")
+                            && detail.contains(&format!(
+                                "max_boundary_row_shared_trim_count={}",
+                                trim_metrics.max_boundary_row_shared_trim_count
+                            ))
+                    })
+        )),
+        "hexagon6_mixed support-cell route should promote shared-trim quality into structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
 }
 
 fn support_cell_piece_count(patches: &[popkern_fillet::CornerPatchInfo]) -> Option<usize> {
@@ -390,13 +413,9 @@ fn support_cell_dispatch_details(
             else {
                 return None;
             };
-            (cap.code == "kp20_polar_macro.dispatch.fact"
-                && cap
-                    .detail_code
-                    .as_deref()
-                    .is_some_and(|detail| detail.contains("support_cell_primitive")))
-            .then(|| cap.detail_code.clone())
-            .flatten()
+            (cap.code == "kp20_polar_macro.dispatch.fact" && cap.stage.contains("support_cell"))
+                .then(|| cap.detail_code.clone())
+                .flatten()
         })
         .collect()
 }
