@@ -10,6 +10,7 @@ use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRo
 
 const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 2.0e-3;
 const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
+const SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Kp20SupportCellSharedTrimQuality {
@@ -26,8 +27,12 @@ impl Kp20SupportCellSharedTrimQuality {
     pub(super) fn is_no_worse_than(self, before: Self) -> bool {
         self.pcurve_out_of_unit_count <= before.pcurve_out_of_unit_count
             && self.degenerate_pcurve_count <= before.degenerate_pcurve_count
-            && self.worst_g0_gap <= before.worst_g0_gap + 1.0e-12
+            && is_monotonic_metric(self.worst_g0_gap, before.worst_g0_gap)
     }
+}
+
+fn is_monotonic_metric(after: f64, before: f64) -> bool {
+    after <= before + SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS
 }
 
 pub(super) fn measure_support_cell_shared_trim_quality(
@@ -129,13 +134,21 @@ pub(super) fn support_cell_shared_trim_repair_fact(
         "support_cell_shared_trim_final_repair",
         n_sides,
         Some(format!(
-            "selected={selected};repair_status={status};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={}",
-            before.worst_g0_gap,
-            after.worst_g0_gap,
+            "selected={selected};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            before.shared_trim_count,
+            after.shared_trim_count,
             before.pcurve_out_of_unit_count,
             after.pcurve_out_of_unit_count,
             before.degenerate_pcurve_count,
-            after.degenerate_pcurve_count
+            after.degenerate_pcurve_count,
+            before.max_boundary_row_shared_trim_count,
+            after.max_boundary_row_shared_trim_count,
+            before.worst_abs_uv,
+            after.worst_abs_uv,
+            before.worst_g0_gap,
+            after.worst_g0_gap,
+            before.worst_normal_disagreement,
+            after.worst_normal_disagreement
         )),
         None,
         None,
