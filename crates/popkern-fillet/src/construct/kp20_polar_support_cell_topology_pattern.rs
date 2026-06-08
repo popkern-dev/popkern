@@ -18,6 +18,14 @@ impl Kp20SupportCellTopologyPattern {
         Self::EightCellSupportGrid
     }
 
+    pub(crate) fn for_cells_per_sector(cells_per_sector: usize) -> Option<Self> {
+        match cells_per_sector {
+            4 => Some(Self::FourCellSupportGrid),
+            8 => Some(Self::EightCellSupportGrid),
+            _ => None,
+        }
+    }
+
     pub(crate) fn cells_per_sector(self) -> usize {
         match self {
             Self::FourCellSupportGrid => 4,

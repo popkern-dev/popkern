@@ -4,9 +4,9 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::support_cell_surface_slots;
 use super::support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
-use super::{poke_kp20_support_cell_patchwork, support_cell_poke_shape};
+use super::{commit_kp20_support_cell_patchwork, poke_kp20_support_cell_patchwork};
+use super::{support_cell_poke_shape, support_cell_surface_slots};
 use crate::construct::kp20_polar_expanded_support_binding::{
     attach_kp20_expanded_support_surfaces, author_kp20_expanded_support_pcurves,
     plan_kp20_expanded_support_surface_bindings,
@@ -118,6 +118,36 @@ fn batched_eight_cell_poke_emits_bindable_rectangular_support_cells() {
     assert_eq!(binding_plan.reused_source_count, 0);
     brep.validate()
         .expect("batched eight-cell support split leaves valid BRep");
+}
+
+#[test]
+fn eight_cell_commit_attaches_surfaces_and_pcurves() {
+    let (mut brep, face) = build_flat_2ngon(6);
+    let support_surfaces = (0..48).map(dummy_gregory_surface).collect::<Vec<_>>();
+
+    let commit = commit_kp20_support_cell_patchwork(
+        &mut brep,
+        face,
+        Point3::new(0.0, 0.0, 0.0),
+        6,
+        &support_surfaces,
+    )
+    .expect("eight-cell support-cell commit");
+
+    assert_eq!(commit.support_cell_faces.len(), 48);
+    assert_eq!(commit.support_surface_indices.len(), 48);
+    assert!(commit.support_cell_faces.iter().all(|face| matches!(
+        brep.faces[*face].surface.as_ref().map(|surface| &surface.geometry),
+        Some(SurfaceGeometry::Gregory(_))
+    )));
+    assert!(
+        commit
+            .support_cell_faces
+            .iter()
+            .all(|face| outer_loop_has_pcurves(&brep, *face))
+    );
+    brep.validate()
+        .expect("eight-cell support-cell commit leaves valid BRep");
 }
 
 fn dummy_gregory_surface(index: usize) -> GregoryPatch {

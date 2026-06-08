@@ -38,10 +38,17 @@ pub(crate) fn commit_kp20_support_cell_patchwork(
     brep: &mut BRep,
     face: FaceHandle,
     central_point: Point3,
+    sector_count: usize,
     support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
     let before = brep.clone();
-    match commit_kp20_support_cell_patchwork_inner(brep, face, central_point, support_surfaces) {
+    match commit_kp20_support_cell_patchwork_inner(
+        brep,
+        face,
+        central_point,
+        sector_count,
+        support_surfaces,
+    ) {
         Ok(result) => Ok(result),
         Err(error) => {
             *brep = before;
@@ -54,12 +61,31 @@ fn commit_kp20_support_cell_patchwork_inner(
     brep: &mut BRep,
     face: FaceHandle,
     central_point: Point3,
+    sector_count: usize,
     support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
-    let pattern = Kp20SupportCellTopologyPattern::current_four_cell_support_grid();
-    let sector_count = pattern.validate_support_surface_inventory(support_surfaces.len())?;
+    if sector_count == 0 || support_surfaces.len() % sector_count != 0 {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 support-cell commit expected a support surface inventory divisible by sector count {sector_count}, got {}",
+            support_surfaces.len(),
+        )));
+    }
+    let cells_per_sector = support_surfaces.len() / sector_count;
+    let Some(pattern) = Kp20SupportCellTopologyPattern::for_cells_per_sector(cells_per_sector)
+    else {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 support-cell commit does not support {cells_per_sector} cells per sector",
+        )));
+    };
+    pattern.validate_support_surface_inventory(support_surfaces.len())?;
     let support_split_sectors = (0..sector_count).collect::<Vec<_>>();
-    let poke = poke_kp20_support_cell_patchwork(brep, face, central_point, &support_split_sectors)?;
+    let poke = poke_kp20_support_cell_patchwork_with_pattern(
+        brep,
+        face,
+        central_point,
+        &support_split_sectors,
+        pattern,
+    )?;
     let source_map =
         match_support_cell_surfaces_to_slots(brep, pattern, &poke.surface_slots, support_surfaces)?;
     let binding_plan = plan_kp20_expanded_support_surface_bindings_with_sources(
@@ -233,8 +259,31 @@ pub(crate) fn poke_kp20_support_cell_patchwork(
     central_point: Point3,
     support_split_sectors: &[usize],
 ) -> Result<Kp20SupportCellPokeResult, CoreError> {
+    let pattern = Kp20SupportCellTopologyPattern::current_four_cell_support_grid();
+    poke_kp20_support_cell_patchwork_with_pattern(
+        brep,
+        face,
+        central_point,
+        support_split_sectors,
+        pattern,
+    )
+}
+
+fn poke_kp20_support_cell_patchwork_with_pattern(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    support_split_sectors: &[usize],
+    pattern: Kp20SupportCellTopologyPattern,
+) -> Result<Kp20SupportCellPokeResult, CoreError> {
     let before = brep.clone();
-    match poke_kp20_support_cell_patchwork_inner(brep, face, central_point, support_split_sectors) {
+    match poke_kp20_support_cell_patchwork_inner(
+        brep,
+        face,
+        central_point,
+        support_split_sectors,
+        pattern,
+    ) {
         Ok(result) => {
             if let Err(error) = brep.validate() {
                 *brep = before;
@@ -257,8 +306,8 @@ fn poke_kp20_support_cell_patchwork_inner(
     face: FaceHandle,
     central_point: Point3,
     support_split_sectors: &[usize],
+    pattern: Kp20SupportCellTopologyPattern,
 ) -> Result<Kp20SupportCellPokeResult, CoreError> {
-    let pattern = Kp20SupportCellTopologyPattern::current_four_cell_support_grid();
     let macro_poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
         brep,
         face,
@@ -274,7 +323,14 @@ fn poke_kp20_support_cell_patchwork_inner(
             )));
         }
         let support_face = macro_poke.sub_faces[4 * sector + 3];
-        support_cell_faces.extend(pattern.split_sector_support_face(brep, support_face)?);
+        if pattern == Kp20SupportCellTopologyPattern::FourCellSupportGrid {
+            support_cell_faces.extend(pattern.split_sector_support_face(brep, support_face)?);
+        } else {
+            support_cell_faces.push(support_face);
+        }
+    }
+    if pattern != Kp20SupportCellTopologyPattern::FourCellSupportGrid {
+        support_cell_faces = pattern.split_sector_support_faces(brep, &support_cell_faces)?;
     }
     let shape = support_cell_poke_shape(brep, &support_cell_faces)?;
     let surface_slots = support_cell_surface_slots(brep, &support_cell_faces)?;

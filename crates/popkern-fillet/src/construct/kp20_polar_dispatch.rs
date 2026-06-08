@@ -260,7 +260,8 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                         }
                     }
                     if let Some(support_cell_patches) = lifted.accepted_support_cell_patches()
-                        && support_cell_patches.len() == 4 * n
+                        && support_cell_patches.len() % n == 0
+                        && matches!(support_cell_patches.len() / n, 4 | 8)
                     {
                         return Kp20PolarDispatchReport::accepted_support_cell(
                             support_cell_patches.to_vec(),
@@ -494,7 +495,6 @@ fn record_lift_budget_decline(
         Some(default_summary.min_jacobian_normal_cos),
     );
 }
-
 #[cfg(test)]
 #[path = "kp20_polar_dispatch_tests.rs"]
 mod tests;

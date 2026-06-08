@@ -43,7 +43,20 @@ pub(super) fn kp20_support_cell_commit_is_accepted(
 ) -> bool {
     matches!(promotion_result, PromotionResult::Kp20SupportCell)
         && n_sides >= 3
-        && support_surfaces.len() == 4 * n_sides
+        && kp20_support_cell_cells_per_sector(support_surfaces, n_sides).is_some()
+}
+
+fn kp20_support_cell_cells_per_sector(
+    support_surfaces: &[GregoryPatch],
+    n_sides: usize,
+) -> Option<usize> {
+    if n_sides < 3 || support_surfaces.len() % n_sides != 0 {
+        return None;
+    }
+    match support_surfaces.len() / n_sides {
+        4 | 8 => Some(support_surfaces.len() / n_sides),
+        _ => None,
+    }
 }
 
 pub(super) fn try_apply_expanded_kp20_support_patchwork(
@@ -140,6 +153,7 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
             input.brep,
             input.blend_face,
             input.central_point,
+            input.n_sides,
             input.support_surfaces,
         )
         .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
@@ -152,6 +166,16 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
         ));
     }
 
+    let cells_per_sector =
+        kp20_support_cell_cells_per_sector(input.support_surfaces, input.n_sides).ok_or_else(
+            || {
+                format!(
+                    "KP20 support-cell commit received unsupported {} surfaces for {} sectors",
+                    input.support_surfaces.len(),
+                    input.n_sides
+                )
+            },
+        )?;
     let patches = commit
         .support_cell_faces
         .iter()
@@ -168,7 +192,7 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
             relaxed_continuity_coplanarity: input.relaxed_coplanarity,
             cap_sphere: None,
             sub_patch_provenance: Some(CornerSubPatchProvenance::kp20_support_cell(
-                source_index / 4,
+                source_index / cells_per_sector,
                 input.n_sides,
                 source_index,
                 input.support_surfaces.len(),
