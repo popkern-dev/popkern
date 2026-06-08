@@ -11,8 +11,11 @@ use super::super::kp20_polar_bi6_split::{split_bi6_patch_u, split_bi6_patch_v};
 use super::super::kp20_polar_fold_summary::Kp20FoldSite;
 use crate::types::CornerSubPatchProvenance;
 
+#[path = "kp20_polar_support_cell_selection.rs"]
+mod support_cell_selection;
 #[path = "kp20_polar_support_cell_targets.rs"]
 mod support_cell_targets;
+use support_cell_selection::{selection_policy_label, should_replace_selected_support_cell_trial};
 use support_cell_targets::support_targets_by_sector;
 
 #[derive(Debug, Clone)]
@@ -24,6 +27,7 @@ pub(crate) struct Kp20SupportCellPrimitiveReport {
     pub(crate) cells_u: usize,
     pub(crate) cells_v: usize,
     pub(crate) topology_path_g0: f64,
+    pub(crate) selection_policy: &'static str,
     pub(crate) construction_mode: &'static str,
     pub(crate) target_piece: Kp20PieceId,
     pub(crate) emitted_patches: Vec<GregoryPatch>,
@@ -41,6 +45,7 @@ impl Default for Kp20SupportCellPrimitiveReport {
             cells_u: 0,
             cells_v: 0,
             topology_path_g0: f64::INFINITY,
+            selection_policy: "support_cell_selection_not_evaluated",
             construction_mode: "none",
             target_piece: Kp20PieceId::NearMidpointLeft,
             emitted_patches: Vec::new(),
@@ -64,6 +69,7 @@ pub(super) fn measure_support_cell_primitive(
         cells_u: 0,
         cells_v: 0,
         topology_path_g0: f64::INFINITY,
+        selection_policy: "support_cell_selection_not_evaluated",
         construction_mode: "none",
         target_piece,
         emitted_patches: Vec::new(),
@@ -88,7 +94,10 @@ pub(super) fn measure_support_cell_primitive(
     ] {
         report.evaluated += 1;
         let trial = measure_cell_grid(macro_patches, &targets, target_piece, cells_u, cells_v);
-        if best.as_ref().is_none_or(|best| trial.is_better_than(best)) {
+        if best
+            .as_ref()
+            .is_none_or(|best| should_replace_selected_support_cell_trial(&trial, best))
+        {
             best = Some(trial);
         }
     }
@@ -100,6 +109,7 @@ pub(super) fn measure_support_cell_primitive(
     report.cells_u = best.cells_u;
     report.cells_v = best.cells_v;
     report.topology_path_g0 = best.topology_path_g0;
+    report.selection_policy = selection_policy_label(&best);
     report.construction_mode = best.construction_mode.label();
     report.emitted_patches = best.emitted_patches;
     report.emitted_provenance = best.emitted_provenance;
@@ -158,21 +168,7 @@ fn measure_cell_grid(
 
 impl Kp20SupportCellPrimitiveTrial {
     fn is_better_than(&self, other: &Self) -> bool {
-        let equal_folds = self.folded_patch_count == other.folded_patch_count;
-        let same_commit_support = self.commit_supported() == other.commit_supported();
-        self.folded_patch_count < other.folded_patch_count
-            || (equal_folds && self.commit_supported() && !other.commit_supported())
-            || (equal_folds
-                && same_commit_support
-                && self.topology_path_g0 + 1.0e-12 < other.topology_path_g0)
-            || (equal_folds
-                && same_commit_support
-                && (self.topology_path_g0 - other.topology_path_g0).abs() <= 1.0e-12
-                && self.patch_count < other.patch_count)
-    }
-
-    fn commit_supported(&self) -> bool {
-        matches!(self.cells_u * self.cells_v, 4 | 8)
+        should_replace_selected_support_cell_trial(self, other)
     }
 }
 

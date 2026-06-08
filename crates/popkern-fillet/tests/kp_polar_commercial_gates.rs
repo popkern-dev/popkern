@@ -346,6 +346,7 @@ fn detail_contains_support_cell_inventory(
     cells_per_sector: usize,
 ) -> bool {
     detail.contains(&format!("support_cell_primitive_patch_count={piece_count}"))
+        && detail.contains("support_cell_primitive_selection_policy=")
         && match cells_per_sector {
             4 => support_cell_grid_detail_matches(detail, &[(1, 4), (4, 1), (2, 2)]),
             8 => support_cell_grid_detail_matches(detail, &[(2, 4), (4, 2)]),
