@@ -156,6 +156,35 @@ pub(super) fn support_cell_shared_trim_repair_fact(
     )
 }
 
+pub(super) fn support_cell_shared_trim_candidate_fact(
+    n_sides: usize,
+    selected: &'static str,
+    candidate: &'static str,
+    candidate_status: &'static str,
+    before: Kp20SupportCellSharedTrimQuality,
+    after: Kp20SupportCellSharedTrimQuality,
+) -> ApexConstructionDiagnostic {
+    crate::construct::kp20_polar_diagnostics::dispatch_fact(
+        "support_cell_shared_trim_candidate_score",
+        n_sides,
+        Some(format!(
+            "selected={selected};candidate={candidate};candidate_status={candidate_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            before.pcurve_out_of_unit_count,
+            after.pcurve_out_of_unit_count,
+            before.degenerate_pcurve_count,
+            after.degenerate_pcurve_count,
+            before.worst_g0_gap,
+            after.worst_g0_gap,
+            before.worst_abs_uv,
+            after.worst_abs_uv,
+            before.worst_normal_disagreement,
+            after.worst_normal_disagreement
+        )),
+        None,
+        None,
+    )
+}
+
 struct Kp20SupportCellSharedTrimQualityClassification {
     status: &'static str,
 }

@@ -10,7 +10,7 @@ mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportCellCompletionCandidate {
     PcurveOnly,
     BoundaryOnly,
@@ -37,6 +37,13 @@ impl SupportCellCompletionCandidate {
 struct SupportCellCompletionSelection {
     brep: BRep,
     candidate: SupportCellCompletionCandidate,
+    quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
+}
+
+#[derive(Clone, Copy)]
+struct SupportCellCompletionCandidateScore {
+    candidate: SupportCellCompletionCandidate,
+    status: &'static str,
     quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
 }
 
@@ -73,7 +80,8 @@ fn complete_support_cell_pcurves_transactionally(
     for group in shared_trim_quality::support_cell_face_groups(corner_patches) {
         let before =
             shared_trim_quality::measure_support_cell_shared_trim_quality(brep, &group.faces, 9);
-        let selection = select_support_cell_completion_candidate(brep, &group.faces, before);
+        let (selection, scores) =
+            select_support_cell_completion_candidate(brep, &group.faces, before);
         let (accepted, selected_candidate, after) = if let Some(selection) = selection {
             let candidate = selection.candidate.label();
             let quality = selection.quality;
@@ -82,6 +90,18 @@ fn complete_support_cell_pcurves_transactionally(
         } else {
             (false, "none", before)
         };
+        for score in scores {
+            diagnostics.push(
+                shared_trim_quality::support_cell_shared_trim_candidate_fact(
+                    group.n_sides,
+                    selected,
+                    score.candidate.label(),
+                    score.status,
+                    before,
+                    score.quality,
+                ),
+            );
+        }
         diagnostics.push(shared_trim_quality::support_cell_shared_trim_repair_fact(
             group.n_sides,
             selected,
@@ -97,11 +117,20 @@ fn select_support_cell_completion_candidate(
     brep: &BRep,
     faces: &[popkern_core::topology::FaceHandle],
     before: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
-) -> Option<SupportCellCompletionSelection> {
+) -> (
+    Option<SupportCellCompletionSelection>,
+    Vec<SupportCellCompletionCandidateScore>,
+) {
     let mut best = None;
+    let mut scores = Vec::new();
     for candidate in SupportCellCompletionCandidate::ALL {
         let mut candidate_brep = brep.clone();
         if !apply_support_cell_completion_candidate(&mut candidate_brep, faces, candidate) {
+            scores.push(SupportCellCompletionCandidateScore {
+                candidate,
+                status: "operator_failed",
+                quality: before,
+            });
             continue;
         }
         let quality = shared_trim_quality::measure_support_cell_shared_trim_quality(
@@ -109,7 +138,19 @@ fn select_support_cell_completion_candidate(
             faces,
             9,
         );
-        if candidate_brep.validate().is_err() || !quality.is_no_worse_than(before) {
+        let status = if candidate_brep.validate().is_err() {
+            "invalid_brep"
+        } else if !quality.is_no_worse_than(before) {
+            "quality_regressed"
+        } else {
+            "accepted_not_selected"
+        };
+        scores.push(SupportCellCompletionCandidateScore {
+            candidate,
+            status,
+            quality,
+        });
+        if status != "accepted_not_selected" {
             continue;
         }
         let selection = SupportCellCompletionSelection {
@@ -121,7 +162,14 @@ fn select_support_cell_completion_candidate(
             best = Some(selection);
         }
     }
-    best
+    if let Some(selection) = best.as_ref() {
+        for score in &mut scores {
+            if score.candidate == selection.candidate {
+                score.status = "accepted_selected";
+            }
+        }
+    }
+    (best, scores)
 }
 
 fn apply_support_cell_completion_candidate(

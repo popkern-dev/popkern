@@ -7,18 +7,6 @@
 //! gate thresholds (G0 ≤ 1e-10, G1 ≤ 5e-2, G2 ≤ 5e-2) come from
 //! `kp_gate_helpers.rs`.
 //!
-//! # Fixture matrix
-//!
-//! | Fixture             | Valence | Radii                                      | Status |
-//! |---------------------|---------|--------------------------------------------|--------|
-//! | pentagon5_uniform   | 5       | all 0.05                                       | `#[ignore]` |
-//! | pentagon5_mixed     | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]                 | polar commercial gates pass |
-//! | pentagon5_variable  | 5       | [0.02, 0.04, 0.06, 0.04, 0.02] (1:3 ratio)     | `#[ignore]` I.22 |
-//! | hexagon6_uniform    | 6       | all 0.05                                       | `#[ignore]` |
-//! | hexagon6_mixed      | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06]           | `#[ignore]` |
-//! | hexagon6_variable   | 6       | [0.02, 0.04, 0.06, 0.06, 0.04, 0.02] (1:3)     | `#[ignore]` I.22 |
-//! | octagon8_mixed      | 8       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06] | `#[ignore]` |
-//!
 //! # Apex-angle regimes (important for fixture selection)
 //!
 //! The polar path is **not** the commercial-grade answer for every
@@ -341,6 +329,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                 && (detail.contains("repair_status=accepted_non_regressing_final_repair")
                     || detail.contains("repair_status=declined_to_preserve_final_quality"))),
         "hexagon6_mixed support-cell route should emit transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains("candidate_status=accepted_selected")),
+        "hexagon6_mixed support-cell selector should emit per-candidate score diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(
