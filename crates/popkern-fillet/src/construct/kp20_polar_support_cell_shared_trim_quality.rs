@@ -22,6 +22,14 @@ pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) worst_normal_disagreement: f64,
 }
 
+impl Kp20SupportCellSharedTrimQuality {
+    pub(super) fn is_no_worse_than(self, before: Self) -> bool {
+        self.pcurve_out_of_unit_count <= before.pcurve_out_of_unit_count
+            && self.degenerate_pcurve_count <= before.degenerate_pcurve_count
+            && self.worst_g0_gap <= before.worst_g0_gap + 1.0e-12
+    }
+}
+
 pub(super) fn measure_support_cell_shared_trim_quality(
     brep: &BRep,
     faces: &[FaceHandle],
@@ -105,6 +113,35 @@ pub(super) fn support_cell_shared_trim_quality_fact(
     )
 }
 
+pub(super) fn support_cell_shared_trim_repair_fact(
+    n_sides: usize,
+    selected: &'static str,
+    accepted: bool,
+    before: Kp20SupportCellSharedTrimQuality,
+    after: Kp20SupportCellSharedTrimQuality,
+) -> ApexConstructionDiagnostic {
+    let status = if accepted {
+        "accepted_non_regressing_final_repair"
+    } else {
+        "declined_to_preserve_final_quality"
+    };
+    crate::construct::kp20_polar_diagnostics::dispatch_fact(
+        "support_cell_shared_trim_final_repair",
+        n_sides,
+        Some(format!(
+            "selected={selected};repair_status={status};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={}",
+            before.worst_g0_gap,
+            after.worst_g0_gap,
+            before.pcurve_out_of_unit_count,
+            after.pcurve_out_of_unit_count,
+            before.degenerate_pcurve_count,
+            after.degenerate_pcurve_count
+        )),
+        None,
+        None,
+    )
+}
+
 struct Kp20SupportCellSharedTrimQualityClassification {
     status: &'static str,
 }
@@ -145,12 +182,14 @@ pub(crate) fn append_final_support_cell_shared_trim_quality(
     }
 }
 
-struct SupportCellFaceGroup {
-    n_sides: usize,
-    faces: Vec<FaceHandle>,
+pub(super) struct SupportCellFaceGroup {
+    pub(super) n_sides: usize,
+    pub(super) faces: Vec<FaceHandle>,
 }
 
-fn support_cell_face_groups(corner_patches: &[CornerPatchInfo]) -> Vec<SupportCellFaceGroup> {
+pub(super) fn support_cell_face_groups(
+    corner_patches: &[CornerPatchInfo],
+) -> Vec<SupportCellFaceGroup> {
     let mut groups: Vec<(VertexHandle, SupportCellFaceGroup)> = Vec::new();
     for patch in corner_patches {
         if !patch
@@ -181,7 +220,9 @@ fn support_cell_face_groups(corner_patches: &[CornerPatchInfo]) -> Vec<SupportCe
         .collect()
 }
 
-fn support_cell_selected_label(diagnostics: &[ApexConstructionDiagnostic]) -> &'static str {
+pub(super) fn support_cell_selected_label(
+    diagnostics: &[ApexConstructionDiagnostic],
+) -> &'static str {
     diagnostics
         .iter()
         .rev()

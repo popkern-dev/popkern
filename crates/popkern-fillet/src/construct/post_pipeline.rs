@@ -326,7 +326,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     repair_report.edge_curve_endpoint_coherence_repairs +=
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
 
-    corner_patch_support_completion::complete_corner_patch_support_pcurves(result, corner_patches);
+    corner_patch_support_completion::complete_corner_patch_support_pcurves(
+        result,
+        corner_patches,
+        &mut repair_report.apex_diagnostics,
+    );
 }
 
 fn support_seam_relocation_enabled() -> bool {

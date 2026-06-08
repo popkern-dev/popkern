@@ -344,7 +344,6 @@ fn fillet_edges_internal(
     );
     check_cancel!();
 
-    // PHASE 5: Ensure pcurve coverage and correctness.
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
@@ -380,6 +379,7 @@ fn fillet_edges_internal(
     construct::corner_patch_support_completion::complete_corner_patch_support_pcurves(
         &mut apply_result.brep,
         &apply_result.corner_patches,
+        &mut apply_result.repair_report.apex_diagnostics,
     );
     construct::kp20_polar_support_cell_shared_trim_quality::append_final_support_cell_shared_trim_quality(
         &apply_result.brep,
