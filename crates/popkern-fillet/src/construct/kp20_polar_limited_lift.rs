@@ -83,6 +83,13 @@ impl Kp20LimitedLiftCandidate {
             .then_some(cells.emitted_patches.as_slice())
     }
 
+    pub(super) fn support_cell_floor_patches(&self) -> Option<&[GregoryPatch]> {
+        let report = self.expanded_support_topology.as_ref()?;
+        let cells = &report.support_cell_primitive;
+        (!cells.committed_floor_patches.is_empty())
+            .then_some(cells.committed_floor_patches.as_slice())
+    }
+
     pub(super) fn detail(
         &self,
         default: &Kp20SamplerFoldSummary,

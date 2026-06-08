@@ -11,10 +11,13 @@ use super::super::kp20_polar_bi6_split::{split_bi6_patch_u, split_bi6_patch_v};
 use super::super::kp20_polar_fold_summary::Kp20FoldSite;
 use crate::types::CornerSubPatchProvenance;
 
+#[path = "kp20_polar_support_cell_grid_candidates.rs"]
+mod support_cell_grid_candidates;
 #[path = "kp20_polar_support_cell_selection.rs"]
 mod support_cell_selection;
 #[path = "kp20_polar_support_cell_targets.rs"]
 mod support_cell_targets;
+use support_cell_grid_candidates::support_cell_grid_candidates;
 use support_cell_selection::{selection_policy_label, should_replace_selected_support_cell_trial};
 use support_cell_targets::support_targets_by_sector;
 
@@ -32,6 +35,7 @@ pub(crate) struct Kp20SupportCellPrimitiveReport {
     pub(crate) target_piece: Kp20PieceId,
     pub(crate) emitted_patches: Vec<GregoryPatch>,
     pub(crate) emitted_provenance: Vec<CornerSubPatchProvenance>,
+    pub(crate) committed_floor_patches: Vec<GregoryPatch>,
     pub(crate) decline_reason: &'static str,
 }
 
@@ -50,6 +54,7 @@ impl Default for Kp20SupportCellPrimitiveReport {
             target_piece: Kp20PieceId::NearMidpointLeft,
             emitted_patches: Vec::new(),
             emitted_provenance: Vec::new(),
+            committed_floor_patches: Vec::new(),
             decline_reason: "support_cell_primitive_not_evaluated",
         }
     }
@@ -74,6 +79,7 @@ pub(super) fn measure_support_cell_primitive(
         target_piece,
         emitted_patches: Vec::new(),
         emitted_provenance: Vec::new(),
+        committed_floor_patches: Vec::new(),
         decline_reason: "support_cell_primitive_no_candidate",
     };
     if targets.is_empty() {
@@ -82,18 +88,17 @@ pub(super) fn measure_support_cell_primitive(
     }
 
     let mut best: Option<Kp20SupportCellPrimitiveTrial> = None;
-    for (cells_u, cells_v) in [
-        (1, 4),
-        (4, 1),
-        (2, 2),
-        (2, 4),
-        (4, 2),
-        (2, 3),
-        (3, 2),
-        (3, 3),
-    ] {
+    let mut committed_floor: Option<Kp20SupportCellPrimitiveTrial> = None;
+    for (cells_u, cells_v) in support_cell_grid_candidates() {
         report.evaluated += 1;
         let trial = measure_cell_grid(macro_patches, &targets, target_piece, cells_u, cells_v);
+        if trial.cells_u * trial.cells_v == 4
+            && committed_floor
+                .as_ref()
+                .is_none_or(|floor| should_replace_selected_support_cell_trial(&trial, floor))
+        {
+            committed_floor = Some(trial.clone());
+        }
         if best
             .as_ref()
             .is_none_or(|best| should_replace_selected_support_cell_trial(&trial, best))
@@ -111,6 +116,11 @@ pub(super) fn measure_support_cell_primitive(
     report.topology_path_g0 = best.topology_path_g0;
     report.selection_policy = selection_policy_label(&best);
     report.construction_mode = best.construction_mode.label();
+    if let Some(floor) = committed_floor
+        && floor.folded_patch_count == 0
+    {
+        report.committed_floor_patches = floor.emitted_patches;
+    }
     report.emitted_patches = best.emitted_patches;
     report.emitted_provenance = best.emitted_provenance;
     report.decline_reason = if best.folded_patch_count == 0 {

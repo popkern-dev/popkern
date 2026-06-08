@@ -48,6 +48,7 @@ pub(crate) struct KpBinonicPromotionReport {
 #[derive(Debug, Clone, Default)]
 pub(super) struct PromotionLadderReport {
     pub result: PromotionResult,
+    pub kp20_support_cell_floor_patches: Option<Vec<GregoryPatch>>,
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
 }
 
@@ -115,6 +116,7 @@ pub(super) fn run_promotion_ladder(
         decomp.sub_patches = patches_4n;
         return PromotionLadderReport {
             result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5),
+            kp20_support_cell_floor_patches: None,
             diagnostics: Vec::new(),
         };
     }
@@ -136,6 +138,7 @@ pub(super) fn run_promotion_ladder(
             };
             return PromotionLadderReport {
                 result,
+                kp20_support_cell_floor_patches: report.support_cell_floor_patches,
                 diagnostics,
             };
         }
@@ -158,6 +161,7 @@ pub(super) fn run_promotion_ladder(
     }
     PromotionLadderReport {
         result: PromotionResult::Standard,
+        kp20_support_cell_floor_patches: None,
         diagnostics,
     }
 }
@@ -176,6 +180,7 @@ fn standard_report_with_binonic_prerequisite_decline(
         .collect();
     PromotionLadderReport {
         result: PromotionResult::Standard,
+        kp20_support_cell_floor_patches: None,
         diagnostics,
     }
 }

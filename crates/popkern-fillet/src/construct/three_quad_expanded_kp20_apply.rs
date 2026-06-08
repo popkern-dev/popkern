@@ -17,6 +17,7 @@ pub(super) struct ExpandedKp20ApplyInput<'a> {
     pub blend_face: FaceHandle,
     pub central_point: Point3,
     pub support_surfaces: &'a [GregoryPatch],
+    pub support_cell_floor_surfaces: Option<&'a [GregoryPatch]>,
     pub promotion_result: PromotionResult,
     pub vertex: VertexHandle,
     pub n_sides: usize,
@@ -138,7 +139,7 @@ pub(super) fn try_apply_kp20_specialized_patchwork(
 }
 
 pub(super) fn try_apply_kp20_support_cell_patchwork(
-    input: ExpandedKp20ApplyInput<'_>,
+    mut input: ExpandedKp20ApplyInput<'_>,
 ) -> Result<Option<ThreeQuadApplyResult>, String> {
     if !kp20_support_cell_commit_is_accepted(
         input.promotion_result,
@@ -146,24 +147,6 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
         input.n_sides,
     ) {
         return Ok(None);
-    }
-
-    let commit =
-        super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork(
-            input.brep,
-            input.blend_face,
-            input.central_point,
-            input.n_sides,
-            input.support_surfaces,
-        )
-        .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
-
-    if commit.support_cell_faces.len() != commit.support_surface_indices.len() {
-        return Err(format!(
-            "KP20 support-cell commit emitted {} faces for {} surface bindings",
-            commit.support_cell_faces.len(),
-            commit.support_surface_indices.len()
-        ));
     }
 
     let cells_per_sector =
@@ -176,6 +159,102 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                 )
             },
         )?;
+    let before_promoted_commit = input.brep.clone();
+    let promoted_surfaces = input.support_surfaces;
+    let promoted_diagnostics = input.diagnostics.clone();
+    match apply_kp20_support_cell_surfaces(&mut input, promoted_surfaces, promoted_diagnostics) {
+        Ok(Some(result)) => match input.brep.validate() {
+            Ok(()) => return Ok(Some(result)),
+            Err(error) => {
+                *input.brep = before_promoted_commit.clone();
+                if cells_per_sector != 8 {
+                    return Err(format!(
+                        "KP20 support-cell commit left invalid BRep: {error:?}"
+                    ));
+                }
+                let Some(floor_surfaces) = input.support_cell_floor_surfaces else {
+                    return Err(format!(
+                        "KP20 eight-cell support-cell commit left invalid BRep and no four-cell floor was available: {error:?}"
+                    ));
+                };
+                let mut fallback_diagnostics = input.diagnostics.clone();
+                fallback_diagnostics.push(support_cell_transaction_decline(
+                    input.n_sides,
+                    input.support_surfaces.len(),
+                    floor_surfaces.len(),
+                    format!("{error:?}"),
+                ));
+                let before_floor_commit = input.brep.clone();
+                let result = apply_kp20_support_cell_surfaces(
+                    &mut input,
+                    floor_surfaces,
+                    fallback_diagnostics,
+                )?;
+                if input.brep.validate().is_ok() {
+                    return Ok(result);
+                }
+                *input.brep = before_floor_commit;
+                return Err(
+                    "KP20 support-cell four-cell floor fallback left invalid BRep".to_string(),
+                );
+            }
+        },
+        Ok(None) => return Ok(None),
+        Err(error) => {
+            *input.brep = before_promoted_commit.clone();
+            if cells_per_sector != 8 {
+                return Err(error);
+            }
+            let Some(floor_surfaces) = input.support_cell_floor_surfaces else {
+                return Err(error);
+            };
+            let mut fallback_diagnostics = input.diagnostics.clone();
+            fallback_diagnostics.push(support_cell_transaction_decline(
+                input.n_sides,
+                input.support_surfaces.len(),
+                floor_surfaces.len(),
+                error,
+            ));
+            return apply_kp20_support_cell_surfaces(
+                &mut input,
+                floor_surfaces,
+                fallback_diagnostics,
+            );
+        }
+    }
+}
+
+fn apply_kp20_support_cell_surfaces(
+    input: &mut ExpandedKp20ApplyInput<'_>,
+    support_surfaces: &[GregoryPatch],
+    diagnostics: Vec<ApexConstructionDiagnostic>,
+) -> Result<Option<ThreeQuadApplyResult>, String> {
+    let commit =
+        super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork(
+            input.brep,
+            input.blend_face,
+            input.central_point,
+            input.n_sides,
+            support_surfaces,
+        )
+        .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
+
+    if commit.support_cell_faces.len() != commit.support_surface_indices.len() {
+        return Err(format!(
+            "KP20 support-cell commit emitted {} faces for {} surface bindings",
+            commit.support_cell_faces.len(),
+            commit.support_surface_indices.len()
+        ));
+    }
+
+    let cells_per_sector = kp20_support_cell_cells_per_sector(support_surfaces, input.n_sides)
+        .ok_or_else(|| {
+            format!(
+                "KP20 support-cell commit received unsupported {} surfaces for {} sectors",
+                support_surfaces.len(),
+                input.n_sides
+            )
+        })?;
     let patches = commit
         .support_cell_faces
         .iter()
@@ -195,15 +274,32 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                 source_index / cells_per_sector,
                 input.n_sides,
                 source_index,
-                input.support_surfaces.len(),
+                support_surfaces.len(),
             )),
         })
         .collect();
 
     Ok(Some(ThreeQuadApplyResult {
         patches,
-        diagnostics: input.diagnostics,
+        diagnostics,
     }))
+}
+
+fn support_cell_transaction_decline(
+    n_sides: usize,
+    promoted_surface_count: usize,
+    fallback_surface_count: usize,
+    error: String,
+) -> ApexConstructionDiagnostic {
+    super::kp20_polar_diagnostics::dispatch_declined(
+        "support_cell_transaction_promoted_apply",
+        n_sides,
+        Some(format!(
+            "promoted_surface_count={promoted_surface_count};fallback_surface_count={fallback_surface_count};error={error}"
+        )),
+        None,
+        None,
+    )
 }
 
 fn expanded_kp20_provenance(source_index: usize, sector_count: usize) -> CornerSubPatchProvenance {

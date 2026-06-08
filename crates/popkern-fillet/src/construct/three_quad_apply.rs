@@ -243,6 +243,9 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 blend_face,
                 central_point: decomp.central_point,
                 support_surfaces: &decomp.sub_patches,
+                support_cell_floor_surfaces: promotion_report
+                    .kp20_support_cell_floor_patches
+                    .as_deref(),
                 promotion_result: promotion_report.result,
                 vertex,
                 n_sides,

@@ -28,6 +28,7 @@ use origin_inner_row::{
 };
 use primary_candidate::evaluate_positive_primary_candidates;
 pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
+use report::Kp20PolarDispatchReport;
 use timing::Kp20DispatchStageTiming;
 
 #[path = "kp20_polar_coupled_lift.rs"]
@@ -44,63 +45,14 @@ mod limited_lift;
 mod origin_inner_row;
 #[path = "kp20_polar_primary_candidate.rs"]
 mod primary_candidate;
+#[path = "kp20_polar_dispatch_report.rs"]
+mod report;
 #[path = "kp20_polar_support_domain.rs"]
 mod support_domain;
 #[path = "kp20_polar_support_transition.rs"]
 mod support_transition;
 #[path = "kp20_polar_dispatch_timing.rs"]
 mod timing;
-
-pub(super) struct Kp20PolarDispatchReport {
-    pub patches: Option<Vec<GregoryPatch>>,
-    pub expanded_support_topology_accepted: bool,
-    pub support_cell_topology_accepted: bool,
-    pub diagnostics: Vec<ApexConstructionDiagnostic>,
-}
-
-impl Kp20PolarDispatchReport {
-    fn declined(diagnostics: Vec<ApexConstructionDiagnostic>) -> Self {
-        Self {
-            patches: None,
-            expanded_support_topology_accepted: false,
-            support_cell_topology_accepted: false,
-            diagnostics,
-        }
-    }
-
-    fn accepted(patches: Vec<GregoryPatch>, diagnostics: Vec<ApexConstructionDiagnostic>) -> Self {
-        Self {
-            patches: Some(patches),
-            expanded_support_topology_accepted: false,
-            support_cell_topology_accepted: false,
-            diagnostics,
-        }
-    }
-
-    fn accepted_expanded_support(
-        patches: Vec<GregoryPatch>,
-        diagnostics: Vec<ApexConstructionDiagnostic>,
-    ) -> Self {
-        Self {
-            patches: Some(patches),
-            expanded_support_topology_accepted: true,
-            support_cell_topology_accepted: false,
-            diagnostics,
-        }
-    }
-
-    fn accepted_support_cell(
-        patches: Vec<GregoryPatch>,
-        diagnostics: Vec<ApexConstructionDiagnostic>,
-    ) -> Self {
-        Self {
-            patches: Some(patches),
-            expanded_support_topology_accepted: false,
-            support_cell_topology_accepted: true,
-            diagnostics,
-        }
-    }
-}
 
 pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     sub_patches: &[GregoryPatch],
@@ -265,6 +217,9 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     {
                         return Kp20PolarDispatchReport::accepted_support_cell(
                             support_cell_patches.to_vec(),
+                            lifted
+                                .support_cell_floor_patches()
+                                .map(|patches| patches.to_vec()),
                             diagnostics,
                         );
                     }
