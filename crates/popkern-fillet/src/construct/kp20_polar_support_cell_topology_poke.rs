@@ -12,6 +12,8 @@ use crate::construct::kp20_polar_expanded_support_binding::{
     plan_kp20_expanded_support_surface_bindings_with_sources,
 };
 
+#[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
+mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
 
@@ -72,6 +74,10 @@ fn commit_kp20_support_cell_patchwork_inner(
         &poke.surface_slots,
         support_surfaces,
         &source_map,
+    )?;
+    support_cell_boundary_reconcile::reconcile_support_cell_full_boundaries(
+        brep,
+        &poke.surface_slots,
     )?;
     let support_surface_indices = binding_plan
         .bindings

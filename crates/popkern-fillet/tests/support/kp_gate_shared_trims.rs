@@ -12,6 +12,7 @@ pub struct SharedTrimMetrics {
     pub degenerate_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
     pub worst_source_pair: Option<(usize, usize)>,
     pub worst_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
+    pub worst_pair_best_boundary_gap: f64,
     pub worst_abs_uv: f64,
     pub worst_g0_gap: f64,
     pub worst_normal_disagreement: f64,
@@ -41,6 +42,7 @@ pub fn measure_shared_gregory_trims_with_sources(
         degenerate_uv_edges: None,
         worst_source_pair: None,
         worst_uv_edges: None,
+        worst_pair_best_boundary_gap: f64::INFINITY,
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
@@ -133,6 +135,8 @@ fn measure_shared_trim_pair(
             metrics.worst_g0_gap = gap;
             metrics.worst_source_pair = source_pair(face_sources, face_a, face_b);
             metrics.worst_uv_edges = Some(edge_uvs(pcurve_a, pcurve_b));
+            metrics.worst_pair_best_boundary_gap =
+                best_surface_boundary_gap(&surface_a.geometry, &surface_b.geometry);
         }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
@@ -140,6 +144,55 @@ fn measure_shared_trim_pair(
             metrics.worst_normal_disagreement =
                 metrics.worst_normal_disagreement.max(1.0 - a.dot(&b).abs());
         }
+    }
+}
+
+fn best_surface_boundary_gap(surface_a: &SurfaceGeometry, surface_b: &SurfaceGeometry) -> f64 {
+    let mut best = f64::INFINITY;
+    for side_a in 0..4 {
+        for side_b in 0..4 {
+            best = best.min(surface_boundary_gap(
+                surface_a, side_a, surface_b, side_b, false,
+            ));
+            best = best.min(surface_boundary_gap(
+                surface_a, side_a, surface_b, side_b, true,
+            ));
+        }
+    }
+    best
+}
+
+fn surface_boundary_gap(
+    surface_a: &SurfaceGeometry,
+    side_a: usize,
+    surface_b: &SurfaceGeometry,
+    side_b: usize,
+    reversed: bool,
+) -> f64 {
+    let mut worst = 0.0_f64;
+    for index in 0..9 {
+        let t = index as f64 / 8.0;
+        let other_t = if reversed { 1.0 - t } else { t };
+        let point_a = surface_a.point_at(side_u(side_a, t), side_v(side_a, t));
+        let point_b = surface_b.point_at(side_u(side_b, other_t), side_v(side_b, other_t));
+        worst = worst.max(point_a.distance_to(&point_b));
+    }
+    worst
+}
+
+fn side_u(side: usize, t: f64) -> f64 {
+    match side {
+        0 => 0.0,
+        1 => 1.0,
+        _ => t,
+    }
+}
+
+fn side_v(side: usize, t: f64) -> f64 {
+    match side {
+        2 => 0.0,
+        3 => 1.0,
+        _ => t,
     }
 }
 

@@ -22,6 +22,19 @@ struct SlotAdjacency {
     edge_b: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct LoopSelectionScore {
+    worst: f64,
+    total: f64,
+}
+
+impl LoopSelectionScore {
+    fn better_than(self, other: Self) -> bool {
+        self.worst + 1.0e-12 < other.worst
+            || ((self.worst - other.worst).abs() <= 1.0e-12 && self.total + 1.0e-12 < other.total)
+    }
+}
+
 pub(crate) fn author_optimized_support_cell_pcurves(
     brep: &mut BRep,
     slots: &[Kp20ExpandedSupportSurfaceSlot],
@@ -94,14 +107,41 @@ fn select_candidate_indices(
                     source_map,
                     &adjacencies,
                 );
-                if score < slot_score {
+                if score.better_than(slot_score) {
                     slot_score = score;
                     slot_best = candidate;
                 }
             }
             selected[slot] = slot_best;
-            if slot_score + 1.0e-12 < best_score {
+            if slot_score.better_than(best_score) {
                 best_score = slot_score;
+                improved = true;
+            }
+        }
+        for adjacency in adjacencies {
+            let mut pair_best = (selected[adjacency.slot_a], selected[adjacency.slot_b]);
+            let mut pair_score = best_score;
+            for candidate_a in 0..candidates[adjacency.slot_a].len() {
+                selected[adjacency.slot_a] = candidate_a;
+                for candidate_b in 0..candidates[adjacency.slot_b].len() {
+                    selected[adjacency.slot_b] = candidate_b;
+                    let score = selected_loop_score(
+                        &selected,
+                        &candidates,
+                        support_surfaces,
+                        source_map,
+                        &adjacencies,
+                    );
+                    if score.better_than(pair_score) {
+                        pair_score = score;
+                        pair_best = (candidate_a, candidate_b);
+                    }
+                }
+            }
+            selected[adjacency.slot_a] = pair_best.0;
+            selected[adjacency.slot_b] = pair_best.1;
+            if pair_score.better_than(best_score) {
+                best_score = pair_score;
                 improved = true;
             }
         }
@@ -237,23 +277,26 @@ fn selected_loop_score(
     surfaces: &[GregoryPatch],
     source_map: &[usize],
     adjacencies: &[SlotAdjacency],
-) -> f64 {
+) -> LoopSelectionScore {
     let mut worst = 0.0_f64;
+    let mut total = 0.0_f64;
     for adjacency in adjacencies {
         let source_a = source_map[adjacency.slot_a];
         let source_b = source_map[adjacency.slot_b];
         let uvs_a = &candidates[adjacency.slot_a][selected[adjacency.slot_a]].uvs;
         let uvs_b = &candidates[adjacency.slot_b][selected[adjacency.slot_b]].uvs;
-        worst = worst.max(shared_edge_gap(
+        let gap = shared_edge_gap(
             &surfaces[source_a],
             uvs_a,
             adjacency.edge_a,
             &surfaces[source_b],
             uvs_b,
             adjacency.edge_b,
-        ));
+        );
+        worst = worst.max(gap);
+        total += gap;
     }
-    worst
+    LoopSelectionScore { worst, total }
 }
 
 fn shared_edge_gap(
@@ -290,7 +333,7 @@ fn lerp_uv(a: (f64, f64), b: (f64, f64), t: f64) -> (f64, f64) {
 fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
     let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
     let bases = if edge_count == 4 {
-        rectangular_unit_domain_loops()
+        vec![corners.to_vec()]
     } else if edge_count == 5 {
         (0..4)
             .map(|split| {
@@ -313,6 +356,10 @@ fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
     } else {
         Vec::new()
     };
+    oriented_loop_candidates(bases)
+}
+
+fn oriented_loop_candidates(bases: Vec<Vec<(f64, f64)>>) -> Vec<Vec<(f64, f64)>> {
     let mut candidates = Vec::new();
     for base in bases {
         for shift in 0..base.len() {
@@ -339,26 +386,6 @@ fn boundary_aligned_unit_square_loops(edge_count: usize) -> Vec<Vec<(f64, f64)>>
                     top_extra,
                     left_extra,
                 ]));
-            }
-        }
-    }
-    loops
-}
-
-fn rectangular_unit_domain_loops() -> Vec<Vec<(f64, f64)>> {
-    let splits = [0.0, 0.5, 1.0];
-    let mut loops = Vec::new();
-    for u_min_index in 0..splits.len() {
-        for u_max_index in u_min_index + 1..splits.len() {
-            for v_min_index in 0..splits.len() {
-                for v_max_index in v_min_index + 1..splits.len() {
-                    loops.push(vec![
-                        (splits[u_min_index], splits[v_min_index]),
-                        (splits[u_max_index], splits[v_min_index]),
-                        (splits[u_max_index], splits[v_max_index]),
-                        (splits[u_min_index], splits[v_max_index]),
-                    ]);
-                }
             }
         }
     }
