@@ -26,12 +26,6 @@
 //! for the sphere-fit path, not tests of polar. Tests below mark
 //! this explicitly in their names (`_blunt` = expected sphere-fit;
 //! `_sharp` or unqualified = polar-engaged).
-//!
-//! `pentagon5_mixed` is active after high-valence face-loop
-//! normalization restored the N-edge topology prerequisite before
-//! polar dispatch. Remaining ignored fixtures are either selected
-//! non-polar paths or polar stress cases awaiting the same measured
-//! promotion.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -324,7 +318,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| detail
-            .contains("selected_candidate=pcurve_then_boundary_if_g0_safe")
+            .contains("selected_candidate=pcurve_then_boundary")
             && (detail.contains("repair_status=accepted_non_regressing_final_repair")
                 || detail.contains("repair_status=declined_to_preserve_final_quality"))),
         "hexagon6_mixed support-cell route should emit transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
@@ -340,6 +334,14 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
             .iter()
             .any(|detail| detail.contains("candidate=pcurve_then_boundary_if_g0_safe")),
         "hexagon6_mixed support-cell selector should score the split boundary-safe candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains(
+                "candidate=pcurve_then_boundary_if_g0_safe;candidate_status=accepted_not_selected"
+            ) && detail.contains("operation_status=boundary_kept")),
+        "hexagon6_mixed split candidate should explain its boundary substep outcome; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(

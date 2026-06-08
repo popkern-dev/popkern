@@ -47,7 +47,14 @@ struct SupportCellCompletionSelection {
 struct SupportCellCompletionCandidateScore {
     candidate: SupportCellCompletionCandidate,
     status: &'static str,
+    operation_status: &'static str,
     quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
+}
+
+#[derive(Clone, Copy)]
+struct SupportCellCompletionApplication {
+    operator_succeeded: bool,
+    operation_status: &'static str,
 }
 
 pub(crate) fn complete_corner_patch_support_pcurves(
@@ -100,6 +107,7 @@ fn complete_support_cell_pcurves_transactionally(
                     selected,
                     score.candidate.label(),
                     score.status,
+                    score.operation_status,
                     before,
                     score.quality,
                 ),
@@ -128,10 +136,13 @@ fn select_support_cell_completion_candidate(
     let mut scores = Vec::new();
     for candidate in SupportCellCompletionCandidate::ALL {
         let mut candidate_brep = brep.clone();
-        if !apply_support_cell_completion_candidate(&mut candidate_brep, faces, candidate) {
+        let application =
+            apply_support_cell_completion_candidate(&mut candidate_brep, faces, candidate);
+        if !application.operator_succeeded {
             scores.push(SupportCellCompletionCandidateScore {
                 candidate,
                 status: "operator_failed",
+                operation_status: application.operation_status,
                 quality: before,
             });
             continue;
@@ -151,6 +162,7 @@ fn select_support_cell_completion_candidate(
         scores.push(SupportCellCompletionCandidateScore {
             candidate,
             status,
+            operation_status: application.operation_status,
             quality,
         });
         if status != "accepted_not_selected" {
@@ -179,23 +191,38 @@ fn apply_support_cell_completion_candidate(
     brep: &mut BRep,
     faces: &[popkern_core::topology::FaceHandle],
     candidate: SupportCellCompletionCandidate,
-) -> bool {
+) -> SupportCellCompletionApplication {
     match candidate {
-        SupportCellCompletionCandidate::PcurveOnly => {
-            support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_ok()
-        }
-        SupportCellCompletionCandidate::BoundaryOnly => {
+        SupportCellCompletionCandidate::PcurveOnly => support_cell_operation_result(
+            support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_ok(),
+            "pcurve_authored",
+            "pcurve_operator_failed",
+        ),
+        SupportCellCompletionCandidate::BoundaryOnly => support_cell_operation_result(
             support_cell_boundary_reconcile::reconcile_assigned_support_cell_full_boundaries(
                 brep, faces,
             )
-            .is_ok()
-        }
+            .is_ok(),
+            "boundary_reconciled",
+            "boundary_operator_failed",
+        ),
         SupportCellCompletionCandidate::PcurveThenBoundary => {
-            support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_ok()
-                && support_cell_boundary_reconcile::reconcile_assigned_support_cell_full_boundaries(
+            if support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces)
+                .is_err()
+            {
+                return SupportCellCompletionApplication {
+                    operator_succeeded: false,
+                    operation_status: "pcurve_operator_failed",
+                };
+            }
+            support_cell_operation_result(
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_full_boundaries(
                     brep, faces,
                 )
-                .is_ok()
+                .is_ok(),
+                "pcurve_and_boundary_reconciled",
+                "boundary_operator_failed",
+            )
         }
         SupportCellCompletionCandidate::PcurveThenBoundaryIfG0Safe => {
             apply_boundary_after_pcurve_if_quality_safe(brep, faces)
@@ -203,12 +230,30 @@ fn apply_support_cell_completion_candidate(
     }
 }
 
+fn support_cell_operation_result(
+    operator_succeeded: bool,
+    success_status: &'static str,
+    failure_status: &'static str,
+) -> SupportCellCompletionApplication {
+    SupportCellCompletionApplication {
+        operator_succeeded,
+        operation_status: if operator_succeeded {
+            success_status
+        } else {
+            failure_status
+        },
+    }
+}
+
 fn apply_boundary_after_pcurve_if_quality_safe(
     brep: &mut BRep,
     faces: &[popkern_core::topology::FaceHandle],
-) -> bool {
+) -> SupportCellCompletionApplication {
     if support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_err() {
-        return false;
+        return SupportCellCompletionApplication {
+            operator_succeeded: false,
+            operation_status: "pcurve_operator_failed",
+        };
     }
     let after_pcurve =
         shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
@@ -217,15 +262,30 @@ fn apply_boundary_after_pcurve_if_quality_safe(
         .is_err()
     {
         *brep = before_boundary;
-        return true;
+        return SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status: "boundary_operator_failed_rolled_back",
+        };
     }
     let after_boundary =
         shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     if brep.validate().is_ok() && after_boundary.is_no_worse_than(after_pcurve) {
-        true
+        SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status: "boundary_kept",
+        }
+    } else if brep.validate().is_err() {
+        *brep = before_boundary;
+        SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status: "boundary_invalid_rolled_back",
+        }
     } else {
         *brep = before_boundary;
-        true
+        SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status: "boundary_quality_regressed_rolled_back",
+        }
     }
 }
 
