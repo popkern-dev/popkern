@@ -321,6 +321,25 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         support_cells_per_sector,
         support_cell_dispatch_details
     );
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.support_cell_assembled_quality"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("selected=promoted")
+                            && detail.contains(&format!(
+                                "selected_surface_count={support_piece_count}"
+                            ))
+                            && detail.contains(&format!(
+                                "selected_cells_per_sector={support_cells_per_sector}"
+                            ))
+                            && detail.contains("validation_status=valid")
+                    })
+        )),
+        "hexagon6_mixed support-cell route should emit post-apply assembled quality diagnostics"
+    );
 }
 
 fn support_cell_piece_count(patches: &[popkern_fillet::CornerPatchInfo]) -> Option<usize> {

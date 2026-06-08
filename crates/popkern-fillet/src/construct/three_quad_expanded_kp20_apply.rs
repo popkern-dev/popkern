@@ -13,6 +13,7 @@ use crate::types::{
 use crate::vertex_classifier::VertexBlendClassification;
 use support_cell_transaction::{
     Kp20SupportCellApplyTransactionResult, run_kp20_support_cell_apply_transaction,
+    support_cell_assembled_quality_fact,
 };
 
 #[path = "three_quad_kp20_support_cell_transaction.rs"]
@@ -221,8 +222,35 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
         },
     )?;
     match transaction {
-        Kp20SupportCellApplyTransactionResult::Promoted(result)
-        | Kp20SupportCellApplyTransactionResult::Fallback(result) => Ok(Some(result)),
+        Kp20SupportCellApplyTransactionResult::Promoted(mut result) => {
+            result.diagnostics.push(support_cell_assembled_quality_fact(
+                n_sides,
+                "promoted",
+                promoted_surfaces.len(),
+                cells_per_sector,
+                promoted_surfaces.len(),
+                fallback_surfaces.map(|surfaces| surfaces.len()),
+                "valid",
+                None,
+            ));
+            Ok(Some(result))
+        }
+        Kp20SupportCellApplyTransactionResult::Fallback(mut result) => {
+            let fallback_surface_count = fallback_surfaces
+                .map(|surfaces| surfaces.len())
+                .unwrap_or(result.patches.len());
+            result.diagnostics.push(support_cell_assembled_quality_fact(
+                n_sides,
+                "fallback_four_cell_floor",
+                fallback_surface_count,
+                fallback_surface_count / n_sides,
+                promoted_surfaces.len(),
+                Some(fallback_surface_count),
+                "valid_after_promoted_decline",
+                None,
+            ));
+            Ok(Some(result))
+        }
     }
 }
 

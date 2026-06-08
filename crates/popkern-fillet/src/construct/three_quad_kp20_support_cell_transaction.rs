@@ -102,6 +102,31 @@ fn support_cell_transaction_decline(
     )
 }
 
+pub(super) fn support_cell_assembled_quality_fact(
+    n_sides: usize,
+    selected: &'static str,
+    selected_surface_count: usize,
+    selected_cells_per_sector: usize,
+    promoted_surface_count: usize,
+    fallback_surface_count: Option<usize>,
+    validation_status: &'static str,
+    validation_error: Option<&str>,
+) -> ApexConstructionDiagnostic {
+    let fallback_surface_count = fallback_surface_count
+        .map(|count| count.to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let validation_error = validation_error.unwrap_or("none");
+    crate::construct::kp20_polar_diagnostics::dispatch_fact(
+        "support_cell_assembled_quality",
+        n_sides,
+        Some(format!(
+            "selected={selected};selected_surface_count={selected_surface_count};selected_cells_per_sector={selected_cells_per_sector};promoted_surface_count={promoted_surface_count};fallback_surface_count={fallback_surface_count};validation_status={validation_status};validation_error={validation_error}"
+        )),
+        None,
+        None,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,6 +175,35 @@ mod tests {
             Kp20SupportCellApplyTransactionResult::Fallback("fallback")
         ));
         assert_eq!(state, 2);
+    }
+
+    #[test]
+    fn assembled_quality_fact_records_selected_inventory() {
+        let ApexConstructionDiagnostic::ExactBoundaryCap(cap) = support_cell_assembled_quality_fact(
+            6,
+            "fallback_four_cell_floor",
+            24,
+            4,
+            48,
+            Some(24),
+            "valid_after_promoted_decline",
+            None,
+        ) else {
+            panic!("expected exact-boundary diagnostic");
+        };
+
+        assert_eq!(cap.code, "kp20_polar_macro.dispatch.fact");
+        assert_eq!(
+            cap.stage,
+            "kp20_polar_macro.dispatch.support_cell_assembled_quality"
+        );
+        let detail = cap.detail_code.expect("quality detail");
+        assert!(detail.contains("selected=fallback_four_cell_floor"));
+        assert!(detail.contains("selected_surface_count=24"));
+        assert!(detail.contains("selected_cells_per_sector=4"));
+        assert!(detail.contains("promoted_surface_count=48"));
+        assert!(detail.contains("fallback_surface_count=24"));
+        assert!(detail.contains("validation_status=valid_after_promoted_decline"));
     }
 
     #[test]
