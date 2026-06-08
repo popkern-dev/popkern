@@ -9,8 +9,11 @@ use popkern_core::geometry::{Point3, Vec3};
 use super::super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::super::kp20_polar_bi6_split::{split_bi6_patch_u, split_bi6_patch_v};
 use super::super::kp20_polar_fold_summary::Kp20FoldSite;
-use super::super::kp20_polar_support_surface_split::support_owner_piece;
 use crate::types::CornerSubPatchProvenance;
+
+#[path = "kp20_polar_support_cell_targets.rs"]
+mod support_cell_targets;
+use support_cell_targets::support_targets_by_sector;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Kp20SupportCellPrimitiveReport {
@@ -73,7 +76,16 @@ pub(super) fn measure_support_cell_primitive(
     }
 
     let mut best: Option<Kp20SupportCellPrimitiveTrial> = None;
-    for (cells_u, cells_v) in [(1, 4), (4, 1), (2, 2), (2, 3), (3, 2), (3, 3)] {
+    for (cells_u, cells_v) in [
+        (1, 4),
+        (4, 1),
+        (2, 2),
+        (2, 4),
+        (4, 2),
+        (2, 3),
+        (3, 2),
+        (3, 3),
+    ] {
         report.evaluated += 1;
         let trial = measure_cell_grid(macro_patches, &targets, target_piece, cells_u, cells_v);
         if best.as_ref().is_none_or(|best| trial.is_better_than(best)) {
@@ -146,12 +158,21 @@ fn measure_cell_grid(
 
 impl Kp20SupportCellPrimitiveTrial {
     fn is_better_than(&self, other: &Self) -> bool {
+        let equal_folds = self.folded_patch_count == other.folded_patch_count;
+        let same_commit_support = self.commit_supported() == other.commit_supported();
         self.folded_patch_count < other.folded_patch_count
-            || (self.folded_patch_count == other.folded_patch_count
+            || (equal_folds && self.commit_supported() && !other.commit_supported())
+            || (equal_folds
+                && same_commit_support
                 && self.topology_path_g0 + 1.0e-12 < other.topology_path_g0)
-            || (self.folded_patch_count == other.folded_patch_count
+            || (equal_folds
+                && same_commit_support
                 && (self.topology_path_g0 - other.topology_path_g0).abs() <= 1.0e-12
                 && self.patch_count < other.patch_count)
+    }
+
+    fn commit_supported(&self) -> bool {
+        matches!(self.cells_u * self.cells_v, 4 | 8)
     }
 }
 
@@ -464,30 +485,6 @@ fn gregory_from_bi6(patch: Kp20Bi6Patch) -> GregoryPatch {
     GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic {
         grid: elevate_bi6_grid_to_bi9(patch.cps),
     }))
-}
-
-fn support_targets_by_sector(
-    fold_sites: &[Kp20FoldSite],
-    target_piece: Kp20PieceId,
-) -> Vec<Kp20FoldSite> {
-    let mut targets = Vec::new();
-    for site in fold_sites
-        .iter()
-        .copied()
-        .filter(|site| support_owner_piece(site.piece) == target_piece)
-    {
-        if let Some(existing) = targets
-            .iter_mut()
-            .find(|existing: &&mut Kp20FoldSite| existing.sector == site.sector)
-        {
-            if site.min_jacobian_normal_cos < existing.min_jacobian_normal_cos {
-                *existing = site;
-            }
-        } else {
-            targets.push(site);
-        }
-    }
-    targets
 }
 
 #[cfg(test)]

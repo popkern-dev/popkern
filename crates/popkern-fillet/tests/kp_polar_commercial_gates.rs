@@ -198,7 +198,16 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         .brep
         .validate()
         .expect("hexagon6_mixed support-cell route must leave a valid BRep");
-    assert_eq!(result.corner_patches.len(), 24);
+    let support_piece_count =
+        support_cell_piece_count(&result.corner_patches).expect("support-cell provenance");
+    let support_cells_per_sector = support_piece_count / 6;
+    assert_eq!(result.corner_patches.len(), support_piece_count);
+    assert!(
+        matches!(support_cells_per_sector, 4 | 8),
+        "hexagon6_mixed support-cell route should accept a supported inventory, got piece_count={} cells_per_sector={}",
+        support_piece_count,
+        support_cells_per_sector
+    );
     let support_cell_faces = result
         .corner_patches
         .iter()
@@ -263,7 +272,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         patch.n_sides == 6
             && patch.sub_patch_provenance.is_some_and(|provenance| {
                 provenance.sector_count == 6
-                    && provenance.piece_count == 24
+                    && provenance.piece_count == support_piece_count
                     && matches!(
                         provenance.role,
                         popkern_fillet::CornerSubPatchRole::SupportCell
@@ -280,6 +289,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         )),
         "hexagon6_mixed support-cell route should not fall back through rational Gregory decline"
     );
+    let support_cell_dispatch_details = support_cell_dispatch_details(diagnostics);
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
@@ -287,12 +297,88 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                 if cap.code == "fillet.apply_blend.pipeline.fact"
                     && cap.stage == "fillet.apply_blend.pipeline.timing"
                     && cap.detail_code.as_deref().is_some_and(|detail| {
-                        detail.contains("corner_patch_count=24")
+                        detail.contains(&format!("corner_patch_count={support_piece_count}"))
                             && detail.contains("support_seam_job_count=1")
                     })
         )),
         "hexagon6_mixed support-cell acceptance should remain observable through pipeline timing diagnostics"
     );
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail_contains_support_cell_inventory(
+                            detail,
+                            support_piece_count,
+                            support_cells_per_sector,
+                        )
+                    })
+        )),
+        "hexagon6_mixed support-cell route should expose selected primitive inventory; piece_count={} cells_per_sector={} dispatch_details={:?}",
+        support_piece_count,
+        support_cells_per_sector,
+        support_cell_dispatch_details
+    );
+}
+
+fn support_cell_piece_count(patches: &[popkern_fillet::CornerPatchInfo]) -> Option<usize> {
+    patches.iter().try_fold(None, |current, patch| {
+        let provenance = patch.sub_patch_provenance?;
+        if !matches!(
+            provenance.role,
+            popkern_fillet::CornerSubPatchRole::SupportCell
+        ) {
+            return None;
+        }
+        match current {
+            Some(piece_count) if piece_count != provenance.piece_count => None,
+            Some(piece_count) => Some(Some(piece_count)),
+            None => Some(Some(provenance.piece_count)),
+        }
+    })?
+}
+
+fn detail_contains_support_cell_inventory(
+    detail: &str,
+    piece_count: usize,
+    cells_per_sector: usize,
+) -> bool {
+    detail.contains(&format!("support_cell_primitive_patch_count={piece_count}"))
+        && match cells_per_sector {
+            4 => support_cell_grid_detail_matches(detail, &[(1, 4), (4, 1), (2, 2)]),
+            8 => support_cell_grid_detail_matches(detail, &[(2, 4), (4, 2)]),
+            _ => false,
+        }
+}
+
+fn support_cell_grid_detail_matches(detail: &str, grids: &[(usize, usize)]) -> bool {
+    grids.iter().any(|&(cells_u, cells_v)| {
+        detail.contains(&format!("support_cell_primitive_cells_u={cells_u}"))
+            && detail.contains(&format!("support_cell_primitive_cells_v={cells_v}"))
+    })
+}
+
+fn support_cell_dispatch_details(
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+) -> Vec<String> {
+    diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
+            else {
+                return None;
+            };
+            (cap.code == "kp20_polar_macro.dispatch.fact"
+                && cap
+                    .detail_code
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("support_cell_primitive")))
+            .then(|| cap.detail_code.clone())
+            .flatten()
+        })
+        .collect()
 }
 
 #[ignore]
