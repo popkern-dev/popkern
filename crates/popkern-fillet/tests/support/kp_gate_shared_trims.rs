@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -13,6 +13,7 @@ pub struct SharedTrimMetrics {
     pub worst_source_pair: Option<(usize, usize)>,
     pub worst_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
     pub worst_pair_best_boundary_gap: f64,
+    pub max_boundary_row_shared_trim_count: usize,
     pub worst_abs_uv: f64,
     pub worst_g0_gap: f64,
     pub worst_normal_disagreement: f64,
@@ -43,10 +44,12 @@ pub fn measure_shared_gregory_trims_with_sources(
         worst_source_pair: None,
         worst_uv_edges: None,
         worst_pair_best_boundary_gap: f64::INFINITY,
+        max_boundary_row_shared_trim_count: 0,
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
     };
+    let mut boundary_row_counts = HashMap::new();
     for &face in faces {
         let Some(face_data) = brep.faces.get(face) else {
             continue;
@@ -77,6 +80,7 @@ pub fn measure_shared_gregory_trims_with_sources(
                         n_samples,
                         face_sources,
                         &mut metrics,
+                        &mut boundary_row_counts,
                     );
                 }
             }
@@ -98,6 +102,7 @@ fn measure_shared_trim_pair(
     n_samples: usize,
     face_sources: &[(FaceHandle, usize)],
     metrics: &mut SharedTrimMetrics,
+    boundary_row_counts: &mut HashMap<(FaceHandle, u8), usize>,
 ) {
     let Some(surface_a) = brep.faces[face_a].surface.as_ref() else {
         return;
@@ -117,6 +122,8 @@ fn measure_shared_trim_pair(
         return;
     };
     metrics.shared_trim_count += 1;
+    record_boundary_row_count(metrics, boundary_row_counts, face_a, pcurve_a);
+    record_boundary_row_count(metrics, boundary_row_counts, face_b, pcurve_b);
     record_pcurve_span(metrics, pcurve_a, pcurve_b, face_sources, face_a, face_b);
     for index in 0..n_samples {
         let fraction = if n_samples <= 1 {
@@ -145,6 +152,44 @@ fn measure_shared_trim_pair(
                 metrics.worst_normal_disagreement.max(1.0 - a.dot(&b).abs());
         }
     }
+}
+
+fn record_boundary_row_count(
+    metrics: &mut SharedTrimMetrics,
+    boundary_row_counts: &mut HashMap<(FaceHandle, u8), usize>,
+    face: FaceHandle,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+) {
+    let Some(row) = boundary_row(pcurve) else {
+        return;
+    };
+    let count = boundary_row_counts
+        .entry((face, row))
+        .and_modify(|count| *count += 1)
+        .or_insert(1);
+    metrics.max_boundary_row_shared_trim_count =
+        metrics.max_boundary_row_shared_trim_count.max(*count);
+}
+
+fn boundary_row(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> Option<u8> {
+    let (t0, t1) = pcurve.parameter_range();
+    let start = pcurve.point_at(t0);
+    let end = pcurve.point_at(t1);
+    if close(start.x, 0.0) && close(end.x, 0.0) {
+        Some(0)
+    } else if close(start.x, 1.0) && close(end.x, 1.0) {
+        Some(1)
+    } else if close(start.y, 0.0) && close(end.y, 0.0) {
+        Some(2)
+    } else if close(start.y, 1.0) && close(end.y, 1.0) {
+        Some(3)
+    } else {
+        None
+    }
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1.0e-9
 }
 
 fn best_surface_boundary_gap(surface_a: &SurfaceGeometry, surface_b: &SurfaceGeometry) -> f64 {

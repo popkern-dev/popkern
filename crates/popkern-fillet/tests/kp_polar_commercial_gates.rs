@@ -246,12 +246,18 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     );
     assert!(
         trim_metrics.worst_g0_gap <= 2.0e-3,
-        "hexagon6_mixed support-cell shared-trim G0 should stay bounded after segment-aware reconciliation; g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} worst_source_pair={:?} worst_uv_edges={:?}",
+        "hexagon6_mixed support-cell shared-trim G0 should stay bounded after segment-aware reconciliation; g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} max_row_trim_count={} worst_source_pair={:?} worst_uv_edges={:?}",
         trim_metrics.worst_g0_gap,
         trim_metrics.worst_normal_disagreement,
         trim_metrics.worst_pair_best_boundary_gap,
+        trim_metrics.max_boundary_row_shared_trim_count,
         trim_metrics.worst_source_pair,
         trim_metrics.worst_uv_edges
+    );
+    assert!(
+        trim_metrics.max_boundary_row_shared_trim_count >= 2,
+        "hexagon6_mixed support-cell residual should expose multi-trim boundary-row ownership; max_row_trim_count={}",
+        trim_metrics.max_boundary_row_shared_trim_count
     );
     assert!(result.corner_patches.iter().all(|patch| {
         patch.n_sides == 6
