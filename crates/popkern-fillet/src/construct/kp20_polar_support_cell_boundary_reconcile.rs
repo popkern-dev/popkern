@@ -9,6 +9,9 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_segment_transfer.rs"]
+mod segment_transfer;
+
 #[derive(Debug, Clone, Copy)]
 struct FullBoundaryTrim {
     face_a: FaceHandle,
@@ -22,7 +25,7 @@ struct FullBoundaryTrim {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum BoundarySide {
+pub(super) enum BoundarySide {
     UMin,
     UMax,
     VMin,
@@ -120,6 +123,23 @@ fn reconcile_full_boundary_trim(brep: &mut BRep, trim: FullBoundaryTrim) -> Resu
     let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
     let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
     let before_gap = trim_gap(&patch_a, &patch_b, trim);
+    if let Some((candidate_a, candidate_b)) = segment_transfer::exact_segment_transfer_candidate(
+        &patch_a,
+        trim.side_a,
+        trim.start_a,
+        trim.end_a,
+        &patch_b,
+        trim.side_b,
+        trim.start_b,
+        trim.end_b,
+    ) {
+        let after_gap = trim_gap(&candidate_a, &candidate_b, trim);
+        if after_gap + 1.0e-12 < before_gap {
+            set_rectangular_binonic_on_face(brep, trim.face_a, candidate_a)?;
+            set_rectangular_binonic_on_face(brep, trim.face_b, candidate_b)?;
+            return Ok(());
+        }
+    }
     let mut candidate_a = patch_a.clone();
     let mut candidate_b = patch_b.clone();
     let mut params_a = [0.0; 10];
