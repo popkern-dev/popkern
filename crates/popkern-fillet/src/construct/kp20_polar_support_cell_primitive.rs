@@ -237,7 +237,7 @@ fn measure_cell_grid_mode(
         folded_patch_count,
         cells_u,
         cells_v,
-        topology_path_g0: support_cell_topology_path_g0(&emitted_patches, cells_u * cells_v),
+        topology_path_g0: support_cell_topology_path_g0(&emitted_patches, cells_u, cells_v),
         construction_mode,
         emitted_patches,
         emitted_provenance,
@@ -266,20 +266,43 @@ impl SupportCellPatchSide {
     }
 }
 
-fn support_cell_topology_path_g0(patches: &[GregoryPatch], sector_patch_count: usize) -> f64 {
-    if sector_patch_count != 4 || patches.is_empty() {
+fn support_cell_topology_path_g0(patches: &[GregoryPatch], cells_u: usize, cells_v: usize) -> f64 {
+    let sector_patch_count = cells_u.saturating_mul(cells_v);
+    if cells_u == 0
+        || cells_v == 0
+        || sector_patch_count == 0
+        || patches.is_empty()
+        || patches.len() % sector_patch_count != 0
+    {
         return f64::INFINITY;
     }
     let mut worst = 0.0_f64;
-    for sector_patches in patches.chunks_exact(4) {
-        for &(left, right) in &[(0, 1), (1, 3), (3, 2)] {
-            worst = worst.max(best_boundary_gap(
-                &sector_patches[left],
-                &sector_patches[right],
-            ));
+    for sector_patches in patches.chunks_exact(sector_patch_count) {
+        for u in 0..cells_u {
+            for v in 0..cells_v {
+                let index = support_cell_grid_index(u, v, cells_v);
+                if u + 1 < cells_u {
+                    let next_u = support_cell_grid_index(u + 1, v, cells_v);
+                    worst = worst.max(best_boundary_gap(
+                        &sector_patches[index],
+                        &sector_patches[next_u],
+                    ));
+                }
+                if v + 1 < cells_v {
+                    let next_v = support_cell_grid_index(u, v + 1, cells_v);
+                    worst = worst.max(best_boundary_gap(
+                        &sector_patches[index],
+                        &sector_patches[next_v],
+                    ));
+                }
+            }
         }
     }
     worst
+}
+
+fn support_cell_grid_index(u: usize, v: usize, cells_v: usize) -> usize {
+    u * cells_v + v
 }
 
 fn best_boundary_gap(a: &GregoryPatch, b: &GregoryPatch) -> f64 {
@@ -466,3 +489,7 @@ fn support_targets_by_sector(
     }
     targets
 }
+
+#[cfg(test)]
+#[path = "kp20_polar_support_cell_primitive_tests.rs"]
+mod tests;
