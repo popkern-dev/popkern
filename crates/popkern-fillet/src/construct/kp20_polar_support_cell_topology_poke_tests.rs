@@ -1,4 +1,5 @@
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
@@ -146,6 +147,7 @@ fn eight_cell_commit_attaches_surfaces_and_pcurves() {
             .iter()
             .all(|face| outer_loop_has_pcurves(&brep, *face))
     );
+    assert_shared_edge_curves_match_topology_vertices(&brep, &commit.support_cell_faces);
     brep.validate()
         .expect("eight-cell support-cell commit leaves valid BRep");
 }
@@ -173,4 +175,43 @@ fn outer_loop_has_pcurves(brep: &BRep, face: FaceHandle) -> bool {
         }
     }
     false
+}
+
+fn assert_shared_edge_curves_match_topology_vertices(brep: &BRep, faces: &[FaceHandle]) {
+    let mut checked = 0;
+    for &face in faces {
+        let start = brep.loops[brep.faces[face].outer_loop].half_edge;
+        let mut cursor = start;
+        for _ in 0..brep.half_edges.len().max(1) {
+            let twin = brep.half_edges[cursor].twin;
+            let other_face = brep.loops[brep.half_edges[twin].loop_].face;
+            let edge = brep.half_edges[cursor].edge;
+            if faces.contains(&other_face) && brep.edges[edge].half_edge == cursor {
+                let canonical_twin = brep.half_edges[cursor].twin;
+                let start_vertex = brep.half_edges[cursor].origin;
+                let end_vertex = brep.half_edges[canonical_twin].origin;
+                let curve = brep.edges[edge].curve.as_ref().expect("shared edge curve");
+                assert!(
+                    curve
+                        .geometry
+                        .point_at(curve.t_start)
+                        .distance_to(&brep.vertices[start_vertex].position)
+                        <= 1.0e-9
+                );
+                assert!(
+                    curve
+                        .geometry
+                        .point_at(curve.t_end)
+                        .distance_to(&brep.vertices[end_vertex].position)
+                        <= 1.0e-9
+                );
+                checked += 1;
+            }
+            cursor = brep.half_edges[cursor].next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    assert!(checked > 0, "expected support-cell shared edges");
 }

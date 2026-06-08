@@ -2,6 +2,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -42,6 +43,7 @@ pub(crate) fn reconcile_support_cell_full_boundaries(
     for trim in trims {
         reconcile_full_boundary_trim(brep, trim)?;
     }
+    reauthor_support_cell_shared_edge_curves(brep, slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
             "kp20 support-cell boundary reconciliation produced invalid BRep: {error}"
@@ -119,6 +121,51 @@ fn full_boundary_trims(
         }
     }
     Ok(out)
+}
+
+fn reauthor_support_cell_shared_edge_curves(
+    brep: &mut BRep,
+    slots: &[Kp20ExpandedSupportSurfaceSlot],
+) -> Result<(), CoreError> {
+    for (slot_a, slot) in slots.iter().enumerate() {
+        for &half_edge in &face_outer_half_edges(brep, slot.face)? {
+            let twin = brep.half_edges[half_edge].twin;
+            let Some(face_b) = brep
+                .loops
+                .get(brep.half_edges[twin].loop_)
+                .map(|loop_| loop_.face)
+            else {
+                continue;
+            };
+            let Some(slot_b) = slots.iter().position(|slot| slot.face == face_b) else {
+                continue;
+            };
+            if slot_b <= slot_a {
+                continue;
+            }
+            reauthor_edge_curve_from_topology_vertices(brep, half_edge)?;
+        }
+    }
+    Ok(())
+}
+
+fn reauthor_edge_curve_from_topology_vertices(
+    brep: &mut BRep,
+    half_edge: HalfEdgeHandle,
+) -> Result<(), CoreError> {
+    let edge = brep.half_edges[half_edge].edge;
+    let canonical = brep.edges[edge].half_edge;
+    let twin = brep.half_edges[canonical].twin;
+    let start = brep.vertices[brep.half_edges[canonical].origin].position;
+    let end = brep.vertices[brep.half_edges[twin].origin].position;
+    let tolerance = brep.tolerance.linear().max(1.0e-12);
+    let Some(curve) = CurveOnEdge::line_segment(start, end, tolerance) else {
+        return Err(CoreError::PreconditionFailed(
+            "kp20 support-cell boundary reconciliation found degenerate shared edge".into(),
+        ));
+    };
+    brep.edges[edge].curve = Some(curve);
+    Ok(())
 }
 
 fn reconcile_full_boundary_trim(brep: &mut BRep, trim: FullBoundaryTrim) -> Result<(), CoreError> {
