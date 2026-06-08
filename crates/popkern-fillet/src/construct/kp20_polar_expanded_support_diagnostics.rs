@@ -69,7 +69,7 @@ pub(super) fn expanded_support_topology_detail(
     report: &Kp20ExpandedSupportTopologyReport,
 ) -> String {
     format!(
-        ";{label}_evaluated={};{label}_accepted={};{label}_rejected={};{label}_start_folds={};{label}_measured_folds={};{label}_retained_macro_folds={};{label}_expanded_patch_folds={};{label}_target_piece={:?};{label}_target_sector={};{label}_emitted_patch_count={};{label}_measured_patch_count={};{label}_topology_face_count={};{label}_topology_pentagon_count={};{label}_topology_alignment={};{label}_split_parameter={:.3};{label}_fragment_rebuild={};{label}_support_lane_reauthor={};{label}_support_lane_reauthor_scale={};{label}_support_cell_primitive_evaluated={};{label}_support_cell_primitive_target_count={};{label}_support_cell_primitive_patch_count={};{label}_support_cell_primitive_folded_patch_count={};{label}_support_cell_primitive_cells_u={};{label}_support_cell_primitive_cells_v={};{label}_support_cell_primitive_mode={};{label}_support_cell_primitive_target_piece={:?};{label}_support_cell_primitive_decline_reason={};{label}_macro_fragment_folds={};{label}_support_boundary_lane_folds={};{label}_support_interior_lane_folds={};{label}_worst_fold_role={};{label}_worst_fold_sector={};{label}_worst_fold_patch={};{label}_worst_fold_normal_cos={};{label}_decline_reason={}",
+        ";{label}_evaluated={};{label}_accepted={};{label}_rejected={};{label}_start_folds={};{label}_measured_folds={};{label}_retained_macro_folds={};{label}_expanded_patch_folds={};{label}_target_piece={:?};{label}_target_sector={};{label}_emitted_patch_count={};{label}_measured_patch_count={};{label}_topology_face_count={};{label}_topology_pentagon_count={};{label}_topology_alignment={};{label}_split_parameter={:.3};{label}_fragment_rebuild={};{label}_support_lane_reauthor={};{label}_support_lane_reauthor_scale={};{label}_support_cell_primitive_evaluated={};{label}_support_cell_primitive_target_count={};{label}_support_cell_primitive_patch_count={};{label}_support_cell_primitive_folded_patch_count={};{label}_support_cell_primitive_cells_u={};{label}_support_cell_primitive_cells_v={};{label}_support_cell_primitive_topology_path_g0={:.6e};{label}_support_cell_primitive_mode={};{label}_support_cell_primitive_target_piece={:?};{label}_support_cell_primitive_decline_reason={};{label}_macro_fragment_folds={};{label}_support_boundary_lane_folds={};{label}_support_interior_lane_folds={};{label}_worst_fold_role={};{label}_worst_fold_sector={};{label}_worst_fold_patch={};{label}_worst_fold_normal_cos={};{label}_decline_reason={}",
         report.evaluated,
         report.accepted,
         report.rejected,
@@ -94,6 +94,7 @@ pub(super) fn expanded_support_topology_detail(
         report.support_cell_primitive.folded_patch_count,
         report.support_cell_primitive.cells_u,
         report.support_cell_primitive.cells_v,
+        report.support_cell_primitive.topology_path_g0,
         report.support_cell_primitive.construction_mode,
         report.support_cell_primitive.target_piece,
         report.support_cell_primitive.decline_reason,

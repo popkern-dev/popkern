@@ -20,6 +20,7 @@ pub(crate) struct Kp20SupportCellPrimitiveReport {
     pub(crate) folded_patch_count: usize,
     pub(crate) cells_u: usize,
     pub(crate) cells_v: usize,
+    pub(crate) topology_path_g0: f64,
     pub(crate) construction_mode: &'static str,
     pub(crate) target_piece: Kp20PieceId,
     pub(crate) emitted_patches: Vec<GregoryPatch>,
@@ -36,6 +37,7 @@ impl Default for Kp20SupportCellPrimitiveReport {
             folded_patch_count: 0,
             cells_u: 0,
             cells_v: 0,
+            topology_path_g0: f64::INFINITY,
             construction_mode: "none",
             target_piece: Kp20PieceId::NearMidpointLeft,
             emitted_patches: Vec::new(),
@@ -58,6 +60,7 @@ pub(super) fn measure_support_cell_primitive(
         folded_patch_count: 0,
         cells_u: 0,
         cells_v: 0,
+        topology_path_g0: f64::INFINITY,
         construction_mode: "none",
         target_piece,
         emitted_patches: Vec::new(),
@@ -70,16 +73,11 @@ pub(super) fn measure_support_cell_primitive(
     }
 
     let mut best: Option<Kp20SupportCellPrimitiveTrial> = None;
-    for cells_u in [2, 3] {
-        for cells_v in [2, 3] {
-            report.evaluated += 1;
-            let trial = measure_cell_grid(macro_patches, &targets, target_piece, cells_u, cells_v);
-            if best
-                .as_ref()
-                .is_none_or(|best| trial.folded_patch_count < best.folded_patch_count)
-            {
-                best = Some(trial);
-            }
+    for (cells_u, cells_v) in [(1, 4), (4, 1), (2, 2), (2, 3), (3, 2), (3, 3)] {
+        report.evaluated += 1;
+        let trial = measure_cell_grid(macro_patches, &targets, target_piece, cells_u, cells_v);
+        if best.as_ref().is_none_or(|best| trial.is_better_than(best)) {
+            best = Some(trial);
         }
     }
     let Some(best) = best else {
@@ -89,6 +87,7 @@ pub(super) fn measure_support_cell_primitive(
     report.folded_patch_count = best.folded_patch_count;
     report.cells_u = best.cells_u;
     report.cells_v = best.cells_v;
+    report.topology_path_g0 = best.topology_path_g0;
     report.construction_mode = best.construction_mode.label();
     report.emitted_patches = best.emitted_patches;
     report.emitted_provenance = best.emitted_provenance;
@@ -106,6 +105,7 @@ struct Kp20SupportCellPrimitiveTrial {
     folded_patch_count: usize,
     cells_u: usize,
     cells_v: usize,
+    topology_path_g0: f64,
     construction_mode: Kp20SupportCellConstructionMode,
     emitted_patches: Vec<GregoryPatch>,
     emitted_provenance: Vec<CornerSubPatchProvenance>,
@@ -123,6 +123,7 @@ fn measure_cell_grid(
         folded_patch_count: usize::MAX,
         cells_u,
         cells_v,
+        topology_path_g0: f64::INFINITY,
         construction_mode: Kp20SupportCellConstructionMode::InheritedCellBoundary,
         emitted_patches: Vec::new(),
         emitted_provenance: Vec::new(),
@@ -136,11 +137,22 @@ fn measure_cell_grid(
             cells_v,
             construction_mode,
         );
-        if trial.folded_patch_count < best.folded_patch_count {
+        if trial.is_better_than(&best) {
             best = trial;
         }
     }
     best
+}
+
+impl Kp20SupportCellPrimitiveTrial {
+    fn is_better_than(&self, other: &Self) -> bool {
+        self.folded_patch_count < other.folded_patch_count
+            || (self.folded_patch_count == other.folded_patch_count
+                && self.topology_path_g0 + 1.0e-12 < other.topology_path_g0)
+            || (self.folded_patch_count == other.folded_patch_count
+                && (self.topology_path_g0 - other.topology_path_g0).abs() <= 1.0e-12
+                && self.patch_count < other.patch_count)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -225,6 +237,7 @@ fn measure_cell_grid_mode(
         folded_patch_count,
         cells_u,
         cells_v,
+        topology_path_g0: support_cell_topology_path_g0(&emitted_patches, cells_u * cells_v),
         construction_mode,
         emitted_patches,
         emitted_provenance,
@@ -237,6 +250,74 @@ fn support_cells(base: &Kp20Bi6Patch, cells_u: usize, cells_v: usize) -> Vec<Kp2
         cells.extend(split_uniform_v(&u_band, cells_v));
     }
     cells
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SupportCellPatchSide {
+    UMin,
+    UMax,
+    VMin,
+    VMax,
+}
+
+impl SupportCellPatchSide {
+    fn all() -> [Self; 4] {
+        [Self::UMin, Self::UMax, Self::VMin, Self::VMax]
+    }
+}
+
+fn support_cell_topology_path_g0(patches: &[GregoryPatch], sector_patch_count: usize) -> f64 {
+    if sector_patch_count != 4 || patches.is_empty() {
+        return f64::INFINITY;
+    }
+    let mut worst = 0.0_f64;
+    for sector_patches in patches.chunks_exact(4) {
+        for &(left, right) in &[(0, 1), (1, 3), (3, 2)] {
+            worst = worst.max(best_boundary_gap(
+                &sector_patches[left],
+                &sector_patches[right],
+            ));
+        }
+    }
+    worst
+}
+
+fn best_boundary_gap(a: &GregoryPatch, b: &GregoryPatch) -> f64 {
+    let mut best = f64::INFINITY;
+    for side_a in SupportCellPatchSide::all() {
+        for side_b in SupportCellPatchSide::all() {
+            best = best.min(boundary_gap(a, side_a, b, side_b, false));
+            best = best.min(boundary_gap(a, side_a, b, side_b, true));
+        }
+    }
+    best
+}
+
+fn boundary_gap(
+    a: &GregoryPatch,
+    side_a: SupportCellPatchSide,
+    b: &GregoryPatch,
+    side_b: SupportCellPatchSide,
+    reversed: bool,
+) -> f64 {
+    let mut worst = 0.0_f64;
+    for index in 0..9 {
+        let t = index as f64 / 8.0;
+        let other_t = if reversed { 1.0 - t } else { t };
+        let pa = eval_side(a, side_a, t);
+        let pb = eval_side(b, side_b, other_t);
+        worst = worst.max(pa.distance_to(&pb));
+    }
+    worst
+}
+
+fn eval_side(patch: &GregoryPatch, side: SupportCellPatchSide, t: f64) -> Point3 {
+    match side {
+        SupportCellPatchSide::UMin => patch.point_at(0.0, t),
+        SupportCellPatchSide::UMax => patch.point_at(1.0, t),
+        SupportCellPatchSide::VMin => patch.point_at(t, 0.0),
+        SupportCellPatchSide::VMax => patch.point_at(t, 1.0),
+    }
 }
 
 fn split_uniform_u(base: &Kp20Bi6Patch, count: usize) -> Vec<Kp20Bi6Patch> {
