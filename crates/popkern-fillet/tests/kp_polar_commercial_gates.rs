@@ -349,6 +349,10 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                     && cap.detail_code.as_deref().is_some_and(|detail| {
                         detail.contains("selected=promoted")
                             && detail.contains("measurement_scope=final_post_pipeline")
+                            && detail
+                                .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
+                            && detail.contains("current_g0_budget=2.000000000000000e-3")
+                            && detail.contains("commercial_g0_target=1.000000000000000e-10")
                             && detail.contains(&format!(
                                 "shared_trim_count={}",
                                 trim_metrics.shared_trim_count

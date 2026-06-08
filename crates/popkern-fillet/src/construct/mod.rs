@@ -45,7 +45,7 @@ mod kp20_polar_multipatch_strip;
 mod kp20_polar_multipatch_strip_optimize;
 mod kp20_polar_multipatch_topology_split;
 mod kp20_polar_multipatch_validate;
-mod kp20_polar_support_cell_shared_trim_quality;
+pub(crate) mod kp20_polar_support_cell_shared_trim_quality;
 mod kp20_polar_support_image;
 mod kp20_polar_support_image_ownership;
 mod kp20_polar_support_image_params;
@@ -476,11 +476,6 @@ pub fn apply_blend_geometry(
         })
     });
     pipeline_timing.post_pipeline_ms = ms;
-    kp20_polar_support_cell_shared_trim_quality::append_final_support_cell_shared_trim_quality(
-        &result,
-        &corner_patches,
-        &mut repair_report.apex_diagnostics,
-    );
     repair_report
         .apex_diagnostics
         .push(pipeline_timing.diagnostic(

@@ -348,8 +348,6 @@ fn fillet_edges_internal(
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
-    // Clamp regenerated pcurves to bounded UV domains so Gregory
-    // and analytic bounded surfaces are not evaluated outside their range.
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
         BlendError::PartialFailure {
@@ -382,6 +380,11 @@ fn fillet_edges_internal(
     construct::corner_patch_support_completion::complete_corner_patch_support_pcurves(
         &mut apply_result.brep,
         &apply_result.corner_patches,
+    );
+    construct::kp20_polar_support_cell_shared_trim_quality::append_final_support_cell_shared_trim_quality(
+        &apply_result.brep,
+        &apply_result.corner_patches,
+        &mut apply_result.repair_report.apex_diagnostics,
     );
     emit!(
         progress::FilletPhase::RepairPcurves,

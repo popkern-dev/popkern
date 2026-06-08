@@ -8,6 +8,9 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRole};
 
+const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 2.0e-3;
+const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) shared_trim_count: usize,
@@ -80,11 +83,15 @@ pub(super) fn support_cell_shared_trim_quality_fact(
     measurement_scope: &'static str,
     quality: Kp20SupportCellSharedTrimQuality,
 ) -> ApexConstructionDiagnostic {
+    let classification = classify_support_cell_shared_trim_quality(quality);
     crate::construct::kp20_polar_diagnostics::dispatch_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e}",
+            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e}",
+            CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
+            COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
+            classification.status,
             quality.shared_trim_count,
             quality.pcurve_out_of_unit_count,
             quality.degenerate_pcurve_count,
@@ -98,7 +105,30 @@ pub(super) fn support_cell_shared_trim_quality_fact(
     )
 }
 
-pub(super) fn append_final_support_cell_shared_trim_quality(
+struct Kp20SupportCellSharedTrimQualityClassification {
+    status: &'static str,
+}
+
+fn classify_support_cell_shared_trim_quality(
+    quality: Kp20SupportCellSharedTrimQuality,
+) -> Kp20SupportCellSharedTrimQualityClassification {
+    let domain_valid =
+        quality.pcurve_out_of_unit_count == 0 && quality.degenerate_pcurve_count == 0;
+    let current_g0_valid = quality.worst_g0_gap <= CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET;
+    let commercial_g0_valid = quality.worst_g0_gap <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET;
+    let status = if !domain_valid {
+        "pcurve_domain_invalid"
+    } else if !current_g0_valid {
+        "current_g0_budget_exceeded"
+    } else if !commercial_g0_valid {
+        "current_budget_pass_commercial_g0_exceeded"
+    } else {
+        "commercial_g0_pass"
+    };
+    Kp20SupportCellSharedTrimQualityClassification { status }
+}
+
+pub(crate) fn append_final_support_cell_shared_trim_quality(
     brep: &BRep,
     corner_patches: &[CornerPatchInfo],
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
