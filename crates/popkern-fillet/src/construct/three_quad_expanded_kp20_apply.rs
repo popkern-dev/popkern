@@ -12,8 +12,8 @@ use crate::types::{
 };
 use crate::vertex_classifier::VertexBlendClassification;
 use support_cell_transaction::{
-    Kp20SupportCellApplyTransactionResult, run_kp20_support_cell_apply_transaction,
-    support_cell_assembled_quality_fact,
+    Kp20SupportCellApplyTransactionResult, Kp20SupportCellValidationFailure,
+    run_kp20_support_cell_apply_transaction, support_cell_assembled_quality_fact,
 };
 
 #[path = "three_quad_kp20_support_cell_transaction.rs"]
@@ -198,7 +198,10 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                 },
             )
         },
-        |brep| brep.validate().map_err(|error| format!("{error:?}")),
+        |brep| {
+            brep.validate()
+                .map_err(Kp20SupportCellValidationFailure::from)
+        },
         |brep, diagnostic| {
             let Some(floor_surfaces) = fallback_surfaces else {
                 return Err("KP20 support-cell fallback surfaces missing".to_string());

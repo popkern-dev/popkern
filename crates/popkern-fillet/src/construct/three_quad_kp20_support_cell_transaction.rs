@@ -1,9 +1,68 @@
+use popkern_core::error::ValidationError;
+
 use crate::types::ApexConstructionDiagnostic;
 
 #[derive(Debug)]
 pub(super) enum Kp20SupportCellApplyTransactionResult<T> {
     Promoted(T),
     Fallback(T),
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct Kp20SupportCellValidationFailure {
+    kind: &'static str,
+    class: &'static str,
+    detail: String,
+    edge: Option<String>,
+    gap: Option<f64>,
+}
+
+impl Kp20SupportCellValidationFailure {
+    fn construction(error: String) -> Self {
+        Self {
+            kind: "ConstructionError",
+            class: "construction_commit_failure",
+            detail: error,
+            edge: None,
+            gap: None,
+        }
+    }
+
+    #[cfg(test)]
+    fn shell_gap_for_test(edge: &str, gap: f64) -> Self {
+        Self {
+            kind: "ShellGap",
+            class: "shared_boundary_geometry_mismatch",
+            detail: format!("ShellGap {{ edge: {edge}, gap: {gap} }}"),
+            edge: Some(edge.to_string()),
+            gap: Some(gap),
+        }
+    }
+
+    fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
+impl From<ValidationError> for Kp20SupportCellValidationFailure {
+    fn from(error: ValidationError) -> Self {
+        match error {
+            ValidationError::ShellGap { edge, gap } => Self {
+                kind: "ShellGap",
+                class: "shared_boundary_geometry_mismatch",
+                detail: format!("ShellGap {{ edge: {edge:?}, gap: {gap} }}"),
+                edge: Some(format!("{edge:?}")),
+                gap: Some(gap),
+            },
+            other => Self {
+                kind: validation_error_kind(&other),
+                class: validation_error_class(&other),
+                detail: format!("{other:?}"),
+                edge: None,
+                gap: None,
+            },
+        }
+    }
 }
 
 pub(super) fn run_kp20_support_cell_apply_transaction<S: Clone, T>(
@@ -13,7 +72,7 @@ pub(super) fn run_kp20_support_cell_apply_transaction<S: Clone, T>(
     promoted_cells_per_sector: usize,
     fallback_surface_count: Option<usize>,
     apply_promoted: impl FnOnce(&mut S) -> Result<T, String>,
-    validate: impl Fn(&S) -> Result<(), String>,
+    validate: impl Fn(&S) -> Result<(), Kp20SupportCellValidationFailure>,
     apply_fallback: impl FnOnce(&mut S, ApexConstructionDiagnostic) -> Result<T, String>,
 ) -> Result<Kp20SupportCellApplyTransactionResult<T>, String> {
     let before_promoted = state.clone();
@@ -42,7 +101,7 @@ pub(super) fn run_kp20_support_cell_apply_transaction<S: Clone, T>(
                 promoted_surface_count,
                 promoted_cells_per_sector,
                 fallback_surface_count,
-                error,
+                Kp20SupportCellValidationFailure::construction(error),
                 apply_fallback,
                 validate,
             )
@@ -56,18 +115,20 @@ fn run_support_cell_fallback<S: Clone, T>(
     promoted_surface_count: usize,
     promoted_cells_per_sector: usize,
     fallback_surface_count: Option<usize>,
-    error: String,
+    error: Kp20SupportCellValidationFailure,
     apply_fallback: impl FnOnce(&mut S, ApexConstructionDiagnostic) -> Result<T, String>,
-    validate: impl Fn(&S) -> Result<(), String>,
+    validate: impl Fn(&S) -> Result<(), Kp20SupportCellValidationFailure>,
 ) -> Result<Kp20SupportCellApplyTransactionResult<T>, String> {
     if promoted_cells_per_sector != 8 {
         return Err(format!(
-            "KP20 support-cell commit left invalid BRep: {error}"
+            "KP20 support-cell commit left invalid BRep: {}",
+            error.detail()
         ));
     }
     let Some(fallback_surface_count) = fallback_surface_count else {
         return Err(format!(
-            "KP20 eight-cell support-cell commit left invalid BRep and no four-cell floor was available: {error}"
+            "KP20 eight-cell support-cell commit left invalid BRep and no four-cell floor was available: {}",
+            error.detail()
         ));
     };
     let before_fallback = state.clone();
@@ -89,17 +150,62 @@ fn support_cell_transaction_decline(
     n_sides: usize,
     promoted_surface_count: usize,
     fallback_surface_count: usize,
-    error: String,
+    failure: Kp20SupportCellValidationFailure,
 ) -> ApexConstructionDiagnostic {
+    let failure_gap = failure
+        .gap
+        .map(|gap| format!("{gap:.15e}"))
+        .unwrap_or_else(|| "none".to_string());
+    let failure_edge = failure.edge.as_deref().unwrap_or("none");
     crate::construct::kp20_polar_diagnostics::dispatch_declined(
         "support_cell_transaction_promoted_apply",
         n_sides,
         Some(format!(
-            "promoted_surface_count={promoted_surface_count};fallback_surface_count={fallback_surface_count};error={error}"
+            "promoted_surface_count={promoted_surface_count};fallback_surface_count={fallback_surface_count};failure_kind={};failure_class={};failure_edge={failure_edge};failure_gap={failure_gap};error={}",
+            failure.kind,
+            failure.class,
+            failure.detail()
         )),
         None,
         None,
     )
+}
+
+fn validation_error_class(error: &ValidationError) -> &'static str {
+    match error {
+        ValidationError::ShellGap { .. } => "shared_boundary_geometry_mismatch",
+        ValidationError::CurveSurfaceDeviation { .. } => "surface_curve_compatibility_mismatch",
+        ValidationError::OpenLoop { .. } => "topology_loop_closure_mismatch",
+        ValidationError::SelfIntersection { .. } | ValidationError::TwistedSurface { .. } => {
+            "surface_shape_invalid"
+        }
+        ValidationError::EulerPoincare { .. }
+        | ValidationError::BrokenTwin { .. }
+        | ValidationError::BrokenCycle { .. }
+        | ValidationError::InconsistentVertex { .. }
+        | ValidationError::NonManifoldEdge { .. }
+        | ValidationError::LowValence { .. }
+        | ValidationError::InconsistentOrientation { .. } => "topology_invariant_mismatch",
+        ValidationError::Precision { .. } => "precision_budget_mismatch",
+    }
+}
+
+fn validation_error_kind(error: &ValidationError) -> &'static str {
+    match error {
+        ValidationError::EulerPoincare { .. } => "EulerPoincare",
+        ValidationError::BrokenTwin { .. } => "BrokenTwin",
+        ValidationError::BrokenCycle { .. } => "BrokenCycle",
+        ValidationError::InconsistentVertex { .. } => "InconsistentVertex",
+        ValidationError::NonManifoldEdge { .. } => "NonManifoldEdge",
+        ValidationError::LowValence { .. } => "LowValence",
+        ValidationError::InconsistentOrientation { .. } => "InconsistentOrientation",
+        ValidationError::OpenLoop { .. } => "OpenLoop",
+        ValidationError::CurveSurfaceDeviation { .. } => "CurveSurfaceDeviation",
+        ValidationError::ShellGap { .. } => "ShellGap",
+        ValidationError::SelfIntersection { .. } => "SelfIntersection",
+        ValidationError::TwistedSurface { .. } => "TwistedSurface",
+        ValidationError::Precision { .. } => "Precision",
+    }
 }
 
 pub(super) fn support_cell_assembled_quality_fact(
@@ -146,7 +252,10 @@ mod tests {
             },
             |state| {
                 if *state == 1 {
-                    Err("ShellGap(6.7e-3)".to_string())
+                    Err(Kp20SupportCellValidationFailure::shell_gap_for_test(
+                        "EdgeHandle(207v1)",
+                        6.7e-3,
+                    ))
                 } else {
                     Ok(())
                 }
@@ -164,7 +273,10 @@ mod tests {
                 let detail = cap.detail_code.expect("transaction detail");
                 assert!(detail.contains("promoted_surface_count=48"));
                 assert!(detail.contains("fallback_surface_count=24"));
-                assert!(detail.contains("ShellGap"));
+                assert!(detail.contains("failure_kind=ShellGap"));
+                assert!(detail.contains("failure_class=shared_boundary_geometry_mismatch"));
+                assert!(detail.contains("failure_edge=EdgeHandle(207v1)"));
+                assert!(detail.contains("failure_gap=6.700000000000000e-3"));
                 Ok("fallback")
             },
         )
@@ -219,7 +331,12 @@ mod tests {
                 *state = 1;
                 Ok("promoted")
             },
-            |_| Err("ShellGap(6.7e-3)".to_string()),
+            |_| {
+                Err(Kp20SupportCellValidationFailure::shell_gap_for_test(
+                    "EdgeHandle(207v1)",
+                    6.7e-3,
+                ))
+            },
             |_, _| Ok("fallback"),
         )
         .expect_err("missing floor should decline");
