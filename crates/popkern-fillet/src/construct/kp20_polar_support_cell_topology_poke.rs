@@ -16,6 +16,10 @@ use crate::construct::kp20_polar_expanded_support_binding::{
 mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
+#[path = "kp20_polar_support_cell_topology_pattern.rs"]
+mod support_cell_topology_pattern;
+
+use support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Kp20SupportCellPokeResult {
@@ -52,17 +56,12 @@ fn commit_kp20_support_cell_patchwork_inner(
     central_point: Point3,
     support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
-    if support_surfaces.is_empty() || support_surfaces.len() % 4 != 0 {
-        return Err(CoreError::PreconditionFailed(format!(
-            "kp20 support-cell commit expected 4N support surfaces, got {}",
-            support_surfaces.len(),
-        )));
-    }
-    let sector_count = support_surfaces.len() / 4;
+    let pattern = Kp20SupportCellTopologyPattern::current_four_cell_support_grid();
+    let sector_count = pattern.validate_support_surface_inventory(support_surfaces.len())?;
     let support_split_sectors = (0..sector_count).collect::<Vec<_>>();
     let poke = poke_kp20_support_cell_patchwork(brep, face, central_point, &support_split_sectors)?;
     let source_map =
-        match_support_cell_surfaces_to_slots(brep, &poke.surface_slots, support_surfaces)?;
+        match_support_cell_surfaces_to_slots(brep, pattern, &poke.surface_slots, support_surfaces)?;
     let binding_plan = plan_kp20_expanded_support_surface_bindings_with_sources(
         &poke.surface_slots,
         support_surfaces.len(),
@@ -92,6 +91,7 @@ fn commit_kp20_support_cell_patchwork_inner(
 
 fn match_support_cell_surfaces_to_slots(
     brep: &BRep,
+    pattern: Kp20SupportCellTopologyPattern,
     slots: &[Kp20ExpandedSupportSurfaceSlot],
     support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
 ) -> Result<Vec<usize>, CoreError> {
@@ -99,10 +99,9 @@ fn match_support_cell_surfaces_to_slots(
     let mut source_map = Vec::with_capacity(slots.len());
     for (slot_index, slot) in slots.iter().enumerate() {
         let mut best = None;
-        let sector_start = 4 * (slot_index / 4);
-        let sector_end = (sector_start + 4).min(support_surfaces.len());
+        let source_range = pattern.source_range_for_slot(slot_index, support_surfaces.len());
         for (source_index, surface) in support_surfaces.iter().enumerate() {
-            if used[source_index] || source_index < sector_start || source_index >= sector_end {
+            if used[source_index] || !source_range.contains(&source_index) {
                 continue;
             }
             let residual = support_surface_slot_residual(brep, slot.face, surface)?;
@@ -214,6 +213,7 @@ fn poke_kp20_support_cell_patchwork_inner(
     central_point: Point3,
     support_split_sectors: &[usize],
 ) -> Result<Kp20SupportCellPokeResult, CoreError> {
+    let pattern = Kp20SupportCellTopologyPattern::current_four_cell_support_grid();
     let macro_poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
         brep,
         face,
@@ -229,7 +229,7 @@ fn poke_kp20_support_cell_patchwork_inner(
             )));
         }
         let support_face = macro_poke.sub_faces[4 * sector + 3];
-        support_cell_faces.extend(split_support_face_into_four_cells(brep, support_face)?);
+        support_cell_faces.extend(pattern.split_sector_support_face(brep, support_face)?);
     }
     let shape = support_cell_poke_shape(brep, &support_cell_faces)?;
     let surface_slots = support_cell_surface_slots(brep, &support_cell_faces)?;
@@ -239,87 +239,6 @@ fn poke_kp20_support_cell_patchwork_inner(
         shape,
         surface_slots,
     })
-}
-
-fn split_support_face_into_four_cells(
-    brep: &mut BRep,
-    face: FaceHandle,
-) -> Result<Vec<FaceHandle>, CoreError> {
-    let lanes = split_quad_like_face_into_two_lanes(brep, face)?;
-    let mut cells = Vec::with_capacity(4);
-    for lane in lanes {
-        cells.extend(split_quad_like_face_into_two_lanes(brep, lane)?);
-    }
-    Ok(cells)
-}
-
-fn split_quad_like_face_into_two_lanes(
-    brep: &mut BRep,
-    face: FaceHandle,
-) -> Result<[FaceHandle; 2], CoreError> {
-    let hes = face_outer_half_edges(brep, face)?;
-    match hes.len() {
-        4 => {
-            let first_edge = brep.half_edges[hes[1]].edge;
-            let opposite_edge = brep.half_edges[hes[3]].edge;
-            brep.split_edge(first_edge, 0.5)?;
-            brep.split_edge(opposite_edge, 0.5)?;
-        }
-        5 => {
-            let opposite_edge = brep.half_edges[hes[3]].edge;
-            brep.split_edge(opposite_edge, 0.5)?;
-        }
-        6..=8 => return split_presplit_face_into_quad_like_pair(brep, face),
-        len => {
-            return Err(CoreError::PreconditionFailed(format!(
-                "kp20 support-cell poke expected quad or one-pre-split face, got {len} half-edges",
-            )));
-        }
-    }
-    let hes = face_outer_half_edges(brep, face)?;
-    if hes.len() != 6 {
-        return Err(CoreError::PreconditionFailed(format!(
-            "kp20 support-cell poke expected 6 half-edges after splits, got {}",
-            hes.len()
-        )));
-    }
-    let mef = brep.mef(hes[2], hes[5])?;
-    Ok([mef.face, face])
-}
-
-fn split_presplit_face_into_quad_like_pair(
-    brep: &mut BRep,
-    face: FaceHandle,
-) -> Result<[FaceHandle; 2], CoreError> {
-    let hes = face_outer_half_edges(brep, face)?;
-    for first in 0..hes.len() {
-        for second in 0..hes.len() {
-            if first == second {
-                continue;
-            }
-            let mut trial = brep.clone();
-            let Ok(mef) = trial.mef(hes[first], hes[second]) else {
-                continue;
-            };
-            let Ok(left) = face_outer_half_edges(&trial, face) else {
-                continue;
-            };
-            let Ok(right) = face_outer_half_edges(&trial, mef.face) else {
-                continue;
-            };
-            if (4..=5).contains(&left.len())
-                && (4..=5).contains(&right.len())
-                && trial.validate().is_ok()
-            {
-                *brep = trial;
-                return Ok([mef.face, face]);
-            }
-        }
-    }
-    Err(CoreError::PreconditionFailed(format!(
-        "kp20 support-cell poke could not split pre-split {}-edge support face into quad-like lanes",
-        hes.len(),
-    )))
 }
 
 fn support_cell_poke_shape(

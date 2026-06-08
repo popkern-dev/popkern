@@ -1,0 +1,136 @@
+use popkern_core::error::CoreError;
+use popkern_core::topology::{BRep, FaceHandle};
+
+use super::face_outer_half_edges;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Kp20SupportCellTopologyPattern {
+    FourCellSupportGrid,
+}
+
+impl Kp20SupportCellTopologyPattern {
+    pub(crate) fn current_four_cell_support_grid() -> Self {
+        Self::FourCellSupportGrid
+    }
+
+    pub(crate) fn cells_per_sector(self) -> usize {
+        match self {
+            Self::FourCellSupportGrid => 4,
+        }
+    }
+
+    pub(crate) fn validate_support_surface_inventory(
+        self,
+        support_surface_count: usize,
+    ) -> Result<usize, CoreError> {
+        let cells_per_sector = self.cells_per_sector();
+        if support_surface_count == 0 || support_surface_count % cells_per_sector != 0 {
+            return Err(CoreError::PreconditionFailed(format!(
+                "kp20 support-cell commit expected {cells_per_sector}N support surfaces, got {support_surface_count}",
+            )));
+        }
+        Ok(support_surface_count / cells_per_sector)
+    }
+
+    pub(crate) fn source_range_for_slot(
+        self,
+        slot_index: usize,
+        support_surface_count: usize,
+    ) -> std::ops::Range<usize> {
+        let cells_per_sector = self.cells_per_sector();
+        let sector_start = cells_per_sector * (slot_index / cells_per_sector);
+        let sector_end = (sector_start + cells_per_sector).min(support_surface_count);
+        sector_start..sector_end
+    }
+
+    pub(crate) fn split_sector_support_face(
+        self,
+        brep: &mut BRep,
+        face: FaceHandle,
+    ) -> Result<Vec<FaceHandle>, CoreError> {
+        match self {
+            Self::FourCellSupportGrid => split_support_face_into_four_cells(brep, face),
+        }
+    }
+}
+
+fn split_support_face_into_four_cells(
+    brep: &mut BRep,
+    face: FaceHandle,
+) -> Result<Vec<FaceHandle>, CoreError> {
+    let lanes = split_quad_like_face_into_two_lanes(brep, face)?;
+    let mut cells = Vec::with_capacity(4);
+    for lane in lanes {
+        cells.extend(split_quad_like_face_into_two_lanes(brep, lane)?);
+    }
+    Ok(cells)
+}
+
+fn split_quad_like_face_into_two_lanes(
+    brep: &mut BRep,
+    face: FaceHandle,
+) -> Result<[FaceHandle; 2], CoreError> {
+    let hes = face_outer_half_edges(brep, face)?;
+    match hes.len() {
+        4 => {
+            let first_edge = brep.half_edges[hes[1]].edge;
+            let opposite_edge = brep.half_edges[hes[3]].edge;
+            brep.split_edge(first_edge, 0.5)?;
+            brep.split_edge(opposite_edge, 0.5)?;
+        }
+        5 => {
+            let opposite_edge = brep.half_edges[hes[3]].edge;
+            brep.split_edge(opposite_edge, 0.5)?;
+        }
+        6..=8 => return split_presplit_face_into_quad_like_pair(brep, face),
+        len => {
+            return Err(CoreError::PreconditionFailed(format!(
+                "kp20 support-cell poke expected quad or one-pre-split face, got {len} half-edges",
+            )));
+        }
+    }
+    let hes = face_outer_half_edges(brep, face)?;
+    if hes.len() != 6 {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 support-cell poke expected 6 half-edges after splits, got {}",
+            hes.len()
+        )));
+    }
+    let mef = brep.mef(hes[2], hes[5])?;
+    Ok([mef.face, face])
+}
+
+fn split_presplit_face_into_quad_like_pair(
+    brep: &mut BRep,
+    face: FaceHandle,
+) -> Result<[FaceHandle; 2], CoreError> {
+    let hes = face_outer_half_edges(brep, face)?;
+    for first in 0..hes.len() {
+        for second in 0..hes.len() {
+            if first == second {
+                continue;
+            }
+            let mut trial = brep.clone();
+            let Ok(mef) = trial.mef(hes[first], hes[second]) else {
+                continue;
+            };
+            let Ok(left) = face_outer_half_edges(&trial, face) else {
+                continue;
+            };
+            let Ok(right) = face_outer_half_edges(&trial, mef.face) else {
+                continue;
+            };
+            if (4..=5).contains(&left.len())
+                && (4..=5).contains(&right.len())
+                && trial.validate().is_ok()
+            {
+                *brep = trial;
+                return Ok([mef.face, face]);
+            }
+        }
+    }
+    Err(CoreError::PreconditionFailed(format!(
+        "kp20 support-cell poke could not split pre-split {}-edge support face into quad-like lanes",
+        hes.len(),
+    )))
+}
