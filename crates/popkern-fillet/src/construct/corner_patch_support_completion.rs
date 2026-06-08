@@ -19,15 +19,17 @@ enum SupportCellCompletionCandidate {
     PcurveThenBoundary,
     PcurveThenBoundaryIfG0Safe,
     PcurveThenWorstBoundaryIfG0Safe,
+    PcurveThenTop3BoundariesIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 6] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
         Self::PcurveThenBoundaryIfG0Safe,
         Self::PcurveThenWorstBoundaryIfG0Safe,
+        Self::PcurveThenTop3BoundariesIfG0Safe,
     ];
 
     fn label(self) -> &'static str {
@@ -37,13 +39,16 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenBoundary => "pcurve_then_boundary",
             Self::PcurveThenBoundaryIfG0Safe => "pcurve_then_boundary_if_g0_safe",
             Self::PcurveThenWorstBoundaryIfG0Safe => "pcurve_then_worst_boundary_if_g0_safe",
+            Self::PcurveThenTop3BoundariesIfG0Safe => "pcurve_then_top3_boundaries_if_g0_safe",
         }
     }
 
     fn is_boundary_safe(self) -> bool {
         matches!(
             self,
-            Self::PcurveThenBoundaryIfG0Safe | Self::PcurveThenWorstBoundaryIfG0Safe
+            Self::PcurveThenBoundaryIfG0Safe
+                | Self::PcurveThenWorstBoundaryIfG0Safe
+                | Self::PcurveThenTop3BoundariesIfG0Safe
         )
     }
 }
@@ -247,6 +252,13 @@ fn apply_support_cell_completion_candidate(
             apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_support_cell_worst_full_boundary(
                     brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenTop3BoundariesIfG0Safe => {
+            apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_top_full_boundaries(
+                    brep, faces, 3,
                 )
             })
         }

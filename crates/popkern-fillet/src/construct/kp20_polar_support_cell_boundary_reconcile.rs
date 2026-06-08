@@ -66,16 +66,23 @@ pub(crate) fn reconcile_assigned_support_cell_worst_full_boundary(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<(), CoreError> {
+    reconcile_assigned_support_cell_top_full_boundaries(brep, faces, 1)
+}
+
+pub(crate) fn reconcile_assigned_support_cell_top_full_boundaries(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    count: usize,
+) -> Result<(), CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
     let trims = full_boundary_trims(brep, &slots)?;
-    let Some(worst_trim) = worst_boundary_trim(brep, &trims)? else {
-        return Ok(());
-    };
-    reconcile_full_boundary_trim(brep, worst_trim)?;
+    for trim in top_boundary_trims(brep, &trims, count)? {
+        reconcile_full_boundary_trim(brep, trim)?;
+    }
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
-            "kp20 support-cell worst-boundary reconciliation produced invalid BRep: {error}"
+            "kp20 support-cell targeted-boundary reconciliation produced invalid BRep: {error}"
         ))
     })
 }
@@ -104,20 +111,24 @@ fn assigned_support_cell_slots(
     slots
 }
 
-fn worst_boundary_trim(
+fn top_boundary_trims(
     brep: &BRep,
     trims: &[FullBoundaryTrim],
-) -> Result<Option<FullBoundaryTrim>, CoreError> {
-    let mut worst = None;
+    count: usize,
+) -> Result<Vec<FullBoundaryTrim>, CoreError> {
+    let mut ranked = Vec::with_capacity(trims.len());
     for &trim in trims {
         let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
         let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
         let gap = trim_gap(&patch_a, &patch_b, trim);
-        if worst.is_none_or(|(_, worst_gap)| gap > worst_gap) {
-            worst = Some((trim, gap));
-        }
+        ranked.push((trim, gap));
     }
-    Ok(worst.map(|(trim, _)| trim))
+    ranked.sort_by(|(_, a), (_, b)| b.total_cmp(a));
+    Ok(ranked
+        .into_iter()
+        .take(count)
+        .map(|(trim, _)| trim)
+        .collect())
 }
 
 fn full_boundary_trims(

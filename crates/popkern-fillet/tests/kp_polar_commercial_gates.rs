@@ -324,6 +324,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     assert!(
         support_cell_dispatch_details
             .iter()
+            .any(|detail| detail.contains("candidate=pcurve_then_top3_boundaries_if_g0_safe")),
+        "hexagon6_mixed support-cell selector should score the targeted top-3 boundary candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
             .any(|detail| detail.contains(
                 "candidate=pcurve_then_boundary_if_g0_safe;candidate_status=accepted_selected"
             ) && detail.contains("operation_status=boundary_kept")),
