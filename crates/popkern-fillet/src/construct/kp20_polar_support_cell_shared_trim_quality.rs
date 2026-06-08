@@ -121,6 +121,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
 pub(super) fn support_cell_shared_trim_repair_fact(
     n_sides: usize,
     selected: &'static str,
+    selected_candidate: &'static str,
     accepted: bool,
     before: Kp20SupportCellSharedTrimQuality,
     after: Kp20SupportCellSharedTrimQuality,
@@ -134,7 +135,7 @@ pub(super) fn support_cell_shared_trim_repair_fact(
         "support_cell_shared_trim_final_repair",
         n_sides,
         Some(format!(
-            "selected={selected};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
             before.shared_trim_count,
             after.shared_trim_count,
             before.pcurve_out_of_unit_count,

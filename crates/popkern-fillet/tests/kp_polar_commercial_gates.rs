@@ -44,12 +44,6 @@
 //! polar dispatch. Remaining ignored fixtures are either selected
 //! non-polar paths or polar stress cases awaiting the same measured
 //! promotion.
-//!
-//! The uniform-radii fixtures are deliberately included to catch
-//! regressions where a sphere-fit shortcut or upstream dispatch
-//! diverts the ring away from the polar rung; `assert_all_binonic`
-//! fails loudly if a fixture stops producing measurable
-//! `RectangularBiNonic` patches.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -341,9 +335,11 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed support-cell route should emit post-apply assembled quality diagnostics"
     );
     assert!(
-        support_cell_dispatch_details.iter().any(|detail| detail
-            .contains("repair_status=accepted_non_regressing_final_repair")
-            || detail.contains("repair_status=declined_to_preserve_final_quality")),
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains("selected_candidate=")
+                && (detail.contains("repair_status=accepted_non_regressing_final_repair")
+                    || detail.contains("repair_status=declined_to_preserve_final_quality"))),
         "hexagon6_mixed support-cell route should emit transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
