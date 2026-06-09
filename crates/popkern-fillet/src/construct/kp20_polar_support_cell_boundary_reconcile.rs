@@ -7,10 +7,11 @@ use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
-use std::collections::HashMap;
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_boundary_row_group.rs"]
+mod boundary_row_group;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]
 mod group_reconcile;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
@@ -96,7 +97,7 @@ pub(crate) fn reconcile_assigned_support_cell_worst_boundary_row_group(
 ) -> Result<(), CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
     let trims = full_boundary_trims(brep, &slots)?;
-    let row_group = worst_boundary_row_group_trims(brep, &trims)?;
+    let row_group = boundary_row_group::worst_boundary_row_group_trims(brep, &trims)?;
     group_reconcile::reconcile_grouped_boundary_rows(brep, &row_group)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
@@ -148,75 +149,6 @@ fn top_boundary_trims(
         .take(count)
         .map(|(trim, _)| trim)
         .collect())
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct BoundaryRowGroupKey {
-    face: FaceHandle,
-    side: BoundarySide,
-}
-
-#[derive(Debug, Clone)]
-struct BoundaryRowGroupScore {
-    worst_gap: f64,
-    trims: Vec<FullBoundaryTrim>,
-}
-
-fn worst_boundary_row_group_trims(
-    brep: &BRep,
-    trims: &[FullBoundaryTrim],
-) -> Result<Vec<FullBoundaryTrim>, CoreError> {
-    let mut groups: HashMap<BoundaryRowGroupKey, BoundaryRowGroupScore> = HashMap::new();
-    for &trim in trims {
-        let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
-        let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
-        let gap = trim_gap(&patch_a, &patch_b, trim);
-        push_boundary_row_group(&mut groups, trim.face_a, trim.side_a, trim, gap);
-        push_boundary_row_group(&mut groups, trim.face_b, trim.side_b, trim, gap);
-    }
-    Ok(groups
-        .into_values()
-        .max_by(|a, b| {
-            a.worst_gap
-                .total_cmp(&b.worst_gap)
-                .then_with(|| a.trims.len().cmp(&b.trims.len()))
-        })
-        .map(|group| group.trims)
-        .unwrap_or_default())
-}
-
-fn push_boundary_row_group(
-    groups: &mut HashMap<BoundaryRowGroupKey, BoundaryRowGroupScore>,
-    face: FaceHandle,
-    side: BoundarySide,
-    trim: FullBoundaryTrim,
-    gap: f64,
-) {
-    let score = groups
-        .entry(BoundaryRowGroupKey { face, side })
-        .or_insert_with(|| BoundaryRowGroupScore {
-            worst_gap: 0.0,
-            trims: Vec::new(),
-        });
-    score.worst_gap = score.worst_gap.max(gap);
-    if !score
-        .trims
-        .iter()
-        .any(|existing| same_trim(*existing, trim))
-    {
-        score.trims.push(trim);
-    }
-}
-
-fn same_trim(a: FullBoundaryTrim, b: FullBoundaryTrim) -> bool {
-    a.face_a == b.face_a
-        && a.side_a == b.side_a
-        && a.face_b == b.face_b
-        && a.side_b == b.side_b
-        && (a.start_a - b.start_a).abs() <= 1.0e-12
-        && (a.end_a - b.end_a).abs() <= 1.0e-12
-        && (a.start_b - b.start_b).abs() <= 1.0e-12
-        && (a.end_b - b.end_b).abs() <= 1.0e-12
 }
 
 fn full_boundary_trims(
