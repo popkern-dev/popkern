@@ -31,6 +31,13 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_two_row_groups_status(
     reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 2)
 }
 
+pub(crate) fn reconcile_assigned_ranked_endpoint_three_row_groups_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 3)
+}
+
 pub(crate) fn reconcile_assigned_ranked_endpoint_row_group_tangent_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
@@ -240,6 +247,9 @@ fn composed_row_group_status(
     kept_pass_count: usize,
 ) -> &'static str {
     match (endpoint_status, kept_pass_count) {
+        ("endpoint_cluster_endpoint_band_fit_kept", 3..) => {
+            "ranked_prefix_endpoint_band_then_three_row_groups_kept"
+        }
         ("endpoint_cluster_endpoint_band_fit_kept", 2..) => {
             "ranked_prefix_endpoint_band_then_two_row_groups_kept"
         }
@@ -249,6 +259,7 @@ fn composed_row_group_status(
         ("endpoint_cluster_endpoint_band_fit_kept", 0) => {
             "ranked_prefix_endpoint_band_then_row_group_declined"
         }
+        (_, 3..) => "ranked_prefix_endpoint_cluster_then_three_row_groups_kept",
         (_, 2..) => "ranked_prefix_endpoint_cluster_then_two_row_groups_kept",
         (_, 1) => "ranked_prefix_endpoint_cluster_then_row_group_kept",
         _ => "ranked_prefix_endpoint_cluster_then_row_group_declined",

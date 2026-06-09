@@ -305,6 +305,7 @@ fn assert_candidate_diagnostics(fixture: &str, support_cell_dispatch_details: &[
         "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_cluster_then_three_row_groups_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_tangent_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
@@ -346,6 +347,8 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
                 ) || detail.contains(
                     "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
                 ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_three_row_groups_if_g0_safe",
+                ) || detail.contains(
                     "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
                 ))
                 && detail.contains("operation_status=ranked_prefix_")
@@ -359,6 +362,14 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
             ) && detail.contains("operation_status=ranked_prefix_")
         }),
         "{fixture} should score the bounded two-row-group composed candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_three_row_groups_if_g0_safe",
+            ) && detail.contains("operation_status=ranked_prefix_")
+        }),
+        "{fixture} should score the bounded three-row-group composed candidate; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
