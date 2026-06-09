@@ -7,6 +7,7 @@ use super::face_outer_half_edges;
 pub(crate) enum Kp20SupportCellTopologyPattern {
     FourCellSupportGrid,
     EightCellSupportGrid,
+    SixteenCellSupportGrid,
 }
 
 impl Kp20SupportCellTopologyPattern {
@@ -22,6 +23,7 @@ impl Kp20SupportCellTopologyPattern {
         match cells_per_sector {
             4 => Some(Self::FourCellSupportGrid),
             8 => Some(Self::EightCellSupportGrid),
+            16 => Some(Self::SixteenCellSupportGrid),
             _ => None,
         }
     }
@@ -30,6 +32,7 @@ impl Kp20SupportCellTopologyPattern {
         match self {
             Self::FourCellSupportGrid => 4,
             Self::EightCellSupportGrid => 8,
+            Self::SixteenCellSupportGrid => 16,
         }
     }
 
@@ -73,6 +76,7 @@ impl Kp20SupportCellTopologyPattern {
         match self {
             Self::FourCellSupportGrid => split_support_faces_into_binary_grid(brep, faces, 2),
             Self::EightCellSupportGrid => split_support_faces_into_binary_grid(brep, faces, 3),
+            Self::SixteenCellSupportGrid => split_support_faces_into_binary_grid(brep, faces, 4),
         }
     }
 }

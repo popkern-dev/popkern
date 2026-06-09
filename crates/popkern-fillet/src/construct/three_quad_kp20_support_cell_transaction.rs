@@ -119,7 +119,7 @@ fn run_support_cell_fallback<S: Clone, T>(
     apply_fallback: impl FnOnce(&mut S, ApexConstructionDiagnostic) -> Result<T, String>,
     validate: impl Fn(&S) -> Result<(), Kp20SupportCellValidationFailure>,
 ) -> Result<Kp20SupportCellApplyTransactionResult<T>, String> {
-    if promoted_cells_per_sector != 8 {
+    if promoted_cells_per_sector <= 4 {
         return Err(format!(
             "KP20 support-cell commit left invalid BRep: {}",
             error.detail()
@@ -127,7 +127,7 @@ fn run_support_cell_fallback<S: Clone, T>(
     }
     let Some(fallback_surface_count) = fallback_surface_count else {
         return Err(format!(
-            "KP20 eight-cell support-cell commit left invalid BRep and no four-cell floor was available: {}",
+            "KP20 higher-resolution support-cell commit left invalid BRep and no four-cell floor was available: {}",
             error.detail()
         ));
     };
@@ -343,5 +343,49 @@ mod tests {
 
         assert!(error.contains("no four-cell floor was available"));
         assert_eq!(state, 0);
+    }
+
+    #[test]
+    fn invalid_sixteen_cell_promoted_apply_restores_and_falls_back() {
+        let mut state = 0;
+        let result = run_kp20_support_cell_apply_transaction(
+            &mut state,
+            6,
+            96,
+            16,
+            Some(24),
+            |state| {
+                *state = 1;
+                Ok("promoted")
+            },
+            |state| {
+                if *state == 1 {
+                    Err(Kp20SupportCellValidationFailure::shell_gap_for_test(
+                        "EdgeHandle(311v1)",
+                        2.5e-3,
+                    ))
+                } else {
+                    Ok(())
+                }
+            },
+            |state, diagnostic| {
+                *state = 2;
+                let ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic else {
+                    panic!("expected exact-boundary diagnostic");
+                };
+                let detail = cap.detail_code.expect("transaction detail");
+                assert!(detail.contains("promoted_surface_count=96"));
+                assert!(detail.contains("fallback_surface_count=24"));
+                assert!(detail.contains("failure_edge=EdgeHandle(311v1)"));
+                Ok("fallback")
+            },
+        )
+        .expect("transaction should fall back");
+
+        assert!(matches!(
+            result,
+            Kp20SupportCellApplyTransactionResult::Fallback("fallback")
+        ));
+        assert_eq!(state, 2);
     }
 }

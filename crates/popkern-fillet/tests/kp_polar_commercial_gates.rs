@@ -164,7 +164,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     let support_cells_per_sector = support_piece_count / 6;
     assert_eq!(result.corner_patches.len(), support_piece_count);
     assert!(
-        matches!(support_cells_per_sector, 4 | 8),
+        matches!(support_cells_per_sector, 4 | 8 | 16),
         "hexagon6_mixed support-cell route should accept a supported inventory, got piece_count={} cells_per_sector={}",
         support_piece_count,
         support_cells_per_sector

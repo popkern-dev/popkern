@@ -16,11 +16,15 @@ pub(super) fn should_replace_selected_support_cell_trial(
         return match (candidate_tier, selected_tier) {
             (SupportCellResolutionTier::Unsupported, _) => false,
             (_, SupportCellResolutionTier::Unsupported) => true,
-            (SupportCellResolutionTier::Eight, SupportCellResolutionTier::Four) => {
+            (SupportCellResolutionTier::Sixteen, SupportCellResolutionTier::Eight)
+            | (SupportCellResolutionTier::Sixteen, SupportCellResolutionTier::Four)
+            | (SupportCellResolutionTier::Eight, SupportCellResolutionTier::Four) => {
                 candidate.topology_path_g0 + HIGHER_RESOLUTION_PROMOTION_EPS
                     < selected.topology_path_g0
             }
-            (SupportCellResolutionTier::Four, SupportCellResolutionTier::Eight) => {
+            (SupportCellResolutionTier::Four, SupportCellResolutionTier::Eight)
+            | (SupportCellResolutionTier::Four, SupportCellResolutionTier::Sixteen)
+            | (SupportCellResolutionTier::Eight, SupportCellResolutionTier::Sixteen) => {
                 candidate.topology_path_g0
                     <= selected.topology_path_g0 + HIGHER_RESOLUTION_PROMOTION_EPS
             }
@@ -36,6 +40,7 @@ pub(super) fn selection_policy_label(trial: &Kp20SupportCellPrimitiveTrial) -> &
     match support_cell_resolution_tier(trial) {
         SupportCellResolutionTier::Four => "committed_four_cell_floor",
         SupportCellResolutionTier::Eight => "higher_resolution_eight_cell_promoted_by_g0",
+        SupportCellResolutionTier::Sixteen => "higher_resolution_sixteen_cell_promoted_by_g0",
         SupportCellResolutionTier::Unsupported => "unsupported_measurement_only_inventory",
     }
 }
@@ -45,6 +50,7 @@ enum SupportCellResolutionTier {
     Unsupported,
     Four,
     Eight,
+    Sixteen,
 }
 
 fn support_cell_resolution_tier(
@@ -53,6 +59,7 @@ fn support_cell_resolution_tier(
     match trial.cells_u * trial.cells_v {
         4 => SupportCellResolutionTier::Four,
         8 => SupportCellResolutionTier::Eight,
+        16 => SupportCellResolutionTier::Sixteen,
         _ => SupportCellResolutionTier::Unsupported,
     }
 }

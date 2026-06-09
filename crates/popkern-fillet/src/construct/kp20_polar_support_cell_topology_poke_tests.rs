@@ -152,6 +152,37 @@ fn eight_cell_commit_attaches_surfaces_and_pcurves() {
         .expect("eight-cell support-cell commit leaves valid BRep");
 }
 
+#[test]
+fn sixteen_cell_commit_attaches_surfaces_and_pcurves() {
+    let (mut brep, face) = build_flat_2ngon(6);
+    let support_surfaces = (0..96).map(dummy_gregory_surface).collect::<Vec<_>>();
+
+    let commit = commit_kp20_support_cell_patchwork(
+        &mut brep,
+        face,
+        Point3::new(0.0, 0.0, 0.0),
+        6,
+        &support_surfaces,
+    )
+    .expect("sixteen-cell support-cell commit");
+
+    assert_eq!(commit.support_cell_faces.len(), 96);
+    assert_eq!(commit.support_surface_indices.len(), 96);
+    assert!(commit.support_cell_faces.iter().all(|face| matches!(
+        brep.faces[*face].surface.as_ref().map(|surface| &surface.geometry),
+        Some(SurfaceGeometry::Gregory(_))
+    )));
+    assert!(
+        commit
+            .support_cell_faces
+            .iter()
+            .all(|face| outer_loop_has_pcurves(&brep, *face))
+    );
+    assert_shared_edge_curves_match_topology_vertices(&brep, &commit.support_cell_faces);
+    brep.validate()
+        .expect("sixteen-cell support-cell commit leaves valid BRep");
+}
+
 fn dummy_gregory_surface(index: usize) -> GregoryPatch {
     let mut grid = [[Point3::new(0.0, 0.0, 0.0); 10]; 10];
     for (u, row) in grid.iter_mut().enumerate() {

@@ -213,7 +213,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                     }
                     if let Some(support_cell_patches) = lifted.accepted_support_cell_patches()
                         && support_cell_patches.len() % n == 0
-                        && matches!(support_cell_patches.len() / n, 4 | 8)
+                        && matches!(support_cell_patches.len() / n, 4 | 8 | 16)
                     {
                         return Kp20PolarDispatchReport::accepted_support_cell(
                             support_cell_patches.to_vec(),

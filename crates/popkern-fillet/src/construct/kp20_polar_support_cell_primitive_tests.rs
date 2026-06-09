@@ -58,6 +58,14 @@ fn support_cell_trial_promotes_higher_resolution_on_measured_g0_improvement() {
     assert!(eight_cell.is_better_than(&four_cell));
 }
 
+#[test]
+fn support_cell_trial_promotes_sixteen_cell_resolution_on_measured_g0_improvement() {
+    let sixteen_cell = trial(4, 4, 96, 0, 1.0e-10);
+    let eight_cell = trial(2, 4, 48, 0, 2.0e-9);
+
+    assert!(sixteen_cell.is_better_than(&eight_cell));
+}
+
 fn trial(
     cells_u: usize,
     cells_v: usize,

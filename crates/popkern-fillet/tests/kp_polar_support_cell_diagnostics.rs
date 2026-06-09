@@ -1,4 +1,6 @@
-pub(super) fn support_cell_piece_count(
+#![allow(dead_code)]
+
+pub(crate) fn support_cell_piece_count(
     patches: &[popkern_fillet::CornerPatchInfo],
 ) -> Option<usize> {
     patches.iter().try_fold(None, |current, patch| {
@@ -17,7 +19,7 @@ pub(super) fn support_cell_piece_count(
     })?
 }
 
-pub(super) fn detail_contains_support_cell_inventory(
+pub(crate) fn detail_contains_support_cell_inventory(
     detail: &str,
     piece_count: usize,
     cells_per_sector: usize,
@@ -27,11 +29,12 @@ pub(super) fn detail_contains_support_cell_inventory(
         && match cells_per_sector {
             4 => support_cell_grid_detail_matches(detail, &[(1, 4), (4, 1), (2, 2)]),
             8 => support_cell_grid_detail_matches(detail, &[(2, 4), (4, 2)]),
+            16 => support_cell_grid_detail_matches(detail, &[(4, 4)]),
             _ => false,
         }
 }
 
-pub(super) fn support_cell_dispatch_details(
+pub(crate) fn support_cell_dispatch_details(
     diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
 ) -> Vec<String> {
     diagnostics
