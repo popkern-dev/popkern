@@ -1,5 +1,143 @@
 #![allow(dead_code)]
 
+#[path = "support/kp_gate_shared_trims.rs"]
+mod kp_gate_shared_trims;
+
+const SUPPORT_CELL_SHARED_TRIM_SAMPLES: usize = 100;
+
+pub(crate) fn assert_support_cell_quality_gate(
+    fixture: &str,
+    result: &popkern_fillet::BlendResult,
+    n_sides: usize,
+) {
+    result
+        .brep
+        .validate()
+        .unwrap_or_else(|_| panic!("{fixture} support-cell route must leave a valid BRep"));
+    let support_piece_count =
+        support_cell_piece_count(&result.corner_patches).expect("support-cell provenance");
+    let support_cells_per_sector = support_piece_count / n_sides;
+    assert_eq!(result.corner_patches.len(), support_piece_count);
+    assert!(
+        matches!(support_cells_per_sector, 4 | 8 | 16),
+        "{fixture} support-cell route should accept a supported inventory, got piece_count={} cells_per_sector={}",
+        support_piece_count,
+        support_cells_per_sector
+    );
+    let support_cell_faces = result
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect::<Vec<_>>();
+    let support_cell_sources = result
+        .corner_patches
+        .iter()
+        .filter_map(|patch| {
+            patch
+                .sub_patch_provenance
+                .map(|provenance| (patch.face, provenance.piece_index))
+        })
+        .collect::<Vec<_>>();
+    let trim_metrics = kp_gate_shared_trims::measure_shared_gregory_trims_with_sources(
+        &result.brep,
+        &support_cell_faces,
+        &support_cell_sources,
+        SUPPORT_CELL_SHARED_TRIM_SAMPLES,
+    );
+    assert!(
+        trim_metrics.shared_trim_count >= n_sides * 3,
+        "{fixture} support-cell topology should expose internal shared Gregory trims, got {}",
+        trim_metrics.shared_trim_count
+    );
+    assert!(
+        trim_metrics.pcurve_out_of_unit_count == 0
+            && trim_metrics.degenerate_pcurve_count == 0
+            && trim_metrics.worst_abs_uv <= 1.0 + 1.0e-9,
+        "{fixture} support-cell pcurves should stay in unit nondegenerate support domains; out_of_unit={} degenerate={} worst_abs_uv={:.3e} degenerate_source_pair={:?} degenerate_uv_edges={:?}",
+        trim_metrics.pcurve_out_of_unit_count,
+        trim_metrics.degenerate_pcurve_count,
+        trim_metrics.worst_abs_uv,
+        trim_metrics.degenerate_source_pair,
+        trim_metrics.degenerate_uv_edges
+    );
+    assert!(
+        trim_metrics.worst_g0_gap.is_finite()
+            && trim_metrics.worst_normal_disagreement.is_finite()
+            && trim_metrics.worst_source_pair.is_some(),
+        "{fixture} support-cell shared-trim metrics should remain observable; g0={:.3e} normal={:.3e} worst_source_pair={:?}",
+        trim_metrics.worst_g0_gap,
+        trim_metrics.worst_normal_disagreement,
+        trim_metrics.worst_source_pair
+    );
+    assert!(
+        trim_metrics.worst_g0_gap <= 2.0e-3,
+        "{fixture} support-cell shared-trim G0 should stay bounded after segment-aware reconciliation; g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} max_row_trim_count={} worst_source_pair={:?} worst_uv_edges={:?}",
+        trim_metrics.worst_g0_gap,
+        trim_metrics.worst_normal_disagreement,
+        trim_metrics.worst_pair_best_boundary_gap,
+        trim_metrics.max_boundary_row_shared_trim_count,
+        trim_metrics.worst_source_pair,
+        trim_metrics.worst_uv_edges
+    );
+    assert!(
+        trim_metrics.max_boundary_row_shared_trim_count >= 2,
+        "{fixture} support-cell residual should expose multi-trim boundary-row ownership; max_row_trim_count={}",
+        trim_metrics.max_boundary_row_shared_trim_count
+    );
+    assert_support_cell_provenance(fixture, result, n_sides, support_piece_count);
+    let diagnostics = &result.repair_report.apex_diagnostics;
+    assert_no_rational_gregory_fallback(fixture, diagnostics, n_sides);
+    let support_cell_dispatch_details = support_cell_dispatch_details(diagnostics);
+    assert_pipeline_timing_reports_support_cells(
+        fixture,
+        diagnostics,
+        support_piece_count,
+        &support_cell_dispatch_details,
+    );
+    assert_selected_support_cell_inventory(
+        fixture,
+        diagnostics,
+        support_piece_count,
+        support_cells_per_sector,
+        &support_cell_dispatch_details,
+    );
+    assert_assembled_quality_reports_valid_selection(
+        fixture,
+        diagnostics,
+        support_piece_count,
+        support_cells_per_sector,
+    );
+    assert_candidate_diagnostics(fixture, &support_cell_dispatch_details);
+    assert_final_shared_trim_quality_diagnostic(
+        fixture,
+        diagnostics,
+        &trim_metrics,
+        &support_cell_dispatch_details,
+    );
+}
+
+fn assert_support_cell_provenance(
+    fixture: &str,
+    result: &popkern_fillet::BlendResult,
+    n_sides: usize,
+    support_piece_count: usize,
+) {
+    assert!(
+        result.corner_patches.iter().all(|patch| {
+            patch.n_sides == n_sides
+                && patch.sub_patch_provenance.is_some_and(|provenance| {
+                    provenance.sector_count == n_sides
+                        && provenance.piece_count == support_piece_count
+                        && matches!(
+                            provenance.role,
+                            popkern_fillet::CornerSubPatchRole::SupportCell
+                        )
+                })
+        }),
+        "{fixture} support-cell patches should preserve support-cell provenance"
+    );
+}
+
 pub(crate) fn support_cell_piece_count(
     patches: &[popkern_fillet::CornerPatchInfo],
 ) -> Option<usize> {
@@ -49,6 +187,239 @@ pub(crate) fn support_cell_dispatch_details(
                 .flatten()
         })
         .collect()
+}
+
+fn assert_no_rational_gregory_fallback(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    n_sides: usize,
+) {
+    let sector_name = format!("n{n_sides}_corner_cap");
+    assert!(
+        diagnostics.iter().all(|diagnostic| !matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "rational_gregory.dispatch.declined"
+                    && cap.sector_name == sector_name
+        )),
+        "{fixture} support-cell route should not fall back through rational Gregory decline"
+    );
+}
+
+fn assert_pipeline_timing_reports_support_cells(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    support_piece_count: usize,
+    support_cell_dispatch_details: &[String],
+) {
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "fillet.apply_blend.pipeline.fact"
+                    && cap.stage == "fillet.apply_blend.pipeline.timing"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains(&format!("corner_patch_count={support_piece_count}"))
+                            && detail.contains("support_seam_job_count=1")
+                    })
+        )),
+        "{fixture} support-cell acceptance should remain observable through pipeline timing diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+}
+
+fn assert_selected_support_cell_inventory(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    support_piece_count: usize,
+    support_cells_per_sector: usize,
+    support_cell_dispatch_details: &[String],
+) {
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail_contains_support_cell_inventory(
+                            detail,
+                            support_piece_count,
+                            support_cells_per_sector,
+                        )
+                    })
+        )),
+        "{fixture} support-cell route should expose selected primitive inventory; piece_count={} cells_per_sector={} dispatch_details={:?}",
+        support_piece_count,
+        support_cells_per_sector,
+        support_cell_dispatch_details
+    );
+}
+
+fn assert_assembled_quality_reports_valid_selection(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    support_piece_count: usize,
+    support_cells_per_sector: usize,
+) {
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.support_cell_assembled_quality"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("selected=promoted")
+                            && detail.contains(&format!(
+                                "selected_surface_count={support_piece_count}"
+                            ))
+                            && detail.contains(&format!(
+                                "selected_cells_per_sector={support_cells_per_sector}"
+                            ))
+                            && detail.contains("validation_status=valid")
+                    })
+        )),
+        "{fixture} support-cell route should emit post-apply assembled quality diagnostics"
+    );
+}
+
+fn assert_candidate_diagnostics(fixture: &str, support_cell_dispatch_details: &[String]) {
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("repair_status=accepted_non_regressing_final_repair")
+                && detail.contains("selected_candidate=")
+        }),
+        "{fixture} support-cell route should emit accepted transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .any(|detail| detail.contains("candidate_status=accepted_selected")),
+        "{fixture} support-cell selector should emit per-candidate score diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    for candidate in [
+        "pcurve_then_boundary_if_g0_safe",
+        "pcurve_then_worst_boundary_if_g0_safe",
+        "pcurve_then_top3_boundaries_if_g0_safe",
+        "pcurve_then_ranked_boundary_prefix_if_g0_safe",
+        "pcurve_then_worst_boundary_neighborhood_if_g0_safe",
+        "pcurve_then_worst_endpoint_cluster_if_g0_safe",
+        "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_tangent_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
+        "pcurve_then_worst_boundary_row_group_if_g0_safe",
+    ] {
+        assert!(
+            support_cell_dispatch_details
+                .iter()
+                .any(|detail| detail.contains(&format!("candidate={candidate}"))),
+            "{fixture} support-cell selector should score {candidate}; support_cell_details={support_cell_dispatch_details:?}"
+        );
+    }
+    assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
+}
+
+fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_details: &[String]) {
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_top3_boundaries_if_g0_safe")
+                && detail.contains("candidate_status=accepted")
+                && detail.contains("operation_status=boundary_kept")
+        }),
+        "{fixture} targeted top-3 boundary candidate should remain accepted and boundary-safe; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_ranked_boundary_prefix_if_g0_safe")
+                && detail.contains("operation_status=boundary_kept")
+        }),
+        "{fixture} ranked-prefix candidate should remain an accepted measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate_status=accepted_selected")
+                && (detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
+                ))
+                && detail.contains("operation_status=ranked_prefix_")
+        }),
+        "{fixture} should select a measured composed ranked-prefix endpoint or exact-boundary repair; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+            ) && detail.contains("operation_status=ranked_prefix_")
+        }),
+        "{fixture} should score the bounded two-row-group composed candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
+            ) && detail.contains("operation_status=ranked_prefix_endpoint_")
+                && detail.contains("exact_boundary_rows_authored")
+        }),
+        "{fixture} should score the exact shared-boundary row candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
+            ) && detail.contains("partial_boundary_")
+        }),
+        "{fixture} should score the partial shared-boundary segment candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+}
+
+fn assert_final_shared_trim_quality_diagnostic(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    trim_metrics: &kp_gate_shared_trims::SharedTrimMetrics,
+    support_cell_dispatch_details: &[String],
+) {
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.support_cell_shared_trim_quality"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("selected=promoted")
+                            && detail.contains("measurement_scope=final_post_pipeline")
+                            && detail
+                                .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
+                            && detail.contains("current_g0_budget=2.000000000000000e-3")
+                            && detail.contains("commercial_g0_target=1.000000000000000e-10")
+                            && detail.contains(&format!(
+                                "shared_trim_count={}",
+                                trim_metrics.shared_trim_count
+                            ))
+                            && detail.contains("partial_shared_trim_count=")
+                            && detail.contains("pcurve_out_of_unit_count=0")
+                            && detail.contains("degenerate_pcurve_count=0")
+                            && detail.contains(&format!(
+                                "max_boundary_row_shared_trim_count={}",
+                                trim_metrics.max_boundary_row_shared_trim_count
+                            ))
+                            && detail.contains("worst_trim=present")
+                            && detail.contains("worst_trim_span=")
+                            && detail.contains("worst_face_a=")
+                            && detail.contains("worst_row_a=")
+                            && detail.contains("worst_face_b=")
+                            && detail.contains("worst_row_b=")
+                            && detail.contains("worst_sample_fraction=")
+                    })
+        )),
+        "{fixture} support-cell route should promote shared-trim quality into structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
 }
 
 fn support_cell_grid_detail_matches(detail: &str, grids: &[(usize, usize)]) -> bool {
