@@ -2,6 +2,8 @@
 
 #[path = "support/kp_gate_shared_trims.rs"]
 mod kp_gate_shared_trims;
+#[path = "kp_polar_support_cell_repair_facts.rs"]
+mod support_cell_repair_facts;
 
 const SUPPORT_CELL_SHARED_TRIM_SAMPLES: usize = 100;
 
@@ -108,6 +110,10 @@ pub(crate) fn assert_support_cell_quality_gate(
         support_cells_per_sector,
     );
     assert_candidate_diagnostics(fixture, &support_cell_dispatch_details);
+    support_cell_repair_facts::assert_selected_repair_facts_are_consistent(
+        fixture,
+        &support_cell_dispatch_details,
+    );
     assert_final_shared_trim_quality_diagnostic(
         fixture,
         diagnostics,
