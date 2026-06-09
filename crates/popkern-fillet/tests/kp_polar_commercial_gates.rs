@@ -13,10 +13,15 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
+#[path = "kp_polar_support_cell_diagnostics.rs"]
+mod support_cell_diagnostics;
 use helpers::{
     N_SAMPLES, assert_all_binonic, assert_commercial_gates, collect_patches, fillet_corner_full,
     incident_edges, measure_ring, measure_shared_gregory_trims_with_sources,
     pick_vertex_with_valence,
+};
+use support_cell_diagnostics::{
+    detail_contains_support_cell_inventory, support_cell_dispatch_details, support_cell_piece_count,
 };
 
 fn run_n_gonal_pyramid_polar(
@@ -340,6 +345,13 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed ranked-prefix candidate should be selected by a measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_worst_endpoint_cluster_if_g0_safe")
+                && detail.contains("operation_status=endpoint_cluster_")
+        }),
+        "hexagon6_mixed endpoint-cluster candidate should expose its internal guarded repair variant through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
         diagnostics.iter().any(|diagnostic| matches!(
             diagnostic,
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
@@ -372,61 +384,6 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         )),
         "hexagon6_mixed support-cell route should promote shared-trim quality into structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
-}
-
-fn support_cell_piece_count(patches: &[popkern_fillet::CornerPatchInfo]) -> Option<usize> {
-    patches.iter().try_fold(None, |current, patch| {
-        let provenance = patch.sub_patch_provenance?;
-        if !matches!(
-            provenance.role,
-            popkern_fillet::CornerSubPatchRole::SupportCell
-        ) {
-            return None;
-        }
-        match current {
-            Some(piece_count) if piece_count != provenance.piece_count => None,
-            Some(piece_count) => Some(Some(piece_count)),
-            None => Some(Some(provenance.piece_count)),
-        }
-    })?
-}
-
-fn detail_contains_support_cell_inventory(
-    detail: &str,
-    piece_count: usize,
-    cells_per_sector: usize,
-) -> bool {
-    detail.contains(&format!("support_cell_primitive_patch_count={piece_count}"))
-        && detail.contains("support_cell_primitive_selection_policy=")
-        && match cells_per_sector {
-            4 => support_cell_grid_detail_matches(detail, &[(1, 4), (4, 1), (2, 2)]),
-            8 => support_cell_grid_detail_matches(detail, &[(2, 4), (4, 2)]),
-            _ => false,
-        }
-}
-
-fn support_cell_grid_detail_matches(detail: &str, grids: &[(usize, usize)]) -> bool {
-    grids.iter().any(|&(cells_u, cells_v)| {
-        detail.contains(&format!("support_cell_primitive_cells_u={cells_u}"))
-            && detail.contains(&format!("support_cell_primitive_cells_v={cells_v}"))
-    })
-}
-
-fn support_cell_dispatch_details(
-    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
-) -> Vec<String> {
-    diagnostics
-        .iter()
-        .filter_map(|diagnostic| {
-            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
-            else {
-                return None;
-            };
-            (cap.code == "kp20_polar_macro.dispatch.fact" && cap.stage.contains("support_cell"))
-                .then(|| cap.detail_code.clone())
-                .flatten()
-        })
-        .collect()
 }
 
 #[ignore]
