@@ -40,9 +40,9 @@ pub(super) fn reconcile_worst_boundary_neighborhood(
 pub(super) fn reconcile_worst_endpoint_cluster(
     brep: &mut BRep,
     trims: &[FullBoundaryTrim],
-) -> Result<(), CoreError> {
+) -> Result<&'static str, CoreError> {
     let Some(worst) = worst_trim_endpoint(brep, trims)? else {
-        return Ok(());
+        return Ok("endpoint_cluster_no_endpoint");
     };
     let mut cluster = vec![worst.corner_a, worst.corner_b];
     grow_endpoint_cluster(&mut cluster, trims);
@@ -65,16 +65,23 @@ pub(super) fn reconcile_worst_endpoint_cluster(
         };
         let improves_best = best
             .as_ref()
-            .map(|(_, best_gap)| candidate.1 < *best_gap)
+            .map(|best_candidate| candidate.gap < best_candidate.gap)
             .unwrap_or(true);
         if improves_best {
             best = Some(candidate);
         }
     }
-    if let Some((candidate, _)) = best {
-        *brep = candidate;
+    if let Some(candidate) = best {
+        *brep = candidate.brep;
+        return Ok(candidate.variant.status_label());
     }
-    Ok(())
+    Ok("endpoint_cluster_declined")
+}
+
+struct EndpointClusterCandidate {
+    brep: BRep,
+    gap: f64,
+    variant: EndpointClusterVariant,
 }
 
 fn endpoint_cluster_candidate(
@@ -83,7 +90,7 @@ fn endpoint_cluster_candidate(
     cluster: &[PatchCornerKey],
     variant: EndpointClusterVariant,
     before_gap: f64,
-) -> Result<Option<(BRep, f64)>, CoreError> {
+) -> Result<Option<EndpointClusterCandidate>, CoreError> {
     let mut candidate = brep.clone();
     average_patch_corners(&mut candidate, cluster)?;
     match variant {
@@ -100,7 +107,11 @@ fn endpoint_cluster_candidate(
     }
     let after_gap = worst_trim_gap(&candidate, trims)?;
     if after_gap + 1.0e-12 < before_gap {
-        Ok(Some((candidate, after_gap)))
+        Ok(Some(EndpointClusterCandidate {
+            brep: candidate,
+            gap: after_gap,
+            variant,
+        }))
     } else {
         Ok(None)
     }
@@ -111,6 +122,16 @@ enum EndpointClusterVariant {
     CornersOnly,
     AdjacentControls,
     EndpointBandFit,
+}
+
+impl EndpointClusterVariant {
+    fn status_label(self) -> &'static str {
+        match self {
+            Self::CornersOnly => "endpoint_cluster_corners_only_kept",
+            Self::AdjacentControls => "endpoint_cluster_adjacent_controls_kept",
+            Self::EndpointBandFit => "endpoint_cluster_endpoint_band_fit_kept",
+        }
+    }
 }
 
 fn worst_neighborhood(
