@@ -347,10 +347,9 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate=pcurve_then_worst_endpoint_cluster_if_g0_safe")
-                && detail.contains("operation_status=endpoint_cluster_")
-                && detail.contains("_kept")
+                && detail.contains("operation_status=endpoint_cluster_endpoint_band_fit_kept")
         }),
-        "hexagon6_mixed endpoint-cluster candidate should keep a measured internal guarded repair variant through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+        "hexagon6_mixed endpoint-cluster candidate should keep the bounded endpoint-band fit through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(
