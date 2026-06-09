@@ -125,6 +125,21 @@ pub(crate) fn reconcile_assigned_support_cell_worst_boundary_neighborhood(
     })
 }
 
+pub(crate) fn reconcile_assigned_support_cell_worst_endpoint_cluster(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<(), CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let trims = full_boundary_trims(brep, &slots)?;
+    boundary_cluster::reconcile_worst_endpoint_cluster(brep, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell worst-endpoint cluster reconciliation produced invalid BRep: {error}"
+        ))
+    })
+}
+
 pub(crate) fn reconcile_assigned_support_cell_worst_boundary_row_group(
     brep: &mut BRep,
     faces: &[FaceHandle],
