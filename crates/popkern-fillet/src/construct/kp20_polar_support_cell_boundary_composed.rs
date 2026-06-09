@@ -45,6 +45,13 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_exact_boundary_status(
     reconcile_ranked_prefix_endpoint_row_group_then_exact_boundary(brep, faces)
 }
 
+pub(crate) fn reconcile_assigned_ranked_endpoint_partial_boundary_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_row_group_then_partial_boundary(brep, faces)
+}
+
 fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
     brep: &mut BRep,
     faces: &[FaceHandle],
@@ -112,6 +119,25 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_exact_boundary(
         ))
     })?;
     Ok(composed_exact_boundary_status(base_status, exact_status))
+}
+
+fn reconcile_ranked_prefix_endpoint_row_group_then_partial_boundary(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    let base_status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
+    let slots = assigned_support_cell_slots(brep, faces);
+    let partial_status = exact_boundary_row::fit_partial_shared_boundary_segments(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell partial-boundary composed reconciliation produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(composed_partial_boundary_status(
+        base_status,
+        partial_status,
+    ))
 }
 
 fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
@@ -262,5 +288,21 @@ fn composed_exact_boundary_status(
             "ranked_prefix_endpoint_row_group_exact_boundary_declined"
         }
         _ => "ranked_prefix_endpoint_exact_boundary_declined",
+    }
+}
+
+fn composed_partial_boundary_status(
+    base_status: &'static str,
+    partial_status: &'static str,
+) -> &'static str {
+    match partial_status {
+        "partial_boundary_segments_fit" if base_status.contains("row_group_kept") => {
+            "ranked_prefix_endpoint_row_group_partial_boundary_segments_fit"
+        }
+        "partial_boundary_segments_fit" => "ranked_prefix_endpoint_partial_boundary_segments_fit",
+        _ if base_status.contains("row_group_kept") => {
+            "ranked_prefix_endpoint_row_group_partial_boundary_declined"
+        }
+        _ => "ranked_prefix_endpoint_partial_boundary_declined",
     }
 }

@@ -8,7 +8,7 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
-    BoundarySide, FullBoundaryTrim, full_boundary_trims, rectangular_binonic_on_face,
+    BoundarySide, FullBoundaryTrim, full_boundary_trims, rectangular_binonic_on_face, row_fit,
     set_rectangular_binonic_on_face,
 };
 
@@ -23,6 +23,12 @@ struct BoundaryControlKey {
 struct BoundaryTarget {
     point: Point3,
     count: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct BoundaryRowKey {
+    face: FaceHandle,
+    side: BoundarySide,
 }
 
 pub(super) fn exact_full_span_shared_boundary_rows(
@@ -44,6 +50,27 @@ pub(super) fn exact_full_span_shared_boundary_rows(
     }
     apply_targets(brep, &targets)?;
     Ok("exact_boundary_full_span_rows_authored")
+}
+
+pub(super) fn fit_partial_shared_boundary_segments(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<&'static str, CoreError> {
+    let trims = full_boundary_trims(brep, slots)?;
+    let mut samples = HashMap::new();
+    let mut partial_trim_count = 0;
+    for trim in trims {
+        if full_span(trim.start_a, trim.end_a) && full_span(trim.start_b, trim.end_b) {
+            continue;
+        }
+        push_partial_trim_samples(brep, trim, &mut samples)?;
+        partial_trim_count += 1;
+    }
+    if partial_trim_count == 0 {
+        return Ok("partial_boundary_no_partial_trims");
+    }
+    fit_boundary_row_samples(brep, &samples)?;
+    Ok("partial_boundary_segments_fit")
 }
 
 fn push_trim_targets(
@@ -83,6 +110,26 @@ fn push_trim_targets(
     Ok(())
 }
 
+fn push_partial_trim_samples(
+    brep: &BRep,
+    trim: FullBoundaryTrim,
+    samples: &mut HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
+) -> Result<(), CoreError> {
+    let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
+    let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
+    for index in 0..16 {
+        let fraction = index as f64 / 15.0;
+        let param_a = lerp_scalar(trim.start_a, trim.end_a, fraction);
+        let param_b = lerp_scalar(trim.start_b, trim.end_b, 1.0 - fraction);
+        let point_a = row_fit::eval_boundary(&patch_a, trim.side_a, param_a);
+        let point_b = row_fit::eval_boundary(&patch_b, trim.side_b, param_b);
+        let target = point_a + (point_b - point_a) * 0.5;
+        push_boundary_sample(samples, trim.face_a, trim.side_a, param_a, target);
+        push_boundary_sample(samples, trim.face_b, trim.side_b, param_b, target);
+    }
+    Ok(())
+}
+
 fn full_span(start: f64, end: f64) -> bool {
     (close(start, 0.0) && close(end, 1.0)) || (close(start, 1.0) && close(end, 0.0))
 }
@@ -99,6 +146,10 @@ fn natural_index_for_fraction(start: f64, end: f64, fraction_index: usize) -> us
     }
 }
 
+fn lerp_scalar(a: f64, b: f64, t: f64) -> f64 {
+    a + (b - a) * t
+}
+
 fn boundary_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [Point3; 10] {
     let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
     for (index, point) in out.iter_mut().enumerate() {
@@ -110,6 +161,19 @@ fn boundary_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [
         };
     }
     out
+}
+
+fn push_boundary_sample(
+    samples: &mut HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
+    face: FaceHandle,
+    side: BoundarySide,
+    parameter: f64,
+    target: Point3,
+) {
+    samples
+        .entry(BoundaryRowKey { face, side })
+        .or_default()
+        .push(row_fit::BoundaryRowFitSample { parameter, target });
 }
 
 fn push_target(
@@ -125,6 +189,28 @@ fn push_target(
             target.count += 1;
         })
         .or_insert(BoundaryTarget { point, count: 1 });
+}
+
+fn fit_boundary_row_samples(
+    brep: &mut BRep,
+    samples: &HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
+) -> Result<(), CoreError> {
+    let mut patches = HashMap::new();
+    for key in samples.keys() {
+        patches
+            .entry(key.face)
+            .or_insert(rectangular_binonic_on_face(brep, key.face)?);
+    }
+    for (key, row_samples) in samples {
+        let Some(patch) = patches.get_mut(&key.face) else {
+            continue;
+        };
+        row_fit::fit_boundary_samples(patch, key.side, row_samples);
+    }
+    for (face, patch) in patches {
+        set_rectangular_binonic_on_face(brep, face, patch)?;
+    }
+    Ok(())
 }
 
 fn apply_targets(
