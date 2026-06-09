@@ -27,11 +27,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenWorstEndpointClusterIfG0Safe,
     PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
     PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
+    PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 12] = [
+    const ALL: [Self; 13] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -43,6 +44,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenWorstEndpointClusterIfG0Safe,
         Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
+        Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -69,6 +71,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe => {
                 "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe"
             }
+            Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe => {
+                "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -86,6 +91,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenWorstEndpointClusterIfG0Safe
                 | Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe
+                | Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -323,14 +329,21 @@ fn apply_support_cell_completion_candidate(
         }
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
-                support_cell_boundary_reconcile::reconcile_assigned_support_cell_ranked_prefix_then_worst_endpoint_cluster_with_status(
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_status(
                     brep, faces,
                 )
             })
         }
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
-                support_cell_boundary_reconcile::reconcile_assigned_support_cell_ranked_prefix_endpoint_cluster_then_row_group_with_status(
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_row_group_status(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_two_row_groups_status(
                     brep, faces,
                 )
             })

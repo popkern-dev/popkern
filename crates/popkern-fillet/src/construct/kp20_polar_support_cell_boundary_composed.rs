@@ -8,7 +8,28 @@ use super::{
     full_boundary_trims, group_reconcile, reauthor_support_cell_shared_edge_curves, trim_gap,
 };
 
-pub(super) fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
+pub(crate) fn reconcile_assigned_ranked_endpoint_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_then_worst_endpoint_cluster(brep, faces)
+}
+
+pub(crate) fn reconcile_assigned_ranked_endpoint_row_group_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)
+}
+
+pub(crate) fn reconcile_assigned_ranked_endpoint_two_row_groups_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 2)
+}
+
+fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<&'static str, CoreError> {
@@ -25,22 +46,23 @@ pub(super) fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
     Ok(composed_endpoint_status(endpoint_status))
 }
 
-pub(super) fn reconcile_ranked_prefix_endpoint_cluster_then_row_group(
+fn reconcile_ranked_prefix_endpoint_cluster_then_row_groups(
     brep: &mut BRep,
     faces: &[FaceHandle],
+    max_row_group_passes: usize,
 ) -> Result<&'static str, CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
     let trims = full_boundary_trims(brep, &slots)?;
     boundary_prefix::reconcile_ranked_boundary_prefix(brep, &trims)?;
     let endpoint_status = boundary_cluster::reconcile_worst_endpoint_cluster(brep, &trims)?;
-    let row_status = reconcile_row_group_if_improving(brep, &trims)?;
+    let kept_pass_count = reconcile_row_group_passes(brep, &trims, max_row_group_passes)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
             "kp20 support-cell ranked-prefix endpoint row-group reconciliation produced invalid BRep: {error}"
         ))
     })?;
-    Ok(composed_row_group_status(endpoint_status, row_status))
+    Ok(composed_row_group_status(endpoint_status, kept_pass_count))
 }
 
 fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
@@ -50,6 +72,22 @@ fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
         "endpoint_cluster_corners_only_kept" => "ranked_prefix_then_endpoint_corners_kept",
         _ => "ranked_prefix_then_endpoint_cluster_declined",
     }
+}
+
+fn reconcile_row_group_passes(
+    brep: &mut BRep,
+    trims: &[super::FullBoundaryTrim],
+    max_row_group_passes: usize,
+) -> Result<usize, CoreError> {
+    let mut kept_pass_count = 0;
+    for _ in 0..max_row_group_passes {
+        if reconcile_row_group_if_improving(brep, trims)? {
+            kept_pass_count += 1;
+        } else {
+            break;
+        }
+    }
+    Ok(kept_pass_count)
 }
 
 fn reconcile_row_group_if_improving(
@@ -78,15 +116,22 @@ fn worst_gap(brep: &BRep, trims: &[super::FullBoundaryTrim]) -> Result<f64, Core
     Ok(worst)
 }
 
-fn composed_row_group_status(endpoint_status: &'static str, row_kept: bool) -> &'static str {
-    match (endpoint_status, row_kept) {
-        ("endpoint_cluster_endpoint_band_fit_kept", true) => {
+fn composed_row_group_status(
+    endpoint_status: &'static str,
+    kept_pass_count: usize,
+) -> &'static str {
+    match (endpoint_status, kept_pass_count) {
+        ("endpoint_cluster_endpoint_band_fit_kept", 2..) => {
+            "ranked_prefix_endpoint_band_then_two_row_groups_kept"
+        }
+        ("endpoint_cluster_endpoint_band_fit_kept", 1) => {
             "ranked_prefix_endpoint_band_then_row_group_kept"
         }
-        ("endpoint_cluster_endpoint_band_fit_kept", false) => {
+        ("endpoint_cluster_endpoint_band_fit_kept", 0) => {
             "ranked_prefix_endpoint_band_then_row_group_declined"
         }
-        (_, true) => "ranked_prefix_endpoint_cluster_then_row_group_kept",
+        (_, 2..) => "ranked_prefix_endpoint_cluster_then_two_row_groups_kept",
+        (_, 1) => "ranked_prefix_endpoint_cluster_then_row_group_kept",
         _ => "ranked_prefix_endpoint_cluster_then_row_group_declined",
     }
 }

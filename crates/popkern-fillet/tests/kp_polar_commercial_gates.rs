@@ -323,6 +323,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "pcurve_then_worst_endpoint_cluster_if_g0_safe",
         "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -349,13 +350,25 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
-            detail.contains(
-                "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
-            ) && detail.contains("candidate_status=accepted_selected")
+            detail.contains("candidate_status=accepted_selected")
+                && (detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+                ))
                 && detail.contains("operation_status=ranked_prefix_")
-                && detail.contains("row_group_kept")
         }),
-        "hexagon6_mixed composed ranked-prefix endpoint row-group candidate should be selected through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+        "hexagon6_mixed should select a measured composed ranked-prefix endpoint repair; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+            ) && detail.contains("operation_status=ranked_prefix_")
+        }),
+        "hexagon6_mixed should score the bounded two-row-group composed candidate; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(

@@ -13,7 +13,7 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 #[path = "kp20_polar_support_cell_boundary_cluster.rs"]
 mod boundary_cluster;
 #[path = "kp20_polar_support_cell_boundary_composed.rs"]
-mod boundary_composed;
+pub(crate) mod boundary_composed;
 #[path = "kp20_polar_support_cell_boundary_prefix.rs"]
 mod boundary_prefix;
 #[path = "kp20_polar_support_cell_boundary_row_group.rs"]
@@ -141,20 +141,6 @@ pub(crate) fn reconcile_assigned_support_cell_worst_endpoint_cluster_with_status
         ))
     })?;
     Ok(status)
-}
-
-pub(crate) fn reconcile_assigned_support_cell_ranked_prefix_then_worst_endpoint_cluster_with_status(
-    brep: &mut BRep,
-    faces: &[FaceHandle],
-) -> Result<&'static str, CoreError> {
-    boundary_composed::reconcile_ranked_prefix_then_worst_endpoint_cluster(brep, faces)
-}
-
-pub(crate) fn reconcile_assigned_support_cell_ranked_prefix_endpoint_cluster_then_row_group_with_status(
-    brep: &mut BRep,
-    faces: &[FaceHandle],
-) -> Result<&'static str, CoreError> {
-    boundary_composed::reconcile_ranked_prefix_endpoint_cluster_then_row_group(brep, faces)
 }
 
 pub(crate) fn reconcile_assigned_support_cell_worst_boundary_row_group(
