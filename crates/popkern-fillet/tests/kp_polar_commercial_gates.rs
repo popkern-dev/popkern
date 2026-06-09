@@ -325,6 +325,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_tangent_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -370,6 +371,15 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
             ) && detail.contains("operation_status=ranked_prefix_")
         }),
         "hexagon6_mixed should score the bounded two-row-group composed candidate; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
+            ) && detail.contains("operation_status=ranked_prefix_endpoint_")
+                && detail.contains("exact_boundary_rows_authored")
+        }),
+        "hexagon6_mixed should score the exact shared-boundary row candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(

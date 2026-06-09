@@ -5,8 +5,8 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
     assigned_support_cell_slots, boundary_cluster, boundary_prefix, boundary_row_group,
-    full_boundary_trims, group_reconcile, reauthor_support_cell_shared_edge_curves, tangent_row,
-    trim_gap,
+    exact_boundary_row, full_boundary_trims, group_reconcile,
+    reauthor_support_cell_shared_edge_curves, tangent_row, trim_gap,
 };
 use crate::construct::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 
@@ -36,6 +36,13 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_row_group_tangent_status(
     faces: &[FaceHandle],
 ) -> Result<&'static str, CoreError> {
     reconcile_ranked_prefix_endpoint_row_group_then_tangent(brep, faces)
+}
+
+pub(crate) fn reconcile_assigned_ranked_endpoint_exact_boundary_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_row_group_then_exact_boundary(brep, faces)
 }
 
 fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
@@ -89,6 +96,22 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_tangent(
         ))
     })?;
     Ok(composed_tangent_status(status, tangent_status))
+}
+
+fn reconcile_ranked_prefix_endpoint_row_group_then_exact_boundary(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    let base_status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
+    let slots = assigned_support_cell_slots(brep, faces);
+    let exact_status = exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell exact-boundary composed reconciliation produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(composed_exact_boundary_status(base_status, exact_status))
 }
 
 fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
@@ -221,5 +244,23 @@ fn composed_tangent_status(
             "ranked_prefix_endpoint_row_group_tangent_declined"
         }
         None => "ranked_prefix_endpoint_tangent_declined",
+    }
+}
+
+fn composed_exact_boundary_status(
+    base_status: &'static str,
+    exact_status: &'static str,
+) -> &'static str {
+    match exact_status {
+        "exact_boundary_full_span_rows_authored" if base_status.contains("row_group_kept") => {
+            "ranked_prefix_endpoint_row_group_exact_boundary_rows_authored"
+        }
+        "exact_boundary_full_span_rows_authored" => {
+            "ranked_prefix_endpoint_exact_boundary_rows_authored"
+        }
+        _ if base_status.contains("row_group_kept") => {
+            "ranked_prefix_endpoint_row_group_exact_boundary_declined"
+        }
+        _ => "ranked_prefix_endpoint_exact_boundary_declined",
     }
 }

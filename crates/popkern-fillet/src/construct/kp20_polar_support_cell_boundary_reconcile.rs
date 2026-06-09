@@ -18,6 +18,8 @@ pub(crate) mod boundary_composed;
 mod boundary_prefix;
 #[path = "kp20_polar_support_cell_boundary_row_group.rs"]
 mod boundary_row_group;
+#[path = "kp20_polar_support_cell_exact_boundary_row.rs"]
+mod exact_boundary_row;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]
 mod group_reconcile;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
