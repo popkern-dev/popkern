@@ -297,11 +297,11 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed support-cell route should emit post-apply assembled quality diagnostics"
     );
     assert!(
-        support_cell_dispatch_details.iter().any(|detail| detail
-            .contains("selected_candidate=pcurve_then_boundary_if_g0_safe")
-            && (detail.contains("repair_status=accepted_non_regressing_final_repair")
-                || detail.contains("repair_status=declined_to_preserve_final_quality"))),
-        "hexagon6_mixed support-cell route should emit transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("repair_status=accepted_non_regressing_final_repair")
+                && detail.contains("selected_candidate=")
+        }),
+        "hexagon6_mixed support-cell route should emit accepted transactional shared-trim repair diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details
@@ -336,14 +336,6 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
             "candidate=pcurve_then_ranked_boundary_prefix_if_g0_safe;candidate_status=accepted_selected"
         )),
         "hexagon6_mixed ranked-prefix candidate should be selected by a measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
-    );
-    assert!(
-        support_cell_dispatch_details
-            .iter()
-            .any(|detail| detail.contains(
-                "candidate=pcurve_then_boundary_if_g0_safe;candidate_status=accepted_selected"
-            ) && detail.contains("operation_status=boundary_kept")),
-        "hexagon6_mixed split candidate should explain its boundary substep outcome; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(

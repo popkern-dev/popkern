@@ -50,10 +50,13 @@ fn ranked_boundary_trims(
 }
 
 fn prefix_counts(trim_count: usize) -> Vec<usize> {
-    [3, 6, 12]
+    let mut counts = [3, 6, 12, trim_count / 2, trim_count]
         .into_iter()
-        .filter(|count| *count <= trim_count)
-        .collect()
+        .filter(|count| *count > 0 && *count <= trim_count)
+        .collect::<Vec<_>>();
+    counts.sort_unstable();
+    counts.dedup();
+    counts
 }
 
 fn worst_trim_gap(brep: &BRep, trims: &[FullBoundaryTrim]) -> Result<f64, CoreError> {
