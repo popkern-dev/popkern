@@ -21,6 +21,16 @@ pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) worst_abs_uv: f64,
     pub(super) worst_g0_gap: f64,
     pub(super) worst_normal_disagreement: f64,
+    pub(super) worst_trim: Option<Kp20SupportCellWorstTrim>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Kp20SupportCellWorstTrim {
+    face_a: FaceHandle,
+    row_a: Option<u8>,
+    face_b: FaceHandle,
+    row_b: Option<u8>,
+    sample_fraction: f64,
 }
 
 impl Kp20SupportCellSharedTrimQuality {
@@ -51,6 +61,7 @@ pub(super) fn measure_support_cell_shared_trim_quality(
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
+        worst_trim: None,
     };
     for &face in faces {
         let Some(start) = brep
@@ -101,7 +112,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e}",
+            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             classification.status,
@@ -111,11 +122,31 @@ pub(super) fn support_cell_shared_trim_quality_fact(
             quality.max_boundary_row_shared_trim_count,
             quality.worst_abs_uv,
             quality.worst_g0_gap,
-            quality.worst_normal_disagreement
+            quality.worst_normal_disagreement,
+            worst_trim_detail(quality)
         )),
         None,
         None,
     )
+}
+
+fn worst_trim_detail(quality: Kp20SupportCellSharedTrimQuality) -> String {
+    let Some(worst) = quality.worst_trim else {
+        return "worst_trim=none".to_string();
+    };
+    format!(
+        "worst_trim=present;worst_face_a={:?};worst_row_a={};worst_face_b={:?};worst_row_b={};worst_sample_fraction={:.15e}",
+        worst.face_a,
+        row_label(worst.row_a),
+        worst.face_b,
+        row_label(worst.row_b),
+        worst.sample_fraction
+    )
+}
+
+fn row_label(row: Option<u8>) -> String {
+    row.map(|row| row.to_string())
+        .unwrap_or_else(|| "none".to_string())
 }
 
 pub(super) fn support_cell_shared_trim_repair_fact(
@@ -319,6 +350,8 @@ fn measure_shared_trim_pair(
     let Some(pcurve_b) = brep.half_edges[half_edge_b].pcurve.as_ref() else {
         return;
     };
+    let row_a = boundary_row(pcurve_a);
+    let row_b = boundary_row(pcurve_b);
     quality.shared_trim_count += 1;
     record_boundary_row_count(quality, boundary_row_counts, face_a, pcurve_a);
     record_boundary_row_count(quality, boundary_row_counts, face_b, pcurve_b);
@@ -335,7 +368,17 @@ fn measure_shared_trim_pair(
         record_uv(quality, uv_b);
         let point_a = surface_a.geometry.point_at(uv_a.x, uv_a.y);
         let point_b = surface_b.geometry.point_at(uv_b.x, uv_b.y);
-        quality.worst_g0_gap = quality.worst_g0_gap.max(point_a.distance_to(&point_b));
+        let g0_gap = point_a.distance_to(&point_b);
+        if g0_gap > quality.worst_g0_gap {
+            quality.worst_g0_gap = g0_gap;
+            quality.worst_trim = Some(Kp20SupportCellWorstTrim {
+                face_a,
+                row_a,
+                face_b,
+                row_b,
+                sample_fraction: fraction,
+            });
+        }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {

@@ -360,6 +360,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                                 "max_boundary_row_shared_trim_count={}",
                                 trim_metrics.max_boundary_row_shared_trim_count
                             ))
+                            && detail.contains("worst_trim=present")
+                            && detail.contains("worst_face_a=")
+                            && detail.contains("worst_row_a=")
+                            && detail.contains("worst_face_b=")
+                            && detail.contains("worst_row_b=")
+                            && detail.contains("worst_sample_fraction=")
                     })
         )),
         "hexagon6_mixed support-cell route should promote shared-trim quality into structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
