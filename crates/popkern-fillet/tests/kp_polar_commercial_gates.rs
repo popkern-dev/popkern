@@ -359,10 +359,12 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                     "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
                 ) || detail.contains(
                     "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
                 ))
                 && detail.contains("operation_status=ranked_prefix_")
         }),
-        "hexagon6_mixed should select a measured composed ranked-prefix endpoint repair; support_cell_details={support_cell_dispatch_details:?}"
+        "hexagon6_mixed should select a measured composed ranked-prefix endpoint or exact-boundary repair; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
@@ -398,6 +400,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                                 "shared_trim_count={}",
                                 trim_metrics.shared_trim_count
                             ))
+                            && detail.contains("partial_shared_trim_count=")
                             && detail.contains("pcurve_out_of_unit_count=0")
                             && detail.contains("degenerate_pcurve_count=0")
                             && detail.contains(&format!(
@@ -405,6 +408,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
                                 trim_metrics.max_boundary_row_shared_trim_count
                             ))
                             && detail.contains("worst_trim=present")
+                            && detail.contains("worst_trim_span=partial")
                             && detail.contains("worst_face_a=")
                             && detail.contains("worst_row_a=")
                             && detail.contains("worst_face_b=")

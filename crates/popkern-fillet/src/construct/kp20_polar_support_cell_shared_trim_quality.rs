@@ -15,6 +15,7 @@ const SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS: f64 = 1.0e-12;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) shared_trim_count: usize,
+    pub(super) partial_shared_trim_count: usize,
     pub(super) pcurve_out_of_unit_count: usize,
     pub(super) degenerate_pcurve_count: usize,
     pub(super) max_boundary_row_shared_trim_count: usize,
@@ -31,6 +32,7 @@ pub(super) struct Kp20SupportCellWorstTrim {
     face_b: FaceHandle,
     row_b: Option<u8>,
     sample_fraction: f64,
+    full_span: bool,
 }
 
 impl Kp20SupportCellSharedTrimQuality {
@@ -55,6 +57,7 @@ pub(super) fn measure_support_cell_shared_trim_quality(
     let mut boundary_row_counts = HashMap::new();
     let mut quality = Kp20SupportCellSharedTrimQuality {
         shared_trim_count: 0,
+        partial_shared_trim_count: 0,
         pcurve_out_of_unit_count: 0,
         degenerate_pcurve_count: 0,
         max_boundary_row_shared_trim_count: 0,
@@ -112,11 +115,12 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
+            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             classification.status,
             quality.shared_trim_count,
+            quality.partial_shared_trim_count,
             quality.pcurve_out_of_unit_count,
             quality.degenerate_pcurve_count,
             quality.max_boundary_row_shared_trim_count,
@@ -135,7 +139,8 @@ fn worst_trim_detail(quality: Kp20SupportCellSharedTrimQuality) -> String {
         return "worst_trim=none".to_string();
     };
     format!(
-        "worst_trim=present;worst_face_a={:?};worst_row_a={};worst_face_b={:?};worst_row_b={};worst_sample_fraction={:.15e}",
+        "worst_trim=present;worst_trim_span={};worst_face_a={:?};worst_row_a={};worst_face_b={:?};worst_row_b={};worst_sample_fraction={:.15e}",
+        if worst.full_span { "full" } else { "partial" },
         worst.face_a,
         row_label(worst.row_a),
         worst.face_b,
@@ -166,9 +171,11 @@ pub(super) fn support_cell_shared_trim_repair_fact(
         "support_cell_shared_trim_final_repair",
         n_sides,
         Some(format!(
-            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_partial_shared_trim_count={};after_partial_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
             before.shared_trim_count,
             after.shared_trim_count,
+            before.partial_shared_trim_count,
+            after.partial_shared_trim_count,
             before.pcurve_out_of_unit_count,
             after.pcurve_out_of_unit_count,
             before.degenerate_pcurve_count,
@@ -352,7 +359,9 @@ fn measure_shared_trim_pair(
     };
     let row_a = boundary_row(pcurve_a);
     let row_b = boundary_row(pcurve_b);
+    let full_span = full_boundary_span(pcurve_a) && full_boundary_span(pcurve_b);
     quality.shared_trim_count += 1;
+    quality.partial_shared_trim_count += usize::from(!full_span);
     record_boundary_row_count(quality, boundary_row_counts, face_a, pcurve_a);
     record_boundary_row_count(quality, boundary_row_counts, face_b, pcurve_b);
     record_pcurve_span(quality, pcurve_a, pcurve_b);
@@ -377,6 +386,7 @@ fn measure_shared_trim_pair(
                 face_b,
                 row_b,
                 sample_fraction: fraction,
+                full_span,
             });
         }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
@@ -438,6 +448,14 @@ fn pcurve_span(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> f64 {
     let start = pcurve.point_at(t0);
     let end = pcurve.point_at(t1);
     ((end.x - start.x).powi(2) + (end.y - start.y).powi(2)).sqrt()
+}
+
+fn full_boundary_span(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> bool {
+    let (t0, t1) = pcurve.parameter_range();
+    let start = pcurve.point_at(t0);
+    let end = pcurve.point_at(t1);
+    (close(start.x, end.x) && close((start.y - end.y).abs(), 1.0))
+        || (close(start.y, end.y) && close((start.x - end.x).abs(), 1.0))
 }
 
 fn record_uv(quality: &mut Kp20SupportCellSharedTrimQuality, uv: Vec3) {
