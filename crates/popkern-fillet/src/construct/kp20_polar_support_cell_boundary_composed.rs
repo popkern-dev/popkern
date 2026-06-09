@@ -5,8 +5,10 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
     assigned_support_cell_slots, boundary_cluster, boundary_prefix, boundary_row_group,
-    full_boundary_trims, group_reconcile, reauthor_support_cell_shared_edge_curves, trim_gap,
+    full_boundary_trims, group_reconcile, reauthor_support_cell_shared_edge_curves, tangent_row,
+    trim_gap,
 };
+use crate::construct::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 
 pub(crate) fn reconcile_assigned_ranked_endpoint_status(
     brep: &mut BRep,
@@ -27,6 +29,13 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_two_row_groups_status(
     faces: &[FaceHandle],
 ) -> Result<&'static str, CoreError> {
     reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 2)
+}
+
+pub(crate) fn reconcile_assigned_ranked_endpoint_row_group_tangent_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    reconcile_ranked_prefix_endpoint_row_group_then_tangent(brep, faces)
 }
 
 fn reconcile_ranked_prefix_then_worst_endpoint_cluster(
@@ -63,6 +72,23 @@ fn reconcile_ranked_prefix_endpoint_cluster_then_row_groups(
         ))
     })?;
     Ok(composed_row_group_status(endpoint_status, kept_pass_count))
+}
+
+fn reconcile_ranked_prefix_endpoint_row_group_then_tangent(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    let status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
+    let slots = assigned_support_cell_slots(brep, faces);
+    let trims = full_boundary_trims(brep, &slots)?;
+    let tangent_status = reconcile_tangent_row_if_normal_improves(brep, faces, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell tangent-row reconciliation produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(composed_tangent_status(status, tangent_status))
 }
 
 fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
@@ -116,6 +142,50 @@ fn worst_gap(brep: &BRep, trims: &[super::FullBoundaryTrim]) -> Result<f64, Core
     Ok(worst)
 }
 
+fn reconcile_tangent_row_if_normal_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[super::FullBoundaryTrim],
+) -> Result<Option<tangent_row::TangentRowAlignment>, CoreError> {
+    let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let mut best: Option<(
+        tangent_row::TangentRowAlignment,
+        shared_trim_quality::Kp20SupportCellSharedTrimQuality,
+        BRep,
+    )> = None;
+    for alignment in [
+        tangent_row::TangentRowAlignment::SharedDirection,
+        tangent_row::TangentRowAlignment::MirroredDirection,
+    ] {
+        let mut candidate = brep.clone();
+        tangent_row::align_worst_row_group_tangent_band(&mut candidate, trims, alignment)?;
+        if candidate.validate().is_err() {
+            continue;
+        }
+        let after =
+            shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
+        if after.worst_g0_gap > before.worst_g0_gap + 1.0e-12
+            || after.worst_normal_disagreement + 1.0e-12 >= before.worst_normal_disagreement
+        {
+            continue;
+        }
+        let improves_best = match best.as_ref() {
+            Some((_, quality, _)) => {
+                after.worst_normal_disagreement < quality.worst_normal_disagreement
+            }
+            None => true,
+        };
+        if improves_best {
+            best = Some((alignment, after, candidate));
+        }
+    }
+    let Some((alignment, _, candidate)) = best else {
+        return Ok(None);
+    };
+    *brep = candidate;
+    Ok(Some(alignment))
+}
+
 fn composed_row_group_status(
     endpoint_status: &'static str,
     kept_pass_count: usize,
@@ -133,5 +203,23 @@ fn composed_row_group_status(
         (_, 2..) => "ranked_prefix_endpoint_cluster_then_two_row_groups_kept",
         (_, 1) => "ranked_prefix_endpoint_cluster_then_row_group_kept",
         _ => "ranked_prefix_endpoint_cluster_then_row_group_declined",
+    }
+}
+
+fn composed_tangent_status(
+    base_status: &'static str,
+    tangent_status: Option<tangent_row::TangentRowAlignment>,
+) -> &'static str {
+    match tangent_status {
+        Some(tangent_row::TangentRowAlignment::SharedDirection) => {
+            "ranked_prefix_endpoint_row_group_shared_tangent_kept"
+        }
+        Some(tangent_row::TangentRowAlignment::MirroredDirection) => {
+            "ranked_prefix_endpoint_row_group_mirrored_tangent_kept"
+        }
+        None if base_status.contains("row_group_kept") => {
+            "ranked_prefix_endpoint_row_group_tangent_declined"
+        }
+        None => "ranked_prefix_endpoint_tangent_declined",
     }
 }

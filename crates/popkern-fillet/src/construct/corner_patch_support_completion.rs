@@ -28,11 +28,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
     PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
     PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
+    PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 13] = [
+    const ALL: [Self; 14] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -45,6 +46,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
+        Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -74,6 +76,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe => {
                 "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe"
             }
+            Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe => {
+                "pcurve_then_ranked_boundary_endpoint_row_group_then_tangent_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -92,6 +97,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe
+                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -344,6 +350,13 @@ fn apply_support_cell_completion_candidate(
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_two_row_groups_status(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_row_group_tangent_status(
                     brep, faces,
                 )
             })

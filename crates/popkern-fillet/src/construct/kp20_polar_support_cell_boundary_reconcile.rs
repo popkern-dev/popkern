@@ -24,6 +24,8 @@ mod group_reconcile;
 mod row_fit;
 #[path = "kp20_polar_support_cell_segment_transfer.rs"]
 mod segment_transfer;
+#[path = "kp20_polar_support_cell_tangent_row.rs"]
+mod tangent_row;
 
 #[derive(Debug, Clone, Copy)]
 struct FullBoundaryTrim {
