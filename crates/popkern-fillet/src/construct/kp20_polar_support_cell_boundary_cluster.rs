@@ -1,5 +1,7 @@
 //! Coupled worst-neighborhood fitting for KP20 support-cell boundaries.
 
+use std::collections::HashMap;
+
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, FaceHandle};
@@ -42,15 +44,43 @@ pub(super) fn reconcile_worst_endpoint_cluster(
     let mut cluster = vec![worst.corner_a, worst.corner_b];
     grow_endpoint_cluster(&mut cluster, trims);
     let before_gap = worst_trim_gap(brep, trims)?;
-    let mut candidate = brep.clone();
-    average_patch_corners(&mut candidate, &cluster)?;
-    if candidate.validate().is_err() {
-        return Ok(());
+    let mut best = endpoint_cluster_candidate(brep, trims, &cluster, false, before_gap)?;
+    if let Some(candidate) = endpoint_cluster_candidate(brep, trims, &cluster, true, before_gap)? {
+        let improves_best = best
+            .as_ref()
+            .map(|(_, best_gap)| candidate.1 < *best_gap)
+            .unwrap_or(true);
+        if improves_best {
+            best = Some(candidate);
+        }
     }
-    if worst_trim_gap(&candidate, trims)? + 1.0e-12 < before_gap {
+    if let Some((candidate, _)) = best {
         *brep = candidate;
     }
     Ok(())
+}
+
+fn endpoint_cluster_candidate(
+    brep: &BRep,
+    trims: &[FullBoundaryTrim],
+    cluster: &[PatchCornerKey],
+    include_adjacent_controls: bool,
+    before_gap: f64,
+) -> Result<Option<(BRep, f64)>, CoreError> {
+    let mut candidate = brep.clone();
+    average_patch_corners(&mut candidate, cluster)?;
+    if include_adjacent_controls {
+        average_adjacent_boundary_controls(&mut candidate, cluster, trims)?;
+    }
+    if candidate.validate().is_err() {
+        return Ok(None);
+    }
+    let after_gap = worst_trim_gap(&candidate, trims)?;
+    if after_gap + 1.0e-12 < before_gap {
+        Ok(Some((candidate, after_gap)))
+    } else {
+        Ok(None)
+    }
 }
 
 fn worst_neighborhood(
@@ -85,6 +115,21 @@ struct PatchCornerKey {
     face: FaceHandle,
     u_max: bool,
     v_max: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct PatchControlKey {
+    face: FaceHandle,
+    u: usize,
+    v: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ControlAccumulator {
+    x: f64,
+    y: f64,
+    z: f64,
+    count: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -191,6 +236,112 @@ fn average_patch_corners(brep: &mut BRep, cluster: &[PatchCornerKey]) -> Result<
         set_rectangular_binonic_on_face(brep, key.face, patch)?;
     }
     Ok(())
+}
+
+fn average_adjacent_boundary_controls(
+    brep: &mut BRep,
+    cluster: &[PatchCornerKey],
+    trims: &[FullBoundaryTrim],
+) -> Result<(), CoreError> {
+    let mut targets: HashMap<PatchControlKey, ControlAccumulator> = HashMap::new();
+    for &trim in trims {
+        for (corner_a, corner_b) in trim_endpoint_pairs(trim) {
+            if !cluster.contains(&corner_a) || !cluster.contains(&corner_b) {
+                continue;
+            }
+            let Some(control_a) = adjacent_boundary_control(trim.face_a, trim.side_a, corner_a)
+            else {
+                continue;
+            };
+            let Some(control_b) = adjacent_boundary_control(trim.face_b, trim.side_b, corner_b)
+            else {
+                continue;
+            };
+            let point_a = control_point(brep, control_a)?;
+            let point_b = control_point(brep, control_b)?;
+            let target = average_point(point_a, point_b);
+            push_target(&mut targets, control_a, target);
+            push_target(&mut targets, control_b, target);
+        }
+    }
+    apply_control_targets(brep, &targets)
+}
+
+fn adjacent_boundary_control(
+    face: FaceHandle,
+    side: BoundarySide,
+    corner: PatchCornerKey,
+) -> Option<PatchControlKey> {
+    if corner.face != face {
+        return None;
+    }
+    let u = usize::from(corner.u_max) * 9;
+    let v = usize::from(corner.v_max) * 9;
+    let key = match side {
+        BoundarySide::UMin | BoundarySide::UMax => PatchControlKey {
+            face,
+            u,
+            v: adjacent_index(v)?,
+        },
+        BoundarySide::VMin | BoundarySide::VMax => PatchControlKey {
+            face,
+            u: adjacent_index(u)?,
+            v,
+        },
+    };
+    Some(key)
+}
+
+fn adjacent_index(index: usize) -> Option<usize> {
+    match index {
+        0 => Some(1),
+        9 => Some(8),
+        _ => None,
+    }
+}
+
+fn push_target(
+    targets: &mut HashMap<PatchControlKey, ControlAccumulator>,
+    key: PatchControlKey,
+    point: Point3,
+) {
+    targets
+        .entry(key)
+        .and_modify(|target| {
+            target.x += point.x;
+            target.y += point.y;
+            target.z += point.z;
+            target.count += 1;
+        })
+        .or_insert(ControlAccumulator {
+            x: point.x,
+            y: point.y,
+            z: point.z,
+            count: 1,
+        });
+}
+
+fn apply_control_targets(
+    brep: &mut BRep,
+    targets: &HashMap<PatchControlKey, ControlAccumulator>,
+) -> Result<(), CoreError> {
+    for (&key, target) in targets {
+        let mut patch = rectangular_binonic_on_face(brep, key.face)?;
+        let scale = 1.0 / target.count as f64;
+        patch.grid[key.u][key.v] =
+            Point3::new(target.x * scale, target.y * scale, target.z * scale);
+        set_rectangular_binonic_on_face(brep, key.face, patch)?;
+    }
+    Ok(())
+}
+
+fn control_point(brep: &BRep, key: PatchControlKey) -> Result<Point3, CoreError> {
+    let patch = rectangular_binonic_on_face(brep, key.face)?;
+    Ok(patch.grid[key.u][key.v])
+}
+
+fn average_point(a: Point3, b: Point3) -> Point3 {
+    Point3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
 }
 
 fn corner_point(
