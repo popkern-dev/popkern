@@ -32,11 +32,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
+    PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 17] = [
+    const ALL: [Self; 18] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -53,6 +54,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
+        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -94,6 +96,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe => {
                 "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe"
             }
+            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe => {
+                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -116,6 +121,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe
+                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -396,6 +402,13 @@ fn apply_support_cell_completion_candidate(
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_partial_boundary_status(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_exact_then_partial_status(
                     brep, faces,
                 )
             })
