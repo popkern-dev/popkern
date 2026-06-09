@@ -23,11 +23,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryPrefixIfG0Safe,
     PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
     PcurveThenWorstEndpointClusterIfG0Safe,
+    PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 11] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -37,6 +38,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryPrefixIfG0Safe,
         Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
         Self::PcurveThenWorstEndpointClusterIfG0Safe,
+        Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -57,6 +59,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenWorstEndpointClusterIfG0Safe => {
                 "pcurve_then_worst_endpoint_cluster_if_g0_safe"
             }
+            Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe => {
+                "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -72,6 +77,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryPrefixIfG0Safe
                 | Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe
                 | Self::PcurveThenWorstEndpointClusterIfG0Safe
+                | Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -304,6 +310,13 @@ fn apply_support_cell_completion_candidate(
             apply_boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_support_cell_worst_endpoint_cluster_with_status(
                         brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe => {
+            apply_boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_ranked_prefix_then_worst_endpoint_cluster_with_status(
+                    brep, faces,
                 )
             })
         }

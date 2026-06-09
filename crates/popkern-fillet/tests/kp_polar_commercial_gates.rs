@@ -321,6 +321,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "pcurve_then_ranked_boundary_prefix_if_g0_safe",
         "pcurve_then_worst_boundary_neighborhood_if_g0_safe",
         "pcurve_then_worst_endpoint_cluster_if_g0_safe",
+        "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -339,17 +340,20 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "hexagon6_mixed targeted top-3 boundary candidate should remain accepted and boundary-safe; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
-        support_cell_dispatch_details.iter().any(|detail| detail.contains(
-            "candidate=pcurve_then_ranked_boundary_prefix_if_g0_safe;candidate_status=accepted_selected"
-        )),
-        "hexagon6_mixed ranked-prefix candidate should be selected by a measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_ranked_boundary_prefix_if_g0_safe")
+                && detail.contains("operation_status=boundary_kept")
+        }),
+        "hexagon6_mixed ranked-prefix candidate should remain an accepted measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
-            detail.contains("candidate=pcurve_then_worst_endpoint_cluster_if_g0_safe")
-                && detail.contains("operation_status=endpoint_cluster_endpoint_band_fit_kept")
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
+            ) && detail.contains("candidate_status=accepted_selected")
+                && detail.contains("operation_status=ranked_prefix_then_endpoint_band_fit_kept")
         }),
-        "hexagon6_mixed endpoint-cluster candidate should keep the bounded endpoint-band fit through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+        "hexagon6_mixed composed ranked-prefix endpoint-band candidate should be selected through structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         diagnostics.iter().any(|diagnostic| matches!(

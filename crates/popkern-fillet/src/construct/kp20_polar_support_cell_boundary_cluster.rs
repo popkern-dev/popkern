@@ -198,8 +198,7 @@ fn worst_trim_endpoint(
     for &trim in trims {
         let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
         let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
-        for index in 0..9 {
-            let fraction = index as f64 / 8.0;
+        for fraction in [0.0, 1.0] {
             let param_a = lerp_scalar(trim.start_a, trim.end_a, fraction);
             let param_b = lerp_scalar(trim.start_b, trim.end_b, 1.0 - fraction);
             let gap = super::row_fit::eval_boundary(&patch_a, trim.side_a, param_a).distance_to(

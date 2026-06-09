@@ -141,6 +141,26 @@ pub(crate) fn reconcile_assigned_support_cell_worst_endpoint_cluster_with_status
     Ok(status)
 }
 
+pub(crate) fn reconcile_assigned_support_cell_ranked_prefix_then_worst_endpoint_cluster_with_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let trims = full_boundary_trims(brep, &slots)?;
+    boundary_prefix::reconcile_ranked_boundary_prefix(brep, &trims)?;
+    let endpoint_status = boundary_cluster::reconcile_worst_endpoint_cluster(brep, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!("kp20 support-cell ranked-prefix endpoint-cluster reconciliation produced invalid BRep: {error}"))
+    })?;
+    Ok(match endpoint_status {
+        "endpoint_cluster_endpoint_band_fit_kept" => "ranked_prefix_then_endpoint_band_fit_kept",
+        "endpoint_cluster_adjacent_controls_kept" => "ranked_prefix_then_adjacent_controls_kept",
+        "endpoint_cluster_corners_only_kept" => "ranked_prefix_then_endpoint_corners_kept",
+        _ => "ranked_prefix_then_endpoint_cluster_declined",
+    })
+}
+
 pub(crate) fn reconcile_assigned_support_cell_worst_boundary_row_group(
     brep: &mut BRep,
     faces: &[FaceHandle],
