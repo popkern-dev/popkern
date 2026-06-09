@@ -150,6 +150,13 @@ pub(crate) fn reconcile_assigned_support_cell_ranked_prefix_then_worst_endpoint_
     boundary_composed::reconcile_ranked_prefix_then_worst_endpoint_cluster(brep, faces)
 }
 
+pub(crate) fn reconcile_assigned_support_cell_ranked_prefix_endpoint_cluster_then_row_group_with_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    boundary_composed::reconcile_ranked_prefix_endpoint_cluster_then_row_group(brep, faces)
+}
+
 pub(crate) fn reconcile_assigned_support_cell_worst_boundary_row_group(
     brep: &mut BRep,
     faces: &[FaceHandle],
