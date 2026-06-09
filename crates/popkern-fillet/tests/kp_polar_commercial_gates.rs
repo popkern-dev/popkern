@@ -314,6 +314,7 @@ fn hexagon6_mixed_accepts_support_cell_topology() {
         "pcurve_then_worst_boundary_if_g0_safe",
         "pcurve_then_top3_boundaries_if_g0_safe",
         "pcurve_then_ranked_boundary_prefix_if_g0_safe",
+        "pcurve_then_worst_boundary_neighborhood_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(

@@ -21,11 +21,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenWorstBoundaryIfG0Safe,
     PcurveThenTop3BoundariesIfG0Safe,
     PcurveThenRankedBoundaryPrefixIfG0Safe,
+    PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 8] = [
+    const ALL: [Self; 9] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -33,6 +34,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenWorstBoundaryIfG0Safe,
         Self::PcurveThenTop3BoundariesIfG0Safe,
         Self::PcurveThenRankedBoundaryPrefixIfG0Safe,
+        Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -47,6 +49,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenRankedBoundaryPrefixIfG0Safe => {
                 "pcurve_then_ranked_boundary_prefix_if_g0_safe"
             }
+            Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe => {
+                "pcurve_then_worst_boundary_neighborhood_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -60,6 +65,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenWorstBoundaryIfG0Safe
                 | Self::PcurveThenTop3BoundariesIfG0Safe
                 | Self::PcurveThenRankedBoundaryPrefixIfG0Safe
+                | Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -277,6 +283,13 @@ fn apply_support_cell_completion_candidate(
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryPrefixIfG0Safe => {
             apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_support_cell_ranked_boundary_prefix(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenWorstBoundaryNeighborhoodIfG0Safe => {
+            apply_boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_support_cell_worst_boundary_neighborhood(
                     brep, faces,
                 )
             })

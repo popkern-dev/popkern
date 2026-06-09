@@ -10,6 +10,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_boundary_cluster.rs"]
+mod boundary_cluster;
 #[path = "kp20_polar_support_cell_boundary_prefix.rs"]
 mod boundary_prefix;
 #[path = "kp20_polar_support_cell_boundary_row_group.rs"]
@@ -104,6 +106,21 @@ pub(crate) fn reconcile_assigned_support_cell_ranked_boundary_prefix(
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
             "kp20 support-cell ranked-prefix reconciliation produced invalid BRep: {error}"
+        ))
+    })
+}
+
+pub(crate) fn reconcile_assigned_support_cell_worst_boundary_neighborhood(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<(), CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let trims = full_boundary_trims(brep, &slots)?;
+    boundary_cluster::reconcile_worst_boundary_neighborhood(brep, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell worst-neighborhood reconciliation produced invalid BRep: {error}"
         ))
     })
 }
