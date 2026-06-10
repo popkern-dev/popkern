@@ -36,6 +36,14 @@ pub(super) struct Kp20SupportCellWorstTrim {
     pub(super) full_span: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Kp20SupportCellTrimOwnershipPlan {
+    pub(super) shared_trim_count: usize,
+    pub(super) full_row_owned_trim_count: usize,
+    pub(super) segment_owned_trim_count: usize,
+    pub(super) max_boundary_row_shared_trim_count: usize,
+}
+
 impl Kp20SupportCellSharedTrimQuality {
     pub(super) fn is_no_worse_than(self, before: Self) -> bool {
         self.pcurve_out_of_unit_count <= before.pcurve_out_of_unit_count
@@ -168,6 +176,45 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
     )
 }
 
+pub(super) fn support_cell_trim_ownership_plan_fact(
+    n_sides: usize,
+    selected: &'static str,
+    measurement_scope: &'static str,
+    plan: Kp20SupportCellTrimOwnershipPlan,
+) -> ApexConstructionDiagnostic {
+    let ownership_status = if plan.segment_owned_trim_count > 0 {
+        "piecewise_segment_ownership_required"
+    } else {
+        "full_row_ownership_sufficient"
+    };
+    crate::construct::kp20_polar_diagnostics::dispatch_fact(
+        "support_cell_trim_ownership_plan",
+        n_sides,
+        Some(format!(
+            "selected={selected};measurement_scope={measurement_scope};ownership_status={ownership_status};shared_trim_count={};full_row_owned_trim_count={};segment_owned_trim_count={};max_boundary_row_shared_trim_count={};piecewise_boundary_committed=false",
+            plan.shared_trim_count,
+            plan.full_row_owned_trim_count,
+            plan.segment_owned_trim_count,
+            plan.max_boundary_row_shared_trim_count
+        )),
+        None,
+        None,
+    )
+}
+
+fn trim_ownership_plan(
+    quality: Kp20SupportCellSharedTrimQuality,
+) -> Kp20SupportCellTrimOwnershipPlan {
+    Kp20SupportCellTrimOwnershipPlan {
+        shared_trim_count: quality.shared_trim_count,
+        full_row_owned_trim_count: quality
+            .shared_trim_count
+            .saturating_sub(quality.partial_shared_trim_count),
+        segment_owned_trim_count: quality.partial_shared_trim_count,
+        max_boundary_row_shared_trim_count: quality.max_boundary_row_shared_trim_count,
+    }
+}
+
 struct Kp20SupportCellSharedTrimQualityClassification {
     status: &'static str,
 }
@@ -204,6 +251,12 @@ pub(crate) fn append_final_support_cell_shared_trim_quality(
             selected,
             "final_post_pipeline",
             quality,
+        ));
+        diagnostics.push(support_cell_trim_ownership_plan_fact(
+            group.n_sides,
+            selected,
+            "final_post_pipeline",
+            trim_ownership_plan(quality),
         ));
     }
 }

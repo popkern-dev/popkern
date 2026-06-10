@@ -63,7 +63,11 @@ fn assert_final_quality_matches_last_repair(
     let Some(final_quality_g0) = support_cell_details
         .iter()
         .rev()
-        .find(|detail| detail.contains("measurement_scope=final_post_pipeline"))
+        .find(|detail| {
+            detail.contains("measurement_scope=final_post_pipeline")
+                && detail.contains("quality_status=")
+                && detail.contains("worst_g0_gap=")
+        })
         .and_then(|detail| parse_f64_field(detail, "worst_g0_gap"))
     else {
         panic!(

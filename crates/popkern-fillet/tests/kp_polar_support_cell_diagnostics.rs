@@ -114,6 +114,12 @@ pub(crate) fn assert_support_cell_quality_gate(
         fixture,
         &support_cell_dispatch_details,
     );
+    assert_trim_ownership_plan_diagnostic(
+        fixture,
+        diagnostics,
+        &trim_metrics,
+        &support_cell_dispatch_details,
+    );
     assert_final_shared_trim_quality_diagnostic(
         fixture,
         diagnostics,
@@ -404,6 +410,39 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
             ) && detail.contains("exact_and_partial_boundary_")
         }),
         "{fixture} should score the exact-plus-partial shared-boundary candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+}
+
+fn assert_trim_ownership_plan_diagnostic(
+    fixture: &str,
+    diagnostics: &[popkern_fillet::ApexConstructionDiagnostic],
+    trim_metrics: &kp_gate_shared_trims::SharedTrimMetrics,
+    support_cell_dispatch_details: &[String],
+) {
+    assert!(
+        diagnostics.iter().any(|diagnostic| matches!(
+            diagnostic,
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                if cap.code == "kp20_polar_macro.dispatch.fact"
+                    && cap.stage == "kp20_polar_macro.dispatch.support_cell_trim_ownership_plan"
+                    && cap.detail_code.as_deref().is_some_and(|detail| {
+                        detail.contains("selected=promoted")
+                            && detail.contains("measurement_scope=final_post_pipeline")
+                            && detail.contains("ownership_status=piecewise_segment_ownership_required")
+                            && detail.contains(&format!(
+                                "shared_trim_count={}",
+                                trim_metrics.shared_trim_count
+                            ))
+                            && detail.contains("full_row_owned_trim_count=")
+                            && detail.contains("segment_owned_trim_count=")
+                            && detail.contains(&format!(
+                                "max_boundary_row_shared_trim_count={}",
+                                trim_metrics.max_boundary_row_shared_trim_count
+                            ))
+                            && detail.contains("piecewise_boundary_committed=false")
+                    })
+        )),
+        "{fixture} support-cell route should expose trim ownership planning diagnostics before piecewise boundary mutation; support_cell_details={support_cell_dispatch_details:?}"
     );
 }
 
