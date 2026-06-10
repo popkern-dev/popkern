@@ -12,6 +12,10 @@ use super::{
     set_rectangular_binonic_on_face,
 };
 
+const PARTIAL_SEGMENT_SAMPLE_COUNT: usize = 16;
+const PARTIAL_SEGMENT_ANCHOR_SAMPLE_COUNT: usize = 25;
+const PARTIAL_SEGMENT_ANCHOR_REPEAT_COUNT: usize = 4;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BoundaryControlKey {
     face: FaceHandle,
@@ -58,19 +62,21 @@ pub(super) fn fit_partial_shared_boundary_segments(
 ) -> Result<&'static str, CoreError> {
     let trims = full_boundary_trims(brep, slots)?;
     let mut samples = HashMap::new();
+    let mut edited_intervals = HashMap::new();
     let mut partial_trim_count = 0;
     for trim in trims {
         if full_span(trim.start_a, trim.end_a) && full_span(trim.start_b, trim.end_b) {
             continue;
         }
-        push_partial_trim_samples(brep, trim, &mut samples)?;
+        push_partial_trim_samples(brep, trim, &mut samples, &mut edited_intervals)?;
         partial_trim_count += 1;
     }
     if partial_trim_count == 0 {
         return Ok("partial_boundary_no_partial_trims");
     }
+    push_original_boundary_anchor_samples(brep, &mut samples, &edited_intervals)?;
     fit_boundary_row_samples(brep, &samples)?;
-    Ok("partial_boundary_segments_fit")
+    Ok("bounded_partial_boundary_segments_fit")
 }
 
 fn push_trim_targets(
@@ -114,11 +120,26 @@ fn push_partial_trim_samples(
     brep: &BRep,
     trim: FullBoundaryTrim,
     samples: &mut HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
+    edited_intervals: &mut HashMap<BoundaryRowKey, Vec<(f64, f64)>>,
 ) -> Result<(), CoreError> {
     let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
     let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
-    for index in 0..16 {
-        let fraction = index as f64 / 15.0;
+    push_interval(
+        edited_intervals,
+        trim.face_a,
+        trim.side_a,
+        trim.start_a,
+        trim.end_a,
+    );
+    push_interval(
+        edited_intervals,
+        trim.face_b,
+        trim.side_b,
+        trim.start_b,
+        trim.end_b,
+    );
+    for index in 0..PARTIAL_SEGMENT_SAMPLE_COUNT {
+        let fraction = index as f64 / (PARTIAL_SEGMENT_SAMPLE_COUNT - 1) as f64;
         let param_a = lerp_scalar(trim.start_a, trim.end_a, fraction);
         let param_b = lerp_scalar(trim.start_b, trim.end_b, 1.0 - fraction);
         let point_a = row_fit::eval_boundary(&patch_a, trim.side_a, param_a);
@@ -128,6 +149,47 @@ fn push_partial_trim_samples(
         push_boundary_sample(samples, trim.face_b, trim.side_b, param_b, target);
     }
     Ok(())
+}
+
+fn push_original_boundary_anchor_samples(
+    brep: &BRep,
+    samples: &mut HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
+    edited_intervals: &HashMap<BoundaryRowKey, Vec<(f64, f64)>>,
+) -> Result<(), CoreError> {
+    for (key, intervals) in edited_intervals {
+        let patch = rectangular_binonic_on_face(brep, key.face)?;
+        for index in 0..PARTIAL_SEGMENT_ANCHOR_SAMPLE_COUNT {
+            let parameter = index as f64 / (PARTIAL_SEGMENT_ANCHOR_SAMPLE_COUNT - 1) as f64;
+            if intervals
+                .iter()
+                .any(|&(start, end)| parameter >= start - 1.0e-9 && parameter <= end + 1.0e-9)
+            {
+                continue;
+            }
+            let target = row_fit::eval_boundary(&patch, key.side, parameter);
+            for _ in 0..PARTIAL_SEGMENT_ANCHOR_REPEAT_COUNT {
+                push_boundary_sample(samples, key.face, key.side, parameter, target);
+            }
+        }
+    }
+    Ok(())
+}
+
+fn push_interval(
+    edited_intervals: &mut HashMap<BoundaryRowKey, Vec<(f64, f64)>>,
+    face: FaceHandle,
+    side: BoundarySide,
+    start: f64,
+    end: f64,
+) {
+    edited_intervals
+        .entry(BoundaryRowKey { face, side })
+        .or_default()
+        .push(if start <= end {
+            (start, end)
+        } else {
+            (end, start)
+        });
 }
 
 fn full_span(start: f64, end: f64) -> bool {

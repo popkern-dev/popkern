@@ -334,15 +334,15 @@ fn composed_partial_boundary_status(
     base_status: &'static str,
     partial_status: &'static str,
 ) -> &'static str {
-    match partial_status {
-        "partial_boundary_segments_fit" if base_status.contains("row_group_kept") => {
-            "ranked_prefix_endpoint_row_group_partial_boundary_segments_fit"
-        }
-        "partial_boundary_segments_fit" => "ranked_prefix_endpoint_partial_boundary_segments_fit",
-        _ if base_status.contains("row_group_kept") => {
-            "ranked_prefix_endpoint_row_group_partial_boundary_declined"
-        }
-        _ => "ranked_prefix_endpoint_partial_boundary_declined",
+    if partial_boundary_segments_authored(partial_status) && base_status.contains("row_group_kept")
+    {
+        "ranked_prefix_endpoint_row_group_partial_boundary_segments_fit"
+    } else if partial_boundary_segments_authored(partial_status) {
+        "ranked_prefix_endpoint_partial_boundary_segments_fit"
+    } else if base_status.contains("row_group_kept") {
+        "ranked_prefix_endpoint_row_group_partial_boundary_declined"
+    } else {
+        "ranked_prefix_endpoint_partial_boundary_declined"
     }
 }
 
@@ -356,13 +356,15 @@ fn composed_exact_and_partial_boundary_status(
         exact_status,
         partial_status,
     ) {
-        (true, "exact_boundary_full_span_rows_authored", "partial_boundary_segments_fit") => {
+        (true, "exact_boundary_full_span_rows_authored", partial_status)
+            if partial_boundary_segments_authored(partial_status) =>
+        {
             "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_authored"
         }
         (true, "exact_boundary_full_span_rows_authored", _) => {
             "ranked_prefix_endpoint_row_group_exact_boundary_rows_authored"
         }
-        (true, _, "partial_boundary_segments_fit") => {
+        (true, _, partial_status) if partial_boundary_segments_authored(partial_status) => {
             "ranked_prefix_endpoint_row_group_partial_boundary_segments_fit"
         }
         _ if base_status.contains("row_group_kept") => {
@@ -370,4 +372,11 @@ fn composed_exact_and_partial_boundary_status(
         }
         _ => "ranked_prefix_endpoint_exact_and_partial_boundary_declined",
     }
+}
+
+fn partial_boundary_segments_authored(status: &str) -> bool {
+    matches!(
+        status,
+        "partial_boundary_segments_fit" | "bounded_partial_boundary_segments_fit"
+    )
 }
