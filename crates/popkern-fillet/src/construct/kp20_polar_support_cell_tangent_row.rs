@@ -6,9 +6,11 @@ use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use crate::construct::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
+
 use super::{
     BoundarySide, FullBoundaryTrim, boundary_row_group, rectangular_binonic_on_face,
-    set_rectangular_binonic_on_face,
+    set_rectangular_binonic_on_face, trim_ownership,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -41,6 +43,87 @@ pub(super) fn align_worst_row_group_tangent_band(
         push_trim_targets(brep, trim, alignment, &mut targets)?;
     }
     apply_targets(brep, &targets)
+}
+
+pub(super) fn reconcile_worst_row_group_if_normal_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+) -> Result<Option<TangentRowAlignment>, CoreError> {
+    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment| {
+        align_worst_row_group_tangent_band(candidate, trims, alignment)?;
+        Ok(true)
+    })
+}
+
+pub(super) fn align_segment_owned_tangent_band(
+    brep: &mut BRep,
+    trims: &[FullBoundaryTrim],
+    alignment: TangentRowAlignment,
+) -> Result<bool, CoreError> {
+    let segment_trims = trim_ownership::segment_owned_boundary_trims(trims);
+    if segment_trims.is_empty() {
+        return Ok(false);
+    }
+    let mut targets = HashMap::new();
+    for record in segment_trims {
+        push_trim_targets(brep, record.trim, alignment, &mut targets)?;
+    }
+    apply_targets(brep, &targets)?;
+    Ok(true)
+}
+
+pub(super) fn reconcile_segment_owned_if_normal_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+) -> Result<Option<TangentRowAlignment>, CoreError> {
+    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment| {
+        align_segment_owned_tangent_band(candidate, trims, alignment)
+    })
+}
+
+fn reconcile_tangent_band_if_normal_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    align: impl Fn(&mut BRep, TangentRowAlignment) -> Result<bool, CoreError>,
+) -> Result<Option<TangentRowAlignment>, CoreError> {
+    let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let mut best: Option<(
+        TangentRowAlignment,
+        shared_trim_quality::Kp20SupportCellSharedTrimQuality,
+        BRep,
+    )> = None;
+    for alignment in [
+        TangentRowAlignment::SharedDirection,
+        TangentRowAlignment::MirroredDirection,
+    ] {
+        let mut candidate = brep.clone();
+        if !align(&mut candidate, alignment)? || candidate.validate().is_err() {
+            continue;
+        }
+        let after =
+            shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
+        if after.worst_g0_gap > before.worst_g0_gap + 1.0e-12
+            || after.worst_normal_disagreement + 1.0e-12 >= before.worst_normal_disagreement
+        {
+            continue;
+        }
+        let improves_best = match best.as_ref() {
+            Some((_, quality, _)) => {
+                after.worst_normal_disagreement < quality.worst_normal_disagreement
+            }
+            None => true,
+        };
+        if improves_best {
+            best = Some((alignment, after, candidate));
+        }
+    }
+    let Some((alignment, _, candidate)) = best else {
+        return Ok(None);
+    };
+    *brep = candidate;
+    Ok(Some(alignment))
 }
 
 fn push_trim_targets(

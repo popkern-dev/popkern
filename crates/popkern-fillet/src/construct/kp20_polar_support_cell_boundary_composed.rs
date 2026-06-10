@@ -8,7 +8,6 @@ use super::{
     exact_boundary_row, full_boundary_trims, group_reconcile,
     reauthor_support_cell_shared_edge_curves, tangent_row, trim_gap,
 };
-use crate::construct::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 
 pub(crate) fn reconcile_assigned_ranked_endpoint_status(
     brep: &mut BRep,
@@ -109,7 +108,8 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_tangent(
     let status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
     let slots = assigned_support_cell_slots(brep, faces);
     let trims = full_boundary_trims(brep, &slots)?;
-    let tangent_status = reconcile_tangent_row_if_normal_improves(brep, faces, &trims)?;
+    let tangent_status =
+        tangent_row::reconcile_worst_row_group_if_normal_improves(brep, faces, &trims)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
@@ -184,7 +184,8 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_exact_partial_tangent_status(
     let exact_status = exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
     let partial_status = exact_boundary_row::fit_partial_shared_boundary_segments(brep, &slots)?;
     let tangent_trims = full_boundary_trims(brep, &slots)?;
-    let tangent_status = reconcile_tangent_row_if_normal_improves(brep, faces, &tangent_trims)?;
+    let tangent_status =
+        tangent_row::reconcile_segment_owned_if_normal_improves(brep, faces, &tangent_trims)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
@@ -248,50 +249,6 @@ fn worst_gap(brep: &BRep, trims: &[super::FullBoundaryTrim]) -> Result<f64, Core
         worst = worst.max(trim_gap(&patch_a, &patch_b, *trim));
     }
     Ok(worst)
-}
-
-fn reconcile_tangent_row_if_normal_improves(
-    brep: &mut BRep,
-    faces: &[FaceHandle],
-    trims: &[super::FullBoundaryTrim],
-) -> Result<Option<tangent_row::TangentRowAlignment>, CoreError> {
-    let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
-    let mut best: Option<(
-        tangent_row::TangentRowAlignment,
-        shared_trim_quality::Kp20SupportCellSharedTrimQuality,
-        BRep,
-    )> = None;
-    for alignment in [
-        tangent_row::TangentRowAlignment::SharedDirection,
-        tangent_row::TangentRowAlignment::MirroredDirection,
-    ] {
-        let mut candidate = brep.clone();
-        tangent_row::align_worst_row_group_tangent_band(&mut candidate, trims, alignment)?;
-        if candidate.validate().is_err() {
-            continue;
-        }
-        let after =
-            shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
-        if after.worst_g0_gap > before.worst_g0_gap + 1.0e-12
-            || after.worst_normal_disagreement + 1.0e-12 >= before.worst_normal_disagreement
-        {
-            continue;
-        }
-        let improves_best = match best.as_ref() {
-            Some((_, quality, _)) => {
-                after.worst_normal_disagreement < quality.worst_normal_disagreement
-            }
-            None => true,
-        };
-        if improves_best {
-            best = Some((alignment, after, candidate));
-        }
-    }
-    let Some((alignment, _, candidate)) = best else {
-        return Ok(None);
-    };
-    *brep = candidate;
-    Ok(Some(alignment))
 }
 
 fn composed_row_group_status(
