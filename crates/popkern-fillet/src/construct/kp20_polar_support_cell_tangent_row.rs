@@ -13,6 +13,8 @@ use super::{
     set_rectangular_binonic_on_face, trim_ownership,
 };
 
+const TANGENT_ROW_DAMPING_FACTORS: [f64; 4] = [1.0, 0.5, 0.25, 0.125];
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum TangentRowAlignment {
     SharedDirection,
@@ -32,17 +34,18 @@ struct TargetAccumulator {
     count: usize,
 }
 
-pub(super) fn align_worst_row_group_tangent_band(
+fn align_worst_row_group_tangent_band_with_damping(
     brep: &mut BRep,
     trims: &[FullBoundaryTrim],
     alignment: TangentRowAlignment,
+    damping: f64,
 ) -> Result<(), CoreError> {
     let row_group = boundary_row_group::worst_boundary_row_group_trims(brep, trims)?;
     let mut targets = HashMap::new();
     for trim in row_group {
         push_trim_targets(brep, trim, alignment, &mut targets)?;
     }
-    apply_targets(brep, &targets)
+    apply_targets(brep, &targets, damping)
 }
 
 pub(super) fn reconcile_worst_row_group_if_normal_improves(
@@ -50,16 +53,17 @@ pub(super) fn reconcile_worst_row_group_if_normal_improves(
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
 ) -> Result<Option<TangentRowAlignment>, CoreError> {
-    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment| {
-        align_worst_row_group_tangent_band(candidate, trims, alignment)?;
+    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
+        align_worst_row_group_tangent_band_with_damping(candidate, trims, alignment, damping)?;
         Ok(true)
     })
 }
 
-pub(super) fn align_segment_owned_tangent_band(
+fn align_segment_owned_tangent_band_with_damping(
     brep: &mut BRep,
     trims: &[FullBoundaryTrim],
     alignment: TangentRowAlignment,
+    damping: f64,
 ) -> Result<bool, CoreError> {
     let segment_trims = trim_ownership::segment_owned_boundary_trims(trims);
     if segment_trims.is_empty() {
@@ -69,7 +73,7 @@ pub(super) fn align_segment_owned_tangent_band(
     for record in segment_trims {
         push_trim_targets(brep, record.trim, alignment, &mut targets)?;
     }
-    apply_targets(brep, &targets)?;
+    apply_targets(brep, &targets, damping)?;
     Ok(true)
 }
 
@@ -78,15 +82,15 @@ pub(super) fn reconcile_segment_owned_if_normal_improves(
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
 ) -> Result<Option<TangentRowAlignment>, CoreError> {
-    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment| {
-        align_segment_owned_tangent_band(candidate, trims, alignment)
+    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
+        align_segment_owned_tangent_band_with_damping(candidate, trims, alignment, damping)
     })
 }
 
 fn reconcile_tangent_band_if_normal_improves(
     brep: &mut BRep,
     faces: &[FaceHandle],
-    align: impl Fn(&mut BRep, TangentRowAlignment) -> Result<bool, CoreError>,
+    align: impl Fn(&mut BRep, TangentRowAlignment, f64) -> Result<bool, CoreError>,
 ) -> Result<Option<TangentRowAlignment>, CoreError> {
     let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     let mut best: Option<(
@@ -98,25 +102,27 @@ fn reconcile_tangent_band_if_normal_improves(
         TangentRowAlignment::SharedDirection,
         TangentRowAlignment::MirroredDirection,
     ] {
-        let mut candidate = brep.clone();
-        if !align(&mut candidate, alignment)? || candidate.validate().is_err() {
-            continue;
-        }
-        let after =
-            shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
-        if after.worst_g0_gap > before.worst_g0_gap + 1.0e-12
-            || after.worst_normal_disagreement + 1.0e-12 >= before.worst_normal_disagreement
-        {
-            continue;
-        }
-        let improves_best = match best.as_ref() {
-            Some((_, quality, _)) => {
-                after.worst_normal_disagreement < quality.worst_normal_disagreement
+        for damping in TANGENT_ROW_DAMPING_FACTORS {
+            let mut candidate = brep.clone();
+            if !align(&mut candidate, alignment, damping)? || candidate.validate().is_err() {
+                continue;
             }
-            None => true,
-        };
-        if improves_best {
-            best = Some((alignment, after, candidate));
+            let after =
+                shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
+            if after.worst_g0_gap > before.worst_g0_gap + 1.0e-12
+                || after.worst_normal_disagreement + 1.0e-12 >= before.worst_normal_disagreement
+            {
+                continue;
+            }
+            let improves_best = match best.as_ref() {
+                Some((_, quality, _)) => {
+                    after.worst_normal_disagreement < quality.worst_normal_disagreement
+                }
+                None => true,
+            };
+            if improves_best {
+                best = Some((alignment, after, candidate));
+            }
         }
     }
     let Some((alignment, _, candidate)) = best else {
@@ -219,10 +225,12 @@ fn push_target(
 fn apply_targets(
     brep: &mut BRep,
     targets: &HashMap<ControlKey, TargetAccumulator>,
+    damping: f64,
 ) -> Result<(), CoreError> {
     for (&key, target) in targets {
         let mut patch = rectangular_binonic_on_face(brep, key.face)?;
-        patch.grid[key.u][key.v] = target.point;
+        let point = patch.grid[key.u][key.v];
+        patch.grid[key.u][key.v] = point + (target.point - point) * damping;
         set_rectangular_binonic_on_face(brep, key.face, patch)?;
     }
     Ok(())
