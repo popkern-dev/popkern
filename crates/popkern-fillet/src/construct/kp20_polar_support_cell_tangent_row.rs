@@ -21,6 +21,21 @@ pub(super) enum TangentRowAlignment {
     MirroredDirection,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TangentRowUpdate {
+    pub(super) alignment: TangentRowAlignment,
+    pub(super) damping: f64,
+}
+
+impl TangentRowUpdate {
+    pub(super) fn alignment_label(self) -> &'static str {
+        match self.alignment {
+            TangentRowAlignment::SharedDirection => "shared",
+            TangentRowAlignment::MirroredDirection => "mirrored",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ControlKey {
     face: FaceHandle,
@@ -52,7 +67,7 @@ pub(super) fn reconcile_worst_row_group_if_normal_improves(
     brep: &mut BRep,
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
-) -> Result<Option<TangentRowAlignment>, CoreError> {
+) -> Result<Option<TangentRowUpdate>, CoreError> {
     reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
         align_worst_row_group_tangent_band_with_damping(candidate, trims, alignment, damping)?;
         Ok(true)
@@ -81,7 +96,7 @@ pub(super) fn reconcile_segment_owned_if_normal_improves(
     brep: &mut BRep,
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
-) -> Result<Option<TangentRowAlignment>, CoreError> {
+) -> Result<Option<TangentRowUpdate>, CoreError> {
     reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
         align_segment_owned_tangent_band_with_damping(candidate, trims, alignment, damping)
     })
@@ -91,10 +106,10 @@ fn reconcile_tangent_band_if_normal_improves(
     brep: &mut BRep,
     faces: &[FaceHandle],
     align: impl Fn(&mut BRep, TangentRowAlignment, f64) -> Result<bool, CoreError>,
-) -> Result<Option<TangentRowAlignment>, CoreError> {
+) -> Result<Option<TangentRowUpdate>, CoreError> {
     let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     let mut best: Option<(
-        TangentRowAlignment,
+        TangentRowUpdate,
         shared_trim_quality::Kp20SupportCellSharedTrimQuality,
         BRep,
     )> = None;
@@ -121,15 +136,15 @@ fn reconcile_tangent_band_if_normal_improves(
                 None => true,
             };
             if improves_best {
-                best = Some((alignment, after, candidate));
+                best = Some((TangentRowUpdate { alignment, damping }, after, candidate));
             }
         }
     }
-    let Some((alignment, _, candidate)) = best else {
+    let Some((update, _, candidate)) = best else {
         return Ok(None);
     };
     *brep = candidate;
-    Ok(Some(alignment))
+    Ok(Some(update))
 }
 
 fn push_trim_targets(

@@ -1,5 +1,7 @@
 //! Result-level completion for Gregory cap/support seam ownership.
 
+use std::borrow::Cow;
+
 use popkern_core::topology::BRep;
 
 use super::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
@@ -140,18 +142,18 @@ struct SupportCellCompletionSelection {
     quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct SupportCellCompletionCandidateScore {
     candidate: SupportCellCompletionCandidate,
     status: &'static str,
-    operation_status: &'static str,
+    operation_status: Cow<'static, str>,
     quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct SupportCellCompletionApplication {
     operator_succeeded: bool,
-    operation_status: &'static str,
+    operation_status: Cow<'static, str>,
 }
 
 pub(crate) fn complete_corner_patch_support_pcurves(
@@ -204,7 +206,7 @@ fn complete_support_cell_pcurves_transactionally(
                     selected,
                     score.candidate.label(),
                     score.status,
-                    score.operation_status,
+                    score.operation_status.as_ref(),
                     before,
                     score.quality,
                 ),
@@ -313,7 +315,7 @@ fn apply_support_cell_completion_candidate(
             {
                 return SupportCellCompletionApplication {
                     operator_succeeded: false,
-                    operation_status: "pcurve_operator_failed",
+                    operation_status: Cow::Borrowed("pcurve_operator_failed"),
                 };
             }
             support_cell_operation_result(
@@ -448,9 +450,9 @@ fn support_cell_operation_result(
     SupportCellCompletionApplication {
         operator_succeeded,
         operation_status: if operator_succeeded {
-            success_status
+            Cow::Borrowed(success_status)
         } else {
-            failure_status
+            Cow::Borrowed(failure_status)
         },
     }
 }

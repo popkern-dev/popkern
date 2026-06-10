@@ -152,7 +152,7 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
     selected: &'static str,
     candidate: &'static str,
     candidate_status: &'static str,
-    operation_status: &'static str,
+    operation_status: &str,
     before: Kp20SupportCellSharedTrimQuality,
     after: Kp20SupportCellSharedTrimQuality,
 ) -> ApexConstructionDiagnostic {

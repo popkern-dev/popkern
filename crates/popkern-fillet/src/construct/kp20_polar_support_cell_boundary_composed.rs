@@ -40,7 +40,7 @@ pub(crate) fn reconcile_assigned_ranked_endpoint_three_row_groups_status(
 pub(crate) fn reconcile_assigned_ranked_endpoint_row_group_tangent_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
-) -> Result<&'static str, CoreError> {
+) -> Result<String, CoreError> {
     reconcile_ranked_prefix_endpoint_row_group_then_tangent(brep, faces)
 }
 
@@ -104,7 +104,7 @@ fn reconcile_ranked_prefix_endpoint_cluster_then_row_groups(
 fn reconcile_ranked_prefix_endpoint_row_group_then_tangent(
     brep: &mut BRep,
     faces: &[FaceHandle],
-) -> Result<&'static str, CoreError> {
+) -> Result<String, CoreError> {
     let status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
     let slots = assigned_support_cell_slots(brep, faces);
     let trims = full_boundary_trims(brep, &slots)?;
@@ -178,7 +178,7 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_exact_and_partial_boundary(
 pub(crate) fn reconcile_assigned_ranked_endpoint_exact_partial_tangent_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
-) -> Result<&'static str, CoreError> {
+) -> Result<String, CoreError> {
     let base_status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
     let slots = assigned_support_cell_slots(brep, faces);
     let exact_status = exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
@@ -277,19 +277,28 @@ fn composed_row_group_status(
 
 fn composed_tangent_status(
     base_status: &'static str,
-    tangent_status: Option<tangent_row::TangentRowAlignment>,
-) -> &'static str {
+    tangent_status: Option<tangent_row::TangentRowUpdate>,
+) -> String {
     match tangent_status {
-        Some(tangent_row::TangentRowAlignment::SharedDirection) => {
-            "ranked_prefix_endpoint_row_group_shared_tangent_kept"
-        }
-        Some(tangent_row::TangentRowAlignment::MirroredDirection) => {
-            "ranked_prefix_endpoint_row_group_mirrored_tangent_kept"
-        }
+        Some(update) if base_status.contains("row_group_kept") => format!(
+            "ranked_prefix_endpoint_row_group_{}_tangent_kept;tangent_alignment={};tangent_damping={:.15e}",
+            update.alignment_label(),
+            update.alignment_label(),
+            update.damping
+        ),
+        Some(update) => format!(
+            "ranked_prefix_endpoint_{}_tangent_kept;tangent_alignment={};tangent_damping={:.15e}",
+            update.alignment_label(),
+            update.alignment_label(),
+            update.damping
+        ),
         None if base_status.contains("row_group_kept") => {
-            "ranked_prefix_endpoint_row_group_tangent_declined"
+            "ranked_prefix_endpoint_row_group_tangent_declined;tangent_alignment=none;tangent_damping=none".to_string()
         }
-        None => "ranked_prefix_endpoint_tangent_declined",
+        None => {
+            "ranked_prefix_endpoint_tangent_declined;tangent_alignment=none;tangent_damping=none"
+                .to_string()
+        }
     }
 }
 
@@ -370,8 +379,8 @@ fn composed_exact_partial_tangent_status(
     base_status: &'static str,
     exact_status: &'static str,
     partial_status: &'static str,
-    tangent_status: Option<tangent_row::TangentRowAlignment>,
-) -> &'static str {
+    tangent_status: Option<tangent_row::TangentRowUpdate>,
+) -> String {
     match (
         base_status.contains("row_group_kept"),
         exact_status,
@@ -384,29 +393,31 @@ fn composed_exact_partial_tangent_status(
             "exact_boundary_full_span_rows_authored",
             true,
             _,
-            Some(tangent_row::TangentRowAlignment::SharedDirection),
+            Some(update),
         ) => {
-            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_partial_shared_tangent_kept"
-        }
-        (
-            true,
-            "exact_boundary_full_span_rows_authored",
-            true,
-            _,
-            Some(tangent_row::TangentRowAlignment::MirroredDirection),
-        ) => {
-            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_partial_mirrored_tangent_kept"
+            format!(
+                "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_partial_{}_tangent_kept;tangent_alignment={};tangent_damping={:.15e}",
+                update.alignment_label(),
+                update.alignment_label(),
+                update.damping
+            )
         }
         (true, "exact_boundary_full_span_rows_authored", true, _, None) => {
-            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_and_partial_boundary_authored_tangent_declined"
+            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_and_partial_boundary_authored_tangent_declined;tangent_alignment=none;tangent_damping=none".to_string()
         }
-        (true, "exact_boundary_full_span_rows_authored", _, true, Some(_)) => {
-            "ranked_prefix_endpoint_row_group_exact_partial_tangent_kept"
+        (true, "exact_boundary_full_span_rows_authored", _, true, Some(update)) => {
+            format!(
+                "ranked_prefix_endpoint_row_group_exact_partial_{}_tangent_kept;tangent_alignment={};tangent_damping={:.15e}",
+                update.alignment_label(),
+                update.alignment_label(),
+                update.damping
+            )
         }
         (true, "exact_boundary_full_span_rows_authored", _, true, None) => {
-            "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_authored_tangent_declined"
+            "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_authored_tangent_declined;tangent_alignment=none;tangent_damping=none".to_string()
         }
-        _ => composed_exact_and_partial_boundary_status(base_status, exact_status, partial_status),
+        _ => composed_exact_and_partial_boundary_status(base_status, exact_status, partial_status)
+            .to_string(),
     }
 }
 

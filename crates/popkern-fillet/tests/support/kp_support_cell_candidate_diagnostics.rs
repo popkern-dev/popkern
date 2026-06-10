@@ -130,6 +130,8 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
             ) && detail.contains("segment_topology_already_segmented")
                 && detail.contains("exact_")
                 && detail.contains("tangent_")
+                && detail.contains("tangent_alignment=")
+                && detail.contains("tangent_damping=")
         }),
         "{fixture} should score the post-partial tangent candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
     );
