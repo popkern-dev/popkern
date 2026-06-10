@@ -28,6 +28,8 @@ mod row_fit;
 mod segment_transfer;
 #[path = "kp20_polar_support_cell_tangent_row.rs"]
 mod tangent_row;
+#[path = "kp20_polar_support_cell_trim_ownership.rs"]
+mod trim_ownership;
 
 #[derive(Debug, Clone, Copy)]
 struct FullBoundaryTrim {

@@ -9,7 +9,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
     BoundarySide, FullBoundaryTrim, full_boundary_trims, rectangular_binonic_on_face, row_fit,
-    set_rectangular_binonic_on_face,
+    set_rectangular_binonic_on_face, trim_ownership,
 };
 
 const PARTIAL_SEGMENT_SAMPLE_COUNT: usize = 16;
@@ -39,17 +39,12 @@ pub(super) fn exact_full_span_shared_boundary_rows(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<&'static str, CoreError> {
-    let trims = full_boundary_trims(brep, slots)?;
+    let trims = trim_ownership::full_row_owned_trims(&full_boundary_trims(brep, slots)?);
     let mut targets = HashMap::new();
-    let mut compatible_trim_count = 0;
     for trim in trims {
-        if !full_span(trim.start_a, trim.end_a) || !full_span(trim.start_b, trim.end_b) {
-            continue;
-        }
         push_trim_targets(brep, trim, &mut targets)?;
-        compatible_trim_count += 1;
     }
-    if compatible_trim_count == 0 {
+    if targets.is_empty() {
         return Ok("exact_boundary_no_full_span_trims");
     }
     apply_targets(brep, &targets)?;
@@ -60,18 +55,13 @@ pub(super) fn fit_partial_shared_boundary_segments(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<&'static str, CoreError> {
-    let trims = full_boundary_trims(brep, slots)?;
+    let trims = trim_ownership::segment_owned_trims(&full_boundary_trims(brep, slots)?);
     let mut samples = HashMap::new();
     let mut edited_intervals = HashMap::new();
-    let mut partial_trim_count = 0;
     for trim in trims {
-        if full_span(trim.start_a, trim.end_a) && full_span(trim.start_b, trim.end_b) {
-            continue;
-        }
         push_partial_trim_samples(brep, trim, &mut samples, &mut edited_intervals)?;
-        partial_trim_count += 1;
     }
-    if partial_trim_count == 0 {
+    if samples.is_empty() {
         return Ok("partial_boundary_no_partial_trims");
     }
     push_original_boundary_anchor_samples(brep, &mut samples, &edited_intervals)?;
@@ -190,14 +180,6 @@ fn push_interval(
         } else {
             (end, start)
         });
-}
-
-fn full_span(start: f64, end: f64) -> bool {
-    (close(start, 0.0) && close(end, 1.0)) || (close(start, 1.0) && close(end, 0.0))
-}
-
-fn close(a: f64, b: f64) -> bool {
-    (a - b).abs() <= 1.0e-9
 }
 
 fn natural_index_for_fraction(start: f64, end: f64, fraction_index: usize) -> usize {
