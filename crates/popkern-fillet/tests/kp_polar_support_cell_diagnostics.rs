@@ -72,7 +72,7 @@ pub(crate) fn assert_support_cell_quality_gate(
         trim_metrics.worst_source_pair
     );
     assert!(
-        trim_metrics.worst_g0_gap <= 2.0e-3,
+        trim_metrics.worst_g0_gap <= 5.0e-4,
         "{fixture} support-cell shared-trim G0 should stay bounded after segment-aware reconciliation; g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} max_row_trim_count={} worst_source_pair={:?} worst_uv_edges={:?}",
         trim_metrics.worst_g0_gap,
         trim_metrics.worst_normal_disagreement,
@@ -424,7 +424,7 @@ fn assert_final_shared_trim_quality_diagnostic(
                             && detail.contains("measurement_scope=final_post_pipeline")
                             && detail
                                 .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
-                            && detail.contains("current_g0_budget=2.000000000000000e-3")
+                            && detail.contains("current_g0_budget=5.000000000000000e-4")
                             && detail.contains("commercial_g0_target=1.000000000000000e-10")
                             && detail.contains(&format!(
                                 "shared_trim_count={}",

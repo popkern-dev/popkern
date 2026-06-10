@@ -8,7 +8,7 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRole};
 
-const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 2.0e-3;
+const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 5.0e-4;
 const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
 const SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS: f64 = 1.0e-12;
 
