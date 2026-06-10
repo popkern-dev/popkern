@@ -82,8 +82,8 @@ pub(crate) fn assert_support_cell_quality_gate(
         trim_metrics.worst_g2_residual
     );
     assert!(
-        trim_metrics.worst_g0_gap <= 5.0e-4,
-        "{fixture} support-cell shared-trim G0 should stay bounded after segment-aware reconciliation; g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} max_row_trim_count={} worst_source_pair={:?} worst_uv_edges={:?}",
+        trim_metrics.worst_g0_gap <= 1.0e-10,
+        "{fixture} support-cell shared trims should meet the commercial G0 target by construction (chain-curve network: every row an exact restriction of its chain's canonical curve); g0={:.3e} normal={:.3e} best_boundary_gap={:.3e} max_row_trim_count={} worst_source_pair={:?} worst_uv_edges={:?}",
         trim_metrics.worst_g0_gap,
         trim_metrics.worst_normal_disagreement,
         trim_metrics.worst_pair_best_boundary_gap,
@@ -355,8 +355,7 @@ fn assert_final_shared_trim_quality_diagnostic(
                         detail.contains("selected=promoted")
                             && detail.contains("measurement_scope=final_post_pipeline")
                             && detail.contains("piecewise_boundary_committed=already_segmented")
-                            && detail
-                                .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
+                            && detail.contains("quality_status=commercial_g1_exceeded")
                             && detail.contains("current_g0_budget=5.000000000000000e-4")
                             && detail.contains("commercial_g0_target=1.000000000000000e-10")
                             && detail.contains("commercial_g1_target=1.250000000000000e-3")

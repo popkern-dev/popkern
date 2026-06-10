@@ -109,7 +109,7 @@ fn set_boundary_control(
     }
 }
 
-fn bernstein9(t: f64) -> [f64; 10] {
+pub(super) fn bernstein9(t: f64) -> [f64; 10] {
     let omt = 1.0 - t;
     let mut out = [0.0; 10];
     for (i, value) in out.iter_mut().enumerate() {

@@ -31,6 +31,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
+        "pcurve_then_chain_curve_network_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -40,6 +41,14 @@ pub(crate) fn assert_candidate_diagnostics(
             "{fixture} support-cell selector should score {candidate}; support_cell_details={support_cell_dispatch_details:?}"
         );
     }
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_chain_curve_network_if_g0_safe")
+                && detail.contains("chain_curve_network")
+                && detail.contains("sub_chain_count=")
+        }),
+        "{fixture} chain-curve network candidate should report its sub-chain inventory; support_cell_details={support_cell_dispatch_details:?}"
+    );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }
 
@@ -62,24 +71,10 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate_status=accepted_selected")
-                && (detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_cluster_then_three_row_groups_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
-                ) || detail.contains(
-                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
-                ))
-                && detail.contains("operation_status=ranked_prefix_")
+                && detail.contains("candidate=pcurve_then_chain_curve_network_if_g0_safe")
+                && detail.contains("operation_status=chain_curve_network_authored")
         }),
-        "{fixture} should select a measured composed ranked-prefix endpoint or exact-boundary repair; support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} should select the chain-curve network repair (exact shared rows by construction); support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

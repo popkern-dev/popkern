@@ -19,6 +19,10 @@ mod boundary_prefix;
 mod boundary_row_group;
 #[path = "kp20_polar_support_cell_boundary_trim.rs"]
 mod boundary_trim;
+#[path = "kp20_polar_support_cell_chain_discovery.rs"]
+mod chain_discovery;
+#[path = "kp20_polar_support_cell_chain_fit.rs"]
+mod chain_fit;
 #[path = "kp20_polar_support_cell_exact_boundary_row.rs"]
 mod exact_boundary_row;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]
@@ -70,6 +74,27 @@ pub(crate) fn reconcile_assigned_support_cell_worst_full_boundary(
     faces: &[FaceHandle],
 ) -> Result<(), CoreError> {
     reconcile_assigned_support_cell_top_full_boundaries(brep, faces, 1)
+}
+
+/// Canonical chain-curve network: author one degree-9 curve per
+/// discoverable boundary sub-chain and assign every member row
+/// its exact restriction, so all trims of the chain (full-span,
+/// one-sided, and both-partial) become CP identities. Declined
+/// chains keep their current rows; the status string carries the
+/// authored/declined counts and first decline reason.
+pub(crate) fn reconcile_assigned_chain_curve_network_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let status = chain_fit::author_chain_curve_network(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell chain-curve network produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(status)
 }
 
 pub(crate) fn reconcile_assigned_support_cell_top_full_boundaries(
