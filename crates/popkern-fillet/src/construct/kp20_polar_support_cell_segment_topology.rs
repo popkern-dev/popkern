@@ -19,6 +19,7 @@ pub(super) struct SegmentBoundaryTopologyPlan {
     pub(super) segment_trim_count: usize,
     pub(super) already_segment_topology_count: usize,
     pub(super) edge_split_required_count: usize,
+    pub(super) edge_split_parameter_count: usize,
     pub(super) invalid_topology_address_count: usize,
     pub(super) duplicate_segment_edge_count: usize,
     pub(super) status: SegmentBoundaryTopologyStatus,
@@ -29,6 +30,7 @@ impl SegmentBoundaryTopologyPlan {
         self.status == SegmentBoundaryTopologyStatus::AlreadySegmentTopology
             && self.segment_trim_count == self.already_segment_topology_count
             && self.edge_split_required_count == 0
+            && self.edge_split_parameter_count == 0
             && self.invalid_topology_address_count == 0
             && self.duplicate_segment_edge_count == 0
     }
@@ -43,6 +45,7 @@ pub(super) fn segment_boundary_topology_plan(
         segment_trim_count: records.len(),
         already_segment_topology_count: 0,
         edge_split_required_count: 0,
+        edge_split_parameter_count: 0,
         invalid_topology_address_count: 0,
         duplicate_segment_edge_count: 0,
         status: SegmentBoundaryTopologyStatus::AlreadySegmentTopology,
@@ -63,6 +66,7 @@ pub(super) fn segment_boundary_topology_plan(
         }
         if record.requires_edge_split() {
             plan.edge_split_required_count += 1;
+            plan.edge_split_parameter_count += record.split_parameters().len();
         } else {
             plan.already_segment_topology_count += 1;
         }

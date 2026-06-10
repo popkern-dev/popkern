@@ -19,12 +19,19 @@ pub(super) struct OwnedSupportCellTrim {
 pub(super) struct SegmentOwnedBoundaryTrim {
     pub(super) trim: FullBoundaryTrim,
     pub(super) edge: EdgeHandle,
+    pub(super) edge_interval: TopologyEdgeInterval,
     pub(super) half_edge_a: HalfEdgeHandle,
     pub(super) face_a: FaceHandle,
     pub(super) interval_a: BoundaryInterval,
     pub(super) half_edge_b: HalfEdgeHandle,
     pub(super) face_b: FaceHandle,
     pub(super) interval_b: BoundaryInterval,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) struct TopologyEdgeInterval {
+    pub(super) start: f64,
+    pub(super) end: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +47,7 @@ impl SegmentOwnedBoundaryTrim {
             && self.half_edge_b != HalfEdgeHandle::default()
             && self.face_a != FaceHandle::default()
             && self.face_b != FaceHandle::default()
+            && self.edge_interval.is_valid()
             && self.interval_a.is_valid()
             && self.interval_b.is_valid()
     }
@@ -49,7 +57,33 @@ impl SegmentOwnedBoundaryTrim {
     }
 
     pub(super) fn requires_edge_split(self) -> bool {
-        false
+        !self.edge_interval.is_full_edge()
+    }
+
+    pub(super) fn split_parameters(self) -> Vec<f64> {
+        self.edge_interval.interior_parameters()
+    }
+}
+
+impl TopologyEdgeInterval {
+    fn is_valid(self) -> bool {
+        self.start.is_finite()
+            && self.end.is_finite()
+            && (self.start - self.end).abs() > 1.0e-9
+            && (0.0..=1.0).contains(&self.start)
+            && (0.0..=1.0).contains(&self.end)
+    }
+
+    fn is_full_edge(self) -> bool {
+        (close(self.start, 0.0) && close(self.end, 1.0))
+            || (close(self.start, 1.0) && close(self.end, 0.0))
+    }
+
+    fn interior_parameters(self) -> Vec<f64> {
+        [self.start, self.end]
+            .into_iter()
+            .filter(|parameter| *parameter > 1.0e-9 && *parameter < 1.0 - 1.0e-9)
+            .collect()
     }
 }
 
@@ -105,6 +139,10 @@ fn segment_owned_boundary_trim(trim: FullBoundaryTrim) -> SegmentOwnedBoundaryTr
     SegmentOwnedBoundaryTrim {
         trim,
         edge: trim.edge,
+        edge_interval: TopologyEdgeInterval {
+            start: 0.0,
+            end: 1.0,
+        },
         half_edge_a: trim.half_edge_a,
         face_a: trim.face_a,
         interval_a: BoundaryInterval {
