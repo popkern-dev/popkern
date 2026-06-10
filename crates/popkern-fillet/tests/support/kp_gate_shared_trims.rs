@@ -1,8 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
+use popkern_core::geometry::gregory::{GregoryPatch, normal_curvature_along};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
+
+/// Parametric degeneracy guard for normal-curvature samples —
+/// mirrors the in-crate shared-trim measurement constant.
+const G2_PARAMETRIC_DEGENERACY_TOL: f64 = 1.0e-14;
+
+/// Pcurve fraction step used to finite-difference the trim
+/// direction (direction-exact for affine pcurves).
+const TRIM_DIRECTION_FRACTION_STEP: f64 = 1.0e-6;
 
 pub struct SharedTrimMetrics {
     pub shared_trim_count: usize,
@@ -17,6 +26,25 @@ pub struct SharedTrimMetrics {
     pub worst_abs_uv: f64,
     pub worst_g0_gap: f64,
     pub worst_normal_disagreement: f64,
+    pub worst_g2_residual: f64,
+    pub g2_unmeasured_sample_count: usize,
+    pub trim_records: Vec<SharedTrimRecord>,
+}
+
+/// Per-trim measurement record — provenance plus the worst
+/// G0/G1/G2 samples on that single trim, so gates can assert
+/// every trim (not just the global worst) and diagnostics can
+/// attribute a failure to a specific face pair.
+#[derive(Debug, Clone, Copy)]
+pub struct SharedTrimRecord {
+    pub source_a: Option<usize>,
+    pub source_b: Option<usize>,
+    pub row_a: Option<u8>,
+    pub row_b: Option<u8>,
+    pub full_span: bool,
+    pub worst_g0_gap: f64,
+    pub worst_normal_disagreement: f64,
+    pub worst_g2_residual: f64,
 }
 
 pub fn measure_shared_gregory_trims(
@@ -48,6 +76,9 @@ pub fn measure_shared_gregory_trims_with_sources(
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
+        worst_g2_residual: 0.0,
+        g2_unmeasured_sample_count: 0,
+        trim_records: Vec::new(),
     };
     let mut boundary_row_counts = HashMap::new();
     for &face in faces {
@@ -110,11 +141,11 @@ fn measure_shared_trim_pair(
     let Some(surface_b) = brep.faces[face_b].surface.as_ref() else {
         return;
     };
-    if !matches!(surface_a.geometry, SurfaceGeometry::Gregory(_))
-        || !matches!(surface_b.geometry, SurfaceGeometry::Gregory(_))
-    {
+    let (SurfaceGeometry::Gregory(patch_a), SurfaceGeometry::Gregory(patch_b)) =
+        (&surface_a.geometry, &surface_b.geometry)
+    else {
         return;
-    }
+    };
     let Some(pcurve_a) = brep.half_edges[he_a].pcurve.as_ref() else {
         return;
     };
@@ -125,6 +156,16 @@ fn measure_shared_trim_pair(
     record_boundary_row_count(metrics, boundary_row_counts, face_a, pcurve_a);
     record_boundary_row_count(metrics, boundary_row_counts, face_b, pcurve_b);
     record_pcurve_span(metrics, pcurve_a, pcurve_b, face_sources, face_a, face_b);
+    let mut trim_record = SharedTrimRecord {
+        source_a: face_source(face_sources, face_a),
+        source_b: face_source(face_sources, face_b),
+        row_a: boundary_row(pcurve_a),
+        row_b: boundary_row(pcurve_b),
+        full_span: full_boundary_span(pcurve_a) && full_boundary_span(pcurve_b),
+        worst_g0_gap: 0.0,
+        worst_normal_disagreement: 0.0,
+        worst_g2_residual: 0.0,
+    };
     for index in 0..n_samples {
         let fraction = if n_samples <= 1 {
             0.5
@@ -138,6 +179,7 @@ fn measure_shared_trim_pair(
         let point_a = surface_a.geometry.point_at(uv_a.x, uv_a.y);
         let point_b = surface_b.geometry.point_at(uv_b.x, uv_b.y);
         let gap = point_a.distance_to(&point_b);
+        trim_record.worst_g0_gap = trim_record.worst_g0_gap.max(gap);
         if gap > metrics.worst_g0_gap {
             metrics.worst_g0_gap = gap;
             metrics.worst_source_pair = source_pair(face_sources, face_a, face_b);
@@ -148,10 +190,124 @@ fn measure_shared_trim_pair(
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {
-            metrics.worst_normal_disagreement =
-                metrics.worst_normal_disagreement.max(1.0 - a.dot(&b).abs());
+            trim_record.worst_normal_disagreement = trim_record
+                .worst_normal_disagreement
+                .max(1.0 - a.dot(&b).abs());
+        }
+        // Curvature is sampled on the open interior of the trim
+        // only — exact endpoints can land on Gregory corner
+        // singularities (e.g. the polar extraordinary point).
+        // Same convention as the ring gates' t ∈ [0.05, 0.95]
+        // sampling; G0/G1 still cover the endpoints above.
+        if fraction > 0.0 && fraction < 1.0 {
+            record_trim_g2_residual(
+                metrics,
+                &mut trim_record,
+                patch_a,
+                surface_a.orientation,
+                pcurve_a,
+                uv_a,
+                patch_b,
+                surface_b.orientation,
+                uv_b,
+                fraction,
+            );
         }
     }
+    metrics.worst_normal_disagreement = metrics
+        .worst_normal_disagreement
+        .max(trim_record.worst_normal_disagreement);
+    metrics.worst_g2_residual = metrics.worst_g2_residual.max(trim_record.worst_g2_residual);
+    metrics.trim_records.push(trim_record);
+}
+
+fn face_source(face_sources: &[(FaceHandle, usize)], face: FaceHandle) -> Option<usize> {
+    face_sources
+        .iter()
+        .find_map(|&(candidate, source)| (candidate == face).then_some(source))
+}
+
+/// Whether the pcurve spans a full unit-domain boundary edge.
+fn full_boundary_span(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> bool {
+    let (t0, t1) = pcurve.parameter_range();
+    let start = pcurve.point_at(t0);
+    let end = pcurve.point_at(t1);
+    (close(start.x, end.x) && close((start.y - end.y).abs(), 1.0))
+        || (close(start.y, end.y) && close((start.x - end.x).abs(), 1.0))
+}
+
+/// Normal-curvature (G2) residual at one trim sample — mirrors
+/// the in-crate shared-trim measurement: both faces measured
+/// along the same ambient trim direction, each curvature
+/// expressed against its face's oriented normal, unmeasurable
+/// samples counted so gates can fail closed.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "single trim-sample record taking both faces' sample state"
+)]
+fn record_trim_g2_residual(
+    metrics: &mut SharedTrimMetrics,
+    trim_record: &mut SharedTrimRecord,
+    patch_a: &GregoryPatch,
+    orientation_a: bool,
+    pcurve_a: &popkern_core::geometry::pcurve::Pcurve,
+    uv_a: Vec3,
+    patch_b: &GregoryPatch,
+    orientation_b: bool,
+    uv_b: Vec3,
+    fraction: f64,
+) {
+    let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
+        metrics.g2_unmeasured_sample_count += 1;
+        return;
+    };
+    let curvature_a = normal_curvature_along(
+        patch_a,
+        uv_a.x,
+        uv_a.y,
+        direction,
+        G2_PARAMETRIC_DEGENERACY_TOL,
+    );
+    let curvature_b = normal_curvature_along(
+        patch_b,
+        uv_b.x,
+        uv_b.y,
+        direction,
+        G2_PARAMETRIC_DEGENERACY_TOL,
+    );
+    let (Ok(curvature_a), Ok(curvature_b)) = (curvature_a, curvature_b) else {
+        metrics.g2_unmeasured_sample_count += 1;
+        return;
+    };
+    let oriented_a = oriented_curvature(curvature_a, orientation_a);
+    let oriented_b = oriented_curvature(curvature_b, orientation_b);
+    let scale = oriented_a.abs().max(oriented_b.abs());
+    let residual = (oriented_a - oriented_b).abs() / (1.0 + scale);
+    trim_record.worst_g2_residual = trim_record.worst_g2_residual.max(residual);
+}
+
+fn oriented_curvature(curvature: f64, orientation: bool) -> f64 {
+    if orientation { curvature } else { -curvature }
+}
+
+/// Ambient trim direction at `fraction`, via the chain rule with
+/// the pcurve difference quotient (direction-exact for affine
+/// pcurves); one-sided difference at the trim endpoints.
+fn trim_direction(
+    patch: &GregoryPatch,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    uv: Vec3,
+    fraction: f64,
+) -> Option<Vec3> {
+    let low = (fraction - TRIM_DIRECTION_FRACTION_STEP).max(0.0);
+    let high = (fraction + TRIM_DIRECTION_FRACTION_STEP).min(1.0);
+    let uv_low = pcurve_at_fraction(pcurve, low);
+    let uv_high = pcurve_at_fraction(pcurve, high);
+    let du = uv_high.x - uv_low.x;
+    let dv = uv_high.y - uv_low.y;
+    let tangent_u = patch.partial_u(uv.x, uv.y);
+    let tangent_v = patch.partial_v(uv.x, uv.y);
+    (tangent_u * du + tangent_v * dv).normalized()
 }
 
 fn record_boundary_row_count(

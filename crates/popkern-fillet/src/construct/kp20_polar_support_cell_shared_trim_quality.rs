@@ -11,6 +11,15 @@ pub(super) use shared_trim_measure::measure_support_cell_shared_trim_quality;
 
 const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 5.0e-4;
 const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
+/// Commercial G1 target on `1 − |n_a · n_b|` across a shared
+/// trim. Calibrated to the ring-gate angular threshold
+/// `G1_GATE = 5e-2 (≈ 2.9°)` via `1 − cos θ ≈ θ²/2`, so both
+/// gates accept the same worst-case normal mismatch.
+const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET: f64 = 1.25e-3;
+/// Commercial G2 target on the scale-normalized curvature
+/// residual `|κ_a − κ_b| / (1 + max(|κ_a|, |κ_b|))` — the same
+/// form and value as the ring-gate `G2_GATE`.
+const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET: f64 = 5.0e-2;
 const SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy)]
@@ -23,6 +32,8 @@ pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) worst_abs_uv: f64,
     pub(super) worst_g0_gap: f64,
     pub(super) worst_normal_disagreement: f64,
+    pub(super) worst_g2_residual: f64,
+    pub(super) g2_unmeasured_sample_count: usize,
     pub(super) worst_trim: Option<Kp20SupportCellWorstTrim>,
 }
 
@@ -45,6 +56,16 @@ pub(super) struct Kp20SupportCellTrimOwnershipPlan {
 }
 
 impl Kp20SupportCellSharedTrimQuality {
+    /// Candidate-ladder non-regression: pcurve domain validity
+    /// and G0 are monotonic. G1/G2 are intentionally *not*
+    /// gated here — intermediate repairs may trade normal or
+    /// curvature agreement on the way to a better G0 (the
+    /// tangent-row pass recovers G1 afterwards, and the final
+    /// quality classification reports all three continuity
+    /// orders). Continuity-order trade-offs are rejected at the
+    /// final verification gate, not per ladder step, because
+    /// G1/G2 measured against not-yet-repaired pcurve domains
+    /// are not comparable across a domain-changing repair.
     pub(super) fn is_no_worse_than(self, before: Self) -> bool {
         self.pcurve_out_of_unit_count <= before.pcurve_out_of_unit_count
             && self.degenerate_pcurve_count <= before.degenerate_pcurve_count
@@ -68,9 +89,11 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
+            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};g2_unmeasured_sample_count={};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
+            COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET,
+            COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET,
             classification.status,
             quality.shared_trim_count,
             quality.partial_shared_trim_count,
@@ -80,6 +103,8 @@ pub(super) fn support_cell_shared_trim_quality_fact(
             quality.worst_abs_uv,
             quality.worst_g0_gap,
             quality.worst_normal_disagreement,
+            quality.worst_g2_residual,
+            quality.g2_unmeasured_sample_count,
             worst_trim_detail(quality)
         )),
         None,
@@ -124,7 +149,7 @@ pub(super) fn support_cell_shared_trim_repair_fact(
         "support_cell_shared_trim_final_repair",
         n_sides,
         Some(format!(
-            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_partial_shared_trim_count={};after_partial_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_partial_shared_trim_count={};after_partial_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unmeasured_sample_count={};after_g2_unmeasured_sample_count={}",
             before.shared_trim_count,
             after.shared_trim_count,
             before.partial_shared_trim_count,
@@ -140,7 +165,11 @@ pub(super) fn support_cell_shared_trim_repair_fact(
             before.worst_g0_gap,
             after.worst_g0_gap,
             before.worst_normal_disagreement,
-            after.worst_normal_disagreement
+            after.worst_normal_disagreement,
+            before.worst_g2_residual,
+            after.worst_g2_residual,
+            before.g2_unmeasured_sample_count,
+            after.g2_unmeasured_sample_count
         )),
         None,
         None,
@@ -160,7 +189,7 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
         "support_cell_shared_trim_candidate_score",
         n_sides,
         Some(format!(
-            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e}",
+            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unmeasured_sample_count={};after_g2_unmeasured_sample_count={}",
             before.pcurve_out_of_unit_count,
             after.pcurve_out_of_unit_count,
             before.degenerate_pcurve_count,
@@ -170,7 +199,11 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
             before.worst_abs_uv,
             after.worst_abs_uv,
             before.worst_normal_disagreement,
-            after.worst_normal_disagreement
+            after.worst_normal_disagreement,
+            before.worst_g2_residual,
+            after.worst_g2_residual,
+            before.g2_unmeasured_sample_count,
+            after.g2_unmeasured_sample_count
         )),
         None,
         None,
@@ -221,6 +254,12 @@ struct Kp20SupportCellSharedTrimQualityClassification {
     status: &'static str,
 }
 
+/// Status lattice for shared-trim quality, ordered by the first
+/// gate that fails: pcurve domain validity, then the interim G0
+/// budget, then the commercial G0/G1/G2 targets in continuity
+/// order. `commercial_g2_unmeasured` ranks below
+/// `commercial_pass` — unmeasured curvature samples fail closed
+/// rather than passing silently.
 fn classify_support_cell_shared_trim_quality(
     quality: Kp20SupportCellSharedTrimQuality,
 ) -> Kp20SupportCellSharedTrimQualityClassification {
@@ -228,14 +267,25 @@ fn classify_support_cell_shared_trim_quality(
         quality.pcurve_out_of_unit_count == 0 && quality.degenerate_pcurve_count == 0;
     let current_g0_valid = quality.worst_g0_gap <= CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET;
     let commercial_g0_valid = quality.worst_g0_gap <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET;
+    let commercial_g1_valid =
+        quality.worst_normal_disagreement <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET;
+    let commercial_g2_valid =
+        quality.worst_g2_residual <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET;
+    let g2_measured = quality.g2_unmeasured_sample_count == 0;
     let status = if !domain_valid {
         "pcurve_domain_invalid"
     } else if !current_g0_valid {
         "current_g0_budget_exceeded"
     } else if !commercial_g0_valid {
         "current_budget_pass_commercial_g0_exceeded"
+    } else if !commercial_g1_valid {
+        "commercial_g1_exceeded"
+    } else if !g2_measured {
+        "commercial_g2_unmeasured"
+    } else if !commercial_g2_valid {
+        "commercial_g2_exceeded"
     } else {
-        "commercial_g0_pass"
+        "commercial_pass"
     };
     Kp20SupportCellSharedTrimQualityClassification { status }
 }

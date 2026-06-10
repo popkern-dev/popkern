@@ -67,11 +67,19 @@ pub(crate) fn assert_support_cell_quality_gate(
     assert!(
         trim_metrics.worst_g0_gap.is_finite()
             && trim_metrics.worst_normal_disagreement.is_finite()
+            && trim_metrics.worst_g2_residual.is_finite()
             && trim_metrics.worst_source_pair.is_some(),
-        "{fixture} support-cell shared-trim metrics should remain observable; g0={:.3e} normal={:.3e} worst_source_pair={:?}",
+        "{fixture} support-cell shared-trim metrics should remain observable; g0={:.3e} normal={:.3e} g2={:.3e} worst_source_pair={:?}",
         trim_metrics.worst_g0_gap,
         trim_metrics.worst_normal_disagreement,
+        trim_metrics.worst_g2_residual,
         trim_metrics.worst_source_pair
+    );
+    assert!(
+        trim_metrics.g2_unmeasured_sample_count == 0,
+        "{fixture} support-cell shared-trim curvature should be measurable at every sample (fail closed); unmeasured={} g2={:.3e}",
+        trim_metrics.g2_unmeasured_sample_count,
+        trim_metrics.worst_g2_residual
     );
     assert!(
         trim_metrics.worst_g0_gap <= 5.0e-4,
@@ -351,6 +359,10 @@ fn assert_final_shared_trim_quality_diagnostic(
                                 .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
                             && detail.contains("current_g0_budget=5.000000000000000e-4")
                             && detail.contains("commercial_g0_target=1.000000000000000e-10")
+                            && detail.contains("commercial_g1_target=1.250000000000000e-3")
+                            && detail.contains("commercial_g2_target=5.000000000000000e-2")
+                            && detail.contains("worst_g2_residual=")
+                            && detail.contains("g2_unmeasured_sample_count=0")
                             && detail.contains(&format!(
                                 "shared_trim_count={}",
                                 trim_metrics.shared_trim_count

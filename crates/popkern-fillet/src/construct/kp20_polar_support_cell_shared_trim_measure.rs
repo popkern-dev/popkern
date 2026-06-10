@@ -3,10 +3,23 @@
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
+use popkern_core::geometry::gregory::{GregoryPatch, normal_curvature_along};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{Kp20SupportCellSharedTrimQuality, Kp20SupportCellWorstTrim};
+
+/// Parametric degeneracy guard for normal-curvature samples —
+/// rejects only samples where the first fundamental form or the
+/// projected trim direction is numerically meaningless. Matches
+/// the ring-gate helper value; it is a dimensionless parametric
+/// guard, not a model tolerance.
+const G2_PARAMETRIC_DEGENERACY_TOL: f64 = 1.0e-14;
+
+/// Pcurve fraction step used to finite-difference the trim
+/// direction. Support-cell pcurves are affine, so the difference
+/// quotient is direction-exact for them at any step size.
+const TRIM_DIRECTION_FRACTION_STEP: f64 = 1.0e-6;
 
 pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
     brep: &BRep,
@@ -25,6 +38,8 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         worst_abs_uv: 0.0,
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
+        worst_g2_residual: 0.0,
+        g2_unmeasured_sample_count: 0,
         worst_trim: None,
     };
     for &face in faces {
@@ -81,11 +96,11 @@ fn measure_shared_trim_pair(
     let Some(surface_b) = brep.faces[face_b].surface.as_ref() else {
         return;
     };
-    if !matches!(surface_a.geometry, SurfaceGeometry::Gregory(_))
-        || !matches!(surface_b.geometry, SurfaceGeometry::Gregory(_))
-    {
+    let (SurfaceGeometry::Gregory(patch_a), SurfaceGeometry::Gregory(patch_b)) =
+        (&surface_a.geometry, &surface_b.geometry)
+    else {
         return;
-    }
+    };
     let Some(pcurve_a) = brep.half_edges[half_edge_a].pcurve.as_ref() else {
         return;
     };
@@ -130,7 +145,103 @@ fn measure_shared_trim_pair(
             quality.worst_normal_disagreement =
                 quality.worst_normal_disagreement.max(1.0 - a.dot(&b).abs());
         }
+        // Curvature is sampled on the open interior of the trim
+        // only: the exact endpoints can land on Gregory corner
+        // singularities (e.g. the polar extraordinary point),
+        // where second derivatives are undefined by
+        // construction. Same convention as the ring gates'
+        // t ∈ [0.05, 0.95] sampling; G0/G1 still cover the
+        // endpoints above.
+        if fraction > 0.0 && fraction < 1.0 {
+            record_trim_g2_residual(
+                quality,
+                patch_a,
+                surface_a.orientation,
+                pcurve_a,
+                uv_a,
+                patch_b,
+                surface_b.orientation,
+                uv_b,
+                fraction,
+            );
+        }
     }
+}
+
+/// Normal-curvature (G2) residual at one trim sample. Both faces
+/// are measured along the same ambient trim direction; each
+/// curvature is expressed against its face's *oriented* normal so
+/// the two values are comparable on a consistently-oriented
+/// manifold. Samples that cannot be measured (unsupported patch
+/// variant, parametric degeneracy) are counted — callers fail
+/// closed on a non-zero unmeasured count.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "single trim-sample record taking both faces' sample state"
+)]
+fn record_trim_g2_residual(
+    quality: &mut Kp20SupportCellSharedTrimQuality,
+    patch_a: &GregoryPatch,
+    orientation_a: bool,
+    pcurve_a: &popkern_core::geometry::pcurve::Pcurve,
+    uv_a: Vec3,
+    patch_b: &GregoryPatch,
+    orientation_b: bool,
+    uv_b: Vec3,
+    fraction: f64,
+) {
+    let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
+        quality.g2_unmeasured_sample_count += 1;
+        return;
+    };
+    let curvature_a = normal_curvature_along(
+        patch_a,
+        uv_a.x,
+        uv_a.y,
+        direction,
+        G2_PARAMETRIC_DEGENERACY_TOL,
+    );
+    let curvature_b = normal_curvature_along(
+        patch_b,
+        uv_b.x,
+        uv_b.y,
+        direction,
+        G2_PARAMETRIC_DEGENERACY_TOL,
+    );
+    let (Ok(curvature_a), Ok(curvature_b)) = (curvature_a, curvature_b) else {
+        quality.g2_unmeasured_sample_count += 1;
+        return;
+    };
+    let oriented_a = oriented_curvature(curvature_a, orientation_a);
+    let oriented_b = oriented_curvature(curvature_b, orientation_b);
+    let scale = oriented_a.abs().max(oriented_b.abs());
+    let residual = (oriented_a - oriented_b).abs() / (1.0 + scale);
+    quality.worst_g2_residual = quality.worst_g2_residual.max(residual);
+}
+
+fn oriented_curvature(curvature: f64, orientation: bool) -> f64 {
+    if orientation { curvature } else { -curvature }
+}
+
+/// Ambient trim direction at `fraction`, via the chain rule
+/// `dS/dt = S_u · du/dt + S_v · dv/dt` with the pcurve
+/// difference quotient (direction-exact for affine pcurves).
+/// Uses a one-sided difference at the trim endpoints.
+fn trim_direction(
+    patch: &GregoryPatch,
+    pcurve: &popkern_core::geometry::pcurve::Pcurve,
+    uv: Vec3,
+    fraction: f64,
+) -> Option<Vec3> {
+    let low = (fraction - TRIM_DIRECTION_FRACTION_STEP).max(0.0);
+    let high = (fraction + TRIM_DIRECTION_FRACTION_STEP).min(1.0);
+    let uv_low = pcurve_at_fraction(pcurve, low);
+    let uv_high = pcurve_at_fraction(pcurve, high);
+    let du = uv_high.x - uv_low.x;
+    let dv = uv_high.y - uv_low.y;
+    let tangent_u = patch.partial_u(uv.x, uv.y);
+    let tangent_v = patch.partial_v(uv.x, uv.y);
+    (tangent_u * du + tangent_v * dv).normalized()
 }
 
 fn record_boundary_row_count(

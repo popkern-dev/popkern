@@ -139,6 +139,7 @@ mod kp_polar_shared;
 mod kp_ring_build;
 mod kp_row1;
 mod kp_row2;
+mod normal_curvature;
 mod pns_beta;
 mod pns_bi3_twists;
 mod pns_bi4_to_nurbs;
@@ -171,6 +172,7 @@ mod triangular;
 mod triangular_to_nurbs;
 
 pub use build::GregoryBuildError;
+pub use normal_curvature::{NormalCurvatureError, normal_curvature_along};
 pub use rectangular::RectangularGregory;
 pub use rectangular_binonic::RectangularGregoryBiNonic;
 pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
