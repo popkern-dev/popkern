@@ -399,7 +399,8 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains(
                 "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
-            ) && detail.contains("partial_boundary_")
+            ) && detail.contains("segment_topology_already_segmented")
+                && detail.contains("bounded_partial_boundary_segments_fit")
         }),
         "{fixture} should score the partial shared-boundary segment candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
     );

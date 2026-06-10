@@ -92,7 +92,7 @@ fn fit_valid_segment_boundary_records(
     }
     push_original_boundary_anchor_samples(brep, &mut samples, &edited_intervals)?;
     fit_boundary_row_samples(brep, &samples)?;
-    Ok("bounded_partial_boundary_segments_fit")
+    Ok("segment_topology_already_segmented_then_bounded_partial_boundary_segments_fit")
 }
 
 fn push_trim_targets(

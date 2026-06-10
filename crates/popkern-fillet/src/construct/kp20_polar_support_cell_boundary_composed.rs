@@ -334,7 +334,13 @@ fn composed_partial_boundary_status(
     base_status: &'static str,
     partial_status: &'static str,
 ) -> &'static str {
-    if partial_boundary_segments_authored(partial_status) && base_status.contains("row_group_kept")
+    if segment_topology_already_segmented(partial_status) && base_status.contains("row_group_kept")
+    {
+        "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_bounded_partial_boundary_segments_fit"
+    } else if segment_topology_already_segmented(partial_status) {
+        "ranked_prefix_endpoint_segment_topology_already_segmented_bounded_partial_boundary_segments_fit"
+    } else if partial_boundary_segments_authored(partial_status)
+        && base_status.contains("row_group_kept")
     {
         "ranked_prefix_endpoint_row_group_partial_boundary_segments_fit"
     } else if partial_boundary_segments_authored(partial_status) {
@@ -357,6 +363,11 @@ fn composed_exact_and_partial_boundary_status(
         partial_status,
     ) {
         (true, "exact_boundary_full_span_rows_authored", partial_status)
+            if segment_topology_already_segmented(partial_status) =>
+        {
+            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_and_partial_boundary_authored"
+        }
+        (true, "exact_boundary_full_span_rows_authored", partial_status)
             if partial_boundary_segments_authored(partial_status) =>
         {
             "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_authored"
@@ -374,9 +385,13 @@ fn composed_exact_and_partial_boundary_status(
     }
 }
 
+fn segment_topology_already_segmented(status: &str) -> bool {
+    status.contains("segment_topology_already_segmented")
+}
+
 fn partial_boundary_segments_authored(status: &str) -> bool {
     matches!(
         status,
         "partial_boundary_segments_fit" | "bounded_partial_boundary_segments_fit"
-    )
+    ) || status.contains("then_bounded_partial_boundary_segments_fit")
 }
