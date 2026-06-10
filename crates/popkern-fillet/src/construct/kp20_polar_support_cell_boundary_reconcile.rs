@@ -6,7 +6,7 @@ use popkern_core::geometry::curve::CurveOnEdge;
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
@@ -33,10 +33,13 @@ mod trim_ownership;
 
 #[derive(Debug, Clone, Copy)]
 struct FullBoundaryTrim {
+    edge: EdgeHandle,
+    half_edge_a: HalfEdgeHandle,
     face_a: FaceHandle,
     side_a: BoundarySide,
     start_a: f64,
     end_a: f64,
+    half_edge_b: HalfEdgeHandle,
     face_b: FaceHandle,
     side_b: BoundarySide,
     start_b: f64,
@@ -243,10 +246,13 @@ fn full_boundary_trims(
                 continue;
             };
             out.push(FullBoundaryTrim {
+                edge: brep.half_edges[half_edge].edge,
+                half_edge_a: half_edge,
                 face_a: slot.face,
                 side_a,
                 start_a,
                 end_a,
+                half_edge_b: twin,
                 face_b,
                 side_b,
                 start_b,

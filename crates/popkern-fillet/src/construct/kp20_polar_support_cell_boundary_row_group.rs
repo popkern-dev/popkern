@@ -66,7 +66,10 @@ fn push_boundary_row_group(
 }
 
 fn same_trim(a: FullBoundaryTrim, b: FullBoundaryTrim) -> bool {
-    a.face_a == b.face_a
+    a.edge == b.edge
+        && a.half_edge_a == b.half_edge_a
+        && a.half_edge_b == b.half_edge_b
+        && a.face_a == b.face_a
         && a.side_a == b.side_a
         && a.face_b == b.face_b
         && a.side_b == b.side_b

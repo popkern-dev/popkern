@@ -55,10 +55,18 @@ pub(super) fn fit_partial_shared_boundary_segments(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<&'static str, CoreError> {
-    let trims = trim_ownership::segment_owned_trims(&full_boundary_trims(brep, slots)?);
+    let segment_records =
+        trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
+    if segment_records
+        .iter()
+        .any(|record| !record.has_topology_address())
+    {
+        return Ok("partial_boundary_segment_topology_address_invalid");
+    }
     let mut samples = HashMap::new();
     let mut edited_intervals = HashMap::new();
-    for trim in trims {
+    for record in segment_records {
+        let trim = record.trim;
         push_partial_trim_samples(brep, trim, &mut samples, &mut edited_intervals)?;
     }
     if samples.is_empty() {
