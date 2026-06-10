@@ -57,22 +57,20 @@ pub(super) fn fit_partial_shared_boundary_segments(
 ) -> Result<&'static str, CoreError> {
     let segment_records =
         trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
-    let topology_plan = segment_topology::segment_boundary_topology_plan(&segment_records);
-    if topology_plan.is_already_segmented() {
-        return fit_valid_segment_boundary_records(brep, segment_records);
-    }
-    match topology_plan.status {
-        segment_topology::SegmentBoundaryTopologyStatus::AlreadySegmentTopology => {
-            return Ok("partial_boundary_segment_topology_invariant_mismatch");
+    match segment_topology::commit_segment_boundary_topology(brep, &segment_records)? {
+        segment_topology::SegmentBoundaryCommitStatus::AlreadySegmented => {
+            return fit_valid_segment_boundary_records(brep, segment_records);
         }
-        segment_topology::SegmentBoundaryTopologyStatus::InvalidTopologyAddress => {
+        segment_topology::SegmentBoundaryCommitStatus::SplitCommitted => {
+            let refreshed_records =
+                trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
+            return fit_valid_segment_boundary_records(brep, refreshed_records);
+        }
+        segment_topology::SegmentBoundaryCommitStatus::SplitDeclinedNoParameters => {
             return Ok("partial_boundary_segment_topology_address_invalid");
         }
-        segment_topology::SegmentBoundaryTopologyStatus::DuplicateSegmentEdge => {
-            return Ok("partial_boundary_segment_topology_duplicate_edge");
-        }
-        segment_topology::SegmentBoundaryTopologyStatus::EdgeSplitRequired => {
-            return Ok("partial_boundary_segment_edge_split_required");
+        segment_topology::SegmentBoundaryCommitStatus::SplitRolledBack => {
+            return Ok("partial_boundary_segment_edge_split_rolled_back");
         }
     }
 }

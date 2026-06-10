@@ -2,6 +2,8 @@
 
 use std::collections::HashSet;
 
+use popkern_core::error::CoreError;
+use popkern_core::topology::BRep;
 use popkern_core::topology::HalfEdgeHandle;
 
 use super::trim_ownership::SegmentOwnedBoundaryTrim;
@@ -12,6 +14,14 @@ pub(super) enum SegmentBoundaryTopologyStatus {
     EdgeSplitRequired,
     InvalidTopologyAddress,
     DuplicateSegmentEdge,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SegmentBoundaryCommitStatus {
+    AlreadySegmented,
+    SplitCommitted,
+    SplitDeclinedNoParameters,
+    SplitRolledBack,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -73,6 +83,62 @@ pub(super) fn segment_boundary_topology_plan(
     }
     plan.status = segment_boundary_topology_status(plan);
     plan
+}
+
+pub(super) fn commit_segment_boundary_topology(
+    brep: &mut BRep,
+    records: &[SegmentOwnedBoundaryTrim],
+) -> Result<SegmentBoundaryCommitStatus, CoreError> {
+    let plan = segment_boundary_topology_plan(records);
+    if plan.is_already_segmented() {
+        return Ok(SegmentBoundaryCommitStatus::AlreadySegmented);
+    }
+    if plan.status != SegmentBoundaryTopologyStatus::EdgeSplitRequired {
+        return Ok(SegmentBoundaryCommitStatus::SplitDeclinedNoParameters);
+    }
+    let split_parameters = segment_split_parameters(records);
+    let total_split_parameter_count = split_parameters
+        .iter()
+        .map(|(_, parameters)| parameters.len())
+        .sum::<usize>();
+    if split_parameters.is_empty() || total_split_parameter_count != plan.edge_split_parameter_count
+    {
+        return Ok(SegmentBoundaryCommitStatus::SplitDeclinedNoParameters);
+    }
+    let before = brep.clone();
+    for (edge, mut parameters) in split_parameters {
+        parameters.sort_by(|a, b| b.total_cmp(a));
+        parameters.dedup_by(|a, b| (*a - *b).abs() <= 1.0e-9);
+        for parameter in parameters {
+            if let Err(error) = brep.split_edge(edge, parameter) {
+                *brep = before;
+                return Err(error);
+            }
+        }
+    }
+    if brep.validate().is_err() {
+        *brep = before;
+        return Ok(SegmentBoundaryCommitStatus::SplitRolledBack);
+    }
+    Ok(SegmentBoundaryCommitStatus::SplitCommitted)
+}
+
+fn segment_split_parameters(
+    records: &[SegmentOwnedBoundaryTrim],
+) -> Vec<(popkern_core::topology::EdgeHandle, Vec<f64>)> {
+    let mut out: Vec<(popkern_core::topology::EdgeHandle, Vec<f64>)> = Vec::new();
+    for record in records
+        .iter()
+        .copied()
+        .filter(|record| record.requires_edge_split())
+    {
+        if let Some((_, parameters)) = out.iter_mut().find(|(edge, _)| *edge == record.edge) {
+            parameters.extend(record.split_parameters());
+        } else {
+            out.push((record.edge, record.split_parameters()));
+        }
+    }
+    out
 }
 
 fn segment_boundary_topology_status(
