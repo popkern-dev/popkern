@@ -60,6 +60,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
     n_sides: usize,
     selected: &'static str,
     measurement_scope: &'static str,
+    piecewise_boundary_committed: &'static str,
     quality: Kp20SupportCellSharedTrimQuality,
 ) -> ApexConstructionDiagnostic {
     let classification = classify_support_cell_shared_trim_quality(quality);
@@ -67,7 +68,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
+            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             classification.status,
@@ -252,6 +253,7 @@ pub(crate) fn append_final_support_cell_shared_trim_quality(
             group.n_sides,
             selected,
             "final_post_pipeline",
+            piecewise_boundary_committed,
             quality,
         ));
         diagnostics.push(support_cell_trim_ownership_plan_fact(

@@ -462,6 +462,7 @@ fn assert_final_shared_trim_quality_diagnostic(
                     && cap.detail_code.as_deref().is_some_and(|detail| {
                         detail.contains("selected=promoted")
                             && detail.contains("measurement_scope=final_post_pipeline")
+                            && detail.contains("piecewise_boundary_committed=already_segmented")
                             && detail
                                 .contains("quality_status=current_budget_pass_commercial_g0_exceeded")
                             && detail.contains("current_g0_budget=5.000000000000000e-4")
