@@ -440,7 +440,7 @@ fn assert_trim_ownership_plan_diagnostic(
                                 "max_boundary_row_shared_trim_count={}",
                                 trim_metrics.max_boundary_row_shared_trim_count
                             ))
-                            && detail.contains("piecewise_boundary_committed=false")
+                            && detail.contains("piecewise_boundary_committed=already_segmented")
                     })
         )),
         "{fixture} support-cell route should expose trim ownership planning diagnostics before piecewise boundary mutation; support_cell_details={support_cell_dispatch_details:?}"

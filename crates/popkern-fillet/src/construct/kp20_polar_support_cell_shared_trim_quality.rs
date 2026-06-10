@@ -180,6 +180,7 @@ pub(super) fn support_cell_trim_ownership_plan_fact(
     n_sides: usize,
     selected: &'static str,
     measurement_scope: &'static str,
+    piecewise_boundary_committed: &'static str,
     plan: Kp20SupportCellTrimOwnershipPlan,
 ) -> ApexConstructionDiagnostic {
     let ownership_status = if plan.segment_owned_trim_count > 0 {
@@ -191,7 +192,7 @@ pub(super) fn support_cell_trim_ownership_plan_fact(
         "support_cell_trim_ownership_plan",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};ownership_status={ownership_status};shared_trim_count={};full_row_owned_trim_count={};segment_owned_trim_count={};max_boundary_row_shared_trim_count={};piecewise_boundary_committed=false",
+            "selected={selected};measurement_scope={measurement_scope};ownership_status={ownership_status};shared_trim_count={};full_row_owned_trim_count={};segment_owned_trim_count={};max_boundary_row_shared_trim_count={};piecewise_boundary_committed={piecewise_boundary_committed}",
             plan.shared_trim_count,
             plan.full_row_owned_trim_count,
             plan.segment_owned_trim_count,
@@ -244,6 +245,7 @@ pub(crate) fn append_final_support_cell_shared_trim_quality(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
 ) {
     let selected = support_cell_selected_label(diagnostics);
+    let piecewise_boundary_committed = support_cell_piecewise_boundary_committed_label(diagnostics);
     for group in support_cell_face_groups(corner_patches) {
         let quality = measure_support_cell_shared_trim_quality(brep, &group.faces, 9);
         diagnostics.push(support_cell_shared_trim_quality_fact(
@@ -256,6 +258,7 @@ pub(crate) fn append_final_support_cell_shared_trim_quality(
             group.n_sides,
             selected,
             "final_post_pipeline",
+            piecewise_boundary_committed,
             trim_ownership_plan(quality),
         ));
     }
@@ -324,5 +327,35 @@ fn selected_label_from_detail(detail: &str) -> Option<&'static str> {
         Some("fallback_four_cell_floor")
     } else {
         None
+    }
+}
+
+fn support_cell_piecewise_boundary_committed_label(
+    diagnostics: &[ApexConstructionDiagnostic],
+) -> &'static str {
+    let mut saw_split_decline = false;
+    for diagnostic in diagnostics.iter().rev() {
+        let ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic else {
+            continue;
+        };
+        if cap.stage != "kp20_polar_macro.dispatch.support_cell_shared_trim_candidate_score" {
+            continue;
+        }
+        let Some(detail) = cap.detail_code.as_deref() else {
+            continue;
+        };
+        if detail.contains("segment_topology_split_committed") {
+            return "split_committed";
+        }
+        if detail.contains("segment_topology_already_segmented") {
+            return "already_segmented";
+        }
+        saw_split_decline |= detail.contains("partial_boundary_segment_edge_split_rolled_back")
+            || detail.contains("partial_boundary_segment_topology_address_invalid");
+    }
+    if saw_split_decline {
+        "declined"
+    } else {
+        "false"
     }
 }
