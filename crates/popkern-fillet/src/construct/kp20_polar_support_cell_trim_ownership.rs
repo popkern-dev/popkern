@@ -43,6 +43,14 @@ impl SegmentOwnedBoundaryTrim {
             && self.interval_a.is_valid()
             && self.interval_b.is_valid()
     }
+
+    pub(super) fn has_paired_half_edges(self) -> bool {
+        self.half_edge_a != self.half_edge_b
+    }
+
+    pub(super) fn requires_edge_split(self) -> bool {
+        false
+    }
 }
 
 impl BoundaryInterval {

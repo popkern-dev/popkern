@@ -9,7 +9,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
     BoundarySide, FullBoundaryTrim, full_boundary_trims, rectangular_binonic_on_face, row_fit,
-    set_rectangular_binonic_on_face, trim_ownership,
+    segment_topology, set_rectangular_binonic_on_face, trim_ownership,
 };
 
 const PARTIAL_SEGMENT_SAMPLE_COUNT: usize = 16;
@@ -57,12 +57,30 @@ pub(super) fn fit_partial_shared_boundary_segments(
 ) -> Result<&'static str, CoreError> {
     let segment_records =
         trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
-    if segment_records
-        .iter()
-        .any(|record| !record.has_topology_address())
-    {
-        return Ok("partial_boundary_segment_topology_address_invalid");
+    let topology_plan = segment_topology::segment_boundary_topology_plan(&segment_records);
+    if topology_plan.is_already_segmented() {
+        return fit_valid_segment_boundary_records(brep, segment_records);
     }
+    match topology_plan.status {
+        segment_topology::SegmentBoundaryTopologyStatus::AlreadySegmentTopology => {
+            return Ok("partial_boundary_segment_topology_invariant_mismatch");
+        }
+        segment_topology::SegmentBoundaryTopologyStatus::InvalidTopologyAddress => {
+            return Ok("partial_boundary_segment_topology_address_invalid");
+        }
+        segment_topology::SegmentBoundaryTopologyStatus::DuplicateSegmentEdge => {
+            return Ok("partial_boundary_segment_topology_duplicate_edge");
+        }
+        segment_topology::SegmentBoundaryTopologyStatus::EdgeSplitRequired => {
+            return Ok("partial_boundary_segment_edge_split_required");
+        }
+    }
+}
+
+fn fit_valid_segment_boundary_records(
+    brep: &mut BRep,
+    segment_records: Vec<trim_ownership::SegmentOwnedBoundaryTrim>,
+) -> Result<&'static str, CoreError> {
     let mut samples = HashMap::new();
     let mut edited_intervals = HashMap::new();
     for record in segment_records {
