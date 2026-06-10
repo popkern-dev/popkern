@@ -30,6 +30,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -73,6 +74,8 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
                     "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe",
                 ) || detail.contains(
                     "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
+                ) || detail.contains(
+                    "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
                 ))
                 && detail.contains("operation_status=ranked_prefix_")
         }),
@@ -119,5 +122,15 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
             ) && detail.contains("exact_and_partial_boundary_")
         }),
         "{fixture} should score the exact-plus-partial shared-boundary candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
+            ) && detail.contains("segment_topology_already_segmented")
+                && detail.contains("exact_")
+                && detail.contains("tangent_")
+        }),
+        "{fixture} should score the post-partial tangent candidate as a real construction pass; support_cell_details={support_cell_dispatch_details:?}"
     );
 }

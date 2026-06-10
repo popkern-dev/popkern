@@ -9,12 +9,10 @@ use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRo
 mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_completion_apply.rs"]
 mod support_cell_completion_apply;
+#[path = "kp20_polar_support_cell_completion_rank.rs"]
+mod support_cell_completion_rank;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
-
-const BOUNDARY_SAFE_G0_PREFERENCE_RELATIVE_BAND: f64 = 5.0e-3;
-const SHARED_TRIM_G0_TIE_BREAK_EPS: f64 = 1.0e-12;
-const SHARED_TRIM_G1_TIE_BREAK_EPS: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportCellCompletionCandidate {
@@ -35,11 +33,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
+    PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 18] = [
+    const ALL: [Self; 19] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -57,6 +56,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
+        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -101,6 +101,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe => {
                 "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe"
             }
+            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe => {
+                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -124,6 +127,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe
+                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -225,7 +229,7 @@ fn select_support_cell_completion_candidate(
     Option<SupportCellCompletionSelection>,
     Vec<SupportCellCompletionCandidateScore>,
 ) {
-    let mut best = None;
+    let mut best: Option<SupportCellCompletionSelection> = None;
     let mut scores = Vec::new();
     for candidate in SupportCellCompletionCandidate::ALL {
         let mut candidate_brep = brep.clone();
@@ -266,7 +270,11 @@ fn select_support_cell_completion_candidate(
             candidate,
             quality,
         };
-        if support_cell_completion_selection_is_better(&selection, best.as_ref()) {
+        if support_cell_completion_rank::selection_is_better(
+            support_cell_rank(selection.candidate, selection.quality),
+            best.as_ref()
+                .map(|selection| support_cell_rank(selection.candidate, selection.quality)),
+        ) {
             best = Some(selection);
         }
     }
@@ -415,6 +423,13 @@ fn apply_support_cell_completion_candidate(
                 )
             })
         }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_exact_partial_tangent_status(
+                    brep, faces,
+                )
+            })
+        }
         SupportCellCompletionCandidate::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_support_cell_worst_boundary_row_group(
@@ -440,55 +455,12 @@ fn support_cell_operation_result(
     }
 }
 
-fn support_cell_completion_selection_is_better(
-    candidate: &SupportCellCompletionSelection,
-    current: Option<&SupportCellCompletionSelection>,
-) -> bool {
-    let Some(current) = current else {
-        return true;
-    };
-    let a = candidate.quality;
-    let b = current.quality;
-    match (a.pcurve_out_of_unit_count, a.degenerate_pcurve_count)
-        .cmp(&(b.pcurve_out_of_unit_count, b.degenerate_pcurve_count))
-    {
-        std::cmp::Ordering::Less => true,
-        std::cmp::Ordering::Greater => false,
-        std::cmp::Ordering::Equal => g0_tie_break_prefers_candidate(candidate, current),
+fn support_cell_rank(
+    candidate: SupportCellCompletionCandidate,
+    quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
+) -> support_cell_completion_rank::SupportCellCompletionRank {
+    support_cell_completion_rank::SupportCellCompletionRank {
+        boundary_safe: candidate.is_boundary_safe(),
+        quality,
     }
-}
-
-fn g0_tie_break_prefers_candidate(
-    candidate: &SupportCellCompletionSelection,
-    current: &SupportCellCompletionSelection,
-) -> bool {
-    if boundary_safe_quality_is_equivalent(candidate, current) {
-        return true;
-    }
-    if boundary_safe_quality_is_equivalent(current, candidate) {
-        return false;
-    }
-    if shared_trim_g0_is_equivalent(candidate, current) {
-        return candidate.quality.worst_normal_disagreement + SHARED_TRIM_G1_TIE_BREAK_EPS
-            < current.quality.worst_normal_disagreement;
-    }
-    candidate.quality.worst_g0_gap + SHARED_TRIM_G0_TIE_BREAK_EPS < current.quality.worst_g0_gap
-}
-
-fn shared_trim_g0_is_equivalent(
-    candidate: &SupportCellCompletionSelection,
-    current: &SupportCellCompletionSelection,
-) -> bool {
-    (candidate.quality.worst_g0_gap - current.quality.worst_g0_gap).abs()
-        <= SHARED_TRIM_G0_TIE_BREAK_EPS
-}
-
-fn boundary_safe_quality_is_equivalent(
-    boundary_safe: &SupportCellCompletionSelection,
-    other: &SupportCellCompletionSelection,
-) -> bool {
-    boundary_safe.candidate.is_boundary_safe()
-        && !other.candidate.is_boundary_safe()
-        && boundary_safe.quality.worst_g0_gap
-            <= other.quality.worst_g0_gap * (1.0 + BOUNDARY_SAFE_G0_PREFERENCE_RELATIVE_BAND)
 }

@@ -175,6 +175,30 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_exact_and_partial_boundary(
     ))
 }
 
+pub(crate) fn reconcile_assigned_ranked_endpoint_exact_partial_tangent_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<&'static str, CoreError> {
+    let base_status = reconcile_ranked_prefix_endpoint_cluster_then_row_groups(brep, faces, 1)?;
+    let slots = assigned_support_cell_slots(brep, faces);
+    let exact_status = exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
+    let partial_status = exact_boundary_row::fit_partial_shared_boundary_segments(brep, &slots)?;
+    let tangent_trims = full_boundary_trims(brep, &slots)?;
+    let tangent_status = reconcile_tangent_row_if_normal_improves(brep, faces, &tangent_trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell exact-partial tangent reconciliation produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(composed_exact_partial_tangent_status(
+        base_status,
+        exact_status,
+        partial_status,
+        tangent_status,
+    ))
+}
+
 fn composed_endpoint_status(endpoint_status: &'static str) -> &'static str {
     match endpoint_status {
         "endpoint_cluster_endpoint_band_fit_kept" => "ranked_prefix_then_endpoint_band_fit_kept",
@@ -382,6 +406,50 @@ fn composed_exact_and_partial_boundary_status(
             "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_declined"
         }
         _ => "ranked_prefix_endpoint_exact_and_partial_boundary_declined",
+    }
+}
+
+fn composed_exact_partial_tangent_status(
+    base_status: &'static str,
+    exact_status: &'static str,
+    partial_status: &'static str,
+    tangent_status: Option<tangent_row::TangentRowAlignment>,
+) -> &'static str {
+    match (
+        base_status.contains("row_group_kept"),
+        exact_status,
+        segment_topology_already_segmented(partial_status),
+        partial_boundary_segments_authored(partial_status),
+        tangent_status,
+    ) {
+        (
+            true,
+            "exact_boundary_full_span_rows_authored",
+            true,
+            _,
+            Some(tangent_row::TangentRowAlignment::SharedDirection),
+        ) => {
+            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_partial_shared_tangent_kept"
+        }
+        (
+            true,
+            "exact_boundary_full_span_rows_authored",
+            true,
+            _,
+            Some(tangent_row::TangentRowAlignment::MirroredDirection),
+        ) => {
+            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_partial_mirrored_tangent_kept"
+        }
+        (true, "exact_boundary_full_span_rows_authored", true, _, None) => {
+            "ranked_prefix_endpoint_row_group_segment_topology_already_segmented_exact_and_partial_boundary_authored_tangent_declined"
+        }
+        (true, "exact_boundary_full_span_rows_authored", _, true, Some(_)) => {
+            "ranked_prefix_endpoint_row_group_exact_partial_tangent_kept"
+        }
+        (true, "exact_boundary_full_span_rows_authored", _, true, None) => {
+            "ranked_prefix_endpoint_row_group_exact_and_partial_boundary_authored_tangent_declined"
+        }
+        _ => composed_exact_and_partial_boundary_status(base_status, exact_status, partial_status),
     }
 }
 
