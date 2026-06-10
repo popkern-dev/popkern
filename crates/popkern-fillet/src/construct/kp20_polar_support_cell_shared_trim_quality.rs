@@ -33,7 +33,8 @@ pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) worst_g0_gap: f64,
     pub(super) worst_normal_disagreement: f64,
     pub(super) worst_g2_residual: f64,
-    pub(super) g2_unmeasured_sample_count: usize,
+    pub(super) g2_unsupported_sample_count: usize,
+    pub(super) g2_degenerate_sample_count: usize,
     pub(super) worst_trim: Option<Kp20SupportCellWorstTrim>,
 }
 
@@ -89,7 +90,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};g2_unmeasured_sample_count={};{}",
+            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};g2_unsupported_sample_count={};g2_degenerate_sample_count={};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET,
@@ -104,7 +105,8 @@ pub(super) fn support_cell_shared_trim_quality_fact(
             quality.worst_g0_gap,
             quality.worst_normal_disagreement,
             quality.worst_g2_residual,
-            quality.g2_unmeasured_sample_count,
+            quality.g2_unsupported_sample_count,
+            quality.g2_degenerate_sample_count,
             worst_trim_detail(quality)
         )),
         None,
@@ -149,7 +151,7 @@ pub(super) fn support_cell_shared_trim_repair_fact(
         "support_cell_shared_trim_final_repair",
         n_sides,
         Some(format!(
-            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_partial_shared_trim_count={};after_partial_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unmeasured_sample_count={};after_g2_unmeasured_sample_count={}",
+            "selected={selected};selected_candidate={selected_candidate};repair_status={status};before_shared_trim_count={};after_shared_trim_count={};before_partial_shared_trim_count={};after_partial_shared_trim_count={};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_max_boundary_row_shared_trim_count={};after_max_boundary_row_shared_trim_count={};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unsupported_sample_count={};after_g2_unsupported_sample_count={};before_g2_degenerate_sample_count={};after_g2_degenerate_sample_count={}",
             before.shared_trim_count,
             after.shared_trim_count,
             before.partial_shared_trim_count,
@@ -168,8 +170,10 @@ pub(super) fn support_cell_shared_trim_repair_fact(
             after.worst_normal_disagreement,
             before.worst_g2_residual,
             after.worst_g2_residual,
-            before.g2_unmeasured_sample_count,
-            after.g2_unmeasured_sample_count
+            before.g2_unsupported_sample_count,
+            after.g2_unsupported_sample_count,
+            before.g2_degenerate_sample_count,
+            after.g2_degenerate_sample_count
         )),
         None,
         None,
@@ -189,7 +193,7 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
         "support_cell_shared_trim_candidate_score",
         n_sides,
         Some(format!(
-            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unmeasured_sample_count={};after_g2_unmeasured_sample_count={}",
+            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_g2_unsupported_sample_count={};after_g2_unsupported_sample_count={};before_g2_degenerate_sample_count={};after_g2_degenerate_sample_count={}",
             before.pcurve_out_of_unit_count,
             after.pcurve_out_of_unit_count,
             before.degenerate_pcurve_count,
@@ -202,8 +206,10 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
             after.worst_normal_disagreement,
             before.worst_g2_residual,
             after.worst_g2_residual,
-            before.g2_unmeasured_sample_count,
-            after.g2_unmeasured_sample_count
+            before.g2_unsupported_sample_count,
+            after.g2_unsupported_sample_count,
+            before.g2_degenerate_sample_count,
+            after.g2_degenerate_sample_count
         )),
         None,
         None,
@@ -271,7 +277,7 @@ fn classify_support_cell_shared_trim_quality(
         quality.worst_normal_disagreement <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET;
     let commercial_g2_valid =
         quality.worst_g2_residual <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET;
-    let g2_measured = quality.g2_unmeasured_sample_count == 0;
+    let g2_measured = quality.g2_unsupported_sample_count == 0;
     let status = if !domain_valid {
         "pcurve_domain_invalid"
     } else if !current_g0_valid {

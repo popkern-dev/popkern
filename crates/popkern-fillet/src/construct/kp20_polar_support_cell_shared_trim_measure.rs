@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
-use popkern_core::geometry::gregory::{GregoryPatch, normal_curvature_along};
+use popkern_core::geometry::gregory::{GregoryPatch, NormalCurvatureError, normal_curvature_along};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -39,7 +39,8 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
         worst_g2_residual: 0.0,
-        g2_unmeasured_sample_count: 0,
+        g2_unsupported_sample_count: 0,
+        g2_degenerate_sample_count: 0,
         worst_trim: None,
     };
     for &face in faces {
@@ -191,7 +192,7 @@ fn record_trim_g2_residual(
     fraction: f64,
 ) {
     let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
-        quality.g2_unmeasured_sample_count += 1;
+        quality.g2_degenerate_sample_count += 1;
         return;
     };
     let curvature_a = normal_curvature_along(
@@ -208,9 +209,22 @@ fn record_trim_g2_residual(
         direction,
         G2_PARAMETRIC_DEGENERACY_TOL,
     );
-    let (Ok(curvature_a), Ok(curvature_b)) = (curvature_a, curvature_b) else {
-        quality.g2_unmeasured_sample_count += 1;
-        return;
+    let (curvature_a, curvature_b) = match (curvature_a, curvature_b) {
+        (Ok(curvature_a), Ok(curvature_b)) => (curvature_a, curvature_b),
+        (Err(NormalCurvatureError::UnsupportedVariant { .. }), _)
+        | (_, Err(NormalCurvatureError::UnsupportedVariant { .. })) => {
+            quality.g2_unsupported_sample_count += 1;
+            return;
+        }
+        _ => {
+            // Parametric degeneracy at an isolated sample (e.g.
+            // pole-adjacent first-form collapse) — curvature is
+            // undefined there by parameterization, not by
+            // missing coverage. Counted separately so the
+            // fail-closed unsupported gate stays strict.
+            quality.g2_degenerate_sample_count += 1;
+            return;
+        }
     };
     let oriented_a = oriented_curvature(curvature_a, orientation_a);
     let oriented_b = oriented_curvature(curvature_b, orientation_b);

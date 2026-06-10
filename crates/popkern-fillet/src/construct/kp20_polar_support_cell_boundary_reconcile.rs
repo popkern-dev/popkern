@@ -19,12 +19,16 @@ mod boundary_prefix;
 mod boundary_row_group;
 #[path = "kp20_polar_support_cell_boundary_trim.rs"]
 mod boundary_trim;
+#[path = "kp20_polar_support_cell_cell_reauthor.rs"]
+mod cell_reauthor;
 #[path = "kp20_polar_support_cell_chain_discovery.rs"]
 mod chain_discovery;
 #[path = "kp20_polar_support_cell_chain_fit.rs"]
 mod chain_fit;
 #[path = "kp20_polar_support_cell_chain_ribbon.rs"]
 mod chain_ribbon;
+#[path = "kp20_polar_support_cell_chain_ribbon_field.rs"]
+mod chain_ribbon_field;
 #[path = "kp20_polar_support_cell_chain_solver.rs"]
 mod chain_solver;
 #[path = "kp20_polar_support_cell_exact_boundary_row.rs"]
@@ -116,6 +120,27 @@ pub(crate) fn reconcile_assigned_chain_network_cross_tangent_ribbon_status(
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
             "kp20 support-cell chain ribbon network produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(status)
+}
+
+/// Chain network plus constructive cell re-authoring: row-1
+/// bands DERIVED from the shared chain curves and transverse
+/// ribbon fields (linear blends matched to the exact end legs),
+/// twist conflicts averaged, interiors Coons-refilled — exact
+/// G0 by shared curves, G1 by shared tangent-plane fields
+/// rather than projection of disagreeing geometry.
+pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let status = chain_fit::author_chain_network_with_constructive_cells(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell constructive cell re-authoring produced invalid BRep: {error}"
         ))
     })?;
     Ok(status)

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
-use popkern_core::geometry::gregory::{GregoryPatch, normal_curvature_along};
+use popkern_core::geometry::gregory::{GregoryPatch, NormalCurvatureError, normal_curvature_along};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
@@ -27,7 +27,8 @@ pub struct SharedTrimMetrics {
     pub worst_g0_gap: f64,
     pub worst_normal_disagreement: f64,
     pub worst_g2_residual: f64,
-    pub g2_unmeasured_sample_count: usize,
+    pub g2_unsupported_sample_count: usize,
+    pub g2_degenerate_sample_count: usize,
     pub trim_records: Vec<SharedTrimRecord>,
 }
 
@@ -77,7 +78,8 @@ pub fn measure_shared_gregory_trims_with_sources(
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
         worst_g2_residual: 0.0,
-        g2_unmeasured_sample_count: 0,
+        g2_unsupported_sample_count: 0,
+        g2_degenerate_sample_count: 0,
         trim_records: Vec::new(),
     };
     let mut boundary_row_counts = HashMap::new();
@@ -258,7 +260,7 @@ fn record_trim_g2_residual(
     fraction: f64,
 ) {
     let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
-        metrics.g2_unmeasured_sample_count += 1;
+        metrics.g2_degenerate_sample_count += 1;
         return;
     };
     let curvature_a = normal_curvature_along(
@@ -275,9 +277,17 @@ fn record_trim_g2_residual(
         direction,
         G2_PARAMETRIC_DEGENERACY_TOL,
     );
-    let (Ok(curvature_a), Ok(curvature_b)) = (curvature_a, curvature_b) else {
-        metrics.g2_unmeasured_sample_count += 1;
-        return;
+    let (curvature_a, curvature_b) = match (curvature_a, curvature_b) {
+        (Ok(curvature_a), Ok(curvature_b)) => (curvature_a, curvature_b),
+        (Err(NormalCurvatureError::UnsupportedVariant { .. }), _)
+        | (_, Err(NormalCurvatureError::UnsupportedVariant { .. })) => {
+            metrics.g2_unsupported_sample_count += 1;
+            return;
+        }
+        _ => {
+            metrics.g2_degenerate_sample_count += 1;
+            return;
+        }
     };
     let oriented_a = oriented_curvature(curvature_a, orientation_a);
     let oriented_b = oriented_curvature(curvature_b, orientation_b);

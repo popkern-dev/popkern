@@ -16,6 +16,7 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
+use super::cell_reauthor::{AuthoredSubChain, reauthor_cells_from_chain_network};
 use super::chain_discovery::{ChainTrim, RowChainEmbedding, SubChain, discover_sub_chains};
 use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
 use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
@@ -55,6 +56,7 @@ pub(super) struct ChainRowKey {
 enum ChainNetworkMode {
     Curves,
     CurvesAndCrossTangentRibbons,
+    CurvesAndConstructiveCells,
 }
 
 /// Author canonical curves for every discoverable chain and
@@ -80,6 +82,18 @@ pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<String, CoreError> {
     author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndCrossTangentRibbons)
+}
+
+/// Author the chain network and then REBUILD every chained
+/// cell's near-boundary band and interior constructively: a
+/// transverse ribbon field per sub-chain, row-1 bands derived
+/// from `(C, R)` with linear blends matched to the exact end
+/// legs, twist conflicts averaged, interiors Coons-refilled.
+pub(super) fn author_chain_network_with_constructive_cells(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndConstructiveCells)
 }
 
 fn author_chain_network_internal(
@@ -128,10 +142,10 @@ fn author_chain_network_internal(
     // Node normals follow the same global-pinning principle so
     // every chain incident to a node constrains its tangent to
     // the SAME plane. Computed from the pre-network geometry.
-    let node_normals = if mode == ChainNetworkMode::CurvesAndCrossTangentRibbons {
-        global_node_normals(&discovery.sub_chains, &patches)
-    } else {
+    let node_normals = if mode == ChainNetworkMode::Curves {
         HashMap::new()
+    } else {
+        global_node_normals(&discovery.sub_chains, &patches)
     };
     let mut authored_count = 0usize;
     let mut fit_declined_count = 0usize;
@@ -140,9 +154,15 @@ fn author_chain_network_internal(
     let mut damped_row_count = 0usize;
     let mut skipped_row_count = 0usize;
     let mut ribbon_declined_count = 0usize;
+    let mut authored_sub_chains = Vec::new();
     for sub in &discovery.sub_chains {
         match author_sub_chain(&mut patches, sub, &node_positions, &node_normals) {
-            Ok(()) => authored_count += 1,
+            Ok(authored) => {
+                authored_count += 1;
+                if mode == ChainNetworkMode::CurvesAndConstructiveCells {
+                    authored_sub_chains.push(authored);
+                }
+            }
             Err(reason) => {
                 fit_declined_count += 1;
                 if fit_decline_reason == "none" {
@@ -163,6 +183,19 @@ fn author_chain_network_internal(
             }
         }
     }
+    let mut reauthor_detail = String::new();
+    if mode == ChainNetworkMode::CurvesAndConstructiveCells {
+        let outcome =
+            reauthor_cells_from_chain_network(&mut patches, &authored_sub_chains, &node_normals);
+        reauthor_detail = format!(
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};refilled_cell_count={}",
+            outcome.derived_row_count,
+            outcome.leg_solve_declined_count,
+            outcome.field_declined_sub_chain_count,
+            outcome.twist_conflict_count,
+            outcome.refilled_cell_count
+        );
+    }
     for (face, patch) in patches {
         set_rectangular_binonic_on_face(brep, face, patch)?;
     }
@@ -171,9 +204,13 @@ fn author_chain_network_internal(
         (ChainNetworkMode::Curves, false) => "chain_curve_network_declined",
         (ChainNetworkMode::CurvesAndCrossTangentRibbons, true) => "chain_ribbon_network_authored",
         (ChainNetworkMode::CurvesAndCrossTangentRibbons, false) => "chain_ribbon_network_declined",
+        (ChainNetworkMode::CurvesAndConstructiveCells, true) => "chain_constructive_cells_authored",
+        (ChainNetworkMode::CurvesAndConstructiveCells, false) => {
+            "chain_constructive_cells_declined"
+        }
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason
@@ -185,7 +222,7 @@ fn author_sub_chain(
     sub: &SubChain<ChainRowKey, VertexHandle>,
     node_positions: &HashMap<VertexHandle, Point3>,
     node_normals: &HashMap<VertexHandle, Vec3>,
-) -> Result<(), &'static str> {
+) -> Result<AuthoredSubChain, &'static str> {
     let domain = sub
         .rows
         .iter()
@@ -230,6 +267,11 @@ fn author_sub_chain(
     let tangent_budget = MAX_CONSTRAINT_ROWS.saturating_sub(3 * constraints.positions.len());
     constraints.tangent_planes.truncate(tangent_budget);
     let chain_cps = fit_constrained_degree9(&samples, &constraints)?;
+    let mut authored = AuthoredSubChain {
+        chain_cps,
+        rows: Vec::with_capacity(rows.len()),
+        nodes: local_node_params(sub, &local),
+    };
     for (key, embedding, _) in &rows {
         let start = local(embedding.map(0.0));
         let end = local(embedding.map(1.0));
@@ -240,8 +282,25 @@ fn author_sub_chain(
         for (index, point) in row.iter().enumerate() {
             set_boundary_control(patch, key.side, index, *point);
         }
+        authored.rows.push((*key, (start, end)));
     }
-    Ok(())
+    Ok(authored)
+}
+
+/// Node identities with their parameters in the sub-chain's
+/// local `[0, 1]` domain.
+fn local_node_params(
+    sub: &SubChain<ChainRowKey, VertexHandle>,
+    local: &impl Fn(f64) -> f64,
+) -> Vec<(VertexHandle, f64)> {
+    let mut out: Vec<(VertexHandle, f64)> = sub
+        .nodes
+        .iter()
+        .map(|&(vertex, param)| (vertex, local(param)))
+        .collect();
+    out.sort_by(|a, b| a.1.total_cmp(&b.1));
+    out.dedup_by(|a, b| (a.1 - b.1).abs() <= NODE_PARAM_TOL);
+    out
 }
 
 /// Pinned 3D position per node, computed ONCE across every

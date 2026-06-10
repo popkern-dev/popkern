@@ -16,137 +16,9 @@ mod support_cell_completion_rank;
 #[path = "kp20_polar_support_cell_pcurve_author.rs"]
 mod support_cell_pcurve_author;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SupportCellCompletionCandidate {
-    PcurveOnly,
-    BoundaryOnly,
-    PcurveThenBoundary,
-    PcurveThenBoundaryIfG0Safe,
-    PcurveThenWorstBoundaryIfG0Safe,
-    PcurveThenTop3BoundariesIfG0Safe,
-    PcurveThenRankedBoundaryPrefixIfG0Safe,
-    PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
-    PcurveThenWorstEndpointClusterIfG0Safe,
-    PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
-    PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
-    PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
-    PcurveThenRankedBoundaryEndpointClusterThenThreeRowGroupsIfG0Safe,
-    PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
-    PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
-    PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
-    PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
-    PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
-    PcurveThenChainCurveNetworkIfG0Safe,
-    PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
-    PcurveThenWorstBoundaryRowGroupIfG0Safe,
-}
-
-impl SupportCellCompletionCandidate {
-    const ALL: [Self; 21] = [
-        Self::PcurveOnly,
-        Self::BoundaryOnly,
-        Self::PcurveThenBoundary,
-        Self::PcurveThenBoundaryIfG0Safe,
-        Self::PcurveThenWorstBoundaryIfG0Safe,
-        Self::PcurveThenTop3BoundariesIfG0Safe,
-        Self::PcurveThenRankedBoundaryPrefixIfG0Safe,
-        Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe,
-        Self::PcurveThenWorstEndpointClusterIfG0Safe,
-        Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointClusterThenThreeRowGroupsIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
-        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
-        Self::PcurveThenChainCurveNetworkIfG0Safe,
-        Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
-        Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
-    ];
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::PcurveOnly => "pcurve_only",
-            Self::BoundaryOnly => "boundary_only",
-            Self::PcurveThenBoundary => "pcurve_then_boundary",
-            Self::PcurveThenBoundaryIfG0Safe => "pcurve_then_boundary_if_g0_safe",
-            Self::PcurveThenWorstBoundaryIfG0Safe => "pcurve_then_worst_boundary_if_g0_safe",
-            Self::PcurveThenTop3BoundariesIfG0Safe => "pcurve_then_top3_boundaries_if_g0_safe",
-            Self::PcurveThenRankedBoundaryPrefixIfG0Safe => {
-                "pcurve_then_ranked_boundary_prefix_if_g0_safe"
-            }
-            Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe => {
-                "pcurve_then_worst_boundary_neighborhood_if_g0_safe"
-            }
-            Self::PcurveThenWorstEndpointClusterIfG0Safe => {
-                "pcurve_then_worst_endpoint_cluster_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe => {
-                "pcurve_then_ranked_boundary_prefix_then_worst_endpoint_cluster_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_cluster_then_row_group_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_cluster_then_two_row_groups_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointClusterThenThreeRowGroupsIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_cluster_then_three_row_groups_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_row_group_then_tangent_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_boundary_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe"
-            }
-            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe => {
-                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe"
-            }
-            Self::PcurveThenChainCurveNetworkIfG0Safe => {
-                "pcurve_then_chain_curve_network_if_g0_safe"
-            }
-            Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe => {
-                "pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe"
-            }
-            Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
-                "pcurve_then_worst_boundary_row_group_if_g0_safe"
-            }
-        }
-    }
-
-    fn is_boundary_safe(self) -> bool {
-        matches!(
-            self,
-            Self::PcurveThenBoundaryIfG0Safe
-                | Self::PcurveThenWorstBoundaryIfG0Safe
-                | Self::PcurveThenTop3BoundariesIfG0Safe
-                | Self::PcurveThenRankedBoundaryPrefixIfG0Safe
-                | Self::PcurveThenWorstBoundaryNeighborhoodIfG0Safe
-                | Self::PcurveThenWorstEndpointClusterIfG0Safe
-                | Self::PcurveThenRankedBoundaryPrefixThenWorstEndpointClusterIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointClusterThenRowGroupIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointClusterThenTwoRowGroupsIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointClusterThenThreeRowGroupsIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenTangentIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactBoundaryIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe
-                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe
-                | Self::PcurveThenChainCurveNetworkIfG0Safe
-                | Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe
-                | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
-        )
-    }
-}
-
+#[path = "kp20_polar_support_cell_completion_candidates.rs"]
+mod support_cell_completion_candidates;
+use support_cell_completion_candidates::SupportCellCompletionCandidate;
 #[derive(Clone)]
 struct SupportCellCompletionSelection {
     brep: BRep,
@@ -454,6 +326,13 @@ fn apply_support_cell_completion_candidate(
         SupportCellCompletionCandidate::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_chain_network_cross_tangent_ribbon_status(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenChainConstructiveCellsIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_chain_constructive_cells_status(
                     brep, faces,
                 )
             })
