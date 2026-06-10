@@ -7,6 +7,7 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
 
+use super::row_segment::bezier_row_segment;
 use super::{
     BoundarySide, FullBoundaryTrim, full_boundary_trims, rectangular_binonic_on_face, row_fit,
     segment_topology, set_rectangular_binonic_on_face, trim_ownership,
@@ -23,12 +24,6 @@ struct BoundaryControlKey {
     index: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct BoundaryTarget {
-    point: Point3,
-    count: usize,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct BoundaryRowKey {
     face: FaceHandle,
@@ -40,15 +35,127 @@ pub(super) fn exact_full_span_shared_boundary_rows(
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<&'static str, CoreError> {
     let trims = trim_ownership::full_row_owned_trims(&full_boundary_trims(brep, slots)?);
-    let mut targets = HashMap::new();
-    for trim in trims {
-        push_trim_targets(brep, trim, &mut targets)?;
+    let mut classes = SharedControlClasses::default();
+    for trim in &trims {
+        push_trim_control_classes(*trim, &mut classes);
     }
+    let targets = classes.class_average_targets(brep)?;
     if targets.is_empty() {
         return Ok("exact_boundary_no_full_span_trims");
     }
     apply_targets(brep, &targets)?;
     Ok("exact_boundary_full_span_rows_authored")
+}
+
+/// Equivalence classes of boundary control points that must hold
+/// one shared position for every full-span trim to be a CP
+/// identity. Two kinds of membership are unioned: the 10 paired
+/// controls along each trim, and the corner aliases within one
+/// face (a grid corner belongs to both its U-row and V-row, so
+/// keys are normalized to one canonical side before union). Each
+/// class then takes the average of its members' current
+/// positions — deterministic, order-independent, and
+/// minimal-motion; for the common 2-member interior class this
+/// is the midpoint both faces can interpolate exactly.
+#[derive(Default)]
+struct SharedControlClasses {
+    parents: HashMap<BoundaryControlKey, BoundaryControlKey>,
+}
+
+impl SharedControlClasses {
+    fn find(&mut self, key: BoundaryControlKey) -> BoundaryControlKey {
+        let parent = *self.parents.entry(key).or_insert(key);
+        if parent == key {
+            return key;
+        }
+        let root = self.find(parent);
+        self.parents.insert(key, root);
+        root
+    }
+
+    fn union(&mut self, a: BoundaryControlKey, b: BoundaryControlKey) {
+        let root_a = self.find(a);
+        let root_b = self.find(b);
+        if root_a != root_b {
+            self.parents.insert(root_b, root_a);
+        }
+    }
+
+    fn class_average_targets(
+        &mut self,
+        brep: &BRep,
+    ) -> Result<HashMap<BoundaryControlKey, Point3>, CoreError> {
+        let keys = self.parents.keys().copied().collect::<Vec<_>>();
+        let mut patches = HashMap::new();
+        for key in &keys {
+            patches
+                .entry(key.face)
+                .or_insert(rectangular_binonic_on_face(brep, key.face)?);
+        }
+        let mut sums: HashMap<BoundaryControlKey, (Point3, usize)> = HashMap::new();
+        for key in &keys {
+            let root = self.find(*key);
+            let Some(patch) = patches.get(&key.face) else {
+                continue;
+            };
+            let position = boundary_controls(patch, key.side)[key.index];
+            sums.entry(root)
+                .and_modify(|(sum, count)| {
+                    *sum = *sum + (position - Point3::new(0.0, 0.0, 0.0));
+                    *count += 1;
+                })
+                .or_insert((position, 1));
+        }
+        let mut targets = HashMap::new();
+        for key in keys {
+            let root = self.find(key);
+            let Some(&(sum, count)) = sums.get(&root) else {
+                continue;
+            };
+            let inverse = 1.0 / count as f64;
+            targets.insert(
+                key,
+                Point3::new(sum.x * inverse, sum.y * inverse, sum.z * inverse),
+            );
+        }
+        Ok(targets)
+    }
+}
+
+fn push_trim_control_classes(trim: FullBoundaryTrim, classes: &mut SharedControlClasses) {
+    for fraction_index in 0..10 {
+        let key_a = normalize_corner_alias(BoundaryControlKey {
+            face: trim.face_a,
+            side: trim.side_a,
+            index: natural_index_for_fraction(trim.start_a, trim.end_a, fraction_index),
+        });
+        let key_b = normalize_corner_alias(BoundaryControlKey {
+            face: trim.face_b,
+            side: trim.side_b,
+            index: natural_index_for_fraction(trim.start_b, trim.end_b, 9 - fraction_index),
+        });
+        classes.union(key_a, key_b);
+    }
+}
+
+/// One grid corner is addressed by two (side, index) pairs; both
+/// rows share the control, so corner keys normalize to the U-row
+/// representative before union (`boundary_controls` layout:
+/// UMin = grid[0][j], UMax = grid[9][j], VMin = grid[i][0],
+/// VMax = grid[i][9]).
+fn normalize_corner_alias(key: BoundaryControlKey) -> BoundaryControlKey {
+    let (side, index) = match (key.side, key.index) {
+        (BoundarySide::VMin, 0) => (BoundarySide::UMin, 0),
+        (BoundarySide::VMin, 9) => (BoundarySide::UMax, 0),
+        (BoundarySide::VMax, 0) => (BoundarySide::UMin, 9),
+        (BoundarySide::VMax, 9) => (BoundarySide::UMax, 9),
+        other => other,
+    };
+    BoundaryControlKey {
+        face: key.face,
+        side,
+        index,
+    }
 }
 
 pub(super) fn fit_partial_shared_boundary_segments(
@@ -81,51 +188,130 @@ fn fit_valid_segment_boundary_records(
 ) -> Result<&'static str, CoreError> {
     let mut samples = HashMap::new();
     let mut edited_intervals = HashMap::new();
-    for record in segment_records {
-        let trim = record.trim;
+    let mut exact_rows: HashMap<BoundaryRowKey, [Point3; 10]> = HashMap::new();
+    let mut fallback_records = Vec::new();
+    for record in &segment_records {
+        if !push_exact_segment_row(brep, record.trim, &mut exact_rows)? {
+            fallback_records.push(record.trim);
+        }
+    }
+    apply_exact_rows(brep, &exact_rows)?;
+    for trim in fallback_records {
+        // Skip rows already authored exactly — the polynomial
+        // restriction is authoritative; a sample fit on top of
+        // it would only reintroduce approximation error.
+        if exact_rows.contains_key(&BoundaryRowKey {
+            face: trim.face_a,
+            side: trim.side_a,
+        }) || exact_rows.contains_key(&BoundaryRowKey {
+            face: trim.face_b,
+            side: trim.side_b,
+        }) {
+            continue;
+        }
         push_partial_trim_samples(brep, trim, &mut samples, &mut edited_intervals)?;
     }
     if samples.is_empty() {
-        return Ok("partial_boundary_no_partial_trims");
+        if exact_rows.is_empty() {
+            return Ok("partial_boundary_no_partial_trims");
+        }
+        return Ok("segment_topology_already_segmented_then_partial_boundary_segments_exact");
     }
     push_original_boundary_anchor_samples(brep, &mut samples, &edited_intervals)?;
     fit_boundary_row_samples(brep, &samples)?;
-    Ok("segment_topology_already_segmented_then_bounded_partial_boundary_segments_fit")
+    if exact_rows.is_empty() {
+        Ok("segment_topology_already_segmented_then_bounded_partial_boundary_segments_fit")
+    } else {
+        Ok("segment_topology_already_segmented_then_partial_boundary_segments_exact_and_fit")
+    }
 }
 
-fn push_trim_targets(
+/// Exact T-junction ownership: when one trim side covers its
+/// full unit row and the other a sub-interval, the sub-interval
+/// side owns the geometry and the full-row side receives the
+/// exact de Casteljau restriction of the owner's row over the
+/// shared interval. Polynomial restriction is exact, so the trim
+/// becomes a CP identity instead of a bounded least-squares fit.
+/// Returns false (caller falls back to the sample fit) when both
+/// sides are sub-intervals or the interval is degenerate.
+fn push_exact_segment_row(
     brep: &BRep,
     trim: FullBoundaryTrim,
-    targets: &mut HashMap<BoundaryControlKey, BoundaryTarget>,
+    exact_rows: &mut HashMap<BoundaryRowKey, [Point3; 10]>,
+) -> Result<bool, CoreError> {
+    let full_a = covers_full_row(trim.start_a, trim.end_a);
+    let full_b = covers_full_row(trim.start_b, trim.end_b);
+    let (owner_face, owner_side, owner_start, owner_end, receiver_face, receiver_side, reversed) =
+        match (full_a, full_b) {
+            (true, false) => (
+                trim.face_b,
+                trim.side_b,
+                trim.start_b,
+                trim.end_b,
+                trim.face_a,
+                trim.side_a,
+                trim.start_a > trim.end_a,
+            ),
+            (false, true) => (
+                trim.face_a,
+                trim.side_a,
+                trim.start_a,
+                trim.end_a,
+                trim.face_b,
+                trim.side_b,
+                trim.start_b > trim.end_b,
+            ),
+            _ => return Ok(false),
+        };
+    if (owner_end - owner_start).abs() < 1.0e-9 {
+        return Ok(false);
+    }
+    let owner_patch = rectangular_binonic_on_face(brep, owner_face)?;
+    let owner_controls = boundary_controls(&owner_patch, owner_side);
+    // The trim walks the owner from owner_start to owner_end and
+    // the receiver from receiver end to start (`9 - index`
+    // correspondence, as in the full-span path); a reversed
+    // receiver interval flips it back.
+    let mut segment = bezier_row_segment(&owner_controls, owner_start, owner_end);
+    if !reversed {
+        segment.reverse();
+    }
+    exact_rows.insert(
+        BoundaryRowKey {
+            face: receiver_face,
+            side: receiver_side,
+        },
+        segment,
+    );
+    Ok(true)
+}
+
+fn covers_full_row(start: f64, end: f64) -> bool {
+    let lo = start.min(end);
+    let hi = start.max(end);
+    lo.abs() <= 1.0e-9 && (hi - 1.0).abs() <= 1.0e-9
+}
+
+fn apply_exact_rows(
+    brep: &mut BRep,
+    exact_rows: &HashMap<BoundaryRowKey, [Point3; 10]>,
 ) -> Result<(), CoreError> {
-    let patch_a = rectangular_binonic_on_face(brep, trim.face_a)?;
-    let patch_b = rectangular_binonic_on_face(brep, trim.face_b)?;
-    let controls_a = boundary_controls(&patch_a, trim.side_a);
-    let controls_b = boundary_controls(&patch_b, trim.side_b);
-    for fraction_index in 0..10 {
-        let point_a =
-            controls_a[natural_index_for_fraction(trim.start_a, trim.end_a, fraction_index)];
-        let point_b =
-            controls_b[natural_index_for_fraction(trim.start_b, trim.end_b, 9 - fraction_index)];
-        let target = point_a + (point_b - point_a) * 0.5;
-        push_target(
-            targets,
-            BoundaryControlKey {
-                face: trim.face_a,
-                side: trim.side_a,
-                index: natural_index_for_fraction(trim.start_a, trim.end_a, fraction_index),
-            },
-            target,
-        );
-        push_target(
-            targets,
-            BoundaryControlKey {
-                face: trim.face_b,
-                side: trim.side_b,
-                index: natural_index_for_fraction(trim.start_b, trim.end_b, 9 - fraction_index),
-            },
-            target,
-        );
+    let mut patches = HashMap::new();
+    for key in exact_rows.keys() {
+        patches
+            .entry(key.face)
+            .or_insert(rectangular_binonic_on_face(brep, key.face)?);
+    }
+    for (key, row) in exact_rows {
+        let Some(patch) = patches.get_mut(&key.face) else {
+            continue;
+        };
+        for (index, point) in row.iter().enumerate() {
+            set_boundary_control(patch, key.side, index, *point);
+        }
+    }
+    for (face, patch) in patches {
+        set_rectangular_binonic_on_face(brep, face, patch)?;
     }
     Ok(())
 }
@@ -244,21 +430,6 @@ fn push_boundary_sample(
         .push(row_fit::BoundaryRowFitSample { parameter, target });
 }
 
-fn push_target(
-    targets: &mut HashMap<BoundaryControlKey, BoundaryTarget>,
-    key: BoundaryControlKey,
-    point: Point3,
-) {
-    targets
-        .entry(key)
-        .and_modify(|target| {
-            target.point =
-                target.point + (point - target.point) * (1.0 / (target.count as f64 + 1.0));
-            target.count += 1;
-        })
-        .or_insert(BoundaryTarget { point, count: 1 });
-}
-
 fn fit_boundary_row_samples(
     brep: &mut BRep,
     samples: &HashMap<BoundaryRowKey, Vec<row_fit::BoundaryRowFitSample>>,
@@ -283,7 +454,7 @@ fn fit_boundary_row_samples(
 
 fn apply_targets(
     brep: &mut BRep,
-    targets: &HashMap<BoundaryControlKey, BoundaryTarget>,
+    targets: &HashMap<BoundaryControlKey, Point3>,
 ) -> Result<(), CoreError> {
     let mut patches = HashMap::new();
     for key in targets.keys() {
@@ -295,7 +466,10 @@ fn apply_targets(
         let Some(patch) = patches.get_mut(&key.face) else {
             continue;
         };
-        set_boundary_control(patch, key.side, key.index, target.point);
+        // Corner keys arrive normalized to the U-row alias; the
+        // V-row alias addresses the same grid slot, so one write
+        // covers both rows.
+        set_boundary_control(patch, key.side, key.index, *target);
     }
     for (face, patch) in patches {
         set_rectangular_binonic_on_face(brep, face, patch)?;

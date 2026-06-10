@@ -60,9 +60,20 @@ where
         }
     } else {
         *brep = before_boundary;
+        // Carry the regression evidence in the status so a
+        // rolled-back candidate is diagnosable from the fact
+        // alone (which metric moved, by how much).
         SupportCellCompletionApplication {
             operator_succeeded: true,
-            operation_status: Cow::Borrowed("boundary_quality_regressed_rolled_back"),
+            operation_status: Cow::Owned(format!(
+                "boundary_quality_regressed_rolled_back;regressed_g0_after_pcurve={:.15e};regressed_g0_after_boundary={:.15e};regressed_out_of_unit_after_pcurve={};regressed_out_of_unit_after_boundary={};regressed_degenerate_after_pcurve={};regressed_degenerate_after_boundary={}",
+                after_pcurve.worst_g0_gap,
+                after_boundary.worst_g0_gap,
+                after_pcurve.pcurve_out_of_unit_count,
+                after_boundary.pcurve_out_of_unit_count,
+                after_pcurve.degenerate_pcurve_count,
+                after_boundary.degenerate_pcurve_count
+            )),
         }
     }
 }

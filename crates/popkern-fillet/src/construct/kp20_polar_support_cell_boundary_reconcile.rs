@@ -25,6 +25,8 @@ mod exact_boundary_row;
 mod group_reconcile;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 mod row_fit;
+#[path = "kp20_polar_support_cell_row_segment.rs"]
+mod row_segment;
 #[path = "kp20_polar_support_cell_segment_topology.rs"]
 mod segment_topology;
 #[path = "kp20_polar_support_cell_segment_transfer.rs"]
