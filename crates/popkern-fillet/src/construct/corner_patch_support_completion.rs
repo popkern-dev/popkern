@@ -37,11 +37,12 @@ enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
     PcurveThenChainCurveNetworkIfG0Safe,
+    PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    const ALL: [Self; 20] = [
+    const ALL: [Self; 21] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -61,6 +62,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
         Self::PcurveThenChainCurveNetworkIfG0Safe,
+        Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
 
@@ -111,6 +113,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainCurveNetworkIfG0Safe => {
                 "pcurve_then_chain_curve_network_if_g0_safe"
             }
+            Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe => {
+                "pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -136,6 +141,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe
                 | Self::PcurveThenChainCurveNetworkIfG0Safe
+                | Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
@@ -441,6 +447,13 @@ fn apply_support_cell_completion_candidate(
         SupportCellCompletionCandidate::PcurveThenChainCurveNetworkIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
                 support_cell_boundary_reconcile::reconcile_assigned_chain_curve_network_status(
+                    brep, faces,
+                )
+            })
+        }
+        SupportCellCompletionCandidate::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(brep, faces, |brep, faces| {
+                support_cell_boundary_reconcile::reconcile_assigned_chain_network_cross_tangent_ribbon_status(
                     brep, faces,
                 )
             })

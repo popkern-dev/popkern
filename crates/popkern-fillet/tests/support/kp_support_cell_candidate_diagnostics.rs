@@ -32,6 +32,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
         "pcurve_then_chain_curve_network_if_g0_safe",
+        "pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -48,6 +49,14 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("sub_chain_count=")
         }),
         "{fixture} chain-curve network candidate should report its sub-chain inventory; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe")
+                && detail.contains("chain_ribbon_network")
+                && detail.contains("projected_row_count=")
+        }),
+        "{fixture} chain ribbon candidate should report its projected-row inventory; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }
@@ -71,10 +80,11 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate_status=accepted_selected")
-                && detail.contains("candidate=pcurve_then_chain_curve_network_if_g0_safe")
-                && detail.contains("operation_status=chain_curve_network_authored")
+                && detail
+                    .contains("candidate=pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe")
+                && detail.contains("operation_status=chain_ribbon_network_authored")
         }),
-        "{fixture} should select the chain-curve network repair (exact shared rows by construction); support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} should select the chain ribbon network repair (exact shared rows plus shared cross-tangent planes by construction); support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

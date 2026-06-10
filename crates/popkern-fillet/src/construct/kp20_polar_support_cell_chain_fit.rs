@@ -12,11 +12,13 @@
 use std::collections::HashMap;
 
 use popkern_core::error::CoreError;
-use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::chain_discovery::{ChainTrim, RowChainEmbedding, SubChain, discover_sub_chains};
+use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
+use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
 use super::row_fit::bernstein9;
 use super::row_segment::bezier_row_segment;
 use super::{
@@ -27,19 +29,32 @@ use super::{
 /// canonical fit.
 const CHAIN_FIT_SAMPLES_PER_ROW: usize = 13;
 /// Maximum interpolated nodes per sub-chain: a degree-9 curve
-/// has 10 control points; pinning more than 9 leaves no
-/// least-squares freedom and degrades conditioning.
+/// has 10 control points per axis; pinning more than 9 leaves
+/// no least-squares freedom.
 const MAX_INTERPOLATED_NODES: usize = 9;
+/// Hard-constraint row budget for one sub-chain fit (30 control
+/// coordinates; a few rows of slack keep the KKT system well
+/// conditioned). Position rows always win; tangent-plane rows
+/// are dropped beyond the budget — losing localized G1 at those
+/// nodes instead of declining the whole sub-chain (which would
+/// cost exact G0).
+const MAX_CONSTRAINT_ROWS: usize = 28;
 /// Parameter tolerance for matching a row endpoint to a node
 /// (chain-parameter units — one row spans 1.0).
 const NODE_PARAM_TOL: f64 = 1.0e-6;
-/// Tikhonov weight tying the fit to the sample cloud scale.
-const FIT_REGULARIZATION: f64 = 1.0e-9;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct ChainRowKey {
-    face: FaceHandle,
-    side: BoundarySide,
+pub(super) struct ChainRowKey {
+    pub(super) face: FaceHandle,
+    pub(super) side: BoundarySide,
+}
+
+/// Whether the network authors curves only (exact G0) or also
+/// projects row-1 controls onto shared tangent planes (G1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChainNetworkMode {
+    Curves,
+    CurvesAndCrossTangentRibbons,
 }
 
 /// Author canonical curves for every discoverable chain and
@@ -49,6 +64,28 @@ struct ChainRowKey {
 pub(super) fn author_chain_curve_network(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(brep, slots, ChainNetworkMode::Curves)
+}
+
+/// Author the chain-curve network AND project every member
+/// row's row-1 controls onto shared cross-tangent planes: chain
+/// curves are re-fit with tangent-plane constraints at every
+/// pinned node normal, then both sides of every chain receive
+/// cross-derivative fields perpendicular to the interpolated
+/// normal field — exact G0 (shared curves) plus measured G1
+/// (shared tangent planes).
+pub(super) fn author_chain_network_with_cross_tangent_ribbons(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndCrossTangentRibbons)
+}
+
+fn author_chain_network_internal(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+    mode: ChainNetworkMode,
 ) -> Result<String, CoreError> {
     let trims = full_boundary_trims(brep, slots)?;
     let mut chain_trims = Vec::with_capacity(trims.len());
@@ -88,30 +125,55 @@ pub(super) fn author_chain_curve_network(
     // the later writer would break the earlier chain's trims at
     // the corner.
     let node_positions = global_node_positions(&discovery.sub_chains, &patches);
+    // Node normals follow the same global-pinning principle so
+    // every chain incident to a node constrains its tangent to
+    // the SAME plane. Computed from the pre-network geometry.
+    let node_normals = if mode == ChainNetworkMode::CurvesAndCrossTangentRibbons {
+        global_node_normals(&discovery.sub_chains, &patches)
+    } else {
+        HashMap::new()
+    };
     let mut authored_count = 0usize;
     let mut fit_declined_count = 0usize;
     let mut fit_decline_reason = "none";
+    let mut projected_row_count = 0usize;
+    let mut damped_row_count = 0usize;
+    let mut skipped_row_count = 0usize;
+    let mut ribbon_declined_count = 0usize;
     for sub in &discovery.sub_chains {
-        match author_sub_chain(&mut patches, sub, &node_positions) {
+        match author_sub_chain(&mut patches, sub, &node_positions, &node_normals) {
             Ok(()) => authored_count += 1,
             Err(reason) => {
                 fit_declined_count += 1;
                 if fit_decline_reason == "none" {
                     fit_decline_reason = reason;
                 }
+                continue;
+            }
+        }
+        if mode == ChainNetworkMode::CurvesAndCrossTangentRibbons {
+            match project_sub_chain_rows_to_shared_tangent_planes(&mut patches, sub, &node_normals)
+            {
+                Ok(outcome) => {
+                    projected_row_count += outcome.projected_row_count;
+                    damped_row_count += outcome.damped_row_count;
+                    skipped_row_count += outcome.skipped_row_count;
+                }
+                Err(_) => ribbon_declined_count += 1,
             }
         }
     }
     for (face, patch) in patches {
         set_rectangular_binonic_on_face(brep, face, patch)?;
     }
-    let label = if authored_count > 0 {
-        "chain_curve_network_authored"
-    } else {
-        "chain_curve_network_declined"
+    let label = match (mode, authored_count > 0) {
+        (ChainNetworkMode::Curves, true) => "chain_curve_network_authored",
+        (ChainNetworkMode::Curves, false) => "chain_curve_network_declined",
+        (ChainNetworkMode::CurvesAndCrossTangentRibbons, true) => "chain_ribbon_network_authored",
+        (ChainNetworkMode::CurvesAndCrossTangentRibbons, false) => "chain_ribbon_network_declined",
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason
@@ -122,6 +184,7 @@ fn author_sub_chain(
     patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
     sub: &SubChain<ChainRowKey, VertexHandle>,
     node_positions: &HashMap<VertexHandle, Point3>,
+    node_normals: &HashMap<VertexHandle, Vec3>,
 ) -> Result<(), &'static str> {
     let domain = sub
         .rows
@@ -154,10 +217,18 @@ fn author_sub_chain(
             samples.push((local(embedding.map(t)), eval_row(controls, t)));
         }
     }
-    let constraints: Vec<(f64, Point3)> = nodes
-        .iter()
-        .map(|&(param, position)| (local(param), position))
-        .collect();
+    let mut constraints = ChainCurveConstraints {
+        positions: nodes
+            .iter()
+            .map(|&(param, position)| (local(param), position))
+            .collect(),
+        tangent_planes: sub_chain_tangent_constraints(sub, node_normals)
+            .into_iter()
+            .map(|(param, normal)| (local(param), normal))
+            .collect(),
+    };
+    let tangent_budget = MAX_CONSTRAINT_ROWS.saturating_sub(3 * constraints.positions.len());
+    constraints.tangent_planes.truncate(tangent_budget);
     let chain_cps = fit_constrained_degree9(&samples, &constraints)?;
     for (key, embedding, _) in &rows {
         let start = local(embedding.map(0.0));
@@ -241,94 +312,81 @@ fn sub_chain_node_constraints(
     out
 }
 
-/// Constrained least squares for one degree-9 Bezier curve:
-/// minimize the sample residual subject to exact interpolation
-/// of the pinned nodes, via the KKT system
-/// `[[AᵀA + λI, Cᵀ], [C, 0]] [p; μ] = [Aᵀb + λ·b̄; d]` solved
-/// per axis.
-fn fit_constrained_degree9(
-    samples: &[(f64, Point3)],
-    constraints: &[(f64, Point3)],
-) -> Result<[Point3; 10], &'static str> {
-    if samples.len() < 10 {
-        return Err("sub_chain_sample_count_insufficient");
-    }
-    let k = constraints.len();
-    let n = 10 + k;
-    let mut matrix = vec![vec![0.0_f64; n]; n];
-    let mut rhs = [vec![0.0_f64; n], vec![0.0_f64; n], vec![0.0_f64; n]];
-    for &(t, target) in samples {
-        let basis = bernstein9(t);
-        for i in 0..10 {
-            for j in 0..10 {
-                matrix[i][j] += basis[i] * basis[j];
+/// Globally pinned tangent-plane normal per node, computed like
+/// node positions: every member face contributes its surface
+/// normal at the node's boundary point, sign-aligned to the
+/// running sum (only the normal's LINE matters — the
+/// perpendicularity constraints are sign-agnostic).
+fn global_node_normals(
+    sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
+    patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
+) -> HashMap<VertexHandle, Vec3> {
+    let mut sums: HashMap<VertexHandle, Vec3> = HashMap::new();
+    for sub in sub_chains {
+        for &(vertex, param) in &sub.nodes {
+            for &(key, embedding) in &sub.rows {
+                let (lo, hi) = embedding.chain_interval();
+                if param < lo - NODE_PARAM_TOL || param > hi + NODE_PARAM_TOL {
+                    continue;
+                }
+                let t = ((param - embedding.offset) / embedding.scale).clamp(0.0, 1.0);
+                let Some(normal) = boundary_surface_normal(&patches[&key.face], key.side, t) else {
+                    continue;
+                };
+                let entry = sums.entry(vertex).or_insert(Vec3::new(0.0, 0.0, 0.0));
+                let aligned = if entry.dot(&normal) < 0.0 {
+                    normal * -1.0
+                } else {
+                    normal
+                };
+                *entry = *entry + aligned;
             }
-            rhs[0][i] += basis[i] * target.x;
-            rhs[1][i] += basis[i] * target.y;
-            rhs[2][i] += basis[i] * target.z;
         }
     }
-    for (i, row) in matrix.iter_mut().enumerate().take(10) {
-        row[i] += FIT_REGULARIZATION;
-    }
-    for (constraint_index, &(t, position)) in constraints.iter().enumerate() {
-        let basis = bernstein9(t);
-        let row = 10 + constraint_index;
-        for i in 0..10 {
-            matrix[row][i] = basis[i];
-            matrix[i][row] = basis[i];
-        }
-        rhs[0][row] = position.x;
-        rhs[1][row] = position.y;
-        rhs[2][row] = position.z;
-    }
-    let xs = solve_dense(matrix.clone(), rhs[0].clone()).ok_or("sub_chain_fit_singular")?;
-    let ys = solve_dense(matrix.clone(), rhs[1].clone()).ok_or("sub_chain_fit_singular")?;
-    let zs = solve_dense(matrix, rhs[2].clone()).ok_or("sub_chain_fit_singular")?;
-    let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
-    for (index, point) in out.iter_mut().enumerate() {
-        *point = Point3::new(xs[index], ys[index], zs[index]);
-    }
-    Ok(out)
+    sums.into_iter()
+        .filter_map(|(vertex, sum)| sum.normalized().map(|normal| (vertex, normal)))
+        .collect()
 }
 
-fn solve_dense(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<f64>> {
-    let n = rhs.len();
-    for pivot in 0..n {
-        let mut best = pivot;
-        for row in pivot + 1..n {
-            if matrix[row][pivot].abs() > matrix[best][pivot].abs() {
-                best = row;
-            }
-        }
-        matrix.swap(pivot, best);
-        rhs.swap(pivot, best);
-        let scale = matrix[pivot][pivot];
-        if scale.abs() <= 1.0e-13 {
-            return None;
-        }
-        for column in pivot..n {
-            matrix[pivot][column] /= scale;
-        }
-        rhs[pivot] /= scale;
-        for row in 0..n {
-            if row == pivot {
-                continue;
-            }
-            let factor = matrix[row][pivot];
-            if factor == 0.0 {
-                continue;
-            }
-            for column in pivot..n {
-                matrix[row][column] -= factor * matrix[pivot][column];
-            }
-            rhs[row] -= factor * rhs[pivot];
-        }
-    }
-    Some(rhs)
+/// Unit surface normal of the patch at a boundary-row point.
+fn boundary_surface_normal(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+    t: f64,
+) -> Option<Vec3> {
+    let (u, v) = match side {
+        BoundarySide::UMin => (0.0, t),
+        BoundarySide::UMax => (1.0, t),
+        BoundarySide::VMin => (t, 0.0),
+        BoundarySide::VMax => (t, 1.0),
+    };
+    patch
+        .partial_u(u, v)
+        .cross(&patch.partial_v(u, v))
+        .normalized()
 }
 
-fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
+/// Tangent-plane constraints for one sub-chain: at every node
+/// with a pinned normal, the curve tangent must lie in the plane
+/// perpendicular to it, so all chains incident to the node share
+/// one tangent plane and corner cross-derivatives become
+/// G1-compatible by construction.
+fn sub_chain_tangent_constraints(
+    sub: &SubChain<ChainRowKey, VertexHandle>,
+    node_normals: &HashMap<VertexHandle, Vec3>,
+) -> Vec<(f64, Vec3)> {
+    let mut out = Vec::with_capacity(sub.nodes.len());
+    for &(vertex, param) in &sub.nodes {
+        if let Some(&normal) = node_normals.get(&vertex) {
+            out.push((param, normal));
+        }
+    }
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
+    out
+}
+
+pub(super) fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
     let basis = bernstein9(t);
     let mut out = Point3::new(0.0, 0.0, 0.0);
     for (index, weight) in basis.iter().enumerate() {
@@ -341,7 +399,10 @@ fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
     out
 }
 
-fn boundary_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [Point3; 10] {
+pub(super) fn boundary_controls(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+) -> [Point3; 10] {
     let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
     for (index, point) in out.iter_mut().enumerate() {
         *point = match side {

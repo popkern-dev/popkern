@@ -23,6 +23,10 @@ mod boundary_trim;
 mod chain_discovery;
 #[path = "kp20_polar_support_cell_chain_fit.rs"]
 mod chain_fit;
+#[path = "kp20_polar_support_cell_chain_ribbon.rs"]
+mod chain_ribbon;
+#[path = "kp20_polar_support_cell_chain_solver.rs"]
+mod chain_solver;
 #[path = "kp20_polar_support_cell_exact_boundary_row.rs"]
 mod exact_boundary_row;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]
@@ -92,6 +96,26 @@ pub(crate) fn reconcile_assigned_chain_curve_network_status(
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
             "kp20 support-cell chain-curve network produced invalid BRep: {error}"
+        ))
+    })?;
+    Ok(status)
+}
+
+/// Chain-curve network plus shared cross-tangent ribbons: chain
+/// curves are tangent-plane-constrained at every pinned node
+/// normal and each member row's row-1 controls are projected
+/// onto the shared plane field — exact G0 by shared curves,
+/// measured G1 by shared tangent planes.
+pub(crate) fn reconcile_assigned_chain_network_cross_tangent_ribbon_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let status = chain_fit::author_chain_network_with_cross_tangent_ribbons(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell chain ribbon network produced invalid BRep: {error}"
         ))
     })?;
     Ok(status)

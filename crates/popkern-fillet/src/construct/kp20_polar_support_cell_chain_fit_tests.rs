@@ -1,6 +1,7 @@
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{Point3, Vec3};
 
-use super::{eval_row, fit_constrained_degree9};
+use super::super::chain_solver::{ChainCurveConstraints, dbernstein9, fit_constrained_degree9};
+use super::eval_row;
 
 fn quadratic_arc_row() -> [Point3; 10] {
     // Degree-9 Bezier reproducing (t, t², 0.3·t) exactly via the
@@ -15,6 +16,19 @@ fn quadratic_arc_row() -> [Point3; 10] {
     row
 }
 
+fn derivative_at(row: &[Point3; 10], t: f64) -> Vec3 {
+    let basis = dbernstein9(t);
+    let mut out = Vec3::new(0.0, 0.0, 0.0);
+    for (index, weight) in basis.iter().enumerate() {
+        out = Vec3::new(
+            out.x + row[index].x * weight,
+            out.y + row[index].y * weight,
+            out.z + row[index].z * weight,
+        );
+    }
+    out
+}
+
 #[test]
 fn constrained_fit_recovers_polynomial_and_pins_nodes() {
     let source = quadratic_arc_row();
@@ -23,12 +37,15 @@ fn constrained_fit_recovers_polynomial_and_pins_nodes() {
         let t = index as f64 / 39.0;
         samples.push((t, eval_row(&source, t)));
     }
-    let constraints = vec![
-        (0.0, eval_row(&source, 0.0)),
-        (0.25, eval_row(&source, 0.25)),
-        (0.5, eval_row(&source, 0.5)),
-        (1.0, eval_row(&source, 1.0)),
-    ];
+    let constraints = ChainCurveConstraints {
+        positions: vec![
+            (0.0, eval_row(&source, 0.0)),
+            (0.25, eval_row(&source, 0.25)),
+            (0.5, eval_row(&source, 0.5)),
+            (1.0, eval_row(&source, 1.0)),
+        ],
+        tangent_planes: Vec::new(),
+    };
     let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
     for index in 0..=20 {
         let t = index as f64 / 20.0;
@@ -39,7 +56,7 @@ fn constrained_fit_recovers_polynomial_and_pins_nodes() {
             "fit diverged at t={t}: {expected:?} vs {actual:?}"
         );
     }
-    for &(t, position) in &constraints {
+    for &(t, position) in &constraints.positions {
         let actual = eval_row(&fitted, t);
         assert!(
             position.distance_to(&actual) < 1.0e-9,
@@ -58,11 +75,14 @@ fn constrained_fit_moves_to_pinned_nodes_off_the_samples() {
         let t = index as f64 / 39.0;
         samples.push((t, Point3::new(t, 0.0, 0.0)));
     }
-    let node = (0.5, Point3::new(0.5, 1.0e-3, 0.0));
-    let fitted = fit_constrained_degree9(&samples, &[node]).expect("fit must solve");
+    let constraints = ChainCurveConstraints {
+        positions: vec![(0.5, Point3::new(0.5, 1.0e-3, 0.0))],
+        tangent_planes: Vec::new(),
+    };
+    let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
     let at_node = eval_row(&fitted, 0.5);
     assert!(
-        node.1.distance_to(&at_node) < 1.0e-10,
+        constraints.positions[0].1.distance_to(&at_node) < 1.0e-10,
         "pinned node must be interpolated exactly, got {at_node:?}"
     );
     let at_end = eval_row(&fitted, 0.0);
@@ -73,10 +93,40 @@ fn constrained_fit_moves_to_pinned_nodes_off_the_samples() {
 }
 
 #[test]
+fn tangent_plane_constraint_holds_exactly() {
+    // Samples trace a parabola whose end tangent has a y
+    // component; constrain the tangent at t=1 to lie in the
+    // plane perpendicular to Y. The fitted curve must satisfy
+    // C'(1)·Y = 0 exactly while still passing near the samples.
+    let source = quadratic_arc_row();
+    let mut samples = Vec::new();
+    for index in 0..40 {
+        let t = index as f64 / 39.0;
+        samples.push((t, eval_row(&source, t)));
+    }
+    let normal = Vec3::new(0.0, 1.0, 0.0);
+    let constraints = ChainCurveConstraints {
+        positions: vec![(0.0, eval_row(&source, 0.0)), (1.0, eval_row(&source, 1.0))],
+        tangent_planes: vec![(1.0, normal)],
+    };
+    let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
+    let tangent_dot = derivative_at(&fitted, 1.0).dot(&normal);
+    assert!(
+        tangent_dot.abs() < 1.0e-9,
+        "end tangent must lie in the constrained plane, got {tangent_dot}"
+    );
+    let source_dot = derivative_at(&source, 1.0).dot(&normal);
+    assert!(
+        source_dot.abs() > 0.1,
+        "fixture's unconstrained tangent must violate the plane"
+    );
+}
+
+#[test]
 fn fit_declines_without_enough_samples() {
     let samples = vec![(0.0, Point3::new(0.0, 0.0, 0.0))];
-    assert_eq!(
-        fit_constrained_degree9(&samples, &[]),
+    assert!(matches!(
+        fit_constrained_degree9(&samples, &ChainCurveConstraints::default()),
         Err("sub_chain_sample_count_insufficient")
-    );
+    ));
 }
