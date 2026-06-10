@@ -13,6 +13,8 @@ mod support_cell_completion_apply;
 mod support_cell_pcurve_author;
 
 const BOUNDARY_SAFE_G0_PREFERENCE_RELATIVE_BAND: f64 = 5.0e-3;
+const SHARED_TRIM_G0_TIE_BREAK_EPS: f64 = 1.0e-12;
+const SHARED_TRIM_G1_TIE_BREAK_EPS: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SupportCellCompletionCandidate {
@@ -466,7 +468,19 @@ fn g0_tie_break_prefers_candidate(
     if boundary_safe_quality_is_equivalent(current, candidate) {
         return false;
     }
-    candidate.quality.worst_g0_gap + 1.0e-12 < current.quality.worst_g0_gap
+    if shared_trim_g0_is_equivalent(candidate, current) {
+        return candidate.quality.worst_normal_disagreement + SHARED_TRIM_G1_TIE_BREAK_EPS
+            < current.quality.worst_normal_disagreement;
+    }
+    candidate.quality.worst_g0_gap + SHARED_TRIM_G0_TIE_BREAK_EPS < current.quality.worst_g0_gap
+}
+
+fn shared_trim_g0_is_equivalent(
+    candidate: &SupportCellCompletionSelection,
+    current: &SupportCellCompletionSelection,
+) -> bool {
+    (candidate.quality.worst_g0_gap - current.quality.worst_g0_gap).abs()
+        <= SHARED_TRIM_G0_TIE_BREAK_EPS
 }
 
 fn boundary_safe_quality_is_equivalent(
