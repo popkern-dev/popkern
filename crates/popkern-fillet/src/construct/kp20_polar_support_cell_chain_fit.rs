@@ -27,6 +27,7 @@ use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
 use super::chain_spacing::{
     end_decompression_targets, end_spacing_ratio, node_speed_decompression_targets,
 };
+use super::leg_class::leg_class_targets;
 use super::row_fit::bernstein9;
 use super::row_segment::bezier_row_segment;
 use super::{
@@ -76,9 +77,7 @@ impl ChainNetworkMode {
 }
 
 /// Author canonical curves for every discoverable chain and
-/// assign all member rows as exact restrictions. The status
-/// records authored/declined chain counts for the candidate
-/// score fact.
+/// assign all member rows as exact restrictions.
 pub(super) fn author_chain_curve_network(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -87,12 +86,8 @@ pub(super) fn author_chain_curve_network(
 }
 
 /// Author the chain-curve network AND project every member
-/// row's row-1 controls onto shared cross-tangent planes: chain
-/// curves are re-fit with tangent-plane constraints at every
-/// pinned node normal, then both sides of every chain receive
-/// cross-derivative fields perpendicular to the interpolated
-/// normal field — exact G0 (shared curves) plus measured G1
-/// (shared tangent planes).
+/// row's row-1 controls onto shared cross-tangent planes —
+/// exact G0 (shared curves) plus measured G1 (shared planes).
 pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -256,7 +251,7 @@ fn author_chain_network_internal(
     let mut authored_sub_chains = Vec::new();
     let mut min_end_spacing_ratio = f64::INFINITY;
     for sub in &discovery.sub_chains {
-        match author_sub_chain(&mut patches, sub, &node_positions, &node_normals) {
+        match author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &[]) {
             Ok(authored) => {
                 authored_count += 1;
                 min_end_spacing_ratio =
@@ -282,6 +277,26 @@ fn author_chain_network_internal(
                     skipped_row_count += outcome.skipped_row_count;
                 }
                 Err(_) => ribbon_declined_count += 1,
+            }
+        }
+    }
+    let mut leg_class_thin_count = 0usize;
+    let mut leg_class_chain_count = 0usize;
+    if mode.constructive() {
+        // Per-vertex leg-class solve — see the leg_class module.
+        let (mut class_targets, thin_count) = leg_class_targets(&authored_sub_chains);
+        leg_class_thin_count += thin_count;
+        let mut chain_order: Vec<usize> = class_targets.keys().copied().collect();
+        chain_order.sort_unstable();
+        for chain_index in chain_order {
+            let mut targets = class_targets.remove(&chain_index).unwrap_or_default();
+            targets.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let sub = &discovery.sub_chains[chain_index];
+            if let Ok(authored) =
+                author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &targets)
+            {
+                authored_sub_chains[chain_index] = authored;
+                leg_class_chain_count += 1;
             }
         }
     }
@@ -340,7 +355,7 @@ fn author_chain_network_internal(
         }
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e}{reauthor_detail}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason,
@@ -360,6 +375,7 @@ fn author_sub_chain(
     sub: &SubChain<ChainRowKey, VertexHandle>,
     node_positions: &HashMap<VertexHandle, Point3>,
     node_normals: &HashMap<VertexHandle, Vec3>,
+    leg_class_targets: &[(f64, Vec3, f64)],
 ) -> Result<AuthoredSubChain, &'static str> {
     let domain = sub
         .rows
@@ -407,7 +423,8 @@ fn author_sub_chain(
     let mut chain_cps = fit_constrained_degree9(&samples, &constraints)?;
     let nodes_local = local_node_params(sub, &local);
     let spacing = end_decompression_targets(&chain_cps);
-    let derivatives = node_speed_decompression_targets(&chain_cps, &nodes_local);
+    let mut derivatives = node_speed_decompression_targets(&chain_cps, &nodes_local);
+    derivatives.extend_from_slice(leg_class_targets);
     if spacing.is_some() || !derivatives.is_empty() {
         let mut retargeted = constraints.clone();
         retargeted.spacing_targets = spacing.unwrap_or_default();

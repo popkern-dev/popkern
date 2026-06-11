@@ -11,6 +11,8 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 
 #[path = "kp20_polar_support_cell_band_field.rs"]
 mod band_field;
+#[path = "kp20_polar_support_cell_leg_class.rs"]
+mod leg_class;
 #[path = "kp20_polar_support_cell_surface_access.rs"]
 mod surface_access;
 pub(self) use surface_access::{
