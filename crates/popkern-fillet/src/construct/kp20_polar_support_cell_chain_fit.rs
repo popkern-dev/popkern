@@ -258,7 +258,7 @@ fn author_chain_network_internal(
         let outcome =
             reauthor_cells_from_chain_network(&mut patches, &authored_sub_chains, &node_normals);
         reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};refilled_cell_count={}",
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={}",
             outcome.derived_row_count,
             outcome.leg_solve_declined_count,
             outcome.field_declined_sub_chain_count,
@@ -268,6 +268,7 @@ fn author_chain_network_internal(
             outcome.repaired_leg_count,
             outcome.max_leg_out_of_plane_ratio,
             outcome.max_twist_conflict_normal_component,
+            outcome.max_relative_twist_displacement,
             outcome.refilled_cell_count
         );
     }

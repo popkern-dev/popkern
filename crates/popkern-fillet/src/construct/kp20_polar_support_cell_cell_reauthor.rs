@@ -82,6 +82,12 @@ pub(super) struct CellReauthorOutcome {
     /// the only part that damages G1 (in-plane disagreement
     /// only redistributes the tangential field).
     pub(super) max_twist_conflict_normal_component: f64,
+    /// Worst displacement of a resolved twist from one of its
+    /// demands, RELATIVE to that boundary's own field magnitude
+    /// — the quantity that perturbs measured G1. The
+    /// magnitude-aware resolution keeps it bounded where the
+    /// unweighted average let it reach ~8x on thin rows.
+    pub(super) max_relative_twist_displacement: f64,
     pub(super) refilled_cell_count: usize,
 }
 
@@ -100,8 +106,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     // Collect every derived control write; twist controls are
     // demanded by two boundaries of the same face and averaged,
     // and the demand spread is retained for observability.
-    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<(Point3, Option<Vec3>)>> =
-        HashMap::new();
+    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
     for sub in sub_chains {
         let Some(field) = author_ribbon_field(sub, node_normals, patches, &chained_rows) else {
             outcome.field_declined_sub_chain_count += 1;
@@ -149,10 +154,15 @@ pub(super) fn reauthor_cells_from_chain_network(
                             8 => corner_normal_end,
                             _ => None,
                         };
+                        let band_offset = *point - row0[k];
                         writes
                             .entry((key.face, i, j))
                             .or_default()
-                            .push((*point, plane_normal));
+                            .push(TwistDemand {
+                                position: *point,
+                                plane_normal,
+                                field_magnitude: band_offset.dot(&band_offset).sqrt(),
+                            });
                     }
                     outcome.derived_row_count += 1;
                 }
@@ -162,34 +172,9 @@ pub(super) fn reauthor_cells_from_chain_network(
     }
     let mut touched_faces = Vec::new();
     for (&(face, i, j), demands) in &writes {
-        let count = demands.len();
-        let inverse = 1.0 / count as f64;
-        let mut average = Point3::new(0.0, 0.0, 0.0);
-        for (demand, _) in demands {
-            average = Point3::new(
-                average.x + demand.x * inverse,
-                average.y + demand.y * inverse,
-                average.z + demand.z * inverse,
-            );
-        }
-        if count > 1 {
-            outcome.twist_conflict_count += 1;
-            for first in 0..count {
-                for second in first + 1..count {
-                    let difference = demands[second].0 - demands[first].0;
-                    outcome.max_twist_conflict_distance = outcome
-                        .max_twist_conflict_distance
-                        .max(difference.dot(&difference).sqrt());
-                    for normal in [demands[first].1, demands[second].1].into_iter().flatten() {
-                        outcome.max_twist_conflict_normal_component = outcome
-                            .max_twist_conflict_normal_component
-                            .max(difference.dot(&normal).abs());
-                    }
-                }
-            }
-        }
+        let resolved = resolve_twist_demands(demands, &mut outcome);
         if let Some(patch) = patches.get_mut(&face) {
-            patch.grid[i][j] = average;
+            patch.grid[i][j] = resolved;
             if !touched_faces.contains(&face) {
                 touched_faces.push(face);
             }
@@ -202,6 +187,77 @@ pub(super) fn reauthor_cells_from_chain_network(
         }
     }
     outcome
+}
+
+/// One boundary's demand for a shared band control: the desired
+/// position, the corner tangent-plane normal (twist controls
+/// only), and the demanding boundary's local field magnitude.
+#[derive(Debug, Clone, Copy)]
+struct TwistDemand {
+    position: Point3,
+    plane_normal: Option<Vec3>,
+    field_magnitude: f64,
+}
+
+/// Resolve possibly-conflicting demands for one band control.
+/// Conflicts take the inverse-square field-magnitude weighted
+/// mean — the closed-form minimizer of
+/// `Σ_b (|q − demand_b| / |Δ_b|)²` — so the displacement lands
+/// on the boundary that can absorb it relative to its own field
+/// strength. Field magnitudes are clamped below at a fraction of
+/// the largest demand magnitude to keep the weights finite.
+fn resolve_twist_demands(demands: &[TwistDemand], outcome: &mut CellReauthorOutcome) -> Point3 {
+    let count = demands.len();
+    if count == 1 {
+        return demands[0].position;
+    }
+    outcome.twist_conflict_count += 1;
+    for first in 0..count {
+        for second in first + 1..count {
+            let difference = demands[second].position - demands[first].position;
+            outcome.max_twist_conflict_distance = outcome
+                .max_twist_conflict_distance
+                .max(difference.dot(&difference).sqrt());
+            for normal in [demands[first].plane_normal, demands[second].plane_normal]
+                .into_iter()
+                .flatten()
+            {
+                outcome.max_twist_conflict_normal_component = outcome
+                    .max_twist_conflict_normal_component
+                    .max(difference.dot(&normal).abs());
+            }
+        }
+    }
+    let magnitude_floor = demands
+        .iter()
+        .map(|demand| demand.field_magnitude)
+        .fold(0.0_f64, f64::max)
+        * 1.0e-3;
+    let mut weight_sum = 0.0_f64;
+    let mut weighted = Point3::new(0.0, 0.0, 0.0);
+    for demand in demands {
+        let magnitude = demand.field_magnitude.max(magnitude_floor).max(1.0e-300);
+        let weight = 1.0 / (magnitude * magnitude);
+        weight_sum += weight;
+        weighted = Point3::new(
+            weighted.x + demand.position.x * weight,
+            weighted.y + demand.position.y * weight,
+            weighted.z + demand.position.z * weight,
+        );
+    }
+    let resolved = Point3::new(
+        weighted.x / weight_sum,
+        weighted.y / weight_sum,
+        weighted.z / weight_sum,
+    );
+    for demand in demands {
+        let displacement = resolved.distance_to(&demand.position);
+        let magnitude = demand.field_magnitude.max(magnitude_floor).max(1.0e-300);
+        outcome.max_relative_twist_displacement = outcome
+            .max_relative_twist_displacement
+            .max(displacement / magnitude);
+    }
+    resolved
 }
 
 /// Rotate a row's two end legs into the local derivation span
