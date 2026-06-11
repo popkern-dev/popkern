@@ -11,6 +11,8 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 
 #[path = "kp20_polar_support_cell_band_field.rs"]
 mod band_field;
+#[path = "kp20_polar_support_cell_band_predictor.rs"]
+mod band_predictor;
 #[path = "kp20_polar_support_cell_boundary_cluster.rs"]
 mod boundary_cluster;
 #[path = "kp20_polar_support_cell_boundary_composed.rs"]
@@ -35,6 +37,8 @@ mod chain_ribbon;
 mod chain_ribbon_field;
 #[path = "kp20_polar_support_cell_chain_solver.rs"]
 mod chain_solver;
+#[path = "kp20_polar_support_cell_chain_spacing.rs"]
+mod chain_spacing;
 #[path = "kp20_polar_support_cell_exact_boundary_row.rs"]
 mod exact_boundary_row;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]

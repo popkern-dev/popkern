@@ -39,7 +39,8 @@ fn derived_band_stays_in_the_shared_plane() {
         *point = Point3::new(index as f64 / 9.0, 0.1, z);
     }
     let field = [Vec3::new(0.0, 1.0, 0.0); 9];
-    let derived = derive_row1(&row0, &row1, &field).expect("derivation must solve");
+    let mut clamped = 0usize;
+    let derived = derive_row1(&row0, &row1, &field, &mut clamped).expect("derivation must solve");
     for (index, point) in derived.iter().enumerate() {
         assert!(
             point.z.abs() < 1.0e-12,

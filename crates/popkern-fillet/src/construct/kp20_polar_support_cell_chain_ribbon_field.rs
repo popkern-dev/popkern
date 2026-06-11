@@ -11,22 +11,34 @@
 
 use popkern_core::geometry::{Point3, Vec3};
 
-use super::chain_solver::solve_dense;
+use super::chain_solver::{add_third_difference_penalty, solve_dense};
 
 /// Tikhonov weight for the field fit.
 const RIBBON_FIELD_REGULARIZATION: f64 = 1.0e-9;
+
+/// Oscillation (third-difference) penalty weight for the field
+/// fit (see the chain-curve solver's smoothing weight).
+const RIBBON_FIELD_SMOOTHING_WEIGHT: f64 = 2.0;
 
 /// Maximum interpolated nodes: degree 8 has 9 coefficients per
 /// axis; pinning more leaves no least-squares freedom.
 const MAX_FIELD_NODES: usize = 8;
 
+/// Weight of soft-heavy direction rows (authoritative chained
+/// legs): near-exact where consistent, without consuming the
+/// hard-constraint budget — node-rich sub-chains were silently
+/// dropping leg constraints past the budget, leaving those rows'
+/// frozen endpoints out of span.
+const SOFT_DIRECTION_WEIGHT: f64 = 1.0e6;
+
 /// Fit a degree-8 vector field over local `[0, 1]`: interpolate
-/// `(param, direction)` node constraints exactly, least-squares
-/// to the sampled directions elsewhere. Returns the 9
-/// control vectors.
+/// `(param, direction)` node constraints exactly, weight the
+/// `soft_directions` heavily, and least-squares the sampled
+/// directions elsewhere. Returns the 9 control vectors.
 pub(super) fn fit_ribbon_field(
     samples: &[(f64, Vec3)],
     nodes: &[(f64, Vec3)],
+    soft_directions: &[(f64, Vec3)],
 ) -> Result<[Vec3; 9], &'static str> {
     if samples.len() < 9 {
         return Err("ribbon_field_sample_count_insufficient");
@@ -49,9 +61,21 @@ pub(super) fn fit_ribbon_field(
             rhs[2][i] += basis[i] * direction.z;
         }
     }
+    for &(t, direction) in soft_directions {
+        let basis = bernstein8(t);
+        for i in 0..9 {
+            for j in 0..9 {
+                matrix[i][j] += SOFT_DIRECTION_WEIGHT * basis[i] * basis[j];
+            }
+            rhs[0][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.x;
+            rhs[1][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.y;
+            rhs[2][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.z;
+        }
+    }
     for i in 0..9 {
         matrix[i][i] += RIBBON_FIELD_REGULARIZATION;
     }
+    add_third_difference_penalty(&mut matrix, 0, 9, RIBBON_FIELD_SMOOTHING_WEIGHT);
     for (index, &(t, direction)) in nodes.iter().enumerate() {
         let basis = bernstein8(t);
         let row = 9 + index;
@@ -153,7 +177,7 @@ mod tests {
             (0.5, Vec3::new(1.0, 0.5, 0.25)),
             (1.0, Vec3::new(1.0, 1.0, 1.0)),
         ];
-        let field = fit_ribbon_field(&samples, &nodes).expect("fit must solve");
+        let field = fit_ribbon_field(&samples, &nodes, &[]).expect("fit must solve");
         for &(t, direction) in &nodes {
             let actual = eval_ribbon_field(&field, t);
             assert!(

@@ -28,13 +28,9 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
 use super::band_field::author_ribbon_field;
+use super::band_predictor::{derived_span_residual, predict_worst_trim_g1};
 use super::chain_fit::{ChainRowKey, boundary_controls};
-use super::chain_ribbon_field::{
-    eval_ribbon_field, ribbon_field_segment, row_derivative_coefficients,
-};
-
-/// Sample count for the per-sub-chain ribbon-field fit.
-const FIELD_FIT_SAMPLES: usize = 17;
+use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficients};
 
 /// Determinant floor for the 2x2 end-leg solves (relative to the
 /// basis vectors' scale).
@@ -52,7 +48,7 @@ pub(super) struct AuthoredSubChain {
 }
 
 /// Outcome counts of the constructive re-author.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct CellReauthorOutcome {
     pub(super) derived_row_count: usize,
     pub(super) leg_solve_declined_count: usize,
@@ -89,6 +85,18 @@ pub(super) struct CellReauthorOutcome {
     /// unweighted average let it reach ~8x on thin rows.
     pub(super) max_relative_twist_displacement: f64,
     pub(super) refilled_cell_count: usize,
+    /// The construction's own post-hoc G1 prediction: worst
+    /// `1 − |n̂_a · n̂_b|` over every glued trim, sampled from the
+    /// final control nets exactly the way the gate measures —
+    /// splits construction-internal damage from later pipeline
+    /// damage decisively.
+    pub(super) predicted_worst_trim_g1: f64,
+    /// Anatomy of the worst predicted sample (sides' own-span
+    /// residuals, field values, intervals) for localization.
+    pub(super) predicted_worst_detail: Option<String>,
+    /// End legs whose transverse component was floor-clamped to
+    /// prevent a mid-row parametric degeneracy.
+    pub(super) clamped_leg_beta_count: usize,
 }
 
 /// Derive every chained row's row-1 band from the shared
@@ -139,7 +147,12 @@ pub(super) fn reauthor_cells_from_chain_network(
                 continue;
             };
             let row1 = second_row_controls(patch, key.side);
-            match derive_row1(&row0, &row1, &field_segment) {
+            match derive_row1(
+                &row0,
+                &row1,
+                &field_segment,
+                &mut outcome.clamped_leg_beta_count,
+            ) {
                 Some(derived) => {
                     outcome.max_derived_span_residual = outcome
                         .max_derived_span_residual
@@ -186,6 +199,7 @@ pub(super) fn reauthor_cells_from_chain_network(
             outcome.refilled_cell_count += 1;
         }
     }
+    predict_worst_trim_g1(patches, sub_chains, node_normals, &mut outcome);
     outcome
 }
 
@@ -315,6 +329,17 @@ fn repair_row_end_legs(
     }
 }
 
+/// Relative floor on the band's transverse (β·R) component: the
+/// weak end's transverse magnitude is clamped to this fraction
+/// of the strong end's, with matching sign. Without it, sliver
+/// tips whose legs tilt almost tangent to the chain make β(t)
+/// cross zero mid-row — ∂u ∥ ∂v there, a parametrically
+/// degenerate stretch whose normals are noise on both sides of
+/// the trim. The clamp keeps everything in-span (only the
+/// in-plane shape near the corner changes), so G1 is unaffected
+/// by construction.
+const TRANSVERSE_FLOOR: f64 = 0.5;
+
 /// Derive the full row-1 band from `(C', R)` and the exact end
 /// legs: `D(t) = α(t)·C'(t) + β(t)·R(t)` with linear `α, β`
 /// matched to `D(0) = E₀`, `D(1) = E₁`, expanded into degree-9
@@ -323,12 +348,42 @@ fn derive_row1(
     row0: &[Point3; 10],
     row1: &[Point3; 10],
     field_segment: &[Vec3; 9],
+    clamped_count: &mut usize,
 ) -> Option<[Point3; 10]> {
     let derivative = row_derivative_coefficients(row0);
     let leg_start = (row1[0] - row0[0]) * 9.0;
     let leg_end = (row1[9] - row0[9]) * 9.0;
-    let (alpha_start, beta_start) = solve_leg(leg_start, derivative[0], field_segment[0])?;
-    let (alpha_end, beta_end) = solve_leg(leg_end, derivative[8], field_segment[8])?;
+    let (alpha_start, mut beta_start) = solve_leg(leg_start, derivative[0], field_segment[0])?;
+    let (alpha_end, mut beta_end) = solve_leg(leg_end, derivative[8], field_segment[8])?;
+    // Transverse-floor clamp: each end's transverse magnitude
+    // must reach a fraction of the LEG SCALE (not merely of the
+    // other end — rows whose both legs are near-tangent would
+    // otherwise stay collapsed), with one consistent sign taken
+    // from the dominant end (or positive when both vanish).
+    let leg_scale = leg_start
+        .dot(&leg_start)
+        .sqrt()
+        .max(leg_end.dot(&leg_end).sqrt());
+    let floor_magnitude = TRANSVERSE_FLOOR * leg_scale;
+    let transverse_start = beta_start * field_segment[0].dot(&field_segment[0]).sqrt();
+    let transverse_end = beta_end * field_segment[8].dot(&field_segment[8]).sqrt();
+    let dominant_sign = if transverse_start.abs() >= transverse_end.abs() {
+        if transverse_start >= 0.0 { 1.0 } else { -1.0 }
+    } else if transverse_end >= 0.0 {
+        1.0
+    } else {
+        -1.0
+    };
+    if transverse_start * dominant_sign < floor_magnitude {
+        let magnitude = field_segment[0].dot(&field_segment[0]).sqrt().max(1.0e-300);
+        beta_start = dominant_sign * floor_magnitude / magnitude;
+        *clamped_count += 1;
+    }
+    if transverse_end * dominant_sign < floor_magnitude {
+        let magnitude = field_segment[8].dot(&field_segment[8]).sqrt().max(1.0e-300);
+        beta_end = dominant_sign * floor_magnitude / magnitude;
+        *clamped_count += 1;
+    }
     let mut out = *row1;
     for k in 1..9 {
         // Product of a linear blend with a degree-8 field:
@@ -395,34 +450,6 @@ fn refill_interior_coons(patch: &mut RectangularGregoryBiNonic) {
 /// cross-derivative at interior samples: the residual of
 /// `D(t) = 9·Σ (row1ᵢ − row0ᵢ) Bᵢ(t)` against the plane spanned
 /// by the row tangent and the ribbon field.
-fn derived_span_residual(
-    row0: &[Point3; 10],
-    derived: &[Point3; 10],
-    field_segment: &[Vec3; 9],
-) -> f64 {
-    use super::row_fit::bernstein9;
-    let derivative = row_derivative_coefficients(row0);
-    let mut worst = 0.0_f64;
-    for sample in [0.2_f64, 0.35, 0.5, 0.65, 0.8] {
-        let tangent = eval_ribbon_field(&derivative, sample);
-        let transverse = eval_ribbon_field(field_segment, sample);
-        let Some(plane_normal) = tangent.cross(&transverse).normalized() else {
-            continue;
-        };
-        let basis = bernstein9(sample);
-        let mut delta = Vec3::new(0.0, 0.0, 0.0);
-        for i in 0..10 {
-            delta = delta + (derived[i] - row0[i]) * basis[i];
-        }
-        let magnitude = delta.dot(&delta).sqrt();
-        if magnitude <= 1.0e-300 {
-            continue;
-        }
-        worst = worst.max(delta.dot(&plane_normal).abs() / magnitude);
-    }
-    worst
-}
-
 /// The boundary side owning the transverse control at a row
 /// corner: the perpendicular boundary through that corner.
 pub(super) fn transverse_row_side(side: BoundarySide, corner_k: usize) -> BoundarySide {

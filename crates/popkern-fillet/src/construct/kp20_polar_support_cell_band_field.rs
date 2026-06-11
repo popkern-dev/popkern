@@ -85,14 +85,13 @@ pub(super) fn author_ribbon_field(
     // row's corner leg belongs to a chain-authored transverse
     // row, the field must CONTAIN that leg (its tangent-
     // perpendicular component) so the band derivation closes
-    // without moving chain-owned controls. These constraints
-    // outrank sampled directions but yield to real node
-    // constraints under the degree budget.
+    // without moving chain-owned controls. Soft-heavy rows: no
+    // budget limit (the hard-budget version silently dropped
+    // legs on node-rich sub-chains, leaving frozen endpoints out
+    // of span through the corner zones).
+    let mut soft_directions: Vec<(f64, Vec3)> = Vec::new();
     for &(key, (start, end)) in &sub.rows {
         for (corner_k, param) in [(0usize, start), (9, end)] {
-            if node_constraints.len() >= 8 {
-                break;
-            }
             if !chained_rows.contains(&ChainRowKey {
                 face: key.face,
                 side: transverse_row_side(key.side, corner_k),
@@ -117,10 +116,10 @@ pub(super) fn author_ribbon_field(
             let Some(direction) = (leg - unit_tangent * leg.dot(&unit_tangent)).normalized() else {
                 continue;
             };
-            node_constraints.push((param, direction));
+            soft_directions.push((param, direction));
         }
     }
-    fit_ribbon_field(&samples, &node_constraints).ok()
+    fit_ribbon_field(&samples, &node_constraints, &soft_directions).ok()
 }
 
 /// Piecewise-linear interpolation of the sign-aligned node
