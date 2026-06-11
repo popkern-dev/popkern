@@ -11,6 +11,12 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 
 #[path = "kp20_polar_support_cell_band_field.rs"]
 mod band_field;
+#[path = "kp20_polar_support_cell_surface_access.rs"]
+mod surface_access;
+pub(self) use surface_access::{
+    rectangular_binonic_on_face, set_rectangular_binonic_dual_twist_on_face,
+    set_rectangular_binonic_on_face,
+};
 #[path = "kp20_polar_support_cell_band_predictor.rs"]
 mod band_predictor;
 #[path = "kp20_polar_support_cell_boundary_cluster.rs"]
@@ -55,6 +61,8 @@ mod segment_transfer;
 mod tangent_row;
 #[path = "kp20_polar_support_cell_trim_ownership.rs"]
 mod trim_ownership;
+#[path = "kp20_polar_support_cell_twist_resolution.rs"]
+mod twist_resolution;
 
 pub(super) use boundary_trim::{
     BoundarySide, FullBoundaryTrim, count_skipped_boundary_trims, face_outer_half_edges,
@@ -167,6 +175,36 @@ pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
         .unwrap_or("unknown");
     Ok(format!(
         "{status};constructive_pass_count=2;first_pass_max_twist_conflict_distance={first_pass_twist}"
+    ))
+}
+
+/// Two-pass constructive re-authoring on the DUAL-TWIST patch
+/// substrate: identical fixed-point structure to
+/// [`reconcile_assigned_chain_constructive_cells_status`], but
+/// each boundary's corner band coefficient lands in its own
+/// rational candidate slot, so the corner twist conflicts the
+/// plain bi-9 had to average cease to exist.
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_cells_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let first_pass_status =
+        chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    let status = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell dual-twist constructive re-authoring produced invalid BRep: {error}"
+        ))
+    })?;
+    let first_pass_twist = first_pass_status
+        .split("max_dual_twist_pair_separation=")
+        .nth(1)
+        .and_then(|tail| tail.split(';').next())
+        .unwrap_or("unknown");
+    Ok(format!(
+        "{status};constructive_pass_count=2;first_pass_max_dual_twist_pair_separation={first_pass_twist}"
     ))
 }
 
@@ -405,41 +443,6 @@ fn boundary_fit_samples(
         parameter: params[index],
         target: targets[index],
     })
-}
-
-fn rectangular_binonic_on_face(
-    brep: &BRep,
-    face: FaceHandle,
-) -> Result<popkern_core::geometry::gregory::RectangularGregoryBiNonic, CoreError> {
-    let Some(SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonic(patch))) = brep
-        .faces
-        .get(face)
-        .and_then(|face_data| face_data.surface.as_ref())
-        .map(|surface| &surface.geometry)
-    else {
-        return Err(CoreError::PreconditionFailed(
-            "kp20 support-cell boundary reconciliation requires rectangular bi-nonic surfaces"
-                .into(),
-        ));
-    };
-    Ok((**patch).clone())
-}
-
-fn set_rectangular_binonic_on_face(
-    brep: &mut BRep,
-    face: FaceHandle,
-    patch: popkern_core::geometry::gregory::RectangularGregoryBiNonic,
-) -> Result<(), CoreError> {
-    let Some(face_data) = brep.faces.get_mut(face) else {
-        return Err(CoreError::InvalidHandle(
-            "kp20 support-cell boundary reconciliation face invalid".into(),
-        ));
-    };
-    face_data.surface = Some(SurfaceOnFace {
-        geometry: SurfaceGeometry::Gregory(GregoryPatch::RectangularBiNonic(Box::new(patch))),
-        orientation: true,
-    });
-    Ok(())
 }
 
 fn trim_gap(

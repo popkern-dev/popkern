@@ -10,7 +10,7 @@ mod shared_trim_measure;
 pub(super) use shared_trim_measure::measure_support_cell_shared_trim_quality;
 
 const CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET: f64 = 5.0e-4;
-const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
+pub(super) const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
 /// Commercial G1 target on `1 − |n_a · n_b|` across a shared
 /// trim. Calibrated to the ring-gate angular threshold
 /// `G1_GATE = 5e-2 (≈ 2.9°)` via `1 − cos θ ≈ θ²/2`, so both
@@ -70,7 +70,23 @@ impl Kp20SupportCellSharedTrimQuality {
     pub(super) fn is_no_worse_than(self, before: Self) -> bool {
         self.pcurve_out_of_unit_count <= before.pcurve_out_of_unit_count
             && self.degenerate_pcurve_count <= before.degenerate_pcurve_count
-            && is_monotonic_metric(self.worst_g0_gap, before.worst_g0_gap)
+            && self.g0_no_worse_than(before)
+    }
+
+    /// G0 monotonicity binds only ABOVE the commercial target:
+    /// once both measurements are below the gate, G0 is met and
+    /// candidates are equal on it — strict monotonicity there
+    /// rejected order-of-magnitude G1 improvements over
+    /// sub-picometre G0 noise (observed: a 100x G1 win rolled
+    /// back for 2.6e-12 vs 8.5e-13, both 100x below the 1e-10
+    /// gate).
+    fn g0_no_worse_than(self, before: Self) -> bool {
+        if self.worst_g0_gap <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET
+            && before.worst_g0_gap <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET
+        {
+            return true;
+        }
+        is_monotonic_metric(self.worst_g0_gap, before.worst_g0_gap)
     }
 }
 

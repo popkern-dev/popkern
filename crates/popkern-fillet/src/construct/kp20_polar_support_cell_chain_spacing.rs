@@ -11,7 +11,30 @@
 //! speed-profile change only; tangent directions and node pins
 //! are unaffected.
 
-use popkern_core::geometry::Point3;
+use popkern_core::geometry::{Point3, Vec3};
+
+use popkern_core::topology::VertexHandle;
+
+use super::chain_solver::dbernstein9;
+
+/// Smallest end control spacing relative to uniform: the lesser
+/// of the first and last control-polygon leg lengths divided by
+/// one ninth of the polygon's total length. Near 1.0 for uniform
+/// speed; ≪ 1 when the fit compresses CPs at the ends (which
+/// shrinks the transverse legs of crossing chains and thins the
+/// derived cross-derivative bands).
+pub(super) fn end_spacing_ratio(chain_cps: &[Point3; 10]) -> f64 {
+    let total: f64 = (1..10)
+        .map(|i| chain_cps[i].distance_to(&chain_cps[i - 1]))
+        .sum();
+    if total <= 1.0e-300 {
+        return 0.0;
+    }
+    let uniform = total / 9.0;
+    let first = chain_cps[1].distance_to(&chain_cps[0]);
+    let last = chain_cps[9].distance_to(&chain_cps[8]);
+    first.min(last) / uniform
+}
 
 /// End spacing below this fraction of uniform is treated as fit
 /// compression and retargeted (a degree-elevated quadratic sits
@@ -60,21 +83,55 @@ pub(super) fn end_decompression_targets(
     }
 }
 
-/// Smallest end control spacing relative to uniform: the lesser
-/// of the first and last control-polygon leg lengths divided by
-/// one ninth of the polygon's total length. Near 1.0 for uniform
-/// speed; ≪ 1 when the fit compresses CPs at the ends (which
-/// shrinks the transverse legs of crossing chains and thins the
-/// derived cross-derivative bands).
-pub(super) fn end_spacing_ratio(chain_cps: &[Point3; 10]) -> f64 {
+/// Interior node speed below this fraction of the control
+/// polygon's total length (= uniform speed on `[0, 1]`) is
+/// treated as a compressed cut and retargeted. Gentle by
+/// design: a single soft pass, interior stations only — the
+/// measured optimum; stronger variants (all stations, higher
+/// weight, fixed-point iteration, local-speed targets) all
+/// destabilized neighboring chains and regressed both G0 and G1.
+const NODE_SPEED_COMPRESSION_THRESHOLD: f64 = 0.7;
+
+/// Soft weight for derivative retarget rows. Derivative basis
+/// values reach ~9, so the effective row mass is ~80x the
+/// per-sample position mass at weight 1.
+const NODE_SPEED_TARGET_WEIGHT: f64 = 5.0;
+
+/// Measure the solved curve's speed at every INTERIOR node
+/// parameter and produce direction-preserving derivative
+/// retarget rows where the speed is compressed below uniform.
+/// The restriction rows that end at a T-junction cut inherit
+/// `C'(cut)` as their frozen corner legs; a compressed cut thins
+/// those legs until crossing bands turn tangential and trim
+/// normals are noise (observed: tangential fraction 0.988 at a
+/// healthy 119-degree corner, normal disagreement 0.295).
+pub(super) fn node_speed_decompression_targets(
+    chain_cps: &[Point3; 10],
+    nodes_local: &[(VertexHandle, f64)],
+) -> Vec<(f64, Vec3, f64)> {
     let total: f64 = (1..10)
         .map(|i| chain_cps[i].distance_to(&chain_cps[i - 1]))
         .sum();
     if total <= 1.0e-300 {
-        return 0.0;
+        return Vec::new();
     }
-    let uniform = total / 9.0;
-    let first = chain_cps[1].distance_to(&chain_cps[0]);
-    let last = chain_cps[9].distance_to(&chain_cps[8]);
-    first.min(last) / uniform
+    let mut targets = Vec::new();
+    for &(_, param) in nodes_local {
+        if param <= 1.0e-6 || param >= 1.0 - 1.0e-6 {
+            continue;
+        }
+        let dbasis = dbernstein9(param);
+        let mut derivative = Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..10 {
+            derivative =
+                derivative + Vec3::new(chain_cps[i].x, chain_cps[i].y, chain_cps[i].z) * dbasis[i];
+        }
+        let speed = derivative.dot(&derivative).sqrt();
+        if speed >= NODE_SPEED_COMPRESSION_THRESHOLD * total || speed <= 1.0e-300 {
+            continue;
+        }
+        let target = derivative * (total / speed);
+        targets.push((param, target, NODE_SPEED_TARGET_WEIGHT));
+    }
+    targets
 }

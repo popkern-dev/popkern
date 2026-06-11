@@ -235,3 +235,59 @@ fn boundary_surface_normal(
         .cross(&patch.partial_v(u, v))
         .normalized()
 }
+
+/// Node identities with their parameters in the sub-chain's
+/// local `[0, 1]` domain.
+pub(super) fn local_node_params(
+    sub: &SubChain<ChainRowKey, VertexHandle>,
+    local: &impl Fn(f64) -> f64,
+) -> Vec<(VertexHandle, f64)> {
+    let mut out: Vec<(VertexHandle, f64)> = sub
+        .nodes
+        .iter()
+        .map(|&(vertex, param)| (vertex, local(param)))
+        .collect();
+    out.sort_by(|a, b| a.1.total_cmp(&b.1));
+    out.dedup_by(|a, b| (a.1 - b.1).abs() <= NODE_PARAM_TOL);
+    out
+}
+
+/// Interpolation constraints for one sub-chain: its node
+/// parameters paired with the globally pinned vertex positions.
+pub(super) fn sub_chain_node_constraints(
+    sub: &SubChain<ChainRowKey, VertexHandle>,
+    node_positions: &HashMap<VertexHandle, Point3>,
+) -> Vec<(f64, Point3)> {
+    let mut out = Vec::with_capacity(sub.nodes.len());
+    for &(vertex, param) in &sub.nodes {
+        if let Some(&position) = node_positions.get(&vertex) {
+            out.push((param, position));
+        }
+    }
+    // Deduplicate parameters (a rebased cut node appears at both
+    // window ends with distinct params, which is correct; true
+    // duplicates within tolerance collapse to the first).
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
+    out
+}
+
+/// Tangent-plane constraints for one sub-chain: at every node
+/// with a pinned normal, the curve tangent must lie in the plane
+/// perpendicular to it, so all chains incident to the node share
+/// one tangent plane and corner cross-derivatives become
+/// G1-compatible by construction.
+pub(super) fn sub_chain_tangent_constraints(
+    sub: &SubChain<ChainRowKey, VertexHandle>,
+    node_normals: &HashMap<VertexHandle, Vec3>,
+) -> Vec<(f64, Vec3)> {
+    let mut out = Vec::with_capacity(sub.nodes.len());
+    for &(vertex, param) in &sub.nodes {
+        if let Some(&normal) = node_normals.get(&vertex) {
+            out.push((param, normal));
+        }
+    }
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
+    out
+}

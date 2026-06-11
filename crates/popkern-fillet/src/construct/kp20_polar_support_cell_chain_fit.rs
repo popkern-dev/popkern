@@ -18,15 +18,20 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::cell_reauthor::{AuthoredSubChain, reauthor_cells_from_chain_network};
 use super::chain_discovery::{ChainTrim, RowChainEmbedding, SubChain, discover_sub_chains};
-use super::chain_nodes::{global_node_normals, global_node_positions};
+use super::chain_nodes::{
+    global_node_normals, global_node_positions, local_node_params, sub_chain_node_constraints,
+    sub_chain_tangent_constraints,
+};
 use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
 use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
-use super::chain_spacing::{end_decompression_targets, end_spacing_ratio};
+use super::chain_spacing::{
+    end_decompression_targets, end_spacing_ratio, node_speed_decompression_targets,
+};
 use super::row_fit::bernstein9;
 use super::row_segment::bezier_row_segment;
 use super::{
     BoundarySide, count_skipped_boundary_trims, full_boundary_trims, rectangular_binonic_on_face,
-    set_rectangular_binonic_on_face,
+    set_rectangular_binonic_dual_twist_on_face, set_rectangular_binonic_on_face,
 };
 
 /// Samples per member row feeding the least-squares part of the
@@ -53,6 +58,21 @@ enum ChainNetworkMode {
     Curves,
     CurvesAndCrossTangentRibbons,
     CurvesAndConstructiveCells,
+    /// Constructive cells emitted as dual-twist patches: each
+    /// boundary's derived corner band coefficient lands in its
+    /// own Chiyokura-Kimura candidate slot — twist conflicts
+    /// cease to exist instead of being compromised.
+    CurvesAndConstructiveDualTwistCells,
+}
+
+impl ChainNetworkMode {
+    fn constructive(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveCells
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCells
+        )
+    }
 }
 
 /// Author canonical curves for every discoverable chain and
@@ -90,6 +110,21 @@ pub(super) fn author_chain_network_with_constructive_cells(
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
 ) -> Result<String, CoreError> {
     author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndConstructiveCells)
+}
+
+/// Constructive cells on the dual-twist patch substrate: the
+/// per-boundary corner candidates eliminate the contested
+/// single twist control entirely (design:
+/// `docs/decisions/2026-06-11-kp20-binonic-dual-twist-corners.md`).
+pub(super) fn author_chain_network_with_constructive_dual_twist_cells(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCells,
+    )
 }
 
 fn author_chain_network_internal(
@@ -226,7 +261,7 @@ fn author_chain_network_internal(
                 authored_count += 1;
                 min_end_spacing_ratio =
                     min_end_spacing_ratio.min(end_spacing_ratio(&authored.chain_cps));
-                if mode == ChainNetworkMode::CurvesAndConstructiveCells {
+                if mode.constructive() {
                     authored_sub_chains.push(authored);
                 }
             }
@@ -251,11 +286,17 @@ fn author_chain_network_internal(
         }
     }
     let mut reauthor_detail = String::new();
-    if mode == ChainNetworkMode::CurvesAndConstructiveCells {
-        let outcome =
-            reauthor_cells_from_chain_network(&mut patches, &authored_sub_chains, &node_normals);
+    let mut dual_twist_pairs = HashMap::new();
+    if mode.constructive() {
+        let outcome = reauthor_cells_from_chain_network(
+            &mut patches,
+            &authored_sub_chains,
+            &node_normals,
+            mode == ChainNetworkMode::CurvesAndConstructiveDualTwistCells,
+        );
+        dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};clamped_leg_beta_count={};predicted_worst_detail=[{}]",
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};clamped_leg_beta_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
             outcome.derived_row_count,
             outcome.leg_solve_declined_count,
             outcome.field_declined_sub_chain_count,
@@ -269,11 +310,18 @@ fn author_chain_network_internal(
             outcome.refilled_cell_count,
             outcome.predicted_worst_trim_g1,
             outcome.clamped_leg_beta_count,
+            outcome.dual_twist_pair_count,
+            outcome.max_dual_twist_pair_separation,
             outcome.predicted_worst_detail.as_deref().unwrap_or("none")
         );
     }
     for (face, patch) in patches {
-        set_rectangular_binonic_on_face(brep, face, patch)?;
+        match dual_twist_pairs.get(&face) {
+            Some(corners) if corners.iter().any(Option::is_some) => {
+                set_rectangular_binonic_dual_twist_on_face(brep, face, patch, corners)?;
+            }
+            _ => set_rectangular_binonic_on_face(brep, face, patch)?,
+        }
     }
     let label = match (mode, authored_count > 0) {
         (ChainNetworkMode::Curves, true) => "chain_curve_network_authored",
@@ -283,6 +331,12 @@ fn author_chain_network_internal(
         (ChainNetworkMode::CurvesAndConstructiveCells, true) => "chain_constructive_cells_authored",
         (ChainNetworkMode::CurvesAndConstructiveCells, false) => {
             "chain_constructive_cells_declined"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCells, true) => {
+            "chain_constructive_dual_twist_cells_authored"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCells, false) => {
+            "chain_constructive_dual_twist_cells_declined"
         }
     };
     Ok(format!(
@@ -348,17 +402,22 @@ fn author_sub_chain(
             .map(|(param, normal)| (local(param), normal))
             .collect(),
         spacing_targets: Vec::new(),
+        derivative_targets: Vec::new(),
     };
     let mut chain_cps = fit_constrained_degree9(&samples, &constraints)?;
-    if let Some(targets) = end_decompression_targets(&chain_cps) {
+    let nodes_local = local_node_params(sub, &local);
+    let spacing = end_decompression_targets(&chain_cps);
+    let derivatives = node_speed_decompression_targets(&chain_cps, &nodes_local);
+    if spacing.is_some() || !derivatives.is_empty() {
         let mut retargeted = constraints.clone();
-        retargeted.spacing_targets = targets;
+        retargeted.spacing_targets = spacing.unwrap_or_default();
+        retargeted.derivative_targets = derivatives;
         chain_cps = fit_constrained_degree9(&samples, &retargeted)?;
     }
     let mut authored = AuthoredSubChain {
         chain_cps,
         rows: Vec::with_capacity(rows.len()),
-        nodes: local_node_params(sub, &local),
+        nodes: nodes_local,
     };
     for (key, embedding, _) in &rows {
         let start = local(embedding.map(0.0));
@@ -373,62 +432,6 @@ fn author_sub_chain(
         authored.rows.push((*key, (start, end)));
     }
     Ok(authored)
-}
-
-/// Node identities with their parameters in the sub-chain's
-/// local `[0, 1]` domain.
-fn local_node_params(
-    sub: &SubChain<ChainRowKey, VertexHandle>,
-    local: &impl Fn(f64) -> f64,
-) -> Vec<(VertexHandle, f64)> {
-    let mut out: Vec<(VertexHandle, f64)> = sub
-        .nodes
-        .iter()
-        .map(|&(vertex, param)| (vertex, local(param)))
-        .collect();
-    out.sort_by(|a, b| a.1.total_cmp(&b.1));
-    out.dedup_by(|a, b| (a.1 - b.1).abs() <= NODE_PARAM_TOL);
-    out
-}
-
-/// Interpolation constraints for one sub-chain: its node
-/// parameters paired with the globally pinned vertex positions.
-fn sub_chain_node_constraints(
-    sub: &SubChain<ChainRowKey, VertexHandle>,
-    node_positions: &HashMap<VertexHandle, Point3>,
-) -> Vec<(f64, Point3)> {
-    let mut out = Vec::with_capacity(sub.nodes.len());
-    for &(vertex, param) in &sub.nodes {
-        if let Some(&position) = node_positions.get(&vertex) {
-            out.push((param, position));
-        }
-    }
-    // Deduplicate parameters (a rebased cut node appears at both
-    // window ends with distinct params, which is correct; true
-    // duplicates within tolerance collapse to the first).
-    out.sort_by(|a, b| a.0.total_cmp(&b.0));
-    out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
-    out
-}
-
-/// Tangent-plane constraints for one sub-chain: at every node
-/// with a pinned normal, the curve tangent must lie in the plane
-/// perpendicular to it, so all chains incident to the node share
-/// one tangent plane and corner cross-derivatives become
-/// G1-compatible by construction.
-fn sub_chain_tangent_constraints(
-    sub: &SubChain<ChainRowKey, VertexHandle>,
-    node_normals: &HashMap<VertexHandle, Vec3>,
-) -> Vec<(f64, Vec3)> {
-    let mut out = Vec::with_capacity(sub.nodes.len());
-    for &(vertex, param) in &sub.nodes {
-        if let Some(&normal) = node_normals.get(&vertex) {
-            out.push((param, normal));
-        }
-    }
-    out.sort_by(|a, b| a.0.total_cmp(&b.0));
-    out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
-    out
 }
 
 pub(super) fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {

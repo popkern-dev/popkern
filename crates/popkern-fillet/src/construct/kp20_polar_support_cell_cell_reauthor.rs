@@ -31,6 +31,9 @@ use super::band_field::author_ribbon_field;
 use super::band_predictor::{derived_span_residual, predict_worst_trim_g1};
 use super::chain_fit::{ChainRowKey, boundary_controls};
 use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficients};
+use super::twist_resolution::{
+    TwistDemand, dual_twist_corner_index, resolve_dual_twist_corner, resolve_twist_demands,
+};
 
 /// Determinant floor for the 2x2 end-leg solves (relative to the
 /// basis vectors' scale).
@@ -97,6 +100,19 @@ pub(super) struct CellReauthorOutcome {
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
+    /// Dual-twist mode: per-face corner candidate pairs `(P_u,
+    /// P_v)` indexed by the patch-type corner order `[(0,0),
+    /// (0,9), (9,9), (9,0)]`. `None` corners keep the plain
+    /// grid control.
+    pub(super) dual_twist_pairs: HashMap<FaceHandle, [Option<(Point3, Point3)>; 4]>,
+    /// Corner pairs whose two candidates genuinely differ —
+    /// twist conflicts that the dual-twist patch absorbs
+    /// structurally instead of compromising.
+    pub(super) dual_twist_pair_count: usize,
+    /// Worst separation between a pair's two candidates — the
+    /// twist incompatibility magnitude the old single-CP
+    /// resolution had to destroy.
+    pub(super) max_dual_twist_pair_separation: f64,
 }
 
 /// Derive every chained row's row-1 band from the shared
@@ -105,6 +121,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
     sub_chains: &[AuthoredSubChain],
     node_normals: &HashMap<VertexHandle, Vec3>,
+    dual_twist: bool,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -175,6 +192,10 @@ pub(super) fn reauthor_cells_from_chain_network(
                                 position: *point,
                                 plane_normal,
                                 field_magnitude: band_offset.dot(&band_offset).sqrt(),
+                                u_constant_boundary: matches!(
+                                    key.side,
+                                    BoundarySide::UMin | BoundarySide::UMax
+                                ),
                             });
                     }
                     outcome.derived_row_count += 1;
@@ -185,7 +206,11 @@ pub(super) fn reauthor_cells_from_chain_network(
     }
     let mut touched_faces = Vec::new();
     for (&(face, i, j), demands) in &writes {
-        let resolved = resolve_twist_demands(demands, &mut outcome);
+        let resolved = if dual_twist && dual_twist_corner_index(i, j).is_some() {
+            resolve_dual_twist_corner(face, i, j, demands, &mut outcome)
+        } else {
+            resolve_twist_demands(demands, &mut outcome)
+        };
         if let Some(patch) = patches.get_mut(&face) {
             patch.grid[i][j] = resolved;
             if !touched_faces.contains(&face) {
@@ -201,77 +226,6 @@ pub(super) fn reauthor_cells_from_chain_network(
     }
     predict_worst_trim_g1(patches, sub_chains, node_normals, &mut outcome);
     outcome
-}
-
-/// One boundary's demand for a shared band control: the desired
-/// position, the corner tangent-plane normal (twist controls
-/// only), and the demanding boundary's local field magnitude.
-#[derive(Debug, Clone, Copy)]
-struct TwistDemand {
-    position: Point3,
-    plane_normal: Option<Vec3>,
-    field_magnitude: f64,
-}
-
-/// Resolve possibly-conflicting demands for one band control.
-/// Conflicts take the inverse-square field-magnitude weighted
-/// mean — the closed-form minimizer of
-/// `Σ_b (|q − demand_b| / |Δ_b|)²` — so the displacement lands
-/// on the boundary that can absorb it relative to its own field
-/// strength. Field magnitudes are clamped below at a fraction of
-/// the largest demand magnitude to keep the weights finite.
-fn resolve_twist_demands(demands: &[TwistDemand], outcome: &mut CellReauthorOutcome) -> Point3 {
-    let count = demands.len();
-    if count == 1 {
-        return demands[0].position;
-    }
-    outcome.twist_conflict_count += 1;
-    for first in 0..count {
-        for second in first + 1..count {
-            let difference = demands[second].position - demands[first].position;
-            outcome.max_twist_conflict_distance = outcome
-                .max_twist_conflict_distance
-                .max(difference.dot(&difference).sqrt());
-            for normal in [demands[first].plane_normal, demands[second].plane_normal]
-                .into_iter()
-                .flatten()
-            {
-                outcome.max_twist_conflict_normal_component = outcome
-                    .max_twist_conflict_normal_component
-                    .max(difference.dot(&normal).abs());
-            }
-        }
-    }
-    let magnitude_floor = demands
-        .iter()
-        .map(|demand| demand.field_magnitude)
-        .fold(0.0_f64, f64::max)
-        * 1.0e-3;
-    let mut weight_sum = 0.0_f64;
-    let mut weighted = Point3::new(0.0, 0.0, 0.0);
-    for demand in demands {
-        let magnitude = demand.field_magnitude.max(magnitude_floor).max(1.0e-300);
-        let weight = 1.0 / (magnitude * magnitude);
-        weight_sum += weight;
-        weighted = Point3::new(
-            weighted.x + demand.position.x * weight,
-            weighted.y + demand.position.y * weight,
-            weighted.z + demand.position.z * weight,
-        );
-    }
-    let resolved = Point3::new(
-        weighted.x / weight_sum,
-        weighted.y / weight_sum,
-        weighted.z / weight_sum,
-    );
-    for demand in demands {
-        let displacement = resolved.distance_to(&demand.position);
-        let magnitude = demand.field_magnitude.max(magnitude_floor).max(1.0e-300);
-        outcome.max_relative_twist_displacement = outcome
-            .max_relative_twist_displacement
-            .max(displacement / magnitude);
-    }
-    resolved
 }
 
 /// Rotate a row's two end legs into the local derivation span
@@ -477,7 +431,7 @@ pub(super) fn second_row_controls(
     out
 }
 
-fn second_row_grid_index(side: BoundarySide, k: usize) -> (usize, usize) {
+pub(super) fn second_row_grid_index(side: BoundarySide, k: usize) -> (usize, usize) {
     match side {
         BoundarySide::UMin => (1, k),
         BoundarySide::UMax => (8, k),

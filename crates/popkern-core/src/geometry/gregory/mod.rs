@@ -372,12 +372,8 @@ pub enum GregoryPatch {
     /// the guide. See
     /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
     RectangularBiNonic(Box<RectangularGregoryBiNonic>),
-    /// Bi-nonic with Chiyokura-Kimura dual-twist corners: the
-    /// four interior corner controls are rational blends of
-    /// per-boundary candidate pairs, so each boundary's
-    /// cross-derivative band realizes its own twist demand with
-    /// zero interference. See
-    /// `docs/decisions/2026-06-11-kp20-binonic-dual-twist-corners.md`.
+    /// Bi-nonic with Chiyokura-Kimura dual-twist corners (see
+    /// `docs/decisions/2026-06-11-kp20-binonic-dual-twist-corners.md`).
     RectangularBiNonicDualTwist(Box<RectangularGregoryBiNonicDualTwist>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),

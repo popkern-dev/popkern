@@ -34,6 +34,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_chain_curve_network_if_g0_safe",
         "pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe",
         "pcurve_then_chain_constructive_cells_if_g0_safe",
+        "pcurve_then_chain_constructive_dual_twist_cells_if_g0_safe",
         "pcurve_then_worst_boundary_row_group_if_g0_safe",
     ] {
         assert!(
@@ -67,6 +68,14 @@ pub(crate) fn assert_candidate_diagnostics(
         }),
         "{fixture} constructive-cells candidate should report its derived-row inventory; support_cell_details={support_cell_dispatch_details:?}"
     );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate=pcurve_then_chain_constructive_dual_twist_cells_if_g0_safe")
+                && detail.contains("chain_constructive_dual_twist_cells")
+                && detail.contains("dual_twist_pair_count=")
+        }),
+        "{fixture} dual-twist constructive candidate should report its pair inventory; support_cell_details={support_cell_dispatch_details:?}"
+    );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }
 
@@ -89,10 +98,12 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate_status=accepted_selected")
-                && detail.contains("candidate=pcurve_then_chain_constructive_cells_if_g0_safe")
-                && detail.contains("operation_status=chain_constructive_cells_authored")
+                && detail.contains(
+                    "candidate=pcurve_then_chain_constructive_dual_twist_cells_if_g0_safe",
+                )
+                && detail.contains("operation_status=chain_constructive_dual_twist_cells_authored")
         }),
-        "{fixture} should select the constructive chain-cell repair (rows, bands, and interiors derived from the shared chain fields); support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} should select the dual-twist constructive chain-cell repair (per-boundary corner candidates absorb the twist conflicts structurally); support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

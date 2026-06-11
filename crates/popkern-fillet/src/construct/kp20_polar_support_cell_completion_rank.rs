@@ -45,10 +45,22 @@ fn g0_tie_break_prefers_candidate(
     candidate.quality.worst_g0_gap + SHARED_TRIM_G0_TIE_BREAK_EPS < current.quality.worst_g0_gap
 }
 
+/// G0 readings are equivalent when numerically tied OR when both
+/// are below the commercial G0 target: the gate is met on both
+/// sides, so selection falls through to the G1 comparison
+/// instead of preferring sub-picometre G0 noise over
+/// order-of-magnitude G1 differences.
 fn shared_trim_g0_is_equivalent(
     candidate: SupportCellCompletionRank,
     current: SupportCellCompletionRank,
 ) -> bool {
+    if candidate.quality.worst_g0_gap
+        <= super::shared_trim_quality::COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET
+        && current.quality.worst_g0_gap
+            <= super::shared_trim_quality::COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET
+    {
+        return true;
+    }
     (candidate.quality.worst_g0_gap - current.quality.worst_g0_gap).abs()
         <= SHARED_TRIM_G0_TIE_BREAK_EPS
 }

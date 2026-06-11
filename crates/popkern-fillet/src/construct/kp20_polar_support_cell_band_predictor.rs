@@ -14,9 +14,12 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
 use super::band_field::author_ribbon_field;
-use super::cell_reauthor::{AuthoredSubChain, CellReauthorOutcome, second_row_controls};
+use super::cell_reauthor::{
+    AuthoredSubChain, CellReauthorOutcome, second_row_controls, second_row_grid_index,
+};
 use super::chain_fit::{ChainRowKey, boundary_controls};
 use super::chain_ribbon_field::{eval_ribbon_field, row_derivative_coefficients};
+use super::twist_resolution::dual_twist_corner_index;
 
 /// Sample every glued trim's two cross-derivative fields from
 /// the final control nets and report the worst normal
@@ -56,9 +59,11 @@ pub(super) fn predict_worst_trim_g1(
                     continue;
                 };
                 let row0_a = boundary_controls(patch_a, key_a.side);
-                let row1_a = second_row_controls(patch_a, key_a.side);
+                let mut row1_a = second_row_controls(patch_a, key_a.side);
                 let row0_b = boundary_controls(patch_b, key_b.side);
-                let row1_b = second_row_controls(patch_b, key_b.side);
+                let mut row1_b = second_row_controls(patch_b, key_b.side);
+                realize_dual_twist_candidates(&mut row1_a, key_a, outcome);
+                realize_dual_twist_candidates(&mut row1_b, key_b, outcome);
                 for sample in 1..16 {
                     let chain_param = lo + (hi - lo) * (sample as f64 / 16.0);
                     let t_a = ((chain_param - start_a) / (end_a - start_a)).clamp(0.0, 1.0);
@@ -95,10 +100,42 @@ pub(super) fn predict_worst_trim_g1(
                         let polyline_length = |row: &[Point3; 10]| -> f64 {
                             (1..10).map(|i| row[i].distance_to(&row[i - 1])).sum()
                         };
+                        // Tangential fraction |c·T̂|/|c| — near 1
+                        // means the cross-derivative is almost
+                        // parallel to the boundary and the normal
+                        // direction is numerical noise.
+                        let tangential_fraction = |cross: Vec3| -> f64 {
+                            let t_mag = tangent.dot(&tangent).sqrt();
+                            let c_mag = cross.dot(&cross).sqrt();
+                            if t_mag <= 1.0e-300 || c_mag <= 1.0e-300 {
+                                return -1.0;
+                            }
+                            cross.dot(&tangent).abs() / (t_mag * c_mag)
+                        };
+                        // Corner angle: chain tangent vs the
+                        // nearest frozen corner leg of each row
+                        // (degrees). Near 0/180 = collapsed quad
+                        // corner (parametric degeneracy).
+                        let corner_leg_angle =
+                            |row0: &[Point3; 10], row1: &[Point3; 10], t: f64| -> f64 {
+                                let k = if t < 0.5 { 0 } else { 9 };
+                                let leg = row1[k] - row0[k];
+                                let chain_leg = if k == 0 {
+                                    row0[1] - row0[0]
+                                } else {
+                                    row0[9] - row0[8]
+                                };
+                                let denom = (leg.dot(&leg) * chain_leg.dot(&chain_leg)).sqrt();
+                                if denom <= 1.0e-300 {
+                                    return -1.0;
+                                }
+                                (leg.dot(&chain_leg) / denom).clamp(-1.0, 1.0).acos() * 180.0
+                                    / std::f64::consts::PI
+                            };
                         let transverse_a = transverse_extent(patch_a, key_a.side);
                         let transverse_b = transverse_extent(patch_b, key_b.side);
                         outcome.predicted_worst_detail = Some(format!(
-                            "s={chain_param:.4},ta={t_a:.4},tb={t_b:.4},ia=({start_a:.4},{end_a:.4}),ib=({start_b:.4},{end_b:.4}),oosA={:.3e},oosB={:.3e},|cA|={:.3e},|cB|={:.3e},fA={:?}:{:?},fB={:?}:{:?},alongA={:.3e},acrossA={:.3e},alongB={:.3e},acrossB={:.3e}",
+                            "s={chain_param:.4},ta={t_a:.4},tb={t_b:.4},ia=({start_a:.4},{end_a:.4}),ib=({start_b:.4},{end_b:.4}),oosA={:.3e},oosB={:.3e},|cA|={:.3e},|cB|={:.3e},fA={:?}:{:?},fB={:?}:{:?},alongA={:.3e},acrossA={:.3e},alongB={:.3e},acrossB={:.3e},tfA={:.3},tfB={:.3},angA={:.1},angB={:.1}",
                             span_residual(cross_a),
                             span_residual(cross_b),
                             cross_a.dot(&cross_a).sqrt(),
@@ -110,11 +147,40 @@ pub(super) fn predict_worst_trim_g1(
                             polyline_length(&row0_a),
                             transverse_a,
                             polyline_length(&row0_b),
-                            transverse_b
+                            transverse_b,
+                            tangential_fraction(cross_a),
+                            tangential_fraction(cross_b),
+                            corner_leg_angle(&row0_a, &row1_a, t_a),
+                            corner_leg_angle(&row0_b, &row1_b, t_b)
                         ));
                     }
                 }
             }
+        }
+    }
+}
+
+/// Replace a second row's corner-adjacent twist entries with the
+/// boundary's OWN dual-twist candidates (when authored): the
+/// rational blend reduces to that candidate on the boundary, so
+/// this is exactly the cross-derivative the surface realizes —
+/// the grid slot only holds the pair midpoint for the interior.
+fn realize_dual_twist_candidates(
+    row1: &mut [Point3; 10],
+    key: ChainRowKey,
+    outcome: &CellReauthorOutcome,
+) {
+    let Some(corners) = outcome.dual_twist_pairs.get(&key.face) else {
+        return;
+    };
+    let u_constant = matches!(key.side, BoundarySide::UMin | BoundarySide::UMax);
+    for k in [1usize, 8] {
+        let (i, j) = second_row_grid_index(key.side, k);
+        let Some(slot) = dual_twist_corner_index(i, j) else {
+            continue;
+        };
+        if let Some((p_u, p_v)) = corners[slot] {
+            row1[k] = if u_constant { p_u } else { p_v };
         }
     }
 }

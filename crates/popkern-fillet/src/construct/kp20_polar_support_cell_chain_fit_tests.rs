@@ -46,6 +46,7 @@ fn constrained_fit_recovers_polynomial_and_pins_nodes() {
         ],
         tangent_planes: Vec::new(),
         spacing_targets: Vec::new(),
+        derivative_targets: Vec::new(),
     };
     let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
     for index in 0..=20 {
@@ -80,6 +81,7 @@ fn constrained_fit_moves_to_pinned_nodes_off_the_samples() {
         positions: vec![(0.5, Point3::new(0.5, 1.0e-3, 0.0))],
         tangent_planes: Vec::new(),
         spacing_targets: Vec::new(),
+        derivative_targets: Vec::new(),
     };
     let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
     let at_node = eval_row(&fitted, 0.5);
@@ -111,6 +113,7 @@ fn tangent_plane_constraint_holds_exactly() {
         positions: vec![(0.0, eval_row(&source, 0.0)), (1.0, eval_row(&source, 1.0))],
         tangent_planes: vec![(1.0, normal)],
         spacing_targets: Vec::new(),
+        derivative_targets: Vec::new(),
     };
     let fitted = fit_constrained_degree9(&samples, &constraints).expect("fit must solve");
     let tangent_dot = derivative_at(&fitted, 1.0).dot(&normal);

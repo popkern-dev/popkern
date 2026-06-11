@@ -59,6 +59,14 @@ pub(super) struct ChainCurveConstraints {
     /// (magnitude retarget along the solved direction; the curve
     /// itself barely moves, only its speed profile).
     pub(super) spacing_targets: Vec<(usize, Point3, f64)>,
+    /// `(local param, target derivative, weight)` — soft rows on
+    /// `C'(t)`, used to decompress the speed profile at INTERIOR
+    /// node parameters (T-junction cuts), which end-CP spacing
+    /// targets cannot reach. Restriction rows inherit their leg
+    /// magnitudes from `C'` at the cut; a compressed cut thins
+    /// the crossing rows' frozen legs until their derived bands
+    /// turn tangential and trim normals become noise.
+    pub(super) derivative_targets: Vec<(f64, Vec3, f64)>,
 }
 
 impl ChainCurveConstraints {
@@ -106,6 +114,20 @@ pub(super) fn fit_constrained_degree9(
         rhs[index] += weight * target.x;
         rhs[10 + index] += weight * target.y;
         rhs[20 + index] += weight * target.z;
+    }
+    for &(t, target, weight) in &constraints.derivative_targets {
+        let dbasis = dbernstein9(t);
+        for (axis, value) in [(0usize, target.x), (1, target.y), (2, target.z)] {
+            for i in 0..10 {
+                if dbasis[i] == 0.0 {
+                    continue;
+                }
+                for j in 0..10 {
+                    matrix[axis * 10 + i][axis * 10 + j] += weight * dbasis[i] * dbasis[j];
+                }
+                rhs[axis * 10 + i] += weight * dbasis[i] * value;
+            }
+        }
     }
     add_third_difference_penalty(&mut matrix, 0, 10, FIT_SMOOTHING_WEIGHT);
     add_third_difference_penalty(&mut matrix, 10, 10, FIT_SMOOTHING_WEIGHT);

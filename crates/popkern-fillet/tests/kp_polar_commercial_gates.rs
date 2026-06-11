@@ -233,7 +233,7 @@ fn hexagon6_mixed_g1_campaign_probe() {
         let Some(detail) = cap.detail_code.as_deref() else {
             continue;
         };
-        if detail.contains("chain_constructive_cells")
+        if detail.contains("chain_constructive")
             || (cap.stage == "kp20_polar_macro.dispatch.support_cell_shared_trim_quality"
                 && detail.contains("measurement_scope=final_post_pipeline"))
         {
