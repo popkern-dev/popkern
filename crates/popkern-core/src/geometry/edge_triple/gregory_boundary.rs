@@ -186,6 +186,12 @@ pub(crate) fn extract_gregory_boundary_curve(
             let cps = boundary_cps_10x10(&r.grid, boundary);
             Some(bezier_to_nurbs(&cps, 9))
         }
+        // Boundary rows/columns carry plain controls — the
+        // rational dual-twist blend affects interior CPs only.
+        GregoryPatch::RectangularBiNonicDualTwist(r) => {
+            let cps = boundary_cps_10x10(&r.grid, boundary);
+            Some(bezier_to_nurbs(&cps, 9))
+        }
         GregoryPatch::Triangular(_) => None,
     }
 }

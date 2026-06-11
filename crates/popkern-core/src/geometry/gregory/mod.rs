@@ -153,6 +153,7 @@ mod pns_gram;
 mod pns_sigma;
 mod rectangular;
 mod rectangular_binonic;
+mod rectangular_binonic_dual_twist;
 mod rectangular_binonic_to_nurbs;
 mod rectangular_biquintic_full;
 mod rectangular_biquintic_full_to_nurbs;
@@ -175,6 +176,7 @@ pub use build::GregoryBuildError;
 pub use normal_curvature::{NormalCurvatureError, normal_curvature_along};
 pub use rectangular::RectangularGregory;
 pub use rectangular_binonic::RectangularGregoryBiNonic;
+pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
 pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
 pub use rectangular_biseptic::RectangularGregoryBiseptic;
 pub use rectangular_deg5::RectangularGregoryDeg5;
@@ -370,6 +372,13 @@ pub enum GregoryPatch {
     /// the guide. See
     /// `docs/decisions/2026-04-19-phase-h-kp-binonic-formula-choice.md`.
     RectangularBiNonic(Box<RectangularGregoryBiNonic>),
+    /// Bi-nonic with Chiyokura-Kimura dual-twist corners: the
+    /// four interior corner controls are rational blends of
+    /// per-boundary candidate pairs, so each boundary's
+    /// cross-derivative band realizes its own twist demand with
+    /// zero interference. See
+    /// `docs/decisions/2026-06-11-kp20-binonic-dual-twist-corners.md`.
+    RectangularBiNonicDualTwist(Box<RectangularGregoryBiNonicDualTwist>),
     /// N=3 triangular patch.
     Triangular(Box<TriangularGregory>),
 }
@@ -389,6 +398,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiseptic(r) => r.point_at(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.point_at(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.point_at(u, v),
+            GregoryPatch::RectangularBiNonicDualTwist(r) => r.point_at(u, v),
             GregoryPatch::Triangular(t) => t.point_at_uv(u, v),
         }
     }
@@ -403,6 +413,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiseptic(r) => r.partial_u(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.partial_u(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.partial_u(u, v),
+            GregoryPatch::RectangularBiNonicDualTwist(r) => r.partial_u(u, v),
             GregoryPatch::Triangular(t) => t.partial_u_uv(u, v),
         }
     }
@@ -417,6 +428,7 @@ impl GregoryPatch {
             GregoryPatch::RectangularBiseptic(r) => r.partial_v(u, v),
             GregoryPatch::RectangularTwoStripe(r) => r.partial_v(u, v),
             GregoryPatch::RectangularBiNonic(r) => r.partial_v(u, v),
+            GregoryPatch::RectangularBiNonicDualTwist(r) => r.partial_v(u, v),
             GregoryPatch::Triangular(t) => t.partial_v_uv(u, v),
         }
     }
@@ -458,6 +470,9 @@ impl GregoryPatch {
 #[cfg(test)]
 #[path = "build_tests.rs"]
 mod build_tests;
+#[cfg(test)]
+#[path = "rectangular_binonic_dual_twist_tests.rs"]
+mod rectangular_binonic_dual_twist_tests;
 #[cfg(test)]
 #[path = "rectangular_biquintic_full_tests.rs"]
 mod rectangular_biquintic_full_tests;

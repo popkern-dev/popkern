@@ -89,6 +89,7 @@ fn patch_variant_name(patch: &GregoryPatch) -> &'static str {
         GregoryPatch::RectangularBiseptic(_) => "biseptic",
         GregoryPatch::RectangularTwoStripe(_) => "two_stripe",
         GregoryPatch::RectangularBiNonic(_) => "binonic",
+        GregoryPatch::RectangularBiNonicDualTwist(_) => "binonic_dual_twist",
         GregoryPatch::Triangular(_) => "triangular",
     }
 }

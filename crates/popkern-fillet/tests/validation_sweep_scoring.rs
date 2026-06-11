@@ -137,7 +137,9 @@ pub(crate) fn count_variants(patches: &[GregoryPatch]) -> VariantCounts {
             GregoryPatch::RectangularBiquinticFull(_) => vc.biquintic += 1,
             GregoryPatch::RectangularBiseptic(_) => vc.biseptic += 1,
             GregoryPatch::RectangularTwoStripe(_) => vc.two_stripe += 1,
-            GregoryPatch::RectangularBiNonic(_) => vc.binonic += 1,
+            GregoryPatch::RectangularBiNonic(_) | GregoryPatch::RectangularBiNonicDualTwist(_) => {
+                vc.binonic += 1
+            }
             GregoryPatch::Triangular(_) => vc.triangular += 1,
         }
     }
