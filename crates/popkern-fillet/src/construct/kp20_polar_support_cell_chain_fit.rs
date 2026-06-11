@@ -18,12 +18,14 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::cell_reauthor::{AuthoredSubChain, reauthor_cells_from_chain_network};
 use super::chain_discovery::{ChainTrim, RowChainEmbedding, SubChain, discover_sub_chains};
+use super::chain_nodes::{global_node_normals, global_node_positions};
 use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
 use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
 use super::row_fit::bernstein9;
 use super::row_segment::bezier_row_segment;
 use super::{
-    BoundarySide, full_boundary_trims, rectangular_binonic_on_face, set_rectangular_binonic_on_face,
+    BoundarySide, count_skipped_boundary_trims, full_boundary_trims, rectangular_binonic_on_face,
+    set_rectangular_binonic_on_face,
 };
 
 /// Samples per member row feeding the least-squares part of the
@@ -102,6 +104,7 @@ fn author_chain_network_internal(
     mode: ChainNetworkMode,
 ) -> Result<String, CoreError> {
     let trims = full_boundary_trims(brep, slots)?;
+    let skipped_trims = count_skipped_boundary_trims(brep, slots)?;
     let mut chain_trims = Vec::with_capacity(trims.len());
     for trim in &trims {
         chain_trims.push(ChainTrim {
@@ -123,6 +126,57 @@ fn author_chain_network_internal(
         });
     }
     let discovery = discover_sub_chains(&chain_trims);
+    // Row-conservation observability: every row glued by a trim
+    // must be assigned to exactly one sub-chain; a row silently
+    // dropped by the clean-node splitter keeps its old geometry
+    // and surfaces as a localized G0/G1 hole.
+    let mut glued_rows: std::collections::HashSet<ChainRowKey> = std::collections::HashSet::new();
+    for trim in &chain_trims {
+        glued_rows.insert(trim.row_a);
+        glued_rows.insert(trim.row_b);
+    }
+    let mut assigned_rows: std::collections::HashSet<ChainRowKey> =
+        std::collections::HashSet::new();
+    let mut multiply_assigned_row_count = 0usize;
+    for sub in &discovery.sub_chains {
+        for (key, _) in &sub.rows {
+            if !assigned_rows.insert(*key) {
+                multiply_assigned_row_count += 1;
+            }
+        }
+    }
+    let dropped_rows: Vec<ChainRowKey> = glued_rows
+        .iter()
+        .filter(|key| !assigned_rows.contains(key))
+        .copied()
+        .collect();
+    // Shared-field invariant: a trim's two rows must land in the
+    // SAME sub-chain, else they are derived from different
+    // ribbon fields and their tangent planes cannot coincide.
+    let mut row_sub_chain: HashMap<ChainRowKey, usize> = HashMap::new();
+    for (index, sub) in discovery.sub_chains.iter().enumerate() {
+        for (key, _) in &sub.rows {
+            row_sub_chain.insert(*key, index);
+        }
+    }
+    let cross_sub_chain_trim_count = chain_trims
+        .iter()
+        .filter(|trim| {
+            match (
+                row_sub_chain.get(&trim.row_a),
+                row_sub_chain.get(&trim.row_b),
+            ) {
+                (Some(a), Some(b)) => a != b,
+                _ => true,
+            }
+        })
+        .count();
+    let dropped_row_list = dropped_rows
+        .iter()
+        .take(6)
+        .map(|key| format!("{:?}:{:?}", key.face, key.side))
+        .collect::<Vec<_>>()
+        .join(",");
     let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::new();
     for sub in &discovery.sub_chains {
         for (key, _) in &sub.rows {
@@ -131,6 +185,22 @@ fn author_chain_network_internal(
             }
         }
     }
+    // Coverage observability: a slot face with no chained row is
+    // invisible to the entire network (its bands stay underived),
+    // which surfaces as a localized G1 hole — name the faces so
+    // a coverage regression cannot hide inside an aggregate.
+    let uncovered_faces: Vec<FaceHandle> = slots
+        .iter()
+        .map(|slot| slot.face)
+        .filter(|face| !patches.contains_key(face))
+        .collect();
+    let uncovered_face_list = uncovered_faces
+        .iter()
+        .take(8)
+        .map(|face| format!("{face:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let chained_face_count = patches.len();
     // Pin every node position ONCE, globally per vertex, before
     // any chain is fitted: a face corner control is shared by
     // its U-row and V-row, which belong to transverse chains —
@@ -188,11 +258,16 @@ fn author_chain_network_internal(
         let outcome =
             reauthor_cells_from_chain_network(&mut patches, &authored_sub_chains, &node_normals);
         reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};refilled_cell_count={}",
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};refilled_cell_count={}",
             outcome.derived_row_count,
             outcome.leg_solve_declined_count,
             outcome.field_declined_sub_chain_count,
             outcome.twist_conflict_count,
+            outcome.max_twist_conflict_distance,
+            outcome.max_derived_span_residual,
+            outcome.repaired_leg_count,
+            outcome.max_leg_out_of_plane_ratio,
+            outcome.max_twist_conflict_normal_component,
             outcome.refilled_cell_count
         );
     }
@@ -210,10 +285,18 @@ fn author_chain_network_internal(
         }
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count}{reauthor_detail}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
-        discovery.decline_reason
+        discovery.decline_reason,
+        chained_face_count,
+        uncovered_faces.len(),
+        trims.len(),
+        skipped_trims.missing_pcurve,
+        skipped_trims.unrecognized_boundary_span,
+        glued_rows.len(),
+        assigned_rows.len(),
+        dropped_rows.len()
     ))
 }
 
@@ -303,54 +386,6 @@ fn local_node_params(
     out
 }
 
-/// Pinned 3D position per node, computed ONCE across every
-/// chain: the average of every member row's view of the node —
-/// endpoint control points for rows ending there, curve
-/// evaluations for rows spanning it. Keyed by vertex handle so
-/// transverse chains meeting at a face corner interpolate the
-/// SAME point.
-fn global_node_positions(
-    sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
-    patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
-) -> HashMap<VertexHandle, Point3> {
-    let mut sums: HashMap<VertexHandle, (Point3, usize)> = HashMap::new();
-    for sub in sub_chains {
-        for &(vertex, param) in &sub.nodes {
-            for &(key, embedding) in &sub.rows {
-                let (lo, hi) = embedding.chain_interval();
-                if param < lo - NODE_PARAM_TOL || param > hi + NODE_PARAM_TOL {
-                    continue;
-                }
-                let controls = boundary_controls(&patches[&key.face], key.side);
-                let t = (param - embedding.offset) / embedding.scale;
-                let position = if t.abs() <= NODE_PARAM_TOL {
-                    controls[0]
-                } else if (t - 1.0).abs() <= NODE_PARAM_TOL {
-                    controls[9]
-                } else {
-                    eval_row(&controls, t)
-                };
-                sums.entry(vertex)
-                    .and_modify(|(sum, count)| {
-                        *sum =
-                            Point3::new(sum.x + position.x, sum.y + position.y, sum.z + position.z);
-                        *count += 1;
-                    })
-                    .or_insert((position, 1));
-            }
-        }
-    }
-    sums.into_iter()
-        .map(|(vertex, (sum, count))| {
-            let inverse = 1.0 / count as f64;
-            (
-                vertex,
-                Point3::new(sum.x * inverse, sum.y * inverse, sum.z * inverse),
-            )
-        })
-        .collect()
-}
-
 /// Interpolation constraints for one sub-chain: its node
 /// parameters paired with the globally pinned vertex positions.
 fn sub_chain_node_constraints(
@@ -369,60 +404,6 @@ fn sub_chain_node_constraints(
     out.sort_by(|a, b| a.0.total_cmp(&b.0));
     out.dedup_by(|a, b| (a.0 - b.0).abs() <= NODE_PARAM_TOL);
     out
-}
-
-/// Globally pinned tangent-plane normal per node, computed like
-/// node positions: every member face contributes its surface
-/// normal at the node's boundary point, sign-aligned to the
-/// running sum (only the normal's LINE matters — the
-/// perpendicularity constraints are sign-agnostic).
-fn global_node_normals(
-    sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
-    patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
-) -> HashMap<VertexHandle, Vec3> {
-    let mut sums: HashMap<VertexHandle, Vec3> = HashMap::new();
-    for sub in sub_chains {
-        for &(vertex, param) in &sub.nodes {
-            for &(key, embedding) in &sub.rows {
-                let (lo, hi) = embedding.chain_interval();
-                if param < lo - NODE_PARAM_TOL || param > hi + NODE_PARAM_TOL {
-                    continue;
-                }
-                let t = ((param - embedding.offset) / embedding.scale).clamp(0.0, 1.0);
-                let Some(normal) = boundary_surface_normal(&patches[&key.face], key.side, t) else {
-                    continue;
-                };
-                let entry = sums.entry(vertex).or_insert(Vec3::new(0.0, 0.0, 0.0));
-                let aligned = if entry.dot(&normal) < 0.0 {
-                    normal * -1.0
-                } else {
-                    normal
-                };
-                *entry = *entry + aligned;
-            }
-        }
-    }
-    sums.into_iter()
-        .filter_map(|(vertex, sum)| sum.normalized().map(|normal| (vertex, normal)))
-        .collect()
-}
-
-/// Unit surface normal of the patch at a boundary-row point.
-fn boundary_surface_normal(
-    patch: &RectangularGregoryBiNonic,
-    side: BoundarySide,
-    t: f64,
-) -> Option<Vec3> {
-    let (u, v) = match side {
-        BoundarySide::UMin => (0.0, t),
-        BoundarySide::UMax => (1.0, t),
-        BoundarySide::VMin => (t, 0.0),
-        BoundarySide::VMax => (t, 1.0),
-    };
-    patch
-        .partial_u(u, v)
-        .cross(&patch.partial_v(u, v))
-        .normalized()
 }
 
 /// Tangent-plane constraints for one sub-chain: at every node

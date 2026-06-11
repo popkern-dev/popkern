@@ -89,11 +89,10 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate_status=accepted_selected")
-                && detail
-                    .contains("candidate=pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe")
-                && detail.contains("operation_status=chain_ribbon_network_authored")
+                && detail.contains("candidate=pcurve_then_chain_constructive_cells_if_g0_safe")
+                && detail.contains("operation_status=chain_constructive_cells_authored")
         }),
-        "{fixture} should select the chain ribbon network repair (exact shared rows plus shared cross-tangent planes by construction); support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} should select the constructive chain-cell repair (rows, bands, and interiors derived from the shared chain fields); support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

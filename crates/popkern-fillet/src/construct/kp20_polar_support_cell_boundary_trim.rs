@@ -80,6 +80,54 @@ pub(crate) fn full_boundary_trims(
     Ok(out)
 }
 
+/// Count of slot face-pair edges that could NOT become trims,
+/// by reason — every skipped edge is a hole in the chain
+/// network's coverage (its rows are never glued), so the counts
+/// belong in the construction facts.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct SkippedBoundaryTrims {
+    pub(crate) missing_pcurve: usize,
+    pub(crate) unrecognized_boundary_span: usize,
+}
+
+/// Mirror of [`full_boundary_trims`]' enumeration that counts the
+/// candidate edges its filters reject.
+pub(crate) fn count_skipped_boundary_trims(
+    brep: &BRep,
+    slots: &[Kp20ExpandedSupportSurfaceSlot],
+) -> Result<SkippedBoundaryTrims, CoreError> {
+    let mut skipped = SkippedBoundaryTrims::default();
+    for (slot_a, slot) in slots.iter().enumerate() {
+        for &half_edge in &face_outer_half_edges(brep, slot.face)? {
+            let twin = brep.half_edges[half_edge].twin;
+            let Some(face_b) = brep
+                .loops
+                .get(brep.half_edges[twin].loop_)
+                .map(|loop_| loop_.face)
+            else {
+                continue;
+            };
+            let Some(slot_b) = slots.iter().position(|slot| slot.face == face_b) else {
+                continue;
+            };
+            if slot_b <= slot_a {
+                continue;
+            }
+            let (Some(pcurve_a), Some(pcurve_b)) = (
+                brep.half_edges[half_edge].pcurve.as_ref(),
+                brep.half_edges[twin].pcurve.as_ref(),
+            ) else {
+                skipped.missing_pcurve += 1;
+                continue;
+            };
+            if boundary_span(pcurve_a).is_none() || boundary_span(pcurve_b).is_none() {
+                skipped.unrecognized_boundary_span += 1;
+            }
+        }
+    }
+    Ok(skipped)
+}
+
 pub(crate) fn face_outer_half_edges(
     brep: &BRep,
     face: FaceHandle,

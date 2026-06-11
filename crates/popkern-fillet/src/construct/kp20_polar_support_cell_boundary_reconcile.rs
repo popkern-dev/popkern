@@ -9,6 +9,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_band_field.rs"]
+mod band_field;
 #[path = "kp20_polar_support_cell_boundary_cluster.rs"]
 mod boundary_cluster;
 #[path = "kp20_polar_support_cell_boundary_composed.rs"]
@@ -25,6 +27,8 @@ mod cell_reauthor;
 mod chain_discovery;
 #[path = "kp20_polar_support_cell_chain_fit.rs"]
 mod chain_fit;
+#[path = "kp20_polar_support_cell_chain_nodes.rs"]
+mod chain_nodes;
 #[path = "kp20_polar_support_cell_chain_ribbon.rs"]
 mod chain_ribbon;
 #[path = "kp20_polar_support_cell_chain_ribbon_field.rs"]
@@ -49,7 +53,8 @@ mod tangent_row;
 mod trim_ownership;
 
 pub(super) use boundary_trim::{
-    BoundarySide, FullBoundaryTrim, face_outer_half_edges, full_boundary_trims,
+    BoundarySide, FullBoundaryTrim, count_skipped_boundary_trims, face_outer_half_edges,
+    full_boundary_trims,
 };
 
 pub(crate) fn reconcile_support_cell_full_boundaries(
@@ -136,6 +141,14 @@ pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
     faces: &[FaceHandle],
 ) -> Result<String, CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
+    // Two fixed-point passes: the first pass's node normals are
+    // averaged from the incoherent pre-construction sheets, so
+    // the two boundaries' twist demands at each corner disagree
+    // by the sheet mismatch (the bi-9 twist-compatibility
+    // residual). After one pass the geometry is coherent;
+    // recomputing the normals and re-deriving collapses the
+    // demand disagreement and with it the corner G1 residual.
+    let first_pass_status = chain_fit::author_chain_network_with_constructive_cells(brep, &slots)?;
     let status = chain_fit::author_chain_network_with_constructive_cells(brep, &slots)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
@@ -143,7 +156,14 @@ pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
             "kp20 support-cell constructive cell re-authoring produced invalid BRep: {error}"
         ))
     })?;
-    Ok(status)
+    let first_pass_twist = first_pass_status
+        .split("max_twist_conflict_distance=")
+        .nth(1)
+        .and_then(|tail| tail.split(';').next())
+        .unwrap_or("unknown");
+    Ok(format!(
+        "{status};constructive_pass_count=2;first_pass_max_twist_conflict_distance={first_pass_twist}"
+    ))
 }
 
 pub(crate) fn reconcile_assigned_support_cell_top_full_boundaries(

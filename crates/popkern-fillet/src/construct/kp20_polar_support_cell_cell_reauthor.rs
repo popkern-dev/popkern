@@ -27,9 +27,10 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
+use super::band_field::author_ribbon_field;
 use super::chain_fit::{ChainRowKey, boundary_controls};
 use super::chain_ribbon_field::{
-    eval_ribbon_field, fit_ribbon_field, ribbon_field_segment, row_derivative_coefficients,
+    eval_ribbon_field, ribbon_field_segment, row_derivative_coefficients,
 };
 
 /// Sample count for the per-sub-chain ribbon-field fit.
@@ -57,6 +58,30 @@ pub(super) struct CellReauthorOutcome {
     pub(super) leg_solve_declined_count: usize,
     pub(super) field_declined_sub_chain_count: usize,
     pub(super) twist_conflict_count: usize,
+    /// Largest distance between two boundaries' demands for one
+    /// twist control. Averaging perturbs each boundary's derived
+    /// field by `9·B₁(t)·conflict/2`, so this magnitude bounds
+    /// the construction's G1 residual near corners — the bi-9
+    /// twist-compatibility limit.
+    pub(super) max_twist_conflict_distance: f64,
+    /// Construction self-check: worst out-of-span component of
+    /// the derived cross-derivative fields, relative to the
+    /// field magnitude, sampled BEFORE the twist writes are
+    /// averaged. The derivation is a polynomial identity in
+    /// `span(C', R)`, so anything above roundoff here is an
+    /// implementation defect, not a twist trade-off.
+    pub(super) max_derived_span_residual: f64,
+    /// Legs rotated into their node planes by the repair
+    /// pre-pass, and the worst out-of-plane ratio found before
+    /// repair. Chained rows' legs are already in-plane (their
+    /// chains are tangent-constrained), so repairs discipline
+    /// the unchained rim rows' transverse controls.
+    pub(super) repaired_leg_count: usize,
+    pub(super) max_leg_out_of_plane_ratio: f64,
+    /// Worst NORMAL component of a twist-demand disagreement —
+    /// the only part that damages G1 (in-plane disagreement
+    /// only redistributes the tangential field).
+    pub(super) max_twist_conflict_normal_component: f64,
     pub(super) refilled_cell_count: usize,
 }
 
@@ -68,11 +93,17 @@ pub(super) fn reauthor_cells_from_chain_network(
     node_normals: &HashMap<VertexHandle, Vec3>,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
+    let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
+        .iter()
+        .flat_map(|sub| sub.rows.iter().map(|&(key, _)| key))
+        .collect();
     // Collect every derived control write; twist controls are
-    // demanded by two boundaries of the same face and averaged.
-    let mut writes: HashMap<(FaceHandle, usize, usize), (Point3, usize)> = HashMap::new();
+    // demanded by two boundaries of the same face and averaged,
+    // and the demand spread is retained for observability.
+    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<(Point3, Option<Vec3>)>> =
+        HashMap::new();
     for sub in sub_chains {
-        let Some(field) = author_ribbon_field(sub, node_normals) else {
+        let Some(field) = author_ribbon_field(sub, node_normals, patches, &chained_rows) else {
             outcome.field_declined_sub_chain_count += 1;
             continue;
         };
@@ -81,20 +112,47 @@ pub(super) fn reauthor_cells_from_chain_network(
                 continue;
             };
             let row0 = boundary_controls(patch, key.side);
-            let row1 = second_row_controls(patch, key.side);
             let field_segment = ribbon_field_segment(&field, start, end);
+            // Leg repair: the band derivation closes exactly only
+            // if its end legs lie in the LOCAL derivation span
+            // span(C'(end), R(end)). Chained transverse rows'
+            // legs are already in-plane at nodes (tangent
+            // constraints), so the rotation is a no-op for them;
+            // unchained rim rows' junk legs get rotated in
+            // (magnitude- and in-plane-direction-preserving) and
+            // the transverse control is written back. Defined at
+            // chain extremes too, where no node exists.
+            repair_row_end_legs(
+                patches,
+                key,
+                &row0,
+                &field_segment,
+                &chained_rows,
+                &mut outcome,
+            );
+            let Some(patch) = patches.get(&key.face) else {
+                continue;
+            };
+            let row1 = second_row_controls(patch, key.side);
             match derive_row1(&row0, &row1, &field_segment) {
                 Some(derived) => {
+                    outcome.max_derived_span_residual = outcome
+                        .max_derived_span_residual
+                        .max(derived_span_residual(&row0, &derived, &field_segment));
+                    let derivative = row_derivative_coefficients(&row0);
+                    let corner_normal_start = derivative[0].cross(&field_segment[0]).normalized();
+                    let corner_normal_end = derivative[8].cross(&field_segment[8]).normalized();
                     for (k, point) in derived.iter().enumerate().take(9).skip(1) {
                         let (i, j) = second_row_grid_index(key.side, k);
+                        let plane_normal = match k {
+                            1 => corner_normal_start,
+                            8 => corner_normal_end,
+                            _ => None,
+                        };
                         writes
                             .entry((key.face, i, j))
-                            .and_modify(|(sum, count)| {
-                                *sum =
-                                    Point3::new(sum.x + point.x, sum.y + point.y, sum.z + point.z);
-                                *count += 1;
-                            })
-                            .or_insert((*point, 1));
+                            .or_default()
+                            .push((*point, plane_normal));
                     }
                     outcome.derived_row_count += 1;
                 }
@@ -103,13 +161,35 @@ pub(super) fn reauthor_cells_from_chain_network(
         }
     }
     let mut touched_faces = Vec::new();
-    for (&(face, i, j), &(sum, count)) in &writes {
+    for (&(face, i, j), demands) in &writes {
+        let count = demands.len();
+        let inverse = 1.0 / count as f64;
+        let mut average = Point3::new(0.0, 0.0, 0.0);
+        for (demand, _) in demands {
+            average = Point3::new(
+                average.x + demand.x * inverse,
+                average.y + demand.y * inverse,
+                average.z + demand.z * inverse,
+            );
+        }
         if count > 1 {
             outcome.twist_conflict_count += 1;
+            for first in 0..count {
+                for second in first + 1..count {
+                    let difference = demands[second].0 - demands[first].0;
+                    outcome.max_twist_conflict_distance = outcome
+                        .max_twist_conflict_distance
+                        .max(difference.dot(&difference).sqrt());
+                    for normal in [demands[first].1, demands[second].1].into_iter().flatten() {
+                        outcome.max_twist_conflict_normal_component = outcome
+                            .max_twist_conflict_normal_component
+                            .max(difference.dot(&normal).abs());
+                    }
+                }
+            }
         }
-        let inverse = 1.0 / count as f64;
         if let Some(patch) = patches.get_mut(&face) {
-            patch.grid[i][j] = Point3::new(sum.x * inverse, sum.y * inverse, sum.z * inverse);
+            patch.grid[i][j] = average;
             if !touched_faces.contains(&face) {
                 touched_faces.push(face);
             }
@@ -124,94 +204,59 @@ pub(super) fn reauthor_cells_from_chain_network(
     outcome
 }
 
-/// Author the sub-chain's transverse ribbon field: direction
-/// targets `W(s) = N(s) × T̂(s)` (the in-plane transverse of the
-/// interpolated node-normal field), interpolated exactly at the
-/// nodes so the corner solves close.
-fn author_ribbon_field(
-    sub: &AuthoredSubChain,
-    node_normals: &HashMap<VertexHandle, Vec3>,
-) -> Option<[Vec3; 9]> {
-    let mut normal_field: Vec<(f64, Vec3)> = Vec::with_capacity(sub.nodes.len());
-    for &(vertex, param) in &sub.nodes {
-        if let Some(&normal) = node_normals.get(&vertex) {
-            normal_field.push((param, normal));
+/// Rotate a row's two end legs into the local derivation span
+/// `span(C'(end), R(end))`, preserving magnitude and in-plane
+/// direction, and write the repaired transverse controls back.
+fn repair_row_end_legs(
+    patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
+    key: ChainRowKey,
+    row0: &[Point3; 10],
+    field_segment: &[Vec3; 9],
+    chained_rows: &std::collections::HashSet<ChainRowKey>,
+    outcome: &mut CellReauthorOutcome,
+) {
+    let derivative = row_derivative_coefficients(row0);
+    for (corner_k, tangent, transverse) in [
+        (0usize, derivative[0], field_segment[0]),
+        (9, derivative[8], field_segment[8]),
+    ] {
+        // A chained transverse row's control is chain-authored
+        // (exact G0); it must never move. Its leg is made
+        // span-compatible on the field side instead (the ribbon
+        // fit is constrained to contain it).
+        if chained_rows.contains(&ChainRowKey {
+            face: key.face,
+            side: transverse_row_side(key.side, corner_k),
+        }) {
+            continue;
         }
-    }
-    normal_field.sort_by(|a, b| a.0.total_cmp(&b.0));
-    normal_field.dedup_by(|a, b| (a.0 - b.0).abs() <= 1.0e-9);
-    if normal_field.is_empty() {
-        return None;
-    }
-    for index in 1..normal_field.len() {
-        if normal_field[index - 1].1.dot(&normal_field[index].1) < 0.0 {
-            normal_field[index].1 = normal_field[index].1 * -1.0;
-        }
-    }
-    let derivative = row_derivative_coefficients(&sub.chain_cps);
-    let transverse_at = |t: f64| -> Option<Vec3> {
-        let tangent = eval_ribbon_field(&derivative, t).normalized()?;
-        let normal = interpolate_normal(&normal_field, t);
-        (normal.cross(&tangent)).normalized()
-    };
-    let mut samples = Vec::with_capacity(FIELD_FIT_SAMPLES);
-    let mut previous: Option<Vec3> = None;
-    for index in 0..FIELD_FIT_SAMPLES {
-        let t = index as f64 / (FIELD_FIT_SAMPLES - 1) as f64;
-        let Some(mut direction) = transverse_at(t) else {
+        let Some(plane_normal) = tangent.cross(&transverse).normalized() else {
             continue;
         };
-        if let Some(previous) = previous
-            && previous.dot(&direction) < 0.0
-        {
-            direction = direction * -1.0;
-        }
-        previous = Some(direction);
-        samples.push((t, direction));
-    }
-    let mut node_constraints = Vec::with_capacity(normal_field.len());
-    for &(param, _) in &normal_field {
-        let Some(mut direction) = transverse_at(param) else {
+        let Some(patch) = patches.get(&key.face) else {
             continue;
         };
-        // Align with the fitted sample stream's orientation.
-        if let Some((_, nearest)) = samples
-            .iter()
-            .min_by(|a, b| (a.0 - param).abs().total_cmp(&(b.0 - param).abs()))
-            && nearest.dot(&direction) < 0.0
-        {
-            direction = direction * -1.0;
+        let row1 = second_row_controls(patch, key.side);
+        let leg = row1[corner_k] - row0[corner_k];
+        let magnitude = leg.dot(&leg).sqrt();
+        if magnitude <= 1.0e-300 {
+            continue;
         }
-        node_constraints.push((param, direction));
-    }
-    fit_ribbon_field(&samples, &node_constraints).ok()
-}
-
-/// Piecewise-linear interpolation of the sign-aligned node
-/// normals, renormalized.
-fn interpolate_normal(field: &[(f64, Vec3)], param: f64) -> Vec3 {
-    let first = field[0];
-    let last = field[field.len() - 1];
-    if param <= first.0 {
-        return first.1;
-    }
-    if param >= last.0 {
-        return last.1;
-    }
-    for window in field.windows(2) {
-        let (p0, n0) = window[0];
-        let (p1, n1) = window[1];
-        if param <= p1 + 1.0e-9 {
-            let span = p1 - p0;
-            if span <= 1.0e-9 {
-                return n0;
-            }
-            let fraction = (param - p0) / span;
-            let blended = n0 * (1.0 - fraction) + n1 * fraction;
-            return blended.normalized().unwrap_or(n0);
+        let out_of_plane = leg.dot(&plane_normal);
+        let ratio = out_of_plane.abs() / magnitude;
+        if ratio <= 1.0e-9 {
+            continue;
+        }
+        outcome.max_leg_out_of_plane_ratio = outcome.max_leg_out_of_plane_ratio.max(ratio);
+        let Some(direction) = (leg - plane_normal * out_of_plane).normalized() else {
+            continue;
+        };
+        let (i, j) = second_row_grid_index(key.side, corner_k);
+        if let Some(patch) = patches.get_mut(&key.face) {
+            patch.grid[i][j] = row0[corner_k] + direction * magnitude;
+            outcome.repaired_leg_count += 1;
         }
     }
-    last.1
 }
 
 /// Derive the full row-1 band from `(C', R)` and the exact end
@@ -290,7 +335,53 @@ fn refill_interior_coons(patch: &mut RectangularGregoryBiNonic) {
     }
 }
 
-fn second_row_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [Point3; 10] {
+/// Relative out-of-span component of the derived band's
+/// cross-derivative at interior samples: the residual of
+/// `D(t) = 9·Σ (row1ᵢ − row0ᵢ) Bᵢ(t)` against the plane spanned
+/// by the row tangent and the ribbon field.
+fn derived_span_residual(
+    row0: &[Point3; 10],
+    derived: &[Point3; 10],
+    field_segment: &[Vec3; 9],
+) -> f64 {
+    use super::row_fit::bernstein9;
+    let derivative = row_derivative_coefficients(row0);
+    let mut worst = 0.0_f64;
+    for sample in [0.2_f64, 0.35, 0.5, 0.65, 0.8] {
+        let tangent = eval_ribbon_field(&derivative, sample);
+        let transverse = eval_ribbon_field(field_segment, sample);
+        let Some(plane_normal) = tangent.cross(&transverse).normalized() else {
+            continue;
+        };
+        let basis = bernstein9(sample);
+        let mut delta = Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..10 {
+            delta = delta + (derived[i] - row0[i]) * basis[i];
+        }
+        let magnitude = delta.dot(&delta).sqrt();
+        if magnitude <= 1.0e-300 {
+            continue;
+        }
+        worst = worst.max(delta.dot(&plane_normal).abs() / magnitude);
+    }
+    worst
+}
+
+/// The boundary side owning the transverse control at a row
+/// corner: the perpendicular boundary through that corner.
+pub(super) fn transverse_row_side(side: BoundarySide, corner_k: usize) -> BoundarySide {
+    match (side, corner_k) {
+        (BoundarySide::UMin | BoundarySide::UMax, 0) => BoundarySide::VMin,
+        (BoundarySide::UMin | BoundarySide::UMax, _) => BoundarySide::VMax,
+        (BoundarySide::VMin | BoundarySide::VMax, 0) => BoundarySide::UMin,
+        (BoundarySide::VMin | BoundarySide::VMax, _) => BoundarySide::UMax,
+    }
+}
+
+pub(super) fn second_row_controls(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+) -> [Point3; 10] {
     let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
     for (index, point) in out.iter_mut().enumerate() {
         *point = match side {
