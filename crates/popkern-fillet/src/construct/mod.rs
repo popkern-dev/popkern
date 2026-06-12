@@ -458,6 +458,7 @@ pub fn apply_blend_geometry(
                         }
                     }
                 }
+                post_pipeline::determinism_trace(&format!("post_vertex_{vertex:?}"), &result);
             }
         }
     });

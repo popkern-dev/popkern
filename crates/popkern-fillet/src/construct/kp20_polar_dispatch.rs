@@ -215,6 +215,22 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                         && support_cell_patches.len() % n == 0
                         && matches!(support_cell_patches.len() / n, 4 | 8 | 16)
                     {
+                        if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
+                            let mut hash = 0xcbf29ce484222325u64;
+                            for patch in support_cell_patches {
+                                if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = patch {
+                                    for row in &r.grid {
+                                        for point in row {
+                                            for value in [point.x, point.y, point.z] {
+                                                hash ^= value.to_bits();
+                                                hash = hash.wrapping_mul(0x100000001b3);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            eprintln!("dtrace: lift_support_cell_patches {hash:016x}");
+                        }
                         return Kp20PolarDispatchReport::accepted_support_cell(
                             support_cell_patches.to_vec(),
                             lifted

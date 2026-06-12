@@ -31,14 +31,18 @@ pub(super) fn worst_boundary_row_group_trims(
         push_boundary_row_group(&mut groups, trim.face_a, trim.side_a, trim, gap);
         push_boundary_row_group(&mut groups, trim.face_b, trim.side_b, trim, gap);
     }
+    // Full deterministic ordering: HashMap value order must not
+    // break (worst_gap, len) ties — the group key is the final
+    // tie-break so two runs always pick the same group.
     Ok(groups
-        .into_values()
-        .max_by(|a, b| {
+        .into_iter()
+        .max_by(|(key_a, a), (key_b, b)| {
             a.worst_gap
                 .total_cmp(&b.worst_gap)
                 .then_with(|| a.trims.len().cmp(&b.trims.len()))
+                .then_with(|| format!("{key_a:?}").cmp(&format!("{key_b:?}")))
         })
-        .map(|group| group.trims)
+        .map(|(_, group)| group.trims)
         .unwrap_or_default())
 }
 
