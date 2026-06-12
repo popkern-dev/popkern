@@ -82,7 +82,7 @@ mod phase_split;
 mod pipeline_timing;
 pub(crate) mod poke_4n;
 pub(crate) mod poke_hex;
-mod post_pipeline;
+pub(crate) mod post_pipeline;
 mod promotion_ladder;
 mod route_decision;
 mod sliver_absorb;

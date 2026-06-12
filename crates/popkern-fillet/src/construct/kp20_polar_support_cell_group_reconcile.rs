@@ -28,7 +28,14 @@ pub(super) fn reconcile_grouped_boundary_rows(
     let originals = trim_patches(brep, trims)?;
     let mut candidates = originals.clone();
     let samples = grouped_boundary_samples(&originals, trims)?;
-    for (key, row_samples) in &samples {
+    // Deterministic fit order: successive fits on the SAME face
+    // read controls written by earlier fits, so HashMap iteration
+    // order reaches the geometry (1e-13 run-to-run noise that
+    // chaotic downstream thresholds amplify to O(1) G1 spread).
+    let mut sample_keys: Vec<&BoundaryRowKey> = samples.keys().collect();
+    sample_keys.sort_by_key(|key| format!("{key:?}"));
+    for key in sample_keys {
+        let row_samples = &samples[key];
         let Some((_, patch)) = candidates.iter_mut().find(|(face, _)| *face == key.face) else {
             continue;
         };

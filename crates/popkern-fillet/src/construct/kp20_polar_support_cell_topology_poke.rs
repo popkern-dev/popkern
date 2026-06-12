@@ -94,16 +94,19 @@ fn commit_kp20_support_cell_patchwork_inner(
         &source_map,
     )?;
     attach_kp20_expanded_support_surfaces(brep, &binding_plan, support_surfaces)?;
+    crate::construct::post_pipeline::determinism_trace("post_attach_surfaces", brep);
     support_cell_pcurve_author::author_optimized_support_cell_pcurves(
         brep,
         &poke.surface_slots,
         support_surfaces,
         &source_map,
     )?;
+    crate::construct::post_pipeline::determinism_trace("post_pcurve_author", brep);
     support_cell_boundary_reconcile::reconcile_support_cell_full_boundaries(
         brep,
         &poke.surface_slots,
     )?;
+    crate::construct::post_pipeline::determinism_trace("post_commit_reconcile", brep);
     let support_surface_indices = binding_plan
         .bindings
         .iter()

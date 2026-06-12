@@ -119,8 +119,13 @@ fn select_support_cell_completion_candidate(
     let mut scores = Vec::new();
     for candidate in SupportCellCompletionCandidate::ALL {
         let mut candidate_brep = brep.clone();
+
         let application =
             apply_support_cell_completion_candidate(&mut candidate_brep, faces, candidate);
+        crate::construct::post_pipeline::determinism_trace(
+            &format!("post_candidate_{}", candidate.label()),
+            &candidate_brep,
+        );
         if !application.operator_succeeded {
             scores.push(SupportCellCompletionCandidateScore {
                 candidate,

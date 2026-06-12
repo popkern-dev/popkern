@@ -47,16 +47,11 @@ pub(super) fn exact_full_span_shared_boundary_rows(
     Ok("exact_boundary_full_span_rows_authored")
 }
 
-/// Equivalence classes of boundary control points that must hold
-/// one shared position for every full-span trim to be a CP
-/// identity. Two kinds of membership are unioned: the 10 paired
-/// controls along each trim, and the corner aliases within one
-/// face (a grid corner belongs to both its U-row and V-row, so
-/// keys are normalized to one canonical side before union). Each
-/// class then takes the average of its members' current
-/// positions — deterministic, order-independent, and
-/// minimal-motion; for the common 2-member interior class this
-/// is the midpoint both faces can interpolate exactly.
+/// Equivalence classes of boundary controls that must share one
+/// position for every full-span trim to be a CP identity: the 10
+/// paired controls along each trim union with the corner aliases
+/// within one face (keys normalized to one canonical side). Each
+/// class takes its members' average (sorted accumulation).
 #[derive(Default)]
 struct SharedControlClasses {
     parents: HashMap<BoundaryControlKey, BoundaryControlKey>,
@@ -85,7 +80,10 @@ impl SharedControlClasses {
         &mut self,
         brep: &BRep,
     ) -> Result<HashMap<BoundaryControlKey, Point3>, CoreError> {
-        let keys = self.parents.keys().copied().collect::<Vec<_>>();
+        // Sorted: the per-class float sums accumulate key by
+        // key, so map order would reach the averaged controls.
+        let mut keys = self.parents.keys().copied().collect::<Vec<_>>();
+        keys.sort_by_key(|key| format!("{key:?}"));
         let mut patches = HashMap::new();
         for key in &keys {
             patches
@@ -302,7 +300,10 @@ fn apply_exact_rows(
             .entry(key.face)
             .or_insert(rectangular_binonic_on_face(brep, key.face)?);
     }
-    for (key, row) in exact_rows {
+    let mut exact_keys: Vec<_> = exact_rows.keys().collect();
+    exact_keys.sort_by_key(|key| format!("{key:?}"));
+    for key in exact_keys {
+        let row = &exact_rows[key];
         let Some(patch) = patches.get_mut(&key.face) else {
             continue;
         };
@@ -440,7 +441,10 @@ fn fit_boundary_row_samples(
             .entry(key.face)
             .or_insert(rectangular_binonic_on_face(brep, key.face)?);
     }
-    for (key, row_samples) in samples {
+    let mut sample_keys: Vec<_> = samples.keys().collect();
+    sample_keys.sort_by_key(|key| format!("{key:?}"));
+    for key in sample_keys {
+        let row_samples = &samples[key];
         let Some(patch) = patches.get_mut(&key.face) else {
             continue;
         };
@@ -462,7 +466,10 @@ fn apply_targets(
             .entry(key.face)
             .or_insert(rectangular_binonic_on_face(brep, key.face)?);
     }
-    for (key, target) in targets {
+    let mut target_keys: Vec<_> = targets.keys().collect();
+    target_keys.sort_by_key(|key| format!("{key:?}"));
+    for key in target_keys {
+        let target = &targets[key];
         let Some(patch) = patches.get_mut(&key.face) else {
             continue;
         };

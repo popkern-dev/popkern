@@ -2,78 +2,9 @@
 
 use super::*;
 
-/// Determinism observability (PK-085): deterministic geometry
-/// fingerprint over vertices and bi-nonic Gregory grids. With
-/// POPKERN_DETERMINISM_TRACE=1, stage-boundary fingerprints are
-/// printed to stderr; diffing two runs localizes the first
-/// pipeline stage whose geometry differs run-to-run. Zero cost
-/// when the variable is unset.
-fn determinism_fingerprint(brep: &popkern_core::topology::BRep) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    let mut fold = |value: f64| {
-        hash ^= value.to_bits();
-        hash = hash.wrapping_mul(0x100000001b3);
-    };
-    for (_, vertex) in &brep.vertices {
-        fold(vertex.position.x);
-        fold(vertex.position.y);
-        fold(vertex.position.z);
-    }
-    for (_, face) in &brep.faces {
-        let Some(surface) = &face.surface else {
-            continue;
-        };
-        if let popkern_core::geometry::surface::SurfaceGeometry::Gregory(gp) = &surface.geometry {
-            if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = gp {
-                for row in &r.grid {
-                    for point in row {
-                        fold(point.x);
-                        fold(point.y);
-                        fold(point.z);
-                    }
-                }
-            }
-        }
-    }
-    hash
-}
-
-/// Determinism observability (PK-085): per-face fingerprints
-/// (POPKERN_DETERMINISM_FACE_TRACE=1) — the set of divergent
-/// faces between two runs names the builder that wrote them.
-pub(super) fn determinism_face_trace(label: &str, brep: &popkern_core::topology::BRep) {
-    if std::env::var_os("POPKERN_DETERMINISM_FACE_TRACE").is_none() {
-        return;
-    }
-    for (handle, face) in &brep.faces {
-        let Some(surface) = &face.surface else {
-            continue;
-        };
-        let mut hash = 0xcbf29ce484222325u64;
-        let mut fold = |value: f64| {
-            hash ^= value.to_bits();
-            hash = hash.wrapping_mul(0x100000001b3);
-        };
-        if let popkern_core::geometry::surface::SurfaceGeometry::Gregory(gp) = &surface.geometry {
-            if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = gp {
-                for row in &r.grid {
-                    for point in row {
-                        fold(point.x);
-                        fold(point.y);
-                        fold(point.z);
-                    }
-                }
-                eprintln!("ftrace: {label} {handle:?} {hash:016x}");
-            }
-        }
-    }
-}
-
-pub(super) fn determinism_trace(label: &str, brep: &popkern_core::topology::BRep) {
-    if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
-        eprintln!("dtrace: {label} {:016x}", determinism_fingerprint(brep));
-    }
-}
+#[path = "determinism_trace.rs"]
+pub(crate) mod determinism_trace_mod;
+pub(crate) use determinism_trace_mod::{determinism_face_trace, determinism_trace};
 
 pub(super) struct PostBlendPipelineInputs<'a> {
     pub(super) source_brep: &'a BRep,
@@ -425,6 +356,8 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         corner_patches,
         &mut repair_report.apex_diagnostics,
     );
+    determinism_trace("post_completion", result);
+    determinism_face_trace("post_completion", result);
 }
 
 fn support_seam_relocation_enabled() -> bool {

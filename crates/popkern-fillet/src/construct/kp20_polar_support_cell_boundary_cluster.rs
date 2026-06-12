@@ -375,7 +375,10 @@ fn apply_control_targets(
     brep: &mut BRep,
     targets: &HashMap<PatchControlKey, ControlAccumulator>,
 ) -> Result<(), CoreError> {
-    for (&key, target) in targets {
+    let mut target_keys: Vec<&PatchControlKey> = targets.keys().collect();
+    target_keys.sort_by_key(|key| format!("{key:?}"));
+    for &key in target_keys {
+        let target = &targets[&key];
         let mut patch = rectangular_binonic_on_face(brep, key.face)?;
         let scale = 1.0 / target.count as f64;
         patch.grid[key.u][key.v] =
