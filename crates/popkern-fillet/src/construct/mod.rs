@@ -206,7 +206,6 @@ pub fn apply_blend_geometry(
         )
     });
     pipeline_timing.perpendicular_split_ms = ms;
-    post_pipeline::determinism_trace("post_perp_splits", &result);
     let (_, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(
             brep,
