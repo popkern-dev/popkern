@@ -85,17 +85,18 @@ pub(super) fn end_decompression_targets(
 
 /// Interior node speed below this fraction of the control
 /// polygon's total length (= uniform speed on `[0, 1]`) is
-/// treated as a compressed cut and retargeted. Gentle by
-/// design: a single soft pass, interior stations only — the
-/// measured optimum; stronger variants (all stations, higher
-/// weight, fixed-point iteration, local-speed targets) all
-/// destabilized neighboring chains and regressed both G0 and G1.
-const NODE_SPEED_COMPRESSION_THRESHOLD: f64 = 0.7;
+/// treated as a compressed cut and retargeted. Single soft pass,
+/// interior stations only. Threshold and weight are the
+/// deterministic-sweep optimum (0.85/15: G1 1.36e-2; 0.7/5 gave
+/// 0.41, 0.9+ or weight 20 regress — over-retargeting damages
+/// corner zones; all-station/fixed-point/local-target variants
+/// destabilized neighboring chains).
+const NODE_SPEED_COMPRESSION_THRESHOLD: f64 = 0.85;
 
 /// Soft weight for derivative retarget rows. Derivative basis
 /// values reach ~9, so the effective row mass is ~80x the
 /// per-sample position mass at weight 1.
-const NODE_SPEED_TARGET_WEIGHT: f64 = 5.0;
+const NODE_SPEED_TARGET_WEIGHT: f64 = 15.0;
 
 /// Measure the solved curve's speed at every INTERIOR node
 /// parameter and produce direction-preserving derivative
