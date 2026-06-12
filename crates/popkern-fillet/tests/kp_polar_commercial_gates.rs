@@ -242,6 +242,26 @@ fn hexagon6_mixed_g1_campaign_probe() {
     }
 }
 
+/// Diagnostic probe — PK-085 determinism hunt: print EVERY apex
+/// diagnostic stage + detail, run twice, and diff to localize
+/// the first divergent pipeline stage. Removal rule: delete when
+/// the campaign concludes.
+#[ignore]
+#[test]
+fn hexagon6_mixed_determinism_trace_probe() {
+    let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06]);
+    for diagnostic in &result.repair_report.apex_diagnostics {
+        let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic else {
+            continue;
+        };
+        println!(
+            "trace: stage={} detail={}",
+            cap.stage,
+            cap.detail_code.as_deref().unwrap_or("none")
+        );
+    }
+}
+
 /// Diagnostic probe — PK-085 G1 campaign worst-sample anatomy,
 /// run manually with `--ignored`. Removal rule: delete when the
 /// campaign concludes.

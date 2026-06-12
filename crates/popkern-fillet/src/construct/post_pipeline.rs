@@ -2,6 +2,79 @@
 
 use super::*;
 
+/// Determinism observability (PK-085): deterministic geometry
+/// fingerprint over vertices and bi-nonic Gregory grids. With
+/// POPKERN_DETERMINISM_TRACE=1, stage-boundary fingerprints are
+/// printed to stderr; diffing two runs localizes the first
+/// pipeline stage whose geometry differs run-to-run. Zero cost
+/// when the variable is unset.
+fn determinism_fingerprint(brep: &popkern_core::topology::BRep) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    let mut fold = |value: f64| {
+        hash ^= value.to_bits();
+        hash = hash.wrapping_mul(0x100000001b3);
+    };
+    for (_, vertex) in &brep.vertices {
+        fold(vertex.position.x);
+        fold(vertex.position.y);
+        fold(vertex.position.z);
+    }
+    for (_, face) in &brep.faces {
+        let Some(surface) = &face.surface else {
+            continue;
+        };
+        if let popkern_core::geometry::surface::SurfaceGeometry::Gregory(gp) = &surface.geometry {
+            if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = gp {
+                for row in &r.grid {
+                    for point in row {
+                        fold(point.x);
+                        fold(point.y);
+                        fold(point.z);
+                    }
+                }
+            }
+        }
+    }
+    hash
+}
+
+/// Determinism observability (PK-085): per-face fingerprints
+/// (POPKERN_DETERMINISM_FACE_TRACE=1) — the set of divergent
+/// faces between two runs names the builder that wrote them.
+pub(super) fn determinism_face_trace(label: &str, brep: &popkern_core::topology::BRep) {
+    if std::env::var_os("POPKERN_DETERMINISM_FACE_TRACE").is_none() {
+        return;
+    }
+    for (handle, face) in &brep.faces {
+        let Some(surface) = &face.surface else {
+            continue;
+        };
+        let mut hash = 0xcbf29ce484222325u64;
+        let mut fold = |value: f64| {
+            hash ^= value.to_bits();
+            hash = hash.wrapping_mul(0x100000001b3);
+        };
+        if let popkern_core::geometry::surface::SurfaceGeometry::Gregory(gp) = &surface.geometry {
+            if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = gp {
+                for row in &r.grid {
+                    for point in row {
+                        fold(point.x);
+                        fold(point.y);
+                        fold(point.z);
+                    }
+                }
+                eprintln!("ftrace: {label} {handle:?} {hash:016x}");
+            }
+        }
+    }
+}
+
+pub(super) fn determinism_trace(label: &str, brep: &popkern_core::topology::BRep) {
+    if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
+        eprintln!("dtrace: {label} {:016x}", determinism_fingerprint(brep));
+    }
+}
+
 pub(super) struct PostBlendPipelineInputs<'a> {
     pub(super) source_brep: &'a BRep,
     pub(super) result: &'a mut BRep,
@@ -31,7 +104,9 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         .iter()
         .map(|eg| eg.surface.clone())
         .collect();
+    determinism_trace("pre_surface_fix", result);
     surface_fix::correct_face_surfaces(result, brep, &fillet_surfaces);
+    determinism_trace("post_surface_fix", result);
 
     // Reconcile edge curves with their adjacent face surfaces.
     // multi_chord and corner-blend mef calls write straight-line
@@ -44,6 +119,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // vertices (apex-only filleting case) keep their chord-line
     // edges; topology_repair handles those separately.
     edge_reconcile::reconcile_edge_curves(result);
+    determinism_trace("post_edge_reconcile", result);
 
     // Late-pipeline clamp: any half-edge pcurve on a bounded-UV
     // surface (Gregory/NURBS/sphere/torus) whose evaluation samples
@@ -61,6 +137,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // and selective use, but don't run it by default.
     if std::env::var("POPKERN_PCURVE_REFIT").is_ok() {
         pcurve_refit::refit_all_pcurves(result);
+        determinism_trace("post_pcurve_refit", result);
     }
 
     // Topology repair for off-cylinder vertices in cylinder face
@@ -89,6 +166,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             .any(|patch| matches!(patch.method, crate::types::CornerMethod::Gregory));
     if topology_repair_enabled(apex_boundary_context) {
         let repaired = topology_repair::repair_cylinder_face_off_surface_vertices(result);
+        determinism_trace("post_topology_repair", result);
         if std::env::var_os("POPKERN_TOPO_REPAIR_TRACE").is_some() {
             eprintln!("[topo_repair] default post-blend repaired {repaired} chord pair(s)");
         }
@@ -118,6 +196,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // adjacency and breaks strict edge/surface validation.
     protected_caps.extend(direct_apex_built_faces.iter().copied());
     protected_caps.extend(exact_boundary_protected_support_faces(repair_report));
+    determinism_trace("pre_sliver_absorb", result);
     sliver_absorb::run_and_route_warnings_with_protected(
         result,
         tolerance,
@@ -126,7 +205,9 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         warnings,
     );
 
+    determinism_trace("post_sliver_absorb", result);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
+    determinism_trace("post_cap_insert", result);
 
     // Phase 6c-D Stage 4.4: re-run the substituted-boundary wire
     // step now that sliver_absorb and cap_insert have settled the
@@ -149,6 +230,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     for (boundary, sub_faces) in late_wire_jobs {
         let wired =
             sphere_fit_edge_wire::wire_substituted_boundary_to_edges(result, boundary, sub_faces);
+        determinism_trace("post_wire_jobs", result);
         if std::env::var_os("POPKERN_KP_TRACE").is_some() {
             eprintln!(
                 "[late-wire] re-ran on {} sub_faces, wrote {wired} edges",
@@ -171,6 +253,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     {
         for (_boundary, sub_faces) in late_wire_jobs {
             let lifted = apex_face_lift::lift_all_apex_plane_faces(result, sub_faces);
+            determinism_trace("post_apex_lift", result);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!("[apex-face-lift] lifted {lifted} pyramid plane faces");
             }
@@ -191,11 +274,13 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         for (boundary, sub_faces) in late_wire_jobs {
             let (n_moved, worst) =
                 apex_vertex_coherence::relocate_apex_vertices(result, sub_faces, boundary);
+            determinism_trace("post_relocate", result);
             // Phase 6c-X.A.5: rebuild BASE-EDGE curves (cyl-vs-Plane
             // apex generators going AWAY from the apex through V) as
             // straight lines from the new V→T position to v_other.
             // Restores vertex↔curve coherence on the BASE-EDGE side.
             let n_repaired = apex_vertex_coherence::repair_base_edges(result, sub_faces);
+            determinism_trace("post_repair_base", result);
             // Phase 6c-X.A.5b: realign cap-loop edges' curve direction
             // to match BRep convention (curve(t_start) =
             // primary_origin's vertex position).  Validate_watertight
@@ -204,6 +289,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             // that no longer applies after A.4's relocations.
             let n_realigned =
                 apex_vertex_coherence::realign_cap_loop_curve_directions(result, sub_faces);
+            determinism_trace("post_realign", result);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!(
                     "[apex-path-a] relocated {n_moved} vertices, worst V→T = {worst:.3e} m; \
@@ -227,6 +313,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         let cap_faces: Vec<popkern_core::topology::FaceHandle> =
             corner_patches.iter().map(|p| p.face).collect();
         let _n = crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(result, &cap_faces);
+        determinism_trace("post_rebuild_caps", result);
     }
 
     // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
@@ -255,6 +342,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
                 &cap_faces,
                 &per_fillet_caps,
             );
+            determinism_trace("post_var_radius", result);
             if std::env::var("POPKERN_VAR_RADIUS_TRACE").is_ok_and(|v| v == "1") {
                 eprintln!("[var-radius-reroute] caps={} result={r:?}", cap_faces.len());
             }
@@ -267,6 +355,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             && !route.exact_boundary_report.committed_faces.is_empty()
     });
     if support_seam_relocation_enabled() && !exact_boundary_owns_apex_seams {
+        determinism_trace("pre_seams", result);
         for (boundary, sub_faces) in support_seam_jobs {
             let report = three_quad_apply::author_model_level_support_face_boundary_seams(
                 result,
@@ -274,6 +363,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
                 boundary,
                 &[],
             );
+            determinism_trace("post_seams", result);
             if std::env::var_os("POPKERN_KP_TRACE").is_some() {
                 eprintln!(
                     "[support-seam-relocation] sub_faces={} authored={} declined={} \
@@ -303,12 +393,14 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
+    determinism_trace("pre_reclassify", result);
     blend_insert::reclassify_corner_methods(result, corner_patches);
 
     // Final pass: clamp any out-of-range pcurve control points on
     // bounded-UV surfaces (Gregory / NURBS / sphere / torus). Runs
     // *last* so it catches pcurves attached by every prior pipeline
     // stage (attach_fillet_pcurves, sliver_absorb, cap_insert, …).
+    determinism_trace("pre_pcurve_clamp", result);
     let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(result);
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
@@ -320,12 +412,14 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // fitted 3-D curve to remain coupled to support-side pcurves.
     result.normalize_semantic_line_edge_curves_preserving_pcurves(tolerance.linear().max(1.0e-8));
 
+    determinism_trace("pre_export_repair", result);
     exact_boundary_export_repair::repair_exact_boundary_export_blockers(result, repair_report);
 
     repair_report.edge_curve_endpoint_coherence_repairs += result.separate_nonmanifold_edge_uses();
     repair_report.edge_curve_endpoint_coherence_repairs +=
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
 
+    determinism_trace("pre_completion", result);
     corner_patch_support_completion::complete_corner_patch_support_pcurves(
         result,
         corner_patches,

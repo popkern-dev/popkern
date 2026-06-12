@@ -206,6 +206,7 @@ pub fn apply_blend_geometry(
         )
     });
     pipeline_timing.perpendicular_split_ms = ms;
+    post_pipeline::determinism_trace("post_perp_splits", &result);
     let (_, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(
             brep,
@@ -218,6 +219,7 @@ pub fn apply_blend_geometry(
         )
     });
     pipeline_timing.face_trim_ms = ms;
+    post_pipeline::determinism_trace("post_face_trim", &result);
 
     if !failures.is_empty() && failures.len() == edge_geometries.len() {
         return Err(failures);
@@ -460,8 +462,11 @@ pub fn apply_blend_geometry(
         }
     });
     pipeline_timing.vertex_blend_ms = ms;
+    post_pipeline::determinism_trace("post_vertex_blend", &result);
+    post_pipeline::determinism_face_trace("post_vertex_blend", &result);
 
     let (_, ms) = pipeline_timing::timed(|| {
+        post_pipeline::determinism_trace("pre_post_pipeline", &result);
         post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {
             source_brep: brep,
             result: &mut result,
