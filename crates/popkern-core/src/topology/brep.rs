@@ -47,7 +47,9 @@ pub struct BRep {
     /// Edges with a null-sentinel twin (one face only). When
     /// non-empty, manifold / Euler validation is relaxed.
     #[serde(default)]
-    pub boundary_edges: std::collections::HashSet<EdgeHandle>,
+    /// BTreeSet (not HashSet): repairs iterate this; ordered
+    /// iteration keeps the kernel bit-deterministic run to run.
+    pub boundary_edges: std::collections::BTreeSet<EdgeHandle>,
     /// Radial cycle for N>2 non-manifold edges. Empty for manifold
     /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
     #[serde(default)]
@@ -100,7 +102,7 @@ impl BRep {
             name_pool: NamePool::new(),
             operation_labels: OperationLabels::default(),
             max_imprecision,
-            boundary_edges: std::collections::HashSet::new(),
+            boundary_edges: std::collections::BTreeSet::new(),
             nonmanifold_radial: std::collections::HashMap::new(),
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
