@@ -5,7 +5,7 @@ use crate::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use serde::{Deserialize, Serialize};
 
 /// Stable key for trim authority owned by one face's use of a half-edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct FaceUseTrimKey {
     /// Face that owns the trim use.
     pub face: FaceHandle,

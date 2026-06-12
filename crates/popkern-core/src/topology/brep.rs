@@ -71,7 +71,10 @@ pub struct BRep {
     pub surface_boundary_audit_events: Vec<SurfaceBoundaryAuditEvent>,
     /// Face-use-local pcurve authority for loop uses.
     #[serde(default)]
-    pub face_use_pcurves: HashMap<FaceUseTrimKey, Pcurve>,
+    /// BTreeMap (not HashMap): this is geometry AUTHORITY data
+    /// that repairs and measurements iterate; ordered iteration
+    /// keeps the kernel bit-deterministic run to run.
+    pub face_use_pcurves: std::collections::BTreeMap<FaceUseTrimKey, Pcurve>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
@@ -102,7 +105,7 @@ impl BRep {
             surface_boundary_hints: std::collections::HashMap::new(),
             surface_boundary_declines: std::collections::HashMap::new(),
             surface_boundary_audit_events: Vec::new(),
-            face_use_pcurves: HashMap::new(),
+            face_use_pcurves: std::collections::BTreeMap::new(),
             degradation_tracker: None,
         }
     }
