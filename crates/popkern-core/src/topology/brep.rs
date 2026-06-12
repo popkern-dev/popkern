@@ -47,8 +47,8 @@ pub struct BRep {
     /// Edges with a null-sentinel twin (one face only). When
     /// non-empty, manifold / Euler validation is relaxed.
     #[serde(default)]
-    /// BTreeSet (not HashSet): repairs iterate this; ordered
-    /// iteration keeps the kernel bit-deterministic run to run.
+    /// Ordered set: repairs iterate this; ordering keeps the
+    /// kernel deterministic.
     pub boundary_edges: std::collections::BTreeSet<EdgeHandle>,
     /// Radial cycle for N>2 non-manifold edges. Empty for manifold
     /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
@@ -73,9 +73,8 @@ pub struct BRep {
     pub surface_boundary_audit_events: Vec<SurfaceBoundaryAuditEvent>,
     /// Face-use-local pcurve authority for loop uses.
     #[serde(default)]
-    /// BTreeMap (not HashMap): this is geometry AUTHORITY data
-    /// that repairs and measurements iterate; ordered iteration
-    /// keeps the kernel bit-deterministic run to run.
+    /// Ordered map: repairs and measurements iterate this
+    /// authority data; ordering keeps the kernel deterministic.
     pub face_use_pcurves: std::collections::BTreeMap<FaceUseTrimKey, Pcurve>,
     /// Tracks precision degradation across operations.
     #[serde(skip)]
