@@ -15,6 +15,8 @@ mod band_derive;
 mod band_field;
 #[path = "kp20_polar_support_cell_leg_class.rs"]
 mod leg_class;
+#[path = "kp20_polar_support_cell_leg_direction.rs"]
+mod leg_direction;
 #[path = "kp20_polar_support_cell_surface_access.rs"]
 mod surface_access;
 pub(self) use surface_access::{

@@ -1,13 +1,8 @@
-//! Canonical chain-curve authoring for KP20 support-cell rows.
-//!
-//! For each discovered sub-chain, fit ONE degree-9 canonical
-//! curve over the chain domain — interpolating the pinned node
-//! positions exactly, least-squares against the current row
-//! geometry elsewhere — then assign every member row the exact
-//! de Casteljau restriction of that curve over its interval.
-//! Every trim between rows of the chain becomes a control-point
-//! identity: full-span, one-sided, and both-partial T-junction
-//! pairs alike.
+//! Canonical chain-curve authoring for KP20 support-cell rows:
+//! one constrained degree-9 curve per sub-chain (hard node
+//! pins, soft tangent planes), every member row its exact de
+//! Casteljau restriction — all trims of a chain become CP
+//! identities.
 
 use std::collections::HashMap;
 
@@ -28,6 +23,7 @@ use super::chain_spacing::{
     end_decompression_targets, end_spacing_ratio, node_speed_decompression_targets,
 };
 use super::leg_class::leg_class_targets;
+use super::leg_direction::leg_direction_targets;
 use super::row_fit::bernstein9;
 use super::row_segment::bezier_row_segment;
 use super::{
@@ -85,8 +81,7 @@ pub(super) fn author_chain_curve_network(
     author_chain_network_internal(brep, slots, ChainNetworkMode::Curves)
 }
 
-/// Chain network plus row-1 projection onto shared
-/// cross-tangent planes (exact G0, measured G1).
+/// Chain network plus shared cross-tangent row-1 projection.
 pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -94,8 +89,7 @@ pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndCrossTangentRibbons)
 }
 
-/// Chain network plus constructive cell re-authoring: per-chain
-/// ribbon fields, derived row-1 bands, Coons interiors.
+/// Chain network plus constructive cell re-authoring.
 pub(super) fn author_chain_network_with_constructive_cells(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -278,10 +272,18 @@ fn author_chain_network_internal(
     }
     let mut leg_class_thin_count = 0usize;
     let mut leg_class_chain_count = 0usize;
+    let mut rotated_leg_count = 0usize;
     if mode.constructive() {
-        // Per-vertex leg-class solve — see the leg_class module.
+        // Per-vertex joint leg solves (magnitude + direction) —
+        // see the leg_class and leg_direction modules.
         let (mut class_targets, thin_count) = leg_class_targets(&authored_sub_chains);
         leg_class_thin_count += thin_count;
+        let (direction_targets, rotated) =
+            leg_direction_targets(&authored_sub_chains, &node_normals);
+        rotated_leg_count = rotated;
+        for (chain_index, rows) in direction_targets {
+            class_targets.entry(chain_index).or_default().extend(rows);
+        }
         let mut chain_order: Vec<usize> = class_targets.keys().copied().collect();
         chain_order.sort_unstable();
         for chain_index in chain_order {
@@ -354,7 +356,7 @@ fn author_chain_network_internal(
         }
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count}{reauthor_detail}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason,
