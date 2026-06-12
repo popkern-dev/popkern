@@ -85,9 +85,8 @@ pub(super) fn author_chain_curve_network(
     author_chain_network_internal(brep, slots, ChainNetworkMode::Curves)
 }
 
-/// Author the chain-curve network AND project every member
-/// row's row-1 controls onto shared cross-tangent planes —
-/// exact G0 (shared curves) plus measured G1 (shared planes).
+/// Chain network plus row-1 projection onto shared
+/// cross-tangent planes (exact G0, measured G1).
 pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -95,11 +94,8 @@ pub(super) fn author_chain_network_with_cross_tangent_ribbons(
     author_chain_network_internal(brep, slots, ChainNetworkMode::CurvesAndCrossTangentRibbons)
 }
 
-/// Author the chain network and then REBUILD every chained
-/// cell's near-boundary band and interior constructively: a
-/// transverse ribbon field per sub-chain, row-1 bands derived
-/// from `(C, R)` with linear blends matched to the exact end
-/// legs, twist conflicts averaged, interiors Coons-refilled.
+/// Chain network plus constructive cell re-authoring: per-chain
+/// ribbon fields, derived row-1 bands, Coons interiors.
 pub(super) fn author_chain_network_with_constructive_cells(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
