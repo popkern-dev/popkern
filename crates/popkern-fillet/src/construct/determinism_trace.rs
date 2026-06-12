@@ -16,8 +16,22 @@ fn fold(hash: &mut u64, value: f64) {
     *hash = hash.wrapping_mul(0x100000001b3);
 }
 
-/// Deterministic fingerprint over vertices and bi-nonic Gregory
-/// grids (plain and dual-twist, including candidate pairs).
+/// FNV-fold a Debug rendering into the hash. Rust's f64 Debug
+/// prints the shortest round-trip representation, so this is
+/// bit-exact for float-bearing geometry like pcurves and edge
+/// curves whose internal structure varies by variant.
+#[inline]
+fn fold_debug(hash: &mut u64, value: &impl std::fmt::Debug) {
+    for byte in format!("{value:?}").bytes() {
+        *hash ^= u64::from(byte);
+        *hash = hash.wrapping_mul(0x100000001b3);
+    }
+}
+
+/// Deterministic fingerprint over vertices, bi-nonic Gregory
+/// grids (plain and dual-twist, including candidate pairs),
+/// half-edge pcurves, face-use pcurve authority, and edge
+/// curves — everything the shared-trim measure reads.
 pub(crate) fn determinism_fingerprint(brep: &BRep) -> u64 {
     let mut hash = 0xcbf29ce484222325u64;
     for (_, vertex) in &brep.vertices {
@@ -64,10 +78,42 @@ pub(crate) fn determinism_fingerprint(brep: &BRep) -> u64 {
     hash
 }
 
+/// Pcurve-only fingerprint (half-edge pcurves + face-use
+/// authority).
+pub(crate) fn determinism_pcurve_fingerprint(brep: &BRep) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for (_, half_edge) in &brep.half_edges {
+        if let Some(pcurve) = &half_edge.pcurve {
+            fold_debug(&mut hash, pcurve);
+        }
+    }
+    for (key, pcurve) in &brep.face_use_pcurves {
+        fold_debug(&mut hash, key);
+        fold_debug(&mut hash, pcurve);
+    }
+    hash
+}
+
+/// Edge-curve-only fingerprint.
+pub(crate) fn determinism_edge_curve_fingerprint(brep: &BRep) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for (_, edge) in &brep.edges {
+        if let Some(curve) = &edge.curve {
+            fold_debug(&mut hash, curve);
+        }
+    }
+    hash
+}
+
 /// Stage-boundary fingerprint print (POPKERN_DETERMINISM_TRACE=1).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
     if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
-        eprintln!("dtrace: {label} {:016x}", determinism_fingerprint(brep));
+        eprintln!(
+            "dtrace: {label} geo={:016x} pc={:016x} ec={:016x}",
+            determinism_fingerprint(brep),
+            determinism_pcurve_fingerprint(brep),
+            determinism_edge_curve_fingerprint(brep)
+        );
     }
 }
 

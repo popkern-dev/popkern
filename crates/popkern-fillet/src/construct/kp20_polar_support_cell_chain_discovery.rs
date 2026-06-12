@@ -78,7 +78,7 @@ pub(super) struct ChainDiscovery<K, N> {
 pub(super) fn discover_sub_chains<K, N>(trims: &[ChainTrim<K, N>]) -> ChainDiscovery<K, N>
 where
     K: Copy + Eq + Hash,
-    N: Copy + Eq + Hash,
+    N: Copy + Eq + Hash + std::fmt::Debug,
 {
     let mut adjacency: HashMap<K, Vec<usize>> = HashMap::new();
     for (index, trim) in trims.iter().enumerate() {
@@ -130,7 +130,7 @@ fn embed_chain<K, N>(
 ) -> Result<EmbeddedChain<K, N>, &'static str>
 where
     K: Copy + Eq + Hash,
-    N: Copy + Eq + Hash,
+    N: Copy + Eq + Hash + std::fmt::Debug,
 {
     let mut rows = Vec::new();
     let mut node_params: HashMap<N, f64> = HashMap::new();
@@ -180,7 +180,14 @@ where
         }
     }
     let mut nodes: Vec<(N, f64)> = node_params.into_iter().collect();
-    nodes.sort_by(|a, b| a.1.total_cmp(&b.1));
+    // Param ties (distinct vertices at one chain station, the
+    // T-junction case) must not keep HashMap order: the node
+    // sequence sets the chain solver's constraint row order, and
+    // its float path with it.
+    nodes.sort_by(|a, b| {
+        a.1.total_cmp(&b.1)
+            .then_with(|| format!("{:?}", a.0).cmp(&format!("{:?}", b.0)))
+    });
     Ok(EmbeddedChain {
         rows,
         nodes,
@@ -200,7 +207,7 @@ fn record_trim_nodes<K, N>(
 ) -> Result<(), &'static str>
 where
     K: Copy + Eq + Hash,
-    N: Copy + Eq + Hash,
+    N: Copy + Eq + Hash + std::fmt::Debug,
 {
     let Some(embedding) = visited.get(&trim.row_a).copied().or_else(|| {
         visited.get(&trim.row_b).map(|embedding_b| {
