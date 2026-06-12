@@ -27,6 +27,7 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
+use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
 use super::band_predictor::{derived_span_residual, predict_worst_trim_g1};
 use super::chain_fit::{ChainRowKey, boundary_controls};
@@ -34,10 +35,6 @@ use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficient
 use super::twist_resolution::{
     TwistDemand, dual_twist_corner_index, resolve_dual_twist_corner, resolve_twist_demands,
 };
-
-/// Determinant floor for the 2x2 end-leg solves (relative to the
-/// basis vectors' scale).
-const LEG_SOLVE_DET_TOL: f64 = 1.0e-10;
 
 /// One authored sub-chain, retained by the curve-authoring pass
 /// for the constructive re-author: the canonical curve, every
@@ -100,6 +97,9 @@ pub(super) struct CellReauthorOutcome {
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
+    /// Bands derived one-sided because a corner leg was chain-
+    /// collinear (T-junction stems, sliver tips).
+    pub(super) one_sided_band_count: usize,
     /// Dual-twist mode: per-face corner candidate pairs `(P_u,
     /// P_v)` indexed by the patch-type corner order `[(0,0),
     /// (0,9), (9,9), (9,0)]`. `None` corners keep the plain
@@ -169,6 +169,7 @@ pub(super) fn reauthor_cells_from_chain_network(
                 &row1,
                 &field_segment,
                 &mut outcome.clamped_leg_beta_count,
+                &mut outcome.one_sided_band_count,
             ) {
                 Some(derived) => {
                     outcome.max_derived_span_residual = outcome
@@ -281,90 +282,6 @@ fn repair_row_end_legs(
             outcome.repaired_leg_count += 1;
         }
     }
-}
-
-/// Relative floor on the band's transverse (β·R) component: the
-/// weak end's transverse magnitude is clamped to this fraction
-/// of the strong end's, with matching sign. Without it, sliver
-/// tips whose legs tilt almost tangent to the chain make β(t)
-/// cross zero mid-row — ∂u ∥ ∂v there, a parametrically
-/// degenerate stretch whose normals are noise on both sides of
-/// the trim. The clamp keeps everything in-span (only the
-/// in-plane shape near the corner changes), so G1 is unaffected
-/// by construction.
-const TRANSVERSE_FLOOR: f64 = 0.5;
-
-/// Derive the full row-1 band from `(C', R)` and the exact end
-/// legs: `D(t) = α(t)·C'(t) + β(t)·R(t)` with linear `α, β`
-/// matched to `D(0) = E₀`, `D(1) = E₁`, expanded into degree-9
-/// Bezier coefficients, then `row1ₖ = row0ₖ + Dₖ / 9`.
-fn derive_row1(
-    row0: &[Point3; 10],
-    row1: &[Point3; 10],
-    field_segment: &[Vec3; 9],
-    clamped_count: &mut usize,
-) -> Option<[Point3; 10]> {
-    let derivative = row_derivative_coefficients(row0);
-    let leg_start = (row1[0] - row0[0]) * 9.0;
-    let leg_end = (row1[9] - row0[9]) * 9.0;
-    let (alpha_start, mut beta_start) = solve_leg(leg_start, derivative[0], field_segment[0])?;
-    let (alpha_end, mut beta_end) = solve_leg(leg_end, derivative[8], field_segment[8])?;
-    // Transverse-floor clamp: each end's transverse magnitude
-    // must reach a fraction of the LEG SCALE (not merely of the
-    // other end — rows whose both legs are near-tangent would
-    // otherwise stay collapsed), with one consistent sign taken
-    // from the dominant end (or positive when both vanish).
-    let leg_scale = leg_start
-        .dot(&leg_start)
-        .sqrt()
-        .max(leg_end.dot(&leg_end).sqrt());
-    let floor_magnitude = TRANSVERSE_FLOOR * leg_scale;
-    let transverse_start = beta_start * field_segment[0].dot(&field_segment[0]).sqrt();
-    let transverse_end = beta_end * field_segment[8].dot(&field_segment[8]).sqrt();
-    let dominant_sign = if transverse_start.abs() >= transverse_end.abs() {
-        if transverse_start >= 0.0 { 1.0 } else { -1.0 }
-    } else if transverse_end >= 0.0 {
-        1.0
-    } else {
-        -1.0
-    };
-    if transverse_start * dominant_sign < floor_magnitude {
-        let magnitude = field_segment[0].dot(&field_segment[0]).sqrt().max(1.0e-300);
-        beta_start = dominant_sign * floor_magnitude / magnitude;
-        *clamped_count += 1;
-    }
-    if transverse_end * dominant_sign < floor_magnitude {
-        let magnitude = field_segment[8].dot(&field_segment[8]).sqrt().max(1.0e-300);
-        beta_end = dominant_sign * floor_magnitude / magnitude;
-        *clamped_count += 1;
-    }
-    let mut out = *row1;
-    for k in 1..9 {
-        // Product of a linear blend with a degree-8 field:
-        // coeffₖ = (9−k)/9·(α₀ d_k + β₀ r_k)
-        //        +    k/9·(α₁ d_{k−1} + β₁ r_{k−1}).
-        let head = derivative[k] * alpha_start + field_segment[k] * beta_start;
-        let tail = derivative[k - 1] * alpha_end + field_segment[k - 1] * beta_end;
-        let d_k = head * ((9 - k) as f64 / 9.0) + tail * (k as f64 / 9.0);
-        out[k] = row0[k] + d_k * (1.0 / 9.0);
-    }
-    Some(out)
-}
-
-/// Solve `leg = α·u + β·v` in the least-squares sense (exact
-/// when the leg is coplanar with the basis, which the node
-/// tangent-plane constraints guarantee).
-fn solve_leg(leg: Vec3, u: Vec3, v: Vec3) -> Option<(f64, f64)> {
-    let uu = u.dot(&u);
-    let uv = u.dot(&v);
-    let vv = v.dot(&v);
-    let det = uu * vv - uv * uv;
-    if det.abs() <= LEG_SOLVE_DET_TOL * uu.max(vv).max(1.0e-300) {
-        return None;
-    }
-    let bu = u.dot(&leg);
-    let bv = v.dot(&leg);
-    Some(((vv * bu - uv * bv) / det, (uu * bv - uv * bu) / det))
 }
 
 /// Discrete Coons fill of the interior controls (indices 2..=7)

@@ -1,8 +1,9 @@
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 
+use super::super::band_derive::{derive_row1, solve_leg};
 use super::super::row_fit::bernstein9;
-use super::{derive_row1, refill_interior_coons, solve_leg};
+use super::refill_interior_coons;
 
 #[test]
 fn solve_leg_is_exact_for_coplanar_legs() {
@@ -40,7 +41,9 @@ fn derived_band_stays_in_the_shared_plane() {
     }
     let field = [Vec3::new(0.0, 1.0, 0.0); 9];
     let mut clamped = 0usize;
-    let derived = derive_row1(&row0, &row1, &field, &mut clamped).expect("derivation must solve");
+    let mut one_sided = 0usize;
+    let derived = derive_row1(&row0, &row1, &field, &mut clamped, &mut one_sided)
+        .expect("derivation must solve");
     for (index, point) in derived.iter().enumerate() {
         assert!(
             point.z.abs() < 1.0e-12,
@@ -67,6 +70,43 @@ fn derived_band_stays_in_the_shared_plane() {
         (derived_leg0 - leg0).dot(&(derived_leg0 - leg0)).sqrt() < 1.0e-12,
         "derived band must reproduce the exact start leg"
     );
+}
+
+/// A degenerate (chain-collinear) start leg must trigger
+/// one-sided derivation: the band copies the healthy end's
+/// transverse magnitude instead of going tangential, and stays
+/// in the shared plane.
+#[test]
+fn degenerate_corner_derives_one_sided() {
+    let mut row0 = [Point3::new(0.0, 0.0, 0.0); 10];
+    for (index, point) in row0.iter_mut().enumerate() {
+        *point = Point3::new(index as f64 / 9.0, 0.0, 0.0);
+    }
+    let mut row1 = [Point3::new(0.0, 0.0, 0.0); 10];
+    for (index, point) in row1.iter_mut().enumerate() {
+        *point = Point3::new(index as f64 / 9.0, 0.1, 0.0);
+    }
+    // Start leg chain-collinear (the T-stem 180-degree case):
+    // row1[0] sits BEHIND row0[0] along the chain, no transverse
+    // part. End leg healthy.
+    row1[0] = Point3::new(-0.05, 0.0, 0.0);
+    let field = [Vec3::new(0.0, 1.0, 0.0); 9];
+    let mut clamped = 0usize;
+    let mut one_sided = 0usize;
+    let derived = derive_row1(&row0, &row1, &field, &mut clamped, &mut one_sided)
+        .expect("derivation must solve");
+    assert_eq!(one_sided, 1, "degenerate start leg must derive one-sided");
+    // Transverse component near the degenerate corner must match
+    // the healthy end's scale (0.1 * 9 = 0.9 in leg units -> band
+    // offset 0.1 per control), not collapse to zero.
+    for (index, point) in derived.iter().enumerate().take(9).skip(1) {
+        assert!(
+            (point.y - 0.1).abs() < 2.0e-2,
+            "control {index} transverse must stay near the healthy scale, got {}",
+            point.y
+        );
+        assert!(point.z.abs() < 1.0e-12, "must stay in the shared plane");
+    }
 }
 
 #[test]

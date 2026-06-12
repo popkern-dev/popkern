@@ -11,7 +11,6 @@ use crate::topology::brep_face_use_trim_storage::FaceUseTrimKey;
 use crate::topology::*;
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
-use std::collections::HashMap;
 
 /// A boundary representation model.
 ///

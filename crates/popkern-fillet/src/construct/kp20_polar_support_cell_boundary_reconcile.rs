@@ -9,6 +9,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
+#[path = "kp20_polar_support_cell_band_derive.rs"]
+mod band_derive;
 #[path = "kp20_polar_support_cell_band_field.rs"]
 mod band_field;
 #[path = "kp20_polar_support_cell_leg_class.rs"]
