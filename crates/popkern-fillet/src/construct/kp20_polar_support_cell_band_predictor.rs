@@ -13,12 +13,15 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
+use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
 use super::cell_reauthor::{
     AuthoredSubChain, CellReauthorOutcome, second_row_controls, second_row_grid_index,
 };
 use super::chain_fit::{ChainRowKey, boundary_controls};
-use super::chain_ribbon_field::{eval_ribbon_field, row_derivative_coefficients};
+use super::chain_ribbon_field::{
+    eval_ribbon_field, ribbon_field_segment, row_derivative_coefficients,
+};
 use super::twist_resolution::dual_twist_corner_index;
 
 /// Sample every glued trim's two cross-derivative fields from
@@ -134,8 +137,92 @@ pub(super) fn predict_worst_trim_g1(
                             };
                         let transverse_a = transverse_extent(patch_a, key_a.side);
                         let transverse_b = transverse_extent(patch_b, key_b.side);
+                        // Out-of-span decomposition of the cross
+                        // by coefficient group: frozen end legs
+                        // (k = 0, 9), the dual-twist-adjacent
+                        // pair (k = 1, 8), and the derived
+                        // interior (k = 2..=7). Each group's
+                        // out-of-plane component (against the
+                        // local span normal) and magnitude name
+                        // WHICH writer's content leaves the span
+                        // at the worst sample.
+                        let span_normal = tangent.cross(&field_value).normalized();
+                        let decompose = |row0: &[Point3; 10],
+                                         row1: &[Point3; 10],
+                                         basis: &[f64; 10]|
+                         -> [(f64, f64); 3] {
+                            let mut groups = [(Vec3::new(0.0, 0.0, 0.0)); 3];
+                            for k in 0..10 {
+                                let group = match k {
+                                    0 | 9 => 0,
+                                    1 | 8 => 1,
+                                    _ => 2,
+                                };
+                                groups[group] =
+                                    groups[group] + (row1[k] - row0[k]) * (9.0 * basis[k]);
+                            }
+                            groups.map(|vector| {
+                                let out_of_plane = span_normal
+                                    .map(|normal| vector.dot(&normal))
+                                    .unwrap_or(f64::NAN);
+                                (out_of_plane, vector.dot(&vector).sqrt())
+                            })
+                        };
+                        let decomp_a = decompose(&row0_a, &row1_a, &basis_a);
+                        let decomp_b = decompose(&row0_b, &row1_b, &basis_b);
+                        // Realized-vs-product deviation at the
+                        // dual-twist-adjacent coefficients: the
+                        // product is recomputed from this row's
+                        // own (row0, frozen row1 ends, field
+                        // segment); a nonzero k = 1/8 delta names
+                        // the write path that replaced the
+                        // in-span product value.
+                        let product_deviation = |row0: &[Point3; 10],
+                                                 row1: &[Point3; 10],
+                                                 interval: (f64, f64)|
+                         -> (f64, f64) {
+                            let segment = ribbon_field_segment(&field, interval.0, interval.1);
+                            let mut scratch_a = 0usize;
+                            let mut scratch_b = 0usize;
+                            match derive_row1(row0, row1, &segment, &mut scratch_a, &mut scratch_b)
+                            {
+                                Some(product) => (
+                                    row1[1].distance_to(&product[1]),
+                                    row1[8].distance_to(&product[8]),
+                                ),
+                                None => (f64::NAN, f64::NAN),
+                            }
+                        };
+                        let dev_a = product_deviation(&row0_a, &row1_a, (start_a, end_a));
+                        let dev_b = product_deviation(&row0_b, &row1_b, (start_b, end_b));
+                        // Frozen-leg out-of-CORNER-span residual:
+                        // the product identity (cross in span
+                        // pointwise) requires the frozen end legs
+                        // to lie exactly in span(d, r) AT their
+                        // corner; the residual against that
+                        // corner's own plane is the identity's
+                        // breakage budget.
+                        let leg_residual = |row0: &[Point3; 10],
+                                            row1: &[Point3; 10],
+                                            interval: (f64, f64),
+                                            t: f64|
+                         -> f64 {
+                            let segment = ribbon_field_segment(&field, interval.0, interval.1);
+                            let derivative = row_derivative_coefficients(row0);
+                            let (leg, d, r) = if t < 0.5 {
+                                ((row1[0] - row0[0]) * 9.0, derivative[0], segment[0])
+                            } else {
+                                ((row1[9] - row0[9]) * 9.0, derivative[8], segment[8])
+                            };
+                            match d.cross(&r).normalized() {
+                                Some(normal) => leg.dot(&normal).abs(),
+                                None => f64::NAN,
+                            }
+                        };
+                        let legres_a = leg_residual(&row0_a, &row1_a, (start_a, end_a), t_a);
+                        let legres_b = leg_residual(&row0_b, &row1_b, (start_b, end_b), t_b);
                         outcome.predicted_worst_detail = Some(format!(
-                            "s={chain_param:.4},ta={t_a:.4},tb={t_b:.4},ia=({start_a:.4},{end_a:.4}),ib=({start_b:.4},{end_b:.4}),oosA={:.3e},oosB={:.3e},|cA|={:.3e},|cB|={:.3e},fA={:?}:{:?},fB={:?}:{:?},alongA={:.3e},acrossA={:.3e},alongB={:.3e},acrossB={:.3e},tfA={:.3},tfB={:.3},angA={:.1},angB={:.1}",
+                            "s={chain_param:.4},ta={t_a:.4},tb={t_b:.4},ia=({start_a:.4},{end_a:.4}),ib=({start_b:.4},{end_b:.4}),oosA={:.3e},oosB={:.3e},|cA|={:.3e},|cB|={:.3e},fA={:?}:{:?},fB={:?}:{:?},alongA={:.3e},acrossA={:.3e},alongB={:.3e},acrossB={:.3e},tfA={:.3},tfB={:.3},angA={:.1},angB={:.1},dA=[frz={:.2e}/{:.2e} k18={:.2e}/{:.2e} mid={:.2e}/{:.2e}],dB=[frz={:.2e}/{:.2e} k18={:.2e}/{:.2e} mid={:.2e}/{:.2e}],devA=({:.2e};{:.2e}),devB=({:.2e};{:.2e}),legresA={:.2e},legresB={:.2e}",
                             span_residual(cross_a),
                             span_residual(cross_b),
                             cross_a.dot(&cross_a).sqrt(),
@@ -151,7 +238,25 @@ pub(super) fn predict_worst_trim_g1(
                             tangential_fraction(cross_a),
                             tangential_fraction(cross_b),
                             corner_leg_angle(&row0_a, &row1_a, t_a),
-                            corner_leg_angle(&row0_b, &row1_b, t_b)
+                            corner_leg_angle(&row0_b, &row1_b, t_b),
+                            decomp_a[0].0,
+                            decomp_a[0].1,
+                            decomp_a[1].0,
+                            decomp_a[1].1,
+                            decomp_a[2].0,
+                            decomp_a[2].1,
+                            decomp_b[0].0,
+                            decomp_b[0].1,
+                            decomp_b[1].0,
+                            decomp_b[1].1,
+                            decomp_b[2].0,
+                            decomp_b[2].1,
+                            dev_a.0,
+                            dev_a.1,
+                            dev_b.0,
+                            dev_b.1,
+                            legres_a,
+                            legres_b
                         ));
                     }
                 }

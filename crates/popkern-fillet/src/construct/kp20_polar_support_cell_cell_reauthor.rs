@@ -67,6 +67,8 @@ pub(super) struct CellReauthorOutcome {
     /// `span(C', R)`, so anything above roundoff here is an
     /// implementation defect, not a twist trade-off.
     pub(super) max_derived_span_residual: f64,
+    /// Row identity carrying the worst derived span residual.
+    pub(super) worst_span_residual_row: Option<String>,
     /// Legs rotated into their node planes by the repair
     /// pre-pass, and the worst out-of-plane ratio found before
     /// repair. Chained rows' legs are already in-plane (their
@@ -100,6 +102,10 @@ pub(super) struct CellReauthorOutcome {
     /// Bands derived one-sided because a corner leg was chain-
     /// collinear (T-junction stems, sliver tips).
     pub(super) one_sided_band_count: usize,
+    /// Dual-twist slots where one DIRECTION side received more
+    /// than one demand — the mean then differs from each demand
+    /// and the realized candidate leaves that row's span.
+    pub(super) dual_multi_demand_side_count: usize,
     /// Dual-twist mode: per-face corner candidate pairs `(P_u,
     /// P_v)` indexed by the patch-type corner order `[(0,0),
     /// (0,9), (9,9), (9,0)]`. `None` corners keep the plain
@@ -172,9 +178,12 @@ pub(super) fn reauthor_cells_from_chain_network(
                 &mut outcome.one_sided_band_count,
             ) {
                 Some(derived) => {
-                    outcome.max_derived_span_residual = outcome
-                        .max_derived_span_residual
-                        .max(derived_span_residual(&row0, &derived, &field_segment));
+                    let span_residual = derived_span_residual(&row0, &derived, &field_segment);
+                    if span_residual > outcome.max_derived_span_residual {
+                        outcome.max_derived_span_residual = span_residual;
+                        outcome.worst_span_residual_row =
+                            Some(format!("{:?}:{:?}", key.face, key.side));
+                    }
                     let derivative = row_derivative_coefficients(&row0);
                     let corner_normal_start = derivative[0].cross(&field_segment[0]).normalized();
                     let corner_normal_end = derivative[8].cross(&field_segment[8]).normalized();

@@ -311,13 +311,14 @@ fn author_chain_network_internal(
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};clamped_leg_beta_count={};one_sided_band_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};worst_span_residual_row={};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};clamped_leg_beta_count={};one_sided_band_count={};dual_multi_demand_side_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
             outcome.derived_row_count,
             outcome.leg_solve_declined_count,
             outcome.field_declined_sub_chain_count,
             outcome.twist_conflict_count,
             outcome.max_twist_conflict_distance,
             outcome.max_derived_span_residual,
+            outcome.worst_span_residual_row.as_deref().unwrap_or("none"),
             outcome.repaired_leg_count,
             outcome.max_leg_out_of_plane_ratio,
             outcome.max_twist_conflict_normal_component,
@@ -326,6 +327,7 @@ fn author_chain_network_internal(
             outcome.predicted_worst_trim_g1,
             outcome.clamped_leg_beta_count,
             outcome.one_sided_band_count,
+            outcome.dual_multi_demand_side_count,
             outcome.dual_twist_pair_count,
             outcome.max_dual_twist_pair_separation,
             outcome.predicted_worst_detail.as_deref().unwrap_or("none")

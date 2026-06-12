@@ -62,6 +62,11 @@ pub(super) fn resolve_dual_twist_corner(
             sum.z * inverse,
         ))
     };
+    let u_count = demands.iter().filter(|d| d.u_constant_boundary).count();
+    let v_count = demands.len() - u_count;
+    if u_count > 1 || v_count > 1 {
+        outcome.dual_multi_demand_side_count += 1;
+    }
     let (u_side, v_side) = (mean_of(true), mean_of(false));
     let p_u = u_side.or(v_side).unwrap_or(Point3::new(0.0, 0.0, 0.0));
     let p_v = v_side.or(u_side).unwrap_or(p_u);
