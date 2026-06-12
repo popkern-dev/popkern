@@ -23,7 +23,7 @@ const LEG_SOLVE_DET_TOL: f64 = 1.0e-10;
 /// the trim. The clamp keeps everything in-span (only the
 /// in-plane shape near the corner changes), so G1 is unaffected
 /// by construction.
-const TRANSVERSE_FLOOR: f64 = 0.0;
+const TRANSVERSE_FLOOR: f64 = 0.5;
 
 /// Sine bound under which an end leg counts as chain-collinear
 /// (a degenerate corner). T-junction stem vertices have a
@@ -33,7 +33,7 @@ const TRANSVERSE_FLOOR: f64 = 0.0;
 /// Interpolating such a leg forces a tangent-dominated band
 /// whose trim normals are noise — those corners derive
 /// one-sided from the healthy end instead.
-const DEGENERATE_CORNER_SIN_TOL: f64 = 0.3;
+const DEGENERATE_CORNER_SIN_TOL: f64 = 0.1;
 
 /// Derive the full row-1 band from `(C', R)` and the exact end
 /// legs: `D(t) = α(t)·C'(t) + β(t)·R(t)` with linear `α, β`
