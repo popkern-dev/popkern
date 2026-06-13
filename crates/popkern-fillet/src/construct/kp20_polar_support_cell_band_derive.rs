@@ -105,6 +105,11 @@ pub(super) fn derive_row1(
     } else {
         -1.0
     };
+    // Measured note (PK-085): restricting this clamp to
+    // near-collinear legs collapses the worst span residual
+    // (0.39 -> 0.12, clamps 90 -> 15) but reads 7.10e-3 vs
+    // 6.84e-3 at the gate — the broad clamp stays on measured
+    // acceptance; revisit when the binding pair changes.
     if transverse_start * dominant_sign < floor_magnitude {
         let magnitude = field_segment[0].dot(&field_segment[0]).sqrt().max(1.0e-300);
         beta_start = dominant_sign * floor_magnitude / magnitude;

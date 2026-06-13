@@ -310,10 +310,10 @@ pub(super) fn derived_span_residual(
     row0: &[Point3; 10],
     derived: &[Point3; 10],
     field_segment: &[Vec3; 9],
-) -> f64 {
+) -> (f64, f64) {
     use super::row_fit::bernstein9;
     let derivative = row_derivative_coefficients(row0);
-    let mut worst = 0.0_f64;
+    let mut worst = (0.0_f64, 0.0_f64);
     for sample in [0.05_f64, 0.11, 0.2, 0.35, 0.5, 0.65, 0.8, 0.89, 0.95] {
         let tangent = eval_ribbon_field(&derivative, sample);
         let transverse = eval_ribbon_field(field_segment, sample);
@@ -329,7 +329,10 @@ pub(super) fn derived_span_residual(
         if magnitude <= 1.0e-300 {
             continue;
         }
-        worst = worst.max(delta.dot(&plane_normal).abs() / magnitude);
+        let residual = delta.dot(&plane_normal).abs() / magnitude;
+        if residual > worst.0 {
+            worst = (residual, sample);
+        }
     }
     worst
 }

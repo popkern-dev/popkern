@@ -3,8 +3,6 @@
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveOnEdge;
-use popkern_core::geometry::gregory::GregoryPatch;
-use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;

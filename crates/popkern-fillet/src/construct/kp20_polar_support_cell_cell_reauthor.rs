@@ -178,11 +178,38 @@ pub(super) fn reauthor_cells_from_chain_network(
                 &mut outcome.one_sided_band_count,
             ) {
                 Some(derived) => {
-                    let span_residual = derived_span_residual(&row0, &derived, &field_segment);
+                    let (span_residual, residual_param) =
+                        derived_span_residual(&row0, &derived, &field_segment);
                     if span_residual > outcome.max_derived_span_residual {
                         outcome.max_derived_span_residual = span_residual;
-                        outcome.worst_span_residual_row =
-                            Some(format!("{:?}:{:?}", key.face, key.side));
+                        // Worst-row anatomy: end-leg angles vs the
+                        // chain (sine), leg magnitudes vs the local
+                        // field, and the band magnitude at the
+                        // worst sample — names the deviation source
+                        // (degenerate direction, thin magnitude, or
+                        // healthy-but-clamped).
+                        let derivative = row_derivative_coefficients(&row0);
+                        let leg_start = (row1[0] - row0[0]) * 9.0;
+                        let leg_end = (row1[9] - row0[9]) * 9.0;
+                        let sine = |leg: Vec3, chain: Vec3| -> f64 {
+                            let denominator = (leg.dot(&leg) * chain.dot(&chain)).sqrt();
+                            if denominator <= 1.0e-300 {
+                                return f64::NAN;
+                            }
+                            let cross = leg.cross(&chain);
+                            cross.dot(&cross).sqrt() / denominator
+                        };
+                        outcome.worst_span_residual_row = Some(format!(
+                            "{:?}:{:?}@{residual_param:.2}(sin0={:.2},sin1={:.2},|E0|={:.2e},|E1|={:.2e},|r0|={:.2e},|r8|={:.2e})",
+                            key.face,
+                            key.side,
+                            sine(leg_start, derivative[0]),
+                            sine(leg_end, derivative[8]),
+                            leg_start.dot(&leg_start).sqrt(),
+                            leg_end.dot(&leg_end).sqrt(),
+                            field_segment[0].dot(&field_segment[0]).sqrt(),
+                            field_segment[8].dot(&field_segment[8]).sqrt()
+                        ));
                     }
                     let derivative = row_derivative_coefficients(&row0);
                     let corner_normal_start = derivative[0].cross(&field_segment[0]).normalized();
