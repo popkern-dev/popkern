@@ -58,6 +58,23 @@ pub(super) fn derive_row1(
     let degenerate_end = leg_is_chain_collinear(leg_end, derivative[8]);
     let field_start_mag = field_segment[0].dot(&field_segment[0]).sqrt().max(1.0e-300);
     let field_end_mag = field_segment[8].dot(&field_segment[8]).sqrt().max(1.0e-300);
+    // Borrow factor for one-sided derivation: the borrowed beta
+    // is scaled by the LEG-MAGNITUDE RATIO so the band's
+    // transverse content at the degenerate corner matches the
+    // frozen leg's actual scale. The earlier `field_end_mag /
+    // field_start_mag` factor equalized by field magnitudes,
+    // which inflated the band at corners with tiny frozen legs
+    // (the 49v1 case: |E1|=3.2e-3 vs |E0|=7.15e-2) — the inflated
+    // band then deviates from the small frozen leg and the
+    // deviation surfaces near t≈1.
+    let borrow_scale =
+        |from_field_mag: f64, from_leg_mag: f64, to_field_mag: f64, to_leg_mag: f64| -> f64 {
+            let field_ratio = to_field_mag / from_field_mag;
+            let leg_ratio = to_leg_mag / from_leg_mag.max(1.0e-300);
+            field_ratio * leg_ratio
+        };
+    let leg_start_mag = leg_start.dot(&leg_start).sqrt();
+    let leg_end_mag = leg_end.dot(&leg_end).sqrt();
     let (alpha_start, mut beta_start, alpha_end, mut beta_end) =
         match (degenerate_start, degenerate_end) {
             (true, false) => {
@@ -65,7 +82,7 @@ pub(super) fn derive_row1(
                 *one_sided_count += 1;
                 (
                     chain_projection(leg_start, derivative[0]),
-                    b1 * field_end_mag / field_start_mag,
+                    b1 * borrow_scale(field_end_mag, leg_end_mag, field_start_mag, leg_start_mag),
                     a1,
                     b1,
                 )
@@ -77,7 +94,7 @@ pub(super) fn derive_row1(
                     a0,
                     b0,
                     chain_projection(leg_end, derivative[8]),
-                    b0 * field_start_mag / field_end_mag,
+                    b0 * borrow_scale(field_start_mag, leg_start_mag, field_end_mag, leg_end_mag),
                 )
             }
             _ => {

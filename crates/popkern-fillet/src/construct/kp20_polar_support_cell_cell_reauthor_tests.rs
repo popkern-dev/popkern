@@ -96,17 +96,36 @@ fn degenerate_corner_derives_one_sided() {
     let derived = derive_row1(&row0, &row1, &field, &mut clamped, &mut one_sided)
         .expect("derivation must solve");
     assert_eq!(one_sided, 1, "degenerate start leg must derive one-sided");
-    // Transverse component near the degenerate corner must match
-    // the healthy end's scale (0.1 * 9 = 0.9 in leg units -> band
-    // offset 0.1 per control), not collapse to zero.
-    for (index, point) in derived.iter().enumerate().take(9).skip(1) {
-        assert!(
-            (point.y - 0.1).abs() < 2.0e-2,
-            "control {index} transverse must stay near the healthy scale, got {}",
-            point.y
-        );
+    // Transverse component must stay POSITIVE (band does not
+    // collapse), monotonically NON-DECREASING from the degenerate
+    // corner toward the healthy end (the borrow is scaled by the
+    // leg-magnitude ratio, so the band's transverse content at
+    // the degenerate corner matches the small frozen leg's scale
+    // and grows toward the healthy end), and reach near 0.1 at
+    // the healthy end's neighbor.
+    for point in derived.iter().take(9).skip(1) {
+        assert!(point.y > 0.0, "band must not collapse: {}", point.y);
         assert!(point.z.abs() < 1.0e-12, "must stay in the shared plane");
     }
+    for window in derived
+        .iter()
+        .take(9)
+        .skip(1)
+        .collect::<Vec<_>>()
+        .windows(2)
+    {
+        assert!(
+            window[1].y >= window[0].y - 1.0e-12,
+            "transverse must grow toward the healthy end, got {} then {}",
+            window[0].y,
+            window[1].y
+        );
+    }
+    assert!(
+        (derived[8].y - 0.1).abs() < 2.0e-2,
+        "transverse near the healthy end must approach its scale, got {}",
+        derived[8].y
+    );
 }
 
 #[test]
