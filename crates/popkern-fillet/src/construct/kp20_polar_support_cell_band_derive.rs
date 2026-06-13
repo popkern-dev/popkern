@@ -23,7 +23,7 @@ const LEG_SOLVE_DET_TOL: f64 = 1.0e-10;
 /// the trim. The clamp keeps everything in-span (only the
 /// in-plane shape near the corner changes), so G1 is unaffected
 /// by construction.
-const TRANSVERSE_FLOOR: f64 = 0.5;
+const TRANSVERSE_FLOOR: f64 = 0.6;
 
 /// Sine bound under which an end leg counts as chain-collinear
 /// (a degenerate corner). T-junction stem vertices have a
