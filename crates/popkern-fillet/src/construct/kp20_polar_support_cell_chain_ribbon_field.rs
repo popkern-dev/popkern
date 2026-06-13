@@ -18,7 +18,7 @@ const RIBBON_FIELD_REGULARIZATION: f64 = 1.0e-9;
 
 /// Oscillation (third-difference) penalty weight for the field
 /// fit (see the chain-curve solver's smoothing weight).
-const RIBBON_FIELD_SMOOTHING_WEIGHT: f64 = 2.0;
+const RIBBON_FIELD_SMOOTHING_WEIGHT: f64 = 0.5;
 
 /// Maximum interpolated nodes: degree 8 has 9 coefficients per
 /// axis; pinning more leaves no least-squares freedom.
