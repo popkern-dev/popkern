@@ -117,19 +117,6 @@ impl NormalTrialSummary {
     }
 }
 
-pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
-    brep: &mut BRep,
-    faces: &[FaceHandle],
-    trims: &[FullBoundaryTrim],
-) -> Result<WorstG1NormalSolveReport, CoreError> {
-    reconcile_worst_g1_normal_sample_with_authority_if_improves(
-        brep,
-        faces,
-        trims,
-        ControlAuthority::InteriorRows,
-    )
-}
-
 pub(super) fn reconcile_endpoint_adjacent_worst_g1_normal_sample_if_improves(
     brep: &mut BRep,
     faces: &[FaceHandle],

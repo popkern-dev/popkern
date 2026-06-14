@@ -83,6 +83,10 @@ mod segment_topology;
 mod segment_transfer;
 #[path = "kp20_polar_support_cell_tangent_row.rs"]
 mod tangent_row;
+#[path = "kp20_polar_support_cell_top_g1_normal_math.rs"]
+mod top_g1_normal_math;
+#[path = "kp20_polar_support_cell_top_g1_normal_solve.rs"]
+mod top_g1_normal_solve;
 #[path = "kp20_polar_support_cell_trim_ownership.rs"]
 mod trim_ownership;
 #[path = "kp20_polar_support_cell_twist_resolution.rs"]

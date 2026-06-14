@@ -7,7 +7,8 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 
 use super::{
     FullBoundaryTrim, assigned_support_cell_slots, chain_fit, full_boundary_trims,
-    reauthor_support_cell_shared_edge_curves, tangent_row, worst_g1_normal_solve,
+    reauthor_support_cell_shared_edge_curves, tangent_row, top_g1_normal_solve,
+    worst_g1_normal_solve,
 };
 
 type ChainConstructiveAuthor =
@@ -123,7 +124,7 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_nor
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_status(
         brep,
         faces,
-        worst_g1_normal_solve::reconcile_worst_g1_normal_sample_if_improves,
+        top_g1_normal_solve::reconcile_top_g1_normal_samples_if_improves,
         "kp20 support-cell dual-twist worst-G1 normal solve produced invalid BRep",
     )
 }
