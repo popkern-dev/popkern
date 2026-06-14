@@ -36,6 +36,7 @@ pub(super) struct Kp20SupportCellSharedTrimQuality {
     pub(super) g2_unsupported_sample_count: usize,
     pub(super) g2_degenerate_sample_count: usize,
     pub(super) worst_trim: Option<Kp20SupportCellWorstTrim>,
+    pub(super) worst_g1_trim: Option<Kp20SupportCellWorstTrim>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -106,7 +107,7 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};g2_unsupported_sample_count={};g2_degenerate_sample_count={};{}",
+            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};g2_unsupported_sample_count={};g2_degenerate_sample_count={};{};{}",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET,
@@ -123,19 +124,20 @@ pub(super) fn support_cell_shared_trim_quality_fact(
             quality.worst_g2_residual,
             quality.g2_unsupported_sample_count,
             quality.g2_degenerate_sample_count,
-            worst_trim_detail(quality)
+            worst_trim_detail("worst", quality.worst_trim),
+            worst_trim_detail("worst_g1", quality.worst_g1_trim)
         )),
         None,
         None,
     )
 }
 
-fn worst_trim_detail(quality: Kp20SupportCellSharedTrimQuality) -> String {
-    let Some(worst) = quality.worst_trim else {
-        return "worst_trim=none".to_string();
+fn worst_trim_detail(prefix: &str, trim: Option<Kp20SupportCellWorstTrim>) -> String {
+    let Some(worst) = trim else {
+        return format!("{prefix}_trim=none");
     };
     format!(
-        "worst_trim=present;worst_trim_span={};worst_face_a={:?};worst_row_a={};worst_face_b={:?};worst_row_b={};worst_sample_fraction={:.15e}",
+        "{prefix}_trim=present;{prefix}_trim_span={};{prefix}_face_a={:?};{prefix}_row_a={};{prefix}_face_b={:?};{prefix}_row_b={};{prefix}_sample_fraction={:.15e}",
         if worst.full_span { "full" } else { "partial" },
         worst.face_a,
         row_label(worst.row_a),

@@ -390,6 +390,13 @@ fn assert_final_shared_trim_quality_diagnostic(
                             && detail.contains("worst_face_b=")
                             && detail.contains("worst_row_b=")
                             && detail.contains("worst_sample_fraction=")
+                            && detail.contains("worst_g1_trim=present")
+                            && detail.contains("worst_g1_trim_span=")
+                            && detail.contains("worst_g1_face_a=")
+                            && detail.contains("worst_g1_row_a=")
+                            && detail.contains("worst_g1_face_b=")
+                            && detail.contains("worst_g1_row_b=")
+                            && detail.contains("worst_g1_sample_fraction=")
                     })
         )),
         "{fixture} support-cell route should promote shared-trim quality into structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"

@@ -42,6 +42,7 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         g2_unsupported_sample_count: 0,
         g2_degenerate_sample_count: 0,
         worst_trim: None,
+        worst_g1_trim: None,
     };
     for &face in faces {
         let Some(start) = brep
@@ -131,20 +132,20 @@ fn measure_shared_trim_pair(
         let g0_gap = point_a.distance_to(&point_b);
         if g0_gap > quality.worst_g0_gap {
             quality.worst_g0_gap = g0_gap;
-            quality.worst_trim = Some(Kp20SupportCellWorstTrim {
-                face_a,
-                row_a,
-                face_b,
-                row_b,
-                sample_fraction: fraction,
-                full_span,
-            });
+            quality.worst_trim = Some(trim_record(
+                face_a, row_a, face_b, row_b, fraction, full_span,
+            ));
         }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {
-            quality.worst_normal_disagreement =
-                quality.worst_normal_disagreement.max(1.0 - a.dot(&b).abs());
+            let disagreement = 1.0 - a.dot(&b).abs();
+            if disagreement > quality.worst_normal_disagreement {
+                quality.worst_normal_disagreement = disagreement;
+                quality.worst_g1_trim = Some(trim_record(
+                    face_a, row_a, face_b, row_b, fraction, full_span,
+                ));
+            }
         }
         // Curvature is sampled on the open interior of the trim
         // only: the exact endpoints can land on Gregory corner
@@ -166,6 +167,24 @@ fn measure_shared_trim_pair(
                 fraction,
             );
         }
+    }
+}
+
+fn trim_record(
+    face_a: FaceHandle,
+    row_a: Option<u8>,
+    face_b: FaceHandle,
+    row_b: Option<u8>,
+    sample_fraction: f64,
+    full_span: bool,
+) -> Kp20SupportCellWorstTrim {
+    Kp20SupportCellWorstTrim {
+        face_a,
+        row_a,
+        face_b,
+        row_b,
+        sample_fraction,
+        full_span,
     }
 }
 
