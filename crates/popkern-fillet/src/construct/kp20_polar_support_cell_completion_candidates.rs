@@ -32,11 +32,12 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
     PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe,
+    PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 28] = [
+    pub(super) const ALL: [Self; 29] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -63,6 +64,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe,
+        Self::PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe,
         Self::PcurveThenChainConstructiveCellsIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
@@ -138,6 +140,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_worst_g1_normal_solve_if_g0_safe"
             }
+            Self::PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe => {
+                "pcurve_then_chain_constructive_dual_twist_endpoint_adjacent_worst_g1_normal_solve_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -171,6 +176,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe
+                | Self::PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }

@@ -6,12 +6,18 @@ use popkern_core::topology::{BRep, FaceHandle};
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
 use super::{
-    assigned_support_cell_slots, chain_fit, full_boundary_trims,
+    FullBoundaryTrim, assigned_support_cell_slots, chain_fit, full_boundary_trims,
     reauthor_support_cell_shared_edge_curves, tangent_row, worst_g1_normal_solve,
 };
 
 type ChainConstructiveAuthor =
     fn(&mut BRep, &[Kp20ExpandedSupportSurfaceSlot]) -> Result<String, CoreError>;
+type WorstG1NormalSolver = fn(
+    &mut BRep,
+    &[FaceHandle],
+    &[FullBoundaryTrim],
+)
+    -> Result<worst_g1_normal_solve::WorstG1NormalSolveReport, CoreError>;
 
 pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
     brep: &mut BRep,
@@ -100,18 +106,40 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_nor
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<String, CoreError> {
+    reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_status(
+        brep,
+        faces,
+        worst_g1_normal_solve::reconcile_worst_g1_normal_sample_if_improves,
+        "kp20 support-cell dual-twist worst-G1 normal solve produced invalid BRep",
+    )
+}
+
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_endpoint_adjacent_worst_g1_normal_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_status(
+        brep,
+        faces,
+        worst_g1_normal_solve::reconcile_endpoint_adjacent_worst_g1_normal_sample_if_improves,
+        "kp20 support-cell dual-twist endpoint-adjacent worst-G1 normal solve produced invalid BRep",
+    )
+}
+
+fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    solver: WorstG1NormalSolver,
+    invalid_message: &'static str,
+) -> Result<String, CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
     let first = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
     let status = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
     let trims = full_boundary_trims(brep, &slots)?;
-    let solve_report =
-        worst_g1_normal_solve::reconcile_worst_g1_normal_sample_if_improves(brep, faces, &trims)?;
+    let solve_report = solver(brep, faces, &trims)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
-    brep.validate().map_err(|error| {
-        CoreError::PreconditionFailed(format!(
-            "kp20 support-cell dual-twist worst-G1 normal solve produced invalid BRep: {error}"
-        ))
-    })?;
+    brep.validate()
+        .map_err(|error| CoreError::PreconditionFailed(format!("{invalid_message}: {error}")))?;
     let first_value = first
         .split("max_dual_twist_pair_separation=")
         .nth(1)
@@ -177,8 +205,9 @@ fn worst_g1_normal_solve_status(
     report: &worst_g1_normal_solve::WorstG1NormalSolveReport,
 ) -> String {
     format!(
-        "worst_g1_normal_solve_status={};worst_g1_normal_sample_count={};worst_g1_normal_variable_count={};worst_g1_normal_limited_control_count={};max_worst_g1_normal_control_delta={:.6e};worst_g1_normal_damping={};worst_g1_before={:.15e};worst_g1_after={:.15e};local_worst_g1_before={:.15e};local_worst_g1_after={:.15e}",
+        "worst_g1_normal_solve_status={};worst_g1_normal_control_authority={};worst_g1_normal_sample_count={};worst_g1_normal_variable_count={};worst_g1_normal_limited_control_count={};max_worst_g1_normal_control_delta={:.6e};worst_g1_normal_damping={};worst_g1_before={:.15e};worst_g1_after={:.15e};local_worst_g1_before={:.15e};local_worst_g1_after={:.15e}",
         report.status,
+        report.control_authority,
         report.sample_count,
         report.variable_count,
         report.limited_control_count,

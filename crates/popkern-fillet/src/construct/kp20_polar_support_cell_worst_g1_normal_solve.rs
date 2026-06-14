@@ -13,8 +13,8 @@ use crate::construct::kp20_polar_support_cell_shared_trim_quality as shared_trim
 
 use super::chain_solver::solve_dense;
 use super::worst_g1_normal_target::{
-    ControlKey, ControlVariable, MatchedWorstTrim, control_variables, local_control_limit,
-    local_sample_fractions, match_worst_trim, uv_on_side,
+    ControlAuthority, ControlKey, ControlVariable, MatchedWorstTrim, control_variables,
+    local_control_limit, local_sample_fractions, match_worst_trim, uv_on_side,
 };
 use super::{FullBoundaryTrim, rectangular_binonic_on_face};
 
@@ -25,6 +25,7 @@ const QUALITY_COMPARISON_EPS: f64 = 1.0e-12;
 #[derive(Debug, Clone)]
 pub(super) struct WorstG1NormalSolveReport {
     pub(super) status: &'static str,
+    pub(super) control_authority: &'static str,
     pub(super) sample_count: usize,
     pub(super) variable_count: usize,
     pub(super) limited_control_count: usize,
@@ -37,9 +38,10 @@ pub(super) struct WorstG1NormalSolveReport {
 }
 
 impl WorstG1NormalSolveReport {
-    fn declined(status: &'static str, before_worst_g1: f64) -> Self {
+    fn declined(status: &'static str, authority: ControlAuthority, before_worst_g1: f64) -> Self {
         Self {
             status,
+            control_authority: authority.label(),
             sample_count: 0,
             variable_count: 0,
             limited_control_count: 0,
@@ -70,24 +72,54 @@ pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
 ) -> Result<WorstG1NormalSolveReport, CoreError> {
+    reconcile_worst_g1_normal_sample_with_authority_if_improves(
+        brep,
+        faces,
+        trims,
+        ControlAuthority::InteriorRows,
+    )
+}
+
+pub(super) fn reconcile_endpoint_adjacent_worst_g1_normal_sample_if_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+) -> Result<WorstG1NormalSolveReport, CoreError> {
+    reconcile_worst_g1_normal_sample_with_authority_if_improves(
+        brep,
+        faces,
+        trims,
+        ControlAuthority::EndpointAdjacentRows,
+    )
+}
+
+fn reconcile_worst_g1_normal_sample_with_authority_if_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+    authority: ControlAuthority,
+) -> Result<WorstG1NormalSolveReport, CoreError> {
     let before_quality =
         shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     let Some(worst) = before_quality.worst_g1_trim else {
         return Ok(WorstG1NormalSolveReport::declined(
             "missing_worst_g1_trim",
+            authority,
             before_quality.worst_normal_disagreement,
         ));
     };
     let Some(matched) = trims.iter().find_map(|trim| match_worst_trim(*trim, worst)) else {
         return Ok(WorstG1NormalSolveReport::declined(
             "matching_trim_not_found",
+            authority,
             before_quality.worst_normal_disagreement,
         ));
     };
-    let variables = control_variables(matched, worst.sample_fraction);
+    let variables = control_variables(matched, worst.sample_fraction, authority);
     if variables.is_empty() {
         return Ok(WorstG1NormalSolveReport::declined(
             "no_owned_controls",
+            authority,
             before_quality.worst_normal_disagreement,
         ));
     }
@@ -99,6 +131,7 @@ pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
     else {
         let mut report = WorstG1NormalSolveReport::declined(
             "normal_system_singular",
+            authority,
             before_quality.worst_normal_disagreement,
         );
         report.sample_count = samples.len();
@@ -147,6 +180,7 @@ pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
     let Some((damping, after_quality, local_after, candidate)) = best else {
         return Ok(WorstG1NormalSolveReport {
             status: "declined",
+            control_authority: authority.label(),
             sample_count: samples.len(),
             variable_count: variables.len(),
             limited_control_count,
@@ -161,6 +195,7 @@ pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
     *brep = candidate;
     Ok(WorstG1NormalSolveReport {
         status: "kept",
+        control_authority: authority.label(),
         sample_count: samples.len(),
         variable_count: variables.len(),
         limited_control_count,

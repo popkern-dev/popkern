@@ -52,6 +52,7 @@ pub(crate) use constructive_reconcile::{
     reconcile_assigned_chain_constructive_dual_twist_cells_status,
     reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_pair_normal_solve_status,
+    reconcile_assigned_chain_constructive_dual_twist_then_endpoint_adjacent_worst_g1_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status,
 };

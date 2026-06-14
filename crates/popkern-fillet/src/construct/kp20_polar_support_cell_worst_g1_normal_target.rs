@@ -31,6 +31,35 @@ pub(super) struct ControlVariable {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub(super) enum ControlAuthority {
+    InteriorRows,
+    EndpointAdjacentRows,
+}
+
+impl ControlAuthority {
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::InteriorRows => "interior_rows",
+            Self::EndpointAdjacentRows => "endpoint_adjacent_rows",
+        }
+    }
+
+    fn contains_index(self, index: isize) -> bool {
+        match self {
+            Self::InteriorRows => (2..=7).contains(&index),
+            Self::EndpointAdjacentRows => (1..=8).contains(&index),
+        }
+    }
+
+    fn clamp_index(self, index: isize) -> usize {
+        match self {
+            Self::InteriorRows => index.clamp(2, 7) as usize,
+            Self::EndpointAdjacentRows => index.clamp(1, 8) as usize,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
 pub(super) struct MatchedWorstTrim {
     pub(super) face_a: FaceHandle,
     pub(super) side_a: BoundarySide,
@@ -45,6 +74,7 @@ pub(super) struct MatchedWorstTrim {
 pub(super) fn control_variables(
     matched: MatchedWorstTrim,
     worst_fraction: f64,
+    authority: ControlAuthority,
 ) -> Vec<ControlVariable> {
     let mut controls = Vec::new();
     push_control_keys(
@@ -54,6 +84,7 @@ pub(super) fn control_variables(
         matched.start_a,
         matched.end_a,
         worst_fraction,
+        authority,
     );
     push_control_keys(
         &mut controls,
@@ -62,6 +93,7 @@ pub(super) fn control_variables(
         matched.start_b,
         matched.end_b,
         1.0 - worst_fraction,
+        authority,
     );
     controls
         .into_iter()
@@ -143,18 +175,19 @@ fn push_control_keys(
     start: f64,
     end: f64,
     fraction: f64,
+    authority: ControlAuthority,
 ) {
     let parameter = start + (end - start) * fraction;
     let center = (parameter.clamp(0.0, 1.0) * 9.0).round() as isize;
     let mut inserted = false;
     for index in center - 2..=center + 2 {
-        if (2..=7).contains(&index) {
+        if authority.contains_index(index) {
             controls.push(adjacent_key(face, side, index as usize));
             inserted = true;
         }
     }
     if !inserted {
-        controls.push(adjacent_key(face, side, center.clamp(2, 7) as usize));
+        controls.push(adjacent_key(face, side, authority.clamp_index(center)));
     }
 }
 
