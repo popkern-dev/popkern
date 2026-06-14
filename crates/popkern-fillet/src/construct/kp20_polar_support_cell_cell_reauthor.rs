@@ -156,6 +156,7 @@ pub(super) struct CellReauthorOutcome {
     pub(super) max_pair_normal_disagreement_after: f64,
     pub(super) worst_pair_normal_detail: Option<String>,
     pub(super) active_normal_sample_count: usize,
+    pub(super) active_normal_pass_count: usize,
     pub(super) active_normal_constraint_count: usize,
     pub(super) active_normal_repaired_row_count: usize,
     pub(super) active_normal_limited_row_count: usize,

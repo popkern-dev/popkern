@@ -22,6 +22,7 @@ const INTERIOR_CONTROL_COUNT: usize = 6;
 const ACTIVE_NORMAL_REGULARIZATION: f64 = 1.0e-8;
 const MIN_ACTIVE_NORMAL_DISAGREEMENT: f64 = 1.0e-5;
 const MAX_ACTIVE_NORMAL_CONTROL_FRACTION: f64 = 0.04;
+const ACTIVE_NORMAL_MAX_PASSES: usize = 3;
 const ACTIVE_NORMAL_DAMPING_FACTORS: [f64; 4] = [1.0, 0.5, 0.25, 0.125];
 const ACTIVE_NORMAL_IMPROVEMENT_EPS: f64 = 1.0e-12;
 
@@ -34,88 +35,83 @@ pub(super) fn repair_active_normal_solve(
         record_decline(outcome, "insufficient_bands");
         return;
     }
-    let before_worst = max_trim_disagreement(bands, chain_trims);
+    let mut before_worst = max_trim_disagreement(bands, chain_trims);
     let updates_global_worst = before_worst > outcome.max_active_normal_disagreement_before;
     outcome.max_active_normal_disagreement_before = outcome
         .max_active_normal_disagreement_before
         .max(before_worst);
-    let active_samples = top_active_samples(bands, chain_trims);
-    outcome.active_normal_sample_count += active_samples.len();
-    outcome.active_normal_constraint_count += active_samples.len() * 3;
-    if active_samples.is_empty() {
-        record_decline(outcome, "no_active_samples");
-        outcome.max_active_normal_disagreement_after = outcome
-            .max_active_normal_disagreement_after
-            .max(before_worst);
-        return;
-    }
-    if let Some(sample) = active_samples.first()
-        && updates_global_worst
-    {
-        outcome.worst_active_normal_detail = Some(format!(
-            "{:?}:{:?}<->{:?}:{:?}@f={:.4},s={:.4};before={:.6e}",
-            bands[sample.first].key.face,
-            bands[sample.first].key.side,
-            bands[sample.second].key.face,
-            bands[sample.second].key.side,
-            sample.fraction,
-            sample.chain_param,
-            sample.disagreement
-        ));
-    }
-    let Some(solution) = solve_active_normal_system(bands, &active_samples) else {
-        record_decline(outcome, "active_normal_system_singular");
-        outcome.max_active_normal_disagreement_after = outcome
-            .max_active_normal_disagreement_after
-            .max(before_worst);
-        return;
-    };
-    let (deltas, limited_rows, max_requested_delta) = limited_row_deltas(bands, &solution);
-    let mut best: Option<(f64, f64, Vec<DerivedRowBand>)> = None;
-    for damping in ACTIVE_NORMAL_DAMPING_FACTORS {
-        let mut candidate = bands.to_vec();
-        apply_deltas(&mut candidate, &deltas, damping);
-        let after_worst = max_trim_disagreement(&candidate, chain_trims);
-        if after_worst + ACTIVE_NORMAL_IMPROVEMENT_EPS >= before_worst {
-            continue;
+    let mut kept_passes = 0usize;
+    for pass_index in 0..ACTIVE_NORMAL_MAX_PASSES {
+        let active_samples = top_active_samples(bands, chain_trims);
+        outcome.active_normal_sample_count += active_samples.len();
+        outcome.active_normal_constraint_count += active_samples.len() * 3;
+        if active_samples.is_empty() {
+            if kept_passes == 0 {
+                record_decline(outcome, "no_active_samples");
+            }
+            break;
         }
-        if best
-            .as_ref()
-            .is_none_or(|(_, best_after, _)| after_worst < *best_after)
+        if pass_index == 0
+            && updates_global_worst
+            && let Some(sample) = active_samples.first()
         {
-            best = Some((damping, after_worst, candidate));
+            outcome.worst_active_normal_detail = Some(format!(
+                "{:?}:{:?}<->{:?}:{:?}@f={:.4},s={:.4};before={:.6e}",
+                bands[sample.first].key.face,
+                bands[sample.first].key.side,
+                bands[sample.second].key.face,
+                bands[sample.second].key.side,
+                sample.fraction,
+                sample.chain_param,
+                sample.disagreement
+            ));
         }
-    }
-    let Some((damping, after_worst, candidate)) = best else {
-        record_decline(outcome, "no_predicted_improvement");
+        let Some(solution) = solve_active_normal_system(bands, &active_samples) else {
+            if kept_passes == 0 {
+                record_decline(outcome, "active_normal_system_singular");
+            }
+            break;
+        };
+        let (deltas, limited_rows, max_requested_delta) = limited_row_deltas(bands, &solution);
+        let mut best: Option<(f64, f64, Vec<DerivedRowBand>)> = None;
+        for damping in ACTIVE_NORMAL_DAMPING_FACTORS {
+            let mut candidate = bands.to_vec();
+            apply_deltas(&mut candidate, &deltas, damping);
+            let after_worst = max_trim_disagreement(&candidate, chain_trims);
+            if after_worst + ACTIVE_NORMAL_IMPROVEMENT_EPS >= before_worst {
+                continue;
+            }
+            if best
+                .as_ref()
+                .is_none_or(|(_, best_after, _)| after_worst < *best_after)
+            {
+                best = Some((damping, after_worst, candidate));
+            }
+        }
+        let Some((damping, after_worst, candidate)) = best else {
+            if kept_passes == 0 {
+                record_decline(outcome, "no_predicted_improvement");
+                outcome.active_normal_limited_row_count += limited_rows;
+                outcome.max_active_normal_control_delta = outcome
+                    .max_active_normal_control_delta
+                    .max(max_requested_delta);
+            }
+            break;
+        };
+        let repaired_rows = write_repaired_rows(bands, candidate);
+        kept_passes += 1;
+        before_worst = after_worst;
+        outcome.active_normal_decline_reason = Some("kept");
+        outcome.active_normal_pass_count += 1;
+        outcome.active_normal_repaired_row_count += repaired_rows;
         outcome.active_normal_limited_row_count += limited_rows;
         outcome.max_active_normal_control_delta = outcome
             .max_active_normal_control_delta
-            .max(max_requested_delta);
-        outcome.max_active_normal_disagreement_after = outcome
-            .max_active_normal_disagreement_after
-            .max(before_worst);
-        return;
-    };
-    let mut repaired_rows = 0usize;
-    for (target, source) in bands.iter_mut().zip(candidate) {
-        let moved = target
-            .row1
-            .iter()
-            .zip(source.row1.iter())
-            .any(|(a, b)| a.distance_to(b) > 1.0e-14);
-        repaired_rows += usize::from(moved);
-        target.row1 = source.row1;
+            .max(max_requested_delta * damping);
     }
-    outcome.active_normal_decline_reason = Some("kept");
-    outcome.active_normal_repaired_row_count += repaired_rows;
-    outcome.active_normal_limited_row_count += limited_rows;
-    outcome.max_active_normal_control_delta = outcome
-        .max_active_normal_control_delta
-        .max(max_requested_delta * damping);
     outcome.max_active_normal_disagreement_after = outcome
         .max_active_normal_disagreement_after
-        .max(after_worst);
+        .max(before_worst);
 }
 
 fn record_decline(outcome: &mut CellReauthorOutcome, reason: &'static str) {
@@ -316,6 +312,20 @@ fn apply_deltas(bands: &mut [DerivedRowBand], deltas: &[[f64; 6]], damping: f64)
             band.row1[k] = band.row1[k] + direction * (*value * damping);
         }
     }
+}
+
+fn write_repaired_rows(bands: &mut [DerivedRowBand], candidate: Vec<DerivedRowBand>) -> usize {
+    let mut repaired_rows = 0usize;
+    for (target, source) in bands.iter_mut().zip(candidate) {
+        let moved = target
+            .row1
+            .iter()
+            .zip(source.row1.iter())
+            .any(|(a, b)| a.distance_to(b) > 1.0e-14);
+        repaired_rows += usize::from(moved);
+        target.row1 = source.row1;
+    }
+    repaired_rows
 }
 
 fn row_control_limit(band: &DerivedRowBand) -> f64 {
