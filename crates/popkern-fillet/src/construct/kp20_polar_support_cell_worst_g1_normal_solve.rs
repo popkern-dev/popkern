@@ -25,12 +25,19 @@ const QUALITY_COMPARISON_EPS: f64 = 1.0e-12;
 #[derive(Debug, Clone)]
 pub(super) struct WorstG1NormalSolveReport {
     pub(super) status: &'static str,
+    pub(super) decline_reason: &'static str,
     pub(super) control_authority: &'static str,
     pub(super) sample_count: usize,
     pub(super) variable_count: usize,
+    pub(super) trial_count: usize,
+    pub(super) validation_reject_count: usize,
+    pub(super) quality_reject_count: usize,
     pub(super) limited_control_count: usize,
     pub(super) max_control_delta: f64,
     pub(super) damping: Option<f64>,
+    pub(super) best_trial_damping: Option<f64>,
+    pub(super) best_trial_worst_g1: Option<f64>,
+    pub(super) best_trial_local_disagreement: Option<f64>,
     pub(super) before_worst_g1: f64,
     pub(super) after_worst_g1: f64,
     pub(super) local_disagreement_before: f64,
@@ -41,12 +48,19 @@ impl WorstG1NormalSolveReport {
     fn declined(status: &'static str, authority: ControlAuthority, before_worst_g1: f64) -> Self {
         Self {
             status,
+            decline_reason: status,
             control_authority: authority.label(),
             sample_count: 0,
             variable_count: 0,
+            trial_count: 0,
+            validation_reject_count: 0,
+            quality_reject_count: 0,
             limited_control_count: 0,
             max_control_delta: 0.0,
             damping: None,
+            best_trial_damping: None,
+            best_trial_worst_g1: None,
+            best_trial_local_disagreement: None,
             before_worst_g1,
             after_worst_g1: before_worst_g1,
             local_disagreement_before: 0.0,
@@ -65,6 +79,42 @@ struct NormalSample {
     v_basis: [f64; 10],
     u_deriv_basis: [f64; 10],
     v_deriv_basis: [f64; 10],
+}
+
+#[derive(Debug, Default, Clone)]
+struct NormalTrialSummary {
+    trial_count: usize,
+    validation_reject_count: usize,
+    quality_reject_count: usize,
+    best_trial_damping: Option<f64>,
+    best_trial_worst_g1: Option<f64>,
+    best_trial_local_disagreement: Option<f64>,
+}
+
+impl NormalTrialSummary {
+    fn record_quality_trial(&mut self, damping: f64, worst_g1: f64, local_disagreement: f64) {
+        if self.best_trial_worst_g1.is_none_or(|best| worst_g1 < best) {
+            self.best_trial_damping = Some(damping);
+            self.best_trial_worst_g1 = Some(worst_g1);
+            self.best_trial_local_disagreement = Some(local_disagreement);
+        }
+    }
+
+    fn decline_reason(&self, before_worst_g1: f64) -> &'static str {
+        if self.trial_count == 0 {
+            return "no_trials";
+        }
+        if self.validation_reject_count == self.trial_count {
+            return "all_trials_invalid";
+        }
+        if self
+            .best_trial_worst_g1
+            .is_some_and(|best| best + QUALITY_COMPARISON_EPS >= before_worst_g1)
+        {
+            return "no_final_g1_improvement";
+        }
+        "quality_gate_declined"
+    }
 }
 
 pub(super) fn reconcile_worst_g1_normal_sample_if_improves(
@@ -151,26 +201,35 @@ fn reconcile_worst_g1_normal_sample_with_authority_if_improves(
         f64,
         BRep,
     )> = None;
+    let mut trial_summary = NormalTrialSummary::default();
     for damping in LOCAL_NORMAL_DAMPING_FACTORS {
+        trial_summary.trial_count += 1;
         let mut candidate = brep.clone();
         apply_control_deltas(&mut candidate, &control_deltas, damping)?;
         if candidate.validate().is_err() {
+            trial_summary.validation_reject_count += 1;
             continue;
         }
         let after_quality =
             shared_trim_quality::measure_support_cell_shared_trim_quality(&candidate, faces, 9);
+        let candidate_patch_a = rectangular_binonic_on_face(&candidate, matched.face_a)?;
+        let candidate_patch_b = rectangular_binonic_on_face(&candidate, matched.face_b)?;
+        let local_after =
+            max_local_disagreement(&candidate_patch_a, &candidate_patch_b, matched, &samples);
+        trial_summary.record_quality_trial(
+            damping,
+            after_quality.worst_normal_disagreement,
+            local_after,
+        );
         if after_quality.worst_g0_gap > before_quality.worst_g0_gap + QUALITY_COMPARISON_EPS
             || after_quality.pcurve_out_of_unit_count > before_quality.pcurve_out_of_unit_count
             || after_quality.degenerate_pcurve_count > before_quality.degenerate_pcurve_count
             || after_quality.worst_normal_disagreement + QUALITY_COMPARISON_EPS
                 >= before_quality.worst_normal_disagreement
         {
+            trial_summary.quality_reject_count += 1;
             continue;
         }
-        let candidate_patch_a = rectangular_binonic_on_face(&candidate, matched.face_a)?;
-        let candidate_patch_b = rectangular_binonic_on_face(&candidate, matched.face_b)?;
-        let local_after =
-            max_local_disagreement(&candidate_patch_a, &candidate_patch_b, matched, &samples);
         if best.as_ref().is_none_or(|(_, quality, _, _)| {
             after_quality.worst_normal_disagreement < quality.worst_normal_disagreement
         }) {
@@ -180,12 +239,19 @@ fn reconcile_worst_g1_normal_sample_with_authority_if_improves(
     let Some((damping, after_quality, local_after, candidate)) = best else {
         return Ok(WorstG1NormalSolveReport {
             status: "declined",
+            decline_reason: trial_summary.decline_reason(before_quality.worst_normal_disagreement),
             control_authority: authority.label(),
             sample_count: samples.len(),
             variable_count: variables.len(),
+            trial_count: trial_summary.trial_count,
+            validation_reject_count: trial_summary.validation_reject_count,
+            quality_reject_count: trial_summary.quality_reject_count,
             limited_control_count,
             max_control_delta,
             damping: None,
+            best_trial_damping: trial_summary.best_trial_damping,
+            best_trial_worst_g1: trial_summary.best_trial_worst_g1,
+            best_trial_local_disagreement: trial_summary.best_trial_local_disagreement,
             before_worst_g1: before_quality.worst_normal_disagreement,
             after_worst_g1: before_quality.worst_normal_disagreement,
             local_disagreement_before: local_before,
@@ -195,12 +261,19 @@ fn reconcile_worst_g1_normal_sample_with_authority_if_improves(
     *brep = candidate;
     Ok(WorstG1NormalSolveReport {
         status: "kept",
+        decline_reason: "kept",
         control_authority: authority.label(),
         sample_count: samples.len(),
         variable_count: variables.len(),
+        trial_count: trial_summary.trial_count,
+        validation_reject_count: trial_summary.validation_reject_count,
+        quality_reject_count: trial_summary.quality_reject_count,
         limited_control_count,
         max_control_delta: max_control_delta * damping,
         damping: Some(damping),
+        best_trial_damping: Some(damping),
+        best_trial_worst_g1: Some(after_quality.worst_normal_disagreement),
+        best_trial_local_disagreement: Some(local_after),
         before_worst_g1: before_quality.worst_normal_disagreement,
         after_worst_g1: after_quality.worst_normal_disagreement,
         local_disagreement_before: local_before,
