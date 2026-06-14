@@ -5,7 +5,10 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot;
 
-use super::{assigned_support_cell_slots, chain_fit, reauthor_support_cell_shared_edge_curves};
+use super::{
+    assigned_support_cell_slots, chain_fit, full_boundary_trims,
+    reauthor_support_cell_shared_edge_curves, tangent_row,
+};
 
 type ChainConstructiveAuthor =
     fn(&mut BRep, &[Kp20ExpandedSupportSurfaceSlot]) -> Result<String, CoreError>;
@@ -66,6 +69,33 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_pair_normal_solve
     )
 }
 
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let first = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    let status = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    let trims = full_boundary_trims(brep, &slots)?;
+    let tangent_status =
+        tangent_row::reconcile_worst_g1_trim_if_normal_improves(brep, faces, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell dual-twist worst-G1 tangent solve produced invalid BRep: {error}"
+        ))
+    })?;
+    let first_value = first
+        .split("max_dual_twist_pair_separation=")
+        .nth(1)
+        .and_then(|tail| tail.split(';').next())
+        .unwrap_or("unknown");
+    Ok(format!(
+        "{status};constructive_pass_count=2;first_pass_max_dual_twist_pair_separation={first_value};{}",
+        worst_g1_tangent_status(tangent_status)
+    ))
+}
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
@@ -102,4 +132,16 @@ fn reconcile_assigned_chain_two_pass_status(
     Ok(format!(
         "{status};constructive_pass_count=2;{first_metric_status_key}={first_value}"
     ))
+}
+
+fn worst_g1_tangent_status(tangent_status: Option<tangent_row::TangentRowUpdate>) -> String {
+    match tangent_status {
+        Some(update) => format!(
+            "worst_g1_tangent_status=kept;tangent_alignment={};tangent_damping={:.15e}",
+            update.alignment_label(),
+            update.damping
+        ),
+        None => "worst_g1_tangent_status=declined;tangent_alignment=none;tangent_damping=none"
+            .to_string(),
+    }
 }

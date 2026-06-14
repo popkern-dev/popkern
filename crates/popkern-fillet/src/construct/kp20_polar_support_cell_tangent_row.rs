@@ -74,6 +74,29 @@ pub(super) fn reconcile_worst_row_group_if_normal_improves(
     })
 }
 
+pub(super) fn reconcile_worst_g1_trim_if_normal_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+) -> Result<Option<TangentRowUpdate>, CoreError> {
+    let before = shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let Some(worst_g1_trim) = before.worst_g1_trim else {
+        return Ok(None);
+    };
+    let matching_trims = trims
+        .iter()
+        .copied()
+        .filter(|trim| matches_worst_g1_trim(*trim, worst_g1_trim))
+        .collect::<Vec<_>>();
+    if matching_trims.is_empty() {
+        return Ok(None);
+    }
+    reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
+        align_trims_tangent_band_with_damping(candidate, &matching_trims, alignment, damping)?;
+        Ok(true)
+    })
+}
+
 fn align_segment_owned_tangent_band_with_damping(
     brep: &mut BRep,
     trims: &[FullBoundaryTrim],
@@ -100,6 +123,19 @@ pub(super) fn reconcile_segment_owned_if_normal_improves(
     reconcile_tangent_band_if_normal_improves(brep, faces, |candidate, alignment, damping| {
         align_segment_owned_tangent_band_with_damping(candidate, trims, alignment, damping)
     })
+}
+
+fn align_trims_tangent_band_with_damping(
+    brep: &mut BRep,
+    trims: &[FullBoundaryTrim],
+    alignment: TangentRowAlignment,
+    damping: f64,
+) -> Result<(), CoreError> {
+    let mut targets = HashMap::new();
+    for &trim in trims {
+        push_trim_targets(brep, trim, alignment, &mut targets)?;
+    }
+    apply_targets(brep, &targets, damping)
 }
 
 fn reconcile_tangent_band_if_normal_improves(
@@ -145,6 +181,36 @@ fn reconcile_tangent_band_if_normal_improves(
     };
     *brep = candidate;
     Ok(Some(update))
+}
+
+fn matches_worst_g1_trim(
+    trim: FullBoundaryTrim,
+    worst: shared_trim_quality::Kp20SupportCellWorstTrim,
+) -> bool {
+    matches_trim_side(trim.face_a, trim.side_a, trim.face_b, trim.side_b, worst)
+        || matches_trim_side(trim.face_b, trim.side_b, trim.face_a, trim.side_a, worst)
+}
+
+fn matches_trim_side(
+    face_a: FaceHandle,
+    side_a: BoundarySide,
+    face_b: FaceHandle,
+    side_b: BoundarySide,
+    worst: shared_trim_quality::Kp20SupportCellWorstTrim,
+) -> bool {
+    face_a == worst.face_a
+        && row_for_side(side_a) == worst.row_a
+        && face_b == worst.face_b
+        && row_for_side(side_b) == worst.row_b
+}
+
+fn row_for_side(side: BoundarySide) -> Option<u8> {
+    Some(match side {
+        BoundarySide::UMin => 0,
+        BoundarySide::UMax => 1,
+        BoundarySide::VMin => 2,
+        BoundarySide::VMax => 3,
+    })
 }
 
 fn push_trim_targets(

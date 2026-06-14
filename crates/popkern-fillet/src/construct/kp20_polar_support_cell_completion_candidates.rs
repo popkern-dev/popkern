@@ -30,11 +30,12 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe,
     PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
+    PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 26] = [
+    pub(super) const ALL: [Self; 27] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -59,6 +60,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
+        Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
         Self::PcurveThenChainConstructiveCellsIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
@@ -128,6 +130,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_pair_normal_solve_if_g0_safe"
             }
+            Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe => {
+                "pcurve_then_chain_constructive_dual_twist_worst_g1_tangent_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -159,6 +164,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe
+                | Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
