@@ -118,6 +118,17 @@ pub(super) fn bernstein9(t: f64) -> [f64; 10] {
     out
 }
 
+pub(super) fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
+    let basis = bernstein9(t);
+    let (mut x, mut y, mut z) = (0.0, 0.0, 0.0);
+    for (index, weight) in basis.iter().enumerate() {
+        x += row[index].x * weight;
+        y += row[index].y * weight;
+        z += row[index].z * weight;
+    }
+    Point3::new(x, y, z)
+}
+
 fn binomial9(i: usize) -> f64 {
     [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0][i]
 }

@@ -16,7 +16,8 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 const FIELD_FIT_SAMPLES: usize = 17;
 
 use super::cell_reauthor::{AuthoredSubChain, second_row_controls, transverse_row_side};
-use super::chain_fit::{ChainRowKey, boundary_controls};
+use super::chain_author::boundary_controls;
+use super::chain_fit::ChainRowKey;
 use super::chain_ribbon_field::{eval_ribbon_field, fit_ribbon_field, row_derivative_coefficients};
 
 /// Author the sub-chain's transverse ribbon field: direction

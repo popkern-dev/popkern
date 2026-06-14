@@ -77,3 +77,79 @@ where
         }
     }
 }
+
+pub(super) fn boundary_after_pcurve_with_status_if_g1_safe_against_baseline<S, B>(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    reconcile_baseline: impl FnOnce(&mut BRep, &[FaceHandle]) -> Result<B, CoreError>,
+    reconcile_boundary: impl FnOnce(&mut BRep, &[FaceHandle]) -> Result<S, CoreError>,
+) -> SupportCellCompletionApplication
+where
+    S: Into<Cow<'static, str>>,
+    B: Into<Cow<'static, str>>,
+{
+    const G1_COMPARISON_EPS: f64 = 1.0e-12;
+    if support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_err() {
+        return SupportCellCompletionApplication {
+            operator_succeeded: false,
+            operation_status: Cow::Borrowed("pcurve_operator_failed"),
+        };
+    }
+    let after_pcurve =
+        shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let mut baseline_brep = brep.clone();
+    if reconcile_baseline(&mut baseline_brep, faces).is_err() || baseline_brep.validate().is_err() {
+        return SupportCellCompletionApplication {
+            operator_succeeded: false,
+            operation_status: Cow::Borrowed("joint_leg_solve_baseline_failed"),
+        };
+    }
+    let baseline_quality =
+        shared_trim_quality::measure_support_cell_shared_trim_quality(&baseline_brep, faces, 9);
+    let before_boundary = brep.clone();
+    let operation_status = match reconcile_boundary(brep, faces) {
+        Ok(status) => status.into(),
+        Err(_) => {
+            *brep = before_boundary;
+            return SupportCellCompletionApplication {
+                operator_succeeded: false,
+                operation_status: Cow::Borrowed("joint_leg_solve_operator_failed_rolled_back"),
+            };
+        }
+    };
+    let after_boundary =
+        shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let g1_safe = after_boundary.worst_normal_disagreement
+        <= baseline_quality.worst_normal_disagreement + G1_COMPARISON_EPS;
+    if brep.validate().is_ok()
+        && after_boundary.is_no_worse_than(after_pcurve)
+        && after_boundary.is_no_worse_than(baseline_quality)
+        && g1_safe
+    {
+        return SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status: Cow::Owned(format!(
+                "{};joint_baseline_worst_g0={:.15e};joint_baseline_worst_g1={:.15e}",
+                operation_status,
+                baseline_quality.worst_g0_gap,
+                baseline_quality.worst_normal_disagreement
+            )),
+        };
+    }
+    *brep = before_boundary;
+    SupportCellCompletionApplication {
+        operator_succeeded: false,
+        operation_status: Cow::Owned(format!(
+            "joint_leg_solve_quality_declined_rolled_back;declined_operation_status=[{}];baseline_g0={:.15e};joint_g0={:.15e};baseline_g1={:.15e};joint_g1={:.15e};baseline_out_of_unit={};joint_out_of_unit={};baseline_degenerate={};joint_degenerate={}",
+            operation_status,
+            baseline_quality.worst_g0_gap,
+            after_boundary.worst_g0_gap,
+            baseline_quality.worst_normal_disagreement,
+            after_boundary.worst_normal_disagreement,
+            baseline_quality.pcurve_out_of_unit_count,
+            after_boundary.pcurve_out_of_unit_count,
+            baseline_quality.degenerate_pcurve_count,
+            after_boundary.degenerate_pcurve_count
+        )),
+    }
+}

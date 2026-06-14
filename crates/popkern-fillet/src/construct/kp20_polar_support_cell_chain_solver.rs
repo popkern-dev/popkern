@@ -20,7 +20,7 @@ use super::row_fit::bernstein9;
 
 /// Tikhonov weight keeping the fit well-posed when samples are
 /// sparse relative to the curve's degrees of freedom.
-const FIT_REGULARIZATION: f64 = 1.0e-9;
+pub(super) const FIT_REGULARIZATION: f64 = 1.0e-9;
 
 /// Oscillation penalty weight on the control polygon's THIRD
 /// differences. Degree-9 least-squares through rough geometry
@@ -32,12 +32,12 @@ const FIT_REGULARIZATION: f64 = 1.0e-9;
 /// unbiased — only the high-frequency wiggle is damped. Node
 /// interpolation and tangent-plane rows stay HARD, so exact-G0
 /// row identity and node coplanarity are unaffected.
-const FIT_SMOOTHING_WEIGHT: f64 = 2.0;
+pub(super) const FIT_SMOOTHING_WEIGHT: f64 = 2.0;
 
 /// Weight on soft tangent-plane rows. Heavy enough that the
 /// residual `C'(x)·N` is ~1e-6 of the geometry scale, light
 /// enough not to swamp the position KKT pivots.
-const SOFT_TANGENT_PLANE_WEIGHT: f64 = 1.0e6;
+pub(super) const SOFT_TANGENT_PLANE_WEIGHT: f64 = 1.0e6;
 
 /// Pivot floor below which the KKT system is declared singular.
 const SOLVE_PIVOT_TOL: f64 = 1.0e-13;

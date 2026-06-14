@@ -15,6 +15,8 @@ mod band_field;
 mod leg_class;
 #[path = "kp20_polar_support_cell_leg_direction.rs"]
 mod leg_direction;
+#[path = "kp20_polar_support_cell_leg_vector.rs"]
+mod leg_vector;
 #[path = "kp20_polar_support_cell_surface_access.rs"]
 mod surface_access;
 pub(self) use surface_access::{
@@ -35,6 +37,8 @@ mod boundary_row_group;
 mod boundary_trim;
 #[path = "kp20_polar_support_cell_cell_reauthor.rs"]
 mod cell_reauthor;
+#[path = "kp20_polar_support_cell_chain_author.rs"]
+mod chain_author;
 #[path = "kp20_polar_support_cell_chain_discovery.rs"]
 mod chain_discovery;
 #[path = "kp20_polar_support_cell_chain_fit.rs"]
@@ -53,6 +57,8 @@ mod chain_spacing;
 mod exact_boundary_row;
 #[path = "kp20_polar_support_cell_group_reconcile.rs"]
 mod group_reconcile;
+#[path = "kp20_polar_support_cell_joint_chain_solve.rs"]
+mod joint_chain_solve;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 mod row_fit;
 #[path = "kp20_polar_support_cell_row_segment.rs"]
@@ -181,13 +187,6 @@ pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
         "{status};constructive_pass_count=2;first_pass_max_twist_conflict_distance={first_pass_twist}"
     ))
 }
-
-/// Two-pass constructive re-authoring on the DUAL-TWIST patch
-/// substrate: identical fixed-point structure to
-/// [`reconcile_assigned_chain_constructive_cells_status`], but
-/// each boundary's corner band coefficient lands in its own
-/// rational candidate slot, so the corner twist conflicts the
-/// plain bi-9 had to average cease to exist.
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_cells_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
@@ -209,6 +208,31 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_cells_status(
         .unwrap_or("unknown");
     Ok(format!(
         "{status};constructive_pass_count=2;first_pass_max_dual_twist_pair_separation={first_pass_twist}"
+    ))
+}
+
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let first =
+        chain_fit::author_chain_network_with_constructive_dual_twist_joint_leg_solve(brep, &slots)?;
+    let status =
+        chain_fit::author_chain_network_with_constructive_dual_twist_joint_leg_solve(brep, &slots)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell dual-twist joint leg solve produced invalid BRep: {error}"
+        ))
+    })?;
+    let first_residual = first
+        .split("max_joint_endpoint_residual_after=")
+        .nth(1)
+        .and_then(|tail| tail.split(';').next())
+        .unwrap_or("unknown");
+    Ok(format!(
+        "{status};constructive_pass_count=2;first_pass_max_joint_endpoint_residual_after={first_residual}"
     ))
 }
 

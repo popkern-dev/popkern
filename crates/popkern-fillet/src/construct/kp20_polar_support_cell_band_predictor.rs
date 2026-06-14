@@ -18,7 +18,8 @@ use super::band_field::author_ribbon_field;
 use super::cell_reauthor::{
     AuthoredSubChain, CellReauthorOutcome, second_row_controls, second_row_grid_index,
 };
-use super::chain_fit::{ChainRowKey, boundary_controls};
+use super::chain_author::boundary_controls;
+use super::chain_fit::ChainRowKey;
 use super::chain_ribbon_field::{
     eval_ribbon_field, ribbon_field_segment, row_derivative_coefficients,
 };

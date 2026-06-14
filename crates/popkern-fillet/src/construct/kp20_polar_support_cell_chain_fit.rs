@@ -8,39 +8,24 @@ use std::collections::HashMap;
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
-use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_core::topology::{BRep, FaceHandle};
 
-use super::cell_reauthor::{AuthoredSubChain, reauthor_cells_from_chain_network};
-use super::chain_discovery::{ChainTrim, RowChainEmbedding, SubChain, discover_sub_chains};
-use super::chain_nodes::{
-    global_node_normals, global_node_positions, local_node_params, sub_chain_node_constraints,
-    sub_chain_tangent_constraints,
-};
+use super::cell_reauthor::reauthor_cells_from_chain_network;
+use super::chain_author::author_sub_chain;
+use super::chain_discovery::{ChainTrim, discover_sub_chains};
+use super::chain_nodes::{global_node_normals, global_node_positions};
 use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
-use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
-use super::chain_spacing::{
-    end_decompression_targets, end_spacing_ratio, node_speed_decompression_targets,
-};
+use super::chain_spacing::end_spacing_ratio;
+use super::joint_chain_solve::solve_joint_chain_network;
 use super::leg_class::leg_class_targets;
 use super::leg_direction::leg_direction_targets;
-use super::row_fit::bernstein9;
-use super::row_segment::bezier_row_segment;
+use super::leg_vector::{
+    joint_endpoint_leg_equations, joint_endpoint_plane_constraints, leg_vector_targets,
+};
 use super::{
     BoundarySide, count_skipped_boundary_trims, full_boundary_trims, rectangular_binonic_on_face,
     set_rectangular_binonic_dual_twist_on_face, set_rectangular_binonic_on_face,
 };
-
-/// Samples per member row feeding the least-squares part of the
-/// canonical fit.
-const CHAIN_FIT_SAMPLES_PER_ROW: usize = 13;
-/// Maximum interpolated nodes per sub-chain: a degree-9 curve
-/// has 10 control points per axis; pinning more than 9 leaves
-/// no least-squares freedom.
-const MAX_INTERPOLATED_NODES: usize = 9;
-/// Parameter tolerance for matching a row endpoint to a node
-/// (chain-parameter units — one row spans 1.0).
-const NODE_PARAM_TOL: f64 = 1.0e-6;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ChainRowKey {
@@ -60,6 +45,7 @@ enum ChainNetworkMode {
     /// own Chiyokura-Kimura candidate slot — twist conflicts
     /// cease to exist instead of being compromised.
     CurvesAndConstructiveDualTwistCells,
+    CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
 }
 
 impl ChainNetworkMode {
@@ -68,6 +54,22 @@ impl ChainNetworkMode {
             self,
             ChainNetworkMode::CurvesAndConstructiveCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCells
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
+        )
+    }
+
+    fn dual_twist(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCells
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
+        )
+    }
+
+    fn joint_leg_solve(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
         )
     }
 }
@@ -109,6 +111,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_cells(
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCells,
+    )
+}
+
+pub(super) fn author_chain_network_with_constructive_dual_twist_joint_leg_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
     )
 }
 
@@ -273,9 +286,15 @@ fn author_chain_network_internal(
     let mut leg_class_thin_count = 0usize;
     let mut leg_class_chain_count = 0usize;
     let mut rotated_leg_count = 0usize;
+    let mut joint_leg_vector_candidate_count = 0usize;
+    let mut max_joint_leg_vector_candidate_delta = 0.0_f64;
+    let mut joint_endpoint_equation_candidate_count = 0usize;
+    let mut max_joint_endpoint_residual_before = 0.0_f64;
+    let mut joint_plane_constraint_count = 0usize;
+    let mut max_joint_plane_residual_before = 0.0_f64;
+    let mut max_joint_plane_residual_after = 0.0_f64;
+    let mut joint_leg_solve_declined_count = 0usize;
     if mode.constructive() {
-        // Per-vertex joint leg solves (magnitude + direction) —
-        // see the leg_class and leg_direction modules.
         let (mut class_targets, thin_count) = leg_class_targets(&authored_sub_chains);
         leg_class_thin_count += thin_count;
         let (direction_targets, rotated) =
@@ -284,17 +303,51 @@ fn author_chain_network_internal(
         for (chain_index, rows) in direction_targets {
             class_targets.entry(chain_index).or_default().extend(rows);
         }
-        let mut chain_order: Vec<usize> = class_targets.keys().copied().collect();
-        chain_order.sort_unstable();
-        for chain_index in chain_order {
-            let mut targets = class_targets.remove(&chain_index).unwrap_or_default();
-            targets.sort_by(|a, b| a.0.total_cmp(&b.0));
-            let sub = &discovery.sub_chains[chain_index];
-            if let Ok(authored) =
-                author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &targets)
-            {
-                authored_sub_chains[chain_index] = authored;
-                leg_class_chain_count += 1;
+        let (_vector_targets, vector_count, max_vector_delta) =
+            leg_vector_targets(&authored_sub_chains, &chain_trims, &patches);
+        joint_leg_vector_candidate_count = vector_count;
+        max_joint_leg_vector_candidate_delta = max_vector_delta;
+        if mode.joint_leg_solve() {
+            let equations = joint_endpoint_leg_equations(&authored_sub_chains, &chain_trims);
+            let plane_constraints =
+                joint_endpoint_plane_constraints(&authored_sub_chains, &chain_trims, &patches);
+            match solve_joint_chain_network(
+                &mut patches,
+                &discovery.sub_chains,
+                &authored_sub_chains,
+                &node_positions,
+                &node_normals,
+                &class_targets,
+                &[],
+                &plane_constraints,
+            ) {
+                Ok(outcome) => {
+                    joint_endpoint_equation_candidate_count = equations.len();
+                    max_joint_endpoint_residual_before = equations
+                        .iter()
+                        .map(|equation| equation.residual_before)
+                        .fold(0.0_f64, f64::max);
+                    joint_plane_constraint_count = outcome.plane_constraint_count;
+                    max_joint_plane_residual_before = outcome.max_plane_residual_before;
+                    max_joint_plane_residual_after = outcome.max_plane_residual_after;
+                    leg_class_chain_count = class_targets.len();
+                    authored_sub_chains = outcome.authored_sub_chains;
+                }
+                Err(_) => joint_leg_solve_declined_count = 1,
+            }
+        } else {
+            let mut chain_order: Vec<usize> = class_targets.keys().copied().collect();
+            chain_order.sort_unstable();
+            for chain_index in chain_order {
+                let mut targets = class_targets.remove(&chain_index).unwrap_or_default();
+                targets.sort_by(|a, b| a.0.total_cmp(&b.0));
+                let sub = &discovery.sub_chains[chain_index];
+                if let Ok(authored) =
+                    author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &targets)
+                {
+                    authored_sub_chains[chain_index] = authored;
+                    leg_class_chain_count += 1;
+                }
             }
         }
     }
@@ -305,7 +358,7 @@ fn author_chain_network_internal(
             &mut patches,
             &authored_sub_chains,
             &node_normals,
-            mode == ChainNetworkMode::CurvesAndConstructiveDualTwistCells,
+            mode.dual_twist(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = format!(
@@ -354,9 +407,15 @@ fn author_chain_network_internal(
         (ChainNetworkMode::CurvesAndConstructiveDualTwistCells, false) => {
             "chain_constructive_dual_twist_cells_declined"
         }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve, true) => {
+            "chain_constructive_dual_twist_joint_leg_solve_authored"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve, false) => {
+            "chain_constructive_dual_twist_joint_leg_solve_declined"
+        }
     };
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count}{reauthor_detail}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count};joint_leg_vector_candidate_count={joint_leg_vector_candidate_count};max_joint_leg_vector_candidate_delta={max_joint_leg_vector_candidate_delta:.6e};joint_endpoint_equation_candidate_count={joint_endpoint_equation_candidate_count};max_joint_endpoint_residual_before={max_joint_endpoint_residual_before:.6e};joint_plane_constraint_count={joint_plane_constraint_count};max_joint_plane_residual_before={max_joint_plane_residual_before:.6e};max_joint_plane_residual_after={max_joint_plane_residual_after:.6e};joint_leg_solve_declined_count={joint_leg_solve_declined_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason,
@@ -369,130 +428,6 @@ fn author_chain_network_internal(
         assigned_rows.len(),
         dropped_rows.len()
     ))
-}
-
-fn author_sub_chain(
-    patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
-    sub: &SubChain<ChainRowKey, VertexHandle>,
-    node_positions: &HashMap<VertexHandle, Point3>,
-    node_normals: &HashMap<VertexHandle, Vec3>,
-    leg_class_targets: &[(f64, Vec3, f64)],
-) -> Result<AuthoredSubChain, &'static str> {
-    let domain = sub
-        .rows
-        .iter()
-        .fold((f64::MAX, f64::MIN), |acc, (_, embedding)| {
-            let (lo, hi) = embedding.chain_interval();
-            (acc.0.min(lo), acc.1.max(hi))
-        });
-    let length = domain.1 - domain.0;
-    if length <= NODE_PARAM_TOL {
-        return Err("sub_chain_domain_degenerate");
-    }
-    let local = |param: f64| (param - domain.0) / length;
-    let rows: Vec<(ChainRowKey, RowChainEmbedding, [Point3; 10])> = sub
-        .rows
-        .iter()
-        .map(|&(key, embedding)| {
-            let controls = boundary_controls(&patches[&key.face], key.side);
-            (key, embedding, controls)
-        })
-        .collect();
-    let nodes = sub_chain_node_constraints(sub, node_positions);
-    if nodes.len() > MAX_INTERPOLATED_NODES {
-        return Err("sub_chain_node_count_exceeds_degree");
-    }
-    let mut samples = Vec::with_capacity(rows.len() * CHAIN_FIT_SAMPLES_PER_ROW);
-    for (_, embedding, controls) in &rows {
-        for index in 0..CHAIN_FIT_SAMPLES_PER_ROW {
-            let t = index as f64 / (CHAIN_FIT_SAMPLES_PER_ROW - 1) as f64;
-            samples.push((local(embedding.map(t)), eval_row(controls, t)));
-        }
-    }
-    let constraints = ChainCurveConstraints {
-        positions: nodes
-            .iter()
-            .map(|&(param, position)| (local(param), position))
-            .collect(),
-        tangent_planes: sub_chain_tangent_constraints(sub, node_normals)
-            .into_iter()
-            .map(|(param, normal)| (local(param), normal))
-            .collect(),
-        spacing_targets: Vec::new(),
-        derivative_targets: Vec::new(),
-    };
-    let mut chain_cps = fit_constrained_degree9(&samples, &constraints)?;
-    let nodes_local = local_node_params(sub, &local);
-    let spacing = end_decompression_targets(&chain_cps);
-    let mut derivatives = node_speed_decompression_targets(&chain_cps, &nodes_local);
-    derivatives.extend_from_slice(leg_class_targets);
-    if spacing.is_some() || !derivatives.is_empty() {
-        let mut retargeted = constraints.clone();
-        retargeted.spacing_targets = spacing.unwrap_or_default();
-        retargeted.derivative_targets = derivatives;
-        chain_cps = fit_constrained_degree9(&samples, &retargeted)?;
-    }
-    let mut authored = AuthoredSubChain {
-        chain_cps,
-        rows: Vec::with_capacity(rows.len()),
-        nodes: nodes_local,
-    };
-    for (key, embedding, _) in &rows {
-        let start = local(embedding.map(0.0));
-        let end = local(embedding.map(1.0));
-        let row = bezier_row_segment(&chain_cps, start, end);
-        let Some(patch) = patches.get_mut(&key.face) else {
-            continue;
-        };
-        for (index, point) in row.iter().enumerate() {
-            set_boundary_control(patch, key.side, index, *point);
-        }
-        authored.rows.push((*key, (start, end)));
-    }
-    Ok(authored)
-}
-
-pub(super) fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
-    let basis = bernstein9(t);
-    let mut out = Point3::new(0.0, 0.0, 0.0);
-    for (index, weight) in basis.iter().enumerate() {
-        out = Point3::new(
-            out.x + row[index].x * weight,
-            out.y + row[index].y * weight,
-            out.z + row[index].z * weight,
-        );
-    }
-    out
-}
-
-pub(super) fn boundary_controls(
-    patch: &RectangularGregoryBiNonic,
-    side: BoundarySide,
-) -> [Point3; 10] {
-    let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
-    for (index, point) in out.iter_mut().enumerate() {
-        *point = match side {
-            BoundarySide::UMin => patch.grid[0][index],
-            BoundarySide::UMax => patch.grid[9][index],
-            BoundarySide::VMin => patch.grid[index][0],
-            BoundarySide::VMax => patch.grid[index][9],
-        };
-    }
-    out
-}
-
-fn set_boundary_control(
-    patch: &mut RectangularGregoryBiNonic,
-    side: BoundarySide,
-    index: usize,
-    point: Point3,
-) {
-    match side {
-        BoundarySide::UMin => patch.grid[0][index] = point,
-        BoundarySide::UMax => patch.grid[9][index] = point,
-        BoundarySide::VMin => patch.grid[index][0] = point,
-        BoundarySide::VMax => patch.grid[index][9] = point,
-    }
 }
 
 #[cfg(test)]

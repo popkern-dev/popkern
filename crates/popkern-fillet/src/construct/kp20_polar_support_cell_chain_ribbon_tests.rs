@@ -2,7 +2,7 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::super::BoundarySide;
-use super::super::chain_fit::boundary_controls;
+use super::super::chain_author::boundary_controls;
 use super::super::row_fit::bernstein9;
 use super::{project_row, second_row_controls};
 

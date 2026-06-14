@@ -1,7 +1,7 @@
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::super::chain_solver::{ChainCurveConstraints, dbernstein9, fit_constrained_degree9};
-use super::eval_row;
+use super::super::row_fit::eval_row;
 
 fn quadratic_arc_row() -> [Point3; 10] {
     // Degree-9 Bezier reproducing (t, t², 0.3·t) exactly via the

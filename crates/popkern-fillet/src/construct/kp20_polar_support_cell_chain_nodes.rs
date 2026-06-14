@@ -11,8 +11,10 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
+use super::chain_author::boundary_controls;
 use super::chain_discovery::SubChain;
-use super::chain_fit::{ChainRowKey, boundary_controls, eval_row};
+use super::chain_fit::ChainRowKey;
+use super::row_fit::eval_row;
 
 /// Parameter tolerance for matching a row endpoint to a node.
 const NODE_PARAM_TOL: f64 = 1.0e-6;

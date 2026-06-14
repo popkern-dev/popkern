@@ -30,7 +30,8 @@ use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
 use super::band_predictor::{derived_span_residual, predict_worst_trim_g1};
-use super::chain_fit::{ChainRowKey, boundary_controls};
+use super::chain_author::boundary_controls;
+use super::chain_fit::ChainRowKey;
 use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficients};
 use super::twist_resolution::{
     TwistDemand, dual_twist_corner_index, resolve_dual_twist_corner, resolve_twist_demands,

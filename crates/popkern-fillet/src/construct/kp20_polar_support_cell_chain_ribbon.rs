@@ -23,8 +23,9 @@ use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
 use super::BoundarySide;
+use super::chain_author::boundary_controls;
 use super::chain_discovery::SubChain;
-use super::chain_fit::{ChainRowKey, boundary_controls};
+use super::chain_fit::ChainRowKey;
 use super::chain_solver::{dbernstein9, solve_dense};
 use super::row_fit::bernstein9;
 

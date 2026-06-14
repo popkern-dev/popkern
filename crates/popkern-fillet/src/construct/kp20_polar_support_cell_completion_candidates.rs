@@ -27,11 +27,12 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
     PcurveThenChainConstructiveCellsIfG0Safe,
     PcurveThenChainConstructiveDualTwistCellsIfG0Safe,
+    PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 23] = [
+    pub(super) const ALL: [Self; 24] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -53,6 +54,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenChainCurveNetworkIfG0Safe,
         Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe,
+        Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
         Self::PcurveThenChainConstructiveCellsIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
@@ -113,6 +115,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_cells_if_g0_safe"
             }
+            Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe => {
+                "pcurve_then_chain_constructive_dual_twist_joint_leg_solve_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -141,6 +146,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe
                 | Self::PcurveThenChainConstructiveCellsIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe
+                | Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }
