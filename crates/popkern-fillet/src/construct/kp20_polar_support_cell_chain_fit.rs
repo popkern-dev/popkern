@@ -10,6 +10,8 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::cell_reauthor::reauthor_cells_from_chain_network;
+#[path = "kp20_polar_support_cell_chain_network_mode.rs"]
+mod chain_network_mode;
 #[path = "kp20_polar_support_cell_chain_status.rs"]
 mod chain_status;
 use super::chain_author::author_sub_chain;
@@ -27,82 +29,12 @@ use super::{
     BoundarySide, count_skipped_boundary_trims, full_boundary_trims, rectangular_binonic_on_face,
     set_rectangular_binonic_dual_twist_on_face, set_rectangular_binonic_on_face,
 };
+use chain_network_mode::ChainNetworkMode;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(super) struct ChainRowKey {
     pub(super) face: FaceHandle,
     pub(super) side: BoundarySide,
-}
-
-/// Whether the network authors curves only (exact G0) or also
-/// projects row-1 controls onto shared tangent planes (G1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ChainNetworkMode {
-    Curves,
-    CurvesAndCrossTangentRibbons,
-    CurvesAndConstructiveCells,
-    /// Constructive cells emitted as dual-twist patches: each
-    /// boundary's derived corner band coefficient lands in its
-    /// own Chiyokura-Kimura candidate slot — twist conflicts
-    /// cease to exist instead of being compromised.
-    CurvesAndConstructiveDualTwistCells,
-    CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
-    CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
-    CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
-    CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve,
-}
-
-impl ChainNetworkMode {
-    fn constructive(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveCells
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCells
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
-        )
-    }
-
-    fn dual_twist(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCells
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
-                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
-        )
-    }
-
-    fn joint_leg_solve(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
-        )
-    }
-
-    fn beta_envelope(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
-        )
-    }
-
-    fn pair_normal_solve(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
-        )
-    }
-
-    fn active_normal_solve(self) -> bool {
-        matches!(
-            self,
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
-        )
-    }
 }
 
 /// Author canonical curves for every discoverable chain and
@@ -186,6 +118,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_active_normal_so
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve,
+    )
+}
+
+pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope_active_normal_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
     )
 }
 
@@ -478,6 +421,14 @@ fn author_chain_network_internal(
         (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve, false) => {
             "chain_constructive_dual_twist_active_normal_solve_declined"
         }
+        (
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
+            true,
+        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_solve_authored",
+        (
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
+            false,
+        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_solve_declined",
     };
     Ok(format!(
         "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count};joint_leg_vector_candidate_count={joint_leg_vector_candidate_count};max_joint_leg_vector_candidate_delta={max_joint_leg_vector_candidate_delta:.6e};joint_endpoint_equation_candidate_count={joint_endpoint_equation_candidate_count};max_joint_endpoint_residual_before={max_joint_endpoint_residual_before:.6e};joint_plane_constraint_count={joint_plane_constraint_count};max_joint_plane_residual_before={max_joint_plane_residual_before:.6e};max_joint_plane_residual_after={max_joint_plane_residual_after:.6e};joint_leg_solve_declined_count={joint_leg_solve_declined_count}{reauthor_detail}",
