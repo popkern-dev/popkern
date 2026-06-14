@@ -1,8 +1,7 @@
 //! Canonical chain-curve authoring for KP20 support-cell rows:
 //! one constrained degree-9 curve per sub-chain (hard node
 //! pins, soft tangent planes), every member row its exact de
-//! Casteljau restriction — all trims of a chain become CP
-//! identities.
+//! Casteljau restriction — all trims of a chain become CP identities.
 
 use std::collections::HashMap;
 
@@ -422,6 +421,7 @@ fn author_chain_network_internal(
         let outcome = reauthor_cells_from_chain_network(
             &mut patches,
             &authored_sub_chains,
+            &chain_trims,
             &node_normals,
             mode.dual_twist(),
             mode.beta_envelope(),

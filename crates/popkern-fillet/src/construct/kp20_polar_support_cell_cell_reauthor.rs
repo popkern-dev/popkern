@@ -41,6 +41,7 @@ use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
 use super::band_predictor::{derived_span_residual, predict_worst_trim_g1};
 use super::chain_author::boundary_controls;
+use super::chain_discovery::ChainTrim;
 use super::chain_fit::ChainRowKey;
 use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficients};
 use super::twist_resolution::{
@@ -193,6 +194,7 @@ pub(super) struct CellReauthorOutcome {
 pub(super) fn reauthor_cells_from_chain_network(
     patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
     sub_chains: &[AuthoredSubChain],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
     node_normals: &HashMap<VertexHandle, Vec3>,
     dual_twist: bool,
     beta_envelope: bool,
@@ -351,7 +353,7 @@ pub(super) fn reauthor_cells_from_chain_network(
             outcome.refilled_cell_count += 1;
         }
     }
-    predict_worst_trim_g1(patches, sub_chains, node_normals, &mut outcome);
+    predict_worst_trim_g1(patches, sub_chains, chain_trims, node_normals, &mut outcome);
     outcome
 }
 
