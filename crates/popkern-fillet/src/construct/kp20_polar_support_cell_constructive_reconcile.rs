@@ -104,6 +104,20 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_beta_envelope_act
     )
 }
 
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_dual_twist_beta_envelope_active_normal_curvature_solve,
+        "kp20 support-cell dual-twist beta-envelope active-normal curvature solve produced invalid BRep",
+        "max_curvature_control_delta=",
+        "first_pass_max_curvature_control_delta",
+    )
+}
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status(
     brep: &mut BRep,
     faces: &[FaceHandle],

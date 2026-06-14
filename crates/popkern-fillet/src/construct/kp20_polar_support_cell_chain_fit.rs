@@ -132,6 +132,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope_ac
     )
 }
 
+pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope_active_normal_curvature_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+    )
+}
+
 fn author_chain_network_internal(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
@@ -370,6 +381,7 @@ fn author_chain_network_internal(
             mode.beta_envelope(),
             mode.pair_normal_solve(),
             mode.active_normal_solve(),
+            mode.curvature_solve(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = chain_status::reauthor_detail(&outcome);
@@ -429,6 +441,14 @@ fn author_chain_network_internal(
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
             false,
         ) => "chain_constructive_dual_twist_beta_envelope_active_normal_solve_declined",
+        (
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+            true,
+        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
+        (
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+            false,
+        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
     };
     Ok(format!(
         "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count};joint_leg_vector_candidate_count={joint_leg_vector_candidate_count};max_joint_leg_vector_candidate_delta={max_joint_leg_vector_candidate_delta:.6e};joint_endpoint_equation_candidate_count={joint_endpoint_equation_candidate_count};max_joint_endpoint_residual_before={max_joint_endpoint_residual_before:.6e};joint_plane_constraint_count={joint_plane_constraint_count};max_joint_plane_residual_before={max_joint_plane_residual_before:.6e};max_joint_plane_residual_after={max_joint_plane_residual_after:.6e};joint_leg_solve_declined_count={joint_leg_solve_declined_count}{reauthor_detail}",

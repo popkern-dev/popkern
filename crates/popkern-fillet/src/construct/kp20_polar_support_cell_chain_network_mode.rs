@@ -15,6 +15,7 @@ pub(super) enum ChainNetworkMode {
     CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
     CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve,
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
+    CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
 }
 
 impl ChainNetworkMode {
@@ -28,6 +29,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -40,6 +42,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -55,6 +58,7 @@ impl ChainNetworkMode {
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -70,6 +74,14 @@ impl ChainNetworkMode {
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+        )
+    }
+
+    pub(super) fn curvature_solve(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 }

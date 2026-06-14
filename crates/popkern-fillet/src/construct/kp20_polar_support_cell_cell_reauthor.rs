@@ -16,9 +16,7 @@
 //!
 //! Twist controls (a grid corner's diagonal neighbour) are
 //! demanded by two boundaries; the writes are averaged and
-//! counted — the one approximation of the construction. Cell
-//! interiors are refilled by a discrete Coons blend of the four
-//! derived bands.
+//! counted.
 
 use std::collections::HashMap;
 
@@ -30,11 +28,14 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 mod active_normal_solve;
 #[path = "kp20_polar_support_cell_beta_envelope.rs"]
 mod beta_envelope;
+#[path = "kp20_polar_support_cell_curvature_solve.rs"]
+mod curvature_solve;
 #[path = "kp20_polar_support_cell_pair_normal_solve.rs"]
 mod pair_normal_solve;
 
 use self::active_normal_solve::repair_active_normal_solve;
 use self::beta_envelope::repair_beta_envelope;
+use self::curvature_solve::repair_curvature_solve;
 use self::pair_normal_solve::repair_pair_normal_solve;
 use super::BoundarySide;
 use super::band_derive::derive_row1;
@@ -165,6 +166,7 @@ pub(super) struct CellReauthorOutcome {
     pub(super) max_active_normal_disagreement_after: f64,
     pub(super) active_normal_decline_reason: Option<&'static str>,
     pub(super) worst_active_normal_detail: Option<String>,
+    pub(super) curvature_solve_detail: Option<String>,
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
@@ -201,6 +203,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     beta_envelope: bool,
     pair_normal_solve: bool,
     active_normal_solve: bool,
+    curvature_solve: bool,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -272,6 +275,12 @@ pub(super) fn reauthor_cells_from_chain_network(
         }
         if active_normal_solve {
             repair_active_normal_solve(&mut row_bands[first_row..], chain_trims, &mut outcome);
+        }
+        if curvature_solve {
+            outcome.curvature_solve_detail = Some(repair_curvature_solve(
+                &mut row_bands[first_row..],
+                chain_trims,
+            ));
         }
     }
     let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();

@@ -40,6 +40,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_chain_constructive_dual_twist_pair_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_active_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
+        "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_tangent_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_endpoint_adjacent_worst_g1_normal_solve_if_g0_safe",
@@ -94,6 +95,17 @@ pub(crate) fn assert_candidate_diagnostics(
         }),
         "{fixture} combined beta-envelope active-normal candidate should report both solve inventories; support_cell_details={support_cell_dispatch_details:?}"
     );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
+            ) && detail.contains(
+                "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve",
+            ) && detail.contains("curvature_solve_status=")
+                && detail.contains("max_curvature_control_delta=")
+        }),
+        "{fixture} curvature candidate should report constrained G2 solve diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }
 
@@ -117,13 +129,13 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains("candidate_status=accepted_selected")
                 && detail.contains(
-                    "candidate=pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
+                    "candidate=pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
                 )
                 && detail.contains(
-                    "operation_status=chain_constructive_dual_twist_beta_envelope_active_normal_solve_authored",
+                    "operation_status=chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
                 )
         }),
-        "{fixture} should select the combined beta-envelope active-normal dual-twist chain-cell repair; support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} should select the combined beta-envelope active-normal curvature dual-twist chain-cell repair; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
