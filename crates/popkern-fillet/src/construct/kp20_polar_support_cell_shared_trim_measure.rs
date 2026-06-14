@@ -8,8 +8,8 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
-    Kp20SupportCellG1Sample, Kp20SupportCellSharedTrimQuality, Kp20SupportCellWorstTrim,
-    SUPPORT_CELL_TOP_G1_SAMPLE_COUNT,
+    Kp20SupportCellG1Sample, Kp20SupportCellG2Sample, Kp20SupportCellSharedTrimQuality,
+    Kp20SupportCellWorstTrim, SUPPORT_CELL_TOP_G1_SAMPLE_COUNT, SUPPORT_CELL_TOP_G2_SAMPLE_COUNT,
 };
 
 /// Parametric degeneracy guard for normal-curvature samples —
@@ -47,6 +47,7 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         worst_trim: None,
         worst_g1_trim: None,
         top_g1_samples: [None; SUPPORT_CELL_TOP_G1_SAMPLE_COUNT],
+        top_g2_samples: [None; SUPPORT_CELL_TOP_G2_SAMPLE_COUNT],
     };
     for &face in faces {
         let Some(start) = brep
@@ -142,8 +143,10 @@ fn measure_shared_trim_pair(
         }
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
+        let mut normal_disagreement = f64::NAN;
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {
             let disagreement = 1.0 - a.dot(&b).abs();
+            normal_disagreement = disagreement;
             let trim = trim_record(face_a, row_a, face_b, row_b, fraction, full_span);
             record_g1_sample(quality, trim, uv_a, uv_b, g0_gap, disagreement);
         }
@@ -165,6 +168,9 @@ fn measure_shared_trim_pair(
                 surface_b.orientation,
                 uv_b,
                 fraction,
+                trim_record(face_a, row_a, face_b, row_b, fraction, full_span),
+                g0_gap,
+                normal_disagreement,
             );
         }
     }
@@ -197,6 +203,23 @@ fn record_g1_sample(
                 quality.top_g1_samples[move_index] = quality.top_g1_samples[move_index - 1];
             }
             quality.top_g1_samples[index] = Some(sample);
+            break;
+        }
+    }
+}
+
+fn record_g2_sample(
+    quality: &mut Kp20SupportCellSharedTrimQuality,
+    sample: Kp20SupportCellG2Sample,
+) {
+    for index in 0..SUPPORT_CELL_TOP_G2_SAMPLE_COUNT {
+        if quality.top_g2_samples[index]
+            .is_none_or(|existing| sample.g2_residual > existing.g2_residual)
+        {
+            for move_index in (index + 1..SUPPORT_CELL_TOP_G2_SAMPLE_COUNT).rev() {
+                quality.top_g2_samples[move_index] = quality.top_g2_samples[move_index - 1];
+            }
+            quality.top_g2_samples[index] = Some(sample);
             break;
         }
     }
@@ -241,6 +264,9 @@ fn record_trim_g2_residual(
     orientation_b: bool,
     uv_b: Vec3,
     fraction: f64,
+    trim: Kp20SupportCellWorstTrim,
+    g0_gap: f64,
+    normal_disagreement: f64,
 ) {
     let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
         quality.g2_degenerate_sample_count += 1;
@@ -282,6 +308,19 @@ fn record_trim_g2_residual(
     let scale = oriented_a.abs().max(oriented_b.abs());
     let residual = (oriented_a - oriented_b).abs() / (1.0 + scale);
     quality.worst_g2_residual = quality.worst_g2_residual.max(residual);
+    record_g2_sample(
+        quality,
+        Kp20SupportCellG2Sample {
+            trim,
+            g2_residual: residual,
+            curvature_a: oriented_a,
+            curvature_b: oriented_b,
+            normal_disagreement,
+            g0_gap,
+            uv_a,
+            uv_b,
+        },
+    );
 }
 
 fn oriented_curvature(curvature: f64, orientation: bool) -> f64 {
