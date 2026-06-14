@@ -7,7 +7,10 @@ use popkern_core::geometry::gregory::{GregoryPatch, NormalCurvatureError, normal
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::{Kp20SupportCellSharedTrimQuality, Kp20SupportCellWorstTrim};
+use super::{
+    Kp20SupportCellG1Sample, Kp20SupportCellSharedTrimQuality, Kp20SupportCellWorstTrim,
+    SUPPORT_CELL_TOP_G1_SAMPLE_COUNT,
+};
 
 /// Parametric degeneracy guard for normal-curvature samples —
 /// rejects only samples where the first fundamental form or the
@@ -43,6 +46,7 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         g2_degenerate_sample_count: 0,
         worst_trim: None,
         worst_g1_trim: None,
+        top_g1_samples: [None; SUPPORT_CELL_TOP_G1_SAMPLE_COUNT],
     };
     for &face in faces {
         let Some(start) = brep
@@ -140,12 +144,8 @@ fn measure_shared_trim_pair(
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {
             let disagreement = 1.0 - a.dot(&b).abs();
-            if disagreement > quality.worst_normal_disagreement {
-                quality.worst_normal_disagreement = disagreement;
-                quality.worst_g1_trim = Some(trim_record(
-                    face_a, row_a, face_b, row_b, fraction, full_span,
-                ));
-            }
+            let trim = trim_record(face_a, row_a, face_b, row_b, fraction, full_span);
+            record_g1_sample(quality, trim, uv_a, uv_b, g0_gap, disagreement);
         }
         // Curvature is sampled on the open interior of the trim
         // only: the exact endpoints can land on Gregory corner
@@ -166,6 +166,38 @@ fn measure_shared_trim_pair(
                 uv_b,
                 fraction,
             );
+        }
+    }
+}
+
+fn record_g1_sample(
+    quality: &mut Kp20SupportCellSharedTrimQuality,
+    trim: Kp20SupportCellWorstTrim,
+    uv_a: Vec3,
+    uv_b: Vec3,
+    g0_gap: f64,
+    disagreement: f64,
+) {
+    if disagreement > quality.worst_normal_disagreement {
+        quality.worst_normal_disagreement = disagreement;
+        quality.worst_g1_trim = Some(trim);
+    }
+    let sample = Kp20SupportCellG1Sample {
+        trim,
+        normal_disagreement: disagreement,
+        g0_gap,
+        uv_a,
+        uv_b,
+    };
+    for index in 0..SUPPORT_CELL_TOP_G1_SAMPLE_COUNT {
+        if quality.top_g1_samples[index]
+            .is_none_or(|existing| disagreement > existing.normal_disagreement)
+        {
+            for move_index in (index + 1..SUPPORT_CELL_TOP_G1_SAMPLE_COUNT).rev() {
+                quality.top_g1_samples[move_index] = quality.top_g1_samples[move_index - 1];
+            }
+            quality.top_g1_samples[index] = Some(sample);
+            break;
         }
     }
 }
