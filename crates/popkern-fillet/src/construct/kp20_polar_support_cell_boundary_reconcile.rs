@@ -152,87 +152,86 @@ pub(crate) fn reconcile_assigned_chain_network_cross_tangent_ribbon_status(
     Ok(status)
 }
 
-/// Chain network plus constructive cell re-authoring: row-1
-/// bands DERIVED from the shared chain curves and transverse
-/// ribbon fields (linear blends matched to the exact end legs),
-/// twist conflicts averaged, interiors Coons-refilled — exact
-/// G0 by shared curves, G1 by shared tangent-plane fields
-/// rather than projection of disagreeing geometry.
+type ChainConstructiveAuthor =
+    fn(&mut BRep, &[Kp20ExpandedSupportSurfaceSlot]) -> Result<String, CoreError>;
+
 pub(crate) fn reconcile_assigned_chain_constructive_cells_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<String, CoreError> {
-    let slots = assigned_support_cell_slots(brep, faces);
-    // Two fixed-point passes: the first pass's node normals are
-    // averaged from the incoherent pre-construction sheets, so
-    // the two boundaries' twist demands at each corner disagree
-    // by the sheet mismatch (the bi-9 twist-compatibility
-    // residual). After one pass the geometry is coherent;
-    // recomputing the normals and re-deriving collapses the
-    // demand disagreement and with it the corner G1 residual.
-    let first_pass_status = chain_fit::author_chain_network_with_constructive_cells(brep, &slots)?;
-    let status = chain_fit::author_chain_network_with_constructive_cells(brep, &slots)?;
-    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
-    brep.validate().map_err(|error| {
-        CoreError::PreconditionFailed(format!(
-            "kp20 support-cell constructive cell re-authoring produced invalid BRep: {error}"
-        ))
-    })?;
-    let first_pass_twist = first_pass_status
-        .split("max_twist_conflict_distance=")
-        .nth(1)
-        .and_then(|tail| tail.split(';').next())
-        .unwrap_or("unknown");
-    Ok(format!(
-        "{status};constructive_pass_count=2;first_pass_max_twist_conflict_distance={first_pass_twist}"
-    ))
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_cells,
+        "kp20 support-cell constructive cell re-authoring produced invalid BRep",
+        "max_twist_conflict_distance=",
+        "first_pass_max_twist_conflict_distance",
+    )
 }
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_cells_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<String, CoreError> {
-    let slots = assigned_support_cell_slots(brep, faces);
-    let first_pass_status =
-        chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
-    let status = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
-    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
-    brep.validate().map_err(|error| {
-        CoreError::PreconditionFailed(format!(
-            "kp20 support-cell dual-twist constructive re-authoring produced invalid BRep: {error}"
-        ))
-    })?;
-    let first_pass_twist = first_pass_status
-        .split("max_dual_twist_pair_separation=")
-        .nth(1)
-        .and_then(|tail| tail.split(';').next())
-        .unwrap_or("unknown");
-    Ok(format!(
-        "{status};constructive_pass_count=2;first_pass_max_dual_twist_pair_separation={first_pass_twist}"
-    ))
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_dual_twist_cells,
+        "kp20 support-cell dual-twist constructive re-authoring produced invalid BRep",
+        "max_dual_twist_pair_separation=",
+        "first_pass_max_dual_twist_pair_separation",
+    )
+}
+
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_beta_envelope_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_dual_twist_beta_envelope,
+        "kp20 support-cell dual-twist beta-envelope solve produced invalid BRep",
+        "max_beta_envelope_control_delta=",
+        "first_pass_max_beta_envelope_control_delta",
+    )
 }
 
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
 ) -> Result<String, CoreError> {
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_dual_twist_joint_leg_solve,
+        "kp20 support-cell dual-twist joint leg solve produced invalid BRep",
+        "max_joint_endpoint_residual_after=",
+        "first_pass_max_joint_endpoint_residual_after",
+    )
+}
+
+fn reconcile_assigned_chain_two_pass_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    author: ChainConstructiveAuthor,
+    invalid_message: &'static str,
+    first_metric_key: &'static str,
+    first_metric_status_key: &'static str,
+) -> Result<String, CoreError> {
     let slots = assigned_support_cell_slots(brep, faces);
-    let first =
-        chain_fit::author_chain_network_with_constructive_dual_twist_joint_leg_solve(brep, &slots)?;
-    let status =
-        chain_fit::author_chain_network_with_constructive_dual_twist_joint_leg_solve(brep, &slots)?;
+    let first = author(brep, &slots)?;
+    let status = author(brep, &slots)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
-    brep.validate().map_err(|error| {
-        CoreError::PreconditionFailed(format!(
-            "kp20 support-cell dual-twist joint leg solve produced invalid BRep: {error}"
-        ))
-    })?;
-    let first_residual = first
-        .split("max_joint_endpoint_residual_after=")
+    brep.validate()
+        .map_err(|error| CoreError::PreconditionFailed(format!("{invalid_message}: {error}")))?;
+    let first_value = first
+        .split(first_metric_key)
         .nth(1)
         .and_then(|tail| tail.split(';').next())
         .unwrap_or("unknown");
     Ok(format!(
-        "{status};constructive_pass_count=2;first_pass_max_joint_endpoint_residual_after={first_residual}"
+        "{status};constructive_pass_count=2;{first_metric_status_key}={first_value}"
     ))
 }
 

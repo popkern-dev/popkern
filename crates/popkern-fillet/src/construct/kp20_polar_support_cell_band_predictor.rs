@@ -12,6 +12,12 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
+#[path = "kp20_polar_support_cell_cross_field_diagnostics.rs"]
+mod cross_field_diagnostics;
+
+use self::cross_field_diagnostics::{
+    record_beta_sign_flip, record_cross_field_sample, sample_cross_field,
+};
 use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
@@ -68,18 +74,58 @@ pub(super) fn predict_worst_trim_g1(
                 let mut row1_b = second_row_controls(patch_b, key_b.side);
                 realize_dual_twist_candidates(&mut row1_a, key_a, outcome);
                 realize_dual_twist_candidates(&mut row1_b, key_b, outcome);
+                let derivative_a = row_derivative_coefficients(&row0_a);
+                let derivative_b = row_derivative_coefficients(&row0_b);
+                let field_segment_a = ribbon_field_segment(&field, start_a, end_a);
+                let field_segment_b = ribbon_field_segment(&field, start_b, end_b);
+                let mut previous_beta_sign_a = 0_i8;
+                let mut previous_beta_sign_b = 0_i8;
                 for sample in 1..16 {
                     let chain_param = lo + (hi - lo) * (sample as f64 / 16.0);
                     let t_a = ((chain_param - start_a) / (end_a - start_a)).clamp(0.0, 1.0);
                     let t_b = ((chain_param - start_b) / (end_b - start_b)).clamp(0.0, 1.0);
                     let basis_a = bernstein9(t_a);
                     let basis_b = bernstein9(t_b);
-                    let tangent = eval_ribbon_field(&row_derivative_coefficients(&row0_a), t_a);
+                    let tangent = eval_ribbon_field(&derivative_a, t_a);
                     let mut cross_a = Vec3::new(0.0, 0.0, 0.0);
                     let mut cross_b = Vec3::new(0.0, 0.0, 0.0);
                     for i in 0..10 {
                         cross_a = cross_a + (row1_a[i] - row0_a[i]) * basis_a[i];
                         cross_b = cross_b + (row1_b[i] - row0_b[i]) * basis_b[i];
+                    }
+                    let tangent_a = tangent;
+                    let tangent_b = eval_ribbon_field(&derivative_b, t_b);
+                    let field_a = eval_ribbon_field(&field_segment_a, t_a);
+                    let field_b = eval_ribbon_field(&field_segment_b, t_b);
+                    if let Some(sample_a) = sample_cross_field(cross_a * 9.0, tangent_a, field_a) {
+                        record_cross_field_sample(outcome, sample_a, || {
+                            format!(
+                                "{:?}:{:?}@s={chain_param:.4},t={t_a:.4},interval=({start_a:.4},{end_a:.4}),tf={:.6e},beta={:.6e},beta_fraction={:.6e},|cross|={:.6e},|field|={:.6e}",
+                                key_a.face,
+                                key_a.side,
+                                sample_a.tangential_fraction,
+                                sample_a.beta,
+                                sample_a.beta_magnitude_fraction,
+                                sample_a.cross_magnitude,
+                                sample_a.field_magnitude
+                            )
+                        });
+                        record_beta_sign_flip(outcome, &mut previous_beta_sign_a, sample_a);
+                    }
+                    if let Some(sample_b) = sample_cross_field(cross_b * 9.0, tangent_b, field_b) {
+                        record_cross_field_sample(outcome, sample_b, || {
+                            format!(
+                                "{:?}:{:?}@s={chain_param:.4},t={t_b:.4},interval=({start_b:.4},{end_b:.4}),tf={:.6e},beta={:.6e},beta_fraction={:.6e},|cross|={:.6e},|field|={:.6e}",
+                                key_b.face,
+                                key_b.side,
+                                sample_b.tangential_fraction,
+                                sample_b.beta,
+                                sample_b.beta_magnitude_fraction,
+                                sample_b.cross_magnitude,
+                                sample_b.field_magnitude
+                            )
+                        });
+                        record_beta_sign_flip(outcome, &mut previous_beta_sign_b, sample_b);
                     }
                     let (Some(normal_a), Some(normal_b)) = (
                         tangent.cross(&cross_a).normalized(),

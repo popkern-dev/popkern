@@ -26,6 +26,10 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
+#[path = "kp20_polar_support_cell_beta_envelope.rs"]
+mod beta_envelope;
+
+use self::beta_envelope::repair_beta_envelope;
 use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
@@ -97,6 +101,27 @@ pub(super) struct CellReauthorOutcome {
     /// Anatomy of the worst predicted sample (sides' own-span
     /// residuals, field values, intervals) for localization.
     pub(super) predicted_worst_detail: Option<String>,
+    /// Cross-field samples measured from final control nets
+    /// against each row's local `(C', R)` span. These diagnostics
+    /// separate tangent-dominated row-1 bands (tiny beta content)
+    /// from twist/out-of-span damage before a repair candidate is
+    /// allowed to move controls.
+    pub(super) cross_field_sample_count: usize,
+    pub(super) near_tangent_cross_count: usize,
+    pub(super) beta_sign_flip_count: usize,
+    pub(super) max_tangential_fraction: f64,
+    pub(super) min_beta_magnitude_fraction: f64,
+    pub(super) worst_cross_field_detail: Option<String>,
+    /// Optional beta-envelope repair candidate: counts sampled
+    /// row interiors whose realized beta content was lifted by a
+    /// constrained solve over controls k=2..7 only.
+    pub(super) beta_envelope_sample_count: usize,
+    pub(super) beta_envelope_after_sample_count: usize,
+    pub(super) beta_envelope_constraint_count: usize,
+    pub(super) beta_envelope_repaired_row_count: usize,
+    pub(super) max_beta_envelope_control_delta: f64,
+    pub(super) min_beta_envelope_fraction_before: f64,
+    pub(super) min_beta_envelope_fraction_after: f64,
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
@@ -129,6 +154,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     sub_chains: &[AuthoredSubChain],
     node_normals: &HashMap<VertexHandle, Vec3>,
     dual_twist: bool,
+    beta_envelope: bool,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -178,7 +204,10 @@ pub(super) fn reauthor_cells_from_chain_network(
                 &mut outcome.clamped_leg_beta_count,
                 &mut outcome.one_sided_band_count,
             ) {
-                Some(derived) => {
+                Some(mut derived) => {
+                    if beta_envelope {
+                        repair_beta_envelope(&row0, &mut derived, &field_segment, &mut outcome);
+                    }
                     let (span_residual, residual_param) =
                         derived_span_residual(&row0, &derived, &field_segment);
                     if span_residual > outcome.max_derived_span_residual {

@@ -46,6 +46,7 @@ enum ChainNetworkMode {
     /// cease to exist instead of being compromised.
     CurvesAndConstructiveDualTwistCells,
     CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
+    CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
 }
 
 impl ChainNetworkMode {
@@ -55,6 +56,7 @@ impl ChainNetworkMode {
             ChainNetworkMode::CurvesAndConstructiveCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
         )
     }
 
@@ -63,6 +65,7 @@ impl ChainNetworkMode {
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
         )
     }
 
@@ -70,6 +73,13 @@ impl ChainNetworkMode {
         matches!(
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
+        )
+    }
+
+    fn beta_envelope(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
         )
     }
 }
@@ -122,6 +132,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_joint_leg_solve(
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
+    )
+}
+
+pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
     )
 }
 
@@ -359,10 +380,11 @@ fn author_chain_network_internal(
             &authored_sub_chains,
             &node_normals,
             mode.dual_twist(),
+            mode.beta_envelope(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};worst_span_residual_row={};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};clamped_leg_beta_count={};one_sided_band_count={};dual_multi_demand_side_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
+            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};worst_span_residual_row={};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};cross_field_sample_count={};near_tangent_cross_count={};beta_sign_flip_count={};max_tangential_fraction={:.6e};min_beta_magnitude_fraction={:.6e};worst_cross_field_detail=[{}];beta_envelope_sample_count={};beta_envelope_constraint_count={};beta_envelope_repaired_row_count={};max_beta_envelope_control_delta={:.6e};min_beta_envelope_fraction_before={:.6e};min_beta_envelope_fraction_after={:.6e};clamped_leg_beta_count={};one_sided_band_count={};dual_multi_demand_side_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
             outcome.derived_row_count,
             outcome.leg_solve_declined_count,
             outcome.field_declined_sub_chain_count,
@@ -376,6 +398,21 @@ fn author_chain_network_internal(
             outcome.max_relative_twist_displacement,
             outcome.refilled_cell_count,
             outcome.predicted_worst_trim_g1,
+            outcome.cross_field_sample_count,
+            outcome.near_tangent_cross_count,
+            outcome.beta_sign_flip_count,
+            outcome.max_tangential_fraction,
+            outcome.min_beta_magnitude_fraction,
+            outcome
+                .worst_cross_field_detail
+                .as_deref()
+                .unwrap_or("none"),
+            outcome.beta_envelope_sample_count,
+            outcome.beta_envelope_constraint_count,
+            outcome.beta_envelope_repaired_row_count,
+            outcome.max_beta_envelope_control_delta,
+            outcome.min_beta_envelope_fraction_before,
+            outcome.min_beta_envelope_fraction_after,
             outcome.clamped_leg_beta_count,
             outcome.one_sided_band_count,
             outcome.dual_multi_demand_side_count,
@@ -412,6 +449,12 @@ fn author_chain_network_internal(
         }
         (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve, false) => {
             "chain_constructive_dual_twist_joint_leg_solve_declined"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope, true) => {
+            "chain_constructive_dual_twist_beta_envelope_authored"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope, false) => {
+            "chain_constructive_dual_twist_beta_envelope_declined"
         }
     };
     Ok(format!(
