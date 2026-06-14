@@ -22,7 +22,8 @@ use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
 use super::cell_reauthor::{
-    AuthoredSubChain, CellReauthorOutcome, second_row_controls, second_row_grid_index,
+    AuthoredSubChain, CellReauthorOutcome, PredictedTopG1Sample, second_row_controls,
+    second_row_grid_index,
 };
 use super::chain_author::boundary_controls;
 use super::chain_fit::ChainRowKey;
@@ -134,8 +135,8 @@ pub(super) fn predict_worst_trim_g1(
                         continue;
                     };
                     let disagreement = 1.0 - normal_a.dot(&normal_b).abs();
-                    if disagreement > outcome.predicted_worst_trim_g1 {
-                        outcome.predicted_worst_trim_g1 = disagreement;
+                    let top_index = predicted_top_sample_index(outcome, disagreement);
+                    if disagreement > outcome.predicted_worst_trim_g1 || top_index.is_some() {
                         let field_value = eval_ribbon_field(&field, chain_param);
                         let span_residual = |cross: Vec3| -> f64 {
                             let Some(plane) = tangent.cross(&field_value).normalized() else {
@@ -268,7 +269,7 @@ pub(super) fn predict_worst_trim_g1(
                         };
                         let legres_a = leg_residual(&row0_a, &row1_a, (start_a, end_a), t_a);
                         let legres_b = leg_residual(&row0_b, &row1_b, (start_b, end_b), t_b);
-                        outcome.predicted_worst_detail = Some(format!(
+                        let detail = format!(
                             "s={chain_param:.4},ta={t_a:.4},tb={t_b:.4},ia=({start_a:.4},{end_a:.4}),ib=({start_b:.4},{end_b:.4}),oosA={:.3e},oosB={:.3e},|cA|={:.3e},|cB|={:.3e},fA={:?}:{:?},fB={:?}:{:?},alongA={:.3e},acrossA={:.3e},alongB={:.3e},acrossB={:.3e},tfA={:.3},tfB={:.3},angA={:.1},angB={:.1},dA=[frz={:.2e}/{:.2e} k18={:.2e}/{:.2e} mid={:.2e}/{:.2e}],dB=[frz={:.2e}/{:.2e} k18={:.2e}/{:.2e} mid={:.2e}/{:.2e}],devA=({:.2e};{:.2e}),devB=({:.2e};{:.2e}),legresA={:.2e},legresB={:.2e}",
                             span_residual(cross_a),
                             span_residual(cross_b),
@@ -304,12 +305,48 @@ pub(super) fn predict_worst_trim_g1(
                             dev_b.1,
                             legres_a,
                             legres_b
-                        ));
+                        );
+                        if let Some(index) = top_index {
+                            insert_predicted_top_sample(
+                                outcome,
+                                index,
+                                disagreement,
+                                detail.clone(),
+                            );
+                        }
+                        if disagreement > outcome.predicted_worst_trim_g1 {
+                            outcome.predicted_worst_trim_g1 = disagreement;
+                            outcome.predicted_worst_detail = Some(detail);
+                        }
                     }
                 }
             }
         }
     }
+}
+
+fn predicted_top_sample_index(outcome: &CellReauthorOutcome, disagreement: f64) -> Option<usize> {
+    outcome.predicted_top_g1_samples.iter().position(|sample| {
+        sample
+            .as_ref()
+            .is_none_or(|entry| disagreement > entry.disagreement)
+    })
+}
+
+fn insert_predicted_top_sample(
+    outcome: &mut CellReauthorOutcome,
+    index: usize,
+    disagreement: f64,
+    detail: String,
+) {
+    for move_index in (index + 1..outcome.predicted_top_g1_samples.len()).rev() {
+        outcome.predicted_top_g1_samples[move_index] =
+            outcome.predicted_top_g1_samples[move_index - 1].take();
+    }
+    outcome.predicted_top_g1_samples[index] = Some(PredictedTopG1Sample {
+        disagreement,
+        detail,
+    });
 }
 
 /// Replace a second row's corner-adjacent twist entries with the

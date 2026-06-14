@@ -67,6 +67,12 @@ pub(super) struct DerivedRowBand {
     pub(super) field_segment: [Vec3; 9],
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct PredictedTopG1Sample {
+    pub(super) disagreement: f64,
+    pub(super) detail: String,
+}
+
 /// Outcome counts of the constructive re-author.
 #[derive(Debug, Clone, Default)]
 pub(super) struct CellReauthorOutcome {
@@ -127,6 +133,9 @@ pub(super) struct CellReauthorOutcome {
     pub(super) max_tangential_fraction: f64,
     pub(super) min_beta_magnitude_fraction: f64,
     pub(super) worst_cross_field_detail: Option<String>,
+    /// Ranked construction-time samples mirroring the final G1
+    /// gate, including coefficient ownership anatomy.
+    pub(super) predicted_top_g1_samples: [Option<PredictedTopG1Sample>; 4],
     /// Optional beta-envelope repair candidate: counts sampled
     /// row interiors whose realized beta content was lifted by a
     /// constrained solve over controls k=2..7 only.
