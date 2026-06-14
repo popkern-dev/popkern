@@ -75,6 +75,20 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_pair_normal_solve
     )
 }
 
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_active_normal_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_constructive_dual_twist_active_normal_solve,
+        "kp20 support-cell dual-twist active-normal solve produced invalid BRep",
+        "max_active_normal_control_delta=",
+        "first_pass_max_active_normal_control_delta",
+    )
+}
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status(
     brep: &mut BRep,
     faces: &[FaceHandle],

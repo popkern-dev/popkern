@@ -50,6 +50,7 @@ enum ChainNetworkMode {
     CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
     CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
+    CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve,
 }
 
 impl ChainNetworkMode {
@@ -61,6 +62,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
         )
     }
 
@@ -71,6 +73,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
         )
     }
 
@@ -92,6 +95,13 @@ impl ChainNetworkMode {
         matches!(
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
+        )
+    }
+
+    fn active_normal_solve(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve
         )
     }
 }
@@ -166,6 +176,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_pair_normal_solv
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
+    )
+}
+
+pub(super) fn author_chain_network_with_constructive_dual_twist_active_normal_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve,
     )
 }
 
@@ -405,6 +426,7 @@ fn author_chain_network_internal(
             mode.dual_twist(),
             mode.beta_envelope(),
             mode.pair_normal_solve(),
+            mode.active_normal_solve(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = chain_status::reauthor_detail(&outcome);
@@ -449,6 +471,12 @@ fn author_chain_network_internal(
         }
         (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve, false) => {
             "chain_constructive_dual_twist_pair_normal_solve_declined"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve, true) => {
+            "chain_constructive_dual_twist_active_normal_solve_authored"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve, false) => {
+            "chain_constructive_dual_twist_active_normal_solve_declined"
         }
     };
     Ok(format!(

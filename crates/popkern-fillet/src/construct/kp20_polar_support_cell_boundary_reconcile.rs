@@ -48,6 +48,7 @@ mod constructive_reconcile;
 #[allow(unused_imports)]
 pub(crate) use constructive_reconcile::{
     reconcile_assigned_chain_constructive_cells_status,
+    reconcile_assigned_chain_constructive_dual_twist_active_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_beta_envelope_status,
     reconcile_assigned_chain_constructive_dual_twist_cells_status,
     reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status,

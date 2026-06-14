@@ -397,6 +397,22 @@ fn apply_support_cell_completion_candidate(
                 },
             )
         }
+        SupportCellCompletionCandidate::PcurveThenChainConstructiveDualTwistActiveNormalSolveIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_g1_safe_against_baseline(
+                brep,
+                faces,
+                |brep, faces| {
+                    support_cell_boundary_reconcile::reconcile_assigned_chain_constructive_dual_twist_cells_status(
+                        brep, faces,
+                    )
+                },
+                |brep, faces| {
+                    support_cell_boundary_reconcile::reconcile_assigned_chain_constructive_dual_twist_active_normal_solve_status(
+                        brep, faces,
+                    )
+                },
+            )
+        }
         SupportCellCompletionCandidate::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_g1_safe_against_baseline(
                 brep,

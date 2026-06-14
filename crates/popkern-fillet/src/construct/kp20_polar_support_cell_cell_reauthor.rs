@@ -26,11 +26,14 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{FaceHandle, VertexHandle};
 
+#[path = "kp20_polar_support_cell_active_normal_solve.rs"]
+mod active_normal_solve;
 #[path = "kp20_polar_support_cell_beta_envelope.rs"]
 mod beta_envelope;
 #[path = "kp20_polar_support_cell_pair_normal_solve.rs"]
 mod pair_normal_solve;
 
+use self::active_normal_solve::repair_active_normal_solve;
 use self::beta_envelope::repair_beta_envelope;
 use self::pair_normal_solve::repair_pair_normal_solve;
 use super::BoundarySide;
@@ -142,6 +145,15 @@ pub(super) struct CellReauthorOutcome {
     pub(super) max_pair_normal_disagreement_before: f64,
     pub(super) max_pair_normal_disagreement_after: f64,
     pub(super) worst_pair_normal_detail: Option<String>,
+    pub(super) active_normal_sample_count: usize,
+    pub(super) active_normal_constraint_count: usize,
+    pub(super) active_normal_repaired_row_count: usize,
+    pub(super) active_normal_limited_row_count: usize,
+    pub(super) max_active_normal_control_delta: f64,
+    pub(super) max_active_normal_disagreement_before: f64,
+    pub(super) max_active_normal_disagreement_after: f64,
+    pub(super) active_normal_decline_reason: Option<&'static str>,
+    pub(super) worst_active_normal_detail: Option<String>,
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
@@ -176,6 +188,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     dual_twist: bool,
     beta_envelope: bool,
     pair_normal_solve: bool,
+    active_normal_solve: bool,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -244,6 +257,9 @@ pub(super) fn reauthor_cells_from_chain_network(
         }
         if pair_normal_solve {
             repair_pair_normal_solve(&mut row_bands[first_row..], &mut outcome);
+        }
+        if active_normal_solve {
+            repair_active_normal_solve(&mut row_bands[first_row..], &mut outcome);
         }
     }
     let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
