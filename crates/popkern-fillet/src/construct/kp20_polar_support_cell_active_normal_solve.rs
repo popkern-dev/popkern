@@ -1,12 +1,17 @@
 //! Active-set normal solve for constructive support-cell row bands.
 //!
-//! Unlike the pair-normal solve, this first ranks every sampled
-//! overlapping trim in one sub-chain, then solves only the high-G1
+//! Unlike the pair-normal solve, this first ranks actual sampled
+//! shared trims in one sub-chain, then solves only the high-G1
 //! active set while rejecting updates that move the sub-chain's
-//! predicted worst disagreement upward.
+//! trim-sampled worst disagreement upward.
+
+use std::collections::HashMap;
 
 use popkern_core::geometry::Vec3;
+use popkern_core::topology::VertexHandle;
 
+use super::super::chain_discovery::ChainTrim;
+use super::super::chain_fit::ChainRowKey;
 use super::super::chain_ribbon_field::{eval_ribbon_field, row_derivative_coefficients};
 use super::super::chain_solver::solve_dense;
 use super::super::row_fit::bernstein9;
@@ -22,18 +27,19 @@ const ACTIVE_NORMAL_IMPROVEMENT_EPS: f64 = 1.0e-12;
 
 pub(super) fn repair_active_normal_solve(
     bands: &mut [DerivedRowBand],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
     outcome: &mut CellReauthorOutcome,
 ) {
     if bands.len() < 2 {
         record_decline(outcome, "insufficient_bands");
         return;
     }
-    let before_worst = max_overlap_disagreement(bands);
+    let before_worst = max_trim_disagreement(bands, chain_trims);
     let updates_global_worst = before_worst > outcome.max_active_normal_disagreement_before;
     outcome.max_active_normal_disagreement_before = outcome
         .max_active_normal_disagreement_before
         .max(before_worst);
-    let active_samples = top_active_samples(bands);
+    let active_samples = top_active_samples(bands, chain_trims);
     outcome.active_normal_sample_count += active_samples.len();
     outcome.active_normal_constraint_count += active_samples.len() * 3;
     if active_samples.is_empty() {
@@ -47,11 +53,12 @@ pub(super) fn repair_active_normal_solve(
         && updates_global_worst
     {
         outcome.worst_active_normal_detail = Some(format!(
-            "{:?}:{:?}<->{:?}:{:?}@s={:.4};before={:.6e}",
+            "{:?}:{:?}<->{:?}:{:?}@f={:.4},s={:.4};before={:.6e}",
             bands[sample.first].key.face,
             bands[sample.first].key.side,
             bands[sample.second].key.face,
             bands[sample.second].key.side,
+            sample.fraction,
             sample.chain_param,
             sample.disagreement
         ));
@@ -68,7 +75,7 @@ pub(super) fn repair_active_normal_solve(
     for damping in ACTIVE_NORMAL_DAMPING_FACTORS {
         let mut candidate = bands.to_vec();
         apply_deltas(&mut candidate, &deltas, damping);
-        let after_worst = max_overlap_disagreement(&candidate);
+        let after_worst = max_trim_disagreement(&candidate, chain_trims);
         if after_worst + ACTIVE_NORMAL_IMPROVEMENT_EPS >= before_worst {
             continue;
         }
@@ -117,32 +124,41 @@ fn record_decline(outcome: &mut CellReauthorOutcome, reason: &'static str) {
     }
 }
 
-fn top_active_samples(bands: &[DerivedRowBand]) -> Vec<ActiveNormalSample> {
+fn top_active_samples(
+    bands: &[DerivedRowBand],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+) -> Vec<ActiveNormalSample> {
+    let band_indices = band_indices(bands);
     let mut samples = Vec::new();
-    for first in 0..bands.len() {
-        for second in first + 1..bands.len() {
-            let Some((lo, hi)) = partial_overlap(&bands[first], &bands[second]) else {
+    for trim in chain_trims {
+        let (Some(&first), Some(&second)) =
+            (band_indices.get(&trim.row_a), band_indices.get(&trim.row_b))
+        else {
+            continue;
+        };
+        for step in 0..9 {
+            let fraction = step as f64 / 8.0;
+            let chain_param = trim_chain_param(&bands[first], trim.interval_a, fraction);
+            let peer_chain_param =
+                trim_chain_param(&bands[second], trim.interval_b, 1.0 - fraction);
+            let chain_param = 0.5 * (chain_param + peer_chain_param);
+            let Some(sample_a) = row_normal_sample(&bands[first], chain_param) else {
                 continue;
             };
-            for step in 1..16 {
-                let chain_param = lo + (hi - lo) * (step as f64 / 16.0);
-                let Some(sample_a) = row_normal_sample(&bands[first], chain_param) else {
-                    continue;
-                };
-                let Some(sample_b) = row_normal_sample(&bands[second], chain_param) else {
-                    continue;
-                };
-                let disagreement = 1.0 - sample_a.normal.dot(&sample_b.normal).abs();
-                if disagreement <= MIN_ACTIVE_NORMAL_DISAGREEMENT {
-                    continue;
-                }
-                samples.push(ActiveNormalSample {
-                    first,
-                    second,
-                    chain_param,
-                    disagreement,
-                });
+            let Some(sample_b) = row_normal_sample(&bands[second], chain_param) else {
+                continue;
+            };
+            let disagreement = 1.0 - sample_a.normal.dot(&sample_b.normal).abs();
+            if disagreement <= MIN_ACTIVE_NORMAL_DISAGREEMENT {
+                continue;
             }
+            samples.push(ActiveNormalSample {
+                first,
+                second,
+                fraction,
+                chain_param,
+                disagreement,
+            });
         }
     }
     samples.sort_by(|a, b| {
@@ -150,7 +166,7 @@ fn top_active_samples(bands: &[DerivedRowBand]) -> Vec<ActiveNormalSample> {
             .total_cmp(&a.disagreement)
             .then_with(|| a.first.cmp(&b.first))
             .then_with(|| a.second.cmp(&b.second))
-            .then_with(|| a.chain_param.total_cmp(&b.chain_param))
+            .then_with(|| a.fraction.total_cmp(&b.fraction))
     });
     samples.truncate(ACTIVE_NORMAL_SAMPLE_LIMIT);
     samples
@@ -185,34 +201,47 @@ fn solve_active_normal_system(
     solve_dense(matrix, rhs)
 }
 
-fn max_overlap_disagreement(bands: &[DerivedRowBand]) -> f64 {
+fn max_trim_disagreement(
+    bands: &[DerivedRowBand],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+) -> f64 {
+    let band_indices = band_indices(bands);
     let mut worst = 0.0_f64;
-    for first in 0..bands.len() {
-        for second in first + 1..bands.len() {
-            let Some((lo, hi)) = partial_overlap(&bands[first], &bands[second]) else {
+    for trim in chain_trims {
+        let (Some(&first), Some(&second)) =
+            (band_indices.get(&trim.row_a), band_indices.get(&trim.row_b))
+        else {
+            continue;
+        };
+        for step in 0..9 {
+            let fraction = step as f64 / 8.0;
+            let chain_param = trim_chain_param(&bands[first], trim.interval_a, fraction);
+            let peer_chain_param =
+                trim_chain_param(&bands[second], trim.interval_b, 1.0 - fraction);
+            let chain_param = 0.5 * (chain_param + peer_chain_param);
+            let Some(sample_a) = row_normal_sample(&bands[first], chain_param) else {
                 continue;
             };
-            for step in 1..16 {
-                let chain_param = lo + (hi - lo) * (step as f64 / 16.0);
-                let Some(sample_a) = row_normal_sample(&bands[first], chain_param) else {
-                    continue;
-                };
-                let Some(sample_b) = row_normal_sample(&bands[second], chain_param) else {
-                    continue;
-                };
-                worst = worst.max(1.0 - sample_a.normal.dot(&sample_b.normal).abs());
-            }
+            let Some(sample_b) = row_normal_sample(&bands[second], chain_param) else {
+                continue;
+            };
+            worst = worst.max(1.0 - sample_a.normal.dot(&sample_b.normal).abs());
         }
     }
     worst
 }
 
-fn partial_overlap(a: &DerivedRowBand, b: &DerivedRowBand) -> Option<(f64, f64)> {
-    let (lo_a, hi_a) = ordered(a.interval);
-    let (lo_b, hi_b) = ordered(b.interval);
-    let lo = lo_a.max(lo_b);
-    let hi = hi_a.min(hi_b);
-    (hi - lo > 1.0e-6).then_some((lo, hi))
+fn band_indices(bands: &[DerivedRowBand]) -> HashMap<ChainRowKey, usize> {
+    bands
+        .iter()
+        .enumerate()
+        .map(|(index, band)| (band.key, index))
+        .collect()
+}
+
+fn trim_chain_param(band: &DerivedRowBand, trim_interval: (f64, f64), fraction: f64) -> f64 {
+    let row_param = trim_interval.0 + (trim_interval.1 - trim_interval.0) * fraction;
+    band.interval.0 + (band.interval.1 - band.interval.0) * row_param
 }
 
 fn row_normal_sample(band: &DerivedRowBand, chain_param: f64) -> Option<RowNormalSample> {
@@ -334,10 +363,6 @@ fn add_normal_equation(
     }
 }
 
-fn ordered(interval: (f64, f64)) -> (f64, f64) {
-    (interval.0.min(interval.1), interval.0.max(interval.1))
-}
-
 fn component(vector: Vec3, axis: usize) -> f64 {
     match axis {
         0 => vector.x,
@@ -350,6 +375,7 @@ fn component(vector: Vec3, axis: usize) -> f64 {
 struct ActiveNormalSample {
     first: usize,
     second: usize,
+    fraction: f64,
     chain_param: f64,
     disagreement: f64,
 }

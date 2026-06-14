@@ -270,7 +270,7 @@ pub(super) fn reauthor_cells_from_chain_network(
             repair_pair_normal_solve(&mut row_bands[first_row..], &mut outcome);
         }
         if active_normal_solve {
-            repair_active_normal_solve(&mut row_bands[first_row..], &mut outcome);
+            repair_active_normal_solve(&mut row_bands[first_row..], chain_trims, &mut outcome);
         }
     }
     let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
