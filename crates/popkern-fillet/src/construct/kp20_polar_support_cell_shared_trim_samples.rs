@@ -37,6 +37,8 @@ pub(in crate::construct) struct Kp20SupportCellG2Sample {
 pub(in crate::construct) struct Kp20SupportCellG2Decomposition {
     pub(in crate::construct) projected_u: f64,
     pub(in crate::construct) projected_v: f64,
+    pub(in crate::construct) normal: Vec3,
+    pub(in crate::construct) directional_second: Vec3,
     pub(in crate::construct) second_form_l: f64,
     pub(in crate::construct) second_form_m: f64,
     pub(in crate::construct) second_form_n: f64,
@@ -51,6 +53,8 @@ impl Kp20SupportCellG2Decomposition {
         Self {
             projected_u: components.projected_u,
             projected_v: components.projected_v,
+            normal: components.normal * sign,
+            directional_second: components.directional_second,
             second_form_l: components.second_form_l * sign,
             second_form_m: components.second_form_m * sign,
             second_form_n: components.second_form_n * sign,
@@ -67,6 +71,10 @@ impl Kp20SupportCellG2Decomposition {
 
     fn vv_term(self) -> f64 {
         self.second_form_n * self.projected_v * self.projected_v
+    }
+
+    fn directional_second_magnitude(self) -> f64 {
+        self.directional_second.dot(&self.directional_second).sqrt()
     }
 }
 
@@ -132,6 +140,11 @@ pub(super) fn g2_sample_detail(
                 sample.uv_b.y
             ) + &g2_decomposition_detail("a", sample.decomposition_a)
                 + &g2_decomposition_detail("b", sample.decomposition_b)
+                + &g2_mechanism_detail(
+                    sample.decomposition_a,
+                    sample.decomposition_b,
+                    sample.normal_alignment,
+                )
         })
         .collect::<Vec<_>>();
     if entries.is_empty() {
@@ -143,9 +156,10 @@ pub(super) fn g2_sample_detail(
 
 fn g2_decomposition_detail(prefix: &str, decomposition: Kp20SupportCellG2Decomposition) -> String {
     format!(
-        ",{prefix}_proj=(u={:.6e},v={:.6e}),{prefix}_ii=(l={:.6e},m={:.6e},n={:.6e}),{prefix}_terms=(uu={:.6e},uv={:.6e},vv={:.6e})",
+        ",{prefix}_proj=(u={:.6e},v={:.6e}),{prefix}_q={:.6e},{prefix}_ii=(l={:.6e},m={:.6e},n={:.6e}),{prefix}_terms=(uu={:.6e},uv={:.6e},vv={:.6e})",
         decomposition.projected_u,
         decomposition.projected_v,
+        decomposition.directional_second_magnitude(),
         decomposition.second_form_l,
         decomposition.second_form_m,
         decomposition.second_form_n,
@@ -153,4 +167,40 @@ fn g2_decomposition_detail(prefix: &str, decomposition: Kp20SupportCellG2Decompo
         decomposition.uv_term(),
         decomposition.vv_term()
     )
+}
+
+fn g2_mechanism_detail(
+    first: Kp20SupportCellG2Decomposition,
+    second: Kp20SupportCellG2Decomposition,
+    normal_alignment: f64,
+) -> String {
+    format!(
+        ",q_gap={:.6e},normal_only=(a={:.6e},b={:.6e})",
+        directional_second_gap(first, second),
+        normal_only_residual(first, second, normal_alignment, first.directional_second),
+        normal_only_residual(first, second, normal_alignment, second.directional_second)
+    )
+}
+
+fn directional_second_gap(
+    first: Kp20SupportCellG2Decomposition,
+    second: Kp20SupportCellG2Decomposition,
+) -> f64 {
+    let delta = first.directional_second - second.directional_second;
+    let scale = first
+        .directional_second_magnitude()
+        .max(second.directional_second_magnitude());
+    delta.dot(&delta).sqrt() / (1.0 + scale)
+}
+
+fn normal_only_residual(
+    first: Kp20SupportCellG2Decomposition,
+    second: Kp20SupportCellG2Decomposition,
+    normal_alignment: f64,
+    directional_second: Vec3,
+) -> f64 {
+    let first_projection = first.normal.dot(&directional_second);
+    let second_projection = (second.normal * normal_alignment).dot(&directional_second);
+    let scale = first_projection.abs().max(second_projection.abs());
+    (first_projection - second_projection).abs() / (1.0 + scale)
 }

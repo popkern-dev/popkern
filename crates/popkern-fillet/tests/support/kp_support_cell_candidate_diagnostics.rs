@@ -115,6 +115,8 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("b_proj=(")
                 && detail.contains("b_ii=(")
                 && detail.contains("b_terms=(")
+                && detail.contains("q_gap=")
+                && detail.contains("normal_only=(")
         }),
         "{fixture} support-cell G2 diagnostics should expose projected-direction and second-form decomposition for top normal-aligned samples; support_cell_details={support_cell_dispatch_details:?}"
     );

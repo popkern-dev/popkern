@@ -59,6 +59,10 @@ pub struct NormalCurvatureComponents {
     pub projected_u: f64,
     /// Unit tangent coefficient along `∂S/∂v`.
     pub projected_v: f64,
+    /// Patch normal used to sign the second fundamental form.
+    pub normal: Vec3,
+    /// Ambient vector `S_uu·u² + 2S_uv·u·v + S_vv·v²`.
+    pub directional_second: Vec3,
     /// Second fundamental form coefficient `n · ∂²S/∂u²`.
     pub second_form_l: f64,
     /// Second fundamental form coefficient `n · ∂²S/∂u∂v`.
@@ -133,10 +137,13 @@ pub fn normal_curvature_components_along(
     let l = normal.dot(&suu);
     let m = normal.dot(&suv);
     let n = normal.dot(&svv);
+    let directional_second = suu * (a * a) + suv * (2.0 * a * b) + svv * (b * b);
     Ok(NormalCurvatureComponents {
-        curvature: l * a * a + 2.0 * m * a * b + n * b * b,
+        curvature: normal.dot(&directional_second),
         projected_u: a,
         projected_v: b,
+        normal,
+        directional_second,
         second_form_l: l,
         second_form_m: m,
         second_form_n: n,

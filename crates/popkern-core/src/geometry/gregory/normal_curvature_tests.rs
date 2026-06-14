@@ -90,6 +90,11 @@ fn decomposition_terms_reconstruct_normal_curvature() {
         "decomposition should reconstruct κ: {components:?}"
     );
     assert!(
+        (components.curvature - components.normal.dot(&components.directional_second)).abs()
+            < 1e-12,
+        "directional second vector should project to κ: {components:?}"
+    );
+    assert!(
         (components.projected_u - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12,
         "projected u coefficient should be metric-unit along the bent direction: {components:?}"
     );
