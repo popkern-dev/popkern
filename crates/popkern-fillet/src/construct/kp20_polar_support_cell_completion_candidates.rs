@@ -29,11 +29,12 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenChainConstructiveDualTwistCellsIfG0Safe,
     PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe,
+    PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
     PcurveThenWorstBoundaryRowGroupIfG0Safe,
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 25] = [
+    pub(super) const ALL: [Self; 26] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -57,6 +58,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe,
+        Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe,
         Self::PcurveThenChainConstructiveCellsIfG0Safe,
         Self::PcurveThenWorstBoundaryRowGroupIfG0Safe,
     ];
@@ -123,6 +125,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_beta_envelope_if_g0_safe"
             }
+            Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe => {
+                "pcurve_then_chain_constructive_dual_twist_pair_normal_solve_if_g0_safe"
+            }
             Self::PcurveThenWorstBoundaryRowGroupIfG0Safe => {
                 "pcurve_then_worst_boundary_row_group_if_g0_safe"
             }
@@ -153,6 +158,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistJointLegSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeIfG0Safe
+                | Self::PcurveThenChainConstructiveDualTwistPairNormalSolveIfG0Safe
                 | Self::PcurveThenWorstBoundaryRowGroupIfG0Safe
         )
     }

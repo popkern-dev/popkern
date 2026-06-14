@@ -11,6 +11,8 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::cell_reauthor::reauthor_cells_from_chain_network;
+#[path = "kp20_polar_support_cell_chain_status.rs"]
+mod chain_status;
 use super::chain_author::author_sub_chain;
 use super::chain_discovery::{ChainTrim, discover_sub_chains};
 use super::chain_nodes::{global_node_normals, global_node_positions};
@@ -47,6 +49,7 @@ enum ChainNetworkMode {
     CurvesAndConstructiveDualTwistCells,
     CurvesAndConstructiveDualTwistCellsWithJointLegSolve,
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
+    CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
 }
 
 impl ChainNetworkMode {
@@ -57,6 +60,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
         )
     }
 
@@ -66,6 +70,7 @@ impl ChainNetworkMode {
             ChainNetworkMode::CurvesAndConstructiveDualTwistCells
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
+                | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
         )
     }
 
@@ -80,6 +85,13 @@ impl ChainNetworkMode {
         matches!(
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope
+        )
+    }
+
+    fn pair_normal_solve(self) -> bool {
+        matches!(
+            self,
+            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve
         )
     }
 }
@@ -143,6 +155,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope(
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope,
+    )
+}
+
+pub(super) fn author_chain_network_with_constructive_dual_twist_pair_normal_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve,
     )
 }
 
@@ -381,45 +404,10 @@ fn author_chain_network_internal(
             &node_normals,
             mode.dual_twist(),
             mode.beta_envelope(),
+            mode.pair_normal_solve(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
-        reauthor_detail = format!(
-            ";derived_row_count={};leg_solve_declined_count={};field_declined_sub_chain_count={};twist_conflict_count={};max_twist_conflict_distance={:.6e};max_derived_span_residual={:.6e};worst_span_residual_row={};repaired_leg_count={};max_leg_out_of_plane_ratio={:.6e};max_twist_conflict_normal_component={:.6e};max_relative_twist_displacement={:.6e};refilled_cell_count={};predicted_worst_trim_g1={:.6e};cross_field_sample_count={};near_tangent_cross_count={};beta_sign_flip_count={};max_tangential_fraction={:.6e};min_beta_magnitude_fraction={:.6e};worst_cross_field_detail=[{}];beta_envelope_sample_count={};beta_envelope_constraint_count={};beta_envelope_repaired_row_count={};max_beta_envelope_control_delta={:.6e};min_beta_envelope_fraction_before={:.6e};min_beta_envelope_fraction_after={:.6e};clamped_leg_beta_count={};one_sided_band_count={};dual_multi_demand_side_count={};dual_twist_pair_count={};max_dual_twist_pair_separation={:.6e};predicted_worst_detail=[{}]",
-            outcome.derived_row_count,
-            outcome.leg_solve_declined_count,
-            outcome.field_declined_sub_chain_count,
-            outcome.twist_conflict_count,
-            outcome.max_twist_conflict_distance,
-            outcome.max_derived_span_residual,
-            outcome.worst_span_residual_row.as_deref().unwrap_or("none"),
-            outcome.repaired_leg_count,
-            outcome.max_leg_out_of_plane_ratio,
-            outcome.max_twist_conflict_normal_component,
-            outcome.max_relative_twist_displacement,
-            outcome.refilled_cell_count,
-            outcome.predicted_worst_trim_g1,
-            outcome.cross_field_sample_count,
-            outcome.near_tangent_cross_count,
-            outcome.beta_sign_flip_count,
-            outcome.max_tangential_fraction,
-            outcome.min_beta_magnitude_fraction,
-            outcome
-                .worst_cross_field_detail
-                .as_deref()
-                .unwrap_or("none"),
-            outcome.beta_envelope_sample_count,
-            outcome.beta_envelope_constraint_count,
-            outcome.beta_envelope_repaired_row_count,
-            outcome.max_beta_envelope_control_delta,
-            outcome.min_beta_envelope_fraction_before,
-            outcome.min_beta_envelope_fraction_after,
-            outcome.clamped_leg_beta_count,
-            outcome.one_sided_band_count,
-            outcome.dual_multi_demand_side_count,
-            outcome.dual_twist_pair_count,
-            outcome.max_dual_twist_pair_separation,
-            outcome.predicted_worst_detail.as_deref().unwrap_or("none")
-        );
+        reauthor_detail = chain_status::reauthor_detail(&outcome);
     }
     for (face, patch) in patches {
         match dual_twist_pairs.get(&face) {
@@ -455,6 +443,12 @@ fn author_chain_network_internal(
         }
         (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope, false) => {
             "chain_constructive_dual_twist_beta_envelope_declined"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve, true) => {
+            "chain_constructive_dual_twist_pair_normal_solve_authored"
+        }
+        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve, false) => {
+            "chain_constructive_dual_twist_pair_normal_solve_declined"
         }
     };
     Ok(format!(

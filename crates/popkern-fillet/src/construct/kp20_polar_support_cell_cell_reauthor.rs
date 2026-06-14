@@ -28,8 +28,11 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 
 #[path = "kp20_polar_support_cell_beta_envelope.rs"]
 mod beta_envelope;
+#[path = "kp20_polar_support_cell_pair_normal_solve.rs"]
+mod pair_normal_solve;
 
 use self::beta_envelope::repair_beta_envelope;
+use self::pair_normal_solve::repair_pair_normal_solve;
 use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
@@ -50,6 +53,15 @@ pub(super) struct AuthoredSubChain {
     pub(super) chain_cps: [Point3; 10],
     pub(super) rows: Vec<(ChainRowKey, (f64, f64))>,
     pub(super) nodes: Vec<(VertexHandle, f64)>,
+}
+
+#[derive(Debug, Clone)]
+pub(super) struct DerivedRowBand {
+    pub(super) key: ChainRowKey,
+    pub(super) interval: (f64, f64),
+    pub(super) row0: [Point3; 10],
+    pub(super) row1: [Point3; 10],
+    pub(super) field_segment: [Vec3; 9],
 }
 
 /// Outcome counts of the constructive re-author.
@@ -122,6 +134,14 @@ pub(super) struct CellReauthorOutcome {
     pub(super) max_beta_envelope_control_delta: f64,
     pub(super) min_beta_envelope_fraction_before: f64,
     pub(super) min_beta_envelope_fraction_after: f64,
+    pub(super) pair_normal_sample_count: usize,
+    pub(super) pair_normal_constraint_count: usize,
+    pub(super) pair_normal_repaired_row_count: usize,
+    pub(super) pair_normal_limited_row_count: usize,
+    pub(super) max_pair_normal_control_delta: f64,
+    pub(super) max_pair_normal_disagreement_before: f64,
+    pub(super) max_pair_normal_disagreement_after: f64,
+    pub(super) worst_pair_normal_detail: Option<String>,
     /// End legs whose transverse component was floor-clamped to
     /// prevent a mid-row parametric degeneracy.
     pub(super) clamped_leg_beta_count: usize,
@@ -155,6 +175,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     node_normals: &HashMap<VertexHandle, Vec3>,
     dual_twist: bool,
     beta_envelope: bool,
+    pair_normal_solve: bool,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -164,12 +185,13 @@ pub(super) fn reauthor_cells_from_chain_network(
     // Collect every derived control write; twist controls are
     // demanded by two boundaries of the same face and averaged,
     // and the demand spread is retained for observability.
-    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
+    let mut row_bands = Vec::new();
     for sub in sub_chains {
         let Some(field) = author_ribbon_field(sub, node_normals, patches, &chained_rows) else {
             outcome.field_declined_sub_chain_count += 1;
             continue;
         };
+        let first_row = row_bands.len();
         for &(key, (start, end)) in &sub.rows {
             let Some(patch) = patches.get(&key.face) else {
                 continue;
@@ -208,67 +230,80 @@ pub(super) fn reauthor_cells_from_chain_network(
                     if beta_envelope {
                         repair_beta_envelope(&row0, &mut derived, &field_segment, &mut outcome);
                     }
-                    let (span_residual, residual_param) =
-                        derived_span_residual(&row0, &derived, &field_segment);
-                    if span_residual > outcome.max_derived_span_residual {
-                        outcome.max_derived_span_residual = span_residual;
-                        // Worst-row anatomy: end-leg angles vs the
-                        // chain (sine), leg magnitudes vs the local
-                        // field, and the band magnitude at the
-                        // worst sample — names the deviation source
-                        // (degenerate direction, thin magnitude, or
-                        // healthy-but-clamped).
-                        let derivative = row_derivative_coefficients(&row0);
-                        let leg_start = (row1[0] - row0[0]) * 9.0;
-                        let leg_end = (row1[9] - row0[9]) * 9.0;
-                        let sine = |leg: Vec3, chain: Vec3| -> f64 {
-                            let denominator = (leg.dot(&leg) * chain.dot(&chain)).sqrt();
-                            if denominator <= 1.0e-300 {
-                                return f64::NAN;
-                            }
-                            let cross = leg.cross(&chain);
-                            cross.dot(&cross).sqrt() / denominator
-                        };
-                        outcome.worst_span_residual_row = Some(format!(
-                            "{:?}:{:?}@{residual_param:.2}(sin0={:.2},sin1={:.2},|E0|={:.2e},|E1|={:.2e},|r0|={:.2e},|r8|={:.2e})",
-                            key.face,
-                            key.side,
-                            sine(leg_start, derivative[0]),
-                            sine(leg_end, derivative[8]),
-                            leg_start.dot(&leg_start).sqrt(),
-                            leg_end.dot(&leg_end).sqrt(),
-                            field_segment[0].dot(&field_segment[0]).sqrt(),
-                            field_segment[8].dot(&field_segment[8]).sqrt()
-                        ));
-                    }
-                    let derivative = row_derivative_coefficients(&row0);
-                    let corner_normal_start = derivative[0].cross(&field_segment[0]).normalized();
-                    let corner_normal_end = derivative[8].cross(&field_segment[8]).normalized();
-                    for (k, point) in derived.iter().enumerate().take(9).skip(1) {
-                        let (i, j) = second_row_grid_index(key.side, k);
-                        let plane_normal = match k {
-                            1 => corner_normal_start,
-                            8 => corner_normal_end,
-                            _ => None,
-                        };
-                        let band_offset = *point - row0[k];
-                        writes
-                            .entry((key.face, i, j))
-                            .or_default()
-                            .push(TwistDemand {
-                                position: *point,
-                                plane_normal,
-                                field_magnitude: band_offset.dot(&band_offset).sqrt(),
-                                u_constant_boundary: matches!(
-                                    key.side,
-                                    BoundarySide::UMin | BoundarySide::UMax
-                                ),
-                            });
-                    }
+                    row_bands.push(DerivedRowBand {
+                        key,
+                        interval: (start, end),
+                        row0,
+                        row1: derived,
+                        field_segment,
+                    });
                     outcome.derived_row_count += 1;
                 }
                 None => outcome.leg_solve_declined_count += 1,
             }
+        }
+        if pair_normal_solve {
+            repair_pair_normal_solve(&mut row_bands[first_row..], &mut outcome);
+        }
+    }
+    let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
+    for band in &row_bands {
+        let (span_residual, residual_param) =
+            derived_span_residual(&band.row0, &band.row1, &band.field_segment);
+        if span_residual > outcome.max_derived_span_residual {
+            outcome.max_derived_span_residual = span_residual;
+            // Worst-row anatomy: end-leg angles vs the
+            // chain (sine), leg magnitudes vs the local
+            // field, and the band magnitude at the
+            // worst sample — names the deviation source
+            // (degenerate direction, thin magnitude, or
+            // healthy-but-clamped).
+            let derivative = row_derivative_coefficients(&band.row0);
+            let leg_start = (band.row1[0] - band.row0[0]) * 9.0;
+            let leg_end = (band.row1[9] - band.row0[9]) * 9.0;
+            let sine = |leg: Vec3, chain: Vec3| -> f64 {
+                let denominator = (leg.dot(&leg) * chain.dot(&chain)).sqrt();
+                if denominator <= 1.0e-300 {
+                    return f64::NAN;
+                }
+                let cross = leg.cross(&chain);
+                cross.dot(&cross).sqrt() / denominator
+            };
+            outcome.worst_span_residual_row = Some(format!(
+                "{:?}:{:?}@{residual_param:.2}(sin0={:.2},sin1={:.2},|E0|={:.2e},|E1|={:.2e},|r0|={:.2e},|r8|={:.2e})",
+                band.key.face,
+                band.key.side,
+                sine(leg_start, derivative[0]),
+                sine(leg_end, derivative[8]),
+                leg_start.dot(&leg_start).sqrt(),
+                leg_end.dot(&leg_end).sqrt(),
+                band.field_segment[0].dot(&band.field_segment[0]).sqrt(),
+                band.field_segment[8].dot(&band.field_segment[8]).sqrt()
+            ));
+        }
+        let derivative = row_derivative_coefficients(&band.row0);
+        let corner_normal_start = derivative[0].cross(&band.field_segment[0]).normalized();
+        let corner_normal_end = derivative[8].cross(&band.field_segment[8]).normalized();
+        for (k, point) in band.row1.iter().enumerate().take(9).skip(1) {
+            let (i, j) = second_row_grid_index(band.key.side, k);
+            let plane_normal = match k {
+                1 => corner_normal_start,
+                8 => corner_normal_end,
+                _ => None,
+            };
+            let band_offset = *point - band.row0[k];
+            writes
+                .entry((band.key.face, i, j))
+                .or_default()
+                .push(TwistDemand {
+                    position: *point,
+                    plane_normal,
+                    field_magnitude: band_offset.dot(&band_offset).sqrt(),
+                    u_constant_boundary: matches!(
+                        band.key.side,
+                        BoundarySide::UMin | BoundarySide::UMax
+                    ),
+                });
         }
     }
     let mut touched_faces = Vec::new();
