@@ -7,7 +7,7 @@ use crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSu
 
 use super::{
     assigned_support_cell_slots, chain_fit, full_boundary_trims,
-    reauthor_support_cell_shared_edge_curves, tangent_row,
+    reauthor_support_cell_shared_edge_curves, tangent_row, worst_g1_normal_solve,
 };
 
 type ChainConstructiveAuthor =
@@ -96,6 +96,33 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tan
     ))
 }
 
+pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    let slots = assigned_support_cell_slots(brep, faces);
+    let first = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    let status = chain_fit::author_chain_network_with_constructive_dual_twist_cells(brep, &slots)?;
+    let trims = full_boundary_trims(brep, &slots)?;
+    let solve_report =
+        worst_g1_normal_solve::reconcile_worst_g1_normal_sample_if_improves(brep, faces, &trims)?;
+    reauthor_support_cell_shared_edge_curves(brep, &slots)?;
+    brep.validate().map_err(|error| {
+        CoreError::PreconditionFailed(format!(
+            "kp20 support-cell dual-twist worst-G1 normal solve produced invalid BRep: {error}"
+        ))
+    })?;
+    let first_value = first
+        .split("max_dual_twist_pair_separation=")
+        .nth(1)
+        .and_then(|tail| tail.split(';').next())
+        .unwrap_or("unknown");
+    Ok(format!(
+        "{status};constructive_pass_count=2;first_pass_max_dual_twist_pair_separation={first_value};{}",
+        worst_g1_normal_solve_status(&solve_report)
+    ))
+}
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status(
     brep: &mut BRep,
     faces: &[FaceHandle],
@@ -144,4 +171,25 @@ fn worst_g1_tangent_status(tangent_status: Option<tangent_row::TangentRowUpdate>
         None => "worst_g1_tangent_status=declined;tangent_alignment=none;tangent_damping=none"
             .to_string(),
     }
+}
+
+fn worst_g1_normal_solve_status(
+    report: &worst_g1_normal_solve::WorstG1NormalSolveReport,
+) -> String {
+    format!(
+        "worst_g1_normal_solve_status={};worst_g1_normal_sample_count={};worst_g1_normal_variable_count={};worst_g1_normal_limited_control_count={};max_worst_g1_normal_control_delta={:.6e};worst_g1_normal_damping={};worst_g1_before={:.15e};worst_g1_after={:.15e};local_worst_g1_before={:.15e};local_worst_g1_after={:.15e}",
+        report.status,
+        report.sample_count,
+        report.variable_count,
+        report.limited_control_count,
+        report.max_control_delta,
+        report
+            .damping
+            .map(|damping| format!("{damping:.15e}"))
+            .unwrap_or_else(|| "none".to_string()),
+        report.before_worst_g1,
+        report.after_worst_g1,
+        report.local_disagreement_before,
+        report.local_disagreement_after
+    )
 }

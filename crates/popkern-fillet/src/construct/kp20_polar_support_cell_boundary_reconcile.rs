@@ -52,6 +52,7 @@ pub(crate) use constructive_reconcile::{
     reconcile_assigned_chain_constructive_dual_twist_cells_status,
     reconcile_assigned_chain_constructive_dual_twist_joint_leg_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_pair_normal_solve_status,
+    reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status,
 };
 #[path = "kp20_polar_support_cell_chain_nodes.rs"]
@@ -84,6 +85,10 @@ mod tangent_row;
 mod trim_ownership;
 #[path = "kp20_polar_support_cell_twist_resolution.rs"]
 mod twist_resolution;
+#[path = "kp20_polar_support_cell_worst_g1_normal_solve.rs"]
+mod worst_g1_normal_solve;
+#[path = "kp20_polar_support_cell_worst_g1_normal_target.rs"]
+mod worst_g1_normal_target;
 
 pub(super) use boundary_trim::{
     BoundarySide, FullBoundaryTrim, count_skipped_boundary_trims, face_outer_half_edges,
