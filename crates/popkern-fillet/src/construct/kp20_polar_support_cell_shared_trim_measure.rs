@@ -42,12 +42,14 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
         worst_g0_gap: 0.0,
         worst_normal_disagreement: 0.0,
         worst_g2_residual: 0.0,
+        worst_normal_aligned_g2_residual: 0.0,
         g2_unsupported_sample_count: 0,
         g2_degenerate_sample_count: 0,
         worst_trim: None,
         worst_g1_trim: None,
         top_g1_samples: [None; SUPPORT_CELL_TOP_G1_SAMPLE_COUNT],
         top_g2_samples: [None; SUPPORT_CELL_TOP_G2_SAMPLE_COUNT],
+        top_normal_aligned_g2_samples: [None; SUPPORT_CELL_TOP_G2_SAMPLE_COUNT],
     };
     for &face in faces {
         let Some(start) = brep
@@ -144,7 +146,11 @@ fn measure_shared_trim_pair(
         let normal_a = oriented_normal(surface_a, uv_a.x, uv_a.y);
         let normal_b = oriented_normal(surface_b, uv_b.x, uv_b.y);
         let mut normal_disagreement = f64::NAN;
+        let mut normal_alignment = 1.0;
         if let (Some(a), Some(b)) = (normal_a.normalized(), normal_b.normalized()) {
+            if a.dot(&b) < 0.0 {
+                normal_alignment = -1.0;
+            }
             let disagreement = 1.0 - a.dot(&b).abs();
             normal_disagreement = disagreement;
             let trim = trim_record(face_a, row_a, face_b, row_b, fraction, full_span);
@@ -171,6 +177,7 @@ fn measure_shared_trim_pair(
                 trim_record(face_a, row_a, face_b, row_b, fraction, full_span),
                 g0_gap,
                 normal_disagreement,
+                normal_alignment,
             );
         }
     }
@@ -212,14 +219,27 @@ fn record_g2_sample(
     quality: &mut Kp20SupportCellSharedTrimQuality,
     sample: Kp20SupportCellG2Sample,
 ) {
+    insert_top_g2_sample(&mut quality.top_g2_samples, sample, |sample| {
+        sample.g2_residual
+    });
+    insert_top_g2_sample(
+        &mut quality.top_normal_aligned_g2_samples,
+        sample,
+        |sample| sample.normal_aligned_g2_residual,
+    );
+}
+
+fn insert_top_g2_sample(
+    samples: &mut [Option<Kp20SupportCellG2Sample>; SUPPORT_CELL_TOP_G2_SAMPLE_COUNT],
+    sample: Kp20SupportCellG2Sample,
+    metric: fn(Kp20SupportCellG2Sample) -> f64,
+) {
     for index in 0..SUPPORT_CELL_TOP_G2_SAMPLE_COUNT {
-        if quality.top_g2_samples[index]
-            .is_none_or(|existing| sample.g2_residual > existing.g2_residual)
-        {
+        if samples[index].is_none_or(|existing| metric(sample) > metric(existing)) {
             for move_index in (index + 1..SUPPORT_CELL_TOP_G2_SAMPLE_COUNT).rev() {
-                quality.top_g2_samples[move_index] = quality.top_g2_samples[move_index - 1];
+                samples[move_index] = samples[move_index - 1];
             }
-            quality.top_g2_samples[index] = Some(sample);
+            samples[index] = Some(sample);
             break;
         }
     }
@@ -267,6 +287,7 @@ fn record_trim_g2_residual(
     trim: Kp20SupportCellWorstTrim,
     g0_gap: f64,
     normal_disagreement: f64,
+    normal_alignment: f64,
 ) {
     let Some(direction) = trim_direction(patch_a, pcurve_a, uv_a, fraction) else {
         quality.g2_degenerate_sample_count += 1;
@@ -307,12 +328,21 @@ fn record_trim_g2_residual(
     let oriented_b = oriented_curvature(curvature_b, orientation_b);
     let scale = oriented_a.abs().max(oriented_b.abs());
     let residual = (oriented_a - oriented_b).abs() / (1.0 + scale);
+    let normal_aligned_b = oriented_b * normal_alignment;
+    let normal_aligned_scale = oriented_a.abs().max(normal_aligned_b.abs());
+    let normal_aligned_residual =
+        (oriented_a - normal_aligned_b).abs() / (1.0 + normal_aligned_scale);
     quality.worst_g2_residual = quality.worst_g2_residual.max(residual);
+    quality.worst_normal_aligned_g2_residual = quality
+        .worst_normal_aligned_g2_residual
+        .max(normal_aligned_residual);
     record_g2_sample(
         quality,
         Kp20SupportCellG2Sample {
             trim,
             g2_residual: residual,
+            normal_aligned_g2_residual: normal_aligned_residual,
+            normal_alignment,
             curvature_a: oriented_a,
             curvature_b: oriented_b,
             normal_disagreement,

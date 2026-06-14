@@ -20,6 +20,8 @@ pub(in crate::construct) struct Kp20SupportCellG1Sample {
 pub(in crate::construct) struct Kp20SupportCellG2Sample {
     pub(in crate::construct) trim: Kp20SupportCellWorstTrim,
     pub(in crate::construct) g2_residual: f64,
+    pub(in crate::construct) normal_aligned_g2_residual: f64,
+    pub(in crate::construct) normal_alignment: f64,
     pub(in crate::construct) curvature_a: f64,
     pub(in crate::construct) curvature_b: f64,
     pub(in crate::construct) normal_disagreement: f64,
@@ -71,13 +73,15 @@ pub(super) fn g2_sample_detail(
         .flatten()
         .map(|sample| {
             format!(
-                "{:?}:{}<->{:?}:{}@f={:.6e},g2={:.6e},ka={:.6e},kb={:.6e},g1={:.6e},g0={:.6e},uva=({:.4e},{:.4e}),uvb=({:.4e},{:.4e})",
+                "{:?}:{}<->{:?}:{}@f={:.6e},g2={:.6e},g2_aligned={:.6e},normal_alignment={:.1},ka={:.6e},kb={:.6e},g1={:.6e},g0={:.6e},uva=({:.4e},{:.4e}),uvb=({:.4e},{:.4e})",
                 sample.trim.face_a,
                 row_label(sample.trim.row_a),
                 sample.trim.face_b,
                 row_label(sample.trim.row_b),
                 sample.trim.sample_fraction,
                 sample.g2_residual,
+                sample.normal_aligned_g2_residual,
+                sample.normal_alignment,
                 sample.curvature_a,
                 sample.curvature_b,
                 sample.normal_disagreement,
