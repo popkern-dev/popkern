@@ -43,6 +43,30 @@ pub enum NormalCurvatureError {
     DegenerateNormal,
 }
 
+/// Decomposition of one normal-curvature measurement.
+///
+/// `projected_u` and `projected_v` are the surface-coordinate
+/// weights of the requested ambient direction after tangent-plane
+/// projection and unit normalization in the first fundamental
+/// form. `second_form_l/m/n` are the second fundamental form
+/// coefficients, so `curvature` is
+/// `L·u² + 2M·u·v + N·v²`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NormalCurvatureComponents {
+    /// Normal curvature along the projected unit tangent.
+    pub curvature: f64,
+    /// Unit tangent coefficient along `∂S/∂u`.
+    pub projected_u: f64,
+    /// Unit tangent coefficient along `∂S/∂v`.
+    pub projected_v: f64,
+    /// Second fundamental form coefficient `n · ∂²S/∂u²`.
+    pub second_form_l: f64,
+    /// Second fundamental form coefficient `n · ∂²S/∂u∂v`.
+    pub second_form_m: f64,
+    /// Second fundamental form coefficient `n · ∂²S/∂v²`.
+    pub second_form_n: f64,
+}
+
 /// Normal curvature of `patch` at `(u, v)` along the ambient
 /// direction `direction`.
 ///
@@ -66,6 +90,22 @@ pub fn normal_curvature_along(
     direction: Vec3,
     degeneracy_tolerance: f64,
 ) -> Result<f64, NormalCurvatureError> {
+    normal_curvature_components_along(patch, u, v, direction, degeneracy_tolerance)
+        .map(|components| components.curvature)
+}
+
+/// Normal curvature and second-fundamental-form decomposition of
+/// `patch` at `(u, v)` along the ambient direction `direction`.
+///
+/// This uses the same projection, normalization, degeneracy
+/// guards, and sign convention as [`normal_curvature_along`].
+pub fn normal_curvature_components_along(
+    patch: &GregoryPatch,
+    u: f64,
+    v: f64,
+    direction: Vec3,
+    degeneracy_tolerance: f64,
+) -> Result<NormalCurvatureComponents, NormalCurvatureError> {
     let (suu, suv, svv) = second_partials(patch, u, v)?;
     let su = patch.partial_u(u, v);
     let sv = patch.partial_v(u, v);
@@ -93,7 +133,14 @@ pub fn normal_curvature_along(
     let l = normal.dot(&suu);
     let m = normal.dot(&suv);
     let n = normal.dot(&svv);
-    Ok(l * a * a + 2.0 * m * a * b + n * b * b)
+    Ok(NormalCurvatureComponents {
+        curvature: l * a * a + 2.0 * m * a * b + n * b * b,
+        projected_u: a,
+        projected_v: b,
+        second_form_l: l,
+        second_form_m: m,
+        second_form_n: n,
+    })
 }
 
 /// Second partial derivatives `(∂²S/∂u², ∂²S/∂u∂v, ∂²S/∂v²)` for

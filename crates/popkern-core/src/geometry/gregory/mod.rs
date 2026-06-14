@@ -173,7 +173,8 @@ mod triangular;
 mod triangular_to_nurbs;
 
 pub use build::GregoryBuildError;
-pub use normal_curvature::{NormalCurvatureError, normal_curvature_along};
+pub use normal_curvature::{NormalCurvatureComponents, NormalCurvatureError};
+pub use normal_curvature::{normal_curvature_along, normal_curvature_components_along};
 pub use rectangular::RectangularGregory;
 pub use rectangular_binonic::RectangularGregoryBiNonic;
 pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;

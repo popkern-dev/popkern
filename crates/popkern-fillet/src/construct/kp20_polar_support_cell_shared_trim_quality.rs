@@ -11,8 +11,8 @@ mod shared_trim_samples;
 
 pub(super) use shared_trim_measure::measure_support_cell_shared_trim_quality;
 pub(super) use shared_trim_samples::{
-    Kp20SupportCellG1Sample, Kp20SupportCellG2Sample, SUPPORT_CELL_TOP_G1_SAMPLE_COUNT,
-    SUPPORT_CELL_TOP_G2_SAMPLE_COUNT,
+    Kp20SupportCellG1Sample, Kp20SupportCellG2Decomposition, Kp20SupportCellG2Sample,
+    SUPPORT_CELL_TOP_G1_SAMPLE_COUNT, SUPPORT_CELL_TOP_G2_SAMPLE_COUNT,
 };
 use shared_trim_samples::{g1_sample_detail, g2_sample_detail, row_label};
 

@@ -1,4 +1,4 @@
-use super::{NormalCurvatureError, normal_curvature_along};
+use super::{NormalCurvatureError, normal_curvature_along, normal_curvature_components_along};
 use crate::geometry::gregory::{GregoryPatch, RectangularGregory, RectangularGregoryBiNonic};
 use crate::geometry::{Point3, Vec3};
 
@@ -68,6 +68,34 @@ fn parabolic_cylinder_matches_analytic_curvature() {
     assert!(
         along_v.abs() < 1e-12,
         "ruling curvature should vanish, got {along_v}"
+    );
+}
+
+#[test]
+fn decomposition_terms_reconstruct_normal_curvature() {
+    let patch = parabolic_cylinder_binonic();
+    let components = normal_curvature_components_along(
+        &patch,
+        0.5,
+        0.5,
+        Vec3::new(1.0, 0.0, 1.0),
+        DEGENERACY_TOL,
+    )
+    .expect("cylinder sample must be measurable");
+    let reconstructed = components.second_form_l * components.projected_u * components.projected_u
+        + 2.0 * components.second_form_m * components.projected_u * components.projected_v
+        + components.second_form_n * components.projected_v * components.projected_v;
+    assert!(
+        (components.curvature - reconstructed).abs() < 1e-12,
+        "decomposition should reconstruct κ: {components:?}"
+    );
+    assert!(
+        (components.projected_u - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12,
+        "projected u coefficient should be metric-unit along the bent direction: {components:?}"
+    );
+    assert!(
+        components.projected_v.abs() < 1e-12,
+        "projected v coefficient should vanish for a pure u direction: {components:?}"
     );
 }
 

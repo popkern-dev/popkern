@@ -3,13 +3,16 @@
 use std::collections::{HashMap, HashSet};
 
 use popkern_core::geometry::Vec3;
-use popkern_core::geometry::gregory::{GregoryPatch, NormalCurvatureError, normal_curvature_along};
+use popkern_core::geometry::gregory::{
+    GregoryPatch, NormalCurvatureError, normal_curvature_components_along,
+};
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::{
-    Kp20SupportCellG1Sample, Kp20SupportCellG2Sample, Kp20SupportCellSharedTrimQuality,
-    Kp20SupportCellWorstTrim, SUPPORT_CELL_TOP_G1_SAMPLE_COUNT, SUPPORT_CELL_TOP_G2_SAMPLE_COUNT,
+    Kp20SupportCellG1Sample, Kp20SupportCellG2Decomposition, Kp20SupportCellG2Sample,
+    Kp20SupportCellSharedTrimQuality, Kp20SupportCellWorstTrim, SUPPORT_CELL_TOP_G1_SAMPLE_COUNT,
+    SUPPORT_CELL_TOP_G2_SAMPLE_COUNT,
 };
 
 /// Parametric degeneracy guard for normal-curvature samples —
@@ -293,14 +296,14 @@ fn record_trim_g2_residual(
         quality.g2_degenerate_sample_count += 1;
         return;
     };
-    let curvature_a = normal_curvature_along(
+    let curvature_a = normal_curvature_components_along(
         patch_a,
         uv_a.x,
         uv_a.y,
         direction,
         G2_PARAMETRIC_DEGENERACY_TOL,
     );
-    let curvature_b = normal_curvature_along(
+    let curvature_b = normal_curvature_components_along(
         patch_b,
         uv_b.x,
         uv_b.y,
@@ -324,8 +327,8 @@ fn record_trim_g2_residual(
             return;
         }
     };
-    let oriented_a = oriented_curvature(curvature_a, orientation_a);
-    let oriented_b = oriented_curvature(curvature_b, orientation_b);
+    let oriented_a = oriented_curvature(curvature_a.curvature, orientation_a);
+    let oriented_b = oriented_curvature(curvature_b.curvature, orientation_b);
     let scale = oriented_a.abs().max(oriented_b.abs());
     let residual = (oriented_a - oriented_b).abs() / (1.0 + scale);
     let normal_aligned_b = oriented_b * normal_alignment;
@@ -345,6 +348,8 @@ fn record_trim_g2_residual(
             normal_alignment,
             curvature_a: oriented_a,
             curvature_b: oriented_b,
+            decomposition_a: Kp20SupportCellG2Decomposition::oriented(curvature_a, orientation_a),
+            decomposition_b: Kp20SupportCellG2Decomposition::oriented(curvature_b, orientation_b),
             normal_disagreement,
             g0_gap,
             uv_a,

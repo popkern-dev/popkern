@@ -106,6 +106,18 @@ pub(crate) fn assert_candidate_diagnostics(
         }),
         "{fixture} curvature candidate should report constrained G2 solve diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("top_normal_aligned_g2_samples=[")
+                && detail.contains("a_proj=(")
+                && detail.contains("a_ii=(")
+                && detail.contains("a_terms=(")
+                && detail.contains("b_proj=(")
+                && detail.contains("b_ii=(")
+                && detail.contains("b_terms=(")
+        }),
+        "{fixture} support-cell G2 diagnostics should expose projected-direction and second-form decomposition for top normal-aligned samples; support_cell_details={support_cell_dispatch_details:?}"
+    );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }
 
