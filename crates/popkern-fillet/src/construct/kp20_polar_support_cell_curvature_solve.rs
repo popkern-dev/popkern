@@ -16,9 +16,10 @@ const CURVATURE_SAMPLE_LIMIT: usize = 24;
 const INTERIOR_CONTROL_COUNT: usize = 6;
 const CURVATURE_REGULARIZATION: f64 = 1.0e-8;
 const MIN_NORMAL_ALIGNED_G2_RESIDUAL: f64 = 5.0e-2;
+const MARGIN_NORMAL_ALIGNED_G2_RESIDUAL: f64 = 4.0e-2;
 const COMMERCIAL_G1_TARGET: f64 = 1.25e-3;
 const MAX_CURVATURE_CONTROL_FRACTION: f64 = 0.03;
-const CURVATURE_MAX_PASSES: usize = 4;
+const CURVATURE_MAX_PASSES: usize = 8;
 const CURVATURE_DAMPING_FACTORS: [f64; 6] = [1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125];
 const CURVATURE_IMPROVEMENT_EPS: f64 = 1.0e-12;
 
@@ -39,14 +40,25 @@ pub(super) fn repair_curvature_solve(
     let mut total_repaired_rows = 0usize;
     let mut total_limited_rows = 0usize;
     let mut max_control_delta = 0.0_f64;
-    let mut best_detail = top_curvature_samples(bands, chain_trims)
-        .first()
-        .map(|sample| sample.detail.clone())
-        .unwrap_or_else(|| "none".to_string());
+    let mut best_detail = top_curvature_samples(
+        bands,
+        chain_trims,
+        MIN_NORMAL_ALIGNED_G2_RESIDUAL,
+        CURVATURE_SAMPLE_LIMIT,
+    )
+    .first()
+    .map(|sample| sample.detail.clone())
+    .unwrap_or_else(|| "none".to_string());
     let mut decline_reason = "no_active_samples";
 
     for _ in 0..CURVATURE_MAX_PASSES {
-        let active_samples = top_curvature_samples(bands, chain_trims);
+        let (active_residual, sample_limit) = if before_g2 <= MIN_NORMAL_ALIGNED_G2_RESIDUAL {
+            (MARGIN_NORMAL_ALIGNED_G2_RESIDUAL, 1)
+        } else {
+            (MIN_NORMAL_ALIGNED_G2_RESIDUAL, CURVATURE_SAMPLE_LIMIT)
+        };
+        let active_samples =
+            top_curvature_samples(bands, chain_trims, active_residual, sample_limit);
         total_samples += active_samples.len();
         total_constraints += active_samples.len();
         if active_samples.is_empty() {
@@ -125,6 +137,8 @@ fn declined_detail(reason: &'static str, initial_g2: f64, initial_g1: f64) -> St
 fn top_curvature_samples(
     bands: &[DerivedRowBand],
     chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+    active_residual: f64,
+    sample_limit: usize,
 ) -> Vec<CurvatureSample> {
     let band_indices = band_indices(bands);
     let mut samples = Vec::new();
@@ -150,7 +164,7 @@ fn top_curvature_samples(
                 sample_b.curvature,
                 normal_alignment,
             );
-            if residual <= MIN_NORMAL_ALIGNED_G2_RESIDUAL {
+            if residual <= active_residual {
                 continue;
             }
             samples.push(CurvatureSample {
@@ -184,7 +198,7 @@ fn top_curvature_samples(
             .then_with(|| a.second.cmp(&b.second))
             .then_with(|| a.fraction.total_cmp(&b.fraction))
     });
-    samples.truncate(CURVATURE_SAMPLE_LIMIT);
+    samples.truncate(sample_limit);
     samples
 }
 
