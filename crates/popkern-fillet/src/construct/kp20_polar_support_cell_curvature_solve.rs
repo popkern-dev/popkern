@@ -17,6 +17,7 @@ const INTERIOR_CONTROL_COUNT: usize = 6;
 const CURVATURE_REGULARIZATION: f64 = 1.0e-8;
 const MIN_NORMAL_ALIGNED_G2_RESIDUAL: f64 = 5.0e-2;
 const MARGIN_NORMAL_ALIGNED_G2_RESIDUAL: f64 = 4.0e-2;
+const MARGIN_CURVATURE_SAMPLE_LIMIT: usize = 2;
 const COMMERCIAL_G1_TARGET: f64 = 1.25e-3;
 const MAX_CURVATURE_CONTROL_FRACTION: f64 = 0.03;
 const CURVATURE_MAX_PASSES: usize = 8;
@@ -53,7 +54,10 @@ pub(super) fn repair_curvature_solve(
 
     for _ in 0..CURVATURE_MAX_PASSES {
         let (active_residual, sample_limit) = if before_g2 <= MIN_NORMAL_ALIGNED_G2_RESIDUAL {
-            (MARGIN_NORMAL_ALIGNED_G2_RESIDUAL, 1)
+            (
+                MARGIN_NORMAL_ALIGNED_G2_RESIDUAL,
+                MARGIN_CURVATURE_SAMPLE_LIMIT,
+            )
         } else {
             (MIN_NORMAL_ALIGNED_G2_RESIDUAL, CURVATURE_SAMPLE_LIMIT)
         };
@@ -201,7 +205,6 @@ fn top_curvature_samples(
     samples.truncate(sample_limit);
     samples
 }
-
 fn solve_curvature_system(
     bands: &[DerivedRowBand],
     samples: &[CurvatureSample],
@@ -230,7 +233,6 @@ fn solve_curvature_system(
     }
     solve_dense(matrix, rhs)
 }
-
 fn max_normal_aligned_g2_residual(
     bands: &[DerivedRowBand],
     chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
@@ -262,7 +264,6 @@ fn max_normal_aligned_g2_residual(
     }
     worst
 }
-
 fn max_trim_disagreement(
     bands: &[DerivedRowBand],
     chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
@@ -289,7 +290,6 @@ fn max_trim_disagreement(
     }
     worst
 }
-
 fn band_indices(bands: &[DerivedRowBand]) -> HashMap<ChainRowKey, usize> {
     bands
         .iter()
