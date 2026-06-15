@@ -19,7 +19,7 @@ const MIN_NORMAL_ALIGNED_G2_RESIDUAL: f64 = 5.0e-2;
 const COMMERCIAL_G1_TARGET: f64 = 1.25e-3;
 const MAX_CURVATURE_CONTROL_FRACTION: f64 = 0.03;
 const CURVATURE_MAX_PASSES: usize = 4;
-const CURVATURE_DAMPING_FACTORS: [f64; 4] = [1.0, 0.5, 0.25, 0.125];
+const CURVATURE_DAMPING_FACTORS: [f64; 6] = [1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125];
 const CURVATURE_IMPROVEMENT_EPS: f64 = 1.0e-12;
 
 pub(super) fn repair_curvature_solve(
