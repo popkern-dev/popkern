@@ -164,9 +164,9 @@ impl RectangularGregoryBiNonicDualTwist {
         let bu = bernstein_binonic_all(u);
         let bv = bernstein_binonic_all(v);
         let mut out = Point3::new(0.0, 0.0, 0.0);
-        for i in 0..10 {
-            for j in 0..10 {
-                let w = bu[i] * bv[j];
+        for (i, &bu_i) in bu.iter().enumerate() {
+            for (j, &bv_j) in bv.iter().enumerate() {
+                let w = bu_i * bv_j;
                 let p = if is_dual_twist(i, j) {
                     blended_cp(&self.inner_cps, i, j, u, v)
                 } else {
@@ -185,8 +185,8 @@ impl RectangularGregoryBiNonicDualTwist {
         let bu_prime = bernstein_binonic_deriv_all(u);
         let bv = bernstein_binonic_all(v);
         let mut out = Vec3::new(0.0, 0.0, 0.0);
-        for i in 0..10 {
-            for j in 0..10 {
+        for (i, (&bu_i, &bu_prime_i)) in bu.iter().zip(bu_prime.iter()).enumerate() {
+            for (j, &bv_j) in bv.iter().enumerate() {
                 let (p, dp_du) = if is_dual_twist(i, j) {
                     (
                         blended_cp(&self.inner_cps, i, j, u, v),
@@ -195,8 +195,8 @@ impl RectangularGregoryBiNonicDualTwist {
                 } else {
                     (self.grid[i][j], Vec3::new(0.0, 0.0, 0.0))
                 };
-                let w_prime = bu_prime[i] * bv[j];
-                let w = bu[i] * bv[j];
+                let w_prime = bu_prime_i * bv_j;
+                let w = bu_i * bv_j;
                 out = out
                     + Vec3::new(
                         w_prime * p.x + w * dp_du.x,
@@ -214,8 +214,8 @@ impl RectangularGregoryBiNonicDualTwist {
         let bv = bernstein_binonic_all(v);
         let bv_prime = bernstein_binonic_deriv_all(v);
         let mut out = Vec3::new(0.0, 0.0, 0.0);
-        for i in 0..10 {
-            for j in 0..10 {
+        for (i, &bu_i) in bu.iter().enumerate() {
+            for (j, (&bv_j, &bv_prime_j)) in bv.iter().zip(bv_prime.iter()).enumerate() {
                 let (p, dp_dv) = if is_dual_twist(i, j) {
                     (
                         blended_cp(&self.inner_cps, i, j, u, v),
@@ -224,8 +224,8 @@ impl RectangularGregoryBiNonicDualTwist {
                 } else {
                     (self.grid[i][j], Vec3::new(0.0, 0.0, 0.0))
                 };
-                let w_prime = bu[i] * bv_prime[j];
-                let w = bu[i] * bv[j];
+                let w_prime = bu_i * bv_prime_j;
+                let w = bu_i * bv_j;
                 out = out
                     + Vec3::new(
                         w_prime * p.x + w * dp_dv.x,
