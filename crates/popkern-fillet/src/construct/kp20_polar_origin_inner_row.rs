@@ -14,6 +14,13 @@ use super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 #[path = "kp20_polar_support_boundary_row.rs"]
 mod support_boundary_row;
 
+type Kp20InnerRowSelection = (
+    Vec<Kp20MacroPatch>,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    Kp20OriginInnerMode,
+    f64,
+);
+
 #[derive(Debug, Clone)]
 pub(super) struct Kp20InnerRowReport {
     pub(super) evaluated: usize,
@@ -146,12 +153,7 @@ fn refine_inner_interior_row(
     target_pieces: &[Kp20PieceId],
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20InnerRowReport), String> {
     let start_folds = lift.summary.fold_count;
-    let mut best: Option<(
-        Vec<Kp20MacroPatch>,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20OriginInnerMode,
-        f64,
-    )> = None;
+    let mut best: Option<Kp20InnerRowSelection> = None;
     let mut stats = Kp20InnerRowReport {
         evaluated: 0,
         accepted: 0,

@@ -91,7 +91,7 @@ fn commit_kp20_expanded_support_patchwork_inner(
     central_point: Point3,
     support_surfaces: &[GregoryPatch],
 ) -> Result<Kp20ExpandedSupportCommitResult, CoreError> {
-    if support_surfaces.is_empty() || support_surfaces.len() % 7 != 0 {
+    if support_surfaces.is_empty() || !support_surfaces.len().is_multiple_of(7) {
         return Err(CoreError::PreconditionFailed(format!(
             "kp20 expanded support commit expected 7N support surfaces, got {}",
             support_surfaces.len(),
@@ -143,10 +143,10 @@ fn poke_kp20_expanded_support_patchwork_inner(
     }
     let mut sub_faces =
         Vec::with_capacity(macro_poke.sub_faces.len() + 2 * support_split_sectors.len());
-    for sector in 0..n {
+    for (sector, lane) in support_lanes.iter().enumerate().take(n) {
         for piece in 0..4 {
             let macro_face = macro_poke.sub_faces[4 * sector + piece];
-            if let (3, Some([boundary, interior])) = (piece, support_lanes[sector]) {
+            if let (3, Some([boundary, interior])) = (piece, *lane) {
                 sub_faces.push(boundary);
                 sub_faces.push(interior);
             } else {
@@ -296,9 +296,9 @@ fn split_pentagon_face_into_quads(
     face: FaceHandle,
 ) -> Result<[FaceHandle; 2], CoreError> {
     let hes5 = face_outer_half_edges(brep, face)?;
-    for split_index in 0..hes5.len() {
+    for &half_edge in &hes5 {
         let mut candidate = brep.clone();
-        let split_edge = candidate.half_edges[hes5[split_index]].edge;
+        let split_edge = candidate.half_edges[half_edge].edge;
         if candidate.split_edge(split_edge, 0.5).is_err() {
             continue;
         }

@@ -299,7 +299,7 @@ fn support_cell_topology_path_g0(patches: &[GregoryPatch], cells_u: usize, cells
         || cells_v == 0
         || sector_patch_count == 0
         || patches.is_empty()
-        || patches.len() % sector_patch_count != 0
+        || !patches.len().is_multiple_of(sector_patch_count)
     {
         return f64::INFINITY;
     }

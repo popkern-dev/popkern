@@ -253,14 +253,14 @@ fn row_normal_sample(band: &DerivedRowBand, chain_param: f64) -> Option<RowNorma
     let raw_normal_magnitude = raw_normal.dot(&raw_normal).sqrt();
     let normal = raw_normal.normalized()?;
     let mut sensitivities = [Vec3::new(0.0, 0.0, 0.0); INTERIOR_CONTROL_COUNT];
-    for column in 0..INTERIOR_CONTROL_COUNT {
+    for (column, sensitivity) in sensitivities.iter_mut().enumerate() {
         let k = column + 2;
         let Some(direction) = control_normal_direction(band, k) else {
             continue;
         };
         let cross_delta = direction * (9.0 * basis[k]);
         let normal_delta = tangent.cross(&cross_delta);
-        sensitivities[column] =
+        *sensitivity =
             (normal_delta - normal * normal_delta.dot(&normal)) * (1.0 / raw_normal_magnitude);
     }
     Some(RowNormalSample {

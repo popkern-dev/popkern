@@ -131,6 +131,7 @@ pub(super) fn sampler_comparison_diagnostic(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn append_paper_alignment_detail(
     detail: &mut String,
     tensor_border: &TensorBorderBi3,

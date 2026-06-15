@@ -164,18 +164,18 @@ pub(super) fn fit_partial_shared_boundary_segments(
         trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
     match segment_topology::commit_segment_boundary_topology(brep, &segment_records)? {
         segment_topology::SegmentBoundaryCommitStatus::AlreadySegmented => {
-            return fit_valid_segment_boundary_records(brep, segment_records);
+            fit_valid_segment_boundary_records(brep, segment_records)
         }
         segment_topology::SegmentBoundaryCommitStatus::SplitCommitted => {
             let refreshed_records =
                 trim_ownership::segment_owned_boundary_trims(&full_boundary_trims(brep, slots)?);
-            return fit_valid_segment_boundary_records(brep, refreshed_records);
+            fit_valid_segment_boundary_records(brep, refreshed_records)
         }
         segment_topology::SegmentBoundaryCommitStatus::SplitDeclinedNoParameters => {
-            return Ok("partial_boundary_segment_topology_address_invalid");
+            Ok("partial_boundary_segment_topology_address_invalid")
         }
         segment_topology::SegmentBoundaryCommitStatus::SplitRolledBack => {
-            return Ok("partial_boundary_segment_edge_split_rolled_back");
+            Ok("partial_boundary_segment_edge_split_rolled_back")
         }
     }
 }

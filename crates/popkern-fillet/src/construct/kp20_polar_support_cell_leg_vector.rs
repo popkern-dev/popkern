@@ -74,6 +74,8 @@ pub(super) struct JointEndpointPlaneConstraint {
     pub(super) residual_before: f64,
 }
 
+type ChainDerivativeTargets = HashMap<usize, Vec<(f64, Vec3, f64)>>;
+
 /// Build soft derivative targets that make endpoint CP1 legs at
 /// T-junctions agree with the opposing trim side's interior
 /// cross-derivative vector, up to orientation. Returns per-chain
@@ -84,9 +86,9 @@ pub(super) fn leg_vector_targets(
     authored_sub_chains: &[AuthoredSubChain],
     chain_trims: &[ChainTrim<ChainRowKey, popkern_core::topology::VertexHandle>],
     patches: &HashMap<FaceHandle, RectangularGregoryBiNonic>,
-) -> (HashMap<usize, Vec<(f64, Vec3, f64)>>, usize, f64) {
+) -> (ChainDerivativeTargets, usize, f64) {
     let authored_rows = authored_row_lookup(authored_sub_chains);
-    let mut targets: HashMap<usize, Vec<(f64, Vec3, f64)>> = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::new();
     let mut target_count = 0usize;
     let mut max_leg_delta = 0.0_f64;
     for trim in chain_trims {
@@ -288,6 +290,7 @@ fn row_tangent(
     Some(chain_derivative(&row0, row_param.clamp(0.0, 1.0)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_plane_constraint(
     authored_rows: &HashMap<ChainRowKey, AuthoredRow>,
     authored_sub_chains: &[AuthoredSubChain],

@@ -5,6 +5,7 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
 use super::BoundarySide;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn exact_segment_transfer_candidate(
     patch_a: &RectangularGregoryBiNonic,
     side_a: BoundarySide,

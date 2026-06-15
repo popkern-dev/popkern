@@ -17,6 +17,7 @@
 //! Twist controls (a grid corner's diagonal neighbour) are
 //! demanded by two boundaries; the writes are averaged and
 //! counted.
+#![allow(clippy::duplicate_mod)]
 
 use std::collections::HashMap;
 
@@ -203,6 +204,7 @@ pub(super) struct CellReauthorOutcome {
 
 /// Derive every chained row's row-1 band from the shared
 /// `(C, R)` fields, then refill the touched cells' interiors.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn reauthor_cells_from_chain_network(
     patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
     sub_chains: &[AuthoredSubChain],

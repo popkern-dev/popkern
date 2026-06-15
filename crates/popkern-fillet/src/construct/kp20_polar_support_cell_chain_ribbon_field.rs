@@ -63,25 +63,25 @@ pub(super) fn fit_ribbon_field(
     }
     for &(t, direction) in soft_directions {
         let basis = bernstein8(t);
-        for i in 0..9 {
-            for j in 0..9 {
-                matrix[i][j] += SOFT_DIRECTION_WEIGHT * basis[i] * basis[j];
+        for (i, matrix_row) in matrix.iter_mut().enumerate().take(9) {
+            for (j, entry) in matrix_row.iter_mut().enumerate().take(9) {
+                *entry += SOFT_DIRECTION_WEIGHT * basis[i] * basis[j];
             }
             rhs[0][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.x;
             rhs[1][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.y;
             rhs[2][i] += SOFT_DIRECTION_WEIGHT * basis[i] * direction.z;
         }
     }
-    for i in 0..9 {
-        matrix[i][i] += RIBBON_FIELD_REGULARIZATION;
+    for (i, matrix_row) in matrix.iter_mut().enumerate().take(9) {
+        matrix_row[i] += RIBBON_FIELD_REGULARIZATION;
     }
     add_third_difference_penalty(&mut matrix, 0, 9, RIBBON_FIELD_SMOOTHING_WEIGHT);
     for (index, &(t, direction)) in nodes.iter().enumerate() {
         let basis = bernstein8(t);
         let row = 9 + index;
-        for i in 0..9 {
-            matrix[row][i] = basis[i];
-            matrix[i][row] = basis[i];
+        for (i, &weight) in basis.iter().enumerate() {
+            matrix[row][i] = weight;
+            matrix[i][row] = weight;
         }
         rhs[0][row] = direction.x;
         rhs[1][row] = direction.y;

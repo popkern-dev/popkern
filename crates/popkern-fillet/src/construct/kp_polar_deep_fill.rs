@@ -88,7 +88,7 @@ pub(super) fn boundary_owned_deep_fill_input(
         .interior_filler
         .take()
         .unwrap_or_else(|| vec![[[None; 7]; 7]; input.n]);
-    for k in 0..input.n {
+    for (k, filler_sector) in filler.iter_mut().enumerate().take(input.n) {
         let next = &seed.patches_bi6[(k + 1) % input.n];
         let sector = &seed.patches_bi6[k];
         for j in 3..=6 {
@@ -97,17 +97,17 @@ pub(super) fn boundary_owned_deep_fill_input(
             let left = sector[0][j];
             for i in 0..=6 {
                 if i == 6 {
-                    filler[k][i][j] = Some(right);
+                    filler_sector[i][j] = Some(right);
                     continue;
                 }
                 let u = (i as f64) / 6.0;
                 let row2 = sector[i][2];
                 let owned_edge = lerp(left, right, u);
-                filler[k][i][j] = Some(lerp(row2, owned_edge, v));
+                filler_sector[i][j] = Some(lerp(row2, owned_edge, v));
             }
         }
-        filler[k][2][3] = Some(free.p_23[k]);
-        filler[k][3][3] = Some(free.p_33[k]);
+        filler_sector[2][3] = Some(free.p_23[k]);
+        filler_sector[3][3] = Some(free.p_33[k]);
     }
     input.interior_filler = Some(filler);
     Some(input)
@@ -143,9 +143,9 @@ fn apply_near_star_and_free_cells(
         input.sectors[k].p_02 = s1.p02;
     }
     let mut filler = vec![[[None; 7]; 7]; input.n];
-    for k in 0..input.n {
-        filler[k][2][3] = Some(free.p_23[k]);
-        filler[k][3][3] = Some(free.p_33[k]);
+    for (k, filler_sector) in filler.iter_mut().enumerate().take(input.n) {
+        filler_sector[2][3] = Some(free.p_23[k]);
+        filler_sector[3][3] = Some(free.p_33[k]);
     }
     input.interior_filler = Some(filler);
     Some(input)

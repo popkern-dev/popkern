@@ -21,9 +21,10 @@ use crate::types::ApexConstructionDiagnostic;
 use crate::types::CornerSubPatchFamily;
 
 /// Result of running the promotion ladder.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(super) enum PromotionResult {
     /// Caller should use the ordinary N-way poke.
+    #[default]
     Standard,
     /// Caller should use the 4N macro-cap poke with this construction family.
     Macro4n(CornerSubPatchFamily),
@@ -31,12 +32,6 @@ pub(super) enum PromotionResult {
     ExpandedKp20Support,
     /// Caller should use the KP20 support-cell topology.
     Kp20SupportCell,
-}
-
-impl Default for PromotionResult {
-    fn default() -> Self {
-        Self::Standard
-    }
 }
 
 #[derive(Debug, Clone, Default)]

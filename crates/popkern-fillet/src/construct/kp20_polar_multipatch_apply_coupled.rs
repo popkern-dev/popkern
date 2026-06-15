@@ -9,6 +9,7 @@ use crate::construct::kp20_polar_multipatch_inner::Kp20MultiPatchInnerBuildRepor
 use crate::construct::kp20_polar_multipatch_interface::Kp20MultiPatchInterfaceBuildReport;
 use crate::construct::kp20_polar_support_surface_split::propagate_support_pole_interfaces;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_exact_worst_coupled_support_inner(
     macro_patches: &mut [Kp20MacroPatch],
     changed_patches: &mut [[bool; 4]],
@@ -57,6 +58,7 @@ pub(super) fn apply_exact_worst_coupled_support_inner(
     changed_inner_count(changed_patches, &before)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_exact_fold_set_shared_support_inner(
     macro_patches: &mut [Kp20MacroPatch],
     changed_patches: &mut [[bool; 4]],

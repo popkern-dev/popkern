@@ -10,6 +10,14 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::{Point3, Vec3};
 const MAX_SUPPORT_LIFT_CANDIDATES: usize = 64;
+type Kp20SupportLiftSelection = (
+    Vec<Kp20MacroPatch>,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    Kp20SupportLiftMode,
+    f64,
+    [bool; 4],
+);
+
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportNormalLiftReport {
     pub(super) summary: Kp20SamplerFoldSummary,
@@ -107,21 +115,9 @@ pub(super) fn lift_candidate_from_macro_patches_with_profile(
         optimizer_stats.active_fold_sites = accepted_summary.0.fold_sites.len();
         optimizer_stats.row_variable_count =
             movable_coefficient_count(&accepted_summary.0.fold_sites);
-        let mut best_step: Option<(
-            Vec<Kp20MacroPatch>,
-            (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-            Kp20SupportLiftMode,
-            f64,
-            [bool; 4],
-        )> = None;
+        let mut best_step: Option<Kp20SupportLiftSelection> = None;
         for &mode in Kp20SupportLiftMode::search_order(profile) {
-            let mut best_in_mode: Option<(
-                Vec<Kp20MacroPatch>,
-                (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-                Kp20SupportLiftMode,
-                f64,
-                [bool; 4],
-            )> = None;
+            let mut best_in_mode: Option<Kp20SupportLiftSelection> = None;
             'mode_search: for &scale in Kp20SupportLiftMode::scale_order(profile) {
                 for piece_mask in
                     candidate_piece_masks(profile, mode, &accepted_summary.0.fold_sites)

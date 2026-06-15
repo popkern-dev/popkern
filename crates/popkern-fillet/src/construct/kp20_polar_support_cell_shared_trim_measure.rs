@@ -92,6 +92,7 @@ pub(in crate::construct) fn measure_support_cell_shared_trim_quality(
     quality
 }
 
+#[allow(clippy::too_many_arguments)]
 fn measure_shared_trim_pair(
     brep: &BRep,
     face_a: FaceHandle,

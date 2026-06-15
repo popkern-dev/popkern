@@ -33,6 +33,12 @@ use super::kp20_polar_support_surface_split::{
     support_owner_piece, support_side_index,
 };
 
+type Kp20SupportSurfaceFastSelection = (
+    Vec<Kp20MacroPatch>,
+    Vec<[bool; 4]>,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+);
+
 #[derive(Debug, Clone)]
 pub(super) struct Kp20SupportSurfaceReport {
     pub(super) summary: Kp20SamplerFoldSummary,
@@ -112,11 +118,7 @@ pub(super) fn support_surface_candidate_summary(
             exact_folds: None,
             accepted: false,
         };
-        let mut best_fast: Option<(
-            Vec<Kp20MacroPatch>,
-            Vec<[bool; 4]>,
-            (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        )> = None;
+        let mut best_fast: Option<Kp20SupportSurfaceFastSelection> = None;
         for trial in support_surface_trials(mode, &accepted_summary.0) {
             stats.evaluated_candidates += 1;
             stage.evaluated_candidates += 1;

@@ -386,7 +386,7 @@ pub(super) fn try_limited_nonoverlap_lift(
     tensor_border: &TensorBorderBi3,
 ) -> Result<Kp20LimitedLiftCandidate, String> {
     match try_support_domain_limited_lift(star_point, tensor_border) {
-        Ok(candidate) => return Ok(candidate),
+        Ok(candidate) => Ok(candidate),
         Err(support_domain_error) => default_limited_lift(star_point, tensor_border)
             .map_err(|direct_error| format!("{support_domain_error};{direct_error}")),
     }

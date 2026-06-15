@@ -1,4 +1,5 @@
 //! Segment-aware G0 reconciliation for KP20 support-cell shared full boundaries.
+#![allow(clippy::duplicate_mod)]
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -19,7 +20,7 @@ mod leg_direction;
 mod leg_vector;
 #[path = "kp20_polar_support_cell_surface_access.rs"]
 mod surface_access;
-pub(self) use surface_access::{
+use surface_access::{
     rectangular_binonic_on_face, set_rectangular_binonic_dual_twist_on_face,
     set_rectangular_binonic_on_face,
 };

@@ -293,6 +293,7 @@ pub(super) fn evaluate_multipatch_candidate(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn declined_report(
     strips: &Kp20MultiPatchStripBuildReport,
     inner: &Kp20MultiPatchInnerBuildReport,

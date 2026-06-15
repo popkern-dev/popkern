@@ -12,18 +12,20 @@ use super::super::super::kp20_polar_fold_summary::{
 use super::super::super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::{Kp20InnerRowReport, Kp20OriginInnerMode, origin_inner_direction, sector_span};
 
+type Kp20SupportBoundaryRowSelection = (
+    Vec<Kp20MacroPatch>,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    Kp20OriginInnerMode,
+    f64,
+);
+
 pub(super) fn refine_support_boundary_adjacent_row(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
     lift: Kp20SupportNormalLiftReport,
 ) -> Result<(Kp20SupportNormalLiftReport, Kp20InnerRowReport), String> {
     let start_folds = lift.summary.fold_count;
-    let mut best: Option<(
-        Vec<Kp20MacroPatch>,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20OriginInnerMode,
-        f64,
-    )> = None;
+    let mut best: Option<Kp20SupportBoundaryRowSelection> = None;
     let mut stats = Kp20InnerRowReport {
         evaluated: 0,
         accepted: 0,

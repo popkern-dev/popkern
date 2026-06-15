@@ -56,7 +56,7 @@ pub(crate) fn expanded_support_commit_shape(
     target_count: usize,
     rectangular_surface_count: usize,
 ) -> Kp20ExpandedSupportCommitShape {
-    if target_count != sector_count || sector_count % 2 != 0 {
+    if target_count != sector_count || !sector_count.is_multiple_of(2) {
         return Kp20ExpandedSupportCommitShape {
             face_count: 0,
             pentagon_count: 0,

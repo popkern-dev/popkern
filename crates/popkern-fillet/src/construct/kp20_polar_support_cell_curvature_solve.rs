@@ -319,7 +319,7 @@ fn row_curvature_sample(band: &DerivedRowBand, chain_param: f64) -> Option<RowCu
     let second = eval_row_second_derivative(&band.row0, t);
     let curvature = normal.dot(&second) / speed_sq;
     let mut curvature_sensitivities = [0.0_f64; INTERIOR_CONTROL_COUNT];
-    for column in 0..INTERIOR_CONTROL_COUNT {
+    for (column, sensitivity) in curvature_sensitivities.iter_mut().enumerate() {
         let k = column + 2;
         let Some(direction) = control_normal_direction(band, k) else {
             continue;
@@ -328,7 +328,7 @@ fn row_curvature_sample(band: &DerivedRowBand, chain_param: f64) -> Option<RowCu
         let normal_delta = tangent.cross(&cross_delta);
         let normal_sensitivity =
             (normal_delta - normal * normal_delta.dot(&normal)) * (1.0 / raw_normal_magnitude);
-        curvature_sensitivities[column] = normal_sensitivity.dot(&second) / speed_sq;
+        *sensitivity = normal_sensitivity.dot(&second) / speed_sq;
     }
     Some(RowCurvatureSample {
         normal,

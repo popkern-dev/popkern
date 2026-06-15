@@ -407,10 +407,10 @@ fn transition_relief(
 
 fn capped_displacement(displacement: Vec3, max_length: f64) -> Vec3 {
     let length = displacement.length();
-    if length > max_length {
-        if let Some(direction) = displacement.normalized() {
-            return direction * max_length;
-        }
+    if length > max_length
+        && let Some(direction) = displacement.normalized()
+    {
+        return direction * max_length;
     }
     displacement
 }

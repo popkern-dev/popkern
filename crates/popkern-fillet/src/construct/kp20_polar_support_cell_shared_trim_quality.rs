@@ -440,7 +440,7 @@ pub(super) fn support_cell_selected_label(
                 return None;
             };
             (cap.stage == "kp20_polar_macro.dispatch.support_cell_assembled_quality")
-                .then(|| cap.detail_code.as_deref())
+                .then_some(cap.detail_code.as_deref())
                 .flatten()
                 .and_then(selected_label_from_detail)
         })

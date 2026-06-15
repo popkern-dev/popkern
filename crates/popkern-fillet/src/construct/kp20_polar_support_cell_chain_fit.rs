@@ -225,8 +225,8 @@ fn author_chain_network_internal(
     let mut patches: HashMap<FaceHandle, RectangularGregoryBiNonic> = HashMap::new();
     for sub in &discovery.sub_chains {
         for (key, _) in &sub.rows {
-            if !patches.contains_key(&key.face) {
-                patches.insert(key.face, rectangular_binonic_on_face(brep, key.face)?);
+            if let std::collections::hash_map::Entry::Vacant(entry) = patches.entry(key.face) {
+                entry.insert(rectangular_binonic_on_face(brep, key.face)?);
             }
         }
     }

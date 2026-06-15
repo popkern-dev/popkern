@@ -85,6 +85,7 @@ pub(super) fn transactional_kp20_guide_repair(
     Ok((best_guide, best_quality, report))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn evaluate_guide_prior_candidate(
     guide: &Kp20GuideRing,
     tensor_border: &TensorBorderBi3,

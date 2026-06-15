@@ -226,10 +226,10 @@ fn two_lane_surface(
     let normal = evaluate_bi6_normal(base, target.u, target.v).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
     let interface_row = support_lane_interface(base, target, split_parameter, normal, mode, scale);
     surface.cps[3] = interface_row;
-    for column in 0..7 {
-        surface.cps[2][column] = midpoint(base.cps[1][column], interface_row[column], 0.5);
-        surface.cps[4][column] = midpoint(interface_row[column], base.cps[6][column], 0.34);
-        surface.cps[5][column] = midpoint(interface_row[column], base.cps[6][column], 0.67);
+    for (column, &interface_point) in interface_row.iter().enumerate() {
+        surface.cps[2][column] = midpoint(base.cps[1][column], interface_point, 0.5);
+        surface.cps[4][column] = midpoint(interface_point, base.cps[6][column], 0.34);
+        surface.cps[5][column] = midpoint(interface_point, base.cps[6][column], 0.67);
         if matches!(
             mode,
             Kp20TwoLaneMode::SupportNormalRelief | Kp20TwoLaneMode::ChordRelief

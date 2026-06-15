@@ -58,7 +58,7 @@ fn kp20_support_cell_cells_per_sector(
     support_surfaces: &[GregoryPatch],
     n_sides: usize,
 ) -> Option<usize> {
-    if n_sides < 3 || support_surfaces.len() % n_sides != 0 {
+    if n_sides < 3 || !support_surfaces.len().is_multiple_of(n_sides) {
         return None;
     }
     match support_surfaces.len() / n_sides {

@@ -22,6 +22,8 @@ use popkern_core::topology::VertexHandle;
 use super::cell_reauthor::AuthoredSubChain;
 use super::chain_solver::dbernstein9;
 
+type ChainDerivativeTargets = HashMap<usize, Vec<(f64, Vec3, f64)>>;
+
 /// A corner leg below this fraction of its vertex's class scale
 /// (the healthiest incident leg) is raised to the class target.
 const LEG_CLASS_FLOOR_FRACTION: f64 = 0.45;
@@ -40,7 +42,7 @@ const LEG_CLASS_TARGET_WEIGHT: f64 = 5.0;
 /// decisions run to run otherwise.
 pub(super) fn leg_class_targets(
     authored_sub_chains: &[AuthoredSubChain],
-) -> (HashMap<usize, Vec<(f64, Vec3, f64)>>, usize) {
+) -> (ChainDerivativeTargets, usize) {
     let mut thin_count = 0usize;
     let mut vertex_legs: HashMap<VertexHandle, Vec<(usize, f64, f64, f64)>> = HashMap::new();
     for (chain_index, authored) in authored_sub_chains.iter().enumerate() {
@@ -63,7 +65,7 @@ pub(super) fn leg_class_targets(
             }
         }
     }
-    let mut targets: HashMap<usize, Vec<(f64, Vec3, f64)>> = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::new();
     let mut vertex_order: Vec<&VertexHandle> = vertex_legs.keys().collect();
     vertex_order.sort_by_key(|vertex| format!("{vertex:?}"));
     for vertex in vertex_order {

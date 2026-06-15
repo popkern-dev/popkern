@@ -104,8 +104,8 @@ pub(super) fn fit_constrained_degree9(
             rhs[20 + i] += basis[i] * target.z;
         }
     }
-    for i in 0..30 {
-        matrix[i][i] += FIT_REGULARIZATION;
+    for (i, matrix_row) in matrix.iter_mut().enumerate().take(30) {
+        matrix_row[i] += FIT_REGULARIZATION;
     }
     for &(index, target, weight) in &constraints.spacing_targets {
         matrix[index][index] += weight;
@@ -219,6 +219,7 @@ fn bernstein8(t: f64) -> [f64; 9] {
     out
 }
 
+#[allow(clippy::needless_range_loop)] // Gaussian elimination is explicit row/column indexing.
 pub(super) fn solve_dense(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<f64>> {
     let n = rhs.len();
     for pivot in 0..n {

@@ -110,6 +110,7 @@ pub(super) struct Kp20AppliedMultiPatchCandidate {
     pub(super) changed_piece_count: usize,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn apply_multipatch_candidate(
     accepted_patches: &[Kp20MacroPatch],
     accepted_summary: &Kp20SamplerFoldSummary,
@@ -306,6 +307,7 @@ fn apply_exact_worst_propagated_shoulder(
     changed_inner_count(changed_patches, &before)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn apply_exact_worst_inner_core(
     accepted_patches: &[Kp20MacroPatch],
     macro_patches: &mut [Kp20MacroPatch],

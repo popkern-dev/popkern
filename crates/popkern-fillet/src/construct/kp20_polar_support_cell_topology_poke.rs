@@ -1,5 +1,6 @@
 //! Topology poke contract for KP20 support-cell primitive emission.
 #![allow(dead_code)]
+#![allow(clippy::duplicate_mod)]
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
@@ -64,7 +65,7 @@ fn commit_kp20_support_cell_patchwork_inner(
     sector_count: usize,
     support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
-    if sector_count == 0 || support_surfaces.len() % sector_count != 0 {
+    if sector_count == 0 || !support_surfaces.len().is_multiple_of(sector_count) {
         return Err(CoreError::PreconditionFailed(format!(
             "kp20 support-cell commit expected a support surface inventory divisible by sector count {sector_count}, got {}",
             support_surfaces.len(),

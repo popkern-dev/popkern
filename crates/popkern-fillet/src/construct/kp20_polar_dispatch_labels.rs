@@ -101,6 +101,7 @@ pub(super) fn validation_label(validation: Kp20Bi6ValidationReport) -> String {
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn nonoverlap_coupled_lift_detail(
     default: &Kp20SamplerFoldSummary,
     lifted: &Kp20SamplerFoldSummary,

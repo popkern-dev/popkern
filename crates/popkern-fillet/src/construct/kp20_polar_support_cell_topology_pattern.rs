@@ -3,6 +3,7 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::face_outer_half_edges;
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kp20SupportCellTopologyPattern {
     FourCellSupportGrid,
@@ -41,7 +42,7 @@ impl Kp20SupportCellTopologyPattern {
         support_surface_count: usize,
     ) -> Result<usize, CoreError> {
         let cells_per_sector = self.cells_per_sector();
-        if support_surface_count == 0 || support_surface_count % cells_per_sector != 0 {
+        if support_surface_count == 0 || !support_surface_count.is_multiple_of(cells_per_sector) {
             return Err(CoreError::PreconditionFailed(format!(
                 "kp20 support-cell commit expected {cells_per_sector}N support surfaces, got {support_surface_count}",
             )));

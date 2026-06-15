@@ -93,10 +93,10 @@ fn reauthor_interface_tangent_row(surface: &mut Kp20Bi6Patch) -> Kp20StripTangen
 
 fn capped_vector(displacement: Vec3, max_length: f64) -> Vec3 {
     let length = displacement.length();
-    if length > max_length {
-        if let Some(direction) = displacement.normalized() {
-            return direction * max_length;
-        }
+    if length > max_length
+        && let Some(direction) = displacement.normalized()
+    {
+        return direction * max_length;
     }
     displacement
 }

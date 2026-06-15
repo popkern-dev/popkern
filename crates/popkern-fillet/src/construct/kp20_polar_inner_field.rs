@@ -16,6 +16,13 @@ use super::origin_inner_row::{
     origin_inner_direction, sector_span,
 };
 
+type Kp20InnerFieldSelection = (
+    Vec<Kp20MacroPatch>,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    Kp20OriginInnerMode,
+    f64,
+);
+
 pub(super) fn refine_origin_corner_field(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
@@ -98,12 +105,7 @@ fn refine_field(
         pre_rejected: 0,
         pre_mode: "none",
     };
-    let mut best: Option<(
-        Vec<Kp20MacroPatch>,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20OriginInnerMode,
-        f64,
-    )> = None;
+    let mut best: Option<Kp20InnerFieldSelection> = None;
     for mode in Kp20OriginInnerMode::all() {
         for &scale in scales {
             let mut candidate = lift.macro_patches.clone();

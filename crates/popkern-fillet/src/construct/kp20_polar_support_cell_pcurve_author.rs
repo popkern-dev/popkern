@@ -87,10 +87,10 @@ fn select_candidate_indices(
         .collect::<Vec<_>>();
     let mut best_score = selected_loop_score(
         &selected,
-        &candidates,
+        candidates,
         support_surfaces,
         source_map,
-        &adjacencies,
+        adjacencies,
     );
     for _ in 0..3 {
         let mut improved = false;
@@ -102,10 +102,10 @@ fn select_candidate_indices(
                 selected[slot] = candidate;
                 let score = selected_loop_score(
                     &selected,
-                    &candidates,
+                    candidates,
                     support_surfaces,
                     source_map,
-                    &adjacencies,
+                    adjacencies,
                 );
                 if score.better_than(slot_score) {
                     slot_score = score;
@@ -127,10 +127,10 @@ fn select_candidate_indices(
                     selected[adjacency.slot_b] = candidate_b;
                     let score = selected_loop_score(
                         &selected,
-                        &candidates,
+                        candidates,
                         support_surfaces,
                         source_map,
-                        &adjacencies,
+                        adjacencies,
                     );
                     if score.better_than(pair_score) {
                         pair_score = score;

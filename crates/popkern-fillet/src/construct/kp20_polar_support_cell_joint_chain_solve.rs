@@ -54,6 +54,7 @@ struct PreparedSubChain {
     domain_length: f64,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn solve_joint_chain_network(
     patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
     sub_chains: &[SubChain<ChainRowKey, VertexHandle>],
@@ -305,10 +306,10 @@ fn add_derivative_target(
 fn add_tangent_plane(matrix: &mut [Vec<f64>], chain_index: usize, t: f64, normal: Vec3) {
     let dbasis = dbernstein9(t);
     let mut terms = Vec::with_capacity(30);
-    for cp in 0..10 {
-        terms.push((variable_index(chain_index, 0, cp), dbasis[cp] * normal.x));
-        terms.push((variable_index(chain_index, 1, cp), dbasis[cp] * normal.y));
-        terms.push((variable_index(chain_index, 2, cp), dbasis[cp] * normal.z));
+    for (cp, &weight) in dbasis.iter().enumerate() {
+        terms.push((variable_index(chain_index, 0, cp), weight * normal.x));
+        terms.push((variable_index(chain_index, 1, cp), weight * normal.y));
+        terms.push((variable_index(chain_index, 2, cp), weight * normal.z));
     }
     add_zero_target_row(matrix, &terms, SOFT_TANGENT_PLANE_WEIGHT);
 }

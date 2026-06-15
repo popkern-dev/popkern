@@ -221,9 +221,9 @@ fn project_row(
         // only the free controls' share of the field.
         let frozen = (row1[0] - row0[0]) * frame.basis[0] + (row1[9] - row0[9]) * frame.basis[9];
         let residual = target - frozen;
-        for i in 0..8 {
-            for j in 0..8 {
-                gram[i][j] += frame.basis[i + 1] * frame.basis[j + 1];
+        for (i, gram_row) in gram.iter_mut().enumerate().take(8) {
+            for (j, entry) in gram_row.iter_mut().enumerate().take(8) {
+                *entry += frame.basis[i + 1] * frame.basis[j + 1];
             }
             rhs[0][i] += frame.basis[i + 1] * residual.x;
             rhs[1][i] += frame.basis[i + 1] * residual.y;

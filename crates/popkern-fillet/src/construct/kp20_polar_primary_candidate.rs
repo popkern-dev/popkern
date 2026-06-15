@@ -21,6 +21,14 @@ use crate::types::ApexConstructionDiagnostic;
 
 const TARGET_PIECE: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
 
+type Kp20SupportDomainPrimarySelection = (
+    Kp20Bi6MacroCapInput,
+    Kp20PieceMapDomainReport,
+    Kp20PieceMapStitchReport,
+    (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
+    Kp20PrimarySupportDomainParams,
+);
+
 pub(super) fn evaluate_positive_primary_candidates(
     n: usize,
     star_point: Point3,
@@ -168,13 +176,7 @@ fn try_support_domain_primary_candidate(
             "positive_nonoverlap_c2 support-domain primary missing baseline summary".to_string(),
         );
     };
-    let mut best: Option<(
-        Kp20Bi6MacroCapInput,
-        Kp20PieceMapDomainReport,
-        Kp20PieceMapStitchReport,
-        (Kp20SamplerFoldSummary, Kp20Bi6ValidationReport),
-        Kp20PrimarySupportDomainParams,
-    )> = None;
+    let mut best: Option<Kp20SupportDomainPrimarySelection> = None;
     let mut evaluated = 0;
     for params in Kp20PrimarySupportDomainParams::family() {
         evaluated += 1;

@@ -145,6 +145,7 @@ struct Kp20MacroConstructionTrial {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::enum_variant_names)]
 enum Kp20SupportMacroConstructionMode {
     SupportNormalFrame,
     RadialChordFrame,

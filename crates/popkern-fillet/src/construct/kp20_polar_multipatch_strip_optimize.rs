@@ -129,6 +129,7 @@ pub(super) fn optimized_strip_surface(
     surface
 }
 
+#[allow(clippy::too_many_arguments)]
 fn shoulder_row_target(
     accepted: &Kp20Bi6Patch,
     constructed: &Kp20Bi6Patch,
@@ -338,10 +339,10 @@ fn fold_site_weight(
 
 fn capped_displacement(displacement: Vec3, max_length: f64) -> Vec3 {
     let length = displacement.length();
-    if length > max_length {
-        if let Some(direction) = displacement.normalized() {
-            return direction * max_length;
-        }
+    if length > max_length
+        && let Some(direction) = displacement.normalized()
+    {
+        return direction * max_length;
     }
     displacement
 }

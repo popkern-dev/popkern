@@ -342,6 +342,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     Kp20PolarDispatchReport::accepted(candidate, diagnostics)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn nonoverlap_coupled_lift_fact(
     n: usize,
     default: &Kp20SamplerFoldSummary,

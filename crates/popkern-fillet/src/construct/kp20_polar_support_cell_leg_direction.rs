@@ -25,6 +25,8 @@ use popkern_core::topology::VertexHandle;
 use super::cell_reauthor::AuthoredSubChain;
 use super::chain_solver::dbernstein9;
 
+type ChainDerivativeTargets = HashMap<usize, Vec<(f64, Vec3, f64)>>;
+
 /// Sine bound under which two incident directions count as
 /// osculating (matches the band derivation's degenerate-corner
 /// tolerance with headroom).
@@ -57,7 +59,7 @@ struct IncidentDirection {
 pub(super) fn leg_direction_targets(
     authored_sub_chains: &[AuthoredSubChain],
     node_normals: &HashMap<VertexHandle, Vec3>,
-) -> (HashMap<usize, Vec<(f64, Vec3, f64)>>, usize) {
+) -> (ChainDerivativeTargets, usize) {
     let mut vertices: HashMap<VertexHandle, Vec<IncidentDirection>> = HashMap::new();
     for (chain_index, authored) in authored_sub_chains.iter().enumerate() {
         for &(vertex, station) in &authored.nodes {
@@ -75,7 +77,7 @@ pub(super) fn leg_direction_targets(
             });
         }
     }
-    let mut targets: HashMap<usize, Vec<(f64, Vec3, f64)>> = HashMap::new();
+    let mut targets: ChainDerivativeTargets = HashMap::new();
     let mut rotated = 0usize;
     let mut vertex_order: Vec<&VertexHandle> = vertices.keys().collect();
     vertex_order.sort_by_key(|vertex| format!("{vertex:?}"));

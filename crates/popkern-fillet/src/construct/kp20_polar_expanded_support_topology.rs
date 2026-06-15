@@ -237,6 +237,7 @@ impl Kp20ExpandedSupportTopologyTrial {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn expanded_support_topology_trial(
     macro_patches: &[popkern_core::geometry::gregory::Kp20MacroPatch],
     targets: &[Kp20FoldSite],

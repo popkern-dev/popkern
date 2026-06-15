@@ -264,14 +264,14 @@ fn row_weighted_normal_sample(
     let directional_second = second * (1.0 / speed_sq);
     let curvature = normal.dot(&directional_second);
     let mut normal_sensitivities = [Vec3::new(0.0, 0.0, 0.0); INTERIOR_CONTROL_COUNT];
-    for column in 0..INTERIOR_CONTROL_COUNT {
+    for (column, sensitivity) in normal_sensitivities.iter_mut().enumerate() {
         let k = column + 2;
         let Some(direction) = control_normal_direction(band, k) else {
             continue;
         };
         let cross_delta = direction * (9.0 * basis[k]);
         let normal_delta = tangent.cross(&cross_delta);
-        normal_sensitivities[column] =
+        *sensitivity =
             (normal_delta - normal * normal_delta.dot(&normal)) * (1.0 / raw_normal_magnitude);
     }
     Some(RowWeightedNormalSample {

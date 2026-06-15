@@ -133,6 +133,7 @@ fn binomial9(i: usize) -> f64 {
     [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0][i]
 }
 
+#[allow(clippy::needless_range_loop)] // Gaussian elimination is explicit row/column indexing.
 fn solve_10(mut matrix: [[f64; 10]; 10], mut rhs: [f64; 10]) -> [f64; 10] {
     for pivot in 0..10 {
         let mut best = pivot;

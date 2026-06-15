@@ -60,9 +60,9 @@ pub(super) fn evaluate_bi6_patch(piece: &Kp20Bi6Patch, u: f64, v: f64) -> Point3
     let bu = bernstein_bi6_all(u.clamp(0.0, 1.0));
     let bv = bernstein_bi6_all(v.clamp(0.0, 1.0));
     let mut out = Point3::new(0.0, 0.0, 0.0);
-    for i in 0..7 {
-        for j in 0..7 {
-            let w = bu[i] * bv[j];
+    for (i, &bu_i) in bu.iter().enumerate() {
+        for (j, &bv_j) in bv.iter().enumerate() {
+            let w = bu_i * bv_j;
             out.x += w * piece.cps[i][j].x;
             out.y += w * piece.cps[i][j].y;
             out.z += w * piece.cps[i][j].z;
@@ -80,11 +80,11 @@ pub(super) fn evaluate_bi6_normal(piece: &Kp20Bi6Patch, u: f64, v: f64) -> Optio
     let dv = bernstein_bi6_deriv_all(v);
     let mut tangent_u = Vec3::new(0.0, 0.0, 0.0);
     let mut tangent_v = Vec3::new(0.0, 0.0, 0.0);
-    for i in 0..7 {
-        for j in 0..7 {
+    for (i, (&bu_i, &du_i)) in bu.iter().zip(du.iter()).enumerate() {
+        for (j, (&bv_j, &dv_j)) in bv.iter().zip(dv.iter()).enumerate() {
             let p = piece.cps[i][j];
-            tangent_u = tangent_u + (p - Point3::new(0.0, 0.0, 0.0)) * (du[i] * bv[j]);
-            tangent_v = tangent_v + (p - Point3::new(0.0, 0.0, 0.0)) * (bu[i] * dv[j]);
+            tangent_u = tangent_u + (p - Point3::new(0.0, 0.0, 0.0)) * (du_i * bv_j);
+            tangent_v = tangent_v + (p - Point3::new(0.0, 0.0, 0.0)) * (bu_i * dv_j);
         }
     }
     tangent_u.cross(&tangent_v).normalized()

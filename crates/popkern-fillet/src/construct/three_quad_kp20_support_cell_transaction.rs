@@ -65,6 +65,7 @@ impl From<ValidationError> for Kp20SupportCellValidationFailure {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn run_kp20_support_cell_apply_transaction<S: Clone, T>(
     state: &mut S,
     n_sides: usize,
@@ -109,6 +110,7 @@ pub(super) fn run_kp20_support_cell_apply_transaction<S: Clone, T>(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_support_cell_fallback<S: Clone, T>(
     state: &mut S,
     n_sides: usize,
@@ -208,6 +210,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn support_cell_assembled_quality_fact(
     n_sides: usize,
     selected: &'static str,

@@ -1,8 +1,12 @@
 //! Result-level completion for Gregory cap/support seam ownership.
+#![allow(clippy::duplicate_mod)]
 
 use std::borrow::Cow;
 
+use popkern_core::error::ValidationError;
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::BRep;
+use popkern_core::topology::FaceHandle;
 
 use super::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRole};
@@ -59,10 +63,55 @@ pub(crate) fn complete_corner_patch_support_pcurves(
         if completed_cap_faces.contains(&patch.face) {
             continue;
         }
+        if !face_is_gregory_cap(brep, patch.face) {
+            continue;
+        }
+        let before = brep.clone();
         super::three_quad_support_pcurve_completion::complete_missing_cap_support_seams(
             brep, patch.face,
         );
+        if let Err(error) = brep.validate() {
+            *brep = before;
+            diagnostics.push(cap_support_completion_rollback_diagnostic(
+                patch.face, &error,
+            ));
+        }
         completed_cap_faces.push(patch.face);
+    }
+}
+
+fn face_is_gregory_cap(brep: &BRep, face: FaceHandle) -> bool {
+    brep.faces
+        .get(face)
+        .and_then(|face| face.surface.as_ref())
+        .is_some_and(|surface| matches!(surface.geometry, SurfaceGeometry::Gregory(_)))
+}
+
+fn cap_support_completion_rollback_diagnostic(
+    cap_face: FaceHandle,
+    error: &ValidationError,
+) -> ApexConstructionDiagnostic {
+    ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
+        stage: "cap_support_completion".to_string(),
+        code: "cap_support_completion_rolled_back".to_string(),
+        detail_code: Some(format!("{error:?}")),
+        sector_name: format!("{cap_face:?}"),
+        edge: None,
+        support_half_edge: None,
+        support_face: Some(cap_face),
+        residual: validation_gap(error),
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
+        shared_fact_ids: Vec::new(),
+    })
+}
+
+fn validation_gap(error: &ValidationError) -> Option<f64> {
+    match error {
+        ValidationError::OpenLoop { gap, .. } => Some(*gap),
+        ValidationError::ShellGap { gap, .. } => Some(*gap),
+        _ => None,
     }
 }
 

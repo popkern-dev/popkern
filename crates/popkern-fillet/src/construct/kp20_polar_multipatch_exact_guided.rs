@@ -28,6 +28,7 @@ pub(super) struct Kp20ExactGuidedSelection {
     pub(super) best_rejected: Option<Kp20ExactGuidedTrial>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn select_exact_guided_trial(
     tensor_border: &TensorBorderBi3,
     accepted_patches: &[Kp20MacroPatch],
@@ -80,6 +81,7 @@ pub(super) fn select_exact_guided_trial(
     Ok(selection)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn select_exact_guided_pass(
     tensor_border: &TensorBorderBi3,
     accepted_patches: &[Kp20MacroPatch],
