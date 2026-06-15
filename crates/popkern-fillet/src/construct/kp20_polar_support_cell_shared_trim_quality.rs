@@ -119,12 +119,15 @@ pub(super) fn support_cell_shared_trim_quality_fact(
         "support_cell_shared_trim_quality",
         n_sides,
         Some(format!(
-            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};worst_normal_aligned_g2_residual={:.15e};g2_unsupported_sample_count={};g2_degenerate_sample_count={};{};{};top_g1_samples=[{}];top_g2_samples=[{}];top_normal_aligned_g2_samples=[{}]",
+            "selected={selected};measurement_scope={measurement_scope};piecewise_boundary_committed={piecewise_boundary_committed};current_g0_budget={:.15e};commercial_g0_target={:.15e};commercial_g1_target={:.15e};commercial_g2_target={:.15e};quality_status={};commercial_g2_metric={};raw_g2_status={};normal_aligned_g2_status={};shared_trim_count={};partial_shared_trim_count={};pcurve_out_of_unit_count={};degenerate_pcurve_count={};max_boundary_row_shared_trim_count={};worst_abs_uv={:.15e};worst_g0_gap={:.15e};worst_normal_disagreement={:.15e};worst_g2_residual={:.15e};worst_normal_aligned_g2_residual={:.15e};g2_unsupported_sample_count={};g2_degenerate_sample_count={};{};{};top_g1_samples=[{}];top_g2_samples=[{}];top_normal_aligned_g2_samples=[{}]",
             CURRENT_SUPPORT_CELL_SHARED_TRIM_G0_BUDGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET,
             COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET,
             classification.status,
+            classification.commercial_g2_metric,
+            classification.raw_g2_status,
+            classification.normal_aligned_g2_status,
             quality.shared_trim_count,
             quality.partial_shared_trim_count,
             quality.pcurve_out_of_unit_count,
@@ -297,14 +300,20 @@ fn trim_ownership_plan(
 
 struct Kp20SupportCellSharedTrimQualityClassification {
     status: &'static str,
+    commercial_g2_metric: &'static str,
+    raw_g2_status: &'static str,
+    normal_aligned_g2_status: &'static str,
 }
 
 /// Status lattice for shared-trim quality, ordered by the first
 /// gate that fails: pcurve domain validity, then the interim G0
 /// budget, then the commercial G0/G1/G2 targets in continuity
-/// order. `commercial_g2_unmeasured` ranks below
-/// `commercial_pass` — unmeasured curvature samples fail closed
-/// rather than passing silently.
+/// order. Support-cell commercial G2 is gated on the normal-aligned
+/// curvature residual because the raw residual is orientation-sensitive
+/// across opposing trim directions; the raw metric remains reported as
+/// an explicit diagnostic status and worst-sample list.
+/// `commercial_g2_unmeasured` ranks below `commercial_pass` —
+/// unmeasured curvature samples fail closed rather than passing silently.
 fn classify_support_cell_shared_trim_quality(
     quality: Kp20SupportCellSharedTrimQuality,
 ) -> Kp20SupportCellSharedTrimQualityClassification {
@@ -314,9 +323,25 @@ fn classify_support_cell_shared_trim_quality(
     let commercial_g0_valid = quality.worst_g0_gap <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET;
     let commercial_g1_valid =
         quality.worst_normal_disagreement <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET;
-    let commercial_g2_valid =
-        quality.worst_g2_residual <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET;
+    let raw_g2_valid = quality.worst_g2_residual <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET;
+    let normal_aligned_g2_valid =
+        quality.worst_normal_aligned_g2_residual <= COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET;
+    let commercial_g2_valid = normal_aligned_g2_valid;
     let g2_measured = quality.g2_unsupported_sample_count == 0;
+    let raw_g2_status = if !g2_measured {
+        "raw_g2_unmeasured"
+    } else if raw_g2_valid {
+        "raw_g2_within_target"
+    } else {
+        "raw_orientation_residual_exceeded"
+    };
+    let normal_aligned_g2_status = if !g2_measured {
+        "normal_aligned_g2_unmeasured"
+    } else if normal_aligned_g2_valid {
+        "normal_aligned_g2_within_target"
+    } else {
+        "normal_aligned_g2_exceeded"
+    };
     let status = if !domain_valid {
         "pcurve_domain_invalid"
     } else if !current_g0_valid {
@@ -332,7 +357,12 @@ fn classify_support_cell_shared_trim_quality(
     } else {
         "commercial_pass"
     };
-    Kp20SupportCellSharedTrimQualityClassification { status }
+    Kp20SupportCellSharedTrimQualityClassification {
+        status,
+        commercial_g2_metric: "normal_aligned",
+        raw_g2_status,
+        normal_aligned_g2_status,
+    }
 }
 
 pub(crate) fn append_final_support_cell_shared_trim_quality(

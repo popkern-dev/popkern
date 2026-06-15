@@ -364,7 +364,12 @@ fn assert_final_shared_trim_quality_diagnostic(
                         detail.contains("selected=promoted")
                             && detail.contains("measurement_scope=final_post_pipeline")
                             && detail.contains("piecewise_boundary_committed=already_segmented")
-                            && detail.contains("quality_status=commercial_g2_exceeded")
+                            && detail.contains("quality_status=commercial_pass")
+                            && detail.contains("commercial_g2_metric=normal_aligned")
+                            && detail.contains("raw_g2_status=raw_orientation_residual_exceeded")
+                            && detail.contains(
+                                "normal_aligned_g2_status=normal_aligned_g2_within_target"
+                            )
                             && detail.contains("current_g0_budget=5.000000000000000e-4")
                             && detail.contains("commercial_g0_target=1.000000000000000e-10")
                             && detail.contains("commercial_g1_target=1.250000000000000e-3")
