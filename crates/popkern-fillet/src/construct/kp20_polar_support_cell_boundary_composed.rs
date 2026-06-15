@@ -162,6 +162,9 @@ fn reconcile_ranked_prefix_endpoint_row_group_then_exact_and_partial_boundary(
     let slots = assigned_support_cell_slots(brep, faces);
     let exact_status = exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
     let partial_status = exact_boundary_row::fit_partial_shared_boundary_segments(brep, &slots)?;
+    // Segment fits may touch rows that also have full-span ownership;
+    // restore those hard CP identities last and let candidate quality decide.
+    exact_boundary_row::exact_full_span_shared_boundary_rows(brep, &slots)?;
     reauthor_support_cell_shared_edge_curves(brep, &slots)?;
     brep.validate().map_err(|error| {
         CoreError::PreconditionFailed(format!(
