@@ -212,6 +212,17 @@ pub(super) fn apply_support_cell_completion_candidate(
                 },
             )
         }
+        SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(
+                brep,
+                faces,
+                |brep, faces| {
+                    support_cell_boundary_reconcile::reconcile_assigned_exact_partial_top_g1_normal_solve_status(
+                        brep, faces,
+                    )
+                },
+            )
+        }
         SupportCellCompletionCandidate::PcurveThenChainCurveNetworkIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(
                 brep,

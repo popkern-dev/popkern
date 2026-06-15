@@ -23,6 +23,7 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
     PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
+    PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe,
     PcurveThenChainCurveNetworkIfG0Safe,
     PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
     PcurveThenChainConstructiveCellsIfG0Safe,
@@ -40,7 +41,7 @@ pub(super) enum SupportCellCompletionCandidate {
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 32] = [
+    pub(super) const ALL: [Self; 33] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -59,6 +60,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe,
         Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe,
+        Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe,
         Self::PcurveThenChainCurveNetworkIfG0Safe,
         Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistCellsIfG0Safe,
@@ -118,6 +120,9 @@ impl SupportCellCompletionCandidate {
             }
             Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe => {
                 "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe"
+            }
+            Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe => {
+                "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_top_g1_normal_solve_if_g0_safe"
             }
             Self::PcurveThenChainCurveNetworkIfG0Safe => {
                 "pcurve_then_chain_curve_network_if_g0_safe"
@@ -182,6 +187,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenPartialBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactAndPartialBoundaryIfG0Safe
                 | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTangentIfG0Safe
+                | Self::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe
                 | Self::PcurveThenChainCurveNetworkIfG0Safe
                 | Self::PcurveThenChainNetworkCrossTangentRibbonIfG0Safe
                 | Self::PcurveThenChainConstructiveCellsIfG0Safe

@@ -31,6 +31,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_ranked_boundary_endpoint_row_group_then_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_and_partial_boundary_if_g0_safe",
         "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_tangent_if_g0_safe",
+        "pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_top_g1_normal_solve_if_g0_safe",
         "pcurve_then_chain_curve_network_if_g0_safe",
         "pcurve_then_chain_network_cross_tangent_ribbon_if_g0_safe",
         "pcurve_then_chain_constructive_cells_if_g0_safe",
@@ -207,5 +208,14 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
             ) && detail.contains("candidate_status=accepted")
         }),
         "{fixture} should score the post-partial tangent candidate as an accepted measured pass; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_ranked_boundary_endpoint_row_group_then_exact_partial_top_g1_normal_solve_if_g0_safe",
+            ) && detail.contains("exact_partial_top_g1_normal_solve")
+                && detail.contains("worst_g1_normal_solve_status=")
+        }),
+        "{fixture} should score the exact/partial constrained normal solve with structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
 }

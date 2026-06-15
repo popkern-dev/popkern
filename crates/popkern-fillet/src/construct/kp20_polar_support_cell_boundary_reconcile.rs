@@ -44,8 +44,12 @@ mod chain_author;
 mod chain_discovery;
 #[path = "kp20_polar_support_cell_chain_fit.rs"]
 mod chain_fit;
+#[path = "kp20_polar_support_cell_constrained_solve.rs"]
+mod constrained_solve;
 #[path = "kp20_polar_support_cell_constructive_reconcile.rs"]
 mod constructive_reconcile;
+#[allow(unused_imports)]
+pub(crate) use constrained_solve::reconcile_assigned_exact_partial_top_g1_normal_solve_status;
 #[allow(unused_imports)]
 pub(crate) use constructive_reconcile::{
     reconcile_assigned_chain_constructive_cells_status,
@@ -76,6 +80,8 @@ mod exact_boundary_row;
 mod group_reconcile;
 #[path = "kp20_polar_support_cell_joint_chain_solve.rs"]
 mod joint_chain_solve;
+#[path = "kp20_polar_support_cell_normal_solve_status.rs"]
+mod normal_solve_status;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 mod row_fit;
 #[path = "kp20_polar_support_cell_row_segment.rs"]
