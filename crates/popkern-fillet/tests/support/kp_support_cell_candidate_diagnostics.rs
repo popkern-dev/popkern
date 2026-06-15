@@ -102,6 +102,7 @@ pub(crate) fn assert_candidate_diagnostics(
             ) && detail.contains(
                 "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve",
             ) && detail.contains("curvature_solve_status=")
+                && detail.contains("curvature_weighted_normal_solve_status=")
                 && detail.contains("max_curvature_control_delta=")
         }),
         "{fixture} curvature candidate should report constrained G2 solve diagnostics; support_cell_details={support_cell_dispatch_details:?}"

@@ -30,13 +30,22 @@ mod active_normal_solve;
 mod beta_envelope;
 #[path = "kp20_polar_support_cell_curvature_solve.rs"]
 mod curvature_solve;
+#[path = "kp20_polar_support_cell_curvature_weighted_normal_solve.rs"]
+mod curvature_weighted_normal_solve;
 #[path = "kp20_polar_support_cell_pair_normal_solve.rs"]
 mod pair_normal_solve;
+#[path = "kp20_polar_support_cell_row_controls.rs"]
+mod row_controls;
 
 use self::active_normal_solve::repair_active_normal_solve;
 use self::beta_envelope::repair_beta_envelope;
 use self::curvature_solve::repair_curvature_solve;
+use self::curvature_weighted_normal_solve::repair_curvature_weighted_normal_solve;
 use self::pair_normal_solve::repair_pair_normal_solve;
+use self::row_controls::{refill_interior_coons, repair_row_end_legs};
+pub(super) use self::row_controls::{
+    second_row_controls, second_row_grid_index, transverse_row_side,
+};
 use super::BoundarySide;
 use super::band_derive::derive_row1;
 use super::band_field::author_ribbon_field;
@@ -214,6 +223,8 @@ pub(super) fn reauthor_cells_from_chain_network(
     // demanded by two boundaries of the same face and averaged,
     // and the demand spread is retained for observability.
     let mut row_bands = Vec::new();
+    let mut active_curvature_details = Vec::new();
+    let mut inactive_curvature_detail = None;
     for sub in sub_chains {
         let Some(field) = author_ribbon_field(sub, node_normals, patches, &chained_rows) else {
             outcome.field_declined_sub_chain_count += 1;
@@ -277,11 +288,23 @@ pub(super) fn reauthor_cells_from_chain_network(
             repair_active_normal_solve(&mut row_bands[first_row..], chain_trims, &mut outcome);
         }
         if curvature_solve {
-            outcome.curvature_solve_detail = Some(repair_curvature_solve(
-                &mut row_bands[first_row..],
-                chain_trims,
-            ));
+            let weighted_normal_detail =
+                repair_curvature_weighted_normal_solve(&mut row_bands[first_row..], chain_trims);
+            let curvature_detail = repair_curvature_solve(&mut row_bands[first_row..], chain_trims);
+            let detail = format!("{weighted_normal_detail};{curvature_detail}");
+            if curvature_detail_has_activity(&detail) {
+                active_curvature_details.push(detail);
+            } else if inactive_curvature_detail.is_none() {
+                inactive_curvature_detail = Some(detail);
+            }
         }
+    }
+    if curvature_solve {
+        outcome.curvature_solve_detail = Some(if active_curvature_details.is_empty() {
+            inactive_curvature_detail.unwrap_or_else(|| "none".to_string())
+        } else {
+            active_curvature_details.join("|")
+        });
     }
     let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
     for band in &row_bands {
@@ -367,132 +390,9 @@ pub(super) fn reauthor_cells_from_chain_network(
     outcome
 }
 
-/// Rotate a row's two end legs into the local derivation span
-/// `span(C'(end), R(end))`, preserving magnitude and in-plane
-/// direction, and write the repaired transverse controls back.
-fn repair_row_end_legs(
-    patches: &mut HashMap<FaceHandle, RectangularGregoryBiNonic>,
-    key: ChainRowKey,
-    row0: &[Point3; 10],
-    field_segment: &[Vec3; 9],
-    chained_rows: &std::collections::HashSet<ChainRowKey>,
-    outcome: &mut CellReauthorOutcome,
-) {
-    let derivative = row_derivative_coefficients(row0);
-    for (corner_k, tangent, transverse) in [
-        (0usize, derivative[0], field_segment[0]),
-        (9, derivative[8], field_segment[8]),
-    ] {
-        // A chained transverse row's control is chain-authored
-        // (exact G0); it must never move. Its leg is made
-        // span-compatible on the field side instead (the ribbon
-        // fit is constrained to contain it).
-        if chained_rows.contains(&ChainRowKey {
-            face: key.face,
-            side: transverse_row_side(key.side, corner_k),
-        }) {
-            continue;
-        }
-        let Some(plane_normal) = tangent.cross(&transverse).normalized() else {
-            continue;
-        };
-        let Some(patch) = patches.get(&key.face) else {
-            continue;
-        };
-        let row1 = second_row_controls(patch, key.side);
-        let leg = row1[corner_k] - row0[corner_k];
-        let magnitude = leg.dot(&leg).sqrt();
-        if magnitude <= 1.0e-300 {
-            continue;
-        }
-        let out_of_plane = leg.dot(&plane_normal);
-        let ratio = out_of_plane.abs() / magnitude;
-        if ratio <= 1.0e-9 {
-            continue;
-        }
-        outcome.max_leg_out_of_plane_ratio = outcome.max_leg_out_of_plane_ratio.max(ratio);
-        let Some(direction) = (leg - plane_normal * out_of_plane).normalized() else {
-            continue;
-        };
-        let (i, j) = second_row_grid_index(key.side, corner_k);
-        if let Some(patch) = patches.get_mut(&key.face) {
-            patch.grid[i][j] = row0[corner_k] + direction * magnitude;
-            outcome.repaired_leg_count += 1;
-        }
-    }
-}
-
-/// Discrete Coons fill of the interior controls (indices 2..=7)
-/// from the four derived band rows/columns at indices 1 and 8.
-fn refill_interior_coons(patch: &mut RectangularGregoryBiNonic) {
-    let grid = patch.grid;
-    let weighted = |terms: &[(f64, Point3)]| -> Point3 {
-        let mut out = Point3::new(0.0, 0.0, 0.0);
-        for &(weight, point) in terms {
-            out = Point3::new(
-                out.x + weight * point.x,
-                out.y + weight * point.y,
-                out.z + weight * point.z,
-            );
-        }
-        out
-    };
-    for i in 2..8 {
-        let a = (i as f64 - 1.0) / 7.0;
-        for j in 2..8 {
-            let b = (j as f64 - 1.0) / 7.0;
-            patch.grid[i][j] = weighted(&[
-                (1.0 - a, grid[1][j]),
-                (a, grid[8][j]),
-                (1.0 - b, grid[i][1]),
-                (b, grid[i][8]),
-                (-(1.0 - a) * (1.0 - b), grid[1][1]),
-                (-(1.0 - a) * b, grid[1][8]),
-                (-a * (1.0 - b), grid[8][1]),
-                (-a * b, grid[8][8]),
-            ]);
-        }
-    }
-}
-
-/// Relative out-of-span component of the derived band's
-/// cross-derivative at interior samples: the residual of
-/// `D(t) = 9·Σ (row1ᵢ − row0ᵢ) Bᵢ(t)` against the plane spanned
-/// by the row tangent and the ribbon field.
-/// The boundary side owning the transverse control at a row
-/// corner: the perpendicular boundary through that corner.
-pub(super) fn transverse_row_side(side: BoundarySide, corner_k: usize) -> BoundarySide {
-    match (side, corner_k) {
-        (BoundarySide::UMin | BoundarySide::UMax, 0) => BoundarySide::VMin,
-        (BoundarySide::UMin | BoundarySide::UMax, _) => BoundarySide::VMax,
-        (BoundarySide::VMin | BoundarySide::VMax, 0) => BoundarySide::UMin,
-        (BoundarySide::VMin | BoundarySide::VMax, _) => BoundarySide::UMax,
-    }
-}
-
-pub(super) fn second_row_controls(
-    patch: &RectangularGregoryBiNonic,
-    side: BoundarySide,
-) -> [Point3; 10] {
-    let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
-    for (index, point) in out.iter_mut().enumerate() {
-        *point = match side {
-            BoundarySide::UMin => patch.grid[1][index],
-            BoundarySide::UMax => patch.grid[8][index],
-            BoundarySide::VMin => patch.grid[index][1],
-            BoundarySide::VMax => patch.grid[index][8],
-        };
-    }
-    out
-}
-
-pub(super) fn second_row_grid_index(side: BoundarySide, k: usize) -> (usize, usize) {
-    match side {
-        BoundarySide::UMin => (1, k),
-        BoundarySide::UMax => (8, k),
-        BoundarySide::VMin => (k, 1),
-        BoundarySide::VMax => (k, 8),
-    }
+fn curvature_detail_has_activity(detail: &str) -> bool {
+    !detail.contains("curvature_weighted_normal_sample_count=0;")
+        || !detail.contains("curvature_sample_count=0;")
 }
 
 #[cfg(test)]
