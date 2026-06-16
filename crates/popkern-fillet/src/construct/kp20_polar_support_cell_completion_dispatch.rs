@@ -213,7 +213,7 @@ pub(super) fn apply_support_cell_completion_candidate(
             )
         }
         SupportCellCompletionCandidate::PcurveThenRankedBoundaryEndpointRowGroupThenExactPartialTopG1NormalSolveIfG0Safe => {
-            support_cell_completion_apply::boundary_after_pcurve_with_status_if_quality_safe(
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_commercial_g0_safe(
                 brep,
                 faces,
                 |brep, faces| {

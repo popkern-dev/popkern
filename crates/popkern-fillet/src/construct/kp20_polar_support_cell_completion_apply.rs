@@ -78,6 +78,67 @@ where
     }
 }
 
+pub(super) fn boundary_after_pcurve_with_status_if_commercial_g0_safe<S>(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    reconcile_boundary: impl FnOnce(&mut BRep, &[FaceHandle]) -> Result<S, CoreError>,
+) -> SupportCellCompletionApplication
+where
+    S: Into<Cow<'static, str>>,
+{
+    if support_cell_pcurve_author::author_assigned_support_cell_pcurves(brep, faces).is_err() {
+        return SupportCellCompletionApplication {
+            operator_succeeded: false,
+            operation_status: Cow::Borrowed("pcurve_operator_failed"),
+        };
+    }
+    let after_pcurve =
+        shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let before_boundary = brep.clone();
+    let operation_status = match reconcile_boundary(brep, faces) {
+        Ok(status) => status.into(),
+        Err(_) => {
+            *brep = before_boundary;
+            return SupportCellCompletionApplication {
+                operator_succeeded: false,
+                operation_status: Cow::Borrowed(
+                    "commercial_g0_boundary_operator_failed_rolled_back",
+                ),
+            };
+        }
+    };
+    let after_boundary =
+        shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
+    let brep_is_valid = brep.validate().is_ok();
+    let quality_is_non_regressing = after_boundary.is_no_worse_than(after_pcurve);
+    let commercial_g0_is_met = after_boundary.worst_g0_gap
+        <= shared_trim_quality::COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET;
+    if brep_is_valid && quality_is_non_regressing && commercial_g0_is_met {
+        return SupportCellCompletionApplication {
+            operator_succeeded: true,
+            operation_status,
+        };
+    }
+    *brep = before_boundary;
+    SupportCellCompletionApplication {
+        operator_succeeded: false,
+        operation_status: Cow::Owned(format!(
+            "commercial_g0_quality_declined_rolled_back;declined_operation_status=[{}];commercial_g0_target={:.15e};after_pcurve_g0={:.15e};candidate_g0={:.15e};brep_valid={};quality_non_regressing={};commercial_g0_met={};after_pcurve_out_of_unit={};candidate_out_of_unit={};after_pcurve_degenerate={};candidate_degenerate={}",
+            operation_status,
+            shared_trim_quality::COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET,
+            after_pcurve.worst_g0_gap,
+            after_boundary.worst_g0_gap,
+            brep_is_valid,
+            quality_is_non_regressing,
+            commercial_g0_is_met,
+            after_pcurve.pcurve_out_of_unit_count,
+            after_boundary.pcurve_out_of_unit_count,
+            after_pcurve.degenerate_pcurve_count,
+            after_boundary.degenerate_pcurve_count
+        )),
+    }
+}
+
 pub(super) fn boundary_after_pcurve_with_status_if_g1_safe_against_baseline<S, B>(
     brep: &mut BRep,
     faces: &[FaceHandle],
