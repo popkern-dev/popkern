@@ -33,24 +33,28 @@ pub(super) struct ControlVariable {
 #[derive(Debug, Clone, Copy)]
 pub(super) enum ControlAuthority {
     EndpointAdjacentRows,
+    AdjacentRowsIncludingCorners,
 }
 
 impl ControlAuthority {
     pub(super) fn label(self) -> &'static str {
         match self {
-            Self::EndpointAdjacentRows => "endpoint_adjacent_rows",
+            Self::EndpointAdjacentRows => "top_g1_endpoint_adjacent_rows",
+            Self::AdjacentRowsIncludingCorners => "adjacent_rows_including_corners",
         }
     }
 
     fn contains_index(self, index: isize) -> bool {
         match self {
             Self::EndpointAdjacentRows => (1..=8).contains(&index),
+            Self::AdjacentRowsIncludingCorners => (0..=9).contains(&index),
         }
     }
 
     fn clamp_index(self, index: isize) -> usize {
         match self {
             Self::EndpointAdjacentRows => index.clamp(1, 8) as usize,
+            Self::AdjacentRowsIncludingCorners => index.clamp(0, 9) as usize,
         }
     }
 }

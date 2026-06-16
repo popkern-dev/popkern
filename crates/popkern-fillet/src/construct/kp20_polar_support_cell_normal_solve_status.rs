@@ -2,6 +2,10 @@
 
 use super::worst_g1_normal_solve;
 
+pub(super) fn report_was_kept(report: &worst_g1_normal_solve::WorstG1NormalSolveReport) -> bool {
+    report.status == "kept"
+}
+
 pub(super) fn worst_g1_normal_solve_status(
     report: &worst_g1_normal_solve::WorstG1NormalSolveReport,
 ) -> String {
@@ -35,4 +39,19 @@ fn optional_f64_status(value: Option<f64>) -> String {
     value
         .map(|value| format!("{value:.15e}"))
         .unwrap_or_else(|| "none".to_string())
+}
+
+pub(super) fn declined_authority_summary(
+    prefix: &str,
+    report: &worst_g1_normal_solve::WorstG1NormalSolveReport,
+) -> String {
+    format!(
+        "{prefix}_status={};{prefix}_decline_reason={};{prefix}_best_trial_g1={};{prefix}_best_trial_local={};{prefix}_variable_count={};{prefix}_limited_control_count={}",
+        report.status,
+        report.decline_reason,
+        optional_f64_status(report.best_trial_worst_g1),
+        optional_f64_status(report.best_trial_local_disagreement),
+        report.variable_count,
+        report.limited_control_count
+    )
 }

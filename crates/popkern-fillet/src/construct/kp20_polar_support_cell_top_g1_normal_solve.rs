@@ -72,13 +72,40 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
     faces: &[FaceHandle],
     trims: &[FullBoundaryTrim],
 ) -> Result<WorstG1NormalSolveReport, CoreError> {
-    let authority = ControlAuthority::EndpointAdjacentRows;
+    reconcile_top_g1_normal_samples_with_authority_if_improves(
+        brep,
+        faces,
+        trims,
+        ControlAuthority::EndpointAdjacentRows,
+    )
+}
+
+pub(super) fn reconcile_top_g1_corner_adjacent_normal_samples_if_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+) -> Result<WorstG1NormalSolveReport, CoreError> {
+    reconcile_top_g1_normal_samples_with_authority_if_improves(
+        brep,
+        faces,
+        trims,
+        ControlAuthority::AdjacentRowsIncludingCorners,
+    )
+}
+
+fn reconcile_top_g1_normal_samples_with_authority_if_improves(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+    trims: &[FullBoundaryTrim],
+    authority: ControlAuthority,
+) -> Result<WorstG1NormalSolveReport, CoreError> {
     let before_quality =
         shared_trim_quality::measure_support_cell_shared_trim_quality(brep, faces, 9);
     let samples = active_gate_samples(&before_quality, trims);
     if samples.is_empty() {
         return Ok(declined(
             "missing_top_g1_samples",
+            authority,
             before_quality.worst_normal_disagreement,
         ));
     }
@@ -86,6 +113,7 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
     if variables.is_empty() {
         return Ok(declined(
             "no_owned_controls",
+            authority,
             before_quality.worst_normal_disagreement,
         ));
     }
@@ -94,6 +122,7 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
     let Some(solution) = solve_normal_system(&patches, &samples, &variables) else {
         let mut report = declined(
             "normal_system_singular",
+            authority,
             before_quality.worst_normal_disagreement,
         );
         report.sample_count = expanded_sample_count(&samples);
@@ -157,7 +186,7 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
         return Ok(WorstG1NormalSolveReport {
             status: "declined",
             decline_reason: trial_summary.decline_reason(before_quality.worst_normal_disagreement),
-            control_authority: "top_g1_endpoint_adjacent_rows",
+            control_authority: authority.label(),
             sample_count: expanded_sample_count(&samples),
             variable_count: variables.len(),
             trial_count: trial_summary.trial_count,
@@ -179,7 +208,7 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
     Ok(WorstG1NormalSolveReport {
         status: "kept",
         decline_reason: "kept",
-        control_authority: "top_g1_endpoint_adjacent_rows",
+        control_authority: authority.label(),
         sample_count: expanded_sample_count(&samples),
         variable_count: variables.len(),
         trial_count: trial_summary.trial_count,
@@ -198,11 +227,15 @@ pub(super) fn reconcile_top_g1_normal_samples_if_improves(
     })
 }
 
-fn declined(status: &'static str, before_worst_g1: f64) -> WorstG1NormalSolveReport {
+fn declined(
+    status: &'static str,
+    authority: ControlAuthority,
+    before_worst_g1: f64,
+) -> WorstG1NormalSolveReport {
     WorstG1NormalSolveReport {
         status,
         decline_reason: status,
-        control_authority: "top_g1_endpoint_adjacent_rows",
+        control_authority: authority.label(),
         sample_count: 0,
         variable_count: 0,
         trial_count: 0,
