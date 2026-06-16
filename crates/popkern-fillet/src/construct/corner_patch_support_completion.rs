@@ -37,6 +37,7 @@ struct SupportCellCompletionCandidateScore {
     candidate: SupportCellCompletionCandidate,
     status: &'static str,
     operation_status: Cow<'static, str>,
+    rank_reason: &'static str,
     quality: shared_trim_quality::Kp20SupportCellSharedTrimQuality,
 }
 
@@ -142,6 +143,7 @@ fn complete_support_cell_pcurves_transactionally(
                     score.candidate.label(),
                     score.status,
                     score.operation_status.as_ref(),
+                    score.rank_reason,
                     before,
                     score.quality,
                 ),
@@ -185,6 +187,7 @@ fn select_support_cell_completion_candidate(
                 candidate,
                 status: "operator_failed",
                 operation_status: application.operation_status,
+                rank_reason: "not_ranked",
                 quality: before,
             });
             continue;
@@ -205,6 +208,7 @@ fn select_support_cell_completion_candidate(
             candidate,
             status,
             operation_status: application.operation_status,
+            rank_reason: "not_ranked",
             quality,
         });
         if status != "accepted_not_selected" {
@@ -215,11 +219,12 @@ fn select_support_cell_completion_candidate(
             candidate,
             quality,
         };
-        if support_cell_completion_rank::selection_is_better(
+        let rank_decision = support_cell_completion_rank::selection_decision(
             support_cell_rank(selection.candidate, selection.quality),
             best.as_ref()
                 .map(|selection| support_cell_rank(selection.candidate, selection.quality)),
-        ) {
+        );
+        if rank_decision.candidate_is_better {
             best = Some(selection);
         }
     }
@@ -227,6 +232,13 @@ fn select_support_cell_completion_candidate(
         for score in &mut scores {
             if score.candidate == selection.candidate {
                 score.status = "accepted_selected";
+                score.rank_reason = "selected_best_rank";
+            } else if score.status == "accepted_not_selected" {
+                score.rank_reason = support_cell_completion_rank::selection_decision(
+                    support_cell_rank(score.candidate, score.quality),
+                    Some(support_cell_rank(selection.candidate, selection.quality)),
+                )
+                .reason;
             }
         }
     }

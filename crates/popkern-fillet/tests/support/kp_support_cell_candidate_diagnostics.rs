@@ -15,6 +15,27 @@ pub(crate) fn assert_candidate_diagnostics(
             .any(|detail| detail.contains("candidate_status=accepted_selected")),
         "{fixture} support-cell selector should emit per-candidate score diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate_status=accepted_selected")
+                && detail.contains("rank_reason=selected_best_rank")
+        }),
+        "{fixture} selected support-cell candidate should report the final rank reason; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate_status=accepted_not_selected")
+                && detail.contains("rank_reason=current_")
+        }),
+        "{fixture} non-selected viable support-cell candidates should report why the selected rank won; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .filter(|detail| detail.contains("candidate_status="))
+            .all(|detail| detail.contains("rank_reason=")),
+        "{fixture} every support-cell candidate score should carry a structured rank reason; support_cell_details={support_cell_dispatch_details:?}"
+    );
     for candidate in [
         "pcurve_then_boundary_if_g0_safe",
         "pcurve_then_worst_boundary_if_g0_safe",

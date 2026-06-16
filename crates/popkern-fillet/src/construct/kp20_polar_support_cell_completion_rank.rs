@@ -10,39 +10,80 @@ pub(super) struct SupportCellCompletionRank {
     pub(super) quality: Kp20SupportCellSharedTrimQuality,
 }
 
-pub(super) fn selection_is_better(
+#[derive(Debug, Clone, Copy)]
+pub(super) struct SupportCellRankDecision {
+    pub(super) candidate_is_better: bool,
+    pub(super) reason: &'static str,
+}
+
+pub(super) fn selection_decision(
     candidate: SupportCellCompletionRank,
     current: Option<SupportCellCompletionRank>,
-) -> bool {
+) -> SupportCellRankDecision {
     let Some(current) = current else {
-        return true;
+        return SupportCellRankDecision {
+            candidate_is_better: true,
+            reason: "first_accepted_candidate",
+        };
     };
     let a = candidate.quality;
     let b = current.quality;
     match (a.pcurve_out_of_unit_count, a.degenerate_pcurve_count)
         .cmp(&(b.pcurve_out_of_unit_count, b.degenerate_pcurve_count))
     {
-        std::cmp::Ordering::Less => true,
-        std::cmp::Ordering::Greater => false,
-        std::cmp::Ordering::Equal => g0_tie_break_prefers_candidate(candidate, current),
+        std::cmp::Ordering::Less => SupportCellRankDecision {
+            candidate_is_better: true,
+            reason: "candidate_pcurve_domain_counts_preferred",
+        },
+        std::cmp::Ordering::Greater => SupportCellRankDecision {
+            candidate_is_better: false,
+            reason: "current_pcurve_domain_counts_preferred",
+        },
+        std::cmp::Ordering::Equal => g0_tie_break_decision(candidate, current),
     }
 }
 
-fn g0_tie_break_prefers_candidate(
+fn g0_tie_break_decision(
     candidate: SupportCellCompletionRank,
     current: SupportCellCompletionRank,
-) -> bool {
+) -> SupportCellRankDecision {
     if boundary_safe_quality_is_equivalent(candidate, current) {
-        return true;
+        return SupportCellRankDecision {
+            candidate_is_better: true,
+            reason: "candidate_boundary_safe_quality_preferred",
+        };
     }
     if boundary_safe_quality_is_equivalent(current, candidate) {
-        return false;
+        return SupportCellRankDecision {
+            candidate_is_better: false,
+            reason: "current_boundary_safe_quality_preferred",
+        };
     }
     if shared_trim_g0_is_equivalent(candidate, current) {
-        return candidate.quality.worst_normal_disagreement + SHARED_TRIM_G1_TIE_BREAK_EPS
-            < current.quality.worst_normal_disagreement;
+        if candidate.quality.worst_normal_disagreement + SHARED_TRIM_G1_TIE_BREAK_EPS
+            < current.quality.worst_normal_disagreement
+        {
+            return SupportCellRankDecision {
+                candidate_is_better: true,
+                reason: "candidate_commercial_g0_g1_tiebreak_preferred",
+            };
+        }
+        return SupportCellRankDecision {
+            candidate_is_better: false,
+            reason: "current_commercial_g0_g1_tiebreak_preferred",
+        };
     }
-    candidate.quality.worst_g0_gap + SHARED_TRIM_G0_TIE_BREAK_EPS < current.quality.worst_g0_gap
+    if candidate.quality.worst_g0_gap + SHARED_TRIM_G0_TIE_BREAK_EPS < current.quality.worst_g0_gap
+    {
+        return SupportCellRankDecision {
+            candidate_is_better: true,
+            reason: "candidate_g0_preferred",
+        };
+    }
+    SupportCellRankDecision {
+        candidate_is_better: false,
+        reason: "current_g0_preferred",
+    }
 }
 
 /// G0 readings are equivalent when numerically tied OR when both

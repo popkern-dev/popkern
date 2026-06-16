@@ -220,6 +220,7 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
     candidate: &'static str,
     candidate_status: &'static str,
     operation_status: &str,
+    rank_reason: &'static str,
     before: Kp20SupportCellSharedTrimQuality,
     after: Kp20SupportCellSharedTrimQuality,
 ) -> ApexConstructionDiagnostic {
@@ -227,7 +228,7 @@ pub(super) fn support_cell_shared_trim_candidate_fact(
         "support_cell_shared_trim_candidate_score",
         n_sides,
         Some(format!(
-            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_worst_normal_aligned_g2_residual={:.15e};after_worst_normal_aligned_g2_residual={:.15e};before_g2_unsupported_sample_count={};after_g2_unsupported_sample_count={};before_g2_degenerate_sample_count={};after_g2_degenerate_sample_count={};{};{};{};{};before_top_g1_samples=[{}];after_top_g1_samples=[{}];before_top_g2_samples=[{}];after_top_g2_samples=[{}];before_top_normal_aligned_g2_samples=[{}];after_top_normal_aligned_g2_samples=[{}]",
+            "selected={selected};candidate={candidate};candidate_status={candidate_status};operation_status={operation_status};rank_reason={rank_reason};before_pcurve_out_of_unit_count={};after_pcurve_out_of_unit_count={};before_degenerate_pcurve_count={};after_degenerate_pcurve_count={};before_worst_g0_gap={:.15e};after_worst_g0_gap={:.15e};before_worst_abs_uv={:.15e};after_worst_abs_uv={:.15e};before_worst_normal_disagreement={:.15e};after_worst_normal_disagreement={:.15e};before_worst_g2_residual={:.15e};after_worst_g2_residual={:.15e};before_worst_normal_aligned_g2_residual={:.15e};after_worst_normal_aligned_g2_residual={:.15e};before_g2_unsupported_sample_count={};after_g2_unsupported_sample_count={};before_g2_degenerate_sample_count={};after_g2_degenerate_sample_count={};{};{};{};{};before_top_g1_samples=[{}];after_top_g1_samples=[{}];before_top_g2_samples=[{}];after_top_g2_samples=[{}];before_top_normal_aligned_g2_samples=[{}];after_top_normal_aligned_g2_samples=[{}]",
             before.pcurve_out_of_unit_count,
             after.pcurve_out_of_unit_count,
             before.degenerate_pcurve_count,
