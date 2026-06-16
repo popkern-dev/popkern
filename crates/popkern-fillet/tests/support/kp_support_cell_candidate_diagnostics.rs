@@ -36,6 +36,17 @@ pub(crate) fn assert_candidate_diagnostics(
             .all(|detail| detail.contains("rank_reason=")),
         "{fixture} every support-cell candidate score should carry a structured rank reason; support_cell_details={support_cell_dispatch_details:?}"
     );
+    assert!(
+        support_cell_dispatch_details
+            .iter()
+            .filter(|detail| detail.contains("candidate_status="))
+            .all(|detail| detail.contains("after_quality_status=")
+                && detail.contains("after_shared_trim_count=")
+                && detail.contains("after_full_row_owned_trim_count=")
+                && detail.contains("after_segment_owned_trim_count=")
+                && detail.contains("after_max_boundary_row_shared_trim_count=")),
+        "{fixture} every support-cell candidate score should expose quality classification and ownership counts; support_cell_details={support_cell_dispatch_details:?}"
+    );
     for candidate in [
         "pcurve_then_boundary_if_g0_safe",
         "pcurve_then_worst_boundary_if_g0_safe",
