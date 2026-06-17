@@ -8,6 +8,7 @@ use super::super::BoundarySide;
 use super::super::cell_reauthor::AuthoredSubChain;
 use super::super::chain_discovery::ChainTrim;
 use super::super::chain_fit::ChainRowKey;
+use super::super::chain_source::ChainCurveSource;
 use super::{joint_endpoint_leg_equations, joint_endpoint_plane_constraints, leg_vector_targets};
 
 fn base_patch() -> RectangularGregoryBiNonic {
@@ -80,6 +81,7 @@ fn trim_endpoint_targets_chain_owned_cp1_to_interior_peer_vector() {
         chain_cps: [Point3::new(0.0, 0.0, 0.0); 10],
         rows: vec![(owner_a, (0.0, 1.0))],
         nodes: Vec::new(),
+        source: ChainCurveSource::LeastSquaresFit,
     }];
     let trims = vec![ChainTrim {
         row_a,
@@ -140,6 +142,7 @@ fn trim_endpoint_planes_chain_owned_leg_against_interior_peer_plane() {
         ),
         rows: vec![(owner_a, (0.0, 1.0))],
         nodes: Vec::new(),
+        source: ChainCurveSource::LeastSquaresFit,
     }];
     let trims = vec![ChainTrim {
         row_a,
@@ -187,6 +190,7 @@ fn trim_endpoint_pairs_chain_owned_legs_for_joint_solve() {
             ),
             rows: vec![(owner_a, (0.0, 1.0))],
             nodes: Vec::new(),
+            source: ChainCurveSource::LeastSquaresFit,
         },
         AuthoredSubChain {
             chain_cps: chain_with_endpoint_derivatives(
@@ -195,6 +199,7 @@ fn trim_endpoint_pairs_chain_owned_legs_for_joint_solve() {
             ),
             rows: vec![(owner_b, (0.0, 1.0))],
             nodes: Vec::new(),
+            source: ChainCurveSource::LeastSquaresFit,
         },
     ];
     let trims = vec![ChainTrim {

@@ -104,6 +104,20 @@ pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_beta_envelope_act
     )
 }
 
+pub(crate) fn reconcile_assigned_chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_solve_status(
+    brep: &mut BRep,
+    faces: &[FaceHandle],
+) -> Result<String, CoreError> {
+    reconcile_assigned_chain_two_pass_status(
+        brep,
+        faces,
+        chain_fit::author_chain_network_with_owner_row_dual_twist_beta_envelope_active_normal_solve,
+        "kp20 support-cell owner-row dual-twist beta-envelope active-normal solve produced invalid BRep",
+        "max_active_normal_control_delta=",
+        "first_pass_max_active_normal_control_delta",
+    )
+}
+
 pub(crate) fn reconcile_assigned_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_status(
     brep: &mut BRep,
     faces: &[FaceHandle],

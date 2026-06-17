@@ -63,6 +63,7 @@ pub(crate) use constructive_reconcile::{
     reconcile_assigned_chain_constructive_dual_twist_then_endpoint_adjacent_worst_g1_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_normal_solve_status,
     reconcile_assigned_chain_constructive_dual_twist_then_worst_g1_tangent_status,
+    reconcile_assigned_chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_solve_status,
 };
 #[path = "kp20_polar_support_cell_chain_nodes.rs"]
 mod chain_nodes;
@@ -72,6 +73,8 @@ mod chain_ribbon;
 mod chain_ribbon_field;
 #[path = "kp20_polar_support_cell_chain_solver.rs"]
 mod chain_solver;
+#[path = "kp20_polar_support_cell_chain_source.rs"]
+mod chain_source;
 #[path = "kp20_polar_support_cell_chain_spacing.rs"]
 mod chain_spacing;
 #[path = "kp20_polar_support_cell_exact_boundary_row.rs"]

@@ -18,6 +18,7 @@ use super::chain_author::author_sub_chain;
 use super::chain_discovery::{ChainTrim, discover_sub_chains};
 use super::chain_nodes::{global_node_normals, global_node_positions};
 use super::chain_ribbon::project_sub_chain_rows_to_shared_tangent_planes;
+use super::chain_source::{ChainCurveSource, ChainCurveSourcePreference};
 use super::chain_spacing::end_spacing_ratio;
 use super::joint_chain_solve::solve_joint_chain_network;
 use super::leg_class::leg_class_targets;
@@ -129,6 +130,17 @@ pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope_ac
         brep,
         slots,
         ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
+    )
+}
+
+pub(super) fn author_chain_network_with_owner_row_dual_twist_beta_envelope_active_normal_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
     )
 }
 
@@ -271,10 +283,28 @@ fn author_chain_network_internal(
     let mut ribbon_declined_count = 0usize;
     let mut authored_sub_chains = Vec::new();
     let mut min_end_spacing_ratio = f64::INFINITY;
+    let mut owner_row_source_sub_chain_count = 0usize;
+    let mut fit_source_sub_chain_count = 0usize;
+    let source_preference = if mode.prefers_spanning_owner_row() {
+        ChainCurveSourcePreference::PreferSpanningOwnerRow
+    } else {
+        ChainCurveSourcePreference::LeastSquaresFit
+    };
     for sub in &discovery.sub_chains {
-        match author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &[]) {
+        match author_sub_chain(
+            &mut patches,
+            sub,
+            &node_positions,
+            &node_normals,
+            &[],
+            source_preference,
+        ) {
             Ok(authored) => {
                 authored_count += 1;
+                match authored.source {
+                    ChainCurveSource::LeastSquaresFit => fit_source_sub_chain_count += 1,
+                    ChainCurveSource::SpanningOwnerRow => owner_row_source_sub_chain_count += 1,
+                }
                 min_end_spacing_ratio =
                     min_end_spacing_ratio.min(end_spacing_ratio(&authored.chain_cps));
                 if mode.constructive() {
@@ -360,9 +390,14 @@ fn author_chain_network_internal(
                 let mut targets = class_targets.remove(&chain_index).unwrap_or_default();
                 targets.sort_by(|a, b| a.0.total_cmp(&b.0));
                 let sub = &discovery.sub_chains[chain_index];
-                if let Ok(authored) =
-                    author_sub_chain(&mut patches, sub, &node_positions, &node_normals, &targets)
-                {
+                if let Ok(authored) = author_sub_chain(
+                    &mut patches,
+                    sub,
+                    &node_positions,
+                    &node_normals,
+                    &targets,
+                    source_preference,
+                ) {
                     authored_sub_chains[chain_index] = authored;
                     leg_class_chain_count += 1;
                 }
@@ -394,64 +429,9 @@ fn author_chain_network_internal(
             _ => set_rectangular_binonic_on_face(brep, face, patch)?,
         }
     }
-    let label = match (mode, authored_count > 0) {
-        (ChainNetworkMode::Curves, true) => "chain_curve_network_authored",
-        (ChainNetworkMode::Curves, false) => "chain_curve_network_declined",
-        (ChainNetworkMode::CurvesAndCrossTangentRibbons, true) => "chain_ribbon_network_authored",
-        (ChainNetworkMode::CurvesAndCrossTangentRibbons, false) => "chain_ribbon_network_declined",
-        (ChainNetworkMode::CurvesAndConstructiveCells, true) => "chain_constructive_cells_authored",
-        (ChainNetworkMode::CurvesAndConstructiveCells, false) => {
-            "chain_constructive_cells_declined"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCells, true) => {
-            "chain_constructive_dual_twist_cells_authored"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCells, false) => {
-            "chain_constructive_dual_twist_cells_declined"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve, true) => {
-            "chain_constructive_dual_twist_joint_leg_solve_authored"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithJointLegSolve, false) => {
-            "chain_constructive_dual_twist_joint_leg_solve_declined"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope, true) => {
-            "chain_constructive_dual_twist_beta_envelope_authored"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelope, false) => {
-            "chain_constructive_dual_twist_beta_envelope_declined"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve, true) => {
-            "chain_constructive_dual_twist_pair_normal_solve_authored"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithPairNormalSolve, false) => {
-            "chain_constructive_dual_twist_pair_normal_solve_declined"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve, true) => {
-            "chain_constructive_dual_twist_active_normal_solve_authored"
-        }
-        (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithActiveNormalSolve, false) => {
-            "chain_constructive_dual_twist_active_normal_solve_declined"
-        }
-        (
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
-            true,
-        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_solve_authored",
-        (
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
-            false,
-        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_solve_declined",
-        (
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
-            true,
-        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
-        (
-            ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
-            false,
-        ) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
-    };
+    let label = mode.status_label(authored_count > 0);
     Ok(format!(
-        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count};joint_leg_vector_candidate_count={joint_leg_vector_candidate_count};max_joint_leg_vector_candidate_delta={max_joint_leg_vector_candidate_delta:.6e};joint_endpoint_equation_candidate_count={joint_endpoint_equation_candidate_count};max_joint_endpoint_residual_before={max_joint_endpoint_residual_before:.6e};joint_plane_constraint_count={joint_plane_constraint_count};max_joint_plane_residual_before={max_joint_plane_residual_before:.6e};max_joint_plane_residual_after={max_joint_plane_residual_after:.6e};joint_leg_solve_declined_count={joint_leg_solve_declined_count}{reauthor_detail}",
+        "{label};sub_chain_count={};authored_sub_chain_count={authored_count};owner_row_source_sub_chain_count={owner_row_source_sub_chain_count};fit_source_sub_chain_count={fit_source_sub_chain_count};fit_declined_sub_chain_count={fit_declined_count};fit_decline_reason={fit_decline_reason};discovery_declined_chain_count={};discovery_decline_reason={};chained_face_count={};uncovered_face_count={};uncovered_faces=[{uncovered_face_list}];glued_trim_count={};skipped_trim_missing_pcurve_count={};skipped_trim_unrecognized_span_count={};glued_row_count={};assigned_row_count={};dropped_row_count={};dropped_rows=[{dropped_row_list}];multiply_assigned_row_count={multiply_assigned_row_count};cross_sub_chain_trim_count={cross_sub_chain_trim_count};projected_row_count={projected_row_count};damped_row_count={damped_row_count};skipped_row_count={skipped_row_count};ribbon_declined_sub_chain_count={ribbon_declined_count};min_end_spacing_ratio={min_end_spacing_ratio:.4e};leg_class_thin_count={leg_class_thin_count};leg_class_chain_count={leg_class_chain_count};rotated_leg_count={rotated_leg_count};joint_leg_vector_candidate_count={joint_leg_vector_candidate_count};max_joint_leg_vector_candidate_delta={max_joint_leg_vector_candidate_delta:.6e};joint_endpoint_equation_candidate_count={joint_endpoint_equation_candidate_count};max_joint_endpoint_residual_before={max_joint_endpoint_residual_before:.6e};joint_plane_constraint_count={joint_plane_constraint_count};max_joint_plane_residual_before={max_joint_plane_residual_before:.6e};max_joint_plane_residual_after={max_joint_plane_residual_after:.6e};joint_leg_solve_declined_count={joint_leg_solve_declined_count}{reauthor_detail}",
         discovery.sub_chains.len(),
         discovery.declined_chain_count,
         discovery.decline_reason,

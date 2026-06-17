@@ -23,6 +23,7 @@ use super::chain_solver::{
     FIT_REGULARIZATION, FIT_SMOOTHING_WEIGHT, SOFT_TANGENT_PLANE_WEIGHT,
     add_third_difference_penalty, dbernstein9, solve_dense,
 };
+use super::chain_source::ChainCurveSource;
 use super::chain_spacing::{end_decompression_targets, node_speed_decompression_targets};
 use super::leg_vector::{
     JointEndpointLeg, JointEndpointLegEquation, JointEndpointPlaneConstraint, chain_derivative,
@@ -98,6 +99,7 @@ pub(super) fn solve_joint_chain_network(
             &local,
             solution[chain_index],
             nodes,
+            ChainCurveSource::LeastSquaresFit,
         ));
     }
     let max_plane_before = plane_constraints

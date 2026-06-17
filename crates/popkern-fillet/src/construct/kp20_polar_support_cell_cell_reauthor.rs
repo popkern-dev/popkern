@@ -55,6 +55,7 @@ use super::chain_author::boundary_controls;
 use super::chain_discovery::ChainTrim;
 use super::chain_fit::ChainRowKey;
 use super::chain_ribbon_field::{ribbon_field_segment, row_derivative_coefficients};
+use super::chain_source::ChainCurveSource;
 use super::twist_resolution::{
     TwistDemand, dual_twist_corner_index, resolve_dual_twist_corner, resolve_twist_demands,
 };
@@ -68,6 +69,7 @@ pub(super) struct AuthoredSubChain {
     pub(super) chain_cps: [Point3; 10],
     pub(super) rows: Vec<(ChainRowKey, (f64, f64))>,
     pub(super) nodes: Vec<(VertexHandle, f64)>,
+    pub(super) source: ChainCurveSource,
 }
 
 #[derive(Debug, Clone)]

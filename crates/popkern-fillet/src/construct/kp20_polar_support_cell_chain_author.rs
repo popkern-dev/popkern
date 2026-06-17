@@ -14,6 +14,7 @@ use super::chain_nodes::{
     local_node_params, sub_chain_node_constraints, sub_chain_tangent_constraints,
 };
 use super::chain_solver::{ChainCurveConstraints, fit_constrained_degree9};
+use super::chain_source::{ChainCurveSource, ChainCurveSourcePreference};
 use super::chain_spacing::{end_decompression_targets, node_speed_decompression_targets};
 use super::row_fit::eval_row;
 use super::row_segment::bezier_row_segment;
@@ -28,6 +29,7 @@ pub(super) fn author_sub_chain(
     node_positions: &HashMap<VertexHandle, Point3>,
     node_normals: &HashMap<VertexHandle, Vec3>,
     leg_class_targets: &[(f64, Vec3, f64)],
+    source_preference: ChainCurveSourcePreference,
 ) -> Result<AuthoredSubChain, &'static str> {
     let domain = sub
         .rows
@@ -53,6 +55,19 @@ pub(super) fn author_sub_chain(
     if nodes.len() > MAX_INTERPOLATED_NODES {
         return Err("sub_chain_node_count_exceeds_degree");
     }
+    let nodes_local = local_node_params(sub, &local);
+    if source_preference.prefers_spanning_owner_row()
+        && let Some(chain_cps) = spanning_owner_row_controls(&rows, domain)
+    {
+        return Ok(authored_sub_chain_from_controls(
+            patches,
+            sub,
+            &local,
+            chain_cps,
+            nodes_local,
+            ChainCurveSource::SpanningOwnerRow,
+        ));
+    }
     let mut samples = Vec::with_capacity(rows.len() * CHAIN_FIT_SAMPLES_PER_ROW);
     for (_, embedding, controls) in &rows {
         for index in 0..CHAIN_FIT_SAMPLES_PER_ROW {
@@ -73,7 +88,6 @@ pub(super) fn author_sub_chain(
         derivative_targets: Vec::new(),
     };
     let mut chain_cps = fit_constrained_degree9(&samples, &constraints)?;
-    let nodes_local = local_node_params(sub, &local);
     let spacing = end_decompression_targets(&chain_cps);
     let mut derivatives = node_speed_decompression_targets(&chain_cps, &nodes_local);
     derivatives.extend_from_slice(leg_class_targets);
@@ -83,7 +97,14 @@ pub(super) fn author_sub_chain(
         retargeted.derivative_targets = derivatives;
         chain_cps = fit_constrained_degree9(&samples, &retargeted)?;
     }
-    let authored = authored_sub_chain_from_controls(patches, sub, &local, chain_cps, nodes_local);
+    let authored = authored_sub_chain_from_controls(
+        patches,
+        sub,
+        &local,
+        chain_cps,
+        nodes_local,
+        ChainCurveSource::LeastSquaresFit,
+    );
     Ok(authored)
 }
 
@@ -93,11 +114,13 @@ pub(super) fn authored_sub_chain_from_controls(
     local: &impl Fn(f64) -> f64,
     chain_cps: [Point3; 10],
     nodes: Vec<(VertexHandle, f64)>,
+    source: ChainCurveSource,
 ) -> AuthoredSubChain {
     let mut authored = AuthoredSubChain {
         chain_cps,
         rows: Vec::with_capacity(sub.rows.len()),
         nodes,
+        source,
     };
     for &(key, embedding) in &sub.rows {
         let start = local(embedding.map(0.0));
@@ -112,6 +135,23 @@ pub(super) fn authored_sub_chain_from_controls(
         authored.rows.push((key, (start, end)));
     }
     authored
+}
+
+fn spanning_owner_row_controls(
+    rows: &[(ChainRowKey, RowChainEmbedding, [Point3; 10])],
+    domain: (f64, f64),
+) -> Option<[Point3; 10]> {
+    rows.iter().find_map(|(_, embedding, controls)| {
+        let (lo, hi) = embedding.chain_interval();
+        if lo > domain.0 + NODE_PARAM_TOL || hi < domain.1 - NODE_PARAM_TOL {
+            return None;
+        }
+        let mut source = *controls;
+        if embedding.scale < 0.0 {
+            source.reverse();
+        }
+        Some(source)
+    })
 }
 
 pub(super) fn boundary_controls(

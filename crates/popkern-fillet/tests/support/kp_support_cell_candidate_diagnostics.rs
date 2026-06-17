@@ -73,6 +73,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_chain_constructive_dual_twist_pair_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_active_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
+        "pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_tangent_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_normal_solve_if_g0_safe",
@@ -127,6 +128,17 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("active_normal_constraint_count=")
         }),
         "{fixture} combined beta-envelope active-normal candidate should report both solve inventories; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
+            ) && detail.contains("chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_solve")
+                && detail.contains("owner_row_source_sub_chain_count=")
+                && detail.contains("fit_source_sub_chain_count=")
+                && detail.contains("active_normal_constraint_count=")
+        }),
+        "{fixture} owner-row chain candidate should report source ownership and active-normal diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
