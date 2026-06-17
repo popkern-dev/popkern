@@ -40,7 +40,9 @@ mod row_controls;
 
 use self::active_normal_solve::repair_active_normal_solve;
 use self::beta_envelope::repair_beta_envelope;
-use self::curvature_solve::repair_curvature_solve;
+use self::curvature_solve::{
+    repair_curvature_solve, repair_curvature_solve_with_expanded_row_band_budget,
+};
 use self::curvature_weighted_normal_solve::repair_curvature_weighted_normal_solve;
 use self::pair_normal_solve::repair_pair_normal_solve;
 use self::row_controls::{refill_interior_coons, repair_row_end_legs};
@@ -79,6 +81,13 @@ pub(super) struct DerivedRowBand {
     pub(super) row0: [Point3; 10],
     pub(super) row1: [Point3; 10],
     pub(super) field_segment: [Vec3; 9],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CurvatureSolveScope {
+    None,
+    PerSubChain,
+    AllDerivedRowBands,
 }
 
 #[derive(Debug, Clone)]
@@ -216,7 +225,7 @@ pub(super) fn reauthor_cells_from_chain_network(
     beta_envelope: bool,
     pair_normal_solve: bool,
     active_normal_solve: bool,
-    curvature_solve: bool,
+    curvature_solve_scope: CurvatureSolveScope,
 ) -> CellReauthorOutcome {
     let mut outcome = CellReauthorOutcome::default();
     let chained_rows: std::collections::HashSet<ChainRowKey> = sub_chains
@@ -291,7 +300,7 @@ pub(super) fn reauthor_cells_from_chain_network(
         if active_normal_solve {
             repair_active_normal_solve(&mut row_bands[first_row..], chain_trims, &mut outcome);
         }
-        if curvature_solve {
+        if curvature_solve_scope == CurvatureSolveScope::PerSubChain {
             let weighted_normal_detail =
                 repair_curvature_weighted_normal_solve(&mut row_bands[first_row..], chain_trims);
             let curvature_detail = repair_curvature_solve(&mut row_bands[first_row..], chain_trims);
@@ -303,12 +312,26 @@ pub(super) fn reauthor_cells_from_chain_network(
             }
         }
     }
-    if curvature_solve {
-        outcome.curvature_solve_detail = Some(if active_curvature_details.is_empty() {
-            inactive_curvature_detail.unwrap_or_else(|| "none".to_string())
-        } else {
-            active_curvature_details.join("|")
-        });
+    match curvature_solve_scope {
+        CurvatureSolveScope::None => {}
+        CurvatureSolveScope::PerSubChain => {
+            outcome.curvature_solve_detail = Some(if active_curvature_details.is_empty() {
+                inactive_curvature_detail.unwrap_or_else(|| "none".to_string())
+            } else {
+                active_curvature_details.join("|")
+            });
+        }
+        CurvatureSolveScope::AllDerivedRowBands => {
+            let first_curvature_detail =
+                repair_curvature_solve_with_expanded_row_band_budget(&mut row_bands, chain_trims);
+            let weighted_normal_detail =
+                repair_curvature_weighted_normal_solve(&mut row_bands, chain_trims);
+            let curvature_detail =
+                repair_curvature_solve_with_expanded_row_band_budget(&mut row_bands, chain_trims);
+            outcome.curvature_solve_detail = Some(format!(
+                "curvature_solve_scope=all_derived_row_bands;curvature_solve_budget=expanded_row_band;curvature_solve_sequence=curvature_then_weighted_normal_then_curvature;{weighted_normal_detail};{curvature_detail};first_curvature_solve=[{first_curvature_detail}]"
+            ));
+        }
     }
     let mut writes: HashMap<(FaceHandle, usize, usize), Vec<TwistDemand>> = HashMap::new();
     for band in &row_bands {

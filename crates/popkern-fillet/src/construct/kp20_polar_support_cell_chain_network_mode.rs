@@ -1,5 +1,7 @@
 //! Chain-network authoring modes for support-cell row construction.
 
+use super::CurvatureSolveScope;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum ChainNetworkMode {
     Curves,
@@ -18,6 +20,7 @@ pub(super) enum ChainNetworkMode {
     CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
     CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+    CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve,
 }
 
 impl ChainNetworkMode {
@@ -34,6 +37,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve
         )
     }
 
@@ -49,6 +53,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve
         )
     }
 
@@ -67,6 +72,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve
         )
     }
 
@@ -85,15 +91,21 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve
         )
     }
 
-    pub(super) fn curvature_solve(self) -> bool {
-        matches!(
-            self,
+    pub(super) fn curvature_solve_scope(self) -> CurvatureSolveScope {
+        match self {
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
-                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
-        )
+            | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve => {
+                CurvatureSolveScope::PerSubChain
+            }
+            ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve => {
+                CurvatureSolveScope::AllDerivedRowBands
+            }
+            _ => CurvatureSolveScope::None,
+        }
     }
 
     pub(super) fn prefers_spanning_owner_row(self) -> bool {
@@ -101,6 +113,7 @@ impl ChainNetworkMode {
             self,
             ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve
         )
     }
 
@@ -130,6 +143,8 @@ impl ChainNetworkMode {
             (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, false) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
             (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, true) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
             (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, false) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
+            (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve, true) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve_authored",
+            (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve, false) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve_declined",
         }
     }
 }

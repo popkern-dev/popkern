@@ -21,12 +21,49 @@ const MARGIN_CURVATURE_SAMPLE_LIMIT: usize = 2;
 const COMMERCIAL_G1_TARGET: f64 = 1.25e-3;
 const MAX_CURVATURE_CONTROL_FRACTION: f64 = 0.03;
 const CURVATURE_MAX_PASSES: usize = 8;
+const EXPANDED_ROW_BAND_MAX_CURVATURE_CONTROL_FRACTION: f64 = 0.06;
+const EXPANDED_ROW_BAND_CURVATURE_MAX_PASSES: usize = 12;
 const CURVATURE_DAMPING_FACTORS: [f64; 6] = [1.0, 0.5, 0.25, 0.125, 0.0625, 0.03125];
 const CURVATURE_IMPROVEMENT_EPS: f64 = 1.0e-12;
+
+#[derive(Debug, Clone, Copy)]
+struct CurvatureSolveBudget {
+    max_control_fraction: f64,
+    max_passes: usize,
+}
 
 pub(super) fn repair_curvature_solve(
     bands: &mut [DerivedRowBand],
     chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+) -> String {
+    repair_curvature_solve_with_budget(
+        bands,
+        chain_trims,
+        CurvatureSolveBudget {
+            max_control_fraction: MAX_CURVATURE_CONTROL_FRACTION,
+            max_passes: CURVATURE_MAX_PASSES,
+        },
+    )
+}
+
+pub(super) fn repair_curvature_solve_with_expanded_row_band_budget(
+    bands: &mut [DerivedRowBand],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+) -> String {
+    repair_curvature_solve_with_budget(
+        bands,
+        chain_trims,
+        CurvatureSolveBudget {
+            max_control_fraction: EXPANDED_ROW_BAND_MAX_CURVATURE_CONTROL_FRACTION,
+            max_passes: EXPANDED_ROW_BAND_CURVATURE_MAX_PASSES,
+        },
+    )
+}
+
+fn repair_curvature_solve_with_budget(
+    bands: &mut [DerivedRowBand],
+    chain_trims: &[ChainTrim<ChainRowKey, VertexHandle>],
+    budget: CurvatureSolveBudget,
 ) -> String {
     if bands.len() < 2 {
         return declined_detail("insufficient_bands", 0.0, 0.0);
@@ -52,7 +89,7 @@ pub(super) fn repair_curvature_solve(
     .unwrap_or_else(|| "none".to_string());
     let mut decline_reason = "no_active_samples";
 
-    for _ in 0..CURVATURE_MAX_PASSES {
+    for _ in 0..budget.max_passes {
         let (active_residual, sample_limit) = if before_g2 <= MIN_NORMAL_ALIGNED_G2_RESIDUAL {
             (
                 MARGIN_NORMAL_ALIGNED_G2_RESIDUAL,
@@ -80,7 +117,8 @@ pub(super) fn repair_curvature_solve(
             decline_reason = "curvature_system_singular";
             break;
         };
-        let (deltas, limited_rows, max_requested_delta) = limited_row_deltas(bands, &solution);
+        let (deltas, limited_rows, max_requested_delta) =
+            limited_row_deltas(bands, &solution, budget.max_control_fraction);
         let mut best: Option<(f64, f64, f64, Vec<DerivedRowBand>)> = None;
         for damping in CURVATURE_DAMPING_FACTORS {
             let mut candidate = bands.to_vec();
@@ -390,12 +428,16 @@ fn normal_aligned_g2_residual(first: f64, second: f64, alignment: f64) -> f64 {
     (first - aligned_second).abs() / (1.0 + scale)
 }
 
-fn limited_row_deltas(bands: &[DerivedRowBand], solution: &[f64]) -> (Vec<[f64; 6]>, usize, f64) {
+fn limited_row_deltas(
+    bands: &[DerivedRowBand],
+    solution: &[f64],
+    max_control_fraction: f64,
+) -> (Vec<[f64; 6]>, usize, f64) {
     let mut deltas = vec![[0.0_f64; 6]; bands.len()];
     let mut limited_rows = 0usize;
     let mut max_delta = 0.0_f64;
     for (row_index, band) in bands.iter().enumerate() {
-        let limit = row_control_limit(band);
+        let limit = row_control_limit(band, max_control_fraction);
         let offset = row_index * INTERIOR_CONTROL_COUNT;
         let max_requested = solution[offset..offset + INTERIOR_CONTROL_COUNT]
             .iter()
@@ -441,7 +483,7 @@ fn write_repaired_rows(bands: &mut [DerivedRowBand], candidate: Vec<DerivedRowBa
     repaired_rows
 }
 
-fn row_control_limit(band: &DerivedRowBand) -> f64 {
+fn row_control_limit(band: &DerivedRowBand, max_control_fraction: f64) -> f64 {
     let boundary_length: f64 = (1..10)
         .map(|k| band.row0[k].distance_to(&band.row0[k - 1]))
         .sum();
@@ -451,7 +493,7 @@ fn row_control_limit(band: &DerivedRowBand) -> f64 {
         .zip(band.row0.iter())
         .map(|(a, b)| a.distance_to(b))
         .fold(0.0_f64, f64::max);
-    MAX_CURVATURE_CONTROL_FRACTION * boundary_length.max(band_depth).max(1.0e-9)
+    max_control_fraction * boundary_length.max(band_depth).max(1.0e-9)
 }
 
 fn fill_coefficients(row: &mut [f64], row_index: usize, weight: f64, sample: &RowCurvatureSample) {

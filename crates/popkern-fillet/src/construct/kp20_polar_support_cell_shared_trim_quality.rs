@@ -22,11 +22,11 @@ pub(super) const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G0_TARGET: f64 = 1.0e-10;
 /// trim. Calibrated to the ring-gate angular threshold
 /// `G1_GATE = 5e-2 (≈ 2.9°)` via `1 − cos θ ≈ θ²/2`, so both
 /// gates accept the same worst-case normal mismatch.
-const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET: f64 = 1.25e-3;
+pub(super) const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G1_TARGET: f64 = 1.25e-3;
 /// Commercial G2 target on the scale-normalized curvature
 /// residual `|κ_a − κ_b| / (1 + max(|κ_a|, |κ_b|))` — the same
 /// form and value as the ring-gate `G2_GATE`.
-const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET: f64 = 5.0e-2;
+pub(super) const COMMERCIAL_SUPPORT_CELL_SHARED_TRIM_G2_TARGET: f64 = 5.0e-2;
 const SUPPORT_CELL_SHARED_TRIM_REPAIR_MONOTONIC_EPS: f64 = 1.0e-12;
 
 #[derive(Debug, Clone, Copy)]

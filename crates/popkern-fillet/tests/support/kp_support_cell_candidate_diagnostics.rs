@@ -76,6 +76,7 @@ pub(crate) fn assert_candidate_diagnostics(
         "pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
         "pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
+        "pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_tangent_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_worst_g1_normal_solve_if_g0_safe",
         "pcurve_then_chain_constructive_dual_twist_endpoint_adjacent_worst_g1_normal_solve_if_g0_safe",
@@ -165,6 +166,20 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("max_curvature_control_delta=")
         }),
         "{fixture} owner-row curvature candidate should report source ownership and constrained G2 diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains(
+                "candidate=pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve_if_g0_safe",
+            ) && detail.contains(
+                "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve",
+            ) && detail.contains("owner_row_source_sub_chain_count=")
+                && detail.contains("fit_source_sub_chain_count=")
+                && detail.contains("curvature_solve_scope=all_derived_row_bands")
+                && detail.contains("curvature_solve_budget=expanded_row_band")
+                && detail.contains("max_curvature_control_delta=")
+        }),
+        "{fixture} owner-row all-derived curvature candidate should report source ownership, all-row scope, and constrained G2 diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

@@ -9,7 +9,7 @@ use popkern_core::error::CoreError;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use super::cell_reauthor::reauthor_cells_from_chain_network;
+use super::cell_reauthor::{CurvatureSolveScope, reauthor_cells_from_chain_network};
 #[path = "kp20_polar_support_cell_chain_network_mode.rs"]
 mod chain_network_mode;
 #[path = "kp20_polar_support_cell_chain_status.rs"]
@@ -152,6 +152,17 @@ pub(super) fn author_chain_network_with_owner_row_dual_twist_beta_envelope_activ
         brep,
         slots,
         ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+    )
+}
+
+pub(super) fn author_chain_network_with_owner_row_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalAllDerivedRowBandCurvatureSolve,
     )
 }
 
@@ -427,7 +438,7 @@ fn author_chain_network_internal(
             mode.beta_envelope(),
             mode.pair_normal_solve(),
             mode.active_normal_solve(),
-            mode.curvature_solve(),
+            mode.curvature_solve_scope(),
         );
         dual_twist_pairs = outcome.dual_twist_pairs.clone();
         reauthor_detail = chain_status::reauthor_detail(&outcome);
