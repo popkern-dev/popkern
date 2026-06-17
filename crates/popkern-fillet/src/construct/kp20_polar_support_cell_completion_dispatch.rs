@@ -344,6 +344,23 @@ pub(super) fn apply_support_cell_completion_candidate(
                 },
             )
         }
+        SupportCellCompletionCandidate::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe => {
+            support_cell_completion_apply::boundary_after_pcurve_with_status_if_commercial_g0_safe(
+                brep,
+                faces,
+                |brep, faces| {
+                    let boundary_status =
+                        support_cell_boundary_reconcile::boundary_composed::reconcile_assigned_ranked_endpoint_exact_then_partial_status(
+                            brep, faces,
+                        )?;
+                    let chain_status =
+                        support_cell_boundary_reconcile::reconcile_assigned_chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_status(
+                        brep, faces,
+                    )?;
+                    Ok(format!("{boundary_status};{chain_status}"))
+                },
+            )
+        }
         SupportCellCompletionCandidate::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe => {
             support_cell_completion_apply::boundary_after_pcurve_with_status_if_g1_safe_against_baseline(
                 brep,

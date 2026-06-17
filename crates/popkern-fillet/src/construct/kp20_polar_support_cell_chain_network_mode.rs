@@ -17,6 +17,7 @@ pub(super) enum ChainNetworkMode {
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
     CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve,
     CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+    CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
 }
 
 impl ChainNetworkMode {
@@ -32,6 +33,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -46,6 +48,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -63,6 +66,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -80,6 +84,7 @@ impl ChainNetworkMode {
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
                 | ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -87,6 +92,7 @@ impl ChainNetworkMode {
         matches!(
             self,
             ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -94,6 +100,7 @@ impl ChainNetworkMode {
         matches!(
             self,
             ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve
+                | ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve
         )
     }
 
@@ -121,6 +128,8 @@ impl ChainNetworkMode {
             (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalSolve, false) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_solve_declined",
             (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, true) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
             (ChainNetworkMode::CurvesAndConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, false) => "chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
+            (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, true) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
+            (ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve, false) => "chain_owner_row_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_declined",
         }
     }
 }

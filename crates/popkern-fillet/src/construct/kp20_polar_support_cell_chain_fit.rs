@@ -144,6 +144,17 @@ pub(super) fn author_chain_network_with_owner_row_dual_twist_beta_envelope_activ
     )
 }
 
+pub(super) fn author_chain_network_with_owner_row_dual_twist_beta_envelope_active_normal_curvature_solve(
+    brep: &mut BRep,
+    slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],
+) -> Result<String, CoreError> {
+    author_chain_network_internal(
+        brep,
+        slots,
+        ChainNetworkMode::CurvesAndOwnerRowConstructiveDualTwistCellsWithBetaEnvelopeActiveNormalCurvatureSolve,
+    )
+}
+
 pub(super) fn author_chain_network_with_constructive_dual_twist_beta_envelope_active_normal_curvature_solve(
     brep: &mut BRep,
     slots: &[crate::construct::kp20_polar_expanded_support_binding::Kp20ExpandedSupportSurfaceSlot],

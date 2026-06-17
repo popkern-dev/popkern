@@ -35,6 +35,7 @@ pub(super) enum SupportCellCompletionCandidate {
     PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe,
     PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe,
+    PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
     PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe,
     PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe,
@@ -42,7 +43,7 @@ pub(super) enum SupportCellCompletionCandidate {
 }
 
 impl SupportCellCompletionCandidate {
-    pub(super) const ALL: [Self; 34] = [
+    pub(super) const ALL: [Self; 35] = [
         Self::PcurveOnly,
         Self::BoundaryOnly,
         Self::PcurveThenBoundary,
@@ -72,6 +73,7 @@ impl SupportCellCompletionCandidate {
         Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe,
         Self::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe,
+        Self::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe,
         Self::PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe,
@@ -159,6 +161,9 @@ impl SupportCellCompletionCandidate {
             Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe"
             }
+            Self::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe => {
+                "pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe"
+            }
             Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe => {
                 "pcurve_then_chain_constructive_dual_twist_worst_g1_tangent_if_g0_safe"
             }
@@ -204,6 +209,7 @@ impl SupportCellCompletionCandidate {
                 | Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe
                 | Self::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe
+                | Self::PcurveThenExactPartialOwnerRowChainConstructiveDualTwistBetaEnvelopeActiveNormalCurvatureSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistWorstG1TangentIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistWorstG1NormalSolveIfG0Safe
                 | Self::PcurveThenChainConstructiveDualTwistEndpointAdjacentWorstG1NormalSolveIfG0Safe
