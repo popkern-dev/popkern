@@ -29,6 +29,8 @@ use popkern_core::topology::{FaceHandle, VertexHandle};
 mod active_normal_solve;
 #[path = "kp20_polar_support_cell_beta_envelope.rs"]
 mod beta_envelope;
+#[path = "kp20_polar_support_cell_curvature_common.rs"]
+mod curvature_common;
 #[path = "kp20_polar_support_cell_curvature_solve.rs"]
 mod curvature_solve;
 #[path = "kp20_polar_support_cell_curvature_weighted_normal_solve.rs"]
