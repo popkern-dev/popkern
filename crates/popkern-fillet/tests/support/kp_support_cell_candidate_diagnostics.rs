@@ -192,8 +192,14 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("b_terms=(")
                 && detail.contains("q_gap=")
                 && detail.contains("normal_only=(")
+                && detail.contains("row_domain=(a_side=")
+                && detail.contains("a_row_t=")
+                && detail.contains("a_solver_f=")
+                && detail.contains("b_side=")
+                && detail.contains("b_row_t=")
+                && detail.contains("b_solver_f=")
         }),
-        "{fixture} support-cell G2 diagnostics should expose projected-direction and second-form decomposition for top normal-aligned samples; support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} support-cell G2 diagnostics should expose projected-direction, row-domain, and second-form decomposition for top normal-aligned samples; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert_candidate_stage_progression(fixture, support_cell_dispatch_details);
 }

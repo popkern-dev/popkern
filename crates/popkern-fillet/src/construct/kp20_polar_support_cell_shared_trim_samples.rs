@@ -140,6 +140,7 @@ pub(super) fn g2_sample_detail(
                 sample.uv_b.y
             ) + &g2_decomposition_detail("a", sample.decomposition_a)
                 + &g2_decomposition_detail("b", sample.decomposition_b)
+                + &g2_row_domain_detail(sample)
                 + &g2_mechanism_detail(
                     sample.decomposition_a,
                     sample.decomposition_b,
@@ -151,6 +152,36 @@ pub(super) fn g2_sample_detail(
         "none".to_string()
     } else {
         entries.join("|")
+    }
+}
+
+fn g2_row_domain_detail(sample: &Kp20SupportCellG2Sample) -> String {
+    format!(
+        ",row_domain=(a_side={},a_row_t={:.6e},a_solver_f={:.6e},b_side={},b_row_t={:.6e},b_solver_f={:.6e})",
+        row_side_label(sample.trim.row_a),
+        row_parameter(sample.trim.row_a, sample.uv_a),
+        sample.trim.sample_fraction,
+        row_side_label(sample.trim.row_b),
+        row_parameter(sample.trim.row_b, sample.uv_b),
+        1.0 - sample.trim.sample_fraction
+    )
+}
+
+fn row_side_label(row: Option<u8>) -> &'static str {
+    match row {
+        Some(0) => "UMin",
+        Some(1) => "UMax",
+        Some(2) => "VMin",
+        Some(3) => "VMax",
+        _ => "none",
+    }
+}
+
+fn row_parameter(row: Option<u8>, uv: Vec3) -> f64 {
+    match row {
+        Some(0 | 1) => uv.y,
+        Some(2 | 3) => uv.x,
+        _ => f64::NAN,
     }
 }
 
