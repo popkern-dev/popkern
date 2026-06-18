@@ -9,7 +9,10 @@ pub(super) fn corner_patch_count_is_acceptable(
     patches.len() == n_sides || support_cell_patch_count_is_acceptable(patches, n_sides)
 }
 
-fn support_cell_patch_count_is_acceptable(patches: &[CornerPatchInfo], n_sides: usize) -> bool {
+pub(super) fn support_cell_patch_count_is_acceptable(
+    patches: &[CornerPatchInfo],
+    n_sides: usize,
+) -> bool {
     patches.len() == 4 * n_sides
         && patches.iter().all(|patch| {
             patch.n_sides == n_sides

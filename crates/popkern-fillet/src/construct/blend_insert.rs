@@ -22,6 +22,8 @@ mod blend_insert_pns_acceptance;
 mod blend_insert_support_cell_acceptance;
 #[path = "blend_insert_surface.rs"]
 mod blend_insert_surface;
+#[path = "blend_insert_three_quad_acceptance.rs"]
+mod blend_insert_three_quad_acceptance;
 #[path = "blend_insert_topology.rs"]
 mod blend_insert_topology;
 use crate::types::{
@@ -225,7 +227,6 @@ pub(crate) fn insert_vertex_blend(
     };
     let mut diagnostics = Vec::new();
 
-    // PnS must pass cap/support acceptance before it can commit.
     if crate::blend::pns_promote::pns_env_enabled()
         && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
@@ -292,9 +293,9 @@ pub(crate) fn insert_vertex_blend(
         ));
     }
 
-    // §5.3 item #4 — N ≥ 3 rational-Gregory dispatch.
     if use_rational_gregory && rational_gregory_compatible && rational_dispatch_preconditions_met {
         use crate::construct::three_quad_apply::ThreeQuadFailure;
+        let three_quad_snapshot = brep.clone();
         match apply_three_quad_decomposition_to_blend(
             brep,
             blend_face,
@@ -310,26 +311,24 @@ pub(crate) fn insert_vertex_blend(
             use_kp_binonic_gregory,
             use_kp_polar_gregory,
         ) {
-            Ok(result)
-                if blend_insert_support_cell_acceptance::corner_patch_count_is_acceptable(
-                    &result.patches,
-                    n_sides,
-                ) =>
-            {
-                diagnostics.extend(result.diagnostics);
-                return Ok((result.patches, Some(dispatch_boundary.clone()), diagnostics));
-            }
             Ok(result) => {
-                diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
-                    n_sides,
-                    "patch_count_mismatch",
-                    Some(format!(
-                        "expected {n_sides} corner patches, got {}",
-                        result.patches.len()
-                    )),
-                ));
+                match blend_insert_three_quad_acceptance::accept_three_quad_result(
+                    brep, result, n_sides,
+                ) {
+                    blend_insert_three_quad_acceptance::ThreeQuadAcceptance::Accepted(result) => {
+                        diagnostics.extend(result.diagnostics);
+                        return Ok((result.patches, Some(dispatch_boundary.clone()), diagnostics));
+                    }
+                    blend_insert_three_quad_acceptance::ThreeQuadAcceptance::Declined(
+                        decline_diagnostics,
+                    ) => {
+                        diagnostics.extend(decline_diagnostics);
+                        *brep = three_quad_snapshot;
+                    }
+                }
             }
             Err(ThreeQuadFailure::Overlap) => {
+                *brep = three_quad_snapshot;
                 let mut r = base_patch.clone();
                 r.overlap_remediated = true;
                 diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
@@ -340,6 +339,7 @@ pub(crate) fn insert_vertex_blend(
                 return Ok((vec![r], Some(dispatch_boundary.clone()), diagnostics));
             }
             Err(ThreeQuadFailure::Other(reason)) => {
+                *brep = three_quad_snapshot;
                 diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
                     n_sides,
                     "construction_error",
