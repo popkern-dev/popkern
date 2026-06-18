@@ -158,7 +158,7 @@ fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
     faces
 }
 
-fn cap_outer_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
+pub fn cap_outer_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
     let mut faces = cap_faces_from_result(result);
     for (face, face_data) in result.brep.faces.iter() {
         let Some(surface) = face_data.surface.as_ref() else {

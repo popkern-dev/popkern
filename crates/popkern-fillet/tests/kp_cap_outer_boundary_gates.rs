@@ -30,12 +30,14 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 use helpers::{
-    G0_GATE, G1_GATE, N_SAMPLES, fillet_corner, fillet_corner_cap_outer_faces, incident_edges,
-    measure_cap_outer_boundary, pick_vertex_with_valence,
+    G0_GATE, G1_GATE, N_SAMPLES, cap_outer_faces_from_result, fillet_corner,
+    fillet_corner_cap_outer_faces, incident_edges, measure_cap_outer_boundary,
+    pick_vertex_with_valence,
 };
 
 fn assert_cap_outer_gates(fixture: &str, m: &helpers::CapOuterMetrics) {
@@ -132,6 +134,38 @@ fn run_n_pyramid_cap_outer_faces(n: usize, h: f64, radii: &[f64]) -> helpers::Ca
     measure_cap_outer_boundary(&brep, &faces, N_SAMPLES)
 }
 
+fn run_n_pyramid_cap_outer_result(
+    n: usize,
+    h: f64,
+    radii: &[f64],
+) -> (popkern_fillet::BlendResult, helpers::CapOuterMetrics) {
+    let pyr = BRep::n_gonal_pyramid(n, 1.0, h, Tolerance::default()).unwrap();
+    let vertex = pick_vertex_with_valence(&pyr, n).unwrap();
+    let edges = incident_edges(&pyr, vertex);
+    let specs = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&edge, &radius)| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(radius),
+        })
+        .collect::<Vec<_>>();
+    let opts = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        use_biquintic_full_gregory: true,
+        use_biseptic_gregory: true,
+        use_two_stripe_gregory: true,
+        use_kp_binonic_gregory: true,
+        use_kp_polar_gregory: true,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&pyr, &specs, &opts, Tolerance::default(), None).unwrap();
+    let faces = cap_outer_faces_from_result(&result);
+    let metrics = measure_cap_outer_boundary(&result.brep, &faces, N_SAMPLES);
+    (result, metrics)
+}
+
 /// N=5 — PnS/sphere-cap path. This uses cap-surface-aware collection
 /// because the construction does not necessarily report a measurable
 /// Gregory corner ring. The row is active coverage for the remaining
@@ -161,7 +195,7 @@ fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
 /// signal instead of a silent fixture skip.
 #[test]
 fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
-    let m = run_n_pyramid_cap_outer_faces(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
+    let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
     println!(
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
@@ -174,6 +208,54 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
         "hexagon6_variable route blocker should remain measured until support-cell routing or boundary quality is repaired"
     );
+    assert_route_declined(
+        &result,
+        "pns.dispatch.cap_support_acceptance",
+        "pns.dispatch.declined",
+    );
+    assert_route_declined(
+        &result,
+        "rational_gregory.dispatch.cap_support_acceptance",
+        "rational_gregory.dispatch.declined",
+    );
+}
+
+fn assert_route_declined(result: &popkern_fillet::BlendResult, stage: &str, code: &str) {
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| {
+                matches!(
+                    diagnostic,
+                    popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                        if cap.stage == stage && cap.code == code
+                )
+            }),
+        "expected route decline stage={stage} code={code}; diagnostics={:?}",
+        exact_boundary_diagnostic_summary(result)
+    );
+}
+
+fn exact_boundary_diagnostic_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
+    result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
+            else {
+                return None;
+            };
+            Some(format!(
+                "stage={};code={};detail={}",
+                cap.stage,
+                cap.code,
+                cap.detail_code.as_deref().unwrap_or("<none>")
+            ))
+        })
+        .collect()
 }
 
 /// Probe-style: print numbers across the canonical fixtures with
