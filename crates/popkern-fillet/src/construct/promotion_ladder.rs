@@ -72,8 +72,9 @@ pub(super) fn run_promotion_ladder(
 ) -> PromotionLadderReport {
     let n_sides = decomp.sub_patches.len();
     if !(use_biquintic_full && use_deg5) {
-        return standard_report_with_binonic_prerequisite_decline(
+        return standard_report_with_prerequisite_decline(
             use_kp_binonic,
+            use_kp_polar,
             decomp.sub_patches.len(),
             "pre_biquintic_disabled",
             Some("deg5 or biquintic-full promotion disabled".to_string()),
@@ -81,24 +82,27 @@ pub(super) fn run_promotion_ladder(
     }
     promote_decomp_to_biquintic_full_with_spoke_g1(&mut decomp.sub_patches);
     if !use_biseptic || !use_two_stripe {
-        return standard_report_with_binonic_prerequisite_decline(
+        return standard_report_with_prerequisite_decline(
             use_kp_binonic,
+            use_kp_polar,
             decomp.sub_patches.len(),
             "pre_two_stripe_disabled",
             Some("biseptic or two-stripe promotion disabled".to_string()),
         );
     }
     if !promote_decomp_to_biseptic_with_spoke_g1(&mut decomp.sub_patches) {
-        return standard_report_with_binonic_prerequisite_decline(
+        return standard_report_with_prerequisite_decline(
             use_kp_binonic,
+            use_kp_polar,
             decomp.sub_patches.len(),
             "biseptic_unavailable",
             None,
         );
     }
     if !promote_decomp_to_two_stripe_with_spoke_g1(&mut decomp.sub_patches) {
-        return standard_report_with_binonic_prerequisite_decline(
+        return standard_report_with_prerequisite_decline(
             use_kp_binonic,
+            use_kp_polar,
             decomp.sub_patches.len(),
             "two_stripe_unavailable",
             None,
@@ -171,18 +175,32 @@ pub(super) fn run_promotion_ladder(
     }
 }
 
-fn standard_report_with_binonic_prerequisite_decline(
+fn standard_report_with_prerequisite_decline(
     use_kp_binonic: bool,
+    use_kp_polar: bool,
     n_sides: usize,
     reason_code: &'static str,
     detail: Option<String>,
 ) -> PromotionLadderReport {
-    let diagnostics = use_kp_binonic
-        .then(|| {
-            three_quad_kp_diagnostics::promotion_declined(reason_code, n_sides, detail, None, None)
-        })
-        .into_iter()
-        .collect();
+    let mut diagnostics = Vec::new();
+    if use_kp_binonic {
+        diagnostics.push(three_quad_kp_diagnostics::promotion_declined(
+            reason_code,
+            n_sides,
+            detail,
+            None,
+            None,
+        ));
+    }
+    if use_kp_polar && n_sides >= 5 {
+        diagnostics.push(
+            three_quad_kp_diagnostics::support_cell_candidate_nonselection(
+                reason_code,
+                n_sides,
+                n_sides,
+            ),
+        );
+    }
     PromotionLadderReport {
         result: PromotionResult::Standard,
         kp20_support_cell_floor_patches: None,

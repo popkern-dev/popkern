@@ -242,7 +242,11 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
     }
 
-    if let Some(result) =
+    if matches!(
+        promotion_report.result,
+        super::promotion_ladder::PromotionResult::ExpandedKp20Support
+            | super::promotion_ladder::PromotionResult::Kp20SupportCell
+    ) && let Some(result) =
         super::three_quad_expanded_kp20_apply::try_apply_kp20_specialized_patchwork(
             super::three_quad_expanded_kp20_apply::ExpandedKp20ApplyInput {
                 brep,

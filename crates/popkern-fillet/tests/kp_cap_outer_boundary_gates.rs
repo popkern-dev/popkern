@@ -254,6 +254,7 @@ fn assert_support_cell_nonselection_recorded(result: &popkern_fillet::BlendResul
                             detail.contains("folded_patch_count=")
                                 && detail.contains("selection_policy=")
                                 && detail.contains("decline_reason=support_cell_primitive_")
+                                && !detail.contains("non_support_three_quad_acceptance_declined")
                         })
             )),
         "expected KP20 support-cell non-selection fact; diagnostics={:?}",
