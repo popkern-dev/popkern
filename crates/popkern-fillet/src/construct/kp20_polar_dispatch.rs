@@ -11,6 +11,7 @@ use super::kp20_polar_comparison::sampler_comparison_diagnostic;
 use super::kp20_polar_fold_summary::{
     Kp20SamplerFoldSummary, summarize_candidate_intersections, summarize_intersections,
 };
+use super::kp20_polar_support_cell_inventory::support_cell_inventory_from_provenance;
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
@@ -214,32 +215,50 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                         }
                     }
                     if let Some(support_cell_patches) = lifted.accepted_support_cell_patches()
-                        && support_cell_patches.len() % n == 0
-                        && matches!(support_cell_patches.len() / n, 4 | 8 | 16)
+                        && let Some(topology) = lifted.expanded_support_topology.as_ref()
                     {
-                        if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
-                            let mut hash = 0xcbf29ce484222325u64;
-                            for patch in support_cell_patches {
-                                if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = patch {
-                                    for row in &r.grid {
-                                        for point in row {
-                                            for value in [point.x, point.y, point.z] {
-                                                hash ^= value.to_bits();
-                                                hash = hash.wrapping_mul(0x100000001b3);
+                        let provenance = &topology.support_cell_primitive.emitted_provenance;
+                        match support_cell_inventory_from_provenance(
+                            n,
+                            support_cell_patches.len(),
+                            provenance,
+                        ) {
+                            Ok(_) => {
+                                if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
+                                    let mut hash = 0xcbf29ce484222325u64;
+                                    for patch in support_cell_patches {
+                                        if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = patch {
+                                            for row in &r.grid {
+                                                for point in row {
+                                                    for value in [point.x, point.y, point.z] {
+                                                        hash ^= value.to_bits();
+                                                        hash = hash.wrapping_mul(0x100000001b3);
+                                                    }
+                                                }
                                             }
                                         }
                                     }
+                                    eprintln!("dtrace: lift_support_cell_patches {hash:016x}");
                                 }
+                                return Kp20PolarDispatchReport::accepted_support_cell(
+                                    support_cell_patches.to_vec(),
+                                    provenance.to_vec(),
+                                    lifted
+                                        .support_cell_floor_patches()
+                                        .map(|patches| patches.to_vec()),
+                                    diagnostics,
+                                );
                             }
-                            eprintln!("dtrace: lift_support_cell_patches {hash:016x}");
+                            Err(error) => {
+                                diagnostics.push(super::kp20_polar_diagnostics::dispatch_declined(
+                                    "support_cell_inventory_validation",
+                                    n,
+                                    Some(error),
+                                    None,
+                                    None,
+                                ));
+                            }
                         }
-                        return Kp20PolarDispatchReport::accepted_support_cell(
-                            support_cell_patches.to_vec(),
-                            lifted
-                                .support_cell_floor_patches()
-                                .map(|patches| patches.to_vec()),
-                            diagnostics,
-                        );
                     }
                     if let Some(fact) =
                         support_cell_route_fact::support_cell_candidate_nonselection_fact(

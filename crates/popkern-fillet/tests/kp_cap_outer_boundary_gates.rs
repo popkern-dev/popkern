@@ -34,10 +34,16 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
+#[path = "support/kp_route_diagnostics.rs"]
+mod route_diagnostics;
 use helpers::{
     G0_GATE, G1_GATE, N_SAMPLES, cap_outer_faces_from_result, fillet_corner,
     fillet_corner_cap_outer_faces, incident_edges, measure_cap_outer_boundary,
     pick_vertex_with_valence,
+};
+use route_diagnostics::{
+    assert_route_declined, assert_route_detail_contains,
+    assert_support_cell_assembled_quality_recorded,
 };
 
 fn assert_cap_outer_gates(fixture: &str, m: &helpers::CapOuterMetrics) {
@@ -215,71 +221,20 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     );
     assert_route_declined(
         &result,
-        "rational_gregory.dispatch.cap_support_acceptance",
+        "rational_gregory.dispatch.partial_support_cell_patch_coverage",
         "rational_gregory.dispatch.declined",
     );
-    assert_support_cell_nonselection_recorded(&result);
-}
-
-fn assert_route_declined(result: &popkern_fillet::BlendResult, stage: &str, code: &str) {
-    assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| {
-                matches!(
-                    diagnostic,
-                    popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                        if cap.stage == stage && cap.code == code
-                )
-            }),
-        "expected route decline stage={stage} code={code}; diagnostics={:?}",
-        exact_boundary_diagnostic_summary(result)
+    assert_support_cell_assembled_quality_recorded(&result);
+    assert_route_detail_contains(
+        &result,
+        "rational_gregory.dispatch.partial_support_cell_patch_coverage",
+        "rational_gregory.dispatch.declined",
+        &[
+            "expected_full_support_cell_patch_count=24",
+            "actual_patch_count=12",
+            "target_count=3",
+        ],
     );
-}
-
-fn assert_support_cell_nonselection_recorded(result: &popkern_fillet::BlendResult) {
-    assert!(
-        result
-            .repair_report
-            .apex_diagnostics
-            .iter()
-            .any(|diagnostic| matches!(
-                diagnostic,
-                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.stage == "kp20_polar_macro.dispatch.support_cell_candidate_nonselection"
-                        && cap.code == "kp20_polar_macro.dispatch.fact"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("folded_patch_count=")
-                                && detail.contains("selection_policy=")
-                                && detail.contains("decline_reason=support_cell_primitive_")
-                                && !detail.contains("non_support_three_quad_acceptance_declined")
-                        })
-            )),
-        "expected KP20 support-cell non-selection fact; diagnostics={:?}",
-        exact_boundary_diagnostic_summary(result)
-    );
-}
-
-fn exact_boundary_diagnostic_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
-    result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .filter_map(|diagnostic| {
-            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
-            else {
-                return None;
-            };
-            Some(format!(
-                "stage={};code={};detail={}",
-                cap.stage,
-                cap.code,
-                cap.detail_code.as_deref().unwrap_or("<none>")
-            ))
-        })
-        .collect()
 }
 
 /// Probe-style: print numbers across the canonical fixtures with

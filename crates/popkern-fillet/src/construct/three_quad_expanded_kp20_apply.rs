@@ -4,6 +4,9 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
+use super::kp20_polar_support_cell_inventory::{
+    Kp20SupportCellInventory, support_cell_inventory_from_provenance,
+};
 use super::promotion_ladder::PromotionResult;
 use super::three_quad_apply::ThreeQuadApplyResult;
 use crate::types::{
@@ -25,6 +28,7 @@ pub(super) struct ExpandedKp20ApplyInput<'a> {
     pub central_point: Point3,
     pub support_surfaces: &'a [GregoryPatch],
     pub support_cell_floor_surfaces: Option<&'a [GregoryPatch]>,
+    pub support_cell_provenance: Option<&'a [CornerSubPatchProvenance]>,
     pub promotion_result: PromotionResult,
     pub vertex: VertexHandle,
     pub n_sides: usize,
@@ -48,23 +52,23 @@ pub(super) fn kp20_support_cell_commit_is_accepted(
     promotion_result: PromotionResult,
     support_surfaces: &[GregoryPatch],
     n_sides: usize,
+    provenance: Option<&[CornerSubPatchProvenance]>,
 ) -> bool {
     matches!(promotion_result, PromotionResult::Kp20SupportCell)
         && n_sides >= 3
-        && kp20_support_cell_cells_per_sector(support_surfaces, n_sides).is_some()
+        && kp20_support_cell_inventory(support_surfaces, n_sides, provenance).is_some()
 }
 
-fn kp20_support_cell_cells_per_sector(
+fn kp20_support_cell_inventory(
     support_surfaces: &[GregoryPatch],
     n_sides: usize,
-) -> Option<usize> {
-    if n_sides < 3 || !support_surfaces.len().is_multiple_of(n_sides) {
-        return None;
+    provenance: Option<&[CornerSubPatchProvenance]>,
+) -> Option<Kp20SupportCellInventory> {
+    if let Some(provenance) = provenance {
+        return support_cell_inventory_from_provenance(n_sides, support_surfaces.len(), provenance)
+            .ok();
     }
-    match support_surfaces.len() / n_sides {
-        4 | 8 => Some(support_surfaces.len() / n_sides),
-        _ => None,
-    }
+    Kp20SupportCellInventory::full_ring(n_sides, support_surfaces.len())
 }
 
 pub(super) fn try_apply_expanded_kp20_support_patchwork(
@@ -137,6 +141,7 @@ pub(super) fn try_apply_kp20_specialized_patchwork(
                 input.promotion_result,
                 input.support_surfaces,
                 input.n_sides,
+                input.support_cell_provenance,
             ) =>
         {
             try_apply_kp20_support_cell_patchwork(input)
@@ -152,23 +157,34 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
         input.promotion_result,
         input.support_surfaces,
         input.n_sides,
+        input.support_cell_provenance,
     ) {
         return Ok(None);
     }
 
-    let cells_per_sector =
-        kp20_support_cell_cells_per_sector(input.support_surfaces, input.n_sides).ok_or_else(
-            || {
-                format!(
-                    "KP20 support-cell commit received unsupported {} surfaces for {} sectors",
-                    input.support_surfaces.len(),
-                    input.n_sides
-                )
-            },
-        )?;
+    let promoted_inventory = kp20_support_cell_inventory(
+        input.support_surfaces,
+        input.n_sides,
+        input.support_cell_provenance,
+    )
+    .ok_or_else(|| {
+        format!(
+            "KP20 support-cell commit received unsupported {} surfaces for {} sectors",
+            input.support_surfaces.len(),
+            input.n_sides
+        )
+    })?;
+    let promoted_cells_per_target_sector = promoted_inventory.cells_per_target_sector;
     let promoted_surfaces = input.support_surfaces;
     let promoted_diagnostics = input.diagnostics.clone();
-    let fallback_surfaces = input.support_cell_floor_surfaces;
+    let fallback = input.support_cell_floor_surfaces.and_then(|surfaces| {
+        kp20_support_cell_inventory(surfaces, input.n_sides, None)
+            .map(|inventory| (surfaces, inventory))
+    });
+    let fallback_surface_count = fallback.as_ref().map(|(surfaces, _)| surfaces.len());
+    let fallback_cells_per_target_sector = fallback
+        .as_ref()
+        .map(|(_, inventory)| inventory.cells_per_target_sector);
     let vertex = input.vertex;
     let blend_face = input.blend_face;
     let central_point = input.central_point;
@@ -180,8 +196,8 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
         input.brep,
         input.n_sides,
         promoted_surfaces.len(),
-        cells_per_sector,
-        fallback_surfaces.map(|surfaces| surfaces.len()),
+        promoted_cells_per_target_sector,
+        fallback_surface_count,
         |brep| {
             apply_kp20_support_cell_surfaces(
                 brep,
@@ -189,6 +205,8 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                     blend_face,
                     central_point,
                     support_surfaces: promoted_surfaces,
+                    support_cell_provenance: input.support_cell_provenance,
+                    inventory: promoted_inventory.clone(),
                     vertex,
                     n_sides,
                     classification,
@@ -203,7 +221,7 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                 .map_err(Kp20SupportCellValidationFailure::from)
         },
         |brep, diagnostic| {
-            let Some(floor_surfaces) = fallback_surfaces else {
+            let Some((floor_surfaces, floor_inventory)) = fallback else {
                 return Err("KP20 support-cell fallback surfaces missing".to_string());
             };
             let mut fallback_diagnostics = input.diagnostics.clone();
@@ -214,6 +232,8 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                     blend_face,
                     central_point,
                     support_surfaces: floor_surfaces,
+                    support_cell_provenance: None,
+                    inventory: floor_inventory,
                     vertex,
                     n_sides,
                     classification,
@@ -230,23 +250,21 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
                 n_sides,
                 "promoted",
                 promoted_surfaces.len(),
-                cells_per_sector,
+                promoted_cells_per_target_sector,
                 promoted_surfaces.len(),
-                fallback_surfaces.map(|surfaces| surfaces.len()),
+                fallback_surface_count,
                 "valid",
                 None,
             ));
             Ok(Some(result))
         }
         Kp20SupportCellApplyTransactionResult::Fallback(mut result) => {
-            let fallback_surface_count = fallback_surfaces
-                .map(|surfaces| surfaces.len())
-                .unwrap_or(result.patches.len());
+            let fallback_surface_count = fallback_surface_count.unwrap_or(result.patches.len());
             result.diagnostics.push(support_cell_assembled_quality_fact(
                 n_sides,
                 "fallback_four_cell_floor",
                 fallback_surface_count,
-                fallback_surface_count / n_sides,
+                fallback_cells_per_target_sector.unwrap_or(fallback_surface_count / n_sides),
                 promoted_surfaces.len(),
                 Some(fallback_surface_count),
                 "valid_after_promoted_decline",
@@ -261,6 +279,8 @@ struct Kp20SupportCellSurfaceApply<'a> {
     blend_face: FaceHandle,
     central_point: Point3,
     support_surfaces: &'a [GregoryPatch],
+    support_cell_provenance: Option<&'a [CornerSubPatchProvenance]>,
+    inventory: Kp20SupportCellInventory,
     vertex: VertexHandle,
     n_sides: usize,
     classification: VertexBlendClassification,
@@ -274,12 +294,13 @@ fn apply_kp20_support_cell_surfaces(
     apply: Kp20SupportCellSurfaceApply<'_>,
 ) -> Result<ThreeQuadApplyResult, String> {
     let commit =
-        super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork(
+        super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
             brep,
             apply.blend_face,
             apply.central_point,
             apply.n_sides,
             apply.support_surfaces,
+            &apply.inventory,
         )
         .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
 
@@ -291,16 +312,6 @@ fn apply_kp20_support_cell_surfaces(
         ));
     }
 
-    let cells_per_sector =
-        kp20_support_cell_cells_per_sector(apply.support_surfaces, apply.n_sides).ok_or_else(
-            || {
-                format!(
-                    "KP20 support-cell commit received unsupported {} surfaces for {} sectors",
-                    apply.support_surfaces.len(),
-                    apply.n_sides
-                )
-            },
-        )?;
     let patches = commit
         .support_cell_faces
         .iter()
@@ -316,12 +327,20 @@ fn apply_kp20_support_cell_surfaces(
             overlap_remediated: false,
             relaxed_continuity_coplanarity: apply.relaxed_coplanarity,
             cap_sphere: None,
-            sub_patch_provenance: Some(CornerSubPatchProvenance::kp20_support_cell(
-                source_index / cells_per_sector,
-                apply.n_sides,
-                source_index,
-                apply.support_surfaces.len(),
-            )),
+            sub_patch_provenance: Some(
+                apply
+                    .support_cell_provenance
+                    .and_then(|items| items.get(source_index))
+                    .copied()
+                    .unwrap_or_else(|| {
+                        CornerSubPatchProvenance::kp20_support_cell(
+                            source_index / apply.inventory.cells_per_target_sector,
+                            apply.n_sides,
+                            source_index,
+                            apply.support_surfaces.len(),
+                        )
+                    }),
+            ),
         })
         .collect();
     Ok(ThreeQuadApplyResult {

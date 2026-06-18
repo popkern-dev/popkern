@@ -8,7 +8,8 @@ use crate::types::ApexConstructionDiagnostic;
 
 use super::blend_insert_diagnostics::rational_gregory_dispatch_declined_diagnostic;
 use super::blend_insert_support_cell_acceptance::{
-    corner_patch_count_is_acceptable, support_cell_patch_count_is_acceptable,
+    corner_patch_count_is_acceptable, partial_support_cell_coverage_detail,
+    support_cell_patch_count_is_acceptable,
 };
 
 pub(super) enum ThreeQuadAcceptance {
@@ -23,13 +24,20 @@ pub(super) fn accept_three_quad_result(
 ) -> ThreeQuadAcceptance {
     if !corner_patch_count_is_acceptable(&result.patches, n_sides) {
         let mut diagnostics = std::mem::take(&mut result.diagnostics);
+        let (reason, detail) =
+            if let Some(detail) = partial_support_cell_coverage_detail(&result.patches, n_sides) {
+                ("partial_support_cell_patch_coverage", Some(detail))
+            } else {
+                (
+                    "patch_count_mismatch",
+                    Some(format!(
+                        "expected {n_sides} corner patches, got {}",
+                        result.patches.len()
+                    )),
+                )
+            };
         diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
-            n_sides,
-            "patch_count_mismatch",
-            Some(format!(
-                "expected {n_sides} corner patches, got {}",
-                result.patches.len()
-            )),
+            n_sides, reason, detail,
         ));
         return ThreeQuadAcceptance::Declined(diagnostics);
     }

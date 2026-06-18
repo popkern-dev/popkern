@@ -45,6 +45,7 @@ mod kp20_polar_multipatch_strip;
 mod kp20_polar_multipatch_strip_optimize;
 mod kp20_polar_multipatch_topology_split;
 mod kp20_polar_multipatch_validate;
+mod kp20_polar_support_cell_inventory;
 pub(crate) mod kp20_polar_support_cell_shared_trim_quality;
 mod kp20_polar_support_image;
 mod kp20_polar_support_image_ownership;
@@ -464,7 +465,6 @@ pub fn apply_blend_geometry(
     pipeline_timing.vertex_blend_ms = ms;
     post_pipeline::determinism_trace("post_vertex_blend", &result);
     post_pipeline::determinism_face_trace("post_vertex_blend", &result);
-
     let (_, ms) = pipeline_timing::timed(|| {
         post_pipeline::determinism_trace("pre_post_pipeline", &result);
         post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {

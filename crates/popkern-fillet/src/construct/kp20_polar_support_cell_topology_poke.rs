@@ -4,6 +4,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
+use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use super::Kp20ExpandedSupportPokeShape;
@@ -12,6 +13,7 @@ use crate::construct::kp20_polar_expanded_support_binding::{
     attach_kp20_expanded_support_surfaces,
     plan_kp20_expanded_support_surface_bindings_with_sources,
 };
+use crate::construct::kp20_polar_support_cell_inventory::Kp20SupportCellInventory;
 
 #[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
 mod support_cell_boundary_reconcile;
@@ -19,8 +21,11 @@ mod support_cell_boundary_reconcile;
 mod support_cell_pcurve_author;
 #[path = "kp20_polar_support_cell_topology_pattern.rs"]
 mod support_cell_topology_pattern;
+#[path = "kp20_polar_support_cell_unit_domain.rs"]
+mod support_cell_unit_domain;
 
 use support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
+use support_cell_unit_domain::unit_domain_loop_candidates;
 
 #[derive(Debug, Clone)]
 pub(crate) struct Kp20SupportCellPokeResult {
@@ -40,7 +45,62 @@ pub(crate) fn commit_kp20_support_cell_patchwork(
     face: FaceHandle,
     central_point: Point3,
     sector_count: usize,
-    support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
+    support_surfaces: &[GregoryPatch],
+) -> Result<Kp20SupportCellCommitResult, CoreError> {
+    if sector_count == 0 || !support_surfaces.len().is_multiple_of(sector_count) {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 support-cell commit expected a support surface inventory divisible by sector count {sector_count}, got {}",
+            support_surfaces.len(),
+        )));
+    }
+    let support_split_sectors = (0..sector_count).collect::<Vec<_>>();
+    let cells_per_target_sector = support_surfaces.len() / sector_count;
+    commit_kp20_support_cell_patchwork_checked(
+        brep,
+        face,
+        central_point,
+        sector_count,
+        support_surfaces,
+        &support_split_sectors,
+        cells_per_target_sector,
+    )
+}
+
+pub(crate) fn commit_kp20_support_cell_patchwork_for_inventory(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    sector_count: usize,
+    support_surfaces: &[GregoryPatch],
+    inventory: &Kp20SupportCellInventory,
+) -> Result<Kp20SupportCellCommitResult, CoreError> {
+    let expected_surfaces = inventory.target_sectors.len() * inventory.cells_per_target_sector;
+    if inventory.sector_count != sector_count || support_surfaces.len() != expected_surfaces {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 support-cell inventory mismatch: ring={sector_count}, inventory={}, expected_surfaces={expected_surfaces}, got={}",
+            inventory.sector_count,
+            support_surfaces.len(),
+        )));
+    }
+    commit_kp20_support_cell_patchwork_checked(
+        brep,
+        face,
+        central_point,
+        sector_count,
+        support_surfaces,
+        &inventory.target_sectors,
+        inventory.cells_per_target_sector,
+    )
+}
+
+fn commit_kp20_support_cell_patchwork_checked(
+    brep: &mut BRep,
+    face: FaceHandle,
+    central_point: Point3,
+    sector_count: usize,
+    support_surfaces: &[GregoryPatch],
+    support_split_sectors: &[usize],
+    cells_per_target_sector: usize,
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
     let before = brep.clone();
     match commit_kp20_support_cell_patchwork_inner(
@@ -49,6 +109,8 @@ pub(crate) fn commit_kp20_support_cell_patchwork(
         central_point,
         sector_count,
         support_surfaces,
+        support_split_sectors,
+        cells_per_target_sector,
     ) {
         Ok(result) => Ok(result),
         Err(error) => {
@@ -63,28 +125,31 @@ fn commit_kp20_support_cell_patchwork_inner(
     face: FaceHandle,
     central_point: Point3,
     sector_count: usize,
-    support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
+    support_surfaces: &[GregoryPatch],
+    support_split_sectors: &[usize],
+    cells_per_target_sector: usize,
 ) -> Result<Kp20SupportCellCommitResult, CoreError> {
-    if sector_count == 0 || !support_surfaces.len().is_multiple_of(sector_count) {
+    if sector_count == 0 || support_split_sectors.is_empty() {
         return Err(CoreError::PreconditionFailed(format!(
-            "kp20 support-cell commit expected a support surface inventory divisible by sector count {sector_count}, got {}",
+            "kp20 support-cell commit expected target sectors within ring sector count {sector_count}, got {} targets for {} surfaces",
+            support_split_sectors.len(),
             support_surfaces.len(),
         )));
     }
-    let cells_per_sector = support_surfaces.len() / sector_count;
-    let Some(pattern) = Kp20SupportCellTopologyPattern::for_cells_per_sector(cells_per_sector)
+    let Some(pattern) =
+        Kp20SupportCellTopologyPattern::for_cells_per_sector(cells_per_target_sector)
     else {
         return Err(CoreError::PreconditionFailed(format!(
-            "kp20 support-cell commit does not support {cells_per_sector} cells per sector",
+            "kp20 support-cell commit does not support {cells_per_target_sector} cells per target sector",
         )));
     };
     pattern.validate_support_surface_inventory(support_surfaces.len())?;
-    let support_split_sectors = (0..sector_count).collect::<Vec<_>>();
     let poke = poke_kp20_support_cell_patchwork_with_pattern(
         brep,
         face,
         central_point,
-        &support_split_sectors,
+        sector_count,
+        support_split_sectors,
         pattern,
     )?;
     let source_map =
@@ -123,7 +188,7 @@ fn match_support_cell_surfaces_to_slots(
     brep: &BRep,
     pattern: Kp20SupportCellTopologyPattern,
     slots: &[Kp20ExpandedSupportSurfaceSlot],
-    support_surfaces: &[popkern_core::geometry::gregory::GregoryPatch],
+    support_surfaces: &[GregoryPatch],
 ) -> Result<Vec<usize>, CoreError> {
     let mut used = vec![false; support_surfaces.len()];
     let mut source_map = Vec::with_capacity(slots.len());
@@ -153,7 +218,7 @@ fn match_support_cell_surfaces_to_slots(
 fn support_surface_slot_residual(
     brep: &BRep,
     face: FaceHandle,
-    surface: &popkern_core::geometry::gregory::GregoryPatch,
+    surface: &GregoryPatch,
 ) -> Result<f64, CoreError> {
     let half_edges = face_outer_half_edges(brep, face)?;
     let candidates = unit_domain_loop_candidates(half_edges.len());
@@ -175,88 +240,6 @@ fn support_surface_slot_residual(
         .fold(f64::INFINITY, f64::min))
 }
 
-fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
-    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-    let bases = if edge_count == 4 {
-        vec![corners.to_vec()]
-    } else if edge_count == 5 {
-        (0..4)
-            .map(|split| {
-                let mut out = Vec::with_capacity(5);
-                for index in 0..4 {
-                    out.push(corners[index]);
-                    if index == split {
-                        let next = corners[(index + 1) % 4];
-                        out.push((
-                            (corners[index].0 + next.0) * 0.5,
-                            (corners[index].1 + next.1) * 0.5,
-                        ));
-                    }
-                }
-                out
-            })
-            .collect()
-    } else if edge_count > 5 {
-        boundary_aligned_unit_square_loops(edge_count)
-    } else {
-        Vec::new()
-    };
-    oriented_loop_candidates(bases)
-}
-
-fn oriented_loop_candidates(bases: Vec<Vec<(f64, f64)>>) -> Vec<Vec<(f64, f64)>> {
-    let mut candidates = Vec::new();
-    for base in bases {
-        for shift in 0..base.len() {
-            let rotated = (0..base.len())
-                .map(|index| base[(index + shift) % base.len()])
-                .collect::<Vec<_>>();
-            candidates.push(rotated.clone());
-            candidates.push(rotated.into_iter().rev().collect());
-        }
-    }
-    candidates
-}
-
-fn boundary_aligned_unit_square_loops(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
-    let extra_count = edge_count.saturating_sub(4);
-    let mut loops = Vec::new();
-    for bottom_extra in 0..=extra_count {
-        for right_extra in 0..=extra_count - bottom_extra {
-            for top_extra in 0..=extra_count - bottom_extra - right_extra {
-                let left_extra = extra_count - bottom_extra - right_extra - top_extra;
-                loops.push(boundary_aligned_unit_square_loop([
-                    bottom_extra,
-                    right_extra,
-                    top_extra,
-                    left_extra,
-                ]));
-            }
-        }
-    }
-    loops
-}
-
-fn boundary_aligned_unit_square_loop(side_extra_counts: [usize; 4]) -> Vec<(f64, f64)> {
-    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-    let mut out = Vec::with_capacity(4 + side_extra_counts.iter().sum::<usize>());
-    for side in 0..4 {
-        let start = corners[side];
-        let end = corners[(side + 1) % 4];
-        out.push(start);
-        let extra = side_extra_counts[side];
-        for split in 0..extra {
-            let t = (split + 1) as f64 / (extra + 1) as f64;
-            out.push(lerp_uv(start, end, t));
-        }
-    }
-    out
-}
-
-fn lerp_uv(a: (f64, f64), b: (f64, f64), t: f64) -> (f64, f64) {
-    (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t)
-}
-
 pub(crate) fn poke_kp20_support_cell_patchwork(
     brep: &mut BRep,
     face: FaceHandle,
@@ -268,6 +251,7 @@ pub(crate) fn poke_kp20_support_cell_patchwork(
         brep,
         face,
         central_point,
+        support_split_sectors.len(),
         support_split_sectors,
         pattern,
     )
@@ -277,6 +261,7 @@ fn poke_kp20_support_cell_patchwork_with_pattern(
     brep: &mut BRep,
     face: FaceHandle,
     central_point: Point3,
+    sector_count: usize,
     support_split_sectors: &[usize],
     pattern: Kp20SupportCellTopologyPattern,
 ) -> Result<Kp20SupportCellPokeResult, CoreError> {
@@ -286,6 +271,7 @@ fn poke_kp20_support_cell_patchwork_with_pattern(
         face,
         central_point,
         support_split_sectors,
+        sector_count,
         pattern,
     ) {
         Ok(result) => {
@@ -310,13 +296,14 @@ fn poke_kp20_support_cell_patchwork_inner(
     face: FaceHandle,
     central_point: Point3,
     support_split_sectors: &[usize],
+    sector_count: usize,
     pattern: Kp20SupportCellTopologyPattern,
 ) -> Result<Kp20SupportCellPokeResult, CoreError> {
     let macro_poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
         brep,
         face,
         central_point,
-        support_split_sectors.len(),
+        sector_count,
     )?;
     let n = macro_poke.sub_faces.len() / 4;
     let mut support_cell_faces = Vec::with_capacity(4 * support_split_sectors.len());

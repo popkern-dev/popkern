@@ -17,8 +17,7 @@ use super::three_quad_promotions::{
 };
 use crate::blend::gregory_three_quad::NQuadDecomposition;
 use crate::fillet_surface::FilletSurfaceResult;
-use crate::types::ApexConstructionDiagnostic;
-use crate::types::CornerSubPatchFamily;
+use crate::types::{ApexConstructionDiagnostic, CornerSubPatchFamily, CornerSubPatchProvenance};
 
 /// Result of running the promotion ladder.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -43,6 +42,7 @@ pub(crate) struct KpBinonicPromotionReport {
 #[derive(Debug, Clone, Default)]
 pub(super) struct PromotionLadderReport {
     pub result: PromotionResult,
+    pub kp20_support_cell_provenance: Option<Vec<CornerSubPatchProvenance>>,
     pub kp20_support_cell_floor_patches: Option<Vec<GregoryPatch>>,
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
 }
@@ -116,6 +116,7 @@ pub(super) fn run_promotion_ladder(
         decomp.sub_patches = patches_4n;
         return PromotionLadderReport {
             result: PromotionResult::Macro4n(CornerSubPatchFamily::Kp13Bi5),
+            kp20_support_cell_provenance: None,
             kp20_support_cell_floor_patches: None,
             diagnostics: Vec::new(),
         };
@@ -138,6 +139,7 @@ pub(super) fn run_promotion_ladder(
             };
             return PromotionLadderReport {
                 result,
+                kp20_support_cell_provenance: report.support_cell_provenance,
                 kp20_support_cell_floor_patches: report.support_cell_floor_patches,
                 diagnostics,
             };
@@ -170,6 +172,7 @@ pub(super) fn run_promotion_ladder(
     }
     PromotionLadderReport {
         result: PromotionResult::Standard,
+        kp20_support_cell_provenance: None,
         kp20_support_cell_floor_patches: None,
         diagnostics,
     }
@@ -203,6 +206,7 @@ fn standard_report_with_prerequisite_decline(
     }
     PromotionLadderReport {
         result: PromotionResult::Standard,
+        kp20_support_cell_provenance: None,
         kp20_support_cell_floor_patches: None,
         diagnostics,
     }

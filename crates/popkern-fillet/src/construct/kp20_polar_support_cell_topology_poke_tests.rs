@@ -6,12 +6,17 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
 use super::support_cell_topology_pattern::Kp20SupportCellTopologyPattern;
-use super::{commit_kp20_support_cell_patchwork, poke_kp20_support_cell_patchwork};
+use super::{
+    commit_kp20_support_cell_patchwork, commit_kp20_support_cell_patchwork_for_inventory,
+    poke_kp20_support_cell_patchwork,
+};
 use super::{support_cell_poke_shape, support_cell_surface_slots};
 use crate::construct::kp20_polar_expanded_support_binding::{
     attach_kp20_expanded_support_surfaces, author_kp20_expanded_support_pcurves,
     plan_kp20_expanded_support_surface_bindings,
 };
+use crate::construct::kp20_polar_support_cell_inventory::support_cell_inventory_from_provenance;
+use crate::types::CornerSubPatchProvenance;
 
 fn build_flat_2ngon(n: usize) -> (BRep, FaceHandle) {
     let mut brep = BRep::new(Tolerance::default());
@@ -181,6 +186,46 @@ fn sixteen_cell_commit_attaches_surfaces_and_pcurves() {
     assert_shared_edge_curves_match_topology_vertices(&brep, &commit.support_cell_faces);
     brep.validate()
         .expect("sixteen-cell support-cell commit leaves valid BRep");
+}
+
+#[test]
+fn sparse_sector_commit_uses_original_sector_provenance() {
+    let (mut brep, face) = build_flat_2ngon(6);
+    let support_surfaces = (0..12).map(dummy_gregory_surface).collect::<Vec<_>>();
+    let provenance = [0, 0, 0, 0, 2, 2, 2, 2, 5, 5, 5, 5]
+        .into_iter()
+        .enumerate()
+        .map(|(index, sector)| CornerSubPatchProvenance::kp20_support_cell(sector, 6, index, 12))
+        .collect::<Vec<_>>();
+    let inventory = support_cell_inventory_from_provenance(6, support_surfaces.len(), &provenance)
+        .expect("sparse support-cell inventory");
+
+    let commit = commit_kp20_support_cell_patchwork_for_inventory(
+        &mut brep,
+        face,
+        Point3::new(0.0, 0.0, 0.0),
+        6,
+        &support_surfaces,
+        &inventory,
+    )
+    .expect("sparse support-cell commit");
+
+    assert_eq!(commit.support_cell_faces.len(), 12);
+    assert_eq!(commit.support_surface_indices.len(), 12);
+    assert_eq!(inventory.target_sectors, vec![0, 2, 5]);
+    assert!(commit.support_cell_faces.iter().all(|face| matches!(
+        brep.faces[*face].surface.as_ref().map(|surface| &surface.geometry),
+        Some(SurfaceGeometry::Gregory(_))
+    )));
+    assert!(
+        commit
+            .support_cell_faces
+            .iter()
+            .all(|face| outer_loop_has_pcurves(&brep, *face))
+    );
+    assert_shared_edge_curves_match_topology_vertices(&brep, &commit.support_cell_faces);
+    brep.validate()
+        .expect("sparse support-cell commit leaves valid BRep");
 }
 
 fn dummy_gregory_surface(index: usize) -> GregoryPatch {
