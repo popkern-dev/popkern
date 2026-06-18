@@ -154,6 +154,28 @@ fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
     );
 }
 
+/// N=6 variable-radius currently succeeds through PnS before the
+/// KP20 support-cell ladder can run, but that PnS cap is not yet
+/// commercial-grade at the cap/support boundary. Keep the blocker
+/// measured so the eventual routing fix has an explicit before/after
+/// signal instead of a silent fixture skip.
+#[test]
+fn cap_outer_boundary_records_hexagon6_variable_pns_blocker() {
+    let m = run_n_pyramid_cap_outer_faces(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
+    println!(
+        "cap_outer hexagon6_variable_pns: g0={:.3e} g1={:.3e} edges={}",
+        m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
+    );
+    assert!(
+        m.edges_measured >= 1,
+        "hexagon6_variable PNS route should expose measurable cap/support edges"
+    );
+    assert!(
+        m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
+        "hexagon6_variable PNS blocker should remain measured until support-cell routing or PNS boundary quality is repaired"
+    );
+}
+
 /// Probe-style: print numbers across the canonical fixtures with
 /// no assertions so we can see the baseline without picking
 /// thresholds first. Useful while developing the fix. Includes
