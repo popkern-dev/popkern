@@ -16,6 +16,8 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 
 #[path = "blend_insert_diagnostics.rs"]
 mod blend_insert_diagnostics;
+#[path = "blend_insert_pns_acceptance.rs"]
+mod blend_insert_pns_acceptance;
 #[path = "blend_insert_support_cell_acceptance.rs"]
 mod blend_insert_support_cell_acceptance;
 #[path = "blend_insert_surface.rs"]
@@ -223,25 +225,26 @@ pub(crate) fn insert_vertex_blend(
     };
     let mut diagnostics = Vec::new();
 
-    // PnS rung (env-gated). Keep default production dispatch at
-    // N >= 5: trihedral PnS currently reduces curved boundaries to
-    // bi-2 strips and fails the cap/support G0 gate on mixed-radius
-    // DirectApex fixtures.
+    // PnS must pass cap/support acceptance before it can commit.
     if crate::blend::pns_promote::pns_env_enabled()
         && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
-        && let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
-            brep,
-            blend_face,
-            boundary,
-            &fillet_surfaces_pre,
-            vertex,
-            classification,
-            boundary.bridge_fallbacks.clone(),
-        )
     {
-        return Ok((patches, n_gon_boundary, Vec::new()));
+        if let Some(patches) = blend_insert_pns_acceptance::try_pns_dispatch_with_acceptance(
+            blend_insert_pns_acceptance::PnsDispatchAcceptanceInput {
+                brep,
+                blend_face,
+                boundary,
+                fillet_surfaces: &fillet_surfaces_pre,
+                vertex,
+                classification,
+                n_sides,
+                diagnostics: &mut diagnostics,
+            },
+        ) {
+            return Ok((patches, n_gon_boundary, Vec::new()));
+        }
     }
 
     if use_rational_gregory
@@ -313,11 +316,8 @@ pub(crate) fn insert_vertex_blend(
                     n_sides,
                 ) =>
             {
-                return Ok((
-                    result.patches,
-                    Some(dispatch_boundary.clone()),
-                    result.diagnostics,
-                ));
+                diagnostics.extend(result.diagnostics);
+                return Ok((result.patches, Some(dispatch_boundary.clone()), diagnostics));
             }
             Ok(result) => {
                 diagnostics.push(rational_gregory_dispatch_declined_diagnostic(

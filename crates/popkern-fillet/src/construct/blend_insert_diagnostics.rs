@@ -26,6 +26,27 @@ pub(super) fn rational_gregory_dispatch_declined_diagnostic(
     })
 }
 
+pub(super) fn pns_dispatch_declined_diagnostic(
+    n_sides: usize,
+    reason_code: &str,
+    detail_code: Option<String>,
+) -> ApexConstructionDiagnostic {
+    ApexConstructionDiagnostic::ExactBoundaryCap(ExactBoundaryCapDiagnostic {
+        stage: format!("pns.dispatch.{reason_code}"),
+        code: "pns.dispatch.declined".to_string(),
+        detail_code,
+        sector_name: format!("n{n_sides}_corner_cap"),
+        edge: None,
+        support_half_edge: None,
+        support_face: None,
+        residual: None,
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
+        shared_fact_ids: Vec::new(),
+    })
+}
+
 pub(super) fn rational_gregory_dispatch_precondition_reason(
     brep: &BRep,
     blend_face: FaceHandle,

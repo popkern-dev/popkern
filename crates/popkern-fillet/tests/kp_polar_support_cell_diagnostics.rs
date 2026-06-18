@@ -18,8 +18,13 @@ pub(crate) fn assert_support_cell_quality_gate(
         .brep
         .validate()
         .unwrap_or_else(|_| panic!("{fixture} support-cell route must leave a valid BRep"));
-    let support_piece_count =
-        support_cell_piece_count(&result.corner_patches).expect("support-cell provenance");
+    let support_piece_count = support_cell_piece_count(&result.corner_patches).unwrap_or_else(|| {
+        panic!(
+            "{fixture} support-cell provenance missing; corner_patches={:?}; apex_diagnostics={:?}",
+            corner_patch_summary(result),
+            exact_boundary_diagnostic_summary(result)
+        )
+    });
     let support_cells_per_sector = support_piece_count / n_sides;
     assert_eq!(result.corner_patches.len(), support_piece_count);
     assert!(
@@ -189,6 +194,39 @@ pub(crate) fn support_cell_piece_count(
             None => Some(Some(provenance.piece_count)),
         }
     })?
+}
+
+fn corner_patch_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
+    result
+        .corner_patches
+        .iter()
+        .map(|patch| {
+            format!(
+                "face={:?};method={:?};n_sides={};provenance={:?}",
+                patch.face, patch.method, patch.n_sides, patch.sub_patch_provenance
+            )
+        })
+        .collect()
+}
+
+fn exact_boundary_diagnostic_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
+    result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .filter_map(|diagnostic| {
+            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
+            else {
+                return None;
+            };
+            Some(format!(
+                "stage={};code={};detail={}",
+                cap.stage,
+                cap.code,
+                cap.detail_code.as_deref().unwrap_or("<none>")
+            ))
+        })
+        .collect()
 }
 
 pub(crate) fn detail_contains_support_cell_inventory(
