@@ -177,9 +177,14 @@ pub(crate) fn assert_candidate_diagnostics(
                 && detail.contains("fit_source_sub_chain_count=")
                 && detail.contains("curvature_solve_scope=all_derived_row_bands")
                 && detail.contains("curvature_solve_budget=expanded_row_band")
+                && detail.contains(
+                    "curvature_solve_sequence=curvature_then_weighted_normal_then_curvature_then_gate_micro",
+                )
+                && detail.contains("curvature_gate_micro_solve_status=")
+                && detail.contains("max_curvature_gate_micro_control_delta=")
                 && detail.contains("max_curvature_control_delta=")
         }),
-        "{fixture} owner-row all-derived curvature candidate should report source ownership, all-row scope, and constrained G2 diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+        "{fixture} owner-row all-derived curvature candidate should report source ownership, all-row scope, gate-micro, and constrained G2 diagnostics; support_cell_details={support_cell_dispatch_details:?}"
     );
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {

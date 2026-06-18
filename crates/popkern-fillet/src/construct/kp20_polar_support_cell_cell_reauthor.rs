@@ -31,6 +31,8 @@ mod active_normal_solve;
 mod beta_envelope;
 #[path = "kp20_polar_support_cell_curvature_common.rs"]
 mod curvature_common;
+#[path = "kp20_polar_support_cell_curvature_gate_micro_solve.rs"]
+mod curvature_gate_micro_solve;
 #[path = "kp20_polar_support_cell_curvature_solve.rs"]
 mod curvature_solve;
 #[path = "kp20_polar_support_cell_curvature_weighted_normal_solve.rs"]
@@ -42,6 +44,7 @@ mod row_controls;
 
 use self::active_normal_solve::repair_active_normal_solve;
 use self::beta_envelope::repair_beta_envelope;
+use self::curvature_gate_micro_solve::repair_curvature_gate_micro_solve;
 use self::curvature_solve::{
     repair_curvature_solve, repair_curvature_solve_with_expanded_row_band_budget,
 };
@@ -330,8 +333,9 @@ pub(super) fn reauthor_cells_from_chain_network(
                 repair_curvature_weighted_normal_solve(&mut row_bands, chain_trims);
             let curvature_detail =
                 repair_curvature_solve_with_expanded_row_band_budget(&mut row_bands, chain_trims);
+            let gate_micro_detail = repair_curvature_gate_micro_solve(&mut row_bands, chain_trims);
             outcome.curvature_solve_detail = Some(format!(
-                "curvature_solve_scope=all_derived_row_bands;curvature_solve_budget=expanded_row_band;curvature_solve_sequence=curvature_then_weighted_normal_then_curvature;{weighted_normal_detail};{curvature_detail};first_curvature_solve=[{first_curvature_detail}]"
+                "curvature_solve_scope=all_derived_row_bands;curvature_solve_budget=expanded_row_band;curvature_solve_sequence=curvature_then_weighted_normal_then_curvature_then_gate_micro;{weighted_normal_detail};{curvature_detail};{gate_micro_detail};first_curvature_solve=[{first_curvature_detail}]"
             ));
         }
     }
