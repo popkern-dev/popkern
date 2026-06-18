@@ -129,11 +129,17 @@ fn pentagon5_mixed_no_longer_records_polar_dispatch_decline() {
     );
 }
 
-#[ignore]
+#[ignore = "legacy single-ring binonic gate; support-cell topology gate covers hexagon6_uniform"]
 #[test]
 fn polar_passes_commercial_gates_on_hexagon6_uniform() {
     let m = run_n_gonal_pyramid_polar(6, 1.0, 0.8, &[0.05; 6], "hexagon6_uniform");
     assert_commercial_gates("hexagon6_uniform", &m);
+}
+
+#[test]
+fn hexagon6_uniform_accepts_support_cell_topology() {
+    let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.05; 6]);
+    assert_support_cell_quality_gate("hexagon6_uniform", &result, 6);
 }
 
 #[test]

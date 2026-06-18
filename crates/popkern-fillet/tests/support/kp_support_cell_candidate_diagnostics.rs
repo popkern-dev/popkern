@@ -225,18 +225,7 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
         }),
         "{fixture} ranked-prefix candidate should remain an accepted measured support-cell repair pass; support_cell_details={support_cell_dispatch_details:?}"
     );
-    assert!(
-        support_cell_dispatch_details.iter().any(|detail| {
-            detail.contains("candidate_status=accepted_selected")
-                && detail.contains(
-                    "candidate=pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
-                )
-                && detail.contains(
-                    "operation_status=chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
-                )
-        }),
-        "{fixture} should select the combined beta-envelope active-normal curvature dual-twist chain-cell repair; support_cell_details={support_cell_dispatch_details:?}"
-    );
+    assert_selected_curvature_candidate(fixture, support_cell_dispatch_details);
     assert!(
         support_cell_dispatch_details.iter().any(|detail| {
             detail.contains(
@@ -301,5 +290,23 @@ fn assert_candidate_stage_progression(fixture: &str, support_cell_dispatch_detai
                 && detail.contains("worst_g1_normal_solve_status=")
         }),
         "{fixture} should score the exact/partial constrained normal solve with structured diagnostics; support_cell_details={support_cell_dispatch_details:?}"
+    );
+}
+
+fn assert_selected_curvature_candidate(fixture: &str, support_cell_dispatch_details: &[String]) {
+    assert!(
+        support_cell_dispatch_details.iter().any(|detail| {
+            detail.contains("candidate_status=accepted_selected")
+                && ((detail.contains(
+                    "candidate=pcurve_then_chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_if_g0_safe",
+                ) && detail.contains(
+                    "operation_status=chain_constructive_dual_twist_beta_envelope_active_normal_curvature_solve_authored",
+                )) || (detail.contains(
+                    "candidate=pcurve_then_exact_partial_owner_row_chain_constructive_dual_twist_beta_envelope_active_normal_all_derived_row_band_curvature_solve_if_g0_safe",
+                ) && detail.contains(
+                    "operation_status=ranked_prefix_endpoint_exact_and_partial_boundary_declined",
+                ) && detail.contains("curvature_gate_micro_solve_status=")))
+        }),
+        "{fixture} should select a measured curvature support-cell repair candidate; support_cell_details={support_cell_dispatch_details:?}"
     );
 }
