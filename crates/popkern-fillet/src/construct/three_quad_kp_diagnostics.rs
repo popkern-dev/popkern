@@ -51,3 +51,19 @@ pub(super) fn promotion_declined(
         },
     )
 }
+
+pub(super) fn support_cell_candidate_nonselection(
+    reason_code: &str,
+    n_sides: usize,
+    patch_count: usize,
+) -> crate::types::ApexConstructionDiagnostic {
+    super::kp20_polar_diagnostics::dispatch_fact(
+        "support_cell_candidate_nonselection",
+        n_sides,
+        Some(format!(
+            "evaluated=0;target_count=0;patch_count={patch_count};folded_patch_count=0;cells_u=0;cells_v=0;topology_path_g0=inf;selection_policy=support_cell_not_evaluated;construction_mode=none;target_piece=NearMidpointLeft;committed_floor_patch_count=0;decline_reason=support_cell_primitive_not_evaluated_{reason_code}"
+        )),
+        None,
+        None,
+    )
+}

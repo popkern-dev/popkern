@@ -47,6 +47,8 @@ mod origin_inner_row;
 mod primary_candidate;
 #[path = "kp20_polar_dispatch_report.rs"]
 mod report;
+#[path = "kp20_polar_support_cell_route_fact.rs"]
+mod support_cell_route_fact;
 #[path = "kp20_polar_support_domain.rs"]
 mod support_domain;
 #[path = "kp20_polar_support_transition.rs"]
@@ -238,6 +240,13 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                                 .map(|patches| patches.to_vec()),
                             diagnostics,
                         );
+                    }
+                    if let Some(fact) =
+                        support_cell_route_fact::support_cell_candidate_nonselection_fact(
+                            n, &lifted,
+                        )
+                    {
+                        diagnostics.push(fact);
                     }
                     if lifted_intersections.is_empty() {
                         return Kp20PolarDispatchReport::accepted(lifted.patches, diagnostics);

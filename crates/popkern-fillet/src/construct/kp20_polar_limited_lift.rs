@@ -64,7 +64,7 @@ pub(super) struct Kp20LimitedLiftCandidate {
     support_macro_construction: Option<Kp20SupportMacroConstructionReport>,
     multipatch_topology_split: Option<Kp20TopologySplitReport>,
     support_two_lane: Option<Kp20SupportTwoLaneReport>,
-    expanded_support_topology: Option<Kp20ExpandedSupportTopologyReport>,
+    pub(super) expanded_support_topology: Option<Kp20ExpandedSupportTopologyReport>,
     support_strip_reauthor: Option<Kp20SupportStripReauthorReport>,
     elapsed_ms: u128,
 }

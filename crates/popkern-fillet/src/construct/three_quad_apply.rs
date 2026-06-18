@@ -33,7 +33,7 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 pub(crate) use three_quad_apply_helpers::ThreeQuadApplyResult;
 use three_quad_apply_helpers::{
     decomp_self_intersects, macro_family_from_promotion, max_outer_boundary_residual,
-    sub_patch_provenance,
+    record_support_cell_nonselection, sub_patch_provenance,
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
@@ -177,6 +177,12 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             ),
         );
         decomp = unpromoted_constrained_decomp.clone();
+        record_support_cell_nonselection(
+            &mut diagnostics,
+            "promoted_boundary_residual_exceeded",
+            n_sides,
+            decomp.sub_patches.len(),
+        );
         promotion_report.result = super::promotion_ladder::PromotionResult::Standard;
         macro_family = None;
     }

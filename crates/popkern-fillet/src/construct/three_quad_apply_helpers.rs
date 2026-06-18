@@ -15,6 +15,21 @@ pub(crate) struct ThreeQuadApplyResult {
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
 }
 
+pub(super) fn record_support_cell_nonselection(
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+    reason_code: &str,
+    n_sides: usize,
+    patch_count: usize,
+) {
+    diagnostics.push(
+        crate::construct::three_quad_kp_diagnostics::support_cell_candidate_nonselection(
+            reason_code,
+            n_sides,
+            patch_count,
+        ),
+    );
+}
+
 pub(crate) fn author_cap_face_boundary_pcurves(
     brep: &mut BRep,
     sub_face: FaceHandle,

@@ -58,6 +58,13 @@ pub(super) fn accept_three_quad_result(
     }
 
     let mut diagnostics = std::mem::take(&mut result.diagnostics);
+    diagnostics.push(
+        crate::construct::three_quad_kp_diagnostics::support_cell_candidate_nonselection(
+            "non_support_three_quad_acceptance_declined",
+            n_sides,
+            result.patches.len(),
+        ),
+    );
     if let Some(diagnostic) =
         crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic(
             brep, &cap_faces, 5.0e-3, 5.0e-2,

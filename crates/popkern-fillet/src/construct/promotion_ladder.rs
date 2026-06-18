@@ -70,6 +70,7 @@ pub(super) fn run_promotion_ladder(
         &[FilletSurfaceResult],
     ) -> KpBinonicPromotionReport,
 ) -> PromotionLadderReport {
+    let n_sides = decomp.sub_patches.len();
     if !(use_biquintic_full && use_deg5) {
         return standard_report_with_binonic_prerequisite_decline(
             use_kp_binonic,
@@ -153,6 +154,15 @@ pub(super) fn run_promotion_ladder(
         let report = promote_binonic(&mut decomp.sub_patches, fillet_surfaces);
         *relaxed_coplanarity = report.relaxed_coplanarity;
         diagnostics.extend(report.diagnostics);
+    }
+    if use_kp_polar && n_sides >= 5 {
+        diagnostics.push(
+            three_quad_kp_diagnostics::support_cell_candidate_nonselection(
+                "promotion_ladder_standard",
+                n_sides,
+                decomp.sub_patches.len(),
+            ),
+        );
     }
     PromotionLadderReport {
         result: PromotionResult::Standard,

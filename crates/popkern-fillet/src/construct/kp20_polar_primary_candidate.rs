@@ -38,13 +38,21 @@ pub(super) fn evaluate_positive_primary_candidates(
     let mut baseline = None;
     match try_positive_nonoverlap_c2_macro_candidate(star_point, tensor_border) {
         Ok(mapped) => {
+            let detail = mapped.detail();
             diagnostics.push(primary_fact(
                 n,
                 "positive_nonoverlap_c2_primary",
-                mapped.detail(),
+                detail.clone(),
                 Some(mapped.summary.min_jacobian_normal_cos),
             ));
             if mapped.is_acceptable() {
+                diagnostics.push(
+                    super::support_cell_route_fact::support_cell_primary_macro_bypass_fact(
+                        n,
+                        "positive_nonoverlap_c2_primary",
+                        detail,
+                    ),
+                );
                 return (diagnostics, Some(mapped.patches));
             }
             baseline = Some(mapped.summary);
@@ -53,13 +61,21 @@ pub(super) fn evaluate_positive_primary_candidates(
     }
     match try_support_domain_primary_candidate(star_point, tensor_border, baseline.as_ref()) {
         Ok(mapped) => {
+            let detail = mapped.detail();
             diagnostics.push(primary_fact(
                 n,
                 "positive_nonoverlap_c2_support_domain_primary",
-                mapped.detail(),
+                detail.clone(),
                 Some(mapped.summary.min_jacobian_normal_cos),
             ));
             if mapped.is_acceptable() {
+                diagnostics.push(
+                    super::support_cell_route_fact::support_cell_primary_macro_bypass_fact(
+                        n,
+                        "positive_nonoverlap_c2_support_domain_primary",
+                        detail,
+                    ),
+                );
                 return (diagnostics, mapped.patches);
             }
         }

@@ -218,6 +218,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "rational_gregory.dispatch.cap_support_acceptance",
         "rational_gregory.dispatch.declined",
     );
+    assert_support_cell_nonselection_recorded(&result);
 }
 
 fn assert_route_declined(result: &popkern_fillet::BlendResult, stage: &str, code: &str) {
@@ -234,6 +235,28 @@ fn assert_route_declined(result: &popkern_fillet::BlendResult, stage: &str, code
                 )
             }),
         "expected route decline stage={stage} code={code}; diagnostics={:?}",
+        exact_boundary_diagnostic_summary(result)
+    );
+}
+
+fn assert_support_cell_nonselection_recorded(result: &popkern_fillet::BlendResult) {
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
+                    if cap.stage == "kp20_polar_macro.dispatch.support_cell_candidate_nonselection"
+                        && cap.code == "kp20_polar_macro.dispatch.fact"
+                        && cap.detail_code.as_deref().is_some_and(|detail| {
+                            detail.contains("folded_patch_count=")
+                                && detail.contains("selection_policy=")
+                                && detail.contains("decline_reason=support_cell_primitive_")
+                        })
+            )),
+        "expected KP20 support-cell non-selection fact; diagnostics={:?}",
         exact_boundary_diagnostic_summary(result)
     );
 }
