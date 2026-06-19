@@ -110,7 +110,7 @@ pub(super) fn solve_external_cap_support_boundaries(
     }
 
     for edge_sample in &edge_samples {
-        if let Some(after_gap) = external_cap_support_edge_gap(brep, edge_sample.cap_half_edge) {
+        if let Some(after_gap) = external_cap_support_edge_gap(brep, edge_sample) {
             report.max_after_gap = report.max_after_gap.max(after_gap);
         }
     }
@@ -128,6 +128,13 @@ struct BoundaryRowSamples {
 #[derive(Debug, Clone)]
 struct EdgeSolveSamples {
     cap_half_edge: HalfEdgeHandle,
+    cap_side: BoundarySide,
+    cap_span_start: f64,
+    cap_span_end: f64,
+    cap_forward: bool,
+    support_face: FaceHandle,
+    support_pcurve: Pcurve,
+    support_forward: bool,
     targets: Vec<Point3>,
 }
 
@@ -263,58 +270,55 @@ fn collect_external_cap_support_edge(
         .extend(samples);
     edge_samples.push(EdgeSolveSamples {
         cap_half_edge: half_edge,
+        cap_side,
+        cap_span_start,
+        cap_span_end,
+        cap_forward,
+        support_face,
+        support_pcurve: support_pcurve.clone(),
+        support_forward,
         targets,
     });
     report.sampled_edges += 1;
     report.max_before_gap = report.max_before_gap.max(before_gap);
 }
 
-fn external_cap_support_edge_gap(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<f64> {
-    let half_edge_data = brep.half_edges.get(half_edge)?;
-    let twin = half_edge_data.twin;
-    let twin_data = brep.half_edges.get(twin)?;
+fn external_cap_support_edge_gap(brep: &BRep, edge_sample: &EdgeSolveSamples) -> Option<f64> {
+    let half_edge_data = brep.half_edges.get(edge_sample.cap_half_edge)?;
     let cap_face = brep.loops.get(half_edge_data.loop_)?.face;
-    let support_face = brep.loops.get(twin_data.loop_)?.face;
-    let cap_pcurve = brep.half_edges[half_edge].pcurve.as_ref()?;
-    let support_pcurve = brep.half_edges[twin].pcurve.as_ref()?;
-    let (cap_side, cap_span_start, cap_span_end) = boundary_trim::boundary_span(cap_pcurve)?;
     let cap_patch = surface_access::rectangular_binonic_on_face(brep, cap_face).ok()?;
     let support_surface = brep
         .faces
-        .get(support_face)
+        .get(edge_sample.support_face)
         .and_then(|face| face.surface.as_ref())
         .map(|surface| surface.geometry.clone())?;
-    let cap_start = brep.vertices[half_edge_data.origin].position;
-    let cap_end = brep.vertices[twin_data.origin].position;
-    let cap_forward = cap_boundary_forward(
-        &cap_patch,
-        cap_side,
-        cap_span_start,
-        cap_span_end,
-        cap_start,
-        cap_end,
-    );
-    let support_forward =
-        support_pcurve_forward(&support_surface, support_pcurve, cap_start, cap_end);
-    let (support_t0, support_t1) = support_pcurve.parameter_range();
+    let (support_t0, support_t1) = edge_sample.support_pcurve.parameter_range();
     let mut gap = 0.0_f64;
     for index in 0..SAMPLE_COUNT {
         let fraction = index as f64 / (SAMPLE_COUNT - 1) as f64;
-        let cap_fraction = if cap_forward {
+        let cap_fraction = if edge_sample.cap_forward {
             fraction
         } else {
             1.0 - fraction
         };
-        let support_fraction = if support_forward {
+        let support_fraction = if edge_sample.support_forward {
             fraction
         } else {
             1.0 - fraction
         };
-        let cap_parameter = lerp_scalar(cap_span_start, cap_span_end, cap_fraction);
+        let cap_parameter = lerp_scalar(
+            edge_sample.cap_span_start,
+            edge_sample.cap_span_end,
+            cap_fraction,
+        );
         let support_parameter = lerp_scalar(support_t0, support_t1, support_fraction);
         gap = gap.max(
-            row_fit::eval_boundary(&cap_patch, cap_side, cap_parameter).distance_to(
-                &support_surface_point(&support_surface, support_pcurve, support_parameter),
+            row_fit::eval_boundary(&cap_patch, edge_sample.cap_side, cap_parameter).distance_to(
+                &support_surface_point(
+                    &support_surface,
+                    &edge_sample.support_pcurve,
+                    support_parameter,
+                ),
             ),
         );
     }
