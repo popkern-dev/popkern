@@ -2,7 +2,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::gregory::GregoryPatch;
+use popkern_core::geometry::gregory::{GregoryPatch, Kp20PieceId};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
 
 use crate::construct::kp20_polar_expanded_support_binding::{
@@ -31,6 +31,7 @@ pub(crate) fn commit_kp20_mixed_support_cell_patchwork(
     sector_count: usize,
     support_surfaces: &[GregoryPatch],
     inventory: &Kp20SupportCellInventory,
+    target_piece: Kp20PieceId,
 ) -> Result<Kp20MixedSupportCellCommitResult, CoreError> {
     let before = brep.clone();
     match commit_kp20_mixed_support_cell_patchwork_inner(
@@ -40,6 +41,7 @@ pub(crate) fn commit_kp20_mixed_support_cell_patchwork(
         sector_count,
         support_surfaces,
         inventory,
+        target_piece,
     ) {
         Ok(result) => Ok(result),
         Err(error) => {
@@ -56,6 +58,7 @@ fn commit_kp20_mixed_support_cell_patchwork_inner(
     sector_count: usize,
     support_surfaces: &[GregoryPatch],
     inventory: &Kp20SupportCellInventory,
+    target_piece: Kp20PieceId,
 ) -> Result<Kp20MixedSupportCellCommitResult, CoreError> {
     if inventory.sector_count != sector_count {
         return Err(CoreError::PreconditionFailed(format!(
@@ -79,8 +82,23 @@ fn commit_kp20_mixed_support_cell_patchwork_inner(
             inventory.cells_per_target_sector,
         )));
     };
-    let sub_faces =
-        poke_mixed_support_cell_faces(brep, face, central_point, sector_count, inventory, pattern)?;
+    if !matches!(
+        target_piece,
+        Kp20PieceId::NearMidpointRight | Kp20PieceId::NearMidpointLeft
+    ) {
+        return Err(CoreError::PreconditionFailed(format!(
+            "kp20 mixed support-cell commit requires a support-owner target piece, got {target_piece:?}",
+        )));
+    }
+    let sub_faces = poke_mixed_support_cell_faces(
+        brep,
+        face,
+        central_point,
+        sector_count,
+        inventory,
+        pattern,
+        target_piece,
+    )?;
     let slots = mixed_support_cell_surface_slots(brep, &sub_faces)?;
     let source_map = (0..sub_faces.len()).collect::<Vec<_>>();
     let binding_plan = plan_kp20_expanded_support_surface_bindings_with_sources(
@@ -108,6 +126,7 @@ fn poke_mixed_support_cell_faces(
     sector_count: usize,
     inventory: &Kp20SupportCellInventory,
     pattern: Kp20SupportCellTopologyPattern,
+    target_piece: Kp20PieceId,
 ) -> Result<Vec<FaceHandle>, CoreError> {
     let sector_poke = crate::construct::poke_hex::poke_n_gon_face_into_expected_n_quads(
         brep,
@@ -116,19 +135,22 @@ fn poke_mixed_support_cell_faces(
         sector_count,
     )?;
     split_radial_edges_for_kp20_semantic_poke(brep, sector_poke.central_vertex, sector_count)?;
+    let semantic_faces_by_sector = sector_poke
+        .sub_faces
+        .into_iter()
+        .map(|sector_face| {
+            subdivide_sector_into_kp20_semantic_four(brep, sector_face, sector_poke.central_vertex)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
     let mut sub_faces = Vec::new();
-    for (sector, sector_face) in sector_poke.sub_faces.into_iter().enumerate() {
-        let semantic_faces = subdivide_sector_into_kp20_semantic_four(
-            brep,
-            sector_face,
-            sector_poke.central_vertex,
-        )?;
-        sub_faces.extend_from_slice(&semantic_faces[0..3]);
-        let support_face = semantic_faces[3];
-        if inventory.target_sectors.contains(&sector) {
-            sub_faces.extend(pattern.split_sector_support_face(brep, support_face)?);
-        } else {
-            sub_faces.push(support_face);
+    for (sector, semantic_faces) in semantic_faces_by_sector.into_iter().enumerate() {
+        for piece in Kp20PieceId::all() {
+            let semantic_face = semantic_faces[piece.index()];
+            if piece == target_piece && inventory.target_sectors.contains(&sector) {
+                sub_faces.extend(pattern.split_sector_support_face(brep, semantic_face)?);
+            } else {
+                sub_faces.push(semantic_face);
+            }
         }
     }
     Ok(sub_faces)
@@ -346,6 +368,7 @@ mod tests {
             6,
             &support_surfaces,
             &inventory,
+            Kp20PieceId::NearMidpointLeft,
         )
         .expect("mixed support-cell commit");
 
@@ -396,6 +419,7 @@ mod tests {
             6,
             &inventory,
             Kp20SupportCellTopologyPattern::FourCellSupportGrid,
+            Kp20PieceId::NearMidpointLeft,
         )
         .expect("semantic mixed support-cell poke");
         let cap_faces = sub_faces.iter().copied().collect::<BTreeSet<_>>();

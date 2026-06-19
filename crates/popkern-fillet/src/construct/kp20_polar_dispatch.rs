@@ -224,6 +224,7 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                             &lifted.patches,
                             support_cell_patches,
                             provenance,
+                            topology.support_cell_primitive.target_piece,
                         ) {
                             Ok(patchwork) => {
                                 support_cell_mixed_patchwork::trace_support_cell_patchwork_if_requested(&patchwork.surfaces);

@@ -1,7 +1,7 @@
 //! Expanded KP20 support patchwork application.
 
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::gregory::GregoryPatch;
+use popkern_core::geometry::gregory::{GregoryPatch, Kp20PieceId};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::kp20_polar_support_cell_inventory::{
@@ -315,6 +315,7 @@ fn apply_kp20_support_cell_surfaces(
                 apply.n_sides,
                 apply.support_surfaces,
                 &apply.inventory,
+                mixed_support_cell_target_piece(apply.support_cell_provenance)?,
             )
             .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
         (commit.sub_faces, commit.support_surface_indices)
@@ -362,6 +363,51 @@ fn apply_kp20_support_cell_surfaces(
         patches,
         diagnostics: apply.diagnostics,
     })
+}
+
+fn mixed_support_cell_target_piece(
+    provenance: Option<&[CornerSubPatchProvenance]>,
+) -> Result<Kp20PieceId, String> {
+    let Some(provenance) = provenance else {
+        return Ok(Kp20PieceId::NearMidpointLeft);
+    };
+    let mut current_sector = None;
+    let mut macro_piece_count = 0usize;
+    let mut target_piece = None;
+    for item in provenance {
+        if current_sector != Some(item.sector_index) {
+            current_sector = Some(item.sector_index);
+            macro_piece_count = 0;
+        }
+        match item.role {
+            CornerSubPatchRole::SupportCell => {
+                let piece = support_piece_from_macro_prefix(macro_piece_count)?;
+                if target_piece.is_none() {
+                    target_piece = Some(piece);
+                } else if target_piece != Some(piece) {
+                    return Err(
+                        "mixed support-cell patchwork has inconsistent target pieces".into(),
+                    );
+                }
+            }
+            CornerSubPatchRole::NearOriginLeft
+            | CornerSubPatchRole::NearOriginRight
+            | CornerSubPatchRole::NearMidpointRight
+            | CornerSubPatchRole::NearMidpointLeft => macro_piece_count += 1,
+            _ => {}
+        }
+    }
+    Ok(target_piece.unwrap_or(Kp20PieceId::NearMidpointLeft))
+}
+
+fn support_piece_from_macro_prefix(prefix_count: usize) -> Result<Kp20PieceId, String> {
+    match prefix_count {
+        2 => Ok(Kp20PieceId::NearMidpointRight),
+        3 => Ok(Kp20PieceId::NearMidpointLeft),
+        _ => Err(format!(
+            "mixed support-cell patchwork support cells appeared after {prefix_count} macro pieces"
+        )),
+    }
 }
 
 fn expanded_kp20_provenance(source_index: usize, sector_count: usize) -> CornerSubPatchProvenance {

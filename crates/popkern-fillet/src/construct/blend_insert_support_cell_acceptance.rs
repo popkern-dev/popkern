@@ -117,9 +117,18 @@ impl SectorCoverage {
         }
         matches!(self.support_cell_count, 4 | 8 | 16)
             && self.macro_roles.len() == 3
-            && !self
+            && self
+                .macro_roles
+                .contains(&CornerSubPatchRole::NearOriginLeft)
+            && self
+                .macro_roles
+                .contains(&CornerSubPatchRole::NearOriginRight)
+            && (self
                 .macro_roles
                 .contains(&CornerSubPatchRole::NearMidpointLeft)
+                ^ self
+                    .macro_roles
+                    .contains(&CornerSubPatchRole::NearMidpointRight))
     }
 }
 
@@ -184,7 +193,15 @@ mod tests {
 
     #[test]
     fn accepts_complete_mixed_support_cell_coverage() {
-        let patches = mixed_support_cell_patches();
+        let patches = mixed_support_cell_patches(3);
+
+        assert!(mixed_support_cell_patch_count_is_acceptable(&patches, 6));
+        assert!(corner_patch_count_is_acceptable(&patches, 6));
+    }
+
+    #[test]
+    fn accepts_complete_mixed_support_cell_coverage_for_right_owner() {
+        let patches = mixed_support_cell_patches(2);
 
         assert!(mixed_support_cell_patch_count_is_acceptable(&patches, 6));
         assert!(corner_patch_count_is_acceptable(&patches, 6));
@@ -207,30 +224,24 @@ mod tests {
         ))
     }
 
-    fn mixed_support_cell_patches() -> Vec<CornerPatchInfo> {
+    fn mixed_support_cell_patches(replaced_piece: usize) -> Vec<CornerPatchInfo> {
         let mut patches = Vec::new();
         for sector in 0..6 {
-            for piece in 0..3 {
-                patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
-                    CornerSubPatchFamily::Kp20Bi6,
-                    sector,
-                    6,
-                    piece,
-                )));
-            }
-            if matches!(sector, 0 | 2 | 5) {
-                for index in 0..4 {
-                    patches.push(patch_with_provenance(
-                        CornerSubPatchProvenance::kp20_support_cell(sector, 6, index, 12),
-                    ));
+            for piece in 0..4 {
+                if piece == replaced_piece && matches!(sector, 0 | 2 | 5) {
+                    for index in 0..4 {
+                        patches.push(patch_with_provenance(
+                            CornerSubPatchProvenance::kp20_support_cell(sector, 6, index, 12),
+                        ));
+                    }
+                } else {
+                    patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
+                        CornerSubPatchFamily::Kp20Bi6,
+                        sector,
+                        6,
+                        piece,
+                    )));
                 }
-            } else {
-                patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
-                    CornerSubPatchFamily::Kp20Bi6,
-                    sector,
-                    6,
-                    3,
-                )));
             }
         }
         patches
