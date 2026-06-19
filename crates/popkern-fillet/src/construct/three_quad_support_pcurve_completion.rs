@@ -9,16 +9,18 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use std::collections::BTreeSet;
 
 use super::helpers;
+#[path = "three_quad_support_pcurve_sampling.rs"]
+mod support_pcurve_sampling;
+use support_pcurve_sampling::{samples_from_support_pcurve, support_pcurve_endpoints_match};
 
 const SAMPLE_COUNT: usize = 12;
+const SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL: f64 = 1.0e-5;
 
 #[derive(Clone, Copy)]
 struct CapSupportCompletionPolicy(bool, bool, bool);
 
 const REPAIR_STALE_CAP_SUPPORT_SEAMS: CapSupportCompletionPolicy =
     CapSupportCompletionPolicy(true, true, true);
-const FILL_MISSING_CAP_SUPPORT_PCURVES: CapSupportCompletionPolicy =
-    CapSupportCompletionPolicy(false, false, false);
 
 pub(crate) fn complete_missing_cap_support_seams(brep: &mut BRep, cap_face: FaceHandle) {
     complete_missing_cap_support_seams_when(
@@ -38,7 +40,7 @@ pub(crate) fn complete_missing_external_cap_support_pcurves(
         brep,
         cap_face,
         |support_face| !cap_faces.contains(&support_face),
-        FILL_MISSING_CAP_SUPPORT_PCURVES,
+        REPAIR_STALE_CAP_SUPPORT_SEAMS,
     )
 }
 
@@ -116,8 +118,17 @@ fn complete_cap_support_half_edge(
         .and_then(|edge| edge.curve.as_ref())
         .cloned();
     let support_pcurve = brep.half_edges.get(twin).and_then(|he| he.pcurve.as_ref());
-    let support_owns_seam =
-        matches!(support_surface, SurfaceGeometry::Cylinder { .. }) && support_pcurve.is_some();
+    let support_owns_seam = matches!(support_surface, SurfaceGeometry::Cylinder { .. })
+        && support_pcurve.is_some_and(|pcurve| {
+            support_pcurve_endpoints_match(
+                brep,
+                half_edge,
+                twin,
+                &support_surface,
+                pcurve,
+                SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL,
+            )
+        });
     let Some(mut samples) = cap_oriented_samples(
         brep,
         half_edge,
@@ -281,34 +292,6 @@ fn samples_from_curve_for_half_edge(
             curve.geometry.point_at(t)
         })
         .collect()
-}
-
-fn samples_from_support_pcurve(
-    brep: &BRep,
-    half_edge: HalfEdgeHandle,
-    twin: HalfEdgeHandle,
-    support_surface: &SurfaceGeometry,
-    support_pcurve: &Pcurve,
-) -> Vec<Point3> {
-    let cap_start = brep.vertices[brep.half_edges[half_edge].origin].position;
-    let cap_end = brep.vertices[brep.half_edges[twin].origin].position;
-    let (t0, t1) = support_pcurve.parameter_range();
-    let p0 = support_surface_point(support_surface, support_pcurve, t0);
-    let p1 = support_surface_point(support_surface, support_pcurve, t1);
-    let forward = p0.distance_to(&cap_start) + p1.distance_to(&cap_end)
-        <= p1.distance_to(&cap_start) + p0.distance_to(&cap_end);
-    (0..SAMPLE_COUNT)
-        .map(|index| {
-            let s = index as f64 / (SAMPLE_COUNT - 1) as f64;
-            let local = if forward { s } else { 1.0 - s };
-            support_surface_point(support_surface, support_pcurve, t0 + local * (t1 - t0))
-        })
-        .collect()
-}
-
-fn support_surface_point(surface: &SurfaceGeometry, pcurve: &Pcurve, t: f64) -> Point3 {
-    let uv = pcurve.point_at(t);
-    surface.point_at(uv.x, uv.y)
 }
 
 fn cap_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {

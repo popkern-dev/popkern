@@ -26,6 +26,8 @@ mod support_cell_pcurve_author;
 #[path = "kp20_polar_support_cell_completion_candidates.rs"]
 mod support_cell_completion_candidates;
 use support_cell_completion_candidates::SupportCellCompletionCandidate;
+
+const MAX_CAP_SUPPORT_BOUNDARY_SOLVE_DISPLACEMENT: f64 = 0.1;
 #[derive(Clone)]
 struct SupportCellCompletionSelection {
     brep: BRep,
@@ -174,6 +176,9 @@ fn cap_support_boundary_solve_decline_status(
 ) -> Option<&'static str> {
     if report.sampled_edges == 0 {
         return None;
+    }
+    if report.max_boundary_displacement > MAX_CAP_SUPPORT_BOUNDARY_SOLVE_DISPLACEMENT {
+        return Some("rolled_back_displacement_exceeded");
     }
     if report.max_after_gap > 5.0e-3 {
         return Some("rolled_back_postcondition_failed");
