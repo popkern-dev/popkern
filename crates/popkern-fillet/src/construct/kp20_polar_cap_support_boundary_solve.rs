@@ -5,12 +5,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::fitting::fit_curve;
 use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 #[path = "kp20_polar_support_cell_boundary_trim.rs"]
 #[allow(dead_code)]
@@ -53,6 +53,16 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) max_row_after_sample_face: Option<FaceHandle>,
     pub(super) max_row_after_sample_side: Option<BoundarySide>,
     pub(super) max_row_after_sample_parameter: f64,
+    pub(super) max_row_target_edge_curve_gap: f64,
+    pub(super) max_row_target_edge_curve_edge: Option<EdgeHandle>,
+    pub(super) max_row_target_edge_curve_face: Option<FaceHandle>,
+    pub(super) max_row_target_edge_curve_side: Option<BoundarySide>,
+    pub(super) max_row_target_edge_curve_parameter: f64,
+    pub(super) max_row_after_edge_curve_gap: f64,
+    pub(super) max_row_after_edge_curve_edge: Option<EdgeHandle>,
+    pub(super) max_row_after_edge_curve_face: Option<FaceHandle>,
+    pub(super) max_row_after_edge_curve_side: Option<BoundarySide>,
+    pub(super) max_row_after_edge_curve_parameter: f64,
     pub(super) max_before_gap: f64,
     pub(super) max_after_gap: f64,
     pub(super) max_boundary_displacement: f64,
@@ -120,6 +130,18 @@ pub(super) fn solve_external_cap_support_boundaries(
             report.max_row_after_sample_side = Some(samples.side);
             report.max_row_after_sample_parameter = after.sample_parameter;
         }
+        for edge_curve_sample in &samples.edge_curve_samples {
+            let after_gap =
+                row_fit::eval_boundary(&after.patch, samples.side, edge_curve_sample.parameter)
+                    .distance_to(&edge_curve_sample.point);
+            if after_gap > report.max_row_after_edge_curve_gap {
+                report.max_row_after_edge_curve_gap = after_gap;
+                report.max_row_after_edge_curve_edge = Some(edge_curve_sample.edge);
+                report.max_row_after_edge_curve_face = Some(samples.face);
+                report.max_row_after_edge_curve_side = Some(samples.side);
+                report.max_row_after_edge_curve_parameter = edge_curve_sample.parameter;
+            }
+        }
         surface_access::set_rectangular_binonic_on_face(brep, samples.face, after.patch)?;
         report.fit_rows += 1;
     }
@@ -143,6 +165,14 @@ struct BoundaryRowSamples {
     face: FaceHandle,
     side: BoundarySide,
     samples: Vec<row_fit::BoundaryRowFitSample>,
+    edge_curve_samples: Vec<BoundaryRowEdgeCurveSample>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BoundaryRowEdgeCurveSample {
+    parameter: f64,
+    point: Point3,
+    edge: EdgeHandle,
 }
 
 #[derive(Debug, Clone)]
@@ -235,8 +265,16 @@ fn collect_external_cap_support_edge(
     let support_forward =
         support_pcurve_forward(&support_surface, support_pcurve, cap_start, cap_end);
     let (support_t0, support_t1) = support_pcurve.parameter_range();
+    let edge_curve = brep
+        .edges
+        .get(half_edge_data.edge)
+        .and_then(|edge| edge.curve.as_ref());
+    let edge_curve_forward = edge_curve
+        .map(|curve| edge_curve_forward(curve, cap_start, cap_end))
+        .unwrap_or(true);
 
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
+    let mut edge_curve_samples = Vec::with_capacity(SAMPLE_COUNT);
     let mut targets = Vec::with_capacity(SAMPLE_COUNT);
     let mut before_gap = 0.0_f64;
     for index in 0..SAMPLE_COUNT {
@@ -259,6 +297,28 @@ fn collect_external_cap_support_edge(
         } else if index + 1 == SAMPLE_COUNT {
             target = cap_end;
         }
+        if let Some(edge_curve) = edge_curve {
+            let edge_fraction = if edge_curve_forward {
+                fraction
+            } else {
+                1.0 - fraction
+            };
+            let edge_parameter = lerp_scalar(edge_curve.t_start, edge_curve.t_end, edge_fraction);
+            let edge_point = edge_curve.geometry.point_at(edge_parameter);
+            let target_edge_gap = target.distance_to(&edge_point);
+            if target_edge_gap > report.max_row_target_edge_curve_gap {
+                report.max_row_target_edge_curve_gap = target_edge_gap;
+                report.max_row_target_edge_curve_edge = Some(half_edge_data.edge);
+                report.max_row_target_edge_curve_face = Some(cap_face);
+                report.max_row_target_edge_curve_side = Some(cap_side);
+                report.max_row_target_edge_curve_parameter = cap_parameter;
+            }
+            edge_curve_samples.push(BoundaryRowEdgeCurveSample {
+                parameter: cap_parameter,
+                point: edge_point,
+                edge: half_edge_data.edge,
+            });
+        }
         before_gap = before_gap
             .max(row_fit::eval_boundary(&cap_patch, cap_side, cap_parameter).distance_to(&target));
         samples.push(row_fit::BoundaryRowFitSample {
@@ -269,15 +329,16 @@ fn collect_external_cap_support_edge(
     }
 
     let key = (cap_face, boundary_side_key(cap_side));
-    row_samples
+    let row = row_samples
         .entry(key)
         .or_insert_with(|| BoundaryRowSamples {
             face: cap_face,
             side: cap_side,
             samples: Vec::new(),
-        })
-        .samples
-        .extend(samples);
+            edge_curve_samples: Vec::new(),
+        });
+    row.samples.extend(samples);
+    row.edge_curve_samples.extend(edge_curve_samples);
     edge_samples.push(EdgeSolveSamples {
         cap_half_edge: half_edge,
         cap_side,
@@ -345,6 +406,13 @@ fn cap_boundary_forward(
 ) -> bool {
     let p0 = row_fit::eval_boundary(cap_patch, side, start);
     let p1 = row_fit::eval_boundary(cap_patch, side, end);
+    p0.distance_to(&half_edge_start) + p1.distance_to(&half_edge_end)
+        <= p1.distance_to(&half_edge_start) + p0.distance_to(&half_edge_end)
+}
+
+fn edge_curve_forward(curve: &CurveOnEdge, half_edge_start: Point3, half_edge_end: Point3) -> bool {
+    let p0 = curve.geometry.point_at(curve.t_start);
+    let p1 = curve.geometry.point_at(curve.t_end);
     p0.distance_to(&half_edge_start) + p1.distance_to(&half_edge_end)
         <= p1.distance_to(&half_edge_start) + p0.distance_to(&half_edge_end)
 }

@@ -255,6 +255,12 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "max_row_after_sample_face",
             "max_row_after_sample_side",
             "max_row_after_sample_parameter",
+            "max_row_target_edge_curve_gap",
+            "max_row_target_edge_curve_edge",
+            "max_row_target_edge_curve_face",
+            "max_row_after_edge_curve_gap",
+            "max_row_after_edge_curve_edge",
+            "max_row_after_edge_curve_face",
             "max_boundary_displacement",
         ],
     );
