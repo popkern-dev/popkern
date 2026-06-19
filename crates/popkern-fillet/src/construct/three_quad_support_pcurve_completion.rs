@@ -1,6 +1,6 @@
 //! Cap/support seam completion for Gregory faces after surface assignment.
 
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::fitting::fit_curve;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -11,7 +11,10 @@ use std::collections::BTreeSet;
 use super::helpers;
 #[path = "three_quad_support_pcurve_sampling.rs"]
 mod support_pcurve_sampling;
-use support_pcurve_sampling::{samples_from_support_pcurve, support_pcurve_endpoints_match};
+use support_pcurve_sampling::{
+    samples_from_curve_for_half_edge, samples_from_support_pcurve, support_pcurve_endpoints_match,
+    support_pcurve_matches_edge_curve,
+};
 
 const SAMPLE_COUNT: usize = 12;
 const SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL: f64 = 1.0e-5;
@@ -127,7 +130,17 @@ fn complete_cap_support_half_edge(
                 &support_surface,
                 pcurve,
                 SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL,
-            )
+            ) && edge_curve.as_ref().is_none_or(|curve| {
+                support_pcurve_matches_edge_curve(
+                    brep,
+                    half_edge,
+                    twin,
+                    &support_surface,
+                    pcurve,
+                    curve,
+                    SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL,
+                )
+            })
         });
     let Some(mut samples) = cap_oriented_samples(
         brep,
@@ -273,25 +286,6 @@ fn edge_curve_sample_gap(
         .zip(target_samples)
         .map(|(sample, target)| sample.distance_to(target))
         .fold(0.0, f64::max)
-}
-
-fn samples_from_curve_for_half_edge(
-    brep: &BRep,
-    half_edge: HalfEdgeHandle,
-    curve: &CurveOnEdge,
-) -> Vec<Point3> {
-    let cap_start = brep.vertices[brep.half_edges[half_edge].origin].position;
-    let p_start = curve.geometry.point_at(curve.t_start);
-    let p_end = curve.geometry.point_at(curve.t_end);
-    let forward = p_start.distance_to(&cap_start) <= p_end.distance_to(&cap_start);
-    (0..SAMPLE_COUNT)
-        .map(|index| {
-            let s = index as f64 / (SAMPLE_COUNT - 1) as f64;
-            let local = if forward { s } else { 1.0 - s };
-            let t = curve.t_start + local * (curve.t_end - curve.t_start);
-            curve.geometry.point_at(t)
-        })
-        .collect()
 }
 
 fn cap_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
