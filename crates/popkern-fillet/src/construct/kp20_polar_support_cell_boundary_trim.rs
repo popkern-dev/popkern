@@ -164,7 +164,7 @@ pub(crate) fn face_outer_half_edges(
     ))
 }
 
-fn boundary_span(pcurve: &Pcurve) -> Option<(BoundarySide, f64, f64)> {
+pub(crate) fn boundary_span(pcurve: &Pcurve) -> Option<(BoundarySide, f64, f64)> {
     let (t0, t1) = pcurve.parameter_range();
     let start = pcurve.point_at(t0);
     let end = pcurve.point_at(t1);

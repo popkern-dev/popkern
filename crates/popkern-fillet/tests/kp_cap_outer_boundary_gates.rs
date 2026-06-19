@@ -229,7 +229,21 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         &result,
         "rational_gregory.dispatch.cap_support_acceptance",
         "rational_gregory.dispatch.declined",
-        &["cap_outer_g0", "exceeds 5.000e-3"],
+        &[
+            "cap_outer_g0",
+            "exceeds 5.000e-3",
+            "cap_support_context",
+            "cap_provenance=Some",
+        ],
+    );
+    assert_route_detail_contains(
+        &result,
+        "cap_support_boundary_solve",
+        "cap_support_boundary_solve.fact",
+        &[
+            "status=rolled_back_postcondition_failed",
+            "max_boundary_displacement",
+        ],
     );
 }
 

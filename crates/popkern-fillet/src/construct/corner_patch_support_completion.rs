@@ -10,6 +10,8 @@ use popkern_core::topology::FaceHandle;
 use super::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
 
+#[path = "kp20_polar_cap_support_boundary_solve.rs"]
+mod cap_support_boundary_solve;
 #[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
 mod support_cell_boundary_reconcile;
 #[path = "kp20_polar_support_cell_completion_apply.rs"]
@@ -76,6 +78,33 @@ pub(crate) fn complete_external_cap_support_pcurves(
             diagnostics.push(cap_support_completion_rollback_diagnostic(cap_face, &error));
         }
     }
+    let before_boundary_solve = brep.clone();
+    match cap_support_boundary_solve::solve_external_cap_support_boundaries(brep, &cap_faces) {
+        Ok(report) => {
+            let validation_error = brep.validate().err();
+            let status_detail = validation_error
+                .as_ref()
+                .map(|error| format!("validation_error={error:?}"));
+            let status = if validation_error.is_some() {
+                *brep = before_boundary_solve;
+                "rolled_back_invalid_brep"
+            } else if let Some(status) = cap_support_boundary_solve_decline_status(report) {
+                *brep = before_boundary_solve;
+                status
+            } else {
+                "applied"
+            };
+            diagnostics.push(cap_support_boundary_solve_fact(
+                report,
+                status,
+                status_detail.as_deref(),
+            ));
+        }
+        Err(error) => {
+            *brep = before_boundary_solve;
+            diagnostics.push(cap_support_boundary_solve_error_fact(&error));
+        }
+    }
     diagnostics.push(cap_support_completion_fact(
         cap_faces.len(),
         eligible_edges,
@@ -136,6 +165,78 @@ fn cap_support_completion_fact(
         outer_side: None,
         sample_parameter: None,
         tolerance: None,
+        shared_fact_ids: Vec::new(),
+    })
+}
+
+fn cap_support_boundary_solve_decline_status(
+    report: cap_support_boundary_solve::CapSupportBoundarySolveReport,
+) -> Option<&'static str> {
+    if report.sampled_edges == 0 {
+        return None;
+    }
+    if report.max_after_gap > 5.0e-3 {
+        return Some("rolled_back_postcondition_failed");
+    }
+    if report.max_before_gap > 5.0e-3 && report.max_after_gap + 1.0e-12 >= report.max_before_gap {
+        return Some("rolled_back_quality_regressed");
+    }
+    None
+}
+
+fn cap_support_boundary_solve_fact(
+    report: cap_support_boundary_solve::CapSupportBoundarySolveReport,
+    status: &str,
+    status_detail: Option<&str>,
+) -> ApexConstructionDiagnostic {
+    let status_detail = status_detail
+        .map(|detail| format!(";{detail}"))
+        .unwrap_or_default();
+    ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
+        stage: "cap_support_boundary_solve".to_string(),
+        code: "cap_support_boundary_solve.fact".to_string(),
+        detail_code: Some(format!(
+            "status={status}{status_detail};eligible_edges={};sampled_edges={};fit_rows={};reauthored_edge_curves={};missing_cap_pcurve_edges={};missing_support_pcurve_edges={};unrecognized_cap_pcurve_edges={};missing_support_surface_edges={};non_rectangular_cap_edges={};max_before_gap={:.3e};max_after_gap={:.3e};max_boundary_displacement={:.3e}",
+            report.eligible_edges,
+            report.sampled_edges,
+            report.fit_rows,
+            report.reauthored_edge_curves,
+            report.missing_cap_pcurve_edges,
+            report.missing_support_pcurve_edges,
+            report.unrecognized_cap_pcurve_edges,
+            report.missing_support_surface_edges,
+            report.non_rectangular_cap_edges,
+            report.max_before_gap,
+            report.max_after_gap,
+            report.max_boundary_displacement,
+        )),
+        sector_name: "external_cap_support_boundary_solve".to_string(),
+        edge: None,
+        support_half_edge: None,
+        support_face: None,
+        residual: Some(report.max_after_gap),
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: Some(5.0e-3),
+        shared_fact_ids: Vec::new(),
+    })
+}
+
+fn cap_support_boundary_solve_error_fact(
+    error: &popkern_core::error::CoreError,
+) -> ApexConstructionDiagnostic {
+    ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
+        stage: "cap_support_boundary_solve".to_string(),
+        code: "cap_support_boundary_solve.error".to_string(),
+        detail_code: Some(format!("{error:?}")),
+        sector_name: "external_cap_support_boundary_solve".to_string(),
+        edge: None,
+        support_half_edge: None,
+        support_face: None,
+        residual: None,
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: Some(5.0e-3),
         shared_fact_ids: Vec::new(),
     })
 }

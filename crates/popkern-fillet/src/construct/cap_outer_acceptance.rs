@@ -20,6 +20,8 @@ pub(crate) fn cap_support_acceptance_error(
     let mut worst_g1 = 0.0f64;
     let mut worst_g0_edge = None;
     let mut worst_g1_edge = None;
+    let mut worst_g0_seam = None;
+    let mut worst_g1_seam = None;
     let mut expected_edges = 0usize;
     let mut measured_edges = 0usize;
     let mut missing_pcurve_edges = 0usize;
@@ -108,10 +110,31 @@ pub(crate) fn cap_support_acceptance_error(
             let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
             let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
             let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+            let curve_point = coe
+                .geometry
+                .point_at(coe.t_start + s * (coe.t_end - coe.t_start));
+            let (cap_curve_gap, support_curve_gap) = if a_is_cap {
+                (p_a.distance_to(&curve_point), p_b.distance_to(&curve_point))
+            } else {
+                (p_b.distance_to(&curve_point), p_a.distance_to(&curve_point))
+            };
             let g0_gap = p_a.distance_to(&p_b);
             if g0_gap > worst_g0 {
                 worst_g0 = g0_gap;
                 worst_g0_edge = Some(edge_handle);
+                let (cap_face, support_face) = if a_is_cap {
+                    (face_a, face_b)
+                } else {
+                    (face_b, face_a)
+                };
+                worst_g0_seam = Some(CapSupportSeamEvidence {
+                    cap_face,
+                    support_face,
+                    edge: edge_handle,
+                    sample_parameter: s,
+                    cap_curve_gap,
+                    support_curve_gap,
+                });
             }
 
             let (normal_u_a, normal_v_a) =
@@ -134,6 +157,19 @@ pub(crate) fn cap_support_acceptance_error(
                 if g1_gap > worst_g1 {
                     worst_g1 = g1_gap;
                     worst_g1_edge = Some(edge_handle);
+                    let (cap_face, support_face) = if a_is_cap {
+                        (face_a, face_b)
+                    } else {
+                        (face_b, face_a)
+                    };
+                    worst_g1_seam = Some(CapSupportSeamEvidence {
+                        cap_face,
+                        support_face,
+                        edge: edge_handle,
+                        sample_parameter: s,
+                        cap_curve_gap,
+                        support_curve_gap,
+                    });
                 }
             }
         }
@@ -148,15 +184,37 @@ pub(crate) fn cap_support_acceptance_error(
         ));
     }
     if worst_g0 > max_g0_gap {
+        let Some(seam) = worst_g0_seam else {
+            return Some(format!(
+                "cap_outer_g0 {worst_g0:.3e} on {:?} exceeds {max_g0_gap:.3e}",
+                worst_g0_edge.unwrap_or_default()
+            ));
+        };
         return Some(format!(
-            "cap_outer_g0 {worst_g0:.3e} on {:?} exceeds {max_g0_gap:.3e}",
-            worst_g0_edge.unwrap_or_default()
+            "cap_outer_g0 {worst_g0:.3e} on {:?} cap_face={:?} support_face={:?} sample={:.3} cap_curve_gap={:.3e} support_curve_gap={:.3e} exceeds {max_g0_gap:.3e}",
+            seam.edge,
+            seam.cap_face,
+            seam.support_face,
+            seam.sample_parameter,
+            seam.cap_curve_gap,
+            seam.support_curve_gap
         ));
     }
     if worst_g1 > max_g1_coplanarity {
+        let Some(seam) = worst_g1_seam else {
+            return Some(format!(
+                "cap_outer_g1 {worst_g1:.3e} on {:?} exceeds {max_g1_coplanarity:.3e}",
+                worst_g1_edge.unwrap_or_default()
+            ));
+        };
         return Some(format!(
-            "cap_outer_g1 {worst_g1:.3e} on {:?} exceeds {max_g1_coplanarity:.3e}",
-            worst_g1_edge.unwrap_or_default()
+            "cap_outer_g1 {worst_g1:.3e} on {:?} cap_face={:?} support_face={:?} sample={:.3} cap_curve_gap={:.3e} support_curve_gap={:.3e} exceeds {max_g1_coplanarity:.3e}",
+            seam.edge,
+            seam.cap_face,
+            seam.support_face,
+            seam.sample_parameter,
+            seam.cap_curve_gap,
+            seam.support_curve_gap
         ));
     }
     None
@@ -226,6 +284,8 @@ struct CapSupportSeamEvidence {
     support_face: FaceHandle,
     edge: EdgeHandle,
     sample_parameter: f64,
+    cap_curve_gap: f64,
+    support_curve_gap: f64,
 }
 
 fn measure_cap_support_continuity(
@@ -319,6 +379,10 @@ fn sample_cap_support_edge(
     let mut worst_g1_coplanarity = 0.0f64;
     let mut worst_g0_parameter = 0.0f64;
     let mut worst_g1_parameter = 0.0f64;
+    let mut worst_g0_cap_curve_gap = 0.0f64;
+    let mut worst_g0_support_curve_gap = 0.0f64;
+    let mut worst_g1_cap_curve_gap = 0.0f64;
+    let mut worst_g1_support_curve_gap = 0.0f64;
     for i in 0..100 {
         let s = 0.05 + 0.90 * (i as f64) / 99.0;
         let s_a = if pa_forward { s } else { 1.0 - s };
@@ -327,10 +391,20 @@ fn sample_cap_support_edge(
         let uv_b = pb.point_at(pb_lo + s_b * (pb_hi - pb_lo));
         let p_a = sa.geometry.point_at(uv_a.x, uv_a.y);
         let p_b = sb.geometry.point_at(uv_b.x, uv_b.y);
+        let curve_point = coe
+            .geometry
+            .point_at(coe.t_start + s * (coe.t_end - coe.t_start));
+        let (cap_curve_gap, support_curve_gap) = if a_is_cap {
+            (p_a.distance_to(&curve_point), p_b.distance_to(&curve_point))
+        } else {
+            (p_b.distance_to(&curve_point), p_a.distance_to(&curve_point))
+        };
         let g0_gap = p_a.distance_to(&p_b);
         if g0_gap > worst_g0_gap {
             worst_g0_gap = g0_gap;
             worst_g0_parameter = s;
+            worst_g0_cap_curve_gap = cap_curve_gap;
+            worst_g0_support_curve_gap = support_curve_gap;
         }
 
         let (normal_u_a, normal_v_a) =
@@ -353,6 +427,8 @@ fn sample_cap_support_edge(
             if g1_coplanarity > worst_g1_coplanarity {
                 worst_g1_coplanarity = g1_coplanarity;
                 worst_g1_parameter = s;
+                worst_g1_cap_curve_gap = cap_curve_gap;
+                worst_g1_support_curve_gap = support_curve_gap;
             }
         }
     }
@@ -370,12 +446,16 @@ fn sample_cap_support_edge(
             support_face,
             edge: edge_handle,
             sample_parameter: worst_g0_parameter,
+            cap_curve_gap: worst_g0_cap_curve_gap,
+            support_curve_gap: worst_g0_support_curve_gap,
         },
         worst_g1_seam: CapSupportSeamEvidence {
             cap_face,
             support_face,
             edge: edge_handle,
             sample_parameter: worst_g1_parameter,
+            cap_curve_gap: worst_g1_cap_curve_gap,
+            support_curve_gap: worst_g1_support_curve_gap,
         },
     })
 }

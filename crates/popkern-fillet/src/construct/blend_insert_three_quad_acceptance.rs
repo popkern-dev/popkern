@@ -4,7 +4,7 @@ use popkern_core::error::ValidationError;
 use popkern_core::topology::BRep;
 
 use crate::construct::three_quad_apply::ThreeQuadApplyResult;
-use crate::types::ApexConstructionDiagnostic;
+use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
 
 use super::blend_insert_diagnostics::rational_gregory_dispatch_declined_diagnostic;
 use super::blend_insert_support_cell_acceptance::{
@@ -70,6 +70,13 @@ pub(super) fn accept_three_quad_result(
         return ThreeQuadAcceptance::Accepted(result);
     }
 
+    let continuity_diagnostic =
+        crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic(
+            brep, &cap_faces, 5.0e-3, 5.0e-2,
+        );
+    let decline_context = continuity_diagnostic
+        .as_ref()
+        .and_then(|diagnostic| cap_support_decline_context(diagnostic, &result.patches));
     let mut diagnostics = std::mem::take(&mut result.diagnostics);
     diagnostics.push(
         crate::construct::three_quad_kp_diagnostics::support_cell_candidate_nonselection(
@@ -78,21 +85,47 @@ pub(super) fn accept_three_quad_result(
             result.patches.len(),
         ),
     );
-    if let Some(diagnostic) =
-        crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic(
-            brep, &cap_faces, 5.0e-3, 5.0e-2,
-        )
-    {
+    if let Some(diagnostic) = continuity_diagnostic {
         diagnostics.push(diagnostic);
     }
-    let detail = topology_error
+    let mut detail = topology_error
         .map(|error| format!("topology_validation_failed={error}"))
         .or(continuity_error)
         .unwrap_or_else(|| "cap/support acceptance failed".to_string());
+    if let Some(context) = decline_context {
+        detail.push(';');
+        detail.push_str(&context);
+    }
     diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
         n_sides,
         "cap_support_acceptance",
         Some(detail),
     ));
     ThreeQuadAcceptance::Declined(diagnostics)
+}
+
+fn cap_support_decline_context(
+    diagnostic: &ApexConstructionDiagnostic,
+    patches: &[CornerPatchInfo],
+) -> Option<String> {
+    let ApexConstructionDiagnostic::CapSupportContinuity(diagnostic) = diagnostic else {
+        return None;
+    };
+    let cap_provenance = patches
+        .iter()
+        .find(|patch| patch.face == diagnostic.cap_face)
+        .and_then(|patch| patch.sub_patch_provenance);
+    let support_provenance = patches
+        .iter()
+        .find(|patch| patch.face == diagnostic.support_face)
+        .and_then(|patch| patch.sub_patch_provenance);
+    Some(format!(
+        "cap_support_context=edge={:?};cap_face={:?};support_face={:?};sample={:.3};cap_provenance={:?};support_provenance={:?}",
+        diagnostic.edge,
+        diagnostic.cap_face,
+        diagnostic.support_face,
+        diagnostic.sample_parameter.unwrap_or_default(),
+        cap_provenance,
+        support_provenance,
+    ))
 }
