@@ -7,7 +7,6 @@ use popkern_core::geometry::gregory::{
 
 use super::kp_polar_bi6_promote::SELF_INT_TOL;
 use super::kp20_polar_bi6_split::split_bi6_patch_u;
-use super::kp20_polar_expanded_support_binding::expanded_support_commit_shape;
 use super::kp20_polar_expanded_support_diagnostics::{
     Kp20ExpandedSupportFoldLocalization, localize_expanded_support_folds,
 };
@@ -23,11 +22,13 @@ mod expanded_support_fragment_rebuild;
 mod expanded_support_lane_trial;
 #[path = "kp20_polar_expanded_support_mode.rs"]
 mod expanded_support_mode;
+#[path = "kp20_polar_expanded_support_owner_candidate.rs"]
+mod expanded_support_owner_candidate;
 #[path = "kp20_polar_support_cell_primitive.rs"]
 mod support_cell_primitive;
 
 pub(super) use expanded_support_mode::Kp20ExpandedSupportMode;
-use support_cell_primitive::{Kp20SupportCellPrimitiveReport, measure_support_cell_primitive};
+use support_cell_primitive::Kp20SupportCellPrimitiveReport;
 
 #[derive(Debug, Clone)]
 pub(super) struct Kp20ExpandedSupportTopologyReport {
@@ -66,153 +67,7 @@ pub(super) fn measure_expanded_support_topology(
     ),
     String,
 > {
-    let target_piece = Kp20PieceId::NearMidpointLeft;
-    let target = worst_support_site(&baseline.summary, target_piece);
-    let mut report = Kp20ExpandedSupportTopologyReport {
-        evaluated: 0,
-        accepted: 0,
-        rejected: 0,
-        start_folds: baseline.summary.fold_count,
-        measured_folds: baseline.summary.fold_count,
-        retained_macro_folds: baseline.summary.fold_count,
-        expanded_patch_folds: 0,
-        target_piece,
-        target_sector: target.map(|site| site.sector),
-        emitted_patch_count: 0,
-        measured_patch_count: 0,
-        topology_face_count: 0,
-        topology_pentagon_count: 0,
-        topology_alignment: "expanded_support_topology_no_shape",
-        split_parameter: 0.0,
-        fragment_rebuild: false,
-        support_lane_reauthor: "raw_support_split",
-        support_lane_reauthor_scale: None,
-        support_cell_primitive: Kp20SupportCellPrimitiveReport::default(),
-        emitted_patches: Vec::new(),
-        emitted_provenance: Vec::new(),
-        fold_localization: Kp20ExpandedSupportFoldLocalization::default(),
-        decline_reason: "expanded_support_topology_no_candidate",
-    };
-    let Some(target) = target else {
-        report.decline_reason = "expanded_support_topology_no_target_site";
-        return Ok((baseline, report));
-    };
-    let targets = support_sites_by_sector(&baseline.summary, target_piece);
-    if targets
-        .iter()
-        .any(|site| site.sector >= baseline.macro_patches.len())
-    {
-        report.decline_reason = "expanded_support_topology_target_out_of_range";
-        return Ok((baseline, report));
-    }
-
-    let support_piece = support_owner_piece(target.piece);
-    report.support_cell_primitive = measure_support_cell_primitive(
-        &baseline.macro_patches,
-        &baseline.summary.fold_sites,
-        support_piece,
-    );
-    let retained_macro_folds = retained_fold_count(&baseline.summary, &targets, support_piece);
-    report.retained_macro_folds = retained_macro_folds;
-    let mut best: Option<Kp20ExpandedSupportTopologyTrial> = None;
-    'search: {
-        for split_parameter in [0.38, 0.50, 0.62] {
-            for fragment_rebuild in [false, true] {
-                report.evaluated += 1;
-                let macro_fragment_folds = fragmented_macro_fold_count(
-                    &baseline.macro_patches,
-                    &targets,
-                    split_parameter,
-                    fragment_rebuild,
-                );
-                let trial = expanded_support_topology_trial(
-                    &baseline.macro_patches,
-                    &targets,
-                    support_piece,
-                    split_parameter,
-                    fragment_rebuild,
-                    None,
-                    retained_macro_folds,
-                    macro_fragment_folds,
-                );
-                if best.as_ref().is_none_or(|best| trial.better_than(best)) {
-                    best = Some(trial);
-                }
-            }
-        }
-        for split_parameter in [0.42, 0.50, 0.58] {
-            for fragment_rebuild in [false, true] {
-                let macro_fragment_folds = fragmented_macro_fold_count(
-                    &baseline.macro_patches,
-                    &targets,
-                    split_parameter,
-                    fragment_rebuild,
-                );
-                for mode in Kp20ExpandedSupportMode::all() {
-                    for scale in [0.65] {
-                        report.evaluated += 1;
-                        let trial = expanded_support_topology_trial(
-                            &baseline.macro_patches,
-                            &targets,
-                            support_piece,
-                            split_parameter,
-                            fragment_rebuild,
-                            Some((mode, scale)),
-                            retained_macro_folds,
-                            macro_fragment_folds,
-                        );
-                        if best.as_ref().is_none_or(|best| trial.better_than(best)) {
-                            let improves = trial.measured_folds < baseline.summary.fold_count;
-                            best = Some(trial);
-                            if improves {
-                                break 'search;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let Some(best) = best else {
-        return Ok((baseline, report));
-    };
-    report.rejected = report.evaluated;
-    let emitted = emitted_candidate_patchwork(
-        &baseline.macro_patches,
-        &targets,
-        support_piece,
-        best.split_parameter,
-        best.fragment_rebuild,
-        best.reauthor,
-    );
-    report.emitted_patches = emitted.patches;
-    report.emitted_provenance = emitted.provenance;
-    report.fold_localization = best.fold_localization;
-    let emitted_fold_localization =
-        localize_expanded_support_folds(&report.emitted_patches, &report.emitted_provenance);
-    report.expanded_patch_folds = emitted_fold_localization.total_folds();
-    report.measured_folds = report.expanded_patch_folds;
-    report.fold_localization = emitted_fold_localization;
-    report.emitted_patch_count = report.emitted_patches.len();
-    report.measured_patch_count = targets.len() * 2;
-    let shape = expanded_support_commit_shape(
-        baseline.macro_patches.len(),
-        targets.len(),
-        report.emitted_patch_count,
-    );
-    report.topology_face_count = shape.face_count;
-    report.topology_pentagon_count = shape.pentagon_count;
-    report.topology_alignment = shape.alignment;
-    report.split_parameter = best.split_parameter;
-    report.fragment_rebuild = best.fragment_rebuild;
-    report.support_lane_reauthor = support_lane_reauthor_label(best.reauthor);
-    report.support_lane_reauthor_scale = best.reauthor.map(|(_, scale)| scale);
-    report.decline_reason = if best.measured_folds < baseline.summary.fold_count {
-        "expanded_support_topology_not_emittable"
-    } else {
-        "expanded_support_topology_no_fold_reduction"
-    };
+    let report = expanded_support_owner_candidate::measure_support_owner_candidates(&baseline);
     Ok((baseline, report))
 }
 
