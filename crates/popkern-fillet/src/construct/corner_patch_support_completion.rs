@@ -196,10 +196,12 @@ fn cap_support_boundary_solve_fact(
         stage: "cap_support_boundary_solve".to_string(),
         code: "cap_support_boundary_solve.fact".to_string(),
         detail_code: Some(format!(
-            "status={status}{status_detail};eligible_edges={};sampled_edges={};fit_rows={};multi_edge_rows={};max_samples_per_row={};reauthored_edge_curves={};missing_cap_pcurve_edges={};missing_support_pcurve_edges={};unrecognized_cap_pcurve_edges={};missing_support_surface_edges={};non_rectangular_cap_edges={};max_row_parameter_span={:.3e};max_row_before_sample_gap={:.3e};max_row_after_sample_gap={:.3e};max_before_gap={:.3e};max_after_gap={:.3e};max_boundary_displacement={:.3e}",
+            "status={status}{status_detail};eligible_edges={};sampled_edges={};fit_rows={};row_fit_candidates={};zero_regularization_rows={};multi_edge_rows={};max_samples_per_row={};reauthored_edge_curves={};missing_cap_pcurve_edges={};missing_support_pcurve_edges={};unrecognized_cap_pcurve_edges={};missing_support_surface_edges={};non_rectangular_cap_edges={};max_row_parameter_span={:.3e};max_row_before_sample_gap={:.3e};max_row_after_sample_gap={:.3e};max_before_gap={:.3e};max_after_gap={:.3e};max_boundary_displacement={:.3e}",
             report.eligible_edges,
             report.sampled_edges,
             report.fit_rows,
+            report.row_fit_candidates,
+            report.zero_regularization_rows,
             report.multi_edge_rows,
             report.max_samples_per_row,
             report.reauthored_edge_curves,

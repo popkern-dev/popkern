@@ -43,11 +43,20 @@ pub(super) fn fit_boundary_samples(
     side: BoundarySide,
     samples: &[BoundaryRowFitSample],
 ) {
+    fit_boundary_samples_with_regularization(patch, side, samples, 1.0e-4);
+}
+
+pub(super) fn fit_boundary_samples_with_regularization(
+    patch: &mut RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[BoundaryRowFitSample],
+    regularization: f64,
+) {
     if samples.is_empty() {
         return;
     }
     let prior = boundary_controls(patch, side);
-    let lambda = 1.0e-4;
+    let lambda = regularization.max(0.0);
     let mut normal = [[0.0; 10]; 10];
     let mut rhs_x = [0.0; 10];
     let mut rhs_y = [0.0; 10];
