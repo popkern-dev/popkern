@@ -34,6 +34,7 @@ pub(super) fn best_boundary_fit_candidate(
             samples,
             regularization,
         );
+        row_fit::snap_boundary_endpoints_to_samples(&mut patch, side, samples, 1.0e-9);
         let candidate = BoundaryFitCandidate {
             sample_gap: row_sample_gap(&patch, side, samples),
             displacement: row_fit::max_boundary_displacement(before, &patch, side),

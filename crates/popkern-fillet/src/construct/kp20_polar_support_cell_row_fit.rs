@@ -91,6 +91,22 @@ pub(super) fn fit_boundary_samples_with_regularization(
     }
 }
 
+#[allow(dead_code)]
+pub(super) fn snap_boundary_endpoints_to_samples(
+    patch: &mut RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[BoundaryRowFitSample],
+    tolerance: f64,
+) {
+    for sample in samples {
+        if sample.parameter.abs() <= tolerance {
+            set_boundary_control(patch, side, 0, sample.target);
+        } else if (sample.parameter - 1.0).abs() <= tolerance {
+            set_boundary_control(patch, side, 9, sample.target);
+        }
+    }
+}
+
 fn boundary_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [Point3; 10] {
     let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
     for (index, point) in out.iter_mut().enumerate() {
