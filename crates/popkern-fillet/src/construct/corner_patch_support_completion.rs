@@ -1,15 +1,14 @@
 //! Result-level completion for Gregory cap/support seam ownership.
 #![allow(clippy::duplicate_mod)]
 
-use std::borrow::Cow;
+use std::{borrow::Cow, collections::BTreeSet};
 
 use popkern_core::error::ValidationError;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::BRep;
 use popkern_core::topology::FaceHandle;
 
 use super::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
-use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRole};
+use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
 
 #[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
 mod support_cell_boundary_reconcile;
@@ -53,39 +52,49 @@ pub(crate) fn complete_corner_patch_support_pcurves(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
 ) {
     complete_support_cell_pcurves_transactionally(brep, corner_patches, diagnostics);
-    let mut completed_cap_faces = Vec::new();
-    for patch in corner_patches {
-        if patch
-            .sub_patch_provenance
-            .is_some_and(|provenance| provenance.role == CornerSubPatchRole::SupportCell)
-        {
-            continue;
-        }
-        if completed_cap_faces.contains(&patch.face) {
-            continue;
-        }
-        if !face_is_gregory_cap(brep, patch.face) {
-            continue;
-        }
-        let before = brep.clone();
-        super::three_quad_support_pcurve_completion::complete_missing_cap_support_seams(
-            brep, patch.face,
-        );
-        if let Err(error) = brep.validate() {
-            *brep = before;
-            diagnostics.push(cap_support_completion_rollback_diagnostic(
-                patch.face, &error,
-            ));
-        }
-        completed_cap_faces.push(patch.face);
-    }
+    complete_external_cap_support_pcurves(brep, corner_patches, diagnostics);
 }
 
-fn face_is_gregory_cap(brep: &BRep, face: FaceHandle) -> bool {
+pub(crate) fn complete_external_cap_support_pcurves(
+    brep: &mut BRep,
+    corner_patches: &[CornerPatchInfo],
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+) {
+    let cap_faces = surfaced_cap_face_set(brep, corner_patches);
+    let mut eligible_edges = 0usize;
+    let mut authored_support_pcurves = 0usize;
+    for cap_face in cap_faces.iter().copied() {
+        let before = brep.clone();
+        let (face_eligible_edges, face_authored_support_pcurves) =
+            super::three_quad_support_pcurve_completion::complete_missing_external_cap_support_pcurves(
+                brep, cap_face, &cap_faces,
+            );
+        eligible_edges += face_eligible_edges;
+        authored_support_pcurves += face_authored_support_pcurves;
+        if let Err(error) = brep.validate() {
+            *brep = before;
+            diagnostics.push(cap_support_completion_rollback_diagnostic(cap_face, &error));
+        }
+    }
+    diagnostics.push(cap_support_completion_fact(
+        cap_faces.len(),
+        eligible_edges,
+        authored_support_pcurves,
+    ));
+}
+
+fn surfaced_cap_face_set(brep: &BRep, corner_patches: &[CornerPatchInfo]) -> BTreeSet<FaceHandle> {
+    corner_patches
+        .iter()
+        .filter_map(|patch| face_has_surface(brep, patch.face).then_some(patch.face))
+        .collect()
+}
+
+fn face_has_surface(brep: &BRep, face: FaceHandle) -> bool {
     brep.faces
         .get(face)
         .and_then(|face| face.surface.as_ref())
-        .is_some_and(|surface| matches!(surface.geometry, SurfaceGeometry::Gregory(_)))
+        .is_some()
 }
 
 fn cap_support_completion_rollback_diagnostic(
@@ -101,6 +110,29 @@ fn cap_support_completion_rollback_diagnostic(
         support_half_edge: None,
         support_face: Some(cap_face),
         residual: validation_gap(error),
+        outer_side: None,
+        sample_parameter: None,
+        tolerance: None,
+        shared_fact_ids: Vec::new(),
+    })
+}
+
+fn cap_support_completion_fact(
+    cap_face_count: usize,
+    eligible_edges: usize,
+    authored_support_pcurves: usize,
+) -> ApexConstructionDiagnostic {
+    ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
+        stage: "cap_support_completion".to_string(),
+        code: "cap_support_completion.fact".to_string(),
+        detail_code: Some(format!(
+            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_support_pcurves={authored_support_pcurves}",
+        )),
+        sector_name: "external_cap_support_pcurves".to_string(),
+        edge: None,
+        support_half_edge: None,
+        support_face: None,
+        residual: None,
         outer_side: None,
         sample_parameter: None,
         tolerance: None,

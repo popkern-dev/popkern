@@ -20,7 +20,13 @@ pub(crate) fn cap_support_acceptance_error(
     let mut worst_g1 = 0.0f64;
     let mut worst_g0_edge = None;
     let mut worst_g1_edge = None;
+    let mut expected_edges = 0usize;
     let mut measured_edges = 0usize;
+    let mut missing_pcurve_edges = 0usize;
+    let mut missing_cap_pcurve_edges = 0usize;
+    let mut missing_support_pcurve_edges = 0usize;
+    let mut missing_surface_edges = 0usize;
+    let mut missing_curve_edges = 0usize;
 
     for (edge_handle, edge) in brep.edges.iter() {
         let he_a = edge.half_edge;
@@ -44,16 +50,35 @@ pub(crate) fn cap_support_acceptance_error(
         if a_is_cap == b_is_cap {
             continue;
         }
-        let (Some(pa), Some(pb)) = (ha.pcurve.as_ref(), hb.pcurve.as_ref()) else {
+        expected_edges += 1;
+        let Some(pa) = ha.pcurve.as_ref() else {
+            missing_pcurve_edges += 1;
+            if a_is_cap {
+                missing_cap_pcurve_edges += 1;
+            } else {
+                missing_support_pcurve_edges += 1;
+            }
+            continue;
+        };
+        let Some(pb) = hb.pcurve.as_ref() else {
+            missing_pcurve_edges += 1;
+            if b_is_cap {
+                missing_cap_pcurve_edges += 1;
+            } else {
+                missing_support_pcurve_edges += 1;
+            }
             continue;
         };
         let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
+            missing_surface_edges += 1;
             continue;
         };
         let Some(sb) = brep.faces.get(face_b).and_then(|f| f.surface.as_ref()) else {
+            missing_surface_edges += 1;
             continue;
         };
         let Some(coe) = edge.curve.as_ref() else {
+            missing_curve_edges += 1;
             continue;
         };
 
@@ -114,10 +139,12 @@ pub(crate) fn cap_support_acceptance_error(
         }
     }
 
-    if measured_edges < cap_faces.len() {
+    if expected_edges == 0 {
+        return Some("measured 0 cap/support seams, expected at least 1".to_string());
+    }
+    if measured_edges < expected_edges {
         return Some(format!(
-            "measured {measured_edges} cap/support seams, expected at least {}",
-            cap_faces.len()
+            "measured {measured_edges} cap/support seams, expected {expected_edges} topological cap/support seams; missing_pcurve_edges={missing_pcurve_edges}; missing_cap_pcurve_edges={missing_cap_pcurve_edges}; missing_support_pcurve_edges={missing_support_pcurve_edges}; missing_surface_edges={missing_surface_edges}; missing_curve_edges={missing_curve_edges}",
         ));
     }
     if worst_g0 > max_g0_gap {

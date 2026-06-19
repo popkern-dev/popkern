@@ -6,35 +6,86 @@ use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, nurbs_curve::NurbsCurve};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+use std::collections::BTreeSet;
 
 use super::helpers;
 
 const SAMPLE_COUNT: usize = 12;
-const STALE_CAP_PCURVE_TOLERANCE: f64 = 1.0e-5;
+
+#[derive(Clone, Copy)]
+struct CapSupportCompletionPolicy(bool, bool, bool);
+
+const REPAIR_STALE_CAP_SUPPORT_SEAMS: CapSupportCompletionPolicy =
+    CapSupportCompletionPolicy(true, true, true);
+const FILL_MISSING_CAP_SUPPORT_PCURVES: CapSupportCompletionPolicy =
+    CapSupportCompletionPolicy(false, false, false);
 
 pub(crate) fn complete_missing_cap_support_seams(brep: &mut BRep, cap_face: FaceHandle) {
+    complete_missing_cap_support_seams_when(
+        brep,
+        cap_face,
+        |_| true,
+        REPAIR_STALE_CAP_SUPPORT_SEAMS,
+    );
+}
+
+pub(crate) fn complete_missing_external_cap_support_pcurves(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    cap_faces: &BTreeSet<FaceHandle>,
+) -> (usize, usize) {
+    complete_missing_cap_support_seams_when(
+        brep,
+        cap_face,
+        |support_face| !cap_faces.contains(&support_face),
+        FILL_MISSING_CAP_SUPPORT_PCURVES,
+    )
+}
+
+fn complete_missing_cap_support_seams_when<F>(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    include_support_face: F,
+    policy: CapSupportCompletionPolicy,
+) -> (usize, usize)
+where
+    F: Fn(FaceHandle) -> bool + Copy,
+{
     let Some(cap_surface) = brep
         .faces
         .get(cap_face)
         .and_then(|face| face.surface.as_ref())
         .map(|surface| surface.geometry.clone())
     else {
-        return;
+        return (0, 0);
     };
-    if !matches!(cap_surface, SurfaceGeometry::Gregory(_)) {
-        return;
+    if policy.0 && !matches!(cap_surface, SurfaceGeometry::Gregory(_)) {
+        return (0, 0);
     }
+    let mut eligible_edges = 0;
+    let mut authored_support_pcurves = 0;
     for half_edge in cap_face_half_edges(brep, cap_face) {
-        complete_cap_support_half_edge(brep, cap_face, &cap_surface, half_edge);
+        let Some(support_face) = twin_face_for_half_edge(brep, half_edge) else {
+            continue;
+        };
+        if include_support_face(support_face) {
+            eligible_edges += 1;
+            let twin = brep.half_edges[half_edge].twin;
+            let support_pcurve_missing = brep.half_edges[twin].pcurve.is_none();
+            complete_cap_support_half_edge(brep, &cap_surface, half_edge, policy);
+            if support_pcurve_missing && brep.half_edges[twin].pcurve.is_some() {
+                authored_support_pcurves += 1;
+            }
+        }
     }
-    complete_direct_cap_half_edges(brep, cap_face, &cap_surface);
+    (eligible_edges, authored_support_pcurves)
 }
 
 fn complete_cap_support_half_edge(
     brep: &mut BRep,
-    cap_face: FaceHandle,
     cap_surface: &SurfaceGeometry,
     half_edge: HalfEdgeHandle,
+    policy: CapSupportCompletionPolicy,
 ) {
     let Some(half_edge_data) = brep.half_edges.get(half_edge).cloned() else {
         return;
@@ -50,9 +101,6 @@ fn complete_cap_support_half_edge(
     else {
         return;
     };
-    if support_face == cap_face {
-        return;
-    }
     let Some(support_surface) = brep
         .faces
         .get(support_face)
@@ -70,34 +118,46 @@ fn complete_cap_support_half_edge(
     let support_pcurve = brep.half_edges.get(twin).and_then(|he| he.pcurve.as_ref());
     let support_owns_seam =
         matches!(support_surface, SurfaceGeometry::Cylinder { .. }) && support_pcurve.is_some();
-    let Some(samples) =
-        cap_oriented_samples(brep, half_edge, twin, &support_surface, support_owns_seam)
-    else {
+    let Some(mut samples) = cap_oriented_samples(
+        brep,
+        half_edge,
+        twin,
+        cap_surface,
+        &support_surface,
+        support_owns_seam,
+    ) else {
         return;
     };
+    if !samples.is_empty() {
+        samples[0] = brep.vertices[brep.half_edges[half_edge].origin].position;
+        let last = samples.len() - 1;
+        samples[last] = brep.vertices[brep.half_edges[twin].origin].position;
+    }
     let mut support_samples = samples.clone();
     support_samples.reverse();
-    let needs_edge_curve = edge_curve.as_ref().is_none_or(|curve| {
-        support_owns_seam && edge_curve_sample_gap(brep, half_edge, curve, &samples) > 1.0e-5
-    });
+    let needs_edge_curve = edge_curve.is_none()
+        || (policy.1
+            && edge_curve.as_ref().is_some_and(|curve| {
+                support_owns_seam
+                    && edge_curve_sample_gap(brep, half_edge, curve, &samples) > 1.0e-5
+            }));
     let cap_boundary_owned = brep.surface_boundary_hint(half_edge).is_some();
     let needs_cap_pcurve = !cap_boundary_owned
-        && brep.half_edges[half_edge]
-            .pcurve
-            .as_ref()
-            .is_none_or(|pcurve| {
-                cap_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, &samples)
-                    > STALE_CAP_PCURVE_TOLERANCE
-            });
-    let needs_support_pcurve = !needs_edge_curve
-        && match brep.half_edges[twin].pcurve.as_ref() {
+        && match brep.half_edges[half_edge].pcurve.as_ref() {
             None => true,
-            Some(_) if matches!(support_surface, SurfaceGeometry::Nurbs(_)) => false,
-            Some(pcurve) => {
-                cap_pcurve_sample_gap(brep, twin, &support_surface, pcurve, &support_samples)
-                    > STALE_CAP_PCURVE_TOLERANCE
+            Some(pcurve) if policy.2 => {
+                cap_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, &samples) > 1.0e-5
             }
+            Some(_) => false,
         };
+    let needs_support_pcurve = match brep.half_edges[twin].pcurve.as_ref() {
+        None => true,
+        Some(_) if !policy.2 => false,
+        Some(_) if matches!(support_surface, SurfaceGeometry::Nurbs(_)) => false,
+        Some(pcurve) => {
+            cap_pcurve_sample_gap(brep, twin, &support_surface, pcurve, &support_samples) > 1.0e-5
+        }
+    };
     if !needs_cap_pcurve && !needs_support_pcurve && !needs_edge_curve {
         return;
     }
@@ -147,6 +207,7 @@ fn cap_oriented_samples(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
     twin: HalfEdgeHandle,
+    cap_surface: &SurfaceGeometry,
     support_surface: &SurfaceGeometry,
     prefer_support_pcurve: bool,
 ) -> Option<Vec<Point3>> {
@@ -168,6 +229,15 @@ fn cap_oriented_samples(
         .and_then(|edge| edge.curve.as_ref())
     {
         return Some(samples_from_curve_for_half_edge(brep, half_edge, curve));
+    }
+    if let Some(cap_pcurve) = brep.half_edges.get(half_edge)?.pcurve.as_ref() {
+        return Some(samples_from_support_pcurve(
+            brep,
+            half_edge,
+            twin,
+            cap_surface,
+            cap_pcurve,
+        ));
     }
     if let Some(support_pcurve) = brep.half_edges.get(twin)?.pcurve.as_ref() {
         return Some(samples_from_support_pcurve(
@@ -391,31 +461,12 @@ fn line_geometry_from_endpoints(points: &[Point3]) -> CurveGeometry {
     }
 }
 
-fn complete_direct_cap_half_edges(
-    brep: &mut BRep,
-    cap_face: FaceHandle,
-    cap_surface: &SurfaceGeometry,
-) {
-    let half_edges = brep
-        .half_edges
-        .iter()
-        .filter_map(|(half_edge, half_edge_data)| {
-            let twin = half_edge_data.twin;
-            let face = brep
-                .loops
-                .get(half_edge_data.loop_)
-                .map(|loop_data| loop_data.face)?;
-            let twin_face = brep
-                .half_edges
-                .get(twin)
-                .and_then(|twin_data| brep.loops.get(twin_data.loop_))
-                .map(|loop_data| loop_data.face)?;
-            (face == cap_face && twin_face != cap_face).then_some(half_edge)
-        })
-        .collect::<Vec<_>>();
-    for half_edge in half_edges {
-        complete_cap_support_half_edge(brep, cap_face, cap_surface, half_edge);
-    }
+fn twin_face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {
+    let half_edge_data = brep.half_edges.get(half_edge)?;
+    let twin_data = brep.half_edges.get(half_edge_data.twin)?;
+    brep.loops
+        .get(twin_data.loop_)
+        .map(|loop_data| loop_data.face)
 }
 
 fn cap_face_half_edges(brep: &BRep, cap_face: FaceHandle) -> Vec<HalfEdgeHandle> {

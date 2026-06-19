@@ -18,7 +18,7 @@ pub(super) enum ThreeQuadAcceptance {
 }
 
 pub(super) fn accept_three_quad_result(
-    brep: &BRep,
+    brep: &mut BRep,
     mut result: ThreeQuadApplyResult,
     n_sides: usize,
 ) -> ThreeQuadAcceptance {
@@ -50,6 +50,11 @@ pub(super) fn accept_three_quad_result(
         .iter()
         .map(|patch| patch.face)
         .collect::<Vec<_>>();
+    crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
+        brep,
+        &result.patches,
+        &mut result.diagnostics,
+    );
     let topology_error = brep.validate_all().into_iter().find(|error| {
         matches!(
             error,
