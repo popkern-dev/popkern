@@ -186,6 +186,7 @@ mod tests {
     use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
     use popkern_core::geometry::surface::SurfaceGeometry;
     use popkern_core::tolerance::Tolerance;
+    use std::collections::BTreeSet;
 
     #[test]
     fn mixed_support_cell_commit_attaches_complete_inventory() {
@@ -215,6 +216,28 @@ mod tests {
         )));
         brep.validate()
             .expect("mixed support-cell commit leaves valid BRep");
+    }
+
+    #[test]
+    fn legacy_4n_topology_exposes_three_outer_slots() {
+        let (mut brep, face) = build_flat_2ngon(6);
+        let poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
+            &mut brep,
+            face,
+            Point3::new(0.0, 0.0, 0.0),
+            6,
+        )
+        .expect("legacy 4n poke");
+        let cap_faces = poke.sub_faces.iter().copied().collect::<BTreeSet<_>>();
+        let external_counts = (0..4)
+            .map(|piece| external_boundary_edge_count(&brep, &cap_faces, poke.sub_faces[piece]))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            external_counts,
+            vec![1, 2, 1, 0],
+            "legacy [O_L,O_C,O_R,C_star] topology is not KP20-semantic: three slots touch four support-boundary edges and only C_star is central"
+        );
     }
 
     fn build_flat_2ngon(n: usize) -> (BRep, FaceHandle) {
@@ -248,5 +271,27 @@ mod tests {
             }
         }
         GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
+    }
+
+    fn external_boundary_edge_count(
+        brep: &BRep,
+        cap_faces: &BTreeSet<FaceHandle>,
+        face: FaceHandle,
+    ) -> usize {
+        face_outer_half_edges(brep, face)
+            .expect("face loop")
+            .into_iter()
+            .filter(|half_edge| {
+                let twin = brep.half_edges[*half_edge].twin;
+                let Some(twin_face) = brep
+                    .loops
+                    .get(brep.half_edges[twin].loop_)
+                    .map(|loop_| loop_.face)
+                else {
+                    return true;
+                };
+                !cap_faces.contains(&twin_face)
+            })
+            .count()
     }
 }
