@@ -245,6 +245,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "status=rolled_back_postcondition_failed",
             "row_fit_candidates",
             "zero_regularization_rows",
+            "displacement_scaled_candidates",
             "displacement_rejected_candidates",
             "displacement_bounded_rows",
             "displacement_unbounded_rows",

@@ -35,6 +35,7 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) fit_rows: usize,
     pub(super) row_fit_candidates: usize,
     pub(super) zero_regularization_rows: usize,
+    pub(super) displacement_scaled_candidates: usize,
     pub(super) displacement_rejected_candidates: usize,
     pub(super) displacement_bounded_rows: usize,
     pub(super) displacement_unbounded_rows: usize,
@@ -99,6 +100,7 @@ pub(super) fn solve_external_cap_support_boundaries(
         let after =
             boundary_fit::best_boundary_fit_candidate(&before, samples.side, &samples.samples);
         report.row_fit_candidates += after.candidate_count;
+        report.displacement_scaled_candidates += after.displacement_scaled_candidates;
         report.displacement_rejected_candidates += after.displacement_rejected_candidates;
         if after.within_displacement {
             report.displacement_bounded_rows += 1;

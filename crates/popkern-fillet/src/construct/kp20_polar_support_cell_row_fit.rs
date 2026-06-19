@@ -107,6 +107,32 @@ pub(super) fn snap_boundary_endpoints_to_samples(
     }
 }
 
+#[allow(dead_code)]
+pub(super) fn scale_boundary_delta_to_displacement(
+    before: &RectangularGregoryBiNonic,
+    after: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+    max_displacement: f64,
+) -> RectangularGregoryBiNonic {
+    let displacement = max_boundary_displacement(before, after, side);
+    if displacement <= max_displacement || displacement <= 1.0e-12 {
+        return after.clone();
+    }
+    let scale = (max_displacement / displacement).clamp(0.0, 1.0);
+    let before_controls = boundary_controls(before, side);
+    let after_controls = boundary_controls(after, side);
+    let mut scaled = before.clone();
+    for index in 0..10 {
+        set_boundary_control(
+            &mut scaled,
+            side,
+            index,
+            before_controls[index] + (after_controls[index] - before_controls[index]) * scale,
+        );
+    }
+    scaled
+}
+
 fn boundary_controls(patch: &RectangularGregoryBiNonic, side: BoundarySide) -> [Point3; 10] {
     let mut out = [Point3::new(0.0, 0.0, 0.0); 10];
     for (index, point) in out.iter_mut().enumerate() {
