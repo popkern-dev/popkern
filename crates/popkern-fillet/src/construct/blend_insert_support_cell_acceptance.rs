@@ -2,13 +2,15 @@
 
 use std::collections::BTreeMap;
 
-use crate::types::{CornerPatchInfo, CornerSubPatchRole};
+use crate::types::{CornerPatchInfo, CornerSubPatchFamily, CornerSubPatchRole};
 
 pub(super) fn corner_patch_count_is_acceptable(
     patches: &[CornerPatchInfo],
     n_sides: usize,
 ) -> bool {
-    patches.len() == n_sides || support_cell_patch_count_is_acceptable(patches, n_sides)
+    patches.len() == n_sides
+        || support_cell_patch_count_is_acceptable(patches, n_sides)
+        || mixed_support_cell_patch_count_is_acceptable(patches, n_sides)
 }
 
 pub(super) fn support_cell_patch_count_is_acceptable(
@@ -58,12 +60,77 @@ pub(super) fn partial_support_cell_coverage_detail(
     ))
 }
 
+pub(super) fn mixed_support_cell_patch_count_is_acceptable(
+    patches: &[CornerPatchInfo],
+    n_sides: usize,
+) -> bool {
+    let mut sectors = vec![SectorCoverage::default(); n_sides];
+    for patch in patches {
+        let Some(provenance) = patch.sub_patch_provenance else {
+            return false;
+        };
+        if patch.n_sides != n_sides
+            || provenance.family != CornerSubPatchFamily::Kp20Bi6
+            || provenance.sector_count != n_sides
+            || provenance.sector_index >= n_sides
+        {
+            return false;
+        }
+        if !sectors[provenance.sector_index].record(provenance.role) {
+            return false;
+        }
+    }
+    sectors.iter().any(|sector| sector.support_cell_count > 0)
+        && sectors.iter().all(SectorCoverage::is_complete)
+}
+
 fn common_target_sector_cell_count(sector_counts: &BTreeMap<usize, usize>) -> Option<usize> {
     let first = *sector_counts.values().next()?;
     sector_counts
         .values()
         .all(|&count| count == first)
         .then_some(first)
+}
+
+#[derive(Clone, Default)]
+struct SectorCoverage {
+    macro_roles: Vec<CornerSubPatchRole>,
+    support_cell_count: usize,
+}
+
+impl SectorCoverage {
+    fn record(&mut self, role: CornerSubPatchRole) -> bool {
+        if role == CornerSubPatchRole::SupportCell {
+            self.support_cell_count += 1;
+            return true;
+        }
+        if !macro_support_cell_coverage_role(role) || self.macro_roles.contains(&role) {
+            return false;
+        }
+        self.macro_roles.push(role);
+        true
+    }
+
+    fn is_complete(&self) -> bool {
+        if self.support_cell_count == 0 {
+            return self.macro_roles.len() == 4;
+        }
+        matches!(self.support_cell_count, 4 | 8 | 16)
+            && self.macro_roles.len() == 3
+            && !self
+                .macro_roles
+                .contains(&CornerSubPatchRole::NearMidpointLeft)
+    }
+}
+
+fn macro_support_cell_coverage_role(role: CornerSubPatchRole) -> bool {
+    matches!(
+        role,
+        CornerSubPatchRole::NearOriginLeft
+            | CornerSubPatchRole::NearOriginRight
+            | CornerSubPatchRole::NearMidpointRight
+            | CornerSubPatchRole::NearMidpointLeft
+    )
 }
 
 #[cfg(test)]
@@ -115,6 +182,14 @@ mod tests {
         assert!(detail.contains("cells_per_target_sector=4"));
     }
 
+    #[test]
+    fn accepts_complete_mixed_support_cell_coverage() {
+        let patches = mixed_support_cell_patches();
+
+        assert!(mixed_support_cell_patch_count_is_acceptable(&patches, 6));
+        assert!(corner_patch_count_is_acceptable(&patches, 6));
+    }
+
     fn support_cell_patch(index: usize) -> CornerPatchInfo {
         support_cell_patch_in_sector(index, index / 4, 24)
     }
@@ -124,6 +199,44 @@ mod tests {
         sector: usize,
         patch_count: usize,
     ) -> CornerPatchInfo {
+        patch_with_provenance(CornerSubPatchProvenance::kp20_support_cell(
+            sector,
+            6,
+            index,
+            patch_count,
+        ))
+    }
+
+    fn mixed_support_cell_patches() -> Vec<CornerPatchInfo> {
+        let mut patches = Vec::new();
+        for sector in 0..6 {
+            for piece in 0..3 {
+                patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
+                    CornerSubPatchFamily::Kp20Bi6,
+                    sector,
+                    6,
+                    piece,
+                )));
+            }
+            if matches!(sector, 0 | 2 | 5) {
+                for index in 0..4 {
+                    patches.push(patch_with_provenance(
+                        CornerSubPatchProvenance::kp20_support_cell(sector, 6, index, 12),
+                    ));
+                }
+            } else {
+                patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
+                    CornerSubPatchFamily::Kp20Bi6,
+                    sector,
+                    6,
+                    3,
+                )));
+            }
+        }
+        patches
+    }
+
+    fn patch_with_provenance(provenance: CornerSubPatchProvenance) -> CornerPatchInfo {
         let (vertex, face) = handles();
         CornerPatchInfo {
             vertex,
@@ -136,12 +249,7 @@ mod tests {
             overlap_remediated: false,
             relaxed_continuity_coplanarity: None,
             cap_sphere: None,
-            sub_patch_provenance: Some(CornerSubPatchProvenance::kp20_support_cell(
-                sector,
-                6,
-                index,
-                patch_count,
-            )),
+            sub_patch_provenance: Some(provenance),
         }
     }
 

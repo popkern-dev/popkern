@@ -96,6 +96,22 @@ pub(crate) fn support_cell_inventory_from_provenance(
     })
 }
 
+pub(crate) fn support_cell_inventory_from_patchwork_provenance(
+    sector_count: usize,
+    provenance: &[CornerSubPatchProvenance],
+) -> Result<Kp20SupportCellInventory, String> {
+    let support_cell_provenance = provenance
+        .iter()
+        .copied()
+        .filter(|item| item.role == CornerSubPatchRole::SupportCell)
+        .collect::<Vec<_>>();
+    support_cell_inventory_from_provenance(
+        sector_count,
+        support_cell_provenance.len(),
+        &support_cell_provenance,
+    )
+}
+
 pub(crate) fn support_cell_cells_per_target_sector_is_supported(cells: usize) -> bool {
     matches!(cells, 4 | 8 | 16)
 }
@@ -161,5 +177,40 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(support_cell_inventory_from_provenance(6, provenance.len(), &provenance).is_err());
+    }
+
+    #[test]
+    fn extracts_support_cell_inventory_from_mixed_patchwork() {
+        let mut provenance = Vec::new();
+        for sector in 0..6 {
+            for piece in 0..3 {
+                provenance.push(CornerSubPatchProvenance::macro_cap(
+                    crate::types::CornerSubPatchFamily::Kp20Bi6,
+                    sector,
+                    6,
+                    piece,
+                ));
+            }
+            if matches!(sector, 0 | 2 | 5) {
+                for index in 0..4 {
+                    provenance.push(CornerSubPatchProvenance::kp20_support_cell(
+                        sector, 6, index, 12,
+                    ));
+                }
+            } else {
+                provenance.push(CornerSubPatchProvenance::macro_cap(
+                    crate::types::CornerSubPatchFamily::Kp20Bi6,
+                    sector,
+                    6,
+                    3,
+                ));
+            }
+        }
+
+        let inventory = support_cell_inventory_from_patchwork_provenance(6, &provenance)
+            .expect("support-cell inventory from mixed patchwork");
+
+        assert_eq!(inventory.target_sectors, vec![0, 2, 5]);
+        assert_eq!(inventory.cells_per_target_sector, 4);
     }
 }

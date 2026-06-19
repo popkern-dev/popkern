@@ -194,11 +194,12 @@ fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
     );
 }
 
-/// N=6 variable-radius now declines the bad PnS candidate before
-/// continuing, but the committed non-support-cell fallback is still
-/// not commercial-grade at the cap/support boundary. Keep the blocker
-/// measured so the eventual routing fix has an explicit before/after
-/// signal instead of a silent fixture skip.
+/// N=6 variable-radius now reaches a complete mixed KP20 support-cell
+/// inventory and declines it at cap/support acceptance because the
+/// committed topology does not yet expose enough measurable seam
+/// ownership. Keep the fallback blocker measured so the next routing
+/// fix has an explicit before/after signal instead of a silent fixture
+/// skip.
 #[test]
 fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
@@ -221,19 +222,15 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     );
     assert_route_declined(
         &result,
-        "rational_gregory.dispatch.partial_support_cell_patch_coverage",
+        "rational_gregory.dispatch.cap_support_acceptance",
         "rational_gregory.dispatch.declined",
     );
     assert_support_cell_assembled_quality_recorded(&result);
     assert_route_detail_contains(
         &result,
-        "rational_gregory.dispatch.partial_support_cell_patch_coverage",
+        "rational_gregory.dispatch.cap_support_acceptance",
         "rational_gregory.dispatch.declined",
-        &[
-            "expected_full_support_cell_patch_count=24",
-            "actual_patch_count=12",
-            "target_count=3",
-        ],
+        &["measured 12 cap/support seams", "expected at least 33"],
     );
 }
 

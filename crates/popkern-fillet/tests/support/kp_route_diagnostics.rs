@@ -52,14 +52,14 @@ pub(crate) fn assert_support_cell_assembled_quality_recorded(result: &popkern_fi
             .any(|diagnostic| matches!(
                 diagnostic,
                 popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap)
-                    if cap.stage == "kp20_polar_macro.dispatch.support_cell_assembled_quality"
-                        && cap.code == "kp20_polar_macro.dispatch.fact"
-                        && cap.detail_code.as_deref().is_some_and(|detail| {
-                            detail.contains("selected=promoted")
-                                && detail.contains("selected_surface_count=12")
-                                && detail.contains("selected_cells_per_sector=4")
-                                && detail.contains("validation_status=valid")
-                        })
+                        if cap.stage == "kp20_polar_macro.dispatch.support_cell_assembled_quality"
+                            && cap.code == "kp20_polar_macro.dispatch.fact"
+                            && cap.detail_code.as_deref().is_some_and(|detail| {
+                                detail.contains("selected=promoted")
+                                    && detail.contains("selected_surface_count=33")
+                                    && detail.contains("selected_cells_per_sector=4")
+                                    && detail.contains("validation_status=valid")
+                            })
             )),
         "expected KP20 support-cell assembled-quality fact; diagnostics={:?}",
         exact_boundary_diagnostic_summary(result)

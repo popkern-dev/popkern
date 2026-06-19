@@ -5,7 +5,7 @@ use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::kp20_polar_support_cell_inventory::{
-    Kp20SupportCellInventory, support_cell_inventory_from_provenance,
+    Kp20SupportCellInventory, support_cell_inventory_from_patchwork_provenance,
 };
 use super::promotion_ladder::PromotionResult;
 use super::three_quad_apply::ThreeQuadApplyResult;
@@ -65,8 +65,7 @@ fn kp20_support_cell_inventory(
     provenance: Option<&[CornerSubPatchProvenance]>,
 ) -> Option<Kp20SupportCellInventory> {
     if let Some(provenance) = provenance {
-        return support_cell_inventory_from_provenance(n_sides, support_surfaces.len(), provenance)
-            .ok();
+        return support_cell_inventory_from_patchwork_provenance(n_sides, provenance).ok();
     }
     Kp20SupportCellInventory::full_ring(n_sides, support_surfaces.len())
 }
@@ -293,29 +292,45 @@ fn apply_kp20_support_cell_surfaces(
     brep: &mut BRep,
     apply: Kp20SupportCellSurfaceApply<'_>,
 ) -> Result<ThreeQuadApplyResult, String> {
-    let commit =
-        super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
-            brep,
-            apply.blend_face,
-            apply.central_point,
-            apply.n_sides,
-            apply.support_surfaces,
-            &apply.inventory,
-        )
-        .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
+    let support_cell_surface_count =
+        apply.inventory.target_sectors.len() * apply.inventory.cells_per_target_sector;
+    let (committed_faces, support_surface_indices) = if apply.support_surfaces.len()
+        == support_cell_surface_count
+    {
+        let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
+                brep,
+                apply.blend_face,
+                apply.central_point,
+                apply.n_sides,
+                apply.support_surfaces,
+                &apply.inventory,
+            )
+            .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
+        (commit.support_cell_faces, commit.support_surface_indices)
+    } else {
+        let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_mixed_support_cell_patchwork(
+                brep,
+                apply.blend_face,
+                apply.central_point,
+                apply.n_sides,
+                apply.support_surfaces,
+                &apply.inventory,
+            )
+            .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
+        (commit.sub_faces, commit.support_surface_indices)
+    };
 
-    if commit.support_cell_faces.len() != commit.support_surface_indices.len() {
+    if committed_faces.len() != support_surface_indices.len() {
         return Err(format!(
             "KP20 support-cell commit emitted {} faces for {} surface bindings",
-            commit.support_cell_faces.len(),
-            commit.support_surface_indices.len()
+            committed_faces.len(),
+            support_surface_indices.len()
         ));
     }
 
-    let patches = commit
-        .support_cell_faces
+    let patches = committed_faces
         .iter()
-        .zip(commit.support_surface_indices.iter())
+        .zip(support_surface_indices.iter())
         .map(|(&face, &source_index)| CornerPatchInfo {
             vertex: apply.vertex,
             n_sides: apply.n_sides,

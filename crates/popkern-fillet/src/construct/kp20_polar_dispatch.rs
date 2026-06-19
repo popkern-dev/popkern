@@ -11,7 +11,6 @@ use super::kp20_polar_comparison::sampler_comparison_diagnostic;
 use super::kp20_polar_fold_summary::{
     Kp20SamplerFoldSummary, summarize_candidate_intersections, summarize_intersections,
 };
-use super::kp20_polar_support_cell_inventory::support_cell_inventory_from_provenance;
 use super::kp20_polar_support_lift::Kp20SupportNormalLiftReport;
 use super::kp20_polar_support_reparameterization::{
     Kp20CoupledDomainReport, Kp20SplitDomainReport, Kp20SupportDomainRefineReport,
@@ -48,6 +47,8 @@ mod origin_inner_row;
 mod primary_candidate;
 #[path = "kp20_polar_dispatch_report.rs"]
 mod report;
+#[path = "kp20_polar_support_cell_mixed_patchwork.rs"]
+mod support_cell_mixed_patchwork;
 #[path = "kp20_polar_support_cell_route_fact.rs"]
 mod support_cell_route_fact;
 #[path = "kp20_polar_support_domain.rs"]
@@ -218,31 +219,17 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
                         && let Some(topology) = lifted.expanded_support_topology.as_ref()
                     {
                         let provenance = &topology.support_cell_primitive.emitted_provenance;
-                        match support_cell_inventory_from_provenance(
+                        match support_cell_mixed_patchwork::build_mixed_support_cell_patchwork(
                             n,
-                            support_cell_patches.len(),
+                            &lifted.patches,
+                            support_cell_patches,
                             provenance,
                         ) {
-                            Ok(_) => {
-                                if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
-                                    let mut hash = 0xcbf29ce484222325u64;
-                                    for patch in support_cell_patches {
-                                        if let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(r) = patch {
-                                            for row in &r.grid {
-                                                for point in row {
-                                                    for value in [point.x, point.y, point.z] {
-                                                        hash ^= value.to_bits();
-                                                        hash = hash.wrapping_mul(0x100000001b3);
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                    eprintln!("dtrace: lift_support_cell_patches {hash:016x}");
-                                }
+                            Ok(patchwork) => {
+                                support_cell_mixed_patchwork::trace_support_cell_patchwork_if_requested(&patchwork.surfaces);
                                 return Kp20PolarDispatchReport::accepted_support_cell(
-                                    support_cell_patches.to_vec(),
-                                    provenance.to_vec(),
+                                    patchwork.surfaces,
+                                    patchwork.provenance,
                                     lifted
                                         .support_cell_floor_patches()
                                         .map(|patches| patches.to_vec()),
