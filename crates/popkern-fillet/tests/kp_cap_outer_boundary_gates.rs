@@ -252,6 +252,9 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "multi_edge_rows",
             "max_samples_per_row",
             "max_row_after_sample_gap",
+            "max_row_after_sample_face",
+            "max_row_after_sample_side",
+            "max_row_after_sample_parameter",
             "max_boundary_displacement",
         ],
     );

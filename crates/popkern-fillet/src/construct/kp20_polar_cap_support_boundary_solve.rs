@@ -50,6 +50,9 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) max_row_parameter_span: f64,
     pub(super) max_row_before_sample_gap: f64,
     pub(super) max_row_after_sample_gap: f64,
+    pub(super) max_row_after_sample_face: Option<FaceHandle>,
+    pub(super) max_row_after_sample_side: Option<BoundarySide>,
+    pub(super) max_row_after_sample_parameter: f64,
     pub(super) max_before_gap: f64,
     pub(super) max_after_gap: f64,
     pub(super) max_boundary_displacement: f64,
@@ -111,7 +114,12 @@ pub(super) fn solve_external_cap_support_boundaries(
             report.zero_regularization_rows += 1;
         }
         report.max_boundary_displacement = report.max_boundary_displacement.max(after.displacement);
-        report.max_row_after_sample_gap = report.max_row_after_sample_gap.max(after.sample_gap);
+        if after.sample_gap > report.max_row_after_sample_gap {
+            report.max_row_after_sample_gap = after.sample_gap;
+            report.max_row_after_sample_face = Some(samples.face);
+            report.max_row_after_sample_side = Some(samples.side);
+            report.max_row_after_sample_parameter = after.sample_parameter;
+        }
         surface_access::set_rectangular_binonic_on_face(brep, samples.face, after.patch)?;
         report.fit_rows += 1;
     }

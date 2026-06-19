@@ -12,6 +12,7 @@ const ROW_FIT_REGULARIZATION_CANDIDATES: [f64; 10] = [
 pub(super) struct BoundaryFitCandidate {
     pub(super) patch: RectangularGregoryBiNonic,
     pub(super) sample_gap: f64,
+    pub(super) sample_parameter: f64,
     pub(super) displacement: f64,
     pub(super) regularization: f64,
     pub(super) candidate_count: usize,
@@ -74,6 +75,7 @@ pub(super) fn best_boundary_fit_candidate(
     let mut selected = best_bounded.unwrap_or_else(|| BoundaryFitCandidate {
         patch: before.clone(),
         sample_gap: row_sample_gap(before, side, samples),
+        sample_parameter: row_sample_gap_parameter(before, side, samples),
         displacement: 0.0,
         regularization: f64::INFINITY,
         candidate_count,
@@ -94,8 +96,10 @@ fn measured_candidate(
     patch: RectangularGregoryBiNonic,
     regularization: f64,
 ) -> BoundaryFitCandidate {
+    let (sample_gap, sample_parameter) = worst_row_sample_gap(&patch, side, samples);
     BoundaryFitCandidate {
-        sample_gap: row_sample_gap(&patch, side, samples),
+        sample_gap,
+        sample_parameter,
         displacement: row_fit::max_boundary_displacement(before, &patch, side),
         regularization,
         patch,
@@ -111,8 +115,29 @@ pub(super) fn row_sample_gap(
     side: BoundarySide,
     samples: &[row_fit::BoundaryRowFitSample],
 ) -> f64 {
-    samples.iter().fold(0.0_f64, |worst, sample| {
-        worst.max(row_fit::eval_boundary(patch, side, sample.parameter).distance_to(&sample.target))
+    worst_row_sample_gap(patch, side, samples).0
+}
+
+fn row_sample_gap_parameter(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[row_fit::BoundaryRowFitSample],
+) -> f64 {
+    worst_row_sample_gap(patch, side, samples).1
+}
+
+fn worst_row_sample_gap(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[row_fit::BoundaryRowFitSample],
+) -> (f64, f64) {
+    samples.iter().fold((0.0_f64, 0.0_f64), |worst, sample| {
+        let gap = row_fit::eval_boundary(patch, side, sample.parameter).distance_to(&sample.target);
+        if gap > worst.0 {
+            (gap, sample.parameter)
+        } else {
+            worst
+        }
     })
 }
 
