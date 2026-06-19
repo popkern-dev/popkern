@@ -234,6 +234,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "exceeds 5.000e-3",
             "cap_support_context",
             "cap_provenance=Some",
+            "role: NearMidpointRight",
         ],
     );
     assert_route_detail_contains(
