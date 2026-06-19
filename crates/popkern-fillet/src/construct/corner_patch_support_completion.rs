@@ -66,14 +66,16 @@ pub(crate) fn complete_external_cap_support_pcurves(
     let cap_faces = surfaced_cap_face_set(brep, corner_patches);
     let mut eligible_edges = 0usize;
     let mut authored_support_pcurves = 0usize;
+    let mut repaired_support_pcurves = 0usize;
     for cap_face in cap_faces.iter().copied() {
         let before = brep.clone();
-        let (face_eligible_edges, face_authored_support_pcurves) =
+        let completion_report =
             super::three_quad_support_pcurve_completion::complete_missing_external_cap_support_pcurves(
                 brep, cap_face, &cap_faces,
             );
-        eligible_edges += face_eligible_edges;
-        authored_support_pcurves += face_authored_support_pcurves;
+        eligible_edges += completion_report.eligible_edges;
+        authored_support_pcurves += completion_report.authored_support_pcurves;
+        repaired_support_pcurves += completion_report.repaired_support_pcurves;
         if let Err(error) = brep.validate() {
             *brep = before;
             diagnostics.push(cap_support_completion_rollback_diagnostic(cap_face, &error));
@@ -110,6 +112,7 @@ pub(crate) fn complete_external_cap_support_pcurves(
         cap_faces.len(),
         eligible_edges,
         authored_support_pcurves,
+        repaired_support_pcurves,
     ));
 }
 
@@ -151,12 +154,13 @@ fn cap_support_completion_fact(
     cap_face_count: usize,
     eligible_edges: usize,
     authored_support_pcurves: usize,
+    repaired_support_pcurves: usize,
 ) -> ApexConstructionDiagnostic {
     ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
         stage: "cap_support_completion".to_string(),
         code: "cap_support_completion.fact".to_string(),
         detail_code: Some(format!(
-            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_support_pcurves={authored_support_pcurves}",
+            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_support_pcurves={authored_support_pcurves};repaired_support_pcurves={repaired_support_pcurves}",
         )),
         sector_name: "external_cap_support_pcurves".to_string(),
         edge: None,

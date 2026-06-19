@@ -264,6 +264,12 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "max_boundary_displacement",
         ],
     );
+    assert_route_detail_contains(
+        &result,
+        "cap_support_completion",
+        "cap_support_completion.fact",
+        &["repaired_support_pcurves"],
+    );
 }
 
 /// Probe-style: print numbers across the canonical fixtures with
