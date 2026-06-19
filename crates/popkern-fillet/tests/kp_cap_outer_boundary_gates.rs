@@ -243,6 +243,9 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_boundary_solve.fact",
         &[
             "status=rolled_back_postcondition_failed",
+            "multi_edge_rows",
+            "max_samples_per_row",
+            "max_row_after_sample_gap",
             "max_boundary_displacement",
         ],
     );

@@ -30,12 +30,17 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) eligible_edges: usize,
     pub(super) sampled_edges: usize,
     pub(super) fit_rows: usize,
+    pub(super) multi_edge_rows: usize,
+    pub(super) max_samples_per_row: usize,
     pub(super) reauthored_edge_curves: usize,
     pub(super) missing_cap_pcurve_edges: usize,
     pub(super) missing_support_pcurve_edges: usize,
     pub(super) unrecognized_cap_pcurve_edges: usize,
     pub(super) missing_support_surface_edges: usize,
     pub(super) non_rectangular_cap_edges: usize,
+    pub(super) max_row_parameter_span: f64,
+    pub(super) max_row_before_sample_gap: f64,
+    pub(super) max_row_after_sample_gap: f64,
     pub(super) max_before_gap: f64,
     pub(super) max_after_gap: f64,
     pub(super) max_boundary_displacement: f64,
@@ -69,6 +74,18 @@ pub(super) fn solve_external_cap_support_boundaries(
     for samples in row_samples.values() {
         let before = surface_access::rectangular_binonic_on_face(brep, samples.face)?;
         let mut after = before.clone();
+        report.max_samples_per_row = report.max_samples_per_row.max(samples.samples.len());
+        if samples.samples.len() > SAMPLE_COUNT {
+            report.multi_edge_rows += 1;
+        }
+        report.max_row_parameter_span = report
+            .max_row_parameter_span
+            .max(row_parameter_span(&samples.samples));
+        report.max_row_before_sample_gap = report.max_row_before_sample_gap.max(row_sample_gap(
+            &before,
+            samples.side,
+            &samples.samples,
+        ));
         row_fit::fit_boundary_samples(&mut after, samples.side, &samples.samples);
         report.max_boundary_displacement =
             report
@@ -78,6 +95,11 @@ pub(super) fn solve_external_cap_support_boundaries(
                     &after,
                     samples.side,
                 ));
+        report.max_row_after_sample_gap = report.max_row_after_sample_gap.max(row_sample_gap(
+            &after,
+            samples.side,
+            &samples.samples,
+        ));
         surface_access::set_rectangular_binonic_on_face(brep, samples.face, after)?;
         report.fit_rows += 1;
     }
@@ -107,6 +129,29 @@ struct BoundaryRowSamples {
 struct EdgeSolveSamples {
     cap_half_edge: HalfEdgeHandle,
     targets: Vec<Point3>,
+}
+
+fn row_parameter_span(samples: &[row_fit::BoundaryRowFitSample]) -> f64 {
+    let Some(first) = samples.first() else {
+        return 0.0;
+    };
+    let mut min_parameter = first.parameter;
+    let mut max_parameter = first.parameter;
+    for sample in samples.iter().skip(1) {
+        min_parameter = min_parameter.min(sample.parameter);
+        max_parameter = max_parameter.max(sample.parameter);
+    }
+    max_parameter - min_parameter
+}
+
+fn row_sample_gap(
+    patch: &popkern_core::geometry::gregory::RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[row_fit::BoundaryRowFitSample],
+) -> f64 {
+    samples.iter().fold(0.0_f64, |worst, sample| {
+        worst.max(row_fit::eval_boundary(patch, side, sample.parameter).distance_to(&sample.target))
+    })
 }
 
 fn collect_external_cap_support_edge(
