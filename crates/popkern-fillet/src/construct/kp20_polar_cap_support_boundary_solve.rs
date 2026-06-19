@@ -16,6 +16,8 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 #[allow(dead_code)]
 mod boundary_trim;
 pub(super) use boundary_trim::BoundarySide;
+#[path = "kp20_polar_cap_support_boundary_fit.rs"]
+mod boundary_fit;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 #[allow(dead_code)]
 mod row_fit;
@@ -24,7 +26,7 @@ mod row_fit;
 mod surface_access;
 
 const SAMPLE_COUNT: usize = 12;
-const ROW_FIT_REGULARIZATION_CANDIDATES: [f64; 4] = [1.0e-4, 1.0e-6, 1.0e-8, 0.0];
+pub(super) const MAX_BOUNDARY_ROW_DISPLACEMENT: f64 = boundary_fit::MAX_BOUNDARY_ROW_DISPLACEMENT;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct CapSupportBoundarySolveReport {
@@ -33,6 +35,9 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) fit_rows: usize,
     pub(super) row_fit_candidates: usize,
     pub(super) zero_regularization_rows: usize,
+    pub(super) displacement_rejected_candidates: usize,
+    pub(super) displacement_bounded_rows: usize,
+    pub(super) displacement_unbounded_rows: usize,
     pub(super) multi_edge_rows: usize,
     pub(super) max_samples_per_row: usize,
     pub(super) reauthored_edge_curves: usize,
@@ -83,22 +88,28 @@ pub(super) fn solve_external_cap_support_boundaries(
         report.max_row_parameter_span = report
             .max_row_parameter_span
             .max(row_parameter_span(&samples.samples));
-        report.max_row_before_sample_gap = report.max_row_before_sample_gap.max(row_sample_gap(
-            &before,
-            samples.side,
-            &samples.samples,
-        ));
-        let after = best_boundary_fit_candidate(&before, samples.side, &samples.samples);
-        report.row_fit_candidates += ROW_FIT_REGULARIZATION_CANDIDATES.len();
+        report.max_row_before_sample_gap =
+            report
+                .max_row_before_sample_gap
+                .max(boundary_fit::row_sample_gap(
+                    &before,
+                    samples.side,
+                    &samples.samples,
+                ));
+        let after =
+            boundary_fit::best_boundary_fit_candidate(&before, samples.side, &samples.samples);
+        report.row_fit_candidates += after.candidate_count;
+        report.displacement_rejected_candidates += after.displacement_rejected_candidates;
+        if after.within_displacement {
+            report.displacement_bounded_rows += 1;
+        } else {
+            report.displacement_unbounded_rows += 1;
+        }
         if after.regularization == 0.0 {
             report.zero_regularization_rows += 1;
         }
         report.max_boundary_displacement = report.max_boundary_displacement.max(after.displacement);
-        report.max_row_after_sample_gap = report.max_row_after_sample_gap.max(row_sample_gap(
-            &after.patch,
-            samples.side,
-            &samples.samples,
-        ));
+        report.max_row_after_sample_gap = report.max_row_after_sample_gap.max(after.sample_gap);
         surface_access::set_rectangular_binonic_on_face(brep, samples.face, after.patch)?;
         report.fit_rows += 1;
     }
@@ -137,63 +148,6 @@ struct EdgeSolveSamples {
     targets: Vec<Point3>,
 }
 
-struct BoundaryFitCandidate {
-    patch: popkern_core::geometry::gregory::RectangularGregoryBiNonic,
-    sample_gap: f64,
-    displacement: f64,
-    regularization: f64,
-}
-
-fn best_boundary_fit_candidate(
-    before: &popkern_core::geometry::gregory::RectangularGregoryBiNonic,
-    side: BoundarySide,
-    samples: &[row_fit::BoundaryRowFitSample],
-) -> BoundaryFitCandidate {
-    let mut best = None;
-    for regularization in ROW_FIT_REGULARIZATION_CANDIDATES {
-        let mut patch = before.clone();
-        row_fit::fit_boundary_samples_with_regularization(
-            &mut patch,
-            side,
-            samples,
-            regularization,
-        );
-        let candidate = BoundaryFitCandidate {
-            sample_gap: row_sample_gap(&patch, side, samples),
-            displacement: row_fit::max_boundary_displacement(before, &patch, side),
-            regularization,
-            patch,
-        };
-        if best
-            .as_ref()
-            .is_none_or(|best| boundary_fit_candidate_is_better(&candidate, best))
-        {
-            best = Some(candidate);
-        }
-    }
-    best.unwrap_or_else(|| BoundaryFitCandidate {
-        patch: before.clone(),
-        sample_gap: 0.0,
-        displacement: 0.0,
-        regularization: ROW_FIT_REGULARIZATION_CANDIDATES[0],
-    })
-}
-
-fn boundary_fit_candidate_is_better(
-    candidate: &BoundaryFitCandidate,
-    current: &BoundaryFitCandidate,
-) -> bool {
-    (
-        candidate.sample_gap,
-        candidate.displacement,
-        candidate.regularization,
-    ) < (
-        current.sample_gap,
-        current.displacement,
-        current.regularization,
-    )
-}
-
 fn row_parameter_span(samples: &[row_fit::BoundaryRowFitSample]) -> f64 {
     let Some(first) = samples.first() else {
         return 0.0;
@@ -205,16 +159,6 @@ fn row_parameter_span(samples: &[row_fit::BoundaryRowFitSample]) -> f64 {
         max_parameter = max_parameter.max(sample.parameter);
     }
     max_parameter - min_parameter
-}
-
-fn row_sample_gap(
-    patch: &popkern_core::geometry::gregory::RectangularGregoryBiNonic,
-    side: BoundarySide,
-    samples: &[row_fit::BoundaryRowFitSample],
-) -> f64 {
-    samples.iter().fold(0.0_f64, |worst, sample| {
-        worst.max(row_fit::eval_boundary(patch, side, sample.parameter).distance_to(&sample.target))
-    })
 }
 
 fn collect_external_cap_support_edge(

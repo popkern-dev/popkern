@@ -27,7 +27,6 @@ mod support_cell_pcurve_author;
 mod support_cell_completion_candidates;
 use support_cell_completion_candidates::SupportCellCompletionCandidate;
 
-const MAX_CAP_SUPPORT_BOUNDARY_SOLVE_DISPLACEMENT: f64 = 0.1;
 #[derive(Clone)]
 struct SupportCellCompletionSelection {
     brep: BRep,
@@ -177,7 +176,10 @@ fn cap_support_boundary_solve_decline_status(
     if report.sampled_edges == 0 {
         return None;
     }
-    if report.max_boundary_displacement > MAX_CAP_SUPPORT_BOUNDARY_SOLVE_DISPLACEMENT {
+    if report.displacement_unbounded_rows > 0
+        || report.max_boundary_displacement
+            > cap_support_boundary_solve::MAX_BOUNDARY_ROW_DISPLACEMENT
+    {
         return Some("rolled_back_displacement_exceeded");
     }
     if report.max_after_gap > 5.0e-3 {
@@ -201,12 +203,15 @@ fn cap_support_boundary_solve_fact(
         stage: "cap_support_boundary_solve".to_string(),
         code: "cap_support_boundary_solve.fact".to_string(),
         detail_code: Some(format!(
-            "status={status}{status_detail};eligible_edges={};sampled_edges={};fit_rows={};row_fit_candidates={};zero_regularization_rows={};multi_edge_rows={};max_samples_per_row={};reauthored_edge_curves={};missing_cap_pcurve_edges={};missing_support_pcurve_edges={};unrecognized_cap_pcurve_edges={};missing_support_surface_edges={};non_rectangular_cap_edges={};max_row_parameter_span={:.3e};max_row_before_sample_gap={:.3e};max_row_after_sample_gap={:.3e};max_before_gap={:.3e};max_after_gap={:.3e};max_boundary_displacement={:.3e}",
+            "status={status}{status_detail};eligible_edges={};sampled_edges={};fit_rows={};row_fit_candidates={};zero_regularization_rows={};displacement_rejected_candidates={};displacement_bounded_rows={};displacement_unbounded_rows={};multi_edge_rows={};max_samples_per_row={};reauthored_edge_curves={};missing_cap_pcurve_edges={};missing_support_pcurve_edges={};unrecognized_cap_pcurve_edges={};missing_support_surface_edges={};non_rectangular_cap_edges={};max_row_parameter_span={:.3e};max_row_before_sample_gap={:.3e};max_row_after_sample_gap={:.3e};max_before_gap={:.3e};max_after_gap={:.3e};max_boundary_displacement={:.3e}",
             report.eligible_edges,
             report.sampled_edges,
             report.fit_rows,
             report.row_fit_candidates,
             report.zero_regularization_rows,
+            report.displacement_rejected_candidates,
+            report.displacement_bounded_rows,
+            report.displacement_unbounded_rows,
             report.multi_edge_rows,
             report.max_samples_per_row,
             report.reauthored_edge_curves,
