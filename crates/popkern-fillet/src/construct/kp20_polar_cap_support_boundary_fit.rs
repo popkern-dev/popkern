@@ -5,7 +5,9 @@ use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 use super::{BoundarySide, row_fit};
 
 pub(super) const MAX_BOUNDARY_ROW_DISPLACEMENT: f64 = 0.1;
-const ROW_FIT_REGULARIZATION_CANDIDATES: [f64; 4] = [1.0e-4, 1.0e-6, 1.0e-8, 0.0];
+const ROW_FIT_REGULARIZATION_CANDIDATES: [f64; 10] = [
+    1.0e2, 1.0e1, 1.0, 1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4, 1.0e-6, 1.0e-8, 0.0,
+];
 
 pub(super) struct BoundaryFitCandidate {
     pub(super) patch: RectangularGregoryBiNonic,

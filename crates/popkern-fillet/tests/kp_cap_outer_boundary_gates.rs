@@ -242,7 +242,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_boundary_solve",
         "cap_support_boundary_solve.fact",
         &[
-            "status=rolled_back_displacement_exceeded",
+            "status=rolled_back_postcondition_failed",
             "row_fit_candidates",
             "zero_regularization_rows",
             "displacement_rejected_candidates",
