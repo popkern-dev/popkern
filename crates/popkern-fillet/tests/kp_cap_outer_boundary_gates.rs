@@ -244,7 +244,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "status=rolled_back_postcondition_failed",
             "row_fit_candidates",
             "constrained_row_fit_candidates",
-            "constrained_row_singular_candidates",
+            "max_hard_satisfying_constrained_displacement",
             "hard_constraint_rows",
             "hard_constraint_samples",
             "hard_constraint_conflicts",

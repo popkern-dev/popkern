@@ -8,6 +8,7 @@ pub(super) const MAX_BOUNDARY_ROW_DISPLACEMENT: f64 = 0.1;
 const ROW_FIT_REGULARIZATION_CANDIDATES: [f64; 10] = [
     1.0e2, 1.0e1, 1.0, 1.0e-1, 1.0e-2, 1.0e-3, 1.0e-4, 1.0e-6, 1.0e-8, 0.0,
 ];
+const HARD_CONSTRAINT_SATISFIED_TOL: f64 = 1.0e-7;
 
 pub(super) struct BoundaryFitCandidate {
     pub(super) patch: RectangularGregoryBiNonic,
@@ -18,6 +19,8 @@ pub(super) struct BoundaryFitCandidate {
     pub(super) candidate_count: usize,
     pub(super) constrained_candidate_count: usize,
     pub(super) constrained_singular_candidates: usize,
+    pub(super) best_unscaled_constrained_residual: f64,
+    pub(super) min_hard_satisfying_constrained_displacement: f64,
     pub(super) hard_constraint_count: usize,
     pub(super) hard_constraint_residual: f64,
     pub(super) displacement_scaled_candidates: usize,
@@ -35,6 +38,8 @@ pub(super) fn best_boundary_fit_candidate(
     let mut candidate_count = 0;
     let mut constrained_candidate_count = 0;
     let mut constrained_singular_candidates = 0;
+    let mut best_unscaled_constrained_residual = f64::INFINITY;
+    let mut min_hard_satisfying_constrained_displacement = f64::INFINITY;
     let mut scaled = 0;
     let mut rejected = 0;
     for regularization in ROW_FIT_REGULARIZATION_CANDIDATES {
@@ -91,6 +96,13 @@ pub(super) fn best_boundary_fit_candidate(
                     constrained_patch,
                     regularization,
                 );
+                best_unscaled_constrained_residual = best_unscaled_constrained_residual
+                    .min(constrained_candidate.hard_constraint_residual);
+                if constrained_candidate.hard_constraint_residual <= HARD_CONSTRAINT_SATISFIED_TOL {
+                    min_hard_satisfying_constrained_displacement =
+                        min_hard_satisfying_constrained_displacement
+                            .min(constrained_candidate.displacement);
+                }
                 record_bounded_candidate(
                     before,
                     side,
@@ -116,6 +128,8 @@ pub(super) fn best_boundary_fit_candidate(
         candidate_count,
         constrained_candidate_count: 0,
         constrained_singular_candidates: 0,
+        best_unscaled_constrained_residual: f64::INFINITY,
+        min_hard_satisfying_constrained_displacement: f64::INFINITY,
         hard_constraint_count: hard_constraints.len(),
         hard_constraint_residual: row_fit::max_boundary_constraint_residual(
             before,
@@ -129,6 +143,9 @@ pub(super) fn best_boundary_fit_candidate(
     selected.candidate_count = candidate_count;
     selected.constrained_candidate_count = constrained_candidate_count;
     selected.constrained_singular_candidates = constrained_singular_candidates;
+    selected.best_unscaled_constrained_residual = best_unscaled_constrained_residual;
+    selected.min_hard_satisfying_constrained_displacement =
+        min_hard_satisfying_constrained_displacement;
     selected.displacement_scaled_candidates = scaled;
     selected.displacement_rejected_candidates = rejected;
     selected
@@ -204,6 +221,8 @@ fn measured_candidate(
         candidate_count: 0,
         constrained_candidate_count: 0,
         constrained_singular_candidates: 0,
+        best_unscaled_constrained_residual: f64::INFINITY,
+        min_hard_satisfying_constrained_displacement: f64::INFINITY,
         hard_constraint_count: hard_constraints.len(),
         hard_constraint_residual,
         displacement_scaled_candidates: 0,

@@ -38,6 +38,8 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) row_fit_candidates: usize,
     pub(super) constrained_row_fit_candidates: usize,
     pub(super) constrained_row_singular_candidates: usize,
+    pub(super) max_hard_satisfying_constrained_displacement: f64,
+    pub(super) max_best_unscaled_constrained_residual: f64,
     pub(super) hard_constraint_rows: usize,
     pub(super) hard_constraint_samples: usize,
     pub(super) hard_constraint_conflicts: usize,
@@ -136,6 +138,19 @@ pub(super) fn solve_external_cap_support_boundaries(
         report.row_fit_candidates += after.candidate_count;
         report.constrained_row_fit_candidates += after.constrained_candidate_count;
         report.constrained_row_singular_candidates += after.constrained_singular_candidates;
+        if after
+            .min_hard_satisfying_constrained_displacement
+            .is_finite()
+        {
+            report.max_hard_satisfying_constrained_displacement = report
+                .max_hard_satisfying_constrained_displacement
+                .max(after.min_hard_satisfying_constrained_displacement);
+        }
+        if after.best_unscaled_constrained_residual.is_finite() {
+            report.max_best_unscaled_constrained_residual = report
+                .max_best_unscaled_constrained_residual
+                .max(after.best_unscaled_constrained_residual);
+        }
         if after.hard_constraint_count > 0 {
             report.hard_constraint_rows += 1;
             report.hard_constraint_samples += after.hard_constraint_count;
