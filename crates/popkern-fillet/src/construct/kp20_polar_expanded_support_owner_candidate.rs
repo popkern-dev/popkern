@@ -20,26 +20,155 @@ use super::{
 pub(super) fn measure_support_owner_candidates(
     baseline: &Kp20SupportNormalLiftReport,
 ) -> Kp20ExpandedSupportTopologyReport {
-    let mut best = None;
+    let mut reports = Vec::new();
     for target_piece in support_owner_candidate_order() {
-        let report = measure_support_owner_candidate(baseline, target_piece);
-        if preserves_local_support_cell_floor(&report) {
-            return report;
-        }
-        if best
-            .as_ref()
-            .is_none_or(|current| report_is_better(&report, current))
-        {
-            best = Some(report);
-        }
+        reports.push(measure_support_owner_candidate(baseline, target_piece));
     }
-    best.unwrap_or_else(|| {
-        initial_report(
-            baseline.summary.fold_count,
-            Kp20PieceId::NearMidpointLeft,
-            None,
-        )
+    let best = reports
+        .iter()
+        .cloned()
+        .reduce(|current, candidate| {
+            if report_is_better(&candidate, &current) {
+                candidate
+            } else {
+                current
+            }
+        })
+        .unwrap_or_else(|| {
+            initial_report(
+                baseline.summary.fold_count,
+                Kp20PieceId::NearMidpointLeft,
+                None,
+            )
+        });
+    if let Some(combined) = combined_owner_support_cell_report(&reports, best.clone()) {
+        return combined;
+    }
+    reports
+        .into_iter()
+        .find(preserves_local_support_cell_floor)
+        .unwrap_or(best)
+}
+
+fn combined_owner_support_cell_report(
+    reports: &[Kp20ExpandedSupportTopologyReport],
+    mut base: Kp20ExpandedSupportTopologyReport,
+) -> Option<Kp20ExpandedSupportTopologyReport> {
+    let left = reports
+        .iter()
+        .find(|report| report.target_piece == Kp20PieceId::NearMidpointLeft)?;
+    let right = reports
+        .iter()
+        .find(|report| report.target_piece == Kp20PieceId::NearMidpointRight)?;
+    let left_cells = &left.support_cell_primitive;
+    let right_cells = &right.support_cell_primitive;
+    if !support_cell_primitive_is_combinable(left_cells)
+        || !support_cell_primitive_is_combinable(right_cells)
+    {
+        return None;
+    }
+    let left_cells_per_target = left_cells.cells_u * left_cells.cells_v;
+    let right_cells_per_target = right_cells.cells_u * right_cells.cells_v;
+    if left_cells_per_target == 0 || left_cells_per_target != right_cells_per_target {
+        return None;
+    }
+    if support_cell_targets_overlap(left_cells, right_cells) {
+        return None;
+    }
+
+    let total_patch_count = left_cells.emitted_patches.len() + right_cells.emitted_patches.len();
+    let mut emitted_patches = Vec::with_capacity(total_patch_count);
+    let mut emitted_provenance = Vec::with_capacity(total_patch_count);
+    append_owner_support_cells(
+        &mut emitted_patches,
+        &mut emitted_provenance,
+        left_cells,
+        total_patch_count,
+    );
+    append_owner_support_cells(
+        &mut emitted_patches,
+        &mut emitted_provenance,
+        right_cells,
+        total_patch_count,
+    );
+    if emitted_patches.len() != total_patch_count || emitted_provenance.len() != total_patch_count {
+        return None;
+    }
+
+    base.evaluated = reports.iter().map(|report| report.evaluated).sum();
+    base.rejected = reports.iter().map(|report| report.rejected).sum();
+    base.target_sector = None;
+    base.support_cell_primitive = Kp20SupportCellPrimitiveReport {
+        evaluated: left_cells.evaluated + right_cells.evaluated,
+        target_count: left_cells.target_count + right_cells.target_count,
+        patch_count: total_patch_count,
+        folded_patch_count: left_cells.folded_patch_count + right_cells.folded_patch_count,
+        cells_u: left_cells.cells_u,
+        cells_v: left_cells.cells_v,
+        topology_path_g0: left_cells
+            .topology_path_g0
+            .max(right_cells.topology_path_g0),
+        selection_policy: "multi_owner_support_cell_combined",
+        construction_mode: combined_construction_mode(left_cells, right_cells),
+        target_piece: Kp20PieceId::NearMidpointLeft,
+        emitted_patches,
+        emitted_provenance,
+        committed_floor_patches: Vec::new(),
+        decline_reason: "support_cell_primitive_multi_owner_fold_free",
+    };
+    base.decline_reason = "expanded_support_topology_multi_owner_support_cell";
+    Some(base)
+}
+
+fn support_cell_primitive_is_combinable(cells: &Kp20SupportCellPrimitiveReport) -> bool {
+    cells.folded_patch_count == 0
+        && !cells.emitted_patches.is_empty()
+        && !cells.emitted_provenance.is_empty()
+        && cells.emitted_patches.len() == cells.emitted_provenance.len()
+        && cells.topology_path_g0.is_finite()
+}
+
+fn support_cell_targets_overlap(
+    left: &Kp20SupportCellPrimitiveReport,
+    right: &Kp20SupportCellPrimitiveReport,
+) -> bool {
+    left.emitted_provenance.iter().any(|left_item| {
+        right
+            .emitted_provenance
+            .iter()
+            .any(|right_item| left_item.sector_index == right_item.sector_index)
     })
+}
+
+fn append_owner_support_cells(
+    emitted_patches: &mut Vec<popkern_core::geometry::gregory::GregoryPatch>,
+    emitted_provenance: &mut Vec<crate::types::CornerSubPatchProvenance>,
+    cells: &Kp20SupportCellPrimitiveReport,
+    total_patch_count: usize,
+) {
+    for (patch, provenance) in cells
+        .emitted_patches
+        .iter()
+        .cloned()
+        .zip(cells.emitted_provenance.iter().copied())
+    {
+        let mut rewritten = provenance;
+        rewritten.piece_index = emitted_provenance.len();
+        rewritten.piece_count = total_patch_count;
+        emitted_patches.push(patch);
+        emitted_provenance.push(rewritten);
+    }
+}
+
+fn combined_construction_mode(
+    left: &Kp20SupportCellPrimitiveReport,
+    right: &Kp20SupportCellPrimitiveReport,
+) -> &'static str {
+    if left.construction_mode == right.construction_mode {
+        left.construction_mode
+    } else {
+        "multi_owner_mixed_construction_modes"
+    }
 }
 
 fn support_owner_candidate_order() -> [Kp20PieceId; 2] {

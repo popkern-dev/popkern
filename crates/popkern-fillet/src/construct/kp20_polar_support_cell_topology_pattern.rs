@@ -114,7 +114,7 @@ fn split_quad_like_face_into_two_lanes(
             let opposite_edge = brep.half_edges[hes[3]].edge;
             brep.split_edge(opposite_edge, 0.5)?;
         }
-        6..=8 => return split_presplit_face_into_quad_like_pair(brep, face),
+        6..=12 => return split_presplit_face_into_quad_like_pair(brep, face),
         len => {
             return Err(CoreError::PreconditionFailed(format!(
                 "kp20 support-cell poke expected quad or one-pre-split face, got {len} half-edges",

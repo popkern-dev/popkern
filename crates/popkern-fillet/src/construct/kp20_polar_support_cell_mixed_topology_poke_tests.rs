@@ -79,6 +79,45 @@ fn owner_mixed_support_cell_commit_splits_multiple_support_owners() {
 }
 
 #[test]
+fn owner_mixed_support_cell_commit_splits_adjacent_support_owners_in_same_sector() {
+    let (mut brep, face) = build_flat_2ngon(6);
+    let support_surfaces = (0..30).map(dummy_gregory_surface).collect::<Vec<_>>();
+    let inventory = Kp20SupportCellOwnerInventory {
+        sector_count: 6,
+        targets: vec![
+            Kp20SupportCellOwnerTarget {
+                sector: 0,
+                target_piece: Kp20PieceId::NearMidpointRight,
+            },
+            Kp20SupportCellOwnerTarget {
+                sector: 0,
+                target_piece: Kp20PieceId::NearMidpointLeft,
+            },
+        ],
+        cells_per_target_sector: 4,
+    };
+
+    let commit = commit_kp20_owner_mixed_support_cell_patchwork(
+        &mut brep,
+        face,
+        Point3::new(0.0, 0.0, 0.0),
+        6,
+        &support_surfaces,
+        &inventory,
+    )
+    .expect("same-sector owner mixed support-cell commit");
+
+    assert_eq!(commit.sub_faces.len(), 30);
+    assert_eq!(commit.support_surface_indices.len(), 30);
+    assert!(commit.sub_faces.iter().all(|face| matches!(
+        brep.faces[*face].surface.as_ref().map(|surface| &surface.geometry),
+        Some(SurfaceGeometry::Gregory(_))
+    )));
+    brep.validate()
+        .expect("same-sector owner mixed support-cell commit leaves valid BRep");
+}
+
+#[test]
 fn legacy_4n_topology_exposes_three_outer_slots() {
     let (mut brep, face) = build_flat_2ngon(6);
     let poke = crate::construct::poke_4n::poke_n_gon_face_into_expected_4n_quads(
