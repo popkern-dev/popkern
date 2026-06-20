@@ -56,7 +56,7 @@ pub(crate) fn assert_support_cell_assembled_quality_recorded(result: &popkern_fi
                             && cap.code == "kp20_polar_macro.dispatch.fact"
                             && cap.detail_code.as_deref().is_some_and(|detail| {
                                 detail.contains("selected=promoted")
-                                    && detail.contains("selected_surface_count=33")
+                                    && detail.contains("selected_surface_count=45")
                                     && detail.contains("selected_cells_per_sector=4")
                                     && detail.contains("validation_status=valid")
                             })

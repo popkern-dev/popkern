@@ -194,11 +194,8 @@ fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
     );
 }
 
-/// N=6 variable-radius now reaches a complete mixed KP20 support-cell
-/// inventory, completes external cap/support seam ownership, and
-/// declines it at cap/support acceptance on measured G0 quality. Keep
-/// the fallback blocker measured so the next routing fix has an
-/// explicit before/after signal instead of a silent fixture skip.
+/// N=6 variable-radius now reaches combined owner-specific KP20 support
+/// cells and declines at cap/support acceptance on measured G0 quality.
 #[test]
 fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
@@ -225,6 +222,15 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "rational_gregory.dispatch.declined",
     );
     assert_support_cell_assembled_quality_recorded(&result);
+    assert_route_detail_contains(
+        &result,
+        "kp20_polar_macro.dispatch.nonoverlap_limited_lift",
+        "kp20_polar_macro.dispatch.fact",
+        &[
+            "expanded_support_topology_support_cell_primitive_selection_policy=multi_owner_support_cell_combined",
+            "expanded_support_topology_support_cell_primitive_patch_count=28",
+        ],
+    );
     assert_selected_fallback_cap_support_continuity_recorded(&result);
     assert_route_detail_contains(
         &result,
@@ -239,7 +245,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "cap_curve_gap=",
             "support_curve_gap=",
             "cap_provenance=Some",
-            "role: NearMidpointRight",
+            "role: SupportCellNearMidpointRight",
         ],
     );
     assert_route_detail_contains(

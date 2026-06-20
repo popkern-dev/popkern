@@ -72,10 +72,6 @@ fn combined_owner_support_cell_report(
     if left_cells_per_target == 0 || left_cells_per_target != right_cells_per_target {
         return None;
     }
-    if support_cell_targets_overlap(left_cells, right_cells) {
-        return None;
-    }
-
     let total_patch_count = left_cells.emitted_patches.len() + right_cells.emitted_patches.len();
     let mut emitted_patches = Vec::with_capacity(total_patch_count);
     let mut emitted_provenance = Vec::with_capacity(total_patch_count);
@@ -126,18 +122,6 @@ fn support_cell_primitive_is_combinable(cells: &Kp20SupportCellPrimitiveReport) 
         && !cells.emitted_provenance.is_empty()
         && cells.emitted_patches.len() == cells.emitted_provenance.len()
         && cells.topology_path_g0.is_finite()
-}
-
-fn support_cell_targets_overlap(
-    left: &Kp20SupportCellPrimitiveReport,
-    right: &Kp20SupportCellPrimitiveReport,
-) -> bool {
-    left.emitted_provenance.iter().any(|left_item| {
-        right
-            .emitted_provenance
-            .iter()
-            .any(|right_item| left_item.sector_index == right_item.sector_index)
-    })
 }
 
 fn append_owner_support_cells(

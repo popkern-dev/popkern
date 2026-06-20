@@ -3,6 +3,8 @@ use popkern_core::topology::{BRep, FaceHandle};
 
 use super::face_outer_half_edges;
 
+const MAX_PRESPLIT_SUPPORT_FACE_BOUNDARY_EDGES: usize = 32;
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Kp20SupportCellTopologyPattern {
@@ -114,7 +116,9 @@ fn split_quad_like_face_into_two_lanes(
             let opposite_edge = brep.half_edges[hes[3]].edge;
             brep.split_edge(opposite_edge, 0.5)?;
         }
-        6..=12 => return split_presplit_face_into_quad_like_pair(brep, face),
+        6..=MAX_PRESPLIT_SUPPORT_FACE_BOUNDARY_EDGES => {
+            return split_presplit_face_into_quad_like_pair(brep, face);
+        }
         len => {
             return Err(CoreError::PreconditionFailed(format!(
                 "kp20 support-cell poke expected quad or one-pre-split face, got {len} half-edges",
@@ -137,6 +141,7 @@ fn split_presplit_face_into_quad_like_pair(
     face: FaceHandle,
 ) -> Result<[FaceHandle; 2], CoreError> {
     let hes = face_outer_half_edges(brep, face)?;
+    let mut best = None;
     for first in 0..hes.len() {
         for second in 0..hes.len() {
             if first == second {
@@ -152,17 +157,45 @@ fn split_presplit_face_into_quad_like_pair(
             let Ok(right) = face_outer_half_edges(&trial, mef.face) else {
                 continue;
             };
-            if (4..=5).contains(&left.len())
-                && (4..=5).contains(&right.len())
-                && trial.validate().is_ok()
+            if !presplit_face_split_is_quad_like(hes.len(), left.len(), right.len())
+                || trial.validate().is_err()
             {
-                *brep = trial;
-                return Ok([mef.face, face]);
+                continue;
+            }
+            let score = PresplitFaceSplitScore::from_loop_lengths(left.len(), right.len());
+            if best
+                .as_ref()
+                .is_none_or(|(best_score, _, _)| score < *best_score)
+            {
+                best = Some((score, trial, mef.face));
             }
         }
+    }
+    if let Some((_, trial, new_face)) = best {
+        *brep = trial;
+        return Ok([new_face, face]);
     }
     Err(CoreError::PreconditionFailed(format!(
         "kp20 support-cell poke could not split pre-split {}-edge support face into quad-like lanes",
         hes.len(),
     )))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct PresplitFaceSplitScore {
+    max_boundary_edges: usize,
+    imbalance: usize,
+}
+
+impl PresplitFaceSplitScore {
+    fn from_loop_lengths(left: usize, right: usize) -> Self {
+        Self {
+            max_boundary_edges: left.max(right),
+            imbalance: left.abs_diff(right),
+        }
+    }
+}
+
+fn presplit_face_split_is_quad_like(parent: usize, left: usize, right: usize) -> bool {
+    left >= 4 && right >= 4 && left < parent && right < parent && left + right == parent + 2
 }
