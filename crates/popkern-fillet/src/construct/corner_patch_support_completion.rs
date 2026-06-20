@@ -10,6 +10,11 @@ use popkern_core::topology::FaceHandle;
 use super::kp20_polar_support_cell_shared_trim_quality as shared_trim_quality;
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
 
+#[path = "corner_patch_support_pcurve_classification.rs"]
+mod cap_support_pcurve_classification;
+use cap_support_pcurve_classification::{
+    ExternalCapSupportPcurveClassification, classify_external_cap_support_pcurves,
+};
 #[path = "kp20_polar_cap_support_boundary_solve.rs"]
 mod cap_support_boundary_solve;
 #[path = "kp20_polar_support_cell_boundary_reconcile.rs"]
@@ -89,6 +94,7 @@ pub(crate) fn complete_external_cap_support_pcurves(
             diagnostics.push(cap_support_completion_rollback_diagnostic(cap_face, &error));
         }
     }
+    let cap_pcurve_classification = classify_external_cap_support_pcurves(brep, &cap_faces);
     let before_boundary_solve = brep.clone();
     match cap_support_boundary_solve::solve_external_cap_support_boundaries(brep, &cap_faces) {
         Ok(report) => {
@@ -125,6 +131,7 @@ pub(crate) fn complete_external_cap_support_pcurves(
         declined_cap_boundary_pcurves,
         authored_support_pcurves,
         repaired_support_pcurves,
+        cap_pcurve_classification,
     ));
 }
 
@@ -171,12 +178,16 @@ fn cap_support_completion_fact(
     declined_cap_boundary_pcurves: usize,
     authored_support_pcurves: usize,
     repaired_support_pcurves: usize,
+    cap_pcurve_classification: ExternalCapSupportPcurveClassification,
 ) -> ApexConstructionDiagnostic {
     ApexConstructionDiagnostic::ExactBoundaryCap(crate::types::ExactBoundaryCapDiagnostic {
         stage: "cap_support_completion".to_string(),
         code: "cap_support_completion.fact".to_string(),
         detail_code: Some(format!(
-            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_cap_boundary_pcurves={authored_cap_boundary_pcurves};repaired_cap_boundary_pcurves={repaired_cap_boundary_pcurves};inferred_cap_boundary_pcurves={inferred_cap_boundary_pcurves};declined_cap_boundary_pcurves={declined_cap_boundary_pcurves};authored_support_pcurves={authored_support_pcurves};repaired_support_pcurves={repaired_support_pcurves}",
+            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_cap_boundary_pcurves={authored_cap_boundary_pcurves};repaired_cap_boundary_pcurves={repaired_cap_boundary_pcurves};inferred_cap_boundary_pcurves={inferred_cap_boundary_pcurves};declined_cap_boundary_pcurves={declined_cap_boundary_pcurves};authored_support_pcurves={authored_support_pcurves};repaired_support_pcurves={repaired_support_pcurves};unrecognized_cap_boundary_pcurve_edges={};unrecognized_cap_boundary_hint_edges={};recognized_cap_boundary_hint_edges={}",
+            cap_pcurve_classification.unrecognized_cap_boundary_pcurve_edges,
+            cap_pcurve_classification.unrecognized_cap_boundary_hint_edges,
+            cap_pcurve_classification.recognized_cap_boundary_hint_edges,
         )),
         sector_name: "external_cap_support_pcurves".to_string(),
         edge: None,

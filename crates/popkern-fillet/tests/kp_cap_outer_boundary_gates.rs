@@ -194,8 +194,6 @@ fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
     );
 }
 
-/// N=6 variable-radius now reaches combined owner-specific KP20 support
-/// cells and declines at cap/support acceptance on measured G0 quality.
 #[test]
 fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
@@ -293,7 +291,11 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         &result,
         "cap_support_completion",
         "cap_support_completion.fact",
-        &["inferred_cap_boundary_pcurves", "repaired_support_pcurves"],
+        &[
+            "unrecognized_cap_boundary_pcurve_edges=6",
+            "unrecognized_cap_boundary_hint_edges=0",
+            "recognized_cap_boundary_hint_edges=0",
+        ],
     );
 }
 
