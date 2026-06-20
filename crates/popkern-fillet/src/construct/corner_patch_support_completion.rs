@@ -65,6 +65,10 @@ pub(crate) fn complete_external_cap_support_pcurves(
 ) {
     let cap_faces = surfaced_cap_face_set(brep, corner_patches);
     let mut eligible_edges = 0usize;
+    let mut authored_cap_boundary_pcurves = 0usize;
+    let mut repaired_cap_boundary_pcurves = 0usize;
+    let mut inferred_cap_boundary_pcurves = 0usize;
+    let mut declined_cap_boundary_pcurves = 0usize;
     let mut authored_support_pcurves = 0usize;
     let mut repaired_support_pcurves = 0usize;
     for cap_face in cap_faces.iter().copied() {
@@ -74,6 +78,10 @@ pub(crate) fn complete_external_cap_support_pcurves(
                 brep, cap_face, &cap_faces,
             );
         eligible_edges += completion_report.eligible_edges;
+        authored_cap_boundary_pcurves += completion_report.authored_cap_boundary_pcurves;
+        repaired_cap_boundary_pcurves += completion_report.repaired_cap_boundary_pcurves;
+        inferred_cap_boundary_pcurves += completion_report.inferred_cap_boundary_pcurves;
+        declined_cap_boundary_pcurves += completion_report.declined_cap_boundary_pcurves;
         authored_support_pcurves += completion_report.authored_support_pcurves;
         repaired_support_pcurves += completion_report.repaired_support_pcurves;
         if let Err(error) = brep.validate() {
@@ -111,6 +119,10 @@ pub(crate) fn complete_external_cap_support_pcurves(
     diagnostics.push(cap_support_completion_fact(
         cap_faces.len(),
         eligible_edges,
+        authored_cap_boundary_pcurves,
+        repaired_cap_boundary_pcurves,
+        inferred_cap_boundary_pcurves,
+        declined_cap_boundary_pcurves,
         authored_support_pcurves,
         repaired_support_pcurves,
     ));
@@ -153,6 +165,10 @@ fn cap_support_completion_rollback_diagnostic(
 fn cap_support_completion_fact(
     cap_face_count: usize,
     eligible_edges: usize,
+    authored_cap_boundary_pcurves: usize,
+    repaired_cap_boundary_pcurves: usize,
+    inferred_cap_boundary_pcurves: usize,
+    declined_cap_boundary_pcurves: usize,
     authored_support_pcurves: usize,
     repaired_support_pcurves: usize,
 ) -> ApexConstructionDiagnostic {
@@ -160,7 +176,7 @@ fn cap_support_completion_fact(
         stage: "cap_support_completion".to_string(),
         code: "cap_support_completion.fact".to_string(),
         detail_code: Some(format!(
-            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_support_pcurves={authored_support_pcurves};repaired_support_pcurves={repaired_support_pcurves}",
+            "cap_face_count={cap_face_count};eligible_edges={eligible_edges};authored_cap_boundary_pcurves={authored_cap_boundary_pcurves};repaired_cap_boundary_pcurves={repaired_cap_boundary_pcurves};inferred_cap_boundary_pcurves={inferred_cap_boundary_pcurves};declined_cap_boundary_pcurves={declined_cap_boundary_pcurves};authored_support_pcurves={authored_support_pcurves};repaired_support_pcurves={repaired_support_pcurves}",
         )),
         sector_name: "external_cap_support_pcurves".to_string(),
         edge: None,

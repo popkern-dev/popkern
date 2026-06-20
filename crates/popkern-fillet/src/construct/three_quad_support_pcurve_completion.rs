@@ -21,6 +21,12 @@ use support_pcurve_completion_quality::{
     oriented_pcurve_sample_gap, pcurve_surface_sample_gap,
     support_pcurve_candidate_improves_samples,
 };
+#[path = "three_quad_support_pcurve_completion_cap_hint.rs"]
+mod support_pcurve_completion_cap_hint;
+use support_pcurve_completion_cap_hint::{
+    CapBoundaryPcurveSource, cap_boundary_pcurve_candidate,
+    cap_boundary_pcurve_candidate_is_acceptable,
+};
 
 const SAMPLE_COUNT: usize = 12;
 const SUPPORT_PCURVE_ENDPOINT_AUTHORITY_TOL: f64 = 1.0e-5;
@@ -56,12 +62,20 @@ pub(crate) fn complete_missing_external_cap_support_pcurves(
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct CapSupportPcurveCompletionReport {
     pub(crate) eligible_edges: usize,
+    pub(crate) authored_cap_boundary_pcurves: usize,
+    pub(crate) repaired_cap_boundary_pcurves: usize,
+    pub(crate) inferred_cap_boundary_pcurves: usize,
+    pub(crate) declined_cap_boundary_pcurves: usize,
     pub(crate) authored_support_pcurves: usize,
     pub(crate) repaired_support_pcurves: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
 struct CapSupportHalfEdgeCompletion {
+    authored_cap_boundary_pcurve: bool,
+    repaired_cap_boundary_pcurve: bool,
+    inferred_cap_boundary_pcurve: bool,
+    declined_cap_boundary_pcurve: bool,
     authored_support_pcurve: bool,
     repaired_support_pcurve: bool,
 }
@@ -94,6 +108,14 @@ where
         if include_support_face(support_face) {
             report.eligible_edges += 1;
             let completion = complete_cap_support_half_edge(brep, &cap_surface, half_edge, policy);
+            report.authored_cap_boundary_pcurves +=
+                completion.authored_cap_boundary_pcurve as usize;
+            report.repaired_cap_boundary_pcurves +=
+                completion.repaired_cap_boundary_pcurve as usize;
+            report.inferred_cap_boundary_pcurves +=
+                completion.inferred_cap_boundary_pcurve as usize;
+            report.declined_cap_boundary_pcurves +=
+                completion.declined_cap_boundary_pcurve as usize;
             report.authored_support_pcurves += completion.authored_support_pcurve as usize;
             report.repaired_support_pcurves += completion.repaired_support_pcurve as usize;
         }
@@ -172,6 +194,7 @@ fn complete_cap_support_half_edge(
         let last = samples.len() - 1;
         samples[last] = brep.vertices[brep.half_edges[twin].origin].position;
     }
+    let mut completion = CapSupportHalfEdgeCompletion::default();
     let mut support_samples = samples.clone();
     support_samples.reverse();
     let needs_edge_curve = edge_curve.is_none()
@@ -180,15 +203,45 @@ fn complete_cap_support_half_edge(
                 support_owns_seam
                     && edge_curve_sample_gap(brep, half_edge, curve, &samples) > 1.0e-5
             }));
-    let cap_boundary_owned = brep.surface_boundary_hint(half_edge).is_some();
-    let needs_cap_pcurve = !cap_boundary_owned
-        && match brep.half_edges[half_edge].pcurve.as_ref() {
+    let cap_uv_samples = samples
+        .iter()
+        .map(|point| cap_uv_point(cap_surface, point))
+        .collect::<Vec<_>>();
+    let cap_boundary_hint = brep.surface_boundary_hint(half_edge);
+    let cap_boundary_candidate = cap_boundary_pcurve_candidate(
+        cap_boundary_hint,
+        brep.half_edges[half_edge].pcurve.as_ref(),
+        &cap_uv_samples,
+    );
+    let accepted_cap_boundary_candidate = if let Some(candidate) = cap_boundary_candidate {
+        let acceptable = cap_boundary_pcurve_candidate_is_acceptable(
+            brep,
+            half_edge,
+            cap_surface,
+            &candidate,
+            &samples,
+        );
+        completion.declined_cap_boundary_pcurve = !acceptable;
+        acceptable.then_some(candidate)
+    } else if cap_boundary_hint.is_some() {
+        completion.declined_cap_boundary_pcurve = true;
+        None
+    } else {
+        None
+    };
+    let needs_cap_pcurve = if accepted_cap_boundary_candidate.is_some() {
+        true
+    } else if cap_boundary_hint.is_some() {
+        false
+    } else {
+        match brep.half_edges[half_edge].pcurve.as_ref() {
             None => true,
             Some(pcurve) if policy.2 => {
                 oriented_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, &samples) > 1.0e-5
             }
             Some(_) => false,
-        };
+        }
+    };
     let needs_support_pcurve = match brep.half_edges[twin].pcurve.as_ref() {
         None => true,
         Some(_) if !policy.2 => false,
@@ -219,15 +272,21 @@ fn complete_cap_support_half_edge(
         });
     }
     if needs_cap_pcurve {
-        let uv_samples = samples
-            .iter()
-            .map(|point| cap_uv_point(cap_surface, point))
-            .collect::<Vec<_>>();
-        brep.half_edges[half_edge].pcurve = Some(best_pcurve_for_surface_samples(
-            cap_surface,
-            &uv_samples,
-            &samples,
-        ));
+        let authored_cap_pcurve = brep.half_edges[half_edge].pcurve.is_none();
+        brep.half_edges[half_edge].pcurve = if let Some(candidate) = accepted_cap_boundary_candidate
+        {
+            completion.authored_cap_boundary_pcurve = authored_cap_pcurve;
+            completion.repaired_cap_boundary_pcurve = !authored_cap_pcurve;
+            completion.inferred_cap_boundary_pcurve =
+                candidate.source == CapBoundaryPcurveSource::Inferred;
+            Some(candidate.pcurve)
+        } else {
+            Some(best_pcurve_for_surface_samples(
+                cap_surface,
+                &cap_uv_samples,
+                &samples,
+            ))
+        };
     }
     if needs_support_pcurve {
         let uv_samples = support_samples
@@ -245,13 +304,16 @@ fn complete_cap_support_half_edge(
         ) {
             let authored_support_pcurve = brep.half_edges[twin].pcurve.is_none();
             brep.half_edges[twin].pcurve = Some(candidate);
+            completion.authored_support_pcurve = authored_support_pcurve;
+            completion.repaired_support_pcurve = !authored_support_pcurve;
             return CapSupportHalfEdgeCompletion {
-                authored_support_pcurve,
-                repaired_support_pcurve: !authored_support_pcurve,
+                authored_support_pcurve: completion.authored_support_pcurve,
+                repaired_support_pcurve: completion.repaired_support_pcurve,
+                ..completion
             };
         }
     }
-    CapSupportHalfEdgeCompletion::default()
+    completion
 }
 
 fn cap_oriented_samples(

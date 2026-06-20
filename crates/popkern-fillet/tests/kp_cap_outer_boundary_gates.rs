@@ -281,7 +281,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         &result,
         "cap_support_completion",
         "cap_support_completion.fact",
-        &["repaired_support_pcurves"],
+        &["inferred_cap_boundary_pcurves", "repaired_support_pcurves"],
     );
 }
 
