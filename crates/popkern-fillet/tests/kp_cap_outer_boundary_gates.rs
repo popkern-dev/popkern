@@ -42,6 +42,7 @@ use helpers::{
 };
 use route_diagnostics::{
     assert_route_declined, assert_route_detail_contains,
+    assert_selected_fallback_cap_support_continuity_recorded,
     assert_support_cell_assembled_quality_recorded,
 };
 
@@ -224,6 +225,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "rational_gregory.dispatch.declined",
     );
     assert_support_cell_assembled_quality_recorded(&result);
+    assert_selected_fallback_cap_support_continuity_recorded(&result);
     assert_route_detail_contains(
         &result,
         "rational_gregory.dispatch.cap_support_acceptance",

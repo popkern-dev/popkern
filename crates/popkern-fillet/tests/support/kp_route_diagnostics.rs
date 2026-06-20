@@ -66,22 +66,60 @@ pub(crate) fn assert_support_cell_assembled_quality_recorded(result: &popkern_fi
     );
 }
 
+pub(crate) fn assert_selected_fallback_cap_support_continuity_recorded(
+    result: &popkern_fillet::BlendResult,
+) {
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|diagnostic| matches!(
+                diagnostic,
+                popkern_fillet::ApexConstructionDiagnostic::CapSupportContinuity(cap)
+                    if cap.measurement_scope == "selected_fallback_live_topology"
+                        && cap.edges_measured > 0
+                        && cap.cap_uv.is_some()
+                        && cap.support_uv.is_some()
+                        && cap.cap_curve_gap.is_some()
+                        && cap.support_curve_gap.is_some()
+                        && cap.continuity.decline_code.is_some()
+            )),
+        "expected selected fallback cap/support continuity diagnostic; diagnostics={:?}",
+        apex_diagnostic_summary(result)
+    );
+}
+
 fn exact_boundary_diagnostic_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
+    apex_diagnostic_summary(result)
+        .into_iter()
+        .filter(|summary| summary.starts_with("exact:"))
+        .collect()
+}
+
+fn apex_diagnostic_summary(result: &popkern_fillet::BlendResult) -> Vec<String> {
     result
         .repair_report
         .apex_diagnostics
         .iter()
-        .filter_map(|diagnostic| {
-            let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) = diagnostic
-            else {
-                return None;
-            };
-            Some(format!(
-                "stage={};code={};detail={}",
+        .map(|diagnostic| match diagnostic {
+            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(cap) => format!(
+                "exact:stage={};code={};detail={}",
                 cap.stage,
                 cap.code,
                 cap.detail_code.as_deref().unwrap_or("<none>")
-            ))
+            ),
+            popkern_fillet::ApexConstructionDiagnostic::CapSupportContinuity(cap) => format!(
+                "cap_support:scope={};edges={};code={:?};cap_uv={:?};support_uv={:?};cap_curve_gap={:?};support_curve_gap={:?}",
+                cap.measurement_scope,
+                cap.edges_measured,
+                cap.continuity.decline_code,
+                cap.cap_uv,
+                cap.support_uv,
+                cap.cap_curve_gap,
+                cap.support_curve_gap
+            ),
+            other => format!("{other:?}"),
         })
         .collect()
 }

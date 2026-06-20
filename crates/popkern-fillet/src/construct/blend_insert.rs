@@ -35,6 +35,7 @@ use blend_insert_diagnostics::{
 };
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
+use blend_insert_three_quad_acceptance::record_fallback_cap_support_continuity;
 use blend_insert_topology::{normalize_underresolved_face_loop_to_n, split_corner_triangles};
 
 type InsertVertexBlendOutput = (
@@ -186,7 +187,6 @@ pub(crate) fn insert_vertex_blend(
     // half-edge pairs.
     kev_v_bridge(brep, vertex)?;
 
-    // Phase 3 orphan (idempotent safety net for no-bridge cases).
     remove_orphaned_vertex(brep, vertex);
 
     // Phase 6c-D (N-path arm): when sphere-fit substitution
@@ -349,6 +349,7 @@ pub(crate) fn insert_vertex_blend(
         }
     }
 
+    record_fallback_cap_support_continuity(brep, base_patch.face, &mut diagnostics);
     Ok((vec![base_patch], n_gon_boundary, diagnostics))
 }
 

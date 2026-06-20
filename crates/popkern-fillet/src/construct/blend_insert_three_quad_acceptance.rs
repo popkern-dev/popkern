@@ -1,7 +1,7 @@
 //! Transactional acceptance for rational/KP three-quad dispatch results.
 
 use popkern_core::error::ValidationError;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::construct::three_quad_apply::ThreeQuadApplyResult;
 use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
@@ -102,6 +102,26 @@ pub(super) fn accept_three_quad_result(
         Some(detail),
     ));
     ThreeQuadAcceptance::Declined(diagnostics)
+}
+
+pub(super) fn record_fallback_cap_support_continuity(
+    brep: &BRep,
+    cap_face: FaceHandle,
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+) {
+    if let Some(mut diagnostic) =
+        crate::construct::cap_outer_acceptance::cap_support_continuity_diagnostic(
+            brep,
+            &[cap_face],
+            5.0e-3,
+            5.0e-2,
+        )
+    {
+        if let ApexConstructionDiagnostic::CapSupportContinuity(cap) = &mut diagnostic {
+            cap.measurement_scope = "selected_fallback_live_topology".to_string();
+        }
+        diagnostics.push(diagnostic);
+    }
 }
 
 fn cap_support_decline_context(
