@@ -1,6 +1,7 @@
 //! Pcurve loop optimizer for KP20 support-cell topology.
 
 use popkern_core::error::CoreError;
+use popkern_core::geometry::edge_triple::BoundarySide;
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
@@ -59,6 +60,7 @@ pub(crate) fn author_optimized_support_cell_pcurves(
             let start = uvs[index];
             let end = uvs[(index + 1) % uvs.len()];
             brep.half_edges[half_edge].pcurve = Some(Pcurve::linear(start, end, 0.0, 1.0));
+            record_unit_domain_boundary_hint(brep, half_edge, start, end);
         }
     }
     brep.validate().map_err(|error| {
@@ -187,6 +189,39 @@ pub(crate) fn author_assigned_support_cell_pcurves(
     }
     let source_map = (0..slots.len()).collect::<Vec<_>>();
     author_optimized_support_cell_pcurves(brep, &slots, &surfaces, &source_map)
+}
+
+fn record_unit_domain_boundary_hint(
+    brep: &mut BRep,
+    half_edge: HalfEdgeHandle,
+    start: (f64, f64),
+    end: (f64, f64),
+) {
+    if let Some(boundary) = unit_domain_boundary_side(start, end) {
+        brep.set_surface_boundary_hint(half_edge, boundary);
+    } else {
+        brep.clear_surface_boundary_hint(half_edge);
+    }
+}
+
+fn unit_domain_boundary_side(start: (f64, f64), end: (f64, f64)) -> Option<BoundarySide> {
+    let span_u = (start.0 - end.0).abs();
+    let span_v = (start.1 - end.1).abs();
+    if close_unit(start.0, 0.0) && close_unit(end.0, 0.0) && span_v > 1.0e-9 {
+        Some(BoundarySide::UMin)
+    } else if close_unit(start.0, 1.0) && close_unit(end.0, 1.0) && span_v > 1.0e-9 {
+        Some(BoundarySide::UMax)
+    } else if close_unit(start.1, 0.0) && close_unit(end.1, 0.0) && span_u > 1.0e-9 {
+        Some(BoundarySide::VMin)
+    } else if close_unit(start.1, 1.0) && close_unit(end.1, 1.0) && span_u > 1.0e-9 {
+        Some(BoundarySide::VMax)
+    } else {
+        None
+    }
+}
+
+fn close_unit(a: f64, b: f64) -> bool {
+    (a - b).abs() <= 1.0e-9
 }
 
 fn support_cell_adjacencies(
