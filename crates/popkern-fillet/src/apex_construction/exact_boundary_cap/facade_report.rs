@@ -148,7 +148,7 @@ fn report_diagnostic_from_cap_support(
             .decline_code
             .clone()
             .unwrap_or_else(|| "cap_outer_g1_exceeds_gate".to_string()),
-        detail_code: Some(diagnostic.measurement_scope.clone()),
+        detail_code: Some(cap_support_detail_code(diagnostic)),
         sector_name: String::new(),
         edge: Some(diagnostic.edge),
         support_half_edge: None,
@@ -167,6 +167,17 @@ fn report_diagnostic_from_cap_support(
         }),
         shared_fact_ids: Vec::new(),
     }
+}
+
+fn cap_support_detail_code(diagnostic: &CapSupportContinuityDiagnostic) -> String {
+    format!(
+        "{};cap_uv={:?};support_uv={:?};cap_curve_gap={:?};support_curve_gap={:?}",
+        diagnostic.measurement_scope,
+        diagnostic.cap_uv,
+        diagnostic.support_uv,
+        diagnostic.cap_curve_gap,
+        diagnostic.support_curve_gap
+    )
 }
 
 fn report_continuity(diagnostics: &[ApexConstructionDiagnostic]) -> CapContinuityReport {

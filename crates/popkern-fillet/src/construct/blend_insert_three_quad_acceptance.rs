@@ -120,12 +120,27 @@ fn cap_support_decline_context(
         .find(|patch| patch.face == diagnostic.support_face)
         .and_then(|patch| patch.sub_patch_provenance);
     Some(format!(
-        "cap_support_context=edge={:?};cap_face={:?};support_face={:?};sample={:.3};cap_provenance={:?};support_provenance={:?}",
+        "cap_support_context=edge={:?};cap_face={:?};support_face={:?};sample={:.3};cap_uv={};support_uv={};cap_curve_gap={};support_curve_gap={};cap_provenance={:?};support_provenance={:?}",
         diagnostic.edge,
         diagnostic.cap_face,
         diagnostic.support_face,
         diagnostic.sample_parameter.unwrap_or_default(),
+        format_optional_uv(diagnostic.cap_uv),
+        format_optional_uv(diagnostic.support_uv),
+        format_optional_metric(diagnostic.cap_curve_gap),
+        format_optional_metric(diagnostic.support_curve_gap),
         cap_provenance,
         support_provenance,
     ))
+}
+
+fn format_optional_uv(uv: Option<(f64, f64)>) -> String {
+    uv.map(|(u, v)| format!("({u:.3},{v:.3})"))
+        .unwrap_or_else(|| "none".to_string())
+}
+
+fn format_optional_metric(metric: Option<f64>) -> String {
+    metric
+        .map(|value| format!("{value:.3e}"))
+        .unwrap_or_else(|| "none".to_string())
 }

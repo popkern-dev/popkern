@@ -232,6 +232,10 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "cap_outer_g0",
             "exceeds 5.000e-3",
             "cap_support_context",
+            "cap_uv=(",
+            "support_uv=(",
+            "cap_curve_gap=",
+            "support_curve_gap=",
             "cap_provenance=Some",
             "role: NearMidpointRight",
         ],
@@ -285,20 +289,6 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
     );
 }
 
-/// Probe-style: print numbers across the canonical fixtures with
-/// no assertions so we can see the baseline without picking
-/// thresholds first. Useful while developing the fix. Includes
-/// `pyramid_n04_zoo` — the same geometry rendered by the
-/// `fillet_zoo` showcase binary, where FreeCAD shows the
-/// "messy top" defect.
-///
-/// G1 is reported but is *not* meaningful while G0 is large —
-/// we're sampling each side's surface at 3-D points that are
-/// 5-20cm apart, so the normals are essentially uncorrelated.
-/// Once G0 drops below ~1e-3, G1 becomes informative.
-/// Single-fixture probe for the cube_uniform path — used to trace
-/// the per-vertex insert_vertex_blend invocation count without the
-/// noise of the full 8-fixture matrix.
 #[ignore = "diagnostic probe only: single-fixture cap-outer metric printout, not an acceptance gate"]
 #[test]
 fn print_cube_uniform_only() {

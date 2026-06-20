@@ -8,6 +8,10 @@ use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::BRep;
 use popkern_core::topology::FaceHandle;
 
+#[path = "kp20_polar_expanded_support_unit_domain.rs"]
+mod expanded_support_unit_domain;
+use expanded_support_unit_domain::unit_domain_loop_candidates;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Kp20ExpandedSupportSurfaceSlot {
     pub(crate) face: FaceHandle,
@@ -313,7 +317,7 @@ fn author_unit_domain_boundary_pcurves(
     face: FaceHandle,
 ) -> Result<bool, CoreError> {
     let half_edges = face_outer_half_edges(brep, face)?;
-    if !matches!(half_edges.len(), 4 | 5) {
+    if half_edges.len() < 4 {
         return Ok(false);
     }
     let Some(SurfaceGeometry::Gregory(surface)) = brep
@@ -356,43 +360,6 @@ fn best_unit_domain_loop_uvs(
         }
     }
     best.map(|(candidate, _)| candidate)
-}
-
-fn unit_domain_loop_candidates(edge_count: usize) -> Vec<Vec<(f64, f64)>> {
-    let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
-    let bases = if edge_count == 4 {
-        vec![corners.to_vec()]
-    } else if edge_count == 5 {
-        (0..4)
-            .map(|split| {
-                let mut out = Vec::with_capacity(5);
-                for index in 0..4 {
-                    out.push(corners[index]);
-                    if index == split {
-                        let next = corners[(index + 1) % 4];
-                        out.push((
-                            (corners[index].0 + next.0) * 0.5,
-                            (corners[index].1 + next.1) * 0.5,
-                        ));
-                    }
-                }
-                out
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let mut candidates = Vec::new();
-    for base in bases {
-        for shift in 0..base.len() {
-            let rotated = (0..base.len())
-                .map(|index| base[(index + shift) % base.len()])
-                .collect::<Vec<_>>();
-            candidates.push(rotated.clone());
-            candidates.push(rotated.into_iter().rev().collect());
-        }
-    }
-    candidates
 }
 
 fn face_outer_half_edges(

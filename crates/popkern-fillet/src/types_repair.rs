@@ -165,6 +165,14 @@ pub struct CapSupportContinuityDiagnostic {
     pub measurement_scope: String,
     /// Normalized seam parameter where the selected failing residual was measured.
     pub sample_parameter: Option<f64>,
+    /// Cap-side pcurve UV at the selected failing sample, when available.
+    pub cap_uv: Option<(f64, f64)>,
+    /// Support-side pcurve UV at the selected failing sample, when available.
+    pub support_uv: Option<(f64, f64)>,
+    /// Distance from the cap pcurve image to the owning edge curve at the sample.
+    pub cap_curve_gap: Option<f64>,
+    /// Distance from the support pcurve image to the owning edge curve at the sample.
+    pub support_curve_gap: Option<f64>,
     /// Worst sampled unit-normal parallelism deficit.
     pub worst_g1_coplanarity: f64,
     /// Commercial gate used for the measurement.
