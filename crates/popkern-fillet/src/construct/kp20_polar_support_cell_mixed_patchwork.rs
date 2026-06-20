@@ -1,7 +1,8 @@
 use popkern_core::geometry::gregory::{GregoryPatch, Kp20PieceId};
 
 use crate::construct::kp20_polar_support_cell_inventory::{
-    Kp20SupportCellInventory, support_cell_inventory_from_provenance,
+    Kp20SupportCellInventory, Kp20SupportCellOwnerInventory,
+    support_cell_inventory_from_provenance, support_cell_owner_inventory_from_provenance,
 };
 use crate::types::{CornerSubPatchFamily, CornerSubPatchProvenance};
 
@@ -17,6 +18,17 @@ pub(super) fn build_mixed_support_cell_patchwork(
     support_cell_provenance: &[CornerSubPatchProvenance],
     target_piece: Kp20PieceId,
 ) -> Result<Kp20MixedSupportCellPatchwork, String> {
+    if support_cell_provenance
+        .iter()
+        .any(|item| item.role.support_cell_owner_role().is_some())
+    {
+        return build_owner_mixed_support_cell_patchwork(
+            sector_count,
+            macro_surfaces,
+            support_cell_surfaces,
+            support_cell_provenance,
+        );
+    }
     if macro_surfaces.len() != 4 * sector_count {
         return Err(format!(
             "mixed support-cell patchwork expected {} macro surfaces for {sector_count} sectors, got {}",
@@ -38,6 +50,53 @@ pub(super) fn build_mixed_support_cell_patchwork(
             if piece == target_piece
                 && let Some(range) = support_cell_source_range(&inventory, sector)
             {
+                for source in range {
+                    surfaces.push(support_cell_surfaces[source].clone());
+                    provenance.push(support_cell_provenance[source]);
+                }
+                continue;
+            }
+            let piece_index = piece.index();
+            surfaces.push(macro_surfaces[4 * sector + piece_index].clone());
+            provenance.push(CornerSubPatchProvenance::macro_cap(
+                CornerSubPatchFamily::Kp20Bi6,
+                sector,
+                sector_count,
+                piece_index,
+            ));
+        }
+    }
+    Ok(Kp20MixedSupportCellPatchwork {
+        surfaces,
+        provenance,
+    })
+}
+
+pub(super) fn build_owner_mixed_support_cell_patchwork(
+    sector_count: usize,
+    macro_surfaces: &[GregoryPatch],
+    support_cell_surfaces: &[GregoryPatch],
+    support_cell_provenance: &[CornerSubPatchProvenance],
+) -> Result<Kp20MixedSupportCellPatchwork, String> {
+    if macro_surfaces.len() != 4 * sector_count {
+        return Err(format!(
+            "owner mixed support-cell patchwork expected {} macro surfaces for {sector_count} sectors, got {}",
+            4 * sector_count,
+            macro_surfaces.len(),
+        ));
+    }
+    let inventory = support_cell_owner_inventory_from_provenance(
+        sector_count,
+        support_cell_surfaces.len(),
+        support_cell_provenance,
+    )?;
+    let expected =
+        4 * sector_count + inventory.targets.len() * (inventory.cells_per_target_sector - 1);
+    let mut surfaces = Vec::with_capacity(expected);
+    let mut provenance = Vec::with_capacity(expected);
+    for sector in 0..sector_count {
+        for piece in Kp20PieceId::all() {
+            if let Some(range) = support_cell_owner_source_range(&inventory, sector, piece) {
                 for source in range {
                     surfaces.push(support_cell_surfaces[source].clone());
                     provenance.push(support_cell_provenance[source]);
@@ -92,6 +151,14 @@ fn support_cell_source_range(
             let start = ordinal * inventory.cells_per_target_sector;
             start..start + inventory.cells_per_target_sector
         })
+}
+
+fn support_cell_owner_source_range(
+    inventory: &Kp20SupportCellOwnerInventory,
+    sector: usize,
+    piece: Kp20PieceId,
+) -> Option<std::ops::Range<usize>> {
+    inventory.target_range(sector, piece)
 }
 
 #[cfg(test)]
@@ -161,6 +228,54 @@ mod tests {
         assert_eq!(
             patchwork.provenance[6].role,
             crate::types::CornerSubPatchRole::NearMidpointLeft
+        );
+    }
+
+    #[test]
+    fn owner_mixed_patchwork_replaces_left_and_right_support_pieces() {
+        let macro_surfaces = (0..24).map(dummy_surface).collect::<Vec<_>>();
+        let support_surfaces = (0..12).map(dummy_surface).collect::<Vec<_>>();
+        let support_provenance = [
+            (0, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (0, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (0, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (0, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (0, crate::types::CornerSubPatchRole::NearMidpointLeft),
+            (0, crate::types::CornerSubPatchRole::NearMidpointLeft),
+            (0, crate::types::CornerSubPatchRole::NearMidpointLeft),
+            (0, crate::types::CornerSubPatchRole::NearMidpointLeft),
+            (2, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (2, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (2, crate::types::CornerSubPatchRole::NearMidpointRight),
+            (2, crate::types::CornerSubPatchRole::NearMidpointRight),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (sector, owner))| {
+            CornerSubPatchProvenance::kp20_support_cell_for_owner_role(sector, 6, index, 12, owner)
+        })
+        .collect::<Vec<_>>();
+
+        let patchwork = build_owner_mixed_support_cell_patchwork(
+            6,
+            &macro_surfaces,
+            &support_surfaces,
+            &support_provenance,
+        )
+        .expect("owner mixed patchwork");
+
+        assert_eq!(patchwork.surfaces.len(), 33);
+        assert_eq!(
+            patchwork.provenance[2].role,
+            crate::types::CornerSubPatchRole::SupportCellNearMidpointRight
+        );
+        assert_eq!(
+            patchwork.provenance[6].role,
+            crate::types::CornerSubPatchRole::SupportCellNearMidpointLeft
+        );
+        assert_eq!(
+            patchwork.provenance[17].role,
+            crate::types::CornerSubPatchRole::SupportCellNearMidpointRight
         );
     }
 

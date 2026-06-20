@@ -167,10 +167,7 @@ fn assert_support_cell_provenance(
                 && patch.sub_patch_provenance.is_some_and(|provenance| {
                     provenance.sector_count == n_sides
                         && provenance.piece_count == support_piece_count
-                        && matches!(
-                            provenance.role,
-                            popkern_fillet::CornerSubPatchRole::SupportCell
-                        )
+                        && provenance.role.is_support_cell()
                 })
         }),
         "{fixture} support-cell patches should preserve support-cell provenance"
@@ -182,10 +179,7 @@ pub(crate) fn support_cell_piece_count(
 ) -> Option<usize> {
     patches.iter().try_fold(None, |current, patch| {
         let provenance = patch.sub_patch_provenance?;
-        if !matches!(
-            provenance.role,
-            popkern_fillet::CornerSubPatchRole::SupportCell
-        ) {
+        if !provenance.role.is_support_cell() {
             return None;
         }
         match current {

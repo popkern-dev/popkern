@@ -46,7 +46,7 @@ pub(super) fn localize_expanded_support_folds(
             CornerSubPatchRole::SupportInteriorLane => {
                 localization.support_interior_lane_folds += 1;
             }
-            CornerSubPatchRole::SupportCell => {
+            role if role.is_support_cell() => {
                 localization.support_interior_lane_folds += 1;
             }
             _ => localization.macro_fragment_folds += 1,
@@ -135,5 +135,7 @@ fn role_label(role: CornerSubPatchRole) -> &'static str {
         CornerSubPatchRole::SupportBoundaryLane => "SupportBoundaryLane",
         CornerSubPatchRole::SupportInteriorLane => "SupportInteriorLane",
         CornerSubPatchRole::SupportCell => "SupportCell",
+        CornerSubPatchRole::SupportCellNearMidpointRight => "SupportCellNearMidpointRight",
+        CornerSubPatchRole::SupportCellNearMidpointLeft => "SupportCellNearMidpointLeft",
     }
 }

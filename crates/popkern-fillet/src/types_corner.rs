@@ -70,8 +70,38 @@ pub enum CornerSubPatchRole {
     SupportBoundaryLane,
     /// Interior-side lane emitted from a split KP20 support-owned piece.
     SupportInteriorLane,
-    /// Rectangular support-cell emitted from a KP20 support-owned cell primitive.
+    /// Rectangular support-cell emitted from a KP20 support-owned cell primitive
+    /// whose original near-midpoint owner is not encoded.
     SupportCell,
+    /// Rectangular support-cell replacing the near-midpoint-right KP20 owner.
+    SupportCellNearMidpointRight,
+    /// Rectangular support-cell replacing the near-midpoint-left KP20 owner.
+    SupportCellNearMidpointLeft,
+}
+
+impl CornerSubPatchRole {
+    /// True for every support-cell role, including owner-specific cells.
+    pub fn is_support_cell(self) -> bool {
+        matches!(
+            self,
+            CornerSubPatchRole::SupportCell
+                | CornerSubPatchRole::SupportCellNearMidpointRight
+                | CornerSubPatchRole::SupportCellNearMidpointLeft
+        )
+    }
+
+    /// Original macro owner replaced by an owner-specific support cell.
+    pub fn support_cell_owner_role(self) -> Option<Self> {
+        match self {
+            CornerSubPatchRole::SupportCellNearMidpointRight => {
+                Some(CornerSubPatchRole::NearMidpointRight)
+            }
+            CornerSubPatchRole::SupportCellNearMidpointLeft => {
+                Some(CornerSubPatchRole::NearMidpointLeft)
+            }
+            _ => None,
+        }
+    }
 }
 
 impl CornerSubPatchProvenance {
@@ -135,6 +165,35 @@ impl CornerSubPatchProvenance {
             piece_index: patch_index,
             piece_count: patch_count,
             role: CornerSubPatchRole::SupportCell,
+        }
+    }
+
+    /// Build owner-aware provenance for a KP20 support-cell primitive surface.
+    pub fn kp20_support_cell_for_owner_role(
+        sector_index: usize,
+        sector_count: usize,
+        patch_index: usize,
+        patch_count: usize,
+        owner_role: CornerSubPatchRole,
+    ) -> Self {
+        let role = match owner_role {
+            CornerSubPatchRole::NearMidpointRight => {
+                CornerSubPatchRole::SupportCellNearMidpointRight
+            }
+            CornerSubPatchRole::NearMidpointLeft => CornerSubPatchRole::SupportCellNearMidpointLeft,
+            _ => {
+                panic!(
+                    "KP20 support-cell owner role must be a near-midpoint support owner, got {owner_role:?}"
+                )
+            }
+        };
+        Self {
+            family: CornerSubPatchFamily::Kp20Bi6,
+            sector_index,
+            sector_count,
+            piece_index: patch_index,
+            piece_count: patch_count,
+            role,
         }
     }
 
@@ -257,6 +316,29 @@ mod tests {
         assert_eq!(cell.piece_index, 9);
         assert_eq!(cell.piece_count, 24);
         assert_eq!(cell.role, CornerSubPatchRole::SupportCell);
+    }
+
+    #[test]
+    fn kp20_owner_support_cell_provenance_records_replaced_owner() {
+        let cell = CornerSubPatchProvenance::kp20_support_cell_for_owner_role(
+            3,
+            6,
+            10,
+            24,
+            CornerSubPatchRole::NearMidpointRight,
+        );
+
+        assert_eq!(cell.family, CornerSubPatchFamily::Kp20Bi6);
+        assert_eq!(cell.sector_index, 3);
+        assert_eq!(cell.sector_count, 6);
+        assert_eq!(cell.piece_index, 10);
+        assert_eq!(cell.piece_count, 24);
+        assert_eq!(cell.role, CornerSubPatchRole::SupportCellNearMidpointRight);
+        assert!(cell.role.is_support_cell());
+        assert_eq!(
+            cell.role.support_cell_owner_role(),
+            Some(CornerSubPatchRole::NearMidpointRight)
+        );
     }
 
     #[test]

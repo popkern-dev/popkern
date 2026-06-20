@@ -12,7 +12,9 @@ use super::kp20_polar_expanded_support_binding::{
 mod support_cell_mixed_topology_poke;
 #[path = "kp20_polar_support_cell_topology_poke.rs"]
 mod support_cell_topology_poke;
-pub(crate) use support_cell_mixed_topology_poke::commit_kp20_mixed_support_cell_patchwork;
+pub(crate) use support_cell_mixed_topology_poke::{
+    commit_kp20_mixed_support_cell_patchwork, commit_kp20_owner_mixed_support_cell_patchwork,
+};
 pub(crate) use support_cell_topology_poke::commit_kp20_support_cell_patchwork_for_inventory;
 
 #[derive(Debug, Clone)]

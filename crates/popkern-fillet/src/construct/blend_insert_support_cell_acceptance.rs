@@ -22,7 +22,7 @@ pub(super) fn support_cell_patch_count_is_acceptable(
             patch.n_sides == n_sides
                 && patch
                     .sub_patch_provenance
-                    .is_some_and(|provenance| provenance.role == CornerSubPatchRole::SupportCell)
+                    .is_some_and(|provenance| provenance.role.is_support_cell())
         })
 }
 
@@ -38,7 +38,7 @@ pub(super) fn partial_support_cell_coverage_detail(
         let provenance = patch.sub_patch_provenance?;
         if patch.n_sides != n_sides
             || provenance.sector_count != n_sides
-            || provenance.role != CornerSubPatchRole::SupportCell
+            || !provenance.role.is_support_cell()
         {
             return None;
         }
@@ -80,7 +80,7 @@ pub(super) fn mixed_support_cell_patch_count_is_acceptable(
             return false;
         }
     }
-    sectors.iter().any(|sector| sector.support_cell_count > 0)
+    sectors.iter().any(SectorCoverage::has_support_cells)
         && sectors.iter().all(SectorCoverage::is_complete)
 }
 
@@ -95,13 +95,26 @@ fn common_target_sector_cell_count(sector_counts: &BTreeMap<usize, usize>) -> Op
 #[derive(Clone, Default)]
 struct SectorCoverage {
     macro_roles: Vec<CornerSubPatchRole>,
-    support_cell_count: usize,
+    generic_support_cell_count: usize,
+    support_cell_owner_counts: Vec<(CornerSubPatchRole, usize)>,
 }
 
 impl SectorCoverage {
     fn record(&mut self, role: CornerSubPatchRole) -> bool {
-        if role == CornerSubPatchRole::SupportCell {
-            self.support_cell_count += 1;
+        if role.is_support_cell() {
+            if let Some(owner_role) = role.support_cell_owner_role() {
+                if let Some((_, count)) = self
+                    .support_cell_owner_counts
+                    .iter_mut()
+                    .find(|(owner, _)| *owner == owner_role)
+                {
+                    *count += 1;
+                } else {
+                    self.support_cell_owner_counts.push((owner_role, 1));
+                }
+            } else {
+                self.generic_support_cell_count += 1;
+            }
             return true;
         }
         if !macro_support_cell_coverage_role(role) || self.macro_roles.contains(&role) {
@@ -112,24 +125,60 @@ impl SectorCoverage {
     }
 
     fn is_complete(&self) -> bool {
-        if self.support_cell_count == 0 {
+        if self.generic_support_cell_count == 0 && self.support_cell_owner_counts.is_empty() {
             return self.macro_roles.len() == 4;
         }
-        matches!(self.support_cell_count, 4 | 8 | 16)
-            && self.macro_roles.len() == 3
-            && self
-                .macro_roles
-                .contains(&CornerSubPatchRole::NearOriginLeft)
-            && self
-                .macro_roles
-                .contains(&CornerSubPatchRole::NearOriginRight)
-            && (self
-                .macro_roles
-                .contains(&CornerSubPatchRole::NearMidpointLeft)
-                ^ self
+        if self.generic_support_cell_count > 0 {
+            return self.support_cell_owner_counts.is_empty()
+                && matches!(self.generic_support_cell_count, 4 | 8 | 16)
+                && self.macro_roles.len() == 3
+                && self
                     .macro_roles
-                    .contains(&CornerSubPatchRole::NearMidpointRight))
+                    .contains(&CornerSubPatchRole::NearOriginLeft)
+                && self
+                    .macro_roles
+                    .contains(&CornerSubPatchRole::NearOriginRight)
+                && (self
+                    .macro_roles
+                    .contains(&CornerSubPatchRole::NearMidpointLeft)
+                    ^ self
+                        .macro_roles
+                        .contains(&CornerSubPatchRole::NearMidpointRight));
+        }
+        self.support_cell_owner_counts
+            .iter()
+            .all(|(_, count)| matches!(*count, 4 | 8 | 16))
+            && self.macro_roles.len() + self.support_cell_owner_counts.len() == 4
+            && macro_support_cell_owner_roles().iter().all(|role| {
+                let replaced = self
+                    .support_cell_owner_counts
+                    .iter()
+                    .any(|(owner, _)| owner == role);
+                self.macro_roles.contains(role) != replaced
+            })
     }
+
+    fn support_cell_count(&self) -> usize {
+        self.generic_support_cell_count
+            + self
+                .support_cell_owner_counts
+                .iter()
+                .map(|(_, count)| *count)
+                .sum::<usize>()
+    }
+
+    fn has_support_cells(&self) -> bool {
+        self.support_cell_count() > 0
+    }
+}
+
+fn macro_support_cell_owner_roles() -> [CornerSubPatchRole; 4] {
+    [
+        CornerSubPatchRole::NearOriginLeft,
+        CornerSubPatchRole::NearOriginRight,
+        CornerSubPatchRole::NearMidpointRight,
+        CornerSubPatchRole::NearMidpointLeft,
+    ]
 }
 
 fn macro_support_cell_coverage_role(role: CornerSubPatchRole) -> bool {
@@ -202,6 +251,39 @@ mod tests {
     #[test]
     fn accepts_complete_mixed_support_cell_coverage_for_right_owner() {
         let patches = mixed_support_cell_patches(2);
+
+        assert!(mixed_support_cell_patch_count_is_acceptable(&patches, 6));
+        assert!(corner_patch_count_is_acceptable(&patches, 6));
+    }
+
+    #[test]
+    fn accepts_complete_mixed_support_cell_coverage_for_two_owner_targets() {
+        let mut patches = Vec::new();
+        for sector in 0..6 {
+            for piece in 0..4 {
+                let owner = match (sector, piece) {
+                    (0, 2) => Some(CornerSubPatchRole::NearMidpointRight),
+                    (0, 3) => Some(CornerSubPatchRole::NearMidpointLeft),
+                    _ => None,
+                };
+                if let Some(owner) = owner {
+                    for index in 0..4 {
+                        patches.push(patch_with_provenance(
+                            CornerSubPatchProvenance::kp20_support_cell_for_owner_role(
+                                sector, 6, index, 8, owner,
+                            ),
+                        ));
+                    }
+                } else {
+                    patches.push(patch_with_provenance(CornerSubPatchProvenance::macro_cap(
+                        CornerSubPatchFamily::Kp20Bi6,
+                        sector,
+                        6,
+                        piece,
+                    )));
+                }
+            }
+        }
 
         assert!(mixed_support_cell_patch_count_is_acceptable(&patches, 6));
         assert!(corner_patch_count_is_acceptable(&patches, 6));

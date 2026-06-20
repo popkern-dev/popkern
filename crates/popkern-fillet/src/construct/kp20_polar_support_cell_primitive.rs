@@ -1,5 +1,3 @@
-//! Exact-boundary support-cell primitive for KP20 folded support patches.
-
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20Bi6Patch, Kp20MacroPatch, Kp20PieceId, RectangularGregoryBiNonic,
     elevate_bi6_grid_to_bi9,
@@ -13,11 +11,14 @@ use crate::types::CornerSubPatchProvenance;
 
 #[path = "kp20_polar_support_cell_grid_candidates.rs"]
 mod support_cell_grid_candidates;
+#[path = "kp20_polar_support_cell_provenance.rs"]
+mod support_cell_provenance;
 #[path = "kp20_polar_support_cell_selection.rs"]
 mod support_cell_selection;
 #[path = "kp20_polar_support_cell_targets.rs"]
 mod support_cell_targets;
 use support_cell_grid_candidates::support_cell_grid_candidates;
+use support_cell_provenance::support_cell_provenance;
 use support_cell_selection::{selection_policy_label, should_replace_selected_support_cell_trial};
 use support_cell_targets::support_targets_by_sector;
 
@@ -244,11 +245,12 @@ fn measure_cell_grid_mode(
         for cell in support_cells(&authored, cells_u, cells_v) {
             let patch_index = emitted_patches.len();
             emitted_patches.push(gregory_from_bi6(cell));
-            emitted_provenance.push(CornerSubPatchProvenance::kp20_support_cell(
+            emitted_provenance.push(support_cell_provenance(
                 target.sector,
                 sector_count,
                 patch_index,
                 total_patch_count,
+                target_piece,
             ));
             patch_count += 1;
             if emitted_patches[patch_index]

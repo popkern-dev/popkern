@@ -2,7 +2,7 @@
 
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo, CornerSubPatchRole};
+use crate::types::{ApexConstructionDiagnostic, CornerPatchInfo};
 
 #[path = "kp20_polar_support_cell_shared_trim_measure.rs"]
 mod shared_trim_measure;
@@ -414,7 +414,7 @@ pub(super) fn support_cell_face_groups(
     for patch in corner_patches {
         if !patch
             .sub_patch_provenance
-            .is_some_and(|provenance| matches!(provenance.role, CornerSubPatchRole::SupportCell))
+            .is_some_and(|provenance| provenance.role.is_support_cell())
         {
             continue;
         }

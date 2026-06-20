@@ -4,9 +4,6 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{GregoryPatch, Kp20PieceId};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
-use super::kp20_polar_support_cell_inventory::{
-    Kp20SupportCellInventory, support_cell_inventory_from_patchwork_provenance,
-};
 use super::promotion_ladder::PromotionResult;
 use super::three_quad_apply::ThreeQuadApplyResult;
 use crate::types::{
@@ -14,11 +11,14 @@ use crate::types::{
     CornerSubPatchProvenance, CornerSubPatchRole,
 };
 use crate::vertex_classifier::VertexBlendClassification;
+use support_cell_apply_inventory::{Kp20SupportCellResolvedInventory, kp20_support_cell_inventory};
 use support_cell_transaction::{
     Kp20SupportCellApplyTransactionResult, Kp20SupportCellValidationFailure,
     run_kp20_support_cell_apply_transaction, support_cell_assembled_quality_fact,
 };
 
+#[path = "three_quad_kp20_support_cell_apply_inventory.rs"]
+mod support_cell_apply_inventory;
 #[path = "three_quad_kp20_support_cell_transaction.rs"]
 mod support_cell_transaction;
 
@@ -57,17 +57,6 @@ pub(super) fn kp20_support_cell_commit_is_accepted(
     matches!(promotion_result, PromotionResult::Kp20SupportCell)
         && n_sides >= 3
         && kp20_support_cell_inventory(support_surfaces, n_sides, provenance).is_some()
-}
-
-fn kp20_support_cell_inventory(
-    support_surfaces: &[GregoryPatch],
-    n_sides: usize,
-    provenance: Option<&[CornerSubPatchProvenance]>,
-) -> Option<Kp20SupportCellInventory> {
-    if let Some(provenance) = provenance {
-        return support_cell_inventory_from_patchwork_provenance(n_sides, provenance).ok();
-    }
-    Kp20SupportCellInventory::full_ring(n_sides, support_surfaces.len())
 }
 
 pub(super) fn try_apply_expanded_kp20_support_patchwork(
@@ -173,7 +162,7 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
             input.n_sides
         )
     })?;
-    let promoted_cells_per_target_sector = promoted_inventory.cells_per_target_sector;
+    let promoted_cells_per_target_sector = promoted_inventory.cells_per_target_sector();
     let promoted_surfaces = input.support_surfaces;
     let promoted_diagnostics = input.diagnostics.clone();
     let fallback = input.support_cell_floor_surfaces.and_then(|surfaces| {
@@ -183,7 +172,7 @@ pub(super) fn try_apply_kp20_support_cell_patchwork(
     let fallback_surface_count = fallback.as_ref().map(|(surfaces, _)| surfaces.len());
     let fallback_cells_per_target_sector = fallback
         .as_ref()
-        .map(|(_, inventory)| inventory.cells_per_target_sector);
+        .map(|(_, inventory)| inventory.cells_per_target_sector());
     let vertex = input.vertex;
     let blend_face = input.blend_face;
     let central_point = input.central_point;
@@ -279,7 +268,7 @@ struct Kp20SupportCellSurfaceApply<'a> {
     central_point: Point3,
     support_surfaces: &'a [GregoryPatch],
     support_cell_provenance: Option<&'a [CornerSubPatchProvenance]>,
-    inventory: Kp20SupportCellInventory,
+    inventory: Kp20SupportCellResolvedInventory,
     vertex: VertexHandle,
     n_sides: usize,
     classification: VertexBlendClassification,
@@ -292,33 +281,47 @@ fn apply_kp20_support_cell_surfaces(
     brep: &mut BRep,
     apply: Kp20SupportCellSurfaceApply<'_>,
 ) -> Result<ThreeQuadApplyResult, String> {
-    let support_cell_surface_count =
-        apply.inventory.target_sectors.len() * apply.inventory.cells_per_target_sector;
-    let (committed_faces, support_surface_indices) = if apply.support_surfaces.len()
-        == support_cell_surface_count
-    {
-        let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
+    let support_cell_surface_count = apply.inventory.support_cell_surface_count();
+    let (committed_faces, support_surface_indices) = match &apply.inventory {
+        Kp20SupportCellResolvedInventory::Legacy(inventory)
+            if apply.support_surfaces.len() == support_cell_surface_count =>
+        {
+            let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_support_cell_patchwork_for_inventory(
                 brep,
                 apply.blend_face,
                 apply.central_point,
                 apply.n_sides,
                 apply.support_surfaces,
-                &apply.inventory,
+                inventory,
             )
             .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
-        (commit.support_cell_faces, commit.support_surface_indices)
-    } else {
-        let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_mixed_support_cell_patchwork(
+            (commit.support_cell_faces, commit.support_surface_indices)
+        }
+        Kp20SupportCellResolvedInventory::Legacy(inventory) => {
+            let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_mixed_support_cell_patchwork(
                 brep,
                 apply.blend_face,
                 apply.central_point,
                 apply.n_sides,
                 apply.support_surfaces,
-                &apply.inventory,
+                inventory,
                 mixed_support_cell_target_piece(apply.support_cell_provenance)?,
             )
             .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
-        (commit.sub_faces, commit.support_surface_indices)
+            (commit.sub_faces, commit.support_surface_indices)
+        }
+        Kp20SupportCellResolvedInventory::Owner(inventory) => {
+            let commit = super::kp20_polar_expanded_support_topology_poke::commit_kp20_owner_mixed_support_cell_patchwork(
+                brep,
+                apply.blend_face,
+                apply.central_point,
+                apply.n_sides,
+                apply.support_surfaces,
+                inventory,
+            )
+            .map_err(|error| format!("KP20 support-cell commit failed: {error}"))?;
+            (commit.sub_faces, commit.support_surface_indices)
+        }
     };
 
     if committed_faces.len() != support_surface_indices.len() {
@@ -350,7 +353,7 @@ fn apply_kp20_support_cell_surfaces(
                     .copied()
                     .unwrap_or_else(|| {
                         CornerSubPatchProvenance::kp20_support_cell(
-                            source_index / apply.inventory.cells_per_target_sector,
+                            source_index / apply.inventory.cells_per_target_sector(),
                             apply.n_sides,
                             source_index,
                             apply.support_surfaces.len(),
@@ -382,13 +385,11 @@ fn mixed_support_cell_target_piece(
         match item.role {
             CornerSubPatchRole::SupportCell => {
                 let piece = support_piece_from_macro_prefix(macro_piece_count)?;
-                if target_piece.is_none() {
-                    target_piece = Some(piece);
-                } else if target_piece != Some(piece) {
-                    return Err(
-                        "mixed support-cell patchwork has inconsistent target pieces".into(),
-                    );
-                }
+                update_mixed_support_cell_target_piece(&mut target_piece, piece)?;
+            }
+            role if role.support_cell_owner_role().is_some() => {
+                let piece = support_piece_from_owner_role(role)?;
+                update_mixed_support_cell_target_piece(&mut target_piece, piece)?;
             }
             CornerSubPatchRole::NearOriginLeft
             | CornerSubPatchRole::NearOriginRight
@@ -398,6 +399,28 @@ fn mixed_support_cell_target_piece(
         }
     }
     Ok(target_piece.unwrap_or(Kp20PieceId::NearMidpointLeft))
+}
+
+fn update_mixed_support_cell_target_piece(
+    target_piece: &mut Option<Kp20PieceId>,
+    piece: Kp20PieceId,
+) -> Result<(), String> {
+    if target_piece.is_none() {
+        *target_piece = Some(piece);
+    } else if *target_piece != Some(piece) {
+        return Err("mixed support-cell patchwork has inconsistent target pieces".into());
+    }
+    Ok(())
+}
+
+fn support_piece_from_owner_role(role: CornerSubPatchRole) -> Result<Kp20PieceId, String> {
+    match role.support_cell_owner_role() {
+        Some(CornerSubPatchRole::NearMidpointRight) => Ok(Kp20PieceId::NearMidpointRight),
+        Some(CornerSubPatchRole::NearMidpointLeft) => Ok(Kp20PieceId::NearMidpointLeft),
+        _ => Err(format!(
+            "mixed support-cell patchwork support-cell role {role:?} does not encode a near-midpoint owner"
+        )),
+    }
 }
 
 fn support_piece_from_macro_prefix(prefix_count: usize) -> Result<Kp20PieceId, String> {
