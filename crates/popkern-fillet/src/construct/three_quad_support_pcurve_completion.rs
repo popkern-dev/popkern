@@ -1,5 +1,5 @@
 //! Cap/support seam completion for Gregory faces after surface assignment.
-
+use super::helpers;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::fitting::fit_curve;
 use popkern_core::geometry::pcurve::Pcurve;
@@ -7,8 +7,6 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::{Point3, nurbs_curve::NurbsCurve};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use std::collections::BTreeSet;
-
-use super::helpers;
 #[path = "three_quad_support_pcurve_sampling.rs"]
 mod support_pcurve_sampling;
 use support_pcurve_sampling::{
@@ -231,8 +229,6 @@ fn complete_cap_support_half_edge(
     };
     let needs_cap_pcurve = if accepted_cap_boundary_candidate.is_some() {
         true
-    } else if cap_boundary_hint.is_some() {
-        false
     } else {
         match brep.half_edges[half_edge].pcurve.as_ref() {
             None => true,
@@ -281,6 +277,8 @@ fn complete_cap_support_half_edge(
                 candidate.source == CapBoundaryPcurveSource::Inferred;
             Some(candidate.pcurve)
         } else {
+            completion.authored_cap_boundary_pcurve = authored_cap_pcurve;
+            completion.repaired_cap_boundary_pcurve = !authored_cap_pcurve;
             Some(best_pcurve_for_surface_samples(
                 cap_surface,
                 &cap_uv_samples,
@@ -495,3 +493,7 @@ fn cap_face_half_edges(brep: &BRep, cap_face: FaceHandle) -> Vec<HalfEdgeHandle>
     }
     out
 }
+
+#[cfg(test)]
+#[path = "three_quad_support_pcurve_completion_tests.rs"]
+mod tests;
