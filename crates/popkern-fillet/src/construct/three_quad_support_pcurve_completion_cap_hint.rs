@@ -86,6 +86,19 @@ pub(super) fn cap_boundary_pcurve_candidate_is_acceptable(
     }
 }
 
+pub(super) fn existing_cap_boundary_pcurve_is_acceptable(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    cap_surface: &SurfaceGeometry,
+    boundary: BoundarySide,
+    pcurve: &Pcurve,
+    samples: &[Point3],
+) -> bool {
+    pcurve_matches_boundary(pcurve, boundary)
+        && oriented_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, samples)
+            <= MAX_CAP_BOUNDARY_SAMPLE_GAP
+}
+
 fn hinted_cap_boundary_pcurve(boundary: BoundarySide, uv_samples: &[Point3]) -> Option<Pcurve> {
     let start = uv_samples.first()?;
     let end = uv_samples.last()?;

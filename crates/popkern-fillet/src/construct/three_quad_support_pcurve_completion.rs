@@ -1,10 +1,8 @@
 //! Cap/support seam completion for Gregory faces after surface assignment.
 use super::helpers;
+use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::fitting::fit_curve;
-use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{Point3, nurbs_curve::NurbsCurve};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use std::collections::BTreeSet;
 #[path = "three_quad_support_pcurve_sampling.rs"]
@@ -16,14 +14,18 @@ use support_pcurve_sampling::{
 #[path = "three_quad_support_pcurve_completion_quality.rs"]
 mod support_pcurve_completion_quality;
 use support_pcurve_completion_quality::{
-    oriented_pcurve_sample_gap, pcurve_surface_sample_gap,
-    support_pcurve_candidate_improves_samples,
+    oriented_pcurve_sample_gap, support_pcurve_candidate_improves_samples,
+};
+#[path = "three_quad_support_pcurve_completion_fit.rs"]
+mod support_pcurve_completion_fit;
+use support_pcurve_completion_fit::{
+    best_pcurve_for_surface_samples, fit_nurbs_curve, line_geometry_from_endpoints,
 };
 #[path = "three_quad_support_pcurve_completion_cap_hint.rs"]
 mod support_pcurve_completion_cap_hint;
 use support_pcurve_completion_cap_hint::{
     CapBoundaryPcurveSource, cap_boundary_pcurve_candidate,
-    cap_boundary_pcurve_candidate_is_acceptable,
+    cap_boundary_pcurve_candidate_is_acceptable, existing_cap_boundary_pcurve_is_acceptable,
 };
 
 const SAMPLE_COUNT: usize = 12;
@@ -232,6 +234,20 @@ fn complete_cap_support_half_edge(
     } else {
         match brep.half_edges[half_edge].pcurve.as_ref() {
             None => true,
+            Some(pcurve)
+                if cap_boundary_hint.is_some_and(|boundary| {
+                    existing_cap_boundary_pcurve_is_acceptable(
+                        brep,
+                        half_edge,
+                        cap_surface,
+                        boundary,
+                        pcurve,
+                        &samples,
+                    )
+                }) =>
+            {
+                false
+            }
             Some(pcurve) if policy.2 => {
                 oriented_pcurve_sample_gap(brep, half_edge, cap_surface, pcurve, &samples) > 1.0e-5
             }
@@ -390,72 +406,6 @@ fn cap_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
 fn unclamped_uv_point(surface: &SurfaceGeometry, point: &Point3) -> Point3 {
     let (u, v) = helpers::project_to_uv(surface, point);
     Point3::new(u, v, 0.0)
-}
-
-fn fit_nurbs_curve(points: &[Point3]) -> Option<NurbsCurve> {
-    let params = (0..points.len())
-        .map(|index| index as f64 / (points.len() - 1) as f64)
-        .collect::<Vec<_>>();
-    fit_curve(points, &params, 3, points.len()).ok()
-}
-
-fn best_pcurve_for_surface_samples(
-    surface: &SurfaceGeometry,
-    uv_samples: &[Point3],
-    target_samples: &[Point3],
-) -> Pcurve {
-    let linear = linear_pcurve_from_endpoints(uv_samples);
-    if uv_samples_are_collinear(uv_samples) {
-        return linear;
-    }
-    let linear_gap = pcurve_surface_sample_gap(surface, &linear, target_samples);
-    let Some(fitted) = fit_nurbs_curve(uv_samples).map(Pcurve::from) else {
-        return linear;
-    };
-    let fitted_gap = pcurve_surface_sample_gap(surface, &fitted, target_samples);
-    if fitted_gap <= linear_gap {
-        fitted
-    } else {
-        linear
-    }
-}
-
-fn uv_samples_are_collinear(samples: &[Point3]) -> bool {
-    if samples.len() < 3 {
-        return true;
-    }
-    let start = samples[0];
-    let end = samples[samples.len() - 1];
-    let dx = end.x - start.x;
-    let dy = end.y - start.y;
-    let len = (dx * dx + dy * dy).sqrt();
-    if len <= 1.0e-12 {
-        return samples.iter().all(|sample| {
-            let sx = sample.x - start.x;
-            let sy = sample.y - start.y;
-            (sx * sx + sy * sy).sqrt() <= 1.0e-10
-        });
-    }
-    samples.iter().all(|sample| {
-        let sx = sample.x - start.x;
-        let sy = sample.y - start.y;
-        (sx * dy - sy * dx).abs() / len <= 1.0e-8
-    })
-}
-
-fn linear_pcurve_from_endpoints(points: &[Point3]) -> Pcurve {
-    let start = points[0];
-    let end = points[points.len() - 1];
-    Pcurve::linear((start.x, start.y), (end.x, end.y), 0.0, 1.0)
-}
-
-fn line_geometry_from_endpoints(points: &[Point3]) -> CurveGeometry {
-    let start = points[0];
-    let end = points[points.len() - 1];
-    CurveGeometry::Line {
-        origin: start,
-        direction: end - start,
-    }
 }
 
 fn twin_face_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<FaceHandle> {

@@ -252,7 +252,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_boundary_solve.fact",
         &[
             "status=rolled_back_postcondition_failed",
-            "row_fit_candidates",
+            "sampled_edges=12",
             "constrained_row_fit_candidates",
             "max_hard_satisfying_constrained_displacement",
             "hard_constraint_rows",
@@ -264,7 +264,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "displacement_rejected_candidates",
             "displacement_bounded_rows",
             "displacement_unbounded_rows",
-            "multi_edge_rows",
+            "unrecognized_cap_pcurve_edges=0",
             "max_samples_per_row",
             "max_row_after_sample_gap",
             "max_row_after_sample_face",
@@ -292,9 +292,9 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_completion",
         "cap_support_completion.fact",
         &[
-            "unrecognized_cap_boundary_pcurve_edges=6",
+            "unrecognized_cap_boundary_pcurve_edges=0",
             "unrecognized_cap_boundary_hint_edges=0",
-            "recognized_cap_boundary_hint_edges=0",
+            "recognized_cap_boundary_hint_edges=12",
         ],
     );
 }
