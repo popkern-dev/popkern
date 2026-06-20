@@ -5,11 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::fitting::fit_curve;
-use popkern_core::geometry::nurbs_curve::NurbsCurve;
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 #[path = "kp20_polar_support_cell_boundary_trim.rs"]
@@ -18,6 +15,10 @@ mod boundary_trim;
 pub(super) use boundary_trim::BoundarySide;
 #[path = "kp20_polar_cap_support_boundary_fit.rs"]
 mod boundary_fit;
+#[path = "kp20_polar_cap_support_edge_curve.rs"]
+mod edge_curve;
+#[path = "kp20_polar_cap_support_boundary_geometry.rs"]
+mod geometry;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 #[allow(dead_code)]
 mod row_fit;
@@ -53,6 +54,13 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) max_row_after_sample_face: Option<FaceHandle>,
     pub(super) max_row_after_sample_side: Option<BoundarySide>,
     pub(super) max_row_after_sample_parameter: f64,
+    pub(super) max_row_after_sample_edge: Option<EdgeHandle>,
+    pub(super) max_row_after_sample_cap_half_edge: Option<HalfEdgeHandle>,
+    pub(super) max_row_after_sample_support_face: Option<FaceHandle>,
+    pub(super) max_row_after_sample_support_parameter: f64,
+    pub(super) max_row_after_sample_target_source: Option<BoundaryRowTargetSource>,
+    pub(super) max_row_after_sample_before_gap: f64,
+    pub(super) max_row_after_sample_target_edge_curve_gap: f64,
     pub(super) max_row_target_edge_curve_gap: f64,
     pub(super) max_row_target_edge_curve_edge: Option<EdgeHandle>,
     pub(super) max_row_target_edge_curve_face: Option<FaceHandle>,
@@ -129,6 +137,18 @@ pub(super) fn solve_external_cap_support_boundaries(
             report.max_row_after_sample_face = Some(samples.face);
             report.max_row_after_sample_side = Some(samples.side);
             report.max_row_after_sample_parameter = after.sample_parameter;
+            if let Some(source_sample) =
+                source_sample_near_parameter(&samples.source_samples, after.sample_parameter)
+            {
+                report.max_row_after_sample_edge = Some(source_sample.edge);
+                report.max_row_after_sample_cap_half_edge = Some(source_sample.cap_half_edge);
+                report.max_row_after_sample_support_face = Some(source_sample.support_face);
+                report.max_row_after_sample_support_parameter = source_sample.support_parameter;
+                report.max_row_after_sample_target_source = Some(source_sample.target_source);
+                report.max_row_after_sample_before_gap = source_sample.before_gap;
+                report.max_row_after_sample_target_edge_curve_gap =
+                    source_sample.target_edge_curve_gap;
+            }
         }
         for edge_curve_sample in &samples.edge_curve_samples {
             let after_gap =
@@ -147,7 +167,7 @@ pub(super) fn solve_external_cap_support_boundaries(
     }
 
     for edge_sample in &edge_samples {
-        reauthor_edge_curve_from_samples(brep, edge_sample.cap_half_edge, &edge_sample.targets)?;
+        edge_curve::reauthor_from_samples(brep, edge_sample.cap_half_edge, &edge_sample.targets)?;
         report.reauthored_edge_curves += 1;
     }
 
@@ -165,7 +185,27 @@ struct BoundaryRowSamples {
     face: FaceHandle,
     side: BoundarySide,
     samples: Vec<row_fit::BoundaryRowFitSample>,
+    source_samples: Vec<BoundaryRowSourceSample>,
     edge_curve_samples: Vec<BoundaryRowEdgeCurveSample>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(super) enum BoundaryRowTargetSource {
+    StartVertex,
+    SupportPcurve,
+    EndVertex,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BoundaryRowSourceSample {
+    parameter: f64,
+    edge: EdgeHandle,
+    cap_half_edge: HalfEdgeHandle,
+    support_face: FaceHandle,
+    support_parameter: f64,
+    target_source: BoundaryRowTargetSource,
+    before_gap: f64,
+    target_edge_curve_gap: f64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -199,6 +239,18 @@ fn row_parameter_span(samples: &[row_fit::BoundaryRowFitSample]) -> f64 {
         max_parameter = max_parameter.max(sample.parameter);
     }
     max_parameter - min_parameter
+}
+
+fn source_sample_near_parameter(
+    samples: &[BoundaryRowSourceSample],
+    parameter: f64,
+) -> Option<&BoundaryRowSourceSample> {
+    samples.iter().min_by(|a, b| {
+        (a.parameter - parameter)
+            .abs()
+            .partial_cmp(&(b.parameter - parameter).abs())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })
 }
 
 fn collect_external_cap_support_edge(
@@ -254,7 +306,7 @@ fn collect_external_cap_support_edge(
 
     let cap_start = brep.vertices[half_edge_data.origin].position;
     let cap_end = brep.vertices[twin_data.origin].position;
-    let cap_forward = cap_boundary_forward(
+    let cap_forward = geometry::cap_boundary_forward(
         &cap_patch,
         cap_side,
         cap_span_start,
@@ -263,17 +315,18 @@ fn collect_external_cap_support_edge(
         cap_end,
     );
     let support_forward =
-        support_pcurve_forward(&support_surface, support_pcurve, cap_start, cap_end);
+        geometry::support_pcurve_forward(&support_surface, support_pcurve, cap_start, cap_end);
     let (support_t0, support_t1) = support_pcurve.parameter_range();
     let edge_curve = brep
         .edges
         .get(half_edge_data.edge)
         .and_then(|edge| edge.curve.as_ref());
     let edge_curve_forward = edge_curve
-        .map(|curve| edge_curve_forward(curve, cap_start, cap_end))
+        .map(|curve| geometry::edge_curve_forward(curve, cap_start, cap_end))
         .unwrap_or(true);
 
     let mut samples = Vec::with_capacity(SAMPLE_COUNT);
+    let mut source_samples = Vec::with_capacity(SAMPLE_COUNT);
     let mut edge_curve_samples = Vec::with_capacity(SAMPLE_COUNT);
     let mut targets = Vec::with_capacity(SAMPLE_COUNT);
     let mut before_gap = 0.0_f64;
@@ -289,25 +342,31 @@ fn collect_external_cap_support_edge(
         } else {
             1.0 - fraction
         };
-        let cap_parameter = lerp_scalar(cap_span_start, cap_span_end, cap_fraction);
-        let support_parameter = lerp_scalar(support_t0, support_t1, support_fraction);
-        let mut target = support_surface_point(&support_surface, support_pcurve, support_parameter);
+        let cap_parameter = geometry::lerp_scalar(cap_span_start, cap_span_end, cap_fraction);
+        let support_parameter = geometry::lerp_scalar(support_t0, support_t1, support_fraction);
+        let mut target =
+            geometry::support_surface_point(&support_surface, support_pcurve, support_parameter);
+        let mut target_source = BoundaryRowTargetSource::SupportPcurve;
         if index == 0 {
             target = cap_start;
+            target_source = BoundaryRowTargetSource::StartVertex;
         } else if index + 1 == SAMPLE_COUNT {
             target = cap_end;
+            target_source = BoundaryRowTargetSource::EndVertex;
         }
+        let mut target_edge_curve_gap = 0.0_f64;
         if let Some(edge_curve) = edge_curve {
             let edge_fraction = if edge_curve_forward {
                 fraction
             } else {
                 1.0 - fraction
             };
-            let edge_parameter = lerp_scalar(edge_curve.t_start, edge_curve.t_end, edge_fraction);
+            let edge_parameter =
+                geometry::lerp_scalar(edge_curve.t_start, edge_curve.t_end, edge_fraction);
             let edge_point = edge_curve.geometry.point_at(edge_parameter);
-            let target_edge_gap = target.distance_to(&edge_point);
-            if target_edge_gap > report.max_row_target_edge_curve_gap {
-                report.max_row_target_edge_curve_gap = target_edge_gap;
+            target_edge_curve_gap = target.distance_to(&edge_point);
+            if target_edge_curve_gap > report.max_row_target_edge_curve_gap {
+                report.max_row_target_edge_curve_gap = target_edge_curve_gap;
                 report.max_row_target_edge_curve_edge = Some(half_edge_data.edge);
                 report.max_row_target_edge_curve_face = Some(cap_face);
                 report.max_row_target_edge_curve_side = Some(cap_side);
@@ -319,11 +378,22 @@ fn collect_external_cap_support_edge(
                 edge: half_edge_data.edge,
             });
         }
-        before_gap = before_gap
-            .max(row_fit::eval_boundary(&cap_patch, cap_side, cap_parameter).distance_to(&target));
+        let before_sample_gap =
+            row_fit::eval_boundary(&cap_patch, cap_side, cap_parameter).distance_to(&target);
+        before_gap = before_gap.max(before_sample_gap);
         samples.push(row_fit::BoundaryRowFitSample {
             parameter: cap_parameter,
             target,
+        });
+        source_samples.push(BoundaryRowSourceSample {
+            parameter: cap_parameter,
+            edge: half_edge_data.edge,
+            cap_half_edge: half_edge,
+            support_face,
+            support_parameter,
+            target_source,
+            before_gap: before_sample_gap,
+            target_edge_curve_gap,
         });
         targets.push(target);
     }
@@ -335,9 +405,11 @@ fn collect_external_cap_support_edge(
             face: cap_face,
             side: cap_side,
             samples: Vec::new(),
+            source_samples: Vec::new(),
             edge_curve_samples: Vec::new(),
         });
     row.samples.extend(samples);
+    row.source_samples.extend(source_samples);
     row.edge_curve_samples.extend(edge_curve_samples);
     edge_samples.push(EdgeSolveSamples {
         cap_half_edge: half_edge,
@@ -377,15 +449,15 @@ fn external_cap_support_edge_gap(brep: &BRep, edge_sample: &EdgeSolveSamples) ->
         } else {
             1.0 - fraction
         };
-        let cap_parameter = lerp_scalar(
+        let cap_parameter = geometry::lerp_scalar(
             edge_sample.cap_span_start,
             edge_sample.cap_span_end,
             cap_fraction,
         );
-        let support_parameter = lerp_scalar(support_t0, support_t1, support_fraction);
+        let support_parameter = geometry::lerp_scalar(support_t0, support_t1, support_fraction);
         gap = gap.max(
             row_fit::eval_boundary(&cap_patch, edge_sample.cap_side, cap_parameter).distance_to(
-                &support_surface_point(
+                &geometry::support_surface_point(
                     &support_surface,
                     &edge_sample.support_pcurve,
                     support_parameter,
@@ -396,92 +468,6 @@ fn external_cap_support_edge_gap(brep: &BRep, edge_sample: &EdgeSolveSamples) ->
     Some(gap)
 }
 
-fn cap_boundary_forward(
-    cap_patch: &popkern_core::geometry::gregory::RectangularGregoryBiNonic,
-    side: BoundarySide,
-    start: f64,
-    end: f64,
-    half_edge_start: Point3,
-    half_edge_end: Point3,
-) -> bool {
-    let p0 = row_fit::eval_boundary(cap_patch, side, start);
-    let p1 = row_fit::eval_boundary(cap_patch, side, end);
-    p0.distance_to(&half_edge_start) + p1.distance_to(&half_edge_end)
-        <= p1.distance_to(&half_edge_start) + p0.distance_to(&half_edge_end)
-}
-
-fn edge_curve_forward(curve: &CurveOnEdge, half_edge_start: Point3, half_edge_end: Point3) -> bool {
-    let p0 = curve.geometry.point_at(curve.t_start);
-    let p1 = curve.geometry.point_at(curve.t_end);
-    p0.distance_to(&half_edge_start) + p1.distance_to(&half_edge_end)
-        <= p1.distance_to(&half_edge_start) + p0.distance_to(&half_edge_end)
-}
-
-fn support_pcurve_forward(
-    surface: &SurfaceGeometry,
-    pcurve: &Pcurve,
-    half_edge_start: Point3,
-    half_edge_end: Point3,
-) -> bool {
-    let (t0, t1) = pcurve.parameter_range();
-    let p0 = support_surface_point(surface, pcurve, t0);
-    let p1 = support_surface_point(surface, pcurve, t1);
-    p0.distance_to(&half_edge_start) + p1.distance_to(&half_edge_end)
-        <= p1.distance_to(&half_edge_start) + p0.distance_to(&half_edge_end)
-}
-
-fn support_surface_point(surface: &SurfaceGeometry, pcurve: &Pcurve, t: f64) -> Point3 {
-    let uv = pcurve.point_at(t);
-    surface.point_at(uv.x, uv.y)
-}
-
-fn reauthor_edge_curve_from_samples(
-    brep: &mut BRep,
-    cap_half_edge: HalfEdgeHandle,
-    samples: &[Point3],
-) -> Result<(), CoreError> {
-    let Some(half_edge) = brep.half_edges.get(cap_half_edge) else {
-        return Err(CoreError::InvalidHandle(
-            "cap/support boundary solve half-edge invalid".into(),
-        ));
-    };
-    let edge = half_edge.edge;
-    let mut edge_samples = samples.to_vec();
-    if brep.edges[edge].half_edge != cap_half_edge {
-        edge_samples.reverse();
-    }
-    let curve = fit_nurbs_curve(&edge_samples)
-        .map(|geometry| CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(geometry),
-            t_start: 0.0,
-            t_end: 1.0,
-        })
-        .or_else(|| line_curve_from_endpoints(brep, &edge_samples))
-        .ok_or_else(|| {
-            CoreError::PreconditionFailed(
-                "cap/support boundary solve found degenerate edge samples".into(),
-            )
-        })?;
-    brep.edges[edge].curve = Some(curve);
-    Ok(())
-}
-
-fn fit_nurbs_curve(points: &[Point3]) -> Option<NurbsCurve> {
-    if points.len() < 4 {
-        return None;
-    }
-    let params = (0..points.len())
-        .map(|index| index as f64 / (points.len() - 1) as f64)
-        .collect::<Vec<_>>();
-    fit_curve(points, &params, 3, points.len()).ok()
-}
-
-fn line_curve_from_endpoints(brep: &BRep, points: &[Point3]) -> Option<CurveOnEdge> {
-    let start = *points.first()?;
-    let end = *points.last()?;
-    CurveOnEdge::line_segment(start, end, brep.tolerance.linear().max(1.0e-12))
-}
-
 fn boundary_side_key(side: BoundarySide) -> u8 {
     match side {
         BoundarySide::UMin => 0,
@@ -489,8 +475,4 @@ fn boundary_side_key(side: BoundarySide) -> u8 {
         BoundarySide::VMin => 2,
         BoundarySide::VMax => 3,
     }
-}
-
-fn lerp_scalar(a: f64, b: f64, t: f64) -> f64 {
-    a + (b - a) * t
 }
