@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use popkern_core::error::CoreError;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 #[path = "kp20_polar_support_cell_boundary_trim.rs"]
@@ -15,6 +14,8 @@ mod boundary_trim;
 pub(super) use boundary_trim::BoundarySide;
 #[path = "kp20_polar_cap_support_boundary_fit.rs"]
 mod boundary_fit;
+#[path = "kp20_polar_cap_support_boundary_constraints.rs"]
+mod constraints;
 #[path = "kp20_polar_cap_support_edge_curve.rs"]
 mod edge_curve;
 #[path = "kp20_polar_cap_support_boundary_geometry.rs"]
@@ -35,6 +36,12 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) sampled_edges: usize,
     pub(super) fit_rows: usize,
     pub(super) row_fit_candidates: usize,
+    pub(super) constrained_row_fit_candidates: usize,
+    pub(super) constrained_row_singular_candidates: usize,
+    pub(super) hard_constraint_rows: usize,
+    pub(super) hard_constraint_samples: usize,
+    pub(super) hard_constraint_conflicts: usize,
+    pub(super) hard_constraint_overfull_rows: usize,
     pub(super) zero_regularization_rows: usize,
     pub(super) displacement_scaled_candidates: usize,
     pub(super) displacement_rejected_candidates: usize,
@@ -61,6 +68,7 @@ pub(super) struct CapSupportBoundarySolveReport {
     pub(super) max_row_after_sample_target_source: Option<BoundaryRowTargetSource>,
     pub(super) max_row_after_sample_before_gap: f64,
     pub(super) max_row_after_sample_target_edge_curve_gap: f64,
+    pub(super) max_hard_constraint_residual: f64,
     pub(super) max_row_target_edge_curve_gap: f64,
     pub(super) max_row_target_edge_curve_edge: Option<EdgeHandle>,
     pub(super) max_row_target_edge_curve_face: Option<FaceHandle>,
@@ -118,9 +126,23 @@ pub(super) fn solve_external_cap_support_boundaries(
                     samples.side,
                     &samples.samples,
                 ));
-        let after =
-            boundary_fit::best_boundary_fit_candidate(&before, samples.side, &samples.samples);
+        let hard_constraints = constraints::hard_constraints_for_row(samples, &mut report);
+        let after = boundary_fit::best_boundary_fit_candidate(
+            &before,
+            samples.side,
+            &samples.samples,
+            &hard_constraints,
+        );
         report.row_fit_candidates += after.candidate_count;
+        report.constrained_row_fit_candidates += after.constrained_candidate_count;
+        report.constrained_row_singular_candidates += after.constrained_singular_candidates;
+        if after.hard_constraint_count > 0 {
+            report.hard_constraint_rows += 1;
+            report.hard_constraint_samples += after.hard_constraint_count;
+        }
+        report.max_hard_constraint_residual = report
+            .max_hard_constraint_residual
+            .max(after.hard_constraint_residual);
         report.displacement_scaled_candidates += after.displacement_scaled_candidates;
         report.displacement_rejected_candidates += after.displacement_rejected_candidates;
         if after.within_displacement {
@@ -189,7 +211,7 @@ struct BoundaryRowSamples {
     edge_curve_samples: Vec<BoundaryRowEdgeCurveSample>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum BoundaryRowTargetSource {
     StartVertex,
     SupportPcurve,
@@ -204,6 +226,7 @@ struct BoundaryRowSourceSample {
     support_face: FaceHandle,
     support_parameter: f64,
     target_source: BoundaryRowTargetSource,
+    target: Point3,
     before_gap: f64,
     target_edge_curve_gap: f64,
 }
@@ -222,9 +245,6 @@ struct EdgeSolveSamples {
     cap_span_start: f64,
     cap_span_end: f64,
     cap_forward: bool,
-    support_face: FaceHandle,
-    support_pcurve: Pcurve,
-    support_forward: bool,
     targets: Vec<Point3>,
 }
 
@@ -392,6 +412,7 @@ fn collect_external_cap_support_edge(
             support_face,
             support_parameter,
             target_source,
+            target,
             before_gap: before_sample_gap,
             target_edge_curve_gap,
         });
@@ -417,9 +438,6 @@ fn collect_external_cap_support_edge(
         cap_span_start,
         cap_span_end,
         cap_forward,
-        support_face,
-        support_pcurve: support_pcurve.clone(),
-        support_forward,
         targets,
     });
     report.sampled_edges += 1;
@@ -430,21 +448,10 @@ fn external_cap_support_edge_gap(brep: &BRep, edge_sample: &EdgeSolveSamples) ->
     let half_edge_data = brep.half_edges.get(edge_sample.cap_half_edge)?;
     let cap_face = brep.loops.get(half_edge_data.loop_)?.face;
     let cap_patch = surface_access::rectangular_binonic_on_face(brep, cap_face).ok()?;
-    let support_surface = brep
-        .faces
-        .get(edge_sample.support_face)
-        .and_then(|face| face.surface.as_ref())
-        .map(|surface| surface.geometry.clone())?;
-    let (support_t0, support_t1) = edge_sample.support_pcurve.parameter_range();
     let mut gap = 0.0_f64;
     for index in 0..SAMPLE_COUNT {
         let fraction = index as f64 / (SAMPLE_COUNT - 1) as f64;
         let cap_fraction = if edge_sample.cap_forward {
-            fraction
-        } else {
-            1.0 - fraction
-        };
-        let support_fraction = if edge_sample.support_forward {
             fraction
         } else {
             1.0 - fraction
@@ -454,15 +461,10 @@ fn external_cap_support_edge_gap(brep: &BRep, edge_sample: &EdgeSolveSamples) ->
             edge_sample.cap_span_end,
             cap_fraction,
         );
-        let support_parameter = geometry::lerp_scalar(support_t0, support_t1, support_fraction);
+        let target = edge_sample.targets.get(index)?;
         gap = gap.max(
-            row_fit::eval_boundary(&cap_patch, edge_sample.cap_side, cap_parameter).distance_to(
-                &geometry::support_surface_point(
-                    &support_surface,
-                    &edge_sample.support_pcurve,
-                    support_parameter,
-                ),
-            ),
+            row_fit::eval_boundary(&cap_patch, edge_sample.cap_side, cap_parameter)
+                .distance_to(target),
         );
     }
     Some(gap)

@@ -11,6 +11,13 @@ pub(super) struct BoundaryRowFitSample {
     pub(super) target: Point3,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy)]
+pub(super) struct BoundaryRowFitConstraint {
+    pub(super) parameter: f64,
+    pub(super) target: Point3,
+}
+
 pub(super) fn eval_boundary(
     patch: &RectangularGregoryBiNonic,
     side: BoundarySide,
@@ -89,6 +96,84 @@ pub(super) fn fit_boundary_samples_with_regularization(
             Point3::new(xs[index], ys[index], zs[index]),
         );
     }
+}
+
+#[allow(dead_code)]
+pub(super) fn fit_boundary_samples_with_constraints(
+    patch: &mut RectangularGregoryBiNonic,
+    side: BoundarySide,
+    samples: &[BoundaryRowFitSample],
+    constraints: &[BoundaryRowFitConstraint],
+    regularization: f64,
+) -> bool {
+    if samples.is_empty() && constraints.is_empty() {
+        return true;
+    }
+    let prior = boundary_controls(patch, side);
+    let lambda = regularization.max(0.0);
+    let constraint_count = constraints.len();
+    let system_size = 10 + constraint_count;
+    let mut normal = vec![vec![0.0_f64; system_size]; system_size];
+    let mut rhs_x = vec![0.0_f64; system_size];
+    let mut rhs_y = vec![0.0_f64; system_size];
+    let mut rhs_z = vec![0.0_f64; system_size];
+    for sample in samples {
+        let basis = bernstein9(sample.parameter);
+        for i in 0..10 {
+            rhs_x[i] += basis[i] * sample.target.x;
+            rhs_y[i] += basis[i] * sample.target.y;
+            rhs_z[i] += basis[i] * sample.target.z;
+            for j in 0..10 {
+                normal[i][j] += basis[i] * basis[j];
+            }
+        }
+    }
+    for i in 0..10 {
+        normal[i][i] += lambda;
+        rhs_x[i] += lambda * prior[i].x;
+        rhs_y[i] += lambda * prior[i].y;
+        rhs_z[i] += lambda * prior[i].z;
+    }
+    for (constraint_index, constraint) in constraints.iter().enumerate() {
+        let row = 10 + constraint_index;
+        let basis = bernstein9(constraint.parameter);
+        for i in 0..10 {
+            normal[row][i] = basis[i];
+            normal[i][row] = basis[i];
+        }
+        rhs_x[row] = constraint.target.x;
+        rhs_y[row] = constraint.target.y;
+        rhs_z[row] = constraint.target.z;
+    }
+    let Some(xs) = solve_dense(normal.clone(), rhs_x) else {
+        return false;
+    };
+    let Some(ys) = solve_dense(normal.clone(), rhs_y) else {
+        return false;
+    };
+    let Some(zs) = solve_dense(normal, rhs_z) else {
+        return false;
+    };
+    for index in 0..10 {
+        set_boundary_control(
+            patch,
+            side,
+            index,
+            Point3::new(xs[index], ys[index], zs[index]),
+        );
+    }
+    true
+}
+
+#[allow(dead_code)]
+pub(super) fn max_boundary_constraint_residual(
+    patch: &RectangularGregoryBiNonic,
+    side: BoundarySide,
+    constraints: &[BoundaryRowFitConstraint],
+) -> f64 {
+    constraints.iter().fold(0.0_f64, |worst, constraint| {
+        worst.max(eval_boundary(patch, side, constraint.parameter).distance_to(&constraint.target))
+    })
 }
 
 #[allow(dead_code)]
@@ -182,6 +267,44 @@ pub(super) fn eval_row(row: &[Point3; 10], t: f64) -> Point3 {
 
 fn binomial9(i: usize) -> f64 {
     [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0][i]
+}
+
+#[allow(dead_code)]
+#[allow(clippy::needless_range_loop)] // Gaussian elimination is explicit row/column indexing.
+fn solve_dense(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<f64>> {
+    let n = rhs.len();
+    for pivot in 0..n {
+        let mut best = pivot;
+        for row in pivot + 1..n {
+            if matrix[row][pivot].abs() > matrix[best][pivot].abs() {
+                best = row;
+            }
+        }
+        matrix.swap(pivot, best);
+        rhs.swap(pivot, best);
+        let scale = matrix[pivot][pivot];
+        if scale.abs() <= 1.0e-13 {
+            return None;
+        }
+        for column in pivot..n {
+            matrix[pivot][column] /= scale;
+        }
+        rhs[pivot] /= scale;
+        for row in 0..n {
+            if row == pivot {
+                continue;
+            }
+            let factor = matrix[row][pivot];
+            if factor == 0.0 {
+                continue;
+            }
+            for column in pivot..n {
+                matrix[row][column] -= factor * matrix[pivot][column];
+            }
+            rhs[row] -= factor * rhs[pivot];
+        }
+    }
+    Some(rhs)
 }
 
 #[allow(clippy::needless_range_loop)] // Gaussian elimination is explicit row/column indexing.

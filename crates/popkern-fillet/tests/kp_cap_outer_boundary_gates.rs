@@ -27,7 +27,6 @@
 //! Threshold targets (mirroring `kp_binonic_commercial_gates`):
 //! * G0 ≤ 1e-10 (position match at the seam)
 //! * G1 ≤ 5e-2  (coplanarity at samples; ≈ 2.9° normal mismatch)
-
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
@@ -244,6 +243,12 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         &[
             "status=rolled_back_postcondition_failed",
             "row_fit_candidates",
+            "constrained_row_fit_candidates",
+            "constrained_row_singular_candidates",
+            "hard_constraint_rows",
+            "hard_constraint_samples",
+            "hard_constraint_conflicts",
+            "hard_constraint_overfull_rows",
             "zero_regularization_rows",
             "displacement_scaled_candidates",
             "displacement_rejected_candidates",
@@ -262,6 +267,7 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "max_row_after_sample_target_source",
             "max_row_after_sample_before_gap",
             "max_row_after_sample_target_edge_curve_gap",
+            "max_hard_constraint_residual",
             "max_row_target_edge_curve_gap",
             "max_row_target_edge_curve_edge",
             "max_row_target_edge_curve_face",
