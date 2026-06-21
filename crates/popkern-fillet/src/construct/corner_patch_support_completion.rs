@@ -61,6 +61,30 @@ pub(crate) fn complete_corner_patch_support_pcurves(
 ) {
     complete_support_cell_pcurves_transactionally(brep, corner_patches, diagnostics);
     complete_external_cap_support_pcurves(brep, corner_patches, diagnostics);
+    emit_coherence_validation_diagnostic(brep, corner_patches, diagnostics);
+}
+
+/// Stage B1 of `docs/decisions/2026-06-21-edge-curve-face-boundary-
+/// coherence-invariants.md`: at the end of corner-patch support
+/// completion, scope `validate_coherence` to the cap faces and emit
+/// the result as an `ApexConstructionDiagnostic::CoherenceValidation`.
+/// Stage B1 is observational — the report is recorded, no behavior
+/// gating yet.
+fn emit_coherence_validation_diagnostic(
+    brep: &BRep,
+    corner_patches: &[CornerPatchInfo],
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+) {
+    let cap_faces = surfaced_cap_face_set(brep, corner_patches);
+    let report = brep.validate_coherence(&popkern_core::topology::CoherenceValidationScope::Faces(
+        cap_faces,
+    ));
+    diagnostics.push(ApexConstructionDiagnostic::CoherenceValidation(
+        crate::types::CoherenceValidationDiagnostic {
+            stage: "corner_patch_support_completion".to_string(),
+            report,
+        },
+    ));
 }
 
 pub(crate) fn complete_external_cap_support_pcurves(
