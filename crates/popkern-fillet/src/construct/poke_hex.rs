@@ -170,8 +170,21 @@ fn poke_n_gon_face_into_n_quads_with_expected(
 
     // Euler-op 1: `mev(he[0], central_point)` — adds vertex C with
     // tab edge V_0 ↔ C spliced before `he[0]` in the loop.
+    let v_at_he0 = brep
+        .half_edges
+        .get(loop_hes[0])
+        .ok_or_else(|| CoreError::InvalidHandle("loop_hes[0] is stale".into()))?
+        .origin;
+    let pos_at_he0 = brep.vertices[v_at_he0].position;
     let mev_result = brep.mev(loop_hes[0], central_point)?;
     let central_vertex = mev_result.vertex;
+    // Stage C2: author a placeholder straight-line edge curve from
+    // the known endpoint positions so `validate_coherence` sees a
+    // non-None curve. The cap surface authoring downstream rewrites
+    // these with cap-derived curves; until then the line segment
+    // satisfies L1 with a geometrically reasonable approximation.
+    author_poke_edge_line_curve(brep, mev_result.edge, pos_at_he0, central_point);
+    record_poke_pcurve_pending(brep, mev_result.half_edge, mev_result.half_edge_twin);
     // The half-edge from C pointing back toward V_0: this is the
     // seed for the first mef.
     let mut prev_he_from_c = mev_result.half_edge_twin;
@@ -182,7 +195,15 @@ fn poke_n_gon_face_into_n_quads_with_expected(
     // remaining loop — seed for the next mef.
     let mut sub_faces: Vec<FaceHandle> = Vec::with_capacity(n);
     for i in 1..n {
+        let v_at_he2i = brep
+            .half_edges
+            .get(loop_hes[2 * i])
+            .ok_or_else(|| CoreError::InvalidHandle("loop_hes[2*i] is stale".into()))?
+            .origin;
+        let pos_at_he2i = brep.vertices[v_at_he2i].position;
         let mef_result = brep.mef(prev_he_from_c, loop_hes[2 * i])?;
+        author_poke_edge_line_curve(brep, mef_result.edge, central_point, pos_at_he2i);
+        record_poke_pcurve_pending(brep, mef_result.half_edge, mef_result.half_edge_twin);
         sub_faces.push(mef_result.face);
         prev_he_from_c = mef_result.half_edge;
     }
@@ -203,6 +224,51 @@ fn poke_n_gon_face_into_n_quads_with_expected(
         sub_faces,
         central_vertex,
     })
+}
+
+/// Stage C2: write a straight-line placeholder edge curve so the
+/// MEV/MEF inserts above leave a non-None curve on the new edge.
+/// The downstream cap-surface authoring overrides this with the
+/// cap-derived curve once the cap surface is bonded. If the
+/// endpoints coincide (degenerate input), record a pending marker
+/// instead so the obligation remains visible.
+fn author_poke_edge_line_curve(
+    brep: &mut BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    start: Point3,
+    end: Point3,
+) {
+    use popkern_core::geometry::curve::CurveOnEdge;
+    use popkern_core::topology::coherence::PendingCoherenceMarker;
+    let tol = brep.tolerance.linear().max(1.0e-12);
+    match CurveOnEdge::line_segment(start, end, tol) {
+        Some(curve) => {
+            brep.edges[edge].curve = Some(curve);
+            brep.clear_pending_authoring_for_edge(edge);
+        }
+        None => brep.record_pending_authoring(PendingCoherenceMarker::EdgeCurvePending {
+            edge,
+            owner_operator: "poke_n_gon_face_into_n_quads",
+        }),
+    }
+}
+
+/// Stage C2: poke_hex creates half-edges before the cap surface is
+/// bonded, so a parametric pcurve cannot be computed at MEV/MEF
+/// time. Record `HalfEdgePcurvePending` markers so the cap-surface
+/// authoring downstream knows it owns the pcurve obligation, and
+/// `validate_coherence` does not raise L3 violations against
+/// half-edges that are legitimately mid-construction.
+fn record_poke_pcurve_pending(brep: &mut BRep, half_edge: HalfEdgeHandle, twin: HalfEdgeHandle) {
+    use popkern_core::topology::coherence::PendingCoherenceMarker;
+    brep.record_pending_authoring(PendingCoherenceMarker::HalfEdgePcurvePending {
+        half_edge,
+        owner_operator: "poke_n_gon_face_into_n_quads",
+    });
+    brep.record_pending_authoring(PendingCoherenceMarker::HalfEdgePcurvePending {
+        half_edge: twin,
+        owner_operator: "poke_n_gon_face_into_n_quads",
+    });
 }
 
 fn normalize_n_he_loop_to_2n(

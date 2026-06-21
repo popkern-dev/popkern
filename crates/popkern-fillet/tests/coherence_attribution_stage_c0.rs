@@ -25,11 +25,10 @@ use std::collections::BTreeMap;
 mod helpers;
 use helpers::{incident_edges, pick_vertex_with_valence};
 
-fn fillet_hexagon6_variable() -> BlendResult {
-    let pyramid = BRep::n_gonal_pyramid(6, 1.0, 0.8, Tolerance::default()).unwrap();
-    let apex = pick_vertex_with_valence(&pyramid, 6).expect("apex must exist");
+fn fillet_n_pyramid(n: usize, radii: &[f64]) -> BlendResult {
+    let pyramid = BRep::n_gonal_pyramid(n, 1.0, 0.8, Tolerance::default()).unwrap();
+    let apex = pick_vertex_with_valence(&pyramid, n).expect("apex must exist");
     let edges = incident_edges(&pyramid, apex);
-    let radii = [0.02, 0.04, 0.06, 0.06, 0.04, 0.02];
     let specs: Vec<_> = edges
         .iter()
         .zip(radii.iter())
@@ -45,14 +44,10 @@ fn fillet_hexagon6_variable() -> BlendResult {
         Tolerance::default(),
         None,
     )
-    .expect("hexagon6_variable fillet should not panic")
+    .expect("pyramid fillet should not panic")
 }
 
-#[test]
-#[ignore = "Stage C0 probe — run with --ignored --nocapture and copy stderr into docs/reports/"]
-fn hexagon6_variable_l1_creator_histogram() {
-    let result = fillet_hexagon6_variable();
-
+fn dump_l1_histogram(label: &str, result: &BlendResult) {
     let mut histogram: BTreeMap<String, usize> = BTreeMap::new();
     let mut diagnostic_index = 0usize;
     let mut total_l1 = 0usize;
@@ -73,7 +68,7 @@ fn hexagon6_variable_l1_creator_histogram() {
                 *histogram.entry(key).or_insert(0) += 1;
             }
             eprintln!(
-                "  diagnostic #{diagnostic_index} stage={} L1={} L2={} L3={}",
+                "  [{label}] diagnostic #{diagnostic_index} stage={} L1={} L2={} L3={}",
                 c.stage,
                 c.report.l1_missing_edge_curves.len(),
                 c.report.l2_face_boundary_disagreements.len(),
@@ -86,11 +81,32 @@ fn hexagon6_variable_l1_creator_histogram() {
     sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
     eprintln!(
-        "\n## hexagon6_variable L1 creator histogram ({total_l1} L1 entries across {diagnostic_index} CoherenceValidation diagnostics; {untracked} untracked)\n"
+        "\n## {label} L1 creator histogram ({total_l1} L1 entries across {diagnostic_index} CoherenceValidation diagnostics; {untracked} untracked)\n"
     );
     eprintln!("| creator (file:line) | count |");
     eprintln!("|---|---|");
     for (key, count) in &sorted {
         eprintln!("| {key} | {count} |");
     }
+}
+
+#[test]
+#[ignore = "Stage C0 probe — run with --ignored --nocapture and copy stderr into docs/reports/"]
+fn hexagon6_variable_l1_creator_histogram() {
+    let result = fillet_n_pyramid(6, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
+    dump_l1_histogram("hexagon6_variable", &result);
+}
+
+#[test]
+#[ignore = "Stage C2 probe — pyramid5_mixed (still L1>0 after C1)"]
+fn pyramid5_mixed_l1_creator_histogram() {
+    let result = fillet_n_pyramid(5, &[0.04, 0.06, 0.05, 0.07, 0.05]);
+    dump_l1_histogram("pyramid5_mixed", &result);
+}
+
+#[test]
+#[ignore = "Stage C2 probe — hexagon6_uniform (still L1>0 after C1)"]
+fn hexagon6_uniform_l1_creator_histogram() {
+    let result = fillet_n_pyramid(6, &[0.04; 6]);
+    dump_l1_histogram("hexagon6_uniform", &result);
 }

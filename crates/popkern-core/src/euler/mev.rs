@@ -145,6 +145,7 @@ impl BRep {
     /// # Errors
     ///
     /// - [`CoreError::InvalidHandle`] if the half-edge handle is invalid.
+    #[track_caller]
     pub fn mev(
         &mut self,
         half_edge: HalfEdgeHandle,
@@ -163,6 +164,7 @@ impl BRep {
         Ok(result)
     }
 
+    #[track_caller]
     fn apply_mev(
         &mut self,
         half_edge: HalfEdgeHandle,
