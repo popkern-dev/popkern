@@ -20,6 +20,8 @@ mod constraints;
 mod edge_curve;
 #[path = "kp20_polar_cap_support_boundary_geometry.rs"]
 mod geometry;
+#[path = "kp20_polar_cap_support_boundary_solve_report.rs"]
+mod report;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
 #[allow(dead_code)]
 mod row_fit;
@@ -27,64 +29,10 @@ mod row_fit;
 #[allow(dead_code)]
 mod surface_access;
 
+pub(super) use report::CapSupportBoundarySolveReport;
+
 const SAMPLE_COUNT: usize = 12;
 pub(super) const MAX_BOUNDARY_ROW_DISPLACEMENT: f64 = boundary_fit::MAX_BOUNDARY_ROW_DISPLACEMENT;
-
-#[derive(Debug, Clone, Copy, Default)]
-pub(super) struct CapSupportBoundarySolveReport {
-    pub(super) eligible_edges: usize,
-    pub(super) sampled_edges: usize,
-    pub(super) fit_rows: usize,
-    pub(super) row_fit_candidates: usize,
-    pub(super) constrained_row_fit_candidates: usize,
-    pub(super) constrained_row_singular_candidates: usize,
-    pub(super) max_hard_satisfying_constrained_displacement: f64,
-    pub(super) max_best_unscaled_constrained_residual: f64,
-    pub(super) hard_constraint_rows: usize,
-    pub(super) hard_constraint_samples: usize,
-    pub(super) hard_constraint_conflicts: usize,
-    pub(super) hard_constraint_overfull_rows: usize,
-    pub(super) zero_regularization_rows: usize,
-    pub(super) displacement_scaled_candidates: usize,
-    pub(super) displacement_rejected_candidates: usize,
-    pub(super) displacement_bounded_rows: usize,
-    pub(super) displacement_unbounded_rows: usize,
-    pub(super) multi_edge_rows: usize,
-    pub(super) max_samples_per_row: usize,
-    pub(super) reauthored_edge_curves: usize,
-    pub(super) missing_cap_pcurve_edges: usize,
-    pub(super) missing_support_pcurve_edges: usize,
-    pub(super) unrecognized_cap_pcurve_edges: usize,
-    pub(super) missing_support_surface_edges: usize,
-    pub(super) non_rectangular_cap_edges: usize,
-    pub(super) max_row_parameter_span: f64,
-    pub(super) max_row_before_sample_gap: f64,
-    pub(super) max_row_after_sample_gap: f64,
-    pub(super) max_row_after_sample_face: Option<FaceHandle>,
-    pub(super) max_row_after_sample_side: Option<BoundarySide>,
-    pub(super) max_row_after_sample_parameter: f64,
-    pub(super) max_row_after_sample_edge: Option<EdgeHandle>,
-    pub(super) max_row_after_sample_cap_half_edge: Option<HalfEdgeHandle>,
-    pub(super) max_row_after_sample_support_face: Option<FaceHandle>,
-    pub(super) max_row_after_sample_support_parameter: f64,
-    pub(super) max_row_after_sample_target_source: Option<BoundaryRowTargetSource>,
-    pub(super) max_row_after_sample_before_gap: f64,
-    pub(super) max_row_after_sample_target_edge_curve_gap: f64,
-    pub(super) max_hard_constraint_residual: f64,
-    pub(super) max_row_target_edge_curve_gap: f64,
-    pub(super) max_row_target_edge_curve_edge: Option<EdgeHandle>,
-    pub(super) max_row_target_edge_curve_face: Option<FaceHandle>,
-    pub(super) max_row_target_edge_curve_side: Option<BoundarySide>,
-    pub(super) max_row_target_edge_curve_parameter: f64,
-    pub(super) max_row_after_edge_curve_gap: f64,
-    pub(super) max_row_after_edge_curve_edge: Option<EdgeHandle>,
-    pub(super) max_row_after_edge_curve_face: Option<FaceHandle>,
-    pub(super) max_row_after_edge_curve_side: Option<BoundarySide>,
-    pub(super) max_row_after_edge_curve_parameter: f64,
-    pub(super) max_before_gap: f64,
-    pub(super) max_after_gap: f64,
-    pub(super) max_boundary_displacement: f64,
-}
 
 pub(super) fn solve_external_cap_support_boundaries(
     brep: &mut BRep,
@@ -142,9 +90,17 @@ pub(super) fn solve_external_cap_support_boundaries(
             .min_hard_satisfying_constrained_displacement
             .is_finite()
         {
-            report.max_hard_satisfying_constrained_displacement = report
-                .max_hard_satisfying_constrained_displacement
-                .max(after.min_hard_satisfying_constrained_displacement);
+            let d = after.min_hard_satisfying_constrained_displacement;
+            if d > report.max_hard_satisfying_constrained_displacement {
+                report.max_hard_satisfying_constrained_displacement = d;
+                report.worst_hard_satisfying_face = Some(samples.face);
+                report.worst_hard_satisfying_side = Some(samples.side);
+            }
+            report.min_hard_satisfying_constrained_displacement =
+                report.min_hard_satisfying_constrained_displacement.min(d);
+            if d > MAX_BOUNDARY_ROW_DISPLACEMENT {
+                report.hard_satisfying_rows_over_cap += 1;
+            }
         }
         if after.best_unscaled_constrained_residual.is_finite() {
             report.max_best_unscaled_constrained_residual = report
