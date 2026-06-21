@@ -1,7 +1,9 @@
 //! Topology helpers for vertex-blend insertion.
 
 use popkern_core::geometry::curve::CurveOnEdge;
+use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::coherence::PendingCoherenceMarker;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, VertexHandle};
@@ -47,7 +49,15 @@ pub(super) fn split_corner_triangles(
             .mef(he_at_a, he_at_b)
             .map_err(|e| format!("mef failed on face {face:?}: {e}"))?;
 
-        author_corner_split_edge_curve(brep, *face, anchor_a, anchor_b, mef_result.edge);
+        author_corner_split_edge_geometry(
+            brep,
+            *face,
+            anchor_a,
+            anchor_b,
+            mef_result.edge,
+            mef_result.half_edge,
+            mef_result.half_edge_twin,
+        );
 
         let corner = identify_corner_face(brep, *face, mef_result.face, vertex)?;
         corner_faces.push(corner);
@@ -56,20 +66,24 @@ pub(super) fn split_corner_triangles(
     Ok(corner_faces)
 }
 
-/// Stage C1: author the canonical edge curve for the MEF-inserted
-/// corner-split edge. The new edge runs across the parent face's
-/// surface from `anchor_a` to `anchor_b`. For planar surfaces the
-/// canonical curve is a line segment between the two endpoint
-/// positions. For non-planar surfaces (curved face support is left
-/// to a follow-up substage) we record a [`PendingCoherenceMarker`]
-/// so a downstream consumer must author the curve before steady
-/// state.
-fn author_corner_split_edge_curve(
+/// Stage C1: author the canonical edge curve and the matching
+/// pcurves for the MEF-inserted corner-split edge. The new edge
+/// runs across the parent face's surface from `anchor_a` to
+/// `anchor_b`. For planar surfaces the canonical curve is a line
+/// segment between the two endpoint positions and the two pcurves
+/// are linear segments in the parent surface's `(u, v)` frame. For
+/// non-planar surfaces (curved face support is left to a follow-up
+/// substage) we record `PendingCoherenceMarker` entries so
+/// downstream consumers must author the missing geometry before
+/// steady state.
+fn author_corner_split_edge_geometry(
     brep: &mut BRep,
     face: FaceHandle,
     anchor_a: VertexHandle,
     anchor_b: VertexHandle,
     edge: EdgeHandle,
+    half_edge_ab: HalfEdgeHandle,
+    half_edge_ba: HalfEdgeHandle,
 ) {
     let pos_a = brep.vertices[anchor_a].position;
     let pos_b = brep.vertices[anchor_b].position;
@@ -80,23 +94,49 @@ fn author_corner_split_edge_curve(
         .and_then(|f| f.surface.as_ref())
         .map(|s| s.geometry.clone());
 
-    let curve = match surface_geometry {
-        Some(SurfaceGeometry::Plane { .. }) => {
-            CurveOnEdge::line_segment(pos_a, pos_b, tol.max(1.0e-12))
+    match surface_geometry {
+        Some(SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        }) => {
+            if let Some(c) = CurveOnEdge::line_segment(pos_a, pos_b, tol.max(1.0e-12)) {
+                brep.edges[edge].curve = Some(c);
+                brep.clear_pending_authoring_for_edge(edge);
+            } else {
+                brep.record_pending_authoring(PendingCoherenceMarker::EdgeCurvePending {
+                    edge,
+                    owner_operator: "split_corner_triangles",
+                });
+            }
+            let uv_a = plane_uv(pos_a, origin, u_axis, v_axis);
+            let uv_b = plane_uv(pos_b, origin, u_axis, v_axis);
+            brep.half_edges[half_edge_ab].pcurve = Some(Pcurve::linear(uv_a, uv_b, 0.0, 1.0));
+            brep.half_edges[half_edge_ba].pcurve = Some(Pcurve::linear(uv_b, uv_a, 0.0, 1.0));
+            brep.clear_pending_authoring_for_half_edge(half_edge_ab);
+            brep.clear_pending_authoring_for_half_edge(half_edge_ba);
         }
-        _ => None,
-    };
-
-    match curve {
-        Some(c) => {
-            brep.edges[edge].curve = Some(c);
-            brep.clear_pending_authoring_for_edge(edge);
+        _ => {
+            brep.record_pending_authoring(PendingCoherenceMarker::EdgeCurvePending {
+                edge,
+                owner_operator: "split_corner_triangles",
+            });
+            brep.record_pending_authoring(PendingCoherenceMarker::HalfEdgePcurvePending {
+                half_edge: half_edge_ab,
+                owner_operator: "split_corner_triangles",
+            });
+            brep.record_pending_authoring(PendingCoherenceMarker::HalfEdgePcurvePending {
+                half_edge: half_edge_ba,
+                owner_operator: "split_corner_triangles",
+            });
         }
-        None => brep.record_pending_authoring(PendingCoherenceMarker::EdgeCurvePending {
-            edge,
-            owner_operator: "split_corner_triangles",
-        }),
     }
+}
+
+fn plane_uv(p: Point3, origin: Point3, u_axis: Vec3, v_axis: Vec3) -> (f64, f64) {
+    let d = p - origin;
+    (d.dot(&u_axis), d.dot(&v_axis))
 }
 
 /// Normalize an under-resolved high-valence blend loop before the
