@@ -27,13 +27,14 @@ pub use types_exact_boundary::{
 };
 pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,
-    BlendRepairReport, CapSupportContinuityDiagnostic, CylinderTrimFarSideStrategy,
-    CylinderTrimMaterializationDeclineReason, CylinderTrimMaterializationDiagnostic,
-    ExactBoundaryCandidatePerformanceReport, SideSupportContinuationDiagnostic,
-    SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
-    SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
-    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
-    support_seam_decline_reason_label, support_seam_rollback_reason_label,
+    BlendRepairReport, CapSupportContinuityDiagnostic, CoherenceValidationDiagnostic,
+    CylinderTrimFarSideStrategy, CylinderTrimMaterializationDeclineReason,
+    CylinderTrimMaterializationDiagnostic, ExactBoundaryCandidatePerformanceReport,
+    SideSupportContinuationDiagnostic, SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus,
+    SupportCellSplitDiagnostic, SupportCellSplitFallbackReason, SupportSeamDecision,
+    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
+    build_blend_repair_action_artifact, support_seam_decline_reason_label,
+    support_seam_rollback_reason_label,
 };
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 

@@ -131,6 +131,23 @@ pub enum ApexConstructionDiagnostic {
     /// records whether cap-vertex-aware parameters or the uniform fallback
     /// drove each axis, plus the fallback reason when applicable.
     SupportCellSplit(SupportCellSplitDiagnostic),
+    /// Coherence-invariant validation outcome at an operator boundary.
+    /// Carries the [`popkern_core::topology::CoherenceReport`] populated
+    /// by `BRep::validate_coherence`, plus a stage label that names the
+    /// operator whose return triggered the validation. An empty report
+    /// means every tracked invariant held at the requested scope.
+    CoherenceValidation(CoherenceValidationDiagnostic),
+}
+
+/// Coherence-validation diagnostic carried inside
+/// [`ApexConstructionDiagnostic::CoherenceValidation`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct CoherenceValidationDiagnostic {
+    /// Operator boundary that emitted this diagnostic (e.g.
+    /// `"corner_patch_support_completion"`).
+    pub stage: String,
+    /// Snapshot of the coherence report at the operator boundary.
+    pub report: popkern_core::topology::CoherenceReport,
 }
 
 /// Per-axis status of a cap-vertex-aware support-cell split.

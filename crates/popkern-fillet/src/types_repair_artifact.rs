@@ -222,6 +222,7 @@ fn append_apex_diagnostic_actions(
                 });
             }
             ApexConstructionDiagnostic::SupportCellSplit(_) => {}
+            ApexConstructionDiagnostic::CoherenceValidation(_) => {}
         }
     }
 }

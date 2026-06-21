@@ -118,6 +118,71 @@ fn pending_only_skips_resolved_edges() {
 }
 
 #[test]
+fn unit_cube_has_no_l2_violations() {
+    // L2 holds on the cube: every cube face's planar surface
+    // shares the same Z (or X / Y) plane equation with its
+    // neighbour at the shared edge, so the surfaces agree on
+    // the edge curve within tolerance.
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let report = brep.validate_coherence(&CoherenceValidationScope::AllSteadyState);
+    assert!(
+        report.l2_face_boundary_disagreements.is_empty(),
+        "L2 on unit cube should be empty: {:#?}",
+        report.l2_face_boundary_disagreements
+    );
+}
+
+#[test]
+fn l2_fires_when_face_surface_is_displaced() {
+    // Synthetic L2 violation: take the unit cube, displace one
+    // face's plane origin by 0.1, and verify L2 surfaces at
+    // least one disagreement.
+    use crate::geometry::Vec3;
+    use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
+
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let face = brep.faces.keys().next().unwrap();
+    let surface = brep.faces[face].surface.as_ref().unwrap().clone();
+    // Move the plane origin by 0.1 m along its normal — the
+    // displaced surface no longer agrees with neighbouring faces
+    // at the shared edges.
+    let SurfaceGeometry::Plane {
+        origin,
+        u_axis,
+        v_axis,
+        normal,
+    } = surface.geometry
+    else {
+        panic!("expected unit cube face surface to be Plane");
+    };
+    let shifted_origin = origin + Vec3::new(normal.x * 0.1, normal.y * 0.1, normal.z * 0.1);
+    brep.faces[face].surface = Some(SurfaceOnFace {
+        geometry: SurfaceGeometry::Plane {
+            origin: shifted_origin,
+            u_axis,
+            v_axis,
+            normal,
+        },
+        orientation: surface.orientation,
+    });
+
+    let report = brep.validate_coherence(&CoherenceValidationScope::AllSteadyState);
+    assert!(
+        !report.l2_face_boundary_disagreements.is_empty(),
+        "L2 should report at least one disagreement after displacing a face surface by 0.1 m"
+    );
+    let worst_gap = report
+        .l2_face_boundary_disagreements
+        .iter()
+        .map(|d| d.worst_gap)
+        .fold(0.0_f64, f64::max);
+    assert!(
+        (worst_gap - 0.1).abs() < 1.0e-6,
+        "worst L2 gap should be ≈ 0.1 m (the displacement); got {worst_gap}"
+    );
+}
+
+#[test]
 fn l3_only_fires_when_face_has_surface() {
     // A half-edge without a pcurve is NOT an L3 violation when
     // the owning face has no surface (no canonical UV space to
