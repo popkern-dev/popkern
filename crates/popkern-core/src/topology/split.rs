@@ -2,6 +2,8 @@
 
 #[path = "split_edge_at_point.rs"]
 mod split_edge_at_point;
+#[path = "split_surface_derived.rs"]
+mod split_surface_derived;
 
 use crate::error::CoreError;
 use crate::geometry::Point3;
