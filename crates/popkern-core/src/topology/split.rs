@@ -2,6 +2,8 @@
 
 #[path = "split_edge_at_point.rs"]
 mod split_edge_at_point;
+#[path = "split_position.rs"]
+mod split_position;
 #[path = "split_surface_derived.rs"]
 mod split_surface_derived;
 
@@ -112,21 +114,16 @@ impl BRep {
         // which curve endpoint is closer to `vertex_a`, and flip
         // `t` if needed before sampling the curve. Without this,
         // `split_pos` lands at the wrong end of the edge.
-        let split_pos = match &curve_on_edge {
-            Some(curve) => {
-                let p_t_start = curve.geometry.point_at(curve.t_start);
-                let p_t_end = curve.geometry.point_at(curve.t_end);
-                let curve_aligned = pos_a.distance_to(&p_t_start) <= pos_a.distance_to(&p_t_end);
-                let aligned_t = if curve_aligned { t } else { 1.0 - t };
-                let t_param = curve.t_start + aligned_t * (curve.t_end - curve.t_start);
-                curve.geometry.point_at(t_param)
-            }
-            None => Point3::new(
-                pos_a.x + t * (pos_b.x - pos_a.x),
-                pos_a.y + t * (pos_b.y - pos_a.y),
-                pos_a.z + t * (pos_b.z - pos_a.z),
-            ),
-        };
+        let (split_pos, edge_a_curve_replacement, edge_b_curve) =
+            split_position::split_position_and_propagation(
+                self,
+                &curve_on_edge,
+                he_ab,
+                he_ba,
+                pos_a,
+                pos_b,
+                t,
+            );
 
         // Create the new vertex V.
         let vertex_v = self.vertices.insert(Vertex {
@@ -142,10 +139,11 @@ impl BRep {
         let (pcurve_ab_left, pcurve_ab_right) = split_pcurve_at(&pcurve_ab, t);
         let (pcurve_ba_left, pcurve_ba_right) = split_pcurve_at(&pcurve_ba, 1.0 - t);
 
-        // Create the new edge (edge_b).
+        // Create the new edge (edge_b), inheriting the V→B portion
+        // of the parent's curve when present (β-1-A).
         let edge_b = self.edges.insert(Edge {
             half_edge: Default::default(),
-            curve: None,
+            curve: edge_b_curve,
             name: None,
             tolerance: None,
             canonical: Default::default(),
@@ -196,6 +194,10 @@ impl BRep {
 
         // Update edge_b to point to he_vb.
         self.edges[edge_b].half_edge = he_vb;
+
+        // β-1-A: shorten the original edge's curve to its A→V
+        // portion (a no-op when the parent had no curve).
+        self.edges[edge].curve = edge_a_curve_replacement;
 
         // Update vertex outgoing pointers.
         self.vertices[vertex_v].outgoing = he_vb;

@@ -91,6 +91,66 @@ fn split_edge_t_out_of_range() {
 }
 
 // ==========================================================================
+// Curve-propagation through split_edge (β-1-A per
+// 2026-06-21-split-edge-surface-derived-vertex-placement.md)
+// ==========================================================================
+
+#[test]
+fn split_edge_propagates_parent_curve_to_both_children() {
+    use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
+
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mev = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+
+    // Author a line curve on the edge from (0,0,0) to (1,0,0).
+    brep.edges[mev.edge].curve = Some(CurveOnEdge {
+        geometry: CurveGeometry::Line {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            direction: crate::geometry::Vec3::new(1.0, 0.0, 0.0),
+        },
+        t_start: 0.0,
+        t_end: 1.0,
+    });
+
+    let result = brep.split_edge(mev.edge, 0.4).unwrap();
+
+    let edge_a_curve = brep.edges[result.edge_a]
+        .curve
+        .as_ref()
+        .expect("β-1-A: original edge should retain its A→V curve portion");
+    let edge_b_curve = brep.edges[result.edge_b]
+        .curve
+        .as_ref()
+        .expect("β-1-A: new edge should inherit the V→B curve portion");
+
+    // Edge A covers [0.0, 0.4] of the parent curve; edge B covers [0.4, 1.0].
+    assert!((edge_a_curve.t_start - 0.0).abs() < 1.0e-12);
+    assert!((edge_a_curve.t_end - 0.4).abs() < 1.0e-12);
+    assert!((edge_b_curve.t_start - 0.4).abs() < 1.0e-12);
+    assert!((edge_b_curve.t_end - 1.0).abs() < 1.0e-12);
+}
+
+#[test]
+fn split_edge_preserves_none_curve_for_curveless_edge() {
+    // Edges without curves stay None on both children; the
+    // surface-derived path or chord fallback is unaffected for
+    // curveless inputs.
+    let mut brep = BRep::new(Tolerance::default());
+    let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
+    let mev = brep
+        .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
+        .unwrap();
+    assert!(brep.edges[mev.edge].curve.is_none());
+
+    let result = brep.split_edge(mev.edge, 0.5).unwrap();
+    assert!(brep.edges[result.edge_a].curve.is_none());
+    assert!(brep.edges[result.edge_b].curve.is_none());
+}
+
+// ==========================================================================
 // split_edge_at_point tests (per ADR §14.2 / Stage 0b)
 // ==========================================================================
 
