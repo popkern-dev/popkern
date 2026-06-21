@@ -1,5 +1,8 @@
 //! De Casteljau subdivision helpers for KP20 bi-6 patches.
 
+#[path = "kp20_polar_support_cell_boundary_projection.rs"]
+pub(super) mod support_cell_boundary_projection;
+
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::Kp20Bi6Patch;
 

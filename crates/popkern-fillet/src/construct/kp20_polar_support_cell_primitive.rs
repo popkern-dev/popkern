@@ -5,6 +5,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::super::kp_polar_bi6_promote::SELF_INT_TOL;
+use super::super::kp20_polar_bi6_split::support_cell_boundary_projection::SupportCellPatchSide;
 use super::super::kp20_polar_bi6_split::{split_uniform_u, split_uniform_v};
 use super::super::kp20_polar_fold_summary::Kp20FoldSite;
 use crate::types::CornerSubPatchProvenance;
@@ -279,20 +280,6 @@ fn support_cells(base: &Kp20Bi6Patch, cells_u: usize, cells_v: usize) -> Vec<Kp2
         cells.extend(split_uniform_v(&u_band, cells_v));
     }
     cells
-}
-
-#[derive(Debug, Clone, Copy)]
-enum SupportCellPatchSide {
-    UMin,
-    UMax,
-    VMin,
-    VMax,
-}
-
-impl SupportCellPatchSide {
-    fn all() -> [Self; 4] {
-        [Self::UMin, Self::UMax, Self::VMin, Self::VMax]
-    }
 }
 
 fn support_cell_topology_path_g0(patches: &[GregoryPatch], cells_u: usize, cells_v: usize) -> f64 {
