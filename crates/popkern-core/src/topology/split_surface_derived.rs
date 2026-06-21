@@ -35,18 +35,37 @@ pub(super) fn surface_derived_split_position(
     t: f64,
 ) -> Option<Point3> {
     let half_edge_data = brep.half_edges.get(half_edge)?;
-    let pcurve = half_edge_data.pcurve.as_ref()?;
     let loop_data = brep.loops.get(half_edge_data.loop_)?;
     let face = brep.faces.get(loop_data.face)?;
     let surface_on_face = face.surface.as_ref()?;
-    let (pc_start, pc_end) = pcurve.parameter_range();
-    let pc_range = pc_end - pc_start;
-    if pc_range.abs() < 1.0e-30 {
-        return None;
+    if let Some(pcurve) = half_edge_data.pcurve.as_ref() {
+        let (pc_start, pc_end) = pcurve.parameter_range();
+        let pc_range = pc_end - pc_start;
+        if pc_range.abs() >= 1.0e-30 {
+            let pc_t = pc_start + t * pc_range;
+            let uv = pcurve.point_at(pc_t);
+            return Some(surface_on_face.geometry.point_at(uv.x, uv.y));
+        }
     }
-    let pc_t = pc_start + t * pc_range;
-    let uv = pcurve.point_at(pc_t);
-    Some(surface_on_face.geometry.point_at(uv.x, uv.y))
+    // β-1-C: pcurve-less fallback — derive (u, v) by projecting the
+    // half-edge's endpoint vertex 3D positions onto the face surface,
+    // then linearly interpolate at `t`. Equivalent to the pcurve
+    // path when the resulting UV trajectory would have been a
+    // straight line in UV space; correct-by-construction for the
+    // common case where the face surface's parametric inverse is
+    // well-defined at the endpoint positions.
+    let origin_pos = brep.vertices.get(half_edge_data.origin)?.position;
+    let next_he = brep.half_edges.get(half_edge_data.next)?;
+    let dest_pos = brep.vertices.get(next_he.origin)?.position;
+    let (u_origin, v_origin) = crate::geometry::uv_projection::project_point_to_uv(
+        &surface_on_face.geometry,
+        &origin_pos,
+    )?;
+    let (u_dest, v_dest) =
+        crate::geometry::uv_projection::project_point_to_uv(&surface_on_face.geometry, &dest_pos)?;
+    let u = u_origin + t * (u_dest - u_origin);
+    let v = v_origin + t * (v_dest - v_origin);
+    Some(surface_on_face.geometry.point_at(u, v))
 }
 
 #[cfg(test)]

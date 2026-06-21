@@ -9,14 +9,47 @@ fn returns_none_for_stale_half_edge() {
 }
 
 #[test]
-fn returns_none_when_half_edge_has_no_pcurve() {
+fn returns_none_when_no_pcurve_and_no_surface() {
+    // mev produces a half-edge with no pcurve AND a face with no
+    // surface — helper returns None at the surface check (no
+    // pcurve-less fallback to fire).
     let mut brep = BRep::new(Tolerance::default());
     let mvfs = brep.mvfs(Point3::new(0.0, 0.0, 0.0)).unwrap();
     let mev = brep
         .mev_at_vertex(mvfs.vertex, mvfs.loop_, Point3::new(1.0, 0.0, 0.0))
         .unwrap();
-    // mev edges don't have pcurves attached, so helper returns None.
     assert!(surface_derived_split_position(&brep, mev.half_edge, 0.5).is_none());
+}
+
+#[test]
+fn pcurve_less_fallback_projects_endpoints_to_surface_on_cube() {
+    // β-1-C: on a unit cube, if we strip a half-edge's pcurve but
+    // keep its face's surface, the helper falls back to projecting
+    // the endpoint vertex positions onto the planar surface. The
+    // result for t=0.5 should equal the chord midpoint within fp
+    // precision (planar surface; chord = surface boundary).
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let half_edge = brep.half_edges.keys().next().unwrap();
+    // Strip the pcurve to force the β-1-C path.
+    brep.half_edges[half_edge].pcurve = None;
+    let result = surface_derived_split_position(&brep, half_edge, 0.5);
+    let Some(point) = result else {
+        panic!("expected Some via pcurve-less β-1-C path on cube half-edge");
+    };
+    let he = &brep.half_edges[half_edge];
+    let next = &brep.half_edges[he.next];
+    let pos_a = brep.vertices[he.origin].position;
+    let pos_b = brep.vertices[next.origin].position;
+    let chord_mid = Point3::new(
+        0.5 * (pos_a.x + pos_b.x),
+        0.5 * (pos_a.y + pos_b.y),
+        0.5 * (pos_a.z + pos_b.z),
+    );
+    let drift = (point - chord_mid).length();
+    assert!(
+        drift < 1.0e-12,
+        "β-1-C pcurve-less path on planar face should equal chord midpoint; drift={drift:.3e}"
+    );
 }
 
 #[test]
