@@ -46,6 +46,7 @@ impl BRep {
     /// - [`CoreError::InvalidHandle`] if `he1` or `he2` handles are invalid.
     /// - [`CoreError::PreconditionFailed`] if `he1` and `he2` are the same,
     ///   or not in the same loop.
+    #[track_caller]
     pub fn mef(
         &mut self,
         he1: HalfEdgeHandle,
@@ -64,6 +65,7 @@ impl BRep {
         Ok(result)
     }
 
+    #[track_caller]
     fn apply_mef(
         &mut self,
         he1: HalfEdgeHandle,
