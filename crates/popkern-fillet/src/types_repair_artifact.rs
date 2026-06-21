@@ -221,6 +221,7 @@ fn append_apex_diagnostic_actions(
                     shared_fact_ids: Vec::new(),
                 });
             }
+            ApexConstructionDiagnostic::SupportCellSplit(_) => {}
         }
     }
 }

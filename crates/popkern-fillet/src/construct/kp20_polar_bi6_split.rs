@@ -2,6 +2,8 @@
 
 #[path = "kp20_polar_support_cell_boundary_projection.rs"]
 pub(super) mod support_cell_boundary_projection;
+#[path = "kp20_polar_support_cell_cap_vertex_split.rs"]
+pub(super) mod support_cell_cap_vertex_split;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::Kp20Bi6Patch;

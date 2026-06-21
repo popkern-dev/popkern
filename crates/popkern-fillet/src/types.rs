@@ -30,8 +30,9 @@ pub use types_repair::{
     BlendRepairReport, CapSupportContinuityDiagnostic, CylinderTrimFarSideStrategy,
     CylinderTrimMaterializationDeclineReason, CylinderTrimMaterializationDiagnostic,
     ExactBoundaryCandidatePerformanceReport, SideSupportContinuationDiagnostic,
-    SupportSeamDecision, SupportSeamDeclineReason, SupportSeamRelocationReport,
-    SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
+    SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
+    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
     support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;

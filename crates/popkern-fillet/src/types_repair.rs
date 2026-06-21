@@ -127,6 +127,83 @@ pub enum ApexConstructionDiagnostic {
     /// Side-support continuation topology was applied before repeated-apex
     /// target-cylinder trim rewrites.
     SideSupportContinuation(SideSupportContinuationDiagnostic),
+    /// KP20 support-cell macro piece was split into sub-cells along U and V;
+    /// records whether cap-vertex-aware parameters or the uniform fallback
+    /// drove each axis, plus the fallback reason when applicable.
+    SupportCellSplit(SupportCellSplitDiagnostic),
+}
+
+/// Per-axis status of a cap-vertex-aware support-cell split.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupportCellSplitAxisStatus {
+    /// Caller did not supply a cap-vertex projection for this axis;
+    /// uniform `i / cells` split was used (legacy callers).
+    UniformLegacy,
+    /// Cap-vertex projection produced a sequence that matched
+    /// `i / cells` to within tolerance; uniform formula used directly.
+    UniformEquivalent,
+    /// Cap-vertex-aware sequence applied to the split.
+    VertexAware,
+    /// Cap-vertex projection produced a sequence that failed admissibility
+    /// (`fallback_reason` carries the failure mode); uniform formula used.
+    UniformFallback,
+}
+
+/// Why a cap-vertex-aware split fell back to the uniform formula.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SupportCellSplitFallbackReason {
+    /// One or more sub-cells would have arc-length below `MIN_SUBCELL_ARC`.
+    MinArc,
+    /// Newton iteration did not converge for at least one projection.
+    DidNotConverge,
+    /// More projected parameters than `cells_axis - 1`; current grid
+    /// candidate cannot align every cap-vertex.
+    Overcount,
+    /// Caller supplied an empty projection set (no cap-vertices on this side).
+    NoProjection,
+}
+
+/// One axis of a support-cell split's diagnostic facts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SupportCellSplitAxisDiagnostic {
+    /// Status enum for this axis.
+    pub status: SupportCellSplitAxisStatus,
+    /// Reason this axis fell back to uniform (`None` when not a fallback).
+    pub fallback_reason: Option<SupportCellSplitFallbackReason>,
+    /// Cap-vertices the caller supplied for this axis.
+    pub cap_vertex_count: usize,
+    /// Cap-vertices that produced a usable interior projection
+    /// (Converged in the open interval, not corner-coincident, not duplicate).
+    pub projected_count: usize,
+    /// Interior splits filled by uniform subdivision because the projection
+    /// undercount left gaps (`cells_axis - 1 - projected_count` when this
+    /// path is taken; `0` otherwise).
+    pub uniform_fill_count: usize,
+    /// Minimum sub-cell arc-length observed under the chosen sequence.
+    pub min_subcell_arc: f64,
+    /// Maximum `|projected_t - i / cells_axis|` across interior splits — the
+    /// raw "distance from uniform" before the equivalence shortcut is applied.
+    pub uniform_equivalence_max_delta: f64,
+}
+
+/// Cap-vertex-aware split outcome for one macro piece (Stage A3 of the
+/// cap-vertex-aware split design).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SupportCellSplitDiagnostic {
+    /// Sector index identifying the macro piece's parent sector.
+    pub sector_index: usize,
+    /// Quadrant within the sector (canonical `Kp20PieceId` index 0..3).
+    pub piece_index: usize,
+    /// Sub-cell count along U.
+    pub cells_u: usize,
+    /// Sub-cell count along V.
+    pub cells_v: usize,
+    /// Cap-vertices that did not lie on any of the four boundary sides.
+    pub cap_vertex_interior_count: usize,
+    /// U-axis split facts.
+    pub u_axis: SupportCellSplitAxisDiagnostic,
+    /// V-axis split facts.
+    pub v_axis: SupportCellSplitAxisDiagnostic,
 }
 
 /// Applied side-support continuation diagnostic for repeated-apex topology
