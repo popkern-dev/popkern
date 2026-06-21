@@ -186,7 +186,7 @@ fn apply_corner_plan(
         start_angle: plan.start_angle,
         end_angle: plan.end_angle,
     };
-    let arc_edge = brep.edges.insert(Edge {
+    let arc_edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
         curve: Some(CurveOnEdge {
             geometry: arc_geometry,

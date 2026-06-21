@@ -395,7 +395,7 @@ fn copy_component_brep(
         vertices.insert(old, out.vertices.insert(vertex.clone()));
     }
     for (old, edge) in &src.edges {
-        let new = out.edges.insert(edge.clone());
+        let new = out.insert_edge_tracked(edge.clone());
         edges.insert(old, new);
         edge_component.insert(new, component_index);
         if src.boundary_edges.contains(&old) {

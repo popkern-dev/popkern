@@ -91,7 +91,7 @@ impl BRep {
         brep.shells[shell_h].face = f_sphere;
 
         // -- Edge --
-        let e_seam = brep.edges.insert(Edge {
+        let e_seam = brep.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

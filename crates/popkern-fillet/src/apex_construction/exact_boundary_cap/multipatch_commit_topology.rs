@@ -196,7 +196,7 @@ fn insert_generated_edge_pair(
     start: VertexHandle,
     end: VertexHandle,
 ) -> (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle) {
-    let edge = brep.edges.insert(Edge {
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: None,
         name: None,

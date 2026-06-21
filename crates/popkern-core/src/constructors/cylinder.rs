@@ -191,7 +191,7 @@ impl BRep {
         brep.shells[shell_h].face = f_lateral;
 
         // -- Edges --
-        let e_bot_circle = brep.edges.insert(Edge {
+        let e_bot_circle = brep.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,
@@ -199,7 +199,7 @@ impl BRep {
             canonical: Default::default(),
             role: Default::default(),
         });
-        let e_top_circle = brep.edges.insert(Edge {
+        let e_top_circle = brep.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,
@@ -207,7 +207,7 @@ impl BRep {
             canonical: Default::default(),
             role: Default::default(),
         });
-        let e_seam = brep.edges.insert(Edge {
+        let e_seam = brep.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

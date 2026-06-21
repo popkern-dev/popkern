@@ -169,19 +169,31 @@ fn insert_multi_run_bridge_separator(
     source: HalfEdgeHandle,
     origin: VertexHandle,
 ) -> Result<HalfEdgeHandle, CoreError> {
-    let source_data = brep.half_edges.get(source).ok_or_else(|| {
-        CoreError::InvalidHandle("multi-run bridge separator source is stale".into())
-    })?;
-    let source_edge = brep.edges.get(source_data.edge).ok_or_else(|| {
-        CoreError::InvalidHandle("multi-run bridge separator source edge is stale".into())
-    })?;
-    let edge = brep.edges.insert(Edge {
+    let (source_edge_handle, source_pcurve) = {
+        let source_data = brep.half_edges.get(source).ok_or_else(|| {
+            CoreError::InvalidHandle("multi-run bridge separator source is stale".into())
+        })?;
+        (source_data.edge, source_data.pcurve.clone())
+    };
+    let (curve, name, tolerance, canonical, role) = {
+        let source_edge = brep.edges.get(source_edge_handle).ok_or_else(|| {
+            CoreError::InvalidHandle("multi-run bridge separator source edge is stale".into())
+        })?;
+        (
+            source_edge.curve.clone(),
+            source_edge.name,
+            source_edge.tolerance,
+            source_edge.canonical,
+            source_edge.role,
+        )
+    };
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
-        curve: source_edge.curve.clone(),
-        name: source_edge.name,
-        tolerance: source_edge.tolerance,
-        canonical: source_edge.canonical,
-        role: source_edge.role,
+        curve,
+        name,
+        tolerance,
+        canonical,
+        role,
     });
     let half_edge = brep.half_edges.insert(HalfEdge {
         origin,
@@ -190,7 +202,7 @@ fn insert_multi_run_bridge_separator(
         prev: Default::default(),
         edge,
         loop_: Default::default(),
-        pcurve: source_data.pcurve.clone(),
+        pcurve: source_pcurve,
     });
     brep.edges[edge].half_edge = half_edge;
     brep.boundary_edges.insert(edge);
@@ -279,7 +291,7 @@ fn insert_multi_run_bridge_connector(
     origin: VertexHandle,
     loop_: LoopHandle,
 ) -> HalfEdgeHandle {
-    let edge = brep.edges.insert(Edge {
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
         curve: None,
         name: None,

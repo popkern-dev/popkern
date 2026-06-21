@@ -88,7 +88,7 @@ impl BRep {
             .get(edge)
             .ok_or_else(|| CoreError::InvalidHandle("same-loop edge is invalid".into()))?
             .clone();
-        let second_edge = self.edges.insert(Edge {
+        let second_edge = self.insert_edge_tracked(Edge {
             half_edge: twin,
             curve: original_edge.curve,
             name: original_edge.name,

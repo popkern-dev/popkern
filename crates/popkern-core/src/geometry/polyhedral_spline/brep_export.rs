@@ -254,7 +254,7 @@ fn intern_half_edge(
         return Ok(half_edge);
     }
 
-    let edge = brep.edges.insert(Edge {
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: build.curve,
         name: None,

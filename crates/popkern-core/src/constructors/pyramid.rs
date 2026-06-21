@@ -121,7 +121,7 @@ impl BRep {
         // ── Edges ─────────────────────────────────────────────
         // 4 base + 4 slant = 8 edges.
         let edges: [EdgeHandle; 8] = std::array::from_fn(|_| {
-            brep.edges.insert(Edge {
+            brep.insert_edge_tracked(Edge {
                 half_edge: Default::default(),
                 curve: None,
                 name: None,

@@ -93,7 +93,7 @@ impl BRep {
                     "boundary-side separator source after-last half-edge is stale".into(),
                 )
             })?;
-        let edge = self.edges.insert(Edge {
+        let edge = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: self.edges[source_data.edge].curve.clone(),
             name: self.edges[source_data.edge].name,
@@ -288,7 +288,7 @@ impl BRep {
         origin: VertexHandle,
         loop_: LoopHandle,
     ) -> HalfEdgeHandle {
-        let edge = self.edges.insert(Edge {
+        let edge = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

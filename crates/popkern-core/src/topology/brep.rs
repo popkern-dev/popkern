@@ -80,6 +80,13 @@ pub struct BRep {
     /// validation pass entry, BlendResult-shaped struct).
     #[serde(skip)]
     pub pending_coherence: Vec<crate::topology::coherence::PendingCoherenceMarker>,
+    /// Source location of each edge's creator (file, line). Populated
+    /// by [`BRep::insert_edge_tracked`] via `#[track_caller]`. Read by
+    /// the Stage C0 coherence-attribution probe to map L1 violations
+    /// to the operator that authored the edge. Edges inserted via the
+    /// raw `edges.insert()` path will be absent from this map.
+    #[serde(skip)]
+    pub edge_creator_locations: std::collections::HashMap<EdgeHandle, (&'static str, u32)>,
 }
 
 impl BRep {
@@ -110,7 +117,26 @@ impl BRep {
             face_use_pcurves: std::collections::BTreeMap::new(),
             degradation_tracker: None,
             pending_coherence: Vec::new(),
+            edge_creator_locations: std::collections::HashMap::new(),
         }
+    }
+
+    /// Insert an edge into the slot map, capturing the caller's
+    /// source location for Stage C0 coherence-attribution probes.
+    ///
+    /// The `(file, line)` of the immediate non-`#[track_caller]`
+    /// caller is recorded in [`Self::edge_creator_locations`]. Use
+    /// this in place of `self.edges.insert(...)` at every edge
+    /// creation site that should be visible in attribution
+    /// histograms; the raw insert path stays usable for tests and
+    /// out-of-band repair surgery that should not be attributed.
+    #[track_caller]
+    pub fn insert_edge_tracked(&mut self, edge: Edge) -> EdgeHandle {
+        let handle = self.edges.insert(edge);
+        let loc = core::panic::Location::caller();
+        self.edge_creator_locations
+            .insert(handle, (loc.file(), loc.line()));
+        handle
     }
 }
 

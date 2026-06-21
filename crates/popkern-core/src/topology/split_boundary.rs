@@ -56,7 +56,7 @@ impl BRep {
 
         let (pcurve_left, pcurve_right) = super::split::split_pcurve_at(pcurve_ab, t);
 
-        let edge_b = self.edges.insert(Edge {
+        let edge_b = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

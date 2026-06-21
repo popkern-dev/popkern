@@ -119,7 +119,7 @@ impl BRep {
             };
 
             // Create the edge.
-            let edge_h = self.edges.insert(Edge {
+            let edge_h = self.insert_edge_tracked(Edge {
                 half_edge: Default::default(),
                 curve: Some(CurveOnEdge {
                     geometry: CurveGeometry::Nurbs(edge_curve),

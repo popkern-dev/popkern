@@ -225,7 +225,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
 
     // 7. Create the two new contact-circle edges. Each carries
     //    the corresponding trim_3d as its curve geometry.
-    let edge_seam_side = brep.edges.insert(Edge {
+    let edge_seam_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: Some(popkern_core::geometry::curve::CurveOnEdge {
             geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(if seam_a.is_some() {
@@ -241,7 +241,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         canonical: Default::default(),
         role: Default::default(),
     });
-    let edge_fresh_side = brep.edges.insert(Edge {
+    let edge_fresh_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: Some(popkern_core::geometry::curve::CurveOnEdge {
             geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(if seam_a.is_some() {

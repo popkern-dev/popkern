@@ -105,7 +105,7 @@ fn preserve_previous_cap_neighbor_side(
         .get(previous_cap_twin)
         .and_then(|half_edge| brep.loops.get(half_edge.loop_))
         .map(|loop_| loop_.face)?;
-    let preserved_edge = brep.edges.insert(popkern_core::topology::Edge {
+    let preserved_edge = brep.insert_edge_tracked(popkern_core::topology::Edge {
         half_edge: previous_cap_twin,
         curve: old_curve,
         name: None,

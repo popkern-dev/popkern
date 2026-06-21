@@ -263,7 +263,7 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
 
     // Copy edges (with placeholder half_edge).
     for (old_h, e) in &b.edges {
-        let new_h = a.edges.insert(Edge {
+        let new_h = a.insert_edge_tracked(Edge {
             half_edge: popkern_core::topology::HalfEdgeHandle::default(),
             curve: e.curve.clone(),
             name: e.name,

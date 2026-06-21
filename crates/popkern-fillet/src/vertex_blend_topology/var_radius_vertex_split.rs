@@ -139,7 +139,7 @@ pub(crate) fn split_apex_footprint_vertex(
     };
 
     // 3. Create the bridge edge.
-    let bridge_edge = brep.edges.insert(Edge {
+    let bridge_edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
         curve: None,
         name: None,

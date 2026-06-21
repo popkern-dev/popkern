@@ -102,7 +102,7 @@ impl BRep {
         let he2_prev = he2_data.prev;
 
         // Create the edge.
-        let edge = self.edges.insert(Edge {
+        let edge = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

@@ -294,7 +294,7 @@ mod tests {
                 name: None,
                 tolerance: None,
             });
-            let edge = brep.edges.insert(Edge {
+            let edge = brep.insert_edge_tracked(Edge {
                 half_edge: Default::default(),
                 curve: None,
                 name: None,

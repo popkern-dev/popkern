@@ -224,7 +224,7 @@ impl BRep {
                 if kept_first_pair {
                     let mut edge = template.clone();
                     edge.half_edge = half_edge;
-                    let new_edge = self.edges.insert(edge);
+                    let new_edge = self.insert_edge_tracked(edge);
                     if let Some(he) = self.half_edges.get_mut(half_edge) {
                         he.edge = new_edge;
                     }

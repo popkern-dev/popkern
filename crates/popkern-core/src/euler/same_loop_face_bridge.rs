@@ -285,7 +285,7 @@ impl BRep {
         origin: crate::topology::VertexHandle,
         loop_: LoopHandle,
     ) -> (EdgeHandle, HalfEdgeHandle) {
-        let edge = self.edges.insert(Edge {
+        let edge = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

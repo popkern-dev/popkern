@@ -259,7 +259,7 @@ pub(crate) fn apply_chamfer_plan(
         origin: plan.t1,
         direction: plan.t2 - plan.t1,
     };
-    let chamfer_edge = brep.edges.insert(Edge {
+    let chamfer_edge = brep.insert_edge_tracked(Edge {
         half_edge: Default::default(),
         curve: Some(CurveOnEdge {
             geometry: line,

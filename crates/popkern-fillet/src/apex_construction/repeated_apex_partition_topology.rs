@@ -40,7 +40,7 @@ pub(super) fn insert_unwired_edge_pair(
     start: VertexHandle,
     end: VertexHandle,
 ) -> (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle) {
-    let edge = brep.edges.insert(Edge {
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: None,
         name: None,
@@ -81,7 +81,7 @@ pub(super) fn insert_boundary_half_edge(
     brep: &mut BRep,
     start: VertexHandle,
 ) -> (EdgeHandle, HalfEdgeHandle) {
-    let edge = brep.edges.insert(Edge {
+    let edge = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
         curve: None,
         name: None,

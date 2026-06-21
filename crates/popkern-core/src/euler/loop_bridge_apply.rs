@@ -192,7 +192,7 @@ impl BRep {
     }
 
     fn insert_unshaped_bridge_edge(&mut self) -> EdgeHandle {
-        self.edges.insert(Edge {
+        self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: None,
             name: None,

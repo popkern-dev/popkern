@@ -64,7 +64,7 @@ impl BRepBuilder {
         v1: VertexHandle,
         v2: VertexHandle,
     ) -> (EdgeHandle, HalfEdgeHandle, HalfEdgeHandle) {
-        let edge_handle = self.brep.edges.insert(Edge {
+        let edge_handle = self.brep.insert_edge_tracked(Edge {
             half_edge: HalfEdgeHandle::default(),
             curve: None,
             name: None,

@@ -141,7 +141,7 @@ impl BRep {
 
         // Create the new edge (edge_b), inheriting the V→B portion
         // of the parent's curve when present (β-1-A).
-        let edge_b = self.edges.insert(Edge {
+        let edge_b = self.insert_edge_tracked(Edge {
             half_edge: Default::default(),
             curve: edge_b_curve,
             name: None,
