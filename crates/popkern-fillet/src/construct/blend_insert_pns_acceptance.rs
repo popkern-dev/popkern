@@ -35,7 +35,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         diagnostics,
     } = input;
     let pns_snapshot = brep.clone();
-    let Some(patches) = crate::blend::pns_promote::try_pns_dispatch(
+    let patches = crate::blend::pns_promote::try_pns_dispatch(
         brep,
         blend_face,
         boundary,
@@ -43,9 +43,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         vertex,
         classification,
         boundary.bridge_fallbacks.clone(),
-    ) else {
-        return None;
-    };
+    )?;
 
     let cap_faces = patches.iter().map(|patch| patch.face).collect::<Vec<_>>();
     let topology_error = brep.validate_all().into_iter().find(|error| {

@@ -213,7 +213,7 @@ impl BRep {
                 worst_parameter = t;
             }
         }
-        (worst_gap > coherence_tolerance).then(|| L2Disagreement {
+        (worst_gap > coherence_tolerance).then_some(L2Disagreement {
             edge,
             face_a,
             face_b,

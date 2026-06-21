@@ -231,8 +231,7 @@ pub(crate) fn insert_vertex_blend(
         && n_sides >= 5
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
-    {
-        if let Some(patches) = blend_insert_pns_acceptance::try_pns_dispatch_with_acceptance(
+        && let Some(patches) = blend_insert_pns_acceptance::try_pns_dispatch_with_acceptance(
             blend_insert_pns_acceptance::PnsDispatchAcceptanceInput {
                 brep,
                 blend_face,
@@ -243,9 +242,9 @@ pub(crate) fn insert_vertex_blend(
                 n_sides,
                 diagnostics: &mut diagnostics,
             },
-        ) {
-            return Ok((patches, n_gon_boundary, Vec::new()));
-        }
+        )
+    {
+        return Ok((patches, n_gon_boundary, Vec::new()));
     }
 
     if use_rational_gregory

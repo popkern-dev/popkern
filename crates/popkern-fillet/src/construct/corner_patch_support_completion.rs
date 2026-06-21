@@ -193,6 +193,7 @@ fn cap_support_completion_rollback_diagnostic(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cap_support_completion_fact(
     cap_face_count: usize,
     eligible_edges: usize,

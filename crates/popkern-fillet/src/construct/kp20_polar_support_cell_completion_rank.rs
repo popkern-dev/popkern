@@ -61,19 +61,19 @@ fn g0_tie_break_decision(
         };
     }
     if shared_trim_g0_is_equivalent(candidate, current) {
-        if shared_trim_g1_is_equivalent(candidate, current) {
-            if let Some(candidate_is_better) = commercial_g2_tie_break(candidate, current) {
-                if candidate_is_better {
-                    return SupportCellRankDecision {
-                        candidate_is_better: true,
-                        reason: "candidate_commercial_g0_g1_g2_tiebreak_preferred",
-                    };
-                }
+        if shared_trim_g1_is_equivalent(candidate, current)
+            && let Some(candidate_is_better) = commercial_g2_tie_break(candidate, current)
+        {
+            if candidate_is_better {
                 return SupportCellRankDecision {
-                    candidate_is_better: false,
-                    reason: "current_commercial_g0_g1_g2_tiebreak_preferred",
+                    candidate_is_better: true,
+                    reason: "candidate_commercial_g0_g1_g2_tiebreak_preferred",
                 };
             }
+            return SupportCellRankDecision {
+                candidate_is_better: false,
+                reason: "current_commercial_g0_g1_g2_tiebreak_preferred",
+            };
         }
         if candidate.quality.worst_normal_disagreement + SHARED_TRIM_G1_TIE_BREAK_EPS
             < current.quality.worst_normal_disagreement

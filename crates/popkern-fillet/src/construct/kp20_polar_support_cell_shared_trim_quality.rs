@@ -214,6 +214,7 @@ pub(super) fn support_cell_shared_trim_repair_fact(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn support_cell_shared_trim_candidate_fact(
     n_sides: usize,
     selected: &'static str,
