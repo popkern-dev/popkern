@@ -272,3 +272,34 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
         }
     }
 }
+
+impl crate::topology::BRep {
+    /// Apply a rigid transformation to the entire BRep, returning a new copy.
+    ///
+    /// Transforms vertex positions, surface geometry on every face, edge
+    /// curve geometry, and NURBS control points on pcurves (for non-planar
+    /// faces; pcurves on planar faces live in UV space and are
+    /// parameterization-invariant for rigid transforms that keep the plane
+    /// canonical form, so they are regenerated via `attach_planar_pcurves`).
+    pub fn transform(
+        &self,
+        t: &crate::geometry::transform::Transform3,
+    ) -> Result<crate::topology::BRep, crate::error::CoreError> {
+        let mut result = self.clone();
+        for (_, vertex) in &mut result.vertices {
+            vertex.position = t.apply_point(&vertex.position);
+        }
+        for (_, face) in &mut result.faces {
+            if let Some(ref mut sof) = face.surface {
+                sof.geometry = transform_surface(&sof.geometry, t);
+            }
+        }
+        for (_, edge) in &mut result.edges {
+            if let Some(ref mut curve_on_edge) = edge.curve {
+                curve_on_edge.geometry = transform_curve(&curve_on_edge.geometry, t);
+            }
+        }
+        result.attach_planar_pcurves()?;
+        Ok(result)
+    }
+}

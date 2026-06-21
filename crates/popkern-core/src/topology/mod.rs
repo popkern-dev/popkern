@@ -31,6 +31,10 @@ pub use vertex::Vertex;
 pub mod brep;
 pub use brep::BRep;
 pub use brep::{SurfaceBoundaryHintDecline, SurfaceBoundaryHintDeclineReason};
+pub mod coherence;
+pub use coherence::{
+    CoherenceReport, CoherenceValidationScope, L2Disagreement, PendingCoherenceMarker,
+};
 mod brep_face_use_trim_storage;
 pub use brep_face_use_trim_storage::FaceUseTrimKey;
 mod surface_boundary_audit;

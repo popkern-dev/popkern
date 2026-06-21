@@ -74,6 +74,12 @@ pub struct BRep {
     /// Tracks precision degradation across operations.
     #[serde(skip)]
     degradation_tracker: Option<DegradationTracker>,
+    /// Transient L1/L3 obligations recorded via
+    /// [`BRep::record_pending_authoring`]. MUST be empty when the
+    /// BRep returns to a steady-state boundary (operator return,
+    /// validation pass entry, BlendResult-shaped struct).
+    #[serde(skip)]
+    pub pending_coherence: Vec<crate::topology::coherence::PendingCoherenceMarker>,
 }
 
 impl BRep {
@@ -103,11 +109,10 @@ impl BRep {
             surface_boundary_audit_events: Vec::new(),
             face_use_pcurves: std::collections::BTreeMap::new(),
             degradation_tracker: None,
+            pending_coherence: Vec::new(),
         }
     }
 }
-
-use crate::geometry::transform::Transform3;
 
 /// Machine-readable reason a construction stage declined to record canonical
 /// surface-boundary ownership for a half-edge.
@@ -454,46 +459,10 @@ impl BRep {
         result.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         result
     }
-
-    /// Apply a rigid transformation to the entire BRep, returning a new copy.
-    ///
-    /// Transforms vertex positions, surface geometry on every face, edge
-    /// curve geometry, and NURBS control points on pcurves (for non-planar
-    /// faces; pcurves on planar faces live in UV space and are
-    /// parameterization-invariant for rigid transforms that keep the plane
-    /// canonical form, so they are regenerated via `attach_planar_pcurves`).
-    pub fn transform(&self, t: &Transform3) -> Result<BRep, crate::error::CoreError> {
-        let mut result = self.clone();
-
-        for (_, vertex) in &mut result.vertices {
-            vertex.position = t.apply_point(&vertex.position);
-        }
-
-        for (_, face) in &mut result.faces {
-            if let Some(ref mut sof) = face.surface {
-                sof.geometry = transform_surface(&sof.geometry, t);
-            }
-        }
-
-        // 3. Transform edge curve geometry.
-        for (_, edge) in &mut result.edges {
-            if let Some(ref mut curve_on_edge) = edge.curve {
-                curve_on_edge.geometry = transform_curve(&curve_on_edge.geometry, t);
-            }
-        }
-
-        // 4. Regenerate pcurves for planar faces (UV coordinates change
-        //    when the plane origin/axes change).
-        result.attach_planar_pcurves()?;
-
-        Ok(result)
-    }
 }
-
-#[path = "brep_transforms.rs"]
-mod brep_transforms;
-use brep_transforms::{transform_curve, transform_surface};
 
 #[cfg(test)]
 #[path = "brep_tests.rs"]
 mod brep_tests;
+#[path = "brep_transforms.rs"]
+mod brep_transforms;
