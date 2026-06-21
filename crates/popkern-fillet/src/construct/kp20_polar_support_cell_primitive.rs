@@ -5,7 +5,7 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::{Point3, Vec3};
 
 use super::super::kp_polar_bi6_promote::SELF_INT_TOL;
-use super::super::kp20_polar_bi6_split::{split_bi6_patch_u, split_bi6_patch_v};
+use super::super::kp20_polar_bi6_split::{split_uniform_u, split_uniform_v};
 use super::super::kp20_polar_fold_summary::Kp20FoldSite;
 use crate::types::CornerSubPatchProvenance;
 
@@ -370,34 +370,6 @@ fn eval_side(patch: &GregoryPatch, side: SupportCellPatchSide, t: f64) -> Point3
         SupportCellPatchSide::VMin => patch.point_at(t, 0.0),
         SupportCellPatchSide::VMax => patch.point_at(t, 1.0),
     }
-}
-
-fn split_uniform_u(base: &Kp20Bi6Patch, count: usize) -> Vec<Kp20Bi6Patch> {
-    split_uniform(base, count, split_bi6_patch_u)
-}
-
-fn split_uniform_v(base: &Kp20Bi6Patch, count: usize) -> Vec<Kp20Bi6Patch> {
-    split_uniform(base, count, split_bi6_patch_v)
-}
-
-fn split_uniform(
-    base: &Kp20Bi6Patch,
-    count: usize,
-    split: fn(&Kp20Bi6Patch, f64) -> (Kp20Bi6Patch, Kp20Bi6Patch),
-) -> Vec<Kp20Bi6Patch> {
-    let mut patches = Vec::with_capacity(count);
-    let mut remainder = *base;
-    for index in 0..count {
-        if index + 1 == count {
-            patches.push(remainder);
-        } else {
-            let local_t = 1.0 / ((count - index) as f64);
-            let (head, tail) = split(&remainder, local_t);
-            patches.push(head);
-            remainder = tail;
-        }
-    }
-    patches
 }
 
 fn exact_boundary_coons_cell(cell: &Kp20Bi6Patch) -> Kp20Bi6Patch {
