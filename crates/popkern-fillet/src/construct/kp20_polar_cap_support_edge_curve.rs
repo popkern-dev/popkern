@@ -39,13 +39,13 @@ pub(super) fn reauthor_from_samples(
 }
 
 fn fit_nurbs_curve(points: &[Point3]) -> Option<NurbsCurve> {
-    if points.len() < 10 {
+    if points.len() < 4 {
         return None;
     }
     let params = (0..points.len())
         .map(|index| index as f64 / (points.len() - 1) as f64)
         .collect::<Vec<_>>();
-    fit_curve(points, &params, 9, 10).ok()
+    fit_curve(points, &params, 3, points.len()).ok()
 }
 
 fn line_curve_from_endpoints(brep: &BRep, points: &[Point3]) -> Option<CurveOnEdge> {
