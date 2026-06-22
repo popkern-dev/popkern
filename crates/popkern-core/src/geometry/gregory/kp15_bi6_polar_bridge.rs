@@ -80,16 +80,33 @@ pub fn convert_polar_to_bi6_cap_input(
     let params = Bi6Reparams::for_valence(n);
 
     // Per-sector circulant RHS.
+    //
+    // **Phase E.1 attempted and reverted (2026-06-22):** The plan
+    // calls for (S1) propagation here — sector 0's `p_01, p_11,
+    // p_02` as the free seed, sectors k ≥ 1 derived via
+    // `rule_s1_star_propagation`. Measurement showed the eq (2)
+    // residual at `assembly_eq2_residual_diagnostic` grows from
+    // ~10 → ~73 (n=6) under that change. Root cause: the (S1)
+    // formulas in [KP15 eq (6)] assume `p̀_{i, 0} = ṕ_{i, 0}` —
+    // i.e., the j=0 row is the cross-sector spoke shared between
+    // adjacent sectors. In the kernel, j=0 is each sector's *own*
+    // bi-3 tensor-border row (the rim segment, per-sector), and
+    // adjacent sectors do NOT share their j=0 rows. Naive (S1)
+    // applied to rim-indexed data yields the wrong propagation.
+    //
+    // The full fix requires re-orienting the bi-6 grid convention
+    // so j=0 is the spoke (or, equivalently, adding cross-sector
+    // identifications of `p_{0..2, 0}` to the constraint matrix
+    // before propagating). That's a deeper refactor than this
+    // bridge can carry. Until then, each sector seeds its own
+    // near-star CPs from its own elevated bi-3 row — the current
+    // behavior, preserved by this comment.
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
         let row0 = bi3.sectors[k][0]; // 4 bi-3 position CPs
         let row1 = bi3.sectors[k][1]; // 4 bi-3 first-cross-deriv CPs
         let row2 = bi3.sectors[k][2]; // 4 bi-3 second-cross-deriv CPs
 
-        // Elevate bi-3 row (4 CPs) → bi-6 (7 CPs) via the shared
-        // Point3 elevator. Convention: at target degree 9 via the
-        // `elevate_point_curve_to_nine` helper, but we need bi-6
-        // (7 CPs). Simpler: write a local 4 → 7 elevator.
         let row0_bi6 = elevate_bi3_point_curve_to_bi6(row0);
         let row1_bi6 = elevate_bi3_point_curve_to_bi6(row1);
         let row2_bi6 = elevate_bi3_point_curve_to_bi6(row2);
@@ -101,11 +118,10 @@ pub fn convert_polar_to_bi6_cap_input(
             p_40: row0_bi6[4],
             p_50: row0_bi6[5],
             p_60: row0_bi6[6],
-            // (S1) seed: take row-1 depth-1 CPs directly.
+            // Per-sector seed for the near-star CPs.
             p_01: row1_bi6[0],
             p_11: row1_bi6[1],
             p_02: row2_bi6[0],
-            // Row-2 tensor-border at outer positions.
             p_42: row2_bi6[4],
             p_52: row2_bi6[5],
             p_62: row2_bi6[6],
@@ -114,6 +130,19 @@ pub fn convert_polar_to_bi6_cap_input(
 
     // Cap-net: c7 is the central vertex. c5s, c6s are sampled
     // along each spoke at t = 1/3 and t = 2/3 respectively.
+    //
+    // **Phase E.1 second attempt and reverted (2026-06-22):**
+    // overwriting every sector's `p_00` with `catmull_clark_star_
+    // point(n, c7, c5s, c6s)` (so `CirculantSectorRhs.p_00` matches
+    // what the cap assembly will use as `grid[0][0]`) shifts the
+    // eq (2) residual by less than 50% and breaks the bridge's
+    // endpoint-preservation test contract. The unification is
+    // *conceptually* right — the kernel currently keeps two
+    // distinct "p_00" notions (bridge's tensor-border `row0_bi6[0]`
+    // and the cap's `star = catmull_clark_star_point(...)`) — but
+    // resolving it cleanly belongs in a deeper refactor that also
+    // adds cross-sector `p^k_{i, 0} = p^0_{i, 0}` identifications
+    // as constraint rows in M (see Phase E to-be-revised).
     let c7 = polar.central_vertex;
     let mut c5s = Vec::with_capacity(n);
     let mut c6s = Vec::with_capacity(n);
