@@ -60,3 +60,7 @@ path = "src/brep_repair_knowledge_artifact.rs"
 [[bin]]
 name = "fillet_zoo"
 path = "src/fillet_zoo.rs"
+
+[[bin]]
+name = "kp15_bi6_cap_variants_compare"
+path = "src/kp15_bi6_cap_variants_compare.rs"

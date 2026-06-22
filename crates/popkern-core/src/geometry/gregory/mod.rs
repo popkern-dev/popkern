@@ -295,6 +295,7 @@ pub use kp15_bi6_f5::{
     BI6_CP_COUNT, f_kappa_quadratic_form, f_kappa_quadratic_form_weighted, f5_evaluate,
     f5_quadratic_form,
 };
+pub use kp15_bi6_local_constraint::{Kp15Bi6GeneratingTable, apply_beta_reparameterization};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
 pub use kp15_bi6_polar_bridge::convert_polar_to_bi6_cap_input;
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
