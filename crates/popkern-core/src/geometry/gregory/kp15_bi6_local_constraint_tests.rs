@@ -947,6 +947,158 @@ fn comparison_four_variants_paper_p_and_beta_reparameterization() {
 }
 
 #[test]
+fn comparison_four_variants_on_asymmetric_hexagon6_variable() {
+    // Asymmetric variant of the 4-way comparison: bi-3 tensor
+    // border with per-sector z-amplitude variation to break the
+    // symmetry of the synthetic fixture above. Tests whether β
+    // reparameterization makes a measurable difference when the
+    // input isn't perfectly symmetric — KP15 §3.3 motivates β as
+    // the lever that lets eq (11) co-exist with C² tensor border,
+    // so asymmetric inputs are where it should matter most.
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::kp_polar_boundary_input::{TensorBorder, TensorBorderBi3};
+    use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
+    use crate::geometry::gregory::kp15_bi6_circulant::CirculantSectorRhs;
+    use crate::geometry::gregory::kp15_bi6_f5::f_kappa_quadratic_form;
+
+    fn variable_bi3_tensor_border(n: usize) -> TensorBorder {
+        // Per-sector z-amplitude varies (1.0 → 1.5 → 0.7 etc.)
+        // to break the rotational symmetry the previous test
+        // used. Per-sector multipliers cycle through {0.5, 1.0,
+        // 1.5, 0.7, 1.2, 0.9, ...}.
+        let z_mul: &[f64] = &[0.5, 1.0, 1.5, 0.7, 1.2, 0.9, 1.1, 0.8];
+        let mut sectors = Vec::with_capacity(n);
+        for k in 0..n {
+            let theta = (2.0 * std::f64::consts::PI) * (k as f64) / (n as f64);
+            let dx = theta.cos();
+            let dy = theta.sin();
+            let mul = z_mul[k % z_mul.len()];
+            let row0: [Point3; 4] = [
+                pt(dx, dy, 0.1 * mul),
+                pt(dx * 1.1, dy * 1.1, 0.1 * mul),
+                pt(dx * 1.2, dy * 1.2, 0.1 * mul),
+                pt(dx * 1.3, dy * 1.3, 0.1 * mul),
+            ];
+            let row1: [Point3; 4] = [
+                pt(dx, dy, 0.2 * mul),
+                pt(dx * 1.1, dy * 1.1, 0.2 * mul),
+                pt(dx * 1.2, dy * 1.2, 0.2 * mul),
+                pt(dx * 1.3, dy * 1.3, 0.2 * mul),
+            ];
+            let row2: [Point3; 4] = [
+                pt(dx, dy, 0.3 * mul),
+                pt(dx * 1.1, dy * 1.1, 0.3 * mul),
+                pt(dx * 1.2, dy * 1.2, 0.3 * mul),
+                pt(dx * 1.3, dy * 1.3, 0.3 * mul),
+            ];
+            sectors.push([row0, row1, row2]);
+        }
+        TensorBorder::Bi3(TensorBorderBi3 { sectors })
+    }
+
+    let q_local = f_kappa_quadratic_form(5);
+
+    fn sector_rhs_from_grid_rows(q: [[Point3; 7]; 3]) -> CirculantSectorRhs {
+        CirculantSectorRhs {
+            p_00: q[0][0],
+            p_10: q[0][1],
+            p_20: q[0][2],
+            p_40: q[0][4],
+            p_50: q[0][5],
+            p_60: q[0][6],
+            p_01: q[1][0],
+            p_11: q[1][1],
+            p_02: q[2][0],
+            p_42: q[2][4],
+            p_52: q[2][5],
+            p_62: q[2][6],
+        }
+    }
+
+    eprintln!("\n#  Asymmetric (hexagon6_variable-style) 4-way comparison");
+
+    let n = 6;
+    let polar = polar_input(n);
+    let tb = variable_bi3_tensor_border(n);
+    let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
+    let star = catmull_clark_star_point(n, cap_input.c7, &cap_input.c5s, &cap_input.c6s);
+    let bi3_rows = match &tb {
+        TensorBorder::Bi3(b) => b.sectors.clone(),
+        _ => panic!(),
+    };
+
+    let mut sectors_beta: Vec<CirculantSectorRhs> = Vec::with_capacity(n);
+    for sector_b in &bi3_rows {
+        let q = super::apply_beta_reparameterization(sector_b, &cap_input.params);
+        sectors_beta.push(sector_rhs_from_grid_rows(q));
+    }
+
+    let table_default =
+        super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
+    let table_paper_p =
+        super::Kp15Bi6GeneratingTable::build_with_identifications_paper_p_free(n, cap_input.params);
+
+    let (a, _) = table_default
+        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+        .unwrap();
+    let (b, _) = table_paper_p
+        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+        .unwrap();
+    let (c, _) = table_default
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .unwrap();
+    let (d, _) = table_paper_p
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .unwrap();
+
+    fn f5_of(patches: &[[[Point3; 7]; 7]], q: &[[f64; 49]; 49]) -> f64 {
+        let mut acc = 0.0;
+        for grid in patches {
+            for r in 0..49 {
+                let (i_r, j_r) = (r / 7, r % 7);
+                for cc in 0..49 {
+                    let (i_c, j_c) = (cc / 7, cc % 7);
+                    let qq = q[r][cc];
+                    if qq == 0.0 {
+                        continue;
+                    }
+                    let p_r = grid[i_r][j_r];
+                    let p_c = grid[i_c][j_c];
+                    acc += qq * (p_r.x * p_c.x + p_r.y * p_c.y + p_r.z * p_c.z);
+                }
+            }
+        }
+        acc
+    }
+    fn worst_residuals(patches: &[[[Point3; 7]; 7]], params: &Bi6Reparams) -> (f64, f64) {
+        let n = patches.len();
+        let mut e2 = 0.0_f64;
+        let mut e3 = 0.0_f64;
+        for k in 0..n {
+            let km1 = (k + n - 1) % n;
+            for v in super::eq2_g1_residual_bb_degree7(&patches[km1], &patches[k], params) {
+                e2 = e2.max(v.length());
+            }
+            for v in &super::eq3_g2_residual_phi_multiplied(&patches[km1], &patches[k], params) {
+                e3 = e3.max(v.length());
+            }
+        }
+        (e2, e3)
+    }
+
+    for (label, g) in [
+        ("A: no β, default-free   ", &a),
+        ("B: no β, paper-P-free   ", &b),
+        ("C: with β, default-free ", &c),
+        ("D: with β, paper-P-free ", &d),
+    ] {
+        let f = f5_of(g, &q_local);
+        let (e2, e3) = worst_residuals(g, &cap_input.params);
+        eprintln!("  {label} F_5 = {f:.4e}, eq(2) = {e2:.2e}, eq(3) = {e3:.2e}");
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline
