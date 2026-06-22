@@ -188,6 +188,39 @@ impl<T: PolyCoeff> BernsteinPoly<T> {
         Self { coeffs: out }
     }
 
+    /// Convert to the **monomial (power) basis** on `[0, 1]`:
+    /// returns coefficients `(a_0, a_1, …, a_n)` such that
+    /// `p(t) = Σ a_k · t^k`.
+    ///
+    /// Formula (standard Bezier→power-basis conversion):
+    ///
+    /// ```text
+    ///   a_k = Σ_{i = 0..=k} (−1)^{k − i} · C(n, i) · C(n − i, k − i) · c_i.
+    /// ```
+    ///
+    /// Bernstein form is preferred for numerical work on `[0, 1]`,
+    /// but the K-P bi-6 G¹/G² identity solver of §3.6 step 4 (see
+    /// `docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md`)
+    /// needs the monomial coefficients of the identity polynomial
+    /// in `u`. Zeroing each `a_k` (or equivalently each `c_k`) is
+    /// the linear constraint the solver collects to determine the
+    /// 16 deep-interior BB-coefficients per sector that the paper
+    /// otherwise computes via a Maple script we cannot access.
+    pub fn to_monomial_coefficients(&self) -> Vec<T> {
+        let n = self.degree();
+        let mut out = Vec::with_capacity(n + 1);
+        for k in 0..=n {
+            let mut acc = T::zero();
+            for (i, &c_i) in self.coeffs.iter().enumerate().take(k + 1) {
+                let coeff = binomial(n, i) * binomial(n - i, k - i);
+                let sign = if (k - i).is_multiple_of(2) { 1.0 } else { -1.0 };
+                acc = acc.add(c_i.scale(sign * coeff));
+            }
+            out.push(acc);
+        }
+        out
+    }
+
     /// Coefficient-wise add. If degrees differ the lower-degree
     /// polynomial is elevated to match before summing, so point
     /// values combine correctly.
