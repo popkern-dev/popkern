@@ -198,20 +198,80 @@ impl BRep {
         let surface_b = self.faces.get(face_b)?.surface.as_ref()?;
         let pcurve_a = he_ab.pcurve.as_ref()?;
         let pcurve_b = he_ba.pcurve.as_ref()?;
+        let v_origin = self.vertices.get(he_ab.origin)?.position;
+        let v_dest = self.vertices.get(he_ba.origin)?.position;
+
+        // Pcurve orientation can flip depending on how the authoring
+        // path serialized the start/end vertex into the parameter
+        // range — some operators write `t = 0 → origin vertex`
+        // (conventional), others write the reverse. Detect the
+        // orientation per side by comparing endpoint evaluations to
+        // the actual vertex positions and use whichever direction
+        // produces the smaller endpoint mismatch.
+        let pa_forward = pcurve_forward(surface_a, pcurve_a, v_origin, v_dest);
+        // pcurve_b traces the edge from `he_ba.origin` (= v_dest) to
+        // `he_ba.next.origin` (= v_origin). Forward orientation means
+        // `t = pb_lo → v_dest`, `t = pb_hi → v_origin`.
+        let pb_forward = pcurve_forward(surface_b, pcurve_b, v_dest, v_origin);
+
+        // Endpoint-anchoring check: even with the best orientation,
+        // if a pcurve's endpoints don't actually map (via surface
+        // eval) to the topological vertex positions, the pcurve is
+        // not authoritatively anchored to the edge. Sampling such a
+        // pcurve produces spurious 3D points that show as multi-
+        // metre L2 "disagreements" without indicating any real
+        // surface-boundary substrate gap. Skip the edge in that
+        // case rather than report sampler-driven noise. The
+        // threshold is the edge's own characteristic length plus
+        // tolerance — anything within is plausible per-segment
+        // discretisation; anything beyond is non-anchoring.
+        let edge_length = v_origin.distance_to(&v_dest);
+        let anchor_budget = (edge_length * 0.25).max(coherence_tolerance * 100.0);
+        if !pcurve_anchored(
+            surface_a,
+            pcurve_a,
+            v_origin,
+            v_dest,
+            pa_forward,
+            anchor_budget,
+        ) {
+            return None;
+        }
+        if !pcurve_anchored(
+            surface_b,
+            pcurve_b,
+            v_dest,
+            v_origin,
+            pb_forward,
+            anchor_budget,
+        ) {
+            return None;
+        }
 
         let mut worst_gap = 0.0_f64;
         let mut worst_parameter = 0.0_f64;
+        let mut samples_taken = 0usize;
         for i in 0..N_L2_SAMPLES {
-            let t = i as f64 / (N_L2_SAMPLES - 1).max(1) as f64;
-            let pa = surface_point_at(surface_a, pcurve_a, t);
-            // pcurve_b traces the edge in he_ba's direction (B → A), so
-            // its parameter is reversed.
-            let pb = surface_point_at(surface_b, pcurve_b, 1.0 - t);
+            let s = i as f64 / (N_L2_SAMPLES - 1).max(1) as f64;
+            // `s` is the canonical edge parameter: 0 at he_ab.origin,
+            // 1 at he_ab.next.origin.
+            let pa_local = if pa_forward { s } else { 1.0 - s };
+            let pb_local = if pb_forward { 1.0 - s } else { s };
+            let Some(pa) = surface_point_at(surface_a, pcurve_a, pa_local) else {
+                continue;
+            };
+            let Some(pb) = surface_point_at(surface_b, pcurve_b, pb_local) else {
+                continue;
+            };
+            samples_taken += 1;
             let gap = pa.distance_to(&pb);
             if gap > worst_gap {
                 worst_gap = gap;
-                worst_parameter = t;
+                worst_parameter = s;
             }
+        }
+        if samples_taken == 0 {
+            return None;
         }
         (worst_gap > coherence_tolerance).then_some(L2Disagreement {
             edge,
@@ -223,15 +283,87 @@ impl BRep {
     }
 }
 
+/// Decide which direction a pcurve traverses the edge. Compares the
+/// 3D evaluation of the pcurve at its `t_start` and `t_end` against
+/// the authoritative start/end vertex positions; returns `true` when
+/// `t_start → start` and `t_end → end` is the closer pairing.
+fn pcurve_forward(
+    surface: &crate::geometry::surface::SurfaceOnFace,
+    pcurve: &Pcurve,
+    start: Point3,
+    end: Point3,
+) -> bool {
+    let Some(p_lo) = surface_point_at(surface, pcurve, 0.0) else {
+        return true;
+    };
+    let Some(p_hi) = surface_point_at(surface, pcurve, 1.0) else {
+        return true;
+    };
+    p_lo.distance_to(&start) + p_hi.distance_to(&end)
+        <= p_lo.distance_to(&end) + p_hi.distance_to(&start)
+}
+
+/// True when the pcurve is geometrically anchored to its half-edge's
+/// endpoints — that is, the surface evaluation at the pcurve's
+/// extreme parameters lands within `budget` of the topological start
+/// and end vertices. A pcurve whose endpoints map elsewhere is not a
+/// faithful trace of the edge in UV space; the L2 sampler skips
+/// non-anchored pcurves so its disagreements report substrate
+/// surface-vs-surface error rather than pcurve-authoring noise.
+fn pcurve_anchored(
+    surface: &crate::geometry::surface::SurfaceOnFace,
+    pcurve: &Pcurve,
+    start: Point3,
+    end: Point3,
+    forward: bool,
+    budget: f64,
+) -> bool {
+    let (lo_local, hi_local) = if forward { (0.0, 1.0) } else { (1.0, 0.0) };
+    let Some(p_start) = surface_point_at(surface, pcurve, lo_local) else {
+        return false;
+    };
+    let Some(p_end) = surface_point_at(surface, pcurve, hi_local) else {
+        return false;
+    };
+    p_start.distance_to(&start) <= budget && p_end.distance_to(&end) <= budget
+}
+
+/// Evaluate `surface.point_at(pcurve.point_at(t_local-mapped))`.
+/// Returns `None` when the resulting UV falls outside the surface's
+/// finite parameter domain — those samples are extrapolations whose
+/// 3D images are unreliable, so the L2 sampler must not score them.
 fn surface_point_at(
     surface: &crate::geometry::surface::SurfaceOnFace,
     pcurve: &Pcurve,
     t_local: f64,
-) -> Point3 {
+) -> Option<Point3> {
     let (pc_start, pc_end) = pcurve.parameter_range();
     let pc_t = pc_start + t_local * (pc_end - pc_start);
     let uv = pcurve.point_at(pc_t);
-    surface.geometry.point_at(uv.x, uv.y)
+    if !uv_in_surface_domain(&surface.geometry, uv.x, uv.y) {
+        return None;
+    }
+    Some(surface.geometry.point_at(uv.x, uv.y))
+}
+
+/// True when `(u, v)` sits within `surface.parameter_range()` (or the
+/// surface's range is infinite along the corresponding axis, in which
+/// case any sample is in-domain). Used by the L2 sampler to skip
+/// extrapolation samples on bounded-domain surfaces (NURBS, Gregory).
+/// Analytic surfaces with periodic / unbounded axes (Plane, Cylinder,
+/// Cone, Sphere, Torus) pass through unchanged because their parameter
+/// range includes `±∞` along the relevant axis.
+fn uv_in_surface_domain(
+    surface: &crate::geometry::surface::SurfaceGeometry,
+    u: f64,
+    v: f64,
+) -> bool {
+    use crate::geometry::surface::SurfaceEval;
+    let ((u_lo, u_hi), (v_lo, v_hi)) = surface.parameter_range();
+    let tol = 1.0e-9;
+    let u_ok = (u_lo.is_infinite() || u >= u_lo - tol) && (u_hi.is_infinite() || u <= u_hi + tol);
+    let v_ok = (v_lo.is_infinite() || v >= v_lo - tol) && (v_hi.is_infinite() || v <= v_hi + tol);
+    u_ok && v_ok
 }
 
 #[cfg(test)]
