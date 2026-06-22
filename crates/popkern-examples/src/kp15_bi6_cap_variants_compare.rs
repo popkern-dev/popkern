@@ -23,7 +23,7 @@
 //! optimisation picks. Use the rendered output to inspect the cap's
 //! shape and curvature in a CAD viewer.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use popkern_core::constructors::BRepBuilder;
@@ -42,8 +42,18 @@ use popkern_io::{
 };
 
 fn output_dir() -> PathBuf {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    PathBuf::from(manifest_dir).join("output")
+    // Match the convention used by `gregory_step_examples`,
+    // `boolean_showcase`, etc.: write into the workspace's
+    // top-level `examples/output/` tree (which the sandbox serves
+    // at `/files/`), one subdirectory per example binary.
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("examples crate has workspace parent")
+        .parent()
+        .expect("workspace parent has repo parent")
+        .join("examples")
+        .join("output")
+        .join("kp15_bi6_cap_variants_compare")
 }
 
 fn main() {
