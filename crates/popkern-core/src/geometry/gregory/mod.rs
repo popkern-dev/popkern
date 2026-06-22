@@ -281,7 +281,9 @@ pub use kp13_bi5_assemble::{Bi5AssembleError, Bi5CapInput, Bi5CapOutput, assembl
 pub use kp13_bi5_boundary::{
     Bi3TensorBorder as Bi5CapBi3Patch, TensorBorder as Bi5CapTensorBorder,
 };
-pub use kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
+pub use kp15_bi6_cap::{
+    Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap, assemble_bi6_polar_cap_via_table,
+};
 pub use kp15_bi6_cap_f5_solve::{
     Bi6CapFreeParams, f_kappa_solve_optimal_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
     f5_solve_optimal_bi6_cap,

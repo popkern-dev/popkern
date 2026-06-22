@@ -298,6 +298,79 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
     })
 }
 
+/// Phase E.3 production-side entry point — assemble a bi-6 polar
+/// cap via the [KP15] constraint-matrix table with per-coordinate
+/// F_κ minimisation over the deep-interior BB-coefs.
+///
+/// Equivalent input/output to [`assemble_bi6_polar_cap`], but
+/// instead of populating rows 3..6 from `input.interior_filler`
+/// (defaulting to the star), this path:
+/// 1. Builds the cross-sector identification-augmented constraint
+///    matrix `M(n, c, τ)` via
+///    [`super::kp15_bi6_local_constraint::Kp15Bi6GeneratingTable::build_with_identifications`].
+/// 2. Seeds the free-column subset from `input.sectors` and the
+///    Catmull-Clark star at `(0, 0)` per sector.
+/// 3. Minimises F_κ (κ from `kappa`) over the deep-interior free
+///    columns via three independent SPD solves, one per
+///    coordinate (paper §3.7: "works for each coordinate
+///    separately").
+/// 4. Applies the table to derive every other BB-coef from the
+///    solved free values.
+/// 5. Degree-elevates each per-sector bi-6 grid to bi-9.
+///
+/// Compared with `assemble_bi6_polar_cap`'s star-default chain,
+/// this path delivers:
+/// - Machine-zero residuals on [KP15 eq (2)] (G¹) and
+///   [KP15 eq (3)] (G²) at every cross-sector edge.
+/// - F_κ values 3.5–5.5 orders of magnitude smaller than the
+///   zero-default cap (see
+///   `phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5`
+///   in the local constraint module's tests).
+///
+/// The `interior_filler` field of `Bi6CapInput` is **ignored** on
+/// this path. The `p0_22` and `p0_21_pinned` free parameters are
+/// also currently ignored — the F_κ solve picks them along with
+/// the deep interior. Caller-side overrides for those will land
+/// when this path becomes the default.
+pub fn assemble_bi6_polar_cap_via_table(
+    input: &Bi6CapInput,
+    kappa: usize,
+) -> Result<Bi6CapOutput, String> {
+    let n = input.n;
+    if n < 3 {
+        return Err(format!("bi-6 cap needs n ≥ 3, got {n}"));
+    }
+    input.params.validate()?;
+    if input.sectors.len() != n {
+        return Err(format!("sectors length {} ≠ n = {n}", input.sectors.len()));
+    }
+    if input.c5s.len() != n || input.c6s.len() != n {
+        return Err(format!(
+            "c5s / c6s length mismatch (got {}, {}); expected {n}",
+            input.c5s.len(),
+            input.c6s.len()
+        ));
+    }
+    let star = catmull_clark_star_point(n, input.c7, &input.c5s, &input.c6s);
+    let table =
+        super::kp15_bi6_local_constraint::Kp15Bi6GeneratingTable::build_with_identifications(
+            n,
+            input.params,
+        );
+    let q_local = super::kp15_bi6_f5::f_kappa_quadratic_form(kappa);
+    let (patches_bi6, _f_values) =
+        table.populate_cap_grids_from_input_with_f_kappa(&input.sectors, star, &q_local)?;
+    let patches_bi9: Vec<[[Point3; 10]; 10]> = patches_bi6
+        .iter()
+        .map(|g| elevate_bi6_grid_to_bi9(*g))
+        .collect();
+    Ok(Bi6CapOutput {
+        star_point: star,
+        patches_bi6,
+        patches_bi9,
+    })
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_cap_tests.rs"]
 mod tests;

@@ -242,3 +242,101 @@ fn interior_filler_is_applied() {
     let out = assemble_bi6_polar_cap(&input).unwrap();
     assert!(approx_eq(out.patches_bi6[0][3][3], sentinel, 1e-12));
 }
+
+#[test]
+fn via_table_pentagon_assembles_without_error() {
+    let input = pentagon_input();
+    let out = super::assemble_bi6_polar_cap_via_table(&input, 5).unwrap();
+    assert_eq!(out.patches_bi6.len(), input.n);
+    assert_eq!(out.patches_bi9.len(), input.n);
+    for grid in &out.patches_bi9 {
+        for row in grid {
+            for cp in row {
+                assert!(cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite());
+            }
+        }
+    }
+}
+
+#[test]
+fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
+    // Production-side wiring check: the new `assemble_bi6_polar_cap_via_table`
+    // public entry point must produce caps that satisfy KP15 eq (2)
+    // and eq (3) to machine zero at every cross-sector edge AND
+    // achieve strictly lower F_5 than the existing
+    // `assemble_bi6_polar_cap` path on the same input. These are
+    // the two empirical claims of the Phase E ADR.
+    use crate::geometry::gregory::kp15_bi6_f5::f_kappa_quadratic_form;
+    use crate::geometry::gregory::kp15_bi6_local_constraint::{
+        eq2_g1_residual_bb_degree7, eq3_g2_residual_phi_multiplied,
+    };
+
+    let input = pentagon_input();
+    let n = input.n;
+    let q = f_kappa_quadratic_form(5);
+    let f5 = |patches: &[[[Point3; 7]; 7]]| -> f64 {
+        let mut acc = 0.0;
+        for grid in patches {
+            for r in 0..49 {
+                let (i_r, j_r) = (r / 7, r % 7);
+                for c in 0..49 {
+                    let (i_c, j_c) = (c / 7, c % 7);
+                    let p_r = grid[i_r][j_r];
+                    let p_c = grid[i_c][j_c];
+                    let qq = q[r][c];
+                    if qq == 0.0 {
+                        continue;
+                    }
+                    acc += qq * (p_r.x * p_c.x + p_r.y * p_c.y + p_r.z * p_c.z);
+                }
+            }
+        }
+        acc
+    };
+
+    let out_legacy = assemble_bi6_polar_cap(&input).unwrap();
+    let out_table = super::assemble_bi6_polar_cap_via_table(&input, 5).unwrap();
+
+    let f5_legacy = f5(&out_legacy.patches_bi6);
+    let f5_table = f5(&out_table.patches_bi6);
+
+    let mut worst_eq2 = 0.0_f64;
+    let mut worst_eq3 = 0.0_f64;
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let bb2 = eq2_g1_residual_bb_degree7(
+            &out_table.patches_bi6[km1],
+            &out_table.patches_bi6[k],
+            &input.params,
+        );
+        for v in bb2 {
+            worst_eq2 = worst_eq2.max(v.length());
+        }
+        let bb3 = eq3_g2_residual_phi_multiplied(
+            &out_table.patches_bi6[km1],
+            &out_table.patches_bi6[k],
+            &input.params,
+        );
+        for v in &bb3 {
+            worst_eq3 = worst_eq3.max(v.length());
+        }
+    }
+
+    eprintln!(
+        "Via-table pentagon: F_5 legacy = {f5_legacy:.3e}, F_5 table = {f5_table:.3e}, \
+         worst eq(2) = {worst_eq2:.3e}, worst eq(3) = {worst_eq3:.3e}"
+    );
+
+    assert!(
+        worst_eq2 < 1e-8,
+        "table path: worst eq (2) residual = {worst_eq2:.3e}"
+    );
+    assert!(
+        worst_eq3 < 1e-8,
+        "table path: worst eq (3) residual = {worst_eq3:.3e}"
+    );
+    assert!(
+        f5_table < f5_legacy,
+        "table F_5 = {f5_table:.3e} ≥ legacy F_5 = {f5_legacy:.3e}"
+    );
+}
