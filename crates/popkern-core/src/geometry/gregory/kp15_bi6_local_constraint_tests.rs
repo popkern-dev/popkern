@@ -637,15 +637,15 @@ fn generating_table_with_identifications_round_trip_satisfies_all_constraints() 
 }
 
 #[test]
-fn phase_e2_table_driven_cap_satisfies_eq2_to_machine_zero() {
+fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
     // Phase E.2 — exit criterion: the table-driven cap
     // construction must produce per-sector bi-6 grids whose
-    // eq (2) residual at every cross-sector edge is machine zero,
-    // even though the kernel's *existing* assemble path reports
-    // residuals on the order of unit length (~10 for n=5, ~8
-    // for n=6) on the same input — see
-    // `assembly_eq2_residual_diagnostic`. This test pins the
-    // improvement empirically across valences.
+    // eq (2) G¹ AND eq (3) G² residuals at every cross-sector
+    // edge are machine zero, even though the kernel's *existing*
+    // assemble path reports unit-length residuals on the same
+    // input — see `assembly_eq2_residual_diagnostic`. This test
+    // pins the improvement empirically across valences for both
+    // constraint families.
     use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
     for n in [3usize, 5, 6, 7, 8] {
         let polar = polar_input(n);
@@ -657,6 +657,7 @@ fn phase_e2_table_driven_cap_satisfies_eq2_to_machine_zero() {
 
         assert_eq!(grids.len(), n);
         let mut worst_eq2 = 0.0_f64;
+        let mut worst_eq3 = 0.0_f64;
         for k in 0..n {
             for i in 0..7 {
                 for j in 0..7 {
@@ -668,18 +669,32 @@ fn phase_e2_table_driven_cap_satisfies_eq2_to_machine_zero() {
                 }
             }
             let km1 = (k + n - 1) % n;
-            let bb = super::eq2_g1_residual_bb_degree7(&grids[km1], &grids[k], &cap_input.params);
-            for v in bb {
+            let bb2 = super::eq2_g1_residual_bb_degree7(&grids[km1], &grids[k], &cap_input.params);
+            for v in bb2 {
                 let m = v.length();
                 if m > worst_eq2 {
                     worst_eq2 = m;
                 }
             }
+            let bb3 =
+                super::eq3_g2_residual_phi_multiplied(&grids[km1], &grids[k], &cap_input.params);
+            for v in &bb3 {
+                let m = v.length();
+                if m > worst_eq3 {
+                    worst_eq3 = m;
+                }
+            }
         }
-        eprintln!("Phase E.2 (n={n:2}): worst eq (2) residual = {worst_eq2:.3e}");
+        eprintln!(
+            "Phase E.2 (n={n:2}): worst eq (2) = {worst_eq2:.3e}, worst eq (3) = {worst_eq3:.3e}"
+        );
         assert!(
             worst_eq2 < 1e-8,
             "n={n}: worst eq (2) residual = {worst_eq2:.3e}; expected machine zero"
+        );
+        assert!(
+            worst_eq3 < 1e-8,
+            "n={n}: worst eq (3) residual = {worst_eq3:.3e}; expected machine zero"
         );
     }
 }
