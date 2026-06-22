@@ -478,6 +478,60 @@ fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
 }
 
 #[test]
+fn generating_table_built_and_pivot_count_matches_rank() {
+    // Phase D v1: build `Kp15Bi6GeneratingTable` from the global
+    // M(n, c, τ) and verify the pivot count agrees with the
+    // independently-measured rank from Phase C v2. This is the
+    // first concrete production-side artifact of the closure
+    // derivation; later phases (D v2, E) layer rule (5)
+    // substitution and (S1)-(S4) tightening atop it.
+    //
+    // Expected pivot counts from Phase C v2's `n × 17 − defect`
+    // ranks: n=3 → 41, n=5 → 72, n=6 → 86, n=7 → 105.
+    // RREF with partial pivoting may pick up one additional pivot
+    // beyond the Gauss-elimination rank for borderline numerical
+    // cases; we accept ±1.
+    let expected: &[(usize, usize)] = &[(3, 41), (5, 72), (6, 86), (7, 105)];
+    for &(n, expected_rank) in expected {
+        let params = Bi6Reparams::for_valence(n);
+        let h = super::Kp15Bi6GeneratingTable::build(n, params);
+        assert_eq!(h.rows, 18 * n);
+        assert_eq!(h.cols, 49 * n);
+        let rank = h.rank();
+        assert!(
+            rank.abs_diff(expected_rank) <= 1,
+            "n={n}: generating-table pivot count = {rank}, expected {expected_rank} (±1)"
+        );
+        assert_eq!(h.free_cols.len(), h.cols - h.rank());
+    }
+}
+
+#[test]
+fn generating_table_round_trip_satisfies_constraints() {
+    // For a deterministic non-zero free-column loading, the
+    // table's `apply` must produce a full column vector with
+    // ‖M · x‖ ≈ 0. This is the Phase D analogue of the (S1)-
+    // strict test for the per-edge residual: any rule deriving
+    // pivot values from free values must satisfy the underlying
+    // M·x = 0 constraint.
+    for n in [3usize, 5, 6, 7] {
+        let params = Bi6Reparams::for_valence(n);
+        let h = super::Kp15Bi6GeneratingTable::build(n, params);
+        // Deterministic non-zero free-column values keyed to n
+        // and to the column index — distinct values, finite.
+        let free_values: Vec<f64> = (0..h.free_cols.len())
+            .map(|i| 0.1 + (i as f64 + 1.0).sqrt() * 0.01 + (n as f64) * 0.001)
+            .collect();
+        let x = h.apply(&free_values);
+        let residual = h.constraint_residual_norm(&x);
+        assert!(
+            residual < 1e-8,
+            "n={n}: ‖M·x‖ = {residual:.3e} (free-col-determined x should satisfy all constraints)"
+        );
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline

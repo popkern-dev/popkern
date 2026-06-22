@@ -449,6 +449,175 @@ pub fn global_constraint_matrix(n: usize, params: &Bi6Reparams) -> (usize, usize
     (n_rows, n_cols, m)
 }
 
+/// Reduced row-echelon form of a dense `(rows × cols)` matrix
+/// stored row-major. Pivots are recorded as `(row, col)` pairs in
+/// increasing column order. Pivot tolerance `tol` is the absolute
+/// threshold below which a column is considered to have no pivot
+/// available in the remaining rows.
+///
+/// Used by [`Kp15Bi6GeneratingTable::build`] below to split the
+/// global constraint matrix's columns into "pivot" (dependent)
+/// and "free" sets — the foundation of Phase D's solver.
+fn rref_in_place(rows: usize, cols: usize, m: &mut [f64], tol: f64) -> Vec<(usize, usize)> {
+    assert_eq!(m.len(), rows * cols);
+    let mut pivots: Vec<(usize, usize)> = Vec::new();
+    let mut row = 0usize;
+    for col in 0..cols {
+        if row >= rows {
+            break;
+        }
+        // Partial pivoting.
+        let mut best = row;
+        let mut best_abs = m[row * cols + col].abs();
+        for r in (row + 1)..rows {
+            let v = m[r * cols + col].abs();
+            if v > best_abs {
+                best = r;
+                best_abs = v;
+            }
+        }
+        if best_abs < tol {
+            continue;
+        }
+        if best != row {
+            for c in 0..cols {
+                m.swap(row * cols + c, best * cols + c);
+            }
+        }
+        // Normalise pivot row.
+        let pivot = m[row * cols + col];
+        for c in col..cols {
+            m[row * cols + c] /= pivot;
+        }
+        // Eliminate above and below.
+        for r in 0..rows {
+            if r == row {
+                continue;
+            }
+            let factor = m[r * cols + col];
+            if factor == 0.0 {
+                continue;
+            }
+            for c in col..cols {
+                m[r * cols + c] -= factor * m[row * cols + c];
+            }
+        }
+        pivots.push((row, col));
+        row += 1;
+    }
+    pivots
+}
+
+/// A pre-computed RREF of [`global_constraint_matrix`]. Encodes
+/// each pivot (dependent) BB-coef as an affine function of the
+/// free BB-coefs: for pivot row `r` with pivot column `p`,
+///
+/// ```text
+///   x_p = − Σ_{c ∈ free_cols} rref[r][c] · x_c.
+/// ```
+///
+/// This is the same `H(n)` matrix the ADR's Phase D names; we
+/// store it in RREF form so the structure is explicit and the
+/// pivot/free split is auditable per-row.
+///
+/// **NB on rank deficiency:** for `n = 6, params = Bi6Reparams::
+/// for_valence(6)` the pre-rule-(5) measured rank is 86 (out of
+/// `49 · 6 = 294` cols). That leaves 208 columns in `free_cols`
+/// — more than the paper's `21n + |P| = 126 + 19 = 145` "true
+/// free" entries. The extra `208 - 145 = 63` free columns
+/// represent the *cross-edge coupling defect* surfaced in Phase
+/// C v2's measurement; closing them requires Phase D's
+/// rule-(5)-driven substitution and the (S1)–(S4) tightening.
+/// For now, this table exposes the *raw* RREF so subsequent
+/// phases can layer constraints atop it.
+pub struct Kp15Bi6GeneratingTable {
+    /// Valence.
+    pub n: usize,
+    /// Per-valence parameters at which `H(n)` was built.
+    pub params: Bi6Reparams,
+    /// `(row, col)` pairs of the pivots, in increasing column order.
+    pub pivots: Vec<(usize, usize)>,
+    /// Free-column indices (= columns not in `pivots`'s second slot).
+    pub free_cols: Vec<usize>,
+    /// Row count of the RREF (≡ `n × 18`).
+    pub rows: usize,
+    /// Column count (≡ `n × 49`).
+    pub cols: usize,
+    /// RREF entries, row-major.
+    pub rref: Vec<f64>,
+}
+
+impl Kp15Bi6GeneratingTable {
+    /// Build the table for valence `n` at parameters `params`.
+    pub fn build(n: usize, params: Bi6Reparams) -> Self {
+        let (rows, cols, mut m) = global_constraint_matrix(n, &params);
+        let pivots = rref_in_place(rows, cols, &mut m, 1e-12);
+        let pivot_cols: std::collections::BTreeSet<usize> =
+            pivots.iter().map(|&(_, c)| c).collect();
+        let free_cols: Vec<usize> = (0..cols).filter(|c| !pivot_cols.contains(c)).collect();
+        Self {
+            n,
+            params,
+            pivots,
+            free_cols,
+            rows,
+            cols,
+            rref: m,
+        }
+    }
+
+    /// Rank of the global constraint matrix.
+    pub fn rank(&self) -> usize {
+        self.pivots.len()
+    }
+
+    /// Given values for every column of the global grid (one f64 per
+    /// `(k, i, j)` position; use `global_grid_col` to compute the
+    /// index), compute the residual norm `‖M · x‖`. Useful as a
+    /// sanity check that an externally-constructed cap satisfies
+    /// the eq (2) + eq (3) BB constraints.
+    pub fn constraint_residual_norm(&self, x: &[f64]) -> f64 {
+        assert_eq!(x.len(), self.cols);
+        // We can compute M·x by re-deriving M, but the RREF stored
+        // here suffices: row r of RREF reads
+        //     x[col(pivot)] + Σ_free rref[r][col_free] · x[col_free] = 0,
+        // i.e. row r's residual is the dot product of the row with x.
+        let mut acc = 0.0_f64;
+        for r in 0..self.pivots.len() {
+            let row_dot: f64 = x
+                .iter()
+                .enumerate()
+                .map(|(c, &xc)| self.rref[r * self.cols + c] * xc)
+                .sum();
+            acc += row_dot * row_dot;
+        }
+        acc.sqrt()
+    }
+
+    /// Apply the table: given values for every **free** column,
+    /// compute the values of all pivot columns to satisfy M·x = 0.
+    /// Returns the full vector indexed by global column.
+    ///
+    /// `free_values` must equal `free_cols.len()` in length and
+    /// align with `free_cols`.
+    pub fn apply(&self, free_values: &[f64]) -> Vec<f64> {
+        assert_eq!(free_values.len(), self.free_cols.len());
+        let mut x = vec![0.0_f64; self.cols];
+        for (&fc, &v) in self.free_cols.iter().zip(free_values.iter()) {
+            x[fc] = v;
+        }
+        // Pivot rows: x_pivot = − Σ_free rref[row][col_free] · x[col_free].
+        for &(row, pcol) in &self.pivots {
+            let mut sum = 0.0;
+            for &fc in &self.free_cols {
+                sum += self.rref[row * self.cols + fc] * x[fc];
+            }
+            x[pcol] = -sum;
+        }
+        x
+    }
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_local_constraint_tests.rs"]
 mod tests;
