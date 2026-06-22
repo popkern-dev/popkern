@@ -378,6 +378,77 @@ pub fn eq3_jacobian_dense(params: &Bi6Reparams) -> Vec<[f64; 98]> {
     jac
 }
 
+/// Global BB-coef column index for sector `k`, grid position
+/// `(i, j)`. Sector wraps modulo `n`.
+pub fn global_grid_col(n: usize, k: usize, i: usize, j: usize) -> usize {
+    debug_assert!(k < n && i < 7 && j < 7);
+    k * 49 + i * 7 + j
+}
+
+/// Stack the per-edge eq (2) + eq (3) Jacobians into the global
+/// constraint matrix `M(n, c, τ)` for the full ring of `n`
+/// cross-sector edges.
+///
+/// Layout:
+/// - **Columns** (`49n` total): one per BB-coef of the bi-6 grids,
+///   indexed by `global_grid_col(n, k, i, j)`.
+/// - **Rows** (`18n` total): for each edge `(k − 1 mod n, k)`,
+///   8 rows from eq (2) followed by 10 rows from eq (3).
+///
+/// At adjacent edge `(k − 1, k)`, side 0 of the per-edge Jacobian
+/// maps to global column `(k − 1) · 49 + i · 7 + j`, side 1 maps
+/// to `k · 49 + i · 7 + j`. So each sector's 49 BB-coefs appear
+/// in two consecutive edges' constraints — exactly the cross-edge
+/// coupling the paper's local system encodes.
+///
+/// Returns the global matrix as `(n_rows, n_cols, entries_row_major)`
+/// so the caller can apply standard linear algebra.
+pub fn global_constraint_matrix(n: usize, params: &Bi6Reparams) -> (usize, usize, Vec<f64>) {
+    let eq2 = eq2_jacobian_dense(params);
+    let eq3 = eq3_jacobian_dense(params);
+    let rows_per_edge = 8 + eq3.len();
+    let n_rows = n * rows_per_edge;
+    let n_cols = 49 * n;
+    let mut m = vec![0.0_f64; n_rows * n_cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let row_base = k * rows_per_edge;
+        // eq (2) rows.
+        for (r, eq2_row) in eq2.iter().enumerate() {
+            let row_idx = row_base + r;
+            for (col_local, &v) in eq2_row.iter().enumerate() {
+                if v == 0.0 {
+                    continue;
+                }
+                let side = col_local / 49;
+                let local_pos = col_local % 49;
+                let i = local_pos / 7;
+                let j = local_pos % 7;
+                let sector = if side == 0 { km1 } else { k };
+                let global_col = global_grid_col(n, sector, i, j);
+                m[row_idx * n_cols + global_col] += v;
+            }
+        }
+        // eq (3) rows.
+        for (r, eq3_row) in eq3.iter().enumerate() {
+            let row_idx = row_base + 8 + r;
+            for (col_local, &v) in eq3_row.iter().enumerate() {
+                if v == 0.0 {
+                    continue;
+                }
+                let side = col_local / 49;
+                let local_pos = col_local % 49;
+                let i = local_pos / 7;
+                let j = local_pos % 7;
+                let sector = if side == 0 { km1 } else { k };
+                let global_col = global_grid_col(n, sector, i, j);
+                m[row_idx * n_cols + global_col] += v;
+            }
+        }
+    }
+    (n_rows, n_cols, m)
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_local_constraint_tests.rs"]
 mod tests;

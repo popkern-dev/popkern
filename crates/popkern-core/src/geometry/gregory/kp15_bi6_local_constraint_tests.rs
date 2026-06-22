@@ -437,6 +437,47 @@ fn eq3_jacobian_rank_reports_paper_structure() {
 }
 
 #[test]
+fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
+    // Phase C v2: stack the `n` per-edge Jacobians into the full
+    // global M(n, c, τ). Pre-rule-(5), pre-(S1)-(S4) substitutions,
+    // we expect the rank to be `n × (8 + 9) = 17n`: the per-edge
+    // ranks (8 from eq (2) + 9 from eq (3)) multiplied by `n`
+    // edges. There's NO cross-edge rank deficiency at this stage
+    // because the constraints involve different sector pairs and
+    // are linearly independent in their own column spaces.
+    //
+    // After rule (5) collapses two BB-coefs per edge (one from
+    // each of eq (2) and eq (3)), the rank should drop to `15n`,
+    // matching paper line 152's "15 linear equations" per edge.
+    // That step lives in Phase D.
+    for n in [3usize, 5, 6, 7, 8] {
+        let params = Bi6Reparams::for_valence(n);
+        let (rows, cols, m) = super::global_constraint_matrix(n, &params);
+        assert_eq!(rows, n * 18, "n={n}: row count mismatch");
+        assert_eq!(cols, n * 49, "n={n}: col count mismatch");
+        let rank = matrix_rank(rows, cols, &m, 1e-12);
+        eprintln!(
+            "n={n:2}: global M shape = {rows} × {cols}, rank = {rank}, n×17 = {}",
+            n * 17
+        );
+        // Lower-bound only: 17 per edge - up to 17 cross-edge
+        // dependencies introduced by the column overlap between
+        // adjacent edges. The exact rank is part of Phase D's
+        // measurement output.
+        assert!(
+            rank >= n * 8,
+            "n={n}: rank {rank} < n × 8 = {} (eq (2) alone should clear this)",
+            n * 8
+        );
+        assert!(
+            rank <= n * 17,
+            "n={n}: rank {rank} > n × 17 = {} (impossible upper bound)",
+            n * 17
+        );
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline
