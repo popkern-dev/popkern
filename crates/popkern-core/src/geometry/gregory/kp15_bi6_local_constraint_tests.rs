@@ -700,6 +700,107 @@ fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
 }
 
 #[test]
+fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
+    // Phase E.3 — F_5-minimised cap construction via the table.
+    // The table's free-column subset that isn't seeded by
+    // `Bi6CapInput` (= the deep-interior CPs) is chosen to
+    // minimise the per-patch F_5 functional, via three
+    // independent SPD solves of size |variable| × |variable|.
+    //
+    // Exit criteria:
+    //   1. The minimisation converges (no SPD singularity).
+    //   2. eq (2) and eq (3) residuals at every cross-sector
+    //      edge remain machine zero (since the table guarantees
+    //      M·x = 0 for ANY free-value loading).
+    //   3. The achieved F_5 is less than or equal to the
+    //      F_5 of the same cap with all extras defaulted to zero
+    //      (i.e. `populate_cap_grids_from_input` without
+    //      minimisation). This is the *guarantee* of F_5
+    //      minimisation over the variable subset.
+    use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
+    use crate::geometry::gregory::kp15_bi6_f5::f_kappa_quadratic_form;
+
+    let q_local = f_kappa_quadratic_form(5);
+
+    for n in [3usize, 5, 6, 7, 8] {
+        let polar = polar_input(n);
+        let tb = synthetic_bi3_tensor_border(n);
+        let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
+        let star = catmull_clark_star_point(n, cap_input.c7, &cap_input.c5s, &cap_input.c6s);
+        let table = super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
+
+        let grids_zero = table.populate_cap_grids_from_input(&cap_input.sectors, star);
+        let (grids_f5, f_vals) = table
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .unwrap_or_else(|e| panic!("n={n}: F_5 solve failed: {e}"));
+
+        let f_of = |g: &[[[Point3; 7]; 7]]| -> f64 {
+            let mut acc = 0.0;
+            for grid in g {
+                for r in 0..49 {
+                    let i_r = r / 7;
+                    let j_r = r % 7;
+                    for c in 0..49 {
+                        let i_c = c / 7;
+                        let j_c = c % 7;
+                        let p_r = grid[i_r][j_r];
+                        let p_c = grid[i_c][j_c];
+                        let q = q_local[r][c];
+                        if q == 0.0 {
+                            continue;
+                        }
+                        acc += q * (p_r.x * p_c.x + p_r.y * p_c.y + p_r.z * p_c.z);
+                    }
+                }
+            }
+            acc
+        };
+        let f_zero = f_of(&grids_zero);
+        let f_min = f_of(&grids_f5);
+
+        // Verify eq (2)/(3) residuals are still machine zero.
+        let mut worst_eq2 = 0.0_f64;
+        let mut worst_eq3 = 0.0_f64;
+        for k in 0..n {
+            let km1 = (k + n - 1) % n;
+            let bb2 =
+                super::eq2_g1_residual_bb_degree7(&grids_f5[km1], &grids_f5[k], &cap_input.params);
+            for v in bb2 {
+                worst_eq2 = worst_eq2.max(v.length());
+            }
+            let bb3 = super::eq3_g2_residual_phi_multiplied(
+                &grids_f5[km1],
+                &grids_f5[k],
+                &cap_input.params,
+            );
+            for v in &bb3 {
+                worst_eq3 = worst_eq3.max(v.length());
+            }
+        }
+
+        eprintln!(
+            "Phase E.3 (n={n:2}): F_5 zero-default = {f_zero:.6e}, F_5 minimised = {f_min:.6e} \
+             (Δ = {:.2}×), per-coord F = {:?}; eq(2) = {worst_eq2:.2e}, eq(3) = {worst_eq3:.2e}",
+            f_zero / f_min.max(1e-30),
+            f_vals,
+        );
+
+        assert!(
+            f_min <= f_zero + 1e-6,
+            "n={n}: F_5 minimised ({f_min:.3e}) exceeds zero-default ({f_zero:.3e})"
+        );
+        assert!(
+            worst_eq2 < 1e-8,
+            "n={n}: F_5 cap eq (2) residual = {worst_eq2:.3e}"
+        );
+        assert!(
+            worst_eq3 < 1e-8,
+            "n={n}: F_5 cap eq (3) residual = {worst_eq3:.3e}"
+        );
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline

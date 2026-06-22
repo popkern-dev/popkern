@@ -47,6 +47,7 @@
 // through this module, removing the allow(dead_code) below.
 #![allow(dead_code)]
 
+use super::direct_linalg::solve_dense;
 use super::kp15_bi6_reparam::Bi6Reparams;
 use crate::geometry::bernstein_poly::{
     BernsteinPoly, PolyCoeff, bernstein_product_scalar, bernstein_product_scalar_vec3,
@@ -819,6 +820,233 @@ impl Kp15Bi6GeneratingTable {
         }
         grids
     }
+
+    /// Build the table's implicit linear map `T` from the free-
+    /// column value vector to the full `49n`-long column vector,
+    /// as a dense `49n × |free_cols|` matrix in row-major order.
+    /// Column `j` of T is the action of `apply` on the unit vector
+    /// at `j`.
+    fn build_linear_map(&self) -> Vec<f64> {
+        let n_free = self.free_cols.len();
+        let n_total = self.cols;
+        let mut t = vec![0.0_f64; n_total * n_free];
+        for (j, _fc) in self.free_cols.iter().enumerate() {
+            // Apply on the j-th unit vector.
+            let mut free = vec![0.0_f64; n_free];
+            free[j] = 1.0;
+            let x = self.apply(&free);
+            for (row, &v) in x.iter().enumerate() {
+                t[row * n_free + j] = v;
+            }
+        }
+        t
+    }
+
+    /// Phase E.3 — F_5-minimised cap construction via the table.
+    ///
+    /// Like [`populate_cap_grids_from_input`], but instead of
+    /// defaulting all "extra" free columns (those not seeded by
+    /// the `Bi6CapInput`) to zero, this method solves three
+    /// independent SPD systems (one per coordinate) to choose
+    /// those values such that the per-patch [KP15 §3.6 step 4]
+    /// quadratic functional `F_κ` is minimised.
+    ///
+    /// Inputs:
+    /// - `sectors`, `star`: as in `populate_cap_grids_from_input`.
+    /// - `q_local`: the `49 × 49` per-patch F_κ quadratic form
+    ///   (from
+    ///   [`super::kp15_bi6_f5::f_kappa_quadratic_form`]). The
+    ///   full `49n × 49n` Q is block-diagonal with this `q_local`
+    ///   replicated `n` times.
+    ///
+    /// Algorithm:
+    /// 1. Build the table's linear map `T` (49n × |free|).
+    /// 2. Form `H = T^T Q T` (the |free| × |free| projected
+    ///    quadratic form on free-column values).
+    /// 3. Partition free columns into *FIXED* (those seeded by
+    ///    the input — the 12 CirculantSectorRhs slots + the star
+    ///    at `(0, 0)` per sector) and *VARIABLE* (the rest).
+    /// 4. Solve `H_vv · v = − H_vf · f` for the VARIABLE
+    ///    values, where `H = [[H_ff, H_fv], [H_vf, H_vv]]` is
+    ///    the partitioned form and `f` is the fixed-value
+    ///    vector. Three independent solves, one per coordinate
+    ///    (paper §3.7: "works for each coordinate separately").
+    /// 5. Combine fixed + variable free-values, apply the table,
+    ///    reshape into per-sector grids.
+    ///
+    /// Returns the per-sector grids and the achieved per-coord
+    /// F_κ values `(fx, fy, fz)`.
+    #[allow(clippy::type_complexity)]
+    pub fn populate_cap_grids_from_input_with_f_kappa(
+        &self,
+        sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
+        star: Point3,
+        q_local: &[[f64; 49]; 49],
+    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+        let n = self.n;
+        assert_eq!(sectors.len(), n);
+
+        // Build full Q at 49n × 49n (block-diagonal of q_local).
+        // We store it as a dense Vec<f64> row-major.
+        let total = 49 * n;
+        // Step 1: T (49n × |free|).
+        let t = self.build_linear_map();
+        let n_free = self.free_cols.len();
+
+        // Step 2: H = T^T Q T. Exploit block-diagonal structure:
+        // H = Σ_k T_k^T q_local T_k where T_k is rows
+        // [49k .. 49(k+1)] of T.
+        let mut h = vec![0.0_f64; n_free * n_free];
+        for k in 0..n {
+            let row_base = 49 * k;
+            // q_local · T_k (49 × |free|).
+            let mut qtk = vec![0.0_f64; 49 * n_free];
+            for r in 0..49 {
+                for c in 0..n_free {
+                    let mut s = 0.0;
+                    for inner in 0..49 {
+                        s += q_local[r][inner] * t[(row_base + inner) * n_free + c];
+                    }
+                    qtk[r * n_free + c] = s;
+                }
+            }
+            // H += T_k^T · qtk (|free| × |free|).
+            for r in 0..n_free {
+                for c in 0..n_free {
+                    let mut s = 0.0;
+                    for inner in 0..49 {
+                        s += t[(row_base + inner) * n_free + r] * qtk[inner * n_free + c];
+                    }
+                    h[r * n_free + c] += s;
+                }
+            }
+        }
+
+        // Step 3: classify free cols → FIXED or VARIABLE indices
+        // into the free-column ordering.
+        let mut fixed_idx: Vec<usize> = Vec::new();
+        let mut variable_idx: Vec<usize> = Vec::new();
+        let mut seed_x: Vec<f64> = Vec::new();
+        let mut seed_y: Vec<f64> = Vec::new();
+        let mut seed_z: Vec<f64> = Vec::new();
+        for (j, &fc) in self.free_cols.iter().enumerate() {
+            // Decode (k, i, j_pos).
+            let sector = fc / 49;
+            let pos = fc % 49;
+            let i = pos / 7;
+            let j_pos = pos % 7;
+            if let Some(p) = seeded_value(sectors, star, sector, i, j_pos) {
+                fixed_idx.push(j);
+                seed_x.push(p.x);
+                seed_y.push(p.y);
+                seed_z.push(p.z);
+            } else {
+                variable_idx.push(j);
+            }
+        }
+        let n_fixed = fixed_idx.len();
+        let n_var = variable_idx.len();
+
+        // Step 4: per coord, solve H_vv · v = − H_vf · f.
+        let pull_h = |rows: &[usize], cols: &[usize]| -> Vec<Vec<f64>> {
+            rows.iter()
+                .map(|&r| cols.iter().map(|&c| h[r * n_free + c]).collect())
+                .collect()
+        };
+        let h_vv = pull_h(&variable_idx, &variable_idx);
+        let h_vf = pull_h(&variable_idx, &fixed_idx);
+
+        let mut var_vals: [Vec<f64>; 3] = [vec![0.0; n_var], vec![0.0; n_var], vec![0.0; n_var]];
+        for (d, seed) in [&seed_x, &seed_y, &seed_z].iter().enumerate() {
+            // rhs = -H_vf · seed.
+            let rhs: Vec<f64> = (0..n_var)
+                .map(|r| {
+                    let mut s = 0.0;
+                    for c in 0..n_fixed {
+                        s -= h_vf[r][c] * seed[c];
+                    }
+                    s
+                })
+                .collect();
+            let solution = solve_dense(h_vv.clone(), rhs)
+                .ok_or_else(|| format!("F_κ SPD solve singular at coord {d}"))?;
+            var_vals[d] = solution;
+        }
+
+        // Step 5: assemble free-value vectors and apply.
+        let assemble_free = |coord: usize, seed_coord: &[f64]| -> Vec<f64> {
+            let mut free = vec![0.0_f64; n_free];
+            for (k, &j) in fixed_idx.iter().enumerate() {
+                free[j] = seed_coord[k];
+            }
+            for (k, &j) in variable_idx.iter().enumerate() {
+                free[j] = var_vals[coord][k];
+            }
+            free
+        };
+        let xs = self.apply(&assemble_free(0, &seed_x));
+        let ys = self.apply(&assemble_free(1, &seed_y));
+        let zs = self.apply(&assemble_free(2, &seed_z));
+
+        // Step 6: reshape into per-sector grids.
+        let mut grids = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+            for (i, row) in grid.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    let col = global_grid_col(n, k, i, j);
+                    *cell = Point3::new(xs[col], ys[col], zs[col]);
+                }
+            }
+            grids.push(grid);
+        }
+
+        // Step 7: compute achieved F_κ per coord.
+        let f_coord = |x: &[f64]| -> f64 {
+            let mut acc = 0.0;
+            for k in 0..n {
+                let row_base = 49 * k;
+                for r in 0..49 {
+                    for c in 0..49 {
+                        acc += x[row_base + r] * q_local[r][c] * x[row_base + c];
+                    }
+                }
+            }
+            acc
+        };
+        let f_vals = [f_coord(&xs), f_coord(&ys), f_coord(&zs)];
+        let _ = total;
+        Ok((grids, f_vals))
+    }
+}
+
+/// Returns the `Point3` value at global position `(k, i, j)` if
+/// that position is "seeded" by the cap input, else `None`.
+/// Seed positions: `(0, 0)` → star; the 12 `CirculantSectorRhs`
+/// fixed-position slots → the corresponding field.
+fn seeded_value(
+    sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
+    star: Point3,
+    k: usize,
+    i: usize,
+    j: usize,
+) -> Option<Point3> {
+    let s = &sectors[k];
+    Some(match (i, j) {
+        (0, 0) => star,
+        (1, 0) => s.p_10,
+        (2, 0) => s.p_20,
+        (4, 0) => s.p_40,
+        (5, 0) => s.p_50,
+        (6, 0) => s.p_60,
+        (0, 1) => s.p_01,
+        (1, 1) => s.p_11,
+        (0, 2) => s.p_02,
+        (4, 2) => s.p_42,
+        (5, 2) => s.p_52,
+        (6, 2) => s.p_62,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
