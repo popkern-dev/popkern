@@ -532,6 +532,46 @@ fn generating_table_round_trip_satisfies_constraints() {
 }
 
 #[test]
+fn rule5_is_implied_by_eq2_eq3_constraints() {
+    // **Phase D v2 finding:** [KP15 eq (5)] is the paper's choice
+    // that makes the boundary curve `e(u)` drop from monomial-
+    // degree 6 to degree 5. We expected this to be **independent**
+    // of eq (2)/(3) — the paper describes it as a "setting"
+    // (line 148), not a derived identity.
+    //
+    // Measurement: append the `n` rule-(5) rows to M and re-RREF.
+    // **The rank does not increase** at any valence in {3, 5, 6, 7}.
+    // Rule (5) is in the row space of the per-edge eq (2)/(3)
+    // Jacobians — a non-obvious fact the paper does not state but
+    // that falls out of the BB-arithmetic structure once you encode
+    // both equations together.
+    //
+    // Consequence: the paper's "after rule (5), eq (2) drops to
+    // degree 6" claim is mechanically *equivalent* to a specific
+    // BB-coef cancellation already encoded by eq (2) + eq (3) +
+    // the engineered `a, b, d, e` choices. This rules out one
+    // path for tightening M's rank; Phase E.1's bridge fix
+    // (proper (S1) propagation across sectors) is the next
+    // candidate.
+    for n in [3usize, 5, 6, 7] {
+        let params = Bi6Reparams::for_valence(n);
+        let h_plain = super::Kp15Bi6GeneratingTable::build(n, params);
+        let h_rule5 = super::Kp15Bi6GeneratingTable::build_with_rule5(n, params);
+        assert_eq!(h_rule5.rows, h_plain.rows + n);
+        let rank_jump = h_rule5.rank() as isize - h_plain.rank() as isize;
+        eprintln!(
+            "n={n:2}: rank plain = {}, with rule (5) = {}, Δ = {rank_jump}",
+            h_plain.rank(),
+            h_rule5.rank()
+        );
+        assert_eq!(
+            rank_jump, 0,
+            "n={n}: rule (5) Δrank = {rank_jump}; expected 0 (rule (5) is redundant)"
+        );
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline

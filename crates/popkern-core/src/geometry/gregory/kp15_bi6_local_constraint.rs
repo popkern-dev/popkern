@@ -385,6 +385,41 @@ pub fn global_grid_col(n: usize, k: usize, i: usize, j: usize) -> usize {
     k * 49 + i * 7 + j
 }
 
+/// Append [KP15 §3.2 eq (5)] per-sector constraints to a global
+/// matrix `m` of `(rows × cols)`. Rule (5) reads:
+///
+/// ```text
+///   p̀_{30} := (3/4)(p̀_{20} + p̀_{40})
+///            − (3/10)(p̀_{10} + p̀_{50})
+///            + (1/20)(p̀_{00} + p̀_{60})
+/// ```
+///
+/// rearranged to a homogeneous form. One row per sector is
+/// appended.
+fn append_rule5_rows(n: usize, cols: usize, m: &mut Vec<f64>, new_rows: usize) -> usize {
+    // Reserve n new rows.
+    let extra = vec![0.0_f64; n * cols];
+    m.extend(extra);
+    // Coefficients for `p̀_{0,0}, p̀_{1,0}, ..., p̀_{6,0}`.
+    let weights: [f64; 7] = [
+        -1.0 / 20.0,
+        3.0 / 10.0,
+        -3.0 / 4.0,
+        1.0,
+        -3.0 / 4.0,
+        3.0 / 10.0,
+        -1.0 / 20.0,
+    ];
+    for k in 0..n {
+        let row_idx = new_rows + k;
+        for (i, &w) in weights.iter().enumerate() {
+            let col = global_grid_col(n, k, i, 0);
+            m[row_idx * cols + col] = w;
+        }
+    }
+    new_rows + n
+}
+
 /// Stack the per-edge eq (2) + eq (3) Jacobians into the global
 /// constraint matrix `M(n, c, τ)` for the full ring of `n`
 /// cross-sector edges.
@@ -447,6 +482,17 @@ pub fn global_constraint_matrix(n: usize, params: &Bi6Reparams) -> (usize, usize
         }
     }
     (n_rows, n_cols, m)
+}
+
+/// Rule (5)-augmented constraint matrix: eq (2) + eq (3) per edge
+/// plus one per-sector rule (5) row. Rows: `18n + n = 19n`.
+pub fn global_constraint_matrix_with_rule5(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    let (rows, cols, mut m) = global_constraint_matrix(n, params);
+    let new_rows = append_rule5_rows(n, cols, &mut m, rows);
+    (new_rows, cols, m)
 }
 
 /// Reduced row-echelon form of a dense `(rows × cols)` matrix
@@ -550,7 +596,21 @@ pub struct Kp15Bi6GeneratingTable {
 impl Kp15Bi6GeneratingTable {
     /// Build the table for valence `n` at parameters `params`.
     pub fn build(n: usize, params: Bi6Reparams) -> Self {
-        let (rows, cols, mut m) = global_constraint_matrix(n, &params);
+        Self::build_from_matrix(n, params, global_constraint_matrix)
+    }
+
+    /// Build with [KP15 eq (5)] applied as `n` extra per-sector
+    /// rows on top of the per-edge eq (2)/(3) Jacobians.
+    pub fn build_with_rule5(n: usize, params: Bi6Reparams) -> Self {
+        Self::build_from_matrix(n, params, global_constraint_matrix_with_rule5)
+    }
+
+    fn build_from_matrix(
+        n: usize,
+        params: Bi6Reparams,
+        builder: fn(usize, &Bi6Reparams) -> (usize, usize, Vec<f64>),
+    ) -> Self {
+        let (rows, cols, mut m) = builder(n, &params);
         let pivots = rref_in_place(rows, cols, &mut m, 1e-12);
         let pivot_cols: std::collections::BTreeSet<usize> =
             pivots.iter().map(|&(_, c)| c).collect();
