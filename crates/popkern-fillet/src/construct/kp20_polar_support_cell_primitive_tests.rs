@@ -9,7 +9,7 @@ use super::{
 #[test]
 fn topology_path_g0_measures_rectangular_support_grid_adjacency() {
     let base = flat_bi6_patch();
-    let patches = support_cells(&base, 2, 4)
+    let patches = support_cells(&base, 2, 4, None)
         .into_iter()
         .map(gregory_from_bi6)
         .collect::<Vec<_>>();
@@ -25,7 +25,7 @@ fn topology_path_g0_measures_rectangular_support_grid_adjacency() {
 #[test]
 fn topology_path_g0_declines_incomplete_rectangular_inventory() {
     let base = flat_bi6_patch();
-    let mut patches = support_cells(&base, 2, 4)
+    let mut patches = support_cells(&base, 2, 4, None)
         .into_iter()
         .map(gregory_from_bi6)
         .collect::<Vec<_>>();

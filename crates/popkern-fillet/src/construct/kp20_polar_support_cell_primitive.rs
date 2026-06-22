@@ -243,7 +243,7 @@ fn measure_cell_grid_mode(
                 parallel_support_boundary_ribbon(&base)
             }
         };
-        for cell in support_cells(&authored, cells_u, cells_v) {
+        for cell in support_cells(&authored, cells_u, cells_v, None) {
             let patch_index = emitted_patches.len();
             emitted_patches.push(gregory_from_bi6(cell));
             emitted_provenance.push(support_cell_provenance(
@@ -274,7 +274,21 @@ fn measure_cell_grid_mode(
     }
 }
 
-fn support_cells(base: &Kp20Bi6Patch, cells_u: usize, cells_v: usize) -> Vec<Kp20Bi6Patch> {
+/// Subdivide a base bi-6 patch into `cells_u × cells_v` sub-cells.
+///
+/// `cap_outer_seam_curves`, when `Some`, will (in Stage D2.1+) be used
+/// to author seam-side sub-cell boundary control points from the
+/// canonical cap-outer edge curves instead of the uniform-subdivision
+/// `split_uniform_u`/`split_uniform_v` defaults. `None` preserves
+/// today's uniform behavior and is the only path exercised by Stage
+/// D2.0 — the parameter exists as plumbing for the helper that lands
+/// in D2.1.
+fn support_cells(
+    base: &Kp20Bi6Patch,
+    cells_u: usize,
+    cells_v: usize,
+    _cap_outer_seam_curves: Option<&[popkern_core::geometry::curve::CurveOnEdge]>,
+) -> Vec<Kp20Bi6Patch> {
     let mut cells = Vec::with_capacity(cells_u * cells_v);
     for u_band in split_uniform_u(base, cells_u) {
         cells.extend(split_uniform_v(&u_band, cells_v));
