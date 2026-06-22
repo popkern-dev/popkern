@@ -312,37 +312,37 @@ fn baseline_12_edge_cube_fillet_allocation_profile() {
         let _ = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None);
     });
 
-    // Upper bound widened to accommodate the Stage C1+ pcurve-on-
-    // corner-split-twin authoring (commit eb2f672d) which closes
-    // the ADR's Stage C exit criterion (L3 = 0 on every KP20 polar
-    // fixture) at the cost of ~2× ApplyTopology allocations on the
-    // 12-edge cube fillet (270k → 573k). Bisected to the moment
-    // BOTH twins of each MEF-created corner-split half-edge gain
-    // linear pcurves; authoring only one side avoids the cascade
-    // but leaves L3 violations on hexagon6_variable and
-    // pyramid4_mixed. The exact downstream pass that amplifies a
-    // pcurve-pair into ~12,500 allocations is not yet located —
-    // session-bound diagnostic.
+    // Upper bound tightened after locating + fixing the Stage C1+
+    // pcurve-on-corner-split-twin allocation cascade. The
+    // `cap_outer_acceptance::measure::measure_cap_support_continuity`
+    // pass samples 100 points per cap/support seam edge and
+    // evaluates surfaces at each — every NurbsSurface::point_at
+    // call used to build a fresh `Vec<Homogeneous>` per row plus
+    // one for the column. With Stage C1+ authoring pcurves on both
+    // MEF-created corner-split twins, more edges qualified as
+    // measurable cap/support seams, multiplying the per-edge NURBS
+    // sampling cost into a ~12,500-alloc-per-pair cascade
+    // (12-edge cube fillet: 269k → 612k). Bisected via
+    // `tests/alloc_site_trace.rs`. Fix: `NurbsSurface::eval_homogeneous`
+    // moved to stack scratch arrays (matching the curve hot path).
     //
-    // TODO: once an alloc-site-tracing diagnostic identifies the
-    // amplifier (likely BRep::clone inside Euler operators or a
-    // pcurve-keyed validate_all pass), shrink this back toward the
-    // 325k threshold. See
-    // `docs/reports/2026-06-21-l1-creator-histogram.md` for the
-    // companion L1/L3 substrate notes.
+    // Post-fix the 12-edge cube fillet allocates 195k — below the
+    // pre-Stage-C1+ baseline of 269k, the threshold can shrink
+    // accordingly. If this trips, first check the per-phase
+    // breakdown rather than bumping blindly.
     assert!(
-        delta.count < 650_000,
+        delta.count < 250_000,
         "§18 regression: 12-edge cube fillet made {} allocations \
-         (threshold 650,000; KP20/Gregory baseline ~269k, Stage C1+ \
-         baseline ~573k) — run the per-phase profiler to locate the \
+         (threshold 250,000; allocation-free NURBS surface eval \
+         baseline ~195k) — run the per-phase profiler to locate the \
          regression",
         delta.count
     );
     assert!(
-        delta.bytes < 80 * 1024 * 1024,
+        delta.bytes < 35 * 1024 * 1024,
         "§18 regression: 12-edge cube fillet allocated {} bytes \
-         (threshold 80 MiB; post-§5.3 baseline ~25 MB, Stage C1+ \
-         baseline ~74 MB) — check for unbounded buffer growth",
+         (threshold 35 MiB; allocation-free NURBS surface eval \
+         baseline ~26 MB) — check for unbounded buffer growth",
         delta.bytes
     );
 }
