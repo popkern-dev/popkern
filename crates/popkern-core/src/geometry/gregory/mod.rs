@@ -101,6 +101,7 @@ mod kp15_bi6_cap;
 mod kp15_bi6_cap_f5_solve;
 mod kp15_bi6_circulant;
 mod kp15_bi6_f5;
+mod kp15_bi6_local_constraint;
 mod kp15_bi6_mu;
 mod kp15_bi6_polar_bridge;
 mod kp15_bi6_reparam;
