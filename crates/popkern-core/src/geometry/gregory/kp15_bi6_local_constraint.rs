@@ -657,6 +657,63 @@ impl Kp15Bi6GeneratingTable {
         Self::build_from_matrix(n, params, global_constraint_matrix_with_identifications)
     }
 
+    /// Build with identifications, but force the RREF to **prefer
+    /// non-paper-P columns as pivots** so that paper's "P" set
+    /// (sector 0's quadratic-near-star CPs + `p^0_{22}` + per-sector
+    /// `p^k_{23}, p^k_{33}` + `p^0_{21}` for `n = 6`) ends up in
+    /// the *free* column set.
+    ///
+    /// This is the substrate for the Phase E "compare to paper's
+    /// P-only F_5 domain" experiment. With this build, F_5
+    /// minimisation over the free columns is largely restricted
+    /// to paper's P plus whatever else didn't get pivoted.
+    pub fn build_with_identifications_paper_p_free(n: usize, params: Bi6Reparams) -> Self {
+        let (rows, cols, m_unordered) = global_constraint_matrix_with_identifications(n, &params);
+        let paper_p = paper_p_columns(n);
+        let paper_p_set: std::collections::HashSet<usize> = paper_p.iter().copied().collect();
+        // Build a column permutation: non-paper-P columns first,
+        // then paper-P columns.
+        let mut perm: Vec<usize> = (0..cols).filter(|c| !paper_p_set.contains(c)).collect();
+        perm.extend(paper_p.iter().copied());
+        debug_assert_eq!(perm.len(), cols);
+        let mut inverse = vec![0usize; cols];
+        for (new_idx, &old_idx) in perm.iter().enumerate() {
+            inverse[old_idx] = new_idx;
+        }
+        // Apply the permutation: m_permuted[r, new_c] = m_unordered[r, perm[new_c]].
+        let mut m_permuted = vec![0.0_f64; rows * cols];
+        for r in 0..rows {
+            for (new_c, &old_c) in perm.iter().enumerate() {
+                m_permuted[r * cols + new_c] = m_unordered[r * cols + old_c];
+            }
+        }
+        let pivots_in_perm = rref_in_place(rows, cols, &mut m_permuted, 1e-12);
+        // Translate pivot/RREF entries back to the unordered column
+        // indexing.
+        let pivots: Vec<(usize, usize)> =
+            pivots_in_perm.iter().map(|&(r, c)| (r, perm[c])).collect();
+        let pivot_cols: std::collections::BTreeSet<usize> =
+            pivots.iter().map(|&(_, c)| c).collect();
+        let free_cols: Vec<usize> = (0..cols).filter(|c| !pivot_cols.contains(c)).collect();
+        // Translate the RREF entries: rref[r, c_original] =
+        // m_permuted[r, inverse[c_original]].
+        let mut rref = vec![0.0_f64; rows * cols];
+        for r in 0..rows {
+            for c_orig in 0..cols {
+                rref[r * cols + c_orig] = m_permuted[r * cols + inverse[c_orig]];
+            }
+        }
+        Self {
+            n,
+            params,
+            pivots,
+            free_cols,
+            rows,
+            cols,
+            rref,
+        }
+    }
+
     fn build_from_matrix(
         n: usize,
         params: Bi6Reparams,
@@ -1018,6 +1075,201 @@ impl Kp15Bi6GeneratingTable {
         let _ = total;
         Ok((grids, f_vals))
     }
+}
+
+/// Return the global column indices of the paper's "P" free
+/// parameter set per [KP15 §3.6 step 4]:
+///
+/// ```text
+///   P := { p^0_{ij} : i + j ≤ 2 } ∪ { p^0_{22} }
+///         ∪ { p^k_{23} : k ∈ 0..n } ∪ { p^k_{33} : k ∈ 0..n }
+///         ∪ { p^0_{21} }                          [if n = 6]
+/// ```
+///
+/// Used by `build_with_identifications_paper_p_free` to bias the
+/// RREF's pivot/free split toward keeping these columns FREE so
+/// the F_5 minimisation can match the paper's domain.
+pub fn paper_p_columns(n: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    // Sector 0's quadratic-near-star (i + j ≤ 2): 6 positions.
+    for i in 0..=2 {
+        for j in 0..=2 {
+            if i + j <= 2 {
+                out.push(global_grid_col(n, 0, i, j));
+            }
+        }
+    }
+    // p^0_{22}.
+    out.push(global_grid_col(n, 0, 2, 2));
+    // p^k_{23} per sector.
+    for k in 0..n {
+        out.push(global_grid_col(n, k, 2, 3));
+    }
+    // p^k_{33} per sector.
+    for k in 0..n {
+        out.push(global_grid_col(n, k, 3, 3));
+    }
+    // p^0_{21} at n = 6.
+    if n == 6 {
+        out.push(global_grid_col(n, 0, 2, 1));
+    }
+    out
+}
+
+/// Bi-3 → bi-6 degree elevation for a 4-CP curve. Three iterated
+/// degree raises, each preserving the underlying curve.
+fn elevate_bi3_to_bi6(b: &[Point3; 4]) -> [Point3; 7] {
+    let mut cur: Vec<Point3> = b.to_vec();
+    for _ in 0..3 {
+        let d = cur.len() - 1;
+        let dp1 = (d + 1) as f64;
+        let mut next = Vec::with_capacity(d + 2);
+        next.push(cur[0]);
+        for i in 1..=d {
+            let frac = (i as f64) / dp1;
+            let prev = cur[i - 1];
+            let this = cur[i];
+            next.push(Point3::new(
+                frac * prev.x + (1.0 - frac) * this.x,
+                frac * prev.y + (1.0 - frac) * this.y,
+                frac * prev.z + (1.0 - frac) * this.z,
+            ));
+        }
+        next.push(cur[d]);
+        cur = next;
+    }
+    core::array::from_fn(|i| cur[i])
+}
+
+/// Weighted-sum helper: combine `(coef, point)` pairs into a single
+/// `Point3` (coordinate-wise linear combination).
+fn weighted_point_sum(pairs: &[(f64, Point3)]) -> Point3 {
+    let mut out = Point3::new(0.0, 0.0, 0.0);
+    for &(w, p) in pairs {
+        out.x += w * p.x;
+        out.y += w * p.y;
+        out.z += w * p.z;
+    }
+    out
+}
+
+/// [KP15 §3.3 eq (17)] β reparameterization of the bi-3 tensor
+/// border `b`. Returns the bi-6 reparameterized tensor border
+/// `q := b ∘ β`: `q[j][i]` for `j ∈ 0..=2, i ∈ 0..=6`. By the
+/// paper's construction:
+/// - `q[0][i]` and `q[1][i]` (position and first cross-derivative)
+///   equal the bi-3 → bi-6 elevation of `b[0]` and `b[1]`.
+/// - `q[2][i]` for `i ∈ 0..=1` equal the elevation of `b[2]`.
+/// - `q[2][i]` for `i ∈ 2..=6` are given by eq (17)'s γ-formula
+///   weighted sums of the bi-3 BB-coefs.
+///
+/// Input `b` is indexed `b[j][i]` for `j ∈ 0..=2` (depth), `i ∈
+/// 0..=3` (along-edge). Output `q[j][i]` follows the bi-6 grid
+/// indexing the rest of the module uses.
+pub fn apply_beta_reparameterization(
+    b: &[[Point3; 4]; 3],
+    params: &Bi6Reparams,
+) -> [[Point3; 7]; 3] {
+    let c = params.c;
+    let tau = params.tau;
+    let d2 = params.d2;
+
+    // Step 1: degree-elevate b[j] to bi-6 for every j. These
+    // become the default q[j][i] (paper's "position and
+    // derivative" are unchanged).
+    let mut q = [[Point3::new(0.0, 0.0, 0.0); 7]; 3];
+    for j in 0..3 {
+        q[j] = elevate_bi3_to_bi6(&b[j]);
+    }
+
+    // Step 2: overwrite q[2][i] for i ∈ 2..=6 per eq (17).
+
+    // γ²_{ij} (symmetric 3×3), independent of τ; involves d₂.
+    let g2_00 = 1.0 - d2 / 25.0;
+    let g2_10 = (6.0 + d2) / 50.0; // = γ²_{01}
+    let g2_20 = 1.0 / 25.0; // = γ²_{02}
+    let g2_11 = 9.0 / 25.0;
+    let g2_21 = 3.0 / 25.0; // = γ²_{12}
+    let g2_22 = 1.0 / 25.0;
+    let g2: [[f64; 3]; 3] = [
+        [g2_00, g2_10, g2_20],
+        [g2_10, g2_11, g2_21],
+        [g2_20, g2_21, g2_22],
+    ];
+    let mut pairs: Vec<(f64, Point3)> = Vec::new();
+    for i in 0..3 {
+        for j in 0..3 {
+            pairs.push((g2[i][j], b[j][i]));
+        }
+    }
+    q[2][2] = weighted_point_sum(&pairs);
+
+    // γ³_{i, j} for i ∈ 0..=3, j ∈ 0..=2.
+    let g3_0: [f64; 4] = [
+        ((3.0 + 5.0 * c - 3.0 * d2) * tau - 6.0 * c) / (300.0 * tau),
+        ((9.0 - 2.0 * c - 7.0 * d2) * tau + 2.0 * c) / (100.0 * tau),
+        (9.0 + 3.0 * d2) / 100.0,
+        1.0 / 100.0,
+    ];
+    let g3_1: [f64; 4] = [
+        (18.0 + 2.0 * c + 3.0 * d2) / 600.0,
+        (54.0 + 9.0 * d2) / 200.0,
+        27.0 / 100.0,
+        3.0 / 100.0,
+    ];
+    let g3_2: [f64; 4] = [1.0 / 100.0, 9.0 / 100.0, 9.0 / 100.0, 1.0 / 100.0];
+    pairs.clear();
+    for i in 0..4 {
+        pairs.push((g3_0[i], b[0][i]));
+        pairs.push((g3_1[i], b[1][i]));
+        pairs.push((g3_2[i], b[2][i]));
+    }
+    q[2][3] = weighted_point_sum(&pairs);
+
+    // γ⁴_{i, j} for i ∈ 1..=3, j ∈ 0..=2.
+    let g4_0: [f64; 3] = [
+        ((6.0 + 6.0 * c - 5.0 * d2) * tau - 8.0 * c) / (150.0 * tau),
+        ((9.0 - 4.0 * c - 5.0 * d2) * tau + 4.0 * c) / (75.0 * tau),
+        (2.0 + d2) / 50.0,
+    ];
+    let g4_1: [f64; 3] = [
+        (18.0 + 2.0 * c + 3.0 * d2) / 150.0,
+        (18.0 + 3.0 * d2) / 50.0,
+        3.0 / 25.0,
+    ];
+    let g4_2: [f64; 3] = [1.0 / 25.0, 3.0 / 25.0, 1.0 / 25.0];
+    pairs.clear();
+    for i in 0..3 {
+        let ii = i + 1;
+        pairs.push((g4_0[i], b[0][ii]));
+        pairs.push((g4_1[i], b[1][ii]));
+        pairs.push((g4_2[i], b[2][ii]));
+    }
+    q[2][4] = weighted_point_sum(&pairs);
+
+    // γ⁵_{i, j} for i ∈ 2..=3, j ∈ 0..=2.
+    let g5_20 = ((3.0 + c - 2.0 * d2) * tau - 2.0 * c) / (30.0 * tau);
+    let g5_30 = ((3.0 - 2.0 * c - d2) * tau + 2.0 * c) / (30.0 * tau);
+    let g5_21 = (18.0 + 2.0 * c + 3.0 * d2) / 60.0;
+    let g5_31 = (6.0 + d2) / 20.0;
+    let g5_22 = 1.0 / 10.0;
+    let g5_32 = 1.0 / 10.0;
+    q[2][5] = weighted_point_sum(&[
+        (g5_20, b[0][2]),
+        (g5_30, b[0][3]),
+        (g5_21, b[1][2]),
+        (g5_31, b[1][3]),
+        (g5_22, b[2][2]),
+        (g5_32, b[2][3]),
+    ]);
+
+    // γ⁶_{3, j} for j ∈ 0..=2.
+    let g6_30 = (6.0 - 2.0 * c - 3.0 * d2) / 30.0;
+    let g6_31 = (18.0 + 2.0 * c + 3.0 * d2) / 30.0;
+    let g6_32 = 1.0 / 5.0;
+    q[2][6] = weighted_point_sum(&[(g6_30, b[0][3]), (g6_31, b[1][3]), (g6_32, b[2][3])]);
+
+    q
 }
 
 /// Returns the `Point3` value at global position `(k, i, j)` if

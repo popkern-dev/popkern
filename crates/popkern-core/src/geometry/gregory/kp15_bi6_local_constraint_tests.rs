@@ -801,6 +801,152 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
 }
 
 #[test]
+fn comparison_four_variants_paper_p_and_beta_reparameterization() {
+    // Compare four cap-construction variants on the same input:
+    //   A  No β, full F_5 over free (existing via-table, current code).
+    //   B  No β, F_5 restricted to paper's P column set as free.
+    //   C  β reparameterization applied to tensor border, full F_5.
+    //   D  β + paper-P restriction (closest to KP15 §3.6 algorithm).
+    //
+    // Reports per variant:
+    //   - F_5 value
+    //   - worst eq (2) BB residual
+    //   - worst eq (3) BB residual
+    //   - rank of the constraint matrix used
+    //   - free-column count
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
+    use crate::geometry::gregory::kp15_bi6_circulant::CirculantSectorRhs;
+    use crate::geometry::gregory::kp15_bi6_f5::f_kappa_quadratic_form;
+
+    let q_local = f_kappa_quadratic_form(5);
+
+    fn sector_rhs_from_grid_rows(q: [[Point3; 7]; 3]) -> CirculantSectorRhs {
+        CirculantSectorRhs {
+            p_00: q[0][0],
+            p_10: q[0][1],
+            p_20: q[0][2],
+            p_40: q[0][4],
+            p_50: q[0][5],
+            p_60: q[0][6],
+            p_01: q[1][0],
+            p_11: q[1][1],
+            p_02: q[2][0],
+            p_42: q[2][4],
+            p_52: q[2][5],
+            p_62: q[2][6],
+        }
+    }
+
+    fn extract_bi3_rows_from_synthetic(
+        tb: &crate::geometry::gregory::kp_polar_boundary_input::TensorBorder,
+    ) -> Vec<[[Point3; 4]; 3]> {
+        match tb {
+            crate::geometry::gregory::kp_polar_boundary_input::TensorBorder::Bi3(b) => {
+                b.sectors.clone()
+            }
+            _ => panic!("expected bi-3 tensor border"),
+        }
+    }
+
+    fn f5_of(patches: &[[[Point3; 7]; 7]], q: &[[f64; 49]; 49]) -> f64 {
+        let mut acc = 0.0;
+        for grid in patches {
+            for r in 0..49 {
+                let (i_r, j_r) = (r / 7, r % 7);
+                for c in 0..49 {
+                    let (i_c, j_c) = (c / 7, c % 7);
+                    let p_r = grid[i_r][j_r];
+                    let p_c = grid[i_c][j_c];
+                    let qq = q[r][c];
+                    if qq == 0.0 {
+                        continue;
+                    }
+                    acc += qq * (p_r.x * p_c.x + p_r.y * p_c.y + p_r.z * p_c.z);
+                }
+            }
+        }
+        acc
+    }
+
+    fn residuals(patches: &[[[Point3; 7]; 7]], params: &Bi6Reparams) -> (f64, f64) {
+        let n = patches.len();
+        let mut worst_eq2 = 0.0_f64;
+        let mut worst_eq3 = 0.0_f64;
+        for k in 0..n {
+            let km1 = (k + n - 1) % n;
+            let bb2 = super::eq2_g1_residual_bb_degree7(&patches[km1], &patches[k], params);
+            for v in bb2 {
+                worst_eq2 = worst_eq2.max(v.length());
+            }
+            let bb3 = super::eq3_g2_residual_phi_multiplied(&patches[km1], &patches[k], params);
+            for v in &bb3 {
+                worst_eq3 = worst_eq3.max(v.length());
+            }
+        }
+        (worst_eq2, worst_eq3)
+    }
+
+    eprintln!("\n#  4-way comparison: with / without β × default-free / paper-P-free");
+
+    for n in [5usize, 6] {
+        eprintln!("\n## n = {n}");
+        let polar = polar_input(n);
+        let tb = synthetic_bi3_tensor_border(n);
+        let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
+        let star = catmull_clark_star_point(n, cap_input.c7, &cap_input.c5s, &cap_input.c6s);
+
+        // Build β-reparameterized sectors.
+        let bi3_rows = extract_bi3_rows_from_synthetic(&tb);
+        let mut sectors_beta: Vec<CirculantSectorRhs> = Vec::with_capacity(n);
+        for sector_b in &bi3_rows {
+            let q = super::apply_beta_reparameterization(sector_b, &cap_input.params);
+            sectors_beta.push(sector_rhs_from_grid_rows(q));
+        }
+
+        let table_default =
+            super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
+        let table_paper_p = super::Kp15Bi6GeneratingTable::build_with_identifications_paper_p_free(
+            n,
+            cap_input.params,
+        );
+
+        // Variant A: no β, default-free F_5.
+        let (a_grids, _) = table_default
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .unwrap();
+        // Variant B: no β, paper-P-free F_5.
+        let (b_grids, _) = table_paper_p
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .unwrap();
+        // Variant C: with β, default-free F_5.
+        let (c_grids, _) = table_default
+            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+            .unwrap();
+        // Variant D: with β, paper-P-free F_5.
+        let (d_grids, _) = table_paper_p
+            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+            .unwrap();
+
+        for (label, grids, table) in [
+            ("A: no β, default-free   ", &a_grids, &table_default),
+            ("B: no β, paper-P-free   ", &b_grids, &table_paper_p),
+            ("C: with β, default-free ", &c_grids, &table_default),
+            ("D: with β, paper-P-free ", &d_grids, &table_paper_p),
+        ] {
+            let f5 = f5_of(grids, &q_local);
+            let (eq2, eq3) = residuals(grids, &cap_input.params);
+            eprintln!(
+                "  {label} F_5 = {f5:.4e}, eq(2) = {eq2:.2e}, eq(3) = {eq3:.2e}, \
+                 rank = {}, free_cols = {}",
+                table.rank(),
+                table.free_cols.len()
+            );
+        }
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline
