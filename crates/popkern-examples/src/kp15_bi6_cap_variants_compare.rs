@@ -84,17 +84,24 @@ fn main() {
     let table_default = Kp15Bi6GeneratingTable::build_with_identifications(n, params);
     let table_kp15_p = Kp15Bi6GeneratingTable::build_with_kp15_p_set_as_free(n, params);
 
+    // Ridge λ on A/C bounds the unconstrained deep-interior corner CPs
+    // that the full-F_5 SPD solve would otherwise let balloon. On B/D
+    // (KP15 P-only) ridge λ is a no-op because the extras are already
+    // pinned at zero — included symmetrically for clarity.
+    let lambda_full = 1e-3;
+    let lambda_kp15_p = 0.0;
+
     let (a_grids, a_f) = table_default
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_no_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_no_beta, star, &q_local, lambda_full)
         .expect("A: no β, full F_5");
     let (b_grids, b_f) = table_kp15_p
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_no_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_no_beta, star, &q_local, lambda_kp15_p)
         .expect("B: no β, KP15 P-only");
     let (c_grids, c_f) = table_default
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, lambda_full)
         .expect("C: with β, full F_5");
     let (d_grids, d_f) = table_kp15_p
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, lambda_kp15_p)
         .expect("D: with β, KP15 P-only");
 
     for (label, bi6_grids, fvals) in [
@@ -111,8 +118,7 @@ fn main() {
 
         let step_path = out.join(format!("kp15_bi6_cap_variant_{label}.step"));
         let doc = step_document(&brep, label);
-        export_step_file(&doc, &step_path, &StepExportOptions::default())
-            .expect("STEP export");
+        export_step_file(&doc, &step_path, &StepExportOptions::default()).expect("STEP export");
         println!(
             "  {label}: F_5 per coord = ({:.3e}, {:.3e}, {:.3e})  →  {}",
             fvals[0],
@@ -133,9 +139,7 @@ fn main() {
 // ─── Input fixtures ─────────────────────────────────────────────────
 
 fn hexagon6_polar_and_tensor_border() -> (PolarBoundaryInput, Vec<[[Point3; 4]; 3]>) {
-    use popkern_core::geometry::gregory::{
-        OuterCornerData, SpokeBoundaryData, TangentPlane,
-    };
+    use popkern_core::geometry::gregory::{OuterCornerData, SpokeBoundaryData, TangentPlane};
     let n = 6usize;
     let center = Point3::new(0.0, 0.0, 0.0);
     let tp_xy =

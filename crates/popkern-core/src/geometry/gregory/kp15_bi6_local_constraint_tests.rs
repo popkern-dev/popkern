@@ -731,7 +731,7 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
 
         let grids_zero = table.populate_cap_grids_from_input(&cap_input.sectors, star);
         let (grids_f5, f_vals) = table
-            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local, 0.0)
             .unwrap_or_else(|e| panic!("n={n}: F_5 solve failed: {e}"));
 
         let f_of = |g: &[[[Point3; 7]; 7]]| -> f64 {
@@ -911,19 +911,19 @@ fn comparison_four_variants_kp15_p_set_and_beta_reparameterization() {
 
         // Variant A: no β, full F_5 F_5.
         let (a_grids, _) = table_default
-            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local, 0.0)
             .unwrap();
         // Variant B: no β, KP15 P-only F_5.
         let (b_grids, _) = table_kp15_p
-            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+            .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local, 0.0)
             .unwrap();
         // Variant C: with β, full F_5 F_5.
         let (c_grids, _) = table_default
-            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, 0.0)
             .unwrap();
         // Variant D: with β, KP15 P-only F_5.
         let (d_grids, _) = table_kp15_p
-            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+            .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, 0.0)
             .unwrap();
 
         for (label, grids, table) in [
@@ -1037,16 +1037,16 @@ fn comparison_four_variants_on_asymmetric_hexagon6_variable() {
         super::Kp15Bi6GeneratingTable::build_with_kp15_p_set_as_free(n, cap_input.params);
 
     let (a, _) = table_default
-        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local, 0.0)
         .unwrap();
     let (b, _) = table_kp15_p
-        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local, 0.0)
         .unwrap();
     let (c, _) = table_default
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, 0.0)
         .unwrap();
     let (d, _) = table_kp15_p
-        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
+        .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local, 0.0)
         .unwrap();
 
     fn f5_of(patches: &[[[Point3; 7]; 7]], q: &[[f64; 49]; 49]) -> f64 {

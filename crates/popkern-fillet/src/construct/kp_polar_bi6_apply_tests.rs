@@ -155,7 +155,7 @@ fn via_table_pentagon_produces_finite_bi9_grids() {
     // fixture, the via-table path produces N=5 valid bi-9 grids
     // and all sectors' (0, 0) corners agree on a shared star.
     let polar = regular_polar(5);
-    let patches = try_kp_polar_bi6_cap_via_table(&polar, 5).unwrap();
+    let patches = try_kp_polar_bi6_cap_via_table(&polar, 5, 0.0).unwrap();
     assert_eq!(patches.len(), 5);
     let star = patches[0][0][0];
     for patch in &patches {
@@ -175,7 +175,7 @@ fn via_table_succeeds_across_valences_5_to_10() {
     // Smoke test across a broader valence band.
     for n in [5usize, 6, 7, 8, 10] {
         let polar = regular_polar(n);
-        let patches = try_kp_polar_bi6_cap_via_table(&polar, 5)
+        let patches = try_kp_polar_bi6_cap_via_table(&polar, 5, 0.0)
             .unwrap_or_else(|e| panic!("n={n} via-table failed: {e}"));
         assert_eq!(patches.len(), n, "n={n}: patch count");
         for patch in &patches {

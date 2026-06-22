@@ -101,11 +101,19 @@ pub fn try_kp_polar_bi6_cap_with_kappa(
 /// Same input/output as [`try_kp_polar_bi6_cap_with_kappa`], but
 /// delivers caps with machine-zero G¹/G² residuals at every
 /// cross-sector edge and F_κ values 3-5 orders of magnitude lower
-/// than the existing pipeline on the same input.
+/// than the existing pipeline on the same input. `ridge_lambda`
+/// is an optional ridge regulariser bounding the deep-interior
+/// CP magnitudes; pass `0.0` for unregularised behaviour
+/// (matches the paper's "F_κ alone" objective, but lets the
+/// deep-interior corner CPs balloon when the constraint matrix is
+/// rank-deficient). A small positive value (e.g. `1e-3`) keeps
+/// the resulting cap visually well-behaved without affecting
+/// constraint satisfaction.
 #[allow(dead_code)]
 pub fn try_kp_polar_bi6_cap_via_table(
     polar_input: &PolarBoundaryInput,
     kappa: usize,
+    ridge_lambda: f64,
 ) -> Result<Vec<[[Point3; 10]; 10]>, String> {
     let n = polar_input.n();
     if n < 3 {
@@ -113,7 +121,7 @@ pub fn try_kp_polar_bi6_cap_via_table(
     }
     let tensor_border = extract_bi3_tensor_border_from_polar_input(polar_input)?;
     let cap_input = convert_polar_to_bi6_cap_input(polar_input, &tensor_border)?;
-    let out = assemble_bi6_polar_cap_via_table(&cap_input, kappa)?;
+    let out = assemble_bi6_polar_cap_via_table(&cap_input, kappa, ridge_lambda)?;
     Ok(out.patches_bi9)
 }
 

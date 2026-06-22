@@ -950,6 +950,22 @@ impl Kp15Bi6GeneratingTable {
     /// 5. Combine fixed + variable free-values, apply the table,
     ///    reshape into per-sector grids.
     ///
+    /// `ridge_lambda` is an optional ridge regularisation parameter.
+    /// The SPD solve replaces `H_vv` with `H_vv + λI`, biasing the
+    /// solution toward the minimum-norm point in the constraint
+    /// manifold's nullspace.
+    ///
+    /// Pass `0.0` for unregularised behaviour (matches the paper's
+    /// "F_κ alone" objective — the deep-interior CPs are then
+    /// unbounded in magnitude, only their smoothness is penalised).
+    /// Pass a small positive value (e.g. `1e-3`) to bound the
+    /// "extras" — free columns the rank-deficient RREF leaves over
+    /// after seeding tensor border + paper's P. The regulariser
+    /// is paper-orthogonal: it doesn't affect constraint
+    /// satisfaction (`‖M · x‖` stays at machine zero) and is a
+    /// no-op on the paper-P-only RREF (where extras default to
+    /// zero anyway).
+    ///
     /// Returns the per-sector grids and the achieved per-coord
     /// F_κ values `(fx, fy, fz)`.
     #[allow(clippy::type_complexity)]
@@ -958,6 +974,7 @@ impl Kp15Bi6GeneratingTable {
         sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
         star: Point3,
         q_local: &[[f64; 49]; 49],
+        ridge_lambda: f64,
     ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
         let n = self.n;
         assert_eq!(sectors.len(), n);
@@ -1029,8 +1046,20 @@ impl Kp15Bi6GeneratingTable {
                 .map(|&r| cols.iter().map(|&c| h[r * n_free + c]).collect())
                 .collect()
         };
-        let h_vv = pull_h(&variable_idx, &variable_idx);
+        let mut h_vv = pull_h(&variable_idx, &variable_idx);
         let h_vf = pull_h(&variable_idx, &fixed_idx);
+
+        // Ridge regularisation: H_vv ← H_vv + λI. Pulls the SPD
+        // solution toward the minimum-norm point in the nullspace.
+        // Affects only variable-column magnitudes; constraint
+        // satisfaction (`‖M · x‖`) is preserved because the table's
+        // `apply` step enforces M·x = 0 by RREF construction
+        // regardless of which free-value vector we plug in.
+        if ridge_lambda != 0.0 {
+            for (r, row) in h_vv.iter_mut().enumerate().take(n_var) {
+                row[r] += ridge_lambda;
+            }
+        }
 
         let mut var_vals: [Vec<f64>; 3] = [vec![0.0; n_var], vec![0.0; n_var], vec![0.0; n_var]];
         for (d, seed) in [&seed_x, &seed_y, &seed_z].iter().enumerate() {

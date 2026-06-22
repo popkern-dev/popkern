@@ -335,6 +335,7 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
 pub fn assemble_bi6_polar_cap_via_table(
     input: &Bi6CapInput,
     kappa: usize,
+    ridge_lambda: f64,
 ) -> Result<Bi6CapOutput, String> {
     let n = input.n;
     if n < 3 {
@@ -358,8 +359,12 @@ pub fn assemble_bi6_polar_cap_via_table(
             input.params,
         );
     let q_local = super::kp15_bi6_f5::f_kappa_quadratic_form(kappa);
-    let (patches_bi6, _f_values) =
-        table.populate_cap_grids_from_input_with_f_kappa(&input.sectors, star, &q_local)?;
+    let (patches_bi6, _f_values) = table.populate_cap_grids_from_input_with_f_kappa(
+        &input.sectors,
+        star,
+        &q_local,
+        ridge_lambda,
+    )?;
     let patches_bi9: Vec<[[Point3; 10]; 10]> = patches_bi6
         .iter()
         .map(|g| elevate_bi6_grid_to_bi9(*g))

@@ -246,7 +246,7 @@ fn interior_filler_is_applied() {
 #[test]
 fn via_table_pentagon_assembles_without_error() {
     let input = pentagon_input();
-    let out = super::assemble_bi6_polar_cap_via_table(&input, 5).unwrap();
+    let out = super::assemble_bi6_polar_cap_via_table(&input, 5, 0.0).unwrap();
     assert_eq!(out.patches_bi6.len(), input.n);
     assert_eq!(out.patches_bi9.len(), input.n);
     for grid in &out.patches_bi9 {
@@ -295,7 +295,7 @@ fn via_table_satisfies_g1_g2_machine_zero_and_lowers_f5_vs_existing() {
     };
 
     let out_legacy = assemble_bi6_polar_cap(&input).unwrap();
-    let out_table = super::assemble_bi6_polar_cap_via_table(&input, 5).unwrap();
+    let out_table = super::assemble_bi6_polar_cap_via_table(&input, 5, 0.0).unwrap();
 
     let f5_legacy = f5(&out_legacy.patches_bi6);
     let f5_table = f5(&out_table.patches_bi6);
