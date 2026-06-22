@@ -74,4 +74,27 @@ fn hexagon6_variable_cap_dispatch_decline_details() {
     if count == 0 {
         eprintln!("No rational_gregory or PnS decline diagnostics found.");
     }
+
+    eprintln!("\n## CapSupportContinuity diagnostics (full)\n");
+    for d in &result.repair_report.apex_diagnostics {
+        if let ApexConstructionDiagnostic::CapSupportContinuity(c) = d {
+            eprintln!(
+                "  scope={} cap_face={:?} support_face={:?} edge={:?}",
+                c.measurement_scope, c.cap_face, c.support_face, c.edge
+            );
+            eprintln!("    continuity = {:?}", c.continuity);
+            eprintln!(
+                "    sample_parameter={:?} cap_uv={:?} support_uv={:?}",
+                c.sample_parameter, c.cap_uv, c.support_uv
+            );
+            eprintln!(
+                "    cap_curve_gap={:?} support_curve_gap={:?}",
+                c.cap_curve_gap, c.support_curve_gap
+            );
+            eprintln!(
+                "    worst_g1_coplanarity={:.3e} gate={:.3e} edges_measured={}",
+                c.worst_g1_coplanarity, c.gate, c.edges_measured
+            );
+        }
+    }
 }
