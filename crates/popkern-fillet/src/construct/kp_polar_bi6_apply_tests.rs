@@ -4,7 +4,7 @@
 //! at valences ∈ {5, 6, 7, 8, 10, 12} and verifies the full
 //! pipeline lands N bi-9 CP grids with finite values.
 
-use super::try_kp_polar_bi6_cap;
+use super::{try_kp_polar_bi6_cap, try_kp_polar_bi6_cap_via_table};
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
@@ -146,5 +146,47 @@ fn bi9_grid_corners_match_bi6_endpoints() {
         let c = patch[0][0];
         let d_sq = (c.x - star.x).powi(2) + (c.y - star.y).powi(2) + (c.z - star.z).powi(2);
         assert!(d_sq.sqrt() < 1e-10, "star point drift: {c:?} vs {star:?}");
+    }
+}
+
+#[test]
+fn via_table_pentagon_produces_finite_bi9_grids() {
+    // Phase E.3 production-side wiring: same regular-pentagon
+    // fixture, the via-table path produces N=5 valid bi-9 grids
+    // and all sectors' (0, 0) corners agree on a shared star.
+    let polar = regular_polar(5);
+    let patches = try_kp_polar_bi6_cap_via_table(&polar, 5).unwrap();
+    assert_eq!(patches.len(), 5);
+    let star = patches[0][0][0];
+    for patch in &patches {
+        for row in patch {
+            for cp in row {
+                assert!(cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite());
+            }
+        }
+        let c = patch[0][0];
+        let d = ((c.x - star.x).powi(2) + (c.y - star.y).powi(2) + (c.z - star.z).powi(2)).sqrt();
+        assert!(d < 1e-10, "via-table star drift: {c:?} vs {star:?}");
+    }
+}
+
+#[test]
+fn via_table_succeeds_across_valences_5_to_10() {
+    // Smoke test across a broader valence band.
+    for n in [5usize, 6, 7, 8, 10] {
+        let polar = regular_polar(n);
+        let patches = try_kp_polar_bi6_cap_via_table(&polar, 5)
+            .unwrap_or_else(|e| panic!("n={n} via-table failed: {e}"));
+        assert_eq!(patches.len(), n, "n={n}: patch count");
+        for patch in &patches {
+            for row in patch {
+                for cp in row {
+                    assert!(
+                        cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite(),
+                        "n={n}: non-finite CP {cp:?}"
+                    );
+                }
+            }
+        }
     }
 }

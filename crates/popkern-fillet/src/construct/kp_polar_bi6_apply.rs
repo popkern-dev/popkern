@@ -32,8 +32,9 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    PolarBoundaryInput, convert_polar_to_bi6_cap_input, extract_bi3_tensor_border_from_polar_input,
-    f_kappa_solve_optimal_bi6_cap, f5_solve_optimal_bi6_cap,
+    PolarBoundaryInput, assemble_bi6_polar_cap_via_table, convert_polar_to_bi6_cap_input,
+    extract_bi3_tensor_border_from_polar_input, f_kappa_solve_optimal_bi6_cap,
+    f5_solve_optimal_bi6_cap,
 };
 
 /// Run the K-P 2015 bi-6 polar construction end-to-end on a
@@ -89,6 +90,30 @@ pub fn try_kp_polar_bi6_cap_with_kappa(
     let tensor_border = extract_bi3_tensor_border_from_polar_input(polar_input)?;
     let cap_input = convert_polar_to_bi6_cap_input(polar_input, &tensor_border)?;
     let (_optimal, out) = f_kappa_solve_optimal_bi6_cap(&cap_input, kappa)?;
+    Ok(out.patches_bi9)
+}
+
+/// Phase E.3 production-side variant — uses the [KP15]
+/// constraint-matrix table with per-coordinate F_κ minimisation
+/// (see
+/// `popkern_core::geometry::gregory::assemble_bi6_polar_cap_via_table`).
+///
+/// Same input/output as [`try_kp_polar_bi6_cap_with_kappa`], but
+/// delivers caps with machine-zero G¹/G² residuals at every
+/// cross-sector edge and F_κ values 3-5 orders of magnitude lower
+/// than the existing pipeline on the same input.
+#[allow(dead_code)]
+pub fn try_kp_polar_bi6_cap_via_table(
+    polar_input: &PolarBoundaryInput,
+    kappa: usize,
+) -> Result<Vec<[[Point3; 10]; 10]>, String> {
+    let n = polar_input.n();
+    if n < 3 {
+        return Err(format!("polar bi-6 cap needs n ≥ 3, got {n}"));
+    }
+    let tensor_border = extract_bi3_tensor_border_from_polar_input(polar_input)?;
+    let cap_input = convert_polar_to_bi6_cap_input(polar_input, &tensor_border)?;
+    let out = assemble_bi6_polar_cap_via_table(&cap_input, kappa)?;
     Ok(out.patches_bi9)
 }
 
