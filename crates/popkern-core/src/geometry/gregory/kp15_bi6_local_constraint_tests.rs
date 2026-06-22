@@ -801,7 +801,7 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
 }
 
 #[test]
-fn comparison_four_variants_paper_p_and_beta_reparameterization() {
+fn comparison_four_variants_kp15_p_set_and_beta_reparameterization() {
     // Compare four cap-construction variants on the same input:
     //   A  No β, full F_5 over free (existing via-table, current code).
     //   B  No β, F_5 restricted to paper's P column set as free.
@@ -887,7 +887,7 @@ fn comparison_four_variants_paper_p_and_beta_reparameterization() {
         (worst_eq2, worst_eq3)
     }
 
-    eprintln!("\n#  4-way comparison: with / without β × default-free / paper-P-free");
+    eprintln!("\n#  4-way comparison: with / without β × full F_5 / KP15 P-only");
 
     for n in [5usize, 6] {
         eprintln!("\n## n = {n}");
@@ -906,33 +906,31 @@ fn comparison_four_variants_paper_p_and_beta_reparameterization() {
 
         let table_default =
             super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
-        let table_paper_p = super::Kp15Bi6GeneratingTable::build_with_identifications_paper_p_free(
-            n,
-            cap_input.params,
-        );
+        let table_kp15_p =
+            super::Kp15Bi6GeneratingTable::build_with_kp15_p_set_as_free(n, cap_input.params);
 
-        // Variant A: no β, default-free F_5.
+        // Variant A: no β, full F_5 F_5.
         let (a_grids, _) = table_default
             .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
             .unwrap();
-        // Variant B: no β, paper-P-free F_5.
-        let (b_grids, _) = table_paper_p
+        // Variant B: no β, KP15 P-only F_5.
+        let (b_grids, _) = table_kp15_p
             .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
             .unwrap();
-        // Variant C: with β, default-free F_5.
+        // Variant C: with β, full F_5 F_5.
         let (c_grids, _) = table_default
             .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
             .unwrap();
-        // Variant D: with β, paper-P-free F_5.
-        let (d_grids, _) = table_paper_p
+        // Variant D: with β, KP15 P-only F_5.
+        let (d_grids, _) = table_kp15_p
             .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
             .unwrap();
 
         for (label, grids, table) in [
-            ("A: no β, default-free   ", &a_grids, &table_default),
-            ("B: no β, paper-P-free   ", &b_grids, &table_paper_p),
-            ("C: with β, default-free ", &c_grids, &table_default),
-            ("D: with β, paper-P-free ", &d_grids, &table_paper_p),
+            ("A: no β, full F_5   ", &a_grids, &table_default),
+            ("B: no β, KP15 P-only   ", &b_grids, &table_kp15_p),
+            ("C: with β, full F_5 ", &c_grids, &table_default),
+            ("D: with β, KP15 P-only ", &d_grids, &table_kp15_p),
         ] {
             let f5 = f5_of(grids, &q_local);
             let (eq2, eq3) = residuals(grids, &cap_input.params);
@@ -1035,19 +1033,19 @@ fn comparison_four_variants_on_asymmetric_hexagon6_variable() {
 
     let table_default =
         super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
-    let table_paper_p =
-        super::Kp15Bi6GeneratingTable::build_with_identifications_paper_p_free(n, cap_input.params);
+    let table_kp15_p =
+        super::Kp15Bi6GeneratingTable::build_with_kp15_p_set_as_free(n, cap_input.params);
 
     let (a, _) = table_default
         .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
         .unwrap();
-    let (b, _) = table_paper_p
+    let (b, _) = table_kp15_p
         .populate_cap_grids_from_input_with_f_kappa(&cap_input.sectors, star, &q_local)
         .unwrap();
     let (c, _) = table_default
         .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
         .unwrap();
-    let (d, _) = table_paper_p
+    let (d, _) = table_kp15_p
         .populate_cap_grids_from_input_with_f_kappa(&sectors_beta, star, &q_local)
         .unwrap();
 
@@ -1087,10 +1085,10 @@ fn comparison_four_variants_on_asymmetric_hexagon6_variable() {
     }
 
     for (label, g) in [
-        ("A: no β, default-free   ", &a),
-        ("B: no β, paper-P-free   ", &b),
-        ("C: with β, default-free ", &c),
-        ("D: with β, paper-P-free ", &d),
+        ("A: no β, full F_5   ", &a),
+        ("B: no β, KP15 P-only   ", &b),
+        ("C: with β, full F_5 ", &c),
+        ("D: with β, KP15 P-only ", &d),
     ] {
         let f = f5_of(g, &q_local);
         let (e2, e3) = worst_residuals(g, &cap_input.params);

@@ -657,24 +657,43 @@ impl Kp15Bi6GeneratingTable {
         Self::build_from_matrix(n, params, global_constraint_matrix_with_identifications)
     }
 
-    /// Build with identifications, but force the RREF to **prefer
-    /// non-paper-P columns as pivots** so that paper's "P" set
-    /// (sector 0's quadratic-near-star CPs + `p^0_{22}` + per-sector
-    /// `p^k_{23}, p^k_{33}` + `p^0_{21}` for `n = 6`) ends up in
-    /// the *free* column set.
+    /// Build with cross-sector identifications, and bias the RREF
+    /// so that [KP15 §3.6 step 4]'s "P" set ends up in the **free**
+    /// (non-pivot) column set of the resulting table.
     ///
-    /// This is the substrate for the Phase E "compare to paper's
-    /// P-only F_5 domain" experiment. With this build, F_5
-    /// minimisation over the free columns is largely restricted
-    /// to paper's P plus whatever else didn't get pivoted.
-    pub fn build_with_identifications_paper_p_free(n: usize, params: Bi6Reparams) -> Self {
+    /// "P" is the paper's notation for the cap's free-parameter
+    /// set (sector 0's quadratic-near-star CPs + `p^0_{22}` +
+    /// per-sector `p^k_{23}, p^k_{33}` + `p^0_{21}` for `n = 6`).
+    /// See [`kp15_p_set_columns`] for the explicit column-index
+    /// listing.
+    ///
+    /// Implication for downstream callers: the F_5 minimisation
+    /// step (e.g.
+    /// [`Self::populate_cap_grids_from_input_with_f_kappa`])
+    /// classifies each free column as VARIABLE iff it isn't already
+    /// seeded by the input. After this build, the VARIABLE set is
+    /// largely the paper's P (minus the few overlaps with the 13
+    /// seeded positions like the star and the row-0/1/2 boundary
+    /// CPs), matching the paper's prescribed minimisation domain.
+    /// Useful when downstream verification compares against the
+    /// paper's published examples or asserts that the cap lives
+    /// in the paper's exact solution space.
+    ///
+    /// Trade-off vs the default [`Self::build_with_identifications`]:
+    /// fewer degrees of freedom for F_5 ⇒ higher achieved F_5
+    /// (measured ~3.4× on the synthetic hexagon fixture). eq (2)/
+    /// (3) residuals stay at machine zero either way; the lever is
+    /// purely about *which* solution in the M·x = 0 nullspace
+    /// we land on.
+    pub fn build_with_kp15_p_set_as_free(n: usize, params: Bi6Reparams) -> Self {
         let (rows, cols, m_unordered) = global_constraint_matrix_with_identifications(n, &params);
-        let paper_p = paper_p_columns(n);
-        let paper_p_set: std::collections::HashSet<usize> = paper_p.iter().copied().collect();
-        // Build a column permutation: non-paper-P columns first,
-        // then paper-P columns.
-        let mut perm: Vec<usize> = (0..cols).filter(|c| !paper_p_set.contains(c)).collect();
-        perm.extend(paper_p.iter().copied());
+        let p_set = kp15_p_set_columns(n);
+        let p_set_lookup: std::collections::HashSet<usize> = p_set.iter().copied().collect();
+        // Column permutation: non-P columns first (so RREF pivots
+        // them), then P columns (which fall through to the free
+        // set if rank is exhausted).
+        let mut perm: Vec<usize> = (0..cols).filter(|c| !p_set_lookup.contains(c)).collect();
+        perm.extend(p_set.iter().copied());
         debug_assert_eq!(perm.len(), cols);
         let mut inverse = vec![0usize; cols];
         for (new_idx, &old_idx) in perm.iter().enumerate() {
@@ -1077,8 +1096,8 @@ impl Kp15Bi6GeneratingTable {
     }
 }
 
-/// Return the global column indices of the paper's "P" free
-/// parameter set per [KP15 §3.6 step 4]:
+/// Global column indices of [KP15 §3.6 step 4]'s "P" set — the
+/// cap's free-parameter set in the paper's notation:
 ///
 /// ```text
 ///   P := { p^0_{ij} : i + j ≤ 2 } ∪ { p^0_{22} }
@@ -1086,10 +1105,14 @@ impl Kp15Bi6GeneratingTable {
 ///         ∪ { p^0_{21} }                          [if n = 6]
 /// ```
 ///
-/// Used by `build_with_identifications_paper_p_free` to bias the
-/// RREF's pivot/free split toward keeping these columns FREE so
-/// the F_5 minimisation can match the paper's domain.
-pub fn paper_p_columns(n: usize) -> Vec<usize> {
+/// Size: `2n + 7` (or `2n + 8` for `n = 6`).
+///
+/// Consumed by
+/// [`Kp15Bi6GeneratingTable::build_with_kp15_p_set_as_free`] to
+/// arrange the RREF so P falls into the free column set of the
+/// resulting generating table — making P the natural F_5
+/// minimisation domain on the downstream call.
+pub fn kp15_p_set_columns(n: usize) -> Vec<usize> {
     let mut out = Vec::new();
     // Sector 0's quadratic-near-star (i + j ≤ 2): 6 positions.
     for i in 0..=2 {
