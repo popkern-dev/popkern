@@ -20,8 +20,6 @@ mod constraints;
 mod edge_curve;
 #[path = "kp20_polar_cap_support_boundary_geometry.rs"]
 mod geometry;
-#[path = "kp20_polar_cap_support_boundary_solve_nurbs.rs"]
-mod nurbs_fallback;
 #[path = "kp20_polar_cap_support_boundary_solve_report.rs"]
 mod report;
 #[path = "kp20_polar_support_cell_row_fit.rs"]
@@ -278,6 +276,15 @@ fn collect_external_cap_support_edge(
         report.missing_support_pcurve_edges += 1;
         return;
     };
+    let Some((cap_side, cap_span_start, cap_span_end)) = boundary_trim::boundary_span(cap_pcurve)
+    else {
+        report.unrecognized_cap_pcurve_edges += 1;
+        return;
+    };
+    let Ok(cap_patch) = surface_access::rectangular_binonic_on_face(brep, cap_face) else {
+        report.non_rectangular_cap_edges += 1;
+        return;
+    };
     let Some(support_surface) = brep
         .faces
         .get(support_face)
@@ -285,42 +292,6 @@ fn collect_external_cap_support_edge(
         .map(|surface| surface.geometry.clone())
     else {
         report.missing_support_surface_edges += 1;
-        return;
-    };
-    let cap_span = boundary_trim::boundary_span(cap_pcurve);
-    let cap_patch_result = surface_access::rectangular_binonic_on_face(brep, cap_face);
-    if cap_span.is_none() {
-        report.unrecognized_cap_pcurve_edges += 1;
-    }
-    if cap_patch_result.is_err() {
-        report.non_rectangular_cap_edges += 1;
-    }
-    // Fallback path for caps that don't fit the Gregory row-fit
-    // machinery (NURBS-typed surfaces produced by the PnS dispatch,
-    // or pcurves routed off the canonical UV boundary). The row-fit
-    // pass that modifies cap CPs in-place is `RectangularBiNonic`-
-    // specific by construction, but the canonical edge curve
-    // reauthoring just needs support-derived target samples and a
-    // half-edge — both available without touching cap CPs.
-    let (Some((cap_side, cap_span_start, cap_span_end)), Ok(cap_patch)) =
-        (cap_span, cap_patch_result)
-    else {
-        if let Some(samples) = nurbs_fallback::collect_edge_curve_samples_only(
-            brep,
-            half_edge,
-            twin,
-            &support_surface,
-            support_pcurve,
-        ) {
-            edge_samples.push(EdgeSolveSamples {
-                cap_half_edge: samples.cap_half_edge,
-                cap_side: samples.cap_side,
-                cap_span_start: samples.cap_span_start,
-                cap_span_end: samples.cap_span_end,
-                cap_forward: samples.cap_forward,
-                targets: samples.targets,
-            });
-        }
         return;
     };
 
