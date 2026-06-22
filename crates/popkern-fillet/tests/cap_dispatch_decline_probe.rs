@@ -73,6 +73,18 @@ fn hexagon6_variable_cap_dispatch_decline_details() {
         eprintln!("No rational_gregory or PnS decline diagnostics found.");
     }
 
+    eprintln!("\n## All ExactBoundaryCap diagnostics (codes + stages)\n");
+    for d in &result.repair_report.apex_diagnostics {
+        if let ApexConstructionDiagnostic::ExactBoundaryCap(c) = d {
+            eprintln!(
+                "  code={:40} stage={:60} detail={}",
+                c.code,
+                c.stage,
+                c.detail_code.as_deref().unwrap_or("")
+            );
+        }
+    }
+
     eprintln!("\n## CapSupportContinuity diagnostics (full)\n");
     for d in &result.repair_report.apex_diagnostics {
         if let ApexConstructionDiagnostic::CapSupportContinuity(c) = d {
