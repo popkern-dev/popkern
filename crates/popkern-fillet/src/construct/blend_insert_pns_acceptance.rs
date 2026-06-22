@@ -46,6 +46,11 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     )?;
 
     let cap_faces = patches.iter().map(|patch| patch.face).collect::<Vec<_>>();
+    crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
+        brep,
+        &patches,
+        diagnostics,
+    );
     let topology_error = brep.validate_all().into_iter().find(|error| {
         matches!(
             error,

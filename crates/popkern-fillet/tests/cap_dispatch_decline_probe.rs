@@ -52,9 +52,7 @@ fn hexagon6_variable_cap_dispatch_decline_details() {
         let ApexConstructionDiagnostic::ExactBoundaryCap(c) = d else {
             continue;
         };
-        if c.code != "rational_gregory.dispatch.declined"
-            && c.code != "pns.dispatch.declined"
-        {
+        if c.code != "rational_gregory.dispatch.declined" && c.code != "pns.dispatch.declined" {
             continue;
         }
         count += 1;

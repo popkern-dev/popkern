@@ -97,7 +97,12 @@ fn hexagon6_variable_post_rollback_cap_support_surface_inspect() {
     let result = fillet_hexagon6_variable();
     eprintln!("\n## Post-rollback BRep surface inspect — faces named by the decline diagnostics\n");
 
-    let mut targets: Vec<(popkern_core::topology::FaceHandle, popkern_core::topology::FaceHandle, popkern_core::topology::EdgeHandle, &str)> = Vec::new();
+    let mut targets: Vec<(
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::EdgeHandle,
+        &str,
+    )> = Vec::new();
     for d in &result.repair_report.apex_diagnostics {
         if let ApexConstructionDiagnostic::CapSupportContinuity(c) = d {
             targets.push((c.cap_face, c.support_face, c.edge, &c.measurement_scope));
@@ -142,8 +147,7 @@ fn hexagon6_variable_post_rollback_cap_support_surface_inspect() {
                     he_a,
                     he_a_data.and_then(|d| d.pcurve.as_ref()).is_some(),
                     he_b,
-                    he_b
-                        .and_then(|h| result.brep.half_edges.get(h))
+                    he_b.and_then(|h| result.brep.half_edges.get(h))
                         .and_then(|d| d.pcurve.as_ref())
                         .is_some(),
                 );
@@ -169,10 +173,9 @@ fn hexagon6_variable_post_rollback_cap_support_surface_inspect() {
                         lo, hi, uv0.x, uv0.y, uv1.x, uv1.y
                     );
                 }
-                if let (Some(ha), Some(hb_data)) = (
-                    he_a_data,
-                    he_b.and_then(|h| result.brep.half_edges.get(h)),
-                ) {
+                if let (Some(ha), Some(hb_data)) =
+                    (he_a_data, he_b.and_then(|h| result.brep.half_edges.get(h)))
+                {
                     let va = result.brep.vertices.get(ha.origin).map(|v| v.position);
                     let vb = result.brep.vertices.get(hb_data.origin).map(|v| v.position);
                     eprintln!(

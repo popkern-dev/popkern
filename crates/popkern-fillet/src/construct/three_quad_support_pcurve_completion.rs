@@ -97,7 +97,12 @@ where
     else {
         return CapSupportPcurveCompletionReport::default();
     };
-    if policy.0 && !matches!(cap_surface, SurfaceGeometry::Gregory(_)) {
+    if policy.0
+        && !matches!(
+            cap_surface,
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::Nurbs(_)
+        )
+    {
         return CapSupportPcurveCompletionReport::default();
     }
     let mut report = CapSupportPcurveCompletionReport::default();
