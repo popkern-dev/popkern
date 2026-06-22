@@ -637,6 +637,54 @@ fn generating_table_with_identifications_round_trip_satisfies_all_constraints() 
 }
 
 #[test]
+fn phase_e2_table_driven_cap_satisfies_eq2_to_machine_zero() {
+    // Phase E.2 — exit criterion: the table-driven cap
+    // construction must produce per-sector bi-6 grids whose
+    // eq (2) residual at every cross-sector edge is machine zero,
+    // even though the kernel's *existing* assemble path reports
+    // residuals on the order of unit length (~10 for n=5, ~8
+    // for n=6) on the same input — see
+    // `assembly_eq2_residual_diagnostic`. This test pins the
+    // improvement empirically across valences.
+    use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
+    for n in [3usize, 5, 6, 7, 8] {
+        let polar = polar_input(n);
+        let tb = synthetic_bi3_tensor_border(n);
+        let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
+        let star = catmull_clark_star_point(n, cap_input.c7, &cap_input.c5s, &cap_input.c6s);
+        let table = super::Kp15Bi6GeneratingTable::build_with_identifications(n, cap_input.params);
+        let grids = table.populate_cap_grids_from_input(&cap_input.sectors, star);
+
+        assert_eq!(grids.len(), n);
+        let mut worst_eq2 = 0.0_f64;
+        for k in 0..n {
+            for i in 0..7 {
+                for j in 0..7 {
+                    let p = grids[k][i][j];
+                    assert!(
+                        p.x.is_finite() && p.y.is_finite() && p.z.is_finite(),
+                        "n={n} sector {k} CP[{i}][{j}] non-finite: {p:?}"
+                    );
+                }
+            }
+            let km1 = (k + n - 1) % n;
+            let bb = super::eq2_g1_residual_bb_degree7(&grids[km1], &grids[k], &cap_input.params);
+            for v in bb {
+                let m = v.length();
+                if m > worst_eq2 {
+                    worst_eq2 = m;
+                }
+            }
+        }
+        eprintln!("Phase E.2 (n={n:2}): worst eq (2) residual = {worst_eq2:.3e}");
+        assert!(
+            worst_eq2 < 1e-8,
+            "n={n}: worst eq (2) residual = {worst_eq2:.3e}; expected machine zero"
+        );
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline

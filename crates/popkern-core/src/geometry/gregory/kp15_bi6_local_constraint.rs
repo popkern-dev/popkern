@@ -705,6 +705,12 @@ impl Kp15Bi6GeneratingTable {
         acc.sqrt()
     }
 
+    /// Returns true iff global column `col` is a free (non-pivot)
+    /// column of this RREF.
+    pub fn is_free(&self, col: usize) -> bool {
+        self.free_cols.binary_search(&col).is_ok()
+    }
+
     /// Apply the table: given values for every **free** column,
     /// compute the values of all pivot columns to satisfy M·x = 0.
     /// Returns the full vector indexed by global column.
@@ -726,6 +732,92 @@ impl Kp15Bi6GeneratingTable {
             x[pcol] = -sum;
         }
         x
+    }
+
+    /// Phase E.2 — populate the `n` per-sector bi-6 grids of a
+    /// polar cap from a `Bi6CapInput` using this generating table.
+    ///
+    /// Strategy. For each of the three coordinate axes
+    /// independently:
+    /// 1. Build a `49n`-long "seed" vector. At each
+    ///    `global_grid_col(n, k, i, j)` position, write whatever
+    ///    the `Bi6CapInput` provides for `(k, i, j)`:
+    ///    - `(0, 0)` → the Catmull-Clark star (shared across all
+    ///      sectors).
+    ///    - Other positions in `CirculantSectorRhs`'s fixed 12-
+    ///      slot pattern → the corresponding field of
+    ///      `input.sectors[k]`.
+    ///    - Else → zero (the table will treat it as a free input
+    ///      defaulted to zero).
+    /// 2. Sub-sample the seed at the table's `free_cols` indices.
+    /// 3. Apply the table to compute the pivot-column values
+    ///    satisfying `M · x = 0`.
+    /// 4. Reshape the resulting `49n`-long vector into `n` per-
+    ///    sector grids `[[Point3; 7]; 7]`.
+    ///
+    /// **Note on the rank gap.** The current table has rank ≈
+    /// `17n + 3(n-1)` against `49n` cols. After fixing the 12n + n
+    /// = 13n caller-supplied positions and the `13(n-1) + 3n + ...`
+    /// pivot positions, ~6n free positions remain unspecified
+    /// and default to zero. Geometrically this means the resulting
+    /// cap is *partial*: rows j = 3..6 (deep interior) get
+    /// well-defined zero seeds, and the pivot positions are
+    /// derived to keep `‖M · x‖ ≈ 0`. Use the residual reported
+    /// by `constraint_residual_norm` on each coordinate to verify.
+    ///
+    /// The caller is responsible for the `star` argument — the
+    /// `Bi6CapInput.c7` plus `c5s`/`c6s` go through
+    /// `catmull_clark_star_point` in the existing assembly path.
+    pub fn populate_cap_grids_from_input(
+        &self,
+        sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
+        star: Point3,
+    ) -> Vec<[[Point3; 7]; 7]> {
+        let n = self.n;
+        assert_eq!(sectors.len(), n, "sectors length must equal valence");
+
+        // Build per-sector (i, j) → Point3 lookup.
+        let mut seed = vec![Point3::new(0.0, 0.0, 0.0); 49 * n];
+        for k in 0..n {
+            let s = &sectors[k];
+            // Star at (0, 0).
+            seed[global_grid_col(n, k, 0, 0)] = star;
+            // The 12 CirculantSectorRhs positions.
+            seed[global_grid_col(n, k, 1, 0)] = s.p_10;
+            seed[global_grid_col(n, k, 2, 0)] = s.p_20;
+            seed[global_grid_col(n, k, 4, 0)] = s.p_40;
+            seed[global_grid_col(n, k, 5, 0)] = s.p_50;
+            seed[global_grid_col(n, k, 6, 0)] = s.p_60;
+            seed[global_grid_col(n, k, 0, 1)] = s.p_01;
+            seed[global_grid_col(n, k, 1, 1)] = s.p_11;
+            seed[global_grid_col(n, k, 0, 2)] = s.p_02;
+            seed[global_grid_col(n, k, 4, 2)] = s.p_42;
+            seed[global_grid_col(n, k, 5, 2)] = s.p_52;
+            seed[global_grid_col(n, k, 6, 2)] = s.p_62;
+        }
+
+        // Apply table per coordinate axis.
+        let coord = |pick: fn(Point3) -> f64| -> Vec<f64> {
+            let free_vals: Vec<f64> = self.free_cols.iter().map(|&col| pick(seed[col])).collect();
+            self.apply(&free_vals)
+        };
+        let xs = coord(|p| p.x);
+        let ys = coord(|p| p.y);
+        let zs = coord(|p| p.z);
+
+        // Reshape into per-sector grids.
+        let mut grids = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+            for (i, row) in grid.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    let col = global_grid_col(n, k, i, j);
+                    *cell = Point3::new(xs[col], ys[col], zs[col]);
+                }
+            }
+            grids.push(grid);
+        }
+        grids
     }
 }
 
