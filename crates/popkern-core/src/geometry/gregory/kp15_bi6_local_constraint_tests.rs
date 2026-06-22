@@ -312,6 +312,130 @@ fn eq3_residual_polynomial_degree_matches_paper_after_assembly() {
     );
 }
 
+/// Rank of a dense `f64` matrix via Gaussian elimination with
+/// partial pivoting and a relative-pivot tolerance. Test-only
+/// utility — production rank checks should use a robust SVD path.
+fn matrix_rank(rows: usize, cols: usize, entries: &[f64], tol: f64) -> usize {
+    assert_eq!(entries.len(), rows * cols);
+    let mut m: Vec<f64> = entries.to_vec();
+    let mut rank = 0usize;
+    let mut row = 0usize;
+    for col in 0..cols {
+        if row >= rows {
+            break;
+        }
+        // Find pivot in this column at or below `row`.
+        let mut best = row;
+        let mut best_abs = m[row * cols + col].abs();
+        for r in (row + 1)..rows {
+            let v = m[r * cols + col].abs();
+            if v > best_abs {
+                best = r;
+                best_abs = v;
+            }
+        }
+        if best_abs < tol {
+            continue;
+        }
+        // Swap pivot row up.
+        if best != row {
+            for c in 0..cols {
+                m.swap(row * cols + c, best * cols + c);
+            }
+        }
+        // Eliminate below and above.
+        let pivot = m[row * cols + col];
+        for r in 0..rows {
+            if r == row {
+                continue;
+            }
+            let factor = m[r * cols + col] / pivot;
+            if factor == 0.0 {
+                continue;
+            }
+            for c in col..cols {
+                m[r * cols + c] -= factor * m[row * cols + c];
+            }
+        }
+        rank += 1;
+        row += 1;
+    }
+    rank
+}
+
+#[test]
+fn eq2_jacobian_rank_is_eight_independent_constraints() {
+    // Phase C foundation: the eq (2) Jacobian over a single cross-
+    // sector edge is an `8 × 98` matrix linear in the BB-coefs of
+    // both adjacent sectors. With no rule applied yet — i.e., the
+    // 49 + 49 grid positions all treated as free — the 8 rows
+    // should be linearly independent: there's no algebraic identity
+    // among the BB-coefs of the eq (2) polynomial that makes one
+    // BB-coef predictable from the others without invoking rule (5)
+    // or the (S1)-(S4) identifications.
+    //
+    // After rule (5) (substituting `p̀_{30} := (3/4)(p̀_{20} + p̀_{40})
+    // − (3/10)(p̀_{10} + p̀_{50}) + (1/20)(p̀_{00} + p̀_{60})`) the
+    // row at u^7 should fall into the row space of the others —
+    // we check that in a follow-on test.
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
+        let params = Bi6Reparams::for_valence(n);
+        let jac = super::eq2_jacobian_dense(&params);
+        let mut flat = Vec::with_capacity(8 * 98);
+        for row in jac.iter() {
+            flat.extend_from_slice(row);
+        }
+        let rank = matrix_rank(8, 98, &flat, 1e-12);
+        assert_eq!(
+            rank, 8,
+            "n={n}: eq (2) Jacobian rank = {rank}, expected 8 (all BB rows independent)"
+        );
+    }
+}
+
+#[test]
+fn eq3_jacobian_rank_reports_paper_structure() {
+    // The φ-multiplied eq (3) residual polynomial built from BB-
+    // product arithmetic returns a vector of length up to 10
+    // (degree 9). Empirically the Jacobian rank is consistently
+    // 1 less than the row count across valences — one of the
+    // top-degree BB-coefs is a fixed linear combination of the
+    // others, an algebraic identity baked into eq (3)'s sum-of-
+    // products structure with the paper's `a := -1, b := 2c(1-u)²,
+    // δ := 24c(τ - 1)` choices. (At `n = 3` the rank may drop
+    // further; the paper's §3.5 notes the construction differs
+    // there.)
+    //
+    // The assertion below establishes a stable Phase C foundation:
+    // 1. The rank is ≥ 8 (paper's "8 constraints" at degree 7).
+    // 2. The rank is ≤ the row count.
+    // It also reports the actual rank so a future tightening can
+    // pin the exact paper-prescribed rank once Phase D's symbolic
+    // analysis is in place.
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
+        let params = Bi6Reparams::for_valence(n);
+        let jac = super::eq3_jacobian_dense(&params);
+        let mut flat = Vec::with_capacity(jac.len() * 98);
+        for row in &jac {
+            flat.extend_from_slice(row);
+        }
+        let rank = matrix_rank(jac.len(), 98, &flat, 1e-12);
+        eprintln!(
+            "n={n:2}: eq (3) Jacobian rows = {}, rank = {rank}",
+            jac.len()
+        );
+        assert!(
+            rank >= 8,
+            "n={n}: eq (3) Jacobian rank = {rank} < 8 (paper says 8 constraints)"
+        );
+        assert!(
+            rank <= jac.len(),
+            "n={n}: rank {rank} exceeds row count {}",
+            jac.len()
+        );
+    }
+}
+
 #[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {

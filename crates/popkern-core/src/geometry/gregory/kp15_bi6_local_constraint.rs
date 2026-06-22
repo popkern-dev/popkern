@@ -301,6 +301,83 @@ pub fn eq3_g2_residual_phi_multiplied(
     sum.coeffs().to_vec()
 }
 
+/// Index a flat BB-coef position `(side, i, j)`. `side = 0` is the
+/// previous sector `f`; `side = 1` is the current sector `f̃`.
+/// Used as the column index of the Jacobian rows below.
+fn flat_grid_index(side: usize, i: usize, j: usize) -> usize {
+    debug_assert!(side < 2 && i < 7 && j < 7);
+    side * 49 + i * 7 + j
+}
+
+/// Build a zero bi-6 grid pair (`[grid_prev, grid_curr]`).
+fn empty_grids() -> [[[Point3; 7]; 7]; 2] {
+    [[[Point3::new(0.0, 0.0, 0.0); 7]; 7]; 2]
+}
+
+/// Extract a dense `8 × 98` Jacobian of the eq (2) BB-residual w.r.t.
+/// every BB-coef position across the two sectors. Each column at
+/// index `flat_grid_index(side, i, j)` is the residual produced by
+/// perturbing `grid[side][i][j]` by the unit vector `(1, 0, 0)`
+/// — equivalently the partial derivative `∂R / ∂p_{i, j}^{(side)}`
+/// along the x-axis (the y- and z-axis columns equal it by linearity
+/// of the residual in each coordinate).
+///
+/// Returns a `[[f64; 98]; 8]` row-major dense matrix. The entries
+/// are exact (no finite-difference noise) because the residual is
+/// linear in the BB-coefs.
+///
+/// This is the building block for Phase C's `M(n, c, τ) · x = b_input`
+/// linear system. Each cross-sector edge contributes one such block
+/// of 8 rows; the full M stacks `n` of them with sector-relative
+/// indexing.
+pub fn eq2_jacobian_dense(params: &Bi6Reparams) -> [[f64; 98]; 8] {
+    let mut jac = [[0.0_f64; 98]; 8];
+    for side in 0..2 {
+        for i in 0..7 {
+            for j in 0..7 {
+                let mut grids = empty_grids();
+                grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
+                let bb = eq2_g1_residual_bb_degree7(&grids[0], &grids[1], params);
+                let col = flat_grid_index(side, i, j);
+                for row in 0..8 {
+                    jac[row][col] = bb[row].x;
+                }
+            }
+        }
+    }
+    jac
+}
+
+/// Mirror of [`eq2_jacobian_dense`] for the φ-multiplied eq (3).
+/// Output row count equals the residual polynomial's BB-vector
+/// length (degree + 1 ≤ 10). Caller is responsible for matching
+/// rows to the paper's "8 constraints at degree 7" claim — see the
+/// notes on `eq3_g2_residual_phi_multiplied`.
+pub fn eq3_jacobian_dense(params: &Bi6Reparams) -> Vec<[f64; 98]> {
+    // First evaluation establishes the residual polynomial's degree
+    // (which depends on whether any terms collapse — at our pre-
+    // rule-5, pre-(S1-4) level, all terms are present so the degree
+    // is the maximum 9).
+    let zero_grids = empty_grids();
+    let baseline = eq3_g2_residual_phi_multiplied(&zero_grids[0], &zero_grids[1], params);
+    let n_rows = baseline.len();
+    let mut jac: Vec<[f64; 98]> = vec![[0.0_f64; 98]; n_rows];
+    for side in 0..2 {
+        for i in 0..7 {
+            for j in 0..7 {
+                let mut grids = empty_grids();
+                grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
+                let bb = eq3_g2_residual_phi_multiplied(&grids[0], &grids[1], params);
+                let col = flat_grid_index(side, i, j);
+                for (row, v) in bb.iter().enumerate() {
+                    jac[row][col] = v.x;
+                }
+            }
+        }
+    }
+    jac
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_local_constraint_tests.rs"]
 mod tests;
