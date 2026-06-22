@@ -262,6 +262,57 @@ fn s1_strict_two_sectors_zero_eq2_at_u0_u1() {
 }
 
 #[test]
+fn s1_strict_two_sectors_zero_eq3_at_u0() {
+    // Phase B v2 positive control for eq (3): under the (S1)-strict
+    // construction, the *first* BB-coef of the φ-multiplied eq (3)
+    // residual must vanish across all valences. This index involves
+    // only the BB-coefs ṕ_{0, 0..2} and p̀_{0, 0..2} that (S1)
+    // determines.
+    //
+    // (Higher BB-coefs of eq (3) depend on ṕ_{1, 1}, ṕ_{1, 2}, etc.,
+    // which (S2)/(S3) determine — and which the (S1)-strict two-
+    // sector synthetic skeleton does NOT populate. Phase C's matrix
+    // solver will fold those in by also enforcing (S2)/(S3) on the
+    // ring of `n` sectors simultaneously.)
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
+        let (grid_prev, grid_curr, params) = build_s1_strict_two_sectors(n);
+        let bb = super::eq3_g2_residual_phi_multiplied(&grid_prev, &grid_curr, &params);
+        assert!(
+            !bb.is_empty(),
+            "n={n}: eq3 residual returned an empty BB-coef vector"
+        );
+        assert!(
+            bb[0].length() < 1e-12,
+            "n={n}: eq3 u^0 BB-coef = {:?} (mag {}); deg of residual polynomial = {}",
+            bb[0],
+            bb[0].length(),
+            bb.len() - 1
+        );
+    }
+}
+
+#[test]
+fn eq3_residual_polynomial_degree_matches_paper_after_assembly() {
+    // The φ-multiplied eq (3) residual polynomial is at most degree
+    // 9 as composed from BB-product arithmetic in this module (each
+    // term's per-direction degree adds: term 4 = 4·1·4 = 9, etc.).
+    // The paper's line 150 claim is that *after rule (5)* the
+    // polynomial drops to degree 7. We check the BB-coef magnitudes
+    // beyond index 7 on a (S1)-strict synthetic input — they aren't
+    // expected to vanish here because (S2)/(S3)/(S4) aren't applied
+    // — but the polynomial's BB-vector length must be ≥ 10 so the
+    // Phase C matrix builder gets all 15 (= 7 + 8) coefficients
+    // worth of constraints.
+    let (grid_prev, grid_curr, params) = build_s1_strict_two_sectors(6);
+    let bb = super::eq3_g2_residual_phi_multiplied(&grid_prev, &grid_curr, &params);
+    assert!(
+        bb.len() >= 8,
+        "expected at least 8 BB-coefs (paper's degree 7); got {}",
+        bb.len()
+    );
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline
