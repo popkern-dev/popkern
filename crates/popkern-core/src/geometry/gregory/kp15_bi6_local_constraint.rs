@@ -495,6 +495,46 @@ pub fn global_constraint_matrix_with_rule5(
     (new_rows, cols, m)
 }
 
+/// Append cross-sector identifications `p^k_{i, 0} = p^{k − 1}_{i, 0}`
+/// for `i = 0, 1, 2` and `k ∈ 0..n` (mod n). These come from
+/// [KP15 eq (6)]'s (S1) re-affirmation that the BB-coefs of the
+/// boundary curve near the irregular point are shared between
+/// adjacent sectors.
+fn append_cross_sector_identifications(
+    n: usize,
+    cols: usize,
+    m: &mut Vec<f64>,
+    base: usize,
+) -> usize {
+    // 3 constraints per edge × n edges. The full circular system
+    // has rank 3·(n-1) — one rotation is redundant.
+    let new_count = 3 * n;
+    m.extend(vec![0.0_f64; new_count * cols]);
+    let mut row = base;
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        for i in 0..3 {
+            let col_curr = global_grid_col(n, k, i, 0);
+            let col_prev = global_grid_col(n, km1, i, 0);
+            m[row * cols + col_curr] = 1.0;
+            m[row * cols + col_prev] = -1.0;
+            row += 1;
+        }
+    }
+    row
+}
+
+/// Constraint matrix with cross-sector identifications appended
+/// to the per-edge eq (2)/(3) Jacobians. Rows: `18n + 3n = 21n`.
+pub fn global_constraint_matrix_with_identifications(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    let (rows, cols, mut m) = global_constraint_matrix(n, params);
+    let new_rows = append_cross_sector_identifications(n, cols, &mut m, rows);
+    (new_rows, cols, m)
+}
+
 /// Reduced row-echelon form of a dense `(rows × cols)` matrix
 /// stored row-major. Pivots are recorded as `(row, col)` pairs in
 /// increasing column order. Pivot tolerance `tol` is the absolute
@@ -603,6 +643,17 @@ impl Kp15Bi6GeneratingTable {
     /// rows on top of the per-edge eq (2)/(3) Jacobians.
     pub fn build_with_rule5(n: usize, params: Bi6Reparams) -> Self {
         Self::build_from_matrix(n, params, global_constraint_matrix_with_rule5)
+    }
+
+    /// Build with cross-sector `p^k_{i, 0} = p^{k − 1}_{i, 0}`
+    /// identifications (i = 0, 1, 2; k ∈ 0..n) appended as `3n`
+    /// extra rows on top of the per-edge eq (2)/(3) Jacobians.
+    /// These are the (S1) corner-shared identifications the paper
+    /// re-affirms at line 158-161; the rank lift measures whether
+    /// they are already implied by eq (2)/(3) (the rule-(5)
+    /// pattern from Phase D v2) or genuinely independent.
+    pub fn build_with_identifications(n: usize, params: Bi6Reparams) -> Self {
+        Self::build_from_matrix(n, params, global_constraint_matrix_with_identifications)
     }
 
     fn build_from_matrix(

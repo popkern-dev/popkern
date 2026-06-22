@@ -572,6 +572,71 @@ fn rule5_is_implied_by_eq2_eq3_constraints() {
 }
 
 #[test]
+fn cross_sector_identifications_lift_rank() {
+    // Phase E.1 candidate: add `p^k_{i, 0} = p^{k-1}_{i, 0}` for
+    // i ∈ {0, 1, 2}, k ∈ 0..n. These are (S1)'s corner-shared
+    // identifications the paper re-affirms at line 158-161. If
+    // they're already implied by eq (2)/(3) — like rule (5) is
+    // (Phase D v2 finding) — the rank delta is 0 and the identi-
+    // fication path is also closed. If they're independent, the
+    // rank lifts by `3·(n-1)` (one rotation is redundant given
+    // the others form a closed cycle).
+    for n in [3usize, 5, 6, 7] {
+        let params = Bi6Reparams::for_valence(n);
+        let h_plain = super::Kp15Bi6GeneratingTable::build(n, params);
+        let h_id = super::Kp15Bi6GeneratingTable::build_with_identifications(n, params);
+        assert_eq!(h_id.rows, h_plain.rows + 3 * n);
+        let delta = h_id.rank() as isize - h_plain.rank() as isize;
+        eprintln!(
+            "n={n:2}: rank plain = {}, with identifications = {}, Δ = {delta} (predicted ≤ 3(n−1) = {})",
+            h_plain.rank(),
+            h_id.rank(),
+            3 * (n - 1)
+        );
+        assert!(
+            delta >= 0,
+            "n={n}: identifications reduced rank — impossible"
+        );
+    }
+}
+
+#[test]
+fn generating_table_with_identifications_round_trip_satisfies_all_constraints() {
+    // Companion to `cross_sector_identifications_lift_rank`: when
+    // identifications are active in M, the table's `apply` must
+    // produce a column vector that satisfies BOTH the eq (2)/(3)
+    // constraints AND the cross-sector identifications.
+    for n in [3usize, 5, 6, 7] {
+        let params = Bi6Reparams::for_valence(n);
+        let h = super::Kp15Bi6GeneratingTable::build_with_identifications(n, params);
+        let free_values: Vec<f64> = (0..h.free_cols.len())
+            .map(|i| 0.1 + (i as f64 + 1.0).sqrt() * 0.005 + (n as f64) * 0.001)
+            .collect();
+        let x = h.apply(&free_values);
+        let residual = h.constraint_residual_norm(&x);
+        assert!(
+            residual < 1e-8,
+            "n={n}: identifications-augmented ‖M·x‖ = {residual:.3e}"
+        );
+        // Explicit cross-sector identification check: for each
+        // adjacent pair (k-1, k) and each i ∈ {0, 1, 2},
+        // x[col(k, i, 0)] should equal x[col(k-1, i, 0)].
+        for k in 0..n {
+            let km1 = (k + n - 1) % n;
+            for i in 0..3 {
+                let curr = x[super::global_grid_col(n, k, i, 0)];
+                let prev = x[super::global_grid_col(n, km1, i, 0)];
+                assert!(
+                    (curr - prev).abs() < 1e-10,
+                    "n={n}, k={k}, i={i}: ṕ - p̀ = {} (curr={curr}, prev={prev})",
+                    curr - prev
+                );
+            }
+        }
+    }
+}
+
+#[test]
 #[ignore = "Phase B diagnostic — measure end-to-end residual"]
 fn assembly_eq2_residual_diagnostic() {
     // Diagnostic: report eq (2) residual on the current pipeline
