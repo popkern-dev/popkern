@@ -36,6 +36,7 @@ use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::geometry::{Point3, SurfaceGeometry, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepProductNode, UnitContext, export_step_file,
@@ -60,9 +61,16 @@ fn main() {
     let out = output_dir();
     std::fs::create_dir_all(&out).expect("create output dir");
 
-    // Build the input: a regular hexagon-6 polar config with a synthetic
-    // bi-3 tensor border (asymmetric z-amplitudes to surface β's effect
-    // if any).
+    // Reference: real hexagon-6 pyramid filleted via the existing
+    // `fillet_edges` pipeline. This is what the kernel currently
+    // produces, with the existing apex cap construction (not via-
+    // table). Use as the visual ground-truth for "this is how a
+    // filleted apex should look."
+    export_real_pyramid_reference(&out);
+
+    // Build the via-table comparison input: a regular hexagon-6 polar
+    // config with a symmetric bi-3 tensor border that mimics what a
+    // pyramid apex fillet would feed into the cap construction.
     let n = 6;
     let (polar, bi3_per_sector) = hexagon6_polar_and_tensor_border();
     let params = Bi6Reparams::for_valence(n);
@@ -154,70 +162,189 @@ fn main() {
     }
 }
 
+/// Real hexagon-6 pyramid filleted at the apex via the existing
+/// fillet pipeline. The output BRep includes the full topology —
+/// apex cap, fillet spheres, slope faces, base — and tessellates
+/// cleanly. Use this as the visual reference for "what a filleted
+/// pyramid actually looks like" so the via-table experiments
+/// below can be judged in context.
+fn export_real_pyramid_reference(out: &Path) {
+    let tol = Tolerance::default();
+    let pyramid = match popkern_core::topology::BRep::n_gonal_pyramid(6, 1.0, 1.2, tol) {
+        Ok(p) => p,
+        Err(e) => {
+            println!("  pyramid_n6 build failed: {e}");
+            return;
+        }
+    };
+    let apex = pyramid
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.x.abs() < 1e-9 && v.position.y.abs() < 1e-9 && v.position.z > 0.0)
+        .map(|(h, _)| h);
+    let Some(apex) = apex else {
+        println!("  pyramid_n6: apex vertex not found");
+        return;
+    };
+    let apex_edges: Vec<_> = pyramid
+        .edges
+        .iter()
+        .filter_map(|(h, e)| {
+            let he = &pyramid.half_edges[e.half_edge];
+            let v0 = he.origin;
+            let v1 = pyramid.half_edges[he.twin].origin;
+            if v0 == apex || v1 == apex { Some(h) } else { None }
+        })
+        .collect();
+    let specs: Vec<FilletSpec> = apex_edges
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.10),
+        })
+        .collect();
+    let options = FilletOptions::default();
+    match fillet_edges(&pyramid, &specs, &options, tol, None) {
+        Ok(result) => {
+            let step_path = out.join("reference_pyramid_n6_existing_pipeline.step");
+            let doc = step_document(&result.brep, "pyramid_n6_reference");
+            if let Err(e) = export_step_file(&doc, &step_path, &StepExportOptions::default()) {
+                println!("  reference STEP export failed: {e}");
+                return;
+            }
+            println!("  reference: filleted hexagon-6 pyramid (existing pipeline) -> {}",
+                     step_path.display());
+            let png_path = out.join("reference_pyramid_n6_existing_pipeline.png");
+            let camera = popkern_viz::camera::Camera {
+                eye: glam::Vec3::new(2.5, 2.5, 1.8),
+                target: glam::Vec3::new(0.0, 0.0, 0.6),
+                up: glam::Vec3::new(0.0, 0.0, 1.0),
+                fov_y: 30.0_f32.to_radians(),
+                aspect: 1.0,
+                near: 0.01,
+                far: 100.0,
+            };
+            match popkern_viz::headless::render_to_png(
+                &result.brep, &camera, 1200, 1200, &png_path, false,
+            ) {
+                Ok(_) => println!("    reference PNG -> {}", png_path.display()),
+                Err(e) => println!("    reference PNG failed: {e}"),
+            }
+        }
+        Err(e) => println!("  pyramid_n6 fillet failed: {e:?}"),
+    }
+}
+
 // ─── Input fixtures ─────────────────────────────────────────────────
 
+/// Build a symmetric hexagon-6 polar input that mimics what
+/// `BRep::n_gonal_pyramid(6, 1.0, 1.2, ...)` followed by a uniform
+/// fillet of radius 0.1 at the apex would produce internally.
+///
+/// All sectors have identical geometry (no per-sector asymmetry).
+/// The tensor border is a small rounded patch near the apex sitting
+/// at height z = 1.0 (apex would be at z = 1.2 on the unfilleted
+/// pyramid). The "rim" of the cap sits at radius ≈ 0.15 from the
+/// apex axis, matching what the rolling-ball fillet would carve.
 fn hexagon6_polar_and_tensor_border() -> (PolarBoundaryInput, Vec<[[Point3; 4]; 3]>) {
     use popkern_core::geometry::gregory::{OuterCornerData, SpokeBoundaryData, TangentPlane};
     let n = 6usize;
-    let center = Point3::new(0.0, 0.0, 0.0);
-    let tp_xy =
+    let apex = Point3::new(0.0, 0.0, 1.0);
+    // The cap's local tangent plane at the apex: roughly horizontal
+    // since the cap is a smooth dome.
+    let tp_horizontal =
         TangentPlane::from_basis(Vec3::new(1.0, 0.0, 0.0), Vec3::new(0.0, 1.0, 0.0)).unwrap();
     let mut spokes = Vec::with_capacity(n);
     let mut outer_corners = Vec::with_capacity(n);
     let mut face_tangent_planes = Vec::with_capacity(n);
     let mut per_spoke_radii = Vec::with_capacity(n);
     let mut bi3_rows = Vec::with_capacity(n);
-    let z_mul: [f64; 6] = [0.5, 1.0, 1.5, 0.7, 1.2, 0.9];
-    for (k, &mul) in z_mul.iter().enumerate() {
+
+    // Cap scale: a small region near the apex that the fillet would
+    // smooth. Rim radius 0.2 (radial distance from apex axis at the
+    // base of the cap), cap depth 0.1 (how far below the apex the
+    // rim sits).
+    let rim_radius: f64 = 0.2;
+    let cap_depth: f64 = 0.1;
+    let fillet_radius = 0.1;
+
+    for k in 0..n {
         let theta = (2.0 * std::f64::consts::PI) * (k as f64) / (n as f64);
         let dx = theta.cos();
         let dy = theta.sin();
-        let v = Point3::new(dx, dy, 0.0);
+        // The outer-rim corner where this sector ends, in 3D.
+        let rim_point = Point3::new(rim_radius * dx, rim_radius * dy, apex.z - cap_depth);
+        // Spoke boundary (degree-7 Bezier from apex outward to rim).
         let mut boundary_cps = [Point3::new(0.0, 0.0, 0.0); 8];
         for (i, cp) in boundary_cps.iter_mut().enumerate() {
             let t = i as f64 / 7.0;
-            *cp = Point3::new(t * v.x, t * v.y, t * v.z);
+            *cp = Point3::new(
+                t * rim_point.x,
+                t * rim_point.y,
+                apex.z + t * (rim_point.z - apex.z),
+            );
         }
         spokes.push(SpokeBoundaryData {
             boundary_cps,
-            xtan_a_at_c: Vec3::new(0.0, 1.0, 0.0),
-            xtan_b_at_c: Vec3::new(0.0, -1.0, 0.0),
-            xtan_a_at_v: Vec3::new(0.0, 1.0, 0.0),
-            xtan_b_at_v: Vec3::new(0.0, -1.0, 0.0),
-            radius_at_c: 0.05,
-            radius_at_v: 0.05,
+            xtan_a_at_c: Vec3::new(-dy, dx, 0.0),
+            xtan_b_at_c: Vec3::new(dy, -dx, 0.0),
+            xtan_a_at_v: Vec3::new(-dy, dx, 0.0),
+            xtan_b_at_v: Vec3::new(dy, -dx, 0.0),
+            radius_at_c: fillet_radius,
+            radius_at_v: fillet_radius,
             edge_id: format!("edge_{k}"),
         });
         outer_corners.push(OuterCornerData {
-            position: v,
-            tangent_plane: tp_xy,
+            position: rim_point,
+            tangent_plane: tp_horizontal,
         });
-        face_tangent_planes.push(tp_xy);
-        per_spoke_radii.push(0.05);
+        face_tangent_planes.push(tp_horizontal);
+        per_spoke_radii.push(fillet_radius);
 
-        let row0 = [
-            Point3::new(dx, dy, 0.1 * mul),
-            Point3::new(dx * 1.1, dy * 1.1, 0.1 * mul),
-            Point3::new(dx * 1.2, dy * 1.2, 0.1 * mul),
-            Point3::new(dx * 1.3, dy * 1.3, 0.1 * mul),
-        ];
-        let row1 = [
-            Point3::new(dx, dy, 0.2 * mul),
-            Point3::new(dx * 1.1, dy * 1.1, 0.2 * mul),
-            Point3::new(dx * 1.2, dy * 1.2, 0.2 * mul),
-            Point3::new(dx * 1.3, dy * 1.3, 0.2 * mul),
-        ];
+        // Bi-3 tensor border for this sector. Row 0 = position curve
+        // along the rim arc from this corner to the next. Row 1 =
+        // first cross-derivative (lifting up toward the apex).
+        // Row 2 = second cross-derivative (small, for G²).
+        // Symmetric across all sectors — no per-sector z_mul.
+        let theta_next = (2.0 * std::f64::consts::PI) * ((k + 1) as f64) / (n as f64);
+        let dx_n = theta_next.cos();
+        let dy_n = theta_next.sin();
+        let r = rim_radius;
+        let z_rim = apex.z - cap_depth;
+        // 4 CPs along the rim arc from sector k's corner to (k+1)'s.
+        let arc_cp = |t: f64| -> Point3 {
+            let x = (1.0 - t) * dx + t * dx_n;
+            let y = (1.0 - t) * dy + t * dy_n;
+            Point3::new(r * x, r * y, z_rim)
+        };
+        let row0 = [arc_cp(0.0), arc_cp(1.0 / 3.0), arc_cp(2.0 / 3.0), arc_cp(1.0)];
+        // Row 1 lifts up slightly toward the apex (positive z direction).
+        let lift = 0.03;
+        let lift_cp = |t: f64| -> Point3 {
+            let x = (1.0 - t) * dx + t * dx_n;
+            let y = (1.0 - t) * dy + t * dy_n;
+            Point3::new(r * x, r * y, z_rim + lift)
+        };
+        let row1 = [lift_cp(0.0), lift_cp(1.0 / 3.0), lift_cp(2.0 / 3.0), lift_cp(1.0)];
+        // Row 2: small second derivative.
+        let lift2 = 0.04;
+        let lift2_cp = |t: f64| -> Point3 {
+            let x = (1.0 - t) * dx + t * dx_n;
+            let y = (1.0 - t) * dy + t * dy_n;
+            Point3::new(r * x, r * y, z_rim + lift2)
+        };
         let row2 = [
-            Point3::new(dx, dy, 0.3 * mul),
-            Point3::new(dx * 1.1, dy * 1.1, 0.3 * mul),
-            Point3::new(dx * 1.2, dy * 1.2, 0.3 * mul),
-            Point3::new(dx * 1.3, dy * 1.3, 0.3 * mul),
+            lift2_cp(0.0),
+            lift2_cp(1.0 / 3.0),
+            lift2_cp(2.0 / 3.0),
+            lift2_cp(1.0),
         ];
         bi3_rows.push([row0, row1, row2]);
     }
+
     let polar = PolarBoundaryInput {
-        central_vertex: center,
-        central_tangent_plane: tp_xy,
+        central_vertex: apex,
+        central_tangent_plane: tp_horizontal,
         spokes,
         outer_corners,
         face_tangent_planes,
@@ -405,19 +532,17 @@ fn eval_degree7_bezier(cps: &[Point3; 8], t: f64) -> Point3 {
 // ─── Render camera ──────────────────────────────────────────────────
 
 fn render_camera() -> popkern_viz::camera::Camera {
-    // The KP15-P-only variants (B, D) extend further in x/y than the
-    // full-F_5 variants (A, C) because the deep-interior CPs settle
-    // at different positions for different RREF pivot/free splits.
-    // Frame wide enough that ALL four variants fit without cropping:
-    // distance ≈ 11 with FOV 40° gives ≈ 8 units of view height at
-    // target. The cap's visible extent is roughly that size.
+    // Cap sits near the pyramid apex at (0, 0, 1.0) with rim
+    // radius 0.2. Position the camera looking down-and-in so the
+    // dome is visible from a 3/4 angle, like a typical CAD viewer
+    // default for inspecting an apex fillet.
     popkern_viz::camera::Camera {
-        eye: glam::Vec3::new(7.0, 7.0, 6.0),
-        target: glam::Vec3::new(0.0, 0.0, 0.3),
+        eye: glam::Vec3::new(0.6, 0.6, 1.3),
+        target: glam::Vec3::new(0.0, 0.0, 0.95),
         up: glam::Vec3::new(0.0, 0.0, 1.0),
-        fov_y: 40.0_f32.to_radians(),
+        fov_y: 35.0_f32.to_radians(),
         aspect: 1.0,
-        near: 0.1,
-        far: 100.0,
+        near: 0.01,
+        far: 10.0,
     }
 }
