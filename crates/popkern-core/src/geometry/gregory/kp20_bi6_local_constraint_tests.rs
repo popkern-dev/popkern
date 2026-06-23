@@ -534,6 +534,119 @@ fn kp20_tau_map_apex_derivatives_match_across_sectors() {
 /// the ◦-marked CPs that step (i) Hermite-sampling set from the
 /// guide. The paper's algorithm sets ◦-marked CPs LAST so they are
 /// preserved.
+/// Estimate the eq(8) residual reduction available from the
+/// Lemma-4-overlay-alone approach. Synthesises a paper-perfect
+/// apex region (10 CPs per piece) on top of the existing
+/// assembled cap and re-measures eq(8). Lets us know whether
+/// the overlay alone can reach the 1e-8 acceptance gate or
+/// whether the cps[4..6][0] strip-region inconsistency
+/// (C²-propagated values not paper-consistent with the
+/// overlay) leaves a residual floor.
+/// Probe: replace the kernel's affine-only step (iii) sampler
+/// with the τ-aware variant `sample_kp20_macro_patch_from_tau_maps`
+/// and re-run the rest of the assembly pipeline. If Phase B
+/// residuals drop, the load-bearing fix is "switch the sampler",
+/// not "overlay step (i)".
+#[test]
+fn eq8_residual_with_tau_based_sampler_estimate() {
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::kp20_bi6_assemble::{
+        Kp20Bi6AssembleError, Kp20Bi6MacroCapInput, assemble_kp20_bi6_macro_cap,
+    };
+    use crate::geometry::gregory::kp20_bi6_guide_build::{
+        Kp20GuideBuildInput, build_kp20_guide_ring,
+    };
+    use crate::geometry::gregory::kp20_bi6_piece_maps::sample_kp20_macro_patch_from_tau_maps;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border: tensor_border.clone(),
+        })
+        .expect("guide builds");
+        let sampled_macro_patches: Result<Vec<_>, String> = (0..n)
+            .map(|k| sample_kp20_macro_patch_from_tau_maps(guide.sector(k), n, k))
+            .collect();
+        let sampled_macro_patches = sampled_macro_patches.expect("tau sampling");
+        let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
+            tensor_border,
+            sampled_macro_patches,
+        })
+        .unwrap_or_else(|e: Kp20Bi6AssembleError| panic!("assemble failed: {e}"));
+        let report = measure_kp20_assembly_constraints(&cap);
+        eprintln!(
+            "τ-based sampler n={n}: worst_eq8 = {e8:e}  worst_eq9 = {e9:e}  L6(1) = {l1:e}",
+            e8 = report.worst_eq8(),
+            e9 = report.worst_eq9(),
+            l1 = report.worst_lemma6_cond_1,
+        );
+        assert!(report.worst_eq8().is_finite());
+    }
+}
+
+#[test]
+fn eq8_residual_with_synthetic_overlay_estimate() {
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::kp20_bi6_cap::Kp20PieceId;
+    use crate::geometry::gregory::kp20_bi6_guide_sample::kp20_corner_block_from_jet;
+    use crate::geometry::gregory::kp20_bi6_tau::Kp20TauMap;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let mut cap = assemble_synthetic_cap(n);
+        // The kernel's guide isn't accessible after assembly, but
+        // its apex jet equals what `kp20_compose_guide_tau_jet`
+        // would return at (0, 0). For this probe we directly
+        // rebuild the apex 4x4 block from the production guide,
+        // overlay, then re-measure eq(8).
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = crate::geometry::gregory::kp20_bi6_guide_build::build_kp20_guide_ring(
+            &crate::geometry::gregory::kp20_bi6_guide_build::Kp20GuideBuildInput {
+                star_point,
+                tensor_border: tensor_border.clone(),
+            },
+        )
+        .expect("guide builds");
+        for (k, macro_patch) in cap.macro_patches.iter_mut().enumerate() {
+            // Use for_sector_local — matches production sampling
+            // (kp20_bi6_piece_maps line 317).
+            let tau = Kp20TauMap::for_sector_local(n, k).expect("tau for valence");
+            let jet = crate::geometry::gregory::kp20_bi6_tau::kp20_compose_guide_tau_jet(
+                guide.sector(k),
+                &tau,
+                0.0,
+                0.0,
+            );
+            let block_left = kp20_corner_block_from_jet(jet);
+            // For the right piece, the affine map (kp20_default_sector_piece_maps
+            // line 28-29) swaps (du, dv). The piece-local jet is therefore
+            // h^R[i][j] = h^L[j][i], so block_right = block_left^T.
+            for i in 0..4 {
+                for j in 0..(4 - i) {
+                    macro_patch.piece_mut(Kp20PieceId::NearOriginLeft).cps[i][j] = block_left[i][j];
+                    macro_patch.piece_mut(Kp20PieceId::NearOriginRight).cps[j][i] =
+                        block_left[i][j];
+                }
+            }
+        }
+        let report = measure_kp20_assembly_constraints(&cap);
+        eprintln!(
+            "eq(8)/eq(9) after synthetic overlay n={n}: worst_eq8 = {e8:e}  worst_eq9 = {e9:e}  L6(1) = {l1:e}",
+            e8 = report.worst_eq8(),
+            e9 = report.worst_eq9(),
+            l1 = report.worst_lemma6_cond_1,
+        );
+        assert!(report.worst_eq8().is_finite());
+        assert!(report.worst_eq9().is_finite());
+    }
+}
+
 #[test]
 fn assembled_cap_lemma4_on_orig_pieces_apex_bb_coefs() {
     use crate::geometry::Point3;
