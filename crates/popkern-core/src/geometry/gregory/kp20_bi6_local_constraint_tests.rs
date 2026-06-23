@@ -454,6 +454,116 @@ fn global_constraint_matrix_dimensions_match_layout() {
     }
 }
 
+// --- Phase D probe: planar guide should satisfy Lemma 4 ---------
+
+/// A planar guide `g(x, y) = (x, y, 0)` sampled into a tri6 sector
+/// barycentrically. THIS GUIDE DOES NOT SATISFY KP18 (3)-(5)
+/// pairwise C^k joins — those joins use specific weights
+/// `(w0, w1, w2) = (-1, 2c, 2(1-c))` that the naive barycentric
+/// lifting does not respect for n ≠ 4.
+///
+/// Empirically this probe fails (order 1 ~1.3, order 3 ~75), which
+/// confirms the test below: Lemma 4 is NOT a consequence of g
+/// being C^∞; it requires the KP18 join structure.
+#[test]
+#[ignore = "negative-control: naive barycentric planar lifting does NOT satisfy KP18 (3)–(5) for n != 4, so Lemma 4 also fails. Documented finding from ADR 2026-06-23-kp20-bi6-paper-grade-guide-from-kp18.md."]
+fn lemma4_fails_on_naive_barycentric_planar_guide() {
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
+    use crate::geometry::gregory::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
+
+    let valences: &[usize] = &[5, 6, 7];
+
+    for &n in valences {
+        let alpha = std::f64::consts::TAU / n as f64;
+        let mut sectors: Vec<Kp20Tri6GuideSector> = Vec::with_capacity(n);
+        for s in 0..n {
+            let v_i = Point3::new((alpha * s as f64).cos(), (alpha * s as f64).sin(), 0.0);
+            let v_j = Point3::new(
+                (alpha * (s + 1) as f64).cos(),
+                (alpha * (s + 1) as f64).sin(),
+                0.0,
+            );
+            let v_k = Point3::new(0.0, 0.0, 0.0);
+            let mut cps = [Point3::new(0.0, 0.0, 0.0); TRI6_CP_COUNT];
+            for i in 0..=6 {
+                for j in 0..=(6 - i) {
+                    let k = 6 - i - j;
+                    let bi = i as f64 / 6.0;
+                    let bj = j as f64 / 6.0;
+                    let bk = k as f64 / 6.0;
+                    cps[flat_index(6, i, j)] = Point3::new(
+                        bi * v_i.x + bj * v_j.x + bk * v_k.x,
+                        bi * v_i.y + bj * v_j.y + bk * v_k.y,
+                        bi * v_i.z + bj * v_j.z + bk * v_k.z,
+                    );
+                }
+            }
+            sectors.push(Kp20Tri6GuideSector { cps });
+        }
+
+        let mut jets = Vec::with_capacity(n);
+        for (k, sector) in sectors.iter().enumerate() {
+            let tau = Kp20TauMap::for_sector(n, k).expect("tau map for valence");
+            let jet = kp20_compose_guide_tau_jet(sector, &tau, 0.0, 0.0);
+            jets.push(jet);
+        }
+
+        let mut worst_per_order = [0.0_f64; 4];
+        for k in 0..n {
+            let next = (k + 1) % n;
+            for (i, worst_slot) in worst_per_order.iter_mut().enumerate() {
+                let next_v = jets[next].h[0][i];
+                let curr_u = jets[k].h[i][0];
+                let dx = (next_v.x - curr_u.x).abs();
+                let dy = (next_v.y - curr_u.y).abs();
+                let dz = (next_v.z - curr_u.z).abs();
+                let mag = dx.max(dy).max(dz);
+                *worst_slot = worst_slot.max(mag);
+            }
+        }
+        eprintln!(
+            "PLANAR guide Lemma 4 n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst_per_order[0],
+            o1 = worst_per_order[1],
+            o2 = worst_per_order[2],
+            o3 = worst_per_order[3],
+        );
+        for (i, &w) in worst_per_order.iter().enumerate() {
+            assert!(
+                w < 1e-10,
+                "PLANAR guide Lemma 4 defect at order {i} = {w:e} (should be ≤ 1e-10)",
+            );
+        }
+    }
+}
+
+/// Diagnostic probe: how well does the kernel's LSQ satisfy its
+/// own KP18 equality constraints?
+#[test]
+fn lsq_max_constraint_residual_on_synthetic_inputs() {
+    use crate::geometry::Point3;
+    use crate::geometry::gregory::kp20_bi6_guide_lsq::solve_kp20_guide_lsq_with_report;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let solved = solve_kp20_guide_lsq_with_report(&tensor_border, star_point)
+            .expect("LSQ solves on synthetic input");
+        eprintln!(
+            "LSQ report n={n}: indep_constraints={ic} free_params={fp} max_fit={mf:e} rms_fit={rf:e} max_constraint={mc:e} kkt_cond={kc:e}",
+            ic = solved.report.independent_constraints,
+            fp = solved.report.free_parameters_after_center_pin,
+            mf = solved.report.max_fit_residual,
+            rf = solved.report.rms_fit_residual,
+            mc = solved.report.max_constraint_residual,
+            kc = solved.report.kkt_condition_number,
+        );
+    }
+}
+
 // --- Phase D: Lemma 4 cubic-expansion identification ------------
 
 /// Lemma 4 says the cubic Hermite jet `h := g ∘ τ` of adjacent
