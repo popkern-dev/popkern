@@ -68,6 +68,13 @@ fn main() {
     // filleted apex should look."
     export_real_pyramid_reference(&out);
 
+    // Skip the via-table variants for this iteration — they're cap-
+    // only loose BReps that don't tessellate cleanly. Focus on the
+    // real pyramid renders above.
+    if std::env::var("WITH_VIA_TABLE").is_err() {
+        return;
+    }
+
     // Build the via-table comparison input: a regular hexagon-6 polar
     // config with a symmetric bi-3 tensor border that mimics what a
     // pyramid apex fillet would feed into the cap construction.
@@ -169,11 +176,33 @@ fn main() {
 /// pyramid actually looks like" so the via-table experiments
 /// below can be judged in context.
 fn export_real_pyramid_reference(out: &Path) {
+    // Sweep height to find a regime where the apex cap is clean.
+    // Sharp apex (h=0.8): polar Gregory required, currently fails.
+    // Tall apex (h=3.0): rolling-ball sphere fits naturally.
+    println!("\n=== sharp pentagon (h=0.8, fillet-cap regime) ===");
+    run_pyramid_fillet_reference(out, 5, 0.8, "pentagon_n5_sharp");
+    println!("\n=== tall pentagon (h=3.0, sphere-cap regime) ===");
+    run_pyramid_fillet_reference(out, 5, 3.0, "pentagon_n5_tall");
+    println!("\n=== sharp hexagon (h=0.8) ===");
+    run_pyramid_fillet_reference(out, 6, 0.8, "hexagon_n6_sharp");
+    println!("\n=== tall hexagon (h=3.0) ===");
+    run_pyramid_fillet_reference(out, 6, 3.0, "hexagon_n6_tall");
+}
+
+fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) {
+    use popkern_core::topology::{
+        BrepExportQualityOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+        analyze_brep_export_quality,
+    };
+    use popkern_fillet::ApexConstructionDiagnostic;
     let tol = Tolerance::default();
-    let pyramid = match popkern_core::topology::BRep::n_gonal_pyramid(6, 1.0, 1.2, tol) {
+    // Use the same geometry as `kp_polar_commercial_gates.rs::polar_
+    // passes_commercial_gates_on_pentagon5_uniform`: base radius 1.0,
+    // height 0.8 (sharp apex), fillet radius 0.05.
+    let pyramid = match popkern_core::topology::BRep::n_gonal_pyramid(n, 1.0, height, tol) {
         Ok(p) => p,
         Err(e) => {
-            println!("  pyramid_n6 build failed: {e}");
+            println!("  {label} build failed: {e}");
             return;
         }
     };
@@ -183,7 +212,7 @@ fn export_real_pyramid_reference(out: &Path) {
         .find(|(_, v)| v.position.x.abs() < 1e-9 && v.position.y.abs() < 1e-9 && v.position.z > 0.0)
         .map(|(h, _)| h);
     let Some(apex) = apex else {
-        println!("  pyramid_n6: apex vertex not found");
+        println!("  {label}: apex vertex not found");
         return;
     };
     let apex_edges: Vec<_> = pyramid
@@ -196,42 +225,293 @@ fn export_real_pyramid_reference(out: &Path) {
             if v0 == apex || v1 == apex { Some(h) } else { None }
         })
         .collect();
+    // Sweep across a few radii with the FULL gregory option stack
+    // (matching what `kp_polar_commercial_gates.rs` uses for its
+    // passing pentagon-5 tests).
+    println!("  Radius sweep with FULL gregory option stack:");
+    for radius in &[0.05_f64, 0.10, 0.20] {
+        let radius = *radius;
+        let specs: Vec<FilletSpec> = apex_edges
+            .iter()
+            .map(|&edge| FilletSpec {
+                edge,
+                radius: FilletRadius::Constant(radius),
+            })
+            .collect();
+        let options = FilletOptions {
+            use_rational_gregory: true,
+            use_deg5_gregory: true,
+            use_biquintic_full_gregory: true,
+            use_biseptic_gregory: true,
+            use_two_stripe_gregory: true,
+            use_kp_binonic_gregory: true,
+            use_kp_polar_gregory: true,
+            ..FilletOptions::default()
+        };
+        match fillet_edges(&pyramid, &specs, &options, tol, None) {
+            Ok(r) => {
+                let mut worst_g1 = 0.0_f64;
+                let mut decline_codes: Vec<String> = Vec::new();
+                for d in &r.repair_report.apex_diagnostics {
+                    match d {
+                        ApexConstructionDiagnostic::CapSupportContinuity(c) => {
+                            worst_g1 = worst_g1.max(c.worst_g1_coplanarity);
+                        }
+                        ApexConstructionDiagnostic::ExactBoundaryCap(c)
+                            if c.code.contains("decline") =>
+                        {
+                            decline_codes.push(format!("{}/{}", c.code, c.stage));
+                        }
+                        _ => {}
+                    }
+                }
+                let route = r
+                    .repair_report
+                    .apex_routes
+                    .first()
+                    .map(|x| format!("{:?}", x.route))
+                    .unwrap_or_else(|| "?".into());
+                let declines = if decline_codes.is_empty() {
+                    "no declines".to_string()
+                } else {
+                    format!("{} declines, first = {}", decline_codes.len(), decline_codes[0])
+                };
+                println!(
+                    "    r={radius:.2}: route={route}, worst G1 = {worst_g1:.3e}, {declines}"
+                );
+            }
+            Err(e) => println!("    r={radius:.2}: FAILED: {e:?}"),
+        }
+    }
+
+    // Match `polar_passes_commercial_gates_on_pentagon5_uniform`:
+    // uniform 0.05 radius across all spokes.
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
         .map(|&edge| FilletSpec {
             edge,
-            radius: FilletRadius::Constant(0.10),
+            radius: FilletRadius::Constant(0.05),
         })
         .collect();
-    let options = FilletOptions::default();
-    match fillet_edges(&pyramid, &specs, &options, tol, None) {
-        Ok(result) => {
-            let step_path = out.join("reference_pyramid_n6_existing_pipeline.step");
-            let doc = step_document(&result.brep, "pyramid_n6_reference");
-            if let Err(e) = export_step_file(&doc, &step_path, &StepExportOptions::default()) {
-                println!("  reference STEP export failed: {e}");
-                return;
+    // Sweep apex routing options to find which produces the best
+    // cap. Report worst G1 coplanarity per route; pick the winner.
+    let full_gregory_stack = FilletOptions {
+        use_rational_gregory: true,
+        use_deg5_gregory: true,
+        use_biquintic_full_gregory: true,
+        use_biseptic_gregory: true,
+        use_two_stripe_gregory: true,
+        use_kp_binonic_gregory: true,
+        use_kp_polar_gregory: true,
+        ..FilletOptions::default()
+    };
+    let mut option_variants: Vec<(&str, FilletOptions)> = vec![
+        ("default_legacy", FilletOptions::default()),
+        (
+            "direct_apex",
+            FilletOptions {
+                use_direct_apex_construction: true,
+                ..FilletOptions::default()
+            },
+        ),
+        ("full_gregory_stack", full_gregory_stack),
+    ];
+    println!("  Sweeping {} apex-routing options:", option_variants.len());
+    let mut best: Option<(&str, f64, popkern_fillet::BlendResult)> = None;
+    for (name, options) in option_variants.drain(..) {
+        match fillet_edges(&pyramid, &specs, &options, tol, None) {
+            Ok(result) => {
+                let mut worst_g1 = 0.0_f64;
+                let mut decline_count = 0usize;
+                for d in &result.repair_report.apex_diagnostics {
+                    match d {
+                        ApexConstructionDiagnostic::CapSupportContinuity(c) => {
+                            if c.worst_g1_coplanarity > worst_g1 {
+                                worst_g1 = c.worst_g1_coplanarity;
+                            }
+                        }
+                        ApexConstructionDiagnostic::ExactBoundaryCap(c) => {
+                            if c.code.contains("declined") || c.code.contains("rollback") {
+                                decline_count += 1;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let route_label = result
+                    .repair_report
+                    .apex_routes
+                    .first()
+                    .map(|r| format!("{:?}", r.route))
+                    .unwrap_or_else(|| "none".into());
+                println!(
+                    "    [{name:25}] route={route_label}, worst G1 = {worst_g1:.3e}, declines = {decline_count}"
+                );
+                if best.as_ref().map_or(true, |(_, bg, _)| worst_g1 < *bg) {
+                    best = Some((name, worst_g1, result));
+                }
             }
-            println!("  reference: filleted hexagon-6 pyramid (existing pipeline) -> {}",
-                     step_path.display());
-            let png_path = out.join("reference_pyramid_n6_existing_pipeline.png");
-            let camera = popkern_viz::camera::Camera {
-                eye: glam::Vec3::new(2.5, 2.5, 1.8),
-                target: glam::Vec3::new(0.0, 0.0, 0.6),
-                up: glam::Vec3::new(0.0, 0.0, 1.0),
-                fov_y: 30.0_f32.to_radians(),
-                aspect: 1.0,
-                near: 0.01,
-                far: 100.0,
-            };
-            match popkern_viz::headless::render_to_png(
-                &result.brep, &camera, 1200, 1200, &png_path, false,
-            ) {
-                Ok(_) => println!("    reference PNG -> {}", png_path.display()),
-                Err(e) => println!("    reference PNG failed: {e}"),
+            Err(e) => {
+                println!("    [{name:25}] FAILED: {e:?}");
             }
         }
-        Err(e) => println!("  pyramid_n6 fillet failed: {e:?}"),
+    }
+    let (best_name, best_g1, result) = best.expect("at least one option succeeded");
+    println!("  Winner: {best_name} with worst G1 = {best_g1:.3e}");
+
+    println!("  pyramid_n6 fillet returned:");
+    println!(
+        "    {} corner patches, {} faces, {} edges, {} vertices",
+        result.corner_patches.len(),
+        result.brep.faces.len(),
+        result.brep.edges.len(),
+        result.brep.vertices.len()
+    );
+    // Dump ALL apex diagnostics so we know what actually built the cap.
+    println!("  All apex_diagnostics ({}):", result.repair_report.apex_diagnostics.len());
+    let mut seen_codes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for d in &result.repair_report.apex_diagnostics {
+        match d {
+            ApexConstructionDiagnostic::ExactBoundaryCap(c) => {
+                let key = format!("{}/{}", c.code, c.stage);
+                if seen_codes.insert(key.clone()) {
+                    let detail = c
+                        .detail_code
+                        .as_deref()
+                        .map(|d| d.lines().next().unwrap_or("").chars().take(120).collect::<String>())
+                        .unwrap_or_default();
+                    println!("    {key}  {detail}");
+                }
+            }
+            ApexConstructionDiagnostic::CapSupportContinuity(c) => {
+                println!(
+                    "    cap-support continuity: scope={}, worst G1 = {:.3e}, gate = {:.3e}, {} edges measured",
+                    c.measurement_scope, c.worst_g1_coplanarity, c.gate, c.edges_measured
+                );
+            }
+            _ => {}
+        }
+    }
+    // List the corner-patch construction method.
+    for (i, p) in result.corner_patches.iter().enumerate() {
+        println!("    corner patch {i}: method = {:?}", p.method);
+    }
+
+    // Apex/cap diagnostics — what the kernel reports about the
+    // cap's quality and acceptance.
+    let mut apex_route_count = 0usize;
+    let mut cap_continuity_count = 0usize;
+    let mut worst_g1_co = 0.0_f64;
+    let mut declines: Vec<String> = Vec::new();
+    for diag in &result.repair_report.apex_diagnostics {
+        match diag {
+            ApexConstructionDiagnostic::ExactBoundaryCap(c) => {
+                if c.code.contains("declined") || c.code.contains("rollback") {
+                    declines.push(format!("{}: {}", c.code, c.stage));
+                }
+            }
+            ApexConstructionDiagnostic::CapSupportContinuity(c) => {
+                cap_continuity_count += 1;
+                if c.worst_g1_coplanarity > worst_g1_co {
+                    worst_g1_co = c.worst_g1_coplanarity;
+                }
+            }
+            _ => {}
+        }
+    }
+    for route in &result.repair_report.apex_routes {
+        apex_route_count += 1;
+        if let Some(reason) = &route.fallback_reason {
+            println!("    apex route {:?} fallback: {reason}", route.route);
+        } else {
+            println!("    apex route {:?} accepted", route.route);
+        }
+    }
+    println!(
+        "    {apex_route_count} apex routes attempted, {cap_continuity_count} continuity reports, worst G1 coplanarity = {worst_g1_co:.3e}"
+    );
+    for d in declines.iter().take(10) {
+        println!("    decline: {d}");
+    }
+
+    // Topology quality metrics (manifold edges, pcurve deviation,
+    // export-readiness).
+    let quality = analyze_brep_export_quality(
+        &result.brep,
+        BrepExportQualityOptions {
+            topology_output: BrepTopologyOutputPolicy::OpenSheet,
+            trim: BrepTrimRepairOptions {
+                endpoint_tolerance: 1e-6,
+                sampled_tolerance: 1e-6,
+                samples: 9,
+                validate_output: true,
+            },
+            require_edge_curves: true,
+            allow_collapsed_trim_edge_curves: true,
+            max_pcurve_deviation: Some(1e-6),
+            max_edge_surface_deviation: Some(1e-6),
+            validate_brep: true,
+        },
+    );
+    println!(
+        "    quality: readiness = {:?}, edges = {}, boundary edges = {}",
+        quality.readiness, quality.edges, quality.boundary_edges
+    );
+    println!(
+        "    missing edge curves: {}, pcurve blockers: {}, max pcurve dev: {:.3e}",
+        quality.missing_edge_curves, quality.pcurve_blockers, quality.max_pcurve_deviation
+    );
+    println!(
+        "    stale pcurves: {}, degenerate topology: {}, collapsed trim missing curves: {}",
+        quality.authority.stale_pcurves,
+        quality.authority.degenerate_topology,
+        quality.collapsed_trim_missing_edge_curves
+    );
+
+    let step_path = out.join(format!("reference_{label}.step"));
+    let doc = step_document(&result.brep, label);
+    if let Err(e) = export_step_file(&doc, &step_path, &StepExportOptions::default()) {
+        println!("  {label} STEP export failed: {e}");
+        return;
+    }
+    println!("    STEP -> {}", step_path.display());
+    let png_path = out.join(format!("reference_{label}.png"));
+    let camera = popkern_viz::camera::Camera {
+        eye: glam::Vec3::new(2.0, 2.0, 1.4),
+        target: glam::Vec3::new(0.0, 0.0, 0.4),
+        up: glam::Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 30.0_f32.to_radians(),
+        aspect: 1.0,
+        near: 0.01,
+        far: 100.0,
+    };
+    match popkern_viz::headless::render_to_png(&result.brep, &camera, 1200, 1200, &png_path, false)
+    {
+        Ok(_) => println!("    PNG -> {}", png_path.display()),
+        Err(e) => println!("    PNG failed: {e}"),
+    }
+
+    // Also render close-up on just the apex region.
+    let apex_png = out.join(format!("reference_{label}_apex_closeup.png"));
+    let apex_camera = popkern_viz::camera::Camera {
+        eye: glam::Vec3::new(0.25, 0.25, 1.0),
+        target: glam::Vec3::new(0.0, 0.0, 0.78),
+        up: glam::Vec3::new(0.0, 0.0, 1.0),
+        fov_y: 20.0_f32.to_radians(),
+        aspect: 1.0,
+        near: 0.01,
+        far: 10.0,
+    };
+    match popkern_viz::headless::render_to_png(
+        &result.brep,
+        &apex_camera,
+        1200,
+        1200,
+        &apex_png,
+        false,
+    ) {
+        Ok(_) => println!("    apex close-up PNG -> {}", apex_png.display()),
+        Err(e) => println!("    apex close-up failed: {e}"),
     }
 }
 
