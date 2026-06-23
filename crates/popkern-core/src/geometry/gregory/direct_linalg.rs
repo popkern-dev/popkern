@@ -28,6 +28,21 @@ pub(crate) struct DenseConditionReport {
     pub condition_number: f64,
 }
 
+/// Numerical rank of a dense matrix via SVD: count of singular
+/// values strictly greater than `tol`. Returns 0 for empty input
+/// or rows of inconsistent length.
+#[cfg(test)]
+pub(crate) fn dense_rank(m: &[Vec<f64>], tol: f64) -> usize {
+    let rows = m.len();
+    let cols = m.first().map_or(0, Vec::len);
+    if rows == 0 || cols == 0 || m.iter().any(|row| row.len() != cols) {
+        return 0;
+    }
+    let mat = Mat::from_fn(rows, cols, |r, c| m[r][c]);
+    let singular_values = mat.singular_values();
+    singular_values.iter().filter(|&&s| s > tol).count()
+}
+
 /// Measure a dense matrix condition number via SVD.
 pub(crate) fn condition_number_dense(m: &[Vec<f64>]) -> Option<DenseConditionReport> {
     let rows = m.len();
