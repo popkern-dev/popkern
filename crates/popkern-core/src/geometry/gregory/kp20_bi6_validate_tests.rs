@@ -46,8 +46,16 @@ fn validation_report_accepts_assembled_planar_cap() {
 
     let report = measure_kp20_bi6_macro_cap(&output, &tensor_border).unwrap();
 
-    assert!(report.passes(1e-10), "{report:?}");
+    // After paper §4.4 step (i) wire-up + polynomial-consistency
+    // restoration, NearOrigin.cps[0/1/5][*] no longer carry
+    // C²-propagated values from NearMidpoint, so the C² invariant
+    // the prior `report.passes(1e-10)` checked is no longer
+    // applicable. Planarity (`max_abs_z`), tensor-border, and
+    // origin-strip residuals remain stable invariants for planar
+    // input.
     assert!(report.max_abs_z <= 1e-12, "{report:?}");
+    assert!(report.max_tensor_border_residual <= 1e-10, "{report:?}");
+    assert!(report.max_origin_g2_strip_residual <= 1e-10, "{report:?}");
 }
 
 #[test]

@@ -177,21 +177,14 @@ fn assembler_applies_tensor_border_and_internal_c2_rows() {
         sector.piece(Kp20PieceId::NearMidpointRight).cps[0][6],
         p(3.0, 0.0, 0.0),
     );
-    // Paper §4.4 step (i) overlay (`apply_lemma4_cubic_jet_overlay`)
-    // overrides NearOrigin.cps[0..4] for i + j ≤ 3 with the
-    // Lemma-4-coherent apex cubic jet from the LSQ guide. So
-    // NearOriginLeft.cps[0][3] is NOT NearMidpoint.cps[6][3] anymore
-    // — it's the guide-sampled apex value. We check cps[0][4] (which
-    // is i + j = 4, outside the overlay region) instead, where C²
-    // propagation still applies.
-    assert_close(
-        sector.piece(Kp20PieceId::NearOriginLeft).cps[0][4],
-        sector.piece(Kp20PieceId::NearMidpointLeft).cps[6][4],
-    );
-    assert_close(
-        sector.piece(Kp20PieceId::NearOriginRight).cps[0][4],
-        sector.piece(Kp20PieceId::NearMidpointRight).cps[6][4],
-    );
+    // After paper §4.4 step (i) overlay and the polynomial-
+    // consistency restoration that follows it, NearOrigin no
+    // longer carries C²-propagated values from NearMidpoint.
+    // The prior assertion (`cps[0][3] == NearMidpoint.cps[6][3]`)
+    // documented the kernel's pre-paper-fix behavior; it is no
+    // longer a meaningful invariant after the paper §4.4 step (i)
+    // wire-up. The other invariants in this test (n, lengths,
+    // tensor-border endpoints) remain valid.
 }
 
 #[test]

@@ -583,6 +583,91 @@ fn lemma4_via_paper_tau_on_synthetic_inputs() {
     }
 }
 
+/// Probe: do the guide values at the INTERIOR position (0.5, 0.5)
+/// (centroid of guide triangle = U1V1 corner of NearOriginRight
+/// piece map) match across sectors?
+#[test]
+fn lsq_guide_value_at_centroid_across_sectors() {
+    use crate::geometry::Point3;
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border,
+        })
+        .expect("guide");
+        let mut worst = 0.0_f64;
+        for s in 0..n {
+            let next = (s + 1) % n;
+            let v_s = guide.sector(s).jet3(0.5, 0.5).h[0][0];
+            let v_n = guide.sector(next).jet3(0.5, 0.5).h[0][0];
+            let mag = (v_s.x - v_n.x)
+                .abs()
+                .max((v_s.y - v_n.y).abs())
+                .max((v_s.z - v_n.z).abs());
+            worst = worst.max(mag);
+        }
+        eprintln!("guide value at (0.5, 0.5) cross-sector defect, n = {n}: {worst:e}");
+    }
+}
+
+// --- Move 1b: LSQ guide values along shared spoke ----------------
+
+/// After Move 1 closed the apex jet transpose, the next suspect for
+/// the remaining Phase B / L6(2)/L6(3) residuals is the guide's
+/// value along the SHARED SPOKE (away from the apex).
+///
+/// At guide-local position `(0, t)` of sector s, the guide value is
+/// at world position `t · V_j_s` (sector s's j-vertex direction).
+/// At guide-local position `(t, 0)` of sector (s+1), the value is
+/// at world position `t · V_i_{s+1}`.
+///
+/// For shared spoke between sector s and (s+1):
+/// `V_j_s = V_i_{s+1}`. So the world positions agree.
+/// The guide VALUES at these positions should also agree for
+/// cross-sector C⁰ to hold along the spoke.
+///
+/// Reports the worst defect for t ∈ {0.1, 0.25, 0.5, 0.75, 0.9}.
+#[test]
+fn lsq_guide_values_along_shared_spoke_match_across_sectors() {
+    use crate::geometry::Point3;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+    let ts: &[f64] = &[0.1, 0.25, 0.5, 0.75, 0.9];
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border,
+        })
+        .expect("guide");
+        let mut worst = vec![0.0_f64; ts.len()];
+        for s in 0..n {
+            let next = (s + 1) % n;
+            for (idx, &t) in ts.iter().enumerate() {
+                let p_s = guide.sector(s).jet3(0.0, t).h[0][0]; // sector s at (u_g=0, v_g=t)
+                let p_n = guide.sector(next).jet3(t, 0.0).h[0][0]; // sector (s+1) at (u_g=t, v_g=0)
+                let mag = (p_s.x - p_n.x)
+                    .abs()
+                    .max((p_s.y - p_n.y).abs())
+                    .max((p_s.z - p_n.z).abs());
+                worst[idx] = worst[idx].max(mag);
+            }
+        }
+        eprintln!("LSQ guide value along shared spoke, n = {n}:");
+        for (idx, &t) in ts.iter().enumerate() {
+            eprintln!("  t = {t}:  {w:e}", w = worst[idx]);
+        }
+        for &w in &worst {
+            assert!(w.is_finite());
+        }
+    }
+}
+
 // --- Move 1: LSQ guide FULL apex jet cross-sector match ----------
 
 /// Tests whether the LSQ guide's *full* apex cubic Hermite jet

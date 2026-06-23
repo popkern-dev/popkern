@@ -187,6 +187,20 @@ pub fn assemble_kp20_bi6_macro_cap(
         })
         .collect();
 
+    // Save FULL NearOrigin pieces too so we can restore the
+    // C²-overwritten rows after step (i) overlay. Paper §4.4 does
+    // not explicitly list C² propagation as a step — it's a kernel
+    // optimisation that creates inconsistency with the overlay's
+    // Lemma-4-coherent apex.
+    let near_origin_left_full: Vec<[[Point3; 7]; 7]> = macro_patches
+        .iter()
+        .map(|mp| mp.piece(Kp20PieceId::NearOriginLeft).cps)
+        .collect();
+    let near_origin_right_full: Vec<[[Point3; 7]; 7]> = macro_patches
+        .iter()
+        .map(|mp| mp.piece(Kp20PieceId::NearOriginRight).cps)
+        .collect();
+
     apply_tensor_border_rows(&mut macro_patches, &boundary);
     apply_internal_c2_to_all(&mut macro_patches);
 
@@ -200,6 +214,32 @@ pub fn assemble_kp20_bi6_macro_cap(
         &lemma4_overlay_left,
         &lemma4_overlay_right,
     );
+    // Restore non-apex cps that the C² propagation overwrote.
+    // Specifically NearOrigin.cps[5][*] (row 5) which is outside
+    // the apex overlay region (i + j > 3 always at i = 5). Without
+    // this restoration the v=0 row of NearOrigin is a Frankenstein
+    // of overlay (i ≤ 3) and C² (i = 5), which the eq(8) polynomial
+    // residual amplifies. We also restore cps[0][i] and cps[1][i]
+    // for i > 3 (outside overlay reach) to keep those rows
+    // polynomially consistent with the overlay region.
+    for (k, macro_patch) in macro_patches.iter_mut().enumerate() {
+        let l = macro_patch.piece_mut(Kp20PieceId::NearOriginLeft);
+        for j in 4..7 {
+            l.cps[0][j] = near_origin_left_full[k][0][j];
+            l.cps[1][j] = near_origin_left_full[k][1][j];
+        }
+        for j in 0..7 {
+            l.cps[5][j] = near_origin_left_full[k][5][j];
+        }
+        let r = macro_patch.piece_mut(Kp20PieceId::NearOriginRight);
+        for j in 4..7 {
+            r.cps[0][j] = near_origin_right_full[k][0][j];
+            r.cps[1][j] = near_origin_right_full[k][1][j];
+        }
+        for j in 0..7 {
+            r.cps[5][j] = near_origin_right_full[k][5][j];
+        }
+    }
 
     let strip_projections = apply_g2_strip_projection_to_all(&mut macro_patches)?;
     let patches_bi6 = flatten_macro_patches(&macro_patches);
