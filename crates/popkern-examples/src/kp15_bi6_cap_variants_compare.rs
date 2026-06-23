@@ -176,17 +176,14 @@ fn main() {
 /// pyramid actually looks like" so the via-table experiments
 /// below can be judged in context.
 fn export_real_pyramid_reference(out: &Path) {
-    // Sweep height to find a regime where the apex cap is clean.
-    // Sharp apex (h=0.8): polar Gregory required, currently fails.
-    // Tall apex (h=3.0): rolling-ball sphere fits naturally.
-    println!("\n=== sharp pentagon (h=0.8, fillet-cap regime) ===");
+    // Just pentagon n=5 sharp h=0.8 r=0.05 — the case that produces a
+    // visually recognisable apex cap (legacy RollingBallSphere fallback
+    // with G1 ~ 0.86 — fails the 50mrad commercial gate but is the
+    // best the kernel currently produces). The hexagon n=6 case and
+    // taller pyramids all decline polar Gregory and produce visually
+    // worse caps.
+    println!("\n=== pentagon n=5, h=0.8, r=0.05 ===");
     run_pyramid_fillet_reference(out, 5, 0.8, "pentagon_n5_sharp");
-    println!("\n=== tall pentagon (h=3.0, sphere-cap regime) ===");
-    run_pyramid_fillet_reference(out, 5, 3.0, "pentagon_n5_tall");
-    println!("\n=== sharp hexagon (h=0.8) ===");
-    run_pyramid_fillet_reference(out, 6, 0.8, "hexagon_n6_sharp");
-    println!("\n=== tall hexagon (h=3.0) ===");
-    run_pyramid_fillet_reference(out, 6, 3.0, "hexagon_n6_tall");
 }
 
 fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) {
@@ -225,11 +222,9 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
             if v0 == apex || v1 == apex { Some(h) } else { None }
         })
         .collect();
-    // Sweep across a few radii with the FULL gregory option stack
-    // (matching what `kp_polar_commercial_gates.rs` uses for its
-    // passing pentagon-5 tests).
-    println!("  Radius sweep with FULL gregory option stack:");
-    for radius in &[0.05_f64, 0.10, 0.20] {
+    // Skip the radius sweep — just run the single config.
+    if false {
+    for radius in &[0.05_f64] {
         let radius = *radius;
         let specs: Vec<FilletSpec> = apex_edges
             .iter()
@@ -283,6 +278,7 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
             Err(e) => println!("    r={radius:.2}: FAILED: {e:?}"),
         }
     }
+    }
 
     // Match `polar_passes_commercial_gates_on_pentagon5_uniform`:
     // uniform 0.05 radius across all spokes.
@@ -305,7 +301,7 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         use_kp_polar_gregory: true,
         ..FilletOptions::default()
     };
-    let mut option_variants: Vec<(&str, FilletOptions)> = vec![
+    let option_variants: Vec<(&str, FilletOptions)> = vec![
         ("default_legacy", FilletOptions::default()),
         (
             "direct_apex",
@@ -316,48 +312,22 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         ),
         ("full_gregory_stack", full_gregory_stack),
     ];
-    println!("  Sweeping {} apex-routing options:", option_variants.len());
-    let mut best: Option<(&str, f64, popkern_fillet::BlendResult)> = None;
-    for (name, options) in option_variants.drain(..) {
-        match fillet_edges(&pyramid, &specs, &options, tol, None) {
-            Ok(result) => {
-                let mut worst_g1 = 0.0_f64;
-                let mut decline_count = 0usize;
-                for d in &result.repair_report.apex_diagnostics {
-                    match d {
-                        ApexConstructionDiagnostic::CapSupportContinuity(c) => {
-                            if c.worst_g1_coplanarity > worst_g1 {
-                                worst_g1 = c.worst_g1_coplanarity;
-                            }
-                        }
-                        ApexConstructionDiagnostic::ExactBoundaryCap(c) => {
-                            if c.code.contains("declined") || c.code.contains("rollback") {
-                                decline_count += 1;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                let route_label = result
-                    .repair_report
-                    .apex_routes
-                    .first()
-                    .map(|r| format!("{:?}", r.route))
-                    .unwrap_or_else(|| "none".into());
-                println!(
-                    "    [{name:25}] route={route_label}, worst G1 = {worst_g1:.3e}, declines = {decline_count}"
-                );
-                if best.as_ref().map_or(true, |(_, bg, _)| worst_g1 < *bg) {
-                    best = Some((name, worst_g1, result));
-                }
-            }
-            Err(e) => {
-                println!("    [{name:25}] FAILED: {e:?}");
-            }
+    // Skip the routing sweep — just use the full Gregory stack
+    // directly (which is what `kp_polar_commercial_gates` does).
+    let (best_name, options) = option_variants
+        .iter()
+        .find(|(n, _)| *n == "full_gregory_stack")
+        .map(|(n, o)| (*n, o.clone()))
+        .expect("full_gregory_stack present");
+    let result = fillet_edges(&pyramid, &specs, &options, tol, None)
+        .expect("pentagon n=5 fillet succeeds");
+    let mut best_g1 = 0.0_f64;
+    for d in &result.repair_report.apex_diagnostics {
+        if let ApexConstructionDiagnostic::CapSupportContinuity(c) = d {
+            best_g1 = best_g1.max(c.worst_g1_coplanarity);
         }
     }
-    let (best_name, best_g1, result) = best.expect("at least one option succeeded");
-    println!("  Winner: {best_name} with worst G1 = {best_g1:.3e}");
+    println!("  Using {best_name}: worst G1 coplanarity = {best_g1:.3e} (gate = 5.000e-2)");
 
     println!("  pyramid_n6 fillet returned:");
     println!(
