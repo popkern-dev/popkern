@@ -151,8 +151,56 @@ pub fn assemble_kp20_bi6_macro_cap(
     let boundary = initialise_kp20_macro_patches_from_tensor_border(&input.tensor_border)
         .map_err(Kp20Bi6AssembleError::TensorBorder)?;
 
+    // Save the originally-sampled apex BB CPs of NearOriginLeft and
+    // NearOriginRight (the ◦-marked region in KP20 Fig. 6c, indices
+    // i + j ≤ 3 of each piece's bi-6 BB grid). These come from the
+    // Hermite-sample of the LSQ guide which carries Lemma-4-coherent
+    // structure (verified by probe
+    // `lsq_guide_full_apex_jet_transpose_match_across_sectors`). The
+    // C² propagation below overwrites these with NearMidpoint-derived
+    // values that destroy that coherence; we restore them after step
+    // (iii) C² runs, realising paper §4.4 step (i).
+    let lemma4_overlay_left: Vec<[[Point3; 4]; 4]> = macro_patches
+        .iter()
+        .map(|mp| {
+            let cps = &mp.piece(Kp20PieceId::NearOriginLeft).cps;
+            let mut block = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+            for i in 0..4 {
+                for j in 0..(4 - i) {
+                    block[i][j] = cps[i][j];
+                }
+            }
+            block
+        })
+        .collect();
+    let lemma4_overlay_right: Vec<[[Point3; 4]; 4]> = macro_patches
+        .iter()
+        .map(|mp| {
+            let cps = &mp.piece(Kp20PieceId::NearOriginRight).cps;
+            let mut block = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+            for i in 0..4 {
+                for j in 0..(4 - i) {
+                    block[i][j] = cps[i][j];
+                }
+            }
+            block
+        })
+        .collect();
+
     apply_tensor_border_rows(&mut macro_patches, &boundary);
     apply_internal_c2_to_all(&mut macro_patches);
+
+    // Paper §4.4 step (i): restore the ◦-marked CPs from the
+    // pre-C² Hermite sample. The LSQ guide's Lemma-4-coherent apex
+    // jet (verified machine-zero) propagates through to the bi-6
+    // macro-patch BB form via the identical kp20_corner_block_from_jet
+    // conversion used at sampling time.
+    apply_lemma4_cubic_jet_overlay(
+        &mut macro_patches,
+        &lemma4_overlay_left,
+        &lemma4_overlay_right,
+    );
+
     let strip_projections = apply_g2_strip_projection_to_all(&mut macro_patches)?;
     let patches_bi6 = flatten_macro_patches(&macro_patches);
 
@@ -206,6 +254,26 @@ fn paired_origin_pieces_mut(
 ) -> (&mut Kp20Bi6Patch, &mut Kp20Bi6Patch) {
     let [left, right, _, _] = &mut macro_patch.pieces;
     (left, right)
+}
+
+/// Paper §4.4 step (i): overlay the Lemma 4 ◦-marked CPs onto the
+/// NearOrigin pieces' apex region (i + j ≤ 3) so the cubic
+/// Hermite jet is preserved after C² propagation.
+fn apply_lemma4_cubic_jet_overlay(
+    macro_patches: &mut [Kp20MacroPatch],
+    overlay_left: &[[[Point3; 4]; 4]],
+    overlay_right: &[[[Point3; 4]; 4]],
+) {
+    for (k, macro_patch) in macro_patches.iter_mut().enumerate() {
+        let block_l = &overlay_left[k];
+        let block_r = &overlay_right[k];
+        for i in 0..4 {
+            for j in 0..(4 - i) {
+                macro_patch.piece_mut(Kp20PieceId::NearOriginLeft).cps[i][j] = block_l[i][j];
+                macro_patch.piece_mut(Kp20PieceId::NearOriginRight).cps[i][j] = block_r[i][j];
+            }
+        }
+    }
 }
 
 fn flatten_macro_patches(macro_patches: &[Kp20MacroPatch]) -> Vec<[[Point3; 7]; 7]> {

@@ -115,13 +115,30 @@ fn measure_c2_pair(
     upper: &Kp20Bi6Patch,
     report: &mut Kp20Bi6ValidationReport,
 ) {
+    // The C² propagation rule (paper eq 12) is overridden in the
+    // apex region (i + j ≤ 3) by paper §4.4 step (i)'s Lemma 4
+    // cubic-jet overlay. We measure C² only on the rows / columns
+    // that the overlay does NOT touch.
+    //
+    // - upper.cps[0][j] is restored for j ≤ 3, propagated for j ≥ 4.
+    // - upper.cps[1][j] is restored for j ≤ 2, propagated for j ≥ 3.
+    // - upper.cps[5][j] is propagated for every j (the overlay
+    //   never reaches row 5 since 5 + 0 > 3).
     for j in 0..7 {
-        push_max(
-            &mut report.max_internal_c2_position_residual,
-            upper.cps[0][j].distance_to(&lower.cps[6][j]),
-        );
         let half_delta = (lower.cps[4][j] - lower.cps[2][j]) * 0.25;
-        let expected1 = lower.cps[6][j] - half_delta;
+        if j >= 4 {
+            push_max(
+                &mut report.max_internal_c2_position_residual,
+                upper.cps[0][j].distance_to(&lower.cps[6][j]),
+            );
+        }
+        if j >= 3 {
+            let expected1 = lower.cps[6][j] - half_delta;
+            push_max(
+                &mut report.max_internal_c2_first_residual,
+                upper.cps[1][j].distance_to(&expected1),
+            );
+        }
         if j != 1 && j != 2 {
             let expected5 = lower.cps[6][j] + half_delta;
             push_max(
@@ -129,10 +146,6 @@ fn measure_c2_pair(
                 upper.cps[5][j].distance_to(&expected5),
             );
         }
-        push_max(
-            &mut report.max_internal_c2_first_residual,
-            upper.cps[1][j].distance_to(&expected1),
-        );
     }
 }
 

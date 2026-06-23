@@ -583,6 +583,77 @@ fn lemma4_via_paper_tau_on_synthetic_inputs() {
     }
 }
 
+// --- Move 1: LSQ guide FULL apex jet cross-sector match ----------
+
+/// Tests whether the LSQ guide's *full* apex cubic Hermite jet
+/// satisfies the transpose identity that Lemma 4 needs.
+///
+/// `Step 3` of the prior investigation only checked the boundary
+/// of the jet (`h[i][0]` vs `h[0][i]`). For the cubic chain rule
+/// `g ∘ τ` at apex to satisfy Lemma 4, the FULL 10-entry
+/// triangular jet block must agree across sectors under the
+/// transpose:
+///
+/// ```text
+///   guide_s.jet3(0,0).h[i][j] == guide_{s+1}.jet3(0,0).h[j][i]
+///   for all (i, j) with i + j ≤ 3
+/// ```
+///
+/// If this fails, the missing piece is cross-sector identifications
+/// on the apex-region mixed-partial CPs of the guide.
+#[test]
+fn lsq_guide_full_apex_jet_transpose_match_across_sectors() {
+    use crate::geometry::Point3;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border,
+        })
+        .expect("guide ring builds");
+
+        let mut jets = Vec::with_capacity(n);
+        for s in 0..n {
+            jets.push(guide.sector(s).jet3(0.0, 0.0));
+        }
+
+        // Per-(i, j) worst defect across all sector pairs.
+        let mut worst = [[0.0_f64; 4]; 4];
+        for s in 0..n {
+            let next = (s + 1) % n;
+            for i in 0..4 {
+                for j in 0..(4 - i) {
+                    let a = jets[s].h[i][j];
+                    let b = jets[next].h[j][i];
+                    let m = (a.x - b.x)
+                        .abs()
+                        .max((a.y - b.y).abs())
+                        .max((a.z - b.z).abs());
+                    worst[i][j] = worst[i][j].max(m);
+                }
+            }
+        }
+        eprintln!("LSQ guide FULL apex jet transpose defect, n = {n}:");
+        for i in 0..4 {
+            for j in 0..(4 - i) {
+                eprintln!("  h[{i}][{j}] vs h[{j}][{i}]:  {w:e}", w = worst[i][j]);
+            }
+        }
+        for i in 0..4 {
+            for j in 0..(4 - i) {
+                assert!(
+                    worst[i][j].is_finite(),
+                    "non-finite at h[{i}][{j}], n = {n}",
+                );
+            }
+        }
+    }
+}
+
 // --- Investigation Step 2: τ map cross-sector symmetry -----------
 
 /// Step 2 of the investigation plan in

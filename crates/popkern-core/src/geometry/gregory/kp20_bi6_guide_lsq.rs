@@ -267,6 +267,19 @@ fn constraint_rows(n: usize) -> Result<Vec<LinearRow>, Kp20GuideLsqError> {
             rows.push(c2_constraint(s, r, i, n)?);
         }
         rows.push(c3_constraint(s, r, 3, n)?);
+        // KP20 Lemma 4 + cross-sector apex-region cubic transpose:
+        // paper §4.1 says p^{s+1}_{ji} = p^s_{ij} for i + j ≤ 2 (full
+        // transpose) and c^{s+1}_{0,i} = c^s_{i,0} for i = 0..3
+        // (cubic boundary). The existing C⁰ row above covers the
+        // boundary. The interior transpose identifications are:
+        //   p^r[(1, 2)] = p^s[(2, 1)]
+        //   p^r[(2, 1)] = p^s[(1, 2)]
+        // Without these, the cubic interior CPs differ across
+        // sectors and Lemma 4 cubic identity fails at the jet's
+        // mixed-partial entries (~ ×100 on synthetic hexagon6 per
+        // probe `lsq_guide_full_apex_jet_transpose_match_across_sectors`).
+        rows.push(eq(&[(r, 3, 1, 2, 1.0), (s, 3, 2, 1, -1.0)]));
+        rows.push(eq(&[(r, 3, 2, 1, 1.0), (s, 3, 1, 2, -1.0)]));
     }
     for s in 1..n {
         rows.push(LinearRow {
