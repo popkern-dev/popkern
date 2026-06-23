@@ -223,21 +223,27 @@ pub fn assemble_kp20_bi6_macro_cap(
     // for i > 3 (outside overlay reach) to keep those rows
     // polynomially consistent with the overlay region.
     for (k, macro_patch) in macro_patches.iter_mut().enumerate() {
+        let original_left = &near_origin_left_full[k];
+        let original_right = &near_origin_right_full[k];
         let l = macro_patch.piece_mut(Kp20PieceId::NearOriginLeft);
-        for j in 4..7 {
-            l.cps[0][j] = near_origin_left_full[k][0][j];
-            l.cps[1][j] = near_origin_left_full[k][1][j];
+        for (j, &cp) in original_left[0].iter().enumerate().take(7).skip(4) {
+            l.cps[0][j] = cp;
         }
-        for j in 0..7 {
-            l.cps[5][j] = near_origin_left_full[k][5][j];
+        for (j, &cp) in original_left[1].iter().enumerate().take(7).skip(4) {
+            l.cps[1][j] = cp;
+        }
+        for (j, &cp) in original_left[5].iter().enumerate().take(7) {
+            l.cps[5][j] = cp;
         }
         let r = macro_patch.piece_mut(Kp20PieceId::NearOriginRight);
-        for j in 4..7 {
-            r.cps[0][j] = near_origin_right_full[k][0][j];
-            r.cps[1][j] = near_origin_right_full[k][1][j];
+        for (j, &cp) in original_right[0].iter().enumerate().take(7).skip(4) {
+            r.cps[0][j] = cp;
         }
-        for j in 0..7 {
-            r.cps[5][j] = near_origin_right_full[k][5][j];
+        for (j, &cp) in original_right[1].iter().enumerate().take(7).skip(4) {
+            r.cps[1][j] = cp;
+        }
+        for (j, &cp) in original_right[5].iter().enumerate().take(7) {
+            r.cps[5][j] = cp;
         }
     }
 
