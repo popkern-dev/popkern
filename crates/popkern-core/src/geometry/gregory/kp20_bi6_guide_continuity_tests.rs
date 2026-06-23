@@ -54,6 +54,7 @@ fn guide_join_weights_match_kp18_eq1() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn c0_join_identifies_shared_edge() {
     let left = guide_sector();
     let mut right = Kp20Tri6GuideSector::zero();
@@ -65,6 +66,7 @@ fn c0_join_identifies_shared_edge() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn c1_join_matches_kp18_eq3() {
     let left = guide_sector();
     let mut right = Kp20Tri6GuideSector::zero();
@@ -83,6 +85,7 @@ fn c1_join_matches_kp18_eq3() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn c2_join_matches_kp18_eq4() {
     let left = guide_sector();
     let mut right = Kp20Tri6GuideSector::zero();
@@ -104,6 +107,7 @@ fn c2_join_matches_kp18_eq4() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn c3_join_matches_kp18_eq5() {
     let left = guide_sector();
     let mut right = Kp20Tri6GuideSector::zero();

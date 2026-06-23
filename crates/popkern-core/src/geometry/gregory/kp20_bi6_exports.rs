@@ -15,10 +15,19 @@ pub use super::kp20_bi6_cnet::{
     kp20_star_point_from_cap_net, kp20_tensor_border_from_regular_cnet,
 };
 pub use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, Kp20GuideRing, build_kp20_guide_ring};
-pub use super::kp20_bi6_guide_continuity::{
-    kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
-    kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6, kp18_guide_join_weights,
-};
+// The kp18_apply_*_join_degree6 helpers carry a known indexing
+// mismatch with solve_kp20_guide_lsq (see kp20_bi6_guide_continuity
+// module-level note). They are re-exported only because removing
+// the public re-exports is out of scope for this commit; production
+// code must NOT call them. The indexing-correct path is the LSQ.
+#[allow(deprecated)]
+mod deprecated_join_reexports {
+    pub use super::super::kp20_bi6_guide_continuity::{
+        kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
+        kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6,
+    };
+}
+pub use super::kp20_bi6_guide_continuity::kp18_guide_join_weights;
 pub use super::kp20_bi6_guide_lsq::{
     Kp20GuideLsqError, Kp20GuideLsqOutput, Kp20GuideLsqReport, solve_kp20_guide_lsq,
     solve_kp20_guide_lsq_with_prior, solve_kp20_guide_lsq_with_report,
@@ -57,4 +66,9 @@ pub use super::kp20_bi6_tau::{
 };
 pub use super::kp20_bi6_validate::{
     Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,
+};
+#[allow(deprecated)]
+pub use deprecated_join_reexports::{
+    kp18_apply_c0_join_degree6, kp18_apply_c1_join_degree6, kp18_apply_c2_join_degree6,
+    kp18_apply_c3_join_degree6, kp18_apply_cubic_join_degree6,
 };

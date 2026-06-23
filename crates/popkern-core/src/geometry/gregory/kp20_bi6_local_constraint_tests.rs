@@ -454,6 +454,211 @@ fn global_constraint_matrix_dimensions_match_layout() {
     }
 }
 
+// --- Investigation Step 2: τ map cross-sector symmetry -----------
+
+/// Step 2 of the investigation plan in
+/// `docs/decisions/2026-06-23-kp20-bi6-paper-grade-guide-from-kp18.md`.
+///
+/// Property (τ1/τ2/τ4) from
+/// `docs/architecture/kp20-lemma4-sufficient-conditions.md`:
+///
+/// At the apex `(u, v) = (0, 0)`, sector `s`'s `∂^i_u τ_s` must
+/// equal sector `(s+1)`'s `∂^i_v τ_{s+1}` for `i = 1, 2, 3`
+/// because both directional derivatives lie along the shared
+/// spoke. (Order 0: both are `(0, 0)` by construction.)
+///
+/// If this test passes, the kernel's `Kp20TauMap::for_sector` is
+/// Lemma-4-coherent on its own, and the entire Phase D defect on
+/// the LSQ-built cap must come from the guide ring's missing
+/// **Symmetry** condition (per
+/// `kp20-lemma4-sufficient-conditions.md`).
+#[test]
+fn kp20_tau_map_apex_derivatives_match_across_sectors() {
+    let valences: &[usize] = &[3, 5, 6, 7, 8, 9, 10];
+    for &n in valences {
+        let mut taus = Vec::with_capacity(n);
+        for s in 0..n {
+            taus.push(Kp20TauMap::for_sector(n, s).expect("tau for valence"));
+        }
+        let mut worst_order = [0.0_f64; 4];
+        for s in 0..n {
+            let next = (s + 1) % n;
+            let curr = taus[s].jet3(0.0, 0.0);
+            let nbor = taus[next].jet3(0.0, 0.0);
+            for (i, slot) in worst_order.iter_mut().enumerate() {
+                // curr.d[i][0] = ∂^i_u τ_s at (0, 0); 2D vector.
+                // nbor.d[0][i] = ∂^i_v τ_{s+1} at (0, 0); 2D vector.
+                let cu = curr.d[i][0];
+                let nv = nbor.d[0][i];
+                let dx = (cu[0] - nv[0]).abs();
+                let dy = (cu[1] - nv[1]).abs();
+                let mag = dx.max(dy);
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "τ-map apex symmetry n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst_order[0],
+            o1 = worst_order[1],
+            o2 = worst_order[2],
+            o3 = worst_order[3],
+        );
+        for (i, w) in worst_order.iter().enumerate() {
+            assert!(
+                *w < 1e-12,
+                "τ-map apex symmetry order {i} = {w:e} > 1e-12 at n = {n}",
+            );
+        }
+    }
+}
+
+// --- Investigation Step 3b: assembled-cap apex Lemma 4 -----------
+
+/// Measure Lemma 4 directly on the assembled cap's ◦-marked CPs
+/// (the bi-6 BB coefficients near the apex of each macro patch's
+/// L/R piece pair). This is the identity the paper actually
+/// requires — and it is on these CPs that PK-088's Phase B eq(8)
+/// residuals are evaluated.
+///
+/// For each macro patch `k`:
+/// ```text
+///   NearOriginLeft.cps[i][0]  ==  NearOriginRight.cps[0][i]
+///       for i = 0..3
+/// ```
+/// (after sampling and the kernel's tensor-border + C² propagation
+/// + G²-strip assembly pipeline).
+///
+/// If Step 3 (guide-only) passes but this fails, the cause of
+/// PK-088's Phase B residual is in the assembly pipeline's order:
+/// step (ii) tensor-border and step (iii) C² propagation overwrite
+/// the ◦-marked CPs that step (i) Hermite-sampling set from the
+/// guide. The paper's algorithm sets ◦-marked CPs LAST so they are
+/// preserved.
+#[test]
+fn assembled_cap_lemma4_on_orig_pieces_apex_bb_coefs() {
+    use crate::geometry::Point3;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let cap = {
+            let tensor_border = synthetic_uniform_tensor_border(n);
+            let input = crate::geometry::gregory::kp20_bi6_assemble::Kp20Bi6CapInput {
+                star_point,
+                tensor_border,
+            };
+            crate::geometry::gregory::kp20_bi6_assemble::assemble_kp20_bi6_cap(&input)
+                .expect("synthetic assemble must succeed")
+        };
+
+        let mut worst_order = [0.0_f64; 4];
+        for macro_patch in &cap.macro_patches {
+            let left = &macro_patch
+                .piece(crate::geometry::gregory::kp20_bi6_cap::Kp20PieceId::NearOriginLeft)
+                .cps;
+            let right = &macro_patch
+                .piece(crate::geometry::gregory::kp20_bi6_cap::Kp20PieceId::NearOriginRight)
+                .cps;
+            for (i, slot) in worst_order.iter_mut().enumerate() {
+                // c^s_{i, 0} from NearOriginLeft, c^{s+1}_{0, i} from NearOriginRight.
+                let l = left[i][0];
+                let r = right[0][i];
+                let dx = (l.x - r.x).abs();
+                let dy = (l.y - r.y).abs();
+                let dz = (l.z - r.z).abs();
+                let mag = dx.max(dy).max(dz);
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "assembled-cap Lemma 4 n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst_order[0],
+            o1 = worst_order[1],
+            o2 = worst_order[2],
+            o3 = worst_order[3],
+        );
+        for (i, w) in worst_order.iter().enumerate() {
+            assert!(
+                w.is_finite(),
+                "assembled-cap Lemma 4 order {i} non-finite at n = {n}",
+            );
+        }
+    }
+}
+
+// --- Investigation Step 3: LSQ guide apex-region symmetry --------
+
+/// Step 3 of the investigation plan in
+/// `docs/decisions/2026-06-23-kp20-bi6-paper-grade-guide-from-kp18.md`.
+///
+/// **Symmetry** condition from
+/// `docs/architecture/kp20-lemma4-sufficient-conditions.md`:
+/// across the shared spoke between sector `s` and sector `s+1`,
+/// the guide's directional derivatives at the apex `o` must
+/// agree —
+/// ```text
+///   ∂^i_v_g g_s   at (0, 0) == ∂^i_u_g g_{s+1}   at (0, 0)
+/// ```
+/// for `i = 0, 1, 2, 3` — because `v_g` of sector `s` and `u_g`
+/// of sector `(s+1)` both point along the shared spoke.
+///
+/// Step 2 confirmed `τ` is symmetric to machine zero. The Phase D
+/// defect on the assembled cap must therefore live in the guide
+/// failing this property.
+///
+/// We *expect* this test to FAIL (large defect at orders 1 and 3)
+/// — that failure is the load-bearing diagnostic.
+#[test]
+fn lsq_guide_apex_directional_derivatives_match_across_spokes() {
+    use crate::geometry::Point3;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border,
+        })
+        .expect("guide ring builds for synthetic input");
+
+        let mut jets = Vec::with_capacity(n);
+        for s in 0..n {
+            jets.push(guide.sector(s).jet3(0.0, 0.0));
+        }
+
+        let mut worst_order = [0.0_f64; 4];
+        for s in 0..n {
+            let next = (s + 1) % n;
+            for (i, slot) in worst_order.iter_mut().enumerate() {
+                let cu = jets[s].h[0][i]; // ∂^i_v g_s at apex
+                let nv = jets[next].h[i][0]; // ∂^i_u g_{s+1} at apex
+                let dx = (cu.x - nv.x).abs();
+                let dy = (cu.y - nv.y).abs();
+                let dz = (cu.z - nv.z).abs();
+                let mag = dx.max(dy).max(dz);
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "LSQ guide apex symmetry n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst_order[0],
+            o1 = worst_order[1],
+            o2 = worst_order[2],
+            o3 = worst_order[3],
+        );
+        // Measurement-only assertion: defect must at least be finite.
+        for (i, w) in worst_order.iter().enumerate() {
+            assert!(
+                w.is_finite(),
+                "guide apex symmetry order {i} non-finite at n = {n}",
+            );
+        }
+    }
+}
+
 // --- Phase D probe: planar guide should satisfy Lemma 4 ---------
 
 /// A planar guide `g(x, y) = (x, y, 0)` sampled into a tri6 sector
