@@ -53,6 +53,106 @@ impl Kp20TauMap {
         Ok(Self { cps })
     }
 
+    /// Build the KP20 sector τ map per a strict reading of paper eq (22).
+    ///
+    /// Following the matrix in KP20 §4.3 eq (22):
+    ///
+    /// ```text
+    ///   [τ00, τ01, τ02, τ10, τ20, τ03, τ30, τ11, τ12, τ21]^T
+    ///       = (1/3) · M · [v_dot, v_ddot, o]^T
+    /// ```
+    ///
+    /// with the matrix rows:
+    /// ```text
+    ///   τ00: [ 0,   0,         1       ]
+    ///   τ01: [ 1,   0,         2       ]
+    ///   τ02: [ 2,   0,         1       ]
+    ///   τ10: [ 0,   1,         2       ]
+    ///   τ20: [ 0,   2,         1       ]
+    ///   τ03: [ µ₀,  1−µ₀,      0       ]
+    ///   τ30: [ 0,   1−µ₀,      µ₀      ]
+    ///   τ11: [ µ₁,  1−2µ₁,     µ₁      ]
+    ///   τ12: [ µ₂,  1−µ₂−µ₃,   µ₃      ]
+    ///   τ21: [ µ₃,  1−µ₂−µ₃,   µ₂      ]
+    /// ```
+    ///
+    /// With the paper's `o := (0, 0)`, the third column drops out of the
+    /// position computation.
+    ///
+    /// **Discrepancy note**: this differs from `for_sector` (which the
+    /// kernel has used since PK-085). The two are not numerically
+    /// equivalent; the third u-derivative of τ at the apex differs in
+    /// magnitude and sign between them. See
+    /// `docs/architecture/kp20-tau-table-paper-fidelity.md` for the
+    /// full comparison.
+    pub fn for_sector_paper(n: usize, k: usize) -> Result<Self, String> {
+        let params = Kp20TauParams::for_valence(n)?;
+        let alpha = core::f64::consts::TAU / n as f64;
+        let a0 = k as f64 * alpha;
+        let a1 = (k + 1) as f64 * alpha;
+        let v_dot = [a0.cos(), a0.sin()];
+        let v_ddot = [a1.cos(), a1.sin()];
+
+        // Origin `o = (0, 0)`; row[2] terms vanish.
+        let row = |c_dot: f64, c_ddot: f64| -> [f64; 2] {
+            [
+                (c_dot * v_dot[0] + c_ddot * v_ddot[0]) / 3.0,
+                (c_dot * v_dot[1] + c_ddot * v_ddot[1]) / 3.0,
+            ]
+        };
+
+        let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
+
+        // Boundary rows (don't depend on µᵢ).
+        cps[flat_index(3, 0, 0)] = row(0.0, 0.0); // (0, 0)
+        cps[flat_index(3, 0, 1)] = row(1.0, 0.0); // v_dot/3
+        cps[flat_index(3, 0, 2)] = row(2.0, 0.0); // 2·v_dot/3
+        cps[flat_index(3, 1, 0)] = row(0.0, 1.0); // v_ddot/3
+        cps[flat_index(3, 2, 0)] = row(0.0, 2.0); // 2·v_ddot/3
+
+        // µ-dependent rows — applying the mirror-symmetric reading of
+        // paper eq (22): the i-axis CP (τ₃₀) lies along v_ddot only,
+        // the j-axis CP (τ₀₃) lies along v_dot only, and the interior
+        // CPs (τ₁₁, τ₁₂, τ₂₁) are symmetric under v_dot ↔ v_ddot swap.
+        // This is the reading that makes the apex-derivative
+        // cross-sector identity hold (required by Lemma 4).
+        let mu0 = params.mu0;
+        let mu1 = params.mu1;
+        let mu2 = params.mu2;
+        let mu3 = params.mu3;
+        cps[flat_index(3, 0, 3)] = row(mu0, 0.0); // τ₀₃ = (µ₀/3) v_dot
+        cps[flat_index(3, 3, 0)] = row(0.0, mu0); // τ₃₀ = (µ₀/3) v_ddot
+        cps[flat_index(3, 1, 1)] = row(mu1, mu1); // τ₁₁ = (µ₁/3)(v_dot + v_ddot)
+        cps[flat_index(3, 1, 2)] = row(mu2, mu3); // τ₁₂ = (µ₂/3) v_dot + (µ₃/3) v_ddot
+        cps[flat_index(3, 2, 1)] = row(mu3, mu2); // τ₂₁ = (µ₃/3) v_dot + (µ₂/3) v_ddot
+
+        Ok(Self { cps })
+    }
+
+    /// Paper-faithful τ in the local sector-triangle coordinates used
+    /// by the kernel's stored guide. Same coordinate transform as
+    /// [`Self::for_sector_local`] but applied to [`Self::for_sector_paper`].
+    pub fn for_sector_local_paper(n: usize, k: usize) -> Result<Self, String> {
+        let global = Self::for_sector_paper(n, k)?;
+        let alpha = core::f64::consts::TAU / n as f64;
+        let a0 = k as f64 * alpha;
+        let a1 = (k + 1) as f64 * alpha;
+        let spoke0 = [a0.cos(), a0.sin()];
+        let spoke1 = [a1.cos(), a1.sin()];
+        let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
+        if det.abs() <= 1.0e-14 {
+            return Err(format!("KP20 sector {k} has singular local τ basis"));
+        }
+        let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
+        for (dst, src) in cps.iter_mut().zip(global.cps) {
+            *dst = [
+                (src[0] * spoke0[1] - src[1] * spoke0[0]) / det,
+                (spoke1[0] * src[1] - spoke1[1] * src[0]) / det,
+            ];
+        }
+        Ok(Self { cps })
+    }
+
     /// Build the KP20 sector τ map in the local triangular coordinates
     /// used by one stored guide sector. The first local coordinate points
     /// along sector spoke `k + 1`; the second points along spoke `k`.

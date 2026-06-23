@@ -454,6 +454,135 @@ fn global_constraint_matrix_dimensions_match_layout() {
     }
 }
 
+// --- τ-table paper-fidelity A/B measurements ---------------------
+
+/// Paper τ MUST also satisfy the apex-derivative cross-sector
+/// identity (since Lemma 4 requires it). If this test fails the
+/// paper-extraction-derived formula in `for_sector_paper` is wrong
+/// and the audit needs revisiting.
+#[test]
+fn paper_tau_map_apex_derivatives_match_across_sectors() {
+    let valences: &[usize] = &[3, 5, 6, 7, 8, 9, 10];
+    for &n in valences {
+        let mut taus = Vec::with_capacity(n);
+        for s in 0..n {
+            taus.push(Kp20TauMap::for_sector_paper(n, s).expect("paper tau"));
+        }
+        let mut worst = [0.0_f64; 4];
+        for s in 0..n {
+            let next = (s + 1) % n;
+            let curr = taus[s].jet3(0.0, 0.0);
+            let nbor = taus[next].jet3(0.0, 0.0);
+            for (i, slot) in worst.iter_mut().enumerate() {
+                let cu = curr.d[i][0];
+                let nv = nbor.d[0][i];
+                let mag = (cu[0] - nv[0]).abs().max((cu[1] - nv[1]).abs());
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "PAPER τ apex symmetry n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst[0],
+            o1 = worst[1],
+            o2 = worst[2],
+            o3 = worst[3],
+        );
+        for (i, w) in worst.iter().enumerate() {
+            assert!(
+                *w < 1e-12,
+                "paper τ apex symmetry order {i} = {w:e} > 1e-12 at n = {n}",
+            );
+        }
+    }
+}
+
+/// Compare the kernel-τ and paper-τ jets at apex side-by-side and
+/// report the per-order disagreement. Numeric divergence is expected
+/// at orders > 0 — this test catches whether they happen to agree
+/// or not.
+#[test]
+fn paper_vs_kernel_tau_apex_jet_divergence() {
+    let valences: &[usize] = &[3, 5, 6, 7, 8, 9, 10];
+    for &n in valences {
+        let mut worst = [0.0_f64; 4];
+        for s in 0..n {
+            let kernel = Kp20TauMap::for_sector(n, s)
+                .expect("kernel tau")
+                .jet3(0.0, 0.0);
+            let paper = Kp20TauMap::for_sector_paper(n, s)
+                .expect("paper tau")
+                .jet3(0.0, 0.0);
+            for (i, slot) in worst.iter_mut().enumerate() {
+                let k = kernel.d[i][0];
+                let p = paper.d[i][0];
+                let mag = (k[0] - p[0]).abs().max((k[1] - p[1]).abs());
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "PAPER vs KERNEL τ ∂^i_u jet divergence n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst[0],
+            o1 = worst[1],
+            o2 = worst[2],
+            o3 = worst[3],
+        );
+        for w in &worst {
+            assert!(w.is_finite());
+        }
+    }
+}
+
+/// PK-088 Phase D — Lemma 4 cubic identity test re-run with the
+/// paper-faithful τ map (instead of `for_sector`). If Lemma 4 holds
+/// to machine zero, the kernel's τ is the bug and migrating to the
+/// paper τ is the fix. If it doesn't, something else is going on.
+#[test]
+fn lemma4_via_paper_tau_on_synthetic_inputs() {
+    use crate::geometry::Point3;
+
+    let valences: &[usize] = &[5, 6, 7];
+    let star_point = Point3::new(0.0, 0.0, 0.5);
+
+    for &n in valences {
+        let tensor_border = synthetic_uniform_tensor_border(n);
+        let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+            star_point,
+            tensor_border,
+        })
+        .expect("guide");
+
+        let mut jets = Vec::with_capacity(n);
+        for (k, sector) in guide.sectors.iter().enumerate() {
+            let tau = Kp20TauMap::for_sector_paper(n, k).expect("paper tau");
+            jets.push(kp20_compose_guide_tau_jet(sector, &tau, 0.0, 0.0));
+        }
+
+        let mut worst = [0.0_f64; 4];
+        for k in 0..n {
+            let next = (k + 1) % n;
+            for (i, slot) in worst.iter_mut().enumerate() {
+                let next_v = jets[next].h[0][i];
+                let curr_u = jets[k].h[i][0];
+                let mag = (next_v.x - curr_u.x)
+                    .abs()
+                    .max((next_v.y - curr_u.y).abs())
+                    .max((next_v.z - curr_u.z).abs());
+                *slot = slot.max(mag);
+            }
+        }
+        eprintln!(
+            "PAPER τ + LSQ guide — Lemma 4 n={n}: order 0 = {o0:e}  order 1 = {o1:e}  order 2 = {o2:e}  order 3 = {o3:e}",
+            o0 = worst[0],
+            o1 = worst[1],
+            o2 = worst[2],
+            o3 = worst[3],
+        );
+        for w in &worst {
+            assert!(w.is_finite());
+        }
+    }
+}
+
 // --- Investigation Step 2: τ map cross-sector symmetry -----------
 
 /// Step 2 of the investigation plan in
@@ -627,11 +756,10 @@ fn eq8_residual_with_synthetic_overlay_estimate() {
             // For the right piece, the affine map (kp20_default_sector_piece_maps
             // line 28-29) swaps (du, dv). The piece-local jet is therefore
             // h^R[i][j] = h^L[j][i], so block_right = block_left^T.
-            for i in 0..4 {
-                for j in 0..(4 - i) {
-                    macro_patch.piece_mut(Kp20PieceId::NearOriginLeft).cps[i][j] = block_left[i][j];
-                    macro_patch.piece_mut(Kp20PieceId::NearOriginRight).cps[j][i] =
-                        block_left[i][j];
+            for (i, row) in block_left.iter().enumerate().take(4) {
+                for (j, &cp) in row.iter().enumerate().take(4 - i) {
+                    macro_patch.piece_mut(Kp20PieceId::NearOriginLeft).cps[i][j] = cp;
+                    macro_patch.piece_mut(Kp20PieceId::NearOriginRight).cps[j][i] = cp;
                 }
             }
         }
