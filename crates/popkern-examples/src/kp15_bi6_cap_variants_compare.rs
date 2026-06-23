@@ -137,11 +137,19 @@ fn main() {
             step_path.display()
         );
 
-        let png_path = out.join(format!("kp15_bi6_cap_variant_{label}.png"));
         let camera = render_camera();
-        match popkern_viz::headless::render_to_png(&brep, &camera, 1200, 1200, &png_path, true) {
-            Ok(_) => println!("    PNG -> {}", png_path.display()),
-            Err(e) => println!("    PNG render failed: {e}"),
+        // Render twice per variant: one shaded (no wireframe) for the
+        // cap's actual shape, one with wireframe so the BB control mesh
+        // is visible if you want to inspect CP placement.
+        for (suffix, wireframe) in [("_shaded", false), ("_wireframe", true)] {
+            let png_path =
+                out.join(format!("kp15_bi6_cap_variant_{label}{suffix}.png"));
+            match popkern_viz::headless::render_to_png(
+                &brep, &camera, 1200, 1200, &png_path, wireframe,
+            ) {
+                Ok(_) => println!("    PNG{suffix} -> {}", png_path.display()),
+                Err(e) => println!("    PNG{suffix} render failed: {e}"),
+            }
         }
     }
 }
@@ -397,13 +405,19 @@ fn eval_degree7_bezier(cps: &[Point3; 8], t: f64) -> Point3 {
 // ─── Render camera ──────────────────────────────────────────────────
 
 fn render_camera() -> popkern_viz::camera::Camera {
+    // The KP15-P-only variants (B, D) extend further in x/y than the
+    // full-F_5 variants (A, C) because the deep-interior CPs settle
+    // at different positions for different RREF pivot/free splits.
+    // Frame wide enough that ALL four variants fit without cropping:
+    // distance ≈ 11 with FOV 40° gives ≈ 8 units of view height at
+    // target. The cap's visible extent is roughly that size.
     popkern_viz::camera::Camera {
-        eye: glam::Vec3::new(2.5, 2.5, 2.5),
-        target: glam::Vec3::new(0.0, 0.0, 0.2),
+        eye: glam::Vec3::new(7.0, 7.0, 6.0),
+        target: glam::Vec3::new(0.0, 0.0, 0.3),
         up: glam::Vec3::new(0.0, 0.0, 1.0),
-        fov_y: 35.0_f32.to_radians(),
+        fov_y: 40.0_f32.to_radians(),
         aspect: 1.0,
-        near: 0.01,
+        near: 0.1,
         far: 100.0,
     }
 }
