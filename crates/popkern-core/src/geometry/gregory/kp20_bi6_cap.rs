@@ -100,6 +100,11 @@ pub struct Kp20BoundaryHalf {
 }
 
 /// Per-sector pair of reparameterised tensor-border halves.
+///
+/// `near_c` is the first half of the sector-local tensor-border span
+/// and `near_m` is the second half. A sector-separating strip uses
+/// `near_c` from the two adjacent sectors; it does not use both halves
+/// from the same sector.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Kp20SplitTensorBorder {
     /// Half closer to the cap-net node `c`.
@@ -120,10 +125,28 @@ pub fn split_kp20_tensor_border(
         ));
     }
     let c = (core::f64::consts::TAU / n as f64).cos();
-    let d1_3 = 2.0 * c / 3.0;
-    let delta = d1_3 / 4.0 - c / 12.0;
-    let d0 = [0.0, 0.0, 0.0, delta];
-    let d1 = [delta, 2.0 * delta, 4.0 * delta, d1_3];
+    split_kp20_tensor_border_with_d1_3(input, 2.0 * c / 3.0)
+}
+
+/// Variant of [`split_kp20_tensor_border`] with an explicit KP20
+/// equation (14) `d¹_3` value.
+pub fn split_kp20_tensor_border_with_d1_3(
+    input: &TensorBorderBi3,
+    d1_3: f64,
+) -> Result<Vec<Kp20SplitTensorBorder>, String> {
+    let n = input.sectors.len();
+    if n < 3 {
+        return Err(format!(
+            "KP20 tensor-border needs at least 3 sectors, got {n}"
+        ));
+    }
+    if !d1_3.is_finite() {
+        return Err(format!(
+            "KP20 tensor-border d1_3 must be finite, got {d1_3}"
+        ));
+    }
+    let c = (core::f64::consts::TAU / n as f64).cos();
+    let (d0, d1) = kp20_eq14_d_profiles(c, d1_3);
 
     let mut out = Vec::with_capacity(n);
     for (sector_index, sector) in input.sectors.iter().enumerate() {
@@ -143,6 +166,14 @@ pub fn split_kp20_tensor_border(
     Ok(out)
 }
 
+fn kp20_eq14_d_profiles(c: f64, d1_3: f64) -> ([f64; 4], [f64; 4]) {
+    let delta = d1_3 / 4.0 - c / 12.0;
+    (
+        [0.0, 0.0, 0.0, delta],
+        [delta, 2.0 * delta, 4.0 * delta, d1_3],
+    )
+}
+
 /// Initialise one KP20 macro-patch per tensor-border sector and assign
 /// the m-side boundary rows from the split/reparameterised border.
 pub fn initialise_kp20_macro_patches_from_tensor_border(
@@ -150,11 +181,12 @@ pub fn initialise_kp20_macro_patches_from_tensor_border(
 ) -> Result<Vec<Kp20MacroPatch>, String> {
     let split = split_kp20_tensor_border(input)?;
     let mut sectors = vec![Kp20MacroPatch::zero(); split.len()];
-    for (k, halves) in split.iter().enumerate() {
+    for k in 0..split.len() {
+        let previous = (k + split.len() - 1) % split.len();
         sectors[k].piece_mut(Kp20PieceId::NearMidpointLeft).cps[0..3]
-            .copy_from_slice(&halves.near_c.rows);
+            .copy_from_slice(&split[previous].near_c.rows);
         sectors[k].piece_mut(Kp20PieceId::NearMidpointRight).cps[0..3]
-            .copy_from_slice(&halves.near_m.rows);
+            .copy_from_slice(&split[k].near_c.rows);
     }
     Ok(sectors)
 }
@@ -210,9 +242,19 @@ fn split_cubic_half(row: [Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
 }
 
 fn reparameterise_half(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
-    let row0 = elevate_cubic_to_degree6(rows[0]);
-    let row1 = elevate_cubic_to_degree6(rows[1]);
-    let row2_base = elevate_cubic_to_degree6(rows[2]);
+    let source_row0 = elevate_cubic_to_degree6(rows[0]);
+    let source_row1 = elevate_cubic_to_degree6(rows[1]);
+    let source_row2 = elevate_cubic_to_degree6(rows[2]);
+    let mut row1 = [Point3::new(0.0, 0.0, 0.0); 7];
+    let mut row2 = [Point3::new(0.0, 0.0, 0.0); 7];
+    for i in 0_usize..7 {
+        row1[i] = weighted_sum(&[(0.5, source_row0[i]), (0.5, source_row1[i])]);
+        row2[i] = weighted_sum(&[
+            (0.2, source_row0[i]),
+            (0.6, source_row1[i]),
+            (0.2, source_row2[i]),
+        ]);
+    }
     let diff = [
         rows[1][0] - rows[0][0],
         rows[1][1] - rows[0][1],
@@ -220,12 +262,11 @@ fn reparameterise_half(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf 
         rows[1][3] - rows[0][3],
     ];
     let d_times_diff = multiply_scalar_cubic_vec3_cubic(d, diff);
-    let mut row2 = row2_base;
     for i in 0_usize..7 {
-        row2[i] = row2[i] + d_times_diff[i] * 0.5;
+        row2[i] = row2[i] + d_times_diff[i] * 0.1;
     }
     Kp20BoundaryHalf {
-        rows: [row0, row1, row2],
+        rows: [source_row0, row1, row2],
     }
 }
 

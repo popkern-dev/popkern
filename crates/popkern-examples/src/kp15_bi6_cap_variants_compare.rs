@@ -157,8 +157,7 @@ fn main() {
         // cap's actual shape, one with wireframe so the BB control mesh
         // is visible if you want to inspect CP placement.
         for (suffix, wireframe) in [("_shaded", false), ("_wireframe", true)] {
-            let png_path =
-                out.join(format!("kp15_bi6_cap_variant_{label}{suffix}.png"));
+            let png_path = out.join(format!("kp15_bi6_cap_variant_{label}{suffix}.png"));
             match popkern_viz::headless::render_to_png(
                 &brep, &camera, 1200, 1200, &png_path, wireframe,
             ) {
@@ -219,65 +218,73 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
             let he = &pyramid.half_edges[e.half_edge];
             let v0 = he.origin;
             let v1 = pyramid.half_edges[he.twin].origin;
-            if v0 == apex || v1 == apex { Some(h) } else { None }
+            if v0 == apex || v1 == apex {
+                Some(h)
+            } else {
+                None
+            }
         })
         .collect();
     // Skip the radius sweep — just run the single config.
     if false {
-    for radius in &[0.05_f64] {
-        let radius = *radius;
-        let specs: Vec<FilletSpec> = apex_edges
-            .iter()
-            .map(|&edge| FilletSpec {
-                edge,
-                radius: FilletRadius::Constant(radius),
-            })
-            .collect();
-        let options = FilletOptions {
-            use_rational_gregory: true,
-            use_deg5_gregory: true,
-            use_biquintic_full_gregory: true,
-            use_biseptic_gregory: true,
-            use_two_stripe_gregory: true,
-            use_kp_binonic_gregory: true,
-            use_kp_polar_gregory: true,
-            ..FilletOptions::default()
-        };
-        match fillet_edges(&pyramid, &specs, &options, tol, None) {
-            Ok(r) => {
-                let mut worst_g1 = 0.0_f64;
-                let mut decline_codes: Vec<String> = Vec::new();
-                for d in &r.repair_report.apex_diagnostics {
-                    match d {
-                        ApexConstructionDiagnostic::CapSupportContinuity(c) => {
-                            worst_g1 = worst_g1.max(c.worst_g1_coplanarity);
+        for radius in &[0.05_f64] {
+            let radius = *radius;
+            let specs: Vec<FilletSpec> = apex_edges
+                .iter()
+                .map(|&edge| FilletSpec {
+                    edge,
+                    radius: FilletRadius::Constant(radius),
+                })
+                .collect();
+            let options = FilletOptions {
+                use_rational_gregory: true,
+                use_deg5_gregory: true,
+                use_biquintic_full_gregory: true,
+                use_biseptic_gregory: true,
+                use_two_stripe_gregory: true,
+                use_kp_binonic_gregory: true,
+                use_kp_polar_gregory: true,
+                ..FilletOptions::default()
+            };
+            match fillet_edges(&pyramid, &specs, &options, tol, None) {
+                Ok(r) => {
+                    let mut worst_g1 = 0.0_f64;
+                    let mut decline_codes: Vec<String> = Vec::new();
+                    for d in &r.repair_report.apex_diagnostics {
+                        match d {
+                            ApexConstructionDiagnostic::CapSupportContinuity(c) => {
+                                worst_g1 = worst_g1.max(c.worst_g1_coplanarity);
+                            }
+                            ApexConstructionDiagnostic::ExactBoundaryCap(c)
+                                if c.code.contains("decline") =>
+                            {
+                                decline_codes.push(format!("{}/{}", c.code, c.stage));
+                            }
+                            _ => {}
                         }
-                        ApexConstructionDiagnostic::ExactBoundaryCap(c)
-                            if c.code.contains("decline") =>
-                        {
-                            decline_codes.push(format!("{}/{}", c.code, c.stage));
-                        }
-                        _ => {}
                     }
+                    let route = r
+                        .repair_report
+                        .apex_routes
+                        .first()
+                        .map(|x| format!("{:?}", x.route))
+                        .unwrap_or_else(|| "?".into());
+                    let declines = if decline_codes.is_empty() {
+                        "no declines".to_string()
+                    } else {
+                        format!(
+                            "{} declines, first = {}",
+                            decline_codes.len(),
+                            decline_codes[0]
+                        )
+                    };
+                    println!(
+                        "    r={radius:.2}: route={route}, worst G1 = {worst_g1:.3e}, {declines}"
+                    );
                 }
-                let route = r
-                    .repair_report
-                    .apex_routes
-                    .first()
-                    .map(|x| format!("{:?}", x.route))
-                    .unwrap_or_else(|| "?".into());
-                let declines = if decline_codes.is_empty() {
-                    "no declines".to_string()
-                } else {
-                    format!("{} declines, first = {}", decline_codes.len(), decline_codes[0])
-                };
-                println!(
-                    "    r={radius:.2}: route={route}, worst G1 = {worst_g1:.3e}, {declines}"
-                );
+                Err(e) => println!("    r={radius:.2}: FAILED: {e:?}"),
             }
-            Err(e) => println!("    r={radius:.2}: FAILED: {e:?}"),
         }
-    }
     }
 
     // Match `polar_passes_commercial_gates_on_pentagon5_uniform`:
@@ -319,8 +326,8 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         .find(|(n, _)| *n == "full_gregory_stack")
         .map(|(n, o)| (*n, o.clone()))
         .expect("full_gregory_stack present");
-    let result = fillet_edges(&pyramid, &specs, &options, tol, None)
-        .expect("pentagon n=5 fillet succeeds");
+    let result =
+        fillet_edges(&pyramid, &specs, &options, tol, None).expect("pentagon n=5 fillet succeeds");
     let mut best_g1 = 0.0_f64;
     for d in &result.repair_report.apex_diagnostics {
         if let ApexConstructionDiagnostic::CapSupportContinuity(c) = d {
@@ -338,7 +345,10 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
         result.brep.vertices.len()
     );
     // Dump ALL apex diagnostics so we know what actually built the cap.
-    println!("  All apex_diagnostics ({}):", result.repair_report.apex_diagnostics.len());
+    println!(
+        "  All apex_diagnostics ({}):",
+        result.repair_report.apex_diagnostics.len()
+    );
     let mut seen_codes: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for d in &result.repair_report.apex_diagnostics {
         match d {
@@ -348,7 +358,14 @@ fn run_pyramid_fillet_reference(out: &Path, n: usize, height: f64, label: &str) 
                     let detail = c
                         .detail_code
                         .as_deref()
-                        .map(|d| d.lines().next().unwrap_or("").chars().take(120).collect::<String>())
+                        .map(|d| {
+                            d.lines()
+                                .next()
+                                .unwrap_or("")
+                                .chars()
+                                .take(120)
+                                .collect::<String>()
+                        })
                         .unwrap_or_default();
                     println!("    {key}  {detail}");
                 }
@@ -567,7 +584,12 @@ fn hexagon6_polar_and_tensor_border() -> (PolarBoundaryInput, Vec<[[Point3; 4]; 
             let y = (1.0 - t) * dy + t * dy_n;
             Point3::new(r * x, r * y, z_rim)
         };
-        let row0 = [arc_cp(0.0), arc_cp(1.0 / 3.0), arc_cp(2.0 / 3.0), arc_cp(1.0)];
+        let row0 = [
+            arc_cp(0.0),
+            arc_cp(1.0 / 3.0),
+            arc_cp(2.0 / 3.0),
+            arc_cp(1.0),
+        ];
         // Row 1 lifts up slightly toward the apex (positive z direction).
         let lift = 0.03;
         let lift_cp = |t: f64| -> Point3 {
@@ -575,7 +597,12 @@ fn hexagon6_polar_and_tensor_border() -> (PolarBoundaryInput, Vec<[[Point3; 4]; 
             let y = (1.0 - t) * dy + t * dy_n;
             Point3::new(r * x, r * y, z_rim + lift)
         };
-        let row1 = [lift_cp(0.0), lift_cp(1.0 / 3.0), lift_cp(2.0 / 3.0), lift_cp(1.0)];
+        let row1 = [
+            lift_cp(0.0),
+            lift_cp(1.0 / 3.0),
+            lift_cp(2.0 / 3.0),
+            lift_cp(1.0),
+        ];
         // Row 2: small second derivative.
         let lift2 = 0.04;
         let lift2_cp = |t: f64| -> Point3 {

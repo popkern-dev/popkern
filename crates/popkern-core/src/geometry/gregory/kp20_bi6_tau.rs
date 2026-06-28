@@ -53,7 +53,8 @@ impl Kp20TauMap {
         Ok(Self { cps })
     }
 
-    /// Build the KP20 sector τ map per a strict reading of paper eq (22).
+    /// Build the KP20 sector τ map per the sector-wedge reading of paper eq
+    /// (22) used by the paper-sampler diagnostic path.
     ///
     /// Following the matrix in KP20 §4.3 eq (22):
     ///
@@ -62,18 +63,18 @@ impl Kp20TauMap {
     ///       = (1/3) · M · [v_dot, v_ddot, o]^T
     /// ```
     ///
-    /// with the matrix rows:
+    /// with the sector-wedge rows:
     /// ```text
     ///   τ00: [ 0,   0,         1       ]
     ///   τ01: [ 1,   0,         2       ]
     ///   τ02: [ 2,   0,         1       ]
     ///   τ10: [ 0,   1,         2       ]
     ///   τ20: [ 0,   2,         1       ]
-    ///   τ03: [ µ₀,  1−µ₀,      0       ]
-    ///   τ30: [ 0,   1−µ₀,      µ₀      ]
-    ///   τ11: [ µ₁,  1−2µ₁,     µ₁      ]
-    ///   τ12: [ µ₂,  1−µ₂−µ₃,   µ₃      ]
-    ///   τ21: [ µ₃,  1−µ₂−µ₃,   µ₂      ]
+    ///   τ03: [ µ₀,  0,         1−µ₀   ]
+    ///   τ30: [ 0,   µ₀,        1−µ₀   ]
+    ///   τ11: [ µ₁,  µ₁,        1−2µ₁  ]
+    ///   τ12: [ µ₂,  µ₃,        1−µ₂−µ₃]
+    ///   τ21: [ µ₃,  µ₂,        1−µ₂−µ₃]
     /// ```
     ///
     /// With the paper's `o := (0, 0)`, the third column drops out of the
@@ -87,6 +88,28 @@ impl Kp20TauMap {
     /// full comparison.
     pub fn for_sector_paper(n: usize, k: usize) -> Result<Self, String> {
         let params = Kp20TauParams::for_valence(n)?;
+        Self::for_sector_paper_with_mu(n, k, params.mu0, params.mu1, params.mu2, params.mu3)
+    }
+
+    /// Build the KP20 Appendix A refined central-expansion map
+    /// `τref = 2τ(u/2, v/2)` described after equation (23).
+    pub fn for_sector_paper_refined_apex(n: usize, k: usize) -> Result<Self, String> {
+        let params = Kp20TauParams::for_valence(n)?;
+        let mu0 = (3.0 + params.mu0) / 4.0;
+        let mu1 = (1.0 + 3.0 * params.mu1) / 6.0;
+        let mu2 = (4.0 + 6.0 * params.mu1 + 3.0 * params.mu2) / 12.0;
+        let mu3 = (1.0 + 6.0 * params.mu1 + 3.0 * params.mu3) / 12.0;
+        Self::for_sector_paper_with_mu(n, k, mu0, mu1, mu2, mu3)
+    }
+
+    fn for_sector_paper_with_mu(
+        n: usize,
+        k: usize,
+        mu0: f64,
+        mu1: f64,
+        mu2: f64,
+        mu3: f64,
+    ) -> Result<Self, String> {
         let alpha = core::f64::consts::TAU / n as f64;
         let a0 = k as f64 * alpha;
         let a1 = (k + 1) as f64 * alpha;
@@ -110,16 +133,8 @@ impl Kp20TauMap {
         cps[flat_index(3, 1, 0)] = row(0.0, 1.0); // v_ddot/3
         cps[flat_index(3, 2, 0)] = row(0.0, 2.0); // 2·v_ddot/3
 
-        // µ-dependent rows — applying the mirror-symmetric reading of
-        // paper eq (22): the i-axis CP (τ₃₀) lies along v_ddot only,
-        // the j-axis CP (τ₀₃) lies along v_dot only, and the interior
-        // CPs (τ₁₁, τ₁₂, τ₂₁) are symmetric under v_dot ↔ v_ddot swap.
-        // This is the reading that makes the apex-derivative
-        // cross-sector identity hold (required by Lemma 4).
-        let mu0 = params.mu0;
-        let mu1 = params.mu1;
-        let mu2 = params.mu2;
-        let mu3 = params.mu3;
+        // µ-dependent rows. The origin column vanishes for positions because
+        // the paper's sector origin is `o = (0, 0)`.
         cps[flat_index(3, 0, 3)] = row(mu0, 0.0); // τ₀₃ = (µ₀/3) v_dot
         cps[flat_index(3, 3, 0)] = row(0.0, mu0); // τ₃₀ = (µ₀/3) v_ddot
         cps[flat_index(3, 1, 1)] = row(mu1, mu1); // τ₁₁ = (µ₁/3)(v_dot + v_ddot)
@@ -134,23 +149,13 @@ impl Kp20TauMap {
     /// [`Self::for_sector_local`] but applied to [`Self::for_sector_paper`].
     pub fn for_sector_local_paper(n: usize, k: usize) -> Result<Self, String> {
         let global = Self::for_sector_paper(n, k)?;
-        let alpha = core::f64::consts::TAU / n as f64;
-        let a0 = k as f64 * alpha;
-        let a1 = (k + 1) as f64 * alpha;
-        let spoke0 = [a0.cos(), a0.sin()];
-        let spoke1 = [a1.cos(), a1.sin()];
-        let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
-        if det.abs() <= 1.0e-14 {
-            return Err(format!("KP20 sector {k} has singular local τ basis"));
-        }
-        let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
-        for (dst, src) in cps.iter_mut().zip(global.cps) {
-            *dst = [
-                (src[0] * spoke0[1] - src[1] * spoke0[0]) / det,
-                (spoke1[0] * src[1] - spoke1[1] * src[0]) / det,
-            ];
-        }
-        Ok(Self { cps })
+        Self::global_to_sector_local(global, n, k)
+    }
+
+    /// Appendix A refined central-expansion τ in local guide coordinates.
+    pub fn for_sector_local_paper_refined_apex(n: usize, k: usize) -> Result<Self, String> {
+        let global = Self::for_sector_paper_refined_apex(n, k)?;
+        Self::global_to_sector_local(global, n, k)
     }
 
     /// Build the KP20 sector τ map in the local triangular coordinates
@@ -158,6 +163,10 @@ impl Kp20TauMap {
     /// along sector spoke `k + 1`; the second points along spoke `k`.
     pub fn for_sector_local(n: usize, k: usize) -> Result<Self, String> {
         let global = Self::for_sector(n, k)?;
+        Self::global_to_sector_local(global, n, k)
+    }
+
+    fn global_to_sector_local(global: Self, n: usize, k: usize) -> Result<Self, String> {
         let alpha = core::f64::consts::TAU / n as f64;
         let a0 = k as f64 * alpha;
         let a1 = (k + 1) as f64 * alpha;
@@ -283,6 +292,15 @@ fn compose_guide_with_tau_jets(g: Kp20GuideJet3, tau: Kp20TauJet3) -> Kp20GuideJ
         }
     }
     Kp20GuideJet3 { h: out }
+}
+
+pub(crate) fn kp20_compose_guide_with_tau_jet(
+    guide: &Kp20Tri6GuideSector,
+    tau_jet: Kp20TauJet3,
+) -> Kp20GuideJet3 {
+    let guide_xy = tau_jet.d[0][0];
+    let guide_jet = guide.jet3(guide_xy[0], guide_xy[1]);
+    compose_guide_with_tau_jets(guide_jet, tau_jet)
 }
 
 fn chain_rule_entry(g: Kp20GuideJet3, tau: Kp20TauJet3, a: usize, b: usize) -> Point3 {

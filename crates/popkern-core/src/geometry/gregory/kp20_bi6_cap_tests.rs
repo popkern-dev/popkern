@@ -65,7 +65,7 @@ fn split_tensor_border_degree_elevates_linear_rows() {
             split[0].near_m.rows[0][i],
             p(1.5 + 0.25 * i as f64, 0.0, 0.0),
         );
-        assert_close(split[0].near_c.rows[1][i], p(0.25 * i as f64, 1.0, 0.0));
+        assert_close(split[0].near_c.rows[1][i], p(0.25 * i as f64, 0.5, 0.0));
     }
 }
 
@@ -80,10 +80,24 @@ fn split_tensor_border_applies_eq14_second_cross_reparameterisation() {
     let d1_3 = 2.0 * c / 3.0;
     let delta = d1_3 / 4.0 - c / 12.0;
 
-    assert_close(split[0].near_c.rows[2][0], p(0.0, 2.0, 0.0));
-    assert_close(split[0].near_c.rows[2][6], p(1.5, 2.0 + 0.5 * delta, 0.0));
-    assert_close(split[0].near_m.rows[2][0], p(1.5, 2.0 + 0.5 * delta, 0.0));
-    assert_close(split[0].near_m.rows[2][6], p(3.0, 2.0 + 0.5 * d1_3, 0.0));
+    assert_close(split[0].near_c.rows[2][0], p(0.0, 1.0, 0.0));
+    assert_close(split[0].near_c.rows[2][6], p(1.5, 1.0 + 0.1 * delta, 0.0));
+    assert_close(split[0].near_m.rows[2][0], p(1.5, 1.0 + 0.1 * delta, 0.0));
+    assert_close(split[0].near_m.rows[2][6], p(3.0, 1.0 + 0.1 * d1_3, 0.0));
+}
+
+#[test]
+fn eq14_d_profiles_are_c2_across_the_tensor_border_split() {
+    let c = (core::f64::consts::TAU / 5.0).cos();
+    let d1_3 = 2.0 * c / 3.0;
+    let delta = d1_3 / 4.0 - c / 12.0;
+    let (d0, d1) = kp20_eq14_d_profiles(c, d1_3);
+
+    assert_eq!(d0, [0.0, 0.0, 0.0, delta]);
+    assert_eq!(d1, [delta, 2.0 * delta, 4.0 * delta, d1_3]);
+    assert_close_scalar(d0[3], d1[0]);
+    assert_close_scalar(d0[3] - d0[2], d1[1] - d1[0]);
+    assert_close_scalar(d0[3] - 2.0 * d0[2] + d0[1], d1[2] - 2.0 * d1[1] + d1[0]);
 }
 
 #[test]
@@ -97,15 +111,23 @@ fn initialise_macro_patches_assigns_m_side_boundary_rows() {
     assert_eq!(macros.len(), 3);
     assert_close(
         macros[1].piece(Kp20PieceId::NearMidpointLeft).cps[0][0],
-        p(10.0, 0.0, 0.0),
+        p(0.0, 0.0, 0.0),
     );
     assert_close(
         macros[1].piece(Kp20PieceId::NearMidpointRight).cps[0][6],
-        p(13.0, 0.0, 0.0),
+        p(11.5, 0.0, 0.0),
     );
     assert_close(
         macros[1].piece(Kp20PieceId::NearOriginLeft).cps[0][0],
         p(0.0, 0.0, 0.0),
+    );
+}
+
+fn assert_close_scalar(a: f64, b: f64) {
+    assert!(
+        (a - b).abs() <= 1.0e-12,
+        "expected {a:e} to match {b:e}; delta={:e}",
+        (a - b).abs()
     );
 }
 

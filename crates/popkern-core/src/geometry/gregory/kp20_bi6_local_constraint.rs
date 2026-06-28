@@ -226,6 +226,89 @@ pub fn kp20_eq9_g2_residual(
     grid_curr: &[[Point3; 7]; 7],
     b_coeffs: [f64; 3],
 ) -> [Vec3; 8] {
+    kp20_eq9_g2_residual_with_term_signs(grid_prev, grid_curr, b_coeffs, Kp20Eq9TermSigns::paper())
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20Eq9TermSigns {
+    pub dvv_curr: f64,
+    pub dvv_prev: f64,
+    pub two_b_duv: f64,
+    pub b_sq_duu: f64,
+    pub b_bprime_du: f64,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kp20Eq9TermSource {
+    Previous,
+    Current,
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20Eq9DiagnosticTerms {
+    pub signs: Kp20Eq9TermSigns,
+    pub duv_source: Kp20Eq9TermSource,
+    pub duu_source: Kp20Eq9TermSource,
+    pub du_source: Kp20Eq9TermSource,
+}
+
+#[cfg(test)]
+impl Kp20Eq9DiagnosticTerms {
+    pub const fn paper() -> Self {
+        Self {
+            signs: Kp20Eq9TermSigns::paper(),
+            duv_source: Kp20Eq9TermSource::Previous,
+            duu_source: Kp20Eq9TermSource::Previous,
+            du_source: Kp20Eq9TermSource::Previous,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Kp20Eq9TermSigns {
+    pub const fn paper() -> Self {
+        Self {
+            dvv_curr: 1.0,
+            dvv_prev: -1.0,
+            two_b_duv: 1.0,
+            b_sq_duu: -1.0,
+            b_bprime_du: -1.0,
+        }
+    }
+}
+
+#[cfg(not(test))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Kp20Eq9TermSigns {
+    dvv_curr: f64,
+    dvv_prev: f64,
+    two_b_duv: f64,
+    b_sq_duu: f64,
+    b_bprime_du: f64,
+}
+
+#[cfg(not(test))]
+impl Kp20Eq9TermSigns {
+    const fn paper() -> Self {
+        Self {
+            dvv_curr: 1.0,
+            dvv_prev: -1.0,
+            two_b_duv: 1.0,
+            b_sq_duu: -1.0,
+            b_bprime_du: -1.0,
+        }
+    }
+}
+
+fn kp20_eq9_g2_residual_with_term_signs(
+    grid_prev: &[[Point3; 7]; 7],
+    grid_curr: &[[Point3; 7]; 7],
+    b_coeffs: [f64; 3],
+    signs: Kp20Eq9TermSigns,
+) -> [Vec3; 8] {
     let dvv_curr = strip_dot_dot_v(grid_curr); // degree 6
     let dvv_prev = strip_dot_dot_v(grid_prev); // degree 6
     let duv_prev = strip_dot_dot_uv(grid_prev); // degree 5
@@ -238,34 +321,56 @@ pub fn kp20_eq9_g2_residual(
     let b_prime = b.differentiate(); // degree 1
 
     // 2 b · ∂_u ∂_v p — degree 2 + 5 = 7.
-    let two_b: Vec<f64> = b.coeffs().iter().map(|c| 2.0 * c).collect();
+    let two_b: Vec<f64> = b
+        .coeffs()
+        .iter()
+        .map(|c| signs.two_b_duv * 2.0 * c)
+        .collect();
     let two_b_poly = BernsteinPoly::new(two_b);
     let two_b_duv = bernstein_product_scalar_vec3(&two_b_poly, &duv_prev); // degree 7
 
     // b²(u) — scalar polynomial of degree 4.
     let b_sq = bernstein_product_scalar(&b, &b); // degree 4
 
-    // − b² · ∂²_u p — degree 4 + 4 = 8. (Paper's claim is degree
-    // ≤ 7; the higher-degree term cancels with the b b' term in
-    // the engineered construction. We emit at full degree and
-    // let the BB[8] vanishment be measured as part of the check.)
-    let neg_b_sq: Vec<f64> = b_sq.coeffs().iter().map(|c| -c).collect();
+    // − b² · ∂²_u p — degree 4 + 4 = 8. KP20 §4.2 counts the
+    // accepted G2 row set as degree 7 after pre-solving the strip
+    // constraints. The production residual therefore de-elevates
+    // below; the test-only degree-8 diagnostic keeps all 9 rows so the
+    // source campaign can measure whether that pre-solved identity is
+    // actually present.
+    let neg_b_sq: Vec<f64> = b_sq.coeffs().iter().map(|c| signs.b_sq_duu * c).collect();
     let neg_b_sq_poly = BernsteinPoly::new(neg_b_sq);
     let minus_b_sq_duu = bernstein_product_scalar_vec3(&neg_b_sq_poly, &duu_prev); // degree 8
 
     // − b · b' · ∂_u p — degree 2 + 1 + 5 = 8.
     let b_b_prime = bernstein_product_scalar(&b, &b_prime); // degree 3
-    let neg_b_b_prime: Vec<f64> = b_b_prime.coeffs().iter().map(|c| -c).collect();
+    let neg_b_b_prime: Vec<f64> = b_b_prime
+        .coeffs()
+        .iter()
+        .map(|c| signs.b_bprime_du * c)
+        .collect();
     let neg_b_b_prime_poly = BernsteinPoly::new(neg_b_b_prime);
     let minus_b_bprime_du = bernstein_product_scalar_vec3(&neg_b_b_prime_poly, &du_prev); // degree 8
 
     // Residual = dvv_curr − dvv_prev + 2 b ∂_u ∂_v p
     //            − b² ∂²_u p − b b' ∂_u p.
-    let neg_dvv_prev: BernsteinPoly<Vec3> =
-        BernsteinPoly::new(dvv_prev.coeffs().iter().map(|c| c.scale(-1.0)).collect());
+    let signed_dvv_curr: BernsteinPoly<Vec3> = BernsteinPoly::new(
+        dvv_curr
+            .coeffs()
+            .iter()
+            .map(|c| c.scale(signs.dvv_curr))
+            .collect(),
+    );
+    let signed_dvv_prev: BernsteinPoly<Vec3> = BernsteinPoly::new(
+        dvv_prev
+            .coeffs()
+            .iter()
+            .map(|c| c.scale(signs.dvv_prev))
+            .collect(),
+    );
 
-    let sum = dvv_curr
-        .add_elevated(&neg_dvv_prev)
+    let sum = signed_dvv_curr
+        .add_elevated(&signed_dvv_prev)
         .add_elevated(&two_b_duv)
         .add_elevated(&minus_b_sq_duu)
         .add_elevated(&minus_b_bprime_du);
@@ -280,6 +385,85 @@ pub fn kp20_eq9_g2_residual(
     let sum_deg7 = de_elevate_once(&sum);
     debug_assert_eq!(sum_deg7.degree(), 7);
 
+    let mut out = [Vec3::zero(); 8];
+    for (k, &c) in sum_deg7.coeffs().iter().enumerate() {
+        out[k] = c;
+    }
+    out
+}
+
+#[cfg(test)]
+fn kp20_eq9_g2_residual_with_diagnostic_terms(
+    grid_prev: &[[Point3; 7]; 7],
+    grid_curr: &[[Point3; 7]; 7],
+    b_coeffs: [f64; 3],
+    terms: Kp20Eq9DiagnosticTerms,
+) -> [Vec3; 8] {
+    let dvv_curr = strip_dot_dot_v(grid_curr);
+    let dvv_prev = strip_dot_dot_v(grid_prev);
+    let duv_source = match terms.duv_source {
+        Kp20Eq9TermSource::Previous => grid_prev,
+        Kp20Eq9TermSource::Current => grid_curr,
+    };
+    let duu_source = match terms.duu_source {
+        Kp20Eq9TermSource::Previous => grid_prev,
+        Kp20Eq9TermSource::Current => grid_curr,
+    };
+    let du_source = match terms.du_source {
+        Kp20Eq9TermSource::Previous => grid_prev,
+        Kp20Eq9TermSource::Current => grid_curr,
+    };
+    let duv = strip_dot_dot_uv(duv_source);
+    let duu = strip_dot_dot_u(duu_source);
+    let du = strip_dot_u(du_source);
+    let b = BernsteinPoly::new(b_coeffs.to_vec());
+    let b_prime = b.differentiate();
+
+    let two_b = BernsteinPoly::new(
+        b.coeffs()
+            .iter()
+            .map(|c| terms.signs.two_b_duv * 2.0 * c)
+            .collect(),
+    );
+    let two_b_duv = bernstein_product_scalar_vec3(&two_b, &duv);
+    let b_sq = bernstein_product_scalar(&b, &b);
+    let b_sq_poly = BernsteinPoly::new(
+        b_sq.coeffs()
+            .iter()
+            .map(|c| terms.signs.b_sq_duu * c)
+            .collect(),
+    );
+    let b_sq_duu = bernstein_product_scalar_vec3(&b_sq_poly, &duu);
+    let b_b_prime = bernstein_product_scalar(&b, &b_prime);
+    let b_b_prime_poly = BernsteinPoly::new(
+        b_b_prime
+            .coeffs()
+            .iter()
+            .map(|c| terms.signs.b_bprime_du * c)
+            .collect(),
+    );
+    let b_bprime_du = bernstein_product_scalar_vec3(&b_b_prime_poly, &du);
+    let signed_dvv_curr = BernsteinPoly::new(
+        dvv_curr
+            .coeffs()
+            .iter()
+            .map(|c| c.scale(terms.signs.dvv_curr))
+            .collect(),
+    );
+    let signed_dvv_prev = BernsteinPoly::new(
+        dvv_prev
+            .coeffs()
+            .iter()
+            .map(|c| c.scale(terms.signs.dvv_prev))
+            .collect(),
+    );
+
+    let sum = signed_dvv_curr
+        .add_elevated(&signed_dvv_prev)
+        .add_elevated(&two_b_duv)
+        .add_elevated(&b_sq_duu)
+        .add_elevated(&b_bprime_du);
+    let sum_deg7 = de_elevate_once(&sum);
     let mut out = [Vec3::zero(); 8];
     for (k, &c) in sum_deg7.coeffs().iter().enumerate() {
         out[k] = c;
@@ -367,13 +551,22 @@ pub fn kp20_eq8_jacobian_dense(b_coeffs: [f64; 3]) -> [[f64; 98]; 7] {
 /// Dense Jacobian of the eq (9) BB residual. Returns
 /// `[[f64; 98]; 8]` row-major.
 pub fn kp20_eq9_jacobian_dense(b_coeffs: [f64; 3]) -> [[f64; 98]; 8] {
+    kp20_eq9_jacobian_dense_with_term_signs(b_coeffs, Kp20Eq9TermSigns::paper())
+}
+
+#[cfg(test)]
+pub fn kp20_eq9_jacobian_dense_with_term_signs(
+    b_coeffs: [f64; 3],
+    signs: Kp20Eq9TermSigns,
+) -> [[f64; 98]; 8] {
     let mut jac = [[0.0_f64; 98]; 8];
     for side in 0..2 {
         for i in 0..7 {
             for j in 0..7 {
                 let mut grids = empty_grids();
                 grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
-                let bb = kp20_eq9_g2_residual(&grids[0], &grids[1], b_coeffs);
+                let bb =
+                    kp20_eq9_g2_residual_with_term_signs(&grids[0], &grids[1], b_coeffs, signs);
                 let col = flat_grid_index(side, i, j);
                 for (row, c) in bb.iter().enumerate() {
                     jac[row][col] = c.x;
@@ -382,6 +575,116 @@ pub fn kp20_eq9_jacobian_dense(b_coeffs: [f64; 3]) -> [[f64; 98]; 8] {
         }
     }
     jac
+}
+
+#[cfg(test)]
+pub fn kp20_eq9_jacobian_dense_with_diagnostic_terms(
+    b_coeffs: [f64; 3],
+    terms: Kp20Eq9DiagnosticTerms,
+) -> [[f64; 98]; 8] {
+    let mut jac = [[0.0_f64; 98]; 8];
+    for side in 0..2 {
+        for i in 0..7 {
+            for j in 0..7 {
+                let mut grids = empty_grids();
+                grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
+                let bb = kp20_eq9_g2_residual_with_diagnostic_terms(
+                    &grids[0], &grids[1], b_coeffs, terms,
+                );
+                let col = flat_grid_index(side, i, j);
+                for (row, c) in bb.iter().enumerate() {
+                    jac[row][col] = c.x;
+                }
+            }
+        }
+    }
+    jac
+}
+
+#[cfg(test)]
+pub fn kp20_eq9_jacobian_dense_degree8(b_coeffs: [f64; 3]) -> [[f64; 98]; 9] {
+    let mut jac = [[0.0_f64; 98]; 9];
+    for side in 0..2 {
+        for i in 0..7 {
+            for j in 0..7 {
+                let mut grids = empty_grids();
+                grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
+                let bb = kp20_eq9_g2_residual_degree8(&grids[0], &grids[1], b_coeffs);
+                let col = flat_grid_index(side, i, j);
+                for (row, c) in bb.iter().enumerate() {
+                    jac[row][col] = c.x;
+                }
+            }
+        }
+    }
+    jac
+}
+
+#[cfg(not(test))]
+fn kp20_eq9_jacobian_dense_with_term_signs(
+    b_coeffs: [f64; 3],
+    signs: Kp20Eq9TermSigns,
+) -> [[f64; 98]; 8] {
+    let mut jac = [[0.0_f64; 98]; 8];
+    for side in 0..2 {
+        for i in 0..7 {
+            for j in 0..7 {
+                let mut grids = empty_grids();
+                grids[side][i][j] = Point3::new(1.0, 0.0, 0.0);
+                let bb =
+                    kp20_eq9_g2_residual_with_term_signs(&grids[0], &grids[1], b_coeffs, signs);
+                let col = flat_grid_index(side, i, j);
+                for (row, c) in bb.iter().enumerate() {
+                    jac[row][col] = c.x;
+                }
+            }
+        }
+    }
+    jac
+}
+
+#[cfg(test)]
+fn kp20_eq9_g2_residual_degree8(
+    grid_prev: &[[Point3; 7]; 7],
+    grid_curr: &[[Point3; 7]; 7],
+    b_coeffs: [f64; 3],
+) -> [Vec3; 9] {
+    let dvv_curr = strip_dot_dot_v(grid_curr);
+    let dvv_prev = strip_dot_dot_v(grid_prev);
+    let duv_prev = strip_dot_dot_uv(grid_prev);
+    let duu_prev = strip_dot_dot_u(grid_prev);
+    let du_prev = strip_dot_u(grid_prev);
+
+    let b = BernsteinPoly::new(b_coeffs.to_vec());
+    let b_prime = b.differentiate();
+
+    let two_b_poly = BernsteinPoly::new(b.coeffs().iter().map(|c| 2.0 * c).collect());
+    let two_b_duv = bernstein_product_scalar_vec3(&two_b_poly, &duv_prev);
+
+    let b_sq = bernstein_product_scalar(&b, &b);
+    let neg_b_sq_poly = BernsteinPoly::new(b_sq.coeffs().iter().map(|c| -c).collect::<Vec<_>>());
+    let minus_b_sq_duu = bernstein_product_scalar_vec3(&neg_b_sq_poly, &duu_prev);
+
+    let b_b_prime = bernstein_product_scalar(&b, &b_prime);
+    let neg_b_b_prime_poly =
+        BernsteinPoly::new(b_b_prime.coeffs().iter().map(|c| -c).collect::<Vec<_>>());
+    let minus_b_bprime_du = bernstein_product_scalar_vec3(&neg_b_b_prime_poly, &du_prev);
+
+    let signed_dvv_curr: BernsteinPoly<Vec3> = BernsteinPoly::new(dvv_curr.coeffs().to_vec());
+    let signed_dvv_prev: BernsteinPoly<Vec3> =
+        BernsteinPoly::new(dvv_prev.coeffs().iter().map(|c| c.scale(-1.0)).collect());
+    let sum = signed_dvv_curr
+        .add_elevated(&signed_dvv_prev)
+        .add_elevated(&two_b_duv)
+        .add_elevated(&minus_b_sq_duu)
+        .add_elevated(&minus_b_bprime_du);
+    debug_assert_eq!(sum.degree(), 8);
+
+    let mut out = [Vec3::zero(); 9];
+    for (k, &c) in sum.coeffs().iter().enumerate() {
+        out[k] = c;
+    }
+    out
 }
 
 // ============================================================
@@ -404,6 +707,66 @@ pub fn kp20_eq9_jacobian_dense(b_coeffs: [f64; 3]) -> [[f64; 98]; 8] {
 /// integration tests assert only that every field is finite.
 /// Whether the cap satisfies the paper (e.g. residuals all ≤
 /// 1e-12) is a question for downstream ADRs (Phase E).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kp20Lemma6CpRegion {
+    /// Every contributing CP lies in the Lemma 4 overlay block
+    /// `i + j <= 3`.
+    Lemma4OverlayOnly,
+    /// The derivative stencil includes CPs outside the overlay,
+    /// but only on rows that assembly restores from the original
+    /// guide sample after C2 propagation.
+    IncludesRestoredRows,
+    /// The derivative stencil includes CPs outside the overlay and
+    /// outside the currently-restored rows.
+    IncludesUnrestoredStrip,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20Lemma6LayerDefect {
+    /// Lemma 6 condition number: 2 for layer 0, 3 for layer 1,
+    /// 4 for layer 2.
+    pub condition: usize,
+    /// Macro-patch sector that owns the worst defect.
+    pub sector: usize,
+    /// Layer row `j` of the NearOrigin left/right pair.
+    pub layer_j: usize,
+    /// Derivative order `d` whose C^d condition owns the max.
+    pub derivative_order: usize,
+    /// First contributing BB `i` index in the derivative stencil.
+    pub cp_i_start: usize,
+    /// Last contributing BB `i` index in the derivative stencil.
+    pub cp_i_end: usize,
+    /// Defect vector `D^d L(0) - (-1)^d D^d R(0)`.
+    pub defect: Vec3,
+    /// Component-wise infinity norm of `defect`.
+    pub magnitude: f64,
+    /// Assembly-region classification for the contributing CP span.
+    pub cp_region: Kp20Lemma6CpRegion,
+}
+
+impl Kp20Lemma6LayerDefect {
+    fn zero(condition: usize, layer_j: usize) -> Self {
+        Self {
+            condition,
+            sector: 0,
+            layer_j,
+            derivative_order: 0,
+            cp_i_start: 0,
+            cp_i_end: 0,
+            defect: Vec3::zero(),
+            magnitude: 0.0,
+            cp_region: Kp20Lemma6CpRegion::Lemma4OverlayOnly,
+        }
+    }
+
+    fn all_finite(&self) -> bool {
+        self.magnitude.is_finite()
+            && self.defect.x.is_finite()
+            && self.defect.y.is_finite()
+            && self.defect.z.is_finite()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20MacroCapResidualReport {
     /// Worst BB[i] magnitude of eq (8) residual on the near-o
@@ -432,6 +795,12 @@ pub struct Kp20MacroCapResidualReport {
     /// Worst C² defect across sectors at point `o` on layer
     /// `j = 2`. Lemma 6 cond (4).
     pub worst_lemma6_cond_4: f64,
+    /// Localisation of `worst_lemma6_cond_2`.
+    pub worst_lemma6_cond_2_detail: Kp20Lemma6LayerDefect,
+    /// Localisation of `worst_lemma6_cond_3`.
+    pub worst_lemma6_cond_3_detail: Kp20Lemma6LayerDefect,
+    /// Localisation of `worst_lemma6_cond_4`.
+    pub worst_lemma6_cond_4_detail: Kp20Lemma6LayerDefect,
 }
 
 impl Kp20MacroCapResidualReport {
@@ -466,6 +835,9 @@ impl Kp20MacroCapResidualReport {
             && self.worst_lemma6_cond_2.is_finite()
             && self.worst_lemma6_cond_3.is_finite()
             && self.worst_lemma6_cond_4.is_finite()
+            && self.worst_lemma6_cond_2_detail.all_finite()
+            && self.worst_lemma6_cond_3_detail.all_finite()
+            && self.worst_lemma6_cond_4_detail.all_finite()
     }
 }
 
@@ -520,9 +892,15 @@ pub fn measure_kp20_assembly_constraints(
     }
 
     let worst_lemma6_cond_1 = lemma6_condition_1_worst(cap, b_near_o);
-    let worst_lemma6_cond_2 = lemma6_layer_connectedness_worst(cap, 0, 4);
-    let worst_lemma6_cond_3 = lemma6_layer_connectedness_worst(cap, 1, 3);
-    let worst_lemma6_cond_4 = lemma6_layer_connectedness_worst(cap, 2, 2);
+    let worst_lemma6_cond_2_detail =
+        lemma6_within_macro_layer_connectedness_worst_detail(cap, 2, 0, 4);
+    let worst_lemma6_cond_3_detail =
+        lemma6_within_macro_layer_connectedness_worst_detail(cap, 3, 1, 3);
+    let worst_lemma6_cond_4_detail =
+        lemma6_within_macro_layer_connectedness_worst_detail(cap, 4, 2, 2);
+    let worst_lemma6_cond_2 = worst_lemma6_cond_2_detail.magnitude;
+    let worst_lemma6_cond_3 = worst_lemma6_cond_3_detail.magnitude;
+    let worst_lemma6_cond_4 = worst_lemma6_cond_4_detail.magnitude;
 
     Kp20MacroCapResidualReport {
         worst_eq8_near_o_per_sector: eq8_near_o,
@@ -533,6 +911,9 @@ pub fn measure_kp20_assembly_constraints(
         worst_lemma6_cond_2,
         worst_lemma6_cond_3,
         worst_lemma6_cond_4,
+        worst_lemma6_cond_2_detail,
+        worst_lemma6_cond_3_detail,
+        worst_lemma6_cond_4_detail,
     }
 }
 
@@ -729,61 +1110,97 @@ fn de_elevate_curve_once(curve: &[Point3; 7]) -> [Point3; 6] {
     out
 }
 
-/// Compute the worst C^n defect across all sector pairs of a
-/// "layer-j" curve at the joining point `o` (paper §5.1, Lemma 6
+/// Compute the worst C^n defect between the left/right origin-piece
+/// layer curves inside each macro patch (paper §5.1, Lemma 6
 /// conditions (2)/(3)/(4)).
 ///
-/// For each macro patch `k`, the layer-j curve is the row
-/// `NearOriginRight.cps[i][j]` for `i = 0..7`, parameterised in u
-/// from midradius (u = 0) to the extraordinary point o (u = 1).
-/// Across adjacent macro patches `k` and `k+1`, the curves meet
-/// at `u = 1` of both. C^n connectedness requires the 0th through
-/// n-th u-derivatives at `u = 1` to match (up to sign for odd
-/// orders given the symmetric parameterisation across `o`).
+/// The kernel's KP20 macro-patch stores the sector-separating curve
+/// as the internal `NearOriginLeft`/`NearOriginRight` boundary; this
+/// is the same piece pair consumed by eq (8), eq (9), and the G2 strip
+/// projection. Lemma 6's layer-connectedness checks therefore compare
+/// layer `j` of those two pieces within one macro patch, not
+/// `NearOriginRight` rows across adjacent macro patches.
 ///
-/// We compute u-derivatives at `u = 1` for both curves and report
-/// the worst element-wise magnitude of their difference across all
-/// `n_cap` sector pairs and `n_derivs + 1` derivative orders.
-fn lemma6_layer_connectedness_worst(
+/// For layer `j`, both curves are the `cps[i][j]` row. We compare
+/// their BB-polynomial derivatives at the apex-side endpoint `u = 0`
+/// because the Lemma-4 overlay and row restoration make that endpoint
+/// the local sector-separating origin in the current convention. Odd
+/// derivatives have opposite orientation across the split boundary.
+fn lemma6_within_macro_layer_connectedness_worst(
     cap: &Kp20Bi6MacroCapOutput,
     layer_j: usize,
     n_derivs: usize,
 ) -> f64 {
+    lemma6_within_macro_layer_connectedness_worst_detail(cap, layer_j + 2, layer_j, n_derivs)
+        .magnitude
+}
+
+fn lemma6_within_macro_layer_connectedness_worst_detail(
+    cap: &Kp20Bi6MacroCapOutput,
+    condition: usize,
+    layer_j: usize,
+    n_derivs: usize,
+) -> Kp20Lemma6LayerDefect {
     let n = cap.n;
     if n < 2 {
-        return 0.0;
+        return Kp20Lemma6LayerDefect::zero(condition, layer_j);
     }
-    let mut worst = 0.0_f64;
-    for k in 0..n {
-        let next = (k + 1) % n;
-        let curve_k: [Point3; 7] = layer_curve(&cap.macro_patches[k], layer_j);
-        let curve_n: [Point3; 7] = layer_curve(&cap.macro_patches[next], layer_j);
-
-        // Evaluate D^d at u = 1 of both curves. For a degree-6
-        // Bezier the d-th derivative at u = 1 is
-        //   D^d c(1) = (6! / (6-d)!) · Δ^d c[6-d]
-        // where Δ^d is the d-th forward difference of the BB CPs.
+    let mut worst = Kp20Lemma6LayerDefect::zero(condition, layer_j);
+    for (sector, macro_patch) in cap.macro_patches.iter().enumerate() {
+        let left = layer_curve(macro_patch, Kp20PieceId::NearOriginLeft, layer_j);
+        let right = layer_curve(macro_patch, Kp20PieceId::NearOriginRight, layer_j);
         for d in 0..=n_derivs {
-            let dk = bezier_derivative_at_1(&curve_k, d);
-            let dn = bezier_derivative_at_1(&curve_n, d);
-            // Sign alignment: both derivatives are taken w.r.t. u
-            // running toward o. At the joining point both curves
-            // arrive from the same side — odd derivatives flip
-            // sign across the join (each sector's curve "enters" o
-            // from its own direction). We measure |dk - (-1)^d · dn|,
-            // since odd derivatives must be equal-and-opposite at
-            // a fold-back parameterisation.
+            let dl = bezier_derivative_at_0(&left, d);
+            let dr = bezier_derivative_at_0(&right, d);
             let sign = if d.is_multiple_of(2) { 1.0 } else { -1.0 };
-            let defect = dk.sub(dn.scale(sign));
+            let defect = dl.sub(dr.scale(sign));
             let mag = defect.x.abs().max(defect.y.abs()).max(defect.z.abs());
-            worst = worst.max(mag);
+            if mag > worst.magnitude {
+                worst = Kp20Lemma6LayerDefect {
+                    condition,
+                    sector,
+                    layer_j,
+                    derivative_order: d,
+                    cp_i_start: 0,
+                    cp_i_end: d,
+                    defect,
+                    magnitude: mag,
+                    cp_region: lemma6_cp_region(layer_j, d),
+                };
+            }
         }
     }
     worst
 }
 
-fn layer_curve(macro_patch: &super::kp20_bi6_cap::Kp20MacroPatch, layer_j: usize) -> [Point3; 7] {
-    let g = &macro_patch.piece(Kp20PieceId::NearOriginRight).cps;
+fn lemma6_cp_region(layer_j: usize, derivative_order: usize) -> Kp20Lemma6CpRegion {
+    let mut has_outside_overlay = false;
+    let mut has_unrestored = false;
+    for i in 0..=derivative_order {
+        if i + layer_j <= 3 {
+            continue;
+        }
+        has_outside_overlay = true;
+        let restored_by_assembly = i == 5 || (i == 0 && layer_j >= 4) || (i == 1 && layer_j >= 4);
+        if !restored_by_assembly {
+            has_unrestored = true;
+        }
+    }
+    if has_unrestored {
+        Kp20Lemma6CpRegion::IncludesUnrestoredStrip
+    } else if has_outside_overlay {
+        Kp20Lemma6CpRegion::IncludesRestoredRows
+    } else {
+        Kp20Lemma6CpRegion::Lemma4OverlayOnly
+    }
+}
+
+fn layer_curve(
+    macro_patch: &super::kp20_bi6_cap::Kp20MacroPatch,
+    piece: Kp20PieceId,
+    layer_j: usize,
+) -> [Point3; 7] {
+    let g = &macro_patch.piece(piece).cps;
     [
         g[0][layer_j],
         g[1][layer_j],
@@ -795,8 +1212,86 @@ fn layer_curve(macro_patch: &super::kp20_bi6_cap::Kp20MacroPatch, layer_j: usize
     ]
 }
 
+/// Former diagnostic interpretation: compare `NearOriginRight`
+/// layer curves across adjacent macro patches at their right endpoint.
+/// Kept for A/B tests against older PK-088 handoff numbers; production
+/// reporting uses `lemma6_within_macro_layer_connectedness_worst`.
+#[cfg(test)]
+fn lemma6_cross_macro_layer_connectedness_worst(
+    cap: &Kp20Bi6MacroCapOutput,
+    layer_j: usize,
+    n_derivs: usize,
+) -> f64 {
+    let n = cap.n;
+    if n < 2 {
+        return 0.0;
+    }
+    let mut worst = 0.0_f64;
+    for k in 0..n {
+        let next = (k + 1) % n;
+        let curve_k = layer_curve(&cap.macro_patches[k], Kp20PieceId::NearOriginRight, layer_j);
+        let curve_n = layer_curve(
+            &cap.macro_patches[next],
+            Kp20PieceId::NearOriginRight,
+            layer_j,
+        );
+        for d in 0..=n_derivs {
+            let dk = bezier_derivative_at_1(&curve_k, d);
+            let dn = bezier_derivative_at_1(&curve_n, d);
+            let sign = if d.is_multiple_of(2) { 1.0 } else { -1.0 };
+            let defect = dk.sub(dn.scale(sign));
+            let mag = defect.x.abs().max(defect.y.abs()).max(defect.z.abs());
+            worst = worst.max(mag);
+        }
+    }
+    worst
+}
+
+#[cfg(test)]
+pub(crate) fn lemma6_layer_connectedness_comparison_for_tests(
+    cap: &Kp20Bi6MacroCapOutput,
+    layer_j: usize,
+    n_derivs: usize,
+) -> (f64, f64) {
+    (
+        lemma6_within_macro_layer_connectedness_worst(cap, layer_j, n_derivs),
+        lemma6_cross_macro_layer_connectedness_worst(cap, layer_j, n_derivs),
+    )
+}
+
+/// `D^d c(0)` for a degree-6 Bezier curve, returned as Vec3.
+fn bezier_derivative_at_0(curve: &[Point3; 7], d: usize) -> Vec3 {
+    let n_deg: usize = 6;
+    if d == 0 {
+        let p = curve[0];
+        return Vec3::new(p.x, p.y, p.z);
+    }
+    if d > n_deg {
+        return Vec3::zero();
+    }
+    let factorial = |x: usize| -> f64 {
+        let mut acc = 1.0_f64;
+        for k in 1..=x {
+            acc *= k as f64;
+        }
+        acc
+    };
+    let scale = factorial(n_deg) / factorial(n_deg - d);
+    let mut acc = Vec3::zero();
+    let bin = pascal_row(d);
+    for k in 0..=d {
+        let sign = if (d - k).is_multiple_of(2) { 1.0 } else { -1.0 };
+        let coef = sign * bin[k] * scale;
+        let p = curve[k];
+        let v = Vec3::new(p.x, p.y, p.z);
+        acc = acc.add(v.scale(coef));
+    }
+    acc
+}
+
 /// `D^d c(1)` for a degree-6 Bezier curve, returned as Vec3.
 /// `c(1) = c_6`; `D c(1) = 6 (c_6 - c_5)`; etc.
+#[cfg(test)]
 fn bezier_derivative_at_1(curve: &[Point3; 7], d: usize) -> Vec3 {
     if d == 0 {
         let p = curve[6];

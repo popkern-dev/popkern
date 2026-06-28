@@ -169,13 +169,15 @@ fn assembler_applies_tensor_border_and_internal_c2_rows() {
     assert_eq!(out.macro_patches.len(), 3);
     assert_eq!(out.patches_bi6.len(), 12);
     let sector = &out.macro_patches[0];
+    // KP20 equation (14) uses the two adjacent sector-local near-c
+    // tensor-border halves for the sector-separating near-m strip.
     assert_close(
         sector.piece(Kp20PieceId::NearMidpointLeft).cps[0][0],
-        p(0.0, 0.0, 0.0),
+        p(20.0, 0.0, 0.0),
     );
     assert_close(
         sector.piece(Kp20PieceId::NearMidpointRight).cps[0][6],
-        p(3.0, 0.0, 0.0),
+        p(1.5, 0.0, 0.0),
     );
     // After paper §4.4 step (i) overlay and the polynomial-
     // consistency restoration that follows it, NearOrigin no
@@ -185,6 +187,31 @@ fn assembler_applies_tensor_border_and_internal_c2_rows() {
     // longer a meaningful invariant after the paper §4.4 step (i)
     // wire-up. The other invariants in this test (n, lengths,
     // tensor-border endpoints) remain valid.
+}
+
+#[test]
+fn assembler_can_use_sampled_tensor_border_source() {
+    let sampled_macro_patches = sampled_macro_patches(3);
+    let input = Kp20Bi6MacroCapInput {
+        tensor_border: tensor_border(),
+        sampled_macro_patches: sampled_macro_patches.clone(),
+    };
+
+    let out = assemble_kp20_bi6_macro_cap_with_sampled_tensor_border_source(&input).unwrap();
+
+    let sector = &out.macro_patches[0];
+    assert_close(
+        sector.piece(Kp20PieceId::NearMidpointLeft).cps[0][0],
+        sampled_macro_patches[0]
+            .piece(Kp20PieceId::NearMidpointLeft)
+            .cps[0][0],
+    );
+    assert_close(
+        sector.piece(Kp20PieceId::NearMidpointRight).cps[2][6],
+        sampled_macro_patches[0]
+            .piece(Kp20PieceId::NearMidpointRight)
+            .cps[2][6],
+    );
 }
 
 #[test]

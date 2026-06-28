@@ -60,6 +60,106 @@ fn sector_local_tau_projects_global_wedge_to_guide_triangle() {
 }
 
 #[test]
+fn sector_local_paper_refined_apex_tau_matches_appendix_a_mu_ref() {
+    let params = Kp20TauParams::for_valence(6).unwrap();
+    let tau = Kp20TauMap::for_sector_local_paper_refined_apex(6, 4).unwrap();
+    let mu0 = (3.0 + params.mu0) / 4.0;
+    let mu1 = (1.0 + 3.0 * params.mu1) / 6.0;
+    let mu2 = (4.0 + 6.0 * params.mu1 + 3.0 * params.mu2) / 12.0;
+    let mu3 = (1.0 + 6.0 * params.mu1 + 3.0 * params.mu3) / 12.0;
+
+    assert_eq!(tau.cps[flat_index(3, 0, 0)], [0.0, 0.0]);
+    assert!((tau.cps[flat_index(3, 3, 0)][0] - mu0 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 0, 3)][1] - mu0 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][0] - mu1 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][1] - mu1 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 2)][0] - mu3 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 2)][1] - mu2 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 2, 1)][0] - mu2 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 2, 1)][1] - mu3 / 3.0).abs() < 1e-12);
+}
+
+#[test]
+fn sector_local_paper_tau_validity_on_appendix_a_triangle_is_measured() {
+    let tau = Kp20TauMap::for_sector_local_paper(5, 0).unwrap();
+    let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
+    let mut outside = 0_usize;
+    let mut negative = 0_usize;
+    let mut near_zero = 0_usize;
+    let mut min_det = f64::INFINITY;
+    let mut max_det = f64::NEG_INFINITY;
+    let mut max_excess = 0.0_f64;
+    let mut sample_count = 0_usize;
+
+    for &u in &samples {
+        for &v in &samples {
+            if u + v > 1.0 + 1.0e-12 {
+                continue;
+            }
+            let jet = tau.jet3(u, v);
+            let p = jet.d[0][0];
+            let simplex_excess = (p[0] + p[1] - 1.0)
+                .max(0.0)
+                .max((-p[0]).max(0.0))
+                .max((-p[1]).max(0.0));
+            let det = jet.d[1][0][0] * jet.d[0][1][1] - jet.d[0][1][0] * jet.d[1][0][1];
+
+            sample_count += 1;
+            outside += usize::from(simplex_excess > 1.0e-10);
+            negative += usize::from(det < -1.0e-10);
+            near_zero += usize::from(det.abs() <= 1.0e-10);
+            min_det = min_det.min(det);
+            max_det = max_det.max(det);
+            max_excess = max_excess.max(simplex_excess);
+        }
+    }
+
+    eprintln!(
+        "Appendix-A triangle paper tau validity: outside={outside}/{sample_count} max_excess={max_excess:e} neg={negative}/{sample_count} zero={near_zero} det=[{min_det:e},{max_det:e}]"
+    );
+    assert_eq!(sample_count, 15);
+    assert!(min_det.is_finite());
+    assert!(max_det.is_finite());
+}
+
+#[test]
+fn sector_local_paper_tau_dense_triangle_jacobian_is_measured() {
+    let tau = Kp20TauMap::for_sector_local_paper(5, 0).unwrap();
+    let mut negative = 0_usize;
+    let mut near_zero = 0_usize;
+    let mut min_det = f64::INFINITY;
+    let mut max_det = f64::NEG_INFINITY;
+    let mut worst = (0.0_f64, 0.0_f64);
+    let mut sample_count = 0_usize;
+
+    for iu in 0..=20 {
+        for iv in 0..=(20 - iu) {
+            let u = iu as f64 / 20.0;
+            let v = iv as f64 / 20.0;
+            let jet = tau.jet3(u, v);
+            let det = jet.d[1][0][0] * jet.d[0][1][1] - jet.d[0][1][0] * jet.d[1][0][1];
+            sample_count += 1;
+            negative += usize::from(det < -1.0e-10);
+            near_zero += usize::from(det.abs() <= 1.0e-10);
+            if det < min_det {
+                min_det = det;
+                worst = (u, v);
+            }
+            max_det = max_det.max(det);
+        }
+    }
+
+    eprintln!(
+        "Appendix-A dense triangle paper tau Jacobian: neg={negative}/{sample_count} zero={near_zero} det=[{min_det:e},{max_det:e}] worst=({u:.3},{v:.3})",
+        u = worst.0,
+        v = worst.1,
+    );
+    assert!(sample_count > 0);
+    assert!(min_det.is_finite());
+    assert!(max_det.is_finite());
+}
+
+#[test]
 fn affine_tau_jet_has_constant_first_partials_and_zero_higher_partials() {
     let tau = Kp20TauMap::affine([0.1, 0.2], [0.5, -0.25], [0.125, 0.75]);
 

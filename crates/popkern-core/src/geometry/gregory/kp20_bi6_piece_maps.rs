@@ -6,9 +6,14 @@
 
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_guide_sample::{
-    Kp20AffineGuideMap, Kp20PatchCorner, Kp20Tri6GuideSector, kp20_sample_macro_patch_from_guide,
+    Kp20AffineGuideMap, Kp20PatchCorner, Kp20Tri6GuideSector, kp20_corner_block_from_jet,
+    kp20_sample_macro_patch_from_guide, kp20_sample_patch_from_guide,
 };
-use super::kp20_bi6_tau::{Kp20TauMap, kp20_sample_corner_block_with_tau_affine};
+use super::kp20_bi6_tau::{
+    Kp20TauJet3, Kp20TauMap, kp20_compose_guide_with_tau_jet,
+    kp20_sample_corner_block_with_tau_affine,
+};
+use super::{bernstein_bi6_all, bernstein_bi6_deriv_all};
 use crate::geometry::Point3;
 
 /// Corner maps for one KP20 bi-6 piece.
@@ -16,6 +21,29 @@ pub type Kp20PieceCornerMaps = [(Kp20PatchCorner, Kp20AffineGuideMap); 4];
 
 /// All four piece maps for one sector.
 pub type Kp20SectorPieceMaps = [(Kp20PieceId, Kp20PieceCornerMaps); 4];
+
+/// Which KP20 τ construction is composed with the guide sampler.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kp20TauFamily {
+    /// Existing kernel τ used by the first tau-based diagnostic sampler.
+    Kernel,
+    /// KP20 Appendix A / equation (22) τ in sector-local guide coordinates.
+    Paper,
+    /// KP20 Appendix A refined central-expansion map `τref = 2τ(u/2,v/2)`.
+    PaperRefinedApex,
+}
+
+/// Sampler family for one macro-patch piece.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kp20PieceSamplerFamily {
+    /// Sample the guide directly through the piece's affine map.
+    AffineGuide,
+    /// Compose the guide with a named τ family before Hermite sampling.
+    Tau(Kp20TauFamily),
+}
+
+/// Per-piece sampler assignment.
+pub type Kp20PieceSamplerFamilies = [(Kp20PieceId, Kp20PieceSamplerFamily); 4];
 
 /// Default piece-to-guide maps for the current KP20 macro-patch layout.
 pub fn kp20_default_sector_piece_maps() -> Kp20SectorPieceMaps {
@@ -151,6 +179,33 @@ pub fn kp20_positive_nonoverlap_c2_sector_piece_maps() -> Kp20SectorPieceMaps {
     kp20_nonoverlap_coupled_sector_piece_maps()
 }
 
+/// Paper-domain quadrant layout inferred from KP20 Fig. 8 and the predecessor
+/// KP bi-5 quadrant convention: quadrant 1 is the lower-left origin quadrant,
+/// then 2, 3, 4 run counter-clockwise around the 2x2 sector parameterization.
+///
+/// This is a domain-layout candidate for the full four-piece τ sampler. It is
+/// intentionally separate from the C2 strip-ownership map families.
+pub fn kp20_paper_quadrant_sector_piece_maps() -> Kp20SectorPieceMaps {
+    [
+        (
+            Kp20PieceId::NearOriginLeft,
+            square_maps([0.0, 0.0], [0.5, 0.0], [0.0, 0.5]),
+        ),
+        (
+            Kp20PieceId::NearOriginRight,
+            square_maps([0.5, 0.0], [0.5, 0.0], [0.0, 0.5]),
+        ),
+        (
+            Kp20PieceId::NearMidpointRight,
+            square_maps([0.5, 0.5], [0.5, 0.0], [0.0, 0.5]),
+        ),
+        (
+            Kp20PieceId::NearMidpointLeft,
+            square_maps([0.0, 0.5], [0.5, 0.0], [0.0, 0.5]),
+        ),
+    ]
+}
+
 /// Domain-coverage report for the current affine piece-map scaffold.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Kp20PieceMapDomainReport {
@@ -165,6 +220,46 @@ pub struct Kp20PieceMapDomainReport {
     pub non_positive_orientation_maps: usize,
     /// Stable labels for non-positive base piece maps.
     pub orientation_offenders: Vec<String>,
+}
+
+/// Domain report for the composed map `τ ∘ q`, where `q` is a sector-local
+/// affine piece map and τ is one of the KP20 cubic reparameterisations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20TauPieceMapDomainReport {
+    /// Tau construction used for the report.
+    pub tau_family: Kp20TauFamily,
+    /// Valence of the extraordinary point.
+    pub valence: usize,
+    /// Sector index.
+    pub sector: usize,
+    /// Number of composed domain samples.
+    pub sample_count: usize,
+    /// Number of samples outside `u >= 0`, `v >= 0`, `u + v <= 1`.
+    pub outside_triangle_samples: usize,
+    /// Minimum sampled guide-local `u`.
+    pub min_u: f64,
+    /// Minimum sampled guide-local `v`.
+    pub min_v: f64,
+    /// Maximum sampled guide-local `u`.
+    pub max_u: f64,
+    /// Maximum sampled guide-local `v`.
+    pub max_v: f64,
+    /// Maximum sampled `u + v`.
+    pub max_u_plus_v: f64,
+    /// Largest positive violation of the local guide triangle.
+    pub max_simplex_excess: f64,
+    /// Stable labels for offending samples.
+    pub offending_samples: Vec<String>,
+}
+
+/// Combined sampled validity report for `τ ∘ q`, where `q` is a
+/// sector-local affine piece map.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20TauPieceMapValidityReport {
+    /// Sector-domain boundedness of `τ ∘ q`.
+    pub domain: Kp20TauPieceMapDomainReport,
+    /// Orientation and nonsingularity of `τ ∘ q`.
+    pub orientation: Kp20PlanarTauOrientationReport,
 }
 
 /// Guide-domain compatibility report for map edges consumed by assembly.
@@ -182,10 +277,122 @@ pub struct Kp20PieceMapStitchReport {
     pub min_piece_center_separation: f64,
 }
 
+/// Sampled orientation report for a planar bi-6 τ macro-patch.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Kp20PlanarTauOrientationReport {
+    /// Number of sampled Jacobian determinants.
+    pub sample_count: usize,
+    /// Number of samples with negative determinant below tolerance.
+    pub negative_determinants: usize,
+    /// Number of samples whose determinant magnitude is at or below tolerance.
+    pub near_zero_determinants: usize,
+    /// Smallest sampled determinant.
+    pub min_determinant: f64,
+    /// Largest sampled determinant.
+    pub max_determinant: f64,
+    /// Piece containing the smallest sampled determinant.
+    pub worst_piece: Kp20PieceId,
+    /// Piece-local `u` coordinate of the smallest sampled determinant.
+    pub worst_u: f64,
+    /// Piece-local `v` coordinate of the smallest sampled determinant.
+    pub worst_v: f64,
+}
+
+/// Sampled sector-domain report for a planar bi-6 τ macro-patch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20PlanarTauDomainReport {
+    /// Number of sampled image points.
+    pub sample_count: usize,
+    /// Number of samples outside `u >= 0`, `v >= 0`, `u + v <= 1`.
+    pub outside_triangle_samples: usize,
+    /// Minimum sampled guide-local `u`.
+    pub min_u: f64,
+    /// Minimum sampled guide-local `v`.
+    pub min_v: f64,
+    /// Maximum sampled guide-local `u`.
+    pub max_u: f64,
+    /// Maximum sampled guide-local `v`.
+    pub max_v: f64,
+    /// Maximum sampled `u + v`.
+    pub max_u_plus_v: f64,
+    /// Largest positive violation of the local guide triangle.
+    pub max_simplex_excess: f64,
+    /// Stable label for the sample with the largest triangle violation.
+    pub worst_sample: String,
+}
+
+/// Combined sampled validity gate for a planar bi-6 τ reparameterization.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20PlanarTauValidityReport {
+    /// Sector-domain boundedness of τ.
+    pub domain: Kp20PlanarTauDomainReport,
+    /// Orientation and nonsingularity of τ.
+    pub orientation: Kp20PlanarTauOrientationReport,
+}
+
+/// Rejection returned when a planar τ does not satisfy the sampled paper gate.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20PlanarTauSamplingError {
+    /// Full sampled validity report for diagnostics and candidate ranking.
+    pub validity: Box<Kp20PlanarTauValidityReport>,
+}
+
 impl Kp20PieceMapDomainReport {
     /// Whether every affine mapped corner stays inside the sector triangle.
     pub fn stays_inside_triangle(&self) -> bool {
         self.outside_triangle_corners == 0
+    }
+}
+
+impl Kp20PlanarTauOrientationReport {
+    /// Whether every sampled determinant is strictly positive at tolerance.
+    pub fn is_orientation_preserving(&self) -> bool {
+        self.negative_determinants == 0 && self.near_zero_determinants == 0
+    }
+}
+
+impl Kp20TauPieceMapDomainReport {
+    /// Whether all sampled composed points stay inside the sector triangle.
+    pub fn stays_inside_triangle(&self) -> bool {
+        self.outside_triangle_samples == 0
+    }
+}
+
+impl Kp20PlanarTauDomainReport {
+    /// Whether all sampled τ values stay inside the sector triangle.
+    pub fn stays_inside_triangle(&self) -> bool {
+        self.outside_triangle_samples == 0
+    }
+}
+
+impl Kp20PlanarTauValidityReport {
+    /// Whether the sampled τ is orientation preserving and nonsingular.
+    ///
+    /// KP20 Appendix A's explicit τ is a reparameterization in this sense; it
+    /// is not generally bounded by the unit sector triangle.
+    pub fn is_paper_valid_reparameterization(&self) -> bool {
+        self.orientation.is_orientation_preserving()
+    }
+
+    /// Whether the sampled τ also stays inside the sector triangle.
+    ///
+    /// This is a strict sampler-containment gate, not the paper's definition
+    /// of a valid reparameterization.
+    pub fn is_strict_sector_bounded_reparameterization(&self) -> bool {
+        self.domain.stays_inside_triangle() && self.orientation.is_orientation_preserving()
+    }
+}
+
+impl Kp20TauPieceMapValidityReport {
+    /// Whether all sampled composed maps are orientation preserving and
+    /// nonsingular.
+    pub fn is_paper_valid_reparameterization(&self) -> bool {
+        self.orientation.is_orientation_preserving()
+    }
+
+    /// Whether all sampled composed maps also stay inside the sector triangle.
+    pub fn is_strict_sector_bounded_reparameterization(&self) -> bool {
+        self.domain.stays_inside_triangle() && self.orientation.is_orientation_preserving()
     }
 }
 
@@ -228,6 +435,329 @@ pub fn kp20_piece_map_domain_report(maps: Kp20SectorPieceMaps) -> Kp20PieceMapDo
         offending_corners,
         non_positive_orientation_maps,
         orientation_offenders,
+    }
+}
+
+/// Measure whether `τ ∘ q` stays inside the sector-local guide triangle for
+/// caller-supplied piece maps.
+pub fn kp20_tau_piece_map_domain_report(
+    maps: Kp20SectorPieceMaps,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+) -> Result<Kp20TauPieceMapDomainReport, String> {
+    kp20_tau_piece_map_domain_report_for_pieces(maps, valence, sector, tau_family, |_| true)
+}
+
+/// Measure whether `τ ∘ q` stays inside the sector-local guide triangle for a
+/// selected subset of semantic pieces.
+pub fn kp20_tau_piece_map_domain_report_for_pieces(
+    maps: Kp20SectorPieceMaps,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+    include_piece: impl Fn(Kp20PieceId) -> bool,
+) -> Result<Kp20TauPieceMapDomainReport, String> {
+    let tau = tau_for_family(tau_family, valence, sector)?;
+    let mut sample_count = 0_usize;
+    let mut outside_triangle_samples = 0_usize;
+    let mut min_u = f64::INFINITY;
+    let mut min_v = f64::INFINITY;
+    let mut max_u = f64::NEG_INFINITY;
+    let mut max_v = f64::NEG_INFINITY;
+    let mut max_u_plus_v = f64::NEG_INFINITY;
+    let mut max_simplex_excess = 0.0_f64;
+    let mut offending_samples = Vec::new();
+
+    for (piece, corner_maps) in maps {
+        if !include_piece(piece) {
+            continue;
+        }
+        for (corner, map) in corner_maps {
+            for (su, sv) in COMPOSED_DOMAIN_SAMPLES {
+                let q = add2(add2(map.origin, scale2(map.du, su)), scale2(map.dv, sv));
+                let p = tau.jet3(q[0], q[1]).d[0][0];
+                let u = p[0];
+                let v = p[1];
+                let u_plus_v = u + v;
+                min_u = min_u.min(u);
+                min_v = min_v.min(v);
+                max_u = max_u.max(u);
+                max_v = max_v.max(v);
+                max_u_plus_v = max_u_plus_v.max(u_plus_v);
+                let simplex_excess = (u_plus_v - 1.0).max(0.0);
+                max_simplex_excess = max_simplex_excess.max(simplex_excess);
+                let outside = u < -1.0e-12 || v < -1.0e-12 || simplex_excess > 1.0e-12;
+                if outside {
+                    outside_triangle_samples += 1;
+                    if offending_samples.len() < 16 {
+                        offending_samples.push(format!(
+                            "{piece:?}.{corner:?}[{su:.2},{sv:.2}]->({u:.6},{v:.6})"
+                        ));
+                    }
+                }
+                sample_count += 1;
+            }
+        }
+    }
+
+    Ok(Kp20TauPieceMapDomainReport {
+        tau_family,
+        valence,
+        sector,
+        sample_count,
+        outside_triangle_samples,
+        min_u,
+        min_v,
+        max_u,
+        max_v,
+        max_u_plus_v,
+        max_simplex_excess,
+        offending_samples,
+    })
+}
+
+/// Measure whether `τ ∘ q` is sampled as an oriented, nonsingular map for
+/// caller-supplied sector-local affine piece maps.
+pub fn kp20_tau_piece_map_orientation_report(
+    maps: Kp20SectorPieceMaps,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+    determinant_tolerance: f64,
+) -> Result<Kp20PlanarTauOrientationReport, String> {
+    kp20_tau_piece_map_orientation_report_for_pieces(
+        maps,
+        valence,
+        sector,
+        tau_family,
+        determinant_tolerance,
+        |_| true,
+    )
+}
+
+/// Measure whether `τ ∘ q` is sampled as an oriented, nonsingular map for a
+/// selected subset of semantic pieces.
+pub fn kp20_tau_piece_map_orientation_report_for_pieces(
+    maps: Kp20SectorPieceMaps,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+    determinant_tolerance: f64,
+    include_piece: impl Fn(Kp20PieceId) -> bool,
+) -> Result<Kp20PlanarTauOrientationReport, String> {
+    let tau = tau_for_family(tau_family, valence, sector)?;
+    let mut report = Kp20PlanarTauOrientationReport {
+        sample_count: 0,
+        negative_determinants: 0,
+        near_zero_determinants: 0,
+        min_determinant: f64::INFINITY,
+        max_determinant: f64::NEG_INFINITY,
+        worst_piece: Kp20PieceId::NearOriginLeft,
+        worst_u: 0.0,
+        worst_v: 0.0,
+    };
+
+    for (piece, corner_maps) in maps {
+        if !include_piece(piece) {
+            continue;
+        }
+        for (corner, map) in corner_maps {
+            let (sign_u, sign_v) = corner_derivative_signs(corner);
+            for (su, sv) in COMPOSED_DOMAIN_SAMPLES {
+                let q = add2(add2(map.origin, scale2(map.du, su)), scale2(map.dv, sv));
+                let jet = tau.jet3(q[0], q[1]);
+                let dx_dsu = sign_u * (jet.d[1][0][0] * map.du[0] + jet.d[0][1][0] * map.du[1]);
+                let dy_dsu = sign_u * (jet.d[1][0][1] * map.du[0] + jet.d[0][1][1] * map.du[1]);
+                let dx_dsv = sign_v * (jet.d[1][0][0] * map.dv[0] + jet.d[0][1][0] * map.dv[1]);
+                let dy_dsv = sign_v * (jet.d[1][0][1] * map.dv[0] + jet.d[0][1][1] * map.dv[1]);
+                let determinant = dx_dsu * dy_dsv - dx_dsv * dy_dsu;
+
+                report.sample_count += 1;
+                report.negative_determinants += usize::from(determinant < -determinant_tolerance);
+                report.near_zero_determinants +=
+                    usize::from(determinant.abs() <= determinant_tolerance);
+                if determinant < report.min_determinant {
+                    report.min_determinant = determinant;
+                    report.worst_piece = piece;
+                    report.worst_u = su;
+                    report.worst_v = sv;
+                }
+                report.max_determinant = report.max_determinant.max(determinant);
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+fn corner_derivative_signs(corner: Kp20PatchCorner) -> (f64, f64) {
+    let sign_u = match corner {
+        Kp20PatchCorner::U0V0 | Kp20PatchCorner::U0V1 => 1.0,
+        Kp20PatchCorner::U1V0 | Kp20PatchCorner::U1V1 => -1.0,
+    };
+    let sign_v = match corner {
+        Kp20PatchCorner::U0V0 | Kp20PatchCorner::U1V0 => 1.0,
+        Kp20PatchCorner::U0V1 | Kp20PatchCorner::U1V1 => -1.0,
+    };
+    (sign_u, sign_v)
+}
+
+/// Measure the sampled paper-validity gate for explicit τ-family piece maps.
+pub fn kp20_tau_piece_map_validity_report(
+    maps: Kp20SectorPieceMaps,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+    determinant_tolerance: f64,
+) -> Result<Kp20TauPieceMapValidityReport, String> {
+    Ok(Kp20TauPieceMapValidityReport {
+        domain: kp20_tau_piece_map_domain_report(maps, valence, sector, tau_family)?,
+        orientation: kp20_tau_piece_map_orientation_report(
+            maps,
+            valence,
+            sector,
+            tau_family,
+            determinant_tolerance,
+        )?,
+    })
+}
+
+/// Measure whether a planar bi-6 τ macro-patch is sampled as an oriented,
+/// nonsingular map on each of its four square pieces.
+pub fn kp20_planar_bi6_tau_orientation_report(
+    tau_macro_patch: &Kp20MacroPatch,
+    samples: &[f64],
+    determinant_tolerance: f64,
+) -> Kp20PlanarTauOrientationReport {
+    let mut report = Kp20PlanarTauOrientationReport {
+        sample_count: 0,
+        negative_determinants: 0,
+        near_zero_determinants: 0,
+        min_determinant: f64::INFINITY,
+        max_determinant: f64::NEG_INFINITY,
+        worst_piece: Kp20PieceId::NearOriginLeft,
+        worst_u: 0.0,
+        worst_v: 0.0,
+    };
+
+    for piece_id in Kp20PieceId::all() {
+        let patch = tau_macro_patch.piece(piece_id);
+        for &u in samples {
+            let bu = bernstein_bi6_all(u);
+            let du = bernstein_bi6_deriv_all(u);
+            for &v in samples {
+                let bv = bernstein_bi6_all(v);
+                let dv = bernstein_bi6_deriv_all(v);
+                let mut dx_du = 0.0_f64;
+                let mut dy_du = 0.0_f64;
+                let mut dx_dv = 0.0_f64;
+                let mut dy_dv = 0.0_f64;
+                for i in 0..=6 {
+                    for j in 0..=6 {
+                        let cp = patch.cps[i][j];
+                        let weight_du = du[i] * bv[j];
+                        let weight_dv = bu[i] * dv[j];
+                        dx_du += weight_du * cp.x;
+                        dy_du += weight_du * cp.y;
+                        dx_dv += weight_dv * cp.x;
+                        dy_dv += weight_dv * cp.y;
+                    }
+                }
+                let determinant = dx_du * dy_dv - dx_dv * dy_du;
+                report.sample_count += 1;
+                report.negative_determinants += usize::from(determinant < -determinant_tolerance);
+                report.near_zero_determinants +=
+                    usize::from(determinant.abs() <= determinant_tolerance);
+                if determinant < report.min_determinant {
+                    report.min_determinant = determinant;
+                    report.worst_piece = piece_id;
+                    report.worst_u = u;
+                    report.worst_v = v;
+                }
+                report.max_determinant = report.max_determinant.max(determinant);
+            }
+        }
+    }
+
+    report
+}
+
+/// Measure whether a planar bi-6 τ macro-patch maps the sampled square pieces
+/// into the sector-local guide triangle.
+pub fn kp20_planar_bi6_tau_domain_report(
+    tau_macro_patch: &Kp20MacroPatch,
+    samples: &[f64],
+    domain_tolerance: f64,
+) -> Kp20PlanarTauDomainReport {
+    let mut report = Kp20PlanarTauDomainReport {
+        sample_count: 0,
+        outside_triangle_samples: 0,
+        min_u: f64::INFINITY,
+        min_v: f64::INFINITY,
+        max_u: f64::NEG_INFINITY,
+        max_v: f64::NEG_INFINITY,
+        max_u_plus_v: f64::NEG_INFINITY,
+        max_simplex_excess: 0.0,
+        worst_sample: String::new(),
+    };
+
+    for piece_id in Kp20PieceId::all() {
+        let patch = tau_macro_patch.piece(piece_id);
+        for &u in samples {
+            let bu = bernstein_bi6_all(u);
+            for &v in samples {
+                let bv = bernstein_bi6_all(v);
+                let mut x = 0.0_f64;
+                let mut y = 0.0_f64;
+                for (i, &bu_i) in bu.iter().enumerate() {
+                    for (j, &bv_j) in bv.iter().enumerate() {
+                        let cp = patch.cps[i][j];
+                        let weight = bu_i * bv_j;
+                        x += weight * cp.x;
+                        y += weight * cp.y;
+                    }
+                }
+                let u_plus_v = x + y;
+                let simplex_excess = (u_plus_v - 1.0).max(0.0);
+                let lower_excess = (-x).max(0.0).max((-y).max(0.0));
+                let total_excess = simplex_excess.max(lower_excess);
+                let outside = x < -domain_tolerance
+                    || y < -domain_tolerance
+                    || simplex_excess > domain_tolerance;
+
+                report.sample_count += 1;
+                report.outside_triangle_samples += usize::from(outside);
+                report.min_u = report.min_u.min(x);
+                report.min_v = report.min_v.min(y);
+                report.max_u = report.max_u.max(x);
+                report.max_v = report.max_v.max(y);
+                report.max_u_plus_v = report.max_u_plus_v.max(u_plus_v);
+                if total_excess > report.max_simplex_excess {
+                    report.max_simplex_excess = total_excess;
+                    report.worst_sample = format!("{piece_id:?}@({u:.2},{v:.2})=({x:.6},{y:.6})");
+                }
+            }
+        }
+    }
+
+    report
+}
+
+/// Measure the sampled paper-validity gate for a planar bi-6 τ macro-patch.
+pub fn kp20_planar_bi6_tau_validity_report(
+    tau_macro_patch: &Kp20MacroPatch,
+    samples: &[f64],
+    domain_tolerance: f64,
+    determinant_tolerance: f64,
+) -> Kp20PlanarTauValidityReport {
+    Kp20PlanarTauValidityReport {
+        domain: kp20_planar_bi6_tau_domain_report(tau_macro_patch, samples, domain_tolerance),
+        orientation: kp20_planar_bi6_tau_orientation_report(
+            tau_macro_patch,
+            samples,
+            determinant_tolerance,
+        ),
     }
 }
 
@@ -314,13 +844,202 @@ pub fn sample_kp20_macro_patch_from_tau_maps(
     valence: usize,
     sector: usize,
 ) -> Result<Kp20MacroPatch, String> {
-    let tau = Kp20TauMap::for_sector_local(valence, sector)?;
+    sample_kp20_macro_patch_from_tau_family_maps(
+        guide,
+        valence,
+        sector,
+        Kp20TauFamily::Kernel,
+        kp20_default_sector_piece_maps(),
+    )
+}
+
+/// Sample one guide sector using the paper Appendix A τ and the current
+/// positive nonoverlap map family. This is an explicit diagnostic/acceptance
+/// entry point; production assembly keeps its existing sampler until the
+/// paper-sampler campaign satisfies the cap-level gates.
+pub fn sample_kp20_macro_patch_from_paper_tau_maps(
+    guide: &Kp20Tri6GuideSector,
+    valence: usize,
+    sector: usize,
+) -> Result<Kp20MacroPatch, String> {
+    sample_kp20_macro_patch_from_tau_family_maps(
+        guide,
+        valence,
+        sector,
+        Kp20TauFamily::Paper,
+        kp20_positive_nonoverlap_c2_sector_piece_maps(),
+    )
+}
+
+/// Sample one guide sector with an explicit τ family and piece-map family.
+pub fn sample_kp20_macro_patch_from_tau_family_maps(
+    guide: &Kp20Tri6GuideSector,
+    valence: usize,
+    sector: usize,
+    tau_family: Kp20TauFamily,
+    maps: Kp20SectorPieceMaps,
+) -> Result<Kp20MacroPatch, String> {
+    let tau = tau_for_family(tau_family, valence, sector)?;
     let mut out = Kp20MacroPatch::zero();
-    for (piece_id, maps) in kp20_default_sector_piece_maps() {
+    for (piece_id, maps) in maps {
         *out.piece_mut(piece_id) = kp20_sample_patch_from_tau_maps(guide, &tau, maps);
     }
     Ok(out)
 }
+
+/// Sample one guide sector with explicit per-piece sampler choices.
+pub fn sample_kp20_macro_patch_from_piece_sampler_maps(
+    guide: &Kp20Tri6GuideSector,
+    valence: usize,
+    sector: usize,
+    sampler_families: Kp20PieceSamplerFamilies,
+    maps: Kp20SectorPieceMaps,
+) -> Result<Kp20MacroPatch, String> {
+    let mut out = Kp20MacroPatch::zero();
+    for (piece_id, corner_maps) in maps {
+        let sampler = sampler_family_for_piece(sampler_families, piece_id)
+            .ok_or_else(|| format!("missing sampler family for {piece_id:?}"))?;
+        *out.piece_mut(piece_id) = match sampler {
+            Kp20PieceSamplerFamily::AffineGuide => kp20_sample_patch_from_guide(guide, corner_maps),
+            Kp20PieceSamplerFamily::Tau(tau_family) => {
+                let tau = tau_for_family(tau_family, valence, sector)?;
+                kp20_sample_patch_from_tau_maps(guide, &tau, corner_maps)
+            }
+        };
+    }
+    Ok(out)
+}
+
+/// Sample one guide sector through a full piecewise bi-6 planar τ macro-patch.
+///
+/// The supplied macro-patch is interpreted as a planar map into the guide
+/// sector: each CP's `(x, y)` coordinates are guide-local coordinates sampled
+/// by `g o τ`; `z` is ignored.
+pub fn sample_kp20_macro_patch_from_planar_bi6_tau_macro_patch(
+    guide: &Kp20Tri6GuideSector,
+    tau_macro_patch: &Kp20MacroPatch,
+) -> Kp20MacroPatch {
+    let mut out = Kp20MacroPatch::zero();
+    for piece_id in Kp20PieceId::all() {
+        *out.piece_mut(piece_id) =
+            kp20_sample_patch_from_planar_bi6_tau(guide, tau_macro_patch.piece(piece_id));
+    }
+    out
+}
+
+/// Sample one guide sector through a planar bi-6 τ only after τ satisfies the
+/// strict sampled-source containment gate.
+pub fn sample_kp20_macro_patch_from_valid_planar_bi6_tau_macro_patch(
+    guide: &Kp20Tri6GuideSector,
+    tau_macro_patch: &Kp20MacroPatch,
+    validity_samples: &[f64],
+    domain_tolerance: f64,
+    determinant_tolerance: f64,
+) -> Result<Kp20MacroPatch, Kp20PlanarTauSamplingError> {
+    let validity = kp20_planar_bi6_tau_validity_report(
+        tau_macro_patch,
+        validity_samples,
+        domain_tolerance,
+        determinant_tolerance,
+    );
+    if !validity.is_strict_sector_bounded_reparameterization() {
+        return Err(Kp20PlanarTauSamplingError {
+            validity: Box::new(validity),
+        });
+    }
+    Ok(sample_kp20_macro_patch_from_planar_bi6_tau_macro_patch(
+        guide,
+        tau_macro_patch,
+    ))
+}
+
+/// Sample one guide sector through a planar bi-6 τ after checking the paper
+/// reparameterization gate: orientation preserving and nonsingular.
+///
+/// Unlike [`sample_kp20_macro_patch_from_valid_planar_bi6_tau_macro_patch`],
+/// this permits polynomial guide evaluation outside the unit sector triangle.
+/// KP20 Appendix A's printed τ has this behavior, so callers that intentionally
+/// follow the paper path should use this entry point and inspect the returned
+/// validity report when strict containment is also desired.
+pub fn sample_kp20_macro_patch_from_paper_valid_planar_bi6_tau_macro_patch(
+    guide: &Kp20Tri6GuideSector,
+    tau_macro_patch: &Kp20MacroPatch,
+    validity_samples: &[f64],
+    domain_tolerance: f64,
+    determinant_tolerance: f64,
+) -> Result<Kp20MacroPatch, Kp20PlanarTauSamplingError> {
+    let validity = kp20_planar_bi6_tau_validity_report(
+        tau_macro_patch,
+        validity_samples,
+        domain_tolerance,
+        determinant_tolerance,
+    );
+    if !validity.is_paper_valid_reparameterization() {
+        return Err(Kp20PlanarTauSamplingError {
+            validity: Box::new(validity),
+        });
+    }
+    Ok(sample_kp20_macro_patch_from_planar_bi6_tau_macro_patch(
+        guide,
+        tau_macro_patch,
+    ))
+}
+
+/// KP20 §4.3 `F3` energy of a planar bi-6 τ macro-patch.
+///
+/// The functional is evaluated over all four pieces as
+/// `∫∫ Σ_{a+b=3} 3!/(a!b!) ||∂u^a ∂v^b τ||² du dv`. Each CP's
+/// `(x, y)` coordinates are used; `z` is ignored. The fixed
+/// 7-point Gauss-Legendre tensor quadrature is exact for the squared
+/// third-derivative polynomials of a bi-6 patch.
+pub fn kp20_planar_bi6_tau_f3_energy(tau_macro_patch: &Kp20MacroPatch) -> f64 {
+    Kp20PieceId::all()
+        .into_iter()
+        .map(|piece_id| kp20_planar_bi6_tau_patch_f3_energy(tau_macro_patch.piece(piece_id)))
+        .sum()
+}
+
+fn sampler_family_for_piece(
+    sampler_families: Kp20PieceSamplerFamilies,
+    piece_id: Kp20PieceId,
+) -> Option<Kp20PieceSamplerFamily> {
+    sampler_families
+        .into_iter()
+        .find_map(|(id, family)| (id == piece_id).then_some(family))
+}
+
+fn tau_for_family(
+    tau_family: Kp20TauFamily,
+    valence: usize,
+    sector: usize,
+) -> Result<Kp20TauMap, String> {
+    match tau_family {
+        Kp20TauFamily::Kernel => Kp20TauMap::for_sector_local(valence, sector),
+        Kp20TauFamily::Paper => Kp20TauMap::for_sector_local_paper(valence, sector),
+        Kp20TauFamily::PaperRefinedApex => {
+            Kp20TauMap::for_sector_local_paper_refined_apex(valence, sector)
+        }
+    }
+}
+
+const COMPOSED_DOMAIN_SAMPLES: [(f64, f64); 6] = [
+    (0.0, 0.0),
+    (1.0, 0.0),
+    (0.0, 1.0),
+    (1.0, 1.0),
+    (0.5, 0.0),
+    (0.0, 0.5),
+];
+
+const GAUSS7_01: &[(f64, f64); 7] = &[
+    (0.025446043828620737, 0.06474248308443485),
+    (0.12923440720030277, 0.13985269574463832),
+    (0.2970774243113014, 0.19091502525255946),
+    (0.5, 0.2089795918367347),
+    (0.7029225756886985, 0.19091502525255946),
+    (0.8707655927996972, 0.13985269574463832),
+    (0.9745539561713793, 0.06474248308443485),
+];
 
 fn kp20_sample_patch_from_tau_maps(
     guide: &Kp20Tri6GuideSector,
@@ -356,6 +1075,158 @@ fn kp20_sample_patch_from_tau_maps(
         }
     }
     out
+}
+
+fn kp20_sample_patch_from_planar_bi6_tau(
+    guide: &Kp20Tri6GuideSector,
+    tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
+) -> super::kp20_bi6_cap::Kp20Bi6Patch {
+    let zero = Point3::new(0.0, 0.0, 0.0);
+    let mut sums = [[zero; 7]; 7];
+    let mut counts = [[0_u8; 7]; 7];
+
+    for corner in [
+        Kp20PatchCorner::U0V0,
+        Kp20PatchCorner::U1V0,
+        Kp20PatchCorner::U0V1,
+        Kp20PatchCorner::U1V1,
+    ] {
+        let (u, v) = match corner {
+            Kp20PatchCorner::U0V0 => (0.0, 0.0),
+            Kp20PatchCorner::U1V0 => (1.0, 0.0),
+            Kp20PatchCorner::U0V1 => (0.0, 1.0),
+            Kp20PatchCorner::U1V1 => (1.0, 1.0),
+        };
+        let sign_u = match corner {
+            Kp20PatchCorner::U0V0 | Kp20PatchCorner::U0V1 => 1.0,
+            Kp20PatchCorner::U1V0 | Kp20PatchCorner::U1V1 => -1.0,
+        };
+        let sign_v = match corner {
+            Kp20PatchCorner::U0V0 | Kp20PatchCorner::U1V0 => 1.0,
+            Kp20PatchCorner::U0V1 | Kp20PatchCorner::U1V1 => -1.0,
+        };
+        let block = kp20_corner_block_from_jet(kp20_compose_guide_with_tau_jet(
+            guide,
+            orient_tau_jet(planar_bi6_tau_jet3(tau, u, v), sign_u, sign_v),
+        ));
+        for (i, row) in block.iter().enumerate() {
+            for (j, point) in row.iter().enumerate() {
+                let (ii, jj) = oriented_index(corner, i, j);
+                sums[ii][jj].x += point.x;
+                sums[ii][jj].y += point.y;
+                sums[ii][jj].z += point.z;
+                counts[ii][jj] += 1;
+            }
+        }
+    }
+
+    let mut out = super::kp20_bi6_cap::Kp20Bi6Patch::zero();
+    for i in 0..7 {
+        for j in 0..7 {
+            debug_assert!(
+                counts[i][j] > 0,
+                "corner blocks must cover the full bi-6 grid"
+            );
+            let inv = 1.0 / counts[i][j] as f64;
+            out.cps[i][j] = Point3::new(sums[i][j].x * inv, sums[i][j].y * inv, sums[i][j].z * inv);
+        }
+    }
+    out
+}
+
+fn kp20_planar_bi6_tau_patch_f3_energy(tau: &super::kp20_bi6_cap::Kp20Bi6Patch) -> f64 {
+    let mut energy = 0.0_f64;
+    for &(u, wu) in GAUSS7_01 {
+        for &(v, wv) in GAUSS7_01 {
+            let jet = planar_bi6_tau_jet3(tau, u, v);
+            for a in 0..=3 {
+                let b = 3 - a;
+                let d = jet.d[a][b];
+                energy += wu * wv * binom(3, a) * (d[0] * d[0] + d[1] * d[1]);
+            }
+        }
+    }
+    energy
+}
+
+fn orient_tau_jet(tau: Kp20TauJet3, sign_u: f64, sign_v: f64) -> Kp20TauJet3 {
+    let mut out = tau;
+    for a in 0..4 {
+        for b in 0..(4 - a) {
+            let sign = sign_u.powi(a as i32) * sign_v.powi(b as i32);
+            out.d[a][b][0] *= sign;
+            out.d[a][b][1] *= sign;
+        }
+    }
+    out
+}
+
+fn planar_bi6_tau_jet3(tau: &super::kp20_bi6_cap::Kp20Bi6Patch, u: f64, v: f64) -> Kp20TauJet3 {
+    let bu = [
+        bernstein1d_derivative_basis(6, 0, u),
+        bernstein1d_derivative_basis(6, 1, u),
+        bernstein1d_derivative_basis(6, 2, u),
+        bernstein1d_derivative_basis(6, 3, u),
+    ];
+    let bv = [
+        bernstein1d_derivative_basis(6, 0, v),
+        bernstein1d_derivative_basis(6, 1, v),
+        bernstein1d_derivative_basis(6, 2, v),
+        bernstein1d_derivative_basis(6, 3, v),
+    ];
+    let mut out = [[[0.0_f64; 2]; 4]; 4];
+    for a in 0..4 {
+        for b in 0..(4 - a) {
+            for (i, &bu_i) in bu[a].iter().enumerate() {
+                for (j, &bv_j) in bv[b].iter().enumerate() {
+                    let w = bu_i * bv_j;
+                    out[a][b][0] += w * tau.cps[i][j].x;
+                    out[a][b][1] += w * tau.cps[i][j].y;
+                }
+            }
+        }
+    }
+    Kp20TauJet3 { d: out }
+}
+
+fn bernstein1d_derivative_basis(degree: usize, order: usize, t: f64) -> [f64; 7] {
+    let mut out = [0.0_f64; 7];
+    if order > degree {
+        return out;
+    }
+    let scale = falling_factorial(degree, order);
+    let lower_degree = degree - order;
+    for (i, out_i) in out.iter_mut().enumerate().take(degree + 1) {
+        let start = i.saturating_sub(order);
+        let end = i.min(lower_degree);
+        let mut value = 0.0_f64;
+        for r in start..=end {
+            let sign = if ((order - (i - r)) & 1) == 0 {
+                1.0
+            } else {
+                -1.0
+            };
+            value += sign * binom(order, i - r) * bernstein1d(lower_degree, r, t);
+        }
+        *out_i = scale * value;
+    }
+    out
+}
+
+fn bernstein1d(degree: usize, index: usize, t: f64) -> f64 {
+    binom(degree, index) * t.powi(index as i32) * (1.0 - t).powi((degree - index) as i32)
+}
+
+fn binom(n: usize, k: usize) -> f64 {
+    if k > n {
+        return 0.0;
+    }
+    let k = k.min(n - k);
+    (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
+}
+
+fn falling_factorial(n: usize, order: usize) -> f64 {
+    (0..order).fold(1.0, |acc, k| acc * (n - k) as f64)
 }
 
 fn square_maps(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20PieceCornerMaps {
