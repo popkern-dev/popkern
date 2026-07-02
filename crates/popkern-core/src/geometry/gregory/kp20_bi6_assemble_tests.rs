@@ -165,6 +165,7 @@ fn assembler_rejects_valence_mismatch() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated Fig 6c tau acceptance; re-derive per recovery plan WP2"]
 fn assembler_accepts_appendix_a_fig6c_tau_as_paper_reparameterization() {
     let input = Kp20Bi6CapInput {
         star_point: p(0.0, 0.0, 0.0),

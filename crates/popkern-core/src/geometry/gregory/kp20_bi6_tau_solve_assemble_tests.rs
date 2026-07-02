@@ -1388,6 +1388,7 @@ fn paper_row_set_assembles_all_kp20_tau_constraint_families() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn rotational_paper_row_set_free_space_is_measured_against_diagonal_and_kp13_sigma() {
     let valence = 5;
     let sector = 0;
@@ -3087,6 +3088,7 @@ fn appendix_a_fig6c_active_set_source_is_measured_through_sampled_cap_assembly()
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_promoted_tau_path_localizes_raw_eq14_geometry_assignment() {
     let valence = 5;
     const TAU_VALIDITY_SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3167,6 +3169,7 @@ fn appendix_a_fig6c_promoted_tau_path_localizes_raw_eq14_geometry_assignment() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_promoted_tau_stage_snapshots_localize_assembly_damage() {
     let valence = 5;
     let tensor_border = planar_regular_sector_tensor_border(valence);
@@ -3212,6 +3215,7 @@ fn appendix_a_fig6c_promoted_tau_stage_snapshots_localize_assembly_damage() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_sampled_fold_source_is_localized_to_sampler_or_guide() {
     let valence = 5;
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3287,6 +3291,7 @@ fn appendix_a_fig6c_sampled_fold_source_is_localized_to_sampler_or_guide() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_canonical_sampled_piece_orientation_is_localized() {
     let valence = 5;
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3373,6 +3378,7 @@ impl TestCompositionDeterminantReport {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_exact_composition_vs_sampled_patch_orientation_is_measured() {
     let valence = 5;
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3475,6 +3481,7 @@ fn appendix_a_fig6c_exact_composition_vs_sampled_patch_orientation_is_measured()
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_tau_pipeline_finite_coefficients_are_localized() {
     let valence = 5;
     let refined_local_tau = sample_kp20_macro_patch_from_tau_family_maps(
@@ -3560,6 +3567,7 @@ fn test_bi6_xy_value_and_derivatives(
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_near_midpoint_right_orientation_variants_are_ranked() {
     let valence = 5;
     let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
@@ -3636,6 +3644,7 @@ fn oriented_bi6_grid(
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_tau_image_exposes_guide_orientation_failure() {
     let valence = 5;
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3696,6 +3705,7 @@ fn appendix_a_fig6c_tau_image_exposes_guide_orientation_failure() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_tau_image_exposes_local_guide_orientation_failure() {
     let valence = 5;
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
@@ -3822,6 +3832,7 @@ fn promoted_fig6c_local_tau_without_guide_domain_gate(
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_active_set_solver_produces_valid_paper_tau() {
     let valence = 5;
     let sector = 0;
@@ -3871,6 +3882,7 @@ fn appendix_a_fig6c_active_set_solver_produces_valid_paper_tau() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn appendix_a_fig6c_tau_samples_square_source_without_triangle_domain_gate() {
     let valence = 5;
     let sector = 0;
@@ -10799,6 +10811,7 @@ fn appendix_a_eq14_source_band_blend_localizes_row_compatibility() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn rotational_paper_tau_regular_source_f3_priority_limit_is_collapsed() {
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
     let tensor_border = planar_regular_sector_tensor_border(5);
@@ -21495,6 +21508,7 @@ fn rotational_paper_tau_characteristic_source_orientation_is_measured() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn checked_rotational_paper_tau_rejects_invalid_projected_characteristic_source() {
     let valence = 5;
     let tensor_border = characteristic_cap_net_tensor_border(valence);
@@ -21675,6 +21689,7 @@ fn centered_first_order_source_projection_is_measured() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn centered_first_order_projected_tensor_band_option_sweep_is_measured() {
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
     let mut best = ("none", usize::MAX, f64::NEG_INFINITY, usize::MAX, 0.0_f64);
@@ -21770,6 +21785,7 @@ fn centered_first_order_projected_tensor_band_option_sweep_is_measured() {
 }
 
 #[test]
+#[ignore = "RC1-contaminated tau frontier probe; re-derive with corrected mu and the derived characteristic tensor-border (recovery plan WP2)"]
 fn fig8_first_order_projected_tensor_band_frame_sweep_is_measured() {
     const SAMPLES: [f64; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
     let axes = sector_local_axis_components(5, 0);

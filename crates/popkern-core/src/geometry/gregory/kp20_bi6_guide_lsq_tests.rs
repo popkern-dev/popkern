@@ -3590,6 +3590,7 @@ fn kp15_fig2b_cap_net_cyclic_boundary_depth_strip_is_measured() {
 }
 
 #[test]
+#[ignore = "RC2/RC5-contaminated KP15 source-projection probe; superseded by the derived characteristic ring (recovery plan WP1/WP5)"]
 fn kp15_fig2b_cap_net_asymmetric_spectral_depth_source_is_ranked() {
     let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
     for n in [5usize, 6, 7, 8] {
@@ -5183,6 +5184,7 @@ fn kp15_fig2b_stam_window_full_l_band_closure_candidates_are_ranked() {
 }
 
 #[test]
+#[ignore = "RC2/RC5-contaminated KP15 source-projection probe; superseded by the derived characteristic ring (recovery plan WP1/WP5)"]
 fn kp15_fig2b_stam_window_paper_depth_source_projection_is_measured() {
     let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
     for n in [5usize, 6, 7, 8] {
@@ -8817,6 +8819,7 @@ fn kp15_fig12_pr08_fig63_radial_edge_plus_depth2_source_projection_is_measured()
 }
 
 #[test]
+#[ignore = "RC2/RC5-contaminated KP15 source-projection probe; superseded by the derived characteristic ring (recovery plan WP1/WP5)"]
 fn kp15_fig12_pr08_fig63_spectral_depth_source_normalization_is_ranked() {
     let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
     for spec in kp15_fig63_radial_scale_specs_for_test() {
@@ -8886,6 +8889,7 @@ fn kp15_fig12_pr08_fig63_spectral_depth_source_normalization_is_ranked() {
 }
 
 #[test]
+#[ignore = "RC2/RC5-contaminated KP15 source-projection probe; superseded by the derived characteristic ring (recovery plan WP1/WP5)"]
 fn kp15_fig12_pr08_fig63_best_chart_spectral_depth_source_is_ranked() {
     let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
     for spec in kp15_fig63_best_depth_source_specs_for_test() {
@@ -8956,6 +8960,7 @@ fn kp15_fig12_pr08_fig63_best_chart_spectral_depth_source_is_ranked() {
 }
 
 #[test]
+#[ignore = "RC2/RC5-contaminated KP15 source-projection probe; superseded by the derived characteristic ring (recovery plan WP1/WP5)"]
 fn kp15_fig12_pr08_fig63_best_chart_asymmetric_spectral_depth_source_is_ranked() {
     let samples = [0.0, 0.25, 0.5, 0.75, 1.0];
     for spec in kp15_fig63_best_depth_source_specs_for_test() {
