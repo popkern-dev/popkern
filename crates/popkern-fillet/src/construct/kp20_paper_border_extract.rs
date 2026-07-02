@@ -113,65 +113,120 @@ pub fn kp20_paper_border_from_blend_boundary(
         / segment_count as f64;
     let depth = 0.8 * mean_chord;
 
-    // Pass 1: rim rows for every segment.
+    // Boundary conditioning to the g∘χ̃ shape class via macro-edge
+    // fitting. The characteristic layout corners ONLY at the n sector
+    // corners c and is C²-smooth at the n spoke points m; a raw
+    // fillet boundary corners at all 2n junctions, and a single bi-3
+    // span lacks the freedom to be C² at m without disturbing its c
+    // corner (measured: second-difference unification flattens c
+    // from 119° to 28°). Each macro-edge (c_k → c_{k+1}, through m)
+    // is therefore refit as a 2-span cubic spline with:
+    // - both c endpoints and the m junction interpolated exactly,
+    // - the TRUE segment tangent directions preserved at both c ends
+    //   (the real ~119° corner, matching χ̃'s corner class),
+    // - C¹/C² at m by construction (the constraints eliminate all
+    //   but two scalar unknowns — the c-end tangent magnitudes),
+    // - the remaining two scalars least-squares fit to dense samples
+    //   of the true boundary segments.
+    // Junction j sits at the start of segment j; with the
+    // FilletEnd-first phase, ODD junctions are the sector corners c.
     let mut rims: Vec<[Point3; 4]> = curves.iter().map(|segment| segment.rim_row()).collect();
-
-    // Boundary conditioning to the g∘χ̃ shape class. The
-    // characteristic layout corners ONLY at the n sector corners c
-    // and is SMOOTH at the n spoke points m, while a raw fillet apex
-    // boundary corners at all 2n junctions. Junction j sits at the
-    // start of segment j; with the FilletEnd-first phase, EVEN
-    // junctions are the spoke points m (bridge → arc) and ODD
-    // junctions are the sector corners c (arc → bridge). The real
-    // corner angle at c already matches the characteristic class
-    // (~119° vs ~115° at n = 5), so c is kept as-is; at every m the
-    // two adjacent rim legs are rotated onto their common unified
-    // tangent (endpoints fixed, inner control legs only — a re-trim
-    // within the ring surfaces' tolerance band), making the rim G¹
-    // at m exactly.
-    let mut m_tangents: Vec<Option<Vec3>> = vec![None; segment_count];
-    for j in (0..segment_count).step_by(2) {
-        let p_index = (j + segment_count - 1) % segment_count;
-        let q_index = j;
-        let leg_in = rims[p_index][3] - rims[p_index][2];
-        let leg_out = rims[q_index][1] - rims[q_index][0];
-        let unified = (leg_in.normalized().unwrap_or(leg_in)
-            + leg_out.normalized().unwrap_or(leg_out))
-        .normalized();
-        let Some(t_hat) = unified else { continue };
-        // Unified length as well: the χ̃-calibrated cross magnitudes
-        // derive from the rim legs, so cross-sector consistency at m
-        // needs equal legs on both sides.
-        let len = 0.5 * (leg_in.length() + leg_out.length());
-        rims[p_index][2] = rims[p_index][3] - t_hat * len;
-        rims[q_index][1] = rims[q_index][0] + t_hat * len;
-        m_tangents[j] = Some(t_hat);
-    }
-    // Second pass at m: unify rim curvature (C² across the spoke, the
-    // eq (13)/(14) prerequisite) by averaging the two sides' second
-    // BB differences and pushing the correction into the third
-    // control point from each side.
-    for j in (0..segment_count).step_by(2) {
-        let p_index = (j + segment_count - 1) % segment_count;
-        let q_index = j;
-        let pt = |p: Point3| [p.x, p.y, p.z];
-        let p3 = pt(rims[p_index][3]);
-        let p2 = pt(rims[p_index][2]);
-        let p1 = pt(rims[p_index][1]);
-        let q0 = pt(rims[q_index][0]);
-        let q1 = pt(rims[q_index][1]);
-        let q2 = pt(rims[q_index][2]);
-        let mut new_p1 = [0.0_f64; 3];
-        let mut new_q2 = [0.0_f64; 3];
-        for axis in 0..3 {
-            let d2_in = p1[axis] - 2.0 * p2[axis] + p3[axis];
-            let d2_out = q2[axis] - 2.0 * q1[axis] + q0[axis];
-            let mean = 0.5 * (d2_in + d2_out);
-            new_p1[axis] = 2.0 * p2[axis] - p3[axis] + mean;
-            new_q2[axis] = 2.0 * q1[axis] - q0[axis] + mean;
+    for k in 0..n {
+        let j = 2 * k + 1; // c junction between segment j-1 (arc) and j (bridge)
+        let bridge_index = j % segment_count;
+        let arc_index = (j + 1) % segment_count;
+        let c_start = rims[bridge_index][0];
+        let m_point = rims[arc_index][0];
+        let c_end = rims[arc_index][3];
+        // True corner directions from the raw interpolated rims.
+        let t0 = (rims[bridge_index][1] - rims[bridge_index][0])
+            .normalized()
+            .unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+        let t1 = (rims[arc_index][3] - rims[arc_index][2])
+            .normalized()
+            .unwrap_or(Vec3::new(1.0, 0.0, 0.0));
+        // Solve min over (alpha, beta) of the sample distance, with
+        // P1 = c_start + alpha t0, Q2 = c_end - beta t1,
+        // P2 = (c_start + 4m - c_end + alpha t0 + beta t1)/4,
+        // Q1 = 2m - P2 (the C1/C2-at-m eliminations).
+        const SAMPLES_PER_SEGMENT: usize = 9;
+        let mut ata = [[0.0_f64; 2]; 2];
+        let mut atb = [0.0_f64; 2];
+        for (span, segment_index) in [(0_usize, bridge_index), (1, arc_index)] {
+            for sample in 0..SAMPLES_PER_SEGMENT {
+                let t = (sample + 1) as f64 / (SAMPLES_PER_SEGMENT + 1) as f64;
+                let target = curves[segment_index].point(t);
+                // Cubic Bernstein weights on this span.
+                let sfp = 1.0 - t;
+                let w = [
+                    sfp * sfp * sfp,
+                    3.0 * sfp * sfp * t,
+                    3.0 * sfp * t * t,
+                    t * t * t,
+                ];
+                // Express the span point as constant + alpha·a + beta·b.
+                // Span 0 (P): [c_start, P1, P2, m]; span 1 (Q): [m, Q1, Q2, c_end].
+                let combine = |points: [(Point3, f64); 3]| -> [f64; 3] {
+                    let mut acc = [0.0_f64; 3];
+                    for (point, weight) in points {
+                        acc[0] += point.x * weight;
+                        acc[1] += point.y * weight;
+                        acc[2] += point.z * weight;
+                    }
+                    acc
+                };
+                let p2_const = Point3::new(
+                    (c_start.x + 4.0 * m_point.x - c_end.x) / 4.0,
+                    (c_start.y + 4.0 * m_point.y - c_end.y) / 4.0,
+                    (c_start.z + 4.0 * m_point.z - c_end.z) / 4.0,
+                );
+                let (constant, a_vec, b_vec) = if span == 0 {
+                    let constant =
+                        combine([(c_start, w[0] + w[1]), (p2_const, w[2]), (m_point, w[3])]);
+                    (constant, t0 * (w[1] + w[2] / 4.0), t1 * (w[2] / 4.0))
+                } else {
+                    let q1_const = Point3::new(
+                        2.0 * m_point.x - p2_const.x,
+                        2.0 * m_point.y - p2_const.y,
+                        2.0 * m_point.z - p2_const.z,
+                    );
+                    let constant =
+                        combine([(m_point, w[0]), (q1_const, w[1]), (c_end, w[2] + w[3])]);
+                    (constant, t0 * (-w[1] / 4.0), t1 * (-w[1] / 4.0 - w[2]))
+                };
+                let r = Vec3::new(
+                    target.x - constant[0],
+                    target.y - constant[1],
+                    target.z - constant[2],
+                );
+                ata[0][0] += a_vec.dot(&a_vec);
+                ata[0][1] += a_vec.dot(&b_vec);
+                ata[1][0] += a_vec.dot(&b_vec);
+                ata[1][1] += b_vec.dot(&b_vec);
+                atb[0] += a_vec.dot(&r);
+                atb[1] += b_vec.dot(&r);
+            }
         }
-        rims[p_index][1] = Point3::new(new_p1[0], new_p1[1], new_p1[2]);
-        rims[q_index][2] = Point3::new(new_q2[0], new_q2[1], new_q2[2]);
+        let det = ata[0][0] * ata[1][1] - ata[0][1] * ata[1][0];
+        if det.abs() < 1.0e-18 {
+            continue;
+        }
+        let alpha = (atb[0] * ata[1][1] - atb[1] * ata[0][1]) / det;
+        let beta = (ata[0][0] * atb[1] - ata[1][0] * atb[0]) / det;
+        let p1 = c_start + t0 * alpha;
+        let q2 = c_end - t1 * beta;
+        let p2 = Point3::new(
+            (c_start.x + 4.0 * m_point.x - c_end.x + alpha * t0.x + beta * t1.x) / 4.0,
+            (c_start.y + 4.0 * m_point.y - c_end.y + alpha * t0.y + beta * t1.y) / 4.0,
+            (c_start.z + 4.0 * m_point.z - c_end.z + alpha * t0.z + beta * t1.z) / 4.0,
+        );
+        let q1 = Point3::new(
+            2.0 * m_point.x - p2.x,
+            2.0 * m_point.y - p2.y,
+            2.0 * m_point.z - p2.z,
+        );
+        rims[bridge_index] = [c_start, p1, p2, m_point];
+        rims[arc_index] = [m_point, q1, q2, c_end];
     }
 
     // Pass 2: cross rows calibrated to the characteristic border's
@@ -410,6 +465,18 @@ impl OrientedSegment {
         };
         let start_vec = end_vector(0, &calibration.start);
         let end_vec = end_vector(3, &calibration.end);
+        if std::env::var_os("KP20_MARCH_TRACE").is_some() {
+            eprintln!(
+                "    march trace: start_vec=({:.5},{:.5},{:.5}) end_vec=({:.5},{:.5},{:.5}) fillet_end={}",
+                start_vec.x,
+                start_vec.y,
+                start_vec.z,
+                end_vec.x,
+                end_vec.y,
+                end_vec.z,
+                self.is_fillet_end,
+            );
+        }
         let mut rows = [row0, row0, row0];
         for (index, &q0) in row0.iter().enumerate() {
             let blend = index as f64 / 3.0;
@@ -470,6 +537,13 @@ impl OrientedSegment {
                 use popkern_core::geometry::uv_projection::project_point_to_uv;
                 let snap = |p: Point3| -> Option<Point3> {
                     let (u, v) = project_point_to_uv(&self.surface, &p)?;
+                    if std::env::var_os("KP20_MARCH_TRACE").is_some() {
+                        let out = nurbs.point_at(u, v);
+                        eprintln!(
+                            "      nurbs snap: raw=({:.5},{:.5},{:.5}) uv=({:.4},{:.4}) out=({:.5},{:.5},{:.5})",
+                            p.x, p.y, p.z, u, v, out.x, out.y, out.z,
+                        );
+                    }
                     Some(nurbs.point_at(u, v))
                 };
                 match (snap(raw1), snap(raw2)) {
@@ -606,4 +680,217 @@ mod tests {
             "corner mismatch out of expected G1-class band: {mismatch:e}",
         );
     }
+}
+
+/// Corner-setback border: the vertex-blend boundary as n fillet-end
+/// arcs set back to the TRIM-INTERSECTION corners — for each pair of
+/// angularly adjacent fillets, the point where their contact curves
+/// on the shared support face intersect. The boundary then lies
+/// entirely on the fillet surfaces: each sector's two pieces are the
+/// halves of ONE arc on ONE G² sweep (C² at the spoke point m by
+/// construction), and the sector corners c sit where two sweeps meet
+/// tangent to the same face (curvature-compatible corner data — the
+/// property the G² sweep buys). This is the classical setback vertex
+/// blend, shaped exactly like the characteristic layout.
+pub fn kp20_paper_border_from_fillet_setback(
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+) -> Result<(Kp20PaperGuideBorder, Kp20PaperBorderExtractReport), String> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let n = fillet_surfaces.len();
+    if n < 3 {
+        return Err(format!("setback border needs >= 3 fillets, got {n}"));
+    }
+
+    // Angular order of the fillets about the vertex (best-fit frame
+    // from the trim-curve midpoints).
+    let rep_point = |fi: usize| -> Point3 {
+        let c = &fillet_surfaces[fi].trim_curve_1;
+        let (t0, t1) = c.parameter_range();
+        c.point_at(0.5 * (t0 + t1))
+    };
+    let centroid = {
+        let mut acc = [0.0_f64; 3];
+        for fi in 0..n {
+            let p = rep_point(fi);
+            acc[0] += p.x;
+            acc[1] += p.y;
+            acc[2] += p.z;
+        }
+        Point3::new(acc[0] / n as f64, acc[1] / n as f64, acc[2] / n as f64)
+    };
+    let mut axis = Vec3::new(0.0, 0.0, 0.0);
+    for fi in 0..n {
+        let a = rep_point(fi) - centroid;
+        let b = rep_point((fi + 1) % n) - centroid;
+        axis = axis + a.cross(&b);
+    }
+    let axis = axis
+        .normalized()
+        .ok_or_else(|| "degenerate fillet arrangement".to_string())?;
+    let seed = rep_point(0) - centroid;
+    let u0 = (seed - axis * seed.dot(&axis))
+        .normalized()
+        .ok_or_else(|| "degenerate angular frame".to_string())?;
+    let v0 = axis.cross(&u0);
+    let angle_of = |p: Point3| -> f64 {
+        let d = p - centroid;
+        d.dot(&v0).atan2(d.dot(&u0))
+    };
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|&a, &b| {
+        angle_of(rep_point(a))
+            .partial_cmp(&angle_of(rep_point(b)))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    // Trim-intersection corner between adjacent fillets: the closest
+    // approach between any trim-curve pair (one from each side),
+    // sample-refined.
+    let closest_between = |ca: &popkern_core::geometry::NurbsCurve,
+                           cb: &popkern_core::geometry::NurbsCurve|
+     -> (f64, Point3) {
+        const S: usize = 96;
+        let (a0, a1) = ca.parameter_range();
+        let (b0, b1) = cb.parameter_range();
+        let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
+        for i in 0..=S {
+            let ta = a0 + (a1 - a0) * i as f64 / S as f64;
+            let pa = ca.point_at(ta);
+            for j in 0..=S {
+                let tb = b0 + (b1 - b0) * j as f64 / S as f64;
+                let pb = cb.point_at(tb);
+                let d = pa.distance_to(&pb);
+                if d < best.0 {
+                    best = (
+                        d,
+                        Point3::new(
+                            0.5 * (pa.x + pb.x),
+                            0.5 * (pa.y + pb.y),
+                            0.5 * (pa.z + pb.z),
+                        ),
+                    );
+                }
+            }
+        }
+        best
+    };
+    let mut corners = Vec::with_capacity(n);
+    for k in 0..n {
+        let fa = &fillet_surfaces[order[k]];
+        let fb = &fillet_surfaces[order[(k + 1) % n]];
+        let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
+        for ca in [&fa.trim_curve_1, &fa.trim_curve_2] {
+            for cb in [&fb.trim_curve_1, &fb.trim_curve_2] {
+                let candidate = closest_between(ca, cb);
+                if candidate.0 < best.0 {
+                    best = candidate;
+                }
+            }
+        }
+        corners.push(best);
+    }
+    let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
+
+    // One arc per fillet between its two corners, sampled ON the
+    // sweep along the uv segment; halves = the sector pieces.
+    let mut sectors = Vec::with_capacity(n);
+    let mut first_order_marches = 0_usize;
+    let calibration = chi_march_calibration(n)
+        .ok_or_else(|| "characteristic march calibration failed".to_string())?;
+    for k in 0..n {
+        let fillet = &fillet_surfaces[order[k]];
+        let c_prev = corners[(k + n - 1) % n].1;
+        let c_next = corners[k].1;
+        let (ua, va) = project_point_to_uv(&fillet.surface, &c_prev)
+            .ok_or_else(|| "corner projection failed".to_string())?;
+        let (ub, vb) = project_point_to_uv(&fillet.surface, &c_next)
+            .ok_or_else(|| "corner projection failed".to_string())?;
+        let on_surface = |t: f64| -> Point3 {
+            let u = ua + (ub - ua) * t;
+            let v = va + (vb - va) * t;
+            fillet.surface.point_at(u, v)
+        };
+        // Cubic through 4 samples, then de Casteljau halves — the
+        // sector pieces [m→c] never cross a surface boundary.
+        let p0 = on_surface(0.0);
+        let q1 = on_surface(1.0 / 3.0);
+        let q2 = on_surface(2.0 / 3.0);
+        let p3 = on_surface(1.0);
+        let interior = |a: f64, b: f64, c: f64, d: f64| {
+            Point3::new(
+                (a * p0.x + b * q1.x + c * q2.x + d * p3.x) / 6.0,
+                (a * p0.y + b * q1.y + c * q2.y + d * p3.y) / 6.0,
+                (a * p0.z + b * q1.z + c * q2.z + d * p3.z) / 6.0,
+            )
+        };
+        let arc = [
+            p0,
+            interior(-5.0, 18.0, -9.0, 2.0),
+            interior(2.0, -9.0, 18.0, -5.0),
+            p3,
+        ];
+        let (first_half, second_half) = split_cubic_row(&arc);
+        // The oriented segment shim reuses the calibrated march.
+        let shim = OrientedSegment {
+            curve: fillet.trim_curve_1.clone(),
+            surface: fillet.surface.clone(),
+            is_fillet_end: true,
+            reversed: false,
+        };
+        let piece_a = shim.border_piece_calibrated(
+            &first_half,
+            &calibration[0],
+            vertex_position,
+            &mut first_order_marches,
+        );
+        let piece_b = shim.border_piece_calibrated(
+            &second_half,
+            &calibration[1],
+            vertex_position,
+            &mut first_order_marches,
+        );
+        sectors.push((order[k], piece_a, piece_b));
+    }
+
+    // Sector s spans [m_s → c_s → m_{s+1}]: piece A = second half of
+    // arc s (m_s → c_s side? — the arc runs c_{s-1} → c_s, so its
+    // halves are [c_{s-1} → m_s] and [m_s → c_s]). Regroup: sector s
+    // = (arc_s second half, arc_{s+1} first half).
+    type PiecePair = ([[Point3; 4]; 3], [[Point3; 4]; 3]);
+    let pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
+    let mut grouped = Vec::with_capacity(n);
+    for s in 0..n {
+        let piece_a = pieces[s].1; // [m_s → c_s]
+        let piece_b = pieces[(s + 1) % n].0; // [c_s → m_{s+1}]
+        grouped.push([
+            Kp20PaperGuideBorderPiece { rows: piece_a },
+            Kp20PaperGuideBorderPiece { rows: piece_b },
+        ]);
+    }
+
+    Ok((
+        Kp20PaperGuideBorder { sectors: grouped },
+        Kp20PaperBorderExtractReport {
+            n,
+            depth: 0.0,
+            max_loop_gap: max_corner_gap,
+            first_order_marches,
+            reversed_for_orientation: false,
+        },
+    ))
+}
+
+/// De Casteljau halves of one cubic row.
+fn split_cubic_row(row: &[Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
+    let mid =
+        |a: Point3, b: Point3| Point3::new(0.5 * (a.x + b.x), 0.5 * (a.y + b.y), 0.5 * (a.z + b.z));
+    let p01 = mid(row[0], row[1]);
+    let p12 = mid(row[1], row[2]);
+    let p23 = mid(row[2], row[3]);
+    let p012 = mid(p01, p12);
+    let p123 = mid(p12, p23);
+    let center = mid(p012, p123);
+    ([row[0], p01, p012, center], [center, p123, p23, row[3]])
 }

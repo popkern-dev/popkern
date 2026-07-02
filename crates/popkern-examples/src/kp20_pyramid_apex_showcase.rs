@@ -28,7 +28,9 @@ use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::blend::compute_blend_boundary;
-use popkern_fillet::construct::kp20_paper_border_extract::kp20_paper_border_from_blend_boundary;
+use popkern_fillet::construct::kp20_paper_border_extract::{
+    kp20_paper_border_from_blend_boundary, kp20_paper_border_from_fillet_setback,
+};
 use popkern_fillet::fillet_surface::FilletSurfaceResult;
 use popkern_fillet::{
     ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
@@ -97,6 +99,15 @@ fn run() {
         "preview failures: {:?}",
         preview.failed
     );
+    for (i, eg) in preview.per_edge.iter().enumerate() {
+        let variant = match &eg.blend_surface {
+            popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+            popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+            popkern_core::geometry::SurfaceGeometry::Torus { .. } => "Torus",
+            _ => "other",
+        };
+        println!("  fillet[{i}] surface variant: {variant}");
+    }
     let fillet_surfaces: Vec<FilletSurfaceResult> = preview
         .per_edge
         .iter()
@@ -142,9 +153,16 @@ fn run() {
             b.y.atan2(b.x).to_degrees(),
         );
     }
-    let (border, extract_report) =
+    let use_setback = std::env::var("KP20_SETBACK")
+        .map(|v| v == "1")
+        .unwrap_or(true);
+    let (border, extract_report) = if use_setback {
+        kp20_paper_border_from_fillet_setback(&fillet_surfaces, boundary.vertex_position)
+            .expect("setback border extraction")
+    } else {
         kp20_paper_border_from_blend_boundary(&boundary, &fillet_surfaces, &pyramid)
-            .expect("two-piece border extraction");
+            .expect("two-piece border extraction")
+    };
     println!(
         "extraction: n={} depth={:.4} loop_gap={:.3e} first_order_marches={} reversed={}",
         extract_report.n,
@@ -215,6 +233,25 @@ fn run() {
             println!(
                 "  {label}: rim_leg={rim_leg:.4} cross_leg={cross_leg:.4} ratio={:.3} angle_to_rim={angle:.1} deg",
                 cross_leg / rim_leg,
+            );
+        }
+    }
+    for (label, rows) in [
+        ("piece A", &border.sectors[0][0].rows),
+        ("piece B", &border.sectors[0][1].rows),
+    ] {
+        for col in [0_usize, 3] {
+            let leg = Point3::new(
+                rows[1][col].x - rows[0][col].x,
+                rows[1][col].y - rows[0][col].y,
+                rows[1][col].z - rows[0][col].z,
+            );
+            println!(
+                "  {label} cross leg at col {col}: ({:.5}, {:.5}, {:.5}) len {:.5}",
+                leg.x,
+                leg.y,
+                leg.z,
+                (leg.x * leg.x + leg.y * leg.y + leg.z * leg.z).sqrt(),
             );
         }
     }
@@ -313,10 +350,25 @@ fn run() {
     // Note: normalize-assemble-denormalize was probed and falsified —
     // the assembly is affine-clean; residuals are genuinely relative
     // to the input's smoothness class.
+    // The setback border satisfies the paper's premises well enough
+    // for the paper-faithful hard-constraint mode.
     let report =
-        assemble_kp20_paper_cap_with_enforcement(&border, star, Kp20StripEnforcement::SoftG)
+        assemble_kp20_paper_cap_with_enforcement(&border, star, Kp20StripEnforcement::HardG2)
             .expect("paper cap assembly");
 
+    {
+        use popkern_core::geometry::gregory::Kp20PieceId;
+        let p4 = report.sectors[0].piece(Kp20PieceId::NearMidpointLeft);
+        for (label, cp) in [
+            ("P4[0][6] (m)", p4.cps[0][6]),
+            ("P4[1][6] (rim+1)", p4.cps[1][6]),
+            ("P4[0][5] (cross+1)", p4.cps[0][5]),
+            ("P4[0][4] (cross+2)", p4.cps[0][4]),
+            ("P4[1][5] (diag)", p4.cps[1][5]),
+        ] {
+            println!("  {label}: ({:.5}, {:.5}, {:.5})", cp.x, cp.y, cp.z);
+        }
+    }
     let bi9_grids: Vec<[[Point3; 10]; 10]> = report
         .sectors
         .iter()
@@ -340,66 +392,234 @@ fn run() {
     write_scene_obj(&bi9_grids, &border, &obj_path).expect("OBJ export");
     println!("wrote {}", obj_path.display());
 
-    // Whole object: run the real fillet pipeline (G² options), drop
-    // its own apex cap faces from the tessellation, and merge the
-    // paper cap into the hole.
-    let options = FilletOptions {
-        continuity: ContinuityLevel::G2,
-        ..FilletOptions::default()
-    };
-    let filleted = fillet_edges(&pyramid, &specs, &options, tol, None).expect("fillet_edges");
-    println!(
-        "fillet_edges: {} faces, {} corner patches, {} warnings",
-        filleted.brep.faces.len(),
-        filleted.corner_patches.len(),
-        filleted.edge_warnings.len(),
-    );
-    let excluded: Vec<_> = filleted
-        .corner_patches
-        .iter()
-        .map(|patch| patch.face)
-        .collect();
-    let mesh = popkern_mesh::tessellate(
-        &filleted.brep,
-        &popkern_mesh::TessellationOptions {
-            chord_height: 5.0e-4,
-            min_subdivisions: 12,
-            max_subdivisions: 64,
-        },
-    )
-    .expect("tessellate filleted BRep");
+    // Whole object from parts, honestly trimmed to the setback
+    // boundary: fillet sweeps sampled from their base ends up to OUR
+    // setback arcs, faces trimmed at the contact lines up to the
+    // corner points, the base pentagon, and the paper cap.
     let whole_path = out.join("kp20_pyramid_apex_whole.obj");
-    write_whole_object_obj(&mesh, &excluded, &bi9_grids, &whole_path).expect("whole OBJ");
+    write_parts_whole_obj(
+        &fillet_surfaces,
+        &border,
+        &pyramid,
+        &bi9_grids,
+        boundary.vertex_position,
+        &whole_path,
+    )
+    .expect("whole OBJ");
     println!("wrote {}", whole_path.display());
 }
 
-/// Whole-object OBJ: the tessellated filleted BRep minus the
-/// pipeline's own apex cap faces, plus the paper cap patches.
-fn write_whole_object_obj(
-    mesh: &popkern_mesh::TriMesh,
-    excluded_faces: &[popkern_core::topology::FaceHandle],
+/// Whole-object OBJ from parts: fillet strips over their sweep
+/// rectangles clipped at the setback arcs (the cap rim), lateral
+/// faces as fans over their trimmed boundary polylines, the base
+/// pentagon, and the paper cap.
+fn write_parts_whole_obj(
+    fillet_surfaces: &[popkern_fillet::fillet_surface::FilletSurfaceResult],
+    border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder,
+    pyramid: &BRep,
     bi9_grids: &[[[Point3; 10]; 10]],
+    vertex: Point3,
     path: &Path,
 ) -> Result<(), std::io::Error> {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
     use std::io::Write;
     let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
     writeln!(
         file,
-        "# filleted pentagonal pyramid with the KP20 paper cap"
+        "# filleted pentagonal pyramid + KP20 paper cap (from parts)"
     )?;
-    for v in &mesh.vertices {
-        writeln!(file, "v {} {} {}", v.position.x, v.position.y, v.position.z)?;
-        writeln!(file, "vn {} {} {}", v.normal.x, v.normal.y, v.normal.z)?;
+    let mut base_index = 1_usize;
+
+    let n = fillet_surfaces.len();
+    let corners: Vec<Point3> = border
+        .sectors
+        .iter()
+        .map(|sector| sector[0].rows[0][3])
+        .collect();
+    for (k, fillet) in fillet_surfaces.iter().enumerate() {
+        let mut scored: Vec<(f64, usize)> = (0..n)
+            .map(|s| {
+                let c = corners[s];
+                let d = project_point_to_uv(&fillet.surface, &c)
+                    .map(|(u, v)| fillet.surface.point_at(u, v).distance_to(&c))
+                    .unwrap_or(f64::INFINITY);
+                (d, s)
+            })
+            .collect();
+        scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let ca = corners[scored[0].1];
+        let cb = corners[scored[1].1];
+        let Some((ua, va)) = project_point_to_uv(&fillet.surface, &ca) else {
+            continue;
+        };
+        let Some((ub, vb)) = project_point_to_uv(&fillet.surface, &cb) else {
+            continue;
+        };
+        let probe_v = 0.5 * (va + vb);
+        let d0 = fillet.surface.point_at(0.0, probe_v).distance_to(&vertex);
+        let d1 = fillet.surface.point_at(1.0, probe_v).distance_to(&vertex);
+        let u_base = if d0 > d1 { 0.0 } else { 1.0 };
+        const AL: usize = 25;
+        const AC: usize = 13;
+        for i in 0..AL {
+            for j in 0..AC {
+                let t = j as f64 / (AC - 1) as f64;
+                let u_arc = ua + (ub - ua) * t;
+                let v = va + (vb - va) * t;
+                let u = u_arc + (u_base - u_arc) * (i as f64 / (AL - 1) as f64);
+                let p = fillet.surface.point_at(u, v);
+                let nrm = fillet.surface.normal_at(u, v);
+                writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
+                writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
+            }
+        }
+        writeln!(file, "g fillet_{k}")?;
+        base_index = emit_grid_faces(&mut file, base_index, AL, AC)?;
     }
-    writeln!(file, "g filleted_brep")?;
-    for (triangle, face) in mesh.triangles.iter().zip(&mesh.face_map) {
-        if excluded_faces.contains(face) {
+
+    for (_face_handle, face) in pyramid.faces.iter() {
+        let Some(surface) = face.surface.as_ref() else {
+            continue;
+        };
+        let popkern_core::geometry::SurfaceGeometry::Plane { normal, origin, .. } =
+            &surface.geometry
+        else {
+            continue;
+        };
+        if normal.z.abs() > 0.9 {
             continue;
         }
-        let [a, b, c] = [triangle[0] + 1, triangle[1] + 1, triangle[2] + 1];
-        writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+        let plane_distance = |p: Point3| ((p - *origin).dot(normal)).abs();
+        let mut on_plane: Vec<&popkern_core::geometry::NurbsCurve> = Vec::new();
+        for fillet in fillet_surfaces {
+            for curve in [&fillet.trim_curve_1, &fillet.trim_curve_2] {
+                let (t0, t1) = curve.parameter_range();
+                let mid = curve.point_at(0.5 * (t0 + t1));
+                if plane_distance(mid) < 1.0e-6 {
+                    on_plane.push(curve);
+                }
+            }
+        }
+        if on_plane.len() != 2 {
+            continue;
+        }
+        let corner = corners
+            .iter()
+            .copied()
+            .min_by(|a, b| {
+                plane_distance(*a)
+                    .partial_cmp(&plane_distance(*b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap_or(vertex);
+        let base_points: Vec<Point3> = pyramid
+            .vertices
+            .iter()
+            .map(|(_, v)| v.position)
+            .filter(|p| p.z < 1.0e-6 && plane_distance(*p) < 1.0e-6)
+            .collect();
+        if base_points.len() != 2 {
+            continue;
+        }
+        let trim_sample = |curve: &popkern_core::geometry::NurbsCurve,
+                           from: Point3,
+                           to: Point3,
+                           count: usize|
+         -> Vec<Point3> {
+            let (t0, t1) = curve.parameter_range();
+            let closest = |target: Point3| -> f64 {
+                let mut best = (f64::INFINITY, t0);
+                for i in 0..=96 {
+                    let t = t0 + (t1 - t0) * i as f64 / 96.0;
+                    let d = curve.point_at(t).distance_to(&target);
+                    if d < best.0 {
+                        best = (d, t);
+                    }
+                }
+                best.1
+            };
+            let ta = closest(from);
+            let tb = closest(to);
+            (0..count)
+                .map(|i| {
+                    let t = ta + (tb - ta) * i as f64 / (count - 1) as f64;
+                    curve.point_at(t)
+                })
+                .collect()
+        };
+        let d00 = trim_curve_distance(on_plane[0], base_points[0]);
+        let d01 = trim_curve_distance(on_plane[0], base_points[1]);
+        let (left_base, right_base) = if d00 < d01 {
+            (base_points[0], base_points[1])
+        } else {
+            (base_points[1], base_points[0])
+        };
+        let mut polyline: Vec<Point3> = Vec::new();
+        polyline.extend(trim_sample(on_plane[0], corner, left_base, 17));
+        polyline.push(right_base);
+        let mut up = trim_sample(on_plane[1], right_base, corner, 17);
+        polyline.append(&mut up);
+        let centroid = {
+            let mut acc = [0.0_f64; 3];
+            for p in &polyline {
+                acc[0] += p.x;
+                acc[1] += p.y;
+                acc[2] += p.z;
+            }
+            let c = polyline.len() as f64;
+            Point3::new(acc[0] / c, acc[1] / c, acc[2] / c)
+        };
+        writeln!(file, "v {} {} {}", centroid.x, centroid.y, centroid.z)?;
+        writeln!(file, "vn {} {} {}", normal.x, normal.y, normal.z)?;
+        let center_idx = base_index;
+        for p in &polyline {
+            writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
+            writeln!(file, "vn {} {} {}", normal.x, normal.y, normal.z)?;
+        }
+        writeln!(file, "g face")?;
+        let count = polyline.len();
+        for i in 0..count - 1 {
+            let a = center_idx;
+            let b = center_idx + 1 + i;
+            let c = center_idx + 1 + i + 1;
+            writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+        }
+        base_index = center_idx + 1 + count;
     }
-    let mut base = mesh.vertices.len() + 1;
+
+    let base_ring: Vec<Point3> = pyramid
+        .vertices
+        .iter()
+        .map(|(_, v)| v.position)
+        .filter(|p| p.z < 1.0e-6)
+        .collect();
+    if base_ring.len() >= 3 {
+        let mut ring = base_ring.clone();
+        ring.sort_by(|a, b| {
+            a.y.atan2(a.x)
+                .partial_cmp(&b.y.atan2(b.x))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        writeln!(file, "v 0 0 0")?;
+        writeln!(file, "vn 0 0 -1")?;
+        let center_idx = base_index;
+        for p in &ring {
+            writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
+            writeln!(file, "vn 0 0 -1")?;
+        }
+        writeln!(file, "g base")?;
+        let count = ring.len();
+        for i in 0..count {
+            let a = center_idx;
+            let b = center_idx + 1 + i;
+            let c = center_idx + 1 + ((i + 1) % count);
+            writeln!(file, "f {a}//{a} {c}//{c} {b}//{b}")?;
+        }
+        base_index = center_idx + 1 + count;
+    }
+
     const SAMPLES: usize = 33;
     for (index, grid) in bi9_grids.iter().enumerate() {
         let patch = RectangularGregoryBiNonic { grid: *grid };
@@ -422,9 +642,20 @@ fn write_whole_object_obj(
             }
         }
         writeln!(file, "g paper_cap_{index}")?;
-        base = emit_grid_faces(&mut file, base, SAMPLES, SAMPLES)?;
+        base_index = emit_grid_faces(&mut file, base_index, SAMPLES, SAMPLES)?;
     }
     Ok(())
+}
+
+fn trim_curve_distance(curve: &popkern_core::geometry::NurbsCurve, target: Point3) -> f64 {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = curve.parameter_range();
+    let mut best = f64::INFINITY;
+    for i in 0..=32 {
+        let t = t0 + (t1 - t0) * i as f64 / 32.0;
+        best = best.min(curve.point_at(t).distance_to(&target));
+    }
+    best
 }
 
 fn border_centroid(border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder) -> Point3 {

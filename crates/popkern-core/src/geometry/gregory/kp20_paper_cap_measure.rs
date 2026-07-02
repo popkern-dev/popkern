@@ -103,7 +103,8 @@ pub(crate) fn measure_paper_cap(
     // Surface regularity: minimum |du x dv| over corner-region
     // samples of every piece.
     let mut min_regularity = f64::INFINITY;
-    for sector in sectors {
+    let mut min_site = (0_usize, Kp20PieceId::NearOriginLeft, 0.0_f64, 0.0_f64);
+    for (sector_index, sector) in sectors.iter().enumerate() {
         for piece_id in Kp20PieceId::all() {
             let piece = sector.piece(piece_id);
             for &(u, v) in &[
@@ -124,11 +125,20 @@ pub(crate) fn measure_paper_cap(
                     du[0] * dv[1] - du[1] * dv[0],
                 ];
                 let norm = (cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2]).sqrt();
-                min_regularity = min_regularity.min(norm);
+                if norm < min_regularity {
+                    min_regularity = norm;
+                    min_site = (sector_index, piece_id, u, v);
+                }
             }
         }
     }
 
+    if std::env::var_os("KP20_REGULARITY_TRACE").is_some() {
+        eprintln!(
+            "    min regularity {min_regularity:e} at sector {} piece {:?} uv ({}, {})",
+            min_site.0, min_site.1, min_site.2, min_site.3,
+        );
+    }
     Kp20PaperCapReport {
         n,
         sectors: sectors.to_vec(),
