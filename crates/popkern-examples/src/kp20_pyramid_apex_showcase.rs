@@ -165,6 +165,59 @@ fn run() {
         ));
     }
     println!("input corner mismatch at c: {corner_mismatch:.3e}");
+    // Calibration probe: the characteristic border's own cross-to-rim
+    // leg ratios at the m and c ends (the scale the tau/b machinery
+    // was built around).
+    {
+        let chi = popkern_core::geometry::gregory::cc_lifted_ring_border_pieces(n, |_, _| 0.0)
+            .expect("chi");
+        let [near_c, near_m] = &chi[0];
+        let leg = |a: Point3, b: Point3| {
+            ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+        };
+        // near_c runs [m^0 -> c]: its m end is column 0; near_m runs
+        // [c -> m^1]: its m end is column 3.
+        for (label, rows, col) in [
+            ("chi m-end", near_c, 0_usize),
+            ("chi c-end (near_c)", near_c, 3),
+            ("chi c-start (near_m)", near_m, 0),
+        ] {
+            let rim_leg = if col == 0 {
+                leg(rows[0][1], rows[0][0])
+            } else {
+                leg(rows[0][3], rows[0][2])
+            };
+            let cross_leg = leg(rows[1][col], rows[0][col]);
+            let rim_vec = if col == 0 {
+                [
+                    rows[0][1].x - rows[0][0].x,
+                    rows[0][1].y - rows[0][0].y,
+                    rows[0][1].z - rows[0][0].z,
+                ]
+            } else {
+                [
+                    rows[0][3].x - rows[0][2].x,
+                    rows[0][3].y - rows[0][2].y,
+                    rows[0][3].z - rows[0][2].z,
+                ]
+            };
+            let cross_vec = [
+                rows[1][col].x - rows[0][col].x,
+                rows[1][col].y - rows[0][col].y,
+                rows[1][col].z - rows[0][col].z,
+            ];
+            let dot =
+                rim_vec[0] * cross_vec[0] + rim_vec[1] * cross_vec[1] + rim_vec[2] * cross_vec[2];
+            let angle = (dot / (rim_leg * cross_leg))
+                .clamp(-1.0, 1.0)
+                .acos()
+                .to_degrees();
+            println!(
+                "  {label}: rim_leg={rim_leg:.4} cross_leg={cross_leg:.4} ratio={:.3} angle_to_rim={angle:.1} deg",
+                cross_leg / rim_leg,
+            );
+        }
+    }
     // PROBE: raw geometry of sector 0's two pieces.
     for (label, rows) in [
         ("piece A (FilletEnd)", &border.sectors[0][0].rows),
@@ -257,21 +310,12 @@ fn run() {
             candidate.max_strip_movement,
         );
     }
+    // Note: normalize-assemble-denormalize was probed and falsified —
+    // the assembly is affine-clean; residuals are genuinely relative
+    // to the input's smoothness class.
     let report =
         assemble_kp20_paper_cap_with_enforcement(&border, star, Kp20StripEnforcement::SoftG)
             .expect("paper cap assembly");
-    println!(
-        "paper cap: g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} lemma4={:.3e} guide_fit={:.3e} strip_move={:.3e} min_regularity={:.3e} corner_mismatch={:.3e}",
-        report.max_g1_residual,
-        report.max_g2_residual,
-        report.max_c0_residual,
-        report.max_border_residual,
-        report.lemma4_delta,
-        report.guide_fit_residual,
-        report.max_strip_movement,
-        report.min_regularity,
-        report.input_corner_mismatch,
-    );
 
     let bi9_grids: Vec<[[Point3; 10]; 10]> = report
         .sectors

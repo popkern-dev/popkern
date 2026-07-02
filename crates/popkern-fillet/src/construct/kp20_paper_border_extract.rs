@@ -114,32 +114,92 @@ pub fn kp20_paper_border_from_blend_boundary(
     let depth = 0.8 * mean_chord;
 
     // Pass 1: rim rows for every segment.
-    let rims: Vec<[Point3; 4]> = curves.iter().map(|segment| segment.rim_row()).collect();
+    let mut rims: Vec<[Point3; 4]> = curves.iter().map(|segment| segment.rim_row()).collect();
 
-    // Pass 2: cross rows from a blended leg-vector march. At each
-    // junction the march vector is the NEIGHBOR's adjacent rim leg
-    // continued through the junction (direction AND magnitude), so
-    // the reflected cross rows reproduce the neighbor's rim there —
-    // the discrete L-corner condition the characteristic border
-    // satisfies natively. Interior columns blend linearly and are
-    // projected onto the owning surface, keeping the rows honest
-    // ring samples at a junction-consistent parameterization.
+    // Boundary conditioning to the g∘χ̃ shape class. The
+    // characteristic layout corners ONLY at the n sector corners c
+    // and is SMOOTH at the n spoke points m, while a raw fillet apex
+    // boundary corners at all 2n junctions. Junction j sits at the
+    // start of segment j; with the FilletEnd-first phase, EVEN
+    // junctions are the spoke points m (bridge → arc) and ODD
+    // junctions are the sector corners c (arc → bridge). The real
+    // corner angle at c already matches the characteristic class
+    // (~119° vs ~115° at n = 5), so c is kept as-is; at every m the
+    // two adjacent rim legs are rotated onto their common unified
+    // tangent (endpoints fixed, inner control legs only — a re-trim
+    // within the ring surfaces' tolerance band), making the rim G¹
+    // at m exactly.
+    let mut m_tangents: Vec<Option<Vec3>> = vec![None; segment_count];
+    for j in (0..segment_count).step_by(2) {
+        let p_index = (j + segment_count - 1) % segment_count;
+        let q_index = j;
+        let leg_in = rims[p_index][3] - rims[p_index][2];
+        let leg_out = rims[q_index][1] - rims[q_index][0];
+        let unified = (leg_in.normalized().unwrap_or(leg_in)
+            + leg_out.normalized().unwrap_or(leg_out))
+        .normalized();
+        let Some(t_hat) = unified else { continue };
+        // Unified length as well: the χ̃-calibrated cross magnitudes
+        // derive from the rim legs, so cross-sector consistency at m
+        // needs equal legs on both sides.
+        let len = 0.5 * (leg_in.length() + leg_out.length());
+        rims[p_index][2] = rims[p_index][3] - t_hat * len;
+        rims[q_index][1] = rims[q_index][0] + t_hat * len;
+        m_tangents[j] = Some(t_hat);
+    }
+    // Second pass at m: unify rim curvature (C² across the spoke, the
+    // eq (13)/(14) prerequisite) by averaging the two sides' second
+    // BB differences and pushing the correction into the third
+    // control point from each side.
+    for j in (0..segment_count).step_by(2) {
+        let p_index = (j + segment_count - 1) % segment_count;
+        let q_index = j;
+        let pt = |p: Point3| [p.x, p.y, p.z];
+        let p3 = pt(rims[p_index][3]);
+        let p2 = pt(rims[p_index][2]);
+        let p1 = pt(rims[p_index][1]);
+        let q0 = pt(rims[q_index][0]);
+        let q1 = pt(rims[q_index][1]);
+        let q2 = pt(rims[q_index][2]);
+        let mut new_p1 = [0.0_f64; 3];
+        let mut new_q2 = [0.0_f64; 3];
+        for axis in 0..3 {
+            let d2_in = p1[axis] - 2.0 * p2[axis] + p3[axis];
+            let d2_out = q2[axis] - 2.0 * q1[axis] + q0[axis];
+            let mean = 0.5 * (d2_in + d2_out);
+            new_p1[axis] = 2.0 * p2[axis] - p3[axis] + mean;
+            new_q2[axis] = 2.0 * q1[axis] - q0[axis] + mean;
+        }
+        rims[p_index][1] = Point3::new(new_p1[0], new_p1[1], new_p1[2]);
+        rims[q_index][2] = Point3::new(new_q2[0], new_q2[1], new_q2[2]);
+    }
+
+    // Pass 2: cross rows calibrated to the characteristic border's
+    // own parameterization structure. For each of the four piece-end
+    // sites (piece A/B × start/end), the χ̃ border for this valence
+    // supplies the cross-leg's length ratio to the rim leg and its
+    // SIGNED in-plane angle from the rim tangent (measured: ~90° at
+    // m with ratio ~1.08; ~94°/86° mirror-skewed at c with ratio
+    // 1.0 at n = 5). The real border's cross rows reproduce those
+    // ratios and angles in each surface's tangent plane — the
+    // ρ-reparameterization freedom applied so the input reaches the
+    // assembly in exactly the parameterization the τ/b machinery was
+    // built around. Marches are projected onto the owning surfaces.
+    let calibration = chi_march_calibration(n)
+        .ok_or_else(|| "characteristic march calibration failed".to_string())?;
     let mut first_order_marches = 0_usize;
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
-        let march_vectors = |index: usize| -> (Vec3, Vec3) {
-            let previous = &rims[(index + segment_count - 1) % segment_count];
-            let next = &rims[(index + 1) % segment_count];
-            (previous[3] - previous[2], next[0] - next[1])
-        };
-        let (a_start, a_end) = march_vectors(2 * k);
-        let piece_a =
-            curves[2 * k].border_piece(&rims[2 * k], a_start, a_end, &mut first_order_marches);
-        let (b_start, b_end) = march_vectors(2 * k + 1);
-        let piece_b = curves[2 * k + 1].border_piece(
+        let piece_a = curves[2 * k].border_piece_calibrated(
+            &rims[2 * k],
+            &calibration[0],
+            boundary.vertex_position,
+            &mut first_order_marches,
+        );
+        let piece_b = curves[2 * k + 1].border_piece_calibrated(
             &rims[2 * k + 1],
-            b_start,
-            b_end,
+            &calibration[1],
+            boundary.vertex_position,
             &mut first_order_marches,
         );
         // Sector rows run [m^k → c] then [c → m^{k+1}]: the FilletEnd
@@ -148,34 +208,6 @@ pub fn kp20_paper_border_from_blend_boundary(
             Kp20PaperGuideBorderPiece { rows: piece_a },
             Kp20PaperGuideBorderPiece { rows: piece_b },
         ]);
-    }
-
-    // Discrete L-corner reconciliation at every junction (the
-    // condition the characteristic border satisfies natively): the
-    // cap-side reflected cross rows of each piece at a junction must
-    // equal the NEIGHBOR's rim rows — a single corner patch's rows
-    // and columns interchange at its corner. Only the
-    // junction-adjacent control points move; interior columns keep
-    // their surface-sampled values.
-    let mut all_pieces: Vec<[[Point3; 4]; 3]> = sectors
-        .iter()
-        .flat_map(|sector| [sector[0].rows, sector[1].rows])
-        .collect();
-    for j in 0..segment_count {
-        let p_index = (j + segment_count - 1) % segment_count;
-        let q_index = j;
-        let p_rim = all_pieces[p_index][0];
-        let q_rim = all_pieces[q_index][0];
-        // Incoming piece P ends at column 3; outgoing piece Q starts
-        // at column 0.
-        all_pieces[p_index][1][3] = q_rim[1];
-        all_pieces[p_index][2][3] = q_rim[2];
-        all_pieces[q_index][1][0] = p_rim[2];
-        all_pieces[q_index][2][0] = p_rim[1];
-    }
-    for (k, sector) in sectors.iter_mut().enumerate() {
-        sector[0].rows = all_pieces[2 * k];
-        sector[1].rows = all_pieces[2 * k + 1];
     }
 
     Ok((
@@ -188,6 +220,61 @@ pub fn kp20_paper_border_from_blend_boundary(
             reversed_for_orientation,
         },
     ))
+}
+
+/// Cross-leg calibration at one piece end: length ratio to the rim
+/// leg and signed in-plane angle from the rim tangent.
+#[derive(Debug, Clone, Copy)]
+struct ChiEndCalibration {
+    ratio: f64,
+    angle: f64,
+}
+
+/// Per-piece calibration (start and end).
+#[derive(Debug, Clone, Copy)]
+struct ChiPieceCalibration {
+    start: ChiEndCalibration,
+    end: ChiEndCalibration,
+}
+
+/// Measure the characteristic border's cross-leg structure for this
+/// valence: `[piece A ([m→c]-like near_c), piece B ([c→m]-like
+/// near_m)]`, each with start/end calibrations.
+fn chi_march_calibration(n: usize) -> Option<[ChiPieceCalibration; 2]> {
+    use popkern_core::geometry::gregory::cc_lifted_ring_border_pieces;
+    let pieces = cc_lifted_ring_border_pieces(n, |_, _| 0.0).ok()?;
+    let [near_c, near_m] = &pieces[0];
+    let plane_normal = Vec3::new(0.0, 0.0, 1.0);
+    let measure = |rows: &[[Point3; 4]; 3], col: usize| -> Option<ChiEndCalibration> {
+        let rim = if col == 0 {
+            rows[0][1] - rows[0][0]
+        } else {
+            rows[0][3] - rows[0][2]
+        };
+        let cross = rows[1][col] - rows[0][col];
+        let rim_len = rim.length();
+        let cross_len = cross.length();
+        if rim_len < 1.0e-14 || cross_len < 1.0e-14 {
+            return None;
+        }
+        let t_hat = rim * (1.0 / rim_len);
+        let side = plane_normal.cross(&t_hat);
+        let angle = cross.dot(&side).atan2(cross.dot(&t_hat));
+        Some(ChiEndCalibration {
+            ratio: cross_len / rim_len,
+            angle,
+        })
+    };
+    Some([
+        ChiPieceCalibration {
+            start: measure(near_c, 0)?,
+            end: measure(near_c, 3)?,
+        },
+        ChiPieceCalibration {
+            start: measure(near_m, 0)?,
+            end: measure(near_m, 3)?,
+        },
+    ])
 }
 
 /// One boundary segment with loop orientation and its owning surface.
@@ -256,6 +343,15 @@ impl OrientedSegment {
         self.point(1.0)
     }
 
+    /// Surface normal near `p` on the owning surface (used to build
+    /// the shared tangent plane at smooth spoke junctions).
+    fn surface_normal(&self, p: Point3) -> Option<Vec3> {
+        use popkern_core::geometry::surface::SurfaceEval;
+        use popkern_core::geometry::uv_projection::project_point_to_uv;
+        let uv = project_point_to_uv(&self.surface, &p)?;
+        Some(self.surface.normal_at(uv.0, uv.1))
+    }
+
     /// Rim row: cubic through four curve samples at t = 0, 1/3, 2/3,
     /// 1 (endpoint-tangent Hermite is unreliable on the boundary
     /// NURBS, whose end derivatives are not chord-scaled).
@@ -279,17 +375,41 @@ impl OrientedSegment {
         ]
     }
 
-    /// Bi-3 depth-2 border piece: rows 1..2 are the cap-side C²
-    /// prolongation of ring marches along the blended leg-vector
-    /// field, projected onto the owning surface.
-    fn border_piece(
+    /// Bi-3 depth-2 border piece with χ̃-calibrated cross rows: at
+    /// each end the march vector is the rim tangent rotated by the
+    /// characteristic signed angle in this surface's tangent plane
+    /// and scaled by the characteristic cross/rim ratio; interior
+    /// columns blend the end vectors.
+    fn border_piece_calibrated(
         &self,
         row0: &[Point3; 4],
-        start_vec: Vec3,
-        end_vec: Vec3,
+        calibration: &ChiPieceCalibration,
+        vertex: Point3,
         first_order_marches: &mut usize,
     ) -> [[Point3; 4]; 3] {
         let row0 = *row0;
+        let end_vector = |col: usize, cal: &ChiEndCalibration| -> Vec3 {
+            let rim = if col == 0 {
+                row0[1] - row0[0]
+            } else {
+                row0[3] - row0[2]
+            };
+            let rim_len = rim.length().max(1.0e-14);
+            let t_hat = rim * (1.0 / rim_len);
+            let p = row0[col];
+            let normal = self.surface_normal(p).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
+            // Orient the frame so `normal × t_hat` points away from
+            // the blend vertex (into the ring), matching the χ̃
+            // frame's outward side.
+            let mut side = normal.cross(&t_hat);
+            if side.dot(&(p - vertex)) < 0.0 {
+                side = -side;
+            }
+            let side = side.normalized().unwrap_or(side);
+            (t_hat * cal.angle.cos() + side * cal.angle.sin()) * (cal.ratio * rim_len)
+        };
+        let start_vec = end_vector(0, &calibration.start);
+        let end_vec = end_vector(3, &calibration.end);
         let mut rows = [row0, row0, row0];
         for (index, &q0) in row0.iter().enumerate() {
             let blend = index as f64 / 3.0;
