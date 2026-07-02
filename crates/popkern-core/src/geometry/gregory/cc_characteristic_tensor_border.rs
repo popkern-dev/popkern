@@ -155,8 +155,7 @@ pub fn cc_characteristic_tensor_border(n: usize) -> Result<CcCharacteristicTenso
 /// production-grade, exactly C²-compatible curved fixture. The lift
 /// must be rotation-symmetric (`lift(R·p) = lift(p)`) so sector 0's
 /// pieces rotate to the other sectors.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn cc_lifted_ring_border_pieces(
+pub fn cc_lifted_ring_border_pieces(
     n: usize,
     lift: impl Fn(f64, f64) -> f64,
 ) -> Result<Vec<[[[Point3; 4]; 3]; 2]>, String> {

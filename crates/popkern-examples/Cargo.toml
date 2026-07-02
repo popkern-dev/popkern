@@ -13,6 +13,7 @@ popkern-sweep = { path = "../popkern-sweep" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
+popkern-mesh = { path = "../popkern-mesh" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
 serde_json = "1"
@@ -20,6 +21,10 @@ serde_json = "1"
 [[bin]]
 name = "boolean_showcase"
 path = "src/boolean_showcase.rs"
+
+[[bin]]
+name = "kp20_paper_cap_showcase"
+path = "src/kp20_paper_cap_showcase.rs"
 
 [[bin]]
 name = "pipe_fitting"

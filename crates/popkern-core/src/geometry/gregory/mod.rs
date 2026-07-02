@@ -241,6 +241,7 @@ pub use cc_characteristic_ring::{
 };
 pub use cc_characteristic_tensor_border::{
     CcBorderPiece, CcCharacteristicTensorBorder, CcSectorBorder, cc_characteristic_tensor_border,
+    cc_lifted_ring_border_pieces,
 };
 pub use direct_blend_coeffs::{SpokeBlendCoeffs, compute_ring_blend_coeffs};
 pub use direct_build::{build, can_build};
