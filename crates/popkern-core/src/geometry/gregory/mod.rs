@@ -56,6 +56,7 @@ mod build;
 mod build_biquintic_full;
 mod build_biseptic;
 mod build_two_stripe;
+mod cc_characteristic_ring;
 mod direct_blend_coeffs;
 mod direct_build;
 mod direct_corner_c;
@@ -225,6 +226,11 @@ pub use bernstein_tri6::{
     bernstein_tri6_second_partial_vv, bernstein_tri6_third_partial_uuu,
     bernstein_tri6_third_partial_uuv, bernstein_tri6_third_partial_uvv,
     bernstein_tri6_third_partial_vvv, flat_index as tri6_flat_index,
+};
+pub use cc_characteristic_ring::{
+    CcCharacteristicRing, CcComplex, cc_characteristic_ring, cc_extended_net_len,
+    cc_extended_subdivision_rows, cc_level0_subdivision_rows, cc_picking_vectors,
+    cc_refined_net_len, cc_subdominant_lambda,
 };
 pub use direct_blend_coeffs::{SpokeBlendCoeffs, compute_ring_blend_coeffs};
 pub use direct_build::{build, can_build};

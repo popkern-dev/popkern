@@ -1,5 +1,26 @@
 //! PR08 Catmull-Clark characteristic-ring coefficient substrate.
 //!
+//! # ⚠ SUPERSEDED — transcribes a book misprint (recovery plan RC5)
+//!
+//! This module's PR08 §6.1 subdivision blocks transcribe the printed
+//! row for `q'₄` (PR08 p.112), which carries an UNPUBLISHED misprint:
+//! the printed row is `(q₂δ, q₁+q₂w, q₁ | …)` where the true
+//! Catmull-Clark edge-midpoint stencil requires `(q₁δ, q₁+q₂w, q₂ | …)`.
+//! The misprint preserves row sums and the eigenvector here is solved
+//! from the same wrong matrix, so the module's internal gates (affine
+//! invariance, eigen-relation, λ-scaling, rotational covariance) all
+//! pass while every produced ring value `q₄..q₁₃` is wrong at every
+//! valence. All tensor-border source candidates ranked through this
+//! module are therefore void. See
+//! `docs/architecture/kp20-paper-faithful-recovery-plan.md` (RC5) and
+//! the independent verification in `tools/reference/cc-characteristic/`.
+//!
+//! The reference-grade replacement is `cc_characteristic_ring`, which
+//! derives the subdivision rows from mesh-connectivity stencils and is
+//! pinned against the external oracle. This module is retained only so
+//! the historical diagnostic probes still compile until the WP6
+//! triage; do not add new consumers.
+//!
 //! KP20 needs the tensor-border of the Catmull-Clark characteristic
 //! ring, not a direct row fill from the six KP15/KP18 cap-net labels.
 //! This module starts from the PR08 §6.1 block-circulant
