@@ -15,7 +15,15 @@ pub struct Kp20TauParams {
     pub c: f64,
     /// KP20 table value `κ_n`.
     pub kappa: f64,
-    /// `µ_0 = 1 + κ_n / 105`.
+    /// `µ_0 = 1 + κ_n / 10⁵`.
+    ///
+    /// The divisor is ten to the fifth (100000), per the printed
+    /// exponent in KP20 eq (23) page 10 (verified at 300 dpi). A
+    /// pdftotext extraction flattens the superscript to `105`, which
+    /// makes µ₀ ≈ 10.84 for n = 5 instead of the correct ≈ 1.01033
+    /// and turns τ¹ from a near-identity perturbation into a ~10×
+    /// distortion. See
+    /// `docs/architecture/kp20-paper-faithful-recovery-plan.md` (RC1).
     pub mu0: f64,
     /// `µ_1 = 1/3`.
     pub mu1: f64,
@@ -51,7 +59,7 @@ impl Kp20TauParams {
         let kappa = kappa_for_valence(n)
             .ok_or_else(|| format!("KP20 tau table is defined for n = 3, 5..=10; got {n}"))?;
         let c = (core::f64::consts::TAU / n as f64).cos();
-        let mu0 = 1.0 + kappa / 105.0;
+        let mu0 = 1.0 + kappa / 1.0e5;
         let mu1 = 1.0 / 3.0;
         let mu2 = 2.0 / 3.0 - 61.0 * c / 135.0 + 4.0 * c * mu0 / 9.0;
         let mu3 = 29.0 / 270.0 + 2.0 * mu0 / 9.0;

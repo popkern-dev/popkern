@@ -53,39 +53,31 @@ impl Kp20TauMap {
         Ok(Self { cps })
     }
 
-    /// Build the KP20 sector τ map per the sector-wedge reading of paper eq
-    /// (22) used by the paper-sampler diagnostic path.
+    /// Build the KP20 sector τ map per paper eq (22).
     ///
-    /// Following the matrix in KP20 §4.3 eq (22):
+    /// KP20 §4.3/Appendix A eq (22) prints TWO blocks with different
+    /// prefactors:
     ///
     /// ```text
-    ///   [τ00, τ01, τ02, τ10, τ20, τ03, τ30, τ11, τ12, τ21]^T
-    ///       = (1/3) · M · [v_dot, v_ddot, o]^T
+    ///   [τ00, τ01, τ02, τ10, τ20]^T = (1/3) · M_a · [v_dot, v_ddot, o]^T
+    ///     M_a rows: [0 0 1], [1 0 2], [2 0 1], [0 1 2], [0 2 1]
+    ///   [τ03, τ30, τ11, τ12, τ21]^T =         M_b · [v_dot, v_ddot, o]^T
+    ///     M_b rows: [µ₀ 0 1−µ₀], [0 µ₀ 1−µ₀], [µ₁ µ₁ 1−2µ₁],
+    ///               [µ₂ µ₃ 1−µ₂−µ₃], [µ₃ µ₂ 1−µ₂−µ₃]
     /// ```
     ///
-    /// with the sector-wedge rows:
-    /// ```text
-    ///   τ00: [ 0,   0,         1       ]
-    ///   τ01: [ 1,   0,         2       ]
-    ///   τ02: [ 2,   0,         1       ]
-    ///   τ10: [ 0,   1,         2       ]
-    ///   τ20: [ 0,   2,         1       ]
-    ///   τ03: [ µ₀,  0,         1−µ₀   ]
-    ///   τ30: [ 0,   µ₀,        1−µ₀   ]
-    ///   τ11: [ µ₁,  µ₁,        1−2µ₁  ]
-    ///   τ12: [ µ₂,  µ₃,        1−µ₂−µ₃]
-    ///   τ21: [ µ₃,  µ₂,        1−µ₂−µ₃]
-    /// ```
+    /// The µ block carries NO 1/3 prefactor: with the corrected
+    /// µ₀ = 1 + κₙ/10⁵ ≈ 1 the boundary run τ00, τ01, τ02, τ03 is the
+    /// near-uniform cubic 0, v̇/3, 2v̇/3, µ₀v̇ ending at the unit n-gon
+    /// vertex. (A historical variant divided the µ rows by 3 as well,
+    /// which collapses τ03 onto τ01; that misreading and the µ₀
+    /// divisor misreading are documented in
+    /// `docs/architecture/kp20-paper-faithful-recovery-plan.md`, RC1.)
+    /// With the paper's `o := (0, 0)`, the third column drops out of
+    /// the position computation.
     ///
-    /// With the paper's `o := (0, 0)`, the third column drops out of the
-    /// position computation.
-    ///
-    /// **Discrepancy note**: this differs from `for_sector` (which the
-    /// kernel has used since PK-085). The two are not numerically
-    /// equivalent; the third u-derivative of τ at the apex differs in
-    /// magnitude and sign between them. See
-    /// `docs/architecture/kp20-tau-table-paper-fidelity.md` for the
-    /// full comparison.
+    /// This now agrees exactly with [`Self::for_sector`]; both remain
+    /// exported because historical probes reference each.
     pub fn for_sector_paper(n: usize, k: usize) -> Result<Self, String> {
         let params = Kp20TauParams::for_valence(n)?;
         Self::for_sector_paper_with_mu(n, k, params.mu0, params.mu1, params.mu2, params.mu3)
@@ -116,30 +108,29 @@ impl Kp20TauMap {
         let v_dot = [a0.cos(), a0.sin()];
         let v_ddot = [a1.cos(), a1.sin()];
 
-        // Origin `o = (0, 0)`; row[2] terms vanish.
-        let row = |c_dot: f64, c_ddot: f64| -> [f64; 2] {
+        // Origin `o = (0, 0)`; the o column of eq (22) vanishes.
+        let combine = |c_dot: f64, c_ddot: f64| -> [f64; 2] {
             [
-                (c_dot * v_dot[0] + c_ddot * v_ddot[0]) / 3.0,
-                (c_dot * v_dot[1] + c_ddot * v_ddot[1]) / 3.0,
+                c_dot * v_dot[0] + c_ddot * v_ddot[0],
+                c_dot * v_dot[1] + c_ddot * v_ddot[1],
             ]
         };
 
         let mut cps = [[0.0_f64; 2]; KP20_TAU_CP_COUNT];
 
-        // Boundary rows (don't depend on µᵢ).
-        cps[flat_index(3, 0, 0)] = row(0.0, 0.0); // (0, 0)
-        cps[flat_index(3, 0, 1)] = row(1.0, 0.0); // v_dot/3
-        cps[flat_index(3, 0, 2)] = row(2.0, 0.0); // 2·v_dot/3
-        cps[flat_index(3, 1, 0)] = row(0.0, 1.0); // v_ddot/3
-        cps[flat_index(3, 2, 0)] = row(0.0, 2.0); // 2·v_ddot/3
+        // First eq (22) block: 1/3 prefactor, no µ dependence.
+        cps[flat_index(3, 0, 0)] = combine(0.0, 0.0);
+        cps[flat_index(3, 0, 1)] = combine(1.0 / 3.0, 0.0);
+        cps[flat_index(3, 0, 2)] = combine(2.0 / 3.0, 0.0);
+        cps[flat_index(3, 1, 0)] = combine(0.0, 1.0 / 3.0);
+        cps[flat_index(3, 2, 0)] = combine(0.0, 2.0 / 3.0);
 
-        // µ-dependent rows. The origin column vanishes for positions because
-        // the paper's sector origin is `o = (0, 0)`.
-        cps[flat_index(3, 0, 3)] = row(mu0, 0.0); // τ₀₃ = (µ₀/3) v_dot
-        cps[flat_index(3, 3, 0)] = row(0.0, mu0); // τ₃₀ = (µ₀/3) v_ddot
-        cps[flat_index(3, 1, 1)] = row(mu1, mu1); // τ₁₁ = (µ₁/3)(v_dot + v_ddot)
-        cps[flat_index(3, 1, 2)] = row(mu2, mu3); // τ₁₂ = (µ₂/3) v_dot + (µ₃/3) v_ddot
-        cps[flat_index(3, 2, 1)] = row(mu3, mu2); // τ₂₁ = (µ₃/3) v_dot + (µ₂/3) v_ddot
+        // Second eq (22) block: µ rows, NO 1/3 prefactor.
+        cps[flat_index(3, 0, 3)] = combine(mu0, 0.0);
+        cps[flat_index(3, 3, 0)] = combine(0.0, mu0);
+        cps[flat_index(3, 1, 1)] = combine(mu1, mu1);
+        cps[flat_index(3, 1, 2)] = combine(mu2, mu3);
+        cps[flat_index(3, 2, 1)] = combine(mu3, mu2);
 
         Ok(Self { cps })
     }

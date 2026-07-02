@@ -653,9 +653,10 @@ fn paper_tau_map_apex_derivatives_match_across_sectors() {
 }
 
 /// Compare the kernel-τ and paper-τ jets at apex side-by-side and
-/// report the per-order disagreement. Numeric divergence is expected
-/// at orders > 0 — this test catches whether they happen to agree
-/// or not.
+/// report the per-order disagreement. Since the 2026-07-02 µ₀ and
+/// eq (22) prefactor corrections (recovery plan RC1) the two tables
+/// implement the same printed equation and the divergence is zero;
+/// this probe remains as a guard that they stay in agreement.
 #[test]
 fn paper_vs_kernel_tau_apex_jet_divergence() {
     let valences: &[usize] = &[3, 5, 6, 7, 8, 9, 10];

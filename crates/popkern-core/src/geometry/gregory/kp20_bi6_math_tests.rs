@@ -4,22 +4,39 @@ const EPS: f64 = 1e-12;
 
 #[test]
 fn tau_table_matches_kp20_eq23() {
+    // µ0 = 1 + κn/10⁵ per the printed exponent in KP20 eq (23); the
+    // expected µ0 values below are literals so this test cannot share
+    // a misreading with the implementation (the pre-2026-07-02 kernel
+    // divided by 105 and the old test asserted the same wrong
+    // expression). τ¹ must be a near-identity perturbation: every µ0
+    // is within 1.1% of 1.
     let expected = [
-        (3, 185.0),
-        (5, 1033.0),
-        (6, 352.0),
-        (7, -145.0),
-        (8, -469.0),
-        (9, -687.0),
-        (10, -840.0),
+        (3, 185.0, 1.00185),
+        (5, 1033.0, 1.01033),
+        (6, 352.0, 1.00352),
+        (7, -145.0, 0.99855),
+        (8, -469.0, 0.99531),
+        (9, -687.0, 0.99313),
+        (10, -840.0, 0.99160),
     ];
-    for (n, kappa) in expected {
+    for (n, kappa, mu0) in expected {
         let params = Kp20TauParams::for_valence(n).unwrap();
+        let c = (core::f64::consts::TAU / n as f64).cos();
         assert_eq!(params.kappa, kappa);
-        assert!((params.mu0 - (1.0 + kappa / 105.0)).abs() < EPS);
+        assert!((params.mu0 - mu0).abs() < EPS, "mu0 mismatch at n={n}");
         assert!((params.mu1 - 1.0 / 3.0).abs() < EPS);
-        assert!(params.mu2.is_finite());
-        assert!(params.mu3.is_finite());
+        assert!(
+            (params.mu2 - (2.0 / 3.0 - 61.0 * c / 135.0 + 4.0 * c * mu0 / 9.0)).abs() < 1e-9,
+            "mu2 mismatch at n={n}"
+        );
+        assert!(
+            (params.mu3 - (29.0 / 270.0 + 2.0 * mu0 / 9.0)).abs() < 1e-9,
+            "mu3 mismatch at n={n}"
+        );
+        // Near-identity guard: the whole point of τ¹.
+        assert!((params.mu0 - 1.0).abs() < 0.011);
+        assert!((params.mu2 - 2.0 / 3.0).abs() < 0.05);
+        assert!((params.mu3 - 1.0 / 3.0).abs() < 0.01);
     }
 }
 

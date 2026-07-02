@@ -68,15 +68,18 @@ fn sector_local_paper_refined_apex_tau_matches_appendix_a_mu_ref() {
     let mu2 = (4.0 + 6.0 * params.mu1 + 3.0 * params.mu2) / 12.0;
     let mu3 = (1.0 + 6.0 * params.mu1 + 3.0 * params.mu3) / 12.0;
 
+    // The µ block of eq (22) carries no 1/3 prefactor (see
+    // `for_sector_paper` doc comment); the refined-apex table applies
+    // the Appendix-A µ_ref values in that same frame.
     assert_eq!(tau.cps[flat_index(3, 0, 0)], [0.0, 0.0]);
-    assert!((tau.cps[flat_index(3, 3, 0)][0] - mu0 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 0, 3)][1] - mu0 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 1, 1)][0] - mu1 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 1, 1)][1] - mu1 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 1, 2)][0] - mu3 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 1, 2)][1] - mu2 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 2, 1)][0] - mu2 / 3.0).abs() < 1e-12);
-    assert!((tau.cps[flat_index(3, 2, 1)][1] - mu3 / 3.0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 3, 0)][0] - mu0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 0, 3)][1] - mu0).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][0] - mu1).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 1)][1] - mu1).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 2)][0] - mu3).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 1, 2)][1] - mu2).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 2, 1)][0] - mu2).abs() < 1e-12);
+    assert!((tau.cps[flat_index(3, 2, 1)][1] - mu3).abs() < 1e-12);
 }
 
 #[test]

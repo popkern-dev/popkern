@@ -13430,11 +13430,14 @@ fn kp15_ordered_source_formula_for_test(
             let mut ranked = implied
                 .iter()
                 .enumerate()
-                .filter(|&(index, &weight)| (weight.abs() > 1.0e-8)).map(|(index, &weight)| (
-                            weight.abs(),
-                            weight,
-                            source_constraints[index].label.as_str(),
-                        ))
+                .filter(|&(_, &weight)| weight.abs() > 1.0e-8)
+                .map(|(index, &weight)| {
+                    (
+                        weight.abs(),
+                        weight,
+                        source_constraints[index].label.as_str(),
+                    )
+                })
                 .collect::<Vec<_>>();
             ranked.sort_by(|a, b| b.0.total_cmp(&a.0).then_with(|| a.2.cmp(b.2)));
             let terms = ranked
@@ -14186,7 +14189,6 @@ fn kp15_pr08_q11_transposed_endpoint_tensor(n: usize) -> TensorBorderBi3 {
 fn kp15_pr08_q11_transposed_regular_rows(
     ring: &crate::geometry::gregory::kp20_bi6_cc_ring::Kp20CatmullClarkCharacteristicRing,
 ) -> Kp20RegularTensorBorderCNet {
-    
     kp20_pr08_characteristic_tensor_border_candidate_rows(
         ring,
         Kp20Pr08TensorBorderCandidate::MiddlePatchFormulaNextOuterRowTransposedToQ11,
@@ -14733,13 +14735,12 @@ fn kp15_select_endpoint_spoke_frame_alpha_for_sampled_orientation_margin_with_sa
             alpha,
             tolerance,
             samples,
-        )
-            && best
-                .map(|(_, best_min_det)| min_det > best_min_det)
-                .unwrap_or(true)
-            {
-                best = Some((alpha, min_det));
-            }
+        ) && best
+            .map(|(_, best_min_det)| min_det > best_min_det)
+            .unwrap_or(true)
+        {
+            best = Some((alpha, min_det));
+        }
     }
     let (center, _) = best?;
     let mut lo = (center - 1.0 / 64.0).max(0.0);
