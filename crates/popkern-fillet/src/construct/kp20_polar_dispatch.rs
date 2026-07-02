@@ -26,6 +26,8 @@ use limited_lift::try_limited_nonoverlap_lift;
 use origin_inner_row::{
     Kp20OriginInnerRowReport, Kp20PairedInnerRowReport, Kp20SupportInnerRowReport,
 };
+#[cfg(test)]
+pub(crate) use paper_primary_candidate::bspline_ring_border as paper_primary_candidate_test_border;
 use primary_candidate::evaluate_positive_primary_candidates;
 pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
 use report::Kp20PolarDispatchReport;
@@ -43,6 +45,8 @@ mod labels;
 mod limited_lift;
 #[path = "kp20_polar_origin_inner_row.rs"]
 mod origin_inner_row;
+#[path = "kp20_paper_primary_candidate.rs"]
+mod paper_primary_candidate;
 #[path = "kp20_polar_primary_candidate.rs"]
 mod primary_candidate;
 #[path = "kp20_polar_dispatch_report.rs"]

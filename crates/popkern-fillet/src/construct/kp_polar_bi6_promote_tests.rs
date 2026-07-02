@@ -112,17 +112,18 @@ fn rejects_non_two_stripe_input() {
 
 #[test]
 fn kp20_macro_candidate_builds_four_sub_patches_per_sector() {
-    let tensor_border = TensorBorderBi3 {
-        sectors: vec![
-            kp20_tensor_sector(0.0),
-            kp20_tensor_sector(10.0),
-            kp20_tensor_sector(20.0),
-        ],
-    };
+    // The macro candidate routes through the paper-faithful section
+    // 4.4 assembly, which gates on G2 closure — so the fixture must
+    // be a VALID C2 ring border (the previous disconnected synthetic
+    // sectors are not Hermite data of any surface and are correctly
+    // declined by the paper gates).
+    let n = 5;
+    let tensor_border =
+        crate::construct::kp20_polar_dispatch::paper_primary_candidate_test_border(n);
 
-    let candidate = try_kp20_polar_macro_candidate(pt(0.0, 0.0, 0.0), &tensor_border).unwrap();
+    let candidate = try_kp20_polar_macro_candidate(pt(0.0, 0.0, 0.3), &tensor_border).unwrap();
 
-    assert_eq!(candidate.len(), 12);
+    assert_eq!(candidate.len(), 4 * n);
     for patch in candidate {
         assert!(matches!(patch, GregoryPatch::RectangularBiNonic(_)));
     }

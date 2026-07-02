@@ -2,13 +2,12 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::gregory::{
-    GregoryPatch, Kp20AffineGuideMap, Kp20Bi6CapInput, Kp20Bi6MacroCapInput,
-    Kp20Bi6ValidationReport, Kp20GuideBuildInput, Kp20PatchCorner, Kp20PieceCornerMaps,
-    Kp20PieceId, Kp20PieceMapDomainReport, Kp20PieceMapStitchReport, Kp20SectorPieceMaps,
-    RectangularGregoryBiNonic, TensorBorderBi3, assemble_kp20_bi6_cap, assemble_kp20_bi6_macro_cap,
-    build_kp20_guide_ring, elevate_bi6_grid_to_bi9, kp20_piece_map_domain_report,
+    GregoryPatch, Kp20AffineGuideMap, Kp20Bi6MacroCapInput, Kp20Bi6ValidationReport,
+    Kp20GuideBuildInput, Kp20PatchCorner, Kp20PieceCornerMaps, Kp20PieceId,
+    Kp20PieceMapDomainReport, Kp20PieceMapStitchReport, Kp20SectorPieceMaps, TensorBorderBi3,
+    assemble_kp20_bi6_macro_cap, build_kp20_guide_ring, kp20_piece_map_domain_report,
     kp20_piece_map_stitch_report, kp20_positive_nonoverlap_c2_sector_piece_maps,
-    measure_kp20_bi6_macro_cap, sample_kp20_macro_patch_from_piece_maps,
+    sample_kp20_macro_patch_from_piece_maps,
 };
 
 use super::super::kp20_polar_fold_summary::{
@@ -36,6 +35,31 @@ pub(super) fn evaluate_positive_primary_candidates(
 ) -> (Vec<ApexConstructionDiagnostic>, Option<Vec<GregoryPatch>>) {
     let mut diagnostics = Vec::new();
     let mut baseline = None;
+    match super::paper_primary_candidate::try_kp20_paper_primary_candidate(
+        star_point,
+        tensor_border,
+    ) {
+        Ok(paper) => {
+            let detail = paper.detail();
+            diagnostics.push(primary_fact(
+                n,
+                "kp20_paper_cap_primary",
+                detail.clone(),
+                Some(paper.report.max_g2_residual),
+            ));
+            if paper.is_acceptable() {
+                diagnostics.push(
+                    super::support_cell_route_fact::support_cell_primary_macro_bypass_fact(
+                        n,
+                        "kp20_paper_cap_primary",
+                        detail,
+                    ),
+                );
+                return (diagnostics, Some(paper.patches));
+            }
+        }
+        Err(e) => diagnostics.push(primary_decline(n, "kp20_paper_cap_primary", e)),
+    }
     match try_positive_nonoverlap_c2_macro_candidate(star_point, tensor_border) {
         Ok(mapped) => {
             let detail = mapped.detail();
@@ -449,20 +473,12 @@ pub(crate) fn try_kp20_polar_macro_candidate(
     star_point: Point3,
     tensor_border: &TensorBorderBi3,
 ) -> Result<Vec<GregoryPatch>, String> {
-    let cap = assemble_kp20_bi6_cap(&Kp20Bi6CapInput {
+    let paper = super::paper_primary_candidate::try_kp20_paper_primary_candidate(
         star_point,
-        tensor_border: tensor_border.clone(),
-    })
-    .map_err(|e| e.to_string())?;
-    let report = measure_kp20_bi6_macro_cap(&cap, tensor_border).map_err(|e| e.to_string())?;
-    if !report.passes(1e-8) {
-        return Err(format!("validation residuals exceed tolerance: {report:?}"));
+        tensor_border,
+    )?;
+    if !paper.is_acceptable() {
+        return Err(format!("paper cap gates not met: {}", paper.detail()));
     }
-
-    Ok(cap
-        .patches_bi6
-        .into_iter()
-        .map(elevate_bi6_grid_to_bi9)
-        .map(|grid| GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid })))
-        .collect())
+    Ok(paper.patches)
 }

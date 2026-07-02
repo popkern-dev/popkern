@@ -330,7 +330,9 @@ pub use kp15_bi6_rules::{
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use kp20_bi6_exports::*;
-pub use kp20_paper_cap::{Kp20PaperCapError, Kp20PaperCapReport, assemble_kp20_paper_cap};
+pub use kp20_paper_cap::{
+    Kp20PaperCapError, Kp20PaperCapReport, assemble_kp20_paper_cap, assemble_kp20_paper_macro_cap,
+};
 pub use kp20_paper_guide::{
     Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece, Kp20PaperGuideOutput, solve_kp20_paper_guide,
 };

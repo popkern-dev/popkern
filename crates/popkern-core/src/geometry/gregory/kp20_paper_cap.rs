@@ -90,6 +90,42 @@ impl std::fmt::Display for Kp20PaperCapError {
 
 impl std::error::Error for Kp20PaperCapError {}
 
+/// Production adapter: assemble the paper cap from a smooth
+/// single-cubic-per-sector tensor-border (the kernel's production
+/// input shape) and return it in the legacy macro-cap output
+/// contract consumed by the fillet dispatch (`macro_patches` +
+/// flattened `patches_bi6`; no legacy strip diagnostics — the paper
+/// path's own gates live in [`Kp20PaperCapReport`]).
+pub fn assemble_kp20_paper_macro_cap(
+    star_point: Point3,
+    tensor_border: &super::kp_polar_boundary_input::TensorBorderBi3,
+) -> Result<
+    (
+        super::kp20_bi6_assemble::Kp20Bi6MacroCapOutput,
+        Kp20PaperCapReport,
+    ),
+    Kp20PaperCapError,
+> {
+    let border = Kp20PaperGuideBorder::from_tensor_border(tensor_border);
+    let report = assemble_kp20_paper_cap(&border, star_point)?;
+    let patches_bi6 = report
+        .sectors
+        .iter()
+        .flat_map(|sector| {
+            Kp20PieceId::all()
+                .into_iter()
+                .map(|piece_id| sector.piece(piece_id).cps)
+        })
+        .collect();
+    let output = super::kp20_bi6_assemble::Kp20Bi6MacroCapOutput {
+        n: report.n,
+        macro_patches: report.sectors.clone(),
+        patches_bi6,
+        strip_projections: Vec::new(),
+    };
+    Ok((output, report))
+}
+
 /// Assemble the KP20 §4.4 paper cap for a two-piece-per-sector input
 /// tensor-border.
 pub fn assemble_kp20_paper_cap(
