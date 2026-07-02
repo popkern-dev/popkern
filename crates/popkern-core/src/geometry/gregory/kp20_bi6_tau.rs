@@ -483,7 +483,7 @@ fn eval_basis(n: usize, u: f64, v: f64) -> Vec<f64> {
 }
 
 #[inline]
-const fn flat_index(n: usize, i: usize, j: usize) -> usize {
+pub(crate) const fn flat_index(n: usize, i: usize, j: usize) -> usize {
     i * (2 * n + 3 - i) / 2 + j
 }
 

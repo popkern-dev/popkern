@@ -496,7 +496,10 @@ pub fn kp20_planar_tau_tensor_border_constraints_with_d1_3(
     kp20_planar_tau_tensor_border_constraints_from_split(&split, sector)
 }
 
-fn kp20_planar_tau_tensor_border_constraints_from_split(
+/// KP20 equation (14) tensor-border rows from an already-split (and
+/// reparameterised) border. Public entry for natively-split sources
+/// such as the characteristic ring's two-piece sector boundary.
+pub fn kp20_planar_tau_tensor_border_constraints_from_split(
     split: &[super::kp20_bi6_cap::Kp20SplitTensorBorder],
     sector: usize,
 ) -> Result<Vec<Kp20PlanarTauLinearConstraint>, String> {

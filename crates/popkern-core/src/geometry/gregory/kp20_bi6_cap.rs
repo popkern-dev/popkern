@@ -241,6 +241,25 @@ fn split_cubic_half(row: [Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
     ([row[0], p10, p20, p30], [p30, p21, p12, row[3]])
 }
 
+/// Reparameterise one raw bi-3 tensor-border piece by KP20 equation
+/// (14)'s ρ with an explicit cubic `d` profile (BB coefficients along
+/// the piece's own parameter).
+///
+/// Public entry for callers whose border pieces are natively split
+/// (e.g. the characteristic ring, whose sector boundary has a genuine
+/// parametric corner at `c`), so the de Casteljau halving of
+/// [`split_kp20_tensor_border`] does not apply.
+pub fn kp20_reparameterise_border_piece(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
+    reparameterise_half(rows, d)
+}
+
+/// KP20 equation (14) `d` profiles `(d⁰, d¹)` for the two border
+/// pieces of one sector, given `c = cos(2π/n)` and the free parameter
+/// `d¹₃` (paper default `2c/3`).
+pub fn kp20_eq14_border_d_profiles(c: f64, d1_3: f64) -> ([f64; 4], [f64; 4]) {
+    kp20_eq14_d_profiles(c, d1_3)
+}
+
 fn reparameterise_half(rows: [[Point3; 4]; 3], d: [f64; 4]) -> Kp20BoundaryHalf {
     let source_row0 = elevate_cubic_to_degree6(rows[0]);
     let source_row1 = elevate_cubic_to_degree6(rows[1]);
