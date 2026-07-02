@@ -450,21 +450,24 @@ pub fn kp20_planar_tau_diagonal_symmetry_constraints() -> Vec<Kp20PlanarTauScala
     rows
 }
 
-/// KP20 Fig. 8b indicated coefficient averaging relation.
+/// KP20 Fig. 8b indicated coefficient averaging relations.
 ///
-/// The figure marks the first bottom-edge coefficient of quadrant 1 as the
-/// midpoint of the lower-left corner coefficient and the next bottom-edge
-/// coefficient. In the paper quadrant layout, quadrant 1 is
-/// [`Kp20PieceId::NearOriginLeft`] and the bottom edge is `v = 0`, so the row
-/// is `tau_10 = (tau_00 + tau_20) / 2`.
+/// The figure marks the first edge coefficient of each quadrant as the midpoint
+/// of its two neighboring edge coefficients before the remaining coefficients
+/// minimize `F3`. In the paper quadrant layout this is the bottom-edge row
+/// `tau_10 = (tau_00 + tau_20) / 2` of each oriented bi-6 quadrant.
 pub fn kp20_planar_tau_fig8_indicated_averaging_constraints() -> Vec<Kp20PlanarTauLinearConstraint>
 {
-    let piece = Kp20PieceId::NearOriginLeft;
-    vec![Kp20PlanarTauLinearConstraint::homogeneous(vec![
-        (Kp20PlanarTauCoeff::new(piece, 1, 0), 1.0),
-        (Kp20PlanarTauCoeff::new(piece, 0, 0), -0.5),
-        (Kp20PlanarTauCoeff::new(piece, 2, 0), -0.5),
-    ])]
+    Kp20PieceId::all()
+        .into_iter()
+        .map(|piece| {
+            Kp20PlanarTauLinearConstraint::homogeneous(vec![
+                (Kp20PlanarTauCoeff::new(piece, 1, 0), 1.0),
+                (Kp20PlanarTauCoeff::new(piece, 0, 0), -0.5),
+                (Kp20PlanarTauCoeff::new(piece, 2, 0), -0.5),
+            ])
+        })
+        .collect()
 }
 
 /// KP20 equation (14) tensor-border rows for a planar τ sector.

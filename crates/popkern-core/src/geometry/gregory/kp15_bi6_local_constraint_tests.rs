@@ -29,11 +29,59 @@ use crate::geometry::gregory::kp_polar_boundary_input::{
     PolarBoundaryInput, TensorBorder, TensorBorderBi3,
 };
 use crate::geometry::gregory::kp15_bi6_cap::assemble_bi6_polar_cap;
+use crate::geometry::gregory::kp15_bi6_circulant::CirculantSectorRhs;
 use crate::geometry::gregory::kp15_bi6_polar_bridge::convert_polar_to_bi6_cap_input;
-use crate::geometry::gregory::{OuterCornerData, SpokeBoundaryData, TangentPlane};
+use crate::geometry::gregory::{
+    OuterCornerData, SpokeBoundaryData, TangentPlane, f_kappa_quadratic_form,
+};
+use faer::Mat;
+use faer::prelude::SpSolver;
 
 fn pt(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
+}
+
+fn test_point_lerp(left: Point3, right: Point3, t: f64) -> Point3 {
+    Point3::new(
+        (1.0 - t) * left.x + t * right.x,
+        (1.0 - t) * left.y + t * right.y,
+        (1.0 - t) * left.z + t * right.z,
+    )
+}
+
+fn test_elevate_cubic_to_degree6(row: &[Point3; 4]) -> [Point3; 7] {
+    let mut cur = row.to_vec();
+    for _ in 0..3 {
+        let degree = cur.len() - 1;
+        let next_degree = degree + 1;
+        let mut next = Vec::with_capacity(next_degree + 1);
+        next.push(cur[0]);
+        for i in 1..=degree {
+            let t = i as f64 / next_degree as f64;
+            next.push(test_point_lerp(cur[i], cur[i - 1], t));
+        }
+        next.push(cur[degree]);
+        cur = next;
+    }
+    core::array::from_fn(|i| cur[i])
+}
+
+fn test_weighted_point_sum(pairs: &[(f64, Point3)]) -> Point3 {
+    let mut out = pt(0.0, 0.0, 0.0);
+    for &(weight, point) in pairs {
+        out.x += weight * point.x;
+        out.y += weight * point.y;
+        out.z += weight * point.z;
+    }
+    out
+}
+
+fn assert_point_close(actual: Point3, expected: Point3, context: &str) {
+    let distance = actual.distance_to(&expected);
+    assert!(
+        distance < 1.0e-12,
+        "{context}: distance {distance:e}, actual={actual:?}, expected={expected:?}"
+    );
 }
 
 fn tp_xy() -> TangentPlane {
@@ -363,6 +411,669 @@ fn matrix_rank(rows: usize, cols: usize, entries: &[f64], tol: f64) -> usize {
     rank
 }
 
+fn matrix_rank_from_rows(rows: &[Vec<f64>], tol: f64) -> usize {
+    let row_count = rows.len();
+    let col_count = rows.first().map_or(0, Vec::len);
+    assert!(rows.iter().all(|row| row.len() == col_count));
+    let entries = rows
+        .iter()
+        .flat_map(|row| row.iter().copied())
+        .collect::<Vec<_>>();
+    matrix_rank(row_count, col_count, &entries, tol)
+}
+
+fn dense_rows_from_matrix(rows: usize, cols: usize, entries: &[f64]) -> Vec<Vec<f64>> {
+    assert_eq!(entries.len(), rows * cols);
+    (0..rows)
+        .map(|row| entries[row * cols..(row + 1) * cols].to_vec())
+        .collect()
+}
+
+fn independent_dense_rows(rows: &[Vec<f64>], cols: usize) -> Vec<Vec<f64>> {
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    let mut keep = Vec::new();
+    for row in rows {
+        assert_eq!(row.len(), cols);
+        let mut dense = row.clone();
+        for b in &basis {
+            let dot = dense.iter().zip(b).map(|(a, b)| a * b).sum::<f64>();
+            for (x, bi) in dense.iter_mut().zip(b) {
+                *x -= dot * bi;
+            }
+        }
+        let norm = dense.iter().map(|x| x * x).sum::<f64>().sqrt();
+        if norm > 1.0e-10 {
+            for x in &mut dense {
+                *x /= norm;
+            }
+            basis.push(dense);
+            keep.push(row.clone());
+        }
+    }
+    keep
+}
+
+fn solve_seed_projection_axis(
+    vars: usize,
+    constraints: &[Vec<f64>],
+    seeds: &[TestSeedRow],
+    axis: usize,
+) -> Option<Vec<f64>> {
+    let size = vars + constraints.len();
+    let mut a = vec![vec![0.0_f64; size]; size];
+    let mut b = vec![0.0_f64; size];
+    for seed in seeds {
+        let col = global_grid_col(vars / 49, seed.sector, seed.i, seed.j);
+        a[col][col] += 1.0;
+        b[col] += seed.target[axis];
+    }
+    for (i, row) in a.iter_mut().enumerate().take(vars) {
+        row[i] += 1.0e-12;
+    }
+    for (row_index, constraint) in constraints.iter().enumerate() {
+        let lagrange_row = vars + row_index;
+        for (col, &weight) in constraint.iter().enumerate() {
+            if weight == 0.0 {
+                continue;
+            }
+            a[col][lagrange_row] += weight;
+            a[lagrange_row][col] += weight;
+        }
+    }
+    solve_dense_faer_for_kp15_test(a, b).map(|x| x[..vars].to_vec())
+}
+
+fn solve_dense_faer_for_kp15_test(matrix: Vec<Vec<f64>>, rhs: Vec<f64>) -> Option<Vec<f64>> {
+    let n = matrix.len();
+    if n == 0
+        || rhs.len() != n
+        || matrix.iter().any(|row| row.len() != n)
+        || matrix.iter().flatten().any(|value| !value.is_finite())
+        || rhs.iter().any(|value| !value.is_finite())
+    {
+        return None;
+    }
+    let mut faer_matrix = Mat::<f64>::zeros(n, n);
+    let mut faer_rhs = Mat::<f64>::zeros(n, 1);
+    for row in 0..n {
+        for col in 0..n {
+            faer_matrix.write(row, col, matrix[row][col]);
+        }
+        faer_rhs.write(row, 0, rhs[row]);
+    }
+    let solution = faer_matrix.partial_piv_lu().solve(&faer_rhs);
+    let out = (0..n).map(|row| solution.read(row, 0)).collect::<Vec<_>>();
+    if out.iter().all(|value| value.is_finite()) {
+        Some(out)
+    } else {
+        None
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TestSideMap {
+    Identity,
+    Transpose,
+    ReverseRow,
+    ReverseCol,
+}
+
+impl TestSideMap {
+    fn map(self, i: usize, j: usize) -> (usize, usize) {
+        match self {
+            TestSideMap::Identity => (i, j),
+            TestSideMap::Transpose => (j, i),
+            TestSideMap::ReverseRow => (6 - i, j),
+            TestSideMap::ReverseCol => (i, 6 - j),
+        }
+    }
+}
+
+fn global_constraint_matrix_with_test_side_mapping(
+    n: usize,
+    params: &Bi6Reparams,
+    side0_map: TestSideMap,
+) -> (usize, usize, Vec<f64>) {
+    let eq2 = super::eq2_jacobian_dense(params);
+    let eq3 = super::eq3_jacobian_dense(params);
+    let rows_per_edge = 8 + eq3.len();
+    let base_rows = n * rows_per_edge;
+    let ident_rows = 3 * n;
+    let rows = base_rows + ident_rows;
+    let cols = 49 * n;
+    let mut m = vec![0.0_f64; rows * cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let row_base = k * rows_per_edge;
+        for (r, eq2_row) in eq2.iter().enumerate() {
+            append_test_edge_row(&mut m, cols, row_base + r, km1, k, side0_map, eq2_row);
+        }
+        for (r, eq3_row) in eq3.iter().enumerate() {
+            append_test_edge_row(&mut m, cols, row_base + 8 + r, km1, k, side0_map, eq3_row);
+        }
+        for i in 0..3 {
+            let row = base_rows + 3 * k + i;
+            let (prev_i, prev_j) = side0_map.map(i, 0);
+            m[row * cols + global_grid_col(n, km1, prev_i, prev_j)] = 1.0;
+            m[row * cols + global_grid_col(n, k, i, 0)] = -1.0;
+        }
+    }
+    (rows, cols, m)
+}
+
+fn test_table_from_side_mapping_matrix(
+    n: usize,
+    params: Bi6Reparams,
+    side0_map: TestSideMap,
+    free_bias_cols: Option<&[usize]>,
+) -> Kp15Bi6GeneratingTable {
+    let (rows, cols, m_unordered) =
+        global_constraint_matrix_with_test_side_mapping(n, &params, side0_map);
+    let (pivots, free_cols, rref) = if let Some(bias_cols) = free_bias_cols {
+        let bias_lookup = bias_cols
+            .iter()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        let mut perm = (0..cols)
+            .filter(|col| !bias_lookup.contains(col))
+            .collect::<Vec<_>>();
+        perm.extend(bias_cols.iter().copied());
+        let mut inverse = vec![0usize; cols];
+        for (new_idx, &old_idx) in perm.iter().enumerate() {
+            inverse[old_idx] = new_idx;
+        }
+        let mut m_permuted = vec![0.0_f64; rows * cols];
+        for row in 0..rows {
+            for (new_col, &old_col) in perm.iter().enumerate() {
+                m_permuted[row * cols + new_col] = m_unordered[row * cols + old_col];
+            }
+        }
+        let pivots_permuted = super::rref_in_place(rows, cols, &mut m_permuted, 1.0e-12);
+        let pivots = pivots_permuted
+            .iter()
+            .map(|&(row, col)| (row, perm[col]))
+            .collect::<Vec<_>>();
+        let pivot_cols = pivots
+            .iter()
+            .map(|&(_, col)| col)
+            .collect::<std::collections::BTreeSet<_>>();
+        let free_cols = (0..cols)
+            .filter(|col| !pivot_cols.contains(col))
+            .collect::<Vec<_>>();
+        let mut rref = vec![0.0_f64; rows * cols];
+        for row in 0..rows {
+            for col in 0..cols {
+                rref[row * cols + col] = m_permuted[row * cols + inverse[col]];
+            }
+        }
+        (pivots, free_cols, rref)
+    } else {
+        let mut rref = m_unordered;
+        let pivots = super::rref_in_place(rows, cols, &mut rref, 1.0e-12);
+        let pivot_cols = pivots
+            .iter()
+            .map(|&(_, col)| col)
+            .collect::<std::collections::BTreeSet<_>>();
+        let free_cols = (0..cols)
+            .filter(|col| !pivot_cols.contains(col))
+            .collect::<Vec<_>>();
+        (pivots, free_cols, rref)
+    };
+    Kp15Bi6GeneratingTable {
+        n,
+        params,
+        pivots,
+        free_cols,
+        rows,
+        cols,
+        rref,
+    }
+}
+
+fn populate_test_table_with_custom_fixed_seeds(
+    table: &Kp15Bi6GeneratingTable,
+    sectors: &[CirculantSectorRhs],
+    star: Point3,
+    q_local: &[[f64; 49]; 49],
+    ridge_lambda: f64,
+    fixed_seed_predicate: impl Fn(usize) -> bool,
+) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+    let n = table.n;
+    let n_free = table.free_cols.len();
+    let total = table.cols;
+    let t = table.build_linear_map();
+    let mut h = vec![0.0_f64; n_free * n_free];
+    for sector in 0..n {
+        let row_base = 49 * sector;
+        let mut qtk = vec![0.0_f64; 49 * n_free];
+        for r in 0..49 {
+            for c in 0..n_free {
+                let mut sum = 0.0;
+                for inner in 0..49 {
+                    sum += q_local[r][inner] * t[(row_base + inner) * n_free + c];
+                }
+                qtk[r * n_free + c] = sum;
+            }
+        }
+        for r in 0..n_free {
+            for c in 0..n_free {
+                let mut sum = 0.0;
+                for inner in 0..49 {
+                    sum += t[(row_base + inner) * n_free + r] * qtk[inner * n_free + c];
+                }
+                h[r * n_free + c] += sum;
+            }
+        }
+    }
+
+    let mut fixed_idx = Vec::new();
+    let mut variable_idx = Vec::new();
+    let mut seed_axes = [Vec::<f64>::new(), Vec::<f64>::new(), Vec::<f64>::new()];
+    for (free_idx, &col) in table.free_cols.iter().enumerate() {
+        let sector = col / 49;
+        let pos = col % 49;
+        let i = pos / 7;
+        let j = pos % 7;
+        if let Some(seed) = super::seeded_value(sectors, star, sector, i, j) {
+            if fixed_seed_predicate(col) {
+                fixed_idx.push(free_idx);
+                seed_axes[0].push(seed.x);
+                seed_axes[1].push(seed.y);
+                seed_axes[2].push(seed.z);
+            } else {
+                variable_idx.push(free_idx);
+            }
+        } else {
+            variable_idx.push(free_idx);
+        }
+    }
+
+    let pull_h = |rows: &[usize], cols: &[usize]| -> Vec<Vec<f64>> {
+        rows.iter()
+            .map(|&r| cols.iter().map(|&c| h[r * n_free + c]).collect())
+            .collect()
+    };
+    let mut h_vv = pull_h(&variable_idx, &variable_idx);
+    let h_vf = pull_h(&variable_idx, &fixed_idx);
+    if ridge_lambda != 0.0 {
+        for (row_idx, row) in h_vv.iter_mut().enumerate() {
+            row[row_idx] += ridge_lambda;
+        }
+    }
+    let mut variable_axes = [
+        vec![0.0_f64; variable_idx.len()],
+        vec![0.0_f64; variable_idx.len()],
+        vec![0.0_f64; variable_idx.len()],
+    ];
+    for axis in 0..3 {
+        let rhs = (0..variable_idx.len())
+            .map(|r| {
+                let mut sum = 0.0;
+                for c in 0..fixed_idx.len() {
+                    sum -= h_vf[r][c] * seed_axes[axis][c];
+                }
+                sum
+            })
+            .collect::<Vec<_>>();
+        variable_axes[axis] = solve_dense_faer_for_kp15_test(h_vv.clone(), rhs)
+            .ok_or_else(|| format!("custom F5 solve singular at axis {axis}"))?;
+    }
+
+    let assemble_free = |axis: usize| -> Vec<f64> {
+        let mut free = vec![0.0_f64; n_free];
+        for (idx, &free_idx) in fixed_idx.iter().enumerate() {
+            free[free_idx] = seed_axes[axis][idx];
+        }
+        for (idx, &free_idx) in variable_idx.iter().enumerate() {
+            free[free_idx] = variable_axes[axis][idx];
+        }
+        free
+    };
+    let xs = table.apply(&assemble_free(0));
+    let ys = table.apply(&assemble_free(1));
+    let zs = table.apply(&assemble_free(2));
+
+    let mut grids = Vec::with_capacity(n);
+    for sector in 0..n {
+        let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+        for (i, row) in grid.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                let col = global_grid_col(n, sector, i, j);
+                *cell = Point3::new(xs[col], ys[col], zs[col]);
+            }
+        }
+        grids.push(grid);
+    }
+    let f_coord = |values: &[f64]| -> f64 {
+        let mut out = 0.0;
+        for sector in 0..n {
+            let base = 49 * sector;
+            for r in 0..49 {
+                for c in 0..49 {
+                    out += values[base + r] * q_local[r][c] * values[base + c];
+                }
+            }
+        }
+        out
+    };
+    debug_assert_eq!(total, 49 * n);
+    Ok((grids, [f_coord(&xs), f_coord(&ys), f_coord(&zs)]))
+}
+
+fn append_test_edge_row(
+    m: &mut [f64],
+    cols: usize,
+    row_idx: usize,
+    side0_sector: usize,
+    side1_sector: usize,
+    side0_map: TestSideMap,
+    local_row: &[f64; 98],
+) {
+    for (col_local, &value) in local_row.iter().enumerate() {
+        if value == 0.0 {
+            continue;
+        }
+        let side = col_local / 49;
+        let local_pos = col_local % 49;
+        let i = local_pos / 7;
+        let j = local_pos % 7;
+        let (sector, mapped_i, mapped_j) = if side == 0 {
+            let (mapped_i, mapped_j) = side0_map.map(i, j);
+            (side0_sector, mapped_i, mapped_j)
+        } else {
+            (side1_sector, i, j)
+        };
+        m[row_idx * cols + global_grid_col(cols / 49, sector, mapped_i, mapped_j)] += value;
+    }
+}
+
+struct TestSeedRow {
+    sector: usize,
+    i: usize,
+    j: usize,
+    target: [f64; 3],
+}
+
+struct TestOrientationReport {
+    samples: usize,
+    negative: usize,
+    min_det: f64,
+    max_det: f64,
+    worst_sample: String,
+}
+
+fn grids_from_solved_axes(n: usize, solved_axes: &[Vec<f64>; 3]) -> Vec<[[Point3; 7]; 7]> {
+    let mut grids = Vec::with_capacity(n);
+    for sector in 0..n {
+        let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+        for (i, row) in grid.iter_mut().enumerate() {
+            for (j, cell) in row.iter_mut().enumerate() {
+                let col = global_grid_col(n, sector, i, j);
+                *cell = Point3::new(
+                    solved_axes[0][col],
+                    solved_axes[1][col],
+                    solved_axes[2][col],
+                );
+            }
+        }
+        grids.push(grid);
+    }
+    grids
+}
+
+fn planar_bi6_orientation_report(grids: &[[[Point3; 7]; 7]]) -> TestOrientationReport {
+    let mut samples = 0usize;
+    let mut negative = 0usize;
+    let mut min_det = f64::INFINITY;
+    let mut max_det = f64::NEG_INFINITY;
+    let mut worst_sample = String::new();
+    for (sector, grid) in grids.iter().enumerate() {
+        for su in 0..5 {
+            for sv in 0..5 {
+                let u = su as f64 / 4.0;
+                let v = sv as f64 / 4.0;
+                let (du, dv) = eval_bi6_grid_derivatives(grid, u, v);
+                let det = du.x * dv.y - du.y * dv.x;
+                if det < -1.0e-10 {
+                    negative += 1;
+                }
+                if det < min_det {
+                    min_det = det;
+                    worst_sample = format!("sector={sector}@({u:.2},{v:.2})");
+                }
+                max_det = max_det.max(det);
+                samples += 1;
+            }
+        }
+    }
+    TestOrientationReport {
+        samples,
+        negative,
+        min_det,
+        max_det,
+        worst_sample,
+    }
+}
+
+fn eval_bi6_grid_derivatives(grid: &[[Point3; 7]; 7], u: f64, v: f64) -> (Point3, Point3) {
+    let bu5 = bernstein_basis_for_test(5, u);
+    let bv5 = bernstein_basis_for_test(5, v);
+    let bu6 = bernstein_basis_for_test(6, u);
+    let bv6 = bernstein_basis_for_test(6, v);
+    let mut du = Point3::new(0.0, 0.0, 0.0);
+    let mut dv = Point3::new(0.0, 0.0, 0.0);
+    for i in 0..6 {
+        for (j, &bv) in bv6.iter().enumerate().take(7) {
+            let delta = grid[i + 1][j] - grid[i][j];
+            let weight = 6.0 * bu5[i] * bv;
+            du.x += weight * delta.x;
+            du.y += weight * delta.y;
+            du.z += weight * delta.z;
+        }
+    }
+    for (i, &bu) in bu6.iter().enumerate().take(7) {
+        for j in 0..6 {
+            let delta = grid[i][j + 1] - grid[i][j];
+            let weight = 6.0 * bu * bv5[j];
+            dv.x += weight * delta.x;
+            dv.y += weight * delta.y;
+            dv.z += weight * delta.z;
+        }
+    }
+    (du, dv)
+}
+
+fn bernstein_basis_for_test(degree: usize, t: f64) -> Vec<f64> {
+    (0..=degree)
+        .map(|i| {
+            binomial_for_test(degree, i) as f64
+                * t.powi(i as i32)
+                * (1.0 - t).powi((degree - i) as i32)
+        })
+        .collect()
+}
+
+fn binomial_for_test(n: usize, k: usize) -> usize {
+    if k > n {
+        return 0;
+    }
+    let k = k.min(n - k);
+    (0..k).fold(1usize, |acc, i| acc * (n - i) / (i + 1))
+}
+
+fn spoke_indexed_planar_seed_rows(n: usize) -> Vec<TestSeedRow> {
+    let mut rows = Vec::with_capacity(12 * n);
+    for sector in 0..n {
+        for (i, j) in [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (4, 0),
+            (5, 0),
+            (6, 0),
+            (0, 1),
+            (1, 1),
+            (0, 2),
+            (4, 2),
+            (5, 2),
+            (6, 2),
+        ] {
+            let target = test_local_to_global_planar(n, sector, i as f64 / 6.0, j as f64 / 6.0);
+            rows.push(TestSeedRow {
+                sector,
+                i,
+                j,
+                target: [target.x, target.y, target.z],
+            });
+        }
+    }
+    rows
+}
+
+fn spoke_indexed_planar_sectors(n: usize) -> Vec<CirculantSectorRhs> {
+    (0..n)
+        .map(|sector| {
+            let at = |i: usize, j: usize| {
+                test_local_to_global_planar(n, sector, i as f64 / 6.0, j as f64 / 6.0)
+            };
+            CirculantSectorRhs {
+                p_00: Point3::new(0.0, 0.0, 0.0),
+                p_10: at(1, 0),
+                p_20: at(2, 0),
+                p_40: at(4, 0),
+                p_50: at(5, 0),
+                p_60: at(6, 0),
+                p_01: at(0, 1),
+                p_11: at(1, 1),
+                p_02: at(0, 2),
+                p_42: at(4, 2),
+                p_52: at(5, 2),
+                p_62: at(6, 2),
+            }
+        })
+        .collect()
+}
+
+fn kp15_p_and_seed_columns(n: usize) -> Vec<usize> {
+    let mut cols = kp15_p_set_columns(n);
+    for seed in spoke_indexed_planar_seed_rows(n) {
+        cols.push(global_grid_col(n, seed.sector, seed.i, seed.j));
+    }
+    cols.sort_unstable();
+    cols.dedup();
+    cols
+}
+
+fn planar_seed_residual(grids: &[[[Point3; 7]; 7]]) -> f64 {
+    let n = grids.len();
+    let mut max_residual: f64 = 0.0;
+    for (sector, grid) in grids.iter().enumerate() {
+        for seed in spoke_indexed_planar_seed_rows(n)
+            .into_iter()
+            .filter(|seed| seed.sector == sector)
+        {
+            let actual = grid[seed.i][seed.j];
+            let dx = actual.x - seed.target[0];
+            let dy = actual.y - seed.target[1];
+            let dz = actual.z - seed.target[2];
+            max_residual = max_residual.max((dx * dx + dy * dy + dz * dz).sqrt());
+        }
+    }
+    max_residual
+}
+
+fn planar_seed_residual_with_worst(grids: &[[[Point3; 7]; 7]]) -> (f64, String) {
+    let n = grids.len();
+    let mut max_residual: f64 = 0.0;
+    let mut worst = String::new();
+    for seed in spoke_indexed_planar_seed_rows(n) {
+        let actual = grids[seed.sector][seed.i][seed.j];
+        let dx = actual.x - seed.target[0];
+        let dy = actual.y - seed.target[1];
+        let dz = actual.z - seed.target[2];
+        let residual = (dx * dx + dy * dy + dz * dz).sqrt();
+        if residual > max_residual {
+            max_residual = residual;
+            worst = format!("sector={} p_{}{}", seed.sector, seed.i, seed.j);
+        }
+    }
+    (max_residual, worst)
+}
+
+fn planar_fixed_tensor_seed_residual(grids: &[[[Point3; 7]; 7]]) -> f64 {
+    let n = grids.len();
+    let mut max_residual: f64 = 0.0;
+    for seed in spoke_indexed_planar_seed_rows(n) {
+        if seed.i + seed.j <= 2 {
+            continue;
+        }
+        let actual = grids[seed.sector][seed.i][seed.j];
+        let dx = actual.x - seed.target[0];
+        let dy = actual.y - seed.target[1];
+        let dz = actual.z - seed.target[2];
+        max_residual = max_residual.max((dx * dx + dy * dy + dz * dz).sqrt());
+    }
+    max_residual
+}
+
+fn negative_orientation_samples(grids: &[[[Point3; 7]; 7]]) -> Vec<String> {
+    let mut out = Vec::new();
+    for (sector, grid) in grids.iter().enumerate() {
+        for su in 0..5 {
+            for sv in 0..5 {
+                let u = su as f64 / 4.0;
+                let v = sv as f64 / 4.0;
+                let (du, dv) = eval_bi6_grid_derivatives(grid, u, v);
+                let det = du.x * dv.y - du.y * dv.x;
+                if det < -1.0e-10 {
+                    out.push(format!("sector={sector}@({u:.2},{v:.2}) det={det:e}"));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn moved_seed_rows(
+    table: &Kp15Bi6GeneratingTable,
+    grids: &[[[Point3; 7]; 7]],
+    tolerance: f64,
+) -> Vec<(String, f64, bool)> {
+    let n = grids.len();
+    let mut rows = Vec::new();
+    for seed in spoke_indexed_planar_seed_rows(n) {
+        let actual = grids[seed.sector][seed.i][seed.j];
+        let dx = actual.x - seed.target[0];
+        let dy = actual.y - seed.target[1];
+        let dz = actual.z - seed.target[2];
+        let residual = (dx * dx + dy * dy + dz * dz).sqrt();
+        if residual > tolerance {
+            let col = global_grid_col(n, seed.sector, seed.i, seed.j);
+            rows.push((
+                format!("sector={} p_{}{}", seed.sector, seed.i, seed.j),
+                residual,
+                table.free_cols.binary_search(&col).is_ok(),
+            ));
+        }
+    }
+    rows.sort_by(|a, b| b.1.total_cmp(&a.1));
+    rows
+}
+
+fn test_local_to_global_planar(n: usize, sector: usize, u: f64, v: f64) -> Point3 {
+    let alpha = 2.0 * std::f64::consts::PI / n as f64;
+    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
+    let spoke1 = [
+        ((sector + 1) as f64 * alpha).cos(),
+        ((sector + 1) as f64 * alpha).sin(),
+    ];
+    Point3::new(
+        u * spoke0[0] + v * spoke1[0],
+        u * spoke0[1] + v * spoke1[1],
+        0.0,
+    )
+}
+
 #[test]
 fn eq2_jacobian_rank_is_eight_independent_constraints() {
     // Phase C foundation: the eq (2) Jacobian over a single cross-
@@ -601,6 +1312,462 @@ fn cross_sector_identifications_lift_rank() {
 }
 
 #[test]
+fn global_constraint_side_mapping_seed_compatibility_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    for side0_map in [
+        TestSideMap::Identity,
+        TestSideMap::Transpose,
+        TestSideMap::ReverseRow,
+        TestSideMap::ReverseCol,
+    ] {
+        let (rows, cols, m) =
+            global_constraint_matrix_with_test_side_mapping(n, &params, side0_map);
+        let seeds = spoke_indexed_planar_seed_rows(n);
+        for axis in 0..2 {
+            let mut combined = dense_rows_from_matrix(rows, cols, &m);
+            let mut first_incompatible = None::<String>;
+            for seed in &seeds {
+                let mut row = vec![0.0_f64; cols];
+                row[global_grid_col(n, seed.sector, seed.i, seed.j)] = 1.0;
+                combined.push(row);
+                let coeff_rank = matrix_rank_from_rows(&combined, 1.0e-10);
+                let mut augmented = combined.clone();
+                augmented
+                    .last_mut()
+                    .expect("seed row")
+                    .push(seed.target[axis]);
+                for row in augmented.iter_mut().take(combined.len() - 1) {
+                    row.push(0.0);
+                }
+                let augmented_rank = matrix_rank_from_rows(&augmented, 1.0e-10);
+                if augmented_rank > coeff_rank {
+                    first_incompatible =
+                        Some(format!("sector={} p_{}{}", seed.sector, seed.i, seed.j));
+                    break;
+                }
+            }
+            let mut all_rows = dense_rows_from_matrix(rows, cols, &m);
+            let mut all_augmented = all_rows.clone();
+            for seed in &seeds {
+                let mut row = vec![0.0_f64; cols];
+                row[global_grid_col(n, seed.sector, seed.i, seed.j)] = 1.0;
+                all_rows.push(row.clone());
+                row.push(seed.target[axis]);
+                all_augmented.push(row);
+            }
+            for row in all_augmented.iter_mut().take(rows) {
+                row.push(0.0);
+            }
+            let coeff_rank = matrix_rank_from_rows(&all_rows, 1.0e-10);
+            let augmented_rank = matrix_rank_from_rows(&all_augmented, 1.0e-10);
+            eprintln!(
+                "KP15 side-map {side0_map:?} planar seed compatibility axis={axis}: coeff_rank={coeff_rank} augmented_rank={augmented_rank} first_incompatible={}",
+                first_incompatible.as_deref().unwrap_or("none"),
+            );
+            assert!(augmented_rank >= coeff_rank);
+        }
+    }
+}
+
+#[test]
+fn central_preserving_side_mapping_seed_projection_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    for side0_map in [TestSideMap::Identity, TestSideMap::Transpose] {
+        let (rows, cols, m) =
+            global_constraint_matrix_with_test_side_mapping(n, &params, side0_map);
+        let constraints = independent_dense_rows(&dense_rows_from_matrix(rows, cols, &m), cols);
+        let seeds = spoke_indexed_planar_seed_rows(n);
+        let mut solved_axes = [
+            vec![0.0_f64; cols],
+            vec![0.0_f64; cols],
+            vec![0.0_f64; cols],
+        ];
+        for axis in 0..3 {
+            solved_axes[axis] =
+                solve_seed_projection_axis(cols, &constraints, &seeds, axis).expect("projection");
+        }
+        let projected_grids = grids_from_solved_axes(n, &solved_axes);
+        let orientation = planar_bi6_orientation_report(&projected_grids);
+        let mut max_movement: f64 = 0.0;
+        let mut worst = String::new();
+        for seed in &seeds {
+            let col = global_grid_col(n, seed.sector, seed.i, seed.j);
+            let dx = solved_axes[0][col] - seed.target[0];
+            let dy = solved_axes[1][col] - seed.target[1];
+            let dz = solved_axes[2][col] - seed.target[2];
+            let movement = (dx * dx + dy * dy + dz * dz).sqrt();
+            if movement > max_movement {
+                max_movement = movement;
+                worst = format!("sector={} p_{}{}", seed.sector, seed.i, seed.j);
+            }
+        }
+        eprintln!(
+            "KP15 central-preserving side-map {side0_map:?} seed projection: independent_constraints={} max_seed_movement={max_movement:e} worst={worst} orientation_neg={}/{} det=[{:e},{:e}] orientation_worst={}",
+            constraints.len(),
+            orientation.negative,
+            orientation.samples,
+            orientation.min_det,
+            orientation.max_det,
+            orientation.worst_sample,
+        );
+        assert!(max_movement.is_finite());
+    }
+}
+
+#[test]
+fn transpose_side_mapping_table_f5_cap_orientation_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let p_and_seed_cols = kp15_p_and_seed_columns(n);
+    for (label, table) in [
+        (
+            "transpose-full",
+            test_table_from_side_mapping_matrix(n, params, TestSideMap::Transpose, None),
+        ),
+        (
+            "transpose-kp15-p-free",
+            test_table_from_side_mapping_matrix(
+                n,
+                params,
+                TestSideMap::Transpose,
+                Some(&kp15_p_set_columns(n)),
+            ),
+        ),
+        (
+            "transpose-kp15-p-and-seeds-free",
+            test_table_from_side_mapping_matrix(
+                n,
+                params,
+                TestSideMap::Transpose,
+                Some(&p_and_seed_cols),
+            ),
+        ),
+    ] {
+        let (grids, f_values) = table
+            .populate_cap_grids_from_input_with_f_kappa(
+                &sectors,
+                Point3::new(0.0, 0.0, 0.0),
+                &q,
+                0.0,
+            )
+            .expect("transpose table F5 solve");
+        let orientation = planar_bi6_orientation_report(&grids);
+        let seed_residual = planar_seed_residual(&grids);
+        eprintln!(
+            "KP15 {label} table F5 orientation: rank={} free={} neg={}/{} det=[{:e},{:e}] seeded_residual={:e} f=({:e},{:e},{:e}) worst={}",
+            table.rank(),
+            table.free_cols.len(),
+            orientation.negative,
+            orientation.samples,
+            orientation.min_det,
+            orientation.max_det,
+            seed_residual,
+            f_values[0],
+            f_values[1],
+            f_values[2],
+            orientation.worst_sample,
+        );
+        assert_eq!(orientation.samples, 125);
+        assert!(orientation.min_det.is_finite());
+        assert!(seed_residual.is_finite());
+    }
+}
+
+#[test]
+fn transpose_side_mapping_kp15_p_free_ridge_sweep_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let table = test_table_from_side_mapping_matrix(
+        n,
+        params,
+        TestSideMap::Transpose,
+        Some(&kp15_p_set_columns(n)),
+    );
+    for ridge in [0.0, 1.0e-12, 1.0e-10, 1.0e-8, 1.0e-6, 1.0e-4, 1.0e-2, 1.0] {
+        let (grids, f_values) = table
+            .populate_cap_grids_from_input_with_f_kappa(
+                &sectors,
+                Point3::new(0.0, 0.0, 0.0),
+                &q,
+                ridge,
+            )
+            .expect("transpose table F5 ridge solve");
+        let orientation = planar_bi6_orientation_report(&grids);
+        let seed_residual = planar_seed_residual(&grids);
+        eprintln!(
+            "KP15 transpose-kp15-p-free ridge={ridge:e}: neg={}/{} det=[{:e},{:e}] seeded_residual={:e} f=({:e},{:e},{:e}) worst={}",
+            orientation.negative,
+            orientation.samples,
+            orientation.min_det,
+            orientation.max_det,
+            seed_residual,
+            f_values[0],
+            f_values[1],
+            f_values[2],
+            orientation.worst_sample,
+        );
+        assert!(orientation.min_det.is_finite());
+        assert!(seed_residual.is_finite());
+    }
+}
+
+#[test]
+fn transpose_side_mapping_p_variable_tensor_seed_fixed_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let p_and_seed_cols = kp15_p_and_seed_columns(n);
+    let p_cols = kp15_p_set_columns(n)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let table = test_table_from_side_mapping_matrix(
+        n,
+        params,
+        TestSideMap::Transpose,
+        Some(&p_and_seed_cols),
+    );
+    let (grids, f_values) = populate_test_table_with_custom_fixed_seeds(
+        &table,
+        &sectors,
+        Point3::new(0.0, 0.0, 0.0),
+        &q,
+        0.0,
+        |col| !p_cols.contains(&col),
+    )
+    .expect("custom fixed seed F5 solve");
+    let orientation = planar_bi6_orientation_report(&grids);
+    let (seed_residual, worst_seed) = planar_seed_residual_with_worst(&grids);
+    let moved = moved_seed_rows(&table, &grids, 1.0e-10);
+    eprintln!(
+        "KP15 transpose P-variable tensor-seed-fixed: neg={}/{} det=[{:e},{:e}] seeded_residual={:e} worst_seed={worst_seed} moved={} f=({:e},{:e},{:e}) worst={}",
+        orientation.negative,
+        orientation.samples,
+        orientation.min_det,
+        orientation.max_det,
+        seed_residual,
+        moved.len(),
+        f_values[0],
+        f_values[1],
+        f_values[2],
+        orientation.worst_sample,
+    );
+    assert_eq!(orientation.samples, 125);
+    assert!(orientation.min_det.is_finite());
+}
+
+#[test]
+fn transpose_side_mapping_central_quadratic_variable_tensor_seed_fixed_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let mut free_bias = kp15_p_and_seed_columns(n);
+    for sector in 0..n {
+        for i in 0..=2 {
+            for j in 0..=2 {
+                if i + j <= 2 {
+                    free_bias.push(global_grid_col(n, sector, i, j));
+                }
+            }
+        }
+    }
+    free_bias.sort_unstable();
+    free_bias.dedup();
+    let table =
+        test_table_from_side_mapping_matrix(n, params, TestSideMap::Transpose, Some(&free_bias));
+    let (grids, f_values) = populate_test_table_with_custom_fixed_seeds(
+        &table,
+        &sectors,
+        Point3::new(0.0, 0.0, 0.0),
+        &q,
+        0.0,
+        |col| {
+            let pos = col % 49;
+            let i = pos / 7;
+            let j = pos % 7;
+            i + j > 2
+        },
+    )
+    .expect("central-quadratic-variable F5 solve");
+    let orientation = planar_bi6_orientation_report(&grids);
+    let fixed_residual = planar_fixed_tensor_seed_residual(&grids);
+    let moved = moved_seed_rows(&table, &grids, 1.0e-10);
+    eprintln!(
+        "KP15 transpose central-quadratic-variable tensor-seed-fixed: rank={} free={} neg={}/{} det=[{:e},{:e}] fixed_tensor_residual={:e} moved_all_seeds={} f=({:e},{:e},{:e}) worst={}",
+        table.rank(),
+        table.free_cols.len(),
+        orientation.negative,
+        orientation.samples,
+        orientation.min_det,
+        orientation.max_det,
+        fixed_residual,
+        moved.len(),
+        f_values[0],
+        f_values[1],
+        f_values[2],
+        orientation.worst_sample,
+    );
+    assert_eq!(orientation.samples, 125);
+    assert!(orientation.min_det.is_finite());
+    assert!(fixed_residual.is_finite());
+}
+
+#[test]
+fn transpose_side_mapping_central_quadratic_variable_valence_sweep_is_measured() {
+    for n in [3usize, 5, 6, 7, 8] {
+        let params = Bi6Reparams::for_valence(n);
+        let sectors = spoke_indexed_planar_sectors(n);
+        let q = f_kappa_quadratic_form(5);
+        let table =
+            Kp15Bi6GeneratingTable::build_with_transposed_previous_side_and_central_quadratic_free(
+                n, params,
+            );
+        let (grids, f_values) = table
+            .populate_cap_grids_from_input_with_f_kappa_central_quadratic_free(
+                &sectors,
+                Point3::new(0.0, 0.0, 0.0),
+                &q,
+                0.0,
+            )
+            .expect("central-quadratic-variable F5 solve");
+        let orientation = planar_bi6_orientation_report(&grids);
+        let fixed_residual = planar_fixed_tensor_seed_residual(&grids);
+        eprintln!(
+            "KP15 transpose central-quadratic-variable n={n}: rank={} free={} neg={}/{} det=[{:e},{:e}] fixed_tensor_residual={:e} f=({:e},{:e},{:e}) worst={}",
+            table.rank(),
+            table.free_cols.len(),
+            orientation.negative,
+            orientation.samples,
+            orientation.min_det,
+            orientation.max_det,
+            fixed_residual,
+            f_values[0],
+            f_values[1],
+            f_values[2],
+            orientation.worst_sample,
+        );
+        assert_eq!(orientation.samples, 25 * n);
+        assert!(orientation.min_det.is_finite());
+        assert!(fixed_residual.is_finite());
+    }
+}
+
+#[test]
+fn transpose_side_mapping_tensor_seed_without_p_compatibility_is_measured() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let p_cols = kp15_p_set_columns(n)
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    let (rows, cols, m) =
+        global_constraint_matrix_with_test_side_mapping(n, &params, TestSideMap::Transpose);
+    let base_rows = dense_rows_from_matrix(rows, cols, &m);
+    let fixed_seeds = spoke_indexed_planar_seed_rows(n)
+        .into_iter()
+        .filter(|seed| !p_cols.contains(&global_grid_col(n, seed.sector, seed.i, seed.j)))
+        .collect::<Vec<_>>();
+    for axis in 0..2 {
+        let mut constraint_rows = base_rows.clone();
+        let mut augmented_rows = base_rows
+            .iter()
+            .map(|row| {
+                let mut out = row.clone();
+                out.push(0.0);
+                out
+            })
+            .collect::<Vec<_>>();
+        let mut first_incompatible = None::<String>;
+        for seed in &fixed_seeds {
+            let mut row = vec![0.0_f64; cols];
+            row[global_grid_col(n, seed.sector, seed.i, seed.j)] = 1.0;
+            constraint_rows.push(row.clone());
+            row.push(seed.target[axis]);
+            augmented_rows.push(row);
+            let coeff_rank = matrix_rank_from_rows(&constraint_rows, 1.0e-10);
+            let augmented_rank = matrix_rank_from_rows(&augmented_rows, 1.0e-10);
+            if augmented_rank > coeff_rank {
+                first_incompatible = Some(format!("sector={} p_{}{}", seed.sector, seed.i, seed.j));
+                break;
+            }
+        }
+        let coeff_rank = matrix_rank_from_rows(&constraint_rows, 1.0e-10);
+        let augmented_rank = matrix_rank_from_rows(&augmented_rows, 1.0e-10);
+        eprintln!(
+            "KP15 transpose fixed tensor seeds excluding P axis={axis}: coeff_rank={coeff_rank} augmented_rank={augmented_rank} first_incompatible={}",
+            first_incompatible.as_deref().unwrap_or("none"),
+        );
+        assert!(augmented_rank >= coeff_rank);
+    }
+}
+
+#[test]
+fn transpose_side_mapping_kp15_p_free_remaining_failure_is_localized() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let table = test_table_from_side_mapping_matrix(
+        n,
+        params,
+        TestSideMap::Transpose,
+        Some(&kp15_p_set_columns(n)),
+    );
+    let (grids, _) = table
+        .populate_cap_grids_from_input_with_f_kappa(&sectors, Point3::new(0.0, 0.0, 0.0), &q, 0.0)
+        .expect("transpose table F5 solve");
+    let (seed_residual, worst_seed) = planar_seed_residual_with_worst(&grids);
+    let negatives = negative_orientation_samples(&grids);
+    for sample in &negatives {
+        eprintln!("KP15 transpose-kp15-p-free negative sample: {sample}");
+    }
+    eprintln!(
+        "KP15 transpose-kp15-p-free residual localization: seed_residual={seed_residual:e} worst_seed={worst_seed} negative_count={}",
+        negatives.len(),
+    );
+    assert_eq!(negatives.len(), 2);
+    assert!(seed_residual.is_finite());
+}
+
+#[test]
+fn transpose_side_mapping_p_and_seed_free_residual_is_localized() {
+    let n = 5;
+    let params = Bi6Reparams::for_valence(n);
+    let sectors = spoke_indexed_planar_sectors(n);
+    let q = f_kappa_quadratic_form(5);
+    let p_and_seed_cols = kp15_p_and_seed_columns(n);
+    let table = test_table_from_side_mapping_matrix(
+        n,
+        params,
+        TestSideMap::Transpose,
+        Some(&p_and_seed_cols),
+    );
+    let (grids, _) = table
+        .populate_cap_grids_from_input_with_f_kappa(&sectors, Point3::new(0.0, 0.0, 0.0), &q, 0.0)
+        .expect("transpose table F5 solve");
+    let (seed_residual, worst_seed) = planar_seed_residual_with_worst(&grids);
+    let negatives = negative_orientation_samples(&grids);
+    for (label, residual, is_free) in moved_seed_rows(&table, &grids, 1.0e-10) {
+        eprintln!(
+            "KP15 transpose-kp15-p-and-seeds-free moved seed: {label} residual={residual:e} free_col={is_free}"
+        );
+    }
+    eprintln!(
+        "KP15 transpose-kp15-p-and-seeds-free residual localization: seed_residual={seed_residual:e} worst_seed={worst_seed} negative_count={} free_cols={}",
+        negatives.len(),
+        table.free_cols.len(),
+    );
+    assert!(negatives.is_empty());
+    assert!(seed_residual.is_finite());
+}
+
+#[test]
 fn generating_table_with_identifications_round_trip_satisfies_all_constraints() {
     // Companion to `cross_sector_identifications_lift_rank`: when
     // identifications are active in M, the table's `apply` must
@@ -798,6 +1965,57 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
             "n={n}: F_5 cap eq (3) residual = {worst_eq3:.3e}"
         );
     }
+}
+
+#[test]
+fn kp15_fig12_beta_reparameterization_uses_bb_coefficient_cross_degree_elevation() {
+    let params = Bi6Reparams::for_valence(5);
+    let b = [
+        [
+            pt(0.1, -0.2, 0.3),
+            pt(1.2, 0.4, -0.5),
+            pt(2.0, -0.7, 0.9),
+            pt(3.3, 1.1, -1.4),
+        ],
+        [
+            pt(-0.4, 1.5, 0.2),
+            pt(0.7, -1.2, 1.3),
+            pt(1.6, 0.9, -0.8),
+            pt(2.8, -0.3, 0.6),
+        ],
+        [
+            pt(0.9, 0.8, -1.1),
+            pt(-1.4, 1.7, 0.5),
+            pt(2.4, -1.6, 1.8),
+            pt(3.9, 0.2, -0.9),
+        ],
+    ];
+    let q = apply_beta_reparameterization(&b, &params);
+    let raised0 = test_elevate_cubic_to_degree6(&b[0]);
+    let raised1 = test_elevate_cubic_to_degree6(&b[1]);
+    let raised2 = test_elevate_cubic_to_degree6(&b[2]);
+
+    for i in 0..=6 {
+        assert_point_close(q[0][i], raised0[i], &format!("q0[{i}]"));
+        assert_point_close(
+            q[1][i],
+            test_weighted_point_sum(&[(0.5, raised0[i]), (0.5, raised1[i])]),
+            &format!("q1[{i}]"),
+        );
+    }
+    for i in 0..=1 {
+        assert_point_close(
+            q[2][i],
+            test_weighted_point_sum(&[(0.2, raised0[i]), (0.6, raised1[i]), (0.2, raised2[i])]),
+            &format!("q2[{i}]"),
+        );
+    }
+
+    let old_direct_b1_elevation_delta = q[1][3].distance_to(&raised1[3]);
+    assert!(
+        old_direct_b1_elevation_delta > 1.0e-3,
+        "fixture must distinguish Fig.12 BB cross-degree elevation from direct b1 elevation"
+    );
 }
 
 #[test]

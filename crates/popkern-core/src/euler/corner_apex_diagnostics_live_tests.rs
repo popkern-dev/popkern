@@ -392,11 +392,10 @@ fn live_near_tangent_face_normals_are_classified() {
         SurfaceGeometry::Plane { normal, .. } => normal,
         _ => panic!("expected plane"),
     };
-    if let Some(surface) = &mut cube.faces[faces[1]].surface {
-        if let SurfaceGeometry::Plane { normal: n, .. } = &mut surface.geometry {
+    if let Some(surface) = &mut cube.faces[faces[1]].surface
+        && let SurfaceGeometry::Plane { normal: n, .. } = &mut surface.geometry {
             *n = normal;
         }
-    }
 
     let report = cube.diagnose_corner_apex(request(
         vertex,

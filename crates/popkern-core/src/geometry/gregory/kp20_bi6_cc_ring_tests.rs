@@ -1034,9 +1034,9 @@ fn cc_test_bi6_origin_derivative_component_terms(
     let factor_v = (0..dv_order).fold(1.0_f64, |acc, offset| acc * (6 - offset) as f64);
     let mut terms = Vec::new();
     for r in 0..=du_order {
-        let sign_r = if (du_order - r) % 2 == 0 { 1.0 } else { -1.0 };
+        let sign_r = if (du_order - r).is_multiple_of(2) { 1.0 } else { -1.0 };
         for s in 0..=dv_order {
-            let sign_s = if (dv_order - s) % 2 == 0 { 1.0 } else { -1.0 };
+            let sign_s = if (dv_order - s).is_multiple_of(2) { 1.0 } else { -1.0 };
             let weight = factor_u
                 * factor_v
                 * sign_r
@@ -2033,6 +2033,71 @@ fn pr08_tensor_border_candidates_are_rotationally_covariant() {
             }
         }
     }
+}
+
+#[test]
+fn pr08_stam_inner_q1_production_rows_match_diagnostic_candidate() {
+    let n = 5;
+    let ring = kp20_catmull_clark_characteristic_ring(n).unwrap();
+    let diagnostic = kp20_pr08_characteristic_tensor_border_candidate_rows(
+        &ring,
+        Kp20Pr08TensorBorderCandidate::StamAppendixAPr08InnerRingQ1Rows,
+    )
+    .unwrap();
+    let production = kp20_pr08_stam_inner_q1_regular_tensor_border_rows(n).unwrap();
+
+    assert_eq!(production.sectors.len(), diagnostic.sectors.len());
+    for sector in 0..n {
+        for row in 0..3 {
+            for col in 0..4 {
+                assert_close_point(
+                    production.sectors[sector][row][col],
+                    diagnostic.sectors[sector][row][col],
+                    1.0e-12,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pr08_fig63_endpoint_side_rows_match_decoded_stam_transform() {
+    let n = 5;
+    let ring = kp20_catmull_clark_characteristic_ring(n).unwrap();
+    let projection =
+        kp20_pr08_stam_appendix_tensor_projected_grids(&ring).expect("Appendix tensor projection");
+    let transformed = kp20_pr08_stam_projected_transformed_tensor_border_side_rows(
+        &projection,
+        Kp20StamPatch::LowerRight,
+        Kp20StamGridTransform::AntiTranspose,
+        Kp20StamGridSide::Left,
+        false,
+    )
+    .expect("transformed endpoint-side rows");
+    let explicit = kp20_pr08_fig63_endpoint_side_regular_tensor_border_rows(n)
+        .expect("explicit Fig.6.3 endpoint-side rows");
+
+    for sector in 0..n {
+        for row in 0..3 {
+            for col in 0..4 {
+                assert_close_point(
+                    explicit.sectors[sector][row][col],
+                    transformed.sectors[sector][row][col],
+                    1.0e-12,
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn pr08_stam_inner_q1_endpoint_normalization_matches_unit_sector_spokes() {
+    let n = 5;
+    let rows = kp20_pr08_stam_inner_q1_endpoint_normalized_regular_tensor_border_rows(n).unwrap();
+    let expected_right = Point3::new(1.0, 0.0, 0.0);
+
+    assert_close_point(rows.sectors[0][0][0], Point3::new(0.0, 0.0, 0.0), 1.0e-12);
+    assert_close_point(rows.sectors[0][0][3], expected_right, 1.0e-12);
 }
 
 #[test]

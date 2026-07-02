@@ -288,10 +288,12 @@ pub use kp13_bi5_boundary::{
     Bi3TensorBorder as Bi5CapBi3Patch, TensorBorder as Bi5CapTensorBorder,
 };
 pub use kp15_bi6_cap::{
-    Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap, assemble_bi6_polar_cap_via_table,
+    Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap, assemble_bi6_polar_cap_via_paper_p_table,
+    assemble_bi6_polar_cap_via_table,
 };
 pub use kp15_bi6_cap_f5_solve::{
-    Bi6CapFreeParams, f_kappa_solve_optimal_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
+    Bi6CapFreeParams, Bi6CapPaperFreeParams, f_kappa_solve_optimal_bi6_cap,
+    f_kappa_solve_paper_p_bi6_cap, f_kappa_solve_with_weights_optimal_bi6_cap,
     f5_solve_optimal_bi6_cap,
 };
 pub use kp15_bi6_circulant::{

@@ -1248,7 +1248,7 @@ fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
                         n,
                         Kp20TauFamily::Kernel,
                         |_| true,
-                        || kp20_default_sector_piece_maps(),
+                        kp20_default_sector_piece_maps,
                     );
                     format!(
                         "domain=outside:{outside}/{samples} max_excess={excess:e} u=[{min_u:e},{max_u:e}] v=[{min_v:e},{max_v:e}]",
@@ -1266,7 +1266,7 @@ fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
                         n,
                         Kp20TauFamily::Paper,
                         |_| true,
-                        || kp20_positive_nonoverlap_c2_sector_piece_maps(),
+                        kp20_positive_nonoverlap_c2_sector_piece_maps,
                     );
                     format!(
                         "domain=outside:{outside}/{samples} max_excess={excess:e} u=[{min_u:e},{max_u:e}] v=[{min_v:e},{max_v:e}]",
@@ -1284,7 +1284,7 @@ fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
                         n,
                         Kp20TauFamily::PaperRefinedApex,
                         |_| true,
-                        || kp20_positive_nonoverlap_c2_sector_piece_maps(),
+                        kp20_positive_nonoverlap_c2_sector_piece_maps,
                     );
                     format!(
                         "domain=outside:{outside}/{samples} max_excess={excess:e} u=[{min_u:e},{max_u:e}] v=[{min_v:e},{max_v:e}]",
@@ -1307,7 +1307,7 @@ fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
                                 Kp20PieceId::NearOriginLeft | Kp20PieceId::NearOriginRight
                             )
                         },
-                        || kp20_positive_nonoverlap_c2_sector_piece_maps(),
+                        kp20_positive_nonoverlap_c2_sector_piece_maps,
                     );
                     format!(
                         "origin-domain=outside:{outside}/{samples} max_excess={excess:e} u=[{min_u:e},{max_u:e}] v=[{min_v:e},{max_v:e}]",
@@ -1398,7 +1398,7 @@ fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
                         n,
                         Kp20TauFamily::Paper,
                         |_| true,
-                        || kp20_paper_quadrant_sector_piece_maps(),
+                        kp20_paper_quadrant_sector_piece_maps,
                     );
                     format!(
                         "domain=outside:{outside}/{samples} max_excess={excess:e} u=[{min_u:e},{max_u:e}] v=[{min_v:e},{max_v:e}]",

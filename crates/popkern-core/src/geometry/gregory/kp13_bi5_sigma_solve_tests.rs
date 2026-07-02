@@ -179,3 +179,64 @@ fn solve_is_deterministic() {
         }
     }
 }
+
+#[test]
+fn constrained_solve_matches_corner_minimal_solve() {
+    let old_path = solve_sigma_f3_minimal();
+    let new_path = solve_sigma_f3_with_constraints(&sigma_corner_constraints())
+        .expect("corner constrained sigma solve succeeds")
+        .sigma;
+    for i in 0..6 {
+        for j in 0..6 {
+            assert!(
+                (old_path.cps[i][j].0 - new_path.cps[i][j].0).abs() < 1.0e-10
+                    && (old_path.cps[i][j].1 - new_path.cps[i][j].1).abs() < 1.0e-10,
+                "sigma cp[{i}][{j}] differs: old={:?} new={:?}",
+                old_path.cps[i][j],
+                new_path.cps[i][j],
+            );
+        }
+    }
+}
+
+#[test]
+fn sector_axis_boundary_constraints_are_exact() {
+    let mut constraints = sigma_corner_constraints();
+    constraints.extend(sigma_sector_axis_boundary_constraints());
+    let solved = solve_sigma_f3_with_constraints(&constraints)
+        .expect("sector-axis constrained sigma solve succeeds");
+    assert!(
+        solved.max_constraint_residual < 1.0e-9,
+        "sector-axis sigma residual {}",
+        solved.max_constraint_residual
+    );
+    for i in 0..6 {
+        assert!(
+            solved.sigma.cps[i][0].1.abs() < 1.0e-9,
+            "bottom edge cp[{i}][0] should lie on y=0, got {:?}",
+            solved.sigma.cps[i][0]
+        );
+        assert!(
+            solved.sigma.cps[0][i].0.abs() < 1.0e-9,
+            "left edge cp[0][{i}] should lie on x=0, got {:?}",
+            solved.sigma.cps[0][i]
+        );
+    }
+    assert!(solved.sigma.is_symmetric());
+}
+
+#[test]
+fn sector_axis_boundary_solve_beats_identity_under_same_rows() {
+    let mut constraints = sigma_corner_constraints();
+    constraints.extend(sigma_sector_axis_boundary_constraints());
+    let solved = solve_sigma_f3_with_constraints(&constraints)
+        .expect("sector-axis constrained sigma solve succeeds")
+        .sigma;
+    let identity = SigmaPatch::identity();
+    let solved_f3 = f3_functional(&solved);
+    let identity_f3 = f3_functional(&identity);
+    assert!(
+        solved_f3 <= identity_f3 + 1.0e-8,
+        "sector-axis constrained sigma F3 {solved_f3} should not exceed identity {identity_f3}"
+    );
+}

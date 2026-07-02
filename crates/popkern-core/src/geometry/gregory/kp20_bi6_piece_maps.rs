@@ -4,13 +4,14 @@
 //! provide a stable default subdivision of the triangular guide domain
 //! into the four sector-local pieces used by the side-by-side assembler.
 
+use super::bernstein_tri6::flat_index as tri6_flat_index;
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_bi6_guide_sample::{
     Kp20AffineGuideMap, Kp20PatchCorner, Kp20Tri6GuideSector, kp20_corner_block_from_jet,
     kp20_sample_macro_patch_from_guide, kp20_sample_patch_from_guide,
 };
 use super::kp20_bi6_tau::{
-    Kp20TauJet3, Kp20TauMap, kp20_compose_guide_with_tau_jet,
+    Kp20TauJet3, Kp20TauMap, kp20_compose_source_jet_with_tau_jet,
     kp20_sample_corner_block_with_tau_affine,
 };
 use super::{bernstein_bi6_all, bernstein_bi6_deriv_all};
@@ -927,6 +928,27 @@ pub fn sample_kp20_macro_patch_from_planar_bi6_tau_macro_patch(
     out
 }
 
+/// Sample a square-domain bi-6 source surface through a piecewise planar bi-6
+/// τ macro-patch.
+///
+/// This is the KP20 Fig. 8/§4.4-shaped counterpart to the triangular guide
+/// sampler above: τ is interpreted as a reparameterization of the tensor source
+/// square, so the only source-domain containment gate is `0 <= u,v <= 1`.
+/// Like the guide sampler, this constructs the output from total third-order
+/// corner jets; it is exact for affine source/τ cases and is the local Hermite
+/// macro-patch approximation for higher-degree source/τ composition.
+pub fn sample_kp20_macro_patch_from_square_bi6_source_tau_macro_patch(
+    source: &super::kp20_bi6_cap::Kp20Bi6Patch,
+    tau_macro_patch: &Kp20MacroPatch,
+) -> Kp20MacroPatch {
+    let mut out = Kp20MacroPatch::zero();
+    for piece_id in Kp20PieceId::all() {
+        *out.piece_mut(piece_id) =
+            kp20_sample_patch_from_square_bi6_source_tau(source, tau_macro_patch.piece(piece_id));
+    }
+    out
+}
+
 /// Sample one guide sector through a planar bi-6 τ only after τ satisfies the
 /// strict sampled-source containment gate.
 pub fn sample_kp20_macro_patch_from_valid_planar_bi6_tau_macro_patch(
@@ -1105,9 +1127,8 @@ fn kp20_sample_patch_from_planar_bi6_tau(
             Kp20PatchCorner::U0V0 | Kp20PatchCorner::U1V0 => 1.0,
             Kp20PatchCorner::U0V1 | Kp20PatchCorner::U1V1 => -1.0,
         };
-        let block = kp20_corner_block_from_jet(kp20_compose_guide_with_tau_jet(
-            guide,
-            orient_tau_jet(planar_bi6_tau_jet3(tau, u, v), sign_u, sign_v),
+        let block = kp20_corner_block_from_jet(compose_tri6_guide_planar_bi6_tau_rect_jet(
+            guide, tau, u, v, sign_u, sign_v,
         ));
         for (i, row) in block.iter().enumerate() {
             for (j, point) in row.iter().enumerate() {
@@ -1129,6 +1150,246 @@ fn kp20_sample_patch_from_planar_bi6_tau(
             );
             let inv = 1.0 / counts[i][j] as f64;
             out.cps[i][j] = Point3::new(sums[i][j].x * inv, sums[i][j].y * inv, sums[i][j].z * inv);
+        }
+    }
+    out
+}
+
+fn kp20_sample_patch_from_square_bi6_source_tau(
+    source: &super::kp20_bi6_cap::Kp20Bi6Patch,
+    tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
+) -> super::kp20_bi6_cap::Kp20Bi6Patch {
+    let zero = Point3::new(0.0, 0.0, 0.0);
+    let mut sums = [[zero; 7]; 7];
+    let mut counts = [[0_u8; 7]; 7];
+
+    for corner in Kp20PatchCorner::all() {
+        let (u, v) = patch_corner_uv(corner);
+        let (sign_u, sign_v) = patch_corner_derivative_signs(corner);
+        let tau_jet = orient_tau_jet(planar_bi6_tau_jet3(tau, u, v), sign_u, sign_v);
+        let source_xy = tau_jet.d[0][0];
+        let source_jet = square_bi6_source_jet3(source, source_xy[0], source_xy[1]);
+        let block =
+            kp20_corner_block_from_jet(kp20_compose_source_jet_with_tau_jet(source_jet, tau_jet));
+        for (i, row) in block.iter().enumerate() {
+            for (j, point) in row.iter().enumerate() {
+                let (ii, jj) = oriented_index(corner, i, j);
+                sums[ii][jj].x += point.x;
+                sums[ii][jj].y += point.y;
+                sums[ii][jj].z += point.z;
+                counts[ii][jj] += 1;
+            }
+        }
+    }
+
+    let mut out = super::kp20_bi6_cap::Kp20Bi6Patch::zero();
+    for i in 0..7 {
+        for j in 0..7 {
+            debug_assert!(
+                counts[i][j] > 0,
+                "corner blocks must cover the full bi-6 grid"
+            );
+            let inv = 1.0 / counts[i][j] as f64;
+            out.cps[i][j] = Point3::new(sums[i][j].x * inv, sums[i][j].y * inv, sums[i][j].z * inv);
+        }
+    }
+    out
+}
+
+fn patch_corner_uv(corner: Kp20PatchCorner) -> (f64, f64) {
+    match corner {
+        Kp20PatchCorner::U0V0 => (0.0, 0.0),
+        Kp20PatchCorner::U1V0 => (1.0, 0.0),
+        Kp20PatchCorner::U0V1 => (0.0, 1.0),
+        Kp20PatchCorner::U1V1 => (1.0, 1.0),
+    }
+}
+
+fn patch_corner_derivative_signs(corner: Kp20PatchCorner) -> (f64, f64) {
+    let sign_u = match corner {
+        Kp20PatchCorner::U0V0 | Kp20PatchCorner::U0V1 => 1.0,
+        Kp20PatchCorner::U1V0 | Kp20PatchCorner::U1V1 => -1.0,
+    };
+    let sign_v = match corner {
+        Kp20PatchCorner::U0V0 | Kp20PatchCorner::U1V0 => 1.0,
+        Kp20PatchCorner::U0V1 | Kp20PatchCorner::U1V1 => -1.0,
+    };
+    (sign_u, sign_v)
+}
+
+fn square_bi6_source_jet3(
+    source: &super::kp20_bi6_cap::Kp20Bi6Patch,
+    u: f64,
+    v: f64,
+) -> super::kp20_bi6_guide_sample::Kp20GuideJet3 {
+    let bu = [
+        bernstein1d_derivative_basis(6, 0, u),
+        bernstein1d_derivative_basis(6, 1, u),
+        bernstein1d_derivative_basis(6, 2, u),
+        bernstein1d_derivative_basis(6, 3, u),
+    ];
+    let bv = [
+        bernstein1d_derivative_basis(6, 0, v),
+        bernstein1d_derivative_basis(6, 1, v),
+        bernstein1d_derivative_basis(6, 2, v),
+        bernstein1d_derivative_basis(6, 3, v),
+    ];
+    let mut out = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+    for a in 0..4 {
+        for b in 0..(4 - a) {
+            for (i, &bu_i) in bu[a].iter().enumerate() {
+                for (j, &bv_j) in bv[b].iter().enumerate() {
+                    let cp = source.cps[i][j];
+                    let w = bu_i * bv_j;
+                    out[a][b].x += w * cp.x;
+                    out[a][b].y += w * cp.y;
+                    out[a][b].z += w * cp.z;
+                }
+            }
+        }
+    }
+    super::kp20_bi6_guide_sample::Kp20GuideJet3 { h: out }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RectTaylorJet {
+    c: [[f64; 4]; 4],
+}
+
+impl RectTaylorJet {
+    fn zero() -> Self {
+        Self { c: [[0.0; 4]; 4] }
+    }
+
+    fn constant(value: f64) -> Self {
+        let mut out = Self::zero();
+        out.c[0][0] = value;
+        out
+    }
+
+    fn sub(self, rhs: Self) -> Self {
+        let mut out = Self::zero();
+        for a in 0..4 {
+            for b in 0..4 {
+                out.c[a][b] = self.c[a][b] - rhs.c[a][b];
+            }
+        }
+        out
+    }
+
+    fn scale(self, scale: f64) -> Self {
+        let mut out = Self::zero();
+        for a in 0..4 {
+            for b in 0..4 {
+                out.c[a][b] = scale * self.c[a][b];
+            }
+        }
+        out
+    }
+
+    fn mul(self, rhs: Self) -> Self {
+        let mut out = Self::zero();
+        for a in 0..4 {
+            for b in 0..4 {
+                let mut value = 0.0;
+                for i in 0..=a {
+                    for j in 0..=b {
+                        value += self.c[i][j] * rhs.c[a - i][b - j];
+                    }
+                }
+                out.c[a][b] = value;
+            }
+        }
+        out
+    }
+
+    fn powi(self, exponent: usize) -> Self {
+        let mut out = Self::constant(1.0);
+        for _ in 0..exponent {
+            out = out.mul(self);
+        }
+        out
+    }
+}
+
+fn compose_tri6_guide_planar_bi6_tau_rect_jet(
+    guide: &Kp20Tri6GuideSector,
+    tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
+    u: f64,
+    v: f64,
+    sign_u: f64,
+    sign_v: f64,
+) -> super::kp20_bi6_guide_sample::Kp20GuideJet3 {
+    let [x, y] = planar_bi6_tau_rect_taylor(tau, u, v, sign_u, sign_v);
+    let one_minus_x_minus_y = RectTaylorJet::constant(1.0).sub(x).sub(y);
+    let mut coeffs = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+
+    for i in 0..=6 {
+        for j in 0..=(6 - i) {
+            let k = 6 - i - j;
+            let basis = x
+                .powi(i)
+                .mul(y.powi(j))
+                .mul(one_minus_x_minus_y.powi(k))
+                .scale(multinomial3(6, i, j, k));
+            let cp = guide.cps[tri6_flat_index(6, i, j)];
+            for a in 0..4 {
+                for b in 0..4 {
+                    let weight = basis.c[a][b];
+                    coeffs[a][b].x += weight * cp.x;
+                    coeffs[a][b].y += weight * cp.y;
+                    coeffs[a][b].z += weight * cp.z;
+                }
+            }
+        }
+    }
+
+    let mut h = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
+    for a in 0..4 {
+        for b in 0..4 {
+            let scale = small_factorial(a) * small_factorial(b);
+            h[a][b] = Point3::new(
+                scale * coeffs[a][b].x,
+                scale * coeffs[a][b].y,
+                scale * coeffs[a][b].z,
+            );
+        }
+    }
+    super::kp20_bi6_guide_sample::Kp20GuideJet3 { h }
+}
+
+fn planar_bi6_tau_rect_taylor(
+    tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
+    u: f64,
+    v: f64,
+    sign_u: f64,
+    sign_v: f64,
+) -> [RectTaylorJet; 2] {
+    let bu = [
+        bernstein1d_derivative_basis(6, 0, u),
+        bernstein1d_derivative_basis(6, 1, u),
+        bernstein1d_derivative_basis(6, 2, u),
+        bernstein1d_derivative_basis(6, 3, u),
+    ];
+    let bv = [
+        bernstein1d_derivative_basis(6, 0, v),
+        bernstein1d_derivative_basis(6, 1, v),
+        bernstein1d_derivative_basis(6, 2, v),
+        bernstein1d_derivative_basis(6, 3, v),
+    ];
+    let mut out = [RectTaylorJet::zero(), RectTaylorJet::zero()];
+    for a in 0..4 {
+        for b in 0..4 {
+            let derivative_sign = sign_u.powi(a as i32) * sign_v.powi(b as i32);
+            let taylor_scale = derivative_sign / (small_factorial(a) * small_factorial(b));
+            for (i, &bu_i) in bu[a].iter().enumerate() {
+                for (j, &bv_j) in bv[b].iter().enumerate() {
+                    let cp = tau.cps[i][j];
+                    let weight = taylor_scale * bu_i * bv_j;
+                    out[0].c[a][b] += weight * cp.x;
+                    out[1].c[a][b] += weight * cp.y;
+                }
+            }
         }
     }
     out
@@ -1223,6 +1484,14 @@ fn binom(n: usize, k: usize) -> f64 {
     }
     let k = k.min(n - k);
     (0..k).fold(1.0, |acc, i| acc * (n - i) as f64 / (i + 1) as f64)
+}
+
+fn multinomial3(n: usize, i: usize, j: usize, k: usize) -> f64 {
+    small_factorial(n) / (small_factorial(i) * small_factorial(j) * small_factorial(k))
+}
+
+fn small_factorial(n: usize) -> f64 {
+    (1..=n).fold(1.0, |acc, value| acc * value as f64)
 }
 
 fn falling_factorial(n: usize, order: usize) -> f64 {

@@ -51,7 +51,10 @@ pub struct S3Inputs {
     pub p_prev_62: Point3,
     /// `ṕ_{62}` — row 2 at i=6.
     pub p_cur_62: Point3,
-    /// `p̀_{32}` (row 2; earlier construction).
+    /// Local `p̀_{32}`. Under Fig. 2's swap between the previous
+    /// sector's rotational indexing and the sector-symmetric
+    /// pair-frame, this is the previous sector's `p_{23}` free
+    /// parameter from KP15 §3.6.
     pub p_prev_32: Point3,
 }
 

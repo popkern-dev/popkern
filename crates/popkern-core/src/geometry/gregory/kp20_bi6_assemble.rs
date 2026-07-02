@@ -14,9 +14,20 @@ use super::kp20_bi6_cap::{
 };
 use super::kp20_bi6_cnet::{Kp20RegularCNet, kp20_tensor_border_from_regular_cnet};
 use super::kp20_bi6_guide_build::{Kp20GuideBuildInput, build_kp20_guide_ring};
+use super::kp20_bi6_guide_sample::Kp20Tri6GuideSector;
 use super::kp20_bi6_math::kp20_b_coeffs_near_o;
-use super::kp20_bi6_piece_maps::sample_kp20_macro_patch_from_default_maps;
+use super::kp20_bi6_piece_maps::{
+    Kp20PlanarTauDomainReport, Kp20TauFamily, kp20_paper_quadrant_sector_piece_maps,
+    sample_kp20_macro_patch_from_default_maps,
+    sample_kp20_macro_patch_from_paper_valid_planar_bi6_tau_macro_patch,
+    sample_kp20_macro_patch_from_tau_family_maps,
+};
 use super::kp20_bi6_s0_solve::{Kp20S0Projection, Kp20S0SolveError, project_kp20_g2_strip_pair};
+use super::kp20_bi6_tau_solve_assemble::{
+    Kp20PlanarTauAppendixAFig6cSolveInput, Kp20PlanarTauAppendixAFig6cSolveOutput,
+    Kp20PlanarTauPaperSolveError, solve_kp20_planar_tau_appendix_a_fig6c_active_set,
+};
+use super::tri6_flat_index;
 use crate::geometry::Point3;
 
 type Kp20Lemma4OverlayBlock = [[Point3; 4]; 4];
@@ -53,6 +64,24 @@ pub struct Kp20Bi6MacroCapInput {
     pub tensor_border: TensorBorderBi3,
     /// One guide-sampled 2x2 macro-patch per sector.
     pub sampled_macro_patches: Vec<Kp20MacroPatch>,
+}
+
+/// Output from sampling one sector through the Appendix-A/Fig. 6c τ path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20Bi6AppendixAFig6cSectorSample {
+    /// Promoted planar τ solve diagnostics for this sector.
+    pub tau: Kp20PlanarTauAppendixAFig6cSolveOutput,
+    /// Guide-Hermite sampled macro-patch `g ∘ τ`.
+    pub sampled_macro_patch: Kp20MacroPatch,
+}
+
+/// Output from Appendix-A/Fig. 6c τ-driven macro-cap assembly.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Kp20Bi6AppendixAFig6cCapOutput {
+    /// Per-sector τ solve and sampled macro-patch diagnostics.
+    pub sector_samples: Vec<Kp20Bi6AppendixAFig6cSectorSample>,
+    /// Assembled cap after §4.4 geometry stages.
+    pub cap: Kp20Bi6MacroCapOutput,
 }
 
 /// Output from KP20 macro-cap assembly.
@@ -121,6 +150,20 @@ pub enum Kp20Bi6AssembleError {
         /// Underlying projection error.
         source: Kp20S0SolveError,
     },
+    /// One sector's Appendix-A/Fig. 6c τ solve failed.
+    Tau {
+        /// Sector whose τ solve failed.
+        sector: usize,
+        /// Underlying τ solve error.
+        source: Kp20PlanarTauPaperSolveError,
+    },
+    /// A solved square-domain τ would evaluate outside the triangular guide.
+    TauGuideDomain {
+        /// Sector whose τ cannot be sampled by the current triangular guide path.
+        sector: usize,
+        /// Sampled guide-domain containment report.
+        report: Box<Kp20PlanarTauDomainReport>,
+    },
 }
 
 impl std::fmt::Display for Kp20Bi6AssembleError {
@@ -137,6 +180,15 @@ impl std::fmt::Display for Kp20Bi6AssembleError {
             Self::TensorBorder(e) => write!(f, "KP20 tensor-border: {e}"),
             Self::CNet(e) => write!(f, "KP20 c-net: {e}"),
             Self::S0 { sector, source } => write!(f, "KP20 sector {sector} S0 solve: {source}"),
+            Self::Tau { sector, source } => write!(f, "KP20 sector {sector} τ solve: {source}"),
+            Self::TauGuideDomain { sector, report } => write!(
+                f,
+                "KP20 sector {sector} τ guide-domain mismatch: {} of {} samples outside triangular guide domain, max excess {:.3e} at {}",
+                report.outside_triangle_samples,
+                report.sample_count,
+                report.max_simplex_excess,
+                report.worst_sample
+            ),
         }
     }
 }
@@ -173,6 +225,161 @@ pub fn assemble_kp20_bi6_cap_from_cnet(
         star_point: input.star_point,
         tensor_border,
     })
+}
+
+/// Assemble a KP20 macro-cap by sampling the guide through the promoted
+/// Appendix-A/Fig. 6c active-set τ construction before §4.4 geometry assembly.
+///
+/// This path keeps the roles separated: the planar τ solver enforces the Fig.
+/// 6c/§4.2 reparameterization rows and square/orientation validity; equation
+/// (14) tensor-border rows are then applied as cap geometry by the macro-cap
+/// assembler.
+pub fn assemble_kp20_bi6_cap_with_appendix_a_fig6c_tau(
+    input: &Kp20Bi6CapInput,
+) -> Result<Kp20Bi6AppendixAFig6cCapOutput, Kp20Bi6AssembleError> {
+    let guide = build_kp20_guide_ring(&Kp20GuideBuildInput {
+        star_point: input.star_point,
+        tensor_border: input.tensor_border.clone(),
+    })
+    .map_err(Kp20Bi6AssembleError::Guide)?;
+    let sector_samples = sample_appendix_a_fig6c_tau_macro_patches(&guide.sectors)?;
+    let sampled_macro_patches = sector_samples
+        .iter()
+        .map(|sample| sample.sampled_macro_patch)
+        .collect::<Vec<_>>();
+    let cap = assemble_kp20_bi6_macro_cap(&Kp20Bi6MacroCapInput {
+        tensor_border: input.tensor_border.clone(),
+        sampled_macro_patches,
+    })?;
+    Ok(Kp20Bi6AppendixAFig6cCapOutput {
+        sector_samples,
+        cap,
+    })
+}
+
+fn sample_appendix_a_fig6c_tau_macro_patches(
+    guide_sectors: &[Kp20Tri6GuideSector],
+) -> Result<Vec<Kp20Bi6AppendixAFig6cSectorSample>, Kp20Bi6AssembleError> {
+    let valence = guide_sectors.len();
+    let identity_guide = local_identity_tri6_guide();
+    let canonical_refined_local_tau = sample_kp20_macro_patch_from_tau_family_maps(
+        &identity_guide,
+        valence,
+        0,
+        Kp20TauFamily::PaperRefinedApex,
+        kp20_paper_quadrant_sector_piece_maps(),
+    )
+    .map_err(Kp20Bi6AssembleError::Guide)?;
+    let canonical_refined_global_tau =
+        local_planar_patch_to_global(valence, 0, canonical_refined_local_tau);
+    let canonical_tau =
+        solve_kp20_planar_tau_appendix_a_fig6c_active_set(&Kp20PlanarTauAppendixAFig6cSolveInput {
+            valence,
+            sector: 0,
+            initial: canonical_refined_global_tau,
+            regularization_weight: 1.0e-10,
+        })
+        .map_err(|source| Kp20Bi6AssembleError::Tau { sector: 0, source })?;
+    let canonical_local_tau =
+        global_planar_patch_to_local(valence, 0, canonical_tau.tau_macro_patch);
+    let mut samples = Vec::with_capacity(valence);
+    for (sector, guide_sector) in guide_sectors.iter().enumerate() {
+        let local_tau = canonical_local_tau;
+        let tau = Kp20PlanarTauAppendixAFig6cSolveOutput {
+            tau_macro_patch: local_planar_patch_to_global(valence, sector, local_tau),
+            ..canonical_tau.clone()
+        };
+        let sampled_macro_patch =
+            sample_kp20_macro_patch_from_paper_valid_planar_bi6_tau_macro_patch(
+                guide_sector,
+                &local_tau,
+                &[0.0, 0.25, 0.5, 0.75, 1.0],
+                1.0e-10,
+                1.0e-10,
+            )
+            .map_err(|source| Kp20Bi6AssembleError::Tau {
+                sector,
+                source: Kp20PlanarTauPaperSolveError::DegenerateReparameterization(source.validity),
+            })?;
+        samples.push(Kp20Bi6AppendixAFig6cSectorSample {
+            tau,
+            sampled_macro_patch,
+        });
+    }
+    Ok(samples)
+}
+
+fn local_identity_tri6_guide() -> Kp20Tri6GuideSector {
+    let mut guide = Kp20Tri6GuideSector::zero();
+    for i in 0..=6 {
+        for j in 0..=(6 - i) {
+            guide.cps[tri6_flat_index(6, i, j)] = Point3::new(i as f64 / 6.0, j as f64 / 6.0, 0.0);
+        }
+    }
+    guide
+}
+
+fn local_planar_patch_to_global(
+    valence: usize,
+    sector: usize,
+    local_tau: Kp20MacroPatch,
+) -> Kp20MacroPatch {
+    let mut out = Kp20MacroPatch::zero();
+    for piece_id in Kp20PieceId::all() {
+        for i in 0..=6 {
+            for j in 0..=6 {
+                let cp = local_tau.piece(piece_id).cps[i][j];
+                out.piece_mut(piece_id).cps[i][j] =
+                    local_to_global_planar(valence, sector, [cp.x, cp.y]);
+            }
+        }
+    }
+    out
+}
+
+fn local_to_global_planar(valence: usize, sector: usize, local: [f64; 2]) -> Point3 {
+    let alpha = core::f64::consts::TAU / valence as f64;
+    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
+    let spoke1 = [
+        ((sector + 1) as f64 * alpha).cos(),
+        ((sector + 1) as f64 * alpha).sin(),
+    ];
+    Point3::new(
+        local[0] * spoke1[0] + local[1] * spoke0[0],
+        local[0] * spoke1[1] + local[1] * spoke0[1],
+        0.0,
+    )
+}
+
+fn global_planar_patch_to_local(
+    valence: usize,
+    sector: usize,
+    mut patch: Kp20MacroPatch,
+) -> Kp20MacroPatch {
+    for piece_id in Kp20PieceId::all() {
+        let piece = patch.piece_mut(piece_id);
+        for i in 0..=6 {
+            for j in 0..=6 {
+                let local = global_to_local_planar(valence, sector, piece.cps[i][j]);
+                piece.cps[i][j] = Point3::new(local[0], local[1], 0.0);
+            }
+        }
+    }
+    patch
+}
+
+fn global_to_local_planar(valence: usize, sector: usize, point: Point3) -> [f64; 2] {
+    let alpha = core::f64::consts::TAU / valence as f64;
+    let spoke0 = [(sector as f64 * alpha).cos(), (sector as f64 * alpha).sin()];
+    let spoke1 = [
+        ((sector + 1) as f64 * alpha).cos(),
+        ((sector + 1) as f64 * alpha).sin(),
+    ];
+    let det = spoke1[0] * spoke0[1] - spoke1[1] * spoke0[0];
+    [
+        (point.x * spoke0[1] - point.y * spoke0[0]) / det,
+        (spoke1[0] * point.y - spoke1[1] * point.x) / det,
+    ]
 }
 
 /// Assemble a KP20 2x2 bi-6 macro cap from guide-sampled patches.

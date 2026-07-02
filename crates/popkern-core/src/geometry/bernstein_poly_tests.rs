@@ -300,7 +300,7 @@ fn kp15_eq2_identity_zeros_at_u0_with_rule_s1_p01() {
         // bounded by the loaded support.
         let row_v0 = vec![p00, p10, 0.0, 0.0, 0.0, 0.0, 0.0];
         // f(u, 1) row at v=1: only p̀_{01} is loaded.
-        let row_v1 = vec![p01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+        let row_v1 = [p01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
         // Strip dot-derivative: ∂_v f(u, 0) = 6·(f(u,1) − f(u,0))
         // at u along the BB row. As Bernstein polynomial in u:
         let strip_prev: Vec<f64> = (0..7).map(|i| 6.0 * (row_v1[i] - row_v0[i])).collect();
@@ -308,7 +308,7 @@ fn kp15_eq2_identity_zeros_at_u0_with_rule_s1_p01() {
 
         // Current sector f̃: shared boundary ṕ_{i,0} = p̀_{i,0},
         // and ṕ_{0,1} from rule_s1; remaining ṕ_{i,1} zero.
-        let p01_curr = 2.0 * (1.0 - c) * p00 + 2.0 * c * p10 + (-1.0) * p01;
+        let p01_curr = 2.0 * (1.0 - c) * p00 + 2.0 * c * p10 + -p01;
         let row_v0_curr = row_v0.clone();
         let row_v1_curr = {
             let mut r = vec![0.0; 7];

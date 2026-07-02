@@ -110,7 +110,7 @@ pub struct S1Outputs {
 ///            + 4c²·p̀_{20}
 ///            + 4·(6τc/5 − 1)·p̀_{01}
 ///            + (4c/5)·(11 − 6(1 + τ)c)·p̀_{10}
-///            + 4·(1 − c − 6τc/5 + 6τ + c²/5)·p̀_{00}
+///            + 4·(1 − c − 6τc/5 + ((6τ + 1)/5)c²)·p̀_{00}
 /// ```
 pub fn rule_s1_star_propagation(
     params: &Bi6Reparams,
@@ -138,13 +138,13 @@ pub fn rule_s1_star_propagation(
     ]);
 
     // ṕ_{02} weights per [KP15 eq (6)]:
-    //   p̀_{00}: 4·(1 − c − 6τc/5 + 6τ + c²/5)
+    //   p̀_{00}: 4·(1 − c − 6τc/5 + ((6τ + 1)/5)c²)
     //   p̀_{10}: (4c/5)·(11 − 6(1 + τ)c)
     //   p̀_{20}: 4c²
     //   p̀_{01}: 4·(6τc/5 − 1)
     //   p̀_{11}: −24c/5
     //   p̀_{02}: 1
-    let w00 = 4.0 * (1.0 - c - 6.0 * tau * c / 5.0 + 6.0 * tau + c * c / 5.0);
+    let w00 = 4.0 * (1.0 - c - 6.0 * tau * c / 5.0 + (6.0 * tau + 1.0) * c * c / 5.0);
     let w10 = (4.0 * c / 5.0) * (11.0 - 6.0 * (1.0 + tau) * c);
     let w20 = 4.0 * c * c;
     let w01 = 4.0 * (6.0 * tau * c / 5.0 - 1.0);
@@ -313,17 +313,17 @@ pub struct S4Inputs {
 /// assignments at i ∈ {4, 5, 6}.
 #[derive(Debug, Clone, Copy)]
 pub struct S4Outputs {
-    /// `p̀_{51}`.
+    /// Local `p̀_{51}`; previous sector rotational `p_{15}`.
     pub p_prev_51: Point3,
-    /// `ṕ_{51}`.
+    /// Local `ṕ_{51}`; current sector rotational `p_{51}`.
     pub p_cur_51: Point3,
-    /// `p̀_{61}`.
+    /// Local `p̀_{61}`; previous sector rotational `p_{16}`.
     pub p_prev_61: Point3,
-    /// `ṕ_{61}`.
+    /// Local `ṕ_{61}`; current sector rotational `p_{61}`.
     pub p_cur_61: Point3,
-    /// `p̀_{41}`.
+    /// Local `p̀_{41}`; previous sector rotational `p_{14}`.
     pub p_prev_41: Point3,
-    /// `ṕ_{41}`.
+    /// Local `ṕ_{41}`; current sector rotational `p_{41}`.
     pub p_cur_41: Point3,
 }
 

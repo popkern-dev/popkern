@@ -53,6 +53,79 @@ pub const FIXED_FLAT_INDICES: [usize; 4] = [0, 5, 14, 15];
 /// Values corresponding to [`FIXED_FLAT_INDICES`].
 pub const FIXED_FLAT_VALUES: [f64; 4] = [0.0, 1.0, 0.0, 1.0];
 
+/// One scalar component of one σ BB coefficient.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SigmaScalarCoeff {
+    /// Tensor-product BB `u` index.
+    pub i: usize,
+    /// Tensor-product BB `v` index.
+    pub j: usize,
+    /// Coordinate axis: `0` for x, `1` for y.
+    pub axis: usize,
+}
+
+impl SigmaScalarCoeff {
+    /// Construct a scalar σ coefficient handle.
+    pub const fn new(i: usize, j: usize, axis: usize) -> Self {
+        Self { i, j, axis }
+    }
+}
+
+/// One scalar linear row over the symmetry-reduced σ coefficients.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SigmaScalarConstraint {
+    /// Sparse scalar terms.
+    pub terms: Vec<(SigmaScalarCoeff, f64)>,
+    /// Target scalar value.
+    pub target: f64,
+}
+
+impl SigmaScalarConstraint {
+    /// Pin one scalar σ coefficient.
+    pub fn pin(coeff: SigmaScalarCoeff, target: f64) -> Self {
+        Self {
+            terms: vec![(coeff, 1.0)],
+            target,
+        }
+    }
+
+    /// Construct a homogeneous scalar row.
+    pub fn homogeneous(terms: Vec<(SigmaScalarCoeff, f64)>) -> Self {
+        Self { terms, target: 0.0 }
+    }
+}
+
+/// Result of a constrained σ solve.
+#[derive(Debug, Clone)]
+pub struct SigmaSolveOutput {
+    /// Solved σ patch.
+    pub sigma: SigmaPatch,
+    /// Maximum absolute residual over the supplied scalar rows.
+    pub max_constraint_residual: f64,
+    /// Number of independent scalar rows used in the KKT solve.
+    pub independent_constraint_count: usize,
+}
+
+/// Error from the constrained σ solve.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SigmaSolveError {
+    /// A coefficient row referenced an invalid BB index or axis.
+    InvalidCoeff(SigmaScalarCoeff),
+    /// The KKT system was singular.
+    SingularSystem,
+}
+
+impl std::fmt::Display for SigmaSolveError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::InvalidCoeff(coeff) => write!(f, "invalid sigma coefficient {coeff:?}"),
+            Self::SingularSystem => write!(f, "sigma constrained F3 KKT system singular"),
+        }
+    }
+}
+
+impl std::error::Error for SigmaSolveError {}
+
 /// Encode the symmetric-reduced 36 scalar DoFs into a full
 /// `SigmaPatch` (6×6 2-D CP grid).
 pub fn decode_flat(x: &[f64; SIGMA_FLAT_LEN]) -> SigmaPatch {
@@ -87,6 +160,43 @@ pub fn off_diag_flat_index(i: usize, j: usize) -> (usize, usize) {
     //                         = i*(11 - i)/2 + (j - i - 1)
     let pair_count = i * (11 - i) / 2 + (j - i - 1);
     (6 + 2 * pair_count, 6 + 2 * pair_count + 1)
+}
+
+/// Scalar rows pinning the four σ corners in the symmetry-reduced basis.
+pub fn sigma_corner_constraints() -> Vec<SigmaScalarConstraint> {
+    FIXED_FLAT_INDICES
+        .iter()
+        .zip(FIXED_FLAT_VALUES)
+        .map(|(&flat_index, value)| SigmaScalarConstraint {
+            terms: vec![(
+                scalar_coeff_for_flat_index(flat_index),
+                scalar_coeff_weight_for_flat_index(flat_index),
+            )],
+            target: value,
+        })
+        .collect()
+}
+
+/// KP20/KP13 §4.3 boundary-line rows for the two sector partition axes.
+///
+/// In the canonical sector chart, the bottom edge lies on the first sector
+/// axis (`sigma_y = 0`) and, by symmetry, the left edge lies on the second
+/// sector axis (`sigma_x = 0`). These rows intentionally do not pin the
+/// opposite outer tensor-border edges; those must come from the characteristic
+/// tensor-border/β construction.
+pub fn sigma_sector_axis_boundary_constraints() -> Vec<SigmaScalarConstraint> {
+    let mut rows = Vec::new();
+    for i in 0..6 {
+        rows.push(SigmaScalarConstraint::pin(
+            SigmaScalarCoeff::new(i, 0, 1),
+            0.0,
+        ));
+        rows.push(SigmaScalarConstraint::pin(
+            SigmaScalarCoeff::new(0, i, 0),
+            0.0,
+        ));
+    }
+    rows
 }
 
 /// Build the F_3 Hessian `H` as a 36×36 matrix via central-difference
@@ -155,47 +265,158 @@ pub fn build_f3_hessian() -> [[f64; SIGMA_FLAT_LEN]; SIGMA_FLAT_LEN] {
 /// well-posed symmetric F_3 system, but identity preserves a valid
 /// sector map better than partially-populated coefficients.
 pub fn solve_sigma_f3_minimal() -> SigmaPatch {
+    solve_sigma_f3_with_constraints(&sigma_corner_constraints())
+        .map(|output| output.sigma)
+        .unwrap_or_else(|_| SigmaPatch::identity())
+}
+
+/// Solve σ F3 minimization subject to scalar rows over the
+/// symmetry-reduced coefficient basis.
+pub fn solve_sigma_f3_with_constraints(
+    constraints: &[SigmaScalarConstraint],
+) -> Result<SigmaSolveOutput, SigmaSolveError> {
     let h = build_f3_hessian();
+    let dense_rows = dense_sigma_constraints(constraints)?;
+    let targets = constraints.iter().map(|row| row.target).collect::<Vec<_>>();
+    let active_indices = independent_constraint_indices(&dense_rows);
+    let active_rows = active_indices
+        .iter()
+        .map(|&index| dense_rows[index].clone())
+        .collect::<Vec<_>>();
+    let active_targets = active_indices
+        .iter()
+        .map(|&index| targets[index])
+        .collect::<Vec<_>>();
 
-    // Split indices.
-    let mut is_fixed = [false; SIGMA_FLAT_LEN];
-    for &i in &FIXED_FLAT_INDICES {
-        is_fixed[i] = true;
-    }
-    let free_indices: Vec<usize> = (0..SIGMA_FLAT_LEN).filter(|i| !is_fixed[*i]).collect();
-    let n_free = free_indices.len();
-    let n_fixed = FIXED_FLAT_INDICES.len();
-    assert_eq!(n_free + n_fixed, SIGMA_FLAT_LEN);
-
-    // Build H_ff (n_free × n_free) and H_fc · x_fixed (n_free vector).
-    let mut h_ff = vec![vec![0.0_f64; n_free]; n_free];
-    let mut rhs = vec![0.0_f64; n_free];
-    for (r, &i_free) in free_indices.iter().enumerate() {
-        for (c, &j_free) in free_indices.iter().enumerate() {
-            h_ff[r][c] = h[i_free][j_free];
+    let variable_count = SIGMA_FLAT_LEN;
+    let row_count = active_rows.len();
+    let size = variable_count + row_count;
+    let mut matrix = vec![vec![0.0_f64; size]; size];
+    let mut rhs = vec![0.0_f64; size];
+    for r in 0..variable_count {
+        for c in 0..variable_count {
+            matrix[r][c] = h[r][c];
         }
-        // - H_fc · x_fixed.
-        let mut s = 0.0;
-        for (c_fixed_pos, &j_fixed) in FIXED_FLAT_INDICES.iter().enumerate() {
-            s += h[i_free][j_fixed] * FIXED_FLAT_VALUES[c_fixed_pos];
-        }
-        rhs[r] = -s;
     }
-
-    let Some(x_free) = solve_dense(h_ff, rhs) else {
-        return SigmaPatch::identity();
+    for (row_index, row) in active_rows.iter().enumerate() {
+        let kkt_row = variable_count + row_index;
+        rhs[kkt_row] = active_targets[row_index];
+        for (var, &weight) in row.iter().enumerate() {
+            if weight != 0.0 {
+                matrix[var][kkt_row] += weight;
+                matrix[kkt_row][var] += weight;
+            }
+        }
+    }
+    let Some(solution) = solve_dense(matrix, rhs) else {
+        return Err(SigmaSolveError::SingularSystem);
     };
 
-    // Reassemble full flat vector.
     let mut x_full = [0.0_f64; SIGMA_FLAT_LEN];
-    for (r, &i_free) in free_indices.iter().enumerate() {
-        x_full[i_free] = x_free[r];
-    }
-    for (c_fixed_pos, &i_fixed) in FIXED_FLAT_INDICES.iter().enumerate() {
-        x_full[i_fixed] = FIXED_FLAT_VALUES[c_fixed_pos];
-    }
+    x_full.copy_from_slice(&solution[..SIGMA_FLAT_LEN]);
+    let sigma = decode_flat(&x_full);
+    Ok(SigmaSolveOutput {
+        sigma,
+        max_constraint_residual: max_constraint_residual(&dense_rows, &targets, &x_full),
+        independent_constraint_count: active_rows.len(),
+    })
+}
 
-    decode_flat(&x_full)
+fn dense_sigma_constraints(
+    constraints: &[SigmaScalarConstraint],
+) -> Result<Vec<Vec<f64>>, SigmaSolveError> {
+    constraints
+        .iter()
+        .map(|constraint| {
+            let mut row = vec![0.0_f64; SIGMA_FLAT_LEN];
+            for &(coeff, weight) in &constraint.terms {
+                let (flat_index, flat_weight) = flat_term_for_coeff(coeff)?;
+                row[flat_index] += weight * flat_weight;
+            }
+            Ok(row)
+        })
+        .collect()
+}
+
+fn flat_term_for_coeff(coeff: SigmaScalarCoeff) -> Result<(usize, f64), SigmaSolveError> {
+    if coeff.i >= 6 || coeff.j >= 6 || coeff.axis >= 2 {
+        return Err(SigmaSolveError::InvalidCoeff(coeff));
+    }
+    if coeff.i == coeff.j {
+        return Ok((coeff.i, 1.0));
+    }
+    let (lower_i, lower_j, swapped) = if coeff.i < coeff.j {
+        (coeff.i, coeff.j, false)
+    } else {
+        (coeff.j, coeff.i, true)
+    };
+    let (x_index, y_index) = off_diag_flat_index(lower_i, lower_j);
+    let effective_axis = if swapped { 1 - coeff.axis } else { coeff.axis };
+    Ok((
+        if effective_axis == 0 {
+            x_index
+        } else {
+            y_index
+        },
+        1.0,
+    ))
+}
+
+fn scalar_coeff_for_flat_index(flat_index: usize) -> SigmaScalarCoeff {
+    if flat_index < 6 {
+        return SigmaScalarCoeff::new(flat_index, flat_index, 0);
+    }
+    let mut next = 6;
+    for i in 0..6 {
+        for j in (i + 1)..6 {
+            if flat_index == next {
+                return SigmaScalarCoeff::new(i, j, 0);
+            }
+            if flat_index == next + 1 {
+                return SigmaScalarCoeff::new(i, j, 1);
+            }
+            next += 2;
+        }
+    }
+    panic!("flat sigma index {flat_index} outside 0..{SIGMA_FLAT_LEN}");
+}
+
+fn scalar_coeff_weight_for_flat_index(_flat_index: usize) -> f64 {
+    1.0
+}
+
+fn independent_constraint_indices(rows: &[Vec<f64>]) -> Vec<usize> {
+    let mut basis: Vec<Vec<f64>> = Vec::new();
+    let mut indices = Vec::new();
+    for (row_idx, row) in rows.iter().enumerate() {
+        let mut residual = row.clone();
+        for basis_row in &basis {
+            let projection = dot(&residual, basis_row);
+            for (value, basis_value) in residual.iter_mut().zip(basis_row) {
+                *value -= projection * basis_value;
+            }
+        }
+        let norm = dot(&residual, &residual).sqrt();
+        if norm > 1.0e-10 {
+            for value in &mut residual {
+                *value /= norm;
+            }
+            basis.push(residual);
+            indices.push(row_idx);
+        }
+    }
+    indices
+}
+
+fn max_constraint_residual(rows: &[Vec<f64>], targets: &[f64], solved: &[f64]) -> f64 {
+    rows.iter()
+        .zip(targets)
+        .map(|(row, target)| (dot(row, solved) - target).abs())
+        .fold(0.0_f64, f64::max)
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(a, b)| a * b).sum()
 }
 
 #[cfg(test)]

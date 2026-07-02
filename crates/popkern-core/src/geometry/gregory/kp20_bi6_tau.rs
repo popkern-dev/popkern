@@ -294,13 +294,11 @@ fn compose_guide_with_tau_jets(g: Kp20GuideJet3, tau: Kp20TauJet3) -> Kp20GuideJ
     Kp20GuideJet3 { h: out }
 }
 
-pub(crate) fn kp20_compose_guide_with_tau_jet(
-    guide: &Kp20Tri6GuideSector,
+pub(crate) fn kp20_compose_source_jet_with_tau_jet(
+    source_jet: Kp20GuideJet3,
     tau_jet: Kp20TauJet3,
 ) -> Kp20GuideJet3 {
-    let guide_xy = tau_jet.d[0][0];
-    let guide_jet = guide.jet3(guide_xy[0], guide_xy[1]);
-    compose_guide_with_tau_jets(guide_jet, tau_jet)
+    compose_guide_with_tau_jets(source_jet, tau_jet)
 }
 
 fn chain_rule_entry(g: Kp20GuideJet3, tau: Kp20TauJet3, a: usize, b: usize) -> Point3 {

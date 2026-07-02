@@ -536,6 +536,618 @@ pub fn global_constraint_matrix_with_identifications(
     (new_rows, cols, m)
 }
 
+/// Constraint matrix with the previous side of each local KP15 edge
+/// transposed into the global grid before adding the S1 shared-edge
+/// identifications. This matches the local two-sided notation where the
+/// two adjacent patches see the same sector-separating curve with
+/// opposite tensor axes.
+pub fn global_constraint_matrix_with_transposed_previous_side(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    let eq2 = eq2_jacobian_dense(params);
+    let eq3 = eq3_jacobian_dense(params);
+    let rows_per_edge = 8 + eq3.len();
+    let base_rows = n * rows_per_edge;
+    let rows = base_rows + 3 * n;
+    let cols = 49 * n;
+    let mut m = vec![0.0_f64; rows * cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let row_base = k * rows_per_edge;
+        for (r, eq2_row) in eq2.iter().enumerate() {
+            append_transposed_previous_side_edge_row(&mut m, cols, row_base + r, km1, k, eq2_row);
+        }
+        for (r, eq3_row) in eq3.iter().enumerate() {
+            append_transposed_previous_side_edge_row(
+                &mut m,
+                cols,
+                row_base + 8 + r,
+                km1,
+                k,
+                eq3_row,
+            );
+        }
+        for i in 0..3 {
+            let row = base_rows + 3 * k + i;
+            m[row * cols + global_grid_col(n, km1, 0, i)] = 1.0;
+            m[row * cols + global_grid_col(n, k, i, 0)] = -1.0;
+        }
+    }
+    (rows, cols, m)
+}
+
+/// Constraint matrix with the transposed previous-side edge rows and
+/// the full [KP15 §3.2 (S1)] quadratic-near-star source rows.
+pub fn global_constraint_matrix_with_transposed_previous_side_and_full_s1(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    global_constraint_matrix_with_transposed_previous_side_assignment_prefix(n, params, 6)
+}
+
+pub fn global_constraint_matrix_with_transposed_previous_side_assignment_prefix(
+    n: usize,
+    params: &Bi6Reparams,
+    assignment_rows_per_edge: usize,
+) -> (usize, usize, Vec<f64>) {
+    assert!((6..=18).contains(&assignment_rows_per_edge));
+    let eq2 = eq2_jacobian_dense(params);
+    let eq3 = eq3_jacobian_dense(params);
+    let rows_per_edge = 8 + eq3.len();
+    let base_rows = n * rows_per_edge;
+    let rows = base_rows + assignment_rows_per_edge * n;
+    let cols = 49 * n;
+    let mut m = vec![0.0_f64; rows * cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let row_base = k * rows_per_edge;
+        for (r, eq2_row) in eq2.iter().enumerate() {
+            append_transposed_previous_side_edge_row(&mut m, cols, row_base + r, km1, k, eq2_row);
+        }
+        for (r, eq3_row) in eq3.iter().enumerate() {
+            append_transposed_previous_side_edge_row(
+                &mut m,
+                cols,
+                row_base + 8 + r,
+                km1,
+                k,
+                eq3_row,
+            );
+        }
+        append_kp15_assignment_prefix_rows(
+            &mut m,
+            cols,
+            base_rows + assignment_rows_per_edge * k,
+            km1,
+            k,
+            params,
+            assignment_rows_per_edge,
+        );
+    }
+    (rows, cols, m)
+}
+
+pub fn global_constraint_matrix_with_transposed_previous_side_full_edge_assignment_prefix(
+    n: usize,
+    params: &Bi6Reparams,
+    assignment_rows_per_edge: usize,
+) -> (usize, usize, Vec<f64>) {
+    assert!((6..=18).contains(&assignment_rows_per_edge));
+    let eq2 = eq2_jacobian_dense(params);
+    let eq3 = eq3_jacobian_dense(params);
+    let rows_per_edge = 8 + eq3.len();
+    let base_rows = n * rows_per_edge;
+    let shared_edge_rows = 7 * n;
+    let assignment_base = base_rows + shared_edge_rows;
+    let rows = assignment_base + assignment_rows_per_edge * n;
+    let cols = 49 * n;
+    let mut m = vec![0.0_f64; rows * cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        let row_base = k * rows_per_edge;
+        for (r, eq2_row) in eq2.iter().enumerate() {
+            append_transposed_previous_side_edge_row(&mut m, cols, row_base + r, km1, k, eq2_row);
+        }
+        for (r, eq3_row) in eq3.iter().enumerate() {
+            append_transposed_previous_side_edge_row(
+                &mut m,
+                cols,
+                row_base + 8 + r,
+                km1,
+                k,
+                eq3_row,
+            );
+        }
+        append_full_shared_edge_rows(&mut m, cols, base_rows + 7 * k, km1, k);
+        append_kp15_assignment_prefix_rows(
+            &mut m,
+            cols,
+            assignment_base + assignment_rows_per_edge * k,
+            km1,
+            k,
+            params,
+            assignment_rows_per_edge,
+        );
+    }
+    (rows, cols, m)
+}
+
+/// Constraint matrix with transposed previous-side edge rows and the
+/// explicit KP15 §3.2 S1-S4 coefficient assignment rows.
+pub fn global_constraint_matrix_with_transposed_previous_side_assignments(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    global_constraint_matrix_with_transposed_previous_side_assignment_prefix(n, params, 18)
+}
+
+/// Matrix containing only the explicit KP15 §3.2 S1-S4 assignment
+/// rows around the ring.
+pub fn global_constraint_matrix_with_assignment_rows_only(
+    n: usize,
+    params: &Bi6Reparams,
+) -> (usize, usize, Vec<f64>) {
+    let assignment_rows_per_edge = 18;
+    let rows = assignment_rows_per_edge * n;
+    let cols = 49 * n;
+    let mut m = vec![0.0_f64; rows * cols];
+    for k in 0..n {
+        let km1 = (k + n - 1) % n;
+        append_kp15_assignment_rows(&mut m, cols, assignment_rows_per_edge * k, km1, k, params);
+    }
+    (rows, cols, m)
+}
+
+fn append_full_shared_edge_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+) {
+    let n = cols / 49;
+    for i in 0..=6 {
+        let row = &mut m[(base_row + i) * cols..(base_row + i + 1) * cols];
+        add_curr_side_coeff(row, n, current_sector, i, 0, 1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 0, -1.0);
+    }
+}
+
+fn append_kp15_assignment_prefix_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+    row_count: usize,
+) {
+    assert!((6..=18).contains(&row_count));
+    append_full_s1_rows(m, cols, base_row, previous_sector, current_sector, params);
+    if row_count == 6 {
+        return;
+    }
+    assert!(row_count >= 9);
+    append_kp15_s2_rows(
+        m,
+        cols,
+        base_row + 6,
+        previous_sector,
+        current_sector,
+        params,
+    );
+    if row_count == 9 {
+        return;
+    }
+    assert!(row_count >= 12);
+    append_kp15_s3_rows(
+        m,
+        cols,
+        base_row + 9,
+        previous_sector,
+        current_sector,
+        params,
+    );
+    if row_count == 12 {
+        return;
+    }
+    assert_eq!(row_count, 18);
+    append_kp15_s4_rows(
+        m,
+        cols,
+        base_row + 12,
+        previous_sector,
+        current_sector,
+        params,
+    );
+}
+
+fn add_prev_side_coeff(
+    row: &mut [f64],
+    n: usize,
+    previous_sector: usize,
+    local_i: usize,
+    local_j: usize,
+    value: f64,
+) {
+    row[global_grid_col(n, previous_sector, local_j, local_i)] += value;
+}
+
+fn add_curr_side_coeff(
+    row: &mut [f64],
+    n: usize,
+    current_sector: usize,
+    local_i: usize,
+    local_j: usize,
+    value: f64,
+) {
+    row[global_grid_col(n, current_sector, local_i, local_j)] += value;
+}
+
+fn append_full_s1_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+) {
+    let n = cols / 49;
+    let c = params.c;
+    for i in 0..3 {
+        let row = &mut m[(base_row + i) * cols..(base_row + i + 1) * cols];
+        add_curr_side_coeff(row, n, current_sector, i, 0, 1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 0, -1.0);
+    }
+
+    let row = &mut m[(base_row + 3) * cols..(base_row + 4) * cols];
+    add_curr_side_coeff(row, n, current_sector, 0, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 1, 0, -2.0 * c);
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, -2.0 * (1.0 - c));
+
+    let row = &mut m[(base_row + 4) * cols..(base_row + 5) * cols];
+    add_curr_side_coeff(row, n, current_sector, 1, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 1, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 2, 0, -5.0 * c / 3.0);
+    add_prev_side_coeff(row, n, previous_sector, 1, 0, -2.0 * (1.0 - c));
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, -c / 3.0);
+
+    let tau = params.tau;
+    let row = &mut m[(base_row + 5) * cols..(base_row + 6) * cols];
+    add_curr_side_coeff(row, n, current_sector, 0, 2, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 2, -1.0);
+    add_prev_side_coeff(row, n, previous_sector, 1, 1, 24.0 * c / 5.0);
+    add_prev_side_coeff(row, n, previous_sector, 2, 0, -4.0 * c * c);
+    add_prev_side_coeff(
+        row,
+        n,
+        previous_sector,
+        0,
+        1,
+        -4.0 * (6.0 * tau * c / 5.0 - 1.0),
+    );
+    add_prev_side_coeff(
+        row,
+        n,
+        previous_sector,
+        1,
+        0,
+        -4.0 * c / 5.0 * (11.0 - 6.0 * (1.0 + tau) * c),
+    );
+    add_prev_side_coeff(
+        row,
+        n,
+        previous_sector,
+        0,
+        0,
+        -4.0 * (1.0 - c - 6.0 * tau * c / 5.0 + (6.0 * tau + 1.0) * c * c / 5.0),
+    );
+}
+
+fn append_kp15_assignment_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+) {
+    append_full_s1_rows(m, cols, base_row, previous_sector, current_sector, params);
+    let mut row_offset = base_row + 6;
+    append_kp15_s2_rows(m, cols, row_offset, previous_sector, current_sector, params);
+    row_offset += 3;
+    append_kp15_s3_rows(m, cols, row_offset, previous_sector, current_sector, params);
+    row_offset += 3;
+    append_kp15_s4_rows(m, cols, row_offset, previous_sector, current_sector, params);
+}
+
+fn append_kp15_s2_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+) {
+    let n = cols / 49;
+    let c = params.c;
+    let tau = params.tau;
+    let dot = [2.0 * c / 5.0, 2.0 - c, c, -2.0 * c / 5.0, c / 15.0];
+    let ddot = [
+        -4.0 * c * tau * tau / 5.0,
+        4.0 * (1.0 - c + c * c / 5.0)
+            + 24.0 * c * (c - 1.0) * tau / 5.0
+            + 4.0 * c * c * tau * tau / 5.0,
+        24.0 * c * tau / 5.0 - 4.0,
+        2.0 * c * (11.0 - 3.0 * c - 6.0 * c * tau) / 3.0,
+        -4.0 * c,
+        2.0 * c * c,
+        -4.0 * c * c / 5.0,
+        2.0 * c * c / 15.0,
+    ];
+    let tdot = [
+        4.0 * c * tau * tau * tau / 25.0,
+        4.0 * c * (5.0 - 3.0 * c * tau + 6.0 * (1.0 - c) * tau * tau - c * tau * tau * tau) / 25.0,
+        -24.0 * c * tau * tau / 25.0,
+        4.0 - 2.0 * c + 6.0 * c * (c - 2.0) * tau / 5.0 + 4.0 * c * c * tau * tau / 5.0,
+        12.0 * c * tau / 5.0 - 4.0,
+        2.0 * c * (5.0 - 3.0 * c * tau) / 5.0,
+        4.0 * c * (3.0 * c * tau - 5.0) / 25.0,
+        2.0 * c * (5.0 - 3.0 * c * tau) / 75.0,
+        -3.0 * c / (5.0 * tau),
+        6.0 * c * (5.0 - c * tau) / (125.0 * tau * tau),
+        c * (6.0 * c * tau - 5.0) / (125.0 * tau * tau * tau),
+    ];
+
+    let row = &mut m[base_row * cols..(base_row + 1) * cols];
+    add_curr_side_coeff(row, n, current_sector, 2, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 2, 1, 1.0);
+    add_prev_side_coeff(
+        row,
+        n,
+        previous_sector,
+        0,
+        0,
+        -(2.0 - dot.iter().sum::<f64>()),
+    );
+    for ((i, j), value) in [(1, 0), (2, 0), (4, 0), (5, 0), (6, 0)]
+        .into_iter()
+        .zip(dot)
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+    }
+
+    let row = &mut m[(base_row + 1) * cols..(base_row + 2) * cols];
+    add_curr_side_coeff(row, n, current_sector, 1, 2, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 1, 2, -1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, ddot.iter().sum::<f64>());
+    for ((i, j), value) in [
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (2, 0),
+        (2, 1),
+        (4, 0),
+        (5, 0),
+        (6, 0),
+    ]
+    .into_iter()
+    .zip(ddot)
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+    }
+
+    let row = &mut m[(base_row + 2) * cols..(base_row + 3) * cols];
+    add_curr_side_coeff(row, n, current_sector, 2, 2, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 2, 2, -1.0);
+    add_prev_side_coeff(
+        row,
+        n,
+        previous_sector,
+        0,
+        0,
+        tdot[0..8].iter().sum::<f64>(),
+    );
+    for ((i, j), value) in [
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (2, 0),
+        (2, 1),
+        (4, 0),
+        (5, 0),
+        (6, 0),
+    ]
+    .into_iter()
+    .zip(tdot[0..8].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+    }
+    for ((i, j), value) in [(4, 2), (5, 2), (6, 2)]
+        .into_iter()
+        .zip(tdot[8..11].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+        add_curr_side_coeff(row, n, current_sector, i, j, value);
+    }
+}
+
+fn append_kp15_s3_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+) {
+    let n = cols / 49;
+    let c = params.c;
+    let tau = params.tau;
+    let tmu = [
+        -11.0 / 20.0,
+        (11.0 * c - 10.0) / (8.0 * c),
+        5.0 / (4.0 * c),
+        1.0 / 8.0 - c / 4.0,
+        3.0 * c / 10.0 - 1.0 / 20.0,
+        1.0 / 120.0 - c / 20.0,
+        3.0 / (8.0 * tau),
+        (3.0 * c * tau - 15.0) / (100.0 * tau * tau),
+        (5.0 - 6.0 * c * tau) / (200.0 * tau * tau * tau),
+        -5.0 / (16.0 * c),
+    ];
+    let bmu = [
+        1.0,
+        5.0 * (2.0 - c) / (2.0 * c),
+        -5.0 / c,
+        5.0 / 2.0,
+        -1.0,
+        1.0 / 6.0,
+        3.0 * (c * tau - 5.0) / (10.0 * tau),
+        3.0 * (25.0 - 20.0 * c * tau + c * c * tau * tau) / (125.0 * tau * tau),
+        -(25.0 - 45.0 * c * tau + 6.0 * c * c * tau * tau) / (250.0 * tau * tau * tau),
+        5.0 / (4.0 * c),
+    ];
+    let base_coeff = 1.0 - tmu[0..6].iter().sum::<f64>();
+
+    let row = &mut m[base_row * cols..(base_row + 1) * cols];
+    add_prev_side_coeff(row, n, previous_sector, 3, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, -base_coeff);
+    for ((i, j), value) in [(1, 0), (2, 0), (2, 1), (4, 0), (5, 0), (6, 0)]
+        .into_iter()
+        .zip(tmu[0..6].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+    }
+    for ((i, j), value) in [(4, 2), (5, 2), (6, 2), (2, 2)]
+        .into_iter()
+        .zip(tmu[6..10].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+        add_curr_side_coeff(row, n, current_sector, i, j, value);
+    }
+
+    let row = &mut m[(base_row + 1) * cols..(base_row + 2) * cols];
+    add_curr_side_coeff(row, n, current_sector, 3, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, -base_coeff);
+    for ((i, j), value) in [(1, 0), (2, 0), (2, 1), (4, 0), (5, 0), (6, 0)]
+        .into_iter()
+        .zip(tmu[0..6].iter().copied())
+    {
+        let source_is_current = (i, j) == (2, 1);
+        if source_is_current {
+            add_curr_side_coeff(row, n, current_sector, i, j, -value);
+        } else {
+            add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+        }
+    }
+    for ((i, j), value) in [(4, 2), (5, 2), (6, 2), (2, 2)]
+        .into_iter()
+        .zip(tmu[6..10].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, value);
+        add_curr_side_coeff(row, n, current_sector, i, j, -value);
+    }
+
+    let row = &mut m[(base_row + 2) * cols..(base_row + 3) * cols];
+    add_curr_side_coeff(row, n, current_sector, 3, 2, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 3, 2, -1.0);
+    add_prev_side_coeff(row, n, previous_sector, 0, 0, bmu[0..6].iter().sum::<f64>());
+    for ((i, j), value) in [(1, 0), (2, 0), (2, 1), (4, 0), (5, 0), (6, 0)]
+        .into_iter()
+        .zip(bmu[0..6].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+    }
+    for ((i, j), value) in [(4, 2), (5, 2), (6, 2), (2, 2)]
+        .into_iter()
+        .zip(bmu[6..10].iter().copied())
+    {
+        add_prev_side_coeff(row, n, previous_sector, i, j, -value);
+        add_curr_side_coeff(row, n, current_sector, i, j, value);
+    }
+}
+
+fn append_kp15_s4_rows(
+    m: &mut [f64],
+    cols: usize,
+    base_row: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    params: &Bi6Reparams,
+) {
+    let n = cols / 49;
+    for (offset, i) in [5, 6].into_iter().enumerate() {
+        let row = &mut m[(base_row + 2 * offset) * cols..(base_row + 2 * offset + 1) * cols];
+        add_prev_side_coeff(row, n, previous_sector, i, 1, 1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 0, -1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 2, -0.25);
+        add_curr_side_coeff(row, n, current_sector, i, 2, 0.25);
+
+        let row = &mut m[(base_row + 2 * offset + 1) * cols..(base_row + 2 * offset + 2) * cols];
+        add_curr_side_coeff(row, n, current_sector, i, 1, 1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 0, -1.0);
+        add_prev_side_coeff(row, n, previous_sector, i, 2, 0.25);
+        add_curr_side_coeff(row, n, current_sector, i, 2, -0.25);
+    }
+
+    let c = params.c;
+    let tau = params.tau;
+    let w1 = -c / (50.0 * tau);
+    let w2 = c / 50.0;
+    let w3 = c / 15.0;
+    let row = &mut m[(base_row + 4) * cols..(base_row + 5) * cols];
+    add_prev_side_coeff(row, n, previous_sector, 4, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 4, 0, -1.0);
+    add_prev_side_coeff(row, n, previous_sector, 4, 2, -0.25);
+    add_curr_side_coeff(row, n, current_sector, 4, 2, 0.25);
+    add_prev_side_coeff(row, n, previous_sector, 6, 2, -w1);
+    add_curr_side_coeff(row, n, current_sector, 6, 2, w1);
+    add_prev_side_coeff(row, n, previous_sector, 5, 2, -w2);
+    add_curr_side_coeff(row, n, current_sector, 5, 2, w2);
+    add_prev_side_coeff(row, n, previous_sector, 6, 0, -w3);
+    add_prev_side_coeff(row, n, previous_sector, 5, 0, w3);
+
+    let row = &mut m[(base_row + 5) * cols..(base_row + 6) * cols];
+    add_curr_side_coeff(row, n, current_sector, 4, 1, 1.0);
+    add_prev_side_coeff(row, n, previous_sector, 4, 0, -1.0);
+    add_prev_side_coeff(row, n, previous_sector, 4, 2, 0.25);
+    add_curr_side_coeff(row, n, current_sector, 4, 2, -0.25);
+    add_prev_side_coeff(row, n, previous_sector, 6, 2, w1);
+    add_curr_side_coeff(row, n, current_sector, 6, 2, -w1);
+    add_prev_side_coeff(row, n, previous_sector, 5, 2, w2);
+    add_curr_side_coeff(row, n, current_sector, 5, 2, -w2);
+    add_prev_side_coeff(row, n, previous_sector, 6, 0, -w3);
+    add_prev_side_coeff(row, n, previous_sector, 5, 0, w3);
+}
+
+fn append_transposed_previous_side_edge_row(
+    m: &mut [f64],
+    cols: usize,
+    row_idx: usize,
+    previous_sector: usize,
+    current_sector: usize,
+    local_row: &[f64; 98],
+) {
+    let n = cols / 49;
+    for (col_local, &value) in local_row.iter().enumerate() {
+        if value == 0.0 {
+            continue;
+        }
+        let side = col_local / 49;
+        let local_pos = col_local % 49;
+        let i = local_pos / 7;
+        let j = local_pos % 7;
+        let (sector, mapped_i, mapped_j) = if side == 0 {
+            (previous_sector, j, i)
+        } else {
+            (current_sector, i, j)
+        };
+        m[row_idx * cols + global_grid_col(n, sector, mapped_i, mapped_j)] += value;
+    }
+}
+
 /// Reduced row-echelon form of a dense `(rows × cols)` matrix
 /// stored row-major. Pivots are recorded as `(row, col)` pairs in
 /// increasing column order. Pivot tolerance `tol` is the absolute
@@ -688,12 +1300,166 @@ impl Kp15Bi6GeneratingTable {
     pub fn build_with_kp15_p_set_as_free(n: usize, params: Bi6Reparams) -> Self {
         let (rows, cols, m_unordered) = global_constraint_matrix_with_identifications(n, &params);
         let p_set = kp15_p_set_columns(n);
-        let p_set_lookup: std::collections::HashSet<usize> = p_set.iter().copied().collect();
-        // Column permutation: non-P columns first (so RREF pivots
-        // them), then P columns (which fall through to the free
-        // set if rank is exhausted).
-        let mut perm: Vec<usize> = (0..cols).filter(|c| !p_set_lookup.contains(c)).collect();
-        perm.extend(p_set.iter().copied());
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &p_set)
+    }
+
+    /// Build the paper-source diagnostic table: transpose the previous
+    /// side of each local KP15 edge into the global grid, bias the
+    /// tensor-border seed columns and central quadratic source columns
+    /// into the free set, and leave the central quadratic expansion to
+    /// the F_5 solve rather than treating every sector's near-origin
+    /// quadratic coefficients as fixed tensor-border data.
+    pub fn build_with_transposed_previous_side_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side(n, &params);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Build with the full KP15 §3.2 (S1) central quadratic rows
+    /// instead of only the three shared-edge identifications.
+    pub fn build_with_transposed_previous_side_full_s1_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_and_full_s1(n, &params);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Diagnostic builder for transposed eq(2)/(3) plus KP15 §3.2
+    /// S1-S2 assignment rows.
+    pub fn build_with_transposed_previous_side_s1_s2_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_assignment_prefix(n, &params, 9);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Diagnostic builder for transposed eq(2)/(3) plus KP15 §3.2
+    /// S1-S3 assignment rows.
+    pub fn build_with_transposed_previous_side_s1_s3_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_assignment_prefix(
+                n, &params, 12,
+            );
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Diagnostic builder for the explicit KP15 §3.2 S1-S4
+    /// assignment rows, using the Appendix coefficients for
+    /// equations (7), (8), and (9).
+    pub fn build_with_transposed_previous_side_assignments_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_assignments(n, &params);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Build the Fig. 2b source-closed table: explicit KP15 §3.2
+    /// S1-S4 rows plus the paper free set `P`, central quadratic
+    /// source columns, and the full two-sided depth-2 tensor-border
+    /// L-band biased into the free set.
+    ///
+    /// When callers fix the full two-sided tensor source and leave only
+    /// `P` variable, the remaining row system should have zero nullity.
+    pub fn build_with_transposed_previous_side_assignments_and_two_sided_tensor_source(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_assignments(n, &params);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.extend(kp15_two_sided_tensor_border_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Diagnostic builder for the explicit KP15 §3.2 S1-S4 rows
+    /// plus full shared-curve identifications `p̌_{i0}=ṕ_{i0}`,
+    /// `i=0..6`.
+    pub fn build_with_transposed_previous_side_full_edge_assignments_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_transposed_previous_side_full_edge_assignment_prefix(
+                n, &params, 18,
+            );
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    /// Diagnostic builder for the KP15 §3.2 assignment rows without
+    /// also appending the raw eq (2)/(3) coefficient rows.
+    pub fn build_with_assignments_only_and_central_quadratic_free(
+        n: usize,
+        params: Bi6Reparams,
+    ) -> Self {
+        let (rows, cols, m_unordered) =
+            global_constraint_matrix_with_assignment_rows_only(n, &params);
+        let mut free_bias = kp15_p_set_columns(n);
+        free_bias.extend(kp15_seed_columns(n));
+        free_bias.extend(kp15_central_quadratic_columns(n));
+        free_bias.sort_unstable();
+        free_bias.dedup();
+        Self::build_from_matrix_with_free_bias(n, params, rows, cols, m_unordered, &free_bias)
+    }
+
+    fn build_from_matrix_with_free_bias(
+        n: usize,
+        params: Bi6Reparams,
+        rows: usize,
+        cols: usize,
+        m_unordered: Vec<f64>,
+        free_bias_cols: &[usize],
+    ) -> Self {
+        let free_bias_lookup: std::collections::HashSet<usize> =
+            free_bias_cols.iter().copied().collect();
+        let mut perm: Vec<usize> = (0..cols)
+            .filter(|c| !free_bias_lookup.contains(c))
+            .collect();
+        perm.extend(free_bias_cols.iter().copied());
         debug_assert_eq!(perm.len(), cols);
         let mut inverse = vec![0usize; cols];
         for (new_idx, &old_idx) in perm.iter().enumerate() {
@@ -1123,6 +1889,362 @@ impl Kp15Bi6GeneratingTable {
         let _ = total;
         Ok((grids, f_vals))
     }
+
+    /// F_κ table population for the paper-source split: source
+    /// coefficients with `i + j <= 2` are central quadratic expansion
+    /// variables owned by KP15 §3.2 S1/P, while the remaining
+    /// `CirculantSectorRhs` slots are fixed tensor-border data.
+    pub fn populate_cap_grids_from_input_with_f_kappa_central_quadratic_free(
+        &self,
+        sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
+        star: Point3,
+        q_local: &[[f64; 49]; 49],
+        ridge_lambda: f64,
+    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+        let n = self.n;
+        assert_eq!(sectors.len(), n);
+        let n_free = self.free_cols.len();
+        let t = self.build_linear_map();
+        let mut h = vec![0.0_f64; n_free * n_free];
+        for k in 0..n {
+            let row_base = 49 * k;
+            let mut qtk = vec![0.0_f64; 49 * n_free];
+            for r in 0..49 {
+                for c in 0..n_free {
+                    let mut s = 0.0;
+                    for inner in 0..49 {
+                        s += q_local[r][inner] * t[(row_base + inner) * n_free + c];
+                    }
+                    qtk[r * n_free + c] = s;
+                }
+            }
+            for r in 0..n_free {
+                for c in 0..n_free {
+                    let mut s = 0.0;
+                    for inner in 0..49 {
+                        s += t[(row_base + inner) * n_free + r] * qtk[inner * n_free + c];
+                    }
+                    h[r * n_free + c] += s;
+                }
+            }
+        }
+
+        let mut fixed_idx = Vec::new();
+        let mut variable_idx = Vec::new();
+        let mut seed_x = Vec::new();
+        let mut seed_y = Vec::new();
+        let mut seed_z = Vec::new();
+        for (j, &fc) in self.free_cols.iter().enumerate() {
+            let sector = fc / 49;
+            let pos = fc % 49;
+            let i = pos / 7;
+            let j_pos = pos % 7;
+            if let Some(p) = seeded_value(sectors, star, sector, i, j_pos) {
+                if i + j_pos > 2 {
+                    fixed_idx.push(j);
+                    seed_x.push(p.x);
+                    seed_y.push(p.y);
+                    seed_z.push(p.z);
+                } else {
+                    variable_idx.push(j);
+                }
+            } else {
+                variable_idx.push(j);
+            }
+        }
+
+        let pull_h = |rows: &[usize], cols: &[usize]| -> Vec<Vec<f64>> {
+            rows.iter()
+                .map(|&r| cols.iter().map(|&c| h[r * n_free + c]).collect())
+                .collect()
+        };
+        let mut h_vv = pull_h(&variable_idx, &variable_idx);
+        let h_vf = pull_h(&variable_idx, &fixed_idx);
+        if ridge_lambda != 0.0 {
+            for (r, row) in h_vv.iter_mut().enumerate() {
+                row[r] += ridge_lambda;
+            }
+        }
+        let mut var_vals: [Vec<f64>; 3] = [
+            vec![0.0; variable_idx.len()],
+            vec![0.0; variable_idx.len()],
+            vec![0.0; variable_idx.len()],
+        ];
+        for (d, seed) in [&seed_x, &seed_y, &seed_z].iter().enumerate() {
+            let rhs = (0..variable_idx.len())
+                .map(|r| {
+                    let mut s = 0.0;
+                    for c in 0..fixed_idx.len() {
+                        s -= h_vf[r][c] * seed[c];
+                    }
+                    s
+                })
+                .collect::<Vec<_>>();
+            var_vals[d] = solve_dense(h_vv.clone(), rhs)
+                .ok_or_else(|| format!("F_κ central-quadratic-free solve singular at coord {d}"))?;
+        }
+
+        let assemble_free = |coord: usize, seed_coord: &[f64]| -> Vec<f64> {
+            let mut free = vec![0.0_f64; n_free];
+            for (k, &j) in fixed_idx.iter().enumerate() {
+                free[j] = seed_coord[k];
+            }
+            for (k, &j) in variable_idx.iter().enumerate() {
+                free[j] = var_vals[coord][k];
+            }
+            free
+        };
+        let xs = self.apply(&assemble_free(0, &seed_x));
+        let ys = self.apply(&assemble_free(1, &seed_y));
+        let zs = self.apply(&assemble_free(2, &seed_z));
+
+        let mut grids = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+            for (i, row) in grid.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    let col = global_grid_col(n, k, i, j);
+                    *cell = Point3::new(xs[col], ys[col], zs[col]);
+                }
+            }
+            grids.push(grid);
+        }
+        let f_coord = |x: &[f64]| -> f64 {
+            let mut acc = 0.0;
+            for k in 0..n {
+                let row_base = 49 * k;
+                for r in 0..49 {
+                    for c in 0..49 {
+                        acc += x[row_base + r] * q_local[r][c] * x[row_base + c];
+                    }
+                }
+            }
+            acc
+        };
+        Ok((grids, [f_coord(&xs), f_coord(&ys), f_coord(&zs)]))
+    }
+
+    /// F_κ population for the source-closed KP15 Fig. 2b table.
+    ///
+    /// `tensor_source` must contain the full two-sided Fig. 12
+    /// tensor-border source values in global sector grids. Only columns
+    /// returned by [`kp15_two_sided_tensor_border_columns`] are consumed.
+    /// Central quadratic and paper `P` columns remain variable, as
+    /// required by KP15 §3.6.
+    pub fn populate_cap_grids_from_two_sided_tensor_source_with_f_kappa(
+        &self,
+        tensor_source: &[[[Point3; 7]; 7]],
+        q_local: &[[f64; 49]; 49],
+        ridge_lambda: f64,
+    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+        let n = self.n;
+        assert_eq!(tensor_source.len(), n);
+        let source_constraints: Vec<(usize, Point3)> = kp15_two_sided_tensor_border_columns(n)
+            .into_iter()
+            .map(|col| {
+                let sector = col / 49;
+                let pos = col % 49;
+                let i = pos / 7;
+                let j = pos % 7;
+                (col, tensor_source[sector][i][j])
+            })
+            .collect();
+        self.populate_cap_grids_from_column_constraints_with_f_kappa(
+            &source_constraints,
+            q_local,
+            ridge_lambda,
+            "two-sided tensor-source",
+        )
+    }
+
+    /// F_κ population subject to arbitrary paper-source column
+    /// identities plus this table's KP15 row equations.
+    ///
+    /// This is the common substrate for source projection: the caller
+    /// supplies only source values that are truly prescribed by the
+    /// paper construction, and the remaining BB coefficients are chosen
+    /// by the same constrained F_κ minimization.
+    pub fn populate_cap_grids_from_column_constraints_with_f_kappa(
+        &self,
+        source_constraints: &[(usize, Point3)],
+        q_local: &[[f64; 49]; 49],
+        ridge_lambda: f64,
+        source_label: &str,
+    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+        let n = self.n;
+        let total = 49 * n;
+        for &(col, _) in source_constraints {
+            if col >= total {
+                return Err(format!(
+                    "F_κ {source_label} source column {col} outside 0..{total}"
+                ));
+            }
+        }
+        let mut q_global = vec![vec![0.0_f64; total]; total];
+        for k in 0..n {
+            let row_base = 49 * k;
+            for r in 0..49 {
+                for c in 0..49 {
+                    q_global[row_base + r][row_base + c] = q_local[r][c];
+                }
+            }
+        }
+        if ridge_lambda != 0.0 {
+            for (i, row) in q_global.iter_mut().enumerate() {
+                row[i] += ridge_lambda;
+            }
+        }
+
+        let mut constraint_rows = Vec::<Vec<f64>>::new();
+        let mut rhs = [Vec::<f64>::new(), Vec::<f64>::new(), Vec::<f64>::new()];
+        for row in 0..self.rank() {
+            let mut constraint = vec![0.0_f64; total];
+            let base = row * self.cols;
+            constraint[..total].copy_from_slice(&self.rref[base..(base + total)]);
+            constraint_rows.push(constraint);
+            for rhs_coord in &mut rhs {
+                rhs_coord.push(0.0);
+            }
+        }
+        for &(col, source_point) in source_constraints {
+            let mut constraint = vec![0.0_f64; total];
+            constraint[col] = 1.0;
+            constraint_rows.push(constraint);
+            rhs[0].push(source_point.x);
+            rhs[1].push(source_point.y);
+            rhs[2].push(source_point.z);
+        }
+
+        let mut coords: [Vec<f64>; 3] = [
+            vec![0.0_f64; total],
+            vec![0.0_f64; total],
+            vec![0.0_f64; total],
+        ];
+        for coord in 0..3 {
+            let (active_constraints, active_rhs) =
+                independent_affine_constraint_rows(total, &constraint_rows, &rhs[coord], 1.0e-10)?;
+            let kkt_size = total + active_constraints.len();
+            let mut kkt = vec![vec![0.0_f64; kkt_size]; kkt_size];
+            for r in 0..total {
+                for c in 0..total {
+                    kkt[r][c] = q_global[r][c];
+                }
+            }
+            for (constraint_index, constraint) in active_constraints.iter().enumerate() {
+                let lagrange_col = total + constraint_index;
+                for (col, &value) in constraint.iter().enumerate() {
+                    kkt[col][lagrange_col] = value;
+                    kkt[lagrange_col][col] = value;
+                }
+            }
+            let mut kkt_rhs = vec![0.0_f64; kkt_size];
+            kkt_rhs[total..].copy_from_slice(&active_rhs);
+            let solution = solve_dense(kkt, kkt_rhs).ok_or_else(|| {
+                format!("F_κ {source_label} constrained solve singular at coord {coord}")
+            })?;
+            coords[coord][..total].copy_from_slice(&solution[..total]);
+        }
+
+        let xs = &coords[0];
+        let ys = &coords[1];
+        let zs = &coords[2];
+
+        let mut max_source_residual: f64 = 0.0;
+        for &(col, source_point) in source_constraints {
+            max_source_residual = max_source_residual.max((xs[col] - source_point.x).abs());
+            max_source_residual = max_source_residual.max((ys[col] - source_point.y).abs());
+            max_source_residual = max_source_residual.max((zs[col] - source_point.z).abs());
+        }
+        if max_source_residual > 1.0e-8 {
+            return Err(format!(
+                "F_κ {source_label} solve moved source constraints by {max_source_residual:e}"
+            ));
+        }
+
+        let mut max_row_residual: f64 = 0.0;
+        for row in 0..self.rank() {
+            let base = row * self.cols;
+            for coord_values in [&coords[0], &coords[1], &coords[2]] {
+                let mut residual = 0.0;
+                for (col, &value) in coord_values.iter().enumerate() {
+                    residual += self.rref[base + col] * value;
+                }
+                max_row_residual = max_row_residual.max(residual.abs());
+            }
+        }
+        if max_row_residual > 1.0e-8 {
+            return Err(format!(
+                "F_κ {source_label} solve violated KP15 rows by {max_row_residual:e}"
+            ));
+        }
+
+        let mut grids = Vec::with_capacity(n);
+        for k in 0..n {
+            let mut grid = [[Point3::new(0.0, 0.0, 0.0); 7]; 7];
+            for (i, row) in grid.iter_mut().enumerate() {
+                for (j, cell) in row.iter_mut().enumerate() {
+                    let col = global_grid_col(n, k, i, j);
+                    *cell = Point3::new(xs[col], ys[col], zs[col]);
+                }
+            }
+            grids.push(grid);
+        }
+        let f_coord = |x: &[f64]| -> f64 {
+            let mut acc = 0.0;
+            for k in 0..n {
+                let row_base = 49 * k;
+                for r in 0..49 {
+                    for c in 0..49 {
+                        acc += x[row_base + r] * q_local[r][c] * x[row_base + c];
+                    }
+                }
+            }
+            acc
+        };
+        Ok((grids, [f_coord(xs), f_coord(ys), f_coord(zs)]))
+    }
+}
+
+fn independent_affine_constraint_rows(
+    cols: usize,
+    rows: &[Vec<f64>],
+    rhs: &[f64],
+    tol: f64,
+) -> Result<(Vec<Vec<f64>>, Vec<f64>), String> {
+    assert_eq!(rows.len(), rhs.len());
+    let mut basis = Vec::<Vec<f64>>::new();
+    let mut targets = Vec::<f64>::new();
+    for (row, &target) in rows.iter().zip(rhs) {
+        assert_eq!(row.len(), cols);
+        let mut candidate = row.clone();
+        let mut candidate_target = target;
+        for (basis_row, &basis_target) in basis.iter().zip(&targets) {
+            let dot = candidate
+                .iter()
+                .zip(basis_row)
+                .map(|(a, b)| a * b)
+                .sum::<f64>();
+            for (value, basis_value) in candidate.iter_mut().zip(basis_row) {
+                *value -= dot * basis_value;
+            }
+            candidate_target -= dot * basis_target;
+        }
+        let norm = candidate.iter().map(|v| v * v).sum::<f64>().sqrt();
+        if norm <= tol {
+            if candidate_target.abs() > 1.0e-8 {
+                return Err(format!(
+                    "inconsistent KP15 two-sided tensor-source constraint residual {candidate_target:e}"
+                ));
+            }
+            continue;
+        }
+        for value in &mut candidate {
+            *value /= norm;
+        }
+        basis.push(candidate);
+        targets.push(candidate_target / norm);
+    }
+    Ok((basis, targets))
 }
 
 /// Global column indices of [KP15 §3.6 step 4]'s "P" set — the
@@ -1168,6 +2290,79 @@ pub fn kp15_p_set_columns(n: usize) -> Vec<usize> {
     out
 }
 
+/// Fixed tensor-border seed columns supplied by `CirculantSectorRhs`.
+pub fn kp15_seed_columns(n: usize) -> Vec<usize> {
+    let mut out = Vec::with_capacity(12 * n);
+    for k in 0..n {
+        for (i, j) in [
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (4, 0),
+            (5, 0),
+            (6, 0),
+            (0, 1),
+            (1, 1),
+            (0, 2),
+            (4, 2),
+            (5, 2),
+            (6, 2),
+        ] {
+            out.push(global_grid_col(n, k, i, j));
+        }
+    }
+    out
+}
+
+/// Every column in the two outer tensor-product strips of the sector
+/// chart.
+///
+/// This helper is retained for older diagnostics that compare the
+/// closure effect of prescribing only a subset of the tensor-border
+/// against prescribing the full depth-2 strip required by KP15 §3.6
+/// step 3.
+pub(crate) fn kp15_two_sided_tensor_l_band_columns(n: usize) -> Vec<usize> {
+    let mut out = Vec::new();
+    for k in 0..n {
+        for i in 0..=6 {
+            for j in 0..=6 {
+                if i >= 4 || j >= 4 {
+                    out.push(global_grid_col(n, k, i, j));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// KP15 §3.6 step 3 full two-sided tensor-border source columns in
+/// the Fig. 2b sector chart.
+///
+/// Appendix Fig. 12 defines the depth-2 strip `q := b o beta`; after
+/// degree elevation to the bi-6 cap patch, step 3 fixes the full
+/// tensor-border L-band of each sector. With the paper free set `P`
+/// pinned separately, this full strip closes the Step-4 row system.
+pub(crate) fn kp15_two_sided_tensor_border_columns(n: usize) -> Vec<usize> {
+    kp15_two_sided_tensor_l_band_columns(n)
+}
+
+/// KP15 §3.2 S1 central quadratic expansion columns across all
+/// sectors. These are derived from the paper's sector-0 source data
+/// and are not independent fixed tensor-border pins.
+pub fn kp15_central_quadratic_columns(n: usize) -> Vec<usize> {
+    let mut out = Vec::with_capacity(6 * n);
+    for k in 0..n {
+        for i in 0..=2 {
+            for j in 0..=2 {
+                if i + j <= 2 {
+                    out.push(global_grid_col(n, k, i, j));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// Bi-3 → bi-6 degree elevation for a 4-CP curve. Three iterated
 /// degree raises, each preserving the underlying curve.
 fn elevate_bi3_to_bi6(b: &[Point3; 4]) -> [Point3; 7] {
@@ -1209,9 +2404,12 @@ fn weighted_point_sum(pairs: &[(f64, Point3)]) -> Point3 {
 /// border `b`. Returns the bi-6 reparameterized tensor border
 /// `q := b ∘ β`: `q[j][i]` for `j ∈ 0..=2, i ∈ 0..=6`. By the
 /// paper's construction:
-/// - `q[0][i]` and `q[1][i]` (position and first cross-derivative)
-///   equal the bi-3 → bi-6 elevation of `b[0]` and `b[1]`.
-/// - `q[2][i]` for `i ∈ 0..=1` equal the elevation of `b[2]`.
+/// - `q[0][i]` equals the bi-3 → bi-6 elevation of `b[0]`.
+/// - `q[1][i]` preserves the first cross-derivative of the bi-3
+///   tensor-border by cross-degree elevation:
+///   `q[1] = (E(b[0]) + E(b[1])) / 2`.
+/// - `q[2][i]` for `i ∈ 0..=1` use the ordinary cross-degree
+///   elevation blend `(b[0], b[1], b[2]) -> (0.2, 0.6, 0.2)`.
 /// - `q[2][i]` for `i ∈ 2..=6` are given by eq (17)'s γ-formula
 ///   weighted sums of the bi-3 BB-coefs.
 ///
@@ -1226,12 +2424,18 @@ pub fn apply_beta_reparameterization(
     let tau = params.tau;
     let d2 = params.d2;
 
-    // Step 1: degree-elevate b[j] to bi-6 for every j. These
-    // become the default q[j][i] (paper's "position and
-    // derivative" are unchanged).
+    // Step 1: cross-degree elevate the tensor-border BB coefficients.
+    // Fig. 12 lists b_ij and q_ij as BB coefficients. Preserving the
+    // first cross-derivative therefore makes q_1 the midpoint blend of
+    // the elevated b_0 and b_1 rows, not the direct elevation of b_1.
     let mut q = [[Point3::new(0.0, 0.0, 0.0); 7]; 3];
-    for j in 0..3 {
-        q[j] = elevate_bi3_to_bi6(&b[j]);
+    let raised0 = elevate_bi3_to_bi6(&b[0]);
+    let raised1 = elevate_bi3_to_bi6(&b[1]);
+    let raised2 = elevate_bi3_to_bi6(&b[2]);
+    for i in 0..=6 {
+        q[0][i] = raised0[i];
+        q[1][i] = weighted_point_sum(&[(0.5, raised0[i]), (0.5, raised1[i])]);
+        q[2][i] = weighted_point_sum(&[(0.2, raised0[i]), (0.6, raised1[i]), (0.2, raised2[i])]);
     }
 
     // Step 2: overwrite q[2][i] for i ∈ 2..=6 per eq (17).

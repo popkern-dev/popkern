@@ -1,5 +1,6 @@
 use super::*;
 use crate::geometry::Point3;
+use crate::geometry::gregory::Kp20Bi6Patch;
 use crate::geometry::gregory::tri6_flat_index;
 
 fn p(x: f64, y: f64, z: f64) -> Point3 {
@@ -43,6 +44,28 @@ fn affine_tau_patch(origin: [f64; 2], du: [f64; 2], dv: [f64; 2]) -> Kp20MacroPa
         }
     }
     tau
+}
+
+fn square_identity_source() -> Kp20Bi6Patch {
+    let mut source = Kp20Bi6Patch::zero();
+    for i in 0..=6 {
+        for j in 0..=6 {
+            source.cps[i][j] = p(i as f64 / 6.0, j as f64 / 6.0, 0.0);
+        }
+    }
+    source
+}
+
+fn affine_square_source() -> Kp20Bi6Patch {
+    let mut source = Kp20Bi6Patch::zero();
+    for i in 0..=6 {
+        for j in 0..=6 {
+            let u = i as f64 / 6.0;
+            let v = j as f64 / 6.0;
+            source.cps[i][j] = p(2.0 + 3.0 * u - 0.5 * v, -1.0 + 0.25 * u + 4.0 * v, 0.75);
+        }
+    }
+    source
 }
 
 #[test]
@@ -472,6 +495,51 @@ fn planar_bi6_tau_sampler_matches_affine_piece_maps_on_affine_guide() {
                 assert_close(
                     actual.piece(piece_id).cps[i][j],
                     expected.piece(piece_id).cps[i][j],
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn square_bi6_source_tau_sampler_reproduces_affine_tau_for_identity_source() {
+    let source = square_identity_source();
+    let tau = affine_tau_patch([0.125, 0.25], [0.5, 0.0], [0.0, 0.375]);
+
+    let actual = sample_kp20_macro_patch_from_square_bi6_source_tau_macro_patch(&source, &tau);
+
+    for piece_id in Kp20PieceId::all() {
+        for i in 0..=6 {
+            for j in 0..=6 {
+                assert_close(
+                    actual.piece(piece_id).cps[i][j],
+                    tau.piece(piece_id).cps[i][j],
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn square_bi6_source_tau_sampler_composes_affine_source_and_tau_exactly() {
+    let source = affine_square_source();
+    let tau = affine_tau_patch([0.125, 0.25], [0.5, 0.0], [0.0, 0.375]);
+
+    let actual = sample_kp20_macro_patch_from_square_bi6_source_tau_macro_patch(&source, &tau);
+
+    for piece_id in Kp20PieceId::all() {
+        let tau_piece = tau.piece(piece_id);
+        for i in 0..=6 {
+            for j in 0..=6 {
+                let source_u = tau_piece.cps[i][j].x;
+                let source_v = tau_piece.cps[i][j].y;
+                assert_close(
+                    actual.piece(piece_id).cps[i][j],
+                    p(
+                        2.0 + 3.0 * source_u - 0.5 * source_v,
+                        -1.0 + 0.25 * source_u + 4.0 * source_v,
+                        0.75,
+                    ),
                 );
             }
         }

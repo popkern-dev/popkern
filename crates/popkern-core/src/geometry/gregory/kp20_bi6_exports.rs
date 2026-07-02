@@ -1,9 +1,11 @@
 //! Public KP20 re-export surface for the Gregory module.
 
 pub use super::kp20_bi6_assemble::{
-    Kp20Bi6AssembleError, Kp20Bi6CNetCapInput, Kp20Bi6CapInput, Kp20Bi6MacroCapInput,
-    Kp20Bi6MacroCapOutput, assemble_kp20_bi6_cap, assemble_kp20_bi6_cap_from_cnet,
-    assemble_kp20_bi6_macro_cap, assemble_kp20_bi6_macro_cap_with_sampled_tensor_border_source,
+    Kp20Bi6AppendixAFig6cCapOutput, Kp20Bi6AppendixAFig6cSectorSample, Kp20Bi6AssembleError,
+    Kp20Bi6CNetCapInput, Kp20Bi6CapInput, Kp20Bi6MacroCapInput, Kp20Bi6MacroCapOutput,
+    assemble_kp20_bi6_cap, assemble_kp20_bi6_cap_from_cnet,
+    assemble_kp20_bi6_cap_with_appendix_a_fig6c_tau, assemble_kp20_bi6_macro_cap,
+    assemble_kp20_bi6_macro_cap_with_sampled_tensor_border_source,
 };
 pub use super::kp20_bi6_cap::{
     Kp20Bi6Patch, Kp20BoundaryHalf, Kp20MacroPatch, Kp20PieceId, Kp20SplitTensorBorder,
@@ -12,6 +14,9 @@ pub use super::kp20_bi6_cap::{
 };
 pub use super::kp20_bi6_cc_ring::{
     Kp20CatmullClarkCharacteristicRing, kp20_catmull_clark_characteristic_ring,
+    kp20_pr08_stam_inner_q1_characteristic_tensor_border,
+    kp20_pr08_stam_inner_q1_endpoint_normalized_regular_tensor_border_rows,
+    kp20_pr08_stam_inner_q1_regular_tensor_border_rows,
     kp20_pr08_stam_q1_characteristic_tensor_border,
 };
 pub use super::kp20_bi6_cnet::{
@@ -72,6 +77,7 @@ pub use super::kp20_bi6_piece_maps::{
     sample_kp20_macro_patch_from_paper_valid_planar_bi6_tau_macro_patch,
     sample_kp20_macro_patch_from_piece_maps, sample_kp20_macro_patch_from_piece_sampler_maps,
     sample_kp20_macro_patch_from_planar_bi6_tau_macro_patch,
+    sample_kp20_macro_patch_from_square_bi6_source_tau_macro_patch,
     sample_kp20_macro_patch_from_tau_family_maps, sample_kp20_macro_patch_from_tau_maps,
     sample_kp20_macro_patch_from_valid_planar_bi6_tau_macro_patch,
 };
@@ -93,11 +99,16 @@ pub use super::kp20_bi6_tau_f3_solve::{
     solve_kp20_planar_tau_f3, solve_kp20_planar_tau_f3_with_scalar_constraints,
 };
 pub use super::kp20_bi6_tau_solve_assemble::{
+    Kp20PlanarTauAppendixAFig6cSolveInput, Kp20PlanarTauAppendixAFig6cSolveOutput,
     Kp20PlanarTauPaperRowSet, Kp20PlanarTauPaperSolveError, Kp20PlanarTauPaperSolveInput,
-    Kp20PlanarTauSection42SourceProjectionReport, kp20_planar_tau_paper_row_set,
-    kp20_planar_tau_rotational_paper_row_set,
+    Kp20PlanarTauSection42SourceProjectionReport, Kp20PlanarTauSquareDomainReport,
+    kp20_planar_tau_paper_row_set, kp20_planar_tau_rotational_paper_row_set,
     kp20_planar_tau_rotational_section42_source_projection_report,
-    solve_kp20_planar_tau_paper_sector_f3, solve_kp20_planar_tau_rotational_paper_sector_f3,
+    kp20_planar_tau_sector_local_diagonal_symmetry_constraints,
+    kp20_planar_tau_sector_local_self_diagonal_symmetry_constraints,
+    solve_kp20_planar_tau_appendix_a_fig6c_active_set, solve_kp20_planar_tau_paper_sector_f3,
+    solve_kp20_planar_tau_rotational_paper_sector_f3,
+    solve_kp20_planar_tau_rotational_paper_sector_f3_checked,
 };
 pub use super::kp20_bi6_validate::{
     Kp20Bi6ValidationError, Kp20Bi6ValidationReport, measure_kp20_bi6_macro_cap,

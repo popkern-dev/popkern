@@ -69,6 +69,78 @@ pub fn kp20_pr08_stam_q1_characteristic_tensor_border(n: usize) -> Result<Tensor
     kp20_tensor_border_from_regular_cnet_rows(&rows)
 }
 
+/// Build PR08/Stam Appendix-A/B `q^1` regular tensor-border rows from the
+/// PR08 frequency-one inner ring.
+///
+/// This follows the source correspondence now used by the KP20 Fig. 8
+/// campaign: PR08 `q_{j,1}` and `q_{j,2}` seed Stam Appendix-A's top vector,
+/// Stam Appendix-A subdivision produces the extended characteristic labels,
+/// and Stam Appendix-B `q^1` selects the regular subpatch grid whose interior
+/// three rows feed the KP20 tensor-border conversion.
+pub fn kp20_pr08_stam_inner_q1_regular_tensor_border_rows(
+    n: usize,
+) -> Result<Kp20RegularTensorBorderCNet, String> {
+    let ring = kp20_catmull_clark_characteristic_ring(n)?;
+    let mut sectors = Vec::with_capacity(n);
+    for sector in 0..n {
+        sectors.push(stam_appendix_a_pr08_inner_ring_subpatch_rows(
+            &ring, sector, 0,
+        )?);
+    }
+    Ok(Kp20RegularTensorBorderCNet { sectors })
+}
+
+/// Build the PR08 Fig. 6.3 endpoint-side regular rows.
+///
+/// The rows are the side of the Fig. 6.3 lower-right regular B-spline
+/// patch whose endpoints are the two neighboring `q13` controls:
+/// `[q13, q11, q8, prev q13]`, `[q12, q10, q5, prev q4]`,
+/// `[q7, q6, q2, prev q3]`. This is the paper-derived endpoint-edge
+/// source for KP15 Fig. 3's `v_{k-1} -> m_k` tensor-border experiments;
+/// it is intentionally separate from the inner `q1` source whose first
+/// endpoint is the replicated extraordinary center.
+#[cfg(test)]
+pub fn kp20_pr08_fig63_endpoint_side_regular_tensor_border_rows(
+    n: usize,
+) -> Result<Kp20RegularTensorBorderCNet, String> {
+    let ring = kp20_catmull_clark_characteristic_ring(n)?;
+    let mut sectors = Vec::with_capacity(n);
+    for sector_index in 0..n {
+        let sector = &ring.sectors[sector_index];
+        let previous = &ring.sectors[(sector_index + n - 1) % n];
+        sectors.push([
+            [sector[12], sector[10], sector[7], previous[12]],
+            [sector[11], sector[9], sector[4], previous[3]],
+            [sector[6], sector[5], sector[1], previous[2]],
+        ]);
+    }
+    Ok(Kp20RegularTensorBorderCNet { sectors })
+}
+
+/// Build the endpoint-normalized PR08/Stam inner-ring `q^1` regular rows.
+///
+/// The normalization is a global complex similarity applied to all regular
+/// rows so sector `0`'s nonzero first-row endpoint matches the unit sector
+/// spoke order used by the KP20 τ equations. The opposite first-row endpoint
+/// is the extraordinary origin for this source and remains the origin. This is
+/// recorded as a separate API because it is a chart normalization of the
+/// PR08/Stam source, not a different source construction.
+pub fn kp20_pr08_stam_inner_q1_endpoint_normalized_regular_tensor_border_rows(
+    n: usize,
+) -> Result<Kp20RegularTensorBorderCNet, String> {
+    let rows = kp20_pr08_stam_inner_q1_regular_tensor_border_rows(n)?;
+    endpoint_normalized_regular_tensor_border_rows(&rows, n, 0, true, true)
+}
+
+/// Convert the endpoint-normalized PR08/Stam inner-ring `q^1` regular rows to
+/// the bi-3 tensor-border form consumed by KP20 equation (14).
+pub fn kp20_pr08_stam_inner_q1_characteristic_tensor_border(
+    n: usize,
+) -> Result<TensorBorderBi3, String> {
+    let rows = kp20_pr08_stam_inner_q1_endpoint_normalized_regular_tensor_border_rows(n)?;
+    kp20_tensor_border_from_regular_cnet_rows(&rows)
+}
+
 #[cfg(test)]
 pub fn pr08_catmull_clark_subdivision_matrix(n: usize) -> Result<Vec<Vec<f64>>, String> {
     if n < 3 {
@@ -397,6 +469,10 @@ pub enum Kp20Pr08TensorBorderCandidate {
     /// PR08 middle-patch 3x3 grid transposed across the adjacent `j+1`
     /// outer row ending at the shared `q13` node.
     MiddlePatchFormulaNextOuterRowTransposed,
+    /// Same transposed adjacent `j+1` outer row, but following PR08
+    /// Fig. 6.3's visible outer continuation through `q_{j,11}` instead
+    /// of repeating the shared `q_{j,13}` endpoint.
+    MiddlePatchFormulaNextOuterRowTransposedToQ11,
     /// Same adjacent `j+1` outer-row transposed completion with depth order
     /// reversed.
     MiddlePatchFormulaNextOuterRowTransposedReversed,
@@ -455,7 +531,7 @@ pub enum Kp20Pr08TensorBorderCandidate {
 
 #[cfg(test)]
 impl Kp20Pr08TensorBorderCandidate {
-    pub const fn all() -> [Self; 31] {
+    pub const fn all() -> [Self; 32] {
         [
             Self::VisibleStrip,
             Self::VisibleStripReversed,
@@ -468,6 +544,7 @@ impl Kp20Pr08TensorBorderCandidate {
             Self::MiddlePatchFormulaLeftColumnReversed,
             Self::MiddlePatchFormulaNextRowTransposed,
             Self::MiddlePatchFormulaNextOuterRowTransposed,
+            Self::MiddlePatchFormulaNextOuterRowTransposedToQ11,
             Self::MiddlePatchFormulaNextOuterRowTransposedReversed,
             Self::MiddlePatchFormulaStamSubdividedFirstColumn,
             Self::StamAppendixASubpatchQ1InteriorRows,
@@ -513,6 +590,9 @@ impl Kp20Pr08TensorBorderCandidate {
             }
             Self::MiddlePatchFormulaNextOuterRowTransposed => {
                 "pr08-middle-patch-formula-next-outer-row-transposed"
+            }
+            Self::MiddlePatchFormulaNextOuterRowTransposedToQ11 => {
+                "pr08-middle-patch-formula-next-outer-row-transposed-to-q11"
             }
             Self::MiddlePatchFormulaNextOuterRowTransposedReversed => {
                 "pr08-middle-patch-formula-next-outer-row-transposed-reversed"
@@ -612,6 +692,11 @@ pub fn kp20_pr08_characteristic_tensor_border_candidate_rows(
             [next[3], sector[2], sector[5], sector[8]],
             [next[6], sector[3], sector[6], sector[9]],
             [next[12], sector[12], sector[11], sector[12]],
+        ];
+        let formula_next_outer_row_transposed_to_q11 = [
+            [next[3], sector[2], sector[5], sector[8]],
+            [next[6], sector[3], sector[6], sector[9]],
+            [next[12], sector[12], sector[11], sector[10]],
         ];
         let stam_subdivided_first_column = stam_appendix_a_middle_patch_first_column(
             ring.lambda,
@@ -755,6 +840,9 @@ pub fn kp20_pr08_characteristic_tensor_border_candidate_rows(
             Kp20Pr08TensorBorderCandidate::MiddlePatchFormulaNextOuterRowTransposed => {
                 formula_next_outer_row_transposed
             }
+            Kp20Pr08TensorBorderCandidate::MiddlePatchFormulaNextOuterRowTransposedToQ11 => {
+                formula_next_outer_row_transposed_to_q11
+            }
             Kp20Pr08TensorBorderCandidate::MiddlePatchFormulaNextOuterRowTransposedReversed => [
                 formula_next_outer_row_transposed[2],
                 formula_next_outer_row_transposed[1],
@@ -841,8 +929,7 @@ pub fn stam_appendix_a_middle_patch_first_column(
     ])
 }
 
-#[cfg(test)]
-pub fn stam_appendix_a_pr08_inner_ring_subpatch_rows(
+fn stam_appendix_a_pr08_inner_ring_subpatch_rows(
     ring: &Kp20CatmullClarkCharacteristicRing,
     sector_index: usize,
     patch_index: usize,
@@ -851,7 +938,6 @@ pub fn stam_appendix_a_pr08_inner_ring_subpatch_rows(
     Ok([grid[1], grid[2], grid[3]])
 }
 
-#[cfg(test)]
 fn stam_appendix_a_pr08_inner_ring_subpatch_full_grid(
     ring: &Kp20CatmullClarkCharacteristicRing,
     sector_index: usize,
@@ -864,6 +950,44 @@ fn stam_appendix_a_pr08_inner_ring_subpatch_full_grid(
         sector_index,
         patch_index,
     )
+}
+
+#[cfg(test)]
+pub fn kp20_pr08_stam_appendix_b_inner_ring_full_grid_for_test(
+    ring: &Kp20CatmullClarkCharacteristicRing,
+    sector_index: usize,
+    patch_index: usize,
+) -> Result<[[Point3; 4]; 4], String> {
+    stam_appendix_a_pr08_inner_ring_subpatch_full_grid(ring, sector_index, patch_index)
+}
+
+#[cfg(test)]
+pub fn kp20_pr08_stam_appendix_b_projected_rows_from_top_vectors_for_test(
+    ring: &Kp20CatmullClarkCharacteristicRing,
+    u0_x: &[f64],
+    u0_y: &[f64],
+    patch_index: usize,
+    row_start: usize,
+    reverse_rows: bool,
+) -> Result<Kp20RegularTensorBorderCNet, String> {
+    let valence = ring.sectors.len();
+    let labels = stam_appendix_a_subdivide_extended_labels_from_top(ring.lambda, u0_x, u0_y)?;
+    let mut sectors = Vec::with_capacity(valence);
+    for sector_index in 0..valence {
+        let grid = stam_appendix_b_subpatch_full_grid_from_labels(
+            &labels,
+            valence,
+            sector_index,
+            patch_index,
+        )?;
+        let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
+        for out_row in 0..3 {
+            let source_row = if reverse_rows { 2 - out_row } else { out_row };
+            rows[out_row] = grid[row_start + source_row];
+        }
+        sectors.push(rows);
+    }
+    Ok(Kp20RegularTensorBorderCNet { sectors })
 }
 
 #[cfg(test)]
@@ -1012,6 +1136,85 @@ fn rotate_xy(p: Point3, sin_theta: f64, cos_theta: f64) -> Point3 {
     )
 }
 
+fn endpoint_normalized_regular_tensor_border_rows(
+    rows: &Kp20RegularTensorBorderCNet,
+    valence: usize,
+    sector: usize,
+    swap_targets: bool,
+    conjugate_source: bool,
+) -> Result<Kp20RegularTensorBorderCNet, String> {
+    if valence < 3 {
+        return Err(format!(
+            "PR08/Stam endpoint normalization needs valence >= 3; got {valence}"
+        ));
+    }
+    let sector_rows = rows
+        .sectors
+        .get(sector)
+        .ok_or_else(|| format!("endpoint normalization sector {sector} is missing"))?;
+    let alpha = core::f64::consts::TAU / valence as f64;
+    let spoke0 = Complex::from_angle(alpha * sector as f64);
+    let spoke1 = Complex::from_angle(alpha * (sector + 1) as f64);
+    let target0 = if swap_targets { spoke1 } else { spoke0 };
+    let target1 = if swap_targets { spoke0 } else { spoke1 };
+    let source0 = maybe_conjugate_complex(point_as_complex(sector_rows[0][0]), conjugate_source);
+    let source1 = maybe_conjugate_complex(point_as_complex(sector_rows[0][3]), conjugate_source);
+    let scale = complex_similarity_scale(&[(source0, target0), (source1, target1)])
+        .ok_or_else(|| "degenerate PR08/Stam endpoint normalization source".to_string())?;
+    Ok(complex_scaled_regular_tensor_border_rows(
+        rows,
+        scale,
+        conjugate_source,
+    ))
+}
+
+fn point_as_complex(point: Point3) -> Complex {
+    Complex::new(point.x, point.y)
+}
+
+fn maybe_conjugate_complex(value: Complex, conjugate: bool) -> Complex {
+    if conjugate { value.conj() } else { value }
+}
+
+fn complex_similarity_scale(pairs: &[(Complex, Complex)]) -> Option<Complex> {
+    let mut numerator = Complex::zero();
+    let mut denominator = 0.0_f64;
+    for &(source, target) in pairs {
+        numerator = numerator + target * source.conj();
+        denominator += source.norm2();
+    }
+    if denominator <= 1.0e-20 {
+        None
+    } else {
+        Some(numerator / denominator)
+    }
+}
+
+fn complex_scaled_regular_tensor_border_rows(
+    rows: &Kp20RegularTensorBorderCNet,
+    scale: Complex,
+    conjugate_source: bool,
+) -> Kp20RegularTensorBorderCNet {
+    let sectors = rows
+        .sectors
+        .iter()
+        .map(|sector_rows| {
+            let mut out = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
+            for row in 0..3 {
+                for col in 0..4 {
+                    let value = maybe_conjugate_complex(
+                        point_as_complex(sector_rows[row][col]),
+                        conjugate_source,
+                    ) * scale;
+                    out[row][col] = Point3::new(value.re, value.im, sector_rows[row][col].z);
+                }
+            }
+            out
+        })
+        .collect();
+    Kp20RegularTensorBorderCNet { sectors }
+}
+
 fn stam_appendix_a_subdivided_extended_characteristic_labels(
     lambda: f64,
     valence: usize,
@@ -1055,7 +1258,6 @@ fn stam_appendix_a_subdivided_extended_characteristic_labels(
     Ok(labels)
 }
 
-#[cfg(test)]
 fn stam_appendix_a_pr08_inner_ring_subdivided_labels(
     ring: &Kp20CatmullClarkCharacteristicRing,
 ) -> Result<Vec<Point3>, String> {
@@ -1139,7 +1341,6 @@ fn complex_similarity_ring_scale(source: &[Complex], target: &[Complex]) -> Opti
     Some(numerator / denominator)
 }
 
-#[cfg(test)]
 fn stam_appendix_a_subdivide_extended_labels_from_top(
     lambda: f64,
     u0_x: &[f64],

@@ -56,6 +56,7 @@
 #![allow(clippy::needless_range_loop)]
 
 use super::direct_linalg::solve_dense;
+use super::kp_polar_shared::catmull_clark_star_point;
 use super::kp15_bi6_cap::{Bi6CapInput, Bi6CapOutput, assemble_bi6_polar_cap};
 use super::kp15_bi6_f5::{f_kappa_quadratic_form, f_kappa_quadratic_form_weighted};
 use crate::geometry::Point3;
@@ -81,6 +82,61 @@ pub struct Bi6CapFreeParams {
     pub p_23: Vec<Point3>,
     /// `p^k_{33}` for k = 0..n − 1 — row-3 column-3 interior CP.
     pub p_33: Vec<Point3>,
+}
+
+/// KP15 §3.6 step 4's paper free-parameter set `P`.
+///
+/// This excludes the scaffold extension in [`Bi6CapFreeParams`]:
+/// sector-0 near-star controls are propagated by S1 from the input,
+/// not optimized.
+#[derive(Debug, Clone)]
+pub struct Bi6CapPaperFreeParams {
+    /// `p^0_{22}`.
+    pub p0_22: Point3,
+    /// `p^0_{21}` for the rank-deficient n=3/n=6 eq(7) systems.
+    pub p0_21: Option<Point3>,
+    /// `p^k_{23}` for k = 0..n - 1.
+    pub p_23: Vec<Point3>,
+    /// `p^k_{33}` for k = 0..n - 1.
+    pub p_33: Vec<Point3>,
+}
+
+impl Bi6CapPaperFreeParams {
+    /// Return the all-zero paper free-parameter vector for valence `n`.
+    pub fn zero(n: usize) -> Self {
+        let z = Point3::new(0.0, 0.0, 0.0);
+        Self {
+            p0_22: z,
+            p0_21: if n == 3 || n == 6 { Some(z) } else { None },
+            p_23: vec![z; n],
+            p_33: vec![z; n],
+        }
+    }
+
+    /// Number of scalar entries in the flat per-coordinate vector.
+    pub fn flat_len(n: usize) -> usize {
+        1 + usize::from(n == 3 || n == 6) + 2 * n
+    }
+
+    fn probe(n: usize, i: usize) -> Self {
+        let mut out = Self::zero(n);
+        let unit = Point3::new(1.0, 0.0, 0.0);
+        let has_p21 = n == 3 || n == 6;
+        match (has_p21, i) {
+            (_, 0) => out.p0_22 = unit,
+            (true, 1) => out.p0_21 = Some(unit),
+            _ => {
+                let offset = i - 1 - usize::from(has_p21);
+                let k = offset / 2;
+                if offset.is_multiple_of(2) {
+                    out.p_23[k] = unit;
+                } else {
+                    out.p_33[k] = unit;
+                }
+            }
+        }
+        out
+    }
 }
 
 impl Bi6CapFreeParams {
@@ -187,6 +243,43 @@ fn apply_free_params(base: &Bi6CapInput, free: &Bi6CapFreeParams) -> Bi6CapInput
     out
 }
 
+fn apply_paper_free_params(base: &Bi6CapInput, free: &Bi6CapPaperFreeParams) -> Bi6CapInput {
+    let mut out = base.clone();
+    let star = catmull_clark_star_point(out.n, out.c7, &out.c5s, &out.c6s);
+    for sector in &mut out.sectors {
+        sector.p_00 = star;
+    }
+    out.p0_22 = free.p0_22;
+    if out.n == 3 || out.n == 6 {
+        out.p0_21_pinned = free.p0_21;
+    }
+
+    let n = out.sectors.len();
+    for k in 1..n {
+        let prev = out.sectors[k - 1];
+        let s1 = super::kp15_bi6_rules::rule_s1_star_propagation(
+            &out.params,
+            prev.p_00,
+            prev.p_01,
+            prev.p_02,
+            prev.p_10,
+            prev.p_11,
+            prev.p_20,
+        );
+        out.sectors[k].p_01 = s1.p01;
+        out.sectors[k].p_11 = s1.p11;
+        out.sectors[k].p_02 = s1.p02;
+    }
+
+    let mut filler: Vec<[[Option<Point3>; 7]; 7]> = vec![[[None; 7]; 7]; out.n];
+    for k in 0..out.n {
+        filler[k][2][3] = Some(free.p_23[k]);
+        filler[k][3][3] = Some(free.p_33[k]);
+    }
+    out.interior_filler = Some(filler);
+    out
+}
+
 /// Minimise F_5 over the free parameter set (see module docs).
 /// Thin wrapper over [`f_kappa_solve_optimal_bi6_cap`]`(base, 5)`
 /// kept for API compatibility.
@@ -226,6 +319,15 @@ pub fn f_kappa_solve_optimal_bi6_cap(
 ) -> Result<(Bi6CapFreeParams, Bi6CapOutput), String> {
     let q = f_kappa_quadratic_form(kappa);
     f_kappa_solve_with_q(base, q)
+}
+
+/// Minimise F_κ over exactly KP15 §3.6 step 4's paper free set `P`.
+pub fn f_kappa_solve_paper_p_bi6_cap(
+    base: &Bi6CapInput,
+    kappa: usize,
+) -> Result<(Bi6CapPaperFreeParams, Bi6CapOutput), String> {
+    let q = f_kappa_quadratic_form(kappa);
+    f_kappa_solve_paper_p_with_q(base, q)
 }
 
 /// Internal: F_κ SPD solve given a precomputed 49×49 quadratic-
@@ -362,6 +464,126 @@ fn f_kappa_solve_with_q(
     let final_out = assemble_bi6_polar_cap(&final_input)?;
 
     Ok((optimal, final_out))
+}
+
+fn f_kappa_solve_paper_p_with_q(
+    base: &Bi6CapInput,
+    q: [[f64; 49]; 49],
+) -> Result<(Bi6CapPaperFreeParams, Bi6CapOutput), String> {
+    let n = base.n;
+    let p_len = Bi6CapPaperFreeParams::flat_len(n);
+    let cp_per_patch = 49;
+    let total_cps = cp_per_patch * n;
+
+    let zero = Bi6CapPaperFreeParams::zero(n);
+    let bias_input = apply_paper_free_params(base, &zero);
+    let bias_out = assemble_bi6_polar_cap(&bias_input)?;
+
+    let mut bias = [
+        vec![0.0_f64; total_cps],
+        vec![0.0_f64; total_cps],
+        vec![0.0_f64; total_cps],
+    ];
+    for k in 0..n {
+        for i in 0..7 {
+            for j in 0..7 {
+                let idx = k * cp_per_patch + i * 7 + j;
+                let p = bias_out.patches_bi6[k][i][j];
+                bias[0][idx] = p.x;
+                bias[1][idx] = p.y;
+                bias[2][idx] = p.z;
+            }
+        }
+    }
+
+    let mut m = vec![vec![0.0_f64; p_len]; total_cps];
+    for p_idx in 0..p_len {
+        let probe = Bi6CapPaperFreeParams::probe(n, p_idx);
+        let probe_input = apply_paper_free_params(base, &probe);
+        let probe_out = assemble_bi6_polar_cap(&probe_input)?;
+        for k in 0..n {
+            for i in 0..7 {
+                for j in 0..7 {
+                    let idx = k * cp_per_patch + i * 7 + j;
+                    m[idx][p_idx] = probe_out.patches_bi6[k][i][j].x - bias[0][idx];
+                }
+            }
+        }
+    }
+
+    let mut h = vec![vec![0.0_f64; p_len]; p_len];
+    for k in 0..n {
+        let mut m_k = vec![vec![0.0_f64; p_len]; cp_per_patch];
+        for cp_idx in 0..cp_per_patch {
+            let global_idx = k * cp_per_patch + cp_idx;
+            for p_idx in 0..p_len {
+                m_k[cp_idx][p_idx] = m[global_idx][p_idx];
+            }
+        }
+        let mut qm = vec![vec![0.0_f64; p_len]; cp_per_patch];
+        for r in 0..cp_per_patch {
+            for c in 0..p_len {
+                let mut s = 0.0;
+                for q_idx in 0..cp_per_patch {
+                    s += q[r][q_idx] * m_k[q_idx][c];
+                }
+                qm[r][c] = s;
+            }
+        }
+        for r in 0..p_len {
+            for c in 0..p_len {
+                let mut s = 0.0;
+                for m_row in 0..cp_per_patch {
+                    s += m_k[m_row][r] * qm[m_row][c];
+                }
+                h[r][c] += s;
+            }
+        }
+    }
+
+    let solve_coord = |coord: usize| -> Result<Vec<f64>, String> {
+        let mut g = vec![0.0_f64; p_len];
+        for k in 0..n {
+            let base_idx = k * cp_per_patch;
+            let mut qb = vec![0.0_f64; cp_per_patch];
+            for r in 0..cp_per_patch {
+                let mut s = 0.0;
+                for c in 0..cp_per_patch {
+                    s += q[r][c] * bias[coord][base_idx + c];
+                }
+                qb[r] = s;
+            }
+            for p_idx in 0..p_len {
+                let mut s = 0.0;
+                for r in 0..cp_per_patch {
+                    s += m[base_idx + r][p_idx] * qb[r];
+                }
+                g[p_idx] += s;
+            }
+        }
+        let rhs = g.iter().map(|v| -v).collect::<Vec<_>>();
+        solve_dense(h.clone(), rhs)
+            .ok_or_else(|| format!("F_κ paper-P solve singular at coord {coord}"))
+    };
+
+    let sol = [solve_coord(0)?, solve_coord(1)?, solve_coord(2)?];
+    let point_at = |idx: usize| Point3::new(sol[0][idx], sol[1][idx], sol[2][idx]);
+    let has_p21 = n == 3 || n == 6;
+    let mut optimal = Bi6CapPaperFreeParams::zero(n);
+    optimal.p0_22 = point_at(0);
+    let mut cursor = 1;
+    if has_p21 {
+        optimal.p0_21 = Some(point_at(cursor));
+        cursor += 1;
+    }
+    for k in 0..n {
+        optimal.p_23[k] = point_at(cursor);
+        optimal.p_33[k] = point_at(cursor + 1);
+        cursor += 2;
+    }
+    let final_input = apply_paper_free_params(base, &optimal);
+    let out = assemble_bi6_polar_cap(&final_input)?;
+    Ok((optimal, out))
 }
 
 /// Pack three per-coord flat solutions into a `Bi6CapFreeParams`.
