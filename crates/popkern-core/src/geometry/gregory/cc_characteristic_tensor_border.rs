@@ -145,6 +145,133 @@ pub fn cc_characteristic_tensor_border(n: usize) -> Result<CcCharacteristicTenso
     })
 }
 
+/// Tensor-border of a genuine Catmull-Clark ring on a node-wise
+/// lifted characteristic net: nodes at the normalized planar
+/// characteristic positions with `z = lift(x, y)` applied PER NODE,
+/// subdivided once through the verified Stam machinery and extracted
+/// with the same window/prolongation pipeline. Because the lift is
+/// node-wise, the resulting ring is a real bicubic CC spline whose
+/// height is NOT a polynomial function of the plane — a
+/// production-grade, exactly C²-compatible curved fixture. The lift
+/// must be rotation-symmetric (`lift(R·p) = lift(p)`) so sector 0's
+/// pieces rotate to the other sectors.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn cc_lifted_ring_border_pieces(
+    n: usize,
+    lift: impl Fn(f64, f64) -> f64,
+) -> Result<Vec<[[[Point3; 4]; 3]; 2]>, String> {
+    use super::cc_characteristic_ring::{cc_extended_subdivision_rows, cc_picking_vectors};
+    let ring = cc_characteristic_ring(n)?;
+
+    // Normalization, exactly as the planar extractor derives it.
+    let m_u = bspline_corner_value(&ring.grids[0]);
+    let m_v = bspline_corner_value(&ring.grids[2]);
+    let norm_sq = m_u[0] * m_u[0] + m_u[1] * m_u[1];
+    let zeta = [m_u[0] / norm_sq, -m_u[1] / norm_sq];
+    let conjugate = complex_mul(zeta, m_v)[1] < 0.0;
+    let normalize = |value: [f64; 2]| -> [f64; 2] {
+        let scaled = complex_mul(zeta, value);
+        if conjugate {
+            [scaled[0], -scaled[1]]
+        } else {
+            scaled
+        }
+    };
+
+    // Node-wise lifted 3D net, one CC subdivision, picked grids.
+    let net3: Vec<[f64; 3]> = ring
+        .extended_net
+        .iter()
+        .map(|value| {
+            let p = normalize(*value);
+            [p[0], p[1], lift(p[0], p[1])]
+        })
+        .collect();
+    let a_bar = cc_extended_subdivision_rows(n);
+    let refined3: Vec<[f64; 3]> = a_bar
+        .iter()
+        .map(|row| {
+            let mut acc = [0.0_f64; 3];
+            for (w, v) in row.iter().zip(&net3) {
+                acc[0] += w * v[0];
+                acc[1] += w * v[1];
+                acc[2] += w * v[2];
+            }
+            acc
+        })
+        .collect();
+    let picks = cc_picking_vectors(n);
+    let grid = |k: usize, r: usize, c: usize| -> [f64; 3] { refined3[picks[k][r * 4 + c] - 1] };
+
+    // Per-edge 4x3 windows, along/depth B-to-BB, cap-side reflection —
+    // the planar pipeline, run on three components.
+    let block = |omega_one: bool, reverse_along: bool| -> [[Point3; 4]; 3] {
+        let window = |a: usize, d: usize| -> [f64; 3] {
+            if omega_one {
+                grid(0, a, d)
+            } else {
+                grid(2, d, a)
+            }
+        };
+        let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
+        for axis in 0..3_usize {
+            let mut along_bb = [[0.0_f64; 4]; 3];
+            for (d, column) in along_bb.iter_mut().enumerate() {
+                let p = [
+                    window(0, d)[axis],
+                    window(1, d)[axis],
+                    window(2, d)[axis],
+                    window(3, d)[axis],
+                ];
+                *column = [
+                    (p[0] + 4.0 * p[1] + p[2]) / 6.0,
+                    (2.0 * p[1] + p[2]) / 3.0,
+                    (p[1] + 2.0 * p[2]) / 3.0,
+                    (p[1] + 4.0 * p[2] + p[3]) / 6.0,
+                ];
+            }
+            for (a, _) in (0..4_usize).enumerate() {
+                let source_a = if reverse_along { 3 - a } else { a };
+                let q0 =
+                    (along_bb[0][source_a] + 4.0 * along_bb[1][source_a] + along_bb[2][source_a])
+                        / 6.0;
+                let q1 = (2.0 * along_bb[1][source_a] + along_bb[2][source_a]) / 3.0;
+                let q2 = (along_bb[1][source_a] + 2.0 * along_bb[2][source_a]) / 3.0;
+                let values = [q0, 2.0 * q0 - q1, 4.0 * q0 - 4.0 * q1 + q2];
+                for (depth, value) in values.iter().enumerate() {
+                    match axis {
+                        0 => rows[depth][a].x = *value,
+                        1 => rows[depth][a].y = *value,
+                        _ => rows[depth][a].z = *value,
+                    }
+                }
+            }
+        }
+        rows
+    };
+    let near_c_rows = block(true, false);
+    let near_m_rows = block(false, true);
+
+    let alpha = core::f64::consts::TAU / n as f64;
+    let rotate3 = |rows: &[[Point3; 4]; 3], k: usize| -> [[Point3; 4]; 3] {
+        let rot = [(k as f64 * alpha).cos(), (k as f64 * alpha).sin()];
+        let mut out = *rows;
+        for row in out.iter_mut() {
+            for cp in row.iter_mut() {
+                *cp = Point3::new(
+                    cp.x * rot[0] - cp.y * rot[1],
+                    cp.x * rot[1] + cp.y * rot[0],
+                    cp.z,
+                );
+            }
+        }
+        out
+    };
+    Ok((0..n)
+        .map(|k| [rotate3(&near_c_rows, k), rotate3(&near_m_rows, k)])
+        .collect())
+}
+
 enum EdgeSelect {
     OmegaOne,
     OmegaThree,

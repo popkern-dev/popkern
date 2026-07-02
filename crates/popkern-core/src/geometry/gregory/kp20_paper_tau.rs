@@ -127,7 +127,8 @@ pub(crate) fn solve_kp20_paper_tau_raw(
 
 /// De Casteljau halves of one cubic BB row.
 fn split_cubic(row: [Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
-    let mid = |a: Point3, b: Point3| Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, 0.0);
+    let mid =
+        |a: Point3, b: Point3| Point3::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0, (a.z + b.z) / 2.0);
     let p01 = mid(row[0], row[1]);
     let p12 = mid(row[1], row[2]);
     let p23 = mid(row[2], row[3]);
@@ -154,57 +155,6 @@ fn reverse_border_piece(rows: &[[Point3; 4]; 3]) -> [[Point3; 4]; 3] {
         row.reverse();
     }
     out
-}
-
-/// Pin one reparameterized band onto a piece's outer rows.
-///
-/// `edge` selects which piece boundary is the rim (`true` = the `j = 6`
-/// band, `false` = the `i = 6` band); `reverse_along` maps the band's
-/// c→m parameter onto the piece's ascending index when they oppose.
-fn pin_band(
-    rows: &mut Vec<Kp20PlanarTauLinearConstraint>,
-    piece: Kp20PieceId,
-    band: &Kp20BoundaryHalf,
-    j_band: bool,
-    reverse_along: bool,
-) {
-    for depth in 0..3_usize {
-        for along in 0..7_usize {
-            let source = band.rows[depth][if reverse_along { 6 - along } else { along }];
-            let (i, j) = if j_band {
-                (along, 6 - depth)
-            } else {
-                (6 - depth, along)
-            };
-            rows.push(Kp20PlanarTauLinearConstraint::pin(
-                Kp20PlanarTauCoeff::new(piece, i, j),
-                [source.x, source.y],
-            ));
-        }
-    }
-}
-
-/// Replace pin pairs targeting the same coefficient with a single pin
-/// at the mean target (used for the corner-overlap 3×3).
-fn average_overlapping_pins(
-    primary: &mut [Kp20PlanarTauLinearConstraint],
-    secondary: &mut Vec<Kp20PlanarTauLinearConstraint>,
-) {
-    secondary.retain(|pin| {
-        let (coeff, _) = pin.terms[0];
-        if let Some(existing) = primary.iter_mut().find(|p| {
-            let (pc, _) = p.terms[0];
-            pc == coeff
-        }) {
-            existing.target = [
-                (existing.target[0] + pin.target[0]) / 2.0,
-                (existing.target[1] + pin.target[1]) / 2.0,
-            ];
-            false
-        } else {
-            true
-        }
-    });
 }
 
 /// Equation (14) border pins for the canonical sector under the chosen
@@ -234,42 +184,102 @@ pub(crate) fn kp20_paper_tau_border_pin_rows_with_d1_3(
     sector: &super::cc_characteristic_tensor_border::CcSectorBorder,
     d1_3: f64,
 ) -> Vec<Kp20PlanarTauLinearConstraint> {
+    kp20_paper_border_band_placements(n, &sector.near_c.rows, &sector.near_m.rows, d1_3)
+        .into_iter()
+        .map(|(piece, i, j, value)| {
+            Kp20PlanarTauLinearConstraint::pin(
+                Kp20PlanarTauCoeff::new(piece, i, j),
+                [value.x, value.y],
+            )
+        })
+        .collect()
+}
+
+/// Equation (14) border-band placements for one sector, shared by the
+/// τ solve (as pins) and the §4.4 cap assembly (as overwrites).
+///
+/// Accepted layout (WP2): each rim edge parameterized c→m, split at
+/// the macro seam, d⁰ on the c-half, d¹ reaching `d¹₃` at m; the
+/// corner-overlap 3×3 of the corner piece carries the two strips'
+/// AVERAGE (the unique diagonally-symmetric choice on cornered
+/// characteristic data; exact for smooth production borders where the
+/// two strips agree). Rejected alternatives are recorded
+/// falsifications: m→c parameterization (d¹₃ at the corner) and the
+/// two-whole-edges reading both break the otherwise-exact rotational
+/// G¹/G² closure; a per-edge d sign flip does the same.
+pub(crate) fn kp20_paper_border_band_placements(
+    n: usize,
+    near_c_rows: &[[Point3; 4]; 3],
+    near_m_rows: &[[Point3; 4]; 3],
+    d1_3: f64,
+) -> Vec<(Kp20PieceId, usize, usize, Point3)> {
     let c = (core::f64::consts::TAU / n as f64).cos();
     let (d0, d1) = kp20_eq14_border_d_profiles(c, d1_3);
-    let mut rows = Vec::with_capacity(4 * 21);
 
-    // Edge A: [c -> m^0] = reverse of the WP1b near_c piece; domain
-    // b = 1 line, a descending from c toward m^0.
-    let edge_a = reverse_border_piece(&sector.near_c.rows);
+    // Edge A: [c -> m^0] = reverse of the near_c piece ([m^0 -> c]);
+    // domain b = 1 line, a descending from c toward m^0.
+    let edge_a = reverse_border_piece(near_c_rows);
     let (a_c_half, a_m_half) = split_border_piece(&edge_a);
     let band_a_c = kp20_reparameterise_border_piece(a_c_half, d0);
     let band_a_m = kp20_reparameterise_border_piece(a_m_half, d1);
-    // Edge B: [c -> m^1] = the WP1b near_m piece as stored.
-    let edge_b = sector.near_m.rows;
-    let (b_c_half, b_m_half) = split_border_piece(&edge_b);
+    // Edge B: [c -> m^1] = the near_m piece as stored.
+    let (b_c_half, b_m_half) = split_border_piece(near_m_rows);
     let band_b_c = kp20_reparameterise_border_piece(b_c_half, d0);
     let band_b_m = kp20_reparameterise_border_piece(b_m_half, d1);
 
     // Bands run c->m while piece indices ascend toward c: reversed.
-    // The two strips overlap in P3's corner 3×3, where the cornered
-    // characteristic ring's two reflected prolongations genuinely
-    // disagree (measured ~0.149 at n = 5, purely in the
-    // S-antisymmetric part). The corner slots are pinned with the
-    // strips' AVERAGE — the unique diagonally-symmetric choice —
-    // which keeps the full pins + internal-C² + rotational-G system
-    // exactly feasible (the C² seams do not touch these slots). This
-    // is the one interpretive choice not printed in the paper; it is
-    // gated downstream by the cap-level WP4 measurements.
     let mut a_rows = Vec::new();
-    pin_band(&mut a_rows, P3, &band_a_c, true, true);
+    band_placements(&mut a_rows, P3, &band_a_c, true, true);
     let mut b_rows = Vec::new();
-    pin_band(&mut b_rows, P3, &band_b_c, false, true);
-    average_overlapping_pins(&mut a_rows, &mut b_rows);
+    band_placements(&mut b_rows, P3, &band_b_c, false, true);
+    average_overlapping_placements(&mut a_rows, &mut b_rows);
+    let mut rows = Vec::with_capacity(4 * 21);
     rows.extend(a_rows);
     rows.extend(b_rows);
-    pin_band(&mut rows, P4, &band_a_m, true, true);
-    pin_band(&mut rows, P2, &band_b_m, false, true);
+    band_placements(&mut rows, P4, &band_a_m, true, true);
+    band_placements(&mut rows, P2, &band_b_m, false, true);
     rows
+}
+
+fn band_placements(
+    rows: &mut Vec<(Kp20PieceId, usize, usize, Point3)>,
+    piece: Kp20PieceId,
+    band: &Kp20BoundaryHalf,
+    j_band: bool,
+    reverse_along: bool,
+) {
+    for depth in 0..3_usize {
+        for along in 0..7_usize {
+            let source = band.rows[depth][if reverse_along { 6 - along } else { along }];
+            let (i, j) = if j_band {
+                (along, 6 - depth)
+            } else {
+                (6 - depth, along)
+            };
+            rows.push((piece, i, j, source));
+        }
+    }
+}
+
+fn average_overlapping_placements(
+    primary: &mut [(Kp20PieceId, usize, usize, Point3)],
+    secondary: &mut Vec<(Kp20PieceId, usize, usize, Point3)>,
+) {
+    secondary.retain(|&(piece, i, j, value)| {
+        if let Some(existing) = primary
+            .iter_mut()
+            .find(|(p, pi, pj, _)| *p == piece && *pi == i && *pj == j)
+        {
+            existing.3 = Point3::new(
+                (existing.3.x + value.x) / 2.0,
+                (existing.3.y + value.y) / 2.0,
+                (existing.3.z + value.z) / 2.0,
+            );
+            false
+        } else {
+            true
+        }
+    });
 }
 
 // ---- Origin rows (Fig 8b pin + rotational fixpoint) ---------------------

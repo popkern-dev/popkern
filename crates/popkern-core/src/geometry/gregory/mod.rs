@@ -129,6 +129,9 @@ mod kp20_bi6_tau;
 mod kp20_bi6_tau_f3_solve;
 mod kp20_bi6_tau_solve_assemble;
 mod kp20_bi6_validate;
+mod kp20_paper_cap;
+mod kp20_paper_cap_measure;
+mod kp20_paper_cap_sample;
 mod kp20_paper_guide;
 mod kp20_paper_tau;
 mod kp20_paper_tau_measure;
@@ -327,6 +330,7 @@ pub use kp15_bi6_rules::{
 };
 pub use kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 pub use kp20_bi6_exports::*;
+pub use kp20_paper_cap::{Kp20PaperCapError, Kp20PaperCapReport, assemble_kp20_paper_cap};
 pub use kp20_paper_guide::{
     Kp20PaperGuideBorder, Kp20PaperGuideBorderPiece, Kp20PaperGuideOutput, solve_kp20_paper_guide,
 };
