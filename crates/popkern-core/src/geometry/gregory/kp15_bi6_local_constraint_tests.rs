@@ -1161,7 +1161,7 @@ fn global_constraint_matrix_rank_matches_paper_pre_rule5() {
     // each of eq (2) and eq (3)), the rank should drop to `15n`,
     // matching paper line 152's "15 linear equations" per edge.
     // That step lives in Phase D.
-    for n in [3usize, 5, 6, 7, 8] {
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let params = Bi6Reparams::for_valence(n);
         let (rows, cols, m) = super::global_constraint_matrix(n, &params);
         assert_eq!(rows, n * 18, "n={n}: row count mismatch");
@@ -1621,7 +1621,7 @@ fn transpose_side_mapping_central_quadratic_variable_tensor_seed_fixed_is_measur
 
 #[test]
 fn transpose_side_mapping_central_quadratic_variable_valence_sweep_is_measured() {
-    for n in [3usize, 5, 6, 7, 8] {
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let params = Bi6Reparams::for_valence(n);
         let sectors = spoke_indexed_planar_sectors(n);
         let q = f_kappa_quadratic_form(5);
@@ -1814,7 +1814,7 @@ fn phase_e2_table_driven_cap_satisfies_eq2_and_eq3_to_machine_zero() {
     // pins the improvement empirically across valences for both
     // constraint families.
     use crate::geometry::gregory::kp_polar_shared::catmull_clark_star_point;
-    for n in [3usize, 5, 6, 7, 8] {
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let polar = polar_input(n);
         let tb = synthetic_bi3_tensor_border(n);
         let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
@@ -1889,7 +1889,7 @@ fn phase_e3_table_driven_f5_satisfies_eq2_eq3_and_beats_existing_f5() {
 
     let q_local = f_kappa_quadratic_form(5);
 
-    for n in [3usize, 5, 6, 7, 8] {
+    for n in [3usize, 5, 6, 7, 8, 9, 10] {
         let polar = polar_input(n);
         let tb = synthetic_bi3_tensor_border(n);
         let cap_input = convert_polar_to_bi6_cap_input(&polar, &tb).unwrap();
