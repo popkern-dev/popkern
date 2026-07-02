@@ -169,13 +169,13 @@ pub struct Kp20GuideLsqOutput {
 }
 
 #[derive(Clone)]
-struct LinearRow {
-    terms: Vec<(usize, f64)>,
+pub(crate) struct LinearRow {
+    pub(crate) terms: Vec<(usize, f64)>,
 }
 
-struct ResidualRows {
-    rows: Vec<LinearRow>,
-    targets: [Vec<f64>; 3],
+pub(crate) struct ResidualRows {
+    pub(crate) rows: Vec<LinearRow>,
+    pub(crate) targets: [Vec<f64>; 3],
 }
 
 fn validate_tensor_border(t: &TensorBorderBi3) -> Result<(), Kp20GuideLsqError> {
@@ -246,7 +246,7 @@ fn cp(a: usize, b: usize) -> usize {
     flat_index(DEGREE, a, b)
 }
 
-fn constraint_rows(n: usize) -> Result<Vec<LinearRow>, Kp20GuideLsqError> {
+pub(crate) fn constraint_rows(n: usize) -> Result<Vec<LinearRow>, Kp20GuideLsqError> {
     let (_, w1, w2) =
         kp18_guide_join_weights(n).map_err(|_| Kp20GuideLsqError::UnsupportedValence(n))?;
     let mut rows = Vec::new();
@@ -333,12 +333,12 @@ fn eq(terms: &[(usize, usize, usize, usize, f64)]) -> LinearRow {
     }
 }
 
-struct AxisSolution {
-    values: Vec<f64>,
-    kkt_condition_number: f64,
+pub(crate) struct AxisSolution {
+    pub(crate) values: Vec<f64>,
+    pub(crate) kkt_condition_number: f64,
 }
 
-fn solve_axis(
+pub(crate) fn solve_axis(
     vars: usize,
     residuals: &ResidualRows,
     rhs: &[f64],
@@ -400,7 +400,7 @@ fn add_lagrange_row(
     }
 }
 
-fn independent_rows(vars: usize, rows: &[LinearRow]) -> Vec<LinearRow> {
+pub(crate) fn independent_rows(vars: usize, rows: &[LinearRow]) -> Vec<LinearRow> {
     let mut basis: Vec<Vec<f64>> = Vec::new();
     let mut keep = Vec::new();
     for row in rows {
@@ -471,7 +471,7 @@ fn row_value(row: &LinearRow, values: &[f64]) -> f64 {
     row.terms.iter().map(|&(i, w)| w * values[i]).sum()
 }
 
-fn var_index(sector: usize, cp: usize) -> usize {
+pub(crate) fn var_index(sector: usize, cp: usize) -> usize {
     sector * TRI6_CP_COUNT + cp
 }
 
