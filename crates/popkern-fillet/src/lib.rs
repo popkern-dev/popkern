@@ -100,7 +100,7 @@ pub use precheck::{
 };
 pub use preview::{
     CornerPatchPreview, PreviewEdgeGeometry, PreviewGeometry, preview_chamfer,
-    preview_corner_patches, preview_fillet,
+    preview_corner_patches, preview_fillet, preview_fillet_with_continuity,
 };
 pub use progress::*;
 pub use types::*;

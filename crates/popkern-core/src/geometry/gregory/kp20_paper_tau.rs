@@ -286,15 +286,23 @@ pub fn kp20_paper_border_corner_mismatch(
     let mut b_rows = Vec::new();
     band_placements(&mut b_rows, P3, &band_b_c, false, true);
     let mut worst = 0.0_f64;
+    let mut worst_slot = (0_usize, 0_usize);
     for &(piece, i, j, a_value) in &a_rows {
         for &(bp, bi, bj, b_value) in &b_rows {
             if piece == bp && i == bi && j == bj {
-                worst = worst
-                    .max((a_value.x - b_value.x).abs())
+                let d = (a_value.x - b_value.x)
+                    .abs()
                     .max((a_value.y - b_value.y).abs())
                     .max((a_value.z - b_value.z).abs());
+                if d > worst {
+                    worst = d;
+                    worst_slot = (i, j);
+                }
             }
         }
+    }
+    if std::env::var_os("KP20_CORNER_MISMATCH_TRACE").is_some() {
+        eprintln!("    corner mismatch worst at slot {worst_slot:?}: {worst:e}");
     }
     worst
 }

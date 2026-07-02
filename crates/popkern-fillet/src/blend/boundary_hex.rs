@@ -62,6 +62,20 @@ pub(super) fn reorient_arcs_for_hex_closure(
     // accidentally match an endpoint against an unrelated
     // distant face.
     let tol_slack = tol_linear.max(1e-5) * 10.0;
+
+    // Valence >= 4: the successor walk below mispairs arcs whose
+    // endpoints crowd around the apex (measured on the pentagonal
+    // pyramid: it emits a star polygon whose bridges cross the apex
+    // axis). Adjacency around a convex vertex figure is an ANGULAR
+    // property; order and orient the arcs by angle about the
+    // endpoint centroid's best-fit axis instead. The walk is kept
+    // for n <= 3, where it is validated by the cube hex-closure
+    // fixtures (and where wrong-end pairing is benign — a triangle's
+    // reversed traversal still closes a simple hexagon).
+    if n >= 4 {
+        return angular_arc_ordering(fillet_arcs, fillet_endpoints);
+    }
+
     let mut order = vec![0usize; n];
     let mut flip = vec![false; n];
     let mut used = vec![false; n];
@@ -158,6 +172,80 @@ pub(super) fn reorient_arcs_for_hex_closure(
         })
         .collect();
 
+    Some((order, flip, oriented_arcs))
+}
+
+/// Angular ordering for valence >= 4: sort arcs by the angle of
+/// their midpoint direction about the endpoint centroid's best-fit
+/// axis, and orient each arc counterclockwise in that frame.
+fn angular_arc_ordering(
+    fillet_arcs: &[NurbsCurve],
+    fillet_endpoints: &[[Point3; 2]],
+) -> Option<(Vec<usize>, Vec<bool>, Vec<NurbsCurve>)> {
+    use popkern_core::geometry::curve::CurveEval;
+    let n = fillet_arcs.len();
+    // Centroid of all endpoints.
+    let mut c = [0.0_f64; 3];
+    for ep in fillet_endpoints {
+        for p in ep {
+            c[0] += p.x;
+            c[1] += p.y;
+            c[2] += p.z;
+        }
+    }
+    let count = (2 * n) as f64;
+    let centroid = Point3::new(c[0] / count, c[1] / count, c[2] / count);
+    // Best-fit axis from summed cross products of endpoint spokes.
+    let mut axis = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+    for ep in fillet_endpoints {
+        let a = ep[0] - centroid;
+        let b = ep[1] - centroid;
+        axis = axis + a.cross(&b);
+    }
+    let axis = axis.normalized()?;
+    // In-plane frame.
+    let seed = fillet_endpoints[0][0] - centroid;
+    let u0 = (seed - axis * seed.dot(&axis)).normalized()?;
+    let v0 = axis.cross(&u0);
+    let angle_of = |p: Point3| -> f64 {
+        let d = p - centroid;
+        d.dot(&v0).atan2(d.dot(&u0))
+    };
+    let mut keyed: Vec<(f64, usize)> = (0..n)
+        .map(|k| {
+            let (t0, t1) = fillet_arcs[k].parameter_range();
+            let mid = fillet_arcs[k].point_at(0.5 * (t0 + t1));
+            (angle_of(mid), k)
+        })
+        .collect();
+    keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let order: Vec<usize> = keyed.iter().map(|&(_, k)| k).collect();
+    // Orient each arc counterclockwise: the signed angular step from
+    // start to end (wrapped to (-pi, pi]) must be positive.
+    let mut flip = vec![false; n];
+    for (slot, &k) in order.iter().enumerate() {
+        let a0 = angle_of(fillet_endpoints[k][0]);
+        let a1 = angle_of(fillet_endpoints[k][1]);
+        let mut step = a1 - a0;
+        while step > core::f64::consts::PI {
+            step -= core::f64::consts::TAU;
+        }
+        while step <= -core::f64::consts::PI {
+            step += core::f64::consts::TAU;
+        }
+        flip[slot] = step < 0.0;
+    }
+    let oriented_arcs: Vec<NurbsCurve> = order
+        .iter()
+        .zip(&flip)
+        .map(|(&k, &fl)| {
+            if fl {
+                reverse_nurbs_curve(&fillet_arcs[k])
+            } else {
+                fillet_arcs[k].clone()
+            }
+        })
+        .collect();
     Some((order, flip, oriented_arcs))
 }
 

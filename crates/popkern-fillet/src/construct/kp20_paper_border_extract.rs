@@ -113,38 +113,33 @@ pub fn kp20_paper_border_from_blend_boundary(
         / segment_count as f64;
     let depth = 0.8 * mean_chord;
 
-    // Junction-harmonized transversal directions: the ring march
-    // direction is a PARAMETERIZATION choice (the paper's ρ freedom).
-    // Using each surface's natural direction leaves the two sides of
-    // every junction with incompatible cross-rows on G¹ input; instead,
-    // average the two sides' natural directions at every junction and
-    // blend along each piece, projecting marches back onto the true
-    // surfaces so the rows still sample real ring geometry.
-    let mut junction_dirs: Vec<Vec3> = Vec::with_capacity(segment_count);
-    for k in 0..segment_count {
-        let previous = &curves[(k + segment_count - 1) % segment_count];
-        let this = &curves[k];
-        let p = this.start();
-        let d_prev =
-            previous.natural_march_direction(p, previous.tangent(1.0), boundary.vertex_position);
-        let d_this = this.natural_march_direction(p, this.tangent(0.0), boundary.vertex_position);
-        let sum = d_prev + d_this;
-        junction_dirs.push(sum.normalized().unwrap_or(d_this));
-    }
+    // Pass 1: rim rows for every segment.
+    let rims: Vec<[Point3; 4]> = curves.iter().map(|segment| segment.rim_row()).collect();
 
+    // Pass 2: cross rows from a blended leg-vector march. At each
+    // junction the march vector is the NEIGHBOR's adjacent rim leg
+    // continued through the junction (direction AND magnitude), so
+    // the reflected cross rows reproduce the neighbor's rim there —
+    // the discrete L-corner condition the characteristic border
+    // satisfies natively. Interior columns blend linearly and are
+    // projected onto the owning surface, keeping the rows honest
+    // ring samples at a junction-consistent parameterization.
     let mut first_order_marches = 0_usize;
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
-        let piece_a = curves[2 * k].border_piece(
-            depth,
-            junction_dirs[2 * k],
-            junction_dirs[(2 * k + 1) % segment_count],
-            &mut first_order_marches,
-        );
+        let march_vectors = |index: usize| -> (Vec3, Vec3) {
+            let previous = &rims[(index + segment_count - 1) % segment_count];
+            let next = &rims[(index + 1) % segment_count];
+            (previous[3] - previous[2], next[0] - next[1])
+        };
+        let (a_start, a_end) = march_vectors(2 * k);
+        let piece_a =
+            curves[2 * k].border_piece(&rims[2 * k], a_start, a_end, &mut first_order_marches);
+        let (b_start, b_end) = march_vectors(2 * k + 1);
         let piece_b = curves[2 * k + 1].border_piece(
-            depth,
-            junction_dirs[(2 * k + 1) % segment_count],
-            junction_dirs[(2 * k + 2) % segment_count],
+            &rims[2 * k + 1],
+            b_start,
+            b_end,
             &mut first_order_marches,
         );
         // Sector rows run [m^k → c] then [c → m^{k+1}]: the FilletEnd
@@ -153,6 +148,34 @@ pub fn kp20_paper_border_from_blend_boundary(
             Kp20PaperGuideBorderPiece { rows: piece_a },
             Kp20PaperGuideBorderPiece { rows: piece_b },
         ]);
+    }
+
+    // Discrete L-corner reconciliation at every junction (the
+    // condition the characteristic border satisfies natively): the
+    // cap-side reflected cross rows of each piece at a junction must
+    // equal the NEIGHBOR's rim rows — a single corner patch's rows
+    // and columns interchange at its corner. Only the
+    // junction-adjacent control points move; interior columns keep
+    // their surface-sampled values.
+    let mut all_pieces: Vec<[[Point3; 4]; 3]> = sectors
+        .iter()
+        .flat_map(|sector| [sector[0].rows, sector[1].rows])
+        .collect();
+    for j in 0..segment_count {
+        let p_index = (j + segment_count - 1) % segment_count;
+        let q_index = j;
+        let p_rim = all_pieces[p_index][0];
+        let q_rim = all_pieces[q_index][0];
+        // Incoming piece P ends at column 3; outgoing piece Q starts
+        // at column 0.
+        all_pieces[p_index][1][3] = q_rim[1];
+        all_pieces[p_index][2][3] = q_rim[2];
+        all_pieces[q_index][1][0] = p_rim[2];
+        all_pieces[q_index][2][0] = p_rim[1];
+    }
+    for (k, sector) in sectors.iter_mut().enumerate() {
+        sector[0].rows = all_pieces[2 * k];
+        sector[1].rows = all_pieces[2 * k + 1];
     }
 
     Ok((
@@ -225,11 +248,6 @@ impl OrientedSegment {
         self.curve.point_at(self.parameter(t))
     }
 
-    fn tangent(&self, t: f64) -> Vec3 {
-        let raw = self.curve.tangent_at(self.parameter(t));
-        if self.reversed { -raw } else { raw }
-    }
-
     fn start(&self) -> Point3 {
         self.point(0.0)
     }
@@ -238,56 +256,45 @@ impl OrientedSegment {
         self.point(1.0)
     }
 
-    /// Unit in-surface transversal at `p` pointing away from the
-    /// blend vertex (the surface's natural march direction).
-    fn natural_march_direction(&self, p: Point3, boundary_tangent: Vec3, vertex: Point3) -> Vec3 {
-        match &self.surface {
-            SurfaceGeometry::Cylinder { axis, .. } => {
-                let dir = if axis.dot(&(p - vertex)) >= 0.0 {
-                    *axis
-                } else {
-                    -*axis
-                };
-                dir.normalized().unwrap_or(dir)
-            }
-            _ => {
-                let normal =
-                    surface_normal_near(&self.surface, p).unwrap_or(Vec3::new(0.0, 0.0, 1.0));
-                in_surface_away_direction(p, boundary_tangent, normal, vertex)
-            }
-        }
+    /// Rim row: cubic through four curve samples at t = 0, 1/3, 2/3,
+    /// 1 (endpoint-tangent Hermite is unreliable on the boundary
+    /// NURBS, whose end derivatives are not chord-scaled).
+    fn rim_row(&self) -> [Point3; 4] {
+        let p0 = self.point(0.0);
+        let q1 = self.point(1.0 / 3.0);
+        let q2 = self.point(2.0 / 3.0);
+        let p3 = self.point(1.0);
+        let interior = |a: f64, b: f64, c: f64, d: f64| {
+            Point3::new(
+                (a * p0.x + b * q1.x + c * q2.x + d * p3.x) / 6.0,
+                (a * p0.y + b * q1.y + c * q2.y + d * p3.y) / 6.0,
+                (a * p0.z + b * q1.z + c * q2.z + d * p3.z) / 6.0,
+            )
+        };
+        [
+            p0,
+            interior(-5.0, 18.0, -9.0, 2.0),
+            interior(2.0, -9.0, 18.0, -5.0),
+            p3,
+        ]
     }
 
-    /// Bi-3 depth-2 border piece: row 0 is a cubic Hermite fit of the
-    /// segment; rows 1..2 are the cap-side C² prolongation of ring
-    /// marches along junction-harmonized directions, projected onto
-    /// the owning surface.
+    /// Bi-3 depth-2 border piece: rows 1..2 are the cap-side C²
+    /// prolongation of ring marches along the blended leg-vector
+    /// field, projected onto the owning surface.
     fn border_piece(
         &self,
-        depth: f64,
-        start_dir: Vec3,
-        end_dir: Vec3,
+        row0: &[Point3; 4],
+        start_vec: Vec3,
+        end_vec: Vec3,
         first_order_marches: &mut usize,
     ) -> [[Point3; 4]; 3] {
-        // Row 0: cubic Hermite from endpoints + endpoint tangents
-        // (parameterization-honest: tangents scaled by the segment's
-        // own parameter speed over [0, 1]).
-        let p0 = self.point(0.0);
-        let p3 = self.point(1.0);
-        let m0 = self.tangent(0.0);
-        let m1 = self.tangent(1.0);
-        let (t0, t1) = self.curve.parameter_range();
-        let speed = (t1 - t0).abs();
-        let row0 = [p0, p0 + m0 * (speed / 3.0), p3 - m1 * (speed / 3.0), p3];
-
-        // Ring marches at each row-0 control point along the blended
-        // junction direction, projected onto the owning surface.
+        let row0 = *row0;
         let mut rows = [row0, row0, row0];
         for (index, &q0) in row0.iter().enumerate() {
             let blend = index as f64 / 3.0;
-            let mixed = start_dir * (1.0 - blend) + end_dir * blend;
-            let dir = mixed.normalized().unwrap_or(start_dir);
-            let (q1, q2) = self.ring_march(q0, dir, depth, first_order_marches);
+            let v = start_vec * (1.0 - blend) + end_vec * blend;
+            let (q1, q2) = self.ring_march_vector(q0, v, first_order_marches);
             // Cap-side C² prolongation (WP1b convention):
             // r1 = 2 q0 − q1, r2 = 4 q0 − 4 q1 + q2.
             rows[1][index] = Point3::new(2.0 * q0.x - q1.x, 2.0 * q0.y - q1.y, 2.0 * q0.z - q1.z);
@@ -300,20 +307,19 @@ impl OrientedSegment {
         rows
     }
 
-    /// March into the ring along `dir` on the owning surface:
-    /// returns surface points near depth/3 and 2·depth/3 (exact
-    /// in-plane; radially projected onto cylinders; tangent-plane
-    /// first-order otherwise).
-    fn ring_march(
+    /// March into the ring by the leg vector `v` on the owning
+    /// surface: returns surface points near `q0 + v` and `q0 + 2v`
+    /// (exact in-plane; radially projected onto cylinders;
+    /// closest-point-projected onto NURBS; tangent-plane first-order
+    /// otherwise).
+    fn ring_march_vector(
         &self,
         q0: Point3,
-        dir: Vec3,
-        depth: f64,
+        v: Vec3,
         first_order_marches: &mut usize,
     ) -> (Point3, Point3) {
-        let step = depth / 3.0;
-        let raw1 = q0 + dir * step;
-        let raw2 = q0 + dir * (2.0 * step);
+        let raw1 = q0 + v;
+        let raw2 = q0 + v * 2.0;
         match &self.surface {
             SurfaceGeometry::Plane { origin, normal, .. } => {
                 let snap = |p: Point3| {
@@ -337,36 +343,29 @@ impl OrientedSegment {
                 };
                 (snap(raw1), snap(raw2))
             }
+            SurfaceGeometry::Nurbs(nurbs) => {
+                // Snap the march onto the NURBS sweep via closest-point
+                // projection (second-order accurate ring sampling).
+                use popkern_core::geometry::surface::SurfaceEval;
+                use popkern_core::geometry::uv_projection::project_point_to_uv;
+                let snap = |p: Point3| -> Option<Point3> {
+                    let (u, v) = project_point_to_uv(&self.surface, &p)?;
+                    Some(nurbs.point_at(u, v))
+                };
+                match (snap(raw1), snap(raw2)) {
+                    (Some(q1), Some(q2)) => (q1, q2),
+                    _ => {
+                        *first_order_marches += 1;
+                        (raw1, raw2)
+                    }
+                }
+            }
             _ => {
                 *first_order_marches += 1;
                 (raw1, raw2)
             }
         }
     }
-}
-
-/// Unit direction in the tangent plane, perpendicular to the boundary
-/// tangent, pointing away from the blend vertex.
-fn in_surface_away_direction(
-    q0: Point3,
-    boundary_tangent: Vec3,
-    normal: Vec3,
-    vertex: Point3,
-) -> Vec3 {
-    let side = normal.cross(&boundary_tangent);
-    let unit = side.normalized().unwrap_or(side);
-    if unit.dot(&(q0 - vertex)) >= 0.0 {
-        unit
-    } else {
-        -unit
-    }
-}
-
-fn surface_normal_near(surface: &SurfaceGeometry, point: Point3) -> Option<Vec3> {
-    use popkern_core::geometry::surface::SurfaceEval;
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-    let uv = project_point_to_uv(surface, &point)?;
-    Some(surface.normal_at(uv.0, uv.1))
 }
 
 fn loop_centroid(curves: &[OrientedSegment]) -> Point3 {

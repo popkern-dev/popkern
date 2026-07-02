@@ -1,18 +1,17 @@
 //! KP20 paper cap on REAL fillet data: a pentagonal pyramid's apex.
 //!
-//! Pipeline: pentagonal pyramid → rolling-ball fillets on the five
-//! apex edges (`preview_fillet`) → apex blend boundary (the 2n
-//! alternating fillet-end / face-edge segments) → PK-090 two-piece
-//! border extraction with exact cylinder/plane ring marches →
-//! §4.4 paper cap assembly → STEP + OBJ (cap plus the surrounding
-//! ring collar reconstructed from the border's ring-side rows).
+//! Pipeline: pentagonal pyramid → G² fillet sweeps on the five apex
+//! edges (`preview_fillet_with_continuity`, degree-5 curvature-
+//! matched cross-sections) → apex blend boundary (2n alternating
+//! fillet-end / face-edge segments) → PK-090 two-piece border
+//! extraction with surface-projected ring marches → §4.4 paper cap
+//! assembly → STEP for the cap, plus a WHOLE-OBJECT render: the full
+//! `fillet_edges` BRep (G² options) tessellated with its own apex
+//! cap faces removed and the paper cap merged in their place.
 //!
-//! The printed report is the honest story: the cap's internal gates
-//! (fold-free, regularity) and the G¹/G² residuals against the real
-//! border. Rolling-ball fillets meet the faces with G¹ contact only,
-//! so cross-junction G² residuals reflect the INPUT's smoothness
-//! class, not an assembly defect — full G² end-to-end needs the G²
-//! fillet sweep (`ContinuityLevel::G2`) feeding this same path.
+//! The printed report is the honest story: the extraction evidence,
+//! the input corner mismatch at `c`, and the cap's residuals against
+//! the real border.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -31,7 +30,10 @@ use popkern_core::topology::BRep;
 use popkern_fillet::blend::compute_blend_boundary;
 use popkern_fillet::construct::kp20_paper_border_extract::kp20_paper_border_from_blend_boundary;
 use popkern_fillet::fillet_surface::FilletSurfaceResult;
-use popkern_fillet::{FilletRadius, FilletSpec, preview_fillet};
+use popkern_fillet::{
+    ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    preview_fillet_with_continuity,
+};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepProductNode, UnitContext, export_step_file,
@@ -76,14 +78,20 @@ fn run() {
         .collect();
     println!("apex has {} incident edges", apex_edges.len());
 
+    let radius: f64 = std::env::var("KP20_APEX_RADIUS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.12);
+    println!("fillet radius {radius}");
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
         .map(|&edge| FilletSpec {
             edge,
-            radius: FilletRadius::Constant(0.12),
+            radius: FilletRadius::Constant(radius),
         })
         .collect();
-    let preview = preview_fillet(&pyramid, &specs, tol).expect("fillet preview");
+    let preview = preview_fillet_with_continuity(&pyramid, &specs, tol, ContinuityLevel::G2)
+        .expect("fillet preview");
     assert!(
         preview.all_succeeded(),
         "preview failures: {:?}",
@@ -103,11 +111,37 @@ fn run() {
     let boundary = compute_blend_boundary(apex, &indices, &fillet_surfaces, &pyramid, &tol)
         .expect("blend boundary");
     println!(
-        "blend boundary: {} segments around vertex at z={:.3}",
+        "blend boundary: {} segments around vertex at z={:.3}, bridge_fallbacks={:?}, sphere_fit={}",
         boundary.segments.len(),
         boundary.vertex_position.z,
+        boundary.bridge_fallbacks,
+        boundary.sphere_fit_substituted,
     );
 
+    for (k, segment) in boundary.segments.iter().enumerate() {
+        use popkern_core::geometry::curve::CurveEval;
+        let (label, curve) = match segment {
+            popkern_fillet::blend::BoundarySegment::FilletEnd {
+                fillet_index,
+                curve,
+            } => (format!("FilletEnd[{fillet_index}]"), curve),
+            popkern_fillet::blend::BoundarySegment::FaceEdge { curve, .. } => {
+                ("FaceEdge".to_string(), curve)
+            }
+        };
+        let (t0, t1) = curve.parameter_range();
+        let a = curve.point_at(t0);
+        let b = curve.point_at(t1);
+        println!(
+            "  raw seg {k:2} {label:14} ({:6.3},{:6.3}) -> ({:6.3},{:6.3})  atan2 {:6.1} -> {:6.1}",
+            a.x,
+            a.y,
+            b.x,
+            b.y,
+            a.y.atan2(a.x).to_degrees(),
+            b.y.atan2(b.x).to_degrees(),
+        );
+    }
     let (border, extract_report) =
         kp20_paper_border_from_blend_boundary(&boundary, &fillet_surfaces, &pyramid)
             .expect("two-piece border extraction");
@@ -131,6 +165,64 @@ fn run() {
         ));
     }
     println!("input corner mismatch at c: {corner_mismatch:.3e}");
+    // PROBE: raw geometry of sector 0's two pieces.
+    for (label, rows) in [
+        ("piece A (FilletEnd)", &border.sectors[0][0].rows),
+        ("piece B (FaceEdge)", &border.sectors[0][1].rows),
+    ] {
+        let r = &rows[0];
+        println!(
+            "  {label} row0: ({:.3},{:.3},{:.3}) ({:.3},{:.3},{:.3}) ({:.3},{:.3},{:.3}) ({:.3},{:.3},{:.3})",
+            r[0].x,
+            r[0].y,
+            r[0].z,
+            r[1].x,
+            r[1].y,
+            r[1].z,
+            r[2].x,
+            r[2].y,
+            r[2].z,
+            r[3].x,
+            r[3].y,
+            r[3].z,
+        );
+    }
+    // Rim turning angles at the two junction types (m = sector
+    // boundaries, c = in-sector corners), from the extracted row-0
+    // cubics. The characteristic layout expects ~100-115 deg turns
+    // at c; near-zero turns mean the shape class fights g∘χ̃.
+    for (label, junction) in [("m", 0_usize), ("c", 1_usize)] {
+        let mut worst: f64 = 0.0;
+        let mut sum = 0.0;
+        for (k, sector) in border.sectors.iter().enumerate() {
+            let (incoming, outgoing) = if junction == 1 {
+                (sector[0].rows[0], sector[1].rows[0])
+            } else {
+                let previous = &border.sectors[(k + n - 1) % n];
+                (previous[1].rows[0], sector[0].rows[0])
+            };
+            let ta = [
+                incoming[3].x - incoming[2].x,
+                incoming[3].y - incoming[2].y,
+                incoming[3].z - incoming[2].z,
+            ];
+            let tb = [
+                outgoing[1].x - outgoing[0].x,
+                outgoing[1].y - outgoing[0].y,
+                outgoing[1].z - outgoing[0].z,
+            ];
+            let na = (ta[0] * ta[0] + ta[1] * ta[1] + ta[2] * ta[2]).sqrt();
+            let nb = (tb[0] * tb[0] + tb[1] * tb[1] + tb[2] * tb[2]).sqrt();
+            let cosv = (ta[0] * tb[0] + ta[1] * tb[1] + ta[2] * tb[2]) / (na * nb);
+            let angle = cosv.clamp(-1.0, 1.0).acos().to_degrees();
+            worst = worst.max(angle);
+            sum += angle;
+        }
+        println!(
+            "  input rim turn at {label}: mean {:.1} deg, worst {worst:.1} deg",
+            sum / n as f64,
+        );
+    }
 
     // Cap centre: pull the boundary centroid toward the original
     // apex. The pull factor is a shape parameter; sweep it and keep
@@ -203,6 +295,92 @@ fn run() {
     let obj_path = out.join("kp20_pyramid_apex_cap.obj");
     write_scene_obj(&bi9_grids, &border, &obj_path).expect("OBJ export");
     println!("wrote {}", obj_path.display());
+
+    // Whole object: run the real fillet pipeline (G² options), drop
+    // its own apex cap faces from the tessellation, and merge the
+    // paper cap into the hole.
+    let options = FilletOptions {
+        continuity: ContinuityLevel::G2,
+        ..FilletOptions::default()
+    };
+    let filleted = fillet_edges(&pyramid, &specs, &options, tol, None).expect("fillet_edges");
+    println!(
+        "fillet_edges: {} faces, {} corner patches, {} warnings",
+        filleted.brep.faces.len(),
+        filleted.corner_patches.len(),
+        filleted.edge_warnings.len(),
+    );
+    let excluded: Vec<_> = filleted
+        .corner_patches
+        .iter()
+        .map(|patch| patch.face)
+        .collect();
+    let mesh = popkern_mesh::tessellate(
+        &filleted.brep,
+        &popkern_mesh::TessellationOptions {
+            chord_height: 5.0e-4,
+            min_subdivisions: 12,
+            max_subdivisions: 64,
+        },
+    )
+    .expect("tessellate filleted BRep");
+    let whole_path = out.join("kp20_pyramid_apex_whole.obj");
+    write_whole_object_obj(&mesh, &excluded, &bi9_grids, &whole_path).expect("whole OBJ");
+    println!("wrote {}", whole_path.display());
+}
+
+/// Whole-object OBJ: the tessellated filleted BRep minus the
+/// pipeline's own apex cap faces, plus the paper cap patches.
+fn write_whole_object_obj(
+    mesh: &popkern_mesh::TriMesh,
+    excluded_faces: &[popkern_core::topology::FaceHandle],
+    bi9_grids: &[[[Point3; 10]; 10]],
+    path: &Path,
+) -> Result<(), std::io::Error> {
+    use std::io::Write;
+    let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
+    writeln!(
+        file,
+        "# filleted pentagonal pyramid with the KP20 paper cap"
+    )?;
+    for v in &mesh.vertices {
+        writeln!(file, "v {} {} {}", v.position.x, v.position.y, v.position.z)?;
+        writeln!(file, "vn {} {} {}", v.normal.x, v.normal.y, v.normal.z)?;
+    }
+    writeln!(file, "g filleted_brep")?;
+    for (triangle, face) in mesh.triangles.iter().zip(&mesh.face_map) {
+        if excluded_faces.contains(face) {
+            continue;
+        }
+        let [a, b, c] = [triangle[0] + 1, triangle[1] + 1, triangle[2] + 1];
+        writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+    }
+    let mut base = mesh.vertices.len() + 1;
+    const SAMPLES: usize = 33;
+    for (index, grid) in bi9_grids.iter().enumerate() {
+        let patch = RectangularGregoryBiNonic { grid: *grid };
+        for i in 0..SAMPLES {
+            for j in 0..SAMPLES {
+                let u = i as f64 / (SAMPLES - 1) as f64;
+                let v = j as f64 / (SAMPLES - 1) as f64;
+                let p = patch.point_at(u, v);
+                let du = patch.partial_u(u, v);
+                let dv = patch.partial_v(u, v);
+                let raw = du.cross(&dv);
+                let len = raw.length();
+                let nrm = if len > 1.0e-12 {
+                    popkern_core::geometry::Vec3::new(raw.x / len, raw.y / len, raw.z / len)
+                } else {
+                    popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0)
+                };
+                writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
+                writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
+            }
+        }
+        writeln!(file, "g paper_cap_{index}")?;
+        base = emit_grid_faces(&mut file, base, SAMPLES, SAMPLES)?;
+    }
+    Ok(())
 }
 
 fn border_centroid(border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder) -> Point3 {

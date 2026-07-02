@@ -32,10 +32,6 @@ use super::kp20_paper_guide::{Kp20PaperGuideBorder, solve_kp20_paper_guide};
 use super::kp20_paper_tau::{kp20_paper_border_band_placements, solve_kp20_paper_tau};
 use crate::geometry::Point3;
 
-const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
-const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
-const P4: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
-
 /// Assembled paper cap with measured postconditions.
 #[derive(Debug, Clone)]
 pub struct Kp20PaperCapReport {

@@ -96,6 +96,22 @@ pub fn preview_fillet(
     specs: &[FilletSpec],
     tolerance: Tolerance,
 ) -> Result<PreviewGeometry, BlendError> {
+    // Preview defaults to G1 — cheap UI feedback; the G2 path is for
+    // commit-quality output and callers that consume the surfaces
+    // geometrically (see `preview_fillet_with_continuity`).
+    preview_fillet_with_continuity(brep, specs, tolerance, crate::types::ContinuityLevel::G1)
+}
+
+/// [`preview_fillet`] with an explicit continuity level. `G2` routes
+/// each edge through the curvature-continuous degree-5 sweep, so the
+/// returned surfaces carry the curvature data the KP20 paper-cap
+/// border extraction needs.
+pub fn preview_fillet_with_continuity(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    tolerance: Tolerance,
+    continuity: crate::types::ContinuityLevel,
+) -> Result<PreviewGeometry, BlendError> {
     validate::validate_fillet_specs(brep, specs)?;
 
     let edges: Vec<_> = specs.iter().map(|s| s.edge).collect();
@@ -109,14 +125,12 @@ pub fn preview_fillet(
         if i >= analyses.len() {
             continue;
         }
-        // Preview always uses G1 — preview is for cheap UI feedback
-        // and the G2 path is for commit-quality output.
         match compute_fillet_geometry(
             &analyses[i],
             &spec.radius,
             brep,
             &tolerance,
-            crate::types::ContinuityLevel::G1,
+            continuity,
             crate::types::CapKind::Open,
         ) {
             Ok(geom) => per_edge.push(edge_geometry_to_preview(spec.edge, geom)),
