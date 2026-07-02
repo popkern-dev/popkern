@@ -261,6 +261,44 @@ fn band_placements(
     }
 }
 
+/// Corner-compatibility measure for one sector's two border pieces:
+/// the maximum disagreement between the two eq (14) bands on the
+/// corner piece's overlapping 3×3 block at `c`. Zero (to roundoff)
+/// exactly when the two pieces are Hermite data of ONE surface patch
+/// cornered at `c` (e.g., a subdivision-ring extraction); large
+/// values flag invalid input such as a smooth cubic split at its
+/// parameter midpoint, whose averaged corner bands kink the cap rim.
+pub fn kp20_paper_border_corner_mismatch(
+    n: usize,
+    near_c_rows: &[[Point3; 4]; 3],
+    near_m_rows: &[[Point3; 4]; 3],
+    d1_3: f64,
+) -> f64 {
+    let c = (core::f64::consts::TAU / n as f64).cos();
+    let (d0, _) = kp20_eq14_border_d_profiles(c, d1_3);
+    let edge_a = reverse_border_piece(near_c_rows);
+    let (a_c_half, _) = split_border_piece(&edge_a);
+    let band_a_c = kp20_reparameterise_border_piece(a_c_half, d0);
+    let (b_c_half, _) = split_border_piece(near_m_rows);
+    let band_b_c = kp20_reparameterise_border_piece(b_c_half, d0);
+    let mut a_rows = Vec::new();
+    band_placements(&mut a_rows, P3, &band_a_c, true, true);
+    let mut b_rows = Vec::new();
+    band_placements(&mut b_rows, P3, &band_b_c, false, true);
+    let mut worst = 0.0_f64;
+    for &(piece, i, j, a_value) in &a_rows {
+        for &(bp, bi, bj, b_value) in &b_rows {
+            if piece == bp && i == bi && j == bj {
+                worst = worst
+                    .max((a_value.x - b_value.x).abs())
+                    .max((a_value.y - b_value.y).abs())
+                    .max((a_value.z - b_value.z).abs());
+            }
+        }
+    }
+    worst
+}
+
 fn average_overlapping_placements(
     primary: &mut [(Kp20PieceId, usize, usize, Point3)],
     secondary: &mut Vec<(Kp20PieceId, usize, usize, Point3)>,

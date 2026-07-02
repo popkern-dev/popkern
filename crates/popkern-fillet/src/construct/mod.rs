@@ -23,6 +23,7 @@ pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcur
 mod apex_termination_spike;
 pub(crate) mod helpers;
 mod kp13_bi5_promote;
+pub mod kp20_paper_border_extract;
 mod kp20_polar_bi6_split;
 mod kp20_polar_comparison;
 mod kp20_polar_diagnostics;

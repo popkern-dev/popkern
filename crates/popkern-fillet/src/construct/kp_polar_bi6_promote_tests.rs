@@ -19,7 +19,7 @@ use super::{extract_fillet_radius, promote_decomp_to_kp_polar_bi6};
 use crate::construct::kp20_polar_dispatch::try_kp20_polar_macro_candidate;
 use crate::fillet_surface::FilletSurfaceResult;
 use popkern_core::geometry::Point3;
-use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryTwoStripe, TensorBorderBi3};
+use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryTwoStripe};
 
 fn pt(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
@@ -47,29 +47,6 @@ fn synthetic_ring(n: usize) -> Vec<GregoryPatch> {
             GregoryPatch::RectangularTwoStripe(Box::new(RectangularGregoryTwoStripe { grid }))
         })
         .collect()
-}
-
-fn kp20_tensor_sector(offset: f64) -> [[Point3; 4]; 3] {
-    [
-        [
-            pt(offset + 0.0, 0.0, 0.0),
-            pt(offset + 1.0, 0.0, 0.0),
-            pt(offset + 2.0, 0.0, 0.0),
-            pt(offset + 3.0, 0.0, 0.0),
-        ],
-        [
-            pt(offset + 0.0, 1.0, 0.0),
-            pt(offset + 1.0, 1.0, 0.0),
-            pt(offset + 2.0, 1.0, 0.0),
-            pt(offset + 3.0, 1.0, 0.0),
-        ],
-        [
-            pt(offset + 0.0, 2.0, 0.0),
-            pt(offset + 1.0, 2.0, 0.0),
-            pt(offset + 2.0, 2.0, 0.0),
-            pt(offset + 3.0, 2.0, 0.0),
-        ],
-    ]
 }
 
 #[test]

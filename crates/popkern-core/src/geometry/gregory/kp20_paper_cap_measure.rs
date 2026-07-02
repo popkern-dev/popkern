@@ -139,6 +139,7 @@ pub(crate) fn measure_paper_cap(
         max_border_residual: max_border,
         lemma4_delta: lemma4,
         max_strip_movement,
+        input_corner_mismatch: 0.0,
         min_regularity,
     }
 }

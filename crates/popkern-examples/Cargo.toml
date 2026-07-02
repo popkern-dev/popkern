@@ -27,6 +27,10 @@ name = "kp20_paper_cap_showcase"
 path = "src/kp20_paper_cap_showcase.rs"
 
 [[bin]]
+name = "kp20_pyramid_apex_showcase"
+path = "src/kp20_pyramid_apex_showcase.rs"
+
+[[bin]]
 name = "pipe_fitting"
 path = "src/pipe_fitting.rs"
 
