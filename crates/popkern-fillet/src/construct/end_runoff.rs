@@ -36,6 +36,8 @@ pub(super) struct EndRunoffOutcome {
     pub end_face: FaceHandle,
     /// Worst overshoot depth that triggered the runoff.
     pub overshoot: f64,
+    /// Why the surgery was rolled back, when it failed.
+    pub error: Option<String>,
 }
 
 /// Apply end runoff to every fillet strip corner that overshoots a
@@ -43,10 +45,13 @@ pub(super) struct EndRunoffOutcome {
 /// silent per-corner (no overshoot means nothing to do).
 pub(super) fn apply_fillet_end_runoff(brep: &mut BRep) -> Vec<EndRunoffOutcome> {
     let mut outcomes = Vec::new();
-    // Collect candidate (strip, corner vertex, end face) triples
-    // first — the surgery invalidates handles.
+    // Corners whose surgery failed: skipped on rescans so one bad
+    // corner can't wedge the pass or hide the others. Each failure
+    // rolls back to its own snapshot and is reported as an outcome
+    // with the error recorded.
+    let mut failed: Vec<VertexHandle> = Vec::new();
     loop {
-        let Some(candidate) = find_runoff_candidate(brep) else {
+        let Some(candidate) = find_runoff_candidate(brep, &failed) else {
             break;
         };
         let snapshot = brep.clone();
@@ -55,13 +60,17 @@ pub(super) fn apply_fillet_end_runoff(brep: &mut BRep) -> Vec<EndRunoffOutcome> 
                 strip_face: candidate.strip_face,
                 end_face: candidate.end_face,
                 overshoot: candidate.overshoot,
+                error: None,
             }),
-            Err(_) => {
+            Err(e) => {
                 *brep = snapshot;
-                // A failed corner must not loop forever: bail out of
-                // the pass entirely (remaining corners keep the
-                // pre-runoff shape, which is valid geometry).
-                break;
+                failed.push(candidate.corner);
+                outcomes.push(EndRunoffOutcome {
+                    strip_face: candidate.strip_face,
+                    end_face: candidate.end_face,
+                    overshoot: candidate.overshoot,
+                    error: Some(e),
+                });
             }
         }
         if outcomes.len() > 64 {
@@ -85,7 +94,7 @@ struct RunoffCandidate {
 }
 
 /// Find one strip corner whose sweep overshoots a planar end face.
-fn find_runoff_candidate(brep: &BRep) -> Option<RunoffCandidate> {
+fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCandidate> {
     for (fh, face) in brep.faces.iter() {
         let Some(SurfaceGeometry::Nurbs(_)) = face.surface.as_ref().map(|s| &s.geometry) else {
             continue;
@@ -144,7 +153,7 @@ fn find_runoff_candidate(brep: &BRep) -> Option<RunoffCandidate> {
                 .filter(|d| d.signum() != mid_sign)
                 .map(f64::abs)
                 .fold(0.0_f64, f64::max);
-            if overshoot > 1.0e-6 {
+            if overshoot > 1.0e-6 && !skip.contains(&corner) {
                 return Some(RunoffCandidate {
                     strip_face: fh,
                     end_face: f_end,
@@ -263,18 +272,29 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
             t_end: 1.0,
         });
     }
-    // The sliver = whichever face contains the corner vertex.
+    // The sliver = whichever face contains the corner vertex. Its
+    // loop must be exactly the triangle [runoff edge, corner edge,
+    // corner edge] — anything else means the mef cut somewhere
+    // unexpected.
     let sliver = if loop_contains_vertex(brep, mef.face, cand.corner) {
         mef.face
     } else {
         cand.strip_face
     };
-    // Merge the sliver into the end face by killing one shared edge,
-    // then dissolve the residual same-loop bridge and the corner
-    // vertex.
+    let sliver_len = loop_len(brep, sliver)?;
+    if sliver_len != 3 {
+        return Err(format!("runoff sliver has {sliver_len} edges, expected 3"));
+    }
+    // Merge the sliver into the end face. kef keeps the face of the
+    // half-edge it is given and kills the twin's — pass the END
+    // FACE's half-edge so the sliver (which carries the sweep
+    // surface) is the one that dies. (Passing the sliver side gave
+    // the merged floor the SWEEP surface — the floor rendered as an
+    // extrapolated fillet diving into the solid.)
     let shared = shared_half_edge(brep, sliver, cand.end_face)
         .ok_or("no shared edge between sliver and end face")?;
-    brep.kef(shared).map_err(|e| format!("runoff kef: {e}"))?;
+    let end_side = brep.half_edges[shared].twin;
+    brep.kef(end_side).map_err(|e| format!("runoff kef: {e}"))?;
     // Residual bridge edges at the corner: dissolve to fixpoint.
     loop {
         let mut bridge = None;
@@ -343,6 +363,25 @@ fn half_edge_pair_in_loop(
         }
     }
     Err("anchors not in a common loop".into())
+}
+
+fn loop_len(brep: &BRep, face: FaceHandle) -> Result<usize, String> {
+    let face_data = brep.faces.get(face).ok_or("face missing")?;
+    let start = brep
+        .loops
+        .get(face_data.outer_loop)
+        .ok_or("loop missing")?
+        .half_edge;
+    let mut n = 0;
+    let mut he = start;
+    for _ in 0..10_000 {
+        n += 1;
+        he = brep.half_edges[he].next;
+        if he == start {
+            break;
+        }
+    }
+    Ok(n)
 }
 
 fn loop_contains_vertex(brep: &BRep, face: FaceHandle, v: VertexHandle) -> bool {

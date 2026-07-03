@@ -477,8 +477,12 @@ pub fn apply_blend_geometry(
             crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
                 crate::types::ExactBoundaryCapDiagnostic {
                     stage: "end_runoff".into(),
-                    code: "fillet_end_runoff_applied".into(),
-                    detail_code: None,
+                    code: if o.error.is_none() {
+                        "fillet_end_runoff_applied".into()
+                    } else {
+                        "fillet_end_runoff_declined".into()
+                    },
+                    detail_code: o.error.clone(),
                     sector_name: format!("{:?}->{:?}", o.strip_face, o.end_face),
                     edge: None,
                     support_half_edge: None,
