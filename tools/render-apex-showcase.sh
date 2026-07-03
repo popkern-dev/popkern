@@ -15,30 +15,11 @@ PREFIX="kp20_apex_${STAMP}"
 
 cargo run --release --bin kp20_pyramid_apex_showcase
 
-python3 tools/mesh-finish.py \
-  "$OUT/kp20_pyramid_apex_whole.obj" "$OUT/${PREFIX}_whole.obj"
-
-# Blend-detail companion (fillets + cap only), same finish.
-python3 - "$OUT/kp20_pyramid_apex_whole.obj" "$OUT/.blend_detail_raw.obj" <<'EOF'
-import sys
-keep = ("fillet_", "paper_cap")
-out, active = [], True
-for line in open(sys.argv[1]):
-    if line.startswith("g "):
-        active = line[2:].strip().startswith(keep)
-        out.append(line)
-        continue
-    if line.startswith("f ") and not active:
-        continue
-    out.append(line)
-open(sys.argv[2], "w").writelines(out)
-EOF
-python3 tools/mesh-finish.py \
-  "$OUT/.blend_detail_raw.obj" "$OUT/${PREFIX}_blend_detail.obj" || true
-rm -f "$OUT/.blend_detail_raw.obj"
-
-cp "$OUT/kp20_pyramid_apex_cap.step" "$OUT/${PREFIX}_cap.step"
-cp "$OUT/kp20_pyramid_apex_cap.obj" "$OUT/${PREFIX}_cap.obj"
+# The showcase now exports the kernel tessellation of the validated
+# blended BRep directly — no mesh-finish pass.
+cp "$OUT/kp20_pyramid_apex_whole.obj" "$OUT/${PREFIX}_whole.obj"
+cp "$OUT/kp20_pyramid_apex_blend_detail.obj" "$OUT/${PREFIX}_blend_detail.obj"
+cp "$OUT/kp20_pyramid_apex_whole.step" "$OUT/${PREFIX}_whole.step"
 
 render() { # name, extra f3d args...
   local name=$1

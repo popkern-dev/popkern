@@ -57,7 +57,7 @@ mod topology_repair_diagnostics;
 #[path = "topology_repair_diff_planes.rs"]
 mod topology_repair_diff_planes;
 #[path = "topology_repair_geometry.rs"]
-mod topology_repair_geometry;
+pub(crate) mod topology_repair_geometry;
 #[path = "topology_repair_snap.rs"]
 mod topology_repair_snap;
 

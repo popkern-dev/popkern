@@ -5,7 +5,7 @@ use super::*;
 /// Re-project every half-edge pcurve on `face`'s outer loop into
 /// the face's surface UV space. Used after retargeting a face's
 /// surface (cylinder → plane, etc.) so the pcurves stay consistent.
-pub(super) fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandle) {
+pub(crate) fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandle) {
     let Some(face_data) = brep.faces.get(face) else {
         return;
     };

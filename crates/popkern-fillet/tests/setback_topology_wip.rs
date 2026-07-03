@@ -45,6 +45,9 @@ fn setback_commit_produces_valid_g2_vertex_blend() {
         ..Default::default()
     };
     let result = fillet_edges(&pyramid, &specs, &options, tol, None).expect("pipeline");
+    if let Some(reason) = popkern_fillet::construct_test_hooks::take_setback_topology_checkpoint() {
+        eprintln!("decline: {reason}");
+    }
     let brep = &result.brep;
     brep.validate().expect("blended BRep must validate");
     assert_eq!(

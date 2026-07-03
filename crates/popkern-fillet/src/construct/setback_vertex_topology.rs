@@ -25,14 +25,25 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 use super::kp20_paper_border_extract::{Kp20SetbackArc, kp20_paper_border_from_fillet_setback};
 use crate::fillet_surface::FilletSurfaceResult;
 
-/// Commit gate: the setback vertex blend replaces the legacy corner
-/// machinery for eligible apexes (integration tests + showcases; the
-/// production default stays off until the acceptance sweep lands).
+/// Commit override for tests (three-state: unset → production
+/// default ON, overridable by the POPKERN_SETBACK_VERTEX_BLEND=0
+/// kill-switch).
 pub(crate) static SETBACK_TOPOLOGY_COMMIT: AtomicBool = AtomicBool::new(false);
+pub(crate) static SETBACK_TOPOLOGY_COMMIT_SET: AtomicBool = AtomicBool::new(false);
 
-/// Returns whether commit mode is enabled.
+/// Whether the setback vertex blend replaces the legacy corner
+/// machinery for eligible apexes. Production default: ON — the
+/// surgery declines (with a recorded reason) and falls through to
+/// the legacy path for anything out of its class, and the cap gates
+/// must close at relative 1e-6 before any topology commits.
+/// Kill-switch: POPKERN_SETBACK_VERTEX_BLEND=0.
 pub(crate) fn setback_topology_commit_enabled() -> bool {
-    SETBACK_TOPOLOGY_COMMIT.load(Ordering::Relaxed)
+    if SETBACK_TOPOLOGY_COMMIT_SET.load(Ordering::Relaxed) {
+        return SETBACK_TOPOLOGY_COMMIT.load(Ordering::Relaxed);
+    }
+    std::env::var("POPKERN_SETBACK_VERTEX_BLEND")
+        .map(|v| v != "0")
+        .unwrap_or(true)
 }
 
 /// WIP checkpoint report channel for the integration probe test.
@@ -315,6 +326,13 @@ fn surgery_inner(
         vertex_position,
     )?;
 
+    // ---- pcurves for the new topology -----------------------------------
+    // Plane faces: rebuild loop pcurves from the 3D curves (the
+    // corner path edges live on the lateral planes). Cap pieces and
+    // sweep faces: the new edges follow iso/straight uv paths, so
+    // endpoint-projected Linear pcurves are exact.
+    author_setback_pcurves(brep, &cap_faces)?;
+
     Ok(SetbackTopologyOutcome {
         blend_face,
         arc_edges,
@@ -368,6 +386,34 @@ fn build_cap_face_fan(
         0.0,
     )
     .map_err(|e| format!("cap assembly: {e}"))?;
+    // Acceptance gate: the paper residuals must close at the relative
+    // tolerance (the same criterion as the stage-1 candidate) before
+    // any topology is committed.
+    {
+        let scale = border
+            .sectors
+            .iter()
+            .flat_map(|sector| sector.iter())
+            .flat_map(|piece| piece.rows.iter().flatten())
+            .map(|cp| cp.distance_to(&star))
+            .fold(0.0_f64, f64::max);
+        let gate = 1.0e-6 * scale.max(f64::MIN_POSITIVE);
+        if report.max_g1_residual > gate
+            || report.max_g2_residual > gate
+            || report.max_c0_residual > gate
+            || report.max_border_residual > gate
+            || report.min_regularity <= 0.0
+        {
+            return Err(format!(
+                "cap gates open: g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} min_reg={:.3e} gate={gate:.3e}",
+                report.max_g1_residual,
+                report.max_g2_residual,
+                report.max_c0_residual,
+                report.max_border_residual,
+                report.min_regularity,
+            ));
+        }
+    }
     let sectors = &report.sectors;
     if sectors.len() != n {
         return Err(format!("cap has {} sectors for {n} arcs", sectors.len()));
@@ -455,6 +501,14 @@ fn build_cap_face_fan(
         let mev1 = brep
             .mev(he_m, sector_spoke_mid_row(s))
             .map_err(|e| format!("mev spoke mid {s}: {e}"))?;
+        // Curve: chart (0,6)→(0,3) = P4 row i=0 (m → spoke mid).
+        if let Some(edge) = brep.edges.get_mut(mev1.edge) {
+            edge.curve = Some(bezier6_curve_between(
+                piece_row(sectors[s].piece(P4), 0),
+                brep.vertices[m_v].position,
+                sector_spoke_mid_row(s),
+            ));
+        }
         spoke_mid_vertices.push(mev1.vertex);
         match o_vertex {
             None => {
@@ -462,12 +516,27 @@ fn build_cap_face_fan(
                 let mev2 = brep
                     .mev(he_sm, o_point)
                     .map_err(|e| format!("mev o from spoke {s}: {e}"))?;
+                if let Some(edge) = brep.edges.get_mut(mev2.edge) {
+                    edge.curve = Some(bezier6_curve_between(
+                        piece_row(sectors[s].piece(P1), 0),
+                        brep.vertices[mev1.vertex].position,
+                        o_point,
+                    ));
+                }
                 o_vertex = Some(mev2.vertex);
             }
             Some(o_v) => {
                 let (he_sm, he_o) = half_edge_pair_in_common_loop(brep, mev1.vertex, o_v)?;
-                brep.mef(he_sm, he_o)
+                let mef = brep
+                    .mef(he_sm, he_o)
                     .map_err(|e| format!("mef spoke {s} to o: {e}"))?;
+                if let Some(edge) = brep.edges.get_mut(mef.edge) {
+                    edge.curve = Some(bezier6_curve_between(
+                        piece_row(sectors[s].piece(P1), 0),
+                        brep.vertices[mev1.vertex].position,
+                        o_point,
+                    ));
+                }
             }
         }
     }
@@ -486,15 +555,42 @@ fn build_cap_face_fan(
             .mev(he_q, center)
             .map_err(|e| format!("mev sector {s} center: {e}"))?;
         let center_v = mev_c.vertex;
-        for (label, target) in [
+        // Curve: chart (3,6)→(3,3) = P4 row i=6 (q_row → center).
+        if let Some(edge) = brep.edges.get_mut(mev_c.edge) {
+            edge.curve = Some(bezier6_curve_between(
+                piece_row(sectors[s].piece(P4), 6),
+                brep.vertices[q_row_v].position,
+                center,
+            ));
+        }
+        // Arm curves: center→sm_this = chart col j=3 i∈[0,3] = P1 col 6;
+        // center→sm_next = chart row i=3 j∈[0,3] = P1 row 6;
+        // center→q_col = chart (3,3)→(6,3) = P2 col j=6.
+        let arm_curves = [
+            piece_col(sectors[s].piece(P1), 6),
+            piece_row(sectors[s].piece(P1), 6),
+            piece_col(sectors[s].piece(P2), 6),
+        ];
+        for ((label, target), cps) in [
             ("sm_this", sm_this),
             ("sm_next", sm_next),
             ("q_col", q_col_v),
-        ] {
+        ]
+        .into_iter()
+        .zip(arm_curves)
+        {
             let (he_c, he_t) = half_edge_pair_in_common_loop(brep, center_v, target)
                 .map_err(|e| format!("sector {s} arm {label}: {e}"))?;
-            brep.mef(he_c, he_t)
+            let mef = brep
+                .mef(he_c, he_t)
                 .map_err(|e| format!("mef sector {s} arm {label}: {e}"))?;
+            if let Some(edge) = brep.edges.get_mut(mef.edge) {
+                edge.curve = Some(bezier6_curve_between(
+                    cps,
+                    center,
+                    brep.vertices[target].position,
+                ));
+            }
         }
     }
     let _ = o_vertex;
@@ -546,6 +642,114 @@ fn build_cap_face_fan(
         ));
     }
     Ok(cap_faces)
+}
+
+/// Author pcurves for the setback vertex-blend topology (see the
+/// call site). Plane faces are reprojected wholesale; cap piece and
+/// sweep half-edges missing a pcurve get endpoint-projected Linear
+/// pcurves (exact for iso-line piece boundaries and the straight-uv
+/// setback arcs).
+fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
+    use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    // 1. Plane faces.
+    let plane_faces: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::SurfaceGeometry::Plane { .. })
+            )
+        })
+        .map(|(fh, _)| fh)
+        .collect();
+    for fh in plane_faces {
+        super::topology_repair::topology_repair_geometry::reproject_loop_pcurves_into_plane(
+            brep, fh,
+        );
+    }
+    // 2. Cap pieces and any other curved faces with missing pcurves.
+    let curved_faces: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter(|(fh, f)| {
+            cap_faces.contains(fh)
+                || matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_))
+                        | Some(popkern_core::geometry::SurfaceGeometry::Gregory(_))
+                )
+        })
+        .map(|(fh, _)| fh)
+        .collect();
+    for fh in curved_faces {
+        let surface = match brep.faces.get(fh).and_then(|f| f.surface.as_ref()) {
+            Some(s) => s.geometry.clone(),
+            None => continue,
+        };
+        let hes = face_loop_half_edges(brep, fh)?;
+        for he in hes {
+            if brep.half_edges[he].pcurve.is_some() {
+                continue;
+            }
+            let a = brep.vertices[brep.half_edges[he].origin].position;
+            let b = brep.vertices[brep.half_edges[brep.half_edges[he].next].origin].position;
+            let (Some(ua), Some(ub)) = (
+                project_point_to_uv(&surface, &a),
+                project_point_to_uv(&surface, &b),
+            ) else {
+                continue;
+            };
+            if let Some(he_mut) = brep.half_edges.get_mut(he) {
+                he_mut.pcurve = Some(Pcurve {
+                    geometry: PcurveGeometry::Linear { start: ua, end: ub },
+                    t_start: 0.0,
+                    t_end: 1.0,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Degree-6 Bezier from 7 control points, oriented start → end (the
+/// CPs are reversed when needed so the curve runs from `from` to
+/// `to`).
+fn bezier6_curve_between(
+    cps: [Point3; 7],
+    from: Point3,
+    to: Point3,
+) -> popkern_core::geometry::CurveOnEdge {
+    let mut pts = cps.to_vec();
+    if pts[0].distance_to(&from) > pts[6].distance_to(&from) {
+        pts.reverse();
+    }
+    // Snap endpoints to the topology vertices (rim vertices sit at
+    // nearest-parameter positions ~1e-4 from the cap's ideal points;
+    // unsnapped endpoints reopen shell gaps).
+    pts[0] = from;
+    pts[6] = to;
+    popkern_core::geometry::CurveOnEdge {
+        geometry: popkern_core::geometry::CurveGeometry::Nurbs(NurbsCurve {
+            degree: 6,
+            knots: vec![
+                0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+            ],
+            control_points: pts,
+            weights: vec![1.0; 7],
+        }),
+        t_start: 0.0,
+        t_end: 1.0,
+    }
+}
+
+fn piece_row(piece: &popkern_core::geometry::gregory::Kp20Bi6Patch, i: usize) -> [Point3; 7] {
+    core::array::from_fn(|j| piece.cps[i][j])
+}
+
+fn piece_col(piece: &popkern_core::geometry::gregory::Kp20Bi6Patch, j: usize) -> [Point3; 7] {
+    core::array::from_fn(|i| piece.cps[i][j])
 }
 
 /// Split the blend face's boundary at an exact point (which must lie

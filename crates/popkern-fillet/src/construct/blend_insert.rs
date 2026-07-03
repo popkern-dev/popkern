@@ -107,6 +107,7 @@ pub(crate) fn insert_vertex_blend(
         // any surgery error the snapshot restore inside the surgery
         // has already run; fall through to the legacy path with a
         // recorded reason.
+        let commit_snapshot = brep.clone();
         match super::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
             vertex,
@@ -114,8 +115,14 @@ pub(crate) fn insert_vertex_blend(
             tolerance,
         ) {
             Ok(outcome) => {
-                brep.validate()
-                    .map_err(|e| format!("setback vertex blend failed validation: {e}"))?;
+                if let Err(e) = brep.validate() {
+                    *brep = commit_snapshot;
+                    *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
+                        .lock()
+                        .unwrap_or_else(|p| p.into_inner()) =
+                        Some(format!("setback commit failed validation: {e}"));
+                    return Err(format!("setback vertex blend failed validation: {e}"));
+                }
                 let infos: Vec<CornerPatchInfo> = outcome
                     .cap_faces
                     .iter()
