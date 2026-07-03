@@ -1021,7 +1021,6 @@ fn write_parts_whole_obj(
     // clustered exactly. Interior samples are untouched, so the edit
     // is bounded by the c0 metric itself.
     const SAMPLES: usize = CAP_SAMPLES;
-    const SEAM_TOL: f64 = 4.0e-2;
     let mut cap_grids_pts: Vec<Vec<Point3>> = Vec::with_capacity(bi9_grids.len());
     for grid in bi9_grids {
         let patch = RectangularGregoryBiNonic { grid: *grid };

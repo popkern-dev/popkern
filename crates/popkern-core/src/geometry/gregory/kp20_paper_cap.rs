@@ -231,7 +231,6 @@ pub fn assemble_kp20_paper_cap_conditioned(
     // around the reconciled pins.
     {
         use super::kp20_bi6_cap::Kp20PieceId;
-        const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
         const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
         const P4: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
         for curve in 0..n {

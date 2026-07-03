@@ -51,6 +51,8 @@ mod paper_primary_candidate;
 mod primary_candidate;
 #[path = "kp20_polar_dispatch_report.rs"]
 mod report;
+#[path = "kp20_setback_primary_candidate.rs"]
+mod setback_primary_candidate;
 #[path = "kp20_polar_support_cell_mixed_patchwork.rs"]
 mod support_cell_mixed_patchwork;
 #[path = "kp20_polar_support_cell_route_fact.rs"]
@@ -140,6 +142,45 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             return Kp20PolarDispatchReport::declined(diagnostics);
         }
     };
+    // Setback-border paper candidate first: derives the cap border
+    // from the fillet surfaces themselves (the geometry the blended
+    // BRep bounds) rather than the sub-patch spokes. Falls through
+    // to the legacy candidates on decline.
+    if fillet_surfaces.len() == n && n >= 5 {
+        match setback_primary_candidate::try_kp20_setback_primary_candidate(
+            fillet_surfaces,
+            polar.central_vertex,
+        ) {
+            Ok(candidate) if candidate.is_acceptable() => {
+                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                    "setback_paper_candidate",
+                    n,
+                    Some(candidate.detail()),
+                    None,
+                    None,
+                ));
+                return Kp20PolarDispatchReport::accepted(candidate.patches, diagnostics);
+            }
+            Ok(candidate) => {
+                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                    "setback_paper_candidate_declined",
+                    n,
+                    Some(candidate.detail()),
+                    None,
+                    None,
+                ));
+            }
+            Err(e) => {
+                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
+                    "setback_paper_candidate_error",
+                    n,
+                    Some(e),
+                    None,
+                    None,
+                ));
+            }
+        }
+    }
     let (mut primary_diagnostics, primary_patches) =
         evaluate_positive_primary_candidates(n, polar.central_vertex, &tensor_border);
     diagnostics.append(&mut primary_diagnostics);
