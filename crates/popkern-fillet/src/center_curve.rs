@@ -60,7 +60,12 @@ pub fn constant_radius_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    _convexity: crate::analysis::Convexity,
 ) -> Result<CenterCurveResult, String> {
+    // NOTE: the offset-intersect construction below hardcodes the
+    // CONVEX-edge choice (offsets toward the material); `_convexity`
+    // exists for API uniformity with the walker paths and will gate a
+    // void-side offset when concave-edge fillets land.
     // 1. Offset both surfaces inward by the fillet radius.
     // "Inward" means toward the solid interior.
     // In popkern, face normals point INTO the solid. When orientation=true,
@@ -165,6 +170,7 @@ pub fn variable_radius_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    convexity: crate::analysis::Convexity,
 ) -> Result<CenterCurveResult, String> {
     parametric_radius_center_curve(
         surface1,
@@ -178,6 +184,7 @@ pub fn variable_radius_center_curve(
         tolerance,
         orientation_1,
         orientation_2,
+        convexity,
     )
 }
 
@@ -199,6 +206,7 @@ pub fn parametric_radius_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    convexity: crate::analysis::Convexity,
 ) -> Result<CenterCurveResult, String> {
     let n_samples = 20usize;
     let mut center_points = Vec::with_capacity(n_samples);
@@ -221,6 +229,7 @@ pub fn parametric_radius_center_curve(
             tolerance,
             orientation_1,
             orientation_2,
+            convexity,
         )?;
 
         let fp1 = project_onto_surface(surface1, u1_range, v1_range, &center_pt)?;
@@ -330,6 +339,7 @@ fn find_center_point_at_radius(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    convexity: crate::analysis::Convexity,
 ) -> Result<Point3, String> {
     // Cones don't have an analytic offset surface, so any cone in the
     // pair forces the contact solver path. For other surface pairs the
@@ -350,6 +360,7 @@ fn find_center_point_at_radius(
             tolerance,
             orientation_1,
             orientation_2,
+            convexity,
         )
     {
         return Ok(center);
@@ -418,30 +429,18 @@ fn try_contact_solver(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    convexity: crate::analysis::Convexity,
 ) -> Option<Point3> {
-    use crate::contact::{BallSide, ContactOptions, ContactRequest, solve_rolling_ball_contact};
+    use crate::contact::{ContactOptions, ContactRequest, solve_rolling_ball_contact};
 
     // Seed each surface's initial UV from target via closest_point.
     let seed_uv0 = (surface1 as &dyn SurfaceEval).closest_point(target)?;
     let seed_uv1 = (surface2 as &dyn SurfaceEval).closest_point(target)?;
 
-    // popkern face normals point INTO the solid. The rolling ball
-    // sits OUTSIDE the solid (on the side opposite the face normal),
-    // which is the `-face_normal` direction. The face's natural
-    // surface normal equals the face normal when `orientation = true`
-    // and is flipped when `orientation = false`. So:
-    //   - orientation=true → ball on -surface_normal side → BallSide::Inside
-    //   - orientation=false → ball on +surface_normal side → BallSide::Outside
-    let side_0 = if orientation_1 {
-        BallSide::Inside
-    } else {
-        BallSide::Outside
-    };
-    let side_1 = if orientation_2 {
-        BallSide::Inside
-    } else {
-        BallSide::Outside
-    };
+    // Ball side from edge convexity (PK-091): inscribed for convex,
+    // void-side for concave.
+    let (side_0, side_1) =
+        crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
 
     // Spine plane: pin the ball center close to `target`. Walk the
     // segment from target to the surface midpoint as the plane normal.

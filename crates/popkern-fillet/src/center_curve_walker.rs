@@ -13,7 +13,6 @@ use popkern_core::tolerance::Tolerance;
 
 use crate::center_curve::CenterCurveResult;
 use crate::center_curve_helpers::{clip_footprint_to_bounds, fit_nurbs_through_points};
-use crate::contact::BallSide;
 use crate::walker::{WalkOptions, WalkRequest, walk_spine};
 
 /// Build a center curve via the spine walker, given an explicit
@@ -41,25 +40,16 @@ pub fn walker_based_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
+    convexity: crate::analysis::Convexity,
     pcurve_seed: Option<((f64, f64), (f64, f64))>,
 ) -> Result<CenterCurveResult, String> {
-    // popkern face normals point INTO the solid. The rolling ball
-    // sits OUTSIDE the solid (on the side opposite the face normal),
-    // which is the `-face_normal` direction. The face's natural
-    // surface normal equals the face normal when `orientation = true`
-    // and is flipped when `orientation = false`. So:
-    //   - orientation = true → ball on -surface_normal side → BallSide::Inside
-    //   - orientation = false → ball on +surface_normal side → BallSide::Outside
-    let side_0 = if orientation_1 {
-        BallSide::Inside
-    } else {
-        BallSide::Outside
-    };
-    let side_1 = if orientation_2 {
-        BallSide::Inside
-    } else {
-        BallSide::Outside
-    };
+    // Ball side depends on the edge class (PK-091): inscribed in the
+    // material for convex edges, in the void for concave. The old
+    // orientation-only mapping here hardcoded the concave case and
+    // made the walker converge to the exterior mirror ball on every
+    // convex edge.
+    let (side_0, side_1) =
+        crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
 
     // The walker takes `radius_at` as a closure of the spine
     // parameter `t`, but our `radius_at` argument receives the

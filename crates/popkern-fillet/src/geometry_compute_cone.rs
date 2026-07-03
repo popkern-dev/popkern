@@ -146,6 +146,7 @@ pub(crate) fn compute_center_via_walker(
         tolerance,
         analysis.orientation_1,
         analysis.orientation_2,
+        analysis.convexity,
         initial_seed,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
@@ -252,6 +253,7 @@ pub(crate) fn compute_legacy_center_curve(
             tolerance,
             analysis.orientation_1,
             analysis.orientation_2,
+            analysis.convexity,
         )
         .map_err(wrap_err),
         FilletRadius::Variable { start, end } => center_curve::variable_radius_center_curve(
@@ -267,6 +269,7 @@ pub(crate) fn compute_legacy_center_curve(
             tolerance,
             analysis.orientation_1,
             analysis.orientation_2,
+            analysis.convexity,
         )
         .map_err(wrap_err),
         FilletRadius::ByPoints(pts) => {
@@ -288,6 +291,7 @@ pub(crate) fn compute_legacy_center_curve(
                 tolerance,
                 analysis.orientation_1,
                 analysis.orientation_2,
+                analysis.convexity,
             )
             .map_err(wrap_err)
         }

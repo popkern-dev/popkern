@@ -44,6 +44,7 @@ pub(crate) mod types;
 
 pub use feasible::{pre_check_contact, solve_with_max_feasible};
 pub use solver::solve_rolling_ball_contact;
+pub(crate) use types::ball_sides_for_edge;
 pub use types::{
     BallSide, ContactError, ContactFeasibility, ContactOptions, ContactQuality, ContactRequest,
     ContactSolution, ContactTrace, ContactTraceStep, SingularityKind,

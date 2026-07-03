@@ -472,6 +472,7 @@ fn trace_fillet_center_curve() {
         &tol,
         analysis.orientation_1,
         analysis.orientation_2,
+        analysis.convexity,
     );
 
     match cc {

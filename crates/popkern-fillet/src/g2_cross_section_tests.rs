@@ -53,10 +53,11 @@ fn normal_curvature_on_cylinder_around_axis_is_one_over_radius() {
     // and to the axial direction (0, 0, 1). So unit angular tangent
     // is (0, 1, 0).
     let tangent = Vec3::new(0.0, 1.0, 0.0);
-    // signed_unit_normal returns the natural normal_at multiplied
-    // by the side sign. For BallSide::Outside on a cylinder, the
-    // natural normal is the outward radial direction (1, 0, 0).
-    let n_hat = signed_unit_normal(&cyl, u, v, BallSide::Outside, 1e-12).unwrap();
+    // Natural outward radial normal at u=0 is (1, 0, 0).
+    let n_hat = (&cyl as &dyn popkern_core::geometry::surface::SurfaceEval)
+        .normal_at(u, v)
+        .normalized()
+        .unwrap();
     let kappa = normal_curvature_in_direction(&cyl, (u, v), &n_hat, &tangent);
     // Expected magnitude is 1/R = 0.5. Sign depends on convention —
     // the cylinder curves AWAY from the outward normal, which is the
@@ -77,7 +78,10 @@ fn normal_curvature_on_cylinder_along_axis_is_zero() {
         axis: Vec3::new(0.0, 0.0, 1.0),
         radius: 2.0,
     };
-    let n_hat = signed_unit_normal(&cyl, 0.0, 1.0, BallSide::Outside, 1e-12).unwrap();
+    let n_hat = (&cyl as &dyn popkern_core::geometry::surface::SurfaceEval)
+        .normal_at(0.0, 1.0)
+        .normalized()
+        .unwrap();
     let tangent = Vec3::new(0.0, 0.0, 1.0); // axial
     let kappa = normal_curvature_in_direction(&cyl, (0.0, 1.0), &n_hat, &tangent);
     assert!(
@@ -131,8 +135,6 @@ fn g2_cross_section_plane_plane_endpoints_match_contacts() {
     let request = G2Request {
         surface_0: &plane_z0,
         surface_1: &plane_x0,
-        side_0: BallSide::Outside,
-        side_1: BallSide::Outside,
         solution: &solution,
     };
     let cs = g2_cross_section_bezier(&request).expect("plane-plane G2 should build");
@@ -165,8 +167,6 @@ fn g2_cross_section_plane_plane_endpoint_curvature_is_zero() {
     let request = G2Request {
         surface_0: &plane_z0,
         surface_1: &plane_x0,
-        side_0: BallSide::Outside,
-        side_1: BallSide::Outside,
         solution: &solution,
     };
     let cs = g2_cross_section_bezier(&request).unwrap();
@@ -211,8 +211,6 @@ fn g2_cross_section_plane_plane_tangents_are_in_tangent_planes() {
     let request = G2Request {
         surface_0: &plane_z0,
         surface_1: &plane_x0,
-        side_0: BallSide::Outside,
-        side_1: BallSide::Outside,
         solution: &solution,
     };
     let cs = g2_cross_section_bezier(&request).unwrap();
@@ -283,8 +281,6 @@ fn g2_cross_section_curve_passes_through_endpoints_for_plane_cylinder() {
     let g2_request = G2Request {
         surface_0: &cyl,
         surface_1: &plane,
-        side_0: BallSide::Outside,
-        side_1: BallSide::Outside,
         solution: &solution,
     };
     let cs = g2_cross_section_bezier(&g2_request).expect("plane-cylinder G2 should build");
@@ -409,8 +405,6 @@ fn g2_cross_section_curve_curvature_meets_2_4_acceptance_on_cylinder() {
     let g2_request = G2Request {
         surface_0: &cyl,
         surface_1: &plane,
-        side_0: BallSide::Outside,
-        side_1: BallSide::Outside,
         solution: &solution,
     };
     let cs = match g2_cross_section_bezier(&g2_request) {
@@ -438,4 +432,109 @@ fn g2_cross_section_curve_curvature_meets_2_4_acceptance_on_cylinder() {
     );
     // Plane side stays zero.
     assert!(cs.kappa_1.abs() < 1e-10);
+}
+
+// ---------------------------------------------------------------------------
+// PK-091 regression gates
+// ---------------------------------------------------------------------------
+
+#[test]
+fn g2_cross_section_matches_support_curvature_vector_on_cylinder() {
+    // The G2 boundary condition is the support's curvature VECTOR,
+    // not just its magnitude: at the cylinder contact the curve must
+    // bend WITH the cylinder section (toward the axis), even though
+    // mid-span it bends around the ball. The pre-PK-091 construction
+    // negated the vector and passed a magnitude-only test.
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        axis: Vec3::new(0.0, 0.0, 1.0),
+        radius: 2.0,
+    };
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+        normal: Vec3::new(0.0, 1.0, 0.0),
+    };
+    let spine = Point3::new(2.0, 0.0, 0.0);
+    let r = 0.2;
+    let request = ContactRequest {
+        surface_0: &cyl,
+        surface_1: &plane,
+        side_0: BallSide::Outside,
+        side_1: BallSide::Outside,
+        radius: r,
+        initial_uv0: (0.0, 0.0),
+        uv0_range: ((-3.2, 6.3), (-10.0, 10.0)),
+        initial_uv1: (2.0, 0.0),
+        uv1_range: ((-10.0, 10.0), (-10.0, 10.0)),
+        spine_point: spine,
+        spine_plane_normal: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let solution =
+        match solve_rolling_ball_contact(&request, &ContactOptions::default(), &unit_tol(), None) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("[g2-curvature-vector] solver returned: {e}");
+                return;
+            }
+        };
+    let cs = g2_cross_section_bezier(&G2Request {
+        surface_0: &cyl,
+        surface_1: &plane,
+        solution: &solution,
+    })
+    .expect("plane-cylinder G2 should build");
+
+    // Signed curvature against the from-center normal: the cylinder
+    // section curves toward its axis, which is the from-center
+    // direction here (ball outside the cylinder) → κ_0 = +1/R.
+    assert!(
+        (cs.kappa_0 - 0.5).abs() < 5.0e-3,
+        "kappa_0 should be +1/R = +0.5 (signed), got {}",
+        cs.kappa_0
+    );
+
+    // And the curve's actual P''(0) must point WITH the support's
+    // curvature vector (positive component along the from-center
+    // normal), not toward the ball.
+    let cps = &cs.curve.control_points;
+    let d1 = cps[1] - cps[0];
+    let d2 = cps[2] - cps[1];
+    let second = d2 - d1; // ∝ P''(0)
+    let n_hat_0 = (solution.contact0 - solution.center).normalized().unwrap();
+    assert!(
+        second.dot(&n_hat_0) > 0.0,
+        "P''(0) must bend with the support (positive along the from-center \
+         normal); got component {}",
+        second.dot(&n_hat_0)
+    );
+}
+
+#[test]
+fn g2_cross_section_interior_stays_on_ball_side_of_contact_planes() {
+    // Material-side gate (PK-091): every interior point of a valid
+    // plane-plane cross-section lies on the ball-center side of both
+    // contact tangent planes. The inverted ("weld bead") construction
+    // violates this at every interior sample.
+    let (plane_z0, plane_x0, solution) = plane_plane_solution(0.5);
+    let cs = g2_cross_section_bezier(&G2Request {
+        surface_0: &plane_z0,
+        surface_1: &plane_x0,
+        solution: &solution,
+    })
+    .expect("plane-plane G2 should build");
+
+    let n_hat_0 = (solution.contact0 - solution.center).normalized().unwrap();
+    let n_hat_1 = (solution.contact1 - solution.center).normalized().unwrap();
+    for step in 1..16 {
+        let t = step as f64 / 16.0;
+        let p = cs.curve.point_at(t);
+        let h0 = (p - solution.contact0).dot(&n_hat_0);
+        let h1 = (p - solution.contact1).dot(&n_hat_1);
+        assert!(
+            h0 < 1.0e-9 && h1 < 1.0e-9,
+            "interior sample t={t} crosses a contact tangent plane: h0={h0:.3e} h1={h1:.3e}"
+        );
+    }
 }

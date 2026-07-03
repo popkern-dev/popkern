@@ -58,14 +58,8 @@ fn g2_sweep_skins_walker_solutions_into_nurbs_surface() {
         solutions.push(solution);
     }
 
-    let surface = g2_sweep_from_contact_solutions(
-        &solutions,
-        &plane_z0,
-        &plane_x0,
-        BallSide::Outside,
-        BallSide::Outside,
-    )
-    .expect("G2 sweep should build");
+    let surface = g2_sweep_from_contact_solutions(&solutions, &plane_z0, &plane_x0)
+        .expect("G2 sweep should build");
 
     assert_eq!(surface.degree_u, 1);
     assert_eq!(surface.degree_v, 5);
@@ -211,16 +205,11 @@ fn g2_sweep_end_to_end_meets_2_4_acceptance_on_plane_cylinder_walker() {
 
     // Skin the real walker solutions into a G2 NurbsSurface.
     let solutions: Vec<ContactSolution> = walk.samples.iter().map(|s| s.solution.clone()).collect();
-    let surface = g2_sweep_from_contact_solutions(
-        &solutions,
-        &cyl,
-        &plane,
-        BallSide::Outside,
-        BallSide::Outside,
-    )
-    .expect("plane-cylinder G2 sweep should build");
+    let surface = g2_sweep_from_contact_solutions(&solutions, &cyl, &plane)
+        .expect("plane-cylinder G2 sweep should build");
 
-    assert_eq!(surface.degree_u, 1);
+    // ≥4 walker sections → cubic interpolating loft (PK-091).
+    assert_eq!(surface.degree_u, 3);
     assert_eq!(surface.degree_v, 5);
     assert_eq!(surface.num_u, solutions.len());
     assert_eq!(surface.num_v, 6);
@@ -274,12 +263,6 @@ fn g2_sweep_rejects_solutions_with_fewer_than_two_samples() {
         v_axis: Vec3::new(0.0, 0.0, 1.0),
         normal: Vec3::new(1.0, 0.0, 0.0),
     };
-    let result = g2_sweep_from_contact_solutions(
-        &solutions,
-        &plane_z0,
-        &plane_x0,
-        BallSide::Outside,
-        BallSide::Outside,
-    );
+    let result = g2_sweep_from_contact_solutions(&solutions, &plane_z0, &plane_x0);
     assert!(result.is_err());
 }

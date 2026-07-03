@@ -56,6 +56,7 @@ fn constant_center_curve_two_perpendicular_planes() {
         &test_tolerance(),
         true,
         true,
+        crate::analysis::Convexity::Convex,
     );
 
     assert!(result.is_ok(), "center curve failed: {:?}", result.err());
@@ -97,6 +98,7 @@ fn variable_center_curve_two_planes() {
         &test_tolerance(),
         true,
         true,
+        crate::analysis::Convexity::Convex,
     );
 
     assert!(
@@ -129,6 +131,7 @@ fn variable_center_curve_endpoints_at_expected_distance() {
         &test_tolerance(),
         true,
         true,
+        crate::analysis::Convexity::Convex,
     )
     .expect("variable center curve should succeed");
 
@@ -163,12 +166,35 @@ fn variable_center_curve_equal_radii_degenerates() {
     let tol = test_tolerance();
 
     let const_result = constant_radius_center_curve(
-        &s1, range, range, &s2, range, range, 1.0, &midpoint, &tol, true, true,
+        &s1,
+        range,
+        range,
+        &s2,
+        range,
+        range,
+        1.0,
+        &midpoint,
+        &tol,
+        true,
+        true,
+        crate::analysis::Convexity::Convex,
     );
     assert!(const_result.is_ok(), "constant path should succeed");
 
     let var_result = variable_radius_center_curve(
-        &s1, range, range, &s2, range, range, 1.0, 1.0, &midpoint, &tol, true, true,
+        &s1,
+        range,
+        range,
+        &s2,
+        range,
+        range,
+        1.0,
+        1.0,
+        &midpoint,
+        &tol,
+        true,
+        true,
+        crate::analysis::Convexity::Convex,
     );
     assert!(
         var_result.is_err(),
@@ -196,6 +222,7 @@ fn variable_center_curve_with_45_degree_planes() {
         &test_tolerance(),
         true,
         true,
+        crate::analysis::Convexity::Convex,
     );
 
     assert!(
@@ -228,6 +255,7 @@ fn variable_center_curve_small_radius_range() {
         &test_tolerance(),
         true,
         true,
+        crate::analysis::Convexity::Convex,
     );
 
     assert!(

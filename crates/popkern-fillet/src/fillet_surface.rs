@@ -55,8 +55,8 @@ pub fn build_fillet_surface(
     arc_samples: usize,
     is_constant_radius: bool,
     continuity: ContinuityLevel,
-    orientation_1: bool,
-    orientation_2: bool,
+    _orientation_1: bool,
+    _orientation_2: bool,
 ) -> Result<FilletSurfaceResult, String> {
     // G2 path: route through the degree-5 Bezier sweep when the
     // caller asked for it AND the center-curve producer (the spine
@@ -70,25 +70,14 @@ pub fn build_fillet_surface(
         && let Some(solutions) = center_result.contact_solutions.as_deref()
         && solutions.len() >= 2
     {
-        use crate::contact::BallSide;
         use crate::g2_cross_section::g2_sweep_from_contact_solutions;
 
-        // Translate popkern face orientations into BallSide. popkern
-        // face normals point INTO the solid; the rolling ball sits
-        // on the side OPPOSITE the face normal. So:
-        //   orientation = true  → ball on -surface_normal side → BallSide::Inside
-        //   orientation = false → ball on +surface_normal side → BallSide::Outside
-        let side_0 = if orientation_1 {
-            BallSide::Inside
-        } else {
-            BallSide::Outside
-        };
-        let side_1 = if orientation_2 {
-            BallSide::Inside
-        } else {
-            BallSide::Outside
-        };
-        match g2_sweep_from_contact_solutions(solutions, surface1, surface2, side_0, side_1) {
+        // The cross-section builder derives its contact normals from
+        // each converged solution's ball center, so no orientation →
+        // BallSide translation is needed here (the previous mapping
+        // hardcoded the concave-edge case and mirrored every convex
+        // blend — PK-091).
+        match g2_sweep_from_contact_solutions(solutions, surface1, surface2) {
             Ok(nurbs) => {
                 let trim_1 =
                     crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;

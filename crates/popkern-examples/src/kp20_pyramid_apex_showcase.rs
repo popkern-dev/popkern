@@ -150,8 +150,30 @@ fn run() {
             .collect();
         for (k, fillet) in fillet_surfaces.iter().enumerate() {
             let mid = fillet.surface.point_at(0.5, 0.5);
-            let mut heights: Vec<f64> = planes.iter().map(|(o, n)| (mid - *o).dot(n)).collect();
-            heights.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+            // ADJACENT planes = the two whose contact-line distance
+            // is smallest; measure the mid point against those only.
+            let c0 = fillet.surface.point_at(0.5, 0.0);
+            let c1 = fillet.surface.point_at(0.5, 1.0);
+            let mut by_contact: Vec<(f64, f64)> = planes
+                .iter()
+                .map(|(o, n)| {
+                    let d = ((c0 - *o).dot(n)).abs().min(((c1 - *o).dot(n)).abs());
+                    (d, (mid - *o).dot(n))
+                })
+                .collect();
+            by_contact.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            let heights: Vec<f64> = by_contact.iter().take(2).map(|x| x.1).collect();
+            // Contact side: each contact's height vs the OTHER
+            // adjacent plane (negative = on-material, ball inside).
+            let mut c0_planes: Vec<(f64, f64)> = planes
+                .iter()
+                .map(|(o, n)| (((c0 - *o).dot(n)).abs(), (c0 - *o).dot(n)))
+                .collect();
+            c0_planes.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            println!(
+                "  fillet[{k}] contact0: on-plane residual {:.1e}, height vs other plane {:+.4}",
+                c0_planes[0].1, c0_planes[1].1,
+            );
             // Tangency check: the sweep normal at the contact lines
             // must match the face normals (G1 flush).
             let mut worst_tangency = 0.0_f64;
@@ -213,6 +235,28 @@ fn run() {
                 heights[0], heights[1], worst_tangency, d_v0, d_v1,
             );
         }
+    }
+    // Curvature distribution along one mid-edge cross-section (v-dir).
+    {
+        use popkern_core::geometry::surface::SurfaceEval;
+        let f0 = &fillet_surfaces[0].surface;
+        let mut line = String::new();
+        for step in 0..=10 {
+            let v = 0.02 + 0.96 * step as f64 / 10.0;
+            let e = 1.0e-4;
+            let p_m = f0.point_at(0.5, v - e);
+            let p_0 = f0.point_at(0.5, v);
+            let p_p = f0.point_at(0.5, v + e);
+            let d1 = (p_p - p_m) * (0.5 / e);
+            let d2 = (p_p - p_0 - (p_0 - p_m)) * (1.0 / (e * e));
+            let speed2 = d1.dot(&d1);
+            let kappa = d1.cross(&d2).length() / speed2.powf(1.5).max(1.0e-30);
+            line.push_str(&format!("{kappa:6.2} "));
+        }
+        println!(
+            "  cross-section curvature v=0..1: {line} (circular arc would be constant {:.2})",
+            1.0 / 0.16
+        );
     }
     let indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let boundary = compute_blend_boundary(apex, &indices, &fillet_surfaces, &pyramid, &tol)
@@ -834,59 +878,100 @@ fn write_parts_whole_obj(
         if base_points.len() != 2 {
             continue;
         }
-        let d00 = trim_curve_distance(on_plane[0], base_points[0]);
-        let d01 = trim_curve_distance(on_plane[0], base_points[1]);
-        let (left_base, right_base) = if d00 < d01 {
-            (base_points[0], base_points[1])
-        } else {
-            (base_points[1], base_points[0])
-        };
-        // Fan the wedge from the corner point itself, with each trim
-        // sampled strictly from just below the corner down to its
-        // base end — the previous centroid fan let closest-param
-        // imprecision run the polyline past the trim crossing,
-        // spraying inverted slivers over the cap.
-        let refined_closest = |curve: &popkern_core::geometry::NurbsCurve, target: Point3| -> f64 {
-            let (t0, t1) = curve.parameter_range();
-            let mut best = (f64::INFINITY, t0);
-            for i in 0..=512 {
-                let t = t0 + (t1 - t0) * i as f64 / 512.0;
-                let d = curve.point_at(t).distance_to(&target);
-                if d < best.0 {
-                    best = (d, t);
+        // Planar face region: gather boundary points (corner, trim
+        // samples, base ends) and order them angularly around the
+        // face centroid — immune to left/right pairing mistakes that
+        // produced bowtie fans (black hatched bands) on some faces.
+        let mut boundary: Vec<Point3> = vec![corner, base_points[0], base_points[1]];
+        for curve in &on_plane {
+            let t_c = {
+                let (t0, t1) = curve.parameter_range();
+                let mut best = (f64::INFINITY, t0);
+                for i in 0..=512 {
+                    let t = t0 + (t1 - t0) * i as f64 / 512.0;
+                    let d = curve.point_at(t).distance_to(&corner);
+                    if d < best.0 {
+                        best = (d, t);
+                    }
                 }
-            }
-            best.1
-        };
-        let side_samples =
-            |curve: &popkern_core::geometry::NurbsCurve, base_point: Point3| -> Vec<Point3> {
-                let t_c = refined_closest(curve, corner);
-                let t_b = refined_closest(curve, base_point);
-                // Strictly inside (skip the corner itself; the fan apex
-                // supplies it exactly).
-                (1..=16)
-                    .map(|i| {
-                        let t = t_c + (t_b - t_c) * i as f64 / 16.0;
-                        curve.point_at(t)
-                    })
-                    .collect()
+                best.1
             };
-        // Boundary from just-below-c on the left trim, down to the
-        // base edge, back up the right trim.
-        let (left_trim, right_trim) = {
-            let a_near_left = trim_curve_distance(on_plane[0], left_base);
-            let b_near_left = trim_curve_distance(on_plane[1], left_base);
-            if a_near_left < b_near_left {
-                (on_plane[0], on_plane[1])
-            } else {
-                (on_plane[1], on_plane[0])
+            let t_b = {
+                let (t0, t1) = curve.parameter_range();
+                let near = |p: Point3| -> f64 {
+                    let mut best = (f64::INFINITY, t0);
+                    for i in 0..=512 {
+                        let t = t0 + (t1 - t0) * i as f64 / 512.0;
+                        let d = curve.point_at(t).distance_to(&p);
+                        if d < best.0 {
+                            best = (d, t);
+                        }
+                    }
+                    best.1
+                };
+                let ta = near(base_points[0]);
+                let tb = near(base_points[1]);
+                if (curve.point_at(ta).distance_to(&base_points[0]))
+                    < (curve.point_at(tb).distance_to(&base_points[1]))
+                {
+                    ta
+                } else {
+                    tb
+                }
+            };
+            for i in 1..16 {
+                let t = t_c + (t_b - t_c) * i as f64 / 16.0;
+                boundary.push(curve.point_at(t));
             }
+        }
+        let face_centroid = {
+            let mut acc = [0.0_f64; 3];
+            for p in &boundary {
+                acc[0] += p.x;
+                acc[1] += p.y;
+                acc[2] += p.z;
+            }
+            let count = boundary.len() as f64;
+            Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
         };
-        let mut polyline: Vec<Point3> = side_samples(left_trim, left_base);
-        polyline.push(right_base);
-        let mut up = side_samples(right_trim, right_base);
-        up.reverse();
-        polyline.extend(up);
+        // In-plane basis for the angular sort.
+        let axis_u = (corner - face_centroid).normalized().unwrap_or(*normal);
+        let axis_v = normal.cross(&axis_u);
+        boundary.sort_by(|a, b| {
+            let pa = (*a - face_centroid,);
+            let pb = (*b - face_centroid,);
+            let ang_a = pa.0.dot(&axis_v).atan2(pa.0.dot(&axis_u));
+            let ang_b = pb.0.dot(&axis_v).atan2(pb.0.dot(&axis_u));
+            ang_a
+                .partial_cmp(&ang_b)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut polyline = boundary.clone();
+        polyline.push(boundary[0]);
+        let corner = face_centroid;
+        // Inset the fan a hair toward the face interior: the strip is
+        // TANGENT to the face along the trim, so exactly-shared
+        // boundaries z-fight as a wide hatched band at render time.
+        let inset = 2.0e-3;
+        let fan_centroid = {
+            let mut acc = [0.0_f64; 3];
+            for p in &polyline {
+                acc[0] += p.x;
+                acc[1] += p.y;
+                acc[2] += p.z;
+            }
+            let count = polyline.len() as f64;
+            Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
+        };
+        let shrink = |p: Point3| -> Point3 {
+            Point3::new(
+                p.x + (fan_centroid.x - p.x) * inset,
+                p.y + (fan_centroid.y - p.y) * inset,
+                p.z + (fan_centroid.z - p.z) * inset,
+            )
+        };
+        let polyline: Vec<Point3> = polyline.iter().map(|p| shrink(*p)).collect();
+        let corner = shrink(corner);
         let face_normal = outward(corner, *normal);
         writeln!(file, "v {} {} {}", corner.x, corner.y, corner.z)?;
         writeln!(

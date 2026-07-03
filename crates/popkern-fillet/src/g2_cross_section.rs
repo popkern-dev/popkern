@@ -76,8 +76,7 @@ use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
 use thiserror::Error;
 
-use crate::contact::math::signed_unit_normal;
-use crate::contact::{BallSide, ContactSolution};
+use crate::contact::ContactSolution;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -95,13 +94,11 @@ pub struct G2Request<'a> {
     pub surface_0: &'a dyn SurfaceEval,
     /// Surface 1.
     pub surface_1: &'a dyn SurfaceEval,
-    /// Which side of `surface_0`'s natural normal the rolling ball
-    /// sits on. Same convention as `ContactRequest::side_0`.
-    pub side_0: BallSide,
-    /// Which side of `surface_1`'s natural normal the rolling ball
-    /// sits on.
-    pub side_1: BallSide,
-    /// The converged contact solution at this spine sample.
+    /// The converged contact solution at this spine sample. The
+    /// contact normals are derived from the converged ball center
+    /// (`n̂ᵢ = (contactᵢ − center)/r`), so no `BallSide` translation
+    /// is needed — the cross-section is always consistent with the
+    /// solution that produced it (PK-091).
     pub solution: &'a ContactSolution,
 }
 
@@ -157,6 +154,19 @@ pub enum G2Error {
         /// `0` for surface 0, `1` for surface 1.
         surface_index: usize,
     },
+    /// The built cross-section crosses to the non-material side of a
+    /// support tangent plane — the mirror-image ("weld bead")
+    /// configuration. This is the postcondition gate that catches
+    /// wrong-side contact solutions (PK-091); the blend interior must
+    /// stay on the ball-center side of both contact tangent planes.
+    #[error(
+        "G2 cross-section: interior crosses {height:.3e} beyond the support          tangent plane (non-material side) — wrong-side contact solution"
+    )]
+    MaterialSide {
+        /// Worst signed height beyond the tangent plane (positive =
+        /// non-material side).
+        height: f64,
+    },
 }
 
 /// Build a degree-5 Bezier cross-section with G2 (curvature-matching)
@@ -173,29 +183,25 @@ pub fn g2_cross_section_bezier(request: &G2Request) -> Result<G2CrossSection, G2
         return Err(G2Error::ZeroChord);
     }
 
-    // Outward unit normals on both surfaces, signed per BallSide.
-    let n_hat_0 = signed_unit_normal(
-        request.surface_0,
-        solution.uv0.0,
-        solution.uv0.1,
-        request.side_0,
-        1.0e-12,
-    )
-    .ok_or(G2Error::DegenerateNormal { surface_index: 0 })?;
-    let n_hat_1 = signed_unit_normal(
-        request.surface_1,
-        solution.uv1.0,
-        solution.uv1.1,
-        request.side_1,
-        1.0e-12,
-    )
-    .ok_or(G2Error::DegenerateNormal { surface_index: 1 })?;
+    // Outward-from-ball unit normals, derived from the CONVERGED
+    // solution geometry (n̂ᵢ = (contactᵢ − center)/r). This is exact
+    // for any converged contact and immune to orientation/side
+    // convention slips — the class of defect behind PK-091.
+    let radial_0 = p0 - solution.center;
+    let radial_0_len = radial_0.length();
+    if radial_0_len < 1.0e-12 {
+        return Err(G2Error::DegenerateNormal { surface_index: 0 });
+    }
+    let n_hat_0 = radial_0 * (1.0 / radial_0_len);
+    let radial_1 = p5 - solution.center;
+    let radial_1_len = radial_1.length();
+    if radial_1_len < 1.0e-12 {
+        return Err(G2Error::DegenerateNormal { surface_index: 1 });
+    }
+    let n_hat_1 = radial_1 * (1.0 / radial_1_len);
 
     // Cross-section tangent at each endpoint: project the chord into
-    // the surface's tangent plane.  We flip the sign at endpoint 1
-    // so both tangents point "into" the curve (away from their
-    // contact endpoint), matching the Bezier convention where
-    // P'(0) and P'(1) both point in the curve-traversal direction.
+    // the surface's tangent plane (sign-invariant in n̂).
     let t0_3d = project_to_tangent_plane(&chord_vec, &n_hat_0);
     let t0_len = t0_3d.length();
     if t0_len < 1.0e-12 {
@@ -217,28 +223,35 @@ pub fn g2_cross_section_bezier(request: &G2Request) -> Result<G2CrossSection, G2
     let kappa_1 =
         normal_curvature_in_direction(request.surface_1, solution.uv1, &n_hat_1, &t1_unit);
 
-    // Bezier derivative magnitudes — pick |P'(0)| = |P'(1)| = chord
-    // so the parameter speed is consistent with the chord length.
-    // P'(0) = chord · T_0_unit, P'(1) = chord · T_1_unit.
-    let p_prime_0 = t0_unit * chord_length;
-    let p_prime_1 = t1_unit * chord_length;
+    // End-derivative magnitude from the tangent turn angle: a curve
+    // turning by θ over the span has arc length ≈ chord·(θ/2)/sin(θ/2);
+    // using the bare chord (the previous choice) under-speeds the ends
+    // and concentrates curvature mid-span (measured 22% over the
+    // circular value on a pentagonal-pyramid edge).
+    let cos_turn = t0_unit.dot(&t1_unit).clamp(-1.0, 1.0);
+    let half_turn = 0.5 * cos_turn.acos();
+    let magnitude = if half_turn < 1.0e-9 {
+        chord_length
+    } else {
+        chord_length * half_turn / half_turn.sin()
+    };
+    let p_prime_0 = t0_unit * magnitude;
+    let p_prime_1 = t1_unit * magnitude;
 
-    // Curvature vector convention: the rolling ball sits on the
-    // OPPOSITE side of the surface from where the surface curves
-    // toward (i.e., on the convex side of a concave fillet).
-    // The cross-section curve must curve TOWARD the rolling-ball
-    // center, which is in the `-n̂` direction (n̂ here being
-    // signed outward from the ball). So the curvature vector is
-    // `-κ_n · n̂` rather than `+κ_n · n̂`.
+    // G2 boundary condition: the cross-section's curvature VECTOR at
+    // each contact must EQUAL the support's normal curvature vector
+    // κ·n̂ (which is invariant under flipping n̂, so the sign is
+    // unambiguous). With |P'| = magnitude, the normal component of
+    // P'' must be magnitude²·κ·n̂.
     //
-    // Concretely: for plane-plane convex 90°, the rolling ball center
-    // is at (r, y, r), each plane's outward normal points away from
-    // the ball, and the cross-section arc curves AROUND the ball
-    // (concave-up from the surface's perspective). The curve's
-    // curvature vector at the contact points is +1/r toward the ball
-    // center, which is `-n̂_surface`.
-    let p_double_prime_0 = n_hat_0 * (-chord_length * chord_length * kappa_0);
-    let p_double_prime_1 = n_hat_1 * (-chord_length * chord_length * kappa_1);
+    // NOTE the + sign: the previous construction used −κ·n̂, i.e. the
+    // NEGATION of the support's curvature vector, rationalized as
+    // "the curve must bend toward the ball". That is the mid-span
+    // behaviour, not the boundary condition; at the contact the curve
+    // must match the SUPPORT. The error was masked on planar supports
+    // (κ = 0) and by a magnitude-only acceptance test.
+    let p_double_prime_0 = n_hat_0 * (magnitude * magnitude * kappa_0);
+    let p_double_prime_1 = n_hat_1 * (magnitude * magnitude * kappa_1);
 
     // Invert the degree-5 Bezier derivative formulas:
     //   P'(0) = 5·(P_1 - P_0)        → P_1 = P_0 + P'(0)/5
@@ -255,13 +268,42 @@ pub fn g2_cross_section_bezier(request: &G2Request) -> Result<G2CrossSection, G2
         - (p5 - Point3::new(0.0, 0.0, 0.0));
     let p2 = Point3::new(p2.x, p2.y, p2.z);
     let p3 = Point3::new(p3.x, p3.y, p3.z);
+    let cps = [p0, p1, p2, p3, p4, p5];
+
+    // Material-side postcondition gate (PK-091). The blend interior
+    // must stay on the ball-center side of each contact tangent
+    // plane. The midpoint check holds for every valid rolling-ball
+    // blend (mid-span the curve wraps the ball); the full-curve check
+    // applies only when both supports are locally flat, where the
+    // support cannot legitimately carry the curve above its own
+    // tangent plane.
+    let tol = 1.0e-6 * chord_length;
+    let mid = de_casteljau_deg5(&cps, 0.5);
+    let mid_h = ((mid - p0).dot(&n_hat_0)).max((mid - p5).dot(&n_hat_1));
+    if mid_h > tol {
+        return Err(G2Error::MaterialSide { height: mid_h });
+    }
+    let flat_scale = 1.0e-9 / chord_length.max(1.0e-12);
+    if kappa_0.abs() < flat_scale && kappa_1.abs() < flat_scale {
+        let mut worst = f64::NEG_INFINITY;
+        for step in 1..8 {
+            let t = step as f64 / 8.0;
+            let p = de_casteljau_deg5(&cps, t);
+            worst = worst
+                .max((p - p0).dot(&n_hat_0))
+                .max((p - p5).dot(&n_hat_1));
+        }
+        if worst > tol {
+            return Err(G2Error::MaterialSide { height: worst });
+        }
+    }
 
     // Degree-5 NURBS with 6 control points and a clamped uniform
     // knot vector [0,0,0,0,0,0, 1,1,1,1,1,1].
     let curve = NurbsCurve {
         degree: 5,
         knots: vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-        control_points: vec![p0, p1, p2, p3, p4, p5],
+        control_points: cps.to_vec(),
         weights: vec![1.0; 6],
     };
 
@@ -271,6 +313,20 @@ pub fn g2_cross_section_bezier(request: &G2Request) -> Result<G2CrossSection, G2
         kappa_1,
         chord_length,
     })
+}
+
+/// Evaluate a degree-5 Bezier at `t` by de Casteljau.
+fn de_casteljau_deg5(cps: &[Point3; 6], t: f64) -> Point3 {
+    let mut pts: Vec<Vec3> = cps
+        .iter()
+        .map(|p| *p - Point3::new(0.0, 0.0, 0.0))
+        .collect();
+    for level in (1..6).rev() {
+        for i in 0..level {
+            pts[i] = pts[i] * (1.0 - t) + pts[i + 1] * t;
+        }
+    }
+    Point3::new(pts[0].x, pts[0].y, pts[0].z)
 }
 
 // ---------------------------------------------------------------------------
@@ -349,26 +405,21 @@ pub(crate) fn normal_curvature_in_direction(
 /// the spine, one per `ContactSolution`. The surface goes from
 /// `solutions[0].contact0..contact1` at u=0 to
 /// `solutions[N-1].contact0..contact1` at u=1, with degree-5 v-direction
-/// (the cross-section degree) and degree-1 u-direction (linear skin
-/// between consecutive cross-sections).
+/// (the cross-section degree) and a degree-3 interpolating loft in u
+/// (C² along the spine). The previous degree-1 skin left C⁰ facets at
+/// every spine sample, which downstream consumers (tessellation
+/// normals, the KP20 vertex-blend border marches) picked up as facet
+/// noise (PK-091).
 ///
-/// This is the G2 counterpart of `fillet_surface::build_nurbs_sweep`,
-/// which produces a degree-1 u, degree-1 v polyline-arc sweep. The
-/// cross-section direction here is degree-5 because each cross-
-/// section is a degree-5 Bezier from `g2_cross_section_bezier`. The
-/// u-direction degree is left at 1 to match the legacy sweep's
-/// behaviour; phase 2+ may bump it for smoother along-spine
-/// continuity.
+/// Falls back to a degree-1 skin below 4 sections.
 ///
 /// Returns `Err(G2Error)` if any per-sample G2 cross-section build
-/// fails. Callers can fall back to `build_nurbs_sweep` (the legacy
-/// G1 path) on failure.
+/// fails (including the material-side postcondition). Callers can
+/// fall back to `build_nurbs_sweep` (the legacy G1 path) on failure.
 pub fn g2_sweep_from_contact_solutions(
     solutions: &[ContactSolution],
     surface_0: &dyn SurfaceEval,
     surface_1: &dyn SurfaceEval,
-    side_0: BallSide,
-    side_1: BallSide,
 ) -> Result<NurbsSurface, G2Error> {
     if solutions.len() < 2 {
         return Err(G2Error::ZeroChord);
@@ -380,38 +431,113 @@ pub fn g2_sweep_from_contact_solutions(
         let req = G2Request {
             surface_0,
             surface_1,
-            side_0,
-            side_1,
             solution,
         };
         let cs = g2_cross_section_bezier(&req)?;
         sections.push(cs.curve);
     }
 
-    // All cross-sections share the same degree (5) and number of
-    // control points (6). Skin them into a tensor-product surface
-    // with degree-1 u (linear between consecutive sections) and
-    // degree-5 v (the cross-section degree).
     let n_sections = sections.len();
     let n_v = 6;
-    let degree_u = 1;
     let degree_v = 5;
+    let knots_v = sections[0].knots.clone();
 
-    // Control points are stored row-major: control_points[i*n_v + j]
-    // is the i-th section's j-th cross-section control point.
-    let mut control_points = Vec::with_capacity(n_sections * n_v);
-    for section in &sections {
-        for cp in &section.control_points {
-            control_points.push(*cp);
+    if n_sections < 4 {
+        // Not enough sections for a cubic loft: linear skin.
+        let mut control_points = Vec::with_capacity(n_sections * n_v);
+        for section in &sections {
+            control_points.extend(section.control_points.iter().copied());
+        }
+        return Ok(NurbsSurface {
+            degree_u: 1,
+            degree_v,
+            knots_u: build_clamped_uniform_knots(n_sections, 1),
+            knots_v,
+            control_points,
+            num_u: n_sections,
+            num_v: n_v,
+            weights: vec![1.0; n_sections * n_v],
+        });
+    }
+
+    // Cubic interpolating loft: for each v-column of section control
+    // points, solve for u-direction control points so the surface
+    // passes through every section at its parameter. Uniform
+    // parameters with de Boor knot averaging give a shared,
+    // well-conditioned basis for all columns.
+    let n = n_sections;
+    let degree_u = 3;
+    let params: Vec<f64> = (0..n).map(|i| i as f64 / (n - 1) as f64).collect();
+    let mut knots_u = vec![0.0; 4];
+    for j in 1..=(n - 4) {
+        knots_u.push((params[j] + params[j + 1] + params[j + 2]) / 3.0);
+    }
+    knots_u.extend(std::iter::repeat_n(1.0, 4));
+
+    // Basis matrix rows: first/last rows are identities (clamped).
+    let mut matrix = vec![vec![0.0_f64; n]; n];
+    matrix[0][0] = 1.0;
+    matrix[n - 1][n - 1] = 1.0;
+    for (k, row) in matrix.iter_mut().enumerate().take(n - 1).skip(1) {
+        for (i, entry) in row.iter_mut().enumerate() {
+            *entry = bspline_basis(&knots_u, i, degree_u, params[k]);
         }
     }
 
-    let knots_u = build_clamped_uniform_knots(n_sections, degree_u);
-    // The cross-section knot vector is the same for every section
-    // since they're all the same shape (degree-5, 6 cps, clamped
-    // uniform [0..1]); reuse it.
-    let knots_v = sections[0].knots.clone();
-    let weights = vec![1.0; n_sections * n_v];
+    // LU-free dense Gaussian elimination with partial pivoting on the
+    // shared matrix, solving all 3·n_v right-hand sides at once.
+    let n_rhs = 3 * n_v;
+    let mut rhs = vec![vec![0.0_f64; n_rhs]; n];
+    for (k, section) in sections.iter().enumerate() {
+        for (j, cp) in section.control_points.iter().enumerate() {
+            rhs[k][3 * j] = cp.x;
+            rhs[k][3 * j + 1] = cp.y;
+            rhs[k][3 * j + 2] = cp.z;
+        }
+    }
+    for col in 0..n {
+        let mut pivot = col;
+        for row in (col + 1)..n {
+            if matrix[row][col].abs() > matrix[pivot][col].abs() {
+                pivot = row;
+            }
+        }
+        if matrix[pivot][col].abs() < 1.0e-14 {
+            return Err(G2Error::ZeroChord);
+        }
+        matrix.swap(col, pivot);
+        rhs.swap(col, pivot);
+        for row in (col + 1)..n {
+            let factor = matrix[row][col] / matrix[col][col];
+            if factor == 0.0 {
+                continue;
+            }
+            let (upper, lower) = matrix.split_at_mut(row);
+            for (c, entry) in lower[0].iter_mut().enumerate().skip(col) {
+                *entry -= factor * upper[col][c];
+            }
+            let (rhs_upper, rhs_lower) = rhs.split_at_mut(row);
+            for (c, entry) in rhs_lower[0].iter_mut().enumerate() {
+                *entry -= factor * rhs_upper[col][c];
+            }
+        }
+    }
+    for col in (0..n).rev() {
+        for c in 0..n_rhs {
+            let mut acc = rhs[col][c];
+            for (k, rhs_row) in rhs.iter().enumerate().take(n).skip(col + 1) {
+                acc -= matrix[col][k] * rhs_row[c];
+            }
+            rhs[col][c] = acc / matrix[col][col];
+        }
+    }
+
+    let mut control_points = Vec::with_capacity(n * n_v);
+    for row in rhs.iter().take(n) {
+        for j in 0..n_v {
+            control_points.push(Point3::new(row[3 * j], row[3 * j + 1], row[3 * j + 2]));
+        }
+    }
 
     Ok(NurbsSurface {
         degree_u,
@@ -419,10 +545,33 @@ pub fn g2_sweep_from_contact_solutions(
         knots_u,
         knots_v,
         control_points,
-        num_u: n_sections,
+        num_u: n,
         num_v: n_v,
-        weights,
+        weights: vec![1.0; n * n_v],
     })
+}
+
+/// Cox–de Boor evaluation of the `i`-th B-spline basis of degree `p`
+/// over `knots` at parameter `t` (used only for interior loft rows,
+/// so the half-open-interval endpoint convention never bites).
+fn bspline_basis(knots: &[f64], i: usize, p: usize, t: f64) -> f64 {
+    if p == 0 {
+        return if knots[i] <= t && t < knots[i + 1] {
+            1.0
+        } else {
+            0.0
+        };
+    }
+    let mut acc = 0.0;
+    let denom_left = knots[i + p] - knots[i];
+    if denom_left > 1.0e-14 {
+        acc += (t - knots[i]) / denom_left * bspline_basis(knots, i, p - 1, t);
+    }
+    let denom_right = knots[i + p + 1] - knots[i + 1];
+    if denom_right > 1.0e-14 {
+        acc += (knots[i + p + 1] - t) / denom_right * bspline_basis(knots, i + 1, p - 1, t);
+    }
+    acc
 }
 
 fn build_clamped_uniform_knots(n_control_points: usize, degree: usize) -> Vec<f64> {

@@ -33,6 +33,56 @@ pub enum BallSide {
     Inside,
 }
 
+/// Translate popkern face orientations + edge convexity into the
+/// contact solver's [`BallSide`] convention.
+///
+/// popkern face normals point INTO the solid, and a face's natural
+/// surface normal equals that face normal when `orientation = true`
+/// (flipped when `false`). Which side the generating ball sits on
+/// depends on the EDGE CLASS, not the face orientation alone:
+///
+/// - **Convex edge** (material wedge < 180°): the ball is inscribed
+///   in the material — center on the into-solid side of both faces
+///   (the classic dihedral fillet cylinder axis). There is no
+///   exterior ball tangent to both material faces, only to their
+///   extensions; converging to that mirror solution builds a
+///   "weld bead" blend with contacts on the non-material plane
+///   extensions (PK-091).
+/// - **Concave edge** (reentrant): the ball rolls in the void —
+///   center opposite the into-solid normal.
+///
+/// `Mixed` edges (tangent or near-tangent surfaces) map like
+/// concave: tangent-continuation edges arise in concave grooves —
+/// a secondary blend rolling between a primary fillet and its
+/// support face — where the ball sits in the void. This also
+/// preserves the behaviour the blend-on-blend acceptance gates were
+/// built on.
+pub(crate) fn ball_sides_for_edge(
+    convexity: crate::analysis::Convexity,
+    orientation_1: bool,
+    orientation_2: bool,
+) -> (BallSide, BallSide) {
+    use crate::analysis::Convexity;
+    let material = |orientation: bool| {
+        if orientation {
+            BallSide::Outside
+        } else {
+            BallSide::Inside
+        }
+    };
+    let void = |orientation: bool| {
+        if orientation {
+            BallSide::Inside
+        } else {
+            BallSide::Outside
+        }
+    };
+    match convexity {
+        Convexity::Concave => (void(orientation_1), void(orientation_2)),
+        Convexity::Convex | Convexity::Mixed => (material(orientation_1), material(orientation_2)),
+    }
+}
+
 impl BallSide {
     /// Sign multiplier on the surface normal vector. `Outside → +1`,
     /// `Inside → -1`. The ball center is `S(u, v) + sign · r · n̂`.
