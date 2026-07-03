@@ -606,6 +606,7 @@ fn run() {
         &pyramid,
         &bi9_grids,
         boundary.vertex_position,
+        &extract_report.trim_corners,
         &whole_path,
     )
     .expect("whole OBJ");
@@ -616,12 +617,14 @@ fn run() {
 /// rectangles clipped at the setback arcs (the cap rim), lateral
 /// faces as fans over their trimmed boundary polylines, the base
 /// pentagon, and the paper cap.
+#[allow(clippy::too_many_arguments)]
 fn write_parts_whole_obj(
     fillet_surfaces: &[popkern_fillet::fillet_surface::FilletSurfaceResult],
     border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder,
     pyramid: &BRep,
     bi9_grids: &[[[Point3; 10]; 10]],
     vertex: Point3,
+    trim_corners: &[Point3],
     path: &Path,
 ) -> Result<(), std::io::Error> {
     use popkern_core::geometry::curve::CurveEval;
@@ -681,43 +684,75 @@ fn write_parts_whole_obj(
         .map(|sector| sector[0].rows[0][3])
         .collect();
     for (k, fillet) in fillet_surfaces.iter().enumerate() {
-        let mut scored: Vec<(f64, usize)> = (0..n)
-            .map(|s| {
-                let c = corners[s];
-                let d = project_point_to_uv(&fillet.surface, &c)
-                    .map(|(u, v)| fillet.surface.point_at(u, v).distance_to(&c))
-                    .unwrap_or(f64::INFINITY);
-                (d, s)
-            })
-            .collect();
-        scored.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let ca = corners[scored[0].1];
-        let cb = corners[scored[1].1];
-        let Some((ua, va)) = project_point_to_uv(&fillet.surface, &ca) else {
-            continue;
-        };
-        let Some((ub, vb)) = project_point_to_uv(&fillet.surface, &cb) else {
-            continue;
-        };
-        let probe_v = 0.5 * (va + vb);
-        let d0 = fillet.surface.point_at(0.0, probe_v).distance_to(&vertex);
-        let d1 = fillet.surface.point_at(1.0, probe_v).distance_to(&vertex);
-        let u_base = if d0 > d1 { 0.0 } else { 1.0 };
-        const AL: usize = 25;
-        const AC: usize = 13;
-        // One orientation vote per strip: per-vertex flipping shades
-        // inconsistently.
-        // Cover the strip's FULL trim-to-trim width (v in [0, 1]); the
-        // clip line follows the arc's uv segment, linearly
-        // extrapolated beyond the projected corner parameters so the
-        // strip meets the face trims without margin slits.
-        let u_arc_at = |v: f64| -> f64 {
-            if (vb - va).abs() < 1.0e-12 {
-                0.5 * (ua + ub)
-            } else {
-                ua + (ub - ua) * (v - va) / (vb - va)
+        // Clip line = the ACTUAL cap rim on this sweep: project every
+        // border rim onto the sweep, keep on-surface samples, and
+        // follow them as u(v).
+        let mut clip: Vec<(f64, f64)> = Vec::new();
+        for sector in &border.sectors {
+            for piece in sector {
+                let row = &piece.rows[0];
+                for step in 0..=12 {
+                    let t = step as f64 / 12.0;
+                    let mt = 1.0 - t;
+                    let pnt = Point3::new(
+                        mt * mt * mt * row[0].x
+                            + 3.0 * mt * mt * t * row[1].x
+                            + 3.0 * mt * t * t * row[2].x
+                            + t * t * t * row[3].x,
+                        mt * mt * mt * row[0].y
+                            + 3.0 * mt * mt * t * row[1].y
+                            + 3.0 * mt * t * t * row[2].y
+                            + t * t * t * row[3].y,
+                        mt * mt * mt * row[0].z
+                            + 3.0 * mt * mt * t * row[1].z
+                            + 3.0 * mt * t * t * row[2].z
+                            + t * t * t * row[3].z,
+                    );
+                    if let Some((u, v)) = project_point_to_uv(&fillet.surface, &pnt)
+                        && fillet.surface.point_at(u, v).distance_to(&pnt) < 2.0e-2
+                    {
+                        clip.push((v, u));
+                    }
+                }
             }
+        }
+        if clip.len() < 4 {
+            continue;
+        }
+        clip.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        let u_arc_at = |v: f64| -> f64 {
+            if v <= clip[0].0 {
+                let (v0, u0) = clip[0];
+                let (v1, u1) = clip[1.min(clip.len() - 1)];
+                let span = (v1 - v0).max(1.0e-12);
+                return u0 + (u1 - u0) * (v - v0) / span;
+            }
+            for w in clip.windows(2) {
+                if v <= w[1].0 {
+                    let span = (w[1].0 - w[0].0).max(1.0e-12);
+                    return w[0].1 + (w[1].1 - w[0].1) * (v - w[0].0) / span;
+                }
+            }
+            let (v0, u0) = clip[clip.len() - 2];
+            let (v1, u1) = clip[clip.len() - 1];
+            let span = (v1 - v0).max(1.0e-12);
+            u1 + (u1 - u0) * (v - v1) / span
         };
+        // Base end of the sweep = the u extreme farthest from the
+        // blend region.
+        let probe_v = 0.5;
+        let far = corners.iter().fold(Point3::new(0.0, 0.0, 0.0), |acc, c| {
+            Point3::new(
+                acc.x + c.x / n as f64,
+                acc.y + c.y / n as f64,
+                acc.z + c.z / n as f64,
+            )
+        });
+        let d0 = fillet.surface.point_at(0.0, probe_v).distance_to(&far);
+        let d1 = fillet.surface.point_at(1.0, probe_v).distance_to(&far);
+        let u_base = if d0 > d1 { 0.0 } else { 1.0 };
+        const AL: usize = 33;
+        const AC: usize = 25;
         let mut vote = 0.0_f64;
         for j in 0..AC {
             let v = j as f64 / (AC - 1) as f64;
@@ -744,7 +779,6 @@ fn write_parts_whole_obj(
                 writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
             }
         }
-        // Winding must agree with the emitted normals.
         let ti = grid_points[(AL / 2 + 1) * AC + AC / 2] - grid_points[(AL / 2) * AC + AC / 2];
         let tj = grid_points[(AL / 2) * AC + AC / 2 + 1] - grid_points[(AL / 2) * AC + AC / 2];
         let wind_flip = ti.cross(&tj).dot(&chosen_normal) < 0.0;
@@ -778,7 +812,11 @@ fn write_parts_whole_obj(
         if on_plane.len() != 2 {
             continue;
         }
-        let corner = corners
+        // The face is bounded by its contact lines up to their TRUE
+        // intersection, exported by the extractor (independent of the
+        // cap's pulled-back corner); the mutual trim against the cap
+        // handles the overlap.
+        let corner = trim_corners
             .iter()
             .copied()
             .min_by(|a, b| {

@@ -41,6 +41,10 @@ pub struct Kp20PaperBorderExtractReport {
     /// `true` when the loop order was reversed to make the boundary
     /// wind counterclockwise about its mean normal.
     pub reversed_for_orientation: bool,
+    /// Setback path only: the TRUE trim-intersection points per
+    /// junction (before any corner pullback) — the natural face
+    /// wedge apexes for downstream trimming/rendering.
+    pub trim_corners: Vec<Point3>,
 }
 
 /// Build the paper cap's two-piece border from an apex blend
@@ -273,6 +277,7 @@ pub fn kp20_paper_border_from_blend_boundary(
             max_loop_gap,
             first_order_marches,
             reversed_for_orientation,
+            trim_corners: Vec::new(),
         },
     ))
 }
@@ -793,46 +798,94 @@ pub fn kp20_paper_border_from_fillet_setback(
     }
     let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
 
-    // One arc per fillet between its two corners, sampled ON the
-    // sweep along the uv segment; halves = the sector pieces.
-    let mut sectors = Vec::with_capacity(n);
-    let mut first_order_marches = 0_usize;
-    let calibration = chi_march_calibration(n)
-        .ok_or_else(|| "characteristic march calibration failed".to_string())?;
+    // Corner pullback: cutting each arc exactly at the trim
+    // intersection puts the sector corners at the highest, sharpest
+    // point of the boundary (tall thin cap tips that amplify corner
+    // noise). Pull the corner back along both arcs by a fraction of
+    // the arc and place it on the shared tangent plane — the
+    // classical setback-distance choice, giving lower, wider corner
+    // tips. 0.0 reproduces the exact trim-intersection corner.
+    let pullback: f64 = std::env::var("KP20_CORNER_PULLBACK")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.0);
+
+    // One arc per fillet between its two (pulled-back) corners.
+    // Pass 1: shortened uv spans.
+    let mut spans: Vec<(usize, f64, f64, f64, f64)> = Vec::with_capacity(n);
     for k in 0..n {
         let fillet = &fillet_surfaces[order[k]];
         let c_prev = corners[(k + n - 1) % n].1;
         let c_next = corners[k].1;
-        let (ua, va) = project_point_to_uv(&fillet.surface, &c_prev)
+        let (ua_full, va_full) = project_point_to_uv(&fillet.surface, &c_prev)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let (ub, vb) = project_point_to_uv(&fillet.surface, &c_next)
+        let (ub_full, vb_full) = project_point_to_uv(&fillet.surface, &c_next)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let on_surface = |t: f64| -> Point3 {
-            let u = ua + (ub - ua) * t;
-            let v = va + (vb - va) * t;
-            fillet.surface.point_at(u, v)
-        };
-        // Cubic through 4 samples, then de Casteljau halves — the
-        // sector pieces [m→c] never cross a surface boundary.
-        let p0 = on_surface(0.0);
-        let q1 = on_surface(1.0 / 3.0);
-        let q2 = on_surface(2.0 / 3.0);
-        let p3 = on_surface(1.0);
-        let interior = |a: f64, b: f64, c: f64, d: f64| {
+        let shrink = 0.5 * pullback;
+        spans.push((
+            order[k],
+            ua_full + (ub_full - ua_full) * shrink,
+            va_full + (vb_full - va_full) * shrink,
+            ub_full + (ua_full - ub_full) * shrink,
+            vb_full + (va_full - vb_full) * shrink,
+        ));
+    }
+    let eval_span = |k: usize, t: f64| -> Point3 {
+        let (fi, ua, va, ub, vb) = spans[k];
+        fillet_surfaces[fi]
+            .surface
+            .point_at(ua + (ub - ua) * t, va + (vb - va) * t)
+    };
+    // Pass 2: pulled-back corners = midpoints of adjacent cut ends
+    // (they flank the shared face symmetrically, so the midpoint sits
+    // essentially on it).
+    let new_corners: Vec<Point3> = (0..n)
+        .map(|j| {
+            let a_end = eval_span(j, 1.0);
+            let b_start = eval_span((j + 1) % n, 0.0);
             Point3::new(
-                (a * p0.x + b * q1.x + c * q2.x + d * p3.x) / 6.0,
-                (a * p0.y + b * q1.y + c * q2.y + d * p3.y) / 6.0,
-                (a * p0.z + b * q1.z + c * q2.z + d * p3.z) / 6.0,
+                0.5 * (a_end.x + b_start.x),
+                0.5 * (a_end.y + b_start.y),
+                0.5 * (a_end.z + b_start.z),
+            )
+        })
+        .collect();
+    // Pass 3: sector pieces interpolate arc samples and END exactly
+    // at the shared pulled-back corners.
+    let mut sectors = Vec::with_capacity(n);
+    let mut first_order_marches = 0_usize;
+    let calibration = chi_march_calibration(n)
+        .ok_or_else(|| "characteristic march calibration failed".to_string())?;
+    let interpolate = |pts: [Point3; 4]| -> [Point3; 4] {
+        let inner = |a: f64, b: f64, c: f64, d: f64| {
+            Point3::new(
+                (a * pts[0].x + b * pts[1].x + c * pts[2].x + d * pts[3].x) / 6.0,
+                (a * pts[0].y + b * pts[1].y + c * pts[2].y + d * pts[3].y) / 6.0,
+                (a * pts[0].z + b * pts[1].z + c * pts[2].z + d * pts[3].z) / 6.0,
             )
         };
-        let arc = [
-            p0,
-            interior(-5.0, 18.0, -9.0, 2.0),
-            interior(2.0, -9.0, 18.0, -5.0),
-            p3,
-        ];
-        let (first_half, second_half) = split_cubic_row(&arc);
-        // The oriented segment shim reuses the calibrated march.
+        [
+            pts[0],
+            inner(-5.0, 18.0, -9.0, 2.0),
+            inner(2.0, -9.0, 18.0, -5.0),
+            pts[3],
+        ]
+    };
+    for k in 0..n {
+        let fillet = &fillet_surfaces[spans[k].0];
+        let c_start = new_corners[(k + n - 1) % n];
+        let c_end = new_corners[k];
+        // ONE cubic per arc through the shared corners, split exactly
+        // at its midpoint: the halves share all derivatives at m (the
+        // cross-sector joint whose C² the eq (13)/(14) premises
+        // need), and adjacent arcs share the corner points exactly.
+        let full_arc = interpolate([
+            c_start,
+            eval_span(k, 1.0 / 3.0),
+            eval_span(k, 2.0 / 3.0),
+            c_end,
+        ]);
+        let (first_half, second_half) = split_cubic_row(&full_arc);
         let shim = OrientedSegment {
             curve: fillet.trim_curve_1.clone(),
             surface: fillet.surface.clone(),
@@ -851,7 +904,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             vertex_position,
             &mut first_order_marches,
         );
-        sectors.push((order[k], piece_a, piece_b));
+        sectors.push((spans[k].0, piece_a, piece_b));
     }
 
     // Sector s spans [m_s → c_s → m_{s+1}]: piece A = second half of
@@ -931,6 +984,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             max_loop_gap: max_corner_gap,
             first_order_marches,
             reversed_for_orientation: false,
+            trim_corners: corners.iter().map(|c| c.1).collect(),
         },
     ))
 }
