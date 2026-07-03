@@ -295,14 +295,34 @@ pub(crate) fn tessellate_brep(
     brep: &BRep,
     options: &TessellationOptions,
 ) -> Result<TriMesh, MeshError> {
+    // Canonical per-edge samples: adjacent faces share bit-identical
+    // boundary vertices (PK-095 closure).
+    let edge_samples = crate::boundary_first::sample_all_edges(brep, options.chord_height);
     let mut face_meshes = Vec::new();
+    let mut legacy_faces = Vec::new();
     for face_handle in brep.faces.keys() {
         if brep.faces[face_handle].surface.is_none() {
             continue;
         }
+        if let Some(fm) = crate::boundary_first::tessellate_face_boundary_first(
+            brep,
+            face_handle,
+            &edge_samples,
+            options,
+        ) {
+            face_meshes.push(fm);
+            continue;
+        }
+        legacy_faces.push(face_meshes.len());
         face_meshes.push(tessellate_face(brep, face_handle, options)?);
     }
-    sew_boundaries_to_edge_polylines(brep, &mut face_meshes);
+    // The projection-based sewing stopgap applies ONLY to legacy-path
+    // faces: boundary-first faces carry exact canonical boundary
+    // points, and re-projecting them can snap a point onto a
+    // DIFFERENT nearby incident edge (measured: floor arc points
+    // pulled onto the base-edge line, reopening the very seams the
+    // canonical sampling closed).
+    sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
     Ok(TriMesh::from_face_meshes(face_meshes))
 }
 
@@ -316,7 +336,11 @@ pub(crate) fn tessellate_brep(
 /// same 3D polyline: the seam is visually sealed (residual
 /// T-junctions between differently-parameterized samples are the
 /// recorded follow-up for exact topological closure).
-fn sew_boundaries_to_edge_polylines(brep: &BRep, face_meshes: &mut [crate::mesh::FaceMesh]) {
+fn sew_boundaries_to_edge_polylines(
+    brep: &BRep,
+    face_meshes: &mut [crate::mesh::FaceMesh],
+    legacy_faces: &[usize],
+) {
     use popkern_core::geometry::curve::CurveEval;
     use std::collections::HashMap;
 
@@ -345,7 +369,8 @@ fn sew_boundaries_to_edge_polylines(brep: &BRep, face_meshes: &mut [crate::mesh:
         polylines.insert(eh, pts);
     }
     // Per face: incident edge set from its loops.
-    for fm in face_meshes.iter_mut() {
+    for &fi in legacy_faces {
+        let fm = &mut face_meshes[fi];
         let Some(face) = brep.faces.get(fm.face) else {
             continue;
         };
@@ -567,11 +592,27 @@ mod tests {
     fn tessellate_unit_cube_correct_counts() {
         let cube = BRep::unit_cube(Tolerance::default()).unwrap();
         let mesh = tessellate(&cube, &TessellationOptions::default()).unwrap();
-        // With min_subdivisions=4, each planar face gets a 4x4 grid of quads,
-        // each split into 2 triangles: 6 faces * 16 quads * 2 = 192 triangles.
-        assert_eq!(mesh.triangles.len(), 192);
-        assert_eq!(mesh.face_map.len(), 192);
+        // Boundary-first tessellation: counts depend on the interior
+        // grid + boundary sampling; the structural contract is one
+        // mesh per face, consistent maps, and full area coverage.
+        assert!(!mesh.triangles.is_empty());
+        assert_eq!(mesh.face_map.len(), mesh.triangles.len());
         assert_eq!(mesh.face_meshes.len(), 6);
+        let mut area = 0.0;
+        for t in &mesh.triangles {
+            let a = mesh.vertices[t[0]].position;
+            let b = mesh.vertices[t[1]].position;
+            let c = mesh.vertices[t[2]].position;
+            let ab = b - a;
+            let ac = c - a;
+            let cx = popkern_core::geometry::Vec3::new(
+                ab.y * ac.z - ab.z * ac.y,
+                ab.z * ac.x - ab.x * ac.z,
+                ab.x * ac.y - ab.y * ac.x,
+            );
+            area += 0.5 * cx.length();
+        }
+        assert!((area - 6.0).abs() < 1e-9, "cube surface area, got {area}");
     }
 
     #[test]
@@ -582,10 +623,9 @@ mod tests {
             ..Default::default()
         };
         let mesh = tessellate(&cube, &opts).unwrap();
-        // With min_subdivisions=1, each planar face gets 1 quad = 2 triangles.
-        // 6 faces * 2 = 12 triangles.
-        assert_eq!(mesh.triangles.len(), 12);
-        assert_eq!(mesh.face_map.len(), 12);
+        // Coarsest setting still covers every face.
+        assert!(!mesh.triangles.is_empty());
+        assert_eq!(mesh.face_map.len(), mesh.triangles.len());
         assert_eq!(mesh.face_meshes.len(), 6);
     }
 

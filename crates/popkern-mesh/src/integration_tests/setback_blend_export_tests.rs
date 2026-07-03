@@ -56,4 +56,33 @@ fn setback_blend_tessellates_closed() {
         mesh.triangles.len()
     );
     assert!(mesh.triangles.len() > 100, "implausibly small mesh");
+
+    // PK-095 closure gate: the whole-object tessellation must be
+    // watertight — after position welding, every edge is used by
+    // exactly two triangles.
+    let mut canon: std::collections::HashMap<(i64, i64, i64), usize> =
+        std::collections::HashMap::new();
+    let mut remap = Vec::with_capacity(mesh.vertices.len());
+    for v in &mesh.vertices {
+        let k = (
+            (v.position.x * 1.0e7).round() as i64,
+            (v.position.y * 1.0e7).round() as i64,
+            (v.position.z * 1.0e7).round() as i64,
+        );
+        let next = canon.len();
+        remap.push(*canon.entry(k).or_insert(next));
+    }
+    let mut counts: std::collections::HashMap<(usize, usize), usize> =
+        std::collections::HashMap::new();
+    for t in &mesh.triangles {
+        let w = [remap[t[0]], remap[t[1]], remap[t[2]]];
+        if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
+            continue;
+        }
+        for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    let open: usize = counts.values().filter(|&&c| c == 1).count();
+    assert_eq!(open, 0, "tessellation must be watertight (open edges)");
 }

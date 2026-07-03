@@ -6,6 +6,7 @@
 //! and export to common mesh formats (STL, OBJ, glTF).
 
 mod adaptive;
+mod boundary_first;
 mod export;
 mod mesh;
 mod tessellate;
