@@ -80,7 +80,7 @@ fn run() {
     let radius: f64 = std::env::var("KP20_APEX_RADIUS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.3);
+        .unwrap_or(0.16);
     println!("fillet radius {radius}");
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
@@ -89,8 +89,13 @@ fn run() {
             radius: FilletRadius::Constant(radius),
         })
         .collect();
-    let preview = preview_fillet_with_continuity(&pyramid, &specs, tol, ContinuityLevel::G2)
-        .expect("fillet preview");
+    let continuity = if std::env::var("KP20_G1").map(|v| v == "1").unwrap_or(false) {
+        ContinuityLevel::G1
+    } else {
+        ContinuityLevel::G2
+    };
+    let preview =
+        preview_fillet_with_continuity(&pyramid, &specs, tol, continuity).expect("fillet preview");
     assert!(
         preview.all_succeeded(),
         "preview failures: {:?}",
@@ -115,6 +120,100 @@ fn run() {
             continuity_downgrade: None,
         })
         .collect();
+    // Side check: a true inscribed fillet's mid cross-section lies
+    // INSIDE the original wedge (negative height under both adjacent
+    // face planes). Positive = the sweep bulges outward.
+    {
+        use popkern_core::geometry::surface::SurfaceEval;
+        let interior = Point3::new(0.0, 0.0, 0.35);
+        let planes: Vec<(Point3, popkern_core::geometry::Vec3)> = pyramid
+            .faces
+            .iter()
+            .filter_map(|(_, face)| {
+                let sof = face.surface.as_ref()?;
+                if let popkern_core::geometry::SurfaceGeometry::Plane { normal, origin, .. } =
+                    &sof.geometry
+                {
+                    if normal.z.abs() > 0.9 {
+                        return None;
+                    }
+                    let n = if normal.dot(&(*origin - interior)) >= 0.0 {
+                        *normal
+                    } else {
+                        -*normal
+                    };
+                    Some((*origin, n))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        for (k, fillet) in fillet_surfaces.iter().enumerate() {
+            let mid = fillet.surface.point_at(0.5, 0.5);
+            let mut heights: Vec<f64> = planes.iter().map(|(o, n)| (mid - *o).dot(n)).collect();
+            heights.sort_by(|a, b| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));
+            // Tangency check: the sweep normal at the contact lines
+            // must match the face normals (G1 flush).
+            let mut worst_tangency = 0.0_f64;
+            for &v_edge in &[0.0_f64, 1.0] {
+                for step in 0..5 {
+                    let u = 0.1 + 0.2 * step as f64;
+                    let p_edge = fillet.surface.point_at(u, v_edge);
+                    let n_sweep = fillet.surface.normal_at(u, v_edge);
+                    // Nearest face plane normal.
+                    let (_, n_face) = planes
+                        .iter()
+                        .min_by(|a, b| {
+                            let da = ((p_edge - a.0).dot(&a.1)).abs();
+                            let db = ((p_edge - b.0).dot(&b.1)).abs();
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .copied()
+                        .unwrap();
+                    let align = n_sweep.dot(&n_face).abs();
+                    worst_tangency = worst_tangency.max(1.0 - align);
+                }
+            }
+            // Finite-difference normal at the contact (trust position
+            // eval over normal_at).
+            {
+                let e = 1.0e-4;
+                let p0 = fillet.surface.point_at(0.5, 0.0);
+                let du = (fillet.surface.point_at(0.5 + e, 0.0)
+                    - fillet.surface.point_at(0.5 - e, 0.0))
+                    * (0.5 / e);
+                let dv = (fillet.surface.point_at(0.5, e) - p0) * (1.0 / e);
+                let n_fd = du.cross(&dv).normalized().unwrap_or(du);
+                let (_, n_face) = planes
+                    .iter()
+                    .min_by(|a, b| {
+                        let da = ((p0 - a.0).dot(&a.1)).abs();
+                        let db = ((p0 - b.0).dot(&b.1)).abs();
+                        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                    })
+                    .copied()
+                    .unwrap();
+                let n_eval = fillet.surface.normal_at(0.5, 0.0);
+                println!(
+                    "  fillet[{k}] FD-normal vs face: dev {:.2e}; normal_at vs FD: dev {:.2e}",
+                    1.0 - n_fd.dot(&n_face).abs(),
+                    1.0 - n_eval.normalized().unwrap_or(n_eval).dot(&n_fd).abs(),
+                );
+            }
+            let d_v0 =
+                trim_curve_distance(&fillet.trim_curve_1, fillet.surface.point_at(0.5, 0.0)).min(
+                    trim_curve_distance(&fillet.trim_curve_2, fillet.surface.point_at(0.5, 0.0)),
+                );
+            let d_v1 =
+                trim_curve_distance(&fillet.trim_curve_1, fillet.surface.point_at(0.5, 1.0)).min(
+                    trim_curve_distance(&fillet.trim_curve_2, fillet.surface.point_at(0.5, 1.0)),
+                );
+            println!(
+                "  fillet[{k}] mid height: {:.4}, {:.4}; tangency dev: {:.2e}; v-edge-to-trim: {:.4}, {:.4}",
+                heights[0], heights[1], worst_tangency, d_v0, d_v1,
+            );
+        }
+    }
     let indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
     let boundary = compute_blend_boundary(apex, &indices, &fillet_surfaces, &pyramid, &tol)
         .expect("blend boundary");
