@@ -20,6 +20,23 @@ pub mod construct;
 pub mod contact;
 pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
+
+/// Test-only hooks for gated work-in-progress construction arms.
+pub mod construct_test_hooks {
+    /// Enable the PK-094 setback-topology WIP arm (integration tests).
+    pub fn enable_setback_topology_wip() {
+        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_WIP
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Read the last WIP checkpoint report (integration tests).
+    pub fn take_setback_topology_checkpoint() -> Option<String> {
+        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+    }
+}
 pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;

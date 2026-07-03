@@ -95,6 +95,45 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
+    // PK-094 stage-2 WIP arm: setback boundary surgery (gated; see
+    // setback_vertex_topology module docs). On success the blend face
+    // is the setback n-gon; the cap face fan is the recorded
+    // follow-up, so for now the outcome is only exercised by
+    // integration tests and the arm falls through on any error.
+    if super::setback_vertex_topology::setback_topology_enabled() && edge_indices.len() >= 5 {
+        // WIP: run the surgery on a scratch copy, record the
+        // checkpoint (or failure) for the probe test, restore, and
+        // fall through to the legacy path so production output is
+        // unchanged until the cap face fan lands.
+        let snapshot = brep.clone();
+        let checkpoint = match super::setback_vertex_topology::try_setback_boundary_surgery(
+            brep,
+            vertex,
+            &fillet_surfaces_pre,
+            tolerance,
+        ) {
+            Ok(outcome) => {
+                let loop_len =
+                    super::setback_vertex_topology::blend_loop_len(brep, outcome.blend_face);
+                let valid = brep
+                    .validate()
+                    .map(|_| "ok".to_string())
+                    .unwrap_or_else(|e| format!("INVALID: {e}"));
+                format!(
+                    "setback surgery WIP checkpoint: arcs={} corners={} blend_loop_edges={:?} validate={}",
+                    outcome.arc_edges.len(),
+                    outcome.corner_vertices.len(),
+                    loop_len,
+                    valid,
+                )
+            }
+            Err(e) => format!("setback surgery failed: {e}"),
+        };
+        *brep = snapshot;
+        *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
+            .lock()
+            .unwrap_or_else(|p| p.into_inner()) = Some(checkpoint);
+    }
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
 

@@ -45,6 +45,25 @@ pub struct Kp20PaperBorderExtractReport {
     /// junction (before any corner pullback) — the natural face
     /// wedge apexes for downstream trimming/rendering.
     pub trim_corners: Vec<Point3>,
+    /// Setback path only: per-fillet setback arc data for topology
+    /// insertion (the full arc cubic and its shared corner points).
+    pub setback_arcs: Vec<Kp20SetbackArc>,
+}
+
+/// One fillet's setback arc, exported for BRep topology insertion:
+/// the arc is the fillet face's new apex-side boundary, running from
+/// `corner_prev` to `corner_next` (shared with the neighbouring
+/// fillets' arcs).
+#[derive(Debug, Clone)]
+pub struct Kp20SetbackArc {
+    /// Index into the input `fillet_surfaces` slice.
+    pub fillet_index: usize,
+    /// Full arc as a cubic Bezier, `corner_prev` → `corner_next`.
+    pub cubic: [Point3; 4],
+    /// Shared corner with the previous fillet (trim intersection).
+    pub corner_prev: Point3,
+    /// Shared corner with the next fillet.
+    pub corner_next: Point3,
 }
 
 /// Build the paper cap's two-piece border from an apex blend
@@ -278,6 +297,7 @@ pub fn kp20_paper_border_from_blend_boundary(
             first_order_marches,
             reversed_for_orientation,
             trim_corners: Vec::new(),
+            setback_arcs: Vec::new(),
         },
     ))
 }
@@ -871,6 +891,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             pts[3],
         ]
     };
+    let mut setback_arcs: Vec<Kp20SetbackArc> = Vec::with_capacity(n);
     for k in 0..n {
         let fillet = &fillet_surfaces[spans[k].0];
         let c_start = new_corners[(k + n - 1) % n];
@@ -885,6 +906,12 @@ pub fn kp20_paper_border_from_fillet_setback(
             eval_span(k, 2.0 / 3.0),
             c_end,
         ]);
+        setback_arcs.push(Kp20SetbackArc {
+            fillet_index: spans[k].0,
+            cubic: full_arc,
+            corner_prev: c_start,
+            corner_next: c_end,
+        });
         let (first_half, second_half) = split_cubic_row(&full_arc);
         let shim = OrientedSegment {
             curve: fillet.trim_curve_1.clone(),
@@ -1014,6 +1041,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             first_order_marches,
             reversed_for_orientation: false,
             trim_corners: corners.iter().map(|c| c.1).collect(),
+            setback_arcs,
         },
     ))
 }
