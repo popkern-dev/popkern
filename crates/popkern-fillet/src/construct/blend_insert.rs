@@ -100,46 +100,51 @@ pub(crate) fn insert_vertex_blend(
     // is the setback n-gon; the cap face fan is the recorded
     // follow-up, so for now the outcome is only exercised by
     // integration tests and the arm falls through on any error.
-    if super::setback_vertex_topology::setback_topology_enabled() && edge_indices.len() >= 5 {
-        // WIP: run the surgery on a scratch copy, record the
-        // checkpoint (or failure) for the probe test, restore, and
-        // fall through to the legacy path so production output is
-        // unchanged until the cap face fan lands.
-        let snapshot = brep.clone();
-        let checkpoint = match super::setback_vertex_topology::try_setback_boundary_surgery(
+    if super::setback_vertex_topology::setback_topology_commit_enabled() && edge_indices.len() >= 5
+    {
+        // PK-094 commit mode: the setback vertex blend replaces the
+        // legacy corner machinery entirely for eligible apexes. On
+        // any surgery error the snapshot restore inside the surgery
+        // has already run; fall through to the legacy path with a
+        // recorded reason.
+        match super::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
             vertex,
             &fillet_surfaces_pre,
             tolerance,
         ) {
             Ok(outcome) => {
-                let loop_len =
-                    super::setback_vertex_topology::blend_loop_len(brep, outcome.blend_face);
-                let loop_desc = if std::env::var_os("PK_SETBACK_PROBE").is_some() {
-                    super::setback_vertex_topology::blend_loop_description(brep, outcome.blend_face)
-                } else {
-                    String::new()
-                };
-                let valid = brep
-                    .validate()
-                    .map(|_| "ok".to_string())
-                    .unwrap_or_else(|e| format!("INVALID: {e}"));
-                format!(
-                    "setback surgery WIP checkpoint: arcs={} corners={} blend_loop_edges={:?} validate={}{}",
-                    outcome.arc_edges.len(),
-                    outcome.corner_vertices.len(),
-                    loop_len,
-                    valid,
-                    loop_desc,
-                )
+                brep.validate()
+                    .map_err(|e| format!("setback vertex blend failed validation: {e}"))?;
+                let infos: Vec<CornerPatchInfo> = outcome
+                    .cap_faces
+                    .iter()
+                    .map(|&face| CornerPatchInfo {
+                        vertex,
+                        n_sides: edge_indices.len(),
+                        method: CornerMethod::Gregory,
+                        achieved_continuity: crate::types::ContinuityLevel::G2,
+                        classification,
+                        face,
+                        bridge_fallbacks: Vec::new(),
+                        overlap_remediated: false,
+                        relaxed_continuity_coplanarity: None,
+                        cap_sphere: None,
+                        sub_patch_provenance: None,
+                    })
+                    .collect();
+                return Ok((infos, None, Vec::new()));
             }
-            Err(e) => format!("setback surgery failed: {e}"),
-        };
-        *brep = snapshot;
-        *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
-            .lock()
-            .unwrap_or_else(|p| p.into_inner()) = Some(checkpoint);
+            Err(e) => {
+                // Fall through to the legacy path.
+                *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner()) =
+                    Some(format!("setback commit declined: {e}"));
+            }
+        }
     }
+
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
 

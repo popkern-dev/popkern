@@ -25,8 +25,15 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 use super::kp20_paper_border_extract::{Kp20SetbackArc, kp20_paper_border_from_fillet_setback};
 use crate::fillet_surface::FilletSurfaceResult;
 
-/// WIP gate for the setback topology arm (see module docs).
-pub(crate) static SETBACK_TOPOLOGY_WIP: AtomicBool = AtomicBool::new(false);
+/// Commit gate: the setback vertex blend replaces the legacy corner
+/// machinery for eligible apexes (integration tests + showcases; the
+/// production default stays off until the acceptance sweep lands).
+pub(crate) static SETBACK_TOPOLOGY_COMMIT: AtomicBool = AtomicBool::new(false);
+
+/// Returns whether commit mode is enabled.
+pub(crate) fn setback_topology_commit_enabled() -> bool {
+    SETBACK_TOPOLOGY_COMMIT.load(Ordering::Relaxed)
+}
 
 /// WIP checkpoint report channel for the integration probe test.
 pub(crate) static SETBACK_TOPOLOGY_LAST: std::sync::Mutex<Option<String>> =
@@ -34,6 +41,7 @@ pub(crate) static SETBACK_TOPOLOGY_LAST: std::sync::Mutex<Option<String>> =
 
 /// Result of the setback boundary surgery.
 #[derive(Debug)]
+#[allow(dead_code)] // arc_edges/corner_vertices feed the upcoming acceptance sweep
 pub(crate) struct SetbackTopologyOutcome {
     /// The merged blend face bounded by the n setback arcs.
     pub blend_face: FaceHandle,
@@ -42,6 +50,8 @@ pub(crate) struct SetbackTopologyOutcome {
     /// The n corner vertices (trim intersections), fillet order
     /// (corner k = between fillet k and fillet k+1).
     pub corner_vertices: Vec<VertexHandle>,
+    /// The 4n KP20 piece faces subdividing the blend region.
+    pub cap_faces: Vec<FaceHandle>,
 }
 
 /// Attempt the setback boundary surgery at `vertex`. On any error the
@@ -295,11 +305,403 @@ fn surgery_inner(
     let blend_face =
         merge_faces(brep, vertex, &surrendered).map_err(|e| format!("blend region merge: {e}"))?;
 
+    // ---- cap face fan: subdivide the blend n-gon into the 4n KP20
+    // piece faces --------------------------------------------------------
+    let cap_faces = build_cap_face_fan(
+        brep,
+        blend_face,
+        &arc_edges,
+        fillet_surfaces,
+        vertex_position,
+    )?;
+
     Ok(SetbackTopologyOutcome {
         blend_face,
         arc_edges,
         corner_vertices,
+        cap_faces,
     })
+}
+
+/// Sector chart (measured in the c0-exact campaign): o at (0,0), the
+/// two bounding spokes along the chart's i=0 row and j=0 column,
+/// m_s at (0,6), m_{s+1} at (6,0), the rim corner c at (6,6); pieces
+/// P1/P4/P2/P3 are the chart quarters. Rim quarter-points come from
+/// the CAP's own piece corners (the eq (14) band reparameterization
+/// means they are NOT at naive arc parameters).
+fn build_cap_face_fan(
+    brep: &mut BRep,
+    blend_face: FaceHandle,
+    arc_edges: &[EdgeHandle],
+    fillet_surfaces: &[FilletSurfaceResult],
+    vertex_position: Point3,
+) -> Result<Vec<FaceHandle>, String> {
+    use popkern_core::geometry::gregory::Kp20PieceId;
+    let n = arc_edges.len();
+    // Assemble the cap (the same call the stage-1 candidate makes).
+    let (border, _extract) =
+        kp20_paper_border_from_fillet_setback(fillet_surfaces, vertex_position)?;
+    let centroid = {
+        let mut acc = [0.0_f64; 3];
+        let mut count = 0.0;
+        for sector in &border.sectors {
+            for piece in sector {
+                for cp in &piece.rows[0] {
+                    acc[0] += cp.x;
+                    acc[1] += cp.y;
+                    acc[2] += cp.z;
+                    count += 1.0;
+                }
+            }
+        }
+        Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
+    };
+    let star = Point3::new(
+        centroid.x + (vertex_position.x - centroid.x) * 0.25,
+        centroid.y + (vertex_position.y - centroid.y) * 0.25,
+        centroid.z + (vertex_position.z - centroid.z) * 0.25,
+    );
+    let report = popkern_core::geometry::gregory::assemble_kp20_paper_cap_conditioned(
+        &border,
+        star,
+        popkern_core::geometry::gregory::Kp20StripEnforcement::HardG2,
+        0.0,
+    )
+    .map_err(|e| format!("cap assembly: {e}"))?;
+    let sectors = &report.sectors;
+    if sectors.len() != n {
+        return Err(format!("cap has {} sectors for {n} arcs", sectors.len()));
+    }
+
+    const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
+    const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
+    const P4: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
+
+    // Key chart positions per sector.
+    let o_point = sectors[0].piece(P1).cps[0][0];
+    let sector_m = |s: usize| sectors[s].piece(P4).cps[0][6]; // chart (0,6) = m_s
+    let sector_center = |s: usize| sectors[s].piece(P1).cps[6][6]; // chart (3,3)
+    let sector_spoke_mid_row = |s: usize| sectors[s].piece(P1).cps[0][6]; // chart (0,3)
+    let rim_q_row = |s: usize| sectors[s].piece(P4).cps[6][6]; // chart (3,6): rim mid of [m_s→c]
+    let rim_q_col = |s: usize| sectors[s].piece(P2).cps[6][6]; // chart (6,3): rim mid of [c→m_{s+1}]
+
+    // 1. Split each arc's middle edge at the cap's rim subdivision
+    //    points: m (arc midpoint = chart (0,6)) and the two rim
+    //    quarter corners. Sector s's rim = [m_s→c_s] (second half of
+    //    arc s) + [c_s→m_{s+1}] (first half of arc s+1), so arc k
+    //    carries: q_col of sector k−1 (its first half) and m_k + q_row
+    //    of sector k (its second half).
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        let dist_to_loop = |pt: Point3| -> f64 {
+            let mut best = f64::INFINITY;
+            if let Ok(hes) = face_loop_half_edges(brep, blend_face) {
+                for he in hes {
+                    let edge = brep.half_edges[he].edge;
+                    if let Some(c) = brep.edges[edge].curve.as_ref() {
+                        best = best.min(curve_distance(&c.geometry, c.t_start, c.t_end, pt));
+                    }
+                }
+            }
+            best
+        };
+        for s in 0..1 {
+            use popkern_core::geometry::gregory::Kp20PieceId as Pid;
+            let sec = &sectors[s];
+            for (label, pt) in [
+                ("P1(0,0) o?", sec.piece(Pid::NearOriginLeft).cps[0][0]),
+                ("P1(0,6)", sec.piece(Pid::NearOriginLeft).cps[0][6]),
+                ("P1(6,0)", sec.piece(Pid::NearOriginLeft).cps[6][0]),
+                ("P1(6,6)", sec.piece(Pid::NearOriginLeft).cps[6][6]),
+                ("P4(0,6)", sec.piece(Pid::NearMidpointLeft).cps[0][6]),
+                ("P4(6,6)", sec.piece(Pid::NearMidpointLeft).cps[6][6]),
+                ("P4(6,0)", sec.piece(Pid::NearMidpointLeft).cps[6][0]),
+                ("P2(6,6)", sec.piece(Pid::NearOriginRight).cps[6][6]),
+                ("P2(6,0)", sec.piece(Pid::NearOriginRight).cps[6][0]),
+                ("P2(0,6)", sec.piece(Pid::NearOriginRight).cps[0][6]),
+                ("P3(0,0)", sec.piece(Pid::NearMidpointRight).cps[0][0]),
+                ("P3(6,6)", sec.piece(Pid::NearMidpointRight).cps[6][6]),
+                ("P3(0,6)", sec.piece(Pid::NearMidpointRight).cps[0][6]),
+                ("P3(6,0)", sec.piece(Pid::NearMidpointRight).cps[6][0]),
+            ] {
+                eprintln!(
+                    "  [chart] s{s} {label}: ({:+.3},{:+.3},{:+.3}) loop-dist {:.2e}",
+                    pt.x,
+                    pt.y,
+                    pt.z,
+                    dist_to_loop(pt)
+                );
+            }
+        }
+    }
+    // Split at every sector's rim subdivision positions directly —
+    // the extractor's sector order is angular and generally differs
+    // from the fillet index order, so no arc↔sector pairing is
+    // assumed; the splitter locates the right boundary edge globally.
+    let mut m_vertices = Vec::with_capacity(n);
+    for s in 0..n {
+        let m_vertex = split_blend_boundary_at(brep, blend_face, sector_m(s))?;
+        split_blend_boundary_at(brep, blend_face, rim_q_row(s))?;
+        split_blend_boundary_at(brep, blend_face, rim_q_col(s))?;
+        m_vertices.push(m_vertex);
+    }
+
+    // 2. Spokes: chains m_s → sm_s → o. The first spoke creates o via
+    //    mev; later spokes close onto it with mef.
+    let mut o_vertex: Option<VertexHandle> = None;
+    let mut spoke_mid_vertices = Vec::with_capacity(n);
+    for s in 0..n {
+        let m_v = m_vertices[s];
+        let he_m = half_edge_at_vertex_on_face_containing(brep, m_v, &o_point)?;
+        let mev1 = brep
+            .mev(he_m, sector_spoke_mid_row(s))
+            .map_err(|e| format!("mev spoke mid {s}: {e}"))?;
+        spoke_mid_vertices.push(mev1.vertex);
+        match o_vertex {
+            None => {
+                let he_sm = half_edge_at_vertex_on_face_containing(brep, mev1.vertex, &o_point)?;
+                let mev2 = brep
+                    .mev(he_sm, o_point)
+                    .map_err(|e| format!("mev o from spoke {s}: {e}"))?;
+                o_vertex = Some(mev2.vertex);
+            }
+            Some(o_v) => {
+                let (he_sm, he_o) = half_edge_pair_in_common_loop(brep, mev1.vertex, o_v)?;
+                brep.mef(he_sm, he_o)
+                    .map_err(|e| format!("mef spoke {s} to o: {e}"))?;
+            }
+        }
+    }
+    let o_vertex = o_vertex.ok_or("no o vertex")?;
+
+    // 3. Per sector: the interior cross (center vertex + 4 arms).
+    for s in 0..n {
+        let center = sector_center(s);
+        let q_row_v = find_vertex_at(brep, rim_q_row(s))?;
+        let q_col_v = find_vertex_at(brep, rim_q_col(s))?;
+        let sm_this = spoke_mid_vertices[s];
+        let sm_next = spoke_mid_vertices[(s + 1) % n];
+        // Spur from the rim quarter (3,6) into the sector face.
+        let he_q = half_edge_at_vertex_on_face_containing(brep, q_row_v, &center)?;
+        let mev_c = brep
+            .mev(he_q, center)
+            .map_err(|e| format!("mev sector {s} center: {e}"))?;
+        let center_v = mev_c.vertex;
+        for (label, target) in [
+            ("sm_this", sm_this),
+            ("sm_next", sm_next),
+            ("q_col", q_col_v),
+        ] {
+            let (he_c, he_t) = half_edge_pair_in_common_loop(brep, center_v, target)
+                .map_err(|e| format!("sector {s} arm {label}: {e}"))?;
+            brep.mef(he_c, he_t)
+                .map_err(|e| format!("mef sector {s} arm {label}: {e}"))?;
+        }
+    }
+    let _ = o_vertex;
+
+    // 4. Assign piece surfaces by centroid matching.
+    let patches = super::kp20_polar_fold_summary::gregory_patches_from_macro_patches(sectors);
+    let mut cap_faces = Vec::new();
+    let mut assigned = vec![false; patches.len()];
+    let face_handles: Vec<FaceHandle> = brep.faces.iter().map(|(fh, _)| fh).collect();
+    for fh in face_handles {
+        let Ok(c) = face_centroid(brep, fh) else {
+            continue;
+        };
+        // A cap face's centroid is near one piece's mid-point.
+        let mut best = (f64::INFINITY, usize::MAX);
+        for (idx, patch) in patches.iter().enumerate() {
+            if assigned[idx] {
+                continue;
+            }
+            let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(bp) = patch
+            else {
+                continue;
+            };
+            let mid = bp.point_at(0.5, 0.5);
+            let d = mid.distance_to(&c);
+            if d < best.0 {
+                best = (d, idx);
+            }
+        }
+        if best.1 != usize::MAX && best.0 < 0.05 {
+            let idx = best.1;
+            if let Some(face) = brep.faces.get_mut(fh) {
+                face.surface = Some(popkern_core::geometry::SurfaceOnFace {
+                    geometry: popkern_core::geometry::SurfaceGeometry::Gregory(
+                        patches[idx].clone(),
+                    ),
+                    orientation: true,
+                });
+                assigned[idx] = true;
+                cap_faces.push(fh);
+            }
+        }
+    }
+    if cap_faces.len() != 4 * n {
+        return Err(format!(
+            "assigned {} cap faces, expected {}",
+            cap_faces.len(),
+            4 * n
+        ));
+    }
+    Ok(cap_faces)
+}
+
+/// Split the blend face's boundary at an exact point (which must lie
+/// on one of its edge curves). Returns the (new or existing) vertex.
+fn split_blend_boundary_at(
+    brep: &mut BRep,
+    face: FaceHandle,
+    point: Point3,
+) -> Result<VertexHandle, String> {
+    for he in face_loop_half_edges(brep, face)? {
+        let v = brep.half_edges[he].origin;
+        if brep.vertices[v].position.distance_to(&point) < 1.0e-4 {
+            return Ok(v);
+        }
+    }
+    let mut best: Option<(f64, EdgeHandle)> = None;
+    for he in face_loop_half_edges(brep, face)? {
+        let edge = brep.half_edges[he].edge;
+        let Some(curve) = brep.edges[edge].curve.as_ref() else {
+            continue;
+        };
+        let d = curve_distance(&curve.geometry, curve.t_start, curve.t_end, point);
+        if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+            best = Some((d, edge));
+        }
+    }
+    let (d, edge) = best.ok_or("no curved boundary edge")?;
+    if d > 1.0e-3 {
+        return Err(format!("rim split point {d:.3e} off the boundary"));
+    }
+    // The generic-NURBS splitter lacks point inversion; compute the
+    // parameter by projection (dense scan + ternary refine) and use
+    // the parametric splitter.
+    let (t_split, t_dist) = {
+        let curve = brep.edges[edge].curve.as_ref().ok_or("edge lost curve")?;
+        let eval: &dyn CurveEval = &curve.geometry;
+        let (e0, e1) = (curve.t_start, curve.t_end);
+        let mut best_t = (f64::INFINITY, e0);
+        for i in 0..=512 {
+            let t = e0 + (e1 - e0) * i as f64 / 512.0;
+            let dd = eval.point_at(t).distance_to(&point);
+            if dd < best_t.0 {
+                best_t = (dd, t);
+            }
+        }
+        let mut lo = (best_t.1 - (e1 - e0) / 512.0).max(e0.min(e1));
+        let mut hi = (best_t.1 + (e1 - e0) / 512.0).min(e0.max(e1));
+        for _ in 0..60 {
+            let t1 = lo + (hi - lo) / 3.0;
+            let t2 = hi - (hi - lo) / 3.0;
+            if eval.point_at(t1).distance_to(&point) < eval.point_at(t2).distance_to(&point) {
+                hi = t2;
+            } else {
+                lo = t1;
+            }
+        }
+        let t = 0.5 * (lo + hi);
+        (t, eval.point_at(t).distance_to(&point))
+    };
+    // The cap's rim points differ from the (endpoint-snapped) arc
+    // sub-cubics by the band-reparameterization noise (~1e-4); the
+    // split vertex lands on the topology's own curve at the nearest
+    // parameter, which is the consistent choice.
+    if t_dist > 5.0e-3 {
+        return Err(format!("rim split projection residual {t_dist:.3e}"));
+    }
+    // split_edge takes the normalized fraction along the edge's
+    // parameter window, not the raw curve parameter.
+    let fraction = {
+        let curve = brep.edges[edge].curve.as_ref().ok_or("edge lost curve")?;
+        (t_split - curve.t_start) / (curve.t_end - curve.t_start)
+    };
+    let result = brep
+        .split_edge(edge, fraction)
+        .map_err(|e| format!("rim split: {e}"))?;
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        let vp = brep.vertices[result.vertex].position;
+        eprintln!(
+            "  [rimsplit] target ({:+.4},{:+.4},{:+.4}) edge-dist {d:.2e} t={t_split:.4} t_dist {t_dist:.2e} vertex-off {:.2e}",
+            point.x,
+            point.y,
+            point.z,
+            vp.distance_to(&point)
+        );
+    }
+    Ok(result.vertex)
+}
+
+/// The half-edge at `vertex` whose loop's face contains `interior`
+/// (the face whose centroid is nearest to it).
+fn half_edge_at_vertex_on_face_containing(
+    brep: &BRep,
+    vertex: VertexHandle,
+    interior: &Point3,
+) -> Result<HalfEdgeHandle, String> {
+    let mut best: Option<(f64, HalfEdgeHandle)> = None;
+    for (h, data) in brep.half_edges.iter() {
+        if data.origin != vertex {
+            continue;
+        }
+        let face = brep.loops[data.loop_].face;
+        let Ok(c) = face_centroid(brep, face) else {
+            continue;
+        };
+        let d = c.distance_to(interior);
+        if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+            best = Some((d, h));
+        }
+    }
+    best.map(|(_, h)| h)
+        .ok_or("vertex has no half-edges".into())
+}
+
+/// Half-edges at `va` and `vb` that share one loop (for mef).
+fn half_edge_pair_in_common_loop(
+    brep: &BRep,
+    va: VertexHandle,
+    vb: VertexHandle,
+) -> Result<(HalfEdgeHandle, HalfEdgeHandle), String> {
+    for (ha, da) in brep.half_edges.iter() {
+        if da.origin != va {
+            continue;
+        }
+        let loop_ = da.loop_;
+        let mut he = ha;
+        for _ in 0..10_000 {
+            he = brep.half_edges[he].next;
+            if brep.half_edges[he].origin == vb && brep.half_edges[he].loop_ == loop_ {
+                return Ok((ha, he));
+            }
+            if he == ha {
+                break;
+            }
+        }
+    }
+    Err("no common loop for mef pair".into())
+}
+
+fn find_vertex_at(brep: &BRep, point: Point3) -> Result<VertexHandle, String> {
+    // Rim vertices sit on the topology's own curves, within the band
+    // reparameterization noise (~1e-4) of the cap's ideal positions.
+    let mut best: Option<(f64, VertexHandle)> = None;
+    for (vh, v) in brep.vertices.iter() {
+        let d = v.position.distance_to(&point);
+        if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+            best = Some((d, vh));
+        }
+    }
+    match best {
+        Some((d, vh)) if d < 1.0e-3 => Ok(vh),
+        Some((d, _)) => Err(format!(
+            "no vertex near ({:.4},{:.4},{:.4}); nearest {d:.3e}",
+            point.x, point.y, point.z
+        )),
+        None => Err("empty vertex set".into()),
+    }
 }
 
 /// Find the face carrying this fillet's sweep surface (sample match).
@@ -486,21 +888,6 @@ fn half_edge_at_vertex_on_face(
     Err("vertex not on face loop".to_string())
 }
 
-fn common_face(brep: &BRep, a: VertexHandle, b: VertexHandle) -> Option<FaceHandle> {
-    let mut faces_a = Vec::new();
-    for (fh, _) in brep.faces.iter() {
-        if let Ok(hes) = face_loop_half_edges(brep, fh) {
-            let has_a = hes.iter().any(|&he| brep.half_edges[he].origin == a);
-            let has_b = hes.iter().any(|&he| brep.half_edges[he].origin == b);
-            if has_a && has_b {
-                faces_a.push(fh);
-            }
-            let _ = &has_a;
-        }
-    }
-    faces_a.first().copied()
-}
-
 fn face_centroid(brep: &BRep, face: FaceHandle) -> Result<Point3, String> {
     let hes = face_loop_half_edges(brep, face)?;
     let mut acc = [0.0_f64; 3];
@@ -662,16 +1049,6 @@ fn eval_cubic_mid(cps: &[Point3; 4]) -> Point3 {
     )
 }
 
-fn chord_distance(a: Point3, b: Point3, p: Point3) -> f64 {
-    let ab = b - a;
-    let len2 = ab.dot(&ab);
-    if len2 < 1.0e-30 {
-        return a.distance_to(&p);
-    }
-    let t = ((p - a).dot(&ab) / len2).clamp(0.0, 1.0);
-    Point3::new(a.x + ab.x * t, a.y + ab.y * t, a.z + ab.z * t).distance_to(&p)
-}
-
 fn bezier_cubic_curve(cps: &[Point3; 4]) -> NurbsCurve {
     NurbsCurve {
         degree: 3,
@@ -679,36 +1056,4 @@ fn bezier_cubic_curve(cps: &[Point3; 4]) -> NurbsCurve {
         control_points: cps.to_vec(),
         weights: vec![1.0; 4],
     }
-}
-
-/// Loop length of a face's outer loop (WIP checkpoint reporting).
-pub(crate) fn blend_loop_len(brep: &BRep, face: FaceHandle) -> Option<usize> {
-    face_loop_half_edges(brep, face).ok().map(|v| v.len())
-}
-
-/// WIP checkpoint: describe the blend loop's edges.
-pub(crate) fn blend_loop_description(brep: &BRep, face: FaceHandle) -> String {
-    let Ok(hes) = face_loop_half_edges(brep, face) else {
-        return "?".to_string();
-    };
-    let mut out = String::new();
-    for he in hes {
-        let v = brep.half_edges[he].origin;
-        let p = brep.vertices[v].position;
-        let edge = brep.half_edges[he].edge;
-        let has_curve = brep.edges[edge].curve.is_some();
-        let vn = brep.half_edges[brep.half_edges[he].next].origin;
-        let pn = brep.vertices[vn].position;
-        let len = p.distance_to(&pn);
-        out.push_str(&format!(
-            "\n    ({:.3},{:.3},{:.3}) len={:.4} curve={}",
-            p.x, p.y, p.z, len, has_curve
-        ));
-    }
-    out
-}
-
-/// Returns whether the WIP arm is enabled (integration tests only).
-pub(crate) fn setback_topology_enabled() -> bool {
-    SETBACK_TOPOLOGY_WIP.load(Ordering::Relaxed)
 }

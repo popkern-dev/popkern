@@ -416,3 +416,5 @@ fn tessellate_cylinder_through_cube_union() {
 
 #[path = "diagnostic_trim_tests.rs"]
 mod diagnostic_trim;
+#[path = "setback_blend_export_tests.rs"]
+mod setback_blend_export;

@@ -7,9 +7,9 @@ use popkern_core::topology::BRep;
 use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
-#[ignore = "PK-094 stage-2 WIP: enable while developing the setback topology arm"]
-fn setback_surgery_reaches_ngon_checkpoint_on_pentagon() {
-    popkern_fillet::construct_test_hooks::enable_setback_topology_wip();
+#[ignore = "PK-094 stage-2: commit-mode end-to-end (enable with the WIP arm)"]
+fn setback_commit_produces_valid_g2_vertex_blend() {
+    popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
     let apex = pyramid
@@ -44,25 +44,32 @@ fn setback_surgery_reaches_ngon_checkpoint_on_pentagon() {
         continuity: ContinuityLevel::G2,
         ..Default::default()
     };
-    let result = fillet_edges(&pyramid, &specs, &options, tol, None);
-    assert!(result.is_ok(), "pipeline must stay green: {result:?}");
-    let checkpoint = popkern_fillet::construct_test_hooks::take_setback_topology_checkpoint()
-        .expect("WIP arm should have recorded a checkpoint");
-    eprintln!("checkpoint: {checkpoint}");
-    assert!(
-        checkpoint.contains("setback surgery WIP checkpoint"),
-        "surgery did not reach the n-gon checkpoint: {checkpoint}"
+    let result = fillet_edges(&pyramid, &specs, &options, tol, None).expect("pipeline");
+    let brep = &result.brep;
+    brep.validate().expect("blended BRep must validate");
+    assert_eq!(
+        result.corner_patches.len(),
+        20,
+        "expected the 4n KP20 piece faces as corner patches"
     );
-    assert!(
-        checkpoint.contains("arcs=5 corners=5"),
-        "unexpected topology shape: {checkpoint}"
-    );
-    assert!(
-        checkpoint.contains("blend_loop_edges=Some(15)"),
-        "blend loop must be the pure setback n-gon (3 segments x 5 arcs): {checkpoint}"
-    );
-    assert!(
-        checkpoint.contains("validate=ok"),
-        "surgery result failed validation: {checkpoint}"
+    for cp in &result.corner_patches {
+        assert_eq!(cp.achieved_continuity, ContinuityLevel::G2);
+    }
+    let gregory_faces = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::SurfaceGeometry::Gregory(_))
+            )
+        })
+        .count();
+    assert_eq!(gregory_faces, 20, "expected 20 Gregory cap faces");
+    eprintln!(
+        "commit-mode blend: faces={} edges={} vertices={}",
+        brep.faces.len(),
+        brep.edges.len(),
+        brep.vertices.len()
     );
 }

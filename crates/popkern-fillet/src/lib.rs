@@ -23,9 +23,10 @@ pub(crate) mod corner_2d_helpers;
 
 /// Test-only hooks for gated work-in-progress construction arms.
 pub mod construct_test_hooks {
-    /// Enable the PK-094 setback-topology WIP arm (integration tests).
-    pub fn enable_setback_topology_wip() {
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_WIP
+    /// Enable COMMIT mode: the setback vertex blend replaces the
+    /// legacy corner machinery for eligible apexes.
+    pub fn enable_setback_topology_commit() {
+        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT
             .store(true, std::sync::atomic::Ordering::Relaxed);
     }
 
