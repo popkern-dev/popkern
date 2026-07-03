@@ -32,10 +32,7 @@ use popkern_fillet::construct::kp20_paper_border_extract::{
     kp20_paper_border_from_blend_boundary, kp20_paper_border_from_fillet_setback,
 };
 use popkern_fillet::fillet_surface::FilletSurfaceResult;
-use popkern_fillet::{
-    ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
-    preview_fillet_with_continuity,
-};
+use popkern_fillet::{ContinuityLevel, FilletRadius, FilletSpec, preview_fillet_with_continuity};
 use popkern_io::{
     OpaqueBag, ProductMetadata, RepresentationContext, ShapeRep, ShapeRepKind, StepDocument,
     StepExportOptions, StepProductNode, UnitContext, export_step_file,
@@ -331,7 +328,11 @@ fn run() {
     // tears the strips. Compare the paper mode against the SoftG
     // containment mode (C⁰/(11)/(12) hard, G rows least-squares) and
     // keep the containment result for out-of-class input.
-    let star = star_at(0.25);
+    let star_factor: f64 = std::env::var("KP20_STAR_FACTOR")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.5);
+    let star = star_at(star_factor);
     for (label, mode) in [
         ("HardG2", Kp20StripEnforcement::HardG2),
         ("SoftG", Kp20StripEnforcement::SoftG),
@@ -472,11 +473,21 @@ fn write_parts_whole_obj(
         const AC: usize = 13;
         // One orientation vote per strip: per-vertex flipping shades
         // inconsistently.
+        // Cover the strip's FULL trim-to-trim width (v in [0, 1]); the
+        // clip line follows the arc's uv segment, linearly
+        // extrapolated beyond the projected corner parameters so the
+        // strip meets the face trims without margin slits.
+        let u_arc_at = |v: f64| -> f64 {
+            if (vb - va).abs() < 1.0e-12 {
+                0.5 * (ua + ub)
+            } else {
+                ua + (ub - ua) * (v - va) / (vb - va)
+            }
+        };
         let mut vote = 0.0_f64;
         for j in 0..AC {
-            let t = j as f64 / (AC - 1) as f64;
-            let v = va + (vb - va) * t;
-            let u = 0.5 * (ua + (ub - ua) * t + u_base);
+            let v = j as f64 / (AC - 1) as f64;
+            let u = 0.5 * (u_arc_at(v) + u_base);
             let p = fillet.surface.point_at(u, v);
             vote += fillet.surface.normal_at(u, v).dot(&(p - interior));
         }
@@ -485,9 +496,8 @@ fn write_parts_whole_obj(
         let mut chosen_normal = popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0);
         for i in 0..AL {
             for j in 0..AC {
-                let t = j as f64 / (AC - 1) as f64;
-                let u_arc = ua + (ub - ua) * t;
-                let v = va + (vb - va) * t;
+                let v = j as f64 / (AC - 1) as f64;
+                let u_arc = u_arc_at(v);
                 let u = u_arc + (u_base - u_arc) * (i as f64 / (AL - 1) as f64);
                 let p = fillet.surface.point_at(u, v);
                 let raw = fillet.surface.normal_at(u, v);
@@ -552,32 +562,6 @@ fn write_parts_whole_obj(
         if base_points.len() != 2 {
             continue;
         }
-        let trim_sample = |curve: &popkern_core::geometry::NurbsCurve,
-                           from: Point3,
-                           to: Point3,
-                           count: usize|
-         -> Vec<Point3> {
-            let (t0, t1) = curve.parameter_range();
-            let closest = |target: Point3| -> f64 {
-                let mut best = (f64::INFINITY, t0);
-                for i in 0..=96 {
-                    let t = t0 + (t1 - t0) * i as f64 / 96.0;
-                    let d = curve.point_at(t).distance_to(&target);
-                    if d < best.0 {
-                        best = (d, t);
-                    }
-                }
-                best.1
-            };
-            let ta = closest(from);
-            let tb = closest(to);
-            (0..count)
-                .map(|i| {
-                    let t = ta + (tb - ta) * i as f64 / (count - 1) as f64;
-                    curve.point_at(t)
-                })
-                .collect()
-        };
         let d00 = trim_curve_distance(on_plane[0], base_points[0]);
         let d01 = trim_curve_distance(on_plane[0], base_points[1]);
         let (left_base, right_base) = if d00 < d01 {
@@ -585,29 +569,60 @@ fn write_parts_whole_obj(
         } else {
             (base_points[1], base_points[0])
         };
-        let mut polyline: Vec<Point3> = Vec::new();
-        polyline.extend(trim_sample(on_plane[0], corner, left_base, 17));
-        polyline.push(right_base);
-        let mut up = trim_sample(on_plane[1], right_base, corner, 17);
-        polyline.append(&mut up);
-        let centroid = {
-            let mut acc = [0.0_f64; 3];
-            for p in &polyline {
-                acc[0] += p.x;
-                acc[1] += p.y;
-                acc[2] += p.z;
+        // Fan the wedge from the corner point itself, with each trim
+        // sampled strictly from just below the corner down to its
+        // base end — the previous centroid fan let closest-param
+        // imprecision run the polyline past the trim crossing,
+        // spraying inverted slivers over the cap.
+        let refined_closest = |curve: &popkern_core::geometry::NurbsCurve, target: Point3| -> f64 {
+            let (t0, t1) = curve.parameter_range();
+            let mut best = (f64::INFINITY, t0);
+            for i in 0..=512 {
+                let t = t0 + (t1 - t0) * i as f64 / 512.0;
+                let d = curve.point_at(t).distance_to(&target);
+                if d < best.0 {
+                    best = (d, t);
+                }
             }
-            let c = polyline.len() as f64;
-            Point3::new(acc[0] / c, acc[1] / c, acc[2] / c)
+            best.1
         };
-        let face_normal = outward(centroid, *normal);
-        writeln!(file, "v {} {} {}", centroid.x, centroid.y, centroid.z)?;
+        let side_samples =
+            |curve: &popkern_core::geometry::NurbsCurve, base_point: Point3| -> Vec<Point3> {
+                let t_c = refined_closest(curve, corner);
+                let t_b = refined_closest(curve, base_point);
+                // Strictly inside (skip the corner itself; the fan apex
+                // supplies it exactly).
+                (1..=16)
+                    .map(|i| {
+                        let t = t_c + (t_b - t_c) * i as f64 / 16.0;
+                        curve.point_at(t)
+                    })
+                    .collect()
+            };
+        // Boundary from just-below-c on the left trim, down to the
+        // base edge, back up the right trim.
+        let (left_trim, right_trim) = {
+            let a_near_left = trim_curve_distance(on_plane[0], left_base);
+            let b_near_left = trim_curve_distance(on_plane[1], left_base);
+            if a_near_left < b_near_left {
+                (on_plane[0], on_plane[1])
+            } else {
+                (on_plane[1], on_plane[0])
+            }
+        };
+        let mut polyline: Vec<Point3> = side_samples(left_trim, left_base);
+        polyline.push(right_base);
+        let mut up = side_samples(right_trim, right_base);
+        up.reverse();
+        polyline.extend(up);
+        let face_normal = outward(corner, *normal);
+        writeln!(file, "v {} {} {}", corner.x, corner.y, corner.z)?;
         writeln!(
             file,
             "vn {} {} {}",
             face_normal.x, face_normal.y, face_normal.z
         )?;
-        let center_idx = base_index;
+        let apex_idx = base_index;
         for p in &polyline {
             writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
             writeln!(
@@ -618,20 +633,20 @@ fn write_parts_whole_obj(
         }
         writeln!(file, "g face")?;
         let count = polyline.len();
-        let e0 = polyline[0] - centroid;
-        let e1 = polyline[1] - centroid;
+        let e0 = polyline[0] - corner;
+        let e1 = polyline[1] - corner;
         let wind_flip = e0.cross(&e1).dot(&face_normal) < 0.0;
         for i in 0..count - 1 {
-            let a = center_idx;
-            let b = center_idx + 1 + i;
-            let c = center_idx + 1 + i + 1;
+            let a = apex_idx;
+            let b = apex_idx + 1 + i;
+            let c = apex_idx + 1 + i + 1;
             if wind_flip {
                 writeln!(file, "f {a}//{a} {c}//{c} {b}//{b}")?;
             } else {
                 writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
             }
         }
-        base_index = center_idx + 1 + count;
+        base_index = apex_idx + 1 + count;
     }
 
     let base_ring: Vec<Point3> = pyramid
