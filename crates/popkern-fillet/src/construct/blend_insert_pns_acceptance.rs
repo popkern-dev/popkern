@@ -51,7 +51,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         &patches,
         diagnostics,
     );
-    let topology_error = brep.validate_all().into_iter().find(|error| {
+    let topology_error = brep.validate_collect_fast().into_iter().find(|error| {
         matches!(
             error,
             ValidationError::BrokenCycle { .. }

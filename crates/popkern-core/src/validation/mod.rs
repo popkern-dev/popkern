@@ -41,6 +41,54 @@ impl BRep {
         Ok(())
     }
 
+    /// Collect all errors from the FAST checks — everything in
+    /// [`BRep::validate`] plus the Gregory fold check, with thorough
+    /// precision, but WITHOUT the O(n²) surface-surface
+    /// self-intersection sweep. This is the collecting variant for
+    /// in-pipeline acceptance gates (blend/apex candidate screens),
+    /// which inspect structural error classes and cannot afford the
+    /// full sweep: on G² NURBS blend sweeps `validate_all` does not
+    /// terminate in practical time (PK-094: >16 CPU-minutes on a
+    /// 5-fillet pyramid apex).
+    pub fn validate_collect_fast(&self) -> Vec<ValidationError> {
+        let mut errors = Vec::new();
+        if let Err(e) = self.validate_euler_poincare() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_half_edge_pairing() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_half_edge_cycles() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_vertex_consistency() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_manifold_edges() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_vertex_valence() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_face_orientation() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_loop_closure() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_curve_surface() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_watertight() {
+            errors.push(e);
+        }
+        errors.extend(self.validate_precision_thorough());
+        if let Err(e) = self.validate_gregory_self_intersection() {
+            errors.push(e);
+        }
+        errors
+    }
+
     /// Run all validation checks and collect all errors.
     pub fn validate_all(&self) -> Vec<ValidationError> {
         let mut errors = Vec::new();

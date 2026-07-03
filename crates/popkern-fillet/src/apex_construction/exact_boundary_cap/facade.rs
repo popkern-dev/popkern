@@ -115,7 +115,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let started = Instant::now();
     let snapshot = brep.clone();
-    let baseline_validation_errors = snapshot.validate_all();
+    let baseline_validation_errors = snapshot.validate_collect_fast();
     let mut candidate_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;
     let mut performance = ExactBoundaryCandidatePerformanceReport {
@@ -283,7 +283,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                             diagnostics.push(diagnostic.into_apex_diagnostic());
                         } else if let Some(diagnostic) = post_commit_validation_diagnostic(
                             &baseline_validation_errors,
-                            &brep.validate_all(),
+                            &brep.validate_collect_fast(),
                             brep.tolerance.linear(),
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());

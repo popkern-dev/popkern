@@ -87,7 +87,7 @@ pub(super) fn commit_multipatch_routes_transactionally(
     }
     if let Some(diagnostic) = post_commit_validation_diagnostic(
         baseline_validation_errors,
-        &brep.validate_all(),
+        &brep.validate_collect_fast(),
         brep.tolerance.linear(),
     ) {
         return declined(

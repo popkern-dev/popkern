@@ -95,7 +95,7 @@ pub(super) fn try_boundary_preserving_pns_cap(
         })
         .collect::<Vec<_>>();
 
-    let topology_error = brep.validate_all().into_iter().find(|err| {
+    let topology_error = brep.validate_collect_fast().into_iter().find(|err| {
         matches!(
             err,
             ValidationError::BrokenCycle { .. }

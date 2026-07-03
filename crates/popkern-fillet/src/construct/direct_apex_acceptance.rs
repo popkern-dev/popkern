@@ -14,18 +14,20 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
     use popkern_core::error::ValidationError;
 
-    brep.validate_all().into_iter().find_map(|err| match err {
-        ValidationError::BrokenCycle { .. } | ValidationError::ShellGap { .. } => {
-            Some(format!("{err:?}"))
-        }
-        ValidationError::OpenLoop { loop_, .. } => {
-            if crate::direct_apex_trace::enabled() {
-                trace_loop_for_acceptance_failure(brep, loop_);
+    brep.validate_collect_fast()
+        .into_iter()
+        .find_map(|err| match err {
+            ValidationError::BrokenCycle { .. } | ValidationError::ShellGap { .. } => {
+                Some(format!("{err:?}"))
             }
-            Some(format!("{err:?}"))
-        }
-        _ => None,
-    })
+            ValidationError::OpenLoop { loop_, .. } => {
+                if crate::direct_apex_trace::enabled() {
+                    trace_loop_for_acceptance_failure(brep, loop_);
+                }
+                Some(format!("{err:?}"))
+            }
+            _ => None,
+        })
 }
 
 pub(super) fn native_gregory_cap_outer_g0_error(

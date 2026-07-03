@@ -55,7 +55,7 @@ pub(super) fn accept_three_quad_result(
         &result.patches,
         &mut result.diagnostics,
     );
-    let topology_error = brep.validate_all().into_iter().find(|error| {
+    let topology_error = brep.validate_collect_fast().into_iter().find(|error| {
         matches!(
             error,
             ValidationError::BrokenCycle { .. }
