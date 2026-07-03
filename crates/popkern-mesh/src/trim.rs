@@ -47,13 +47,20 @@ pub(crate) fn build_trim_loops(
     let mut result = Vec::new();
 
     // Outer loop.
-    let (mut outer_points, outer_points_3d, outer_from_pcurves) =
+    let (mut outer_points, mut outer_points_3d, outer_from_pcurves) =
         sample_loop(brep, face.outer_loop, surface, chord_height);
     if outer_points.len() >= 3 {
         // Unwrap seam-crossing polygons on periodic surfaces.
         if crosses_seam(&outer_points, period_u, period_v) {
             unwrap_periodic(&mut outer_points, period_u, period_v);
         }
+        // Canonical winding: outer loops CCW in UV. Half-edge order
+        // around a face is CCW in 3D but its UV image winding depends
+        // on the surface parameterization's handedness (measured:
+        // structurally identical fillet faces come out with opposite
+        // signs), and the inside tests assume CCW outers.
+        dedup_loop(&mut outer_points, &mut outer_points_3d);
+        normalize_winding(&mut outer_points, &mut outer_points_3d, true);
         result.push(TrimLoop {
             points: outer_points,
             points_3d: outer_points_3d,
@@ -62,14 +69,16 @@ pub(crate) fn build_trim_loops(
         });
     }
 
-    // Inner loops (holes).
+    // Inner loops (holes): canonical winding CW.
     for &inner_loop in &face.inner_loops {
-        let (mut inner_points, inner_points_3d, inner_from_pcurves) =
+        let (mut inner_points, mut inner_points_3d, inner_from_pcurves) =
             sample_loop(brep, inner_loop, surface, chord_height);
         if inner_points.len() >= 3 {
             if crosses_seam(&inner_points, period_u, period_v) {
                 unwrap_periodic(&mut inner_points, period_u, period_v);
             }
+            dedup_loop(&mut inner_points, &mut inner_points_3d);
+            normalize_winding(&mut inner_points, &mut inner_points_3d, false);
             result.push(TrimLoop {
                 points: inner_points,
                 points_3d: inner_points_3d,
@@ -80,6 +89,49 @@ pub(crate) fn build_trim_loops(
     }
 
     result
+}
+
+/// Remove consecutive duplicate points (each half-edge contributes
+/// its start AND end, doubling shared corners — the zero-length
+/// polygon edges break ray-cast parity along their v-rows) and the
+/// closing duplicate.
+fn dedup_loop(points: &mut Vec<(f64, f64)>, points_3d: &mut Vec<Point3>) {
+    let mut i = 1;
+    while i < points.len() {
+        let (px, py) = points[i - 1];
+        let (qx, qy) = points[i];
+        if (px - qx).abs() < 1.0e-12 && (py - qy).abs() < 1.0e-12 {
+            points.remove(i);
+            if i < points_3d.len() {
+                points_3d.remove(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    if points.len() >= 2 {
+        let first = points[0];
+        let last = points[points.len() - 1];
+        if (first.0 - last.0).abs() < 1.0e-12 && (first.1 - last.1).abs() < 1.0e-12 {
+            points.pop();
+            points_3d.pop();
+        }
+    }
+}
+
+/// Reverse a loop in place when its signed area disagrees with the
+/// requested orientation (`ccw = true` → positive area).
+fn normalize_winding(points: &mut [(f64, f64)], points_3d: &mut [Point3], ccw: bool) {
+    let mut area2 = 0.0;
+    for i in 0..points.len() {
+        let (x1, y1) = points[i];
+        let (x2, y2) = points[(i + 1) % points.len()];
+        area2 += x1 * y2 - x2 * y1;
+    }
+    if (area2 > 0.0) != ccw {
+        points.reverse();
+        points_3d.reverse();
+    }
 }
 
 /// Sample a single loop into UV-space points with corresponding 3D positions.
@@ -376,14 +428,11 @@ pub(crate) enum TriClass {
 /// whether any triangle edge intersects any trim loop segment; if so,
 /// returns [`TriClass::Boundary`]. Otherwise returns [`TriClass::Inside`].
 pub(crate) fn classify_triangle(tri_uv: &[(f64, f64); 3], trim_loops: &[TrimLoop]) -> TriClass {
-    let cx = (tri_uv[0].0 + tri_uv[1].0 + tri_uv[2].0) / 3.0;
-    let cy = (tri_uv[0].1 + tri_uv[1].1 + tri_uv[2].1) / 3.0;
-
-    if !point_inside_trim_loops(cx, cy, trim_loops) {
-        return TriClass::Outside;
-    }
-
-    // Check if any triangle edge crosses any trim segment.
+    // Boundary detection FIRST: a triangle whose edges cross the trim
+    // (or which contains a trim vertex) straddles the boundary even
+    // when its centroid lies outside. The previous centroid-first
+    // order discarded every straddling cell with under half its area
+    // inside — the systematic sawtooth along all trimmed boundaries.
     let tri_edges = [(0, 1), (1, 2), (2, 0)];
     for loop_ in trim_loops {
         let n = loop_.points.len();
@@ -400,9 +449,33 @@ pub(crate) fn classify_triangle(tri_uv: &[(f64, f64); 3], trim_loops: &[TrimLoop
                 }
             }
         }
+        for &p in &loop_.points {
+            if point_in_triangle_uv(p, tri_uv) {
+                return TriClass::Boundary;
+            }
+        }
     }
 
-    TriClass::Inside
+    let cx = (tri_uv[0].0 + tri_uv[1].0 + tri_uv[2].0) / 3.0;
+    let cy = (tri_uv[0].1 + tri_uv[1].1 + tri_uv[2].1) / 3.0;
+    if point_inside_trim_loops(cx, cy, trim_loops) {
+        TriClass::Inside
+    } else {
+        TriClass::Outside
+    }
+}
+
+/// Barycentric point-in-triangle test in UV space.
+pub(crate) fn point_in_triangle_uv(p: (f64, f64), tri: &[(f64, f64); 3]) -> bool {
+    let sign = |a: (f64, f64), b: (f64, f64), c: (f64, f64)| {
+        (a.0 - c.0) * (b.1 - c.1) - (b.0 - c.0) * (a.1 - c.1)
+    };
+    let d1 = sign(p, tri[0], tri[1]);
+    let d2 = sign(p, tri[1], tri[2]);
+    let d3 = sign(p, tri[2], tri[0]);
+    let has_neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+    let has_pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+    !(has_neg && has_pos)
 }
 
 /// Test whether a point lies inside the trim region defined by trim loops.

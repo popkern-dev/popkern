@@ -230,11 +230,30 @@ impl BRep {
 
                         // Continuation: use previous UV as starting
                         // guess for Gauss-Newton. This prevents branch
-                        // jumping on multi-valued inverse maps.
+                        // jumping on multi-valued inverse maps. If the
+                        // continuation step fails to converge, RESEED
+                        // with an independent projection rather than
+                        // dropping the sample — dropped samples used to
+                        // collapse the pcurve to a straight 2-point
+                        // fallback (PK-095: 5e-2 UV error on fillet
+                        // strip trims, the dominant tessellation crack).
+                        let seed_u = u_s + (u_e - u_s) * frac;
+                        let seed_v = v_s + (v_e - v_s) * frac;
                         let uv = if let Some((pu, pv)) = prev_uv {
                             project_point_to_uv_near(&surface, &p, pu, pv)
+                                .or_else(|| project_point_to_uv(&surface, &p))
+                                .or_else(|| {
+                                    // Endpoint-interpolated seed: the
+                                    // independent Newton can diverge
+                                    // along fillet-sweep trims (PK-095
+                                    // — sample loss collapsed these
+                                    // pcurves to straight 2-point
+                                    // lines, 5e-2 off).
+                                    project_point_to_uv_near(&surface, &p, seed_u, seed_v)
+                                })
                         } else {
                             project_point_to_uv(&surface, &p)
+                                .or_else(|| project_point_to_uv_near(&surface, &p, seed_u, seed_v))
                         };
 
                         if let Some((mut u, mut v)) = uv {

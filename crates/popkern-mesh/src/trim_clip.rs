@@ -221,37 +221,149 @@ fn clip_boundary_triangle(
     }
 
     // Build ordered vertex ring: v0 -> [edge0 splits] -> v1 -> [edge1 splits] -> v2 -> [edge2 splits]
-    let mut ring: Vec<usize> = Vec::new();
+    // Track which ring entries are boundary intersections (always part
+    // of the clipped region) vs original triangle corners (kept only
+    // when inside the trim region).
+    let mut ring: Vec<(usize, bool)> = Vec::new(); // (vertex, is_intersection)
     for ei in 0..3 {
-        ring.push(tri[edge_indices[ei].0]);
-        ring.extend_from_slice(&edge_new_verts[ei]);
+        ring.push((tri[edge_indices[ei].0], false));
+        for &v in &edge_new_verts[ei] {
+            ring.push((v, true));
+        }
     }
-
-    // If ring has fewer than 3 unique vertices, skip.
     if ring.len() < 3 {
         return;
     }
 
-    // Fan-triangulate the ring from the first vertex, keep sub-triangles
-    // whose centroids are inside the trim region.
-    for i in 1..ring.len() - 1 {
-        let a = ring[0];
-        let b = ring[i];
-        let c = ring[i + 1];
+    // Clipped polygon = intersection points + inside grid corners +
+    // TRIM POLYGON VERTICES lying inside this triangle (the previous
+    // construction dropped the corner wedge of every cell containing
+    // a trim vertex — measured 9% area loss on a clean synthetic
+    // triangle trim). The clipped piece is convex for convex trim
+    // corners, so angular ordering around the centroid triangulates
+    // it; the centroid-inside test stays as the non-convex backstop.
+    let mut clipped: Vec<usize> = Vec::new();
+    for &(v, is_intersection) in &ring {
+        if is_intersection {
+            clipped.push(v);
+            continue;
+        }
+        let uv = new_verts[v].uv;
+        if point_inside_trim_loops(uv.0, uv.1, trim_loops) {
+            clipped.push(v);
+        }
+    }
+    // Interior trim vertices (trim corners poking into this cell)
+    // join the polygon by cheapest insertion, which preserves the
+    // ring's walk order — an angular sort around the centroid is NOT
+    // order-safe here and produced bowtie slivers spanning the face.
+    for tl in trim_loops {
+        for &(pu, pv) in &tl.points {
+            if !crate::trim::point_in_triangle_uv((pu, pv), &tri_uv)
+                || clipped.iter().any(|&v| {
+                    let uv = new_verts[v].uv;
+                    (uv.0 - pu).abs() < SNAP_TOL && (uv.1 - pv).abs() < SNAP_TOL
+                })
+            {
+                continue;
+            }
+            let pos = surface.point_at(pu, pv);
+            let mut normal = surface.normal_at(pu, pv);
+            if !orientation {
+                normal = -normal;
+            }
+            let idx = new_verts.len();
+            new_verts.push(MeshVertex {
+                position: pos,
+                normal,
+                uv: (pu, pv),
+            });
+            if clipped.len() < 2 {
+                clipped.push(idx);
+                continue;
+            }
+            let dist =
+                |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
+            let mut best_slot = 0;
+            let mut best_cost = f64::INFINITY;
+            for slot in 0..clipped.len() {
+                let a = new_verts[clipped[slot]].uv;
+                let b = new_verts[clipped[(slot + 1) % clipped.len()]].uv;
+                let cost = dist(a, (pu, pv)) + dist((pu, pv), b) - dist(a, b);
+                if cost < best_cost {
+                    best_cost = cost;
+                    best_slot = slot;
+                }
+            }
+            clipped.insert(best_slot + 1, idx);
+        }
+    }
+    clipped.dedup();
+    if clipped.len() >= 2 && clipped[0] == clipped[clipped.len() - 1] {
+        clipped.pop();
+    }
+    if clipped.len() < 3 {
+        // No usable clipped polygon (e.g. the trim corner pokes into
+        // the cell without edge crossings, or near-line corners
+        // misclassify): fall back to fanning the full ring with the
+        // centroid filter rather than dropping the cell.
+        for i in 1..ring.len() - 1 {
+            let a = ring[0].0;
+            let b = ring[i].0;
+            let c = ring[i + 1].0;
+            if a == b || b == c || a == c {
+                continue;
+            }
+            let uv_a = new_verts[a].uv;
+            let uv_b = new_verts[b].uv;
+            let uv_c = new_verts[c].uv;
+            let cx = (uv_a.0 + uv_b.0 + uv_c.0) / 3.0;
+            let cy = (uv_a.1 + uv_b.1 + uv_c.1) / 3.0;
+            if point_inside_trim_loops(cx, cy, trim_loops) {
+                let signed =
+                    (uv_b.0 - uv_a.0) * (uv_c.1 - uv_a.1) - (uv_c.0 - uv_a.0) * (uv_b.1 - uv_a.1);
+                if signed >= 0.0 {
+                    new_tris.push([a, b, c]);
+                } else {
+                    new_tris.push([a, c, b]);
+                }
+            }
+        }
+        return;
+    }
 
-        // Skip degenerate triangles.
+    // Fan-triangulate the clipped polygon from an intersection vertex
+    // when one exists (guaranteed on the region boundary); keep the
+    // centroid test as a backstop for non-convex corner cases.
+    let apex = clipped
+        .iter()
+        .position(|v| ring.iter().any(|&(rv, ri)| ri && rv == *v))
+        .unwrap_or(0);
+    let m = clipped.len();
+    for k in 1..m - 1 {
+        let a = clipped[apex];
+        let b = clipped[(apex + k) % m];
+        let c = clipped[(apex + k + 1) % m];
         if a == b || b == c || a == c {
             continue;
         }
-
         let uv_a = new_verts[a].uv;
         let uv_b = new_verts[b].uv;
         let uv_c = new_verts[c].uv;
         let cx = (uv_a.0 + uv_b.0 + uv_c.0) / 3.0;
         let cy = (uv_a.1 + uv_b.1 + uv_c.1) / 3.0;
-
         if point_inside_trim_loops(cx, cy, trim_loops) {
-            new_tris.push([a, b, c]);
+            // Winding: the angular sort's direction is arbitrary;
+            // grid triangles are CCW in UV, so clipped output must be
+            // too (mixed winding rendered whole boundary bands as
+            // backfaces).
+            let signed =
+                (uv_b.0 - uv_a.0) * (uv_c.1 - uv_a.1) - (uv_c.0 - uv_a.0) * (uv_b.1 - uv_a.1);
+            if signed >= 0.0 {
+                new_tris.push([a, b, c]);
+            } else {
+                new_tris.push([a, c, b]);
+            }
         }
     }
 }

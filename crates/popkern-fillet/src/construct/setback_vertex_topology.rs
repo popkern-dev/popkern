@@ -316,6 +316,14 @@ fn surgery_inner(
     let blend_face =
         merge_faces(brep, vertex, &surrendered).map_err(|e| format!("blend region merge: {e}"))?;
 
+    // ---- surgery E: absorb perpendicular-split remnant bands -----------
+    // The legacy pre-carve split each fillet face near the apex; the
+    // arc mef leaves a narrow same-surface band between the arc and
+    // the old split line. The blended fillet face must extend to the
+    // arc (design: [arc, trim, base-end, trim]), so scaffold edges
+    // between same-surface fillet pieces are dissolved.
+    absorb_same_surface_bands(brep, &arc_edges, blend_face)?;
+
     // ---- cap face fan: subdivide the blend n-gon into the 4n KP20
     // piece faces --------------------------------------------------------
     let cap_faces = build_cap_face_fan(
@@ -688,8 +696,67 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
             Some(s) => s.geometry.clone(),
             None => continue,
         };
+        let is_sweep = matches!(surface, popkern_core::geometry::SurfaceGeometry::Nurbs(_));
         let hes = face_loop_half_edges(brep, fh)?;
         for he in hes {
+            // Sweep (fillet strip) faces: the recorded trim curves lie
+            // INSIDE the sweep's parameter box (measured 0.03-0.08 off
+            // the v = 0/1 iso borders), so iso-assuming pcurves are
+            // wrong data — replace them with point-inversion
+            // projections of the 3D curves. Cap pieces keep exact
+            // endpoint-Linear pcurves for missing entries only (their
+            // boundaries ARE iso lines).
+            if is_sweep {
+                let window = brep.half_edges[he].edge;
+                let Some(curve) = brep.edges.get(window).and_then(|e| e.curve.clone()) else {
+                    continue;
+                };
+                if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
+                    continue;
+                }
+                let origin = brep.vertices[brep.half_edges[he].origin].position;
+                use popkern_core::geometry::curve::CurveEval;
+                let ceval: &dyn CurveEval = &curve.geometry;
+                let forward = ceval.point_at(curve.t_start).distance_to(&origin)
+                    <= ceval.point_at(curve.t_end).distance_to(&origin);
+                const N: usize = 33;
+                let mut cps = Vec::with_capacity(N);
+                let mut ok = true;
+                for i in 0..N {
+                    let f = i as f64 / (N - 1) as f64;
+                    let f = if forward { f } else { 1.0 - f };
+                    let t = curve.t_start + (curve.t_end - curve.t_start) * f;
+                    match project_point_to_uv(&surface, &ceval.point_at(t)) {
+                        Some((u, v)) => cps.push(popkern_core::geometry::Point3::new(u, v, 0.0)),
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if !ok {
+                    continue;
+                }
+                let mut knots = Vec::with_capacity(N + 2);
+                knots.push(0.0);
+                for i in 0..N {
+                    knots.push(i as f64 / (N - 1) as f64);
+                }
+                knots.push(1.0);
+                if let Some(he_mut) = brep.half_edges.get_mut(he) {
+                    he_mut.pcurve = Some(Pcurve {
+                        geometry: PcurveGeometry::Nurbs(NurbsCurve {
+                            degree: 1,
+                            knots,
+                            control_points: cps,
+                            weights: vec![1.0; N],
+                        }),
+                        t_start: 0.0,
+                        t_end: 1.0,
+                    });
+                }
+                continue;
+            }
             if brep.half_edges[he].pcurve.is_some() {
                 continue;
             }
@@ -709,6 +776,68 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                 });
             }
         }
+    }
+    Ok(())
+}
+
+/// Dissolve scaffold edges between fillet-face pieces that carry the
+/// SAME sweep surface (perpendicular-split remnants). An edge
+/// qualifies when its two faces are distinct, neither is the blend
+/// face, and both faces' Nurbs surfaces share the same control-point
+/// grid corners (same underlying sweep).
+fn absorb_same_surface_bands(
+    brep: &mut BRep,
+    arc_edges: &[EdgeHandle],
+    blend_face: FaceHandle,
+) -> Result<(), String> {
+    let _ = arc_edges;
+    loop {
+        let mut target: Option<popkern_core::topology::HalfEdgeHandle> = None;
+        'scan: for (he, data) in brep.half_edges.iter() {
+            let f1 = brep.loops[data.loop_].face;
+            let twin = data.twin;
+            let f2 = brep.loops[brep.half_edges[twin].loop_].face;
+            if f1 == f2 || f1 == blend_face || f2 == blend_face {
+                continue;
+            }
+            let (Some(s1), Some(s2)) = (
+                brep.faces.get(f1).and_then(|f| f.surface.as_ref()),
+                brep.faces.get(f2).and_then(|f| f.surface.as_ref()),
+            ) else {
+                continue;
+            };
+            let (
+                popkern_core::geometry::SurfaceGeometry::Nurbs(n1),
+                popkern_core::geometry::SurfaceGeometry::Nurbs(n2),
+            ) = (&s1.geometry, &s2.geometry)
+            else {
+                continue;
+            };
+            if n1.control_points.len() != n2.control_points.len() {
+                continue;
+            }
+            let corners = |n: &popkern_core::geometry::NurbsSurface| {
+                let (nu, nv) = (n.num_u, n.num_v);
+                [
+                    n.control_points[0],
+                    n.control_points[nu - 1],
+                    n.control_points[(nv - 1) * nu],
+                    n.control_points[nv * nu - 1],
+                ]
+            };
+            let (c1, c2) = (corners(n1), corners(n2));
+            if c1
+                .iter()
+                .zip(c2.iter())
+                .all(|(a, b)| a.distance_to(b) < 1.0e-12)
+            {
+                target = Some(he);
+                break 'scan;
+            }
+        }
+        let Some(he) = target else { break };
+        brep.kef(he)
+            .map_err(|e| format!("absorb same-surface band: {e}"))?;
     }
     Ok(())
 }

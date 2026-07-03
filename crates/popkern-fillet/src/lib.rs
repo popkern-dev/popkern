@@ -413,6 +413,13 @@ fn fillet_edges_internal(
         &apply_result.corner_patches,
         &mut apply_result.repair_report.apex_diagnostics,
     );
+    // Final pcurve fidelity pass: the intermediate repair stages can
+    // (re)write low-fidelity pcurves after the first fix_stale run
+    // (PK-095: straight 2-point pcurves on fillet-sweep trims, 5e-2
+    // off, were the dominant tessellation seam crack). Deviation-gated:
+    // only pcurves whose surface trace leaves the edge curve beyond
+    // the accumulated imprecision are cleared and recomputed.
+    apply_result.brep.fix_stale_pcurves();
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,

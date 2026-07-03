@@ -29,14 +29,20 @@ fn trim_loop_from_pcurves_is_closed() {
 
     let loops = build_trim_loops(&brep, face_handle, surface, 0.01);
     assert!(!loops.is_empty(), "should have at least one loop");
+    // Closure is implicit: the loop stores each corner ONCE (PK-095
+    // removed the per-half-edge endpoint duplicates whose zero-length
+    // polygon edges broke ray-cast parity). A unit-cube face's loop
+    // is exactly its 4 distinct corners.
     let pts = &loops[0].points;
-    let first = pts.first().unwrap();
-    let last = pts.last().unwrap();
-    let dist = ((first.0 - last.0).powi(2) + (first.1 - last.1).powi(2)).sqrt();
-    assert!(
-        dist < 0.1,
-        "first and last points should be close, got distance {dist}"
+    assert_eq!(
+        pts.len(),
+        4,
+        "square face loop should have 4 distinct corners"
     );
+    let mut unique = pts.clone();
+    unique.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    unique.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-9 && (a.1 - b.1).abs() < 1e-9);
+    assert_eq!(unique.len(), 4, "no duplicate corners");
 }
 
 #[test]

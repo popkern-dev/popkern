@@ -46,15 +46,22 @@ pub(crate) fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandl
     for he in hes {
         // Project the underlying edge's 3D curve into plane UV.
         let edge = brep.half_edges[he].edge;
-        let curve_3d = match brep.edges.get(edge).and_then(|e| e.curve.as_ref()) {
-            Some(c) => c.geometry.clone(),
+        let (curve_3d, window) = match brep.edges.get(edge).and_then(|e| e.curve.as_ref()) {
+            Some(c) => (c.geometry.clone(), (c.t_start, c.t_end)),
             None => continue,
         };
-        let new_pcurve =
-            match project_curve_into_plane_uv(&curve_3d, plane_origin, plane_u, plane_v) {
-                Some(p) => p,
-                None => continue,
-            };
+        let new_pcurve = match project_curve_into_plane_uv(
+            &curve_3d,
+            plane_origin,
+            plane_u,
+            plane_v,
+        )
+        .or_else(|| {
+            sample_project_curve_into_plane_uv(&curve_3d, window, plane_origin, plane_u, plane_v)
+        }) {
+            Some(p) => p,
+            None => continue,
+        };
         // Half-edge orientation: if this half-edge runs the same
         // way as the underlying edge, use the projected pcurve as-is;
         // otherwise reverse.
@@ -66,6 +73,54 @@ pub(crate) fn reproject_loop_pcurves_into_plane(brep: &mut BRep, face: FaceHandl
         };
         brep.half_edges[he].pcurve = Some(pcurve.into());
     }
+}
+
+/// Sampling fallback for non-NURBS curves (arcs, lines with finite
+/// windows): project 33 samples of the 3D curve into plane UV and
+/// return a degree-1 interpolating pcurve (a UV polyline — exact to
+/// chord error ~(arc/32)^2, well under render/export tolerance).
+/// Straight-chord Linear pcurves for genuinely curved edges were the
+/// last structural source of tessellation cracks (PK-095: 0.04-0.1
+/// gaps at the base-rim fillet-end arcs).
+pub(super) fn sample_project_curve_into_plane_uv(
+    curve: &CurveGeometry,
+    window: (f64, f64),
+    plane_origin: Point3,
+    plane_u: popkern_core::geometry::Vec3,
+    plane_v: popkern_core::geometry::Vec3,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = window;
+    if !(t0.is_finite() && t1.is_finite()) || t0 == t1 {
+        return None;
+    }
+    const N: usize = 33;
+    let mut cps = Vec::with_capacity(N);
+    for i in 0..N {
+        let t = t0 + (t1 - t0) * i as f64 / (N - 1) as f64;
+        let p = curve.point_at(t);
+        let rel = popkern_core::geometry::Vec3::new(
+            p.x - plane_origin.x,
+            p.y - plane_origin.y,
+            p.z - plane_origin.z,
+        );
+        let u_param = rel.dot(&plane_u) / plane_u.dot(&plane_u);
+        let v_param = rel.dot(&plane_v) / plane_v.dot(&plane_v);
+        cps.push(Point3::new(u_param, v_param, 0.0));
+    }
+    // Degree-1 interpolating NURBS: knots [0,0,1/(N-1)..,1,1].
+    let mut knots = Vec::with_capacity(N + 2);
+    knots.push(0.0);
+    for i in 0..N {
+        knots.push(i as f64 / (N - 1) as f64);
+    }
+    knots.push(1.0);
+    Some(NurbsCurve {
+        degree: 1,
+        knots,
+        control_points: cps,
+        weights: vec![1.0; N],
+    })
 }
 
 /// Project a 3D curve into a plane's (u, v) parameter space.

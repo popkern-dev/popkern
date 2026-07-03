@@ -181,3 +181,122 @@ fn apply_trim_works_without_pcurves() {
         );
     }
 }
+
+/// PK-095 closure: clipping a plane grid against a simple triangle
+/// must preserve the triangle's area (no dropped boundary slivers).
+#[test]
+fn triangle_trim_preserves_area() {
+    let surface = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let n = 8usize;
+    let mut vertices = Vec::new();
+    for i in 0..=n {
+        for j in 0..=n {
+            let (u, v) = (i as f64 / n as f64, j as f64 / n as f64);
+            vertices.push(make_vertex(u, v, 0.0, u, v));
+        }
+    }
+    let mut triangles = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            let a = i * (n + 1) + j;
+            let b = a + 1;
+            let c = a + (n + 1);
+            let d = c + 1;
+            triangles.push([a, b, d]);
+            triangles.push([a, d, c]);
+        }
+    }
+    let tri = [(0.1_f64, 0.1_f64), (0.9, 0.15), (0.5, 0.85)];
+    let poly_area = 0.5
+        * ((tri[1].0 - tri[0].0) * (tri[2].1 - tri[0].1)
+            - (tri[2].0 - tri[0].0) * (tri[1].1 - tri[0].1))
+            .abs();
+    let loops = vec![crate::trim::TrimLoop {
+        points: tri.to_vec(),
+        points_3d: tri.iter().map(|&(u, v)| Point3::new(u, v, 0.0)).collect(),
+        is_outer: true,
+        from_pcurves: true,
+    }];
+    let (verts, tris) = apply_trim(&vertices, &triangles, &loops, &surface, true);
+    let mut area = 0.0;
+    for t in &tris {
+        let a = verts[t[0]].uv;
+        let b = verts[t[1]].uv;
+        let c = verts[t[2]].uv;
+        area += 0.5 * ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs();
+    }
+    let coverage = area / poly_area;
+    assert!(
+        (coverage - 1.0).abs() < 1.0e-3,
+        "coverage {coverage:.4} (area {area:.5} vs polygon {poly_area:.5})"
+    );
+}
+
+/// PK-095: the exact lateral-face polygon from the pentagon blend —
+/// a skinny triangle whose base edge is nearly (not exactly)
+/// horizontal. Reproduces the dropped bottom cell row.
+#[test]
+fn lateral_triangle_trim_preserves_area() {
+    let surface = SurfaceGeometry::Plane {
+        origin: Point3::new(0.0, 0.0, 0.0),
+        u_axis: Vec3::new(1.0, 0.0, 0.0),
+        v_axis: Vec3::new(0.0, 1.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let tri = [
+        (0.28583_f64, 0.11609_f64),
+        (1.50184, 0.14824),
+        (1.17990, 0.94093),
+    ];
+    // Grid = bbox padded 2%, 4x4 (mirroring production defaults).
+    let (u0, u1) = (0.28583 - 0.0243, 1.50184 + 0.0243);
+    let (v0, v1) = (0.11609 - 0.0165, 0.94093 + 0.0165);
+    let n = 4usize;
+    let mut vertices = Vec::new();
+    for i in 0..=n {
+        for j in 0..=n {
+            let u = u0 + (u1 - u0) * i as f64 / n as f64;
+            let v = v0 + (v1 - v0) * j as f64 / n as f64;
+            vertices.push(make_vertex(u, v, 0.0, u, v));
+        }
+    }
+    let mut triangles = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            let a = i * (n + 1) + j;
+            let b = a + 1;
+            let c = a + (n + 1);
+            let d = c + 1;
+            triangles.push([a, b, d]);
+            triangles.push([a, d, c]);
+        }
+    }
+    let poly_area = 0.5
+        * ((tri[1].0 - tri[0].0) * (tri[2].1 - tri[0].1)
+            - (tri[2].0 - tri[0].0) * (tri[1].1 - tri[0].1))
+            .abs();
+    let loops = vec![crate::trim::TrimLoop {
+        points: tri.to_vec(),
+        points_3d: tri.iter().map(|&(u, v)| Point3::new(u, v, 0.0)).collect(),
+        is_outer: true,
+        from_pcurves: true,
+    }];
+    let (verts, tris) = apply_trim(&vertices, &triangles, &loops, &surface, true);
+    let mut area = 0.0;
+    for t in &tris {
+        let a = verts[t[0]].uv;
+        let b = verts[t[1]].uv;
+        let c = verts[t[2]].uv;
+        area += 0.5 * ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs();
+    }
+    let coverage = area / poly_area;
+    assert!(
+        (coverage - 1.0).abs() < 1.0e-3,
+        "coverage {coverage:.4} (area {area:.5} vs polygon {poly_area:.5})"
+    );
+}
