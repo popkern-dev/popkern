@@ -418,3 +418,5 @@ fn tessellate_cylinder_through_cube_union() {
 mod diagnostic_trim;
 #[path = "setback_blend_export_tests.rs"]
 mod setback_blend_export;
+#[path = "whole_object_closure_tests.rs"]
+mod whole_object_closure;
