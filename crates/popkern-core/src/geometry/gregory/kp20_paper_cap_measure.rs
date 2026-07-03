@@ -36,6 +36,11 @@ pub(crate) fn measure_paper_cap(
                 sectors[prev].piece(P2).cps[i][0],
                 sectors[curr].piece(P4).cps[0][i],
             );
+            if std::env::var_os("KP20_C0_TRACE").is_some() && near_o.max(near_m) > 1.0e-9 {
+                eprintln!(
+                    "    c0 slot i={i} curve={curve}: near_o={near_o:.3e} near_m={near_m:.3e}"
+                );
+            }
             max_c0 = max_c0.max(near_o).max(near_m);
         }
         // eq (8)/(9) residual BB coefficients per half pair.

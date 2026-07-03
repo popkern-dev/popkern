@@ -907,12 +907,41 @@ pub fn kp20_paper_border_from_fillet_setback(
         sectors.push((spans[k].0, piece_a, piece_b));
     }
 
-    // Sector s spans [m_s → c_s → m_{s+1}]: piece A = second half of
-    // arc s (m_s → c_s side? — the arc runs c_{s-1} → c_s, so its
-    // halves are [c_{s-1} → m_s] and [m_s → c_s]). Regroup: sector s
-    // = (arc_s second half, arc_{s+1} first half).
+    // m-compatibility conditioning (eq (13)/(14) premise): the two
+    // halves of each arc share a C∞ rim (one split cubic) but their
+    // CROSS rows are marched independently, so the ring data is only
+    // approximately C² across m (measured 1.6e-3..4e-3 on the
+    // pyramid apex). The band placements on the two sectors flanking
+    // the m spoke are drawn from these rows, so the mismatch surfaces
+    // as a cross-sector C⁰ seam gap that step (iv) cannot repair.
+    // Enforce an EXACT symmetric C² junction on rows 1..2: with the
+    // C⁰/C¹/C² joint conditions (equal half lengths), the minimal-
+    // movement solution has the closed form
+    //   k  = (B₂ − A₁)/4
+    //   a₂ = (A₂ + (A₃ − k) + (B₀ − k) + (B₁ − 2k)) / 4
+    //   A₃ = B₀ = a₂ + k,  B₁ = a₂ + 2k.
     type PiecePair = ([[Point3; 4]; 3], [[Point3; 4]; 3]);
-    let pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
+    let mut pieces: Vec<PiecePair> = sectors.iter().map(|(_, a, b)| (*a, *b)).collect();
+    for (first_half, second_half) in pieces.iter_mut() {
+        for row in 1..3_usize {
+            let a = &first_half[row];
+            let b = &second_half[row];
+            let axis = |sel: fn(&Point3) -> f64| -> (f64, f64, f64, f64) {
+                let k = (sel(&b[2]) - sel(&a[1])) / 4.0;
+                let a2 =
+                    (sel(&a[2]) + (sel(&a[3]) - k) + (sel(&b[0]) - k) + (sel(&b[1]) - 2.0 * k))
+                        / 4.0;
+                (a2, a2 + k, a2 + k, a2 + 2.0 * k)
+            };
+            let (x2, x3, x0, x1) = axis(|p| p.x);
+            let (y2, y3, y0, y1) = axis(|p| p.y);
+            let (z2, z3, z0, z1) = axis(|p| p.z);
+            first_half[row][2] = Point3::new(x2, y2, z2);
+            first_half[row][3] = Point3::new(x3, y3, z3);
+            second_half[row][0] = Point3::new(x0, y0, z0);
+            second_half[row][1] = Point3::new(x1, y1, z1);
+        }
+    }
     let mut grouped = Vec::with_capacity(n);
     for s in 0..n {
         let piece_a = pieces[s].1; // [m_s → c_s]

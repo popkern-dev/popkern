@@ -517,6 +517,38 @@ fn run() {
             println!("  {label}: ({:.5}, {:.5}, {:.5})", cp.x, cp.y, cp.z);
         }
     }
+    // Intra-sector seam probe: max C0 delta for each candidate pairing.
+    {
+        use popkern_core::geometry::gregory::Kp20PieceId as Pid;
+        let s0 = &report.sectors[0];
+        let pairs: Vec<(&str, Pid, Pid)> = vec![
+            (
+                "P1(6,j)=P4(0,j)",
+                Pid::NearOriginLeft,
+                Pid::NearMidpointLeft,
+            ),
+            ("P1(6,j)=P2(0,j)", Pid::NearOriginLeft, Pid::NearOriginRight),
+            (
+                "P2(6,j)=P3(0,j)",
+                Pid::NearOriginRight,
+                Pid::NearMidpointRight,
+            ),
+            (
+                "P4(6,j)=P3(0,j)",
+                Pid::NearMidpointLeft,
+                Pid::NearMidpointRight,
+            ),
+        ];
+        for (label, a, b) in &pairs {
+            let mut d_row = 0.0_f64;
+            let mut d_col = 0.0_f64;
+            for j in 0..7 {
+                d_row = d_row.max(s0.piece(*a).cps[6][j].distance_to(&s0.piece(*b).cps[0][j]));
+                d_col = d_col.max(s0.piece(*a).cps[j][6].distance_to(&s0.piece(*b).cps[j][0]));
+            }
+            println!("  seam {label}: row-form {d_row:.2e} col-form {d_col:.2e}");
+        }
+    }
     println!(
         "final: fairing={fairing:.1e} guide_fit={:.4e} g1={:.3e} g2={:.3e} min_reg={:.3e}",
         report.guide_fit_residual,
@@ -664,7 +696,7 @@ fn run() {
 #[allow(clippy::too_many_arguments)]
 fn write_parts_whole_obj(
     fillet_surfaces: &[popkern_fillet::fillet_surface::FilletSurfaceResult],
-    border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder,
+    _border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder,
     pyramid: &BRep,
     bi9_grids: &[[[Point3; 10]; 10]],
     _vertex: Point3,
@@ -692,119 +724,86 @@ fn write_parts_whole_obj(
         if n.dot(&(p - interior)) >= 0.0 { n } else { -n }
     };
 
-    const AL: usize = 33; // rows: rim → base plane
-    const PIECE_SAMPLES: usize = 33; // must equal the cap grid sampling
-    const AC: usize = 2 * PIECE_SAMPLES - 1; // columns across both rim pieces
-
-    let eval_rim = |row: &[Point3; 4], t: f64| -> Point3 {
-        let mt = 1.0 - t;
-        Point3::new(
-            mt * mt * mt * row[0].x
-                + 3.0 * mt * mt * t * row[1].x
-                + 3.0 * mt * t * t * row[2].x
-                + t * t * t * row[3].x,
-            mt * mt * mt * row[0].y
-                + 3.0 * mt * mt * t * row[1].y
-                + 3.0 * mt * t * t * row[2].y
-                + t * t * t * row[3].y,
-            mt * mt * mt * row[0].z
-                + 3.0 * mt * mt * t * row[1].z
-                + 3.0 * mt * t * t * row[2].z
-                + t * t * t * row[3].z,
-        )
-    };
-
-    // ----- strips: one grid per fillet, top row = the ACTUAL rim -----
-    // Each fillet owns two border pieces (the two halves of its
-    // setback arc). Identify them by projection residual, order by
-    // sweep parameter, and use their row-0 cubics verbatim as the
-    // strip's top row so cap and strip share rim vertices exactly.
-    let mut strip_edge_columns: Vec<[Vec<Point3>; 2]> = Vec::new();
-    let mut strip_bottom_rows: Vec<Vec<Point3>> = Vec::new();
-    let mut strip_rim_halves: Vec<Vec<Point3>> = Vec::new();
-    for (k, fillet) in fillet_surfaces.iter().enumerate() {
-        let mut owned: Vec<(f64, f64, [Point3; 4])> = Vec::new();
-        for sector in &border.sectors {
-            for piece in sector {
-                let row = [
-                    piece.rows[0][0],
-                    piece.rows[0][1],
-                    piece.rows[0][2],
-                    piece.rows[0][3],
-                ];
-                let mut residual = 0.0;
-                let mut mean_v = 0.0;
-                let mut ok = true;
-                for step in 0..5 {
-                    let t = 0.1 + 0.2 * step as f64;
-                    let pnt = eval_rim(&row, t);
-                    if let Some((u, v)) = project_point_to_uv(&fillet.surface, &pnt) {
-                        residual += fillet.surface.point_at(u, v).distance_to(&pnt);
-                        mean_v += v;
-                    } else {
-                        ok = false;
+    // ----- strips: one grid per fillet, top row = the CAP'S rim -----
+    // The cap's border bands equal the input rim as CURVES (border
+    // gate ~1e-13) but under the eq (14) reparameterization, so
+    // resampling the input cubics puts vertices between the cap's.
+    // The cap grids are the authority: collect their rim-side sample
+    // points per fillet and use them verbatim as the strip top rows —
+    // shared vertices by construction.
+    const CAP_SAMPLES: usize = 33; // must match the cap grid sampling
+    let mut rim_samples_per_fillet: Vec<Vec<(f64, f64, Point3)>> =
+        vec![Vec::new(); fillet_surfaces.len()];
+    {
+        let side_points = |grid: &[[Point3; 10]; 10], side: usize| -> Vec<Point3> {
+            let patch = RectangularGregoryBiNonic { grid: *grid };
+            (0..CAP_SAMPLES)
+                .map(|t| {
+                    let f = t as f64 / (CAP_SAMPLES - 1) as f64;
+                    match side {
+                        0 => patch.point_at(0.0, f),
+                        1 => patch.point_at(1.0, f),
+                        2 => patch.point_at(f, 0.0),
+                        _ => patch.point_at(f, 1.0),
                     }
-                }
-                if ok {
-                    owned.push((residual / 5.0, mean_v / 5.0, row));
+                })
+                .collect()
+        };
+        for grid in bi9_grids {
+            for side in 0..4 {
+                let pts = side_points(grid, side);
+                for (k, fillet) in fillet_surfaces.iter().enumerate() {
+                    let mut worst = 0.0_f64;
+                    let mut uv = Vec::with_capacity(CAP_SAMPLES);
+                    let mut ok = true;
+                    for pnt in &pts {
+                        match project_point_to_uv(&fillet.surface, pnt) {
+                            Some((u, v)) => {
+                                worst = worst.max(fillet.surface.point_at(u, v).distance_to(pnt));
+                                uv.push((u, v));
+                            }
+                            None => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if ok && worst < 5.0e-3 {
+                        for (pnt, (u, v)) in pts.iter().zip(uv) {
+                            rim_samples_per_fillet[k].push((v, u, *pnt));
+                        }
+                        break;
+                    }
                 }
             }
         }
-        // The fillet's rim = the two halves of ONE arc: pick the
-        // lowest-residual pair that CHAINS (first piece ends exactly
-        // where the second starts, at the arc midpoint m). Residual
-        // thresholding alone can grab a neighbouring arc's half near
-        // the corners.
-        // The fillet's own two arc halves project onto its sweep at
-        // ~machine residual; every other piece is mostly off-surface.
-        // Take the two lowest-residual pieces and orient by chaining
-        // (they share the arc midpoint m).
-        owned.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        if owned.len() < 2 {
-            eprintln!("  [whole-obj] fillet {k}: rim pieces not found — skipped");
+    }
+
+    const AL: usize = 33; // rows: rim → base plane
+    let mut strip_edge_columns: Vec<[Vec<Point3>; 2]> = Vec::new();
+    let mut strip_bottom_rows: Vec<Vec<Point3>> = Vec::new();
+    for (k, fillet) in fillet_surfaces.iter().enumerate() {
+        let mut samples = std::mem::take(&mut rim_samples_per_fillet[k]);
+        if samples.len() < 8 {
+            eprintln!(
+                "  [whole-obj] fillet {k}: only {} rim samples from cap sides — skipped",
+                samples.len()
+            );
             strip_edge_columns.push([Vec::new(), Vec::new()]);
             strip_bottom_rows.push(Vec::new());
             continue;
         }
-        owned.truncate(2);
-        let (row_first, row_second) = if owned[0].2[3].distance_to(&owned[1].2[0]) < 1.0e-9 {
-            (owned[0].2, owned[1].2)
-        } else if owned[1].2[3].distance_to(&owned[0].2[0]) < 1.0e-9 {
-            (owned[1].2, owned[0].2)
-        } else {
-            eprintln!("  [whole-obj] fillet {k}: rim halves do not chain — skipped");
-            strip_edge_columns.push([Vec::new(), Vec::new()]);
-            strip_bottom_rows.push(Vec::new());
-            continue;
-        };
-        let owned: [(f64, [Point3; 4]); 2] = [(0.0, row_first), (0.0, row_second)];
+        samples.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        samples.dedup_by(|a, b| a.2.distance_to(&b.2) < 1.0e-9);
+        let ac = samples.len();
 
-        // Base end of the sweep = u extreme farther from the rim.
-        let rim_mid = eval_rim(&owned[0].1, 1.0);
+        let rim_mid = samples[ac / 2].2;
         let d0 = fillet.surface.point_at(0.0, 0.5).distance_to(&rim_mid);
         let d1 = fillet.surface.point_at(1.0, 0.5).distance_to(&rim_mid);
         let u_base = if d0 > d1 { 0.0 } else { 1.0 };
 
-        // Columns: top point from the rim cubics (sampled at the SAME
-        // parameters the cap grids use), interior from the sweep,
-        // bottom snapped to the base plane z = 0.
-        let mut grid = vec![Point3::new(0.0, 0.0, 0.0); AL * AC];
-        let mut degenerate = false;
-        for j in 0..AC {
-            let (piece, t) = if j < PIECE_SAMPLES {
-                (0_usize, j as f64 / (PIECE_SAMPLES - 1) as f64)
-            } else {
-                (
-                    1_usize,
-                    (j - (PIECE_SAMPLES - 1)) as f64 / (PIECE_SAMPLES - 1) as f64,
-                )
-            };
-            let top = eval_rim(&owned[piece].1, t);
-            let Some((u_top, v)) = project_point_to_uv(&fillet.surface, &top) else {
-                degenerate = true;
-                break;
-            };
-            // Base-plane crossing along this column (bisection).
+        let mut grid = vec![Point3::new(0.0, 0.0, 0.0); AL * ac];
+        for (j, &(v, u_top, top)) in samples.iter().enumerate() {
             let z_top = fillet.surface.point_at(u_top, v).z;
             let z_end = fillet.surface.point_at(u_base, v).z;
             let u_bottom = if (z_end > 0.0) == (z_top > 0.0) {
@@ -822,7 +821,7 @@ fn write_parts_whole_obj(
                 0.5 * (lo + hi)
             };
             for i in 0..AL {
-                let idx = i * AC + j;
+                let idx = i * ac + j;
                 if i == 0 {
                     grid[idx] = top;
                 } else {
@@ -836,24 +835,18 @@ fn write_parts_whole_obj(
                 }
             }
         }
-        if degenerate {
-            strip_edge_columns.push([Vec::new(), Vec::new()]);
-            strip_bottom_rows.push(Vec::new());
-            continue;
-        }
 
-        // Normal orientation: majority vote at mid-band.
         let mut vote = 0.0_f64;
-        for j in (0..AC).step_by(4) {
-            let p = grid[(AL / 2) * AC + j];
+        for j in (0..ac).step_by(4) {
+            let p = grid[(AL / 2) * ac + j];
             if let Some((u, v)) = project_point_to_uv(&fillet.surface, &p) {
                 vote += fillet.surface.normal_at(u, v).dot(&(p - interior));
             }
         }
         let flip = vote < 0.0;
         for i in 0..AL {
-            for j in 0..AC {
-                let p = grid[i * AC + j];
+            for j in 0..ac {
+                let p = grid[i * ac + j];
                 let nrm = match project_point_to_uv(&fillet.surface, &p) {
                     Some((u, v)) => {
                         let raw = fillet.surface.normal_at(u, v);
@@ -865,9 +858,9 @@ fn write_parts_whole_obj(
                 writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
             }
         }
-        let center = grid[(AL / 2) * AC + AC / 2];
-        let ti = grid[(AL / 2 + 1) * AC + AC / 2] - center;
-        let tj = grid[(AL / 2) * AC + AC / 2 + 1] - center;
+        let center = grid[(AL / 2) * ac + ac / 2];
+        let ti = grid[(AL / 2 + 1) * ac + ac / 2] - center;
+        let tj = grid[(AL / 2) * ac + ac / 2 + 1] - center;
         let chosen = match project_point_to_uv(&fillet.surface, &center) {
             Some((u, v)) => {
                 let raw = fillet.surface.normal_at(u, v);
@@ -877,14 +870,12 @@ fn write_parts_whole_obj(
         };
         let wind_flip = ti.cross(&tj).dot(&chosen) < 0.0;
         writeln!(file, "g fillet_{k}")?;
-        base_index = emit_grid_faces_wound(&mut file, base_index, AL, AC, wind_flip)?;
+        base_index = emit_grid_faces_wound(&mut file, base_index, AL, ac, wind_flip)?;
 
-        strip_rim_halves.push(grid[..PIECE_SAMPLES].to_vec());
-        strip_rim_halves.push(grid[PIECE_SAMPLES - 1..AC].to_vec());
-        let col0: Vec<Point3> = (0..AL).map(|i| grid[i * AC]).collect();
-        let col1: Vec<Point3> = (0..AL).map(|i| grid[i * AC + AC - 1]).collect();
+        let col0: Vec<Point3> = (0..AL).map(|i| grid[i * ac]).collect();
+        let col1: Vec<Point3> = (0..AL).map(|i| grid[i * ac + ac - 1]).collect();
         strip_edge_columns.push([col0, col1]);
-        strip_bottom_rows.push(grid[(AL - 1) * AC..].to_vec());
+        strip_bottom_rows.push(grid[(AL - 1) * ac..].to_vec());
     }
 
     // ----- lateral faces: loop = strip edge ∪ base segment ∪ strip edge -----
@@ -1029,7 +1020,7 @@ fn write_parts_whole_obj(
     // seam pairs are averaged pointwise, and shared corners are
     // clustered exactly. Interior samples are untouched, so the edit
     // is bounded by the c0 metric itself.
-    const SAMPLES: usize = PIECE_SAMPLES;
+    const SAMPLES: usize = CAP_SAMPLES;
     const SEAM_TOL: f64 = 4.0e-2;
     let mut cap_grids_pts: Vec<Vec<Point3>> = Vec::with_capacity(bi9_grids.len());
     for grid in bi9_grids {
@@ -1044,94 +1035,9 @@ fn write_parts_whole_obj(
         }
         cap_grids_pts.push(pts);
     }
-    // Grid side accessors: 4 sides, each SAMPLES indices into a grid.
-    let side_indices = |side: usize| -> Vec<usize> {
-        (0..SAMPLES)
-            .map(|t| match side {
-                0 => t,                           // i = 0 row
-                1 => (SAMPLES - 1) * SAMPLES + t, // i = max row
-                2 => t * SAMPLES,                 // j = 0 col
-                _ => t * SAMPLES + SAMPLES - 1,   // j = max col
-            })
-            .collect()
-    };
-    let side_points = |pts: &[Point3], side: usize| -> Vec<Point3> {
-        side_indices(side).iter().map(|&ix| pts[ix]).collect()
-    };
-    let match_score = |a: &[Point3], b: &[Point3]| -> (f64, bool) {
-        // (mean distance, reversed?) — orientation from three probes.
-        let probe = |rev: bool| -> f64 {
-            [0, SAMPLES / 2, SAMPLES - 1]
-                .iter()
-                .map(|&t| {
-                    let o = if rev { SAMPLES - 1 - t } else { t };
-                    a[t].distance_to(&b[o])
-                })
-                .sum::<f64>()
-        };
-        let reversed = probe(true) < probe(false);
-        let mut acc = 0.0;
-        for t in 0..SAMPLES {
-            let other = if reversed { b[SAMPLES - 1 - t] } else { b[t] };
-            acc += a[t].distance_to(&other);
-        }
-        (acc / SAMPLES as f64, reversed)
-    };
-    // Rim sides from the strips (two per strip), authoritative.
-    let rim_sides: Vec<Vec<Point3>> = strip_rim_halves.clone();
-    // 1. Snap cap sides onto rim sides — globally greedy and UNIQUE
-    //    (each rim half claims its single best cap side; first-under-
-    //    threshold matching grabbed wrong sides at this cap's scale).
-    let n_grids = cap_grids_pts.len();
-    let mut rim_matched = vec![[false; 4]; n_grids];
-    let mut rim_candidates: Vec<(f64, usize, usize, usize, bool)> = Vec::new();
-    for (r, rim) in rim_sides.iter().enumerate() {
-        if rim.is_empty() {
-            continue;
-        }
-        for g in 0..n_grids {
-            for side in 0..4 {
-                let (score, reversed) = match_score(&side_points(&cap_grids_pts[g], side), rim);
-                if score < SEAM_TOL {
-                    rim_candidates.push((score, r, g, side, reversed));
-                }
-            }
-        }
-    }
-    rim_candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let mut rim_used = vec![false; rim_sides.len()];
-    for (_, r, g, side, reversed) in rim_candidates {
-        if rim_used[r] || rim_matched[g][side] {
-            continue;
-        }
-        let idxs = side_indices(side);
-        let rim = &rim_sides[r];
-        for (t, &ix) in idxs.iter().enumerate() {
-            // match_score compared side (a) against rim (b): a[t] pairs
-            // with rim[SAMPLES-1-t] when reversed.
-            let src = if reversed {
-                rim[SAMPLES - 1 - t]
-            } else {
-                rim[t]
-            };
-            cap_grids_pts[g][ix] = src;
-        }
-        rim_used[r] = true;
-        rim_matched[g][side] = true;
-    }
-    if std::env::var("KP20_SEAM_TRACE").is_ok() {
-        eprintln!(
-            "  [seam] rims used {}/{}",
-            rim_used.iter().filter(|u| **u).count(),
-            rim_sides.len()
-        );
-    }
-    // Cap piece seams meet with T-junctions (adjacent pieces share
-    // half-length sides), so side pairing cannot close them; the
-    // residual sliver gaps (bounded by the c0 gate) are closed by the
-    // mesh-finish weld/fill pass in tools/render-apex-showcase.sh.
-    // The BRep-level fix — driving assembly c0 to machine zero — is
-    // the recorded core item.
+    // Strips take the cap's rim samples verbatim, so no cap-side
+    // snapping is needed; residual piece T-junctions are recorded and
+    // closed by the mesh-finish pass.
     for (index, grid) in bi9_grids.iter().enumerate() {
         let patch = RectangularGregoryBiNonic { grid: *grid };
         let pts = &cap_grids_pts[index];

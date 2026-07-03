@@ -201,7 +201,7 @@ pub fn assemble_kp20_paper_cap_conditioned(
     let c = alpha.cos();
     let mut placements_per_sector = Vec::with_capacity(n);
     let mut input_corner_mismatch = 0.0_f64;
-    for (s, sector_border) in border.sectors.iter().enumerate() {
+    for sector_border in border.sectors.iter() {
         input_corner_mismatch =
             input_corner_mismatch.max(super::kp20_paper_tau::kp20_paper_border_corner_mismatch(
                 n,
@@ -215,10 +215,55 @@ pub fn assemble_kp20_paper_cap_conditioned(
             &sector_border[1].rows,
             2.0 * c / 3.0,
         );
-        for &(piece, i, j, value) in &placements {
+        placements_per_sector.push(placements);
+    }
+
+    // Cross-sector seam reconciliation BEFORE pinning: the two
+    // sectors flanking each separating curve both band-place the
+    // shared seam-row slots (prev P2 (i,0) ↔ curr P4 (0,i) near m,
+    // prev P1 (i,0) ↔ curr P1 (0,i) near o), each from ITS adjacent
+    // input border piece. On real (non-C²-at-m) data the two claims
+    // disagree by the m cross-row mismatch (measured 1.6e-3..4e-3 on
+    // the pyramid apex), and step (iv) cannot repair it — both slots
+    // are band-frozen, so the C⁰ row degenerates to a constant and is
+    // dropped. Averaging the claims makes the seam C⁰-exact by
+    // construction; the strip projection then re-solves the G rows
+    // around the reconciled pins.
+    {
+        use super::kp20_bi6_cap::Kp20PieceId;
+        const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
+        const P2: Kp20PieceId = Kp20PieceId::NearOriginRight;
+        const P4: Kp20PieceId = Kp20PieceId::NearMidpointLeft;
+        for curve in 0..n {
+            let prev = (curve + n - 1) % n;
+            let curr = curve;
+            for i in 4..=6_usize {
+                for (prev_piece, curr_piece) in [(P2, P4)] {
+                    let a = placements_per_sector[prev]
+                        .iter()
+                        .position(|&(p, pi, pj, _)| p == prev_piece && pi == i && pj == 0);
+                    let b = placements_per_sector[curr]
+                        .iter()
+                        .position(|&(p, pi, pj, _)| p == curr_piece && pi == 0 && pj == i);
+                    if let (Some(a), Some(b)) = (a, b) {
+                        let va = placements_per_sector[prev][a].3;
+                        let vb = placements_per_sector[curr][b].3;
+                        let mean = Point3::new(
+                            0.5 * (va.x + vb.x),
+                            0.5 * (va.y + vb.y),
+                            0.5 * (va.z + vb.z),
+                        );
+                        placements_per_sector[prev][a].3 = mean;
+                        placements_per_sector[curr][b].3 = mean;
+                    }
+                }
+            }
+        }
+    }
+    for (s, placements) in placements_per_sector.iter().enumerate() {
+        for &(piece, i, j, value) in placements {
             sectors[s].piece_mut(piece).cps[i][j] = value;
         }
-        placements_per_sector.push(placements);
     }
 
     // Step (iv): strip projection per sector-separating curve.
