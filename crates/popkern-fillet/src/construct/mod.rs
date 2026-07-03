@@ -12,6 +12,8 @@ pub(crate) mod corner_patch_support_completion;
 pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
+#[path = "end_runoff.rs"]
+mod end_runoff;
 mod exact_boundary_cap_trim_fit;
 mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
@@ -466,6 +468,30 @@ pub fn apply_blend_geometry(
         }
     });
     pipeline_timing.vertex_blend_ms = ms;
+    // Fillet end runoff: trim strips at planar end faces they
+    // overshoot and cut the end faces' sharp corners back to the
+    // runoff curve (see end_runoff module docs).
+    let runoff_outcomes = end_runoff::apply_fillet_end_runoff(&mut result);
+    for o in &runoff_outcomes {
+        repair_report.apex_diagnostics.push(
+            crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+                crate::types::ExactBoundaryCapDiagnostic {
+                    stage: "end_runoff".into(),
+                    code: "fillet_end_runoff_applied".into(),
+                    detail_code: None,
+                    sector_name: format!("{:?}->{:?}", o.strip_face, o.end_face),
+                    edge: None,
+                    support_half_edge: None,
+                    support_face: Some(o.end_face),
+                    residual: Some(o.overshoot),
+                    outer_side: None,
+                    sample_parameter: None,
+                    tolerance: None,
+                    shared_fact_ids: Vec::new(),
+                },
+            ),
+        );
+    }
     post_pipeline::determinism_trace("post_vertex_blend", &result);
     post_pipeline::determinism_face_trace("post_vertex_blend", &result);
     let (_, ms) = pipeline_timing::timed(|| {
