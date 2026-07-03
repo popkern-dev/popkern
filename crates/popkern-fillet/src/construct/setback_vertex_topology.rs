@@ -101,67 +101,197 @@ fn surgery_inner(
         );
     }
 
+    // WIP probe: where does the arc midpoint live relative to the
+    // current face partition?
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        for k in 0..n.min(2) {
+            let mid = eval_cubic_mid(&arcs[k].cubic);
+            let mut nearest = (f64::INFINITY, String::new());
+            for (fh, face) in brep.faces.iter() {
+                let Some(surface) = face.surface.as_ref() else {
+                    continue;
+                };
+                let kind = match &surface.geometry {
+                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                    _ => "Other",
+                };
+                if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                    &surface.geometry,
+                    &mid,
+                ) {
+                    let d = (&surface.geometry as &dyn SurfaceEval)
+                        .point_at(u, v)
+                        .distance_to(&mid);
+                    if d < nearest.0 {
+                        nearest = (d, format!("{fh:?} {kind}"));
+                    }
+                }
+            }
+            eprintln!(
+                "  [setback-probe] arc {k} midpoint nearest surface: {} at {:.3e}",
+                nearest.1, nearest.0
+            );
+            // And the fillet face's u-extent: distance from arc mid to the fillet face's loop edges.
+            let ff = find_fillet_face(brep, &fillet_surfaces[k])?;
+            let mut best_edge = f64::INFINITY;
+            for he in face_loop_half_edges(brep, ff)? {
+                let edge = brep.half_edges[he].edge;
+                if let Some(c) = brep.edges[edge].curve.as_ref() {
+                    best_edge = best_edge.min(curve_distance(&c.geometry, c.t_start, c.t_end, mid));
+                }
+            }
+            eprintln!(
+                "  [setback-probe] arc {k} midpoint distance to its fillet face boundary: {best_edge:.3e}"
+            );
+            eprintln!("  [setback-probe] fillet {k} face = {ff:?}");
+            // Corner territory: nearest surfaced face to the corner point.
+            let corner = arcs[k].corner_next;
+            let mut ranked: Vec<(f64, String)> = Vec::new();
+            for (fh, face) in brep.faces.iter() {
+                let Some(surface) = face.surface.as_ref() else {
+                    continue;
+                };
+                let kind = match &surface.geometry {
+                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                    _ => "Other",
+                };
+                if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                    &surface.geometry,
+                    &corner,
+                ) {
+                    let d = (&surface.geometry as &dyn SurfaceEval)
+                        .point_at(u, v)
+                        .distance_to(&corner);
+                    ranked.push((d, format!("{fh:?} {kind}")));
+                }
+            }
+            ranked.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            for (d, label) in ranked.iter().take(3) {
+                eprintln!("  [setback-probe] corner {k} near: {label} d={d:.3e}");
+            }
+        }
+    }
+
     // ---- discovery: fillet faces --------------------------------------
     let fillet_faces: Vec<FaceHandle> = (0..n)
         .map(|k| find_fillet_face(brep, &fillet_surfaces[k]))
         .collect::<Result<_, _>>()?;
 
-    // ---- surgery A: split trim edges at the corners --------------------
-    // Corner c_k joins fillet k (its corner_next) and fillet k+1 (its
-    // corner_prev). Each corner lies on two trim edges — one on each
-    // adjacent fillet face's loop. Splitting is idempotent per edge.
-    // Returns per (fillet, side) the corner vertex handle.
-    let mut corner_vertex_at = vec![[None::<VertexHandle>; 2]; n]; // [prev, next]
-    for k in 0..n {
-        let corner = arcs[k].corner_next;
-        let k_next = (k + 1) % n;
-        let v_this = split_face_boundary_at(brep, fillet_faces[k], corner, tolerance)
-            .map_err(|e| format!("split fillet {k} trim at corner {k}: {e}"))?;
-        let v_next = split_face_boundary_at(brep, fillet_faces[k_next], corner, tolerance)
-            .map_err(|e| format!("split fillet {k_next} trim at corner {k}: {e}"))?;
-        corner_vertex_at[k][1] = Some(v_this);
-        corner_vertex_at[k_next][0] = Some(v_next);
-    }
-
-    // ---- surgery B: arc edge across each fillet face -------------------
-    let mut arc_edges = Vec::with_capacity(n);
+    // ---- surgery A/B/C: three-segment arc insertion ---------------------
+    // Measured reality (see probes): each setback arc's MIDDLE is
+    // interior to its fillet face, while its two END segments exit
+    // through the fillet face's apex-end boundary and run across the
+    // lateral PLANE faces to the corner points (which lie exactly on
+    // those planes). Per fillet: split the boundary at the two arc
+    // crossings, insert the middle sub-arc across the fillet face
+    // (mef); per corner: cut the lateral face with the two adjacent
+    // end sub-arcs via a spur (mev to c) + close (mef).
+    let mut arc_middle_edges = Vec::with_capacity(n);
     let mut apex_slivers = Vec::with_capacity(n);
+    let mut crossing_vertices = vec![[None::<VertexHandle>; 2]; n]; // [X1 at t1, X2 at t2]
+    let mut end_segments = vec![[None::<[Point3; 4]>; 2]; n]; // [c_prev→X1, X2→c_next]
     for k in 0..n {
-        let v_prev = corner_vertex_at[k][0].ok_or("missing prev corner vertex")?;
-        let v_next = corner_vertex_at[k][1].ok_or("missing next corner vertex")?;
-        let (arc_edge, sliver) = split_face_with_arc(
-            brep,
-            fillet_faces[k],
-            v_prev,
-            v_next,
-            &arcs[k].cubic,
-            vertex_position,
-        )
-        .map_err(|e| format!("arc split of fillet face {k}: {e}"))?;
-        arc_edges.push(arc_edge);
+        let crossings = arc_boundary_crossings(brep, fillet_faces[k], &arcs[k].cubic)?;
+        let [(t1, e1, p1), (t2, e2, p2)] = crossings;
+        let v1 = brep
+            .split_edge_at_point(e1, p1, tolerance)
+            .map_err(|e| format!("split crossing 1 of fillet {k}: {e}"))?
+            .vertex;
+        let v2 = brep
+            .split_edge_at_point(e2, p2, tolerance)
+            .map_err(|e| format!("split crossing 2 of fillet {k}: {e}"))?
+            .vertex;
+        let (mut seg_pre, mut seg_mid, mut seg_post) = split_cubic_three(&arcs[k].cubic, t1, t2);
+        // Snap segment endpoints to the topology vertices (the split
+        // point is the edge's own foot, ~4e-4 from the raw arc).
+        let p1v = brep.vertices[v1].position;
+        let p2v = brep.vertices[v2].position;
+        seg_pre[3] = p1v;
+        seg_mid[0] = p1v;
+        seg_mid[3] = p2v;
+        seg_post[0] = p2v;
+        let he1 = half_edge_at_vertex_on_face(brep, fillet_faces[k], v1)?;
+        let he2 = half_edge_at_vertex_on_face(brep, fillet_faces[k], v2)?;
+        let mef = brep
+            .mef(he1, he2)
+            .map_err(|e| format!("mef arc middle on fillet {k}: {e}"))?;
+        if let Some(edge) = brep.edges.get_mut(mef.edge) {
+            edge.curve = Some(popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::CurveGeometry::Nurbs(bezier_cubic_curve(
+                    &seg_mid,
+                )),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        let d_old = face_centroid(brep, fillet_faces[k])?.distance_to(&vertex_position);
+        let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
+        let sliver = if d_new < d_old {
+            mef.face
+        } else {
+            fillet_faces[k]
+        };
+        arc_middle_edges.push(mef.edge);
         apex_slivers.push(sliver);
+        crossing_vertices[k] = [Some(v1), Some(v2)];
+        end_segments[k] = [Some(seg_pre), Some(seg_post)];
     }
 
-    // ---- surgery C: pinch lateral faces at the corners ------------------
-    // The two corner vertices at c_k (one per adjacent trim edge) both
-    // lie on the shared lateral face's loop. A chord between them
-    // splits off the face's wedge-above-c; contracting the chord
-    // (kev) merges the two vertices into the single corner vertex.
+    // Per corner c_k: path X2_k → c_k → X1_{k+1} across the shared
+    // lateral face.
     let mut corner_vertices = Vec::with_capacity(n);
-    let mut wedge_slivers = Vec::with_capacity(n);
+    let mut wedge_slivers: Vec<FaceHandle> = Vec::new();
     for k in 0..n {
-        let w1 = corner_vertex_at[k][1].ok_or("missing corner vertex")?;
-        let w2 = corner_vertex_at[(k + 1) % n][0].ok_or("missing corner vertex")?;
-        let (corner_vertex, wedge) = pinch_lateral_corner(brep, w1, w2, vertex_position)
-            .map_err(|e| format!("lateral pinch at corner {k}: {e}"))?;
-        corner_vertices.push(corner_vertex);
-        wedge_slivers.push(wedge);
+        let k_next = (k + 1) % n;
+        let x2 = crossing_vertices[k][1].ok_or("missing X2")?;
+        let x1n = crossing_vertices[k_next][0].ok_or("missing X1'")?;
+        let corner = arcs[k].corner_next;
+        let seg_a = end_segments[k][1].ok_or("missing post segment")?;
+        let seg_b = end_segments[k_next][0].ok_or("missing pre segment")?;
+        // The lateral face: common face of X2 and X1' that is not a
+        // fillet face.
+        let face = common_face_excluding(brep, x2, x1n, &fillet_faces)
+            .ok_or_else(|| format!("no shared lateral face at corner {k}"))?;
+        // Spur to the corner point.
+        let he_x2 = half_edge_at_vertex_on_face(brep, face, x2)?;
+        let mev = brep
+            .mev(he_x2, corner)
+            .map_err(|e| format!("mev corner spur at {k}: {e}"))?;
+        if let Some(edge) = brep.edges.get_mut(mev.edge) {
+            edge.curve = Some(popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::CurveGeometry::Nurbs(bezier_cubic_curve(&seg_a)),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        // Close across the face to X1'.
+        let he_c = half_edge_at_vertex_on_face(brep, face, mev.vertex)?;
+        let he_x1 = half_edge_at_vertex_on_face(brep, face, x1n)?;
+        let mef = brep
+            .mef(he_c, he_x1)
+            .map_err(|e| format!("mef corner close at {k}: {e}"))?;
+        if let Some(edge) = brep.edges.get_mut(mef.edge) {
+            edge.curve = Some(popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::CurveGeometry::Nurbs(bezier_cubic_curve(&seg_b)),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        let d_old = face_centroid(brep, face)?.distance_to(&vertex_position);
+        let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
+        wedge_slivers.push(if d_new < d_old { mef.face } else { face });
+        corner_vertices.push(mev.vertex);
     }
+    let arc_edges = arc_middle_edges;
 
     // ---- surgery D: merge the surrendered region ------------------------
     let mut surrendered: Vec<FaceHandle> = Vec::new();
     surrendered.extend(apex_slivers.iter().copied());
-    surrendered.extend(wedge_slivers.iter().flatten().copied());
+    surrendered.extend(wedge_slivers.iter().copied());
     let blend_face =
         merge_faces(brep, vertex, &surrendered).map_err(|e| format!("blend region merge: {e}"))?;
 
@@ -194,139 +324,6 @@ fn find_fillet_face(brep: &BRep, fillet: &FilletSurfaceResult) -> Result<FaceHan
         }
     }
     Err("no face carries the fillet sweep surface".to_string())
-}
-
-/// Split the boundary edge of `face` nearest to `point` at that
-/// point. Returns the new (or coincident existing) vertex.
-fn split_face_boundary_at(
-    brep: &mut BRep,
-    face: FaceHandle,
-    point: Point3,
-    tolerance: &Tolerance,
-) -> Result<VertexHandle, String> {
-    // Existing vertex within tolerance?
-    for he in face_loop_half_edges(brep, face)? {
-        let v = brep.half_edges[he].origin;
-        if brep.vertices[v].position.distance_to(&point) < 1.0e-9 {
-            return Ok(v);
-        }
-    }
-    // Nearest boundary edge: by curve when present, else by the
-    // chord between its endpoint vertices.
-    let mut best: Option<(f64, EdgeHandle, bool)> = None;
-    let mut curved = 0_usize;
-    let mut total = 0_usize;
-    for he in face_loop_half_edges(brep, face)? {
-        let edge = brep.half_edges[he].edge;
-        total += 1;
-        let d = match brep.edges[edge].curve.as_ref() {
-            Some(curve) => {
-                curved += 1;
-                curve_distance(&curve.geometry, curve.t_start, curve.t_end, point)
-            }
-            None => {
-                let a = brep.vertices[brep.half_edges[he].origin].position;
-                let b = brep.vertices[brep.half_edges[brep.half_edges[he].next].origin].position;
-                chord_distance(a, b, point)
-            }
-        };
-        let has_curve = brep.edges[edge].curve.is_some();
-        if best.map(|(bd, _, _)| d < bd).unwrap_or(true) {
-            best = Some((d, edge, has_curve));
-        }
-    }
-    let (d, edge, has_curve) = best.ok_or("face loop has no edges")?;
-    if d > 5.0e-3 {
-        return Err(format!(
-            "corner point is {d:.3e} from the nearest boundary edge \
-             (loop edges: {total}, with curves: {curved})"
-        ));
-    }
-    if !has_curve {
-        return Err(format!(
-            "nearest boundary edge at {d:.3e} has no curve geometry \
-             (loop edges: {total}, with curves: {curved})"
-        ));
-    }
-    let result = brep
-        .split_edge_at_point(edge, point, tolerance)
-        .map_err(|e| format!("split_edge_at_point: {e}"))?;
-    Ok(result.vertex)
-}
-
-/// Insert the setback arc as an edge across `face` between the two
-/// corner vertices, splitting it into the kept fillet face and the
-/// apex-side sliver. Returns (arc edge, sliver face).
-fn split_face_with_arc(
-    brep: &mut BRep,
-    face: FaceHandle,
-    v_prev: VertexHandle,
-    v_next: VertexHandle,
-    cubic: &[Point3; 4],
-    apex: Point3,
-) -> Result<(EdgeHandle, FaceHandle), String> {
-    let he1 = half_edge_at_vertex_on_face(brep, face, v_prev)?;
-    let he2 = half_edge_at_vertex_on_face(brep, face, v_next)?;
-    let result = brep
-        .mef(he1, he2)
-        .map_err(|e| format!("mef arc edge: {e}"))?;
-    // Assign the arc curve (oriented v_prev → v_next).
-    let curve = bezier_cubic_curve(cubic);
-    if let Some(edge) = brep.edges.get_mut(result.edge) {
-        edge.curve = Some(popkern_core::geometry::CurveOnEdge {
-            geometry: popkern_core::geometry::CurveGeometry::Nurbs(curve),
-            t_start: 0.0,
-            t_end: 1.0,
-        });
-    }
-    // Which side is the apex sliver? The face whose loop centroid is
-    // nearer the apex.
-    let old_face = face;
-    let new_face = result.face;
-    let d_old = face_centroid(brep, old_face)?.distance_to(&apex);
-    let d_new = face_centroid(brep, new_face)?.distance_to(&apex);
-    let (sliver, _kept) = if d_new < d_old {
-        (new_face, old_face)
-    } else {
-        (old_face, new_face)
-    };
-    Ok((result.edge, sliver))
-}
-
-/// Split the shared lateral face with a chord w1→w2 (both at the same
-/// corner position), then contract the chord so the corner becomes a
-/// single vertex. Returns (corner vertex, wedge sliver face if one
-/// was split off).
-fn pinch_lateral_corner(
-    brep: &mut BRep,
-    w1: VertexHandle,
-    w2: VertexHandle,
-    apex: Point3,
-) -> Result<(VertexHandle, Option<FaceHandle>), String> {
-    if w1 == w2 {
-        return Ok((w1, None));
-    }
-    // The face whose loop contains BOTH vertices (the lateral face).
-    let face = common_face(brep, w1, w2).ok_or("no common face for corner pinch")?;
-    let he1 = half_edge_at_vertex_on_face(brep, face, w1)?;
-    let he2 = half_edge_at_vertex_on_face(brep, face, w2)?;
-    let result = brep
-        .mef(he1, he2)
-        .map_err(|e| format!("mef corner chord: {e}"))?;
-    let d_old = face_centroid(brep, face)?.distance_to(&apex);
-    let d_new = face_centroid(brep, result.face)?.distance_to(&apex);
-    let wedge = if d_new < d_old { result.face } else { face };
-    // Contract the chord: kev kills the chord edge and one endpoint.
-    let chord_he = brep.edges[result.edge].half_edge;
-    brep.kev(chord_he)
-        .map_err(|e| format!("kev corner chord: {e}"))?;
-    // The surviving vertex is whichever of w1/w2 still exists.
-    let corner = if brep.vertices.get(w1).is_some() {
-        w1
-    } else {
-        w2
-    };
-    Ok((corner, Some(wedge)))
 }
 
 /// Merge the surrendered faces (apex slivers, wedges, and everything
@@ -390,10 +387,59 @@ fn merge_faces(
             break;
         }
     }
-    // Remove any leftover interior bridge edges (same face both
-    // sides) via kev from their dangling ends, then the apex vertex.
+    // Dissolve interior remnants of the old apex structure: edges
+    // whose two half-edges sit in the SAME loop (bridges the blend
+    // loop bounces through twice). Iterate so chains and the old
+    // anchor ring unwind from their exposed ends.
+    loop {
+        let mut dissolved = false;
+        let candidates: Vec<HalfEdgeHandle> = brep
+            .half_edges
+            .iter()
+            .filter(|(_, data)| {
+                brep.half_edges
+                    .get(data.twin)
+                    .map(|t| t.loop_ == data.loop_)
+                    .unwrap_or(false)
+            })
+            .map(|(h, _)| h)
+            .collect();
+        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+            eprintln!(
+                "  [merge] same-loop bridge half-edges: {}",
+                candidates.len()
+            );
+        }
+        for he in candidates {
+            if brep.half_edges.get(he).is_none() {
+                continue;
+            }
+            match brep.dissolve_same_loop_bridge(he) {
+                Ok(()) => dissolved = true,
+                Err(e) => {
+                    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+                        eprintln!("  [merge] dissolve declined: {e}");
+                    }
+                }
+            }
+        }
+        if !dissolved {
+            break;
+        }
+    }
     super::blend_insert::kev_v_bridge(brep, vertex).map_err(|e| format!("kev_v_bridge: {e}"))?;
     super::blend_insert::remove_orphaned_vertex(brep, vertex);
+    // Dissolved bridges strand their interior vertices; sweep all
+    // orphans (no incident half-edges).
+    let orphans: Vec<VertexHandle> = brep
+        .vertices
+        .iter()
+        .map(|(vh, _)| vh)
+        .filter(|&vh| !brep.half_edges.iter().any(|(_, h)| h.origin == vh))
+        .collect();
+    for vh in orphans {
+        super::blend_insert::remove_orphaned_vertex(brep, vh);
+    }
 
     let mut it = region.iter();
     let blend = *it.next().ok_or("merge produced no face")?;
@@ -494,6 +540,128 @@ fn curve_distance(
     best
 }
 
+/// Find where the arc crosses the face's boundary: for each boundary
+/// edge, closest approach between the arc and the edge curve; the two
+/// sub-tolerance approaches (sorted by arc parameter) are the
+/// crossings.
+fn arc_boundary_crossings(
+    brep: &BRep,
+    face: FaceHandle,
+    cubic: &[Point3; 4],
+) -> Result<[(f64, EdgeHandle, Point3); 2], String> {
+    let arc = bezier_cubic_curve(cubic);
+    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc);
+    let mut hits: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
+    for he in face_loop_half_edges(brep, face)? {
+        let edge = brep.half_edges[he].edge;
+        let Some(curve) = brep.edges[edge].curve.as_ref() else {
+            continue;
+        };
+        let edge_eval: &dyn CurveEval = &curve.geometry;
+        let (e0, e1) = if curve.t_start.is_finite() && curve.t_end.is_finite() {
+            (curve.t_start, curve.t_end)
+        } else {
+            continue;
+        };
+        let mut best = (f64::INFINITY, 0.0_f64, Point3::new(0.0, 0.0, 0.0));
+        for i in 0..=128 {
+            let t = i as f64 / 128.0;
+            let pa = arc_eval.point_at(t);
+            for j in 0..=256 {
+                let te = e0 + (e1 - e0) * j as f64 / 256.0;
+                let pe = edge_eval.point_at(te);
+                let d = pe.distance_to(&pa);
+                if d < best.0 {
+                    // Split at the EDGE's own point (the splitter
+                    // requires exact point inversion on the edge).
+                    best = (d, t, pe);
+                }
+            }
+        }
+        if best.0 < 1.0e-3 {
+            hits.push((best.1, edge, best.2, best.0));
+        }
+    }
+    // Dedup near-identical arc parameters (shared vertices between
+    // consecutive edges register on both).
+    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    hits.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-3);
+    if hits.len() != 2 {
+        return Err(format!(
+            "expected 2 arc/boundary crossings, found {} ({:?})",
+            hits.len(),
+            hits.iter().map(|h| (h.0, h.3)).collect::<Vec<_>>()
+        ));
+    }
+    Ok([
+        (hits[0].0, hits[0].1, hits[0].2),
+        (hits[1].0, hits[1].1, hits[1].2),
+    ])
+}
+
+/// De Casteljau three-way split of a cubic at t1 < t2, returning the
+/// (pre, mid, post) sub-cubics.
+fn split_cubic_three(
+    cps: &[Point3; 4],
+    t1: f64,
+    t2: f64,
+) -> ([Point3; 4], [Point3; 4], [Point3; 4]) {
+    fn split(cps: &[Point3; 4], t: f64) -> ([Point3; 4], [Point3; 4]) {
+        let lerp = |a: Point3, b: Point3| {
+            Point3::new(
+                a.x + (b.x - a.x) * t,
+                a.y + (b.y - a.y) * t,
+                a.z + (b.z - a.z) * t,
+            )
+        };
+        let q0 = lerp(cps[0], cps[1]);
+        let q1 = lerp(cps[1], cps[2]);
+        let q2 = lerp(cps[2], cps[3]);
+        let r0 = lerp(q0, q1);
+        let r1 = lerp(q1, q2);
+        let sm = lerp(r0, r1);
+        ([cps[0], q0, r0, sm], [sm, r1, q2, cps[3]])
+    }
+    let (pre, rest) = split(cps, t1);
+    let t2r = if t1 < 1.0 {
+        (t2 - t1) / (1.0 - t1)
+    } else {
+        0.0
+    };
+    let (mid, post) = split(&rest, t2r);
+    (pre, mid, post)
+}
+
+/// Common face of two vertices, excluding the given fillet faces.
+fn common_face_excluding(
+    brep: &BRep,
+    a: VertexHandle,
+    b: VertexHandle,
+    exclude: &[FaceHandle],
+) -> Option<FaceHandle> {
+    for (fh, _) in brep.faces.iter() {
+        if exclude.contains(&fh) {
+            continue;
+        }
+        if let Ok(hes) = face_loop_half_edges(brep, fh) {
+            let has_a = hes.iter().any(|&he| brep.half_edges[he].origin == a);
+            let has_b = hes.iter().any(|&he| brep.half_edges[he].origin == b);
+            if has_a && has_b {
+                return Some(fh);
+            }
+        }
+    }
+    None
+}
+
+fn eval_cubic_mid(cps: &[Point3; 4]) -> Point3 {
+    Point3::new(
+        0.125 * (cps[0].x + 3.0 * cps[1].x + 3.0 * cps[2].x + cps[3].x),
+        0.125 * (cps[0].y + 3.0 * cps[1].y + 3.0 * cps[2].y + cps[3].y),
+        0.125 * (cps[0].z + 3.0 * cps[1].z + 3.0 * cps[2].z + cps[3].z),
+    )
+}
+
 fn chord_distance(a: Point3, b: Point3, p: Point3) -> f64 {
     let ab = b - a;
     let len2 = ab.dot(&ab);
@@ -516,6 +684,28 @@ fn bezier_cubic_curve(cps: &[Point3; 4]) -> NurbsCurve {
 /// Loop length of a face's outer loop (WIP checkpoint reporting).
 pub(crate) fn blend_loop_len(brep: &BRep, face: FaceHandle) -> Option<usize> {
     face_loop_half_edges(brep, face).ok().map(|v| v.len())
+}
+
+/// WIP checkpoint: describe the blend loop's edges.
+pub(crate) fn blend_loop_description(brep: &BRep, face: FaceHandle) -> String {
+    let Ok(hes) = face_loop_half_edges(brep, face) else {
+        return "?".to_string();
+    };
+    let mut out = String::new();
+    for he in hes {
+        let v = brep.half_edges[he].origin;
+        let p = brep.vertices[v].position;
+        let edge = brep.half_edges[he].edge;
+        let has_curve = brep.edges[edge].curve.is_some();
+        let vn = brep.half_edges[brep.half_edges[he].next].origin;
+        let pn = brep.vertices[vn].position;
+        let len = p.distance_to(&pn);
+        out.push_str(&format!(
+            "\n    ({:.3},{:.3},{:.3}) len={:.4} curve={}",
+            p.x, p.y, p.z, len, has_curve
+        ));
+    }
+    out
 }
 
 /// Returns whether the WIP arm is enabled (integration tests only).

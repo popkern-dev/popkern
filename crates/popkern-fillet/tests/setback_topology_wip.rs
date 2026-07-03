@@ -58,6 +58,10 @@ fn setback_surgery_reaches_ngon_checkpoint_on_pentagon() {
         "unexpected topology shape: {checkpoint}"
     );
     assert!(
+        checkpoint.contains("blend_loop_edges=Some(15)"),
+        "blend loop must be the pure setback n-gon (3 segments x 5 arcs): {checkpoint}"
+    );
+    assert!(
         checkpoint.contains("validate=ok"),
         "surgery result failed validation: {checkpoint}"
     );

@@ -115,16 +115,22 @@ pub(crate) fn insert_vertex_blend(
             Ok(outcome) => {
                 let loop_len =
                     super::setback_vertex_topology::blend_loop_len(brep, outcome.blend_face);
+                let loop_desc = if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+                    super::setback_vertex_topology::blend_loop_description(brep, outcome.blend_face)
+                } else {
+                    String::new()
+                };
                 let valid = brep
                     .validate()
                     .map(|_| "ok".to_string())
                     .unwrap_or_else(|e| format!("INVALID: {e}"));
                 format!(
-                    "setback surgery WIP checkpoint: arcs={} corners={} blend_loop_edges={:?} validate={}",
+                    "setback surgery WIP checkpoint: arcs={} corners={} blend_loop_edges={:?} validate={}{}",
                     outcome.arc_edges.len(),
                     outcome.corner_vertices.len(),
                     loop_len,
                     valid,
+                    loop_desc,
                 )
             }
             Err(e) => format!("setback surgery failed: {e}"),
