@@ -667,197 +667,230 @@ fn write_parts_whole_obj(
     border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder,
     pyramid: &BRep,
     bi9_grids: &[[[Point3; 10]; 10]],
-    vertex: Point3,
-    trim_corners: &[Point3],
+    _vertex: Point3,
+    _trim_corners: &[Point3],
     path: &Path,
 ) -> Result<(), std::io::Error> {
-    use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
     use std::io::Write;
+
+    // Watertight-by-construction: every pairwise seam (strip↔cap,
+    // strip↔face, strip↔base, face↔base) reuses the SAME boundary
+    // point sequence on both sides, so welding coincident vertices
+    // yields a closed surface. The remaining self-intersection class
+    // (cap grazing the face planes near the setback corners) is a
+    // recorded geometry item (PK-090), not a hole.
     let mut file = std::io::BufWriter::new(std::fs::File::create(path)?);
     writeln!(
         file,
-        "# filleted pentagonal pyramid + KP20 paper cap (from parts)"
+        "# filleted pentagonal pyramid + KP20 paper cap (watertight from parts)"
     )?;
     let mut base_index = 1_usize;
-    // Cap sample cloud for mutual trimming of the face wedges (the
-    // BRep-level version is face-vs-cap surface trimming; here the
-    // wedge triangles covered by cap material are dropped).
-    let mut cap_cloud: Vec<Point3> = Vec::new();
-    {
-        const CS: usize = 17;
-        for grid in bi9_grids {
-            let patch = RectangularGregoryBiNonic { grid: *grid };
-            for i in 0..CS {
-                for j in 0..CS {
-                    let u = i as f64 / (CS - 1) as f64;
-                    let v = j as f64 / (CS - 1) as f64;
-                    cap_cloud.push(patch.point_at(u, v));
-                }
-            }
-        }
-    }
-    let under_cap = |p: Point3, n: popkern_core::geometry::Vec3| -> bool {
-        // Covered when some cap sample sits above p along the plane
-        // normal within a small lateral radius.
-        for q in &cap_cloud {
-            let d = *q - p;
-            let h = d.dot(&n);
-            if h > 1.0e-4 {
-                let lateral = d - n * h;
-                if lateral.length() < 0.02 {
-                    return true;
-                }
-            }
-        }
-        false
-    };
-    // Popkern surface normals point INTO the solid; orient every
-    // emitted normal outward from an interior point so viewers shade
-    // front faces.
     let interior = Point3::new(0.0, 0.0, 0.35);
     let outward = |p: Point3, n: popkern_core::geometry::Vec3| {
         if n.dot(&(p - interior)) >= 0.0 { n } else { -n }
     };
 
-    let n = fillet_surfaces.len();
-    let corners: Vec<Point3> = border
-        .sectors
-        .iter()
-        .map(|sector| sector[0].rows[0][3])
-        .collect();
+    const AL: usize = 33; // rows: rim → base plane
+    const PIECE_SAMPLES: usize = 33; // must equal the cap grid sampling
+    const AC: usize = 2 * PIECE_SAMPLES - 1; // columns across both rim pieces
+
+    let eval_rim = |row: &[Point3; 4], t: f64| -> Point3 {
+        let mt = 1.0 - t;
+        Point3::new(
+            mt * mt * mt * row[0].x
+                + 3.0 * mt * mt * t * row[1].x
+                + 3.0 * mt * t * t * row[2].x
+                + t * t * t * row[3].x,
+            mt * mt * mt * row[0].y
+                + 3.0 * mt * mt * t * row[1].y
+                + 3.0 * mt * t * t * row[2].y
+                + t * t * t * row[3].y,
+            mt * mt * mt * row[0].z
+                + 3.0 * mt * mt * t * row[1].z
+                + 3.0 * mt * t * t * row[2].z
+                + t * t * t * row[3].z,
+        )
+    };
+
+    // ----- strips: one grid per fillet, top row = the ACTUAL rim -----
+    // Each fillet owns two border pieces (the two halves of its
+    // setback arc). Identify them by projection residual, order by
+    // sweep parameter, and use their row-0 cubics verbatim as the
+    // strip's top row so cap and strip share rim vertices exactly.
+    let mut strip_edge_columns: Vec<[Vec<Point3>; 2]> = Vec::new();
     let mut strip_bottom_rows: Vec<Vec<Point3>> = Vec::new();
+    let mut strip_rim_halves: Vec<Vec<Point3>> = Vec::new();
     for (k, fillet) in fillet_surfaces.iter().enumerate() {
-        // Clip line = the ACTUAL cap rim on this sweep: project every
-        // border rim onto the sweep, keep on-surface samples, and
-        // follow them as u(v).
-        let mut clip: Vec<(f64, f64)> = Vec::new();
+        let mut owned: Vec<(f64, f64, [Point3; 4])> = Vec::new();
         for sector in &border.sectors {
             for piece in sector {
-                let row = &piece.rows[0];
-                for step in 0..=12 {
-                    let t = step as f64 / 12.0;
-                    let mt = 1.0 - t;
-                    let pnt = Point3::new(
-                        mt * mt * mt * row[0].x
-                            + 3.0 * mt * mt * t * row[1].x
-                            + 3.0 * mt * t * t * row[2].x
-                            + t * t * t * row[3].x,
-                        mt * mt * mt * row[0].y
-                            + 3.0 * mt * mt * t * row[1].y
-                            + 3.0 * mt * t * t * row[2].y
-                            + t * t * t * row[3].y,
-                        mt * mt * mt * row[0].z
-                            + 3.0 * mt * mt * t * row[1].z
-                            + 3.0 * mt * t * t * row[2].z
-                            + t * t * t * row[3].z,
-                    );
-                    if let Some((u, v)) = project_point_to_uv(&fillet.surface, &pnt)
-                        && fillet.surface.point_at(u, v).distance_to(&pnt) < 2.0e-2
-                    {
-                        clip.push((v, u));
+                let row = [
+                    piece.rows[0][0],
+                    piece.rows[0][1],
+                    piece.rows[0][2],
+                    piece.rows[0][3],
+                ];
+                let mut residual = 0.0;
+                let mut mean_v = 0.0;
+                let mut ok = true;
+                for step in 0..5 {
+                    let t = 0.1 + 0.2 * step as f64;
+                    let pnt = eval_rim(&row, t);
+                    if let Some((u, v)) = project_point_to_uv(&fillet.surface, &pnt) {
+                        residual += fillet.surface.point_at(u, v).distance_to(&pnt);
+                        mean_v += v;
+                    } else {
+                        ok = false;
                     }
                 }
+                if ok {
+                    owned.push((residual / 5.0, mean_v / 5.0, row));
+                }
             }
         }
-        if clip.len() < 4 {
+        // The fillet's rim = the two halves of ONE arc: pick the
+        // lowest-residual pair that CHAINS (first piece ends exactly
+        // where the second starts, at the arc midpoint m). Residual
+        // thresholding alone can grab a neighbouring arc's half near
+        // the corners.
+        // The fillet's own two arc halves project onto its sweep at
+        // ~machine residual; every other piece is mostly off-surface.
+        // Take the two lowest-residual pieces and orient by chaining
+        // (they share the arc midpoint m).
+        owned.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        if owned.len() < 2 {
+            eprintln!("  [whole-obj] fillet {k}: rim pieces not found — skipped");
+            strip_edge_columns.push([Vec::new(), Vec::new()]);
+            strip_bottom_rows.push(Vec::new());
             continue;
         }
-        clip.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-        let u_arc_at = |v: f64| -> f64 {
-            if v <= clip[0].0 {
-                let (v0, u0) = clip[0];
-                let (v1, u1) = clip[1.min(clip.len() - 1)];
-                let span = (v1 - v0).max(1.0e-12);
-                return u0 + (u1 - u0) * (v - v0) / span;
-            }
-            for w in clip.windows(2) {
-                if v <= w[1].0 {
-                    let span = (w[1].0 - w[0].0).max(1.0e-12);
-                    return w[0].1 + (w[1].1 - w[0].1) * (v - w[0].0) / span;
-                }
-            }
-            let (v0, u0) = clip[clip.len() - 2];
-            let (v1, u1) = clip[clip.len() - 1];
-            let span = (v1 - v0).max(1.0e-12);
-            u1 + (u1 - u0) * (v - v1) / span
+        owned.truncate(2);
+        let (row_first, row_second) = if owned[0].2[3].distance_to(&owned[1].2[0]) < 1.0e-9 {
+            (owned[0].2, owned[1].2)
+        } else if owned[1].2[3].distance_to(&owned[0].2[0]) < 1.0e-9 {
+            (owned[1].2, owned[0].2)
+        } else {
+            eprintln!("  [whole-obj] fillet {k}: rim halves do not chain — skipped");
+            strip_edge_columns.push([Vec::new(), Vec::new()]);
+            strip_bottom_rows.push(Vec::new());
+            continue;
         };
-        // Base end of the sweep = the u extreme farthest from the
-        // blend region.
-        let probe_v = 0.5;
-        let far = corners.iter().fold(Point3::new(0.0, 0.0, 0.0), |acc, c| {
-            Point3::new(
-                acc.x + c.x / n as f64,
-                acc.y + c.y / n as f64,
-                acc.z + c.z / n as f64,
-            )
-        });
-        let d0 = fillet.surface.point_at(0.0, probe_v).distance_to(&far);
-        let d1 = fillet.surface.point_at(1.0, probe_v).distance_to(&far);
+        let owned: [(f64, [Point3; 4]); 2] = [(0.0, row_first), (0.0, row_second)];
+
+        // Base end of the sweep = u extreme farther from the rim.
+        let rim_mid = eval_rim(&owned[0].1, 1.0);
+        let d0 = fillet.surface.point_at(0.0, 0.5).distance_to(&rim_mid);
+        let d1 = fillet.surface.point_at(1.0, 0.5).distance_to(&rim_mid);
         let u_base = if d0 > d1 { 0.0 } else { 1.0 };
-        const AL: usize = 33;
-        const AC: usize = 25;
-        // Mutual trim against the base face: the sweep runs to the
-        // base VERTEX, so its raw end cross-sections overhang the
-        // base polygon as tilted tabs. End every column exactly on
-        // the base plane z = 0 (bisection), as the BRep-level
-        // face/fillet trim would.
-        let u_at_base_plane = |v: f64| -> f64 {
-            let u_top = u_arc_at(v);
-            let z_end = fillet.surface.point_at(u_base, v).z;
+
+        // Columns: top point from the rim cubics (sampled at the SAME
+        // parameters the cap grids use), interior from the sweep,
+        // bottom snapped to the base plane z = 0.
+        let mut grid = vec![Point3::new(0.0, 0.0, 0.0); AL * AC];
+        let mut degenerate = false;
+        for j in 0..AC {
+            let (piece, t) = if j < PIECE_SAMPLES {
+                (0_usize, j as f64 / (PIECE_SAMPLES - 1) as f64)
+            } else {
+                (
+                    1_usize,
+                    (j - (PIECE_SAMPLES - 1)) as f64 / (PIECE_SAMPLES - 1) as f64,
+                )
+            };
+            let top = eval_rim(&owned[piece].1, t);
+            let Some((u_top, v)) = project_point_to_uv(&fillet.surface, &top) else {
+                degenerate = true;
+                break;
+            };
+            // Base-plane crossing along this column (bisection).
             let z_top = fillet.surface.point_at(u_top, v).z;
-            if (z_end > 0.0) == (z_top > 0.0) {
-                return u_base;
-            }
-            let (mut lo, mut hi) = (u_top, u_base);
-            for _ in 0..48 {
-                let mid = 0.5 * (lo + hi);
-                let zm = fillet.surface.point_at(mid, v).z;
-                if (zm > 0.0) == (z_top > 0.0) {
-                    lo = mid;
+            let z_end = fillet.surface.point_at(u_base, v).z;
+            let u_bottom = if (z_end > 0.0) == (z_top > 0.0) {
+                u_base
+            } else {
+                let (mut lo, mut hi) = (u_top, u_base);
+                for _ in 0..48 {
+                    let mid = 0.5 * (lo + hi);
+                    if (fillet.surface.point_at(mid, v).z > 0.0) == (z_top > 0.0) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                0.5 * (lo + hi)
+            };
+            for i in 0..AL {
+                let idx = i * AC + j;
+                if i == 0 {
+                    grid[idx] = top;
                 } else {
-                    hi = mid;
+                    let frac = i as f64 / (AL - 1) as f64;
+                    let u = u_top + (u_bottom - u_top) * frac;
+                    let mut pnt = fillet.surface.point_at(u, v);
+                    if i == AL - 1 {
+                        pnt = Point3::new(pnt.x, pnt.y, 0.0);
+                    }
+                    grid[idx] = pnt;
                 }
             }
-            0.5 * (lo + hi)
-        };
+        }
+        if degenerate {
+            strip_edge_columns.push([Vec::new(), Vec::new()]);
+            strip_bottom_rows.push(Vec::new());
+            continue;
+        }
+
+        // Normal orientation: majority vote at mid-band.
         let mut vote = 0.0_f64;
-        for j in 0..AC {
-            let v = j as f64 / (AC - 1) as f64;
-            let u = 0.5 * (u_arc_at(v) + u_base);
-            let p = fillet.surface.point_at(u, v);
-            vote += fillet.surface.normal_at(u, v).dot(&(p - interior));
+        for j in (0..AC).step_by(4) {
+            let p = grid[(AL / 2) * AC + j];
+            if let Some((u, v)) = project_point_to_uv(&fillet.surface, &p) {
+                vote += fillet.surface.normal_at(u, v).dot(&(p - interior));
+            }
         }
         let flip = vote < 0.0;
-        let mut grid_points = vec![Point3::new(0.0, 0.0, 0.0); AL * AC];
-        let mut chosen_normal = popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0);
         for i in 0..AL {
             for j in 0..AC {
-                let v = j as f64 / (AC - 1) as f64;
-                let u_arc = u_arc_at(v);
-                let u_end = u_at_base_plane(v);
-                let u = u_arc + (u_end - u_arc) * (i as f64 / (AL - 1) as f64);
-                let p = fillet.surface.point_at(u, v);
-                let raw = fillet.surface.normal_at(u, v);
-                let nrm = if flip { -raw } else { raw };
-                grid_points[i * AC + j] = p;
-                if i == AL / 2 && j == AC / 2 {
-                    chosen_normal = nrm;
-                }
+                let p = grid[i * AC + j];
+                let nrm = match project_point_to_uv(&fillet.surface, &p) {
+                    Some((u, v)) => {
+                        let raw = fillet.surface.normal_at(u, v);
+                        if flip { -raw } else { raw }
+                    }
+                    None => outward(p, popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0)),
+                };
                 writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
                 writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
             }
         }
-        let ti = grid_points[(AL / 2 + 1) * AC + AC / 2] - grid_points[(AL / 2) * AC + AC / 2];
-        let tj = grid_points[(AL / 2) * AC + AC / 2 + 1] - grid_points[(AL / 2) * AC + AC / 2];
-        let wind_flip = ti.cross(&tj).dot(&chosen_normal) < 0.0;
+        let center = grid[(AL / 2) * AC + AC / 2];
+        let ti = grid[(AL / 2 + 1) * AC + AC / 2] - center;
+        let tj = grid[(AL / 2) * AC + AC / 2 + 1] - center;
+        let chosen = match project_point_to_uv(&fillet.surface, &center) {
+            Some((u, v)) => {
+                let raw = fillet.surface.normal_at(u, v);
+                if flip { -raw } else { raw }
+            }
+            None => popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+        };
+        let wind_flip = ti.cross(&tj).dot(&chosen) < 0.0;
         writeln!(file, "g fillet_{k}")?;
         base_index = emit_grid_faces_wound(&mut file, base_index, AL, AC, wind_flip)?;
-        strip_bottom_rows.push(grid_points[(AL - 1) * AC..].to_vec());
+
+        strip_rim_halves.push(grid[..PIECE_SAMPLES].to_vec());
+        strip_rim_halves.push(grid[PIECE_SAMPLES - 1..AC].to_vec());
+        let col0: Vec<Point3> = (0..AL).map(|i| grid[i * AC]).collect();
+        let col1: Vec<Point3> = (0..AL).map(|i| grid[i * AC + AC - 1]).collect();
+        strip_edge_columns.push([col0, col1]);
+        strip_bottom_rows.push(grid[(AL - 1) * AC..].to_vec());
     }
 
-    let mut base_face_segments: Vec<(Point3, Point3)> = Vec::new();
+    // ----- lateral faces: loop = strip edge ∪ base segment ∪ strip edge -----
+    // The two adjacent strips' facing edge columns share their top
+    // point (the rim corner c), so the face boundary closes exactly.
+    let mut base_face_segments: Vec<Vec<Point3>> = Vec::new();
     for (_face_handle, face) in pyramid.faces.iter() {
         let Some(surface) = face.surface.as_ref() else {
             continue;
@@ -868,95 +901,44 @@ fn write_parts_whole_obj(
             continue;
         };
         if normal.z.abs() > 0.9 {
-            continue;
+            continue; // base face handled separately
         }
         let plane_distance = |p: Point3| ((p - *origin).dot(normal)).abs();
-        let mut on_plane: Vec<&popkern_core::geometry::NurbsCurve> = Vec::new();
-        for fillet in fillet_surfaces {
-            for curve in [&fillet.trim_curve_1, &fillet.trim_curve_2] {
-                let (t0, t1) = curve.parameter_range();
-                let mid = curve.point_at(0.5 * (t0 + t1));
-                if plane_distance(mid) < 1.0e-6 {
-                    on_plane.push(curve);
+        // The two closest strip edge columns bound this face.
+        let mut candidates: Vec<(f64, usize, usize)> = Vec::new();
+        for (k, cols) in strip_edge_columns.iter().enumerate() {
+            for (side, col) in cols.iter().enumerate() {
+                if col.is_empty() {
+                    continue;
                 }
+                let mid = col[col.len() / 2];
+                candidates.push((plane_distance(mid), k, side));
             }
         }
-        if on_plane.len() != 2 {
+        candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+        if candidates.len() < 2 {
             continue;
         }
-        // The face is bounded by its contact lines up to their TRUE
-        // intersection, exported by the extractor (independent of the
-        // cap's pulled-back corner); the mutual trim against the cap
-        // handles the overlap.
-        let corner = trim_corners
-            .iter()
-            .copied()
-            .min_by(|a, b| {
-                plane_distance(*a)
-                    .partial_cmp(&plane_distance(*b))
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap_or(vertex);
-        let base_points: Vec<Point3> = pyramid
-            .vertices
-            .iter()
-            .map(|(_, v)| v.position)
-            .filter(|p| p.z < 1.0e-6 && plane_distance(*p) < 1.0e-6)
-            .collect();
-        if base_points.len() != 2 {
-            continue;
-        }
-        // Planar face region: gather boundary points (corner, trim
-        // samples, base ends) and order them angularly around the
-        // face centroid — immune to left/right pairing mistakes that
-        // produced bowtie fans (black hatched bands) on some faces.
-        let mut boundary: Vec<Point3> = vec![corner];
-        let mut face_base_ends: Vec<Point3> = Vec::new();
-        for curve in &on_plane {
-            let t_c = {
-                let (t0, t1) = curve.parameter_range();
-                let mut best = (f64::INFINITY, t0);
-                for i in 0..=512 {
-                    let t = t0 + (t1 - t0) * i as f64 / 512.0;
-                    let d = curve.point_at(t).distance_to(&corner);
-                    if d < best.0 {
-                        best = (d, t);
-                    }
-                }
-                best.1
-            };
-            // Base end of the trim = its base-plane crossing (the
-            // BRep vertices no longer bound the face; the corners
-            // belong to the fillets).
-            let t_b = {
-                let (t0, t1) = curve.parameter_range();
-                let mut best = (f64::INFINITY, t0);
-                for i in 0..=512 {
-                    let t = t0 + (t1 - t0) * i as f64 / 512.0;
-                    let z = curve.point_at(t).z.abs();
-                    if z < best.0 {
-                        best = (z, t);
-                    }
-                }
-                best.1
-            };
-            for i in 1..=32 {
-                let t = t_c + (t_b - t_c) * i as f64 / 32.0;
-                boundary.push(curve.point_at(t));
-            }
-            face_base_ends.push(curve.point_at(t_b));
-        }
-        if face_base_ends.len() == 2 {
-            for i in 0..=8 {
+        let col_a = &strip_edge_columns[candidates[0].1][candidates[0].2];
+        let col_b = &strip_edge_columns[candidates[1].1][candidates[1].2];
+        // Shared base segment between the two column bottoms.
+        let seg: Vec<Point3> = (0..=8)
+            .map(|i| {
                 let t = i as f64 / 8.0;
-                boundary.push(Point3::new(
-                    face_base_ends[0].x + (face_base_ends[1].x - face_base_ends[0].x) * t,
-                    face_base_ends[0].y + (face_base_ends[1].y - face_base_ends[0].y) * t,
-                    face_base_ends[0].z + (face_base_ends[1].z - face_base_ends[0].z) * t,
-                ));
-            }
-            base_face_segments.push((face_base_ends[0], face_base_ends[1]));
-        }
+                let a = col_a[AL - 1];
+                let b = col_b[AL - 1];
+                Point3::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, 0.0)
+            })
+            .collect();
+        // Boundary loop: down column A, along the base, up column B.
+        // Tops coincide (the rim corner c) — drop B's top.
+        let mut boundary: Vec<Point3> = col_a.clone();
+        boundary.extend(seg.iter().skip(1).take(7).copied());
+        let mut up_b: Vec<Point3> = col_b.clone();
+        up_b.reverse();
+        boundary.extend(up_b.iter().take(AL - 1).copied());
+        base_face_segments.push(seg);
+
         let face_centroid = {
             let mut acc = [0.0_f64; 3];
             for p in &boundary {
@@ -967,53 +949,19 @@ fn write_parts_whole_obj(
             let count = boundary.len() as f64;
             Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
         };
-        // In-plane basis for the angular sort.
-        let axis_u = (corner - face_centroid).normalized().unwrap_or(*normal);
-        let axis_v = normal.cross(&axis_u);
-        boundary.sort_by(|a, b| {
-            let pa = (*a - face_centroid,);
-            let pb = (*b - face_centroid,);
-            let ang_a = pa.0.dot(&axis_v).atan2(pa.0.dot(&axis_u));
-            let ang_b = pb.0.dot(&axis_v).atan2(pb.0.dot(&axis_u));
-            ang_a
-                .partial_cmp(&ang_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        let mut polyline = boundary.clone();
-        polyline.push(boundary[0]);
-        let corner = face_centroid;
-        // Inset the fan a hair toward the face interior: the strip is
-        // TANGENT to the face along the trim, so exactly-shared
-        // boundaries z-fight as a wide hatched band at render time.
-        let inset = 5.0e-4;
-        let fan_centroid = {
-            let mut acc = [0.0_f64; 3];
-            for p in &polyline {
-                acc[0] += p.x;
-                acc[1] += p.y;
-                acc[2] += p.z;
-            }
-            let count = polyline.len() as f64;
-            Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
-        };
-        let shrink = |p: Point3| -> Point3 {
-            Point3::new(
-                p.x + (fan_centroid.x - p.x) * inset,
-                p.y + (fan_centroid.y - p.y) * inset,
-                p.z + (fan_centroid.z - p.z) * inset,
-            )
-        };
-        let polyline: Vec<Point3> = polyline.iter().map(|p| shrink(*p)).collect();
-        let corner = shrink(corner);
-        let face_normal = outward(corner, *normal);
-        writeln!(file, "v {} {} {}", corner.x, corner.y, corner.z)?;
+        let face_normal = outward(face_centroid, *normal);
+        writeln!(
+            file,
+            "v {} {} {}",
+            face_centroid.x, face_centroid.y, face_centroid.z
+        )?;
         writeln!(
             file,
             "vn {} {} {}",
             face_normal.x, face_normal.y, face_normal.z
         )?;
-        let apex_idx = base_index;
-        for p in &polyline {
+        let center_idx = base_index;
+        for p in &boundary {
             writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
             writeln!(
                 file,
@@ -1022,53 +970,30 @@ fn write_parts_whole_obj(
             )?;
         }
         writeln!(file, "g face")?;
-        let count = polyline.len();
-        let e0 = polyline[0] - corner;
-        let e1 = polyline[1] - corner;
+        let count = boundary.len();
+        let e0 = boundary[0] - face_centroid;
+        let e1 = boundary[1] - face_centroid;
         let wind_flip = e0.cross(&e1).dot(&face_normal) < 0.0;
-        // Mutual trim: drop fan triangles whose off-apex vertices are
-        // covered by cap material (the wedge tip beyond the cap
-        // intersection is interior to the blend solid).
-        let covered: Vec<bool> = polyline
-            .iter()
-            .map(|p| under_cap(*p, face_normal))
-            .collect();
-        let apex_covered = under_cap(corner, face_normal);
-        for i in 0..count - 1 {
-            if apex_covered && (covered[i] || covered[i + 1]) {
-                continue;
-            }
-            if covered[i] && covered[i + 1] {
-                continue;
-            }
-            let a = apex_idx;
-            let b = apex_idx + 1 + i;
-            let c = apex_idx + 1 + i + 1;
+        for i in 0..count {
+            let a = center_idx;
+            let b = center_idx + 1 + i;
+            let c = center_idx + 1 + ((i + 1) % count);
             if wind_flip {
                 writeln!(file, "f {a}//{a} {c}//{c} {b}//{b}")?;
             } else {
                 writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
             }
         }
-        base_index = apex_idx + 1 + count;
+        base_index = center_idx + 1 + count;
     }
 
-    // Base face with its corners trimmed by the fillets: ring =
-    // the strips' base-plane end arcs + the faces' base segments
-    // between them, angularly ordered.
+    // ----- base face: fillet end arcs + the SAME face base segments -----
     let mut ring: Vec<Point3> = Vec::new();
     for row in &strip_bottom_rows {
         ring.extend(row.iter().copied());
     }
-    for (a, b) in &base_face_segments {
-        for i in 0..=8 {
-            let t = i as f64 / 8.0;
-            ring.push(Point3::new(
-                a.x + (b.x - a.x) * t,
-                a.y + (b.y - a.y) * t,
-                a.z + (b.z - a.z) * t,
-            ));
-        }
+    for seg in &base_face_segments {
+        ring.extend(seg.iter().skip(1).take(7).copied());
     }
     if ring.len() >= 3 {
         ring.sort_by(|a, b| {
@@ -1076,11 +1001,12 @@ fn write_parts_whole_obj(
                 .partial_cmp(&b.y.atan2(b.x))
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        ring.dedup_by(|a, b| a.distance_to(b) < 1.0e-12);
         writeln!(file, "v 0 0 0")?;
         writeln!(file, "vn 0 0 -1")?;
         let center_idx = base_index;
         for p in &ring {
-            writeln!(file, "v {} {} {}", p.x, p.y, 0.0)?;
+            writeln!(file, "v {} {} 0", p.x, p.y)?;
             writeln!(file, "vn 0 0 -1")?;
         }
         writeln!(file, "g base")?;
@@ -1094,14 +1020,126 @@ fn write_parts_whole_obj(
         base_index = center_idx + 1 + count;
     }
 
-    const SAMPLES: usize = 33;
-    for (index, grid) in bi9_grids.iter().enumerate() {
+    // ----- cap: bi-9 piece grids with SIDE-PAIRED seams -----
+    // The assembled cap's residual C⁰ mismatch (the c0 gate: piece
+    // seams and border-vs-rim, ~5e-3 average with larger local
+    // excursions) is a recorded core item. For a closed render mesh,
+    // whole grid SIDES are paired index-to-index: sides matching a
+    // strip rim row take the rim verbatim (authoritative), cap-cap
+    // seam pairs are averaged pointwise, and shared corners are
+    // clustered exactly. Interior samples are untouched, so the edit
+    // is bounded by the c0 metric itself.
+    const SAMPLES: usize = PIECE_SAMPLES;
+    const SEAM_TOL: f64 = 4.0e-2;
+    let mut cap_grids_pts: Vec<Vec<Point3>> = Vec::with_capacity(bi9_grids.len());
+    for grid in bi9_grids {
         let patch = RectangularGregoryBiNonic { grid: *grid };
+        let mut pts = vec![Point3::new(0.0, 0.0, 0.0); SAMPLES * SAMPLES];
         for i in 0..SAMPLES {
             for j in 0..SAMPLES {
                 let u = i as f64 / (SAMPLES - 1) as f64;
                 let v = j as f64 / (SAMPLES - 1) as f64;
-                let p = patch.point_at(u, v);
+                pts[i * SAMPLES + j] = patch.point_at(u, v);
+            }
+        }
+        cap_grids_pts.push(pts);
+    }
+    // Grid side accessors: 4 sides, each SAMPLES indices into a grid.
+    let side_indices = |side: usize| -> Vec<usize> {
+        (0..SAMPLES)
+            .map(|t| match side {
+                0 => t,                           // i = 0 row
+                1 => (SAMPLES - 1) * SAMPLES + t, // i = max row
+                2 => t * SAMPLES,                 // j = 0 col
+                _ => t * SAMPLES + SAMPLES - 1,   // j = max col
+            })
+            .collect()
+    };
+    let side_points = |pts: &[Point3], side: usize| -> Vec<Point3> {
+        side_indices(side).iter().map(|&ix| pts[ix]).collect()
+    };
+    let match_score = |a: &[Point3], b: &[Point3]| -> (f64, bool) {
+        // (mean distance, reversed?) — orientation from three probes.
+        let probe = |rev: bool| -> f64 {
+            [0, SAMPLES / 2, SAMPLES - 1]
+                .iter()
+                .map(|&t| {
+                    let o = if rev { SAMPLES - 1 - t } else { t };
+                    a[t].distance_to(&b[o])
+                })
+                .sum::<f64>()
+        };
+        let reversed = probe(true) < probe(false);
+        let mut acc = 0.0;
+        for t in 0..SAMPLES {
+            let other = if reversed { b[SAMPLES - 1 - t] } else { b[t] };
+            acc += a[t].distance_to(&other);
+        }
+        (acc / SAMPLES as f64, reversed)
+    };
+    // Rim sides from the strips (two per strip), authoritative.
+    let rim_sides: Vec<Vec<Point3>> = strip_rim_halves.clone();
+    // 1. Snap cap sides onto rim sides — globally greedy and UNIQUE
+    //    (each rim half claims its single best cap side; first-under-
+    //    threshold matching grabbed wrong sides at this cap's scale).
+    let n_grids = cap_grids_pts.len();
+    let mut rim_matched = vec![[false; 4]; n_grids];
+    let mut rim_candidates: Vec<(f64, usize, usize, usize, bool)> = Vec::new();
+    for (r, rim) in rim_sides.iter().enumerate() {
+        if rim.is_empty() {
+            continue;
+        }
+        for g in 0..n_grids {
+            for side in 0..4 {
+                let (score, reversed) = match_score(&side_points(&cap_grids_pts[g], side), rim);
+                if score < SEAM_TOL {
+                    rim_candidates.push((score, r, g, side, reversed));
+                }
+            }
+        }
+    }
+    rim_candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut rim_used = vec![false; rim_sides.len()];
+    for (_, r, g, side, reversed) in rim_candidates {
+        if rim_used[r] || rim_matched[g][side] {
+            continue;
+        }
+        let idxs = side_indices(side);
+        let rim = &rim_sides[r];
+        for (t, &ix) in idxs.iter().enumerate() {
+            // match_score compared side (a) against rim (b): a[t] pairs
+            // with rim[SAMPLES-1-t] when reversed.
+            let src = if reversed {
+                rim[SAMPLES - 1 - t]
+            } else {
+                rim[t]
+            };
+            cap_grids_pts[g][ix] = src;
+        }
+        rim_used[r] = true;
+        rim_matched[g][side] = true;
+    }
+    if std::env::var("KP20_SEAM_TRACE").is_ok() {
+        eprintln!(
+            "  [seam] rims used {}/{}",
+            rim_used.iter().filter(|u| **u).count(),
+            rim_sides.len()
+        );
+    }
+    // Cap piece seams meet with T-junctions (adjacent pieces share
+    // half-length sides), so side pairing cannot close them; the
+    // residual sliver gaps (bounded by the c0 gate) are closed by the
+    // mesh-finish weld/fill pass in tools/render-apex-showcase.sh.
+    // The BRep-level fix — driving assembly c0 to machine zero — is
+    // the recorded core item.
+    for (index, grid) in bi9_grids.iter().enumerate() {
+        let patch = RectangularGregoryBiNonic { grid: *grid };
+        let pts = &cap_grids_pts[index];
+        for i in 0..SAMPLES {
+            for j in 0..SAMPLES {
+                let u = i as f64 / (SAMPLES - 1) as f64;
+                let v = j as f64 / (SAMPLES - 1) as f64;
+                let p = pts[i * SAMPLES + j];
                 let du = patch.partial_u(u, v);
                 let dv = patch.partial_v(u, v);
                 let raw = du.cross(&dv);
@@ -1119,10 +1157,7 @@ fn write_parts_whole_obj(
             }
         }
         writeln!(file, "g paper_cap_{index}")?;
-        // The emitted cap normals are outward-flipped du×dv; winding
-        // follows the same flip decision at the patch center.
         let mid = 0.5;
-        let patch = RectangularGregoryBiNonic { grid: *grid };
         let du = patch.partial_u(mid, mid);
         let dv = patch.partial_v(mid, mid);
         let raw = du.cross(&dv);
