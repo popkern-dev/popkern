@@ -727,6 +727,7 @@ fn write_parts_whole_obj(
         .iter()
         .map(|sector| sector[0].rows[0][3])
         .collect();
+    let mut strip_bottom_rows: Vec<Vec<Point3>> = Vec::new();
     for (k, fillet) in fillet_surfaces.iter().enumerate() {
         // Clip line = the ACTUAL cap rim on this sweep: project every
         // border rim onto the sweep, keep on-surface samples, and
@@ -797,6 +798,30 @@ fn write_parts_whole_obj(
         let u_base = if d0 > d1 { 0.0 } else { 1.0 };
         const AL: usize = 33;
         const AC: usize = 25;
+        // Mutual trim against the base face: the sweep runs to the
+        // base VERTEX, so its raw end cross-sections overhang the
+        // base polygon as tilted tabs. End every column exactly on
+        // the base plane z = 0 (bisection), as the BRep-level
+        // face/fillet trim would.
+        let u_at_base_plane = |v: f64| -> f64 {
+            let u_top = u_arc_at(v);
+            let z_end = fillet.surface.point_at(u_base, v).z;
+            let z_top = fillet.surface.point_at(u_top, v).z;
+            if (z_end > 0.0) == (z_top > 0.0) {
+                return u_base;
+            }
+            let (mut lo, mut hi) = (u_top, u_base);
+            for _ in 0..48 {
+                let mid = 0.5 * (lo + hi);
+                let zm = fillet.surface.point_at(mid, v).z;
+                if (zm > 0.0) == (z_top > 0.0) {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            0.5 * (lo + hi)
+        };
         let mut vote = 0.0_f64;
         for j in 0..AC {
             let v = j as f64 / (AC - 1) as f64;
@@ -811,7 +836,8 @@ fn write_parts_whole_obj(
             for j in 0..AC {
                 let v = j as f64 / (AC - 1) as f64;
                 let u_arc = u_arc_at(v);
-                let u = u_arc + (u_base - u_arc) * (i as f64 / (AL - 1) as f64);
+                let u_end = u_at_base_plane(v);
+                let u = u_arc + (u_end - u_arc) * (i as f64 / (AL - 1) as f64);
                 let p = fillet.surface.point_at(u, v);
                 let raw = fillet.surface.normal_at(u, v);
                 let nrm = if flip { -raw } else { raw };
@@ -828,8 +854,10 @@ fn write_parts_whole_obj(
         let wind_flip = ti.cross(&tj).dot(&chosen_normal) < 0.0;
         writeln!(file, "g fillet_{k}")?;
         base_index = emit_grid_faces_wound(&mut file, base_index, AL, AC, wind_flip)?;
+        strip_bottom_rows.push(grid_points[(AL - 1) * AC..].to_vec());
     }
 
+    let mut base_face_segments: Vec<(Point3, Point3)> = Vec::new();
     for (_face_handle, face) in pyramid.faces.iter() {
         let Some(surface) = face.surface.as_ref() else {
             continue;
@@ -882,7 +910,8 @@ fn write_parts_whole_obj(
         // samples, base ends) and order them angularly around the
         // face centroid — immune to left/right pairing mistakes that
         // produced bowtie fans (black hatched bands) on some faces.
-        let mut boundary: Vec<Point3> = vec![corner, base_points[0], base_points[1]];
+        let mut boundary: Vec<Point3> = vec![corner];
+        let mut face_base_ends: Vec<Point3> = Vec::new();
         for curve in &on_plane {
             let t_c = {
                 let (t0, t1) = curve.parameter_range();
@@ -896,33 +925,37 @@ fn write_parts_whole_obj(
                 }
                 best.1
             };
+            // Base end of the trim = its base-plane crossing (the
+            // BRep vertices no longer bound the face; the corners
+            // belong to the fillets).
             let t_b = {
                 let (t0, t1) = curve.parameter_range();
-                let near = |p: Point3| -> f64 {
-                    let mut best = (f64::INFINITY, t0);
-                    for i in 0..=512 {
-                        let t = t0 + (t1 - t0) * i as f64 / 512.0;
-                        let d = curve.point_at(t).distance_to(&p);
-                        if d < best.0 {
-                            best = (d, t);
-                        }
+                let mut best = (f64::INFINITY, t0);
+                for i in 0..=512 {
+                    let t = t0 + (t1 - t0) * i as f64 / 512.0;
+                    let z = curve.point_at(t).z.abs();
+                    if z < best.0 {
+                        best = (z, t);
                     }
-                    best.1
-                };
-                let ta = near(base_points[0]);
-                let tb = near(base_points[1]);
-                if (curve.point_at(ta).distance_to(&base_points[0]))
-                    < (curve.point_at(tb).distance_to(&base_points[1]))
-                {
-                    ta
-                } else {
-                    tb
                 }
+                best.1
             };
-            for i in 1..16 {
-                let t = t_c + (t_b - t_c) * i as f64 / 16.0;
+            for i in 1..=32 {
+                let t = t_c + (t_b - t_c) * i as f64 / 32.0;
                 boundary.push(curve.point_at(t));
             }
+            face_base_ends.push(curve.point_at(t_b));
+        }
+        if face_base_ends.len() == 2 {
+            for i in 0..=8 {
+                let t = i as f64 / 8.0;
+                boundary.push(Point3::new(
+                    face_base_ends[0].x + (face_base_ends[1].x - face_base_ends[0].x) * t,
+                    face_base_ends[0].y + (face_base_ends[1].y - face_base_ends[0].y) * t,
+                    face_base_ends[0].z + (face_base_ends[1].z - face_base_ends[0].z) * t,
+                ));
+            }
+            base_face_segments.push((face_base_ends[0], face_base_ends[1]));
         }
         let face_centroid = {
             let mut acc = [0.0_f64; 3];
@@ -952,7 +985,7 @@ fn write_parts_whole_obj(
         // Inset the fan a hair toward the face interior: the strip is
         // TANGENT to the face along the trim, so exactly-shared
         // boundaries z-fight as a wide hatched band at render time.
-        let inset = 2.0e-3;
+        let inset = 5.0e-4;
         let fan_centroid = {
             let mut acc = [0.0_f64; 3];
             for p in &polyline {
@@ -1020,14 +1053,24 @@ fn write_parts_whole_obj(
         base_index = apex_idx + 1 + count;
     }
 
-    let base_ring: Vec<Point3> = pyramid
-        .vertices
-        .iter()
-        .map(|(_, v)| v.position)
-        .filter(|p| p.z < 1.0e-6)
-        .collect();
-    if base_ring.len() >= 3 {
-        let mut ring = base_ring.clone();
+    // Base face with its corners trimmed by the fillets: ring =
+    // the strips' base-plane end arcs + the faces' base segments
+    // between them, angularly ordered.
+    let mut ring: Vec<Point3> = Vec::new();
+    for row in &strip_bottom_rows {
+        ring.extend(row.iter().copied());
+    }
+    for (a, b) in &base_face_segments {
+        for i in 0..=8 {
+            let t = i as f64 / 8.0;
+            ring.push(Point3::new(
+                a.x + (b.x - a.x) * t,
+                a.y + (b.y - a.y) * t,
+                a.z + (b.z - a.z) * t,
+            ));
+        }
+    }
+    if ring.len() >= 3 {
         ring.sort_by(|a, b| {
             a.y.atan2(a.x)
                 .partial_cmp(&b.y.atan2(b.x))
@@ -1037,7 +1080,7 @@ fn write_parts_whole_obj(
         writeln!(file, "vn 0 0 -1")?;
         let center_idx = base_index;
         for p in &ring {
-            writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
+            writeln!(file, "v {} {} {}", p.x, p.y, 0.0)?;
             writeln!(file, "vn 0 0 -1")?;
         }
         writeln!(file, "g base")?;
