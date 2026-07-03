@@ -870,6 +870,59 @@ pub fn kp20_paper_border_from_fillet_setback(
         ]);
     }
 
+    // Corner face-tangency conditioning: at each corner c the two
+    // G² sweeps are tangent to the shared support face, so the TRUE
+    // ring data at c lies in that tangent plane and the cap must stay
+    // on its outward side (the face wedge occupies the plane up to
+    // c). Any below-plane component in the corner-adjacent cap-side
+    // cross rows is extraction/mismatch noise that pushes the
+    // assembled cap into the wedge (measured as wedge blades stabbing
+    // the dome at larger radii); project it out.
+    let loop_centroid = {
+        let mut acc = [0.0_f64; 3];
+        let mut count = 0.0;
+        for sector in &grouped {
+            for piece in sector {
+                for cp in &piece.rows[0] {
+                    acc[0] += cp.x;
+                    acc[1] += cp.y;
+                    acc[2] += cp.z;
+                    count += 1.0;
+                }
+            }
+        }
+        Point3::new(acc[0] / count, acc[1] / count, acc[2] / count)
+    };
+    for s in 0..n {
+        let c_point = grouped[s][0].rows[0][3];
+        // Tangent plane at c from the owning sweep (= the shared
+        // face plane, by G² tangency), oriented outward.
+        let fillet = &fillet_surfaces[order[(s + 1) % n]];
+        let Some((cu, cv)) = project_point_to_uv(&fillet.surface, &c_point) else {
+            continue;
+        };
+        let mut normal = fillet.surface.normal_at(cu, cv);
+        if normal.dot(&(c_point - loop_centroid)) < 0.0 {
+            normal = -normal;
+        }
+        let clamp = |cp: &mut Point3| {
+            let h = (*cp - c_point).dot(&normal);
+            if h < 0.0 {
+                *cp = *cp - normal * h;
+            }
+        };
+        // Piece A of sector s ends at c (columns 3, 2); piece B of
+        // sector s starts at c (columns 0, 1).
+        for row in 1..3 {
+            for col in [3_usize, 2] {
+                clamp(&mut grouped[s][0].rows[row][col]);
+            }
+            for col in [0_usize, 1] {
+                clamp(&mut grouped[s][1].rows[row][col]);
+            }
+        }
+    }
+
     Ok((
         Kp20PaperGuideBorder { sectors: grouped },
         Kp20PaperBorderExtractReport {

@@ -118,6 +118,23 @@ pub fn solve_kp20_paper_guide(
     border: &Kp20PaperGuideBorder,
     star_point: Point3,
 ) -> Result<Kp20PaperGuideOutput, Kp20GuideLsqError> {
+    solve_kp20_paper_guide_with_fairing(border, star_point, 0.0)
+}
+
+/// [`solve_kp20_paper_guide`] with an explicit fairing weight: a
+/// least-squares penalty on the discrete Laplacian of each sector's
+/// control net (zero for affine maps, so the identity gates are
+/// unaffected). This is recorded shape conditioning, not part of the
+/// paper's construction: on inputs the degree-6 guide cannot fit
+/// exactly, the plain LSQ spreads the misfit as interior oscillation
+/// that the Hermite sampling copies into the cap; a small weight
+/// trades a slightly larger fit residual for a fair interior. `0.0`
+/// is the paper-faithful default.
+pub fn solve_kp20_paper_guide_with_fairing(
+    border: &Kp20PaperGuideBorder,
+    star_point: Point3,
+    fairing_weight: f64,
+) -> Result<Kp20PaperGuideOutput, Kp20GuideLsqError> {
     let n = border.sectors.len();
     if n < 3 || n == 4 || n > 10 {
         return Err(Kp20GuideLsqError::UnsupportedValence(n));
@@ -161,6 +178,39 @@ pub fn solve_kp20_paper_guide(
         }
     }
 
+    if fairing_weight > 0.0 {
+        for sector in 0..n {
+            for i in 0..=6_usize {
+                for j in 0..=(6 - i) {
+                    let neighbors: [(i64, i64); 6] =
+                        [(1, 0), (-1, 0), (0, 1), (0, -1), (1, -1), (-1, 1)];
+                    let mut terms =
+                        vec![(var_index(sector, super::tri6_flat_index(6, i, j)), 0.0_f64)];
+                    let mut count = 0.0;
+                    for (di, dj) in neighbors {
+                        let ni = i as i64 + di;
+                        let nj = j as i64 + dj;
+                        if ni < 0 || nj < 0 || ni + nj > 6 {
+                            continue;
+                        }
+                        terms.push((
+                            var_index(sector, super::tri6_flat_index(6, ni as usize, nj as usize)),
+                            -fairing_weight,
+                        ));
+                        count += 1.0;
+                    }
+                    if count < 2.0 {
+                        continue;
+                    }
+                    terms[0].1 = fairing_weight * count;
+                    rows.push(LinearRow { terms });
+                    targets[0].push(0.0);
+                    targets[1].push(0.0);
+                    targets[2].push(0.0);
+                }
+            }
+        }
+    }
     let residuals = ResidualRows { rows, targets };
     let all_constraints = kp18_guide_constraint_rows(n);
     let vars = n * TRI6_CP_COUNT;

@@ -21,8 +21,8 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::SurfaceGeometry;
 use popkern_core::geometry::gregory::{
     GregoryPatch, Kp20PieceId, Kp20StripEnforcement, RectangularGregoryBiNonic,
-    assemble_kp20_paper_cap_with_enforcement, elevate_bi6_grid_to_bi9,
-    kp20_paper_border_corner_mismatch,
+    assemble_kp20_paper_cap_conditioned, assemble_kp20_paper_cap_with_enforcement,
+    elevate_bi6_grid_to_bi9, kp20_paper_border_corner_mismatch,
 };
 use popkern_core::geometry::surface::SurfaceOnFace;
 use popkern_core::tolerance::Tolerance;
@@ -80,7 +80,7 @@ fn run() {
     let radius: f64 = std::env::var("KP20_APEX_RADIUS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.22);
+        .unwrap_or(0.3);
     println!("fillet radius {radius}");
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
@@ -353,8 +353,12 @@ fn run() {
     // to the input's smoothness class.
     // The setback border satisfies the paper's premises well enough
     // for the paper-faithful hard-constraint mode.
+    let fairing: f64 = std::env::var("KP20_GUIDE_FAIRING")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0.3);
     let report =
-        assemble_kp20_paper_cap_with_enforcement(&border, star, Kp20StripEnforcement::HardG2)
+        assemble_kp20_paper_cap_conditioned(&border, star, Kp20StripEnforcement::HardG2, fairing)
             .expect("paper cap assembly");
 
     {
@@ -368,6 +372,105 @@ fn run() {
             ("P4[1][5] (diag)", p4.cps[1][5]),
         ] {
             println!("  {label}: ({:.5}, {:.5}, {:.5})", cp.x, cp.y, cp.z);
+        }
+    }
+    println!(
+        "final: fairing={fairing:.1e} guide_fit={:.4e} g1={:.3e} g2={:.3e} min_reg={:.3e}",
+        report.guide_fit_residual,
+        report.max_g1_residual,
+        report.max_g2_residual,
+        report.min_regularity,
+    );
+    // Worst-sample measurement: for each sector corner c, the signed
+    // height of the nearby cap surface over ITS OWN face plane
+    // (negative = dips below -> wedge interpenetration). Samples are
+    // limited to a small lateral disc around c.
+    {
+        use popkern_core::geometry::gregory::Kp20PieceId;
+        let planes: Vec<(Point3, popkern_core::geometry::Vec3)> = pyramid
+            .faces
+            .iter()
+            .filter_map(|(_, face)| {
+                let surface = face.surface.as_ref()?;
+                if let popkern_core::geometry::SurfaceGeometry::Plane { normal, origin, .. } =
+                    &surface.geometry
+                {
+                    if normal.z.abs() > 0.9 {
+                        return None;
+                    }
+                    let outward_n = if normal.dot(&(*origin - Point3::new(0.0, 0.0, 0.35))) >= 0.0 {
+                        *normal
+                    } else {
+                        -*normal
+                    };
+                    Some((*origin, outward_n))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let mut worst = f64::INFINITY;
+        let mut worst_sector = 0usize;
+        for (s_idx, sector) in report.sectors.iter().enumerate() {
+            let piece = sector.piece(Kp20PieceId::NearMidpointRight);
+            let c_point = piece.cps[6][6];
+            // The corner's own face: nearest plane.
+            let (origin, normal) = planes
+                .iter()
+                .copied()
+                .min_by(|a, b| {
+                    let da = ((c_point - a.0).dot(&a.1)).abs();
+                    let db = ((c_point - b.0).dot(&b.1)).abs();
+                    da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .unwrap();
+            for a in 0..13 {
+                for b in 0..13 {
+                    let u = 0.5 + 0.5 * a as f64 / 12.0;
+                    let v = 0.5 + 0.5 * b as f64 / 12.0;
+                    let mut acc = [0.0f64; 3];
+                    for i in 0..7 {
+                        for j in 0..7 {
+                            let w = bern6(u, i) * bern6(v, j);
+                            acc[0] += w * piece.cps[i][j].x;
+                            acc[1] += w * piece.cps[i][j].y;
+                            acc[2] += w * piece.cps[i][j].z;
+                        }
+                    }
+                    let pnt = Point3::new(acc[0], acc[1], acc[2]);
+                    if pnt.distance_to(&c_point) > 0.15 {
+                        continue;
+                    }
+                    let h = (pnt - origin).dot(&normal);
+                    if h < worst {
+                        worst = h;
+                        worst_sector = s_idx;
+                    }
+                }
+            }
+        }
+        println!(
+            "cap min signed height over own face plane near c: {worst:.5} (sector {worst_sector})",
+        );
+        // CP-level dip map for sector 0's corner piece.
+        let piece = report.sectors[0].piece(Kp20PieceId::NearMidpointRight);
+        let c_point = piece.cps[6][6];
+        let (origin, normal) = planes
+            .iter()
+            .copied()
+            .min_by(|a, b| {
+                let da = ((c_point - a.0).dot(&a.1)).abs();
+                let db = ((c_point - b.0).dot(&b.1)).abs();
+                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        for i in (3..7).rev() {
+            let mut row = String::new();
+            for j in 3..7 {
+                let h = (piece.cps[i][j] - origin).dot(&normal);
+                row.push_str(&format!("{h:8.4} "));
+            }
+            println!("  P3 heights i={i}: {row}");
         }
     }
     let bi9_grids: Vec<[[Point3; 10]; 10]> = report
@@ -432,6 +535,38 @@ fn write_parts_whole_obj(
         "# filleted pentagonal pyramid + KP20 paper cap (from parts)"
     )?;
     let mut base_index = 1_usize;
+    // Cap sample cloud for mutual trimming of the face wedges (the
+    // BRep-level version is face-vs-cap surface trimming; here the
+    // wedge triangles covered by cap material are dropped).
+    let mut cap_cloud: Vec<Point3> = Vec::new();
+    {
+        const CS: usize = 17;
+        for grid in bi9_grids {
+            let patch = RectangularGregoryBiNonic { grid: *grid };
+            for i in 0..CS {
+                for j in 0..CS {
+                    let u = i as f64 / (CS - 1) as f64;
+                    let v = j as f64 / (CS - 1) as f64;
+                    cap_cloud.push(patch.point_at(u, v));
+                }
+            }
+        }
+    }
+    let under_cap = |p: Point3, n: popkern_core::geometry::Vec3| -> bool {
+        // Covered when some cap sample sits above p along the plane
+        // normal within a small lateral radius.
+        for q in &cap_cloud {
+            let d = *q - p;
+            let h = d.dot(&n);
+            if h > 1.0e-4 {
+                let lateral = d - n * h;
+                if lateral.length() < 0.02 {
+                    return true;
+                }
+            }
+        }
+        false
+    };
     // Popkern surface normals point INTO the solid; orient every
     // emitted normal outward from an interior point so viewers shade
     // front faces.
@@ -636,7 +771,21 @@ fn write_parts_whole_obj(
         let e0 = polyline[0] - corner;
         let e1 = polyline[1] - corner;
         let wind_flip = e0.cross(&e1).dot(&face_normal) < 0.0;
+        // Mutual trim: drop fan triangles whose off-apex vertices are
+        // covered by cap material (the wedge tip beyond the cap
+        // intersection is interior to the blend solid).
+        let covered: Vec<bool> = polyline
+            .iter()
+            .map(|p| under_cap(*p, face_normal))
+            .collect();
+        let apex_covered = under_cap(corner, face_normal);
         for i in 0..count - 1 {
+            if apex_covered && (covered[i] || covered[i + 1]) {
+                continue;
+            }
+            if covered[i] && covered[i + 1] {
+                continue;
+            }
             let a = apex_idx;
             let b = apex_idx + 1 + i;
             let c = apex_idx + 1 + i + 1;
@@ -728,6 +877,11 @@ fn trim_curve_distance(curve: &popkern_core::geometry::NurbsCurve, target: Point
         best = best.min(curve.point_at(t).distance_to(&target));
     }
     best
+}
+
+fn bern6(t: f64, i: usize) -> f64 {
+    let c = [1.0, 6.0, 15.0, 20.0, 15.0, 6.0, 1.0];
+    c[i] * t.powi(i as i32) * (1.0 - t).powi(6 - i as i32)
 }
 
 fn border_centroid(border: &popkern_core::geometry::gregory::Kp20PaperGuideBorder) -> Point3 {

@@ -28,7 +28,7 @@
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::kp20_paper_cap_sample::kp20_sample_paper_cap_sector;
 use super::kp20_paper_cap_strip::{Kp20StripEnforcement, project_strip};
-use super::kp20_paper_guide::{Kp20PaperGuideBorder, solve_kp20_paper_guide};
+use super::kp20_paper_guide::Kp20PaperGuideBorder;
 use super::kp20_paper_tau::{kp20_paper_border_band_placements, solve_kp20_paper_tau};
 use crate::geometry::Point3;
 
@@ -152,8 +152,24 @@ pub fn assemble_kp20_paper_cap_with_enforcement(
     star_point: Point3,
     enforcement: Kp20StripEnforcement,
 ) -> Result<Kp20PaperCapReport, Kp20PaperCapError> {
+    assemble_kp20_paper_cap_conditioned(border, star_point, enforcement, 0.0)
+}
+
+/// Full-control assembly: strip enforcement plus the recorded guide
+/// fairing weight (see `solve_kp20_paper_guide_with_fairing`).
+pub fn assemble_kp20_paper_cap_conditioned(
+    border: &Kp20PaperGuideBorder,
+    star_point: Point3,
+    enforcement: Kp20StripEnforcement,
+    guide_fairing: f64,
+) -> Result<Kp20PaperCapReport, Kp20PaperCapError> {
     let n = border.sectors.len();
-    let guide = solve_kp20_paper_guide(border, star_point).map_err(Kp20PaperCapError::Guide)?;
+    let guide = super::kp20_paper_guide::solve_kp20_paper_guide_with_fairing(
+        border,
+        star_point,
+        guide_fairing,
+    )
+    .map_err(Kp20PaperCapError::Guide)?;
     let tau = solve_kp20_paper_tau(n).map_err(Kp20PaperCapError::Tau)?;
 
     // Step (iii): exact Hermite sampling per sector, with τ rotated
