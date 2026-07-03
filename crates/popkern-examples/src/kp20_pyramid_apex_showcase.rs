@@ -83,7 +83,7 @@ fn run() {
     let radius: f64 = std::env::var("KP20_APEX_RADIUS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.12);
+        .unwrap_or(0.22);
     println!("fillet radius {radius}");
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
@@ -431,6 +431,13 @@ fn write_parts_whole_obj(
         "# filleted pentagonal pyramid + KP20 paper cap (from parts)"
     )?;
     let mut base_index = 1_usize;
+    // Popkern surface normals point INTO the solid; orient every
+    // emitted normal outward from an interior point so viewers shade
+    // front faces.
+    let interior = Point3::new(0.0, 0.0, 0.35);
+    let outward = |p: Point3, n: popkern_core::geometry::Vec3| {
+        if n.dot(&(p - interior)) >= 0.0 { n } else { -n }
+    };
 
     let n = fillet_surfaces.len();
     let corners: Vec<Point3> = border
@@ -463,6 +470,19 @@ fn write_parts_whole_obj(
         let u_base = if d0 > d1 { 0.0 } else { 1.0 };
         const AL: usize = 25;
         const AC: usize = 13;
+        // One orientation vote per strip: per-vertex flipping shades
+        // inconsistently.
+        let mut vote = 0.0_f64;
+        for j in 0..AC {
+            let t = j as f64 / (AC - 1) as f64;
+            let v = va + (vb - va) * t;
+            let u = 0.5 * (ua + (ub - ua) * t + u_base);
+            let p = fillet.surface.point_at(u, v);
+            vote += fillet.surface.normal_at(u, v).dot(&(p - interior));
+        }
+        let flip = vote < 0.0;
+        let mut grid_points = vec![Point3::new(0.0, 0.0, 0.0); AL * AC];
+        let mut chosen_normal = popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0);
         for i in 0..AL {
             for j in 0..AC {
                 let t = j as f64 / (AC - 1) as f64;
@@ -470,13 +490,22 @@ fn write_parts_whole_obj(
                 let v = va + (vb - va) * t;
                 let u = u_arc + (u_base - u_arc) * (i as f64 / (AL - 1) as f64);
                 let p = fillet.surface.point_at(u, v);
-                let nrm = fillet.surface.normal_at(u, v);
+                let raw = fillet.surface.normal_at(u, v);
+                let nrm = if flip { -raw } else { raw };
+                grid_points[i * AC + j] = p;
+                if i == AL / 2 && j == AC / 2 {
+                    chosen_normal = nrm;
+                }
                 writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
                 writeln!(file, "vn {} {} {}", nrm.x, nrm.y, nrm.z)?;
             }
         }
+        // Winding must agree with the emitted normals.
+        let ti = grid_points[(AL / 2 + 1) * AC + AC / 2] - grid_points[(AL / 2) * AC + AC / 2];
+        let tj = grid_points[(AL / 2) * AC + AC / 2 + 1] - grid_points[(AL / 2) * AC + AC / 2];
+        let wind_flip = ti.cross(&tj).dot(&chosen_normal) < 0.0;
         writeln!(file, "g fillet_{k}")?;
-        base_index = emit_grid_faces(&mut file, base_index, AL, AC)?;
+        base_index = emit_grid_faces_wound(&mut file, base_index, AL, AC, wind_flip)?;
     }
 
     for (_face_handle, face) in pyramid.faces.iter() {
@@ -571,20 +600,36 @@ fn write_parts_whole_obj(
             let c = polyline.len() as f64;
             Point3::new(acc[0] / c, acc[1] / c, acc[2] / c)
         };
+        let face_normal = outward(centroid, *normal);
         writeln!(file, "v {} {} {}", centroid.x, centroid.y, centroid.z)?;
-        writeln!(file, "vn {} {} {}", normal.x, normal.y, normal.z)?;
+        writeln!(
+            file,
+            "vn {} {} {}",
+            face_normal.x, face_normal.y, face_normal.z
+        )?;
         let center_idx = base_index;
         for p in &polyline {
             writeln!(file, "v {} {} {}", p.x, p.y, p.z)?;
-            writeln!(file, "vn {} {} {}", normal.x, normal.y, normal.z)?;
+            writeln!(
+                file,
+                "vn {} {} {}",
+                face_normal.x, face_normal.y, face_normal.z
+            )?;
         }
         writeln!(file, "g face")?;
         let count = polyline.len();
+        let e0 = polyline[0] - centroid;
+        let e1 = polyline[1] - centroid;
+        let wind_flip = e0.cross(&e1).dot(&face_normal) < 0.0;
         for i in 0..count - 1 {
             let a = center_idx;
             let b = center_idx + 1 + i;
             let c = center_idx + 1 + i + 1;
-            writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+            if wind_flip {
+                writeln!(file, "f {a}//{a} {c}//{c} {b}//{b}")?;
+            } else {
+                writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+            }
         }
         base_index = center_idx + 1 + count;
     }
@@ -633,7 +678,10 @@ fn write_parts_whole_obj(
                 let raw = du.cross(&dv);
                 let len = raw.length();
                 let nrm = if len > 1.0e-12 {
-                    popkern_core::geometry::Vec3::new(raw.x / len, raw.y / len, raw.z / len)
+                    outward(
+                        p,
+                        popkern_core::geometry::Vec3::new(raw.x / len, raw.y / len, raw.z / len),
+                    )
                 } else {
                     popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0)
                 };
@@ -642,7 +690,16 @@ fn write_parts_whole_obj(
             }
         }
         writeln!(file, "g paper_cap_{index}")?;
-        base_index = emit_grid_faces(&mut file, base_index, SAMPLES, SAMPLES)?;
+        // The emitted cap normals are outward-flipped du×dv; winding
+        // follows the same flip decision at the patch center.
+        let mid = 0.5;
+        let patch = RectangularGregoryBiNonic { grid: *grid };
+        let du = patch.partial_u(mid, mid);
+        let dv = patch.partial_v(mid, mid);
+        let raw = du.cross(&dv);
+        let p_mid = patch.point_at(mid, mid);
+        let wind_flip = raw.dot(&(p_mid - interior)) < 0.0;
+        base_index = emit_grid_faces_wound(&mut file, base_index, SAMPLES, SAMPLES, wind_flip)?;
     }
     Ok(())
 }
@@ -770,14 +827,31 @@ fn emit_grid_faces<W: std::io::Write>(
     rows: usize,
     cols: usize,
 ) -> Result<usize, std::io::Error> {
+    emit_grid_faces_wound(file, base, rows, cols, false)
+}
+
+/// Grid triangulation with optional winding flip so the front face
+/// matches the emitted normals (viewers backface-shade otherwise).
+fn emit_grid_faces_wound<W: std::io::Write>(
+    file: &mut W,
+    base: usize,
+    rows: usize,
+    cols: usize,
+    flip: bool,
+) -> Result<usize, std::io::Error> {
     for i in 0..(rows - 1) {
         for j in 0..(cols - 1) {
             let a = base + i * cols + j;
             let b = a + cols;
             let c = b + 1;
             let d = a + 1;
-            writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
-            writeln!(file, "f {a}//{a} {c}//{c} {d}//{d}")?;
+            if flip {
+                writeln!(file, "f {a}//{a} {c}//{c} {b}//{b}")?;
+                writeln!(file, "f {a}//{a} {d}//{d} {c}//{c}")?;
+            } else {
+                writeln!(file, "f {a}//{a} {b}//{b} {c}//{c}")?;
+                writeln!(file, "f {a}//{a} {c}//{c} {d}//{d}")?;
+            }
         }
     }
     Ok(base + rows * cols)
