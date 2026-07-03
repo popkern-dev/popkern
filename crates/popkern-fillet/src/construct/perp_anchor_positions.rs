@@ -42,6 +42,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     radius_at_start: f64,
     radius_at_end: f64,
     trim_3d_for_face: Option<&NurbsCurve>,
+    anchor_on_trim: bool,
     _tolerance: &Tolerance,
 ) -> Result<(Point3, Point3), String> {
     let face_data = brep
@@ -132,22 +133,33 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         (0.001..0.999).contains(&t_perp)
                     };
 
-                    // Diagnostic-only: report on-cyl crossing when
-                    // it differs from perp-walk.  Not used to
-                    // position the anchor — see comment above.
-                    if trace
+                    // TRUE trim-crossing anchor (the deferred #136
+                    // promotion): when the trim curve crosses this
+                    // boundary edge, the anchor is that crossing —
+                    // the perp-walk position (arc-length `radius`
+                    // from the vertex) is where an ARC cross-section
+                    // would land and disagrees with the G2 sweep's
+                    // contact line (PK-095: uniform 0.06 seam between
+                    // every strip and its faces on the pentagon).
+                    // Perp-walk math stays as the fallback when the
+                    // trim doesn't cross this edge (or wasn't
+                    // computed).
+                    if anchor_on_trim
                         && let Some(curve) = analytic_curve
                         && let Some((s, _)) =
                             crate::construct::cyl_plane_intersect::intersect_curve_with_segment(
                                 curve, p0, p1,
                             )
+                        && (0.001..0.999).contains(&s)
                     {
-                        let delta = (s - t_perp).abs();
-                        if delta > 1e-6 {
+                        if trace {
+                            let delta = (s - t_perp).abs();
                             eprintln!(
-                                "[anchor] face={face:?} on-cyl s={s:.6} vs perp t={t_perp:.6} (delta={delta:.4e}) — using perp-walk"
+                                "[anchor] face={face:?} trim-crossing s={s:.6} vs perp t={t_perp:.6} (delta={delta:.4e}) — using trim crossing"
                             );
                         }
+                        *slot = Some(along(s));
+                        return;
                     }
                     if perp_accept {
                         *slot = Some(along(t_perp));

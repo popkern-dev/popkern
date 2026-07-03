@@ -906,7 +906,11 @@ fn split_blend_boundary_at(
         }
     }
     let (d, edge) = best.ok_or("no curved boundary edge")?;
-    if d > 1.0e-3 {
+    // Gate matches the projection-residual gate below: the cap rim
+    // and the topology boundary disagree by band-reparameterization
+    // noise plus the trim-crossing anchor shift (PK-095), ~1e-3; the
+    // split lands on the topology's own curve either way.
+    if d > 5.0e-3 {
         return Err(format!("rim split point {d:.3e} off the boundary"));
     }
     // The generic-NURBS splitter lacks point inversion; compute the

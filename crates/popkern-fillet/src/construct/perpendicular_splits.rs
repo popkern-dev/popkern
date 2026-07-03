@@ -77,7 +77,30 @@ pub(super) fn run_perpendicular_splits(
         // cone, and other fillet kinds produce different analytic
         // trim curves that would mis-place anchors via the cyl×plane
         // crossing helper.
-        let trim_for_anchors = matches!(eg.surface, SurfaceGeometry::Cylinder { .. });
+        // Anchor placement must follow the TRIM CURVES whenever the
+        // geometry pipeline produced them — radius-based perp-walk
+        // math places anchors where an arc cross-section would land,
+        // which disagrees with the G2 sweep's contact lines (PK-095:
+        // uniform 0.06 seam between every strip and its faces on the
+        // pentagon; the Cylinder-only gate dates from when only the
+        // analytic path had trustworthy trims).
+        // §28.H direct-apex construction builds its Gregory corner
+        // boundary from perp-walk anchor positions; feeding it
+        // trim-crossing anchors regresses the pyramid3 native
+        // fixtures. Everywhere else the trims are authoritative.
+        // Trim curves feed anchor placement for the analytic cylinder
+        // path (legacy, diagnostic crossing only) and the G2 NURBS
+        // sweeps (PK-095: crossing-derived anchors — perp-walk math
+        // disagrees with the sweep's contact lines by ~0.06 on the
+        // pentagon). The direct-apex native construction (§28.H)
+        // builds its Gregory boundary from perp-walk positions, so
+        // crossing anchors stay off there.
+        let trim_for_anchors = matches!(
+            eg.surface,
+            SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Nurbs(_)
+        );
+        let anchor_on_trim =
+            matches!(eg.surface, SurfaceGeometry::Nurbs(_)) && !use_direct_apex_construction;
 
         // §28.H Session 2 — build per-anchor planner override.  For
         // each anchor slot (V_start vs V_end on face_1 vs face_2),
@@ -108,6 +131,7 @@ pub(super) fn run_perpendicular_splits(
             eg.analysis.edge,
             trim_for_anchors.then_some(&eg.trim_3d_1),
             trim_for_anchors.then_some(&eg.trim_3d_2),
+            anchor_on_trim,
             eg.radius_at_start,
             eg.radius_at_end,
             tolerance,

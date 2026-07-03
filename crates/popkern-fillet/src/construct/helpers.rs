@@ -56,6 +56,7 @@ pub fn split_perpendicular_edges_by_radius(
     fillet_edge: EdgeHandle,
     trim_3d_face_1: Option<&NurbsCurve>,
     trim_3d_face_2: Option<&NurbsCurve>,
+    anchor_on_trim: bool,
     radius_at_start: f64,
     radius_at_end: f64,
     tolerance: &Tolerance,
@@ -68,6 +69,7 @@ pub fn split_perpendicular_edges_by_radius(
         fillet_edge,
         trim_3d_face_1,
         trim_3d_face_2,
+        anchor_on_trim,
         radius_at_start,
         radius_at_end,
         tolerance,
@@ -113,6 +115,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     fillet_edge: EdgeHandle,
     trim_3d_face_1: Option<&NurbsCurve>,
     trim_3d_face_2: Option<&NurbsCurve>,
+    anchor_on_trim: bool,
     radius_at_start: f64,
     radius_at_end: f64,
     tolerance: &Tolerance,
@@ -152,6 +155,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         radius_at_start,
         radius_at_end,
         trim_3d_face_1,
+        anchor_on_trim,
         tolerance,
     )?;
     let perp_pos_2 = compute_perp_anchor_positions_for_face(
@@ -163,6 +167,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         radius_at_start,
         radius_at_end,
         trim_3d_face_2,
+        anchor_on_trim,
         tolerance,
     )?;
 
