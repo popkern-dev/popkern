@@ -111,6 +111,9 @@ pub(crate) fn insert_vertex_blend(
         let commit_snapshot = brep.clone();
         let family = match requested_continuity {
             ContinuityLevel::G2 => super::setback_vertex_topology::CapFamily::Kp20G2,
+            _ if std::env::var_os("PK_G1_KP20_EXPERIMENT").is_some() => {
+                super::setback_vertex_topology::CapFamily::Kp20G2
+            }
             _ => super::setback_vertex_topology::CapFamily::PnsG1,
         };
         match super::setback_vertex_topology::try_setback_boundary_surgery(
