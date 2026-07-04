@@ -146,6 +146,12 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // — on the G1 analytic family this pass consumed 3 lateral
     // faces and collapsed the solid (PK-097; the G2 family was
     // untouched only because the pass happened to no-op there).
+    let pp_census = |tag: &str, b: &popkern_core::topology::BRep| {
+        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            eprintln!("  [pp] {tag}: faces={}", b.faces.len());
+        }
+    };
+    pp_census("pre-sliver-absorb", result);
     if !inputs.setback_blend_present {
         sliver_absorb::run_and_route_warnings_with_protected(
             result,
@@ -156,6 +162,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         );
     }
 
+    pp_census("post-sliver-absorb", result);
     determinism_trace("post_sliver_absorb", result);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
     determinism_trace("post_cap_insert", result);

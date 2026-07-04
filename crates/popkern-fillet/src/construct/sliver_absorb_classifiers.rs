@@ -68,7 +68,31 @@ pub(super) fn find_corner_fragment_target(
                     SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
                 )
             {
-                return Some((fh, twin_h));
+                // A corner FRAGMENT is commensurate with the cap it
+                // merges into; without a size gate this class ate
+                // entire trimmed side walls (≤4 vertices after
+                // trimming, adjacent to a sphere cap) and cascaded
+                // 16 absorptions on a boss-plate chain fillet. Gate
+                // on polygonal area relative to the cap's own.
+                let poly_area = |handle: FaceHandle| -> f64 {
+                    let pts = brep.face_outer_loop_positions(handle);
+                    if pts.len() < 3 {
+                        return 0.0;
+                    }
+                    let p0 = pts[0];
+                    let mut total = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+                    for i in 1..pts.len() - 1 {
+                        let v1 = pts[i] - p0;
+                        let v2 = pts[i + 1] - p0;
+                        total = total + v1.cross(&v2);
+                    }
+                    total.length() * 0.5
+                };
+                let frag_area = poly_area(fh);
+                let cap_area = poly_area(twin_face);
+                if frag_area <= cap_area * 4.0 {
+                    return Some((fh, twin_h));
+                }
             }
             cursor = he.next;
             if cursor == start_he {

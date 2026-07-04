@@ -511,6 +511,27 @@ pub(crate) fn kef_cross_face_v_edges(
             break;
         };
         let he_face = brep.loops[brep.half_edges[he].loop_].face;
+        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            let twin_face = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+            let count = |fh: FaceHandle| {
+                let start = brep.loops[brep.faces[fh].outer_loop].half_edge;
+                let mut he2 = start;
+                let mut n = 0;
+                for _ in 0..256 {
+                    n += 1;
+                    he2 = brep.half_edges[he2].next;
+                    if he2 == start {
+                        break;
+                    }
+                }
+                n
+            };
+            eprintln!(
+                "  [vblend] kef at {vertex:?}: merging {he_face:?} (loop {}) with {twin_face:?} (loop {})",
+                count(he_face),
+                count(twin_face)
+            );
+        }
         brep.kef(he)
             .map_err(|e| format!("kef failed through vertex {vertex:?}: {e}"))?;
         blend_face = Some(he_face);

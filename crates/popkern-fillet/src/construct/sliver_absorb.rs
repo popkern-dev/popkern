@@ -204,6 +204,11 @@ fn absorb_slivers_with_protected(
     let mut retained: std::collections::HashSet<FaceHandle> = std::collections::HashSet::new();
     for _ in 0..cap {
         let candidate = find_corner_fragment_target(brep, &retained)
+            .inspect(|c| {
+                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    eprintln!("  [absorb] Class D corner-fragment: {c:?}");
+                }
+            })
             .map(|(face, he)| {
                 let verts = brep.face_outer_loop_positions(face).len();
                 (

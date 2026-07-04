@@ -110,6 +110,12 @@ pub(super) fn apply_face_trim_pipeline(
 
     for (idx, eg) in edge_geometries.iter().enumerate() {
         let Some(ref pd) = perp_data[idx] else {
+            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!(
+                    "  [carve] edge idx {idx} ({:?}): NO PERP DATA — no trims registered",
+                    eg.analysis.edge
+                );
+            }
             continue;
         };
 
@@ -155,6 +161,17 @@ pub(super) fn apply_face_trim_pipeline(
             descendants,
             tolerance,
         );
+        if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            eprintln!(
+                "  [carve] face {original_face:?}: {} trims -> {} splits, {} failures",
+                trims.len(),
+                outcome.trim_results.len(),
+                outcome.failures.len()
+            );
+            for (eh, f) in &outcome.failures {
+                eprintln!("    carve failure on {eh:?}: {f:?}");
+            }
+        }
         // Fold multi-chord's sub-edge splits (from inserting
         // crossing-point vertices on earlier trims' sub-chords)
         // into the global descendants map. Without this, Phase C
