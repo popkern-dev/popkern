@@ -42,10 +42,31 @@ pub fn clip_footprint_to_bounds(
         u >= u_range.0 - eps && u <= u_range.1 + eps && v >= v_range.0 - eps && v <= v_range.1 + eps
     };
 
-    // Project all points to UV.
+    // Project all points to UV — analytically and branch-aware for
+    // cylinders: the generic projection lands angles in arbitrary
+    // period branches and the bounds test then DROPS valid contact
+    // samples (the boss/plate seam fillet lost 2 of 20).
     let uvs: Vec<Option<(f64, f64)>> = footprint
         .iter()
-        .map(|pt| project_point_to_uv(surface, pt))
+        .map(|pt| {
+            if let SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
+                let (perp1, perp2) =
+                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+                let d = *pt - *origin;
+                let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+                let mid = 0.5 * (u_range.0 + u_range.1);
+                let tau = std::f64::consts::TAU;
+                while u - mid > 0.5 * tau {
+                    u -= tau;
+                }
+                while u - mid < -0.5 * tau {
+                    u += tau;
+                }
+                Some((u, d.dot(axis)))
+            } else {
+                project_point_to_uv(surface, pt)
+            }
+        })
         .collect();
 
     let mut clipped: Vec<Point3> = Vec::with_capacity(footprint.len());

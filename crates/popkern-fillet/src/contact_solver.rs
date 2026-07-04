@@ -118,6 +118,12 @@ pub fn solve_rolling_ball_contact(
         .sqrt();
 
         let condition = condition_estimate_4x4(&jacobian);
+        if std::env::var_os("PK_CONTACT_TRACE").is_some() {
+            eprintln!(
+                "    [contact] iter {iteration}: res {residual_norm:.3e} uv0 ({:.4},{:.4}) uv1 ({:.4},{:.4})",
+                uv0.0, uv0.1, uv1.0, uv1.1
+            );
+        }
         if let Some(t) = trace.as_deref_mut() {
             t.steps.push(ContactTraceStep {
                 iteration,

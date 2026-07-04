@@ -121,20 +121,52 @@ fn highlight_lines_on_fillet_blend_face() {
     let pre_faces: std::collections::HashSet<_> = cube.faces.keys().collect();
     let result = fillet_edges(&cube, &specs, &FilletOptions::default(), tol(), None)
         .expect("fillet should succeed");
+    // The blend strip specifically (a cylinder for a plane–plane
+    // edge) — "any new face" is iteration-order dependent and can
+    // grab a flat split remnant, whose constant normal produces no
+    // contours.
     let blend_face = result
         .brep
         .faces
-        .keys()
-        .find(|f| !pre_faces.contains(f))
-        .expect("fillet should have created at least one new face");
+        .iter()
+        .find(|(f, data)| {
+            !pre_faces.contains(f)
+                && matches!(
+                    data.surface.as_ref().map(|s| &s.geometry),
+                    Some(popkern_core::geometry::SurfaceGeometry::Cylinder { .. })
+                        | Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_))
+                )
+        })
+        .map(|(f, _)| f)
+        .expect("fillet should have created a curved blend face");
 
-    let report = highlight_lines_on_face(
-        &result.brep,
-        blend_face,
-        Vec3::new(1.0, 1.0, 1.0),
-        Vec3::new(0.0, 0.0, 1.0),
-        40,
-    );
+    // Aim the light at the mid-window normal: isophote levels are
+    // 0.91..1.0 (near-alignment highlights), so contours exist only
+    // where the light nearly matches a normal INSIDE the face's own
+    // parameter window. (The old vertex-projected window spanned the
+    // FULL cylinder period — branch-scattered projections — so a
+    // diagonal light found contours, mostly outside the face.)
+    let light = {
+        let sof = result.brep.faces[blend_face].surface.as_ref().unwrap();
+        let (u_range, v_range) =
+            crate::geometry_compute::face_param_range(&result.brep, blend_face, &sof.geometry);
+        popkern_core::geometry::surface::SurfaceEval::normal_at(
+            &sof.geometry,
+            0.5 * (u_range.0 + u_range.1),
+            0.5 * (v_range.0 + v_range.1),
+        )
+    };
+    // The isophote field's normal sign depends on the face's stored
+    // orientation; accept alignment with either sign of the aimed
+    // light.
+    // The isophote field is n · half(light, view); aim the HALF
+    // vector at the mid-window normal by using it for both light and
+    // view, and accept either normal sign (the face's stored
+    // orientation decides it).
+    let mut report = highlight_lines_on_face(&result.brep, blend_face, light, light, 80);
+    if report.total_samples() == 0 {
+        report = highlight_lines_on_face(&result.brep, blend_face, light * -1.0, light * -1.0, 80);
+    }
     assert_eq!(report.face, blend_face);
     // A curved blend face with a diagonal light should produce ≥ 1
     // highlight contour. This is a soft check — if it ever trips,

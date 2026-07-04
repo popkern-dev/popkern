@@ -387,8 +387,7 @@ pub(crate) fn face_param_range(
     face_handle: popkern_core::topology::FaceHandle,
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    let positions = brep.face_outer_loop_positions(face_handle);
-    popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
+    popkern_core::geometry::uv_projection::face_bounded_parameter_range(brep, face_handle, surface)
 }
 
 /// Get finite parameter ranges for a surface (standalone, without face context).

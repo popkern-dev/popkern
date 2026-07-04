@@ -247,6 +247,35 @@ fn main() {
         continuity: popkern_fillet::ContinuityLevel::G1,
         ..Default::default()
     };
+    if seam_only {
+        for (fh, f) in unioned.faces.iter() {
+            if let Some(sof) = f.surface.as_ref() {
+                if let popkern_core::geometry::SurfaceGeometry::Plane { origin, normal, .. } =
+                    &sof.geometry
+                {
+                    if (origin.z - 0.4).abs() < 1e-9 || (normal.z.abs() > 0.9) {
+                        eprintln!(
+                            "  face {fh:?} plane origin z {:.3} normal ({:.2},{:.2},{:.2}) orientation {}",
+                            origin.z, normal.x, normal.y, normal.z, sof.orientation
+                        );
+                    }
+                }
+            }
+        }
+        for &eh in &fillet_edges_list {
+            match popkern_fillet::analysis::analyze_edges(&unioned, &[eh], false) {
+                Ok(list) => {
+                    for a in &list {
+                        eprintln!(
+                            "  seam analysis: convexity {:?} face_1 {:?} face_2 {:?}",
+                            a.convexity, a.face_1, a.face_2
+                        );
+                    }
+                }
+                Err(e) => eprintln!("  seam analysis FAILED: {e:?}"),
+            }
+        }
+    }
     let result = match popkern_fillet::fillet_edges(&unioned, &specs, &options, tol, None) {
         Ok(r) => r,
         Err(popkern_fillet::BlendError::PartialFailure { failures, .. }) => {

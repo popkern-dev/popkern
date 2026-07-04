@@ -101,8 +101,19 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
         ));
     }
 
-    let (surface_1, orientation_1) = get_face_surface_with_orientation(brep, face_1)?;
-    let (surface_2, orientation_2) = get_face_surface_with_orientation(brep, face_2)?;
+    let (surface_1, stored_orientation_1) = get_face_surface_with_orientation(brep, face_1)?;
+    let (surface_2, stored_orientation_2) = get_face_surface_with_orientation(brep, face_2)?;
+    // EFFECTIVE orientation: does the surface's natural normal point
+    // OUT of the material? Derived from the outer loop's UV winding
+    // (outer loops wind CCW in the chart iff the natural normal is
+    // outward — the manifold convention), not from the stored flag:
+    // face producers disagree on the flag (fillet strips carry
+    // radial-out cylinder normals into concave grooves; sweep caps
+    // and boolean output vary), and the rolling-ball side depends on
+    // the PHYSICAL outward direction. Falls back to the stored flag
+    // when pcurves are unavailable.
+    let orientation_1 = effective_outward_orientation(brep, face_1).unwrap_or(stored_orientation_1);
+    let orientation_2 = effective_outward_orientation(brep, face_2).unwrap_or(stored_orientation_2);
 
     // Get the two vertices at edge endpoints.
     let vertex_start = he1.origin;
@@ -304,6 +315,43 @@ fn find_uv_for_point(
     }
 
     (best_u, best_v)
+}
+
+/// Whether `face`'s natural surface normal points out of the
+/// material, from the outer loop's UV winding (shoelace over sampled
+/// pcurves in loop order). Returns `None` when any loop half-edge
+/// lacks a pcurve or the area is degenerate.
+fn effective_outward_orientation(brep: &BRep, face: FaceHandle) -> Option<bool> {
+    let face_data = brep.faces.get(face)?;
+    let start = brep.loops.get(face_data.outer_loop)?.half_edge;
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    let mut he = start;
+    for _ in 0..10_000 {
+        let data = brep.half_edges.get(he)?;
+        let pcurve = data.pcurve.as_ref()?;
+        let (t0, t1) = pcurve.parameter_range();
+        for k in 0..8 {
+            let t = t0 + (t1 - t0) * k as f64 / 8.0;
+            let p = pcurve.point_at(t);
+            pts.push((p.x, p.y));
+        }
+        he = data.next;
+        if he == start {
+            break;
+        }
+    }
+    if pts.len() < 3 {
+        return None;
+    }
+    let mut area = 0.0;
+    for i in 0..pts.len() {
+        let j = (i + 1) % pts.len();
+        area += pts[i].0 * pts[j].1 - pts[j].0 * pts[i].1;
+    }
+    if area.abs() < 1.0e-14 {
+        return None;
+    }
+    Some(area > 0.0)
 }
 
 #[cfg(test)]

@@ -77,10 +77,17 @@ pub(crate) fn ball_sides_for_edge(
             BallSide::Outside
         }
     };
-    match convexity {
-        Convexity::Concave => (void(orientation_1), void(orientation_2)),
-        Convexity::Convex | Convexity::Mixed => (material(orientation_1), material(orientation_2)),
-    }
+    // PK-099: with EFFECTIVE (winding-derived) orientations, the
+    // rolling ball is on the OUTWARD side of both faces for EVERY
+    // edge class — convex (ball rolls over the outside corner),
+    // concave (ball nests in the pocket), and tangent-mixed alike.
+    // The old convexity branch encoded producer-specific orientation
+    // flags, not physics: the concave `void(flag)` arm only worked
+    // on fixtures whose fillet-strip faces carry inverted flags, and
+    // it drove the solver to the interior mirror ball on honest
+    // boolean output (the boss/plate seam).
+    let _ = (convexity, void);
+    (material(orientation_1), material(orientation_2))
 }
 
 impl BallSide {

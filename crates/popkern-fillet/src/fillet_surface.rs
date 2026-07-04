@@ -143,7 +143,26 @@ fn build_nurbs_sweep(
     radius: f64,
     arc_samples: usize,
 ) -> Result<FilletSurfaceResult, String> {
-    let n_sections = center_result.footprint_1.len();
+    // Footprints can differ by one sample on closed spines (the
+    // closure sample lands in one list only); indexing beyond the
+    // shorter list panicked. Use the common prefix; a larger
+    // mismatch is a walker defect surfaced as an error.
+    let n_sections = center_result
+        .footprint_1
+        .len()
+        .min(center_result.footprint_2.len());
+    if center_result
+        .footprint_1
+        .len()
+        .abs_diff(center_result.footprint_2.len())
+        > 1
+    {
+        return Err(format!(
+            "footprint length mismatch: {} vs {}",
+            center_result.footprint_1.len(),
+            center_result.footprint_2.len()
+        ));
+    }
     if n_sections < 2 {
         return Err("need at least 2 cross-sections for sweep".into());
     }

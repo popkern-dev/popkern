@@ -265,6 +265,23 @@ fn check_self_intersection(
     let distance_threshold = tolerance.linear() * 5.0;
 
     let index = |i: usize, j: usize| i * n + j;
+    // Closed-in-u surfaces (a fillet sweeping a closed spine, e.g.
+    // the circular boss/plate seam): row i=0 and row i=n-1 are the
+    // SAME physical points by construction — the seam, not a
+    // self-intersection. Detect closure and exempt first/last-row
+    // pairs from the check (same for closed-in-v).
+    let closed_u = (0..n).all(|j| {
+        samples[index(0, j)]
+            .2
+            .distance_to(&samples[index(n - 1, j)].2)
+            < distance_threshold
+    });
+    let closed_v = (0..n).all(|i| {
+        samples[index(i, 0)]
+            .2
+            .distance_to(&samples[index(i, n - 1)].2)
+            < distance_threshold
+    });
     for i1 in 0..n {
         for j1 in 0..n {
             let (u1, v1, p1) = samples[index(i1, j1)];
@@ -274,8 +291,17 @@ fn check_self_intersection(
                         continue; // only unordered pairs
                     }
                     // UV grid distance, in integer-cell units.
-                    let du = (i2 as i64 - i1 as i64).unsigned_abs() as f64;
-                    let dv = (j2 as i64 - j1 as i64).unsigned_abs() as f64;
+                    let mut di = (i2 as i64 - i1 as i64).unsigned_abs();
+                    let mut dj = (j2 as i64 - j1 as i64).unsigned_abs();
+                    // Periodic grid distance on closed directions.
+                    if closed_u {
+                        di = di.min((n - 1) as u64 - di);
+                    }
+                    if closed_v {
+                        dj = dj.min((n - 1) as u64 - dj);
+                    }
+                    let du = di as f64;
+                    let dv = dj as f64;
                     let uv_gap = (du * du + dv * dv).sqrt();
                     if uv_gap < uv_gap_threshold {
                         continue;
