@@ -90,6 +90,54 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     };
 
+    // Reconciliation is for STALE curves (chord lines written
+    // against a face whose surface was later replaced). An edge
+    // whose existing curve already lies on BOTH surfaces is
+    // authoritative — rewriting it re-trims through the analytic
+    // intersection, and on periodic intersections (cylinder ×
+    // plane ellipses) the endpoint pair does not distinguish the
+    // short arc from the complement: PK-097 saw runoff edges
+    // replaced by the full ellipse the long way around.
+    if let Some(curve) = edge_data.curve.as_ref() {
+        // Strict: only curves EXACT on both surfaces qualify (the
+        // runoff bisection lands ~1e-9; legacy chord lines sag off
+        // the cylinder by far more even on short edges and must
+        // still be rewritten, pcurves included).
+        let gate = 1.0e-8;
+        let _ = tolerance;
+        let on_surface = |sfc: &SurfaceGeometry, p: &popkern_core::geometry::Point3| -> bool {
+            match sfc {
+                SurfaceGeometry::Plane { origin, normal, .. } => {
+                    let n = normal.length();
+                    n > 1e-300 && ((*p - *origin).dot(normal) / n).abs() < gate
+                }
+                SurfaceGeometry::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                } => {
+                    let d = *p - *origin;
+                    let along = d.dot(axis);
+                    let radial = d - *axis * along;
+                    (radial.length() - radius).abs() < gate
+                }
+                _ => false,
+            }
+        };
+        let mut all_on = true;
+        for i in 0..=4 {
+            let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / 4.0;
+            let p = curve.geometry.point_at(t);
+            if !(on_surface(&sof_1.geometry, &p) && on_surface(&sof_2.geometry, &p)) {
+                all_on = false;
+                break;
+            }
+        }
+        if all_on {
+            return false;
+        }
+    }
+
     // Whitelist of analytic surface-pair combos that
     // `intersect_surfaces` resolves without falling back to the
     // marching solver. Plane × plane is left alone; the line is

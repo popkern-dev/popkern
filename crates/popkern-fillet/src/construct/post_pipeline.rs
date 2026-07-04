@@ -7,6 +7,9 @@ pub(crate) mod determinism_trace_mod;
 pub(crate) use determinism_trace_mod::{determinism_face_trace, determinism_trace};
 
 pub(super) struct PostBlendPipelineInputs<'a> {
+    /// A setback vertex blend (KP20 or PnS cap family) landed in
+    /// this result — the setback surgery owns its apex topology.
+    pub setback_blend_present: bool,
     pub(super) source_brep: &'a BRep,
     pub(super) result: &'a mut BRep,
     pub(super) edge_geometries: &'a [EdgeGeometry],
@@ -89,12 +92,21 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // chains remain separately gated inside `topology_repair`
     // because they require stronger multi-face ownership repair
     // before they can be commercial grade.
-    let apex_boundary_context = !support_seam_jobs.is_empty()
-        || !late_wire_jobs.is_empty()
-        || !direct_apex_built_faces.is_empty()
-        || corner_patches
-            .iter()
-            .any(|patch| matches!(patch.method, crate::types::CornerMethod::Gregory));
+    // The cylinder off-surface-vertex repair belongs to the LEGACY
+    // apex machinery. Setback-built blends own their apex topology
+    // (PK-097: on the G1 analytic family this repair consumed 3
+    // lateral faces and collapsed the solid — corner patches with
+    // CornerMethod::Gregory tripped the context even though the
+    // setback surgery, not the legacy builder, produced them).
+    // Recorded limitation: a mixed model (setback at one vertex,
+    // legacy Gregory at another) skips the repair for both.
+    let apex_boundary_context = !inputs.setback_blend_present
+        && (!support_seam_jobs.is_empty()
+            || !late_wire_jobs.is_empty()
+            || !direct_apex_built_faces.is_empty()
+            || corner_patches
+                .iter()
+                .any(|patch| matches!(patch.method, crate::types::CornerMethod::Gregory)));
     if topology_repair_enabled(apex_boundary_context) {
         let repaired = topology_repair::repair_cylinder_face_off_surface_vertices(result);
         determinism_trace("post_topology_repair", result);
@@ -128,13 +140,21 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     protected_caps.extend(direct_apex_built_faces.iter().copied());
     protected_caps.extend(exact_boundary_protected_support_faces(repair_report));
     determinism_trace("pre_sliver_absorb", result);
-    sliver_absorb::run_and_route_warnings_with_protected(
-        result,
-        tolerance,
-        edge_geometries,
-        &protected_caps,
-        warnings,
-    );
+    // Sliver absorption unifies LEGACY cap-loop topology (sphere /
+    // Gregory cap twins). Setback-built blends own their apex
+    // topology and run their own band absorption inside the surgery
+    // — on the G1 analytic family this pass consumed 3 lateral
+    // faces and collapsed the solid (PK-097; the G2 family was
+    // untouched only because the pass happened to no-op there).
+    if !inputs.setback_blend_present {
+        sliver_absorb::run_and_route_warnings_with_protected(
+            result,
+            tolerance,
+            edge_geometries,
+            &protected_caps,
+            warnings,
+        );
+    }
 
     determinism_trace("post_sliver_absorb", result);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps

@@ -313,6 +313,21 @@ pub(crate) fn tessellate_brep(
             face_meshes.push(fm);
             continue;
         }
+        if std::env::var_os("PK_BF_TRACE").is_some() {
+            let kind = brep
+                .faces
+                .get(face_handle)
+                .and_then(|f| f.surface.as_ref())
+                .map(|sof| match &sof.geometry {
+                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                    popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
+                    _ => "Other",
+                })
+                .unwrap_or("None");
+            eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
+        }
         legacy_faces.push(face_meshes.len());
         face_meshes.push(tessellate_face(brep, face_handle, options)?);
     }
@@ -341,7 +356,6 @@ fn sew_boundaries_to_edge_polylines(
     face_meshes: &mut [crate::mesh::FaceMesh],
     legacy_faces: &[usize],
 ) {
-    use popkern_core::geometry::curve::CurveEval;
     use std::collections::HashMap;
 
     const SEW_SAMPLES: usize = 129;
@@ -358,7 +372,7 @@ fn sew_boundaries_to_edge_polylines(
         if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
             continue;
         }
-        let eval: &dyn CurveEval = &curve.geometry;
+        let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
         let pts: Vec<(f64, Point3)> = (0..SEW_SAMPLES)
             .map(|i| {
                 let t = curve.t_start

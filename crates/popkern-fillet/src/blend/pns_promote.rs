@@ -314,6 +314,7 @@ pub fn try_pns_dispatch(
             relaxed_continuity_coplanarity: None,
             cap_sphere: None,
             sub_patch_provenance: None,
+            setback_cap: false,
         })
         .collect();
     Some(patches)

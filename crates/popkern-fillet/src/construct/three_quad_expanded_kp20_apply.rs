@@ -102,6 +102,7 @@ pub(super) fn try_apply_expanded_kp20_support_patchwork(
             relaxed_continuity_coplanarity: input.relaxed_coplanarity,
             cap_sphere: None,
             sub_patch_provenance: Some(expanded_kp20_provenance(source_index, input.n_sides)),
+            setback_cap: false,
         })
         .collect();
 
@@ -360,6 +361,7 @@ fn apply_kp20_support_cell_surfaces(
                         )
                     }),
             ),
+            setback_cap: false,
         })
         .collect();
     Ok(ThreeQuadApplyResult {

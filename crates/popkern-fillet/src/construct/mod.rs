@@ -475,7 +475,8 @@ pub fn apply_blend_geometry(
     // Fillet end runoff: trim strips at planar end faces they
     // overshoot and cut the end faces' sharp corners back to the
     // runoff curve (see end_runoff module docs).
-    let runoff_outcomes = end_runoff::apply_fillet_end_runoff(&mut result);
+    let setback_blend_present = corner_patches.iter().any(|cp| cp.setback_cap);
+    let runoff_outcomes = end_runoff::apply_fillet_end_runoff(&mut result, setback_blend_present);
     for o in &runoff_outcomes {
         repair_report.apex_diagnostics.push(
             crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
@@ -504,8 +505,10 @@ pub fn apply_blend_geometry(
     post_pipeline::determinism_face_trace("post_vertex_blend", &result);
     let (_, ms) = pipeline_timing::timed(|| {
         post_pipeline::determinism_trace("pre_post_pipeline", &result);
+        let setback_blend_present = corner_patches.iter().any(|cp| cp.setback_cap);
         post_pipeline::run_post_blend_pipeline(post_pipeline::PostBlendPipelineInputs {
             source_brep: brep,
+            setback_blend_present,
             result: &mut result,
             edge_geometries,
             tolerance,

@@ -263,6 +263,16 @@ fn gregory_projection_convergence() {
 #[test]
 #[ignore = "PK-096 diagnostic: round-trip the exported STEP and audit what a consumer sees"]
 fn step_roundtrip_gap_audit() {
+    run_step_roundtrip_gap_audit(popkern_fillet::ContinuityLevel::G2);
+}
+
+#[test]
+#[ignore = "PK-096 diagnostic: round-trip the exported STEP and audit what a consumer sees"]
+fn step_roundtrip_gap_audit_g1() {
+    run_step_roundtrip_gap_audit(popkern_fillet::ContinuityLevel::G1);
+}
+
+fn run_step_roundtrip_gap_audit(continuity: popkern_fillet::ContinuityLevel) {
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
     let apex = pyramid
@@ -289,7 +299,7 @@ fn step_roundtrip_gap_audit() {
         })
         .collect();
     let options = popkern_fillet::FilletOptions {
-        continuity: popkern_fillet::ContinuityLevel::G2,
+        continuity,
         ..Default::default()
     };
     let result =

@@ -7,12 +7,7 @@ use popkern_core::topology::BRep;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
-#[ignore = "PK-097: G1 family — KNOWN GAP: the PnS bi-4 patches are an
-overlapping construction (each patch quad spans its two neighboring
-ring nodes; interior diagonal ~3e-2 off the rim), so exact shell
-seams are impossible without the Phase C refit-to-tiling. This gate
-documents the target; the G1 commit path currently integrates at the
-legacy PnS quality class (5e-2 seams)."]
+#[ignore = "PK-097: G1 watertight gate (KP20 cap family, production default)"]
 fn setback_blend_g1_tessellates_closed() {
     run_setback_closure_gate(popkern_fillet::ContinuityLevel::G1);
 }

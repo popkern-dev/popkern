@@ -12,11 +12,16 @@
 //!
 //! Faces without complete pcurve loops (or without edge curves) fall
 //! back to the legacy grid+clip path in `tessellate_face`.
+//!
+//! Observability: set `PK_BF_TRACE=1` to log, per face falling back
+//! to the legacy tessellator, WHY it fell back (missing pcurve, no
+//! canonical samples, off-surface residual, uncovered ring segment,
+//! periodic full-wrap ring).
 
 use std::collections::HashMap;
 
 use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
@@ -64,7 +69,32 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
                 i += 1;
             }
         }
-        let points = fractions.iter().map(|&f| at(f)).collect();
+        let mut points: Vec<Point3> = fractions.iter().map(|&f| at(f)).collect();
+        // Snap the endpoint samples to the shared VERTEX positions:
+        // curve-endpoint evaluations can differ from the topological
+        // vertex by ~1e-8 (refit/snap noise), and two edges meeting
+        // at a vertex would then produce near-miss boundary points
+        // that straddle the weld rounding.
+        let he = edge.half_edge;
+        if let (Some(first), Some(last)) = (points.first().copied(), points.last().copied()) {
+            let va = brep.vertices[brep.half_edges[he].origin].position;
+            let vb = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+            let (pa, pb) = if first.distance_to(&va) + last.distance_to(&vb)
+                <= first.distance_to(&vb) + last.distance_to(&va)
+            {
+                (va, vb)
+            } else {
+                (vb, va)
+            };
+            let snap_gate = 1.0e-6;
+            if first.distance_to(&pa) < snap_gate {
+                points[0] = pa;
+            }
+            let n = points.len() - 1;
+            if points[n].distance_to(&pb) < snap_gate {
+                points[n] = pb;
+            }
+        }
         map.insert(eh, EdgeSamples { fractions, points });
     }
     map
@@ -95,7 +125,41 @@ pub(crate) fn tessellate_face_boundary_first(
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
     for lh in loops {
-        let ring = build_ring(brep, lh, edge_samples)?;
+        let mut ring = build_ring(brep, lh, edge_samples)?;
+        // Periodic surfaces (analytic cylinders: u = angle) can have
+        // pcurves authored in different period branches; a ring that
+        // crosses the seam jumps ~2π in the UV chart and Delaunay
+        // cannot cover the jump segment. Unwrap u to the branch
+        // nearest each previous sample (positions are canonical 3D
+        // points and unaffected; cos/sin accept any branch).
+        if let popkern_core::geometry::SurfaceGeometry::Cylinder { .. } = surface {
+            let period = std::f64::consts::TAU;
+            for i in 1..ring.uv.len() {
+                let prev = ring.uv[i - 1].0;
+                while ring.uv[i].0 - prev > 0.5 * period {
+                    ring.uv[i].0 -= period;
+                }
+                while ring.uv[i].0 - prev < -0.5 * period {
+                    ring.uv[i].0 += period;
+                }
+            }
+            // The wrap-around closure segment (last → first) must
+            // also be short; if unwrapping accumulated a net period,
+            // the loop genuinely encircles the axis (full cylinder)
+            // and boundary-first cannot chart it — fall back.
+            if let (Some(first), Some(last)) = (ring.uv.first(), ring.uv.last()) {
+                if (last.0 - first.0).abs() > 0.5 * period {
+                    if std::env::var_os("PK_BF_TRACE").is_some() {
+                        eprintln!(
+                            "    [bf] periodic ring closure spans a full period \
+                             ({:.3} -> {:.3}) — genuine full-wrap face",
+                            first.0, last.0
+                        );
+                    }
+                    return None;
+                }
+            }
+        }
         if ring.uv.len() >= 3 {
             rings.push(ring);
         }
@@ -244,6 +308,12 @@ pub(crate) fn tessellate_face_boundary_first(
             let a = start + k;
             let b = start + (k + 1) % m;
             if !edge_set.contains(&(a.min(b), a.max(b))) {
+                if std::env::var_os("PK_BF_TRACE").is_some() {
+                    eprintln!(
+                        "    [bf] ring segment {a}-{b} uncovered at uv ({:.4},{:.4})-({:.4},{:.4})",
+                        uv_pts[a].0, uv_pts[a].1, uv_pts[b].0, uv_pts[b].1
+                    );
+                }
                 return None;
             }
         }
@@ -295,8 +365,18 @@ fn build_ring(
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];
         let eh = data.edge;
-        let pc = data.pcurve.as_ref()?;
-        let samples = edge_samples.get(&eh)?;
+        let Some(pc) = data.pcurve.as_ref() else {
+            if std::env::var_os("PK_BF_TRACE").is_some() {
+                eprintln!("    [bf] edge {eh:?}: missing pcurve");
+            }
+            return None;
+        };
+        let Some(samples) = edge_samples.get(&eh) else {
+            if std::env::var_os("PK_BF_TRACE").is_some() {
+                eprintln!("    [bf] edge {eh:?}: no canonical samples");
+            }
+            return None;
+        };
         let origin = brep.vertices[data.origin].position;
 
         // Direction: does the canonical polyline start at this
@@ -342,7 +422,20 @@ fn build_ring(
             let sof = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
             let target = samples.points[idx];
             let (mut uu, mut vv) = (uvp.x, uvp.y);
-            if sof.geometry.point_at(uu, vv).distance_to(&target) > 1.0e-9 {
+            // Analytic cylinders: invert analytically (atan2 in the
+            // surface's own basis) — the generic Newton projection
+            // wanders across period branches and reversed-branch
+            // pcurve seeds walked rings the long way around the seam
+            // (span 2π). Canonical branch here; the ring-level
+            // unwrap restores continuity.
+            if let popkern_core::geometry::SurfaceGeometry::Cylinder { origin, axis, .. } =
+                &sof.geometry
+            {
+                let (perp1, perp2) =
+                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+                let d = target - *origin;
+                (uu, vv) = (d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis));
+            } else if sof.geometry.point_at(uu, vv).distance_to(&target) > 1.0e-9 {
                 if let Some((ru, rv)) =
                     popkern_core::geometry::uv_projection::project_point_to_uv_near(
                         &sof.geometry,
@@ -361,6 +454,9 @@ fn build_ring(
                 .distance_to(samples.points.last()?)
                 .max(1e-9);
             if residual > 1.0e-3 * scale.max(1.0) {
+                if std::env::var_os("PK_BF_TRACE").is_some() {
+                    eprintln!("    [bf] edge {eh:?}: off-surface residual {residual:.3e}");
+                }
                 return None;
             }
             uv.push((uu, vv));

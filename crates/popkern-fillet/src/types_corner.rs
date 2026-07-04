@@ -262,6 +262,12 @@ pub struct CornerPatchInfo {
     pub relaxed_continuity_coplanarity: Option<f64>,
     /// Per-fillet sphere fit `(centre, radius)` for this sub-face.
     pub cap_sphere: Option<(popkern_core::geometry::Point3, f64)>,
+    /// True when this patch was produced by the SETBACK vertex-blend
+    /// surgery (PK-094/PK-097 cap families). The setback surgery
+    /// owns its apex topology: legacy post passes (sliver absorb,
+    /// cylinder off-surface topology repair) and legacy runoff
+    /// scoping key off this to keep the two worlds apart.
+    pub setback_cap: bool,
     /// Macro-cap ownership metadata for multi-piece sector constructions.
     pub sub_patch_provenance: Option<CornerSubPatchProvenance>,
 }

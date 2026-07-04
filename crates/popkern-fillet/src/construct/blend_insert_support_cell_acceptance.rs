@@ -343,6 +343,7 @@ mod tests {
             relaxed_continuity_coplanarity: None,
             cap_sphere: None,
             sub_patch_provenance: Some(provenance),
+            setback_cap: false,
         }
     }
 

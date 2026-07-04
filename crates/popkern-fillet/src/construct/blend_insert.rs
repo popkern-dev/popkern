@@ -109,12 +109,18 @@ pub(crate) fn insert_vertex_blend(
         // has already run; fall through to the legacy path with a
         // recorded reason.
         let commit_snapshot = brep.clone();
+        // The KP20 cap is the default for BOTH continuity levels: it
+        // is the proven watertight tiling and a G2 cap satisfies G1.
+        // The PnS bi-4 family stays reachable as a diagnostic /
+        // comparison path (POPKERN_G1_PNS_CAP=1); it integrates at
+        // the legacy PnS quality class (5e-2 seams — its patches
+        // overlap by construction, see PK-097).
         let family = match requested_continuity {
             ContinuityLevel::G2 => super::setback_vertex_topology::CapFamily::Kp20G2,
-            _ if std::env::var_os("PK_G1_KP20_EXPERIMENT").is_some() => {
-                super::setback_vertex_topology::CapFamily::Kp20G2
+            _ if std::env::var_os("POPKERN_G1_PNS_CAP").is_some() => {
+                super::setback_vertex_topology::CapFamily::PnsG1
             }
-            _ => super::setback_vertex_topology::CapFamily::PnsG1,
+            _ => super::setback_vertex_topology::CapFamily::Kp20G2,
         };
         match super::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
@@ -146,13 +152,15 @@ pub(crate) fn insert_vertex_blend(
                                 CornerMethod::PolyhedralNetSpline
                             }
                         },
-                        achieved_continuity: match family {
-                            super::setback_vertex_topology::CapFamily::Kp20G2 => {
-                                crate::types::ContinuityLevel::G2
-                            }
-                            super::setback_vertex_topology::CapFamily::PnsG1 => {
-                                crate::types::ContinuityLevel::G1
-                            }
+                        // The blend's continuity is capped by the
+                        // strips: a KP20 (G2-interior) cap on G1
+                        // sweeps yields a G1 blend and must say so.
+                        achieved_continuity: match (family, requested_continuity) {
+                            (
+                                super::setback_vertex_topology::CapFamily::Kp20G2,
+                                ContinuityLevel::G2,
+                            ) => crate::types::ContinuityLevel::G2,
+                            _ => crate::types::ContinuityLevel::G1,
                         },
                         classification,
                         face,
@@ -161,6 +169,7 @@ pub(crate) fn insert_vertex_blend(
                         relaxed_continuity_coplanarity: None,
                         cap_sphere: None,
                         sub_patch_provenance: None,
+                        setback_cap: true,
                     })
                     .collect();
                 return Ok((infos, None, Vec::new()));
@@ -304,6 +313,7 @@ pub(crate) fn insert_vertex_blend(
         relaxed_continuity_coplanarity: None,
         cap_sphere: None,
         sub_patch_provenance: None,
+        setback_cap: false,
     };
     let mut diagnostics = Vec::new();
 

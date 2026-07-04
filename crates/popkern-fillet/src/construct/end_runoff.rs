@@ -43,7 +43,10 @@ pub(super) struct EndRunoffOutcome {
 /// Apply end runoff to every fillet strip corner that overshoots a
 /// planar end face. Returns the applied outcomes; declines are
 /// silent per-corner (no overshoot means nothing to do).
-pub(super) fn apply_fillet_end_runoff(brep: &mut BRep) -> Vec<EndRunoffOutcome> {
+pub(super) fn apply_fillet_end_runoff(
+    brep: &mut BRep,
+    setback_blend_present: bool,
+) -> Vec<EndRunoffOutcome> {
     let mut outcomes = Vec::new();
     // Corners whose surgery failed: skipped on rescans so one bad
     // corner can't wedge the pass or hide the others. Each failure
@@ -51,7 +54,7 @@ pub(super) fn apply_fillet_end_runoff(brep: &mut BRep) -> Vec<EndRunoffOutcome> 
     // with the error recorded.
     let mut failed: Vec<VertexHandle> = Vec::new();
     loop {
-        let Some(candidate) = find_runoff_candidate(brep, &failed) else {
+        let Some(candidate) = find_runoff_candidate(brep, &failed, setback_blend_present) else {
             break;
         };
         let snapshot = brep.clone();
@@ -94,19 +97,69 @@ struct RunoffCandidate {
 }
 
 /// Find one strip corner whose sweep overshoots a planar end face.
-fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCandidate> {
+
+/// Parameter box of a face on its surface, branch-aware for analytic
+/// cylinders: vertex angles are unwrapped to the minimal covering arc
+/// (the generic vertex projection can land angles in different period
+/// branches, inflating the box to the full circle — a runoff curve
+/// marched over that box winds the whole cylinder as an ellipse).
+fn face_parameter_box(
+    brep: &BRep,
+    face: FaceHandle,
+    surface: &SurfaceGeometry,
+) -> ((f64, f64), (f64, f64)) {
+    let positions = brep.face_outer_loop_positions(face);
+    if let SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
+        let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+        let mut us: Vec<f64> = Vec::with_capacity(positions.len());
+        let mut v0 = f64::INFINITY;
+        let mut v1 = f64::NEG_INFINITY;
+        for p in &positions {
+            let d = *p - *origin;
+            us.push(d.dot(&perp2).atan2(d.dot(&perp1)));
+            let v = d.dot(axis);
+            v0 = v0.min(v);
+            v1 = v1.max(v);
+        }
+        // Unwrap all angles to the branch nearest the first one.
+        let base = us.first().copied().unwrap_or(0.0);
+        let tau = std::f64::consts::TAU;
+        let mut u0 = f64::INFINITY;
+        let mut u1 = f64::NEG_INFINITY;
+        for u in &us {
+            let mut w = *u;
+            while w - base > 0.5 * tau {
+                w -= tau;
+            }
+            while w - base < -0.5 * tau {
+                w += tau;
+            }
+            u0 = u0.min(w);
+            u1 = u1.max(w);
+        }
+        ((u0, u1), (v0, v1))
+    } else {
+        popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface)
+    }
+}
+
+fn find_runoff_candidate(
+    brep: &BRep,
+    skip: &[VertexHandle],
+    setback_blend_present: bool,
+) -> Option<RunoffCandidate> {
     for (fh, face) in brep.faces.iter() {
-        // NURBS sweeps only (shipped behavior). The G1 analytic path
-        // emits Cylinders which overshoot identically, but enabling
-        // cylinder runoff broke the in-place/recreate equivalence
-        // contract (the in-place modify machinery cannot reproduce
-        // topology edits) — recorded PK-097 Phase C containment: the
-        // G1 family's base corners keep the legacy end shape until
-        // runoff is scoped by blend context.
-        if !matches!(
-            face.surface.as_ref().map(|s| &s.geometry),
-            Some(SurfaceGeometry::Nurbs(_))
-        ) {
+        // NURBS sweeps always (shipped behavior). Cylinder strips
+        // (the G1 analytic path) overshoot non-perpendicular end
+        // faces identically but join only when a setback vertex
+        // blend landed in this result: plain open cylinder fillets
+        // keep their legacy end shape because the in-place modify
+        // machinery cannot reproduce topology edits and must stay
+        // equivalent to remove-recreate (PK-097 Phase C).
+        let kind = face.surface.as_ref().map(|s| &s.geometry);
+        let is_nurbs = matches!(kind, Some(SurfaceGeometry::Nurbs(_)));
+        let is_cyl = matches!(kind, Some(SurfaceGeometry::Cylinder { .. }));
+        if !(is_nurbs || (is_cyl && setback_blend_present)) {
             continue;
         }
         let surface = &face.surface.as_ref().unwrap().geometry;
@@ -144,11 +197,7 @@ fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCan
             // non-[0,1] native ranges — bound them from the face's
             // own vertices (documented convention: never pass raw
             // parameter_range() for analytic surfaces).
-            let positions = brep.face_outer_loop_positions(fh);
-            let ((u0, u1), (v0, v1)) =
-                popkern_core::geometry::uv_projection::tight_bounded_parameter_range(
-                    &positions, surface,
-                );
+            let ((u0, u1), (v0, v1)) = face_parameter_box(brep, fh, surface);
             // Overshoot test: the sweep's near-corner border must
             // cross the end plane. Sample the border iso nearest the
             // corner (whichever u-box side is closer).
@@ -218,11 +267,31 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     // finding the plane crossing per station by bisection along the
     // sweep's u direction. Anchor UVs come from point inversion.
     use popkern_core::geometry::uv_projection::project_point_to_uv;
-    let positions = brep.face_outer_loop_positions(cand.strip_face);
-    let ((bu0, bu1), _) =
-        popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, &surface);
-    let (ua, va) = project_point_to_uv(&surface, &p_prev).ok_or("anchor_prev inversion")?;
-    let (ub, vb) = project_point_to_uv(&surface, &p_next).ok_or("anchor_next inversion")?;
+    let ((bu0, bu1), _) = face_parameter_box(brep, cand.strip_face, &surface);
+    // Anchor UVs: analytic branch-consistent inversion for cylinders
+    // (project into the SAME unwrapped branch as the box), generic
+    // projection otherwise.
+    let invert = |p: &Point3| -> Option<(f64, f64)> {
+        if let SurfaceGeometry::Cylinder { origin, axis, .. } = &surface {
+            let (perp1, perp2) =
+                popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+            let d = *p - *origin;
+            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            let mid = 0.5 * (bu0 + bu1);
+            let tau = std::f64::consts::TAU;
+            while u - mid > 0.5 * tau {
+                u -= tau;
+            }
+            while u - mid < -0.5 * tau {
+                u += tau;
+            }
+            Some((u, d.dot(axis)))
+        } else {
+            project_point_to_uv(&surface, p)
+        }
+    };
+    let (ua, va) = invert(&p_prev).ok_or("anchor_prev inversion")?;
+    let (ub, vb) = invert(&p_next).ok_or("anchor_next inversion")?;
     const N: usize = 33;
     let mut pts: Vec<Point3> = Vec::with_capacity(N);
     for i in 0..N {

@@ -4,11 +4,8 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[test]
-#[ignore = "PK-097 Phase C: G1 through the KP20 cap family"]
+#[ignore = "PK-097: G1 production route (KP20 cap family)"]
 fn g1_kp20_commit_produces_valid_blend() {
-    // SAFETY: test-local env; the experiment switch routes G1 apexes
-    // through the KP20 family.
-    unsafe { std::env::set_var("PK_G1_KP20_EXPERIMENT", "1") };
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
@@ -67,15 +64,10 @@ fn g1_kp20_commit_produces_valid_blend() {
     assert_eq!(result.corner_patches.len(), 20, "the 4n KP20 piece faces");
     assert_eq!(*kinds.get("Gregory").unwrap_or(&0), 20);
     assert_eq!(*kinds.get("Cylinder").unwrap_or(&0), 5, "5 strips");
-    // KNOWN GAP (PK-097 Phase C): 3 of the 6 plane faces are
-    // currently consumed by the blend-region merge on the G1 class
-    // (the PnS fan on the IDENTICAL surgery keeps all 6 — the
-    // corruption is in the KP20-only fan passes: q-splits or rim
-    // refit on ~2e-3 arc noise). The rendered solid collapses.
-    // Target assertion, currently expected-failing at 3:
-    // assert_eq!(*kinds.get("Plane").unwrap_or(&0), 6);
-    eprintln!(
-        "KNOWN GAP: planes = {} (target 6)",
-        kinds.get("Plane").unwrap_or(&0)
+    assert_eq!(
+        *kinds.get("Plane").unwrap_or(&0),
+        6,
+        "base + 5 laterals (PK-097: the legacy sliver-absorb pass used \
+         to consume 3 of them on setback-built blends)"
     );
 }
