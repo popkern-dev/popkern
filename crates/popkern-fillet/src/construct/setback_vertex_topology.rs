@@ -524,11 +524,16 @@ fn build_cap_face_fan(
     // the extractor's sector order is angular and generally differs
     // from the fillet index order, so no arc↔sector pairing is
     // assumed; the splitter locates the right boundary edge globally.
+    // Keep every split's vertex handle — re-finding them later by
+    // position fails for the G1 arc class (~2e-3 extraction noise vs
+    // the G2 class's ~1e-4; PK-097 Phase C).
     let mut m_vertices = Vec::with_capacity(n);
+    let mut q_row_vertices = Vec::with_capacity(n);
+    let mut q_col_vertices = Vec::with_capacity(n);
     for s in 0..n {
         let m_vertex = split_blend_boundary_at(brep, blend_face, sector_m(s))?;
-        split_blend_boundary_at(brep, blend_face, rim_q_row(s))?;
-        split_blend_boundary_at(brep, blend_face, rim_q_col(s))?;
+        q_row_vertices.push(split_blend_boundary_at(brep, blend_face, rim_q_row(s))?);
+        q_col_vertices.push(split_blend_boundary_at(brep, blend_face, rim_q_col(s))?);
         m_vertices.push(m_vertex);
     }
 
@@ -586,8 +591,8 @@ fn build_cap_face_fan(
     // 3. Per sector: the interior cross (center vertex + 4 arms).
     for s in 0..n {
         let center = sector_center(s);
-        let q_row_v = find_vertex_at(brep, rim_q_row(s))?;
-        let q_col_v = find_vertex_at(brep, rim_q_col(s))?;
+        let q_row_v = q_row_vertices[s];
+        let q_col_v = q_col_vertices[s];
         let sm_this = spoke_mid_vertices[s];
         let sm_next = spoke_mid_vertices[(s + 1) % n];
         // Spur from the rim quarter (3,6) into the sector face.

@@ -4,7 +4,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
 #[ignore = "PK-097: G1 family — KNOWN GAP: the PnS bi-4 patches are an

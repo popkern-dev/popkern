@@ -70,8 +70,12 @@ fn run() -> Result<(), String> {
             radius: FilletRadius::Constant(radius),
         })
         .collect();
+    let continuity = match std::env::var("KP20_APEX_CONTINUITY").as_deref() {
+        Ok("G1") => ContinuityLevel::G1,
+        _ => ContinuityLevel::G2,
+    };
     let options = FilletOptions {
-        continuity: ContinuityLevel::G2,
+        continuity,
         ..Default::default()
     };
 
