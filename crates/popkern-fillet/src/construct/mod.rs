@@ -179,6 +179,7 @@ pub fn apply_blend_geometry(
     use_kp_binonic_gregory: bool,
     use_kp_polar_gregory: bool,
     use_direct_apex_construction: bool,
+    requested_continuity: crate::types::ContinuityLevel,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
@@ -403,6 +404,7 @@ pub fn apply_blend_geometry(
                         edge_indices,
                         edge_geometries,
                         tolerance,
+                        requested_continuity,
                         use_rational_gregory,
                         use_deg5_gregory,
                         use_biquintic_full_gregory,

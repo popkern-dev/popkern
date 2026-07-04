@@ -21,7 +21,6 @@
 //!   the construction against its own border; the shell gates
 //!   measure it against the neighbors. Both are reported.
 
-use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{
     BetaReparam, Bi2BorderStrip, Bi2TensorBorderRing, CapAssembleInput, assemble_pns_bi4_cap,
     pns_bi4_to_nurbs, pole_from_boundary, sigma_center_jet_default,
@@ -58,17 +57,22 @@ pub struct PnsSetbackReport {
 }
 
 /// The assembled candidate.
-pub(crate) struct PnsSetbackCandidate {
+pub struct PnsSetbackCandidate {
     /// One bi-4 patch per sector, boundary-reconciled.
     pub patches: Vec<[[Point3; 5]; 5]>,
     /// The same patches as NURBS surfaces (exact conversion).
     pub surfaces: Vec<SurfaceGeometry>,
+    /// Per-sector half-arc cubics (border spans) with their fillet
+    /// index, in ring order — sector k's border is half_cubics[k].
+    pub half_cubics: Vec<([Point3; 4], usize)>,
+    /// The cap's central pole point.
+    pub pole: Point3,
     /// Quality report.
     pub report: PnsSetbackReport,
 }
 
 /// Build the PnS bi-4 cap from the fillet surfaces' setback border.
-pub(crate) fn try_pns_setback_candidate(
+pub fn try_pns_setback_candidate(
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_position: Point3,
 ) -> Result<PnsSetbackCandidate, String> {
@@ -354,6 +358,8 @@ pub(crate) fn try_pns_setback_candidate(
     Ok(PnsSetbackCandidate {
         patches,
         surfaces,
+        half_cubics,
+        pole,
         report: PnsSetbackReport {
             g0_border_before,
             g0_border_after,

@@ -22,7 +22,19 @@ pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
 
 /// Test-only hooks for gated work-in-progress construction arms.
+
 pub mod construct_test_hooks {
+    /// PK-097: the full PnS setback candidate (patches + surfaces).
+    pub fn pns_setback_candidate_full(
+        fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+        vertex_position: popkern_core::geometry::Point3,
+    ) -> Result<crate::construct::pns_setback_candidate::PnsSetbackCandidate, String> {
+        crate::construct::pns_setback_candidate::try_pns_setback_candidate(
+            fillet_surfaces,
+            vertex_position,
+        )
+    }
+
     /// PK-097 Phase A: run the PnS setback candidate (G1 cap on the
     /// setback border) and return its quality report.
     pub fn pns_setback_candidate(
@@ -356,6 +368,7 @@ fn fillet_edges_internal(
         options.use_kp_binonic_gregory,
         options.use_kp_polar_gregory,
         options.use_direct_apex_construction,
+        options.continuity,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),

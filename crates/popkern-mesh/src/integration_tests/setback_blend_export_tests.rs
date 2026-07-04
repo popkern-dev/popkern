@@ -7,8 +7,23 @@ use popkern_core::topology::BRep;
 use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
+#[ignore = "PK-097: G1 family — KNOWN GAP: the PnS bi-4 patches are an
+overlapping construction (each patch quad spans its two neighboring
+ring nodes; interior diagonal ~3e-2 off the rim), so exact shell
+seams are impossible without the Phase C refit-to-tiling. This gate
+documents the target; the G1 commit path currently integrates at the
+legacy PnS quality class (5e-2 seams)."]
+fn setback_blend_g1_tessellates_closed() {
+    run_setback_closure_gate(popkern_fillet::ContinuityLevel::G1);
+}
+
+#[test]
 #[ignore = "PK-094 stage-2: enable with the setback commit arm"]
 fn setback_blend_tessellates_closed() {
+    run_setback_closure_gate(popkern_fillet::ContinuityLevel::G2);
+}
+
+fn run_setback_closure_gate(continuity: popkern_fillet::ContinuityLevel) {
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
@@ -41,7 +56,7 @@ fn setback_blend_tessellates_closed() {
         })
         .collect();
     let options = FilletOptions {
-        continuity: ContinuityLevel::G2,
+        continuity,
         ..Default::default()
     };
     let result = fillet_edges(&pyramid, &specs, &options, tol, None).expect("pipeline");
@@ -84,5 +99,44 @@ fn setback_blend_tessellates_closed() {
         }
     }
     let open: usize = counts.values().filter(|&&c| c == 1).count();
+    if open > 0 {
+        // Localize before failing.
+        let mut inv: Vec<popkern_core::geometry::Point3> = Vec::new();
+        for v in &mesh.vertices {
+            inv.push(v.position);
+        }
+        let mut printed = 0;
+        for (&(a, b), &c) in &counts {
+            if c == 1 && printed < 8 {
+                // Map welded ids back to representative positions.
+                let pa = mesh
+                    .vertices
+                    .iter()
+                    .find(|v| {
+                        let k = (
+                            (v.position.x * 1.0e7).round() as i64,
+                            (v.position.y * 1.0e7).round() as i64,
+                            (v.position.z * 1.0e7).round() as i64,
+                        );
+                        canon.get(&k) == Some(&a)
+                    })
+                    .map(|v| v.position);
+                let pb = mesh
+                    .vertices
+                    .iter()
+                    .find(|v| {
+                        let k = (
+                            (v.position.x * 1.0e7).round() as i64,
+                            (v.position.y * 1.0e7).round() as i64,
+                            (v.position.z * 1.0e7).round() as i64,
+                        );
+                        canon.get(&k) == Some(&b)
+                    })
+                    .map(|v| v.position);
+                eprintln!("open edge {pa:?} - {pb:?}");
+                printed += 1;
+            }
+        }
+    }
     assert_eq!(open, 0, "tessellation must be watertight (open edges)");
 }

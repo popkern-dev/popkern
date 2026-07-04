@@ -3355,6 +3355,7 @@ name = "popkern-io"
 version = "0.1.0"
 dependencies = [
  "popkern-core",
+ "popkern-fillet",
  "thiserror 2.0.18",
  "winnow 0.7.15",
 ]

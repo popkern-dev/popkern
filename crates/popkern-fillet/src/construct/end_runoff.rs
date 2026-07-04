@@ -96,9 +96,19 @@ struct RunoffCandidate {
 /// Find one strip corner whose sweep overshoots a planar end face.
 fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCandidate> {
     for (fh, face) in brep.faces.iter() {
-        let Some(SurfaceGeometry::Nurbs(_)) = face.surface.as_ref().map(|s| &s.geometry) else {
+        // NURBS sweeps only (shipped behavior). The G1 analytic path
+        // emits Cylinders which overshoot identically, but enabling
+        // cylinder runoff broke the in-place/recreate equivalence
+        // contract (the in-place modify machinery cannot reproduce
+        // topology edits) — recorded PK-097 Phase C containment: the
+        // G1 family's base corners keep the legacy end shape until
+        // runoff is scoped by blend context.
+        if !matches!(
+            face.surface.as_ref().map(|s| &s.geometry),
+            Some(SurfaceGeometry::Nurbs(_))
+        ) {
             continue;
-        };
+        }
         let surface = &face.surface.as_ref().unwrap().geometry;
         let loop_ = face.outer_loop;
         let start = brep.loops.get(loop_)?.half_edge;
@@ -130,16 +140,26 @@ fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCan
                 continue;
             };
             let (origin, normal) = (*origin, *normal);
+            // Parameter box: analytic surfaces (cylinder) have
+            // non-[0,1] native ranges — bound them from the face's
+            // own vertices (documented convention: never pass raw
+            // parameter_range() for analytic surfaces).
+            let positions = brep.face_outer_loop_positions(fh);
+            let ((u0, u1), (v0, v1)) =
+                popkern_core::geometry::uv_projection::tight_bounded_parameter_range(
+                    &positions, surface,
+                );
             // Overshoot test: the sweep's near-corner border must
             // cross the end plane. Sample the border iso nearest the
-            // corner (whichever of u=0 / u=1 is closer).
+            // corner (whichever u-box side is closer).
             let pc = brep.vertices[corner].position;
-            let u_iso = if surface.point_at(0.0, 0.5).distance_to(&pc)
-                < surface.point_at(1.0, 0.5).distance_to(&pc)
+            let v_mid = 0.5 * (v0 + v1);
+            let u_iso = if surface.point_at(u0, v_mid).distance_to(&pc)
+                < surface.point_at(u1, v_mid).distance_to(&pc)
             {
-                0.0
+                u0
             } else {
-                1.0
+                u1
             };
             let signed = |p: Point3| (p - origin).dot(&normal) / normal.length();
             // Sign-convention-free overshoot test: the strip's
@@ -147,9 +167,9 @@ fn find_runoff_candidate(brep: &BRep, skip: &[VertexHandle]) -> Option<RunoffCan
             // any end-border point on the OPPOSITE side is overshoot
             // (the whole border may lie beyond the plane, so a
             // sign-change-on-the-border test misses it).
-            let mid_sign = signed(surface.point_at(0.5, 0.5)).signum();
+            let mid_sign = signed(surface.point_at(0.5 * (u0 + u1), v_mid)).signum();
             let overshoot = (0..=16)
-                .map(|i| signed(surface.point_at(u_iso, i as f64 / 16.0)))
+                .map(|i| signed(surface.point_at(u_iso, v0 + (v1 - v0) * i as f64 / 16.0)))
                 .filter(|d| d.signum() != mid_sign)
                 .map(f64::abs)
                 .fold(0.0_f64, f64::max);
@@ -198,6 +218,9 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     // finding the plane crossing per station by bisection along the
     // sweep's u direction. Anchor UVs come from point inversion.
     use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let positions = brep.face_outer_loop_positions(cand.strip_face);
+    let ((bu0, bu1), _) =
+        popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, &surface);
     let (ua, va) = project_point_to_uv(&surface, &p_prev).ok_or("anchor_prev inversion")?;
     let (ub, vb) = project_point_to_uv(&surface, &p_next).ok_or("anchor_next inversion")?;
     const N: usize = 33;
@@ -207,8 +230,13 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
         let v = va + (vb - va) * f;
         // Bracket the crossing along u: from the strip's mid-surface
         // (material side) toward the overshooting border.
-        let u_border = if (ua + ub) * 0.5 > 0.5 { 1.0 } else { 0.0 };
-        let (mut lo, mut hi) = (0.5, u_border);
+        let u_mid_box = 0.5 * (bu0 + bu1);
+        let u_border = if (ua + ub) * 0.5 > u_mid_box {
+            bu1
+        } else {
+            bu0
+        };
+        let (mut lo, mut hi) = (u_mid_box, u_border);
         let d_lo = signed(surface.point_at(lo, v));
         let d_hi = signed(surface.point_at(hi, v));
         if d_lo.abs() < 1.0e-12 {

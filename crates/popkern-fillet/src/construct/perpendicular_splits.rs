@@ -99,8 +99,15 @@ pub(super) fn run_perpendicular_splits(
             eg.surface,
             SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Nurbs(_)
         );
-        let anchor_on_trim =
-            matches!(eg.surface, SurfaceGeometry::Nurbs(_)) && !use_direct_apex_construction;
+        // Cylinder sweeps join the trim-crossing convention for the
+        // setback path (PK-097: the G1 analytic strips carve at
+        // perp-walk radius, leaving the setback arcs beyond the main
+        // face's boundary). The §28.H direct-apex machinery keeps
+        // perp-walk positions on all surface kinds.
+        let anchor_on_trim = matches!(
+            eg.surface,
+            SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Cylinder { .. }
+        ) && !use_direct_apex_construction;
 
         // §28.H Session 2 — build per-anchor planner override.  For
         // each anchor slot (V_start vs V_end on face_1 vs face_2),

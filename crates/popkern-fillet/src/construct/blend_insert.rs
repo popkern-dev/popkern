@@ -61,6 +61,7 @@ pub(crate) fn insert_vertex_blend(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
+    requested_continuity: ContinuityLevel,
     use_rational_gregory: bool,
     use_deg5_gregory: bool,
     use_biquintic_full_gregory: bool,
@@ -108,11 +109,16 @@ pub(crate) fn insert_vertex_blend(
         // has already run; fall through to the legacy path with a
         // recorded reason.
         let commit_snapshot = brep.clone();
+        let family = match requested_continuity {
+            ContinuityLevel::G2 => super::setback_vertex_topology::CapFamily::Kp20G2,
+            _ => super::setback_vertex_topology::CapFamily::PnsG1,
+        };
         match super::setback_vertex_topology::try_setback_boundary_surgery(
             brep,
             vertex,
             &fillet_surfaces_pre,
             tolerance,
+            family,
         ) {
             Ok(outcome) => {
                 if let Err(e) = brep.validate() {
@@ -129,8 +135,22 @@ pub(crate) fn insert_vertex_blend(
                     .map(|&face| CornerPatchInfo {
                         vertex,
                         n_sides: edge_indices.len(),
-                        method: CornerMethod::Gregory,
-                        achieved_continuity: crate::types::ContinuityLevel::G2,
+                        method: match family {
+                            super::setback_vertex_topology::CapFamily::Kp20G2 => {
+                                CornerMethod::Gregory
+                            }
+                            super::setback_vertex_topology::CapFamily::PnsG1 => {
+                                CornerMethod::PolyhedralNetSpline
+                            }
+                        },
+                        achieved_continuity: match family {
+                            super::setback_vertex_topology::CapFamily::Kp20G2 => {
+                                crate::types::ContinuityLevel::G2
+                            }
+                            super::setback_vertex_topology::CapFamily::PnsG1 => {
+                                crate::types::ContinuityLevel::G1
+                            }
+                        },
                         classification,
                         face,
                         bridge_fallbacks: Vec::new(),
