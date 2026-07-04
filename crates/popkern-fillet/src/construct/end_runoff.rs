@@ -264,10 +264,10 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
         |p: Point3| (p - cand.plane_origin).dot(&cand.plane_normal) / cand.plane_normal.length();
 
     // Runoff curve: march across the sweep between the two anchors,
-    // finding the plane crossing per station by bisection along the
-    // sweep's u direction. Anchor UVs come from point inversion.
+    // finding the plane crossing per station by bisection in the
+    // other parameter. Anchor UVs come from point inversion.
     use popkern_core::geometry::uv_projection::project_point_to_uv;
-    let ((bu0, bu1), _) = face_parameter_box(brep, cand.strip_face, &surface);
+    let ((bu0, bu1), (bv0, bv1)) = face_parameter_box(brep, cand.strip_face, &surface);
     // Anchor UVs: analytic branch-consistent inversion for cylinders
     // (project into the SAME unwrapped branch as the box), generic
     // projection otherwise.
@@ -320,52 +320,70 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     } else {
         false
     };
-    let _ = (va, vb);
-    for i in 0..N {
-        if cylinder_ellipse {
-            break;
-        }
-        let f = i as f64 / (N - 1) as f64;
-        let v = va + (vb - va) * f;
-        // Bracket the crossing along u: from the strip's mid-surface
-        // (material side) toward the overshooting border.
-        let u_mid_box = 0.5 * (bu0 + bu1);
-        let u_border = if (ua + ub) * 0.5 > u_mid_box {
-            bu1
+    if !cylinder_ellipse {
+        // Station parameter = the one along which the anchors are
+        // genuinely separated (box-normalized). The curve is
+        // graph-like over that parameter; the other one is bisected
+        // per station. Marching the degenerate parameter collapses
+        // the curve to the anchor chord at mirror-symmetric corners
+        // (PK-097 on cylinders; charts with the opposite
+        // orientation would hit it on sweeps — PK-098 hardening).
+        let du_n = ((ua - ub) / (bu1 - bu0).max(1.0e-12)).abs();
+        let dv_n = ((va - vb) / (bv1 - bv0).max(1.0e-12)).abs();
+        let march_v = dv_n >= du_n;
+        let (sa, sb, (b0, b1), (ca, cb)) = if march_v {
+            (va, vb, (bu0, bu1), (ua, ub))
         } else {
-            bu0
+            (ua, ub, (bv0, bv1), (va, vb))
         };
-        let (mut lo, mut hi) = (u_mid_box, u_border);
-        let d_lo = signed(surface.point_at(lo, v));
-        let d_hi = signed(surface.point_at(hi, v));
-        if d_lo.abs() < 1.0e-12 {
-            pts.push(surface.point_at(lo, v));
-            continue;
-        }
-        if d_lo.signum() == d_hi.signum() {
-            // No crossing at this station (ends exactly on the
-            // plane): take the border point projected to the plane.
-            let p = surface.point_at(hi, v);
-            let d = signed(p);
-            let n = cand.plane_normal;
-            let n2 = n.dot(&n);
-            pts.push(Point3::new(
-                p.x - n.x * d / n2.sqrt(),
-                p.y - n.y * d / n2.sqrt(),
-                p.z - n.z * d / n2.sqrt(),
-            ));
-            continue;
-        }
-        for _ in 0..60 {
-            let mid = 0.5 * (lo + hi);
-            let dm = signed(surface.point_at(mid, v));
-            if dm.signum() == d_lo.signum() {
-                lo = mid;
+        let eval = |station: f64, cross: f64| -> Point3 {
+            if march_v {
+                surface.point_at(cross, station)
             } else {
-                hi = mid;
+                surface.point_at(station, cross)
             }
+        };
+        for i in 0..N {
+            let f = i as f64 / (N - 1) as f64;
+            let station = sa + (sb - sa) * f;
+            // Bracket the crossing in the cross parameter: from the
+            // strip's mid-surface (material side) toward the
+            // overshooting border.
+            let mid_box = 0.5 * (b0 + b1);
+            let border = if (ca + cb) * 0.5 > mid_box { b1 } else { b0 };
+            let (mut lo, mut hi) = (mid_box, border);
+            let d_lo = signed(eval(station, lo));
+            let d_hi = signed(eval(station, hi));
+            if d_lo.abs() < 1.0e-12 {
+                pts.push(eval(station, lo));
+                continue;
+            }
+            if d_lo.signum() == d_hi.signum() {
+                // No crossing at this station (ends exactly on the
+                // plane): take the border point projected to the
+                // plane.
+                let p = eval(station, hi);
+                let d = signed(p);
+                let n = cand.plane_normal;
+                let n2 = n.dot(&n);
+                pts.push(Point3::new(
+                    p.x - n.x * d / n2.sqrt(),
+                    p.y - n.y * d / n2.sqrt(),
+                    p.z - n.z * d / n2.sqrt(),
+                ));
+                continue;
+            }
+            for _ in 0..60 {
+                let mid = 0.5 * (lo + hi);
+                let dm = signed(eval(station, mid));
+                if dm.signum() == d_lo.signum() {
+                    lo = mid;
+                } else {
+                    hi = mid;
+                }
+            }
+            pts.push(eval(station, 0.5 * (lo + hi)));
         }
-        pts.push(surface.point_at(0.5 * (lo + hi), v));
     }
     // Endpoints snapped to the topology vertices.
     pts[0] = p_prev;

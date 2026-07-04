@@ -69,6 +69,38 @@ fn setback_commit_produces_valid_g2_vertex_blend() {
         })
         .count();
     assert_eq!(gregory_faces, 20, "expected 20 Gregory cap faces");
+    // Base-corner runoff edges must be genuinely curved (the true
+    // strip∩base intersection, not the anchor chord — PK-097/098).
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        let mut checked = 0;
+        for (_, edge) in brep.edges.iter() {
+            let Some(curve) = edge.curve.as_ref() else {
+                continue;
+            };
+            let ceval: &dyn CurveEval = &curve.geometry;
+            let a = ceval.point_at(curve.t_start);
+            let b = ceval.point_at(curve.t_end);
+            let span = a.distance_to(&b);
+            if a.z.abs() > 1e-6 || b.z.abs() > 1e-6 || span < 0.05 || span > 0.5 {
+                continue;
+            }
+            let mid = ceval.point_at(0.5 * (curve.t_start + curve.t_end));
+            let chord_mid = popkern_core::geometry::Point3::new(
+                0.5 * (a.x + b.x),
+                0.5 * (a.y + b.y),
+                0.5 * (a.z + b.z),
+            );
+            assert!(
+                mid.distance_to(&chord_mid) > 0.05 * span,
+                "base runoff edge must be curved (sagitta {:.4} over span {:.4})",
+                mid.distance_to(&chord_mid),
+                span
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 5, "one curved runoff edge per base corner");
+    }
     eprintln!(
         "commit-mode blend: faces={} edges={} vertices={}",
         brep.faces.len(),
