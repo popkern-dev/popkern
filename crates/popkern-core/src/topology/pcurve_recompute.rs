@@ -127,7 +127,41 @@ impl BRep {
             );
             let edge_curve = &self.edges[edge_handle].curve;
 
-            let pcurve = if is_planar || edge_curve.is_none() {
+            // The plane fast path is only valid for STRAIGHT edges: a
+            // curved edge lying IN a plane (fillet end-runoff arc) has
+            // a curved UV image, and a straight pcurve misstates it by
+            // the full sagitta (PK-096: 2.4e-2 on runoff arcs — STEP
+            // consumers flag the edge and refuse to stitch).
+            let edge_is_straight = match edge_curve {
+                None => true,
+                Some(c) => {
+                    let eval: &dyn crate::geometry::curve::CurveEval = &c.geometry;
+                    let a = eval.point_at(c.t_start);
+                    let b = eval.point_at(c.t_end);
+                    let chord = b - a;
+                    let len2 = chord.dot(&chord);
+                    let mut straight = true;
+                    for i in 1..8 {
+                        let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                        let p = eval.point_at(t);
+                        let ap = p - a;
+                        let f = if len2 < 1e-300 {
+                            0.0
+                        } else {
+                            ap.dot(&chord) / len2
+                        };
+                        let q =
+                            Point3::new(a.x + chord.x * f, a.y + chord.y * f, a.z + chord.z * f);
+                        if p.distance_to(&q) > 1.0e-9 {
+                            straight = false;
+                            break;
+                        }
+                    }
+                    straight
+                }
+            };
+
+            let pcurve = if (is_planar && edge_is_straight) || edge_curve.is_none() {
                 // Degree-1: straight line in UV.
                 let (u_s, v_s) = match project_point_to_uv(&surface, &he_origin_pos) {
                     Some(uv) => uv,

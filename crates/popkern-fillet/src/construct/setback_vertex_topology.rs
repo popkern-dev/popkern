@@ -334,6 +334,13 @@ fn surgery_inner(
         vertex_position,
     )?;
 
+    // ---- rim refit: exact cap-row edge curves ---------------------------
+    // The rim edges' snapped sub-cubics sit ~5e-4 off both the cap
+    // and the sweep (PK-096: STEP consumers refuse to stitch). Move
+    // each rim vertex onto its cap boundary row and re-derive every
+    // rim edge curve as the exact degree-9 row segment.
+    refit_cap_rim(brep, &cap_faces)?;
+
     // ---- pcurves for the new topology -----------------------------------
     // Plane faces: rebuild loop pcurves from the 3D curves (the
     // corner path edges live on the lateral planes). Cap pieces and
@@ -778,6 +785,329 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
         }
     }
     Ok(())
+}
+
+/// Move rim vertices onto the cap boundary rows and assign each rim
+/// edge (cap piece ↔ non-cap face) the exact degree-9 Bezier segment
+/// of the piece's boundary row between its (re-projected) endpoints.
+/// Non-rim curves that end at a moved vertex have their nearest
+/// endpoint control point translated to match.
+fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
+    use popkern_core::geometry::gregory::GregoryPatch;
+    // Collect (rim half-edge on cap side, row, ..) jobs first.
+    struct RimJob {
+        edge: EdgeHandle,
+        row: [Point3; 10],
+        va: VertexHandle,
+        vb: VertexHandle,
+    }
+    let mut jobs: Vec<RimJob> = Vec::new();
+    for &fh in cap_faces {
+        let Some(popkern_core::geometry::SurfaceGeometry::Gregory(
+            GregoryPatch::RectangularBiNonic(patch),
+        )) = brep
+            .faces
+            .get(fh)
+            .and_then(|f| f.surface.as_ref())
+            .map(|s| &s.geometry)
+        else {
+            continue;
+        };
+        let grid = patch.grid;
+        let rows: [[Point3; 10]; 4] = [
+            core::array::from_fn(|j| grid[0][j]),
+            core::array::from_fn(|j| grid[9][j]),
+            core::array::from_fn(|i| grid[i][0]),
+            core::array::from_fn(|i| grid[i][9]),
+        ];
+        for he in face_loop_half_edges(brep, fh)? {
+            let data = &brep.half_edges[he];
+            let twin_face = brep.loops[brep.half_edges[data.twin].loop_].face;
+            let twin_is_cap = cap_faces.contains(&twin_face);
+            if twin_is_cap {
+                continue;
+            }
+            let va = data.origin;
+            let vb = brep.half_edges[data.next].origin;
+            let pa = brep.vertices[va].position;
+            let pb = brep.vertices[vb].position;
+            // Pick the row by the edge's MIDPOINT (endpoints sit at
+            // patch corners where two rows tie; the midpoint is
+            // interior to exactly one side).
+            let mid = match brep.edges[data.edge].curve.as_ref() {
+                Some(c) => {
+                    let eval: &dyn CurveEval = &c.geometry;
+                    eval.point_at(0.5 * (c.t_start + c.t_end))
+                }
+                None => Point3::new(
+                    0.5 * (pa.x + pb.x),
+                    0.5 * (pa.y + pb.y),
+                    0.5 * (pa.z + pb.z),
+                ),
+            };
+            let mut best: Option<(f64, usize)> = None;
+            for (ri, row) in rows.iter().enumerate() {
+                let d = bezier9_nearest(row, mid).1;
+                if best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                    best = Some((d, ri));
+                }
+            }
+            let (_, ri) = best.ok_or("no rim row")?;
+            jobs.push(RimJob {
+                edge: data.edge,
+                row: rows[ri],
+                va,
+                vb,
+            });
+        }
+    }
+
+    // Move rim vertices onto their rows (average when a vertex is
+    // claimed by multiple rows — e.g. c between two sectors; the rows
+    // agree at corners to extraction accuracy).
+    let mut targets: std::collections::HashMap<VertexHandle, Vec<Point3>> =
+        std::collections::HashMap::new();
+    for job in &jobs {
+        for v in [job.va, job.vb] {
+            let p = brep.vertices[v].position;
+            let (t, _) = bezier9_nearest(&job.row, p);
+            targets
+                .entry(v)
+                .or_default()
+                .push(bezier9_eval(&job.row, t));
+        }
+    }
+    // A vertex may move ONLY if every incident non-rim curve can
+    // follow it: full-window NURBS whose end control point sits at
+    // the vertex. Split trims carry WINDOWED curves (their endpoint
+    // is curve(t_start), not a control point) — translating a CP
+    // would deform the wrong span, and skipping it breaks loop
+    // closure (measured 4.7e-4 gaps), so those vertices stay put and
+    // the rim segments snap to them instead.
+    let rim_edge_set: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
+    let movable = |v: VertexHandle| -> bool {
+        let old = brep.vertices[v].position;
+        for (eh, edge) in brep.edges.iter() {
+            let he = edge.half_edge;
+            let va = brep.half_edges[he].origin;
+            let vb = brep.half_edges[brep.half_edges[he].twin].origin;
+            if va != v && vb != v {
+                continue;
+            }
+            if rim_edge_set.contains(&eh) {
+                continue;
+            }
+            let Some(curve) = edge.curve.as_ref() else {
+                return false;
+            };
+            let popkern_core::geometry::CurveGeometry::Nurbs(n) = &curve.geometry else {
+                return false;
+            };
+            let cp_end_at_v = n
+                .control_points
+                .first()
+                .map(|p| p.distance_to(&old) < 1.0e-6)
+                .unwrap_or(false)
+                || n.control_points
+                    .last()
+                    .map(|p| p.distance_to(&old) < 1.0e-6)
+                    .unwrap_or(false);
+            if !cp_end_at_v {
+                return false;
+            }
+        }
+        true
+    };
+    let movable_set: std::collections::HashSet<VertexHandle> =
+        targets.keys().copied().filter(|&v| movable(v)).collect();
+    let mut moves: std::collections::HashMap<VertexHandle, (Point3, Point3)> =
+        std::collections::HashMap::new();
+    for (v, list) in targets {
+        if !movable_set.contains(&v) {
+            continue;
+        }
+        let old = brep.vertices[v].position;
+        let mut acc = [0.0_f64; 3];
+        for p in &list {
+            acc[0] += p.x;
+            acc[1] += p.y;
+            acc[2] += p.z;
+        }
+        let n = list.len() as f64;
+        let new = Point3::new(acc[0] / n, acc[1] / n, acc[2] / n);
+        if old.distance_to(&new) > 1.0e-12 {
+            brep.vertices[v].position = new;
+            moves.insert(v, (old, new));
+        }
+    }
+
+    // Assign exact row segments to the rim edges.
+    let rim_edges: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
+    for job in &jobs {
+        let pa = brep.vertices[job.va].position;
+        let pb = brep.vertices[job.vb].position;
+        let (ta, _) = bezier9_nearest(&job.row, pa);
+        let (tb, _) = bezier9_nearest(&job.row, pb);
+        // The row's parameterization may run against the half-edge:
+        // extract the ordered span and reverse the control points.
+        let mut seg = if ta <= tb {
+            bezier9_extract(&job.row, ta, tb)
+        } else {
+            let mut rev = bezier9_extract(&job.row, tb, ta);
+            rev.reverse();
+            rev
+        };
+        // Endpoints exactly at the vertices, with the deltas ramped
+        // linearly across all control points (a degree-1 correction
+        // in Bernstein form) so the segment stays smooth.
+        let da = pa - bezier9_eval(&seg, 0.0);
+        let db = pb - bezier9_eval(&seg, 1.0);
+        for (i, cp) in seg.iter_mut().enumerate() {
+            let f = i as f64 / 9.0;
+            *cp = Point3::new(
+                cp.x + da.x * (1.0 - f) + db.x * f,
+                cp.y + da.y * (1.0 - f) + db.y * f,
+                cp.z + da.z * (1.0 - f) + db.z * f,
+            );
+        }
+        let mut knots = Vec::with_capacity(20);
+        knots.extend(std::iter::repeat_n(0.0, 10));
+        knots.extend(std::iter::repeat_n(1.0, 10));
+        if let Some(edge) = brep.edges.get_mut(job.edge) {
+            edge.curve = Some(popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::CurveGeometry::Nurbs(NurbsCurve {
+                    degree: 9,
+                    knots,
+                    control_points: seg.to_vec(),
+                    weights: vec![1.0; 10],
+                }),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+    }
+
+    // Repair endpoint coherence for NON-rim curves at moved vertices:
+    // translate whichever curve end is nearest the old position.
+    let edge_keys: Vec<EdgeHandle> = brep.edges.keys().collect();
+    for eh in edge_keys {
+        if rim_edges.contains(&eh) {
+            continue;
+        }
+        let he = brep.edges[eh].half_edge;
+        let va = brep.half_edges[he].origin;
+        let vb = brep.half_edges[brep.half_edges[he].twin].origin;
+        for v in [va, vb] {
+            let Some(&(old, new)) = moves.get(&v) else {
+                continue;
+            };
+            let Some(curve) = brep.edges.get_mut(eh).and_then(|e| e.curve.as_mut()) else {
+                continue;
+            };
+            if let popkern_core::geometry::CurveGeometry::Nurbs(n) = &mut curve.geometry {
+                let front = n.control_points.first().map(|p| p.distance_to(&old));
+                let back = n.control_points.last().map(|p| p.distance_to(&old));
+                match (front, back) {
+                    (Some(f), Some(b)) if f <= b && f < 1.0e-6 => {
+                        *n.control_points.first_mut().ok_or("empty curve")? = new;
+                    }
+                    (Some(_), Some(b)) if b < 1.0e-6 => {
+                        *n.control_points.last_mut().ok_or("empty curve")? = new;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn bezier9_eval(cps: &[Point3; 10], t: f64) -> Point3 {
+    let mut work = *cps;
+    for level in (1..10).rev() {
+        for i in 0..level {
+            work[i] = Point3::new(
+                work[i].x + (work[i + 1].x - work[i].x) * t,
+                work[i].y + (work[i + 1].y - work[i].y) * t,
+                work[i].z + (work[i + 1].z - work[i].z) * t,
+            );
+        }
+    }
+    work[0]
+}
+
+/// Nearest parameter on a degree-9 Bezier (dense scan + ternary).
+fn bezier9_nearest(cps: &[Point3; 10], p: Point3) -> (f64, f64) {
+    let mut best = (f64::INFINITY, 0.0_f64);
+    for i in 0..=128 {
+        let t = i as f64 / 128.0;
+        let d = bezier9_eval(cps, t).distance_to(&p);
+        if d < best.0 {
+            best = (d, t);
+        }
+    }
+    let (mut lo, mut hi) = (
+        (best.1 - 1.0 / 128.0).max(0.0),
+        (best.1 + 1.0 / 128.0).min(1.0),
+    );
+    for _ in 0..60 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        if bezier9_eval(cps, m1).distance_to(&p) < bezier9_eval(cps, m2).distance_to(&p) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    let t = 0.5 * (lo + hi);
+    (t, bezier9_eval(cps, t).distance_to(&p))
+}
+
+/// De Casteljau extraction of the sub-segment [ta, tb].
+fn bezier9_extract(cps: &[Point3; 10], ta: f64, tb: f64) -> [Point3; 10] {
+    // Split at ta, keep right; split that at (tb-ta)/(1-ta), keep left.
+    let right = bezier9_split_right(cps, ta);
+    let f = if (1.0 - ta).abs() < 1e-15 {
+        0.0
+    } else {
+        (tb - ta) / (1.0 - ta)
+    };
+    bezier9_split_left(&right, f)
+}
+
+fn bezier9_split_right(cps: &[Point3; 10], t: f64) -> [Point3; 10] {
+    // Right-segment control points are the terminal point of each de
+    // Casteljau level: [C(t), b_1^8, ..., b_8^1, b_9].
+    let mut work = *cps;
+    let mut right = [cps[9]; 10];
+    for level in (1..10).rev() {
+        for i in 0..level {
+            work[i] = Point3::new(
+                work[i].x + (work[i + 1].x - work[i].x) * t,
+                work[i].y + (work[i + 1].y - work[i].y) * t,
+                work[i].z + (work[i + 1].z - work[i].z) * t,
+            );
+        }
+        right[level - 1] = work[level - 1];
+    }
+    right[0] = work[0];
+    right
+}
+
+fn bezier9_split_left(cps: &[Point3; 10], t: f64) -> [Point3; 10] {
+    let mut work = *cps;
+    let mut left = [cps[0]; 10];
+    for (level, slot) in (1..10).rev().zip(1..10) {
+        for i in 0..level {
+            work[i] = Point3::new(
+                work[i].x + (work[i + 1].x - work[i].x) * t,
+                work[i].y + (work[i + 1].y - work[i].y) * t,
+                work[i].z + (work[i + 1].z - work[i].z) * t,
+            );
+        }
+        left[slot] = work[0];
+    }
+    left
 }
 
 /// Dissolve scaffold edges between fillet-face pieces that carry the
