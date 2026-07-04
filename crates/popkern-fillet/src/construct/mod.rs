@@ -19,6 +19,8 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
+#[path = "pns_setback_candidate.rs"]
+pub(crate) mod pns_setback_candidate;
 #[path = "setback_vertex_topology.rs"]
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;

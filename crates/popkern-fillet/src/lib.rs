@@ -23,6 +23,19 @@ pub(crate) mod corner_2d_helpers;
 
 /// Test-only hooks for gated work-in-progress construction arms.
 pub mod construct_test_hooks {
+    /// PK-097 Phase A: run the PnS setback candidate (G1 cap on the
+    /// setback border) and return its quality report.
+    pub fn pns_setback_candidate(
+        fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+        vertex_position: popkern_core::geometry::Point3,
+    ) -> Result<crate::construct::pns_setback_candidate::PnsSetbackReport, String> {
+        crate::construct::pns_setback_candidate::try_pns_setback_candidate(
+            fillet_surfaces,
+            vertex_position,
+        )
+        .map(|c| c.report)
+    }
+
     /// Force COMMIT mode on (tests; production defaults to on).
     pub fn enable_setback_topology_commit() {
         crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT
