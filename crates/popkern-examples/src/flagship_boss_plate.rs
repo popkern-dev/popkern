@@ -301,6 +301,41 @@ fn main() {
         result.corner_patches.len()
     );
 
+    if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
+        for (fh, f) in result.brep.faces.iter() {
+            let kind = match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) => "Plane",
+                Some(popkern_core::geometry::SurfaceGeometry::Cylinder { .. }) => "Cyl",
+                Some(popkern_core::geometry::SurfaceGeometry::Torus { .. }) => "Torus",
+                Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_)) => "Nurbs",
+                _ => "?",
+            };
+            let mut loops_desc = Vec::new();
+            for (li, &lh) in std::iter::once(&f.outer_loop)
+                .chain(f.inner_loops.iter())
+                .enumerate()
+            {
+                let start = result.brep.loops[lh].half_edge;
+                let mut he = start;
+                let mut edges = Vec::new();
+                for _ in 0..64 {
+                    let d = &result.brep.half_edges[he];
+                    edges.push(format!("{:?}", d.edge));
+                    he = d.next;
+                    if he == start {
+                        break;
+                    }
+                }
+                loops_desc.push(format!(
+                    "{}[{}]",
+                    if li == 0 { "outer" } else { "inner" },
+                    edges.join(",")
+                ));
+            }
+            eprintln!("  face {fh:?} {kind}: {}", loops_desc.join(" "));
+        }
+    }
+
     // Stage 4: watertight tessellation + OBJ render source + STEP.
     let mesh =
         popkern_mesh::tessellate(&result.brep, &popkern_mesh::TessellationOptions::default())
@@ -344,6 +379,9 @@ fn main() {
         }
         let open = counts.values().filter(|&&c| c == 1).count();
         println!("stage 4 open edges: {open}");
+        if seam_only {
+            assert_eq!(open, 0, "seam-fillet flagship must tessellate watertight");
+        }
         let mut shown = 0;
         for (&(a, b), &c) in &counts {
             if c == 1 && shown < 6 {

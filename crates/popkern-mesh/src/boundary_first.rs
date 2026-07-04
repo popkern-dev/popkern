@@ -273,11 +273,37 @@ pub(crate) fn tessellate_face_boundary_first(
     }
     let cell = ((u1 - u0) / n as f64).max((v1 - v0) / n as f64).max(1e-12);
     let clearance = cell / 3.0;
+    // A boundary segment survives unconstrained Delaunay if its
+    // DIAMETRAL disk is point-free (the classic protecting-ball
+    // condition); a plain distance clearance admits grid points that
+    // sit outside the clearance band yet inside the diametral disk
+    // of a diagonal segment, and the coverage check then rejects the
+    // whole face (measured on a plate face with a circular hole
+    // ring).
+    let in_any_diametral_disk = |u: f64, v: f64| -> bool {
+        for ring in &rings {
+            let m = ring.uv.len();
+            for k in 0..m {
+                let a = ring.uv[k];
+                let b = ring.uv[(k + 1) % m];
+                let cx = 0.5 * (a.0 + b.0);
+                let cy = 0.5 * (a.1 + b.1);
+                let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
+                if (u - cx).powi(2) + (v - cy).powi(2) < r2 * 1.0201 {
+                    return true;
+                }
+            }
+        }
+        false
+    };
     for i in 1..n {
         for j in 1..n {
             let u = u0 + (u1 - u0) * i as f64 / n as f64;
             let v = v0 + (v1 - v0) * j as f64 / n as f64;
-            if point_in_region((u, v), &rings) && dist_to_rings((u, v), &rings) > clearance {
+            if point_in_region((u, v), &rings)
+                && dist_to_rings((u, v), &rings) > clearance
+                && !in_any_diametral_disk(u, v)
+            {
                 uv_pts.push((u, v));
                 pos_pts.push(None);
             }
@@ -393,9 +419,27 @@ fn build_ring(
         let origin = brep.vertices[data.origin].position;
 
         // Direction: does the canonical polyline start at this
-        // half-edge's origin?
-        let forward = samples.points.first()?.distance_to(&origin)
-            <= samples.points.last()?.distance_to(&origin);
+        // half-edge's origin? For CLOSED edges (both endpoints are
+        // the same point) that test is degenerate — use the pcurve's
+        // walk direction instead: its early image must match the
+        // polyline's second sample rather than its second-to-last.
+        let closed_edge = samples
+            .points
+            .first()
+            .zip(samples.points.last())
+            .map(|(a, b)| a.distance_to(b) < 1e-9)
+            .unwrap_or(false);
+        let forward = if closed_edge && samples.points.len() >= 3 {
+            let sof_dir = brep.faces[brep.loops[data.loop_].face].surface.as_ref()?;
+            let (pt0, pt1) = pc.parameter_range();
+            let early_uv = pc.point_at(pt0 + (pt1 - pt0) * 0.05);
+            let early = sof_dir.geometry.point_at(early_uv.x, early_uv.y);
+            early.distance_to(&samples.points[1])
+                <= early.distance_to(&samples.points[samples.points.len() - 2])
+        } else {
+            samples.points.first()?.distance_to(&origin)
+                <= samples.points.last()?.distance_to(&origin)
+        };
         let m = samples.points.len();
         // Emit all but the last point (the next half-edge provides
         // its own start, which is the shared vertex).
@@ -596,7 +640,17 @@ fn in_circumcircle(p: (f64, f64), a: (f64, f64), b: (f64, f64), c: (f64, f64)) -
     let (ax, ay) = (a.0 - p.0, a.1 - p.1);
     let (bx, by) = (b.0 - p.0, b.1 - p.1);
     let (cx, cy) = (c.0 - p.0, c.1 - p.1);
-    let det = (ax * ax + ay * ay) * (bx * cy - by * cx) - (bx * bx + by * by) * (ax * cy - ay * cx)
-        + (cx * cx + cy * cy) * (ax * by - ay * bx);
-    if orient > 0.0 { det > 0.0 } else { det < 0.0 }
+    let t1 = (ax * ax + ay * ay) * (bx * cy - by * cx);
+    let t2 = (bx * bx + by * by) * (ax * cy - ay * cx);
+    let t3 = (cx * cx + cy * cy) * (ax * by - ay * bx);
+    let det = t1 - t2 + t3;
+    // Relative-epsilon guard: exactly-cocircular points (e.g. hole
+    // rings sampled from an analytic circle) give det = ±1e-17 float
+    // noise; strict comparison then cascades arbitrary
+    // re-triangulations that break boundary segments. Near-zero is
+    // OUT of the circumcircle — any triangulation of a cocircular
+    // set is equally Delaunay.
+    let scale = t1.abs() + t2.abs() + t3.abs();
+    let eps = scale * 1.0e-12;
+    if orient > 0.0 { det > eps } else { det < -eps }
 }

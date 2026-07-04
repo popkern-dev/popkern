@@ -129,6 +129,19 @@ pub struct EdgeGeometry {
     pub trim_3d_1: NurbsCurve,
     /// Trim curve on face 2 (3D).
     pub trim_3d_2: NurbsCurve,
+    /// Exact trim circle on face 1 `(center, normal, radius)` when
+    /// the contact is circular (see `trim::TrimCurves::circle_1`).
+    pub trim_circle_1: Option<(
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Vec3,
+        f64,
+    )>,
+    /// Exact trim circle on face 2; see `trim_circle_1`.
+    pub trim_circle_2: Option<(
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Vec3,
+        f64,
+    )>,
     /// Pcurve on face 1.
     pub pcurve_1: NurbsCurve,
     /// Pcurve on face 2.

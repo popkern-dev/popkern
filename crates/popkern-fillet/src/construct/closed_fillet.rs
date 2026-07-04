@@ -223,19 +223,63 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         tolerance: None,
     });
 
-    // 7. Create the two new contact-circle edges. Each carries
-    //    the corresponding trim_3d as its curve geometry.
+    // 7. Create the two new contact-circle edges. Closed-fillet
+    //    contact curves are exact circles (rolling-ball contacts of
+    //    a circular rim); carry them as analytic Arc geometry — the
+    //    NURBS fit through the footprints has ~3e-3 interpolation
+    //    error that fails every downstream surface-association gate
+    //    (tessellation, export), and the angle parameterization
+    //    pairs exactly with iso-linear pcurves on the supports.
+    //    Fit failure falls back to the interpolated trim.
+    let (trim_seam, trim_fresh, circle_seam, circle_fresh) = if seam_a.is_some() {
+        (
+            &eg.trim_3d_1,
+            &eg.trim_3d_2,
+            &eg.trim_circle_1,
+            &eg.trim_circle_2,
+        )
+    } else {
+        (
+            &eg.trim_3d_2,
+            &eg.trim_3d_1,
+            &eg.trim_circle_2,
+            &eg.trim_circle_1,
+        )
+    };
+    let trim_curve_on_edge = |trim: &popkern_core::geometry::NurbsCurve,
+                              circle: &Option<(Point3, popkern_core::geometry::Vec3, f64)>,
+                              start_at: Point3|
+     -> popkern_core::geometry::CurveOnEdge {
+        match circle {
+            Some((center, normal, radius)) => {
+                // Angle-parameterized analytic arc starting at the
+                // edge's vertex.
+                let (e1, e2) =
+                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*normal);
+                let d = start_at - *center;
+                let theta0 = d.dot(&e2).atan2(d.dot(&e1));
+                popkern_core::geometry::CurveOnEdge {
+                    geometry: popkern_core::geometry::curve::CurveGeometry::Arc {
+                        center: *center,
+                        normal: *normal,
+                        radius: *radius,
+                        start_angle: theta0,
+                        end_angle: theta0 + std::f64::consts::TAU,
+                    },
+                    t_start: theta0,
+                    t_end: theta0 + std::f64::consts::TAU,
+                }
+            }
+            None => popkern_core::geometry::CurveOnEdge {
+                geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(trim.clone()),
+                t_start: 0.0,
+                t_end: 1.0,
+            },
+        }
+    };
     let edge_seam_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(popkern_core::geometry::curve::CurveOnEdge {
-            geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(if seam_a.is_some() {
-                eg.trim_3d_1.clone()
-            } else {
-                eg.trim_3d_2.clone()
-            }),
-            t_start: 0.0,
-            t_end: 1.0,
-        }),
+        curve: Some(trim_curve_on_edge(trim_seam, circle_seam, pos_for_face_a)),
         name: None,
         tolerance: None,
         canonical: Default::default(),
@@ -243,15 +287,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
     });
     let edge_fresh_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(popkern_core::geometry::curve::CurveOnEdge {
-            geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(if seam_a.is_some() {
-                eg.trim_3d_2.clone()
-            } else {
-                eg.trim_3d_1.clone()
-            }),
-            t_start: 0.0,
-            t_end: 1.0,
-        }),
+        curve: Some(trim_curve_on_edge(trim_fresh, circle_fresh, pos_for_face_b)),
         name: None,
         tolerance: None,
         canonical: Default::default(),
@@ -392,7 +428,85 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
     brep.half_edges.remove(he_b_h);
     brep.edges.remove(fillet_edge);
 
+    // 14. Seam the fillet face: its two boundary circles are
+    //     disjoint loops, so the face charts as a full-wrap ring —
+    //     unchartable for tessellation/export (the same reason a
+    //     primitive cylinder's lateral carries a seam edge). Join
+    //     the inner ring to the outer loop (mekr) along the strip's
+    //     cross-section at the boundary vertices, which are aligned
+    //     by construction: both trim curves start at the walker's
+    //     spine start angle.
+    {
+        let he_outer = brep.loops[loop_fillet_outer].half_edge;
+        let he_inner = brep.loops[loop_fillet_inner].half_edge;
+        let p_out = brep.vertices[brep.half_edges[he_outer].origin].position;
+        let p_in = brep.vertices[brep.half_edges[he_inner].origin].position;
+        match brep.mekr(he_outer, he_inner) {
+            Ok(mekr) => {
+                // Seam curve: the strip's cross-section arc between
+                // the two boundary vertices — a 17-point polyline
+                // sampled from the FILLET SURFACE (chord sagitta
+                // ~1e-7 at demo scales; exact-arc upgrade rides the
+                // matched-pcurve follow-up recorded in trim.rs).
+                let surface = &eg.surface;
+                use popkern_core::geometry::surface::SurfaceEval;
+                let uv_of = |p: &Point3| -> Option<(f64, f64)> {
+                    popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)
+                };
+                if let (Some(uv_a), Some(uv_b)) = (uv_of(&p_out), uv_of(&p_in)) {
+                    let n = 17usize;
+                    let pts: Vec<Point3> = (0..n)
+                        .map(|i| {
+                            let f = i as f64 / (n - 1) as f64;
+                            let u = uv_a.0 + (uv_b.0 - uv_a.0) * f;
+                            let v = uv_a.1 + (uv_b.1 - uv_a.1) * f;
+                            surface.point_at(u, v)
+                        })
+                        .collect();
+                    // Endpoints exactly at the vertices.
+                    let mut pts = pts;
+                    pts[0] = p_out;
+                    pts[n - 1] = p_in;
+                    let mut knots = Vec::with_capacity(n + 2);
+                    knots.push(0.0);
+                    for i in 0..n {
+                        knots.push(i as f64 / (n - 1) as f64);
+                    }
+                    knots.push(1.0);
+                    if let Some(edge) = brep.edges.get_mut(mekr.edge) {
+                        edge.curve = Some(popkern_core::geometry::CurveOnEdge {
+                            geometry: popkern_core::geometry::CurveGeometry::Nurbs(
+                                popkern_core::geometry::NurbsCurve {
+                                    degree: 1,
+                                    knots,
+                                    control_points: pts,
+                                    weights: vec![1.0; n],
+                                },
+                            ),
+                            t_start: 0.0,
+                            t_end: 1.0,
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                // Structured decline: the strip stays valid (two
+                // disjoint rings) but unchartable; tessellation
+                // falls back to the legacy path for this face.
+                tracing_note_seam_decline(&format!("closed-fillet seam mekr declined: {e}"));
+            }
+        }
+    }
+
     Ok(())
+}
+
+/// Seam-decline observability without a tracing dependency: stderr
+/// under the fillet trace env, silent otherwise.
+fn tracing_note_seam_decline(msg: &str) {
+    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+        eprintln!("  [closed-fillet] {msg}");
+    }
 }
 
 /// Find a half-edge in `loop_handle` other than `skip` whose

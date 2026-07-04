@@ -22,6 +22,14 @@ pub struct TrimCurves {
     /// Parameter-space (UV) trim curve on surface 2.
     /// Uses `Point3(u, v, 0.0)` convention.
     pub pcurve_2: NurbsCurve,
+    /// Exact circle through footprint_1 `(center, normal, radius)`
+    /// when the contacts are circular (closed rims) — the NURBS fit
+    /// above carries ~3e-3 interpolation error; consumers needing
+    /// watertight-grade trim geometry (closed-fillet edges) use
+    /// this.
+    pub circle_1: Option<(Point3, popkern_core::geometry::Vec3, f64)>,
+    /// Exact circle through footprint_2; see `circle_1`.
+    pub circle_2: Option<(Point3, popkern_core::geometry::Vec3, f64)>,
 }
 
 /// Compute trim curves from footprint points projected onto two surfaces.
@@ -51,11 +59,31 @@ pub fn compute_trim_curves(
     let pcurve_1 = fit_nurbs_through_points(&uv1)?;
     let pcurve_2 = fit_nurbs_through_points(&uv2)?;
 
+    let circle_of = |fp: &[Point3]| -> Option<(Point3, popkern_core::geometry::Vec3, f64)> {
+        let (center, radius) = crate::fillet_surface_analytic::fit_exact_circle_center(fp)?;
+        let mut nx = 0.0;
+        let mut ny = 0.0;
+        let mut nz = 0.0;
+        for i in 0..fp.len() {
+            let a = fp[i];
+            let b = fp[(i + 1) % fp.len()];
+            nx += (a.y - b.y) * (a.z + b.z);
+            ny += (a.z - b.z) * (a.x + b.x);
+            nz += (a.x - b.x) * (a.y + b.y);
+        }
+        let normal = popkern_core::geometry::Vec3::new(nx, ny, nz).normalized()?;
+        Some((center, normal, radius))
+    };
+    let circle_1 = circle_of(footprint_1);
+    let circle_2 = circle_of(footprint_2);
+
     Ok(TrimCurves {
         curve_3d_1,
         pcurve_1,
         curve_3d_2,
         pcurve_2,
+        circle_1,
+        circle_2,
     })
 }
 
