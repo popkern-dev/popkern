@@ -611,7 +611,27 @@ fn build_cap_face_fan(
     let _ = o_vertex;
 
     // 4. Assign piece surfaces by centroid matching.
-    let patches = super::kp20_polar_fold_summary::gregory_patches_from_macro_patches(sectors);
+    let mut patches = super::kp20_polar_fold_summary::gregory_patches_from_macro_patches(sectors);
+    // Sweep reconciliation (PK-096): the border's cubic row0 can only
+    // follow the fillet surface to ~4e-4 over an arc half-span, and
+    // the cap interpolates it exactly — a genuine C0 shell gap that
+    // STEP consumers refuse to auto-sew. The bi-9 boundary has the
+    // degrees of freedom the cubic lacks: project each rim-side
+    // boundary row onto its fillet surface and translate the two
+    // derivative rows in parallel (preserving the G1/G2 structure).
+    let lateral_planes: Vec<popkern_core::geometry::SurfaceGeometry> = brep
+        .faces
+        .iter()
+        .filter_map(|(_, f)| {
+            let sof = f.surface.as_ref()?;
+            matches!(
+                sof.geometry,
+                popkern_core::geometry::SurfaceGeometry::Plane { .. }
+            )
+            .then(|| sof.geometry.clone())
+        })
+        .collect();
+    reconcile_cap_rim_to_sweeps(&mut patches, fillet_surfaces, &lateral_planes);
     let mut cap_faces = Vec::new();
     let mut assigned = vec![false; patches.len()];
     let face_handles: Vec<FaceHandle> = brep.faces.iter().map(|(fh, _)| fh).collect();
@@ -824,7 +844,10 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
             let data = &brep.half_edges[he];
             let twin_face = brep.loops[brep.half_edges[data.twin].loop_].face;
             let twin_is_cap = cap_faces.contains(&twin_face);
-            if twin_is_cap {
+            if twin_is_cap && fh > twin_face {
+                // Interior cap↔cap edges are refit once (from the
+                // lower-handle side); both grids agree on the shared
+                // row after sweep reconciliation.
                 continue;
             }
             let va = data.origin;
@@ -1108,6 +1131,195 @@ fn bezier9_split_left(cps: &[Point3; 10], t: f64) -> [Point3; 10] {
         left[slot] = work[0];
     }
     left
+}
+
+/// Project the rim-side boundary rows of the bi-9 cap pieces onto the
+/// fillet sweeps (see call site). A grid side is a rim side when every
+/// sampled point lies within `RIM_NEAR` of some fillet surface; the
+/// projection deltas are applied to the boundary row and, in parallel,
+/// to the two rows behind it. Deltas at shared corners are computed
+/// from identical input points, so adjacent pieces stay sewn.
+fn reconcile_cap_rim_to_sweeps(
+    patches: &mut [popkern_core::geometry::gregory::GregoryPatch],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+    lateral_planes: &[popkern_core::geometry::SurfaceGeometry],
+) {
+    use popkern_core::geometry::gregory::GregoryPatch;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    const RIM_NEAR: f64 = 2.0e-3;
+
+    // The rim's neighbors are the sweeps along the arcs AND the
+    // lateral planes along the corner segments (past the trim
+    // crossings X the border leaves the fillet surface). Candidates
+    // are enumerated so callers can track WHICH surface a sample
+    // used: min-distance alone jumps between the two planes meeting
+    // at a corner c, and interpolating the resulting discontinuous
+    // field rings at the millimetre level.
+    let candidates: Vec<popkern_core::geometry::SurfaceGeometry> = fillet_surfaces
+        .iter()
+        .map(|f| f.surface.clone())
+        .chain(lateral_planes.iter().cloned())
+        .collect();
+    let project_on = |idx: usize, p: Point3| -> Option<(f64, Point3)> {
+        let sfc = &candidates[idx];
+        let (u, v) = project_point_to_uv(sfc, &p)?;
+        let q = sfc.point_at(u, v);
+        Some((q.distance_to(&p), q))
+    };
+    let project_best = |p: Point3| -> Option<(usize, f64, Point3)> {
+        let mut best: Option<(usize, f64, Point3)> = None;
+        for idx in 0..candidates.len() {
+            if let Some((d, q)) = project_on(idx, p)
+                && best.map(|(_, bd, _)| d < bd).unwrap_or(true)
+            {
+                best = Some((idx, d, q));
+            }
+        }
+        best.filter(|(_, d, _)| *d < RIM_NEAR)
+    };
+    // Continuation projection: keep the previous sample's surface
+    // while it stays near; switch only when it drifts (the genuine
+    // arc→plane handoff at X happens where both surfaces agree).
+    let project_seq = |pts: &[Point3]| -> Option<Vec<Point3>> {
+        let mut out = Vec::with_capacity(pts.len());
+        let mut current: Option<usize> = None;
+        for &p in pts {
+            let pick = match current {
+                Some(idx) => match project_on(idx, p) {
+                    Some((d, q)) if d < RIM_NEAR => Some((idx, d, q)),
+                    _ => project_best(p),
+                },
+                None => project_best(p),
+            };
+            let (idx, _, q) = pick?;
+            current = Some(idx);
+            out.push(q);
+        }
+        Some(out)
+    };
+
+    for patch in patches.iter_mut() {
+        let GregoryPatch::RectangularBiNonic(bp) = patch else {
+            continue;
+        };
+        // Four sides: (fixed index, along index, is_row, fixed at 0 or 9).
+        // Represent as closures over (k) returning grid coordinates for
+        // depth d in 0..3.
+        for side in 0..4 {
+            // Gather the boundary row for this side.
+            let coord = |d: usize, k: usize| -> (usize, usize) {
+                match side {
+                    0 => (d, k),     // row i=0 boundary, depth into +i
+                    1 => (9 - d, k), // row i=9 boundary, depth into -i
+                    2 => (k, d),     // col j=0 boundary, depth into +j
+                    _ => (k, 9 - d), // col j=9 boundary, depth into -j
+                }
+            };
+            // Rim test on CURVE SAMPLES: control points legitimately
+            // sit 1-2e-3 off their own curve, so a CP-based gate
+            // wrongly rejects true rim sides.
+            let side_row: [Point3; 10] = core::array::from_fn(|k| {
+                let (i, j) = coord(0, k);
+                bp.grid[i][j]
+            });
+            let gate_pts: Vec<Point3> = (0..=16)
+                .map(|i| bezier9_eval(&side_row, i as f64 / 16.0))
+                .collect();
+            if project_seq(&gate_pts).is_none() {
+                continue;
+            }
+            // Land the boundary CURVE on the sweep: projecting control
+            // points directly leaves the curve ~3e-4 off (CPs are not
+            // curve points). Sample the deviation along the curve at
+            // 10 parameters and solve the degree-9 Bernstein
+            // interpolation for the exact CP deltas; iterate (the
+            // projection field is mildly nonlinear).
+            for _pass in 0..3 {
+                let row: [Point3; 10] = core::array::from_fn(|k| {
+                    let (i, j) = coord(0, k);
+                    bp.grid[i][j]
+                });
+                let ts: [f64; 10] = core::array::from_fn(|k| k as f64 / 9.0);
+                let node_pts: Vec<Point3> = ts.iter().map(|&t| bezier9_eval(&row, t)).collect();
+                let Some(projected) = project_seq(&node_pts) else {
+                    break;
+                };
+                let mut rhs = [[0.0_f64; 3]; 10];
+                for k in 0..10 {
+                    let (p, q) = (node_pts[k], projected[k]);
+                    rhs[k] = [q.x - p.x, q.y - p.y, q.z - p.z];
+                }
+                // Bernstein Vandermonde B[k][i] = B_i^9(t_k).
+                let mut mat = [[0.0_f64; 10]; 10];
+                for (k, &t) in ts.iter().enumerate() {
+                    mat[k] = bernstein9_all(t);
+                }
+                let Some(deltas) = solve_10(&mat, &rhs) else {
+                    break;
+                };
+                for k in 0..10 {
+                    for d in 0..3 {
+                        let (i, j) = coord(d, k);
+                        let g = bp.grid[i][j];
+                        bp.grid[i][j] =
+                            Point3::new(g.x + deltas[k][0], g.y + deltas[k][1], g.z + deltas[k][2]);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn bernstein9_all(t: f64) -> [f64; 10] {
+    const C: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
+    let mut out = [0.0_f64; 10];
+    let u = 1.0 - t;
+    let mut tp = 1.0;
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = C[i] * tp * u.powi(9 - i as i32);
+        tp *= t;
+    }
+    out
+}
+
+/// Solve the 10×10 linear system `mat · x = rhs` (3 right-hand sides)
+/// by Gaussian elimination with partial pivoting.
+fn solve_10(mat: &[[f64; 10]; 10], rhs: &[[f64; 3]; 10]) -> Option<[[f64; 3]; 10]> {
+    let mut a = *mat;
+    let mut b = *rhs;
+    for col in 0..10 {
+        let mut piv = col;
+        for r in (col + 1)..10 {
+            if a[r][col].abs() > a[piv][col].abs() {
+                piv = r;
+            }
+        }
+        if a[piv][col].abs() < 1e-14 {
+            return None;
+        }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        for r in (col + 1)..10 {
+            let f = a[r][col] / a[col][col];
+            for c in col..10 {
+                a[r][c] -= f * a[col][c];
+            }
+            for c in 0..3 {
+                b[r][c] -= f * b[col][c];
+            }
+        }
+    }
+    let mut x = [[0.0_f64; 3]; 10];
+    for row in (0..10).rev() {
+        for c in 0..3 {
+            let mut acc = b[row][c];
+            for col in (row + 1)..10 {
+                acc -= a[row][col] * x[col][c];
+            }
+            x[row][c] = acc / a[row][row];
+        }
+    }
+    Some(x)
 }
 
 /// Dissolve scaffold edges between fillet-face pieces that carry the
