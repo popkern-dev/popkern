@@ -135,64 +135,9 @@ fn main() {
         boss.edges.len()
     );
 
-    // Boss geometry audit: seam edge curve + vertices.
-    for (eh, edge) in boss.edges.iter() {
-        let he = edge.half_edge;
-        let o = boss.vertices[boss.half_edges[he].origin].position;
-        let t = boss.vertices[boss.half_edges[boss.half_edges[he].twin].origin].position;
-        let has_curve = edge.curve.is_some();
-        eprintln!(
-            "  boss edge {eh:?}: ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}) curve={has_curve}",
-            o.x, o.y, o.z, t.x, t.y, t.z
-        );
-    }
-
-    for (_, f) in boss.faces.iter() {
-        if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius,
-        }) = f.surface.as_ref().map(|s| &s.geometry)
-        {
-            eprintln!(
-                "  boss cyl: origin ({:.4},{:.4},{:.4}) axis ({:.3},{:.3},{:.3}) r {:.6}",
-                origin.x, origin.y, origin.z, axis.x, axis.y, axis.z, radius
-            );
-            let v = popkern_core::geometry::Point3::new(-0.0, 0.3446, 0.2);
-            let d = v - *origin;
-            let radial = d - *axis * d.dot(axis);
-            eprintln!("  seam vertex radial dist: {:.6}", radial.length());
-        }
-    }
-
     // Stage 2: boolean union.
     let unioned = popkern_bool::union(plate, boss, tol, None).expect("union");
-    if let Err(e) = unioned.validate() {
-        eprintln!("union INVALID: {e:?}");
-        for (fh, f) in unioned.faces.iter() {
-            let c = unioned.face_outer_loop_positions(fh);
-            let z: f64 = c.iter().map(|p| p.z).sum::<f64>() / c.len().max(1) as f64;
-            let kind = match f.surface.as_ref().map(|s| &s.geometry) {
-                Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) => "Plane",
-                Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_)) => "Nurbs",
-                Some(popkern_core::geometry::SurfaceGeometry::Cylinder { .. }) => "Cyl",
-                _ => "?",
-            };
-            eprintln!(
-                "  face {fh:?} {kind} loop={} inner={} z~{z:.2}",
-                c.len(),
-                f.inner_loops.len()
-            );
-        }
-        eprintln!(
-            "  totals: F={} E={} V={} L={}",
-            unioned.faces.len(),
-            unioned.edges.len(),
-            unioned.vertices.len(),
-            unioned.loops.len()
-        );
-        panic!("union must validate");
-    }
+    unioned.validate().expect("union must validate");
     println!(
         "stage 2 union: faces={} edges={} vertices={} (validate ok)",
         unioned.faces.len(),
@@ -233,5 +178,180 @@ fn main() {
         }
     }
     println!("stage 2 seam edges at plate top: {}", seam_edges.len());
+    if seam_edges.is_empty() {
+        for (eh, edge) in unioned.edges.iter() {
+            let he = edge.half_edge;
+            let f1 = unioned.loops[unioned.half_edges[he].loop_].face;
+            let f2 = unioned.loops[unioned.half_edges[unioned.half_edges[he].twin].loop_].face;
+            let kindof = |fh: popkern_core::topology::FaceHandle| match unioned.faces[fh]
+                .surface
+                .as_ref()
+                .map(|s| &s.geometry)
+            {
+                Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) => "P",
+                Some(popkern_core::geometry::SurfaceGeometry::Cylinder { .. }) => "C",
+                Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_)) => "N",
+                _ => "?",
+            };
+            let mid = edge.curve.as_ref().map(|c| {
+                use popkern_core::geometry::curve::CurveEval;
+                let ceval: &dyn CurveEval = &c.geometry;
+                ceval.point_at(0.5 * (c.t_start + c.t_end))
+            });
+            eprintln!(
+                "  edge {eh:?} {}x{} mid {:?}",
+                kindof(f1),
+                kindof(f2),
+                mid.map(|p| (p.x, p.y, p.z))
+            );
+        }
+    }
     assert!(!seam_edges.is_empty(), "no curved seam edge found");
+
+    // Stage 3: fillet — the CURVED seam edges plus the plate's top
+    // perimeter and vertical edges (vertex-blend caps at the top
+    // corners).
+    let mut fillet_edges_list: Vec<popkern_core::topology::EdgeHandle> = seam_edges.clone();
+    let seam_only = std::env::var_os("FLAGSHIP_SEAM_ONLY").is_some();
+    for (eh, edge) in unioned.edges.iter() {
+        if seam_only {
+            break;
+        }
+        let he = edge.half_edge;
+        let a = unioned.vertices[unioned.half_edges[he].origin].position;
+        let b = unioned.vertices[unioned.half_edges[unioned.half_edges[he].twin].origin].position;
+        let vertical = (a.z - b.z).abs() > 0.3
+            && (a.x - b.x).abs() < 1e-9
+            && (a.y - b.y).abs() < 1e-9
+            && a.z.min(b.z) < 1e-6;
+        let top_perimeter =
+            (a.z - 0.4).abs() < 1e-6 && (b.z - 0.4).abs() < 1e-6 && a.distance_to(&b) > 1.0;
+        if vertical || top_perimeter {
+            fillet_edges_list.push(eh);
+        }
+    }
+    println!(
+        "stage 3 filleting {} edges ({} seam + {} plate)",
+        fillet_edges_list.len(),
+        seam_edges.len(),
+        fillet_edges_list.len() - seam_edges.len()
+    );
+    let specs: Vec<popkern_fillet::FilletSpec> = fillet_edges_list
+        .iter()
+        .map(|&edge| popkern_fillet::FilletSpec {
+            edge,
+            radius: popkern_fillet::FilletRadius::Constant(0.08),
+        })
+        .collect();
+    let options = popkern_fillet::FilletOptions {
+        continuity: popkern_fillet::ContinuityLevel::G1,
+        ..Default::default()
+    };
+    let result = match popkern_fillet::fillet_edges(&unioned, &specs, &options, tol, None) {
+        Ok(r) => r,
+        Err(popkern_fillet::BlendError::PartialFailure { failures, .. }) => {
+            for (eh, f) in &failures {
+                eprintln!("  fillet FAILED on {eh:?}: {f:?}");
+            }
+            panic!("fillet partial failure");
+        }
+        Err(e) => panic!("fillet pipeline: {e}"),
+    };
+    result
+        .brep
+        .validate()
+        .expect("filleted flagship must validate");
+    for (eh, w) in &result.edge_warnings {
+        eprintln!("  warning on {eh:?}: {w:?}");
+    }
+    println!(
+        "stage 3 fillet: faces={} edges={} (validate ok, {} warnings, {} corner patches)",
+        result.brep.faces.len(),
+        result.brep.edges.len(),
+        result.edge_warnings.len(),
+        result.corner_patches.len()
+    );
+
+    // Stage 4: watertight tessellation + OBJ render source + STEP.
+    let mesh =
+        popkern_mesh::tessellate(&result.brep, &popkern_mesh::TessellationOptions::default())
+            .expect("tessellation");
+    println!(
+        "stage 4 tessellated: {} vertices, {} triangles",
+        mesh.vertices.len(),
+        mesh.triangles.len()
+    );
+    // Closure audit: welded edge-use counts.
+    {
+        use std::collections::HashMap;
+        let mut key = HashMap::new();
+        let mut canon = Vec::new();
+        let mut id = |p: popkern_core::geometry::Point3,
+                      key: &mut HashMap<(i64, i64, i64), usize>,
+                      canon: &mut Vec<popkern_core::geometry::Point3>| {
+            let k = (
+                (p.x * 1.0e7).round() as i64,
+                (p.y * 1.0e7).round() as i64,
+                (p.z * 1.0e7).round() as i64,
+            );
+            *key.entry(k).or_insert_with(|| {
+                canon.push(p);
+                canon.len() - 1
+            })
+        };
+        let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+        for t in &mesh.triangles {
+            let w = [
+                id(mesh.vertices[t[0]].position, &mut key, &mut canon),
+                id(mesh.vertices[t[1]].position, &mut key, &mut canon),
+                id(mesh.vertices[t[2]].position, &mut key, &mut canon),
+            ];
+            if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
+                continue;
+            }
+            for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
+                *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        let open = counts.values().filter(|&&c| c == 1).count();
+        println!("stage 4 open edges: {open}");
+    }
+    let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output");
+    std::fs::create_dir_all(&out_dir).expect("out dir");
+    // Plain OBJ.
+    let obj_path = out_dir.join("flagship_boss_plate.obj");
+    {
+        use std::io::Write;
+        let mut f = std::fs::File::create(&obj_path).expect("obj file");
+        for v in &mesh.vertices {
+            writeln!(f, "v {} {} {}", v.position.x, v.position.y, v.position.z).unwrap();
+        }
+        for t in &mesh.triangles {
+            writeln!(f, "f {} {} {}", t[0] + 1, t[1] + 1, t[2] + 1).unwrap();
+        }
+    }
+    println!("wrote {}", obj_path.display());
+    let step_path = out_dir.join("flagship_boss_plate.step");
+    let doc = popkern_io::StepDocument {
+        products: vec![popkern_io::StepProductNode {
+            name: "flagship_boss_plate".into(),
+            id: "FLAGSHIP-BOSS-PLATE-001".into(),
+            children: vec![],
+            shapes: vec![std::sync::Arc::new(popkern_io::ShapeRep {
+                kind: popkern_io::ShapeRepKind::AdvancedBrep,
+                solids: vec![result.brep.clone()],
+                context: popkern_io::RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: popkern_io::ProductMetadata::default(),
+        }],
+        roots: vec![0],
+        units: popkern_io::UnitContext::default(),
+        opaque_bag: popkern_io::OpaqueBag::default(),
+    };
+    match popkern_io::export_step_file(&doc, &step_path, &popkern_io::StepExportOptions::default())
+    {
+        Ok(()) => println!("wrote {}", step_path.display()),
+        Err(e) => println!("STEP export declined: {e}"),
+    }
 }

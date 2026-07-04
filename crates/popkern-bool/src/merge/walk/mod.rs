@@ -335,7 +335,15 @@ fn next_around_face(
                 let twin_c = graph.half_edges[idx].twin;
                 let is_candidate_self_loop =
                     graph.half_edges[idx].origin == graph.half_edges[twin_c].origin;
-                if is_candidate_self_loop && graph.half_edges[idx].face.as_ref() != Some(face) {
+                // A self-loop candidate belongs to this walk when
+                // EITHER half is assigned to this face: intersection
+                // circles are cross-registered exactly so both of a
+                // face's fragments (each side of the cut) can use one
+                // direction each. Excluding by primary face alone
+                // starved the second fragment of its circle boundary.
+                let this_face = graph.half_edges[idx].face.as_ref() == Some(face)
+                    || graph.half_edges[twin_c].face.as_ref() == Some(face);
+                if is_candidate_self_loop && !this_face {
                     return false;
                 }
             }
@@ -401,7 +409,20 @@ fn next_around_face(
                     super::graph::EdgeSource::Shared { .. }
                 )
         });
-        if !unvisited_face_matching {
+        // An unvisited SELF-LOOP intersection curve at this node is a
+        // topological barrier that bounds this fragment — closing the
+        // loop early would leave the fragment without its cut
+        // boundary (the wall of a boss/plate union lost its seam
+        // circle and the circle became a stray one-edge fragment).
+        let unvisited_cut_here = candidates.iter().any(|&c| {
+            let twin_c = graph.half_edges[c].twin;
+            c != sh
+                && !visited.contains(&c)
+                && graph.half_edges[c].origin == graph.half_edges[twin_c].origin
+                && (graph.half_edges[c].face.as_ref() == Some(face)
+                    || graph.half_edges[twin_c].face.as_ref() == Some(face))
+        });
+        if !unvisited_face_matching && !unvisited_cut_here {
             return Some(sh);
         }
     }

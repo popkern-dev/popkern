@@ -173,6 +173,77 @@ pub(crate) fn recognize_extruded_cylinder(
     ))
 }
 
+/// Recognize an extruded straight profile span as an analytic plane.
+///
+/// Conditions: translation surface (straight extrusion) whose v=0
+/// profile row is collinear. The chart map is EXACT here (linear
+/// profile parameterization): u = distance along the profile line,
+/// v = distance along the extrusion.
+pub(crate) fn recognize_extruded_plane(
+    surface: &NurbsSurface,
+) -> Option<(SurfaceGeometry, ChartMap)> {
+    const NU: usize = 17;
+    const NV: usize = 5;
+    let row0: Vec<Point3> = (0..NU)
+        .map(|i| surface.point_at(i as f64 / (NU - 1) as f64, 0.0))
+        .collect();
+    // Straightness of the profile row.
+    let chord = row0[NU - 1] - row0[0];
+    let len = chord.length();
+    if len < 1.0e-12 {
+        return None;
+    }
+    let dir = chord * (1.0 / len);
+    for p in &row0 {
+        let d = *p - row0[0];
+        let off = d - dir * d.dot(&dir);
+        if off.length() > 1.0e-9 * (1.0 + len) {
+            return None;
+        }
+        // Monotone along the line (no doubling back).
+        if d.dot(&dir) < -1.0e-9 {
+            return None;
+        }
+    }
+    // Translation test.
+    let mut axis_dir: Option<Vec3> = None;
+    let mut height = 0.0;
+    for j in 1..NV {
+        let v = j as f64 / (NV - 1) as f64;
+        let offset = surface.point_at(0.0, v) - row0[0];
+        for (i, p0) in row0.iter().enumerate() {
+            let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
+            if ((p - *p0) - offset).length() > 1.0e-9 * (1.0 + offset.length()) {
+                return None;
+            }
+        }
+        if j == NV - 1 {
+            height = offset.length();
+            if height < 1.0e-12 {
+                return None;
+            }
+            axis_dir = offset.normalized();
+        }
+    }
+    let v_axis = axis_dir?;
+    let normal = dir.cross(&v_axis).normalized()?;
+    let geometry = SurfaceGeometry::Plane {
+        origin: row0[0],
+        normal,
+        u_axis: dir,
+        v_axis,
+    };
+    Some((
+        geometry,
+        ChartMap {
+            u_offset: 0.0,
+            u_scale: len,
+            v_offset: 0.0,
+            v_scale: height,
+        },
+    ))
+}
+
 /// Circumcenter of three points, constrained to the plane through
 /// `a` perpendicular to `axis` (extrusion profiles are planar).
 fn circumcenter_3d(a: Point3, b: Point3, c: Point3, axis: Vec3) -> Option<Point3> {

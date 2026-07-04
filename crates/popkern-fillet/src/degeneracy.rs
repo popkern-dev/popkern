@@ -295,7 +295,41 @@ fn check_zero_area_support(
     let check_side = |face: popkern_core::topology::FaceHandle,
                       side: SupportSide|
      -> Result<(), DegeneracyKind> {
-        let positions = brep.face_outer_loop_positions(face);
+        // Boundary polygon from EDGE-CURVE samples, not vertices: a
+        // curved face bounded by closed curves (a cylinder wall
+        // between two circles) has as few as two vertices, and the
+        // vertex polygon is degenerate even though the face is not.
+        let mut positions: Vec<popkern_core::geometry::Point3> = Vec::new();
+        if let Some(face_data) = brep.faces.get(face) {
+            let start = brep.loops[face_data.outer_loop].half_edge;
+            let mut he = start;
+            for _ in 0..10_000 {
+                let data = &brep.half_edges[he];
+                if let Some(curve) = brep.edges[data.edge].curve.as_ref() {
+                    use popkern_core::geometry::curve::CurveEval;
+                    let ceval: &dyn CurveEval = &curve.geometry;
+                    let origin = brep.vertices[data.origin].position;
+                    let (t0, t1) = (curve.t_start, curve.t_end);
+                    let forward = ceval.point_at(t0).distance_to(&origin)
+                        <= ceval.point_at(t1).distance_to(&origin);
+                    for k in 0..8 {
+                        let f = k as f64 / 8.0;
+                        let t = if forward {
+                            t0 + (t1 - t0) * f
+                        } else {
+                            t1 - (t1 - t0) * f
+                        };
+                        positions.push(ceval.point_at(t));
+                    }
+                } else {
+                    positions.push(brep.vertices[data.origin].position);
+                }
+                he = data.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
         if positions.len() < 3 {
             return Err(DegeneracyKind::ZeroAreaSupport { side, area: 0.0 });
         }

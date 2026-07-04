@@ -70,9 +70,14 @@ pub(crate) fn cellular_assemble(
         node_to_vertex.insert(node, vh);
     }
 
-    // Step 3: Collect all unique edges (canonical: sorted node pair).
-    // Key: (min_node, max_node), Value: graph half-edge index (for curve data).
-    let mut canonical_edges: std::collections::BTreeMap<(usize, usize), usize> =
+    // Step 3: Collect all unique edges. CANONICAL KEY = the graph
+    // edge's own identity, min(he, twin) — NOT the node pair: two
+    // distinct edges can connect the same nodes (the two arcs of a
+    // split intersection circle) and a closed intersection curve is
+    // a self-loop whose node pair (n, n) cannot distinguish it from
+    // anything else at that node. Node-pair keying merged those,
+    // dropping curves and mispairing faces.
+    let mut canonical_edges: std::collections::BTreeMap<usize, usize> =
         std::collections::BTreeMap::new();
 
     for &fi in &kept {
@@ -88,28 +93,38 @@ pub(crate) fn cellular_assemble(
             } else {
                 raw_ghe
             };
-            let origin = graph.half_edges[ghe].origin;
             let twin = graph.half_edges[ghe].twin;
-            let end = graph.half_edges[twin].origin;
-            let key = if origin <= end {
-                (origin, end)
-            } else {
-                (end, origin)
-            };
-            canonical_edges.entry(key).or_insert(ghe);
+            let key = ghe.min(twin);
+            canonical_edges.entry(key).or_insert(key);
         }
     }
 
-    // Step 4: Create all edges upfront (deterministic order from BTreeMap).
-    // Map: (node_a, node_b) → (he_fwd, he_twin) where fwd goes a→b.
-    let mut edge_he_map: HashMap<(usize, usize), (HalfEdgeHandle, HalfEdgeHandle)> = HashMap::new();
+    // Step 4: Create all edges upfront (deterministic order from
+    // BTreeMap). Map: min-half-edge → (he_fwd, he_twin) where fwd
+    // follows the MIN graph half-edge's direction.
+    let mut edge_he_map: HashMap<usize, (HalfEdgeHandle, HalfEdgeHandle)> = HashMap::new();
 
-    for (&(na, nb), &sample_ghe) in &canonical_edges {
+    for (&key, &sample_ghe) in &canonical_edges {
+        let na = graph.half_edges[key].origin;
+        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
         let vh_a = node_to_vertex[&na];
         let vh_b = node_to_vertex[&nb];
         let (edge_h, he_fwd, he_twin) = builder.add_edge(vh_a, vh_b);
 
-        edge_he_map.insert((na, nb), (he_fwd, he_twin));
+        edge_he_map.insert(key, (he_fwd, he_twin));
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [assemble] edge key {key}: nodes ({na},{nb}) shared={} curve={}",
+                matches!(
+                    graph.half_edges[sample_ghe].source,
+                    crate::merge::graph::EdgeSource::Shared { .. }
+                ),
+                graph.half_edges[sample_ghe].curve.is_some()
+                    || graph.half_edges[graph.half_edges[sample_ghe].twin]
+                        .curve
+                        .is_some()
+            );
+        }
 
         // Attach curve geometry.
         // For shared (intersection) edges: use the graph's actual intersection
@@ -141,7 +156,17 @@ pub(crate) fn cellular_assemble(
                     // Curve goes nb→na but we need na→nb: swap parameters
                     std::mem::swap(&mut aligned.t_start, &mut aligned.t_end);
                 }
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [assemble] set curve on key {sample_ghe}: t [{:.3},{:.3}]",
+                        aligned.t_start, aligned.t_end
+                    );
+                }
                 builder.set_edge_curve(edge_h, aligned);
+            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                eprintln!(
+                    "  [assemble] shared/self-loop edge key {sample_ghe} ({na},{nb}): NO CURVE on either half"
+                );
             }
         } else {
             // Original/split edge: synthesize line from endpoints.
@@ -171,6 +196,15 @@ pub(crate) fn cellular_assemble(
     for &fi in &kept {
         let sel = &selections[fi];
         let frag = &fragments[fi];
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [assemble] kept fragment {:?} outer {} inner {} flip={}",
+                frag.face,
+                frag.outer_loop.len(),
+                frag.inner_loops.len(),
+                sel.flip
+            );
+        }
         let face_h = builder.add_face(shell);
 
         // Resolve all graph half-edges to BRep half-edges upfront,
@@ -183,22 +217,17 @@ pub(crate) fn cellular_assemble(
                 } else {
                     raw_ghe
                 };
-                let origin = graph.half_edges[ghe].origin;
                 let twin_idx = graph.half_edges[ghe].twin;
-                let end = graph.half_edges[twin_idx].origin;
+                let key = ghe.min(twin_idx);
 
-                let (na, nb) = if origin <= end {
-                    (origin, end)
-                } else {
-                    (end, origin)
-                };
-
-                let Some(&(he_fwd, he_twin)) = edge_he_map.get(&(na, nb)) else {
+                let Some(&(he_fwd, he_twin)) = edge_he_map.get(&key) else {
                     continue;
                 };
 
-                // fwd goes na→nb. We need origin→end.
-                let brep_he = if origin == na { he_fwd } else { he_twin };
+                // fwd follows the MIN half-edge's direction; identity
+                // (not node comparison) resolves self-loops and
+                // double edges correctly.
+                let brep_he = if ghe == key { he_fwd } else { he_twin };
 
                 if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
@@ -209,6 +238,10 @@ pub(crate) fn cellular_assemble(
                     if !used_hes.contains(&twin_brep) {
                         used_hes.insert(twin_brep);
                         result.push(twin_brep);
+                    } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!(
+                            "  [resolve] ghe {ghe} (key {key}): BOTH brep half-edges consumed — dropped from loop"
+                        );
                     }
                 }
             }
@@ -289,12 +322,10 @@ fn cleanup_unwired(builder: &mut BRepBuilder) {
         if let Some(twin) = brep.half_edges.get_mut(*twin_h) {
             twin.twin = *twin_h;
         }
-        if let Some(surviving) = brep.half_edges.get(*twin_h) {
-            let edge_h = surviving.edge;
-            if let Some(edge) = brep.edges.get_mut(edge_h) {
-                edge.curve = None;
-            }
-        }
+        // The surviving edge KEEPS its curve: edge geometry is a
+        // property of the edge, not of its twin wiring — clearing it
+        // here silently degraded seam-style survivors (a boss/plate
+        // intersection circle lost its geometry entirely).
         brep.half_edges.remove(*h);
     }
 

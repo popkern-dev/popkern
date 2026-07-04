@@ -170,12 +170,14 @@ fn zero_area_support_is_detected_when_outer_loop_vertices_collapse() {
     // confuses the walker if the topology changes, which it
     // doesn't here, but doing it in two passes is cleaner.
     let mut vertices_to_collapse = Vec::new();
+    let mut edges_to_collapse = Vec::new();
     let mut current = start_he;
     loop {
         let origin = brep.half_edges[current].origin;
         if origin != first_vertex {
             vertices_to_collapse.push(origin);
         }
+        edges_to_collapse.push(brep.half_edges[current].edge);
         current = brep.half_edges[current].next;
         if current == start_he {
             break;
@@ -183,6 +185,15 @@ fn zero_area_support_is_detected_when_outer_loop_vertices_collapse() {
     }
     for v in vertices_to_collapse {
         brep.vertices[v].position = first_pos;
+    }
+    // A real collapse degenerates the edge curves too; the detector
+    // samples curves (not just vertices) since curved faces bounded
+    // by closed loops have as few as two vertices. Clear the curves
+    // so the vertex fallback represents the collapsed geometry.
+    for eh in edges_to_collapse {
+        if let Some(edge) = brep.edges.get_mut(eh) {
+            edge.curve = None;
+        }
     }
 
     let result = super::check_zero_area_support(&brep, &analysis, &tol());

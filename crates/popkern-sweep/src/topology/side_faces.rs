@@ -145,11 +145,10 @@ fn build_closed_profile_topology(
         // the pcurves below are then authored in the cylinder's
         // native (angle, length) chart via the chart map.
         let face = builder.add_face(shell);
-        let (geometry, chart) =
-            match crate::surface::canonical::recognize_extruded_cylinder(&surfaces[i]) {
-                Some((g, c)) => (g, Some(c)),
-                None => (SurfaceGeometry::Nurbs(surfaces[i].clone()), None),
-            };
+        let (geometry, chart) = crate::surface::canonical::recognize_extruded_plane(&surfaces[i])
+            .or_else(|| crate::surface::canonical::recognize_extruded_cylinder(&surfaces[i]))
+            .map(|(g, c)| (g, Some(c)))
+            .unwrap_or_else(|| (SurfaceGeometry::Nurbs(surfaces[i].clone()), None));
         builder.set_face_surface(
             face,
             SurfaceOnFace {
