@@ -40,8 +40,19 @@ pub(super) fn try_uv_split(
 
     let crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
         Some(c) => c,
-        None => return Ok(false),
+        None => {
+            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                eprintln!("  [bool] face {face_handle:?}: no uv crossings result");
+            }
+            return Ok(false);
+        }
     };
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [bool] face {face_handle:?}: crossings={} is_closed={is_closed}",
+            crossings.len()
+        );
+    }
 
     // Sub-problem A: curve crosses boundary (>= 2 crossings).
     // Clip to the interior segment and split the face.

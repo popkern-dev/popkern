@@ -198,6 +198,141 @@ impl BRep {
             edges,
         })
     }
+
+    /// Add an inner loop (hole) to `face` from a CHAIN of curve
+    /// pieces, one edge per piece carrying the piece's true 3D curve
+    /// and pcurve (no chord resampling — [`Self::add_inner_loop`]
+    /// approximates the hole boundary with line segments, which is
+    /// unacceptable when the hole edge feeds downstream geometry
+    /// such as fillets).
+    ///
+    /// The pieces must chain end-to-start into a closed loop within
+    /// `tolerance` (reverse pieces at the call site as needed).
+    /// Vertices are created at the piece junctions.
+    ///
+    /// Invariants: purely additive (V += n, E += n, one loop), so
+    /// Euler–Poincaré is preserved; the twin half-edges are
+    /// self-twinned and unwired, exactly as `add_inner_loop` leaves
+    /// them for the downstream stitcher.
+    pub fn add_inner_loop_from_pieces(
+        &mut self,
+        face: FaceHandle,
+        pieces: &[InnerLoopPiece],
+        tolerance: &Tolerance,
+    ) -> Result<AddInnerLoopResult, CoreError> {
+        if !self.faces.contains_key(face) {
+            return Err(CoreError::InvalidHandle("face handle is invalid".into()));
+        }
+        if pieces.len() < 2 {
+            return Err(CoreError::PreconditionFailed(
+                "add_inner_loop_from_pieces needs >= 2 pieces (single closed \
+                 curves go through add_inner_loop)"
+                    .into(),
+            ));
+        }
+        let n = pieces.len();
+        // Validate the chain.
+        for i in 0..n {
+            let j = (i + 1) % n;
+            let (_, te) = pieces[i].curve_3d.parameter_range();
+            let (ts, _) = pieces[j].curve_3d.parameter_range();
+            let end = pieces[i].curve_3d.point_at(te);
+            let start = pieces[j].curve_3d.point_at(ts);
+            if end.distance_to(&start) > tolerance.linear().max(1.0e-9) * 10.0 {
+                return Err(CoreError::PreconditionFailed(format!(
+                    "pieces {i} -> {j} do not chain: gap = {}",
+                    end.distance_to(&start)
+                )));
+            }
+        }
+
+        // Vertices at piece starts.
+        let mut vertices = Vec::with_capacity(n);
+        for piece in pieces {
+            let (ts, _) = piece.curve_3d.parameter_range();
+            let vh = self.vertices.insert(Vertex {
+                position: piece.curve_3d.point_at(ts),
+                outgoing: Default::default(),
+                name: None,
+                tolerance: None,
+            });
+            vertices.push(vh);
+        }
+
+        let inner_loop = self.loops.insert(Loop {
+            half_edge: Default::default(),
+            face,
+        });
+
+        let mut edges = Vec::with_capacity(n);
+        let mut inner_hes = Vec::with_capacity(n);
+        let mut twin_hes = Vec::with_capacity(n);
+        for (i, piece) in pieces.iter().enumerate() {
+            let j = (i + 1) % n;
+            let (ts, te) = piece.curve_3d.parameter_range();
+            let edge_h = self.insert_edge_tracked(Edge {
+                half_edge: Default::default(),
+                curve: Some(CurveOnEdge {
+                    geometry: CurveGeometry::Nurbs(piece.curve_3d.clone()),
+                    t_start: ts,
+                    t_end: te,
+                }),
+                name: None,
+                tolerance: None,
+                canonical: Default::default(),
+                role: Default::default(),
+            });
+            edges.push(edge_h);
+            let inner_he = self.half_edges.insert(HalfEdge {
+                origin: vertices[i],
+                twin: Default::default(),
+                next: Default::default(),
+                prev: Default::default(),
+                edge: edge_h,
+                loop_: inner_loop,
+                pcurve: Some(piece.curve_uv.clone().into()),
+            });
+            inner_hes.push(inner_he);
+            let twin_he = self.half_edges.insert(HalfEdge {
+                origin: vertices[j],
+                twin: inner_he,
+                next: Default::default(),
+                prev: Default::default(),
+                edge: edge_h,
+                loop_: inner_loop,
+                pcurve: None,
+            });
+            twin_hes.push(twin_he);
+            self.half_edges[inner_he].twin = twin_he;
+            self.edges[edge_h].half_edge = inner_he;
+            self.vertices[vertices[i]].outgoing = inner_he;
+        }
+        for i in 0..n {
+            self.half_edges[inner_hes[i]].next = inner_hes[(i + 1) % n];
+            self.half_edges[inner_hes[i]].prev = inner_hes[(i + n - 1) % n];
+        }
+        for i in 0..n {
+            self.half_edges[twin_hes[i]].next = twin_hes[(i + n - 1) % n];
+            self.half_edges[twin_hes[i]].prev = twin_hes[(i + 1) % n];
+        }
+        self.loops[inner_loop].half_edge = inner_hes[0];
+        self.faces[face].inner_loops.push(inner_loop);
+        Ok(AddInnerLoopResult {
+            loop_: inner_loop,
+            vertices,
+            edges,
+        })
+    }
+}
+
+/// One piece of a chained inner-loop boundary: the true 3D curve and
+/// its pcurve on the face being trimmed.
+#[derive(Debug, Clone)]
+pub struct InnerLoopPiece {
+    /// 3D edge curve for this piece.
+    pub curve_3d: NurbsCurve,
+    /// Pcurve on the trimmed face's surface.
+    pub curve_uv: NurbsCurve,
 }
 
 #[cfg(test)]

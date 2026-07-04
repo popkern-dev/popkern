@@ -76,7 +76,7 @@ fn build_closed_profile_topology(
     let mut start_vertices = Vec::with_capacity(n_spans);
     let mut end_vertices = Vec::with_capacity(n_spans);
 
-    for surface in surfaces {
+    for (i, surface) in surfaces.iter().enumerate() {
         // Surface layout: u = profile, v = path.
         // Vertex at (u=0, v=0) = path start, profile start of this span.
         let start_pt = eval_surface_corner(surface, 0.0, 0.0);
@@ -84,12 +84,32 @@ fn build_closed_profile_topology(
 
         let end_pt = eval_surface_corner(surface, 0.0, 1.0);
         end_vertices.push(builder.add_vertex(end_pt));
+        if std::env::var_os("PK_SWEEP_TRACE").is_some() {
+            let u1 = eval_surface_corner(surface, 1.0, 0.0);
+            eprintln!(
+                "  [sweep] span {i}: u0 ({:.2},{:.2},{:.2}) u1 ({:.2},{:.2},{:.2})",
+                start_pt.x, start_pt.y, start_pt.z, u1.x, u1.y, u1.z
+            );
+        }
     }
 
     // Create side faces (one per span).
     // Each side face has 4 edges forming a loop:
     //   bottom (cap-start), right (longitudinal next), top (cap-end reversed), left (longitudinal this)
     // For a single span, the "left" and "right" longitudinal edges are the same seam edge.
+
+    // Longitudinal edges: ONE per profile vertex, shared between the
+    // two adjacent side faces (span i's right edge = span i+1's left
+    // edge). Creating them per-span duplicated every seam — a
+    // rectangle extrusion had E=16 instead of 12 and failed
+    // Euler–Poincaré at −2.
+    let mut long_up: Vec<HalfEdgeHandle> = Vec::with_capacity(n_spans);
+    let mut long_down: Vec<HalfEdgeHandle> = Vec::with_capacity(n_spans);
+    for j in 0..n_spans {
+        let (_, he_up, he_down) = builder.add_edge(start_vertices[j], end_vertices[j]);
+        long_up.push(he_up);
+        long_down.push(he_down);
+    }
 
     // Collect half-edge handles for cap loop assembly.
     let mut start_cap_hes: Vec<HalfEdgeHandle> = Vec::with_capacity(n_spans);
@@ -111,39 +131,40 @@ fn build_closed_profile_topology(
         let (top_edge, he_top_fwd, he_top_rev) = builder.add_edge(ev_this, ev_next);
         attach_nurbs_curve_to_edge(&mut builder, top_edge, end_cap_curves, i);
 
-        // Left longitudinal edge: sv_this -> ev_this (along path at span start)
-        // For multi-span, each span shares its left edge with the previous span's right edge.
-        // Since we create edges per-span and the closed loop wraps, we create one
-        // longitudinal edge per span vertex pair.
-        let (left_edge, he_left_up, he_left_down) = if i == 0 {
-            // First span: create the edge.
-            builder.add_edge(sv_this, ev_this)
-        } else {
-            // Reuse would be complex; instead create a new edge for each span.
-            // The topology will be wired so that twin half-edges are shared.
-            builder.add_edge(sv_this, ev_this)
-        };
-        let _ = left_edge;
+        // Longitudinal half-edges from the shared per-vertex edges:
+        // span i walks UP its right seam (vertex `next`) and DOWN its
+        // left seam (vertex `i`). Each half-edge is consumed by
+        // exactly one face loop; the twins belong to the neighbors.
+        let he_left_up = long_up[i];
+        let he_left_down = long_down[i];
+        let he_right_up = long_up[next];
 
-        // Right longitudinal edge: sv_next -> ev_next (along path at span end)
-        let (right_edge, he_right_up, _he_right_down) = if n_spans == 1 {
-            // Single span: the right edge IS the left edge (seam).
-            // Already created above. Reuse the handles.
-            (left_edge, he_left_up, he_left_down)
-        } else {
-            builder.add_edge(sv_next, ev_next)
-        };
-        let _ = right_edge;
-
-        // Create the side face with its outer loop.
+        // Create the side face with its outer loop. Canonical
+        // recognition: an extruded circular arc is stored as an
+        // analytic Cylinder (exact boolean/fillet/export paths);
+        // the pcurves below are then authored in the cylinder's
+        // native (angle, length) chart via the chart map.
         let face = builder.add_face(shell);
+        let (geometry, chart) =
+            match crate::surface::canonical::recognize_extruded_cylinder(&surfaces[i]) {
+                Some((g, c)) => (g, Some(c)),
+                None => (SurfaceGeometry::Nurbs(surfaces[i].clone()), None),
+            };
         builder.set_face_surface(
             face,
             SurfaceOnFace {
-                geometry: SurfaceGeometry::Nurbs(surfaces[i].clone()),
+                geometry,
                 orientation: true,
             },
         );
+        let uv_line_chart = |x0: f64, y0: f64, x1: f64, y1: f64| match &chart {
+            Some(c) => {
+                let (a0, b0) = c.map(x0, y0);
+                let (a1, b1) = c.map(x1, y1);
+                uv_line(a0, b0, a1, b1)
+            }
+            None => uv_line(x0, y0, x1, y1),
+        };
 
         // Wire the loop: bottom -> right_up -> top_rev -> left_down
         // bottom: sv_this -> sv_next  (he_bottom_fwd)
@@ -151,12 +172,8 @@ fn build_closed_profile_topology(
         // top:    ev_next -> ev_this  (he_top_rev)
         // left:   ev_this -> sv_this  (he_left_down)
         let loop_hes = if n_spans == 1 {
-            // Single span: seam edge means left and right are the same edge.
-            // Loop: bottom_fwd -> left_up -> top_rev -> left_down
-            // Wait — for single span, sv_this == sv_next and ev_this == ev_next.
-            // We have: bottom: sv -> sv (self-loop), top: ev -> ev (self-loop),
-            //          seam: sv -> ev (he_left_up) and ev -> sv (he_left_down)
-            // Loop is: he_bottom_fwd -> he_left_up -> he_top_rev -> he_left_down
+            // Single span: left and right are the same seam edge
+            // (sv_this == sv_next, ev_this == ev_next).
             vec![he_bottom_fwd, he_left_up, he_top_rev, he_left_down]
         } else {
             vec![he_bottom_fwd, he_right_up, he_top_rev, he_left_down]
@@ -170,16 +187,18 @@ fn build_closed_profile_topology(
         // Surface parametrization: u ∈ [0,1] = profile, v ∈ [0,1] = path.
         // bottom (u varies, v=0), seam-up (u=0, v varies),
         // top reversed (u varies [1→0], v=1), seam-down (u=0, v varies [1→0]).
-        builder.set_half_edge_pcurve(he_bottom_fwd, uv_line(0.0, 0.0, 1.0, 0.0));
-        builder.set_half_edge_pcurve(he_top_rev, uv_line(1.0, 1.0, 0.0, 1.0));
-        builder.set_half_edge_pcurve(he_left_down, uv_line(0.0, 1.0, 0.0, 0.0));
+        builder.set_half_edge_pcurve(he_bottom_fwd, uv_line_chart(0.0, 0.0, 1.0, 0.0));
+        builder.set_half_edge_pcurve(he_top_rev, uv_line_chart(1.0, 1.0, 0.0, 1.0));
+        builder.set_half_edge_pcurve(he_left_down, uv_line_chart(0.0, 1.0, 0.0, 0.0));
         if n_spans == 1 {
             // Single span: left_up is the seam at u=0.
-            builder.set_half_edge_pcurve(he_left_up, uv_line(0.0, 0.0, 0.0, 1.0));
+            builder.set_half_edge_pcurve(he_left_up, uv_line_chart(0.0, 0.0, 0.0, 1.0));
         } else {
-            // Multi-span: left_up at u=0, right_up at u=1.
-            builder.set_half_edge_pcurve(he_left_up, uv_line(0.0, 0.0, 0.0, 1.0));
-            builder.set_half_edge_pcurve(he_right_up, uv_line(1.0, 0.0, 1.0, 1.0));
+            // Multi-span: this face's upward half-edge on its RIGHT
+            // seam sits at u=1 of THIS surface (the twin — the
+            // neighbor's left_down — gets its own pcurve from the
+            // neighbor's iteration at u=0).
+            builder.set_half_edge_pcurve(he_right_up, uv_line_chart(1.0, 0.0, 1.0, 1.0));
         }
 
         // Collect twin half-edges for cap loops.
@@ -187,8 +206,13 @@ fn build_closed_profile_topology(
         end_cap_hes.push(he_top_fwd);
     }
 
-    // Create start cap face.
-    create_cap_face(&mut builder, shell, &start_cap_hes, start_cap_curves, true)?;
+    // Create start cap face. Its boundary half-edges run
+    // sv_next → sv_this, so span order chains only when REVERSED
+    // (the start cap winds opposite to the profile; single-span
+    // circles never exposed this).
+    let start_hes_rev: Vec<HalfEdgeHandle> = start_cap_hes.iter().rev().copied().collect();
+    let start_curves_rev: Vec<NurbsCurve> = start_cap_curves.iter().rev().cloned().collect();
+    create_cap_face(&mut builder, shell, &start_hes_rev, &start_curves_rev, true)?;
 
     // Create end cap face.
     create_cap_face(&mut builder, shell, &end_cap_hes, end_cap_curves, false)?;

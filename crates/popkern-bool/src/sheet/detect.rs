@@ -56,13 +56,33 @@ pub fn is_sheet_body(brep: &BRep) -> bool {
         let Some(surf_on_face) = face.surface.as_ref() else {
             return true;
         };
-        let is_periodic = matches!(
-            surf_on_face.geometry,
+        let is_periodic = match &surf_on_face.geometry {
             SurfaceGeometry::Cylinder { .. }
-                | SurfaceGeometry::Cone { .. }
-                | SurfaceGeometry::Sphere { .. }
-                | SurfaceGeometry::Torus { .. }
-        );
+            | SurfaceGeometry::Cone { .. }
+            | SurfaceGeometry::Sphere { .. }
+            | SurfaceGeometry::Torus { .. } => true,
+            // A seam edge on a NURBS surface is legitimate when the
+            // surface is geometrically closed in one direction
+            // (e.g. a swept circular profile — the sweep emits a
+            // closed NURBS side face with a seam, not an analytic
+            // cylinder).
+            SurfaceGeometry::Nurbs(_) => {
+                use popkern_core::geometry::surface::SurfaceEval;
+                let sfc = &surf_on_face.geometry;
+                let ((u0, u1), (v0, v1)) = sfc.parameter_range();
+                let gate = brep.tolerance.linear().max(1.0e-9) * 10.0;
+                let closed_u = (0..=4).all(|i| {
+                    let v = v0 + (v1 - v0) * i as f64 / 4.0;
+                    sfc.point_at(u0, v).distance_to(&sfc.point_at(u1, v)) < gate
+                });
+                let closed_v = (0..=4).all(|i| {
+                    let u = u0 + (u1 - u0) * i as f64 / 4.0;
+                    sfc.point_at(u, v0).distance_to(&sfc.point_at(u, v1)) < gate
+                });
+                closed_u || closed_v
+            }
+            _ => false,
+        };
         if !is_periodic {
             return true;
         }

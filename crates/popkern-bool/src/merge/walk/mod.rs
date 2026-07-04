@@ -111,7 +111,12 @@ pub(crate) fn walk_all_fragments(
                     &visited,
                     &current_loop,
                 ) {
-                    Some(next_he) => he = next_he,
+                    Some(next_he) => {
+                        if std::env::var_os("PK_WALK_TRACE").is_some() {
+                            eprintln!("      [step] {he} -> {next_he}");
+                        }
+                        he = next_he;
+                    }
                     None => break,
                 }
 
@@ -225,6 +230,21 @@ pub(crate) fn walk_all_fragments(
             }
         }
 
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [walk] {face_ref:?}: outer {} hes, {} inner, {} separate",
+                outer_loop.len(),
+                inner_loops_out.len(),
+                separate_outers.len()
+            );
+        }
+        if std::env::var_os("PK_BOOL_TRACE").is_some() && !inner_loops_out.is_empty() {
+            eprintln!(
+                "  [walk] fragment for {face_ref:?}: outer len {} + {} inner loops",
+                outer_loop.len(),
+                inner_loops_out.len()
+            );
+        }
         fragments.push(Fragment {
             face: *face_ref,
             outer_loop,
@@ -323,6 +343,13 @@ fn next_around_face(
         })
         .collect();
 
+    if std::env::var_os("PK_WALK_TRACE").is_some() {
+        let p = graph.nodes[end_node].position;
+        eprintln!(
+            "    [next] at ({:.3},{:.3},{:.3}) from he {he_idx}: candidates {candidates:?}",
+            p.x, p.y, p.z
+        );
+    }
     if candidates.is_empty() {
         return None;
     }

@@ -54,25 +54,86 @@ pub(crate) fn cellular_graph_merge(
     let (_vmap_b, _hemap_b) = insert_operand_topology(&mut graph, original_b, Operand::B, snap_tol);
 
     // Phase 2: Process edge-face hits.
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [cellular] {} edge-face hits",
+            intersection_result.edge_face_hits.len()
+        );
+        for hit in &intersection_result.edge_face_hits {
+            eprintln!(
+                "    hit at ({:.3},{:.3},{:.3})",
+                hit.point.x, hit.point.y, hit.point.z
+            );
+        }
+    }
+    let mut hit_nodes: Vec<usize> = Vec::new();
     for hit in &intersection_result.edge_face_hits {
         let endpoint_class = classify_endpoint(&graph, &hit.point, snap_tol);
         if let EndpointClass::OnEdge(he_idx, t_param) = endpoint_class {
-            split_graph_edge(&mut graph, he_idx, hit.point, t_param);
+            hit_nodes.push(split_graph_edge(&mut graph, he_idx, hit.point, t_param));
         }
     }
 
-    // Phase 3: Insert intersection curves as shared edges.
-    insert_intersection_curves(&mut graph, &intersection_result.records, snap_tol);
-
-    // Phase 3.1–3.2: Handle coincident face boundaries.
-    if intersection_result
-        .coincidence
-        .face_overlaps
+    // Phase 3: Insert intersection curves as shared edges, then
+    // split them at edge-face hit nodes they pass through (the loop
+    // walk must be able to route through those junctions).
+    // Closed intersection curves must CLOSE at an edge-face hit
+    // point when one lies on them: the loop walk enters/bounces off
+    // an intersection circle only at its closure node (§7.4), and
+    // the analytic cylinder-hole cases have always closed at the
+    // cylinder seam — the crossing — by construction. A circle from
+    // an offset walk start (or a swept boss whose seam is elsewhere)
+    // must be rotated to that convention.
+    let rotated: Vec<crate::intersect::IntersectionRecord> = intersection_result
+        .records
         .iter()
-        .any(|o| !o.full_overlap)
+        .map(|r| rotate_closed_record_to_hits(r, &intersection_result.edge_face_hits, tolerance))
+        .collect();
+    insert_intersection_curves(&mut graph, &rotated, snap_tol);
+    let _ = &hit_nodes;
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        let mut i = 0;
+        while i < graph.half_edges.len() {
+            let he = &graph.half_edges[i];
+            if i < he.twin && matches!(he.source, crate::merge::graph::EdgeSource::Shared { .. }) {
+                let a = graph.nodes[he.origin].position;
+                let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+                eprintln!(
+                    "  [graph] shared he {i}: ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) curve={}",
+                    a.x,
+                    a.y,
+                    a.z,
+                    b.x,
+                    b.y,
+                    b.z,
+                    he.curve.is_some()
+                );
+            }
+            i += 2;
+        }
+    }
+
+    // Phase 3.1–3.2: Handle coincident face boundaries; also split
+    // graph edges at nodes created by edge-face hits — an
+    // intersection curve passing THROUGH such a node (e.g. a seam
+    // edge crossing a boss/plate intersection circle) must get a
+    // node there or the loop walk cannot route through it.
+    if !intersection_result.edge_face_hits.is_empty()
+        || intersection_result
+            .coincidence
+            .face_overlaps
+            .iter()
+            .any(|o| !o.full_overlap)
     {
         split_edges_at_shared_nodes(&mut graph, snap_tol);
-        remove_collinear_duplicates(&mut graph);
+        if intersection_result
+            .coincidence
+            .face_overlaps
+            .iter()
+            .any(|o| !o.full_overlap)
+        {
+            remove_collinear_duplicates(&mut graph);
+        }
     }
 
     // Phase 4: Sort radial edges at all nodes.
@@ -216,4 +277,125 @@ fn sample_fragment_point(
     }
     let n = loop_hes.len() as f64;
     popkern_core::geometry::Point3::new(sx / n, sy / n, sz / n)
+}
+
+/// Rotate a CLOSED intersection record's parameterization so its
+/// closure point coincides with an edge-face hit lying on the curve.
+/// Open records and closed records with no hit on them pass through
+/// unchanged.
+fn rotate_closed_record_to_hits(
+    record: &crate::intersect::IntersectionRecord,
+    hits: &[crate::intersect_edge_face::EdgeFaceHit],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> crate::intersect::IntersectionRecord {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let c = &record.curve.curve_3d;
+    let (t0, t1) = c.parameter_range();
+    let closed = c.point_at(t0).distance_to(&c.point_at(t1)) < tolerance.linear() * 100.0;
+    if !closed {
+        return record.clone();
+    }
+    for hit in hits {
+        // Nearest parameter on the curve to the hit point.
+        let mut best = (f64::INFINITY, t0);
+        for k in 0..=256 {
+            let t = t0 + (t1 - t0) * k as f64 / 256.0;
+            let d = c.point_at(t).distance_to(&hit.point);
+            if d < best.0 {
+                best = (d, t);
+            }
+        }
+        let (mut lo, mut hi) = (
+            (best.1 - (t1 - t0) / 256.0).max(t0),
+            (best.1 + (t1 - t0) / 256.0).min(t1),
+        );
+        for _ in 0..48 {
+            let m1 = lo + (hi - lo) / 3.0;
+            let m2 = hi - (hi - lo) / 3.0;
+            if c.point_at(m1).distance_to(&hit.point) < c.point_at(m2).distance_to(&hit.point) {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let t_hit = 0.5 * (lo + hi);
+        if c.point_at(t_hit).distance_to(&hit.point) > tolerance.linear() * 100.0 {
+            continue;
+        }
+        // Interior rotation only.
+        if (t_hit - t0).abs() < (t1 - t0) * 1e-4 || (t1 - t_hit).abs() < (t1 - t0) * 1e-4 {
+            continue;
+        }
+        let mut out = record.clone();
+        let rotate = |curve: &popkern_core::geometry::NurbsCurve|
+            -> Option<popkern_core::geometry::NurbsCurve> {
+            let (a, b) = curve.split_at(t_hit).ok()?;
+            // New curve = b then a, reparameterized to [0, 1] with
+            // the join at the original closure (multiplicity-degree
+            // interior knot — legal C0 join).
+            let (b0, b1) = {
+                let n = &b;
+                (n.knots[0], *n.knots.last()?)
+            };
+            let (a0, a1) = {
+                let n = &a;
+                (n.knots[0], *n.knots.last()?)
+            };
+            let len_b = b1 - b0;
+            let len_a = a1 - a0;
+            let total = len_a + len_b;
+            if total < 1e-12 {
+                return None;
+            }
+            let mut knots: Vec<f64> = b
+                .knots
+                .iter()
+                .map(|&k| (k - b0) / total)
+                .collect();
+            let join = len_b / total;
+            // Skip a's leading clamp knots (degree+1 of them) — the
+            // join point carries multiplicity = degree from b's tail
+            // clamp minus the shared control point.
+            let a_knots_tail: Vec<f64> = a
+                .knots
+                .iter()
+                .skip(a.degree + 1)
+                .map(|&k| join + (k - a0) / total)
+                .collect();
+            // Replace b's trailing clamp (degree+1 copies) with
+            // multiplicity-degree at the join.
+            for _ in 0..1 {
+                knots.pop();
+            }
+            knots.extend(a_knots_tail);
+            let mut control_points = b.control_points.clone();
+            control_points.extend(a.control_points.iter().skip(1).copied());
+            let mut weights = b.weights.clone();
+            weights.extend(a.weights.iter().skip(1).copied());
+            Some(popkern_core::geometry::NurbsCurve {
+                degree: b.degree,
+                knots,
+                control_points,
+                weights,
+            })
+        };
+        if let (Some(c3), Some(u1), Some(u2)) = (
+            rotate(&record.curve.curve_3d),
+            rotate(&record.curve.curve_uv1),
+            rotate(&record.curve.curve_uv2),
+        ) {
+            out.curve.curve_3d = c3;
+            out.curve.curve_uv1 = u1;
+            out.curve.curve_uv2 = u2;
+            // Weld the new closure exactly onto the hit point.
+            if let Some(cp) = out.curve.curve_3d.control_points.first_mut() {
+                *cp = hit.point;
+            }
+            if let Some(cp) = out.curve.curve_3d.control_points.last_mut() {
+                *cp = hit.point;
+            }
+            return out;
+        }
+    }
+    record.clone()
 }

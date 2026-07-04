@@ -322,6 +322,94 @@ pub(crate) fn remove_collinear_duplicates(graph: &mut IntersectionGraph) {
 }
 
 /// Split a graph edge at an existing node (no new node creation).
+/// Split SHARED (intersection-curve) edges at the given operand
+/// nodes: an edge-face hit puts a node on an operand edge, and any
+/// intersection curve passing THROUGH that node (a boss seam
+/// crossing a boss/plate intersection circle) must be split there or
+/// the loop walk cannot route through the junction. This is the
+/// inverse of [`split_edges_at_shared_nodes`].
+pub(crate) fn split_shared_edges_at_nodes(
+    graph: &mut IntersectionGraph,
+    nodes: &[usize],
+    tolerance: f64,
+) {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let mut did_split = true;
+    while did_split {
+        did_split = false;
+        for &node_idx in nodes {
+            let pos = graph.nodes[node_idx].position;
+            let mut i = 0;
+            while i < graph.half_edges.len() {
+                let he = &graph.half_edges[i];
+                if i >= he.twin || !matches!(he.source, EdgeSource::Shared { .. }) {
+                    i += 2;
+                    continue;
+                }
+                let twin_origin = graph.half_edges[he.twin].origin;
+                if he.origin == node_idx || twin_origin == node_idx {
+                    i += 2;
+                    continue;
+                }
+                // Distance from the node to the edge's CURVE (shared
+                // edges carry true intersection geometry — circles
+                // included; the chord test would miss them).
+                let on_curve = if let Some(curve) = &he.curve {
+                    let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
+                    let (t0, t1) = (curve.t_start, curve.t_end);
+                    let mut best = f64::INFINITY;
+                    let mut best_t = t0;
+                    for k in 0..=64 {
+                        let t = t0 + (t1 - t0) * k as f64 / 64.0;
+                        let d = eval.point_at(t).distance_to(&pos);
+                        if d < best {
+                            best = d;
+                            best_t = t;
+                        }
+                    }
+                    let (mut lo, mut hi) = (
+                        (best_t - (t1 - t0) / 64.0).max(t0.min(t1)),
+                        (best_t + (t1 - t0) / 64.0).min(t0.max(t1)),
+                    );
+                    for _ in 0..40 {
+                        let m1 = lo + (hi - lo) / 3.0;
+                        let m2 = hi - (hi - lo) / 3.0;
+                        if eval.point_at(m1).distance_to(&pos) < eval.point_at(m2).distance_to(&pos)
+                        {
+                            hi = m2;
+                        } else {
+                            lo = m1;
+                        }
+                    }
+                    let t = 0.5 * (lo + hi);
+                    // Interior only — endpoint touches are already nodes.
+                    let interior = (t - t0).abs() > (t1 - t0).abs() * 1e-3
+                        && (t - t1).abs() > (t1 - t0).abs() * 1e-3;
+                    interior && eval.point_at(t).distance_to(&pos) < tolerance
+                } else {
+                    let p0 = graph.nodes[he.origin].position;
+                    let p1 = graph.nodes[twin_origin].position;
+                    point_on_segment(&pos, &p0, &p1, tolerance).is_some()
+                };
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [shared-split] node {node_idx} vs shared he {i}: on_curve={on_curve}"
+                    );
+                }
+                if on_curve {
+                    split_at_existing_node(graph, i, node_idx);
+                    did_split = true;
+                    break;
+                }
+                i += 2;
+            }
+            if did_split {
+                break;
+            }
+        }
+    }
+}
+
 fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
@@ -334,14 +422,65 @@ fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: us
         other => other.clone(),
     };
 
+    // Split the curve at the node's parameter: the halves must keep
+    // TRUE geometry (same curve, sub-ranges). Dropping the curve on
+    // a circular edge left the second half with a straight chord
+    // ACROSS the circle — radial sorting then mis-routes the loop
+    // walk. The node keeps the parent range's tail; the new half
+    // takes [t_split, t_end].
+    let (parent_curve_trimmed, new_half_curve) = match &graph.half_edges[he_idx].curve {
+        Some(curve) => {
+            use popkern_core::geometry::curve::CurveEval as _;
+            let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
+            let pos = graph.nodes[node].position;
+            let (t0, t1) = (curve.t_start, curve.t_end);
+            let mut best = (f64::INFINITY, t0);
+            for k in 0..=128 {
+                let t = t0 + (t1 - t0) * k as f64 / 128.0;
+                let d = eval.point_at(t).distance_to(&pos);
+                if d < best.0 {
+                    best = (d, t);
+                }
+            }
+            let (mut lo, mut hi) = (
+                (best.1 - (t1 - t0) / 128.0).max(t0.min(t1)),
+                (best.1 + (t1 - t0) / 128.0).min(t0.max(t1)),
+            );
+            for _ in 0..40 {
+                let m1 = lo + (hi - lo) / 3.0;
+                let m2 = hi - (hi - lo) / 3.0;
+                if eval.point_at(m1).distance_to(&pos) < eval.point_at(m2).distance_to(&pos) {
+                    hi = m2;
+                } else {
+                    lo = m1;
+                }
+            }
+            let t_split = 0.5 * (lo + hi);
+            (
+                Some(popkern_core::geometry::CurveOnEdge {
+                    geometry: curve.geometry.clone(),
+                    t_start: t0,
+                    t_end: t_split,
+                }),
+                Some(popkern_core::geometry::CurveOnEdge {
+                    geometry: curve.geometry.clone(),
+                    t_start: t_split,
+                    t_end: t1,
+                }),
+            )
+        }
+        None => (None, None),
+    };
+
     let new_fwd = graph.half_edges.len();
     let new_twin = new_fwd + 1;
+    let new_half_curve_twin = new_half_curve.clone();
 
     graph.half_edges.push(GraphHalfEdge {
         origin: node,
         twin: new_twin,
         face: fwd_face,
-        curve: None,
+        curve: new_half_curve,
         pcurve: None,
         source: split_source.clone(),
     });
@@ -349,10 +488,15 @@ fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: us
         origin: end_node,
         twin: new_fwd,
         face: twin_face,
-        curve: None,
+        curve: new_half_curve_twin,
         pcurve: None,
         source: split_source,
     });
+    if let Some(trimmed) = parent_curve_trimmed {
+        graph.half_edges[he_idx].curve = Some(trimmed.clone());
+        // The parent's twin walks the same sub-range.
+        graph.half_edges[twin_idx].curve = Some(trimmed);
+    }
 
     graph.nodes[node].outgoing.push(new_fwd);
     graph.nodes[end_node].outgoing.push(new_twin);

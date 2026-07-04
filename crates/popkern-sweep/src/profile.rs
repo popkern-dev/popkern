@@ -224,25 +224,35 @@ fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
     let (t_min, t_max) = curve.parameter_range();
     let n = PROFILE_SAMPLES;
 
-    // Sample tangents and find discontinuity parameters.
+    // Tangent discontinuities of a NURBS can only occur at interior
+    // knots of multiplicity ≥ degree: test one-sided tangents AT
+    // those knots and split exactly there. (The previous sampled
+    // scan split at sample-interval midpoints, chipping polygon
+    // corners and double-splitting kinks that landed near a sample —
+    // a closed rectangle produced 7 spans instead of 4.)
     let mut split_params = Vec::new();
-    let mut prev_tangent: Option<Vec3> = None;
-
-    for i in 0..=n {
-        let t = t_min + (i as f64 / n as f64) * (t_max - t_min);
-        let tangent = curve.tangent_at(t);
-
-        if let Some(prev) = prev_tangent {
-            let angle = angle_between(&prev, &tangent);
-            if angle > DISCONTINUITY_ANGLE {
-                // Discontinuity between previous and current sample — use midpoint.
-                let t_prev = t_min + ((i - 1) as f64 / n as f64) * (t_max - t_min);
-                let t_mid = (t_prev + t) * 0.5;
-                split_params.push(t_mid);
-            }
+    let mut candidate_knots: Vec<f64> = Vec::new();
+    let mut i = 0;
+    while i < curve.knots.len() {
+        let k = curve.knots[i];
+        let mut mult = 1;
+        while i + mult < curve.knots.len() && (curve.knots[i + mult] - k).abs() < 1e-12 {
+            mult += 1;
         }
-        prev_tangent = Some(tangent);
+        if k > t_min + 1e-10 && k < t_max - 1e-10 && mult >= curve.degree {
+            candidate_knots.push(k);
+        }
+        i += mult;
     }
+    let eps = (t_max - t_min) * 1.0e-7;
+    for &k in &candidate_knots {
+        let before = curve.tangent_at(k - eps);
+        let after = curve.tangent_at(k + eps);
+        if angle_between(&before, &after) > DISCONTINUITY_ANGLE {
+            split_params.push(k);
+        }
+    }
+    let _ = n;
 
     if split_params.is_empty() {
         return Ok(vec![curve.clone()]);
@@ -267,6 +277,21 @@ fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
     }
     spans.push(remaining);
     spans.reverse();
+
+    // Normalize every span to the [0, 1] parameter range: split
+    // sub-curves keep their sub-range knot vectors, and downstream
+    // consumers (surface generation corner evaluation, pcurve
+    // authoring) address spans at u ∈ [0, 1] — evaluating a
+    // [0.25, 0.5]-ranged span at u = 1 extrapolates garbage.
+    for span in &mut spans {
+        let (lo, hi) = span.parameter_range();
+        let width = hi - lo;
+        if width > 1e-12 && ((lo).abs() > 1e-12 || (hi - 1.0).abs() > 1e-12) {
+            for k in &mut span.knots {
+                *k = (*k - lo) / width;
+            }
+        }
+    }
 
     Ok(spans)
 }

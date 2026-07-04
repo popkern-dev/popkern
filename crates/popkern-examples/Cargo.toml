@@ -19,6 +19,10 @@ glam = "0.29"
 serde_json = "1"
 
 [[bin]]
+name = "flagship_boss_plate"
+path = "src/flagship_boss_plate.rs"
+
+[[bin]]
 name = "boolean_showcase"
 path = "src/boolean_showcase.rs"
 

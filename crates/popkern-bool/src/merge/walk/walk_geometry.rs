@@ -30,10 +30,22 @@ pub(super) fn pick_by_angle(
     let node_pos = graph.nodes[end_node].position;
 
     let origin_node = graph.half_edges[he_idx].origin;
-    // For self-loop edges (origin == end), use the curve tangent at the end
-    // instead of the zero-length position difference.
+    // Incoming direction: the TRUE curve tangent at the arrival node
+    // when the edge carries a curve (chords of curved edges point
+    // across the geometry — two arcs of a split intersection circle
+    // share identical chords and become indistinguishable). Self-loop
+    // handling falls out of the same rule.
     let incoming_dir = if origin_node == end_node {
         incoming_tangent_for_self_loop(graph, he_idx)
+    } else if let Some(curve) = &graph.half_edges[he_idx].curve {
+        let p_start = curve.geometry.point_at(curve.t_start);
+        let p_end = curve.geometry.point_at(curve.t_end);
+        let at_end = p_end.distance_to(&node_pos) <= p_start.distance_to(&node_pos);
+        if at_end {
+            curve.geometry.tangent_at(curve.t_end) * -1.0
+        } else {
+            curve.geometry.tangent_at(curve.t_start)
+        }
     } else {
         graph.nodes[origin_node].position - node_pos
     };
@@ -77,6 +89,16 @@ pub(super) fn pick_by_angle(
         // at the start parameter as the outgoing direction.
         let out_dir = if graph.half_edges[c].origin == graph.half_edges[twin_c].origin {
             outgoing_tangent_for_self_loop(graph, c)
+        } else if let Some(curve) = &graph.half_edges[c].curve {
+            // True departure tangent for curved candidates.
+            let p_start = curve.geometry.point_at(curve.t_start);
+            let p_end = curve.geometry.point_at(curve.t_end);
+            let at_start = p_start.distance_to(&node_pos) <= p_end.distance_to(&node_pos);
+            if at_start {
+                curve.geometry.tangent_at(curve.t_start)
+            } else {
+                curve.geometry.tangent_at(curve.t_end) * -1.0
+            }
         } else {
             end_pos - node_pos
         };
