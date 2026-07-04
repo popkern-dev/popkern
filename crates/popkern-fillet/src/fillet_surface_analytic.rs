@@ -174,9 +174,24 @@ pub(crate) fn try_circular_center_torus(
     use popkern_core::geometry::curve::CurveEval;
     let n = 16usize;
     let (t0, t1) = center_result.center_curve.parameter_range();
+    // Closed spines are fitted as OPEN curves; the fit wiggles
+    // radially near its end conditions (measured 5.3e-2 on an exact
+    // circle whose interior sits at 1e-8). Judge circularity on the
+    // interior 90 %; the torus parameters below come from the exact
+    // spine, not from these samples.
+    let closed_spine = center_result
+        .center_curve
+        .point_at(t0)
+        .distance_to(&center_result.center_curve.point_at(t1))
+        < (t1 - t0).abs().max(1.0) * 1e-3;
+    let (s0, s1) = if closed_spine {
+        (t0 + (t1 - t0) * 0.05, t1 - (t1 - t0) * 0.05)
+    } else {
+        (t0, t1)
+    };
     let mut samples: Vec<Point3> = Vec::with_capacity(n);
     for i in 0..n {
-        let t = t0 + (t1 - t0) * (i as f64) / ((n - 1).max(1) as f64);
+        let t = s0 + (s1 - s0) * (i as f64) / ((n - 1).max(1) as f64);
         samples.push(center_result.center_curve.point_at(t));
     }
     if samples.len() < 3 {
@@ -215,6 +230,56 @@ pub(crate) fn try_circular_center_torus(
         return None;
     }
 
+    // Torus parameters from the EXACT spine when a planar-support
+    // footprint is available: the fitted center curve's wobble puts
+    // the sampled center/major-radius ~1e-2 off the true surface.
+    // The true ball-center circle is the planar-support footprint
+    // lifted by the minor radius along the plane normal (sign toward
+    // the other footprint) — exact to the contact-solver residual.
+    let (center, major_radius) = {
+        // The PLANE-side footprint is the one lying ON the plane
+        // surface. (Selecting by surface order picked the sphere's
+        // contact ring on plane–sphere fixtures; selecting by
+        // planarity alone cannot discriminate — a sphere's contact
+        // ring is also planar by symmetry.)
+        let plane_origin = match (surface1, surface2) {
+            (SurfaceGeometry::Plane { origin, .. }, _) => *origin,
+            (_, SurfaceGeometry::Plane { origin, .. }) => *origin,
+            _ => return None,
+        };
+        let dist_to_plane = |fp: &[Point3]| -> f64 {
+            fp.iter()
+                .map(|p| (*p - plane_origin).dot(&plane_normal_n).abs())
+                .fold(0.0_f64, f64::max)
+        };
+        let planar_first =
+            dist_to_plane(&center_result.footprint_1) <= dist_to_plane(&center_result.footprint_2);
+        let (plane_fp, other_fp) = if planar_first {
+            (&center_result.footprint_1, &center_result.footprint_2)
+        } else {
+            (&center_result.footprint_2, &center_result.footprint_1)
+        };
+        let lifted = if plane_fp.len() >= 4 && !other_fp.is_empty() {
+            // Lift sign: toward the sampled spine centroid (always
+            // available and approximately right — the refit only
+            // sharpens center/radius). The other footprint's side is
+            // ambiguous when the contacts are near-coplanar.
+            let lift = if (center - plane_fp[0]).dot(&plane_normal_n) >= 0.0 {
+                radius
+            } else {
+                -radius
+            };
+            let _ = &other_fp;
+            let spine: Vec<Point3> = plane_fp
+                .iter()
+                .map(|p| *p + plane_normal_n * lift)
+                .collect();
+            fit_exact_circle_center(&spine)
+        } else {
+            None
+        };
+        lifted.unwrap_or((center, major_radius))
+    };
     let surface = SurfaceGeometry::Torus {
         center,
         axis: plane_normal_n,
@@ -222,6 +287,11 @@ pub(crate) fn try_circular_center_torus(
         minor_radius: radius,
     };
 
+    // Trim curves stay interpolation fits: their pcurves (fitted
+    // downstream in trim.rs) share this parameterization, and an
+    // exact rational circle (angle-quarter parameterized) cannot be
+    // substituted without rebuilding matched pcurves per support
+    // type — recorded PK-099 follow-up.
     let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1).ok()?;
     let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2).ok()?;
 
@@ -343,4 +413,88 @@ pub(crate) fn try_parallel_cylinder_cylinder(
         trim_curve_2: trim_2,
         continuity_downgrade: None,
     })
+}
+
+/// Kåsa least-squares circle through near-circular planar points:
+/// center, radius. Returns `None` unless the points are planar and
+/// on the fitted circle to 1e-6 relative — intended for rolling-ball
+/// contact footprints and spines, which are exact to the solver
+/// residual. (The centroid is NOT the center when samples are
+/// unevenly spaced; adaptive walker steps put 2e-2 of apparent
+/// radial spread on an exact circle.)
+pub(crate) fn fit_exact_circle_center(points: &[Point3]) -> Option<(Point3, f64)> {
+    if points.len() < 4 {
+        return None;
+    }
+    let n = points.len() as f64;
+    let c0 = Point3::new(
+        points.iter().map(|p| p.x).sum::<f64>() / n,
+        points.iter().map(|p| p.y).sum::<f64>() / n,
+        points.iter().map(|p| p.z).sum::<f64>() / n,
+    );
+    let mut nx = 0.0;
+    let mut ny = 0.0;
+    let mut nz = 0.0;
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        nx += (a.y - b.y) * (a.z + b.z);
+        ny += (a.z - b.z) * (a.x + b.x);
+        nz += (a.x - b.x) * (a.y + b.y);
+    }
+    let normal = popkern_core::geometry::Vec3::new(nx, ny, nz).normalized()?;
+    let (e1, e2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
+    let xy: Vec<(f64, f64)> = points
+        .iter()
+        .map(|p| {
+            let d = *p - c0;
+            (d.dot(&e1), d.dot(&e2))
+        })
+        .collect();
+    let (mut sx, mut sy, mut sxx, mut syy, mut sxy, mut sxz, mut syz, mut sz) =
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    for &(x, y) in &xy {
+        let z = x * x + y * y;
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+        sxz += x * z;
+        syz += y * z;
+        sz += z;
+    }
+    let m = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]];
+    let rhs = [sxz, syz, sz];
+    let det3 = |m: &[[f64; 3]; 3]| -> f64 {
+        m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1])
+            - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0])
+            + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0])
+    };
+    let d0 = det3(&m);
+    if d0.abs() < 1e-30 {
+        return None;
+    }
+    let solve_col = |col: usize| -> f64 {
+        let mut mm = m;
+        for (row, mrow) in mm.iter_mut().enumerate() {
+            mrow[col] = rhs[row];
+        }
+        det3(&mm) / d0
+    };
+    let (a, b, c2) = (solve_col(0), solve_col(1), solve_col(2));
+    let (cx2, cy2) = (0.5 * a, 0.5 * b);
+    let r = (c2 + cx2 * cx2 + cy2 * cy2).max(0.0).sqrt();
+    if r < 1e-12 {
+        return None;
+    }
+    let center = c0 + e1 * cx2 + e2 * cy2;
+    let gate = r * 1e-6;
+    for p in points {
+        let d = *p - center;
+        if (d.length() - r).abs() > gate || d.dot(&normal).abs() > gate {
+            return None;
+        }
+    }
+    Some((center, r))
 }

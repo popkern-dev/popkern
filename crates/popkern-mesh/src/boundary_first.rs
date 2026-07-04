@@ -132,29 +132,42 @@ pub(crate) fn tessellate_face_boundary_first(
         // cannot cover the jump segment. Unwrap u to the branch
         // nearest each previous sample (positions are canonical 3D
         // points and unaffected; cos/sin accept any branch).
-        if let popkern_core::geometry::SurfaceGeometry::Cylinder { .. } = surface {
-            let period = std::f64::consts::TAU;
-            for i in 1..ring.uv.len() {
-                let prev = ring.uv[i - 1].0;
-                while ring.uv[i].0 - prev > 0.5 * period {
-                    ring.uv[i].0 -= period;
+        {
+            use popkern_core::geometry::surface::SurfaceEval as _;
+            let (period_u, period_v) = surface.parameter_periodicity();
+            let mut unwrap_dir = |period: f64, pick: fn(&mut (f64, f64)) -> &mut f64| -> bool {
+                for i in 1..ring.uv.len() {
+                    let prev = *pick(&mut ring.uv[i - 1].clone());
+                    let cur = pick(&mut ring.uv[i]);
+                    while *cur - prev > 0.5 * period {
+                        *cur -= period;
+                    }
+                    while *cur - prev < -0.5 * period {
+                        *cur += period;
+                    }
                 }
-                while ring.uv[i].0 - prev < -0.5 * period {
-                    ring.uv[i].0 += period;
+                // Net winding = a genuine full wrap; boundary-first
+                // cannot chart it.
+                match (ring.uv.first(), ring.uv.last()) {
+                    (Some(f), Some(l)) => {
+                        let (mut fc, mut lc) = (*f, *l);
+                        (*pick(&mut lc) - *pick(&mut fc)).abs() <= 0.5 * period
+                    }
+                    _ => true,
+                }
+            };
+            if let Some(p) = period_u {
+                if !unwrap_dir(p, |uv| &mut uv.0) {
+                    if std::env::var_os("PK_BF_TRACE").is_some() {
+                        eprintln!("    [bf] full u-wrap ring — cannot chart");
+                    }
+                    return None;
                 }
             }
-            // The wrap-around closure segment (last → first) must
-            // also be short; if unwrapping accumulated a net period,
-            // the loop genuinely encircles the axis (full cylinder)
-            // and boundary-first cannot chart it — fall back.
-            if let (Some(first), Some(last)) = (ring.uv.first(), ring.uv.last()) {
-                if (last.0 - first.0).abs() > 0.5 * period {
+            if let Some(p) = period_v {
+                if !unwrap_dir(p, |uv| &mut uv.1) {
                     if std::env::var_os("PK_BF_TRACE").is_some() {
-                        eprintln!(
-                            "    [bf] periodic ring closure spans a full period \
-                             ({:.3} -> {:.3}) — genuine full-wrap face",
-                            first.0, last.0
-                        );
+                        eprintln!("    [bf] full v-wrap ring — cannot chart");
                     }
                     return None;
                 }

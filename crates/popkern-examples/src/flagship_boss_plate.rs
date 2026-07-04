@@ -344,6 +344,18 @@ fn main() {
         }
         let open = counts.values().filter(|&&c| c == 1).count();
         println!("stage 4 open edges: {open}");
+        let mut shown = 0;
+        for (&(a, b), &c) in &counts {
+            if c == 1 && shown < 6 {
+                let pa = canon[a];
+                let pb = canon[b];
+                eprintln!(
+                    "  open ({:.3},{:.3},{:.3})-({:.3},{:.3},{:.3})",
+                    pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
+                );
+                shown += 1;
+            }
+        }
     }
     let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output");
     std::fs::create_dir_all(&out_dir).expect("out dir");

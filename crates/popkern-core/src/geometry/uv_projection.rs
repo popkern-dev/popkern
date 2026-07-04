@@ -557,7 +557,7 @@ pub fn face_bounded_parameter_range(
         (lo - p, hi + p)
     };
     let (v0p, v1p) = pad(v_lo, v_hi);
-    let (mut u0p, mut u1p) = if let Some(period) = u_period {
+    let (u0p, u1p) = if let Some(period) = u_period {
         if u_hi - u_lo >= period - 1e-9 {
             (u_lo, u_lo + period)
         } else {
@@ -568,22 +568,6 @@ pub fn face_bounded_parameter_range(
     } else {
         pad(u_lo, u_hi)
     };
-    // Anchor the periodic box to the branch the face's PCURVES live
-    // in: downstream consumers test sample membership against the
-    // pcurves, and a box one period away rejects everything.
-    if let Some(period) = u_period {
-        if let Some(face_data) = brep.faces.get(face) {
-            let he = brep.loops[face_data.outer_loop].half_edge;
-            if let Some(pc) = brep.half_edges.get(he).and_then(|h| h.pcurve.as_ref()) {
-                let (t0, t1) = pc.parameter_range();
-                let pu = pc.point_at(0.5 * (t0 + t1)).x;
-                let mid = 0.5 * (u0p + u1p);
-                let shift = ((pu - mid) / period).round() * period;
-                u0p += shift;
-                u1p += shift;
-            }
-        }
-    }
     ((u0p, u1p), (v0p, v1p))
 }
 
