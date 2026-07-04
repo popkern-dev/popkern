@@ -326,7 +326,9 @@ fn main() {
                 Some(popkern_core::geometry::SurfaceGeometry::Cylinder { .. }) => "Cyl",
                 Some(popkern_core::geometry::SurfaceGeometry::Torus { .. }) => "Torus",
                 Some(popkern_core::geometry::SurfaceGeometry::Nurbs(_)) => "Nurbs",
-                _ => "?",
+                Some(popkern_core::geometry::SurfaceGeometry::Sphere { .. }) => "Sphere",
+                Some(_) => "OtherKind",
+                None => "NONE",
             };
             let mut loops_desc = Vec::new();
             for (li, &lh) in std::iter::once(&f.outer_loop)
