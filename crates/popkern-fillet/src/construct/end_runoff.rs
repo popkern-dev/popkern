@@ -294,7 +294,37 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     let (ub, vb) = invert(&p_next).ok_or("anchor_next inversion")?;
     const N: usize = 33;
     let mut pts: Vec<Point3> = Vec::with_capacity(N);
+    // Analytic cylinders: the runoff curve (cylinder ∩ end plane) is
+    // graph-like over the ANGLE, not the axial coordinate — at a
+    // symmetric corner both anchors share the same axial value and
+    // an axial march degenerates to a straight chord (PK-097:
+    // visibly flat base corners). March u between the anchor angles
+    // and solve the plane equation for v in closed form.
+    let cylinder_ellipse = if let SurfaceGeometry::Cylinder { axis, .. } = &surface {
+        let n = cand.plane_normal;
+        let denom = axis.dot(&n);
+        if denom.abs() > 1.0e-9 {
+            for i in 0..N {
+                let f = i as f64 / (N - 1) as f64;
+                let u = ua + (ub - ua) * f;
+                let ring = surface.point_at(u, 0.0);
+                let v = (cand.plane_origin - ring).dot(&n) / denom;
+                pts.push(ring + *axis * v);
+            }
+            pts[0] = p_prev;
+            pts[N - 1] = p_next;
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let _ = (va, vb);
     for i in 0..N {
+        if cylinder_ellipse {
+            break;
+        }
         let f = i as f64 / (N - 1) as f64;
         let v = va + (vb - va) * f;
         // Bracket the crossing along u: from the strip's mid-surface

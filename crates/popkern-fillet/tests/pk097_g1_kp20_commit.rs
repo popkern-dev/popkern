@@ -64,6 +64,45 @@ fn g1_kp20_commit_produces_valid_blend() {
     assert_eq!(result.corner_patches.len(), 20, "the 4n KP20 piece faces");
     assert_eq!(*kinds.get("Gregory").unwrap_or(&0), 20);
     assert_eq!(*kinds.get("Cylinder").unwrap_or(&0), 5, "5 strips");
+    // Base-corner runoff edges must be the true cylinder∩base
+    // ellipse (bulging toward the corner), not a straight chord —
+    // the axial runoff march degenerated at symmetric corners and
+    // produced visibly flat chamfers (PK-097).
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        let mut checked = 0;
+        for (_, edge) in brep.edges.iter() {
+            let Some(curve) = edge.curve.as_ref() else {
+                continue;
+            };
+            let ceval: &dyn CurveEval = &curve.geometry;
+            let a = ceval.point_at(curve.t_start);
+            let b = ceval.point_at(curve.t_end);
+            if a.z.abs() > 1e-6 || b.z.abs() > 1e-6 || a.distance_to(&b) < 0.05 {
+                continue;
+            }
+            // Base-plane edges: original pentagon edges are LONG
+            // (side ~1.18); the corner runoff spans ~0.156.
+            if a.distance_to(&b) > 0.5 {
+                continue;
+            }
+            let mid = ceval.point_at(0.5 * (curve.t_start + curve.t_end));
+            let chord_mid = popkern_core::geometry::Point3::new(
+                0.5 * (a.x + b.x),
+                0.5 * (a.y + b.y),
+                0.5 * (a.z + b.z),
+            );
+            let sagitta = mid.distance_to(&chord_mid);
+            assert!(
+                sagitta > 0.05 * a.distance_to(&b),
+                "base runoff edge must be curved (sagitta {:.4} over span {:.4})",
+                sagitta,
+                a.distance_to(&b)
+            );
+            checked += 1;
+        }
+        assert_eq!(checked, 5, "one runoff edge per base corner");
+    }
     assert_eq!(
         *kinds.get("Plane").unwrap_or(&0),
         6,
