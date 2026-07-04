@@ -104,10 +104,16 @@ pub(super) fn run_perpendicular_splits(
         // perp-walk radius, leaving the setback arcs beyond the main
         // face's boundary). The §28.H direct-apex machinery keeps
         // perp-walk positions on all surface kinds.
+        // Trim-crossing anchors are suppressed under direct-apex
+        // dispatch (pyramid3 regression protection) — EXCEPT when
+        // the setback-at-N=3 experiment is opted in, whose surgery
+        // requires arc/boundary crossings and therefore trim
+        // anchors.
+        let setback_n3 = std::env::var_os("POPKERN_SETBACK_N3").is_some();
         let anchor_on_trim = matches!(
             eg.surface,
             SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Cylinder { .. }
-        ) && !use_direct_apex_construction;
+        ) && (!use_direct_apex_construction || setback_n3);
 
         // §28.H Session 2 — build per-anchor planner override.  For
         // each anchor slot (V_start vs V_end on face_1 vs face_2),

@@ -42,6 +42,15 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     surface_fix::correct_face_surfaces(result, brep, &fillet_surfaces);
     determinism_trace("post_surface_fix", result);
 
+    // Corner-cap boundary arcs: rebuild tangency-curve chords as
+    // exact sphere-centered arcs BEFORE edge reconciliation (the
+    // stale-only gate then sees on-surface curves and leaves them).
+    let arcs = super::corner_arc_boundaries::arcify_corner_cap_boundaries(result, corner_patches);
+    if arcs > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+        eprintln!("  [arcify] rewrote {arcs} corner-cap boundary chords");
+    }
+    determinism_trace("post_corner_arcify", result);
+
     // Reconcile edge curves with their adjacent face surfaces.
     // multi_chord and corner-blend mef calls write straight-line
     // edge curves that were correct against the original planar

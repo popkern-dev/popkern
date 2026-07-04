@@ -213,6 +213,10 @@ fn main() {
     // corners).
     let mut fillet_edges_list: Vec<popkern_core::topology::EdgeHandle> = seam_edges.clone();
     let seam_only = std::env::var_os("FLAGSHIP_SEAM_ONLY").is_some();
+    // Corner-free variant: seam + vertical edges only (each vertical
+    // fillet ends at perpendicular faces — no 3-fillet corner blends,
+    // which are the remaining legacy-quality machinery).
+    let no_top = std::env::var_os("FLAGSHIP_NO_TOP_FILLETS").is_some();
     for (eh, edge) in unioned.edges.iter() {
         if seam_only {
             break;
@@ -226,7 +230,7 @@ fn main() {
             && a.z.min(b.z) < 1e-6;
         let top_perimeter =
             (a.z - 0.4).abs() < 1e-6 && (b.z - 0.4).abs() < 1e-6 && a.distance_to(&b) > 1.0;
-        if vertical || top_perimeter {
+        if vertical || (top_perimeter && !no_top) {
             fillet_edges_list.push(eh);
         }
     }
@@ -304,6 +308,68 @@ fn main() {
     if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
         for (eh, edge) in result.brep.edges.iter() {
             if let Some(c) = edge.curve.as_ref() {
+                {
+                    use popkern_core::geometry::curve::CurveEval;
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    let he = edge.half_edge;
+                    let f1 = result.brep.loops[result.brep.half_edges[he].loop_].face;
+                    let f2 = result.brep.loops
+                        [result.brep.half_edges[result.brep.half_edges[he].twin].loop_]
+                        .face;
+                    let ceval: &dyn CurveEval = &c.geometry;
+                    let mid = ceval.point_at(0.5 * (c.t_start + c.t_end));
+                    let d_of = |fh: popkern_core::topology::FaceHandle| -> (String, f64) {
+                        let Some(sof) = result.brep.faces[fh].surface.as_ref() else {
+                            return ("NONE".into(), f64::NAN);
+                        };
+                        let kind = match &sof.geometry {
+                            popkern_core::geometry::SurfaceGeometry::Plane { .. } => "P",
+                            popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "C",
+                            popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "S",
+                            popkern_core::geometry::SurfaceGeometry::Torus { .. } => "T",
+                            _ => "?",
+                        };
+                        let d = popkern_core::geometry::uv_projection::project_point_to_uv(
+                            &sof.geometry,
+                            &mid,
+                        )
+                        .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(&mid))
+                        .unwrap_or(f64::NAN);
+                        (kind.into(), d)
+                    };
+                    let (k1, d1) = d_of(f1);
+                    let (k2, d2) = d_of(f2);
+                    if d1.max(d2) > 1e-4 {
+                        // Endpoint distances to the nearest sphere cap center.
+                        let ends = {
+                            let he2 = edge.half_edge;
+                            let a =
+                                result.brep.vertices[result.brep.half_edges[he2].origin].position;
+                            let b = result.brep.vertices
+                                [result.brep.half_edges[result.brep.half_edges[he2].twin].origin]
+                                .position;
+                            (a, b)
+                        };
+                        let mut sphere_note = String::new();
+                        for (_, f) in result.brep.faces.iter() {
+                            if let Some(popkern_core::geometry::SurfaceGeometry::Sphere {
+                                center,
+                                radius,
+                            }) = f.surface.as_ref().map(|s| &s.geometry)
+                            {
+                                let da = ends.0.distance_to(center);
+                                let db = ends.1.distance_to(center);
+                                if da < radius * 3.0 && db < radius * 3.0 {
+                                    sphere_note = format!(
+                                        " sphere r {radius:.3}: |a-C| {da:.4} |b-C| {db:.4}"
+                                    );
+                                    break;
+                                }
+                            }
+                        }
+                        eprintln!("  BADEDGE {eh:?} {k1}({d1:.2e}) x {k2}({d2:.2e}){sphere_note}");
+                    }
+                }
                 let kind = match &c.geometry {
                     popkern_core::geometry::CurveGeometry::Line { .. } => "Line",
                     popkern_core::geometry::CurveGeometry::Arc { .. } => "Arc",

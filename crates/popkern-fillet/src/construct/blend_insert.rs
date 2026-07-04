@@ -101,7 +101,13 @@ pub(crate) fn insert_vertex_blend(
     // is the setback n-gon; the cap face fan is the recorded
     // follow-up, so for now the outcome is only exercised by
     // integration tests and the arm falls through on any error.
-    if super::setback_vertex_topology::setback_topology_commit_enabled() && edge_indices.len() >= 5
+    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_N3").is_some() {
+        3
+    } else {
+        5
+    };
+    if super::setback_vertex_topology::setback_topology_commit_enabled()
+        && edge_indices.len() >= setback_min_n
     {
         // PK-094 commit mode: the setback vertex blend replaces the
         // legacy corner machinery entirely for eligible apexes. On
@@ -180,6 +186,9 @@ pub(crate) fn insert_vertex_blend(
                     .lock()
                     .unwrap_or_else(|p| p.into_inner()) =
                     Some(format!("setback commit declined: {e}"));
+                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    eprintln!("  [setback] declined at {vertex:?}: {e}");
+                }
             }
         }
     }
