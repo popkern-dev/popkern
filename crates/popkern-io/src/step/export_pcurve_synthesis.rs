@@ -123,8 +123,18 @@ pub(super) fn synthesize_export_face_use_curve_and_pcurve(
 }
 
 pub(super) fn step_export_pcurve_association_tolerance(brep: &BRep) -> f64 {
+    // The gate decides whether a face use shares the global edge or
+    // gets a face-local duplicate (which downgrades the shell to an
+    // OPEN_SHELL surface model that consumers will not auto-sew).
+    // Coherence is therefore judged at the model's DECLARED accuracy
+    // — its accumulated imprecision — not at the raw linear
+    // tolerance: an edge within the model tolerance is stitchable by
+    // any consumer, and exporting it single-sided guarantees the
+    // opposite (PK-096: Fusion showed unstitched faces at the cap
+    // because 8.7e-6 rim residuals tripped a 1e-6 gate).
     brep.tolerance
         .linear()
+        .max(brep.max_imprecision)
         .max(STEP_EXPORT_PCURVE_ASSOCIATION_TOLERANCE)
 }
 

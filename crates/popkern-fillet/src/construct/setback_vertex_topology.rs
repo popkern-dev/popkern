@@ -817,6 +817,11 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
     // Collect (rim half-edge on cap side, row, ..) jobs first.
     struct RimJob {
         edge: EdgeHandle,
+        /// Cap-side half-edge (the loop side on the cap face).
+        cap_he: popkern_core::topology::HalfEdgeHandle,
+        /// Which grid side of the piece (0: u=0, 1: u=9-row, 2: v=0
+        /// col, 3: v=9 col) — determines the pcurve's iso line.
+        side: usize,
         row: [Point3; 10],
         va: VertexHandle,
         vb: VertexHandle,
@@ -878,6 +883,8 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
             let (_, ri) = best.ok_or("no rim row")?;
             jobs.push(RimJob {
                 edge: data.edge,
+                cap_he: he,
+                side: ri,
                 row: rows[ri],
                 va,
                 vb,
@@ -1004,6 +1011,30 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
                     control_points: seg.to_vec(),
                     weights: vec![1.0; 10],
                 }),
+                t_start: 0.0,
+                t_end: 1.0,
+            });
+        }
+        // Cap-side pcurve: the row segment IS the iso line of the
+        // piece domain between ta and tb, and de Casteljau extraction
+        // parameterizes it linearly — so an exact, parameter-
+        // synchronized pcurve is the straight domain segment. (The
+        // STEP exporter demands trace synchronization; asynchronous
+        // pcurves force face-local edges and an OPEN_SHELL export.)
+        // grid[i][j] evaluates with B_i(u)·B_j(v): sides 0/1 are u
+        // iso lines parameterized by v, sides 2/3 v iso lines by u.
+        let (uv_a, uv_b) = match job.side {
+            0 => ((0.0, ta), (0.0, tb)),
+            1 => ((1.0, ta), (1.0, tb)),
+            2 => ((ta, 0.0), (tb, 0.0)),
+            _ => ((ta, 1.0), (tb, 1.0)),
+        };
+        if let Some(he_mut) = brep.half_edges.get_mut(job.cap_he) {
+            he_mut.pcurve = Some(popkern_core::geometry::pcurve::Pcurve {
+                geometry: popkern_core::geometry::pcurve::PcurveGeometry::Linear {
+                    start: uv_a,
+                    end: uv_b,
+                },
                 t_start: 0.0,
                 t_end: 1.0,
             });

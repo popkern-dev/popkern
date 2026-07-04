@@ -11,3 +11,4 @@ winnow = "0.7"
 thiserror = "2"
 
 [dev-dependencies]
+popkern-fillet = { path = "../popkern-fillet" }
