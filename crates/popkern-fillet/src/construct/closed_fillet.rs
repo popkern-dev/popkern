@@ -231,6 +231,14 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
     //    (tessellation, export), and the angle parameterization
     //    pairs exactly with iso-linear pcurves on the supports.
     //    Fit failure falls back to the interpolated trim.
+    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+        eprintln!(
+            "  [closed-fillet] seam_a={} circle_1={} circle_2={}",
+            seam_a.is_some(),
+            eg.trim_circle_1.is_some(),
+            eg.trim_circle_2.is_some()
+        );
+    }
     let (trim_seam, trim_fresh, circle_seam, circle_fresh) = if seam_a.is_some() {
         (
             &eg.trim_3d_1,
@@ -427,6 +435,68 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
     brep.half_edges.remove(he_a_h);
     brep.half_edges.remove(he_b_h);
     brep.edges.remove(fillet_edge);
+
+    // 13b. Pcurves for the four trim half-edges, angle-matched to
+    //     the Arc edge curves: without them the STEP exporter's
+    //     pcurve synthesis disagrees with the exact Arc and swaps it
+    //     for a resampled B-spline (the wall face then imports
+    //     broken in OpenCASCADE). Analytic inversion per sample; a
+    //     degree-1 pcurve through 17 samples in each face's own
+    //     chart, parameterized by the SAME angles as the Arc.
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        let author = |brep: &mut BRep, he: popkern_core::topology::HalfEdgeHandle| {
+            let (edge_h, face_h) = {
+                let d = &brep.half_edges[he];
+                (d.edge, brep.loops[d.loop_].face)
+            };
+            let Some(curve) = brep.edges[edge_h].curve.clone() else {
+                return;
+            };
+            let Some(sof) = brep.faces[face_h].surface.clone() else {
+                return;
+            };
+            let ceval: &dyn CurveEval = &curve.geometry;
+            let n = 17usize;
+            let mut uv_pts = Vec::with_capacity(n);
+            let mut prev_uv: Option<(f64, f64)> = None;
+            for i in 0..n {
+                let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / (n - 1) as f64;
+                let p = ceval.point_at(t);
+                let uv = popkern_core::geometry::uv_projection::project_point_to_uv_analytic(
+                    &sof.geometry,
+                    &p,
+                    prev_uv,
+                );
+                let Some(uv) = uv else { return };
+                prev_uv = Some(uv);
+                uv_pts.push(Point3::new(uv.0, uv.1, 0.0));
+            }
+            let mut knots = Vec::with_capacity(n + 2);
+            knots.push(curve.t_start);
+            for i in 0..n {
+                knots.push(
+                    curve.t_start + (curve.t_end - curve.t_start) * i as f64 / (n - 1) as f64,
+                );
+            }
+            knots.push(curve.t_end);
+            let pc = popkern_core::geometry::NurbsCurve {
+                degree: 1,
+                knots,
+                control_points: uv_pts,
+                weights: vec![1.0; n],
+            };
+            brep.half_edges[he].pcurve = Some(pc.into());
+        };
+        for he in [
+            he_seam_support,
+            he_seam_fillet,
+            he_fresh_support,
+            he_fresh_fillet,
+        ] {
+            author(brep, he);
+        }
+    }
 
     // 14. Seam the fillet face: its two boundary circles are
     //     disjoint loops, so the face charts as a full-wrap ring —

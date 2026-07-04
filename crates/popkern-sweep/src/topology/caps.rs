@@ -43,17 +43,14 @@ pub fn create_cap_face(
         .add_loop(half_edges, face)
         .map_err(|e| SweepError::Topology(format!("cap loop: {e}")))?;
 
-    // Attach cap curve geometry to each boundary edge.
+    // Attach cap curve geometry to each boundary edge — with
+    // canonical recognition (circular cap curves become analytic
+    // Arcs; see surface::canonical).
     for (he_handle, curve) in half_edges.iter().zip(cap_curves.iter()) {
         let edge_handle = builder.brep().half_edges[*he_handle].edge;
-        let (t_start, t_end) = curve.parameter_range();
         builder.set_edge_curve(
             edge_handle,
-            CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(curve.clone()),
-                t_start,
-                t_end,
-            },
+            crate::surface::canonical::analytic_or_nurbs_curve(curve),
         );
     }
 

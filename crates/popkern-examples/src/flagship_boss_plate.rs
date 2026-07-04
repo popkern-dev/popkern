@@ -302,6 +302,24 @@ fn main() {
     );
 
     if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
+        for (eh, edge) in result.brep.edges.iter() {
+            if let Some(c) = edge.curve.as_ref() {
+                let kind = match &c.geometry {
+                    popkern_core::geometry::CurveGeometry::Line { .. } => "Line",
+                    popkern_core::geometry::CurveGeometry::Arc { .. } => "Arc",
+                    popkern_core::geometry::CurveGeometry::Circle { .. } => "Circle",
+                    popkern_core::geometry::CurveGeometry::Nurbs(_) => "Nurbs",
+                    _ => "?",
+                };
+                use popkern_core::geometry::curve::CurveEval;
+                let ceval: &dyn CurveEval = &c.geometry;
+                let mid = ceval.point_at(0.5 * (c.t_start + c.t_end));
+                eprintln!(
+                    "  edge {eh:?} {kind} mid ({:.3},{:.3},{:.3})",
+                    mid.x, mid.y, mid.z
+                );
+            }
+        }
         for (fh, f) in result.brep.faces.iter() {
             let kind = match f.surface.as_ref().map(|s| &s.geometry) {
                 Some(popkern_core::geometry::SurfaceGeometry::Plane { .. }) => "Plane",

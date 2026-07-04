@@ -270,3 +270,127 @@ fn circumcenter_3d(a: Point3, b: Point3, c: Point3, axis: Vec3) -> Option<Point3
         / dd;
     Some(a + e1 * ux + e2 * uy)
 }
+
+/// Recognize a closed circular NURBS curve as an analytic circle
+/// `(center, normal, radius)` — Kåsa least-squares in the Newell
+/// plane, verified to 1e-9 relative. Sweep cap curves of circular
+/// profiles are exact rational circles; keeping them as B-splines
+/// costs downstream consumers their analytic paths (and OpenCASCADE
+/// importers reject faces bounded by closed rational splines that
+/// analytic circles pass cleanly).
+pub(crate) fn recognize_circle(
+    curve: &popkern_core::geometry::NurbsCurve,
+) -> Option<(Point3, Vec3, f64)> {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = curve.parameter_range();
+    if curve.point_at(t0).distance_to(&curve.point_at(t1)) > 1.0e-9 {
+        return None;
+    }
+    let n = 24usize;
+    let pts: Vec<Point3> = (0..n)
+        .map(|i| curve.point_at(t0 + (t1 - t0) * i as f64 / n as f64))
+        .collect();
+    let m = pts.len() as f64;
+    let c0 = Point3::new(
+        pts.iter().map(|p| p.x).sum::<f64>() / m,
+        pts.iter().map(|p| p.y).sum::<f64>() / m,
+        pts.iter().map(|p| p.z).sum::<f64>() / m,
+    );
+    let mut nx = 0.0;
+    let mut ny = 0.0;
+    let mut nz = 0.0;
+    for i in 0..pts.len() {
+        let a = pts[i];
+        let b = pts[(i + 1) % pts.len()];
+        nx += (a.y - b.y) * (a.z + b.z);
+        ny += (a.z - b.z) * (a.x + b.x);
+        nz += (a.x - b.x) * (a.y + b.y);
+    }
+    let normal = Vec3::new(nx, ny, nz).normalized()?;
+    let (e1, e2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
+    let xy: Vec<(f64, f64)> = pts
+        .iter()
+        .map(|p| {
+            let d = *p - c0;
+            (d.dot(&e1), d.dot(&e2))
+        })
+        .collect();
+    let (mut sx, mut sy, mut sxx, mut syy, mut sxy, mut sxz, mut syz, mut sz) =
+        (0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    for &(x, y) in &xy {
+        let z = x * x + y * y;
+        sx += x;
+        sy += y;
+        sxx += x * x;
+        syy += y * y;
+        sxy += x * y;
+        sxz += x * z;
+        syz += y * z;
+        sz += z;
+    }
+    let mm = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, m]];
+    let rhs = [sxz, syz, sz];
+    let det3 = |a: &[[f64; 3]; 3]| -> f64 {
+        a[0][0] * (a[1][1] * a[2][2] - a[1][2] * a[2][1])
+            - a[0][1] * (a[1][0] * a[2][2] - a[1][2] * a[2][0])
+            + a[0][2] * (a[1][0] * a[2][1] - a[1][1] * a[2][0])
+    };
+    let d0 = det3(&mm);
+    if d0.abs() < 1e-30 {
+        return None;
+    }
+    let solve = |col: usize| -> f64 {
+        let mut t = mm;
+        for (row, trow) in t.iter_mut().enumerate() {
+            trow[col] = rhs[row];
+        }
+        det3(&t) / d0
+    };
+    let (a, b, c2) = (solve(0), solve(1), solve(2));
+    let (ccx, ccy) = (0.5 * a, 0.5 * b);
+    let r = (c2 + ccx * ccx + ccy * ccy).max(0.0).sqrt();
+    if r < 1e-12 {
+        return None;
+    }
+    let center = c0 + e1 * ccx + e2 * ccy;
+    let gate = r * 1.0e-9;
+    for p in &pts {
+        let d = *p - center;
+        if (d.length() - r).abs() > gate || d.dot(&normal).abs() > gate {
+            return None;
+        }
+    }
+    Some((center, normal, r))
+}
+
+/// Curve-on-edge with canonical recognition: circular curves become
+/// analytic angle-parameterized Arcs, everything else stays NURBS.
+pub(crate) fn analytic_or_nurbs_curve(
+    curve: &popkern_core::geometry::NurbsCurve,
+) -> popkern_core::geometry::CurveOnEdge {
+    use popkern_core::geometry::curve::CurveEval;
+    if let Some((center, normal, radius)) = recognize_circle(curve) {
+        let (t0, _) = curve.parameter_range();
+        let start = curve.point_at(t0);
+        let (e1, e2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
+        let d = start - center;
+        let theta0 = d.dot(&e2).atan2(d.dot(&e1));
+        return popkern_core::geometry::CurveOnEdge {
+            geometry: popkern_core::geometry::curve::CurveGeometry::Arc {
+                center,
+                normal,
+                radius,
+                start_angle: theta0,
+                end_angle: theta0 + std::f64::consts::TAU,
+            },
+            t_start: theta0,
+            t_end: theta0 + std::f64::consts::TAU,
+        };
+    }
+    let (t_start, t_end) = curve.parameter_range();
+    popkern_core::geometry::CurveOnEdge {
+        geometry: popkern_core::geometry::curve::CurveGeometry::Nurbs(curve.clone()),
+        t_start,
+        t_end,
+    }
+}

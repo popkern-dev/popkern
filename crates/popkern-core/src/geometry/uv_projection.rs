@@ -571,6 +571,68 @@ pub fn face_bounded_parameter_range(
     ((u0p, u1p), (v0p, v1p))
 }
 
+/// Analytic, branch-aware point inversion for surfaces where the
+/// generic Newton projection wanders across period branches.
+/// `hint` (a previous sample's uv) selects the branch; without it,
+/// the canonical branch is returned. Falls back to the generic
+/// projection for surface kinds without an analytic inverse.
+pub fn project_point_to_uv_analytic(
+    surface: &SurfaceGeometry,
+    p: &Point3,
+    hint: Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
+    match surface {
+        SurfaceGeometry::Cylinder { origin, axis, .. } => {
+            let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
+            let d = *p - *origin;
+            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            if let Some((hu, _)) = hint {
+                let tau = std::f64::consts::TAU;
+                while u - hu > 0.5 * tau {
+                    u -= tau;
+                }
+                while u - hu < -0.5 * tau {
+                    u += tau;
+                }
+            }
+            Some((u, d.dot(axis)))
+        }
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            ..
+        } => {
+            let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
+            let d = *p - *center;
+            let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
+            let radial = d - *axis * d.dot(axis);
+            let r_len = radial.length();
+            let mut v = (d.dot(axis)).atan2(r_len - major_radius);
+            if let Some((hu, hv)) = hint {
+                let tau = std::f64::consts::TAU;
+                while u - hu > 0.5 * tau {
+                    u -= tau;
+                }
+                while u - hu < -0.5 * tau {
+                    u += tau;
+                }
+                while v - hv > 0.5 * tau {
+                    v -= tau;
+                }
+                while v - hv < -0.5 * tau {
+                    v += tau;
+                }
+            }
+            Some((u, v))
+        }
+        _ => match hint {
+            Some((hu, hv)) => project_point_to_uv_near(surface, p, hu, hv),
+            None => project_point_to_uv(surface, p),
+        },
+    }
+}
+
 #[cfg(test)]
 #[path = "uv_projection_extended_tests.rs"]
 mod extended_tests;

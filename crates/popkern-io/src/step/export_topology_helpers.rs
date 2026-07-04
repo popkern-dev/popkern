@@ -182,7 +182,31 @@ fn sample_surface_trim_in_edge_direction(
     if forward_gap.min(reverse_gap) > endpoint_tolerance {
         return None;
     }
-    let reverse = reverse_gap < forward_gap;
+    let mut reverse = reverse_gap < forward_gap;
+    // CLOSED edges tie the endpoint test (start == end); align the
+    // direction with the edge's 3D curve at the quarter point
+    // instead — an arbitrary pick made the synthesized trim run
+    // opposite the exact Arc and the exporter then replaced the Arc
+    // with a resampled B-spline (diametral 0.7 disagreement on the
+    // boss wall trim).
+    if (forward_gap - reverse_gap).abs() <= endpoint_tolerance.min(1e-9)
+        && let Some(curve) = brep.edges.get(edge).and_then(|e| e.curve.as_ref())
+    {
+        let quarter = |rev: bool| -> Point3 {
+            let t = if rev {
+                pcurve.t_end + (pcurve.t_start - pcurve.t_end) * 0.25
+            } else {
+                pcurve.t_start + (pcurve.t_end - pcurve.t_start) * 0.25
+            };
+            let uv = pcurve.point_at(t);
+            surface.point_at(uv.x, uv.y)
+        };
+        let curve_quarter = curve
+            .geometry
+            .point_at(curve.t_start + (curve.t_end - curve.t_start) * 0.25);
+        reverse =
+            quarter(true).distance_to(&curve_quarter) < quarter(false).distance_to(&curve_quarter);
+    }
     let samples = samples.max(2);
     let mut points = Vec::with_capacity(samples);
     for index in 0..samples {

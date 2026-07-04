@@ -81,8 +81,14 @@ impl ExportContext {
                 let export_curve = surface_trim_curve
                     .as_ref()
                     .filter(|_| {
-                        edge_curve_surface_trim_disagreement(brep, eh, curve)
-                            .is_some_and(|gap| gap > step_export_pcurve_association_tolerance(brep))
+                        let gap = edge_curve_surface_trim_disagreement(brep, eh, curve);
+                        if std::env::var_os("PK_STEP_TRACE").is_some() {
+                            eprintln!(
+                                "  [step-export] edge {eh:?} trim disagreement {gap:?} (tol {})",
+                                step_export_pcurve_association_tolerance(brep)
+                            );
+                        }
+                        gap.is_some_and(|g| g > step_export_pcurve_association_tolerance(brep))
                     })
                     .unwrap_or(curve);
                 self.export_curve(export_curve)

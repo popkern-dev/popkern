@@ -348,14 +348,9 @@ fn attach_nurbs_curve_to_edge(
     index: usize,
 ) {
     if let Some(curve) = curves.get(index) {
-        let (t_start, t_end) = curve.parameter_range();
         builder.set_edge_curve(
             edge,
-            CurveOnEdge {
-                geometry: CurveGeometry::Nurbs(curve.clone()),
-                t_start,
-                t_end,
-            },
+            crate::surface::canonical::analytic_or_nurbs_curve(curve),
         );
     }
 }
