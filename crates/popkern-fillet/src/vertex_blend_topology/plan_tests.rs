@@ -76,6 +76,7 @@ fn plan_cube_uniform_keeps_three_sphere_fit_vertices() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn plan_cube_uniform_deletes_three_footprints() {
     let (brep, cap_face) = fillet_cube_uniform();
     let plan = plan_apex_region_deletion(&brep, cap_face);
@@ -98,6 +99,7 @@ fn plan_cube_uniform_deletes_three_footprints() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn plan_cube_uniform_deletes_six_cap_cylinder_generators() {
     let (brep, cap_face) = fillet_cube_uniform();
     let plan = plan_apex_region_deletion(&brep, cap_face);
@@ -127,6 +129,7 @@ fn plan_cube_uniform_inserts_three_cap_tangent_arcs() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn plan_cube_uniform_is_actionable() {
     let (brep, cap_face) = fillet_cube_uniform();
     let plan = plan_apex_region_deletion(&brep, cap_face);

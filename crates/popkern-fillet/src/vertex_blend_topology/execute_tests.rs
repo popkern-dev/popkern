@@ -57,6 +57,7 @@ fn fillet_cube_uniform() -> (BRep, FaceHandle) {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn execute_inserts_three_cap_tangent_arcs() {
     let (mut brep, cap_face) = fillet_cube_uniform();
     let plan = plan_apex_region_deletion(&brep, cap_face);
@@ -66,6 +67,7 @@ fn execute_inserts_three_cap_tangent_arcs() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn execute_post_brep_passes_validate() {
     let (mut brep, cap_face) = fillet_cube_uniform();
     let plan = plan_apex_region_deletion(&brep, cap_face);
@@ -207,6 +209,7 @@ fn pcurve_fit_residual_diagnostic() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn execute_inserted_arcs_lie_on_cap_sphere() {
     // Each inserted cap-tangent arc must trace a curve on the
     // cap sphere — at samples, the points must satisfy

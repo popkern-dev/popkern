@@ -9,7 +9,7 @@ mod analytic_curve_primitives;
 
 #[cfg(test)]
 pub(crate) use analytic_curve_primitives::arbitrary_perpendicular;
-pub(crate) use analytic_curve_primitives::circle_basis;
+pub use analytic_curve_primitives::circle_basis;
 use analytic_curve_primitives::{Arc, Circle, Ellipse, Hyperbola, Line, Parabola};
 
 // ---------------------------------------------------------------------------

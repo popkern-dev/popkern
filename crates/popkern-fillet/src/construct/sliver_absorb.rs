@@ -203,6 +203,12 @@ fn absorb_slivers_with_protected(
     let cap = brep.faces.len() * 2 + 16;
     let mut retained: std::collections::HashSet<FaceHandle> = std::collections::HashSet::new();
     for _ in 0..cap {
+        // NOTE: Class D before C is load-bearing — the corner
+        // reconstruction downstream harvests its contact vertices
+        // from D-absorbed fragments (a C-first experiment measured
+        // 117 → 229 opens on the flagship chain). The absorbed wall
+        // chords D leaves in cap loops are the recorded follow-up
+        // (wall reunification AFTER contact harvest).
         let candidate = find_corner_fragment_target(brep, &retained)
             .inspect(|c| {
                 if std::env::var_os("PK_CARVE_TRACE").is_some() {

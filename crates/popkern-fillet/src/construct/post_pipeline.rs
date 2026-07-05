@@ -42,15 +42,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     surface_fix::correct_face_surfaces(result, brep, &fillet_surfaces);
     determinism_trace("post_surface_fix", result);
 
-    // Corner-cap boundary arcs: rebuild tangency-curve chords as
-    // exact sphere-centered arcs BEFORE edge reconciliation (the
-    // stale-only gate then sees on-surface curves and leaves them).
-    let arcs = super::corner_arc_boundaries::arcify_corner_cap_boundaries(result, corner_patches);
-    if arcs > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
-        eprintln!("  [arcify] rewrote {arcs} corner-cap boundary chords");
-    }
-    determinism_trace("post_corner_arcify", result);
-
     // Reconcile edge curves with their adjacent face surfaces.
     // multi_chord and corner-blend mef calls write straight-line
     // edge curves that were correct against the original planar
@@ -172,9 +163,80 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     }
 
     pp_census("post-sliver-absorb", result);
+
     determinism_trace("post_sliver_absorb", result);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
     determinism_trace("post_cap_insert", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@post_cap_insert] {e:?}");
+    }
+
+    // Route B corner reconstruction, LAST — after sliver absorption
+    // AND §8.3 cap insertion (cap_insert re-anchors corner topology
+    // from precomputed edge geometries; contracting before it left
+    // resurrected anchor positions and 0.1131 open loops). The
+    // absorbed corner fragments contribute the on-sphere contact
+    // vertices to the cap loops (pre-absorb caps are pure anchor
+    // triangles). Contract anchors into contacts, then rebuild the
+    // cap boundary chords as exact sphere-centered arcs.
+    let collapsed =
+        super::corner_arc_boundaries::collapse_corner_anchor_chords(result, corner_patches);
+    if collapsed > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+        eprintln!("  [contact-collapse] contracted {collapsed} anchor chords");
+    }
+    let arcs = super::corner_arc_boundaries::arcify_corner_cap_boundaries(result, corner_patches);
+    if arcs > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+        eprintln!("  [arcify] rewrote {arcs} corner-cap boundary chords");
+    }
+    determinism_trace("post_corner_arcify", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@post_corner_arcify] {e:?}");
+        if let popkern_core::error::ValidationError::OpenLoop { loop_, .. } = e
+            && let Some(l) = result.loops.get(loop_)
+        {
+            use popkern_core::geometry::curve::CurveEval;
+            let f = l.face;
+            let kind = result.faces[f]
+                .surface
+                .as_ref()
+                .map(|sof| match &sof.geometry {
+                    popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                    popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cyl",
+                    popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "Sphere",
+                    _ => "?",
+                })
+                .unwrap_or("None");
+            eprintln!("    face {f:?} ({kind})");
+            let start = l.half_edge;
+            let mut he = start;
+            for _ in 0..result.half_edges.len() + 1 {
+                let d = &result.half_edges[he];
+                if let Some(c) = result.edges[d.edge].curve.as_ref() {
+                    let ceval: &dyn CurveEval = &c.geometry;
+                    let p0 = ceval.point_at(c.t_start);
+                    let p1 = ceval.point_at(c.t_end);
+                    let k = match &c.geometry {
+                        popkern_core::geometry::CurveGeometry::Line { .. } => "Line",
+                        popkern_core::geometry::CurveGeometry::Arc { .. } => "Arc",
+                        popkern_core::geometry::CurveGeometry::Nurbs(_) => "Nurbs",
+                        _ => "?",
+                    };
+                    eprintln!(
+                        "    e {:?} {k} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                        d.edge, p0.x, p0.y, p0.z, p1.x, p1.y, p1.z
+                    );
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+    }
 
     // Phase 6c-D Stage 4.4: re-run the substituted-boundary wire
     // step now that sliver_absorb and cap_insert have settled the
@@ -368,6 +430,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // *last* so it catches pcurves attached by every prior pipeline
     // stage (attach_fillet_pcurves, sliver_absorb, cap_insert, …).
     determinism_trace("pre_pcurve_clamp", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@pre_pcurve_clamp] {e:?}");
+    }
     let n_clamped = gregory_pcurve_clamp::clamp_bounded_pcurves(result);
     if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
         eprintln!("  [gregory_pcurve_clamp] clamped {n_clamped} pcurves");
@@ -380,6 +447,11 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     result.normalize_semantic_line_edge_curves_preserving_pcurves(tolerance.linear().max(1.0e-8));
 
     determinism_trace("pre_export_repair", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@pre_export_repair] {e:?}");
+    }
     exact_boundary_export_repair::repair_exact_boundary_export_blockers(result, repair_report);
 
     repair_report.edge_curve_endpoint_coherence_repairs += result.separate_nonmanifold_edge_uses();
@@ -387,12 +459,22 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));
 
     determinism_trace("pre_completion", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@pre_completion] {e:?}");
+    }
     corner_patch_support_completion::complete_corner_patch_support_pcurves(
         result,
         corner_patches,
         &mut repair_report.apex_diagnostics,
     );
     determinism_trace("post_completion", result);
+    if std::env::var_os("PK_CARVE_TRACE").is_some()
+        && let Err(e) = result.validate_loop_closure()
+    {
+        eprintln!("  [closure@post_completion] {e:?}");
+    }
     determinism_face_trace("post_completion", result);
 }
 

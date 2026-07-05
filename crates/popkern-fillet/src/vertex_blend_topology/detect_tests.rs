@@ -151,12 +151,11 @@ fn outer_loop_valence_pre_fillet_cube() {
 
 #[test]
 fn outer_loop_valence_post_fillet_cube_cap_is_six() {
-    // popkern's existing pipeline already splits the
-    // cube_uniform cap into a hexagon (6 alternating
-    // rolling-ball-foot / sphere-fit-like vertices). This
-    // is essential context for Phase 6c-C — the topology
-    // rebuild can leave the *vertex set* as is and just swap
-    // the cap face's surface to an exact Sphere.
+    // Route B corner reconstruction contracts the legacy
+    // hexagon's anchor vertices into the on-sphere contacts:
+    // the cap boundary is now THREE exact sphere-centered
+    // arcs between the rolling-ball tangency feet — the
+    // spherical-triangle anatomy of the true corner blend.
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let apex_pre = cube_apex(&cube);
     let edges = corner_edges(&cube, apex_pre);
@@ -178,8 +177,8 @@ fn outer_loop_valence_post_fillet_cube_cap_is_six() {
     let cap_face = result.corner_patches[0].face;
     assert_eq!(
         outer_loop_valence(&result.brep, cap_face),
-        6,
-        "cube_uniform cap_face has 6 outer-loop edges (3 sphere-fit endpoints + 3 rolling-ball footprints)"
+        3,
+        "reconstructed cube_uniform cap boundary is a spherical triangle: 3 exact arcs between tangency feet"
     );
 }
 

@@ -82,6 +82,7 @@ fn fillet_cube_uniform_with_lenses() -> (BRep, Vec<FaceHandle>, Vec<HalfEdgeHand
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn cube_uniform_collapse_all_three_lenses() {
     // Run mef + collapse for all 3 lenses. Expected post-state:
     // cap face has 3 outer-loop edges (the cap-tangent arcs);
@@ -110,6 +111,7 @@ fn cube_uniform_collapse_all_three_lenses() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn cube_uniform_lens_collapse_diagnostic() {
     // Diagnostic — figure out whether cube_uniform's lens IS
     // actually a same-twin-face case (in which case we can
@@ -164,6 +166,7 @@ fn cube_uniform_lens_collapse_diagnostic() {
 }
 
 #[test]
+#[ignore = "route B corner reconstruction (contact collapse + exact boundary arcs) removed the legacy anchor-hexagon cap anatomy this machinery was built to clean up; the apex-region deletion plan finds no redundant lens structures on the reconstructed corner. Retire or repurpose with PK-101."]
 fn rejects_invalid_lens_face_handle() {
     let (mut brep, _, _) = fillet_cube_uniform_with_lenses();
     // Use an arbitrary half-edge handle as a fake lens face —
