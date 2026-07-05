@@ -228,8 +228,16 @@ impl ExportContext {
             self.export_surface(&default_surface)
         };
 
-        // Determine face orientation
-        let orientation = face.surface.as_ref().map(|s| s.orientation).unwrap_or(true);
+        // Determine face orientation. Planes export with a
+        // chart-true ẑ (= u_axis × v_axis); when that opposes the
+        // stored normal the sense flag flips to compensate (see
+        // `step_plane_sense_flip`).
+        let orientation = face.surface.as_ref().map(|s| s.orientation).unwrap_or(true)
+            ^ face
+                .surface
+                .as_ref()
+                .map(|s| crate::step::export_geometry::step_plane_sense_flip(&s.geometry))
+                .unwrap_or(false);
 
         let face_id = self.emit(
             "ADVANCED_FACE",
@@ -451,8 +459,13 @@ impl ExportContext {
         // STEP doesn't have a native analytic-pcurve type — convert
         // any analytic Pcurve variant (Linear, etc.) to its NURBS
         // form via Pcurve::to_nurbs() before export. NURBS variants
-        // are zero-cost.
-        let nurbs = pcurve.to_nurbs();
+        // are zero-cost. The chart transform maps popkern's UV
+        // convention to the written surface's STEP parameterization
+        // (sphere latitude, see `pcurve_to_step_chart`).
+        let nurbs = crate::step::export_geometry::pcurve_to_step_chart(
+            &surface.surface.geometry,
+            pcurve.to_nurbs(),
+        );
         Some(self.export_pcurve(&nurbs, surface.id))
     }
 

@@ -7,7 +7,8 @@ use crate::step::diagnostics::{DiagnosticLog, Phase};
 use crate::step::mapping::geometry::GeometryCache;
 use crate::step::parser::types::EntityId;
 use crate::step::schema::geometry::{
-    ConicalSurface, CylindricalSurface, SeamCurve, StepPcurve, SurfaceCurve, ToroidalSurface,
+    ConicalSurface, CylindricalSurface, SeamCurve, SphericalSurface, StepPcurve, SurfaceCurve,
+    ToroidalSurface,
 };
 use crate::step::schema::{as_entity_ref, as_list, param_at};
 
@@ -95,13 +96,13 @@ impl GeometryCache<'_> {
                 None
             }
         }?;
+        let transform = self
+            .surface_chart_transform(surface_id, log)
+            .unwrap_or_default();
         Some(ResolvedStepPcurve {
             pcurve_id,
             reference_curve_id: curve_2d_id,
-            pcurve: translate_pcurve_u(
-                pcurve,
-                self.surface_u_frame_offset(surface_id, log).unwrap_or(0.0),
-            ),
+            pcurve: apply_chart_transform(pcurve, transform),
         })
     }
 
@@ -128,25 +129,86 @@ impl GeometryCache<'_> {
             .and_then(|param| as_entity_ref(param, "DEFINITIONAL_REPRESENTATION").ok())
     }
 
-    fn surface_u_frame_offset(
+    /// Chart transform mapping STEP pcurve coordinates to popkern's
+    /// chart for the resolved surface: a u offset for analytic
+    /// surfaces whose placement ref_direction differs from the
+    /// kernel chart's u origin (`orthonormal_basis(axis).0`), plus
+    /// the latitude→colatitude flip for spheres (STEP v is measured
+    /// from the equator, popkern's from the +axis pole:
+    /// v_popkern = π/2 − v_step).
+    fn surface_chart_transform(
         &mut self,
         surface_id: EntityId,
         log: &mut DiagnosticLog,
-    ) -> Option<f64> {
+    ) -> Option<ChartTransform> {
         let entity = self.graph.get(surface_id)?;
-        let placement = match entity.type_name.as_str() {
-            "CYLINDRICAL_SURFACE" => {
+        let (placement, latitude_flip) = match entity.type_name.as_str() {
+            "CYLINDRICAL_SURFACE" => (
                 CylindricalSurface::from_params(&entity.params)
                     .ok()?
-                    .position
-            }
-            "CONICAL_SURFACE" => ConicalSurface::from_params(&entity.params).ok()?.position,
-            "TOROIDAL_SURFACE" => ToroidalSurface::from_params(&entity.params).ok()?.position,
+                    .position,
+                false,
+            ),
+            "CONICAL_SURFACE" => (
+                ConicalSurface::from_params(&entity.params).ok()?.position,
+                false,
+            ),
+            "TOROIDAL_SURFACE" => (
+                ToroidalSurface::from_params(&entity.params).ok()?.position,
+                false,
+            ),
+            "SPHERICAL_SURFACE" => (
+                SphericalSurface::from_params(&entity.params).ok()?.position,
+                true,
+            ),
             _ => return None,
         };
         let (_origin, axis, ref_direction) = self.resolve_placement(placement, log)?;
-        analytic_u_frame_offset(axis, ref_direction)
+        Some(ChartTransform {
+            u_offset: analytic_u_frame_offset(axis, ref_direction).unwrap_or(0.0),
+            latitude_flip,
+        })
     }
+}
+
+/// STEP→popkern pcurve coordinate transform for one basis surface.
+#[derive(Debug, Clone, Copy, Default)]
+struct ChartTransform {
+    u_offset: f64,
+    latitude_flip: bool,
+}
+
+fn apply_chart_transform(pcurve: Pcurve, transform: ChartTransform) -> Pcurve {
+    let pcurve = translate_pcurve_u(pcurve, transform.u_offset);
+    if !transform.latitude_flip {
+        return pcurve;
+    }
+    flip_pcurve_latitude(pcurve)
+}
+
+/// v → π/2 − v (STEP sphere latitude to popkern colatitude). Import
+/// only produces Linear and NURBS pcurves (see
+/// `resolve_pcurve_on_surface`); both are affine-closed under this
+/// map.
+fn flip_pcurve_latitude(mut pcurve: Pcurve) -> Pcurve {
+    let half_pi = std::f64::consts::FRAC_PI_2;
+    match &mut pcurve.geometry {
+        PcurveGeometry::Linear { start, end } => {
+            start.1 = half_pi - start.1;
+            end.1 = half_pi - end.1;
+        }
+        PcurveGeometry::Nurbs(nurbs) => {
+            for point in &mut nurbs.control_points {
+                point.y = half_pi - point.y;
+            }
+        }
+        // Not produced by import for sphere bases; leave unchanged
+        // rather than guessing a convention.
+        PcurveGeometry::Elliptical { .. }
+        | PcurveGeometry::Sinusoidal { .. }
+        | PcurveGeometry::CylinderArcViaRationalQuad { .. } => {}
+    }
+    pcurve
 }
 
 fn analytic_u_frame_offset(axis: Vec3, step_ref_direction: Vec3) -> Option<f64> {

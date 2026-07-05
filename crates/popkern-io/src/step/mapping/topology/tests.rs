@@ -417,3 +417,31 @@ fn build_triangle_solid() {
         log.entries()
     );
 }
+
+/// A CLOSED rim (start vertex == end vertex) projects both trim
+/// parameters to the same value; the periodic normalization must
+/// expand the trim to the full period rather than leaving a
+/// zero-length range (which collapsed every imported seam/rim
+/// circle to a point).
+#[test]
+fn closed_rim_trim_recovery_spans_full_period() {
+    use popkern_core::geometry::{Point3, Vec3};
+    let mut start_t = 1.25;
+    let mut end_t = 1.25;
+    let circle = popkern_core::geometry::curve::CurveGeometry::Circle {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.43,
+    };
+    super::normalize_periodic_parameter_order(&circle, true, &mut start_t, &mut end_t);
+    assert!(
+        (end_t - start_t - std::f64::consts::TAU).abs() < 1e-9,
+        "same_sense closed rim must cover a full period, got [{start_t}, {end_t}]"
+    );
+    let (mut s2, mut e2) = (2.0, 2.0);
+    super::normalize_periodic_parameter_order(&circle, false, &mut s2, &mut e2);
+    assert!(
+        (s2 - e2 - std::f64::consts::TAU).abs() < 1e-9,
+        "reversed closed rim must cover a full period, got [{s2}, {e2}]"
+    );
+}

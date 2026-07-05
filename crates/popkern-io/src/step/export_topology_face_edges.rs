@@ -113,7 +113,11 @@ fn export_local_face_use_edge(
     let start_vp = export.emit("VERTEX_POINT", vec![str_param(""), ref_(start_point_id)]);
     let end_vp = export.emit("VERTEX_POINT", vec![str_param(""), ref_(end_point_id)]);
     let curve_3d_id = export.export_curve(&curve);
-    let pcurve_id = export.export_pcurve(&pcurve.to_nurbs(), surface.id);
+    let step_nurbs = crate::step::export_geometry::pcurve_to_step_chart(
+        &surface.surface.geometry,
+        pcurve.to_nurbs(),
+    );
+    let pcurve_id = export.export_pcurve(&step_nurbs, surface.id);
     let surface_curve_id = export.export_surface_curve(curve_3d_id, &[pcurve_id]);
     Ok(Some(export.emit(
         "EDGE_CURVE",

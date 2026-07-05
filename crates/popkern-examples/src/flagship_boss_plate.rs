@@ -456,7 +456,73 @@ fn main() {
             }
         }
     }
+    if std::env::var_os("FLAGSHIP_PCURVE_AUDIT").is_some() {
+        // Pcurve ownership audit: each half-edge's pcurve must land
+        // on ITS OWN face's surface (evaluate pcurve mid → surface →
+        // compare against the edge-curve mid). A pcurve that lands
+        // only via the TWIN's surface is stored on the wrong side.
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::SurfaceEval;
+        for (eh, edge) in result.brep.edges.iter() {
+            let Some(c) = edge.curve.as_ref() else {
+                continue;
+            };
+            let ceval: &dyn CurveEval = &c.geometry;
+            let mid3d = ceval.point_at(0.5 * (c.t_start + c.t_end));
+            for (side, he) in [
+                ("he", edge.half_edge),
+                ("tw", result.brep.half_edges[edge.half_edge].twin),
+            ] {
+                let hed = &result.brep.half_edges[he];
+                let Some(pc) = hed.pcurve.as_ref() else {
+                    continue;
+                };
+                let own_face = result.brep.loops[hed.loop_].face;
+                let twin_face = result.brep.loops[result.brep.half_edges[hed.twin].loop_].face;
+                let d_on = |fh: popkern_core::topology::FaceHandle| -> f64 {
+                    let Some(sof) = result.brep.faces[fh].surface.as_ref() else {
+                        return f64::NAN;
+                    };
+                    let uv = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+                    sof.geometry.point_at(uv.x, uv.y).distance_to(&mid3d)
+                };
+                let (d_own, d_twin) = (d_on(own_face), d_on(twin_face));
+                if !(d_own < 1e-6) {
+                    eprintln!(
+                        "  PCAUDIT {eh:?} {side}: pcurve off OWN face {own_face:?} by {d_own:.3e} (twin face {twin_face:?}: {d_twin:.3e})"
+                    );
+                }
+            }
+        }
+    }
     if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
+        use popkern_core::geometry::SurfaceGeometry as SGD;
+        for (fh, f) in result.brep.faces.iter() {
+            match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(SGD::Cylinder {
+                    origin,
+                    axis,
+                    radius,
+                }) => eprintln!(
+                    "  surf {fh:?} Cyl o=({:.6},{:.6},{:.6}) a=({:.3},{:.3},{:.3}) r={radius:.6}",
+                    origin.x, origin.y, origin.z, axis.x, axis.y, axis.z
+                ),
+                Some(SGD::Torus {
+                    center,
+                    axis,
+                    major_radius,
+                    minor_radius,
+                }) => eprintln!(
+                    "  surf {fh:?} Torus c=({:.6},{:.6},{:.6}) a=({:.3},{:.3},{:.3}) R={major_radius:.6} r={minor_radius:.6}",
+                    center.x, center.y, center.z, axis.x, axis.y, axis.z
+                ),
+                Some(SGD::Sphere { center, radius }) => eprintln!(
+                    "  surf {fh:?} Sphere c=({:.6},{:.6},{:.6}) r={radius:.6}",
+                    center.x, center.y, center.z
+                ),
+                _ => {}
+            }
+        }
         for (eh, edge) in result.brep.edges.iter() {
             if let Some(c) = edge.curve.as_ref() {
                 {
@@ -690,6 +756,92 @@ fn main() {
             solids.len(),
             result.brep.faces.len()
         );
+        if std::env::var_os("FLAGSHIP_PCURVE_AUDIT").is_some() {
+            // Tessellate the IMPORTED model: the round-tripped file
+            // must itself mesh watertight (the FreeCAD-parity trim
+            // quality oracle, independent of OpenCASCADE).
+            for (i, b) in solids.iter().enumerate() {
+                match popkern_mesh::tessellate(b, &popkern_mesh::TessellationOptions::default()) {
+                    Ok(m) => eprintln!(
+                        "  [rt-tess] solid {i}: {} verts {} tris",
+                        m.vertices.len(),
+                        m.triangles.len()
+                    ),
+                    Err(e) => eprintln!("  [rt-tess] solid {i}: FAILED {e:?}"),
+                }
+            }
+            // Ownership audit on the IMPORTED model, direction-
+            // insensitive: sample the pcurve at several stations,
+            // map through the face surface, and take the max
+            // distance to the edge CURVE (nearest of a dense curve
+            // sampling) — reversed-but-valid pcurves pass, pcurves
+            // in a wrong chart (reflected plane, latitude-flipped
+            // sphere, wrong surface) fail.
+            use popkern_core::geometry::curve::CurveEval;
+            use popkern_core::geometry::surface::SurfaceEval;
+            for b in &solids {
+                for (eh, edge) in b.edges.iter() {
+                    let Some(c) = edge.curve.as_ref() else {
+                        continue;
+                    };
+                    let ceval: &dyn CurveEval = &c.geometry;
+                    let curve_pts: Vec<popkern_core::geometry::Point3> = (0..=32)
+                        .map(|k| {
+                            ceval.point_at(c.t_start + (c.t_end - c.t_start) * k as f64 / 32.0)
+                        })
+                        .collect();
+                    for he in [edge.half_edge, b.half_edges[edge.half_edge].twin] {
+                        let hed = &b.half_edges[he];
+                        let Some(pc) = hed.pcurve.as_ref() else {
+                            continue;
+                        };
+                        let own_face = b.loops[hed.loop_].face;
+                        let Some(sof) = b.faces[own_face].surface.as_ref() else {
+                            continue;
+                        };
+                        let mut worst = 0.0_f64;
+                        for k in 0..=8 {
+                            let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
+                            let uv = pc.point_at(t);
+                            let p = sof.geometry.point_at(uv.x, uv.y);
+                            let d = curve_pts
+                                .iter()
+                                .map(|q| q.distance_to(&p))
+                                .fold(f64::INFINITY, f64::min);
+                            worst = worst.max(d);
+                        }
+                        if worst > 1e-3 {
+                            eprintln!(
+                                "  PCAUDIT-RT {eh:?} face {own_face:?}: pcurve trace off edge by {worst:.3e}"
+                            );
+                            let kind = match &sof.geometry {
+                                popkern_core::geometry::SurfaceGeometry::Plane { .. } => "P",
+                                popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "C",
+                                popkern_core::geometry::SurfaceGeometry::Torus { .. } => "T",
+                                popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "S",
+                                _ => "?",
+                            };
+                            for k in [0, 4, 8] {
+                                let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
+                                let uv = pc.point_at(t);
+                                let p = sof.geometry.point_at(uv.x, uv.y);
+                                eprintln!(
+                                    "    [{kind}] t={t:.3} uv=({:.4},{:.4}) -> ({:.4},{:.4},{:.4}) vs curve[0]=({:.4},{:.4},{:.4})",
+                                    uv.x,
+                                    uv.y,
+                                    p.x,
+                                    p.y,
+                                    p.z,
+                                    curve_pts[0].x,
+                                    curve_pts[0].y,
+                                    curve_pts[0].z
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
         assert_eq!(
             faces_back,
             result.brep.faces.len(),

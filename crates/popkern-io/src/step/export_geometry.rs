@@ -6,7 +6,41 @@
 
 use popkern_core::geometry::curve::CurveGeometry;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{CurveOnEdge, Point3, SurfaceOnFace, Vec3};
+use popkern_core::geometry::{CurveOnEdge, NurbsCurve, Point3, SurfaceOnFace, Vec3};
+
+/// True when the STEP plane placement written by `export_surface`
+/// (ẑ = u_axis × v_axis, chart-true) OPPOSES the stored popkern
+/// normal — the ADVANCED_FACE same_sense flag must flip to keep the
+/// face's material side unchanged.
+pub(crate) fn step_plane_sense_flip(surface: &SurfaceGeometry) -> bool {
+    if let SurfaceGeometry::Plane {
+        normal,
+        u_axis,
+        v_axis,
+        ..
+    } = surface
+    {
+        u_axis.cross(v_axis).dot(normal) < 0.0
+    } else {
+        false
+    }
+}
+
+/// Convert a pcurve (already in NURBS form) from popkern's chart
+/// convention to the STEP parameterization of the written surface.
+/// Spheres differ: popkern v is COLATITUDE from the +Z pole,
+/// STEP SPHERICAL_SURFACE v is LATITUDE from the equator
+/// (v_step = π/2 − v). Plane/cylinder/torus charts match the
+/// written placements exactly (plane via the chart-true ẑ above;
+/// cylinder/torus via ref_direction = the kernel chart's u origin).
+pub(crate) fn pcurve_to_step_chart(surface: &SurfaceGeometry, mut nurbs: NurbsCurve) -> NurbsCurve {
+    if matches!(surface, SurfaceGeometry::Sphere { .. }) {
+        for p in &mut nurbs.control_points {
+            p.y = std::f64::consts::FRAC_PI_2 - p.y;
+        }
+    }
+    nurbs
+}
 
 use crate::step::export::{ExportContext, PointKey, list, real, ref_, str_param};
 use crate::step::export_nurbs::compute_perpendicular;
@@ -124,9 +158,20 @@ impl ExportContext {
                 origin,
                 normal,
                 u_axis,
-                ..
+                v_axis,
             } => {
-                let placement = self.export_placement(origin, normal, u_axis);
+                // STEP readers derive the chart's v direction as
+                // ẑ × x̂ — the stored v_axis is never written. A
+                // left-handed popkern chart (v_axis = −(normal ×
+                // u_axis)) exported with the stored normal as ẑ
+                // REFLECTS every pcurve trim on the face (measured:
+                // plate faces displaced by their full extent in
+                // OpenCASCADE). Write ẑ = u × v so the derived chart
+                // matches the pcurves exactly; the ADVANCED_FACE
+                // same_sense flag carries the orientation difference
+                // (see `step_plane_sense_flip`).
+                let chart_normal = u_axis.cross(v_axis).normalized().unwrap_or_else(|| *normal);
+                let placement = self.export_placement(origin, &chart_normal, u_axis);
                 self.emit("PLANE", vec![str_param(""), ref_(placement)])
             }
             SurfaceGeometry::Cylinder {
@@ -203,6 +248,75 @@ impl ExportContext {
 mod tests {
     use super::*;
     use popkern_core::geometry::curve::CurveOnEdge;
+
+    #[test]
+    fn plane_sense_flip_detects_left_handed_chart() {
+        let right = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(1.0, 0.0, 0.0),
+            v_axis: Vec3::new(0.0, 1.0, 0.0),
+        };
+        assert!(!step_plane_sense_flip(&right));
+        let left = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(0.0, 1.0, 0.0),
+            v_axis: Vec3::new(1.0, 0.0, 0.0),
+        };
+        assert!(step_plane_sense_flip(&left));
+    }
+
+    /// The written plane placement must satisfy the STEP reader's
+    /// derivation ŷ = ẑ × x̂ == v_axis even for left-handed popkern
+    /// charts (v_axis = −(normal × u_axis)) — otherwise every pcurve
+    /// trim on the face is REFLECTED in OpenCASCADE (measured on the
+    /// flagship plate: trims displaced by the full face extent).
+    #[test]
+    fn left_handed_plane_exports_chart_true_placement() {
+        let mut ctx = ExportContext::new();
+        let left = SurfaceGeometry::Plane {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            u_axis: Vec3::new(0.0, 1.0, 0.0),
+            v_axis: Vec3::new(1.0, 0.0, 0.0),
+        };
+        ctx.export_surface(&SurfaceOnFace {
+            geometry: left,
+            orientation: true,
+        });
+        // ẑ' = u × v = Y × X = −Z; readers derive ŷ = ẑ' × x̂ = X = v_axis.
+        let dirs: Vec<String> = ctx
+            .entities
+            .iter()
+            .filter(|e| e.type_name == "DIRECTION")
+            .map(|e| format!("{:?}", e.params))
+            .collect();
+        assert!(
+            dirs.iter().any(|d| d.contains("-1")),
+            "left-handed chart must export ẑ = u×v = −normal, got {dirs:?}"
+        );
+    }
+
+    #[test]
+    fn sphere_pcurve_converts_colatitude_to_latitude() {
+        let sphere = SurfaceGeometry::Sphere {
+            center: Point3::new(0.0, 0.0, 0.0),
+            radius: 1.0,
+        };
+        let nurbs = NurbsCurve {
+            degree: 1,
+            knots: vec![0.0, 0.0, 1.0, 1.0],
+            control_points: vec![Point3::new(0.3, 0.0, 0.0), Point3::new(0.3, 1.2, 0.0)],
+            weights: vec![1.0, 1.0],
+        };
+        let out = pcurve_to_step_chart(&sphere, nurbs);
+        // popkern colatitude 0 (north pole) → STEP latitude π/2.
+        assert!((out.control_points[0].y - std::f64::consts::FRAC_PI_2).abs() < 1e-12);
+        assert!((out.control_points[1].y - (std::f64::consts::FRAC_PI_2 - 1.2)).abs() < 1e-12);
+        // u untouched.
+        assert!((out.control_points[0].x - 0.3).abs() < 1e-12);
+    }
 
     #[test]
     fn export_point_deduplication() {

@@ -457,7 +457,7 @@ fn bounded_nurbs_endpoints_match(
     curve_start.distance_to(&start) <= limit && curve_end.distance_to(&end) <= limit
 }
 
-fn normalize_periodic_parameter_order(
+pub(super) fn normalize_periodic_parameter_order(
     geometry: &CurveGeometry,
     same_sense: bool,
     start_t: &mut f64,
@@ -475,8 +475,17 @@ fn normalize_periodic_parameter_order(
         while *end_t < *start_t {
             *end_t += std::f64::consts::TAU;
         }
+        // CLOSED rim (start vertex == end vertex): both parameters
+        // project to the same point and the trim would collapse to
+        // zero length — the edge covers the FULL period.
+        if (*end_t - *start_t).abs() < 1e-9 {
+            *end_t += std::f64::consts::TAU;
+        }
     } else {
         while *start_t < *end_t {
+            *start_t += std::f64::consts::TAU;
+        }
+        if (*start_t - *end_t).abs() < 1e-9 {
             *start_t += std::f64::consts::TAU;
         }
     }
