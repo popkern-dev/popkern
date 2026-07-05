@@ -148,7 +148,22 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // untouched only because the pass happened to no-op there).
     let pp_census = |tag: &str, b: &popkern_core::topology::BRep| {
         if std::env::var_os("PK_CARVE_TRACE").is_some() {
-            eprintln!("  [pp] {tag}: faces={}", b.faces.len());
+            let mut cyls = Vec::new();
+            for (fh, f) in b.faces.iter() {
+                if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder { axis, .. }) =
+                    f.surface.as_ref().map(|sof| &sof.geometry)
+                {
+                    let dir = if axis.z.abs() > 0.9 {
+                        "V"
+                    } else if axis.z.abs() < 0.1 {
+                        "H"
+                    } else {
+                        "?"
+                    };
+                    cyls.push(format!("{fh:?}{dir}"));
+                }
+            }
+            eprintln!("  [pp] {tag}: faces={} cyls={cyls:?}", b.faces.len());
         }
     };
     pp_census("pre-sliver-absorb", result);

@@ -370,6 +370,92 @@ fn main() {
         result.corner_patches.len()
     );
 
+    if std::env::var_os("FLAGSHIP_FRAGMENT_PROBE").is_some() {
+        for (fh, f) in result.brep.faces.iter() {
+            if let Some(popkern_core::geometry::SurfaceGeometry::Cylinder {
+                origin,
+                axis,
+                radius,
+            }) = f.surface.as_ref().map(|s| &s.geometry)
+            {
+                eprintln!(
+                    "CYL {fh:?} o=({:.3},{:.3},{:.3}) axis=({:.2},{:.2},{:.2}) r={radius}",
+                    origin.x, origin.y, origin.z, axis.x, axis.y, axis.z
+                );
+            }
+        }
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::SurfaceEval;
+        for (fh, f) in result.brep.faces.iter() {
+            let Some(popkern_core::geometry::SurfaceGeometry::Sphere { center, radius }) =
+                f.surface.as_ref().map(|s| &s.geometry)
+            else {
+                continue;
+            };
+            eprintln!(
+                "CAP {fh:?} C=({:.3},{:.3},{:.3}) r={radius}",
+                center.x, center.y, center.z
+            );
+            let start = result.brep.loops[f.outer_loop].half_edge;
+            let mut he = start;
+            for _ in 0..result.brep.half_edges.len() + 1 {
+                let d = &result.brep.half_edges[he];
+                let twin_face = result.brep.loops[result.brep.half_edges[d.twin].loop_].face;
+                let tk = result.brep.faces[twin_face]
+                    .surface
+                    .as_ref()
+                    .map(|sof| match &sof.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                        popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cyl",
+                        popkern_core::geometry::SurfaceGeometry::Torus { .. } => "Torus",
+                        popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "Sphere",
+                        _ => "?",
+                    })
+                    .unwrap_or("None");
+                if let Some(c) = result.brep.edges[d.edge].curve.as_ref() {
+                    let ceval: &dyn CurveEval = &c.geometry;
+                    let p0 = ceval.point_at(c.t_start);
+                    let p1 = ceval.point_at(c.t_end);
+                    let pm = ceval.point_at(0.5 * (c.t_start + c.t_end));
+                    let kind = match &c.geometry {
+                        popkern_core::geometry::CurveGeometry::Line { .. } => "Line",
+                        popkern_core::geometry::CurveGeometry::Arc { .. } => "Arc",
+                        popkern_core::geometry::CurveGeometry::Nurbs(_) => "Nurbs",
+                        _ => "?",
+                    };
+                    // Distance of the midpoint to every adjacent candidate
+                    // support (twin face surface).
+                    let d_twin = result.brep.faces[twin_face]
+                        .surface
+                        .as_ref()
+                        .and_then(|sof| {
+                            popkern_core::geometry::uv_projection::project_point_to_uv(
+                                &sof.geometry,
+                                &pm,
+                            )
+                            .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(&pm))
+                        })
+                        .unwrap_or(f64::NAN);
+                    eprintln!(
+                        "  e {:?} {kind} twin {twin_face:?}({tk}) d_sph {:+.3e} d_twin {:.2e} ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                        d.edge,
+                        pm.distance_to(center) - radius,
+                        d_twin,
+                        p0.x,
+                        p0.y,
+                        p0.z,
+                        p1.x,
+                        p1.y,
+                        p1.z
+                    );
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+    }
     if std::env::var_os("FLAGSHIP_TOPO_DUMP").is_some() {
         for (eh, edge) in result.brep.edges.iter() {
             if let Some(c) = edge.curve.as_ref() {

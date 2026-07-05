@@ -93,6 +93,27 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
+        // Trust CONSTRUCTED FILLET STRIP surfaces the same way: a
+        // strip whose current surface is one of this operation's own
+        // fillet surfaces was assigned with intent. Its outer loop
+        // can include corner ANCHOR vertices ~r·(√2−1) off the strip
+        // (pre-route-B corner topology), which fails the 1cm gate
+        // and had the refit swap real vertical strips for wall
+        // planes — the corner passes own those vertices, not this
+        // face's surface.
+        let current_is_fillet_surface = brep.faces[fh].surface.as_ref().is_some_and(|s| {
+            fillet_surfaces.iter().any(|fs| {
+                super::sliver_absorb_classifiers::surfaces_equal(
+                    &s.geometry,
+                    fs,
+                    &popkern_core::tolerance::Tolerance::default(),
+                )
+            })
+        });
+        if current_is_fillet_surface {
+            continue;
+        }
+
         let current_score = current_max;
 
         // Find the best matching surface that improves on current.
