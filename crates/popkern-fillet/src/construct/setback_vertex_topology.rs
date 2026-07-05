@@ -2284,7 +2284,26 @@ fn arc_boundary_crossings(
         // (PK-097) — 5e-3 covers both families.
         if best.0 < 5.0e-3 {
             hits.push((best.1, edge, best.2, best.0));
+        } else if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            eprintln!(
+                "    [crossings] edge {edge:?}: best approach {:.3e} at arc t {:.3}",
+                best.0, best.1
+            );
         }
+    }
+    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        let a0 = arc_eval.point_at(0.0);
+        let a1 = arc_eval.point_at(1.0);
+        eprintln!(
+            "    [crossings] arc ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}): {} hits",
+            a0.x,
+            a0.y,
+            a0.z,
+            a1.x,
+            a1.y,
+            a1.z,
+            hits.len()
+        );
     }
     // Dedup near-identical arc parameters (shared vertices between
     // consecutive edges register on both).

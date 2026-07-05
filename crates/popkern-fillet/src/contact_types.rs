@@ -59,8 +59,8 @@ pub enum BallSide {
 /// built on.
 pub(crate) fn ball_sides_for_edge(
     convexity: crate::analysis::Convexity,
-    orientation_1: bool,
-    orientation_2: bool,
+    outward_1: bool,
+    outward_2: bool,
 ) -> (BallSide, BallSide) {
     use crate::analysis::Convexity;
     let material = |orientation: bool| {
@@ -77,17 +77,44 @@ pub(crate) fn ball_sides_for_edge(
             BallSide::Outside
         }
     };
-    // PK-099: with EFFECTIVE (winding-derived) orientations, the
-    // rolling ball is on the OUTWARD side of both faces for EVERY
-    // edge class — convex (ball rolls over the outside corner),
-    // concave (ball nests in the pocket), and tangent-mixed alike.
-    // The old convexity branch encoded producer-specific orientation
-    // flags, not physics: the concave `void(flag)` arm only worked
-    // on fixtures whose fillet-strip faces carry inverted flags, and
-    // it drove the solver to the interior mirror ball on honest
-    // boolean output (the boss/plate seam).
-    let _ = (convexity, void);
-    (material(orientation_1), material(orientation_2))
+    // PK-099 (measured twice, corrected once): with EFFECTIVE
+    // (winding-derived) orientations — `true` ⇔ the surface's
+    // natural normal points OUT of the material — the ball side
+    // depends on the edge class:
+    //
+    // - CONVEX: the ball is INSCRIBED in the material (center on
+    //   the inward side of both faces). An outside ball touches
+    //   only the faces' EXTENSIONS — the weld-bead mirror; the
+    //   flagship's plate-edge trims landed 0.08 outside the solid
+    //   under an outward-always rule.
+    // - CONCAVE / tangent-mixed: the ball nests in the void
+    //   (center on the outward side) — the boss/plate seam, and
+    //   blend-on-blend grooves.
+    //
+    // The pre-PK-099 code had these arms REVERSED relative to their
+    // names because legacy producers' stored flags disagreed with
+    // winding; with honest effective flags the physics reads off
+    // directly. (`material`/`void` name the side the center sits
+    // on relative to the material.)
+    let inscribed = |eff_outward: bool| {
+        if eff_outward {
+            BallSide::Inside
+        } else {
+            BallSide::Outside
+        }
+    };
+    let in_void = |eff_outward: bool| {
+        if eff_outward {
+            BallSide::Outside
+        } else {
+            BallSide::Inside
+        }
+    };
+    let _ = (material, void);
+    match convexity {
+        Convexity::Convex => (inscribed(outward_1), inscribed(outward_2)),
+        Convexity::Concave | Convexity::Mixed => (in_void(outward_1), in_void(outward_2)),
+    }
 }
 
 impl BallSide {

@@ -21,6 +21,14 @@ pub struct HalfEdge {
     /// without surface geometry. Stored as a [`Pcurve`] so analytic
     /// variants (linear, etc.) can be carried exactly.
     ///
+    /// DIRECTION: the intended convention is traversal-aligned
+    /// (pcurve start maps to this half-edge's `origin`), which
+    /// `pcurve_recompute` produces. Primitive constructors predate
+    /// the convention and may store edge-aligned pcurves, so
+    /// consumers that need direction must verify via the
+    /// origin/destination endpoint check until producers are
+    /// normalized (PK-100).
+    ///
     /// [`Pcurve`]: crate::geometry::pcurve::Pcurve
     pub pcurve: Option<crate::geometry::pcurve::Pcurve>,
 }

@@ -60,20 +60,25 @@ pub fn constant_radius_center_curve(
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
-    _convexity: crate::analysis::Convexity,
+    convexity: crate::analysis::Convexity,
 ) -> Result<CenterCurveResult, String> {
-    // NOTE: the offset-intersect construction below hardcodes the
-    // CONVEX-edge choice (offsets toward the material); `_convexity`
-    // exists for API uniformity with the walker paths and will gate a
-    // void-side offset when concave-edge fillets land.
-    // 1. Offset both surfaces inward by the fillet radius.
-    // "Inward" means toward the solid interior.
-    // In popkern, face normals point INTO the solid. When orientation=true,
-    // surface normal = face normal (inward). offset_surface's inward flag
-    // moves AGAINST the normal (sign=-1), so we need inward=false to move
-    // WITH the inward-pointing normal (toward the interior).
-    let inward_1 = !orientation_1;
-    let inward_2 = !orientation_2;
+    // Offset both surfaces toward the BALL side — inscribed in the
+    // material for convex edges, void-side for concave — using the
+    // same convexity-aware mapping as the contact solver.
+    // `orientation_*` here are OUTWARD-honest (stored flag folded
+    // with the measured shell sign by the caller); the former
+    // `!orientation` flip encoded the legacy "face normals point
+    // INTO the solid" convention that only held on primitive
+    // constructor output.
+    let (side_1, side_2) =
+        crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
+    let inward_1 = matches!(side_1, crate::contact::BallSide::Inside);
+    let inward_2 = matches!(side_2, crate::contact::BallSide::Inside);
+    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+        eprintln!(
+            "    [offset-const] {convexity:?} o=({orientation_1},{orientation_2}) inward=({inward_1},{inward_2})"
+        );
+    }
     let offset1 = offset_surface(surface1, radius, inward_1, u1_range, v1_range, tolerance)?;
     let offset2 = offset_surface(surface2, radius, inward_2, u2_range, v2_range, tolerance)?;
 
@@ -366,10 +371,22 @@ fn find_center_point_at_radius(
         return Ok(center);
     }
 
+    // Offset toward the BALL side (convexity-aware, same truth as
+    // the contact solver): inscribed for convex edges, void-side
+    // for concave. The old `!orientation` flip was a legacy
+    // convention that only encoded the concave case on
+    // inward-natural primitive shells.
+    let (side_1, side_2) =
+        crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
+    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+        eprintln!(
+            "    [offset] {convexity:?} o=({orientation_1},{orientation_2}) sides=({side_1:?},{side_2:?})"
+        );
+    }
     let offset1 = offset_surface(
         surface1,
         radius,
-        !orientation_1,
+        matches!(side_1, crate::contact::BallSide::Inside),
         u1_range,
         v1_range,
         tolerance,
@@ -377,7 +394,7 @@ fn find_center_point_at_radius(
     let offset2 = offset_surface(
         surface2,
         radius,
-        !orientation_2,
+        matches!(side_2, crate::contact::BallSide::Inside),
         u2_range,
         v2_range,
         tolerance,

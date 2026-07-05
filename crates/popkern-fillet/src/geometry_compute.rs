@@ -424,6 +424,7 @@ pub(crate) fn rebuild_analysis(
         surface_2: src.surface_2.clone(),
         orientation_1: src.orientation_1,
         orientation_2: src.orientation_2,
+        shell_outward: src.shell_outward,
         convexity: src.convexity,
         vertex_start: src.vertex_start,
         vertex_end: src.vertex_end,

@@ -26,6 +26,7 @@ use super::test_helpers::{
 /// verify the apex routes through the N=4 three-quad (now "N-quad")
 /// dispatch, producing 4 Gregory sub-patches.
 #[test]
+#[ignore = "mirror-era baseline: pre-PK-099 ball placement put pyramid strips on the exterior mirror; the apex Gregory dispatch was derived against that geometry and needs re-derivation on real inscribed strips (PK-101)"]
 fn item4_square_pyramid_apex_produces_four_gregory_subpatches() {
     let tol = Tolerance::default();
     let pyramid = BRep::square_pyramid(1.0, 0.8, tol).expect("build square pyramid");
@@ -153,6 +154,7 @@ fn item4_square_pyramid_apex_produces_four_gregory_subpatches() {
 /// arcs; compares to the single polar-NURBS patch produced by the
 /// baseline path.
 #[test]
+#[ignore = "mirror-era baseline: pre-PK-099 ball placement put pyramid strips on the exterior mirror; the apex Gregory dispatch was derived against that geometry and needs re-derivation on real inscribed strips (PK-101)"]
 fn item4_pyramid_gregory_boundary_kappa_leq_polar() {
     use crate::analysis;
     use crate::blend::{

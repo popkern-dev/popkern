@@ -251,6 +251,71 @@ fn main() {
         continuity: popkern_fillet::ContinuityLevel::G1,
         ..Default::default()
     };
+    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+        for (fh, f) in unioned.faces.iter() {
+            let Some(sof) = f.surface.as_ref() else {
+                continue;
+            };
+            let mut pts: Vec<(f64, f64)> = Vec::new();
+            let start = unioned.loops[f.outer_loop].half_edge;
+            let mut he = start;
+            let mut ok = true;
+            for _ in 0..10_000 {
+                let d = &unioned.half_edges[he];
+                let Some(pc) = d.pcurve.as_ref() else {
+                    ok = false;
+                    break;
+                };
+                let (t0, t1) = pc.parameter_range();
+                use popkern_core::geometry::surface::SurfaceEval;
+                let origin = unioned.vertices[d.origin].position;
+                let dest = unioned.vertices[unioned.half_edges[d.twin].origin].position;
+                let uv0 = pc.point_at(t0);
+                let q0 = sof.geometry.point_at(uv0.x, uv0.y);
+                let flip = q0.distance_to(&dest) + 1.0e-12 < q0.distance_to(&origin);
+                for k in 0..8 {
+                    let t = if flip {
+                        t1 + (t0 - t1) * k as f64 / 8.0
+                    } else {
+                        t0 + (t1 - t0) * k as f64 / 8.0
+                    };
+                    let p = pc.point_at(t);
+                    pts.push((p.x, p.y));
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+            if !ok || pts.len() < 3 {
+                eprintln!("  [consistency] face {fh:?}: NO PCURVES");
+                continue;
+            }
+            let mut area = 0.0;
+            for i in 0..pts.len() {
+                let j = (i + 1) % pts.len();
+                area += pts[i].0 * pts[j].1 - pts[j].0 * pts[i].1;
+            }
+            let winding_ccw = area > 0.0;
+            if winding_ccw != sof.orientation {
+                eprintln!(
+                    "  [consistency] face {fh:?}: MISMATCH winding_ccw={winding_ccw} flag={}",
+                    sof.orientation
+                );
+            }
+        }
+        match popkern_fillet::analysis::analyze_edges(&unioned, &fillet_edges_list, false) {
+            Ok(list) => {
+                for a in &list {
+                    eprintln!(
+                        "  [analysis] edge {:?}: {:?} o1={} o2={}",
+                        a.edge, a.convexity, a.orientation_1, a.orientation_2
+                    );
+                }
+            }
+            Err(e) => eprintln!("  [analysis] failed: {e}"),
+        }
+    }
     if seam_only {
         for (fh, f) in unioned.faces.iter() {
             if let Some(sof) = f.surface.as_ref() {

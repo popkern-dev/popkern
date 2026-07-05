@@ -144,8 +144,8 @@ pub(crate) fn compute_center_via_walker(
         &curve_on_edge.geometry,
         spine_t_range,
         tolerance,
-        analysis.orientation_1,
-        analysis.orientation_2,
+        analysis.orientation_1 == analysis.shell_outward,
+        analysis.orientation_2 == analysis.shell_outward,
         analysis.convexity,
         initial_seed,
     )
@@ -251,8 +251,8 @@ pub(crate) fn compute_legacy_center_curve(
             *r,
             &edge_midpoint,
             tolerance,
-            analysis.orientation_1,
-            analysis.orientation_2,
+            analysis.orientation_1 == analysis.shell_outward,
+            analysis.orientation_2 == analysis.shell_outward,
             analysis.convexity,
         )
         .map_err(wrap_err),
@@ -267,8 +267,8 @@ pub(crate) fn compute_legacy_center_curve(
             *end,
             &edge_midpoint,
             tolerance,
-            analysis.orientation_1,
-            analysis.orientation_2,
+            analysis.orientation_1 == analysis.shell_outward,
+            analysis.orientation_2 == analysis.shell_outward,
             analysis.convexity,
         )
         .map_err(wrap_err),
@@ -289,8 +289,8 @@ pub(crate) fn compute_legacy_center_curve(
                 |t| center_curve::bypoints_local_radius(pts, t),
                 &edge_midpoint,
                 tolerance,
-                analysis.orientation_1,
-                analysis.orientation_2,
+                analysis.orientation_1 == analysis.shell_outward,
+                analysis.orientation_2 == analysis.shell_outward,
                 analysis.convexity,
             )
             .map_err(wrap_err)
