@@ -20,6 +20,8 @@ mod face_family_bridge;
 mod face_merge;
 mod face_merge_split;
 mod kemr;
+mod kve;
+pub use kve::KveResult;
 mod kfmrh;
 mod loop_bridge;
 mod loop_bridge_apply;
