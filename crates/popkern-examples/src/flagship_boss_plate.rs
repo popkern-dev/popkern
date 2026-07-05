@@ -670,4 +670,30 @@ fn main() {
         Ok(()) => println!("wrote {}", step_path.display()),
         Err(e) => println!("STEP export declined: {e}"),
     }
+    // Round-trip census: re-import the exported STEP and require the
+    // full face count back (the FreeCAD-parity class of defect —
+    // dropped faces — shows up here as a count mismatch).
+    {
+        let imported =
+            popkern_io::import_step_file(&step_path, &popkern_io::StepImportOptions::default())
+                .expect("round-trip import");
+        let solids: Vec<&popkern_core::topology::BRep> = imported
+            .document
+            .products
+            .iter()
+            .flat_map(|p| p.shapes.iter())
+            .flat_map(|s| s.solids.iter())
+            .collect();
+        let faces_back: usize = solids.iter().map(|b| b.faces.len()).sum();
+        println!(
+            "stage 5 round-trip: {} solid(s), {faces_back} faces (exported {})",
+            solids.len(),
+            result.brep.faces.len()
+        );
+        assert_eq!(
+            faces_back,
+            result.brep.faces.len(),
+            "STEP round-trip must return every exported face"
+        );
+    }
 }
