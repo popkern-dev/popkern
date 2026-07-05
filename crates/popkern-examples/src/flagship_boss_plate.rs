@@ -587,9 +587,9 @@ fn main() {
         use std::collections::HashMap;
         let mut key = HashMap::new();
         let mut canon = Vec::new();
-        let mut id = |p: popkern_core::geometry::Point3,
-                      key: &mut HashMap<(i64, i64, i64), usize>,
-                      canon: &mut Vec<popkern_core::geometry::Point3>| {
+        let id = |p: popkern_core::geometry::Point3,
+                  key: &mut HashMap<(i64, i64, i64), usize>,
+                  canon: &mut Vec<popkern_core::geometry::Point3>| {
             let k = (
                 (p.x * 1.0e7).round() as i64,
                 (p.y * 1.0e7).round() as i64,
@@ -616,15 +616,9 @@ fn main() {
         }
         let open = counts.values().filter(|&&c| c == 1).count();
         println!("stage 4 open edges: {open}");
-        if no_top {
-            // The verticals-only variant still exercises the §8.3
-            // end-cap sphere class (route B scope extension pending)
-            // — census only, no gate.
-        } else {
-            // Both the seam-only and the full 12-edge chain
-            // configurations are watertight gates.
-            assert_eq!(open, 0, "flagship must tessellate watertight");
-        }
+        // All three configurations (seam-only, verticals-only, full
+        // 12-edge chain) are watertight gates.
+        assert_eq!(open, 0, "flagship must tessellate watertight");
         let mut shown = 0;
         for (&(a, b), &c) in &counts {
             if c == 1 && shown < 6 {

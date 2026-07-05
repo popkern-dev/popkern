@@ -211,10 +211,18 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // Strip END reconstruction (the corner passes' analogue at
     // planar end faces): contract off-cylinder end corners, author
     // exact cylinder ∩ plane runout arcs, remove leftover spur
-    // slits. Gated on corner patches — plain open cylinder fillets
-    // keep their legacy end shape (PK-097 Phase C containment; see
-    // strip_end_arcs module docs).
-    if !corner_patches.is_empty() {
+    // slits. Gated on blend context — corner patches or a
+    // multi-fillet result. SINGLE plain fillets keep their legacy
+    // end shape for two measured contracts: the PK-097 in-place
+    // modify machinery cannot reproduce topology edits
+    // (open_in_place_matches_remove_recreate_geometry failed 10 vs
+    // 12 vertices under unconditional gating), and cap-kind
+    // invariance on closed solids (a cap REQUEST is not a cap
+    // INSERTION — gating on requested caps broke
+    // cap_insertion_is_a_no_op_on_closed_cube_topology, 17 vs 15).
+    // Teaching in-place modify to re-author strip ends is that
+    // machinery's follow-up; see strip_end_arcs module docs.
+    if !corner_patches.is_empty() || edge_geometries.len() > 1 {
         let (end_contracted, end_arcs, end_spurs) =
             super::strip_end_arcs::reconstruct_strip_end_boundaries(result);
         if (end_contracted + end_arcs + end_spurs) > 0
