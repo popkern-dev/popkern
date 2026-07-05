@@ -292,6 +292,15 @@ fn runoff_one_corner(brep: &mut BRep, cand: &RunoffCandidate) -> Result<(), Stri
     };
     let (ua, va) = invert(&p_prev).ok_or("anchor_prev inversion")?;
     let (ub, vb) = invert(&p_next).ok_or("anchor_next inversion")?;
+    if std::env::var_os("PK_RUNOFF_TRACE").is_some() {
+        eprintln!(
+            "  [runoff] strip {:?} corner {:?} overshoot {:.3e} box u[{bu0:.4},{bu1:.4}] v[{bv0:.4},{bv1:.4}] anchors uv ({ua:.4},{va:.4})->({ub:.4},{vb:.4}) du {:.4}",
+            cand.strip_face,
+            cand.corner,
+            cand.overshoot,
+            (ub - ua).abs()
+        );
+    }
     const N: usize = 33;
     let mut pts: Vec<Point3> = Vec::with_capacity(N);
     // Analytic cylinders: the runoff curve (cylinder ∩ end plane) is
