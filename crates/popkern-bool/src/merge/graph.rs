@@ -7,7 +7,7 @@
 // they will be consumed by later pipeline stages.
 #![allow(dead_code)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use popkern_core::{
     geometry::{CurveOnEdge, Point3},
@@ -15,7 +15,7 @@ use popkern_core::{
 };
 
 /// Identifies which boolean operand a piece of topology comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Operand {
     /// The first (left-hand) operand.
     A,
@@ -24,7 +24,7 @@ pub(crate) enum Operand {
 }
 
 /// A face qualified by which operand it belongs to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct FaceRef {
     /// Which operand this face belongs to.
     pub operand: Operand,
@@ -109,7 +109,11 @@ pub(crate) struct IntersectionGraph {
     /// All directed half-edges in the graph.
     pub half_edges: Vec<GraphHalfEdge>,
     /// Maps each face to the half-edge indices that border it.
-    pub face_edges: HashMap<FaceRef, Vec<usize>>,
+    /// `BTreeMap` (not `HashMap`): `walk_all_fragments` iterates this
+    /// map, and fragment order determines result face-handle order —
+    /// unordered iteration made boolean output face handles vary
+    /// run-to-run (PK-099 determinism hunt).
+    pub face_edges: BTreeMap<FaceRef, Vec<usize>>,
 }
 
 impl IntersectionGraph {
@@ -118,7 +122,7 @@ impl IntersectionGraph {
         Self {
             nodes: Vec::new(),
             half_edges: Vec::new(),
-            face_edges: HashMap::new(),
+            face_edges: BTreeMap::new(),
         }
     }
 

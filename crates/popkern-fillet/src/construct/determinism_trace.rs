@@ -105,6 +105,20 @@ pub(crate) fn determinism_edge_curve_fingerprint(brep: &BRep) -> u64 {
     hash
 }
 
+/// Hash any Debug-printable value (bit-exact for float-bearing
+/// geometry — see `fold_debug`). For fingerprinting pipeline
+/// INPUTS (e.g. computed fillet surfaces) rather than BRep state.
+pub(crate) fn determinism_value_hash(value: &impl std::fmt::Debug) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    fold_debug(&mut hash, value);
+    hash
+}
+
+/// True when stage-boundary fingerprinting is enabled.
+pub(crate) fn determinism_trace_enabled() -> bool {
+    std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some()
+}
+
 /// Stage-boundary fingerprint print (POPKERN_DETERMINISM_TRACE=1).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
     if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {

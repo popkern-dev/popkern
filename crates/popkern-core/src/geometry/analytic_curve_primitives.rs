@@ -18,7 +18,8 @@ pub(crate) fn arbitrary_perpendicular(normal: Vec3) -> Vec3 {
 ///   - u and v are unit vectors
 ///   - u, v are perpendicular to each other and to normal
 ///   - normal ≈ u × v (right-hand rule)
-/// The in-plane frame the [`CurveGeometry::Arc`] / Circle
+///
+/// This is the in-plane frame the [`CurveGeometry::Arc`] / Circle
 /// evaluators measure angles in. Distinct from
 /// `analytic_surfaces::orthonormal_basis` — callers constructing
 /// angle-parameterized arcs MUST use this frame or their angles

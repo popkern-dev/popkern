@@ -919,7 +919,7 @@ pub fn measure_kp20_assembly_constraints(
 
 /// Invert paper eq (17): given `(p_{2,1}, p_{3,1}, p_{4,1})` solve
 /// for `(ℓ, m, r)`. The 3×3 matrix
-/// ```
+/// ```text
 ///   [ 29  -6   13 ] / 36
 ///   [ 13  -6   13 ] / 20
 ///   [ 13  -6   29 ] / 36

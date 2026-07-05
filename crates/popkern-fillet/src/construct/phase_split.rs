@@ -186,6 +186,10 @@ pub(super) fn apply_face_trim_pipeline(
         }
         trim_results.extend(outcome.trim_results);
         failures.extend(outcome.failures);
+        crate::construct::post_pipeline::determinism_trace(
+            &format!("post_carve_{original_face:?}"),
+            result,
+        );
     }
 
     // ── Re-identify consumed faces from descendants (longest-sub-edge). ──

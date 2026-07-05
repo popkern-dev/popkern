@@ -135,7 +135,11 @@ pub(crate) fn tessellate_face_boundary_first(
         {
             use popkern_core::geometry::surface::SurfaceEval as _;
             let (period_u, period_v) = surface.parameter_periodicity();
-            let mut unwrap_dir = |period: f64, pick: fn(&mut (f64, f64)) -> &mut f64| -> bool {
+            fn unwrap_dir(
+                ring: &mut BoundaryRing,
+                period: f64,
+                pick: fn(&mut (f64, f64)) -> &mut f64,
+            ) -> bool {
                 for i in 1..ring.uv.len() {
                     let prev = *pick(&mut ring.uv[i - 1].clone());
                     let cur = pick(&mut ring.uv[i]);
@@ -155,20 +159,32 @@ pub(crate) fn tessellate_face_boundary_first(
                     }
                     _ => true,
                 }
-            };
-            if let Some(p) = period_u {
-                if !unwrap_dir(p, |uv| &mut uv.0) {
-                    if std::env::var_os("PK_BF_TRACE").is_some() {
-                        eprintln!("    [bf] full u-wrap ring — cannot chart");
+            }
+            // On decline, dump the unwrapped ring samples: the jump
+            // pattern distinguishes genuine winding (monotone drift
+            // over the ring) from branch-incoherent pcurves (one
+            // edge's run offset by a full period) — they need
+            // different fixes.
+            fn dump_ring(ring: &BoundaryRing, dir: &str) {
+                if std::env::var_os("PK_BF_TRACE").is_some() {
+                    eprintln!("    [bf] full {dir}-wrap ring — cannot chart");
+                    for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
+                        eprintln!(
+                            "      [bf] ring[{i}] uv=({u:.4},{v:.4}) pos=({:.4},{:.4},{:.4})",
+                            p.x, p.y, p.z
+                        );
                     }
+                }
+            }
+            if let Some(p) = period_u {
+                if !unwrap_dir(&mut ring, p, |uv| &mut uv.0) {
+                    dump_ring(&ring, "u");
                     return None;
                 }
             }
             if let Some(p) = period_v {
-                if !unwrap_dir(p, |uv| &mut uv.1) {
-                    if std::env::var_os("PK_BF_TRACE").is_some() {
-                        eprintln!("    [bf] full v-wrap ring — cannot chart");
-                    }
+                if !unwrap_dir(&mut ring, p, |uv| &mut uv.1) {
+                    dump_ring(&ring, "v");
                     return None;
                 }
             }

@@ -88,6 +88,67 @@ fn overlapping_cubes_union_succeeds() {
     assert!(brep.faces.len() > 6);
 }
 
+/// Handle-order-sensitive signature of a boolean result: for each
+/// face in arena iteration order, the outer-loop vertex positions
+/// (bit-exact) and the surface geometry's Debug rendering. Two
+/// executions of the same boolean must produce identical signatures
+/// or downstream consumers keyed on handles (fillet carve order,
+/// provenance, diffing) see a different model each run.
+fn face_order_signature(brep: &BRep) -> Vec<String> {
+    let mut sig = Vec::new();
+    for (fh, face) in &brep.faces {
+        let mut entry = format!("{fh:?}");
+        if let Some(l) = brep.loops.get(face.outer_loop) {
+            let start = l.half_edge;
+            let mut cursor = start;
+            for _ in 0..brep.half_edges.len() + 1 {
+                let Some(he) = brep.half_edges.get(cursor) else {
+                    break;
+                };
+                if let Some(v) = brep.vertices.get(he.origin) {
+                    entry.push_str(&format!(
+                        " ({:x},{:x},{:x})",
+                        v.position.x.to_bits(),
+                        v.position.y.to_bits(),
+                        v.position.z.to_bits()
+                    ));
+                }
+                cursor = he.next;
+                if cursor == start {
+                    break;
+                }
+            }
+        }
+        if let Some(surface) = &face.surface {
+            entry.push_str(&format!(" {:?}", surface.geometry));
+        }
+        sig.push(entry);
+    }
+    sig
+}
+
+/// Boolean output must be deterministic run-to-run (PK-099): the
+/// intersection-graph walk once iterated a HashMap, shuffling result
+/// face-handle order per execution. Each HashMap instance draws
+/// fresh hash keys, so two in-process executions catch unordered
+/// iteration without needing separate processes.
+#[test]
+fn union_output_is_deterministic_across_executions() {
+    let run = || {
+        let a = BRep::unit_cube(tol()).unwrap();
+        let b = translate(BRep::unit_cube(tol()).unwrap(), Vec3::new(0.5, 0.3, 0.2));
+        crate::union(a, b, tol(), None).expect("union should succeed")
+    };
+    let first = face_order_signature(&run());
+    for _ in 0..3 {
+        let again = face_order_signature(&run());
+        assert_eq!(
+            first, again,
+            "boolean face-handle order / geometry assignment changed between executions"
+        );
+    }
+}
+
 #[test]
 fn overlapping_cubes_intersection_succeeds() {
     let a = BRep::unit_cube(tol()).unwrap();

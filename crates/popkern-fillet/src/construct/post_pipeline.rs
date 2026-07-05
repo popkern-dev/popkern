@@ -4,7 +4,9 @@ use super::*;
 
 #[path = "determinism_trace.rs"]
 pub(crate) mod determinism_trace_mod;
-pub(crate) use determinism_trace_mod::{determinism_face_trace, determinism_trace};
+pub(crate) use determinism_trace_mod::{
+    determinism_face_trace, determinism_trace, determinism_trace_enabled, determinism_value_hash,
+};
 
 pub(super) struct PostBlendPipelineInputs<'a> {
     /// A setback vertex blend (KP20 or PnS cap family) landed in

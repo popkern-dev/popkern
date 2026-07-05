@@ -63,13 +63,13 @@ impl BRep {
         let he = self
             .half_edges
             .get(half_edge)
-            .ok_or_else(|| CoreError::InvalidHandle(format!("kve: half-edge not found")))?
+            .ok_or_else(|| CoreError::InvalidHandle("kve: half-edge not found".to_string()))?
             .clone();
         let twin_h = he.twin;
         let twin = self
             .half_edges
             .get(twin_h)
-            .ok_or_else(|| CoreError::InvalidHandle(format!("kve: half-edge not found")))?
+            .ok_or_else(|| CoreError::InvalidHandle("kve: half-edge not found".to_string()))?
             .clone();
         let v_keep = he.origin;
         let v_kill = twin.origin;

@@ -196,6 +196,20 @@ pub fn apply_blend_geometry(
     requested_continuity: crate::types::ContinuityLevel,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
+    if post_pipeline::determinism_trace_enabled() {
+        post_pipeline::determinism_trace("pre_apply_input_brep", brep);
+        for (i, eg) in edge_geometries.iter().enumerate() {
+            eprintln!(
+                "dtrace: pre_apply eg[{i}] edge={:?} f1={:?} f2={:?} surf={:016x} trim1={:016x} trim2={:016x}",
+                eg.analysis.edge,
+                eg.analysis.face_1,
+                eg.analysis.face_2,
+                post_pipeline::determinism_value_hash(&eg.surface),
+                post_pipeline::determinism_value_hash(&eg.trim_3d_1),
+                post_pipeline::determinism_value_hash(&eg.trim_3d_2),
+            );
+        }
+    }
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
@@ -229,6 +243,7 @@ pub fn apply_blend_geometry(
         )
     });
     pipeline_timing.perpendicular_split_ms = ms;
+    post_pipeline::determinism_trace("post_perp_splits", &result);
     let (_, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(
             brep,
