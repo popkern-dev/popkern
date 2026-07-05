@@ -194,7 +194,7 @@ pub(super) fn collapse_corner_anchor_chords(
             continue;
         };
         let on_sphere =
-            |p: popkern_core::geometry::Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;
+            |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;
         if std::env::var_os("PK_CARVE_TRACE").is_some() {
             let start_he = brep.loops[face.outer_loop].half_edge;
             let mut he = start_he;
@@ -325,7 +325,10 @@ pub(super) fn collapse_corner_anchor_chords(
 /// Rebuild every straight incident edge of `vertex` between its
 /// current endpoint positions (post-contraction geometry repair —
 /// the kve caller contract).
-fn rebuild_incident_straight_edges(brep: &mut BRep, vertex: popkern_core::topology::VertexHandle) {
+pub(super) fn rebuild_incident_straight_edges(
+    brep: &mut BRep,
+    vertex: popkern_core::topology::VertexHandle,
+) {
     let incident: Vec<_> = brep
         .edges
         .iter()
@@ -411,7 +414,7 @@ fn rebuild_incident_straight_edges(brep: &mut BRep, vertex: popkern_core::topolo
                 // endpoint angles, keeping center/normal/radius.
                 let (f1, f2) =
                     popkern_core::geometry::analytic_surfaces::orthonormal_basis(*normal);
-                let ang = |p: popkern_core::geometry::Point3| {
+                let ang = |p: Point3| {
                     let d = p - *center;
                     d.dot(&f2).atan2(d.dot(&f1))
                 };

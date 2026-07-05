@@ -208,6 +208,24 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         eprintln!("  [arcify] rewrote {arcs} corner-cap boundary chords");
     }
     determinism_trace("post_corner_arcify", result);
+    // Strip END reconstruction (the corner passes' analogue at
+    // planar end faces): contract off-cylinder end corners, author
+    // exact cylinder ∩ plane runout arcs, remove leftover spur
+    // slits. Gated on corner patches — plain open cylinder fillets
+    // keep their legacy end shape (PK-097 Phase C containment; see
+    // strip_end_arcs module docs).
+    if !corner_patches.is_empty() {
+        let (end_contracted, end_arcs, end_spurs) =
+            super::strip_end_arcs::reconstruct_strip_end_boundaries(result);
+        if (end_contracted + end_arcs + end_spurs) > 0
+            && std::env::var_os("PK_CARVE_TRACE").is_some()
+        {
+            eprintln!(
+                "  [strip-end] {end_contracted} corners contracted, {end_arcs} runout arcs, {end_spurs} spurs removed"
+            );
+        }
+        determinism_trace("post_strip_end_arcs", result);
+    }
     if std::env::var_os("PK_CARVE_TRACE").is_some()
         && let Err(e) = result.validate_loop_closure()
     {

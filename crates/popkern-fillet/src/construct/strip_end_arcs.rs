@@ -1,0 +1,466 @@
+//! Fillet strip end-boundary reconstruction on planar end faces.
+//!
+//! A cylinder fillet strip that terminates on a planar end face (e.g.
+//! a vertical corner fillet running out on the part's base) must end
+//! in the exact cylinder ∩ plane arc between its two wall tangency
+//! feet. The carve phase instead leaves the ORIGINAL corner vertex —
+//! at r·√2 from the strip axis, r(√2−1) off the cylinder — joined to
+//! the feet by straight chords (an "L"), and earlier repair passes
+//! either decline on that off-surface anchor (`edge_reconcile`
+//! `AnchorOffSurface`) or leave non-analytic replacement curves, one
+//! of which was measured marching 270° the long way around the strip
+//! (flagship PK-099: bottom-corner render artifacts, off-surface
+//! residual 3.3e-2, u-wrap tessellation declines, spur slits in the
+//! base loop).
+//!
+//! This pass is the strip-end analogue of the route B corner-cap
+//! surgery (`corner_arc_boundaries`):
+//!
+//! 1. contract each off-cylinder end corner into an on-cylinder foot
+//!    via `kve` (the L becomes a single foot→foot edge),
+//! 2. replace every non-analytic strip/plane runout boundary between
+//!    on-cylinder feet with the exact verified cylinder ∩ plane Arc
+//!    (short sweep; angles in the Arc evaluator's own `circle_basis`
+//!    frame, both normal candidates tried, 1e-9 round-trip
+//!    acceptance),
+//! 3. remove zero-width spur slits left in the end face's loop by
+//!    earlier rebuilds (`kev` on half-edges immediately followed by
+//!    their twin).
+//!
+//! Containment boundary (recorded, PK-097 Phase C): plain open
+//! cylinder fillets keep their legacy end shape because the in-place
+//! modify machinery must stay equivalent to remove-recreate. The
+//! pass therefore only runs when the blend produced corner patches
+//! (chain/blend context) — the caller gates on that. Retiring the
+//! legacy end shape belongs to the modify-machinery task.
+//!
+//! Per-corner and per-slit transactional: each mutation is applied on
+//! a candidate clone and accepted only when `validate()` holds;
+//! declines keep the existing topology and report via PK_CARVE_TRACE.
+//! Tolerances: the 5e-3 anchor-placement gate (same class as route
+//! B's snap gate) for on/off-cylinder classification; 1e-9 for arc
+//! acceptance. Both are local to this pass.
+
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
+
+/// Anchor-placement gate: how far a vertex may sit from the cylinder
+/// (radially) and still count as an on-surface foot; and how far off
+/// it must be to count as a carve-artifact corner.
+const SNAP_GATE: f64 = 5.0e-3;
+
+/// Reconstruct strip end boundaries. Returns (contracted corners,
+/// arcs authored, spurs removed).
+pub(super) fn reconstruct_strip_end_boundaries(brep: &mut BRep) -> (usize, usize, usize) {
+    let strips: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Cylinder { .. })
+            )
+        })
+        .map(|(h, _)| h)
+        .collect();
+
+    let mut contracted = 0;
+    let mut arcs = 0;
+    let mut touched_planes: Vec<FaceHandle> = Vec::new();
+
+    for strip in &strips {
+        contracted += contract_end_corners(brep, *strip, &mut touched_planes);
+        arcs += arcify_runout_boundaries(brep, *strip, &mut touched_planes);
+    }
+
+    touched_planes.sort();
+    touched_planes.dedup();
+    let mut spurs = 0;
+    for plane in touched_planes {
+        spurs += remove_spur_slits(brep, plane);
+    }
+    (contracted, arcs, spurs)
+}
+
+fn cylinder_of(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3, f64)> {
+    match brep.faces.get(face)?.surface.as_ref()?.geometry {
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+            ..
+        } => Some((origin, axis, radius)),
+        _ => None,
+    }
+}
+
+fn plane_of(brep: &BRep, face: FaceHandle) -> Option<(Point3, Vec3)> {
+    match brep.faces.get(face)?.surface.as_ref()?.geometry {
+        SurfaceGeometry::Plane { origin, normal, .. } => Some((origin, normal)),
+        _ => None,
+    }
+}
+
+fn face_across(brep: &BRep, he: HalfEdgeHandle) -> Option<FaceHandle> {
+    let twin = brep.half_edges.get(he)?.twin;
+    let l = brep.half_edges.get(twin)?.loop_;
+    Some(brep.loops.get(l)?.face)
+}
+
+fn radial_dist(origin: &Point3, axis: &Vec3, p: &Point3) -> f64 {
+    let d = *p - *origin;
+    let ax = d.dot(axis);
+    (d - *axis * ax).length()
+}
+
+fn is_chord(curve: &CurveOnEdge) -> bool {
+    match &curve.geometry {
+        CurveGeometry::Line { .. } => true,
+        CurveGeometry::Nurbs(n) => n.degree == 1 && n.control_points.len() == 2,
+        _ => false,
+    }
+}
+
+/// Phase 1: contract each off-cylinder end corner (both flanking
+/// chord edges shared with the SAME plane face) into its on-cylinder
+/// predecessor foot via `kve`.
+fn contract_end_corners(
+    brep: &mut BRep,
+    strip: FaceHandle,
+    touched_planes: &mut Vec<FaceHandle>,
+) -> usize {
+    let mut total = 0;
+    // Restart the walk after each accepted contraction (loop
+    // structure changes).
+    for _ in 0..16 {
+        let Some((origin, axis, radius)) = cylinder_of(brep, strip) else {
+            return total;
+        };
+        let Some(face) = brep.faces.get(strip) else {
+            return total;
+        };
+        let start_he = brep.loops[face.outer_loop].half_edge;
+        let mut target: Option<(HalfEdgeHandle, FaceHandle)> = None;
+        let mut he = start_he;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let d = &brep.half_edges[he];
+            let next = d.next;
+            // Corner = destination of `he`, flanked by `he` (foot→corner)
+            // and `next` (corner→foot).
+            let corner = brep.half_edges[next].origin;
+            let foot_a = d.origin;
+            let foot_b = brep.half_edges[brep.half_edges[next].next].origin;
+            let p_corner = brep.vertices[corner].position;
+            let p_a = brep.vertices[foot_a].position;
+            let p_b = brep.vertices[foot_b].position;
+            let across_in = face_across(brep, he);
+            let across_out = face_across(brep, next);
+            let plane_face = match (across_in, across_out) {
+                (Some(f1), Some(f2)) if f1 == f2 && f1 != strip => f1,
+                _ => {
+                    he = next;
+                    if he == start_he {
+                        break;
+                    }
+                    continue;
+                }
+            };
+            let both_chords = [he, next].iter().all(|&h| {
+                let e = brep.half_edges[h].edge;
+                brep.edges[e].curve.as_ref().map(is_chord).unwrap_or(false)
+            });
+            if both_chords
+                && plane_of(brep, plane_face).is_some()
+                && radial_dist(&origin, &axis, &p_corner) - radius > SNAP_GATE
+                && (radial_dist(&origin, &axis, &p_a) - radius).abs() <= SNAP_GATE
+                && (radial_dist(&origin, &axis, &p_b) - radius).abs() <= SNAP_GATE
+            {
+                target = Some((he, plane_face));
+                break;
+            }
+            he = next;
+            if he == start_he {
+                break;
+            }
+        }
+        let Some((he, plane_face)) = target else {
+            return total;
+        };
+        let mut candidate = brep.clone();
+        match candidate.kve(he) {
+            Ok(r) => {
+                super::corner_arc_boundaries::rebuild_incident_straight_edges(
+                    &mut candidate,
+                    r.vertex,
+                );
+                if candidate.validate().is_ok() {
+                    *brep = candidate;
+                    touched_planes.push(plane_face);
+                    total += 1;
+                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                        eprintln!("  [strip-end] {strip:?}: contracted end corner into foot");
+                    }
+                } else {
+                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                        eprintln!("  [strip-end] {strip:?}: contraction ROLLED BACK");
+                    }
+                    return total;
+                }
+            }
+            Err(e) => {
+                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    eprintln!("  [strip-end] {strip:?}: kve declined: {e:?}");
+                }
+                return total;
+            }
+        }
+    }
+    total
+}
+
+/// Phase 2: replace non-analytic strip/plane runout boundaries
+/// (angle-spanning edges between on-cylinder feet) with exact
+/// verified cylinder ∩ plane arcs.
+fn arcify_runout_boundaries(
+    brep: &mut BRep,
+    strip: FaceHandle,
+    touched_planes: &mut Vec<FaceHandle>,
+) -> usize {
+    let Some((origin, axis, radius)) = cylinder_of(brep, strip) else {
+        return 0;
+    };
+    let Some(face) = brep.faces.get(strip) else {
+        return 0;
+    };
+    let start_he = brep.loops[face.outer_loop].half_edge;
+    let mut runouts: Vec<(popkern_core::topology::EdgeHandle, FaceHandle)> = Vec::new();
+    let mut he = start_he;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let d = &brep.half_edges[he];
+        let next = d.next;
+        let eh = d.edge;
+        if let Some(across) = face_across(brep, he)
+            && across != strip
+            && plane_of(brep, across).is_some()
+            && brep.edges[eh]
+                .curve
+                .as_ref()
+                .map(|c| !matches!(c.geometry, CurveGeometry::Arc { .. }))
+                .unwrap_or(false)
+        {
+            let v_o = d.origin;
+            let v_d = brep.half_edges[d.twin].origin;
+            if v_o != v_d {
+                let p_o = brep.vertices[v_o].position;
+                let p_d = brep.vertices[v_d].position;
+                let on_cyl =
+                    |p: &Point3| (radial_dist(&origin, &axis, p) - radius).abs() <= SNAP_GATE;
+                // Runout edges SPAN angle; wall trim lines don't.
+                let ang = |p: &Point3| {
+                    let (f1, f2) =
+                        popkern_core::geometry::analytic_surfaces::orthonormal_basis(axis);
+                    let d = *p - origin;
+                    d.dot(&f2).atan2(d.dot(&f1))
+                };
+                let mut da = (ang(&p_o) - ang(&p_d)).abs();
+                if da > std::f64::consts::PI {
+                    da = std::f64::consts::TAU - da;
+                }
+                if on_cyl(&p_o) && on_cyl(&p_d) && da > 0.1 && da < std::f64::consts::PI - 0.1 {
+                    runouts.push((eh, across));
+                }
+            }
+        }
+        he = next;
+        if he == start_he {
+            break;
+        }
+    }
+
+    let mut rewritten = 0;
+    for (eh, plane_face) in runouts {
+        let Some((p_origin, p_normal)) = plane_of(brep, plane_face) else {
+            continue;
+        };
+        let Some(n_hat) = p_normal.normalized() else {
+            continue;
+        };
+        let denom = axis.dot(&n_hat);
+        // Perpendicular ends only (cylinder ∩ plane is a circle).
+        // Oblique ends (ellipse) decline here and keep their current
+        // curve — recorded fallback boundary; none exist in the
+        // covered fixtures and the ellipse authoring belongs with
+        // exact NURBS trims.
+        if denom.abs() < 1.0 - 1.0e-9 {
+            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!(
+                    "  [strip-end] {strip:?} edge {eh:?}: oblique end (|axis·n|={:.4}) — declined",
+                    denom.abs()
+                );
+            }
+            continue;
+        }
+        // Circle center: strip axis pierced through the end plane.
+        let t = (p_origin - origin).dot(&n_hat) / denom;
+        let c0 = origin + axis * t;
+        let he0 = brep.edges[eh].half_edge;
+        let (v1, v2) = {
+            let d = &brep.half_edges[he0];
+            (d.origin, brep.half_edges[d.twin].origin)
+        };
+        let p1 = brep.vertices[v1].position;
+        let p2 = brep.vertices[v2].position;
+        // Snap feet exactly onto the intersection circle.
+        let snap = |p: Point3| -> Option<Point3> {
+            let r_vec = (p - c0) - axis * (p - c0).dot(&axis);
+            Some(c0 + r_vec.normalized()? * radius)
+        };
+        let (Some(s1), Some(s2)) = (snap(p1), snap(p2)) else {
+            continue;
+        };
+        let a = s1 - c0;
+        let b = s2 - c0;
+        let mut accepted: Option<CurveOnEdge> = None;
+        for arc_normal in [axis, axis * -1.0] {
+            // Angles in the Arc evaluator's own frame (circle_basis)
+            // — see corner_arc_boundaries: a reflected frame silently
+            // traces the wrong sweep.
+            let (f1, f2) = popkern_core::geometry::analytic_curves::circle_basis(arc_normal);
+            let theta1 = a.dot(&f2).atan2(a.dot(&f1));
+            let mut theta2 = b.dot(&f2).atan2(b.dot(&f1));
+            while theta2 <= theta1 {
+                theta2 += std::f64::consts::TAU;
+            }
+            if theta2 - theta1 > std::f64::consts::PI + 1e-9 {
+                continue;
+            }
+            let cand = CurveOnEdge {
+                geometry: CurveGeometry::Arc {
+                    center: c0,
+                    normal: arc_normal,
+                    radius,
+                    start_angle: theta1,
+                    end_angle: theta2,
+                },
+                t_start: theta1,
+                t_end: theta2,
+            };
+            let ceval: &dyn CurveEval = &cand.geometry;
+            let q0 = ceval.point_at(theta1);
+            let q1 = ceval.point_at(theta2);
+            let qm = ceval.point_at(0.5 * (theta1 + theta2));
+            if q0.distance_to(&s1) < 1e-9
+                && q1.distance_to(&s2) < 1e-9
+                && (radial_dist(&origin, &axis, &qm) - radius).abs() < 1e-9
+                && (qm - p_origin).dot(&n_hat).abs() < 1e-9
+            {
+                accepted = Some(cand);
+                break;
+            }
+        }
+        let Some(new_curve) = accepted else {
+            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!("  [strip-end] {strip:?} edge {eh:?}: no verified arc candidate");
+            }
+            continue;
+        };
+        let mut candidate = brep.clone();
+        crate::construct::edge_reconcile::snap_vertex_and_adjacent_chords(
+            &mut candidate,
+            v1,
+            s1,
+            eh,
+        );
+        crate::construct::edge_reconcile::snap_vertex_and_adjacent_chords(
+            &mut candidate,
+            v2,
+            s2,
+            eh,
+        );
+        if let Some(e) = candidate.edges.get_mut(eh) {
+            e.curve = Some(new_curve);
+            // Stale pcurves resurrect the old geometry in later fix
+            // passes — null both sides, recompute re-authors from
+            // the arc.
+            let he0 = e.half_edge;
+            let tw = candidate.half_edges[he0].twin;
+            candidate.half_edges[he0].pcurve = None;
+            candidate.half_edges[tw].pcurve = None;
+        }
+        if candidate.validate().is_ok() {
+            *brep = candidate;
+            touched_planes.push(plane_face);
+            rewritten += 1;
+            if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!("  [strip-end] {strip:?} edge {eh:?}: exact runout arc authored");
+            }
+        } else if std::env::var_os("PK_CARVE_TRACE").is_some() {
+            eprintln!("  [strip-end] {strip:?} edge {eh:?}: arc ROLLED BACK (validate failed)");
+        }
+    }
+    rewritten
+}
+
+/// Phase 3: remove zero-width spur slits (a half-edge immediately
+/// followed by its own twin, dangling vertex valence 1) from the end
+/// face's loops. Earlier rebuilds left the amputated L-legs doubled
+/// in the base loop; the slit has zero area, so removal preserves
+/// the face point set by construction.
+fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usize {
+    let mut removed = 0;
+    for _ in 0..16 {
+        let Some(face) = brep.faces.get(plane_face) else {
+            return removed;
+        };
+        let mut loops = vec![face.outer_loop];
+        loops.extend(face.inner_loops.iter().copied());
+        let mut target: Option<HalfEdgeHandle> = None;
+        'outer: for lh in loops {
+            let Some(l) = brep.loops.get(lh) else {
+                continue;
+            };
+            let start_he = l.half_edge;
+            let mut he = start_he;
+            for _ in 0..brep.half_edges.len() + 1 {
+                let d = &brep.half_edges[he];
+                if d.next == d.twin {
+                    target = Some(he);
+                    break 'outer;
+                }
+                he = d.next;
+                if he == start_he {
+                    break;
+                }
+            }
+        }
+        let Some(he) = target else {
+            return removed;
+        };
+        let mut candidate = brep.clone();
+        match candidate.kev(he) {
+            Ok(_) => {
+                if candidate.validate().is_ok() {
+                    *brep = candidate;
+                    removed += 1;
+                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                        eprintln!("  [strip-end] {plane_face:?}: spur slit removed");
+                    }
+                } else {
+                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                        eprintln!("  [strip-end] {plane_face:?}: spur removal ROLLED BACK");
+                    }
+                    return removed;
+                }
+            }
+            Err(e) => {
+                if std::env::var_os("PK_CARVE_TRACE").is_some() {
+                    eprintln!("  [strip-end] {plane_face:?}: kev declined: {e:?}");
+                }
+                return removed;
+            }
+        }
+    }
+    removed
+}

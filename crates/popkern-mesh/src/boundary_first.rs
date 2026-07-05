@@ -135,27 +135,87 @@ pub(crate) fn tessellate_face_boundary_first(
         {
             use popkern_core::geometry::surface::SurfaceEval as _;
             let (period_u, period_v) = surface.parameter_periodicity();
+            // A sample AT a chart pole (sphere pole, cone apex) has
+            // undefined azimuth: shifting u by half a period leaves
+            // the 3D point fixed. Its pcurve u is arbitrary, and if
+            // it participates in the consecutive unwrap it chains
+            // the rest of the ring into a spurious ±period branch —
+            // a phantom "full wrap" (flagship corner caps hold one
+            // vertex exactly at the cap sphere's pole; the phantom
+            // winding declined 2 of 4 caps). Degenerate samples are
+            // skipped as unwrap anchors and their u is rewritten
+            // from the flanking regular samples afterwards.
+            let ring_scale = ring
+                .pos
+                .iter()
+                .zip(ring.pos.iter().cycle().skip(1))
+                .map(|(a, b)| a.distance_to(b))
+                .fold(0.0_f64, f64::max)
+                .max(1e-9);
+            let u_degenerate: Vec<bool> = match period_u {
+                Some(p) => ring
+                    .uv
+                    .iter()
+                    .zip(ring.pos.iter())
+                    .map(|((u, v), pos)| {
+                        surface.point_at(u + 0.5 * p, *v).distance_to(pos) < 1.0e-7 * ring_scale
+                    })
+                    .collect(),
+                None => Vec::new(),
+            };
             fn unwrap_dir(
                 ring: &mut BoundaryRing,
                 period: f64,
                 pick: fn(&mut (f64, f64)) -> &mut f64,
+                degenerate: &[bool],
             ) -> bool {
-                for i in 1..ring.uv.len() {
-                    let prev = *pick(&mut ring.uv[i - 1].clone());
-                    let cur = pick(&mut ring.uv[i]);
-                    while *cur - prev > 0.5 * period {
-                        *cur -= period;
+                let is_degen = |i: usize| degenerate.get(i).copied().unwrap_or(false);
+                let mut prev: Option<f64> = None;
+                for i in 0..ring.uv.len() {
+                    if is_degen(i) {
+                        continue;
                     }
-                    while *cur - prev < -0.5 * period {
-                        *cur += period;
+                    let cur = pick(&mut ring.uv[i]);
+                    if let Some(p) = prev {
+                        while *cur - p > 0.5 * period {
+                            *cur -= period;
+                        }
+                        while *cur - p < -0.5 * period {
+                            *cur += period;
+                        }
+                    }
+                    prev = Some(*cur);
+                }
+                // Rewrite each degenerate run's coordinate to the
+                // mean of its flanking regular samples (circular):
+                // any value evaluates to the same 3D point, and the
+                // mean keeps both adjacent UV segments non-zero for
+                // the Delaunay coverage walk.
+                let n = ring.uv.len();
+                for i in 0..n {
+                    if !is_degen(i) {
+                        continue;
+                    }
+                    let before = (1..n)
+                        .map(|k| (i + n - k) % n)
+                        .find(|&j| !is_degen(j))
+                        .map(|j| *pick(&mut ring.uv[j].clone()));
+                    let after = (1..n)
+                        .map(|k| (i + k) % n)
+                        .find(|&j| !is_degen(j))
+                        .map(|j| *pick(&mut ring.uv[j].clone()));
+                    if let (Some(b), Some(a)) = (before, after) {
+                        *pick(&mut ring.uv[i]) = 0.5 * (b + a);
                     }
                 }
-                // Net winding = a genuine full wrap; boundary-first
-                // cannot chart it.
-                match (ring.uv.first(), ring.uv.last()) {
-                    (Some(f), Some(l)) => {
-                        let (mut fc, mut lc) = (*f, *l);
-                        (*pick(&mut lc) - *pick(&mut fc)).abs() <= 0.5 * period
+                // Net winding across the regular samples = a genuine
+                // full wrap; boundary-first cannot chart it.
+                let regular: Vec<usize> = (0..n).filter(|&i| !is_degen(i)).collect();
+                match (regular.first(), regular.last()) {
+                    (Some(&f), Some(&l)) => {
+                        let first = *pick(&mut ring.uv[f].clone());
+                        let last = *pick(&mut ring.uv[l].clone());
+                        (last - first).abs() <= 0.5 * period
                     }
                     _ => true,
                 }
@@ -177,13 +237,13 @@ pub(crate) fn tessellate_face_boundary_first(
                 }
             }
             if let Some(p) = period_u {
-                if !unwrap_dir(&mut ring, p, |uv| &mut uv.0) {
+                if !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate) {
                     dump_ring(&ring, "u");
                     return None;
                 }
             }
             if let Some(p) = period_v {
-                if !unwrap_dir(&mut ring, p, |uv| &mut uv.1) {
+                if !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[]) {
                     dump_ring(&ring, "v");
                     return None;
                 }

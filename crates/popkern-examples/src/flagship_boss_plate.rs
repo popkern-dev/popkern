@@ -616,8 +616,14 @@ fn main() {
         }
         let open = counts.values().filter(|&&c| c == 1).count();
         println!("stage 4 open edges: {open}");
-        if seam_only {
-            assert_eq!(open, 0, "seam-fillet flagship must tessellate watertight");
+        if no_top {
+            // The verticals-only variant still exercises the §8.3
+            // end-cap sphere class (route B scope extension pending)
+            // — census only, no gate.
+        } else {
+            // Both the seam-only and the full 12-edge chain
+            // configurations are watertight gates.
+            assert_eq!(open, 0, "flagship must tessellate watertight");
         }
         let mut shown = 0;
         for (&(a, b), &c) in &counts {
