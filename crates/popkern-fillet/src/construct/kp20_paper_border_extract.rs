@@ -773,21 +773,13 @@ pub fn kp20_paper_border_from_fillet_setback(
     // Trim-intersection corner between adjacent fillets: the closest
     // approach between any trim-curve pair (one from each side),
     // sample-refined.
-    // Among sub-threshold trim approaches, prefer the one NEAREST
-    // the blended vertex: perpendicular strips' trims (plate-corner
-    // configurations) cross both near the corner AND on their
-    // extensions outside the solid, and the globally-closest pick
-    // selected the outside crossings (setback arcs evaluated
-    // outside the body at N=3). At the pyramid apex the nearest
-    // crossing IS the global one, so this is a strict refinement.
     let closest_between = |ca: &popkern_core::geometry::NurbsCurve,
                            cb: &popkern_core::geometry::NurbsCurve|
      -> (f64, Point3) {
         const S: usize = 96;
         let (a0, a1) = ca.parameter_range();
         let (b0, b1) = cb.parameter_range();
-        let mut best_global = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
-        let mut best_near: Option<(f64, Point3, f64)> = None;
+        let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
         for i in 0..=S {
             let ta = a0 + (a1 - a0) * i as f64 / S as f64;
             let pa = ca.point_at(ta);
@@ -795,104 +787,32 @@ pub fn kp20_paper_border_from_fillet_setback(
                 let tb = b0 + (b1 - b0) * j as f64 / S as f64;
                 let pb = cb.point_at(tb);
                 let d = pa.distance_to(&pb);
-                let mid = Point3::new(
-                    0.5 * (pa.x + pb.x),
-                    0.5 * (pa.y + pb.y),
-                    0.5 * (pa.z + pb.z),
-                );
-                if d < best_global.0 {
-                    best_global = (d, mid);
-                }
-                let dv = mid.distance_to(&vertex_position);
-                let better_near = match &best_near {
-                    Some((_, _, bdv)) => dv < *bdv,
-                    None => true,
-                };
-                if d < 2.0e-2 && better_near {
-                    best_near = Some((d, mid, dv));
+                if d < best.0 {
+                    best = (
+                        d,
+                        Point3::new(
+                            0.5 * (pa.x + pb.x),
+                            0.5 * (pa.y + pb.y),
+                            0.5 * (pa.z + pb.z),
+                        ),
+                    );
                 }
             }
         }
-        match best_near {
-            Some((d, mid, _)) => (d, mid),
-            None => best_global,
-        }
+        best
     };
-    // Coplanarity of a trim pair: adjacent strips' TRUE corner is
-    // the crossing of their trims on the SHARED support face — the
-    // one trim pair lying in a common plane. Other pairs (and trim
-    // extensions) cross outside the solid at perpendicular-strip
-    // corners (plate corners), and picking by distance alone chose
-    // those.
-    let pair_coplanar = |ca: &popkern_core::geometry::NurbsCurve,
-                         cb: &popkern_core::geometry::NurbsCurve|
-     -> bool {
-        let mut pts: Vec<Point3> = Vec::new();
-        for c in [ca, cb] {
-            let (t0, t1) = c.parameter_range();
-            for i in 0..8 {
-                pts.push(c.point_at(t0 + (t1 - t0) * i as f64 / 7.0));
-            }
-        }
-        let p0 = pts[0];
-        let mut nrm = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
-        for i in 1..pts.len() - 1 {
-            let v1 = pts[i] - p0;
-            let v2 = pts[i + 1] - p0;
-            let c = v1.cross(&v2);
-            if c.length() > nrm.length() {
-                nrm = c;
-            }
-        }
-        let Some(nrm) = nrm.normalized() else {
-            return false;
-        };
-        pts.iter().all(|p| (*p - p0).dot(&nrm).abs() < 1.0e-6)
-    };
-    if std::env::var_os("PK_CARVE_TRACE").is_some() {
-        for (fi, f) in fillet_surfaces.iter().enumerate() {
-            for (ti, tc) in [&f.trim_curve_1, &f.trim_curve_2].iter().enumerate() {
-                let (t0, t1) = tc.parameter_range();
-                let a = tc.point_at(t0);
-                let b = tc.point_at(t1);
-                eprintln!(
-                    "    [trims] fillet {fi} trim {ti}: ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
-                    a.x, a.y, a.z, b.x, b.y, b.z
-                );
-            }
-        }
-    }
     let mut corners = Vec::with_capacity(n);
     for k in 0..n {
         let fa = &fillet_surfaces[order[k]];
         let fb = &fillet_surfaces[order[(k + 1) % n]];
         let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
-        let mut best_coplanar: Option<(f64, Point3)> = None;
         for ca in [&fa.trim_curve_1, &fa.trim_curve_2] {
             for cb in [&fb.trim_curve_1, &fb.trim_curve_2] {
                 let candidate = closest_between(ca, cb);
-                if pair_coplanar(ca, cb) {
-                    let better = match &best_coplanar {
-                        Some((d, _)) => candidate.0 < *d,
-                        None => true,
-                    };
-                    if better {
-                        best_coplanar = Some(candidate);
-                    }
-                }
                 if candidate.0 < best.0 {
                     best = candidate;
                 }
             }
-        }
-        if let Some(cop) = best_coplanar {
-            best = cop;
-        }
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
-            eprintln!(
-                "    [extract] corner {k}: gap {:.3e} at ({:.3},{:.3},{:.3})",
-                best.0, best.1.x, best.1.y, best.1.z
-            );
         }
         corners.push(best);
     }
@@ -917,25 +837,9 @@ pub fn kp20_paper_border_from_fillet_setback(
         let fillet = &fillet_surfaces[order[k]];
         let c_prev = corners[(k + n - 1) % n].1;
         let c_next = corners[k].1;
-        // Analytic branch-aware inversion: the generic projection
-        // lands cylinder-strip corners in arbitrary period branches,
-        // and a wrong-branch span wraps the arc around the far side
-        // of the strip (setback arcs evaluated OUTSIDE the solid at
-        // N=3 plate corners). The second corner is hinted by the
-        // first so both share a branch.
-        let (ua_full, va_full) =
-            popkern_core::geometry::uv_projection::project_point_to_uv_analytic(
-                &fillet.surface,
-                &c_prev,
-                None,
-            )
+        let (ua_full, va_full) = project_point_to_uv(&fillet.surface, &c_prev)
             .ok_or_else(|| "corner projection failed".to_string())?;
-        let (ub_full, vb_full) =
-            popkern_core::geometry::uv_projection::project_point_to_uv_analytic(
-                &fillet.surface,
-                &c_next,
-                Some((ua_full, va_full)),
-            )
+        let (ub_full, vb_full) = project_point_to_uv(&fillet.surface, &c_next)
             .ok_or_else(|| "corner projection failed".to_string())?;
         let shrink = 0.5 * pullback;
         spans.push((

@@ -581,6 +581,30 @@ pub fn project_point_to_uv_analytic(
     p: &Point3,
     hint: Option<(f64, f64)>,
 ) -> Option<(f64, f64)> {
+    let analytic = project_point_to_uv_analytic_unverified(surface, p, hint);
+    // Round-trip contract: the analytic inversion assumes the
+    // surface's chart uses `orthonormal_basis(axis)` with angle-u /
+    // axial-v. Producers are not uniform (fillet strip cylinders
+    // measured 5e-3 off through this inversion on the pentagon
+    // setback gate), so verify by evaluation and fall back to the
+    // generic projection on mismatch.
+    if let Some((u, v)) = analytic {
+        use crate::geometry::surface::SurfaceEval;
+        if surface.point_at(u, v).distance_to(p) < 1.0e-9 {
+            return Some((u, v));
+        }
+    }
+    match hint {
+        Some((hu, hv)) => project_point_to_uv_near(surface, p, hu, hv),
+        None => project_point_to_uv(surface, p),
+    }
+}
+
+fn project_point_to_uv_analytic_unverified(
+    surface: &SurfaceGeometry,
+    p: &Point3,
+    hint: Option<(f64, f64)>,
+) -> Option<(f64, f64)> {
     match surface {
         SurfaceGeometry::Cylinder { origin, axis, .. } => {
             let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
