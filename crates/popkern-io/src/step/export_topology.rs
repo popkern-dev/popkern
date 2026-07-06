@@ -13,15 +13,12 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, LoopHandle, VertexHan
 
 use crate::error::IoError;
 use crate::step::export::{ExportContext, bool_, list, ref_, str_param};
-use crate::step::export_pcurve_synthesis::{
-    export_pcurve_trace_matches_edge, step_export_pcurve_association_tolerance,
-    synthesize_export_half_edge_pcurve_on_surface,
-};
+use crate::step::export_pcurve_synthesis::step_export_pcurve_association_tolerance;
 use crate::step::export_topology_face_edges::pre_export_face_use_edges;
 use crate::step::export_topology_face_uses::{EdgeFaceUse, edge_face_uses, unique_edge_half_edges};
 use crate::step::export_topology_helpers::{
     collapsed_trim_missing_curve_edges, edge_curve_same_sense,
-    edge_curve_surface_trim_disagreement, edge_end_vertex, pcurve_endpoints_match_edge_segment,
+    edge_curve_surface_trim_disagreement, edge_end_vertex,
     synthesize_missing_edge_curve_from_surface_trims, synthesize_plane,
 };
 use crate::step::parser::types::EntityId;
@@ -56,6 +53,12 @@ impl ExportContext {
 
         // 1b. Pre-export face surfaces so we have surface IDs for pcurves
         let surface_map = self.pre_export_surfaces(brep)?;
+        // Periodic UV-loop branch normalization: per-face-use shifts
+        // that chain each pcurve into its face's closed trim contour
+        // (seam pcurve pairs become branch-separated; rim windows
+        // align). See export_periodic_branches module docs.
+        let branch_shifts =
+            super::export_periodic_branches::compute_periodic_branch_shifts(brep, &surface_map);
         let collapsed_trim_edges = collapsed_trim_missing_curve_edges(brep);
         let mut local_edge_map: HashMap<EdgeFaceUse, EntityId> = HashMap::new();
 
@@ -122,7 +125,8 @@ impl ExportContext {
             };
 
             // Build pcurve list from both half-edges
-            let curve_id = self.maybe_wrap_surface_curve(brep, curve_3d_id, eh, &surface_map);
+            let curve_id =
+                self.maybe_wrap_surface_curve(brep, curve_3d_id, eh, &surface_map, &branch_shifts);
 
             let same_sense = edge
                 .curve
@@ -355,9 +359,20 @@ impl ExportContext {
         curve_3d_id: EntityId,
         edge_handle: EdgeHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
+        branch_shifts: &super::export_periodic_branches::BranchShifts,
     ) -> EntityId {
         let mut pcurve_ids: Vec<EntityId> = Vec::new();
-        let face_uses = edge_face_uses(brep, edge_handle);
+        let mut face_uses = edge_face_uses(brep, edge_handle);
+        // Canonical half-edge's pcurve FIRST: OpenCASCADE assigns the
+        // first associated pcurve to the edge's FORWARD use in a
+        // loop, and `export_loop_as_bound` writes forward exactly for
+        // the canonical half-edge. For SEAM_CURVEs (both uses on one
+        // face, branch-separated pcurves) the wrong order swaps the
+        // seam's two branches and the trim contour breaks.
+        if let Some(edge) = brep.edges.get(edge_handle) {
+            let canonical = edge.half_edge;
+            face_uses.sort_by_key(|face_use| face_use.half_edge != canonical);
+        }
         for face_use in &face_uses {
             if let Some(pcurve_id) = self.try_export_he_pcurve(
                 brep,
@@ -365,6 +380,7 @@ impl ExportContext {
                 face_use.half_edge,
                 face_use.face,
                 surface_map,
+                branch_shifts,
             ) {
                 pcurve_ids.push(pcurve_id);
             }
@@ -376,6 +392,7 @@ impl ExportContext {
                     edge_handle,
                     he_handle,
                     surface_map,
+                    branch_shifts,
                 ) {
                     pcurve_ids.push(pcurve_id);
                 }
@@ -409,63 +426,46 @@ impl ExportContext {
         he_handle: popkern_core::topology::HalfEdgeHandle,
         face_handle: FaceHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
+        branch_shifts: &super::export_periodic_branches::BranchShifts,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
-        let surface = surface_map.get(&face_handle)?;
-        let pcurve = brep
-            .face_use_pcurve(face_handle, he_handle)
-            .or(he.pcurve.as_ref())
-            .cloned()
-            .filter(|pcurve| {
-                pcurve_endpoints_match_edge_segment(
-                    brep,
-                    edge_handle,
-                    pcurve,
-                    &surface.surface.geometry,
-                    step_export_pcurve_association_tolerance(brep),
-                ) || export_pcurve_trace_matches_edge(
-                    brep,
-                    edge_handle,
-                    he_handle,
-                    pcurve,
-                    &surface.surface.geometry,
-                    step_export_pcurve_association_tolerance(brep),
-                )
-            })
-            .or_else(|| {
-                synthesize_export_half_edge_pcurve_on_surface(
-                    brep,
-                    edge_handle,
-                    he_handle,
-                    &surface.surface.geometry,
-                )
-            })?;
-        if !pcurve_endpoints_match_edge_segment(
-            brep,
-            edge_handle,
-            &pcurve,
-            &surface.surface.geometry,
-            step_export_pcurve_association_tolerance(brep),
-        ) && !export_pcurve_trace_matches_edge(
-            brep,
-            edge_handle,
-            he_handle,
-            &pcurve,
-            &surface.surface.geometry,
-            step_export_pcurve_association_tolerance(brep),
-        ) {
+        if he.edge != edge_handle {
             return None;
         }
+        let surface = surface_map.get(&face_handle)?;
+        let pcurve = super::export_periodic_branches::export_pcurve_for_use(
+            brep,
+            face_handle,
+            he_handle,
+            &surface.surface.geometry,
+        )?;
         // STEP doesn't have a native analytic-pcurve type — convert
         // any analytic Pcurve variant (Linear, etc.) to its NURBS
         // form via Pcurve::to_nurbs() before export. NURBS variants
-        // are zero-cost. The chart transform maps popkern's UV
-        // convention to the written surface's STEP parameterization
-        // (sphere latitude, see `pcurve_to_step_chart`).
-        let nurbs = crate::step::export_geometry::pcurve_to_step_chart(
+        // are zero-cost. Then, in order: co-parameterize with the
+        // edge's basis curve (popkern pcurves run in HALF-EDGE
+        // direction; STEP associated pcurves share the 3D curve's
+        // parameterization), apply the periodic branch shift that
+        // chains this use into ITS face's UV loop contour, and map
+        // popkern's chart convention to the written surface's STEP
+        // parameterization (sphere latitude, `pcurve_to_step_chart`).
+        let mut nurbs = pcurve.to_nurbs();
+        if super::export_periodic_branches::pcurve_opposes_edge_curve(
+            brep,
+            he_handle,
             &surface.surface.geometry,
-            pcurve.to_nurbs(),
-        );
+            &pcurve,
+        ) {
+            super::export_periodic_branches::reverse_pcurve_nurbs(&mut nurbs);
+        }
+        if let Some(&(du, dv)) = branch_shifts.get(&(face_handle, he_handle)) {
+            for p in &mut nurbs.control_points {
+                p.x += du;
+                p.y += dv;
+            }
+        }
+        let nurbs =
+            crate::step::export_geometry::pcurve_to_step_chart(&surface.surface.geometry, nurbs);
         Some(self.export_pcurve(&nurbs, surface.id))
     }
 
@@ -475,10 +475,18 @@ impl ExportContext {
         edge_handle: EdgeHandle,
         he_handle: popkern_core::topology::HalfEdgeHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
+        branch_shifts: &super::export_periodic_branches::BranchShifts,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
         let loop_ = brep.loops.get(he.loop_)?;
-        self.try_export_he_pcurve(brep, edge_handle, he_handle, loop_.face, surface_map)
+        self.try_export_he_pcurve(
+            brep,
+            edge_handle,
+            he_handle,
+            loop_.face,
+            surface_map,
+            branch_shifts,
+        )
     }
 
     fn export_degenerate_curve_at(&mut self, point: Point3) -> EntityId {

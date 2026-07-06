@@ -7,6 +7,7 @@ mod export_geometry;
 mod export_nurbs;
 mod export_pcurve;
 mod export_pcurve_synthesis;
+mod export_periodic_branches;
 mod export_product;
 mod export_topology;
 mod export_topology_face_edges;

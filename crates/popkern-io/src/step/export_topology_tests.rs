@@ -229,6 +229,106 @@ fn cylinder_export_has_seam_curve() {
     );
 }
 
+/// The seam's two pcurves must be BRANCH-SEPARATED (u values one
+/// period apart — the UV trim contour cannot close otherwise) and
+/// CO-PARAMETERIZED with the basis curve (both traced in the same
+/// direction). Identical twins or opposed directions degrade
+/// OpenCASCADE's trim of every closed-surface face (flagship boss:
+/// the seam fillet sewed to its neighbours only along the chart
+/// seam line).
+#[test]
+fn cylinder_seam_pcurves_are_branch_separated_and_co_parameterized() {
+    use crate::step::parser::types::Parameter;
+    fn walk_refs(p: &Parameter, out: &mut Vec<crate::step::parser::types::EntityId>) {
+        match p {
+            Parameter::EntityRef(id) => out.push(*id),
+            Parameter::List(items) => {
+                for item in items {
+                    walk_refs(item, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    fn refs_of(params: &[Parameter]) -> Vec<crate::step::parser::types::EntityId> {
+        let mut out = Vec::new();
+        for p in params {
+            walk_refs(p, &mut out);
+        }
+        out
+    }
+
+    let tol = Tolerance::default();
+    let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
+    let mut ctx = ExportContext::new();
+    ctx.export_brep(&cyl).unwrap();
+
+    let entity = |id: crate::step::parser::types::EntityId| {
+        ctx.entities.iter().find(|e| e.id == id).unwrap()
+    };
+    let seam = ctx
+        .entities
+        .iter()
+        .find(|e| e.type_name == "SEAM_CURVE")
+        .expect("cylinder must export a SEAM_CURVE");
+    let pcurve_ids: Vec<_> = refs_of(&seam.params)
+        .into_iter()
+        .filter(|&id| entity(id).type_name == "PCURVE")
+        .collect();
+    assert_eq!(pcurve_ids.len(), 2, "seam must carry exactly two pcurves");
+
+    // PCURVE -> DEFINITIONAL_REPRESENTATION -> 2D curve -> CARTESIAN_POINTs.
+    let cps_of = |pcurve_id: crate::step::parser::types::EntityId| -> Vec<(f64, f64)> {
+        let dr = refs_of(&entity(pcurve_id).params)
+            .into_iter()
+            .find(|&id| entity(id).type_name == "DEFINITIONAL_REPRESENTATION")
+            .expect("pcurve definitional representation");
+        let curve = refs_of(&entity(dr).params)
+            .into_iter()
+            .find(|&id| entity(id).type_name.contains("CURVE"))
+            .expect("pcurve basis 2D curve");
+        refs_of(&entity(curve).params)
+            .into_iter()
+            .filter(|&id| entity(id).type_name == "CARTESIAN_POINT")
+            .map(|id| {
+                let vals: Vec<f64> = entity(id)
+                    .params
+                    .iter()
+                    .flat_map(|p| match p {
+                        Parameter::List(items) => items
+                            .iter()
+                            .filter_map(|v| match v {
+                                Parameter::Real(r) => Some(*r),
+                                Parameter::Int(n) => Some(*n as f64),
+                                _ => None,
+                            })
+                            .collect::<Vec<f64>>(),
+                        _ => Vec::new(),
+                    })
+                    .collect();
+                (vals[0], vals[1])
+            })
+            .collect()
+    };
+    let a = cps_of(pcurve_ids[0]);
+    let b = cps_of(pcurve_ids[1]);
+    assert!(
+        a.len() >= 2 && b.len() >= 2,
+        "seam pcurves need control points"
+    );
+    let du = (a[0].0 - b[0].0).abs();
+    assert!(
+        (du - std::f64::consts::TAU).abs() < 1e-9,
+        "seam pcurves must sit one period apart in u, got du = {du}"
+    );
+    let dir_a = (a.last().unwrap().1 - a[0].1).signum();
+    let dir_b = (b.last().unwrap().1 - b[0].1).signum();
+    assert_eq!(
+        dir_a, dir_b,
+        "seam pcurves must be co-parameterized with the basis curve"
+    );
+}
+
 #[test]
 fn cylinder_step_text_contains_seam_curve() {
     let tol = Tolerance::default();
