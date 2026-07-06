@@ -145,3 +145,45 @@ fn measure_depends_only_on_core_and_mesh() {
         "popkern-measure must depend on popkern-mesh"
     );
 }
+
+#[test]
+fn part_is_a_top_tier_facade() {
+    let cargo_toml_path = workspace_root().join("crates/popkern-part/Cargo.toml");
+    let cargo_toml =
+        fs::read_to_string(&cargo_toml_path).expect("Could not read popkern-part/Cargo.toml");
+
+    // popkern-part sits at the top of the dependency graph (peer of
+    // popkern-ffi): it may depend on any kernel crate but nothing may
+    // sit above it except examples/ffi, and it must not pull in the
+    // presentation layer.
+    let forbidden = ["popkern-ffi", "popkern-viz"];
+    for dep in forbidden {
+        assert!(
+            !cargo_toml.contains(dep),
+            "popkern-part must not depend on {dep}"
+        );
+    }
+    assert!(
+        cargo_toml.contains("popkern-core"),
+        "popkern-part must depend on popkern-core"
+    );
+
+    // And no kernel crate may depend back on the facade.
+    for below in [
+        "popkern-core",
+        "popkern-bool",
+        "popkern-draft",
+        "popkern-fillet",
+        "popkern-sweep",
+        "popkern-shell",
+        "popkern-io",
+        "popkern-mesh",
+    ] {
+        let toml = fs::read_to_string(workspace_root().join(format!("crates/{below}/Cargo.toml")))
+            .unwrap_or_default();
+        assert!(
+            !toml.contains("popkern-part"),
+            "{below} must not depend on popkern-part (facade is top-tier)"
+        );
+    }
+}

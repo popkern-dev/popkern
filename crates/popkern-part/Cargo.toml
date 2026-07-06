@@ -1,0 +1,20 @@
+[package]
+name = "popkern-part"
+version = "0.1.0"
+edition = "2024"
+license = "AGPL-3.0"
+description = "Code-first part modeling API over the popkern BRep kernel"
+
+[dependencies]
+popkern-core = { path = "../popkern-core" }
+popkern-bool = { path = "../popkern-bool" }
+popkern-fillet = { path = "../popkern-fillet" }
+popkern-sweep = { path = "../popkern-sweep" }
+popkern-io = { path = "../popkern-io" }
+popkern-mesh = { path = "../popkern-mesh" }
+thiserror = "2"
+ttf-parser = { version = "0.25", optional = true }
+
+[features]
+default = []
+text = ["dep:ttf-parser"]
