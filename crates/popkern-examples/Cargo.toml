@@ -17,6 +17,7 @@ popkern-mesh = { path = "../popkern-mesh" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
 serde_json = "1"
+ttf-parser = "0.25.1"
 
 [[bin]]
 name = "flagship_boss_plate"

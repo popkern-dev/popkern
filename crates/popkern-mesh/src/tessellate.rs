@@ -297,18 +297,77 @@ pub(crate) fn tessellate_brep(
 ) -> Result<TriMesh, MeshError> {
     // Canonical per-edge samples: adjacent faces share bit-identical
     // boundary vertices (PK-095 closure).
-    let edge_samples = crate::boundary_first::sample_all_edges(brep, options.chord_height);
+    let mut edge_samples = crate::boundary_first::sample_all_edges(brep, options.chord_height);
+    // Encroachment refinement (Ruppert-style): a face whose Delaunay
+    // coverage fails because boundary points crowd a ring segment
+    // (engraved pockets, thin annuli) requests SPLITS of the
+    // canonical edge spans involved. Splits refine the SHARED sample
+    // sets and all faces re-run, so watertightness is preserved by
+    // construction. Bounded rounds; convergence is guaranteed by the
+    // no-new-fraction check.
+    const ENCROACHMENT_ROUNDS: usize = 8;
+    for round in 0..ENCROACHMENT_ROUNDS {
+        let mut requests: Vec<crate::boundary_first::SplitRequest> = Vec::new();
+        for face_handle in brep.faces.keys() {
+            if brep.faces[face_handle].surface.is_none() {
+                continue;
+            }
+            crate::boundary_first::tessellate_face_boundary_first(
+                brep,
+                face_handle,
+                &edge_samples,
+                options,
+                &mut requests,
+            );
+        }
+        if requests.is_empty() {
+            break;
+        }
+        let mut inserted = 0usize;
+        for (eh, fraction) in requests {
+            let Some(samples) = edge_samples.get_mut(&eh) else {
+                continue;
+            };
+            if samples.fractions.len() >= 96 {
+                continue; // refinement cap per edge
+            }
+            let idx = samples.fractions.partition_point(|&f| f < fraction);
+            let near = |f: f64| (f - fraction).abs() < 1e-4;
+            if (idx > 0 && near(samples.fractions[idx - 1]))
+                || (idx < samples.fractions.len() && near(samples.fractions[idx]))
+            {
+                continue; // already refined here
+            }
+            let Some(curve) = brep.edges.get(eh).and_then(|e| e.curve.as_ref()) else {
+                continue;
+            };
+            use popkern_core::geometry::curve::CurveEval;
+            let ceval: &dyn CurveEval = &curve.geometry;
+            let point = ceval.point_at(curve.t_start + (curve.t_end - curve.t_start) * fraction);
+            samples.fractions.insert(idx, fraction);
+            samples.points.insert(idx, point);
+            inserted += 1;
+        }
+        if std::env::var_os("PK_BF_TRACE").is_some() && inserted > 0 {
+            eprintln!("  [bf] encroachment round {round}: split {inserted} edge spans");
+        }
+        if inserted == 0 {
+            break;
+        }
+    }
     let mut face_meshes = Vec::new();
     let mut legacy_faces = Vec::new();
     for face_handle in brep.faces.keys() {
         if brep.faces[face_handle].surface.is_none() {
             continue;
         }
+        let mut sink = Vec::new();
         if let Some(fm) = crate::boundary_first::tessellate_face_boundary_first(
             brep,
             face_handle,
             &edge_samples,
             options,
+            &mut sink,
         ) {
             face_meshes.push(fm);
             continue;

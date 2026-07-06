@@ -3315,6 +3315,7 @@ dependencies = [
  "popkern-sweep",
  "popkern-viz",
  "serde_json",
+ "ttf-parser",
 ]
 
 [[package]]

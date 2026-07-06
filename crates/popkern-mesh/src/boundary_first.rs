@@ -100,11 +100,28 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
     map
 }
 
-/// One boundary ring: ordered UV polygon with matched 3D positions.
+/// One boundary ring: ordered UV polygon with matched 3D positions
+/// and, per point, the canonical edge + curve fraction it came from
+/// (the handle encroachment refinement needs to split the RIGHT
+/// shared edge span).
 struct BoundaryRing {
     uv: Vec<(f64, f64)>,
     pos: Vec<Point3>,
+    /// Per point: the canonical edge span the ring segment STARTING
+    /// at this point traverses — (edge, fraction at this point,
+    /// fraction at the next walk sample). Encroachment refinement
+    /// splits at the span midpoint; recording both ends makes the
+    /// request correct regardless of the walk direction over the
+    /// edge (reversed walks descend in fraction).
+    sources: Vec<(EdgeHandle, f64, f64)>,
 }
+
+/// A request to refine the canonical samples of one edge at one
+/// curve fraction, issued when Delaunay coverage fails because a
+/// boundary segment is encroached (Ruppert-style split-and-retry;
+/// both incident faces re-tessellate with the shared refined
+/// samples, so watertightness is preserved by construction).
+pub(crate) type SplitRequest = (EdgeHandle, f64);
 
 /// Tessellate a face against canonical edge samples. Returns `None`
 /// when the face lacks the data (pcurves / curves) — caller falls
@@ -114,6 +131,7 @@ pub(crate) fn tessellate_face_boundary_first(
     face_handle: FaceHandle,
     edge_samples: &HashMap<EdgeHandle, EdgeSamples>,
     options: &TessellationOptions,
+    split_requests: &mut Vec<SplitRequest>,
 ) -> Option<FaceMesh> {
     let face = brep.faces.get(face_handle)?;
     let surface_on_face = face.surface.as_ref()?;
@@ -302,14 +320,49 @@ pub(crate) fn tessellate_face_boundary_first(
         }
     }
 
+    // Deterministic micro-jitter on every boundary point's UV
+    // (≈1e-7 of the ring scale, direction hashed from the index):
+    // exact COCIRCULAR point groups — font-glyph arcs flatten into
+    // them by construction — read as degenerate to the incircle
+    // test the same way exactly-collinear runs do, and cascade
+    // coverage holes through the Delaunay. The jitter is orders of
+    // magnitude below any chord tolerance; 3D positions stay
+    // canonical, so shared-edge closure is unaffected.
+    {
+        let mut scale = 0.0_f64;
+        for ring in &rings {
+            let n = ring.uv.len();
+            for i in 0..n {
+                let a = ring.uv[i];
+                let b = ring.uv[(i + 1) % n];
+                scale = scale.max((a.0 - b.0).abs().max((a.1 - b.1).abs()));
+            }
+        }
+        let eps = scale.max(1e-9) * 1.0e-7;
+        let mut k = 0u64;
+        for ring in &mut rings {
+            for uv in &mut ring.uv {
+                // Cheap deterministic hash → angle.
+                k = k
+                    .wrapping_mul(6364136223846793005)
+                    .wrapping_add(1442695040888963407);
+                let angle = (k >> 11) as f64 / (1u64 << 53) as f64 * std::f64::consts::TAU;
+                uv.0 += eps * angle.cos();
+                uv.1 += eps * angle.sin();
+            }
+        }
+    }
+
     // Point set: boundary points (fixed) + interior grid points.
     let mut uv_pts: Vec<(f64, f64)> = Vec::new();
     let mut pos_pts: Vec<Option<Point3>> = Vec::new(); // None → eval surface
     let mut ring_ranges: Vec<(usize, usize)> = Vec::new();
+    let mut sources: Vec<(EdgeHandle, f64, f64)> = Vec::new();
     for ring in &rings {
         let start = uv_pts.len();
         uv_pts.extend(ring.uv.iter().copied());
         pos_pts.extend(ring.pos.iter().copied().map(Some));
+        sources.extend(ring.sources.iter().copied());
         ring_ranges.push((start, uv_pts.len()));
     }
 
@@ -417,21 +470,60 @@ pub(crate) fn tessellate_face_boundary_first(
             edge_set.insert((x.min(y), x.max(y)));
         }
     }
+    let mut uncovered = false;
     for &(start, end) in &ring_ranges {
         let m = end - start;
         for k in 0..m {
             let a = start + k;
             let b = start + (k + 1) % m;
             if !edge_set.contains(&(a.min(b), a.max(b))) {
+                uncovered = true;
                 if std::env::var_os("PK_BF_TRACE").is_some() {
+                    // Nearest OTHER point to the segment: the
+                    // encroacher (or a duplicate) that displaced it
+                    // from the Delaunay.
+                    let (pa, pb) = (uv_pts[a], uv_pts[b]);
+                    let seg_d = |p: (f64, f64)| {
+                        let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+                        let l2 = (dx * dx + dy * dy).max(1e-300);
+                        let t = (((p.0 - pa.0) * dx + (p.1 - pa.1) * dy) / l2).clamp(0.0, 1.0);
+                        ((p.0 - pa.0 - dx * t).powi(2) + (p.1 - pa.1 - dy * t).powi(2)).sqrt()
+                    };
+                    let nearest = uv_pts
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != a && *i != b)
+                        .map(|(i, &p)| (i, seg_d(p)))
+                        .min_by(|x, y| x.1.partial_cmp(&y.1).unwrap_or(std::cmp::Ordering::Equal));
+                    eprintln!("    [bf] span: a={:?}", sources.get(a));
                     eprintln!(
-                        "    [bf] ring segment {a}-{b} uncovered at uv ({:.4},{:.4})-({:.4},{:.4})",
-                        uv_pts[a].0, uv_pts[a].1, uv_pts[b].0, uv_pts[b].1
+                        "    [bf] ring segment {a}-{b} uncovered at uv ({:.4},{:.4})-({:.4},{:.4}) nearest pt {:?} d={:.4} uv=({:.4},{:.4})",
+                        pa.0,
+                        pa.1,
+                        pb.0,
+                        pb.1,
+                        nearest.map(|(i, _)| i),
+                        nearest.map(|(_, d)| d).unwrap_or(f64::NAN),
+                        nearest.map(|(i, _)| uv_pts[i].0).unwrap_or(f64::NAN),
+                        nearest.map(|(i, _)| uv_pts[i].1).unwrap_or(f64::NAN),
                     );
                 }
-                return None;
+                // Encroachment refinement: split the canonical span
+                // the segment STARTING at `a` traverses (recorded
+                // walk-direction-correct in build_ring).
+                let (ea, f_lo, f_hi) = sources[a];
+                split_requests.push((ea, 0.5 * (f_lo + f_hi)));
             }
         }
+    }
+    if uncovered {
+        if std::env::var_os("PK_BF_DUMP").is_some() {
+            eprintln!("    [bf-dump] face {face_handle:?} rings {ring_ranges:?}");
+            for (i, &(u, v)) in uv_pts.iter().enumerate() {
+                eprintln!("    [bf-dump] pt {i} {u:.17e} {v:.17e}");
+            }
+        }
+        return None;
     }
 
     // Materialize vertices.
@@ -476,6 +568,7 @@ fn build_ring(
     let start = brep.loops.get(loop_handle)?.half_edge;
     let mut uv = Vec::new();
     let mut pos = Vec::new();
+    let mut sources = Vec::new();
     let mut he = start;
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];
@@ -538,7 +631,6 @@ fn build_ring(
             // same geometric edge, so use the walk fraction with the
             // pcurve's own direction.
             let walk_f = k as f64 / (m - 1) as f64;
-            let _ = f;
             let tp = if pcurve_forward_along_walk {
                 pc.t_start + (pc.t_end - pc.t_start) * walk_f
             } else {
@@ -594,13 +686,15 @@ fn build_ring(
             }
             uv.push((uu, vv));
             pos.push(target);
+            let next_idx = if forward { idx + 1 } else { idx - 1 };
+            sources.push((eh, f, samples.fractions[next_idx]));
         }
         he = data.next;
         if he == start {
             break;
         }
     }
-    Some(BoundaryRing { uv, pos })
+    Some(BoundaryRing { uv, pos, sources })
 }
 
 /// Even-odd point-in-region across all rings (outer + holes).

@@ -211,100 +211,288 @@ fn truncate_vertices(
 
 // ─────────────────── 7-segment digit engraving ───────────────────
 
-/// The seven segments in a unit digit box (width 0.62, height 1.0),
-/// as CCW polygons: hexagonal bars with 45° pointed ends and small
-/// tip gaps so segments never touch (each is an independent pocket).
-fn segment_polygon(horizontal: bool, cx: f64, cy: f64, half_len: f64, t: f64) -> Vec<(f64, f64)> {
-    let h = t / 2.0;
-    let raw: Vec<(f64, f64)> = if horizontal {
-        vec![
-            (cx - half_len, cy),
-            (cx - half_len + h, cy - h),
-            (cx + half_len - h, cy - h),
-            (cx + half_len, cy),
-            (cx + half_len - h, cy + h),
-            (cx - half_len + h, cy + h),
-        ]
-    } else {
-        vec![
-            (cx, cy - half_len),
-            (cx + h, cy - half_len + h),
-            (cx + h, cy + half_len - h),
-            (cx, cy + half_len),
-            (cx - h, cy + half_len - h),
-            (cx - h, cy - half_len + h),
-        ]
-    };
-    // Enforce CCW via the shoelace sign.
-    let area2: f64 = raw
-        .iter()
-        .zip(raw.iter().cycle().skip(1))
-        .map(|(a, b)| a.0 * b.1 - b.0 * a.1)
-        .take(raw.len())
-        .sum();
-    if area2 < 0.0 {
-        raw.into_iter().rev().collect()
-    } else {
-        raw
+// ─────────────────── font glyph engraving ───────────────────
+
+/// A laid-out glyph polygon: outer contour plus counter holes (the
+/// enclosed voids of 0, 4, 6, 8, 9…), all CCW in layout coordinates.
+struct GlyphPoly {
+    outer: Vec<(f64, f64)>,
+    holes: Vec<Vec<(f64, f64)>>,
+}
+
+/// TrueType outline collector: flattens quadratic/cubic Béziers to
+/// polylines (fixed subdivision — ample at engraving scale).
+struct OutlineCollector {
+    contours: Vec<Vec<(f64, f64)>>,
+    current: Vec<(f64, f64)>,
+    start: (f64, f64),
+}
+
+impl ttf_parser::OutlineBuilder for OutlineCollector {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.start = (x as f64, y as f64);
+        self.current.push(self.start);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.current.push((x as f64, y as f64));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        let p0 = *self.current.last().unwrap_or(&self.start);
+        let (c, p) = ((x1 as f64, y1 as f64), (x as f64, y as f64));
+        for k in 1..=4 {
+            let t = k as f64 / 4.0;
+            let mt = 1.0 - t;
+            self.current.push((
+                mt * mt * p0.0 + 2.0 * mt * t * c.0 + t * t * p.0,
+                mt * mt * p0.1 + 2.0 * mt * t * c.1 + t * t * p.1,
+            ));
+        }
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        let p0 = *self.current.last().unwrap_or(&self.start);
+        let (c1, c2, p) = (
+            (x1 as f64, y1 as f64),
+            (x2 as f64, y2 as f64),
+            (x as f64, y as f64),
+        );
+        for k in 1..=5 {
+            let t = k as f64 / 5.0;
+            let mt = 1.0 - t;
+            self.current.push((
+                mt * mt * mt * p0.0
+                    + 3.0 * mt * mt * t * c1.0
+                    + 3.0 * mt * t * t * c2.0
+                    + t * t * t * p.0,
+                mt * mt * mt * p0.1
+                    + 3.0 * mt * mt * t * c1.1
+                    + 3.0 * mt * t * t * c2.1
+                    + t * t * t * p.1,
+            ));
+        }
+    }
+    fn close(&mut self) {
+        let mut contour = std::mem::take(&mut self.current);
+        // Drop the duplicated closing point and near-coincident runs.
+        if let (Some(&first), Some(&last)) = (contour.first(), contour.last())
+            && (first.0 - last.0).hypot(first.1 - last.1) < 1e-6
+        {
+            contour.pop();
+        }
+        contour.dedup_by(|a, b| (a.0 - b.0).hypot(a.1 - b.1) < 1e-6);
+        let contour = simplify_contour(&contour);
+        if contour.len() >= 3 {
+            self.contours.push(contour);
+        }
     }
 }
 
-/// Segment polygons for one digit, in a box x ∈ [0, 0.62], y ∈ [0, 1].
-fn digit_polygons(d: u8) -> Vec<Vec<(f64, f64)>> {
-    const W: f64 = 0.62;
-    const T: f64 = 0.15;
-    const GAP: f64 = 0.028;
-    let hl_h = (W - T) / 2.0 - GAP; // horizontal bar half-length
-    let hl_v = 0.25 - GAP - T / 2.0; // vertical bar half-length
-    let seg = |name: char| -> Vec<(f64, f64)> {
-        match name {
-            'A' => segment_polygon(true, W / 2.0, 1.0 - T / 2.0, hl_h, T),
-            'G' => segment_polygon(true, W / 2.0, 0.5, hl_h, T),
-            'D' => segment_polygon(true, W / 2.0, T / 2.0, hl_h, T),
-            'B' => segment_polygon(false, W - T / 2.0, 0.75, hl_v, T),
-            'C' => segment_polygon(false, W - T / 2.0, 0.25, hl_v, T),
-            'F' => segment_polygon(false, T / 2.0, 0.75, hl_v, T),
-            'E' => segment_polygon(false, T / 2.0, 0.25, hl_v, T),
-            _ => unreachable!(),
-        }
-    };
-    let segments: &str = match d {
-        0 => "ABCDEF",
-        1 => "BC",
-        2 => "ABGED",
-        3 => "ABGCD",
-        4 => "FGBC",
-        5 => "AFGCD",
-        6 => "AFGECD",
-        7 => "ABC",
-        8 => "ABCDEFG",
-        9 => "ABCDFG",
-        _ => unreachable!(),
-    };
-    segments.chars().map(seg).collect()
+fn shoelace(poly: &[(f64, f64)]) -> f64 {
+    poly.iter()
+        .zip(poly.iter().cycle().skip(1))
+        .take(poly.len())
+        .map(|(a, b)| a.0 * b.1 - b.0 * a.1)
+        .sum::<f64>()
+        / 2.0
 }
 
-/// Engrave `number` into face `face_idx` as 7-segment pockets of the
-/// given `depth`. Each segment polygon becomes: an inner loop on the
-/// face (reversed winding), one wall quad per polygon edge, and a
-/// flat floor face — manifold by construction.
-fn engrave_number(
-    points: &mut Vec<Point3>,
-    faces: &mut Vec<FaceSpec>,
-    face_idx: usize,
-    number: usize,
-    depth: f64,
-) {
-    let outline: Vec<Point3> = faces[face_idx].outer.iter().map(|&i| points[i]).collect();
-    let n = outline.len();
-    let centroid = outline
+/// Drop contour points that deviate less than ~0.5% of the em from
+/// the chord of their neighbours (and any residual micro-edges):
+/// Bowyer–Watson coverage in the tessellator degrades under crowds
+/// of near-collinear near-duplicate boundary points, and the
+/// deviation is invisible at engraving scale.
+fn simplify_contour(contour: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let span = contour
         .iter()
-        .fold(Vec3::new(0.0, 0.0, 0.0), |acc, p| acc + (*p - origin()))
-        * (1.0 / n as f64);
-    let centroid = origin() + centroid;
-    // Face frame: outward normal (Newell), text-up = the projection
-    // of global +Z (or +Y for horizontal faces), text-right = up × n
-    // so digits read correctly from outside.
+        .map(|p| p.0.abs().max(p.1.abs()))
+        .fold(0.0_f64, f64::max)
+        .max(1.0);
+    let tol = span * 1.5e-3;
+    let mut keep = contour.to_vec();
+    loop {
+        let n = keep.len();
+        if n <= 4 {
+            break;
+        }
+        let mut best: Option<(usize, f64)> = None;
+        for i in 0..n {
+            let a = keep[(i + n - 1) % n];
+            let p = keep[i];
+            let b = keep[(i + 1) % n];
+            let (abx, aby) = (b.0 - a.0, b.1 - a.1);
+            let len = (abx * abx + aby * aby).sqrt().max(1e-12);
+            let dev = ((p.0 - a.0) * aby - (p.1 - a.1) * abx).abs() / len;
+            if dev < tol && best.map(|(_, d)| dev < d).unwrap_or(true) {
+                best = Some((i, dev));
+            }
+        }
+        match best {
+            Some((i, _)) => {
+                keep.remove(i);
+            }
+            None => break,
+        }
+    }
+    keep
+}
+
+fn point_in_poly(pt: (f64, f64), poly: &[(f64, f64)]) -> bool {
+    let mut inside = false;
+    let n = poly.len();
+    for i in 0..n {
+        let (a, b) = (poly[i], poly[(i + 1) % n]);
+        if (a.1 > pt.1) != (b.1 > pt.1) {
+            let x = a.0 + (pt.1 - a.1) / (b.1 - a.1) * (b.0 - a.0);
+            if x > pt.0 {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// Locate a usable TTF: `DICE_FONT` env override, then common
+/// system fonts.
+fn find_font() -> Vec<u8> {
+    let mut candidates: Vec<String> = Vec::new();
+    if let Ok(p) = std::env::var("DICE_FONT") {
+        candidates.push(p);
+    }
+    for p in [
+        "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    ] {
+        candidates.push(p.into());
+    }
+    for c in &candidates {
+        if let Ok(data) = std::fs::read(c) {
+            println!("font: {c}");
+            return data;
+        }
+    }
+    panic!("no TTF font found — set DICE_FONT=/path/to/font.ttf (tried {candidates:?})");
+}
+
+/// Lay out `text` as glyph polygons, scaled so the cap height is
+/// 1.0, centred on the glyph bounding box. Outer contours and their
+/// counter holes are classified by containment parity (TrueType
+/// winding conventions vary; parity does not lie).
+fn text_polygons(font: &ttf_parser::Face, text: &str) -> Vec<GlyphPoly> {
+    let upem = font.units_per_em() as f64;
+    let cap = font
+        .capital_height()
+        .map(|h| h as f64)
+        .unwrap_or(upem * 0.7);
+    let scale = 1.0 / cap;
+    let mut pen_x = 0.0_f64;
+    let mut contours_all: Vec<Vec<(f64, f64)>> = Vec::new();
+    for ch in text.chars() {
+        let Some(gid) = font.glyph_index(ch) else {
+            continue;
+        };
+        let mut collector = OutlineCollector {
+            contours: Vec::new(),
+            current: Vec::new(),
+            start: (0.0, 0.0),
+        };
+        font.outline_glyph(gid, &mut collector);
+        ttf_parser::OutlineBuilder::close(&mut collector);
+        for contour in collector.contours {
+            let mut scaled: Vec<(f64, f64)> = contour
+                .into_iter()
+                .map(|(x, y)| ((x + pen_x) * scale, y * scale))
+                .collect();
+            // Minimum edge length ≈ 1.5% of the cap height: micro
+            // edges poison the tessellator's incircle tests (near-
+            // coincident boundary points read as cocircular noise)
+            // and are invisible at engraving scale.
+            let min_edge = 0.015;
+            let mut cleaned: Vec<(f64, f64)> = Vec::with_capacity(scaled.len());
+            for p in scaled.drain(..) {
+                if cleaned
+                    .last()
+                    .map(|q| (p.0 - q.0).hypot(p.1 - q.1) >= min_edge)
+                    .unwrap_or(true)
+                {
+                    cleaned.push(p);
+                }
+            }
+            while cleaned.len() > 3 {
+                let (first, last) = (cleaned[0], *cleaned.last().unwrap());
+                if (first.0 - last.0).hypot(first.1 - last.1) < min_edge {
+                    cleaned.pop();
+                } else {
+                    break;
+                }
+            }
+            if cleaned.len() >= 3 {
+                contours_all.push(cleaned);
+            }
+        }
+        pen_x += font
+            .glyph_hor_advance(gid)
+            .map(|a| a as f64)
+            .unwrap_or(upem * 0.5);
+    }
+    // Containment depth: even = outer, odd = hole of the innermost
+    // containing outer.
+    let mut outers: Vec<GlyphPoly> = Vec::new();
+    let mut holes: Vec<(usize, Vec<(f64, f64)>)> = Vec::new();
+    let depth_of = |idx: usize, all: &[Vec<(f64, f64)>]| -> usize {
+        let pt = all[idx][0];
+        all.iter()
+            .enumerate()
+            .filter(|(j, poly)| *j != idx && point_in_poly(pt, poly))
+            .count()
+    };
+    let mut outer_source: Vec<usize> = Vec::new();
+    for i in 0..contours_all.len() {
+        let mut c = contours_all[i].clone();
+        if depth_of(i, &contours_all) % 2 == 0 {
+            if shoelace(&c) < 0.0 {
+                c.reverse();
+            }
+            outers.push(GlyphPoly {
+                outer: c,
+                holes: Vec::new(),
+            });
+            outer_source.push(i);
+        } else {
+            if shoelace(&c) < 0.0 {
+                c.reverse();
+            }
+            holes.push((i, c));
+        }
+    }
+    for (hi, hole) in holes {
+        let pt = contours_all[hi][0];
+        if let Some(owner) = outers
+            .iter_mut()
+            .zip(outer_source.iter())
+            .filter(|(o, _)| point_in_poly(pt, &o.outer))
+            .min_by(|(a, _), (b, _)| {
+                shoelace(&a.outer)
+                    .abs()
+                    .partial_cmp(&shoelace(&b.outer).abs())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .map(|(o, _)| o)
+        {
+            owner.holes.push(hole);
+        }
+    }
+    outers
+}
+
+/// In-face engraving frame: centroid, outward normal, and inradius.
+fn face_frame(points: &[Point3], face: &FaceSpec) -> (Point3, Vec3, f64) {
+    let outline: Vec<Point3> = face.outer.iter().map(|&i| points[i]).collect();
+    let n = outline.len();
+    let centroid = origin()
+        + outline
+            .iter()
+            .fold(Vec3::new(0.0, 0.0, 0.0), |acc, p| acc + (*p - origin()))
+            * (1.0 / n as f64);
     let mut normal = Vec3::new(0.0, 0.0, 0.0);
     for i in 0..n {
         let p = outline[i];
@@ -314,17 +502,6 @@ fn engrave_number(
         normal.z += (p.x - q.x) * (p.y + q.y);
     }
     let normal = normal.normalized().expect("face normal");
-    let up_hint = if normal.z.abs() > 0.9 {
-        Vec3::new(0.0, 1.0, 0.0)
-    } else {
-        Vec3::new(0.0, 0.0, 1.0)
-    };
-    let up = (up_hint - normal * up_hint.dot(&normal))
-        .normalized()
-        .expect("in-plane up");
-    let right = up.cross(&normal);
-
-    // Inradius: nearest outline edge to the centroid.
     let mut inradius = f64::INFINITY;
     for i in 0..n {
         let a = outline[i];
@@ -335,38 +512,36 @@ fn engrave_number(
         let foot = a + ab * t;
         inradius = inradius.min(centroid.distance_to(&foot));
     }
+    (centroid, normal, inradius)
+}
 
-    // Layout the digits, centred on the actual glyph bounding box.
-    let digits: Vec<u8> = number.to_string().bytes().map(|b| b - b'0').collect();
-    const DIGIT_ADVANCE: f64 = 0.62 + 0.18;
-    let mut polys: Vec<Vec<(f64, f64)>> = Vec::new();
-    for (i, &d) in digits.iter().enumerate() {
-        let dx = i as f64 * DIGIT_ADVANCE;
-        for poly in digit_polygons(d) {
-            polys.push(poly.into_iter().map(|(x, y)| (x + dx, y)).collect());
-        }
-    }
-    let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
-    let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
-    for poly in &polys {
-        for &(x, y) in poly {
-            min_x = min_x.min(x);
-            max_x = max_x.max(x);
-            min_y = min_y.min(y);
-            max_y = max_y.max(y);
-        }
-    }
-    let (bw, bh) = (max_x - min_x, max_y - min_y);
-    let half_diag = ((bw / 2.0).powi(2) + (bh / 2.0).powi(2)).sqrt();
-    let scale = 0.66 * inradius / half_diag;
-    let (cx, cy) = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
-
-    for poly in polys {
-        // Top ring (on the face plane) and floor ring vertex indices.
+/// Engrave laid-out glyph polygons into face `face_idx` as pockets:
+/// per glyph, an inner loop on the face, straight walls, a floor
+/// face — and for each counter hole, an island rising back to the
+/// surface (its own walls + a coplanar top face), so 0/4/6/8/9 keep
+/// their middles. `center` + `right`/`up` + `scale` map layout
+/// coordinates onto the face plane.
+#[allow(clippy::too_many_arguments)]
+fn engrave_polys(
+    points: &mut Vec<Point3>,
+    faces: &mut Vec<FaceSpec>,
+    face_idx: usize,
+    polys: &[GlyphPoly],
+    center: Point3,
+    right: Vec3,
+    up: Vec3,
+    normal: Vec3,
+    layout_center: (f64, f64),
+    scale: f64,
+    depth: f64,
+) {
+    let mut ring = |poly: &[(f64, f64)], points: &mut Vec<Point3>| -> (Vec<usize>, Vec<usize>) {
         let top: Vec<usize> = poly
             .iter()
             .map(|&(x, y)| {
-                let p = centroid + right * ((x - cx) * scale) + up * ((y - cy) * scale);
+                let p = center
+                    + right * ((x - layout_center.0) * scale)
+                    + up * ((y - layout_center.1) * scale);
                 points.push(p);
                 points.len() - 1
             })
@@ -379,24 +554,165 @@ fn engrave_number(
                 points.len() - 1
             })
             .collect();
+        (top, bottom)
+    };
+    for glyph in polys {
+        let (top, bottom) = ring(&glyph.outer, points);
         let m = top.len();
-        // Inner loop on the engraved face: the pocket outline
-        // reversed (CW from outside — material on the left).
+        // Pocket outline: inner loop on the engraved face (CW).
         let mut inner = top.clone();
         inner.reverse();
         faces[face_idx].inners.push(inner);
-        // Walls: for each CCW outline edge (a→b), the wall cycle
-        // [a, b, b_floor, a_floor] uses the directed edge (a→b) so
-        // it twins the inner loop's (b→a), and (b_floor→a_floor)
-        // twins the floor's (a_floor→b_floor).
+        // Outer walls: for each CCW edge (a→b), cycle [a, b, bf, af]
+        // twins the face inner loop above and the floor below.
         for i in 0..m {
             let (a, b) = (top[i], top[(i + 1) % m]);
             let (af, bf) = (bottom[i], bottom[(i + 1) % m]);
             faces.push(FaceSpec::simple(vec![a, b, bf, af]));
         }
-        // Floor: the outline at depth, CCW (its outward normal
-        // points out of the material, into the pocket).
-        faces.push(FaceSpec::simple(bottom));
+        // Floor: pocket outline at depth (CCW), minus the counter
+        // islands (their rings reversed as floor inner loops).
+        let mut floor = FaceSpec::simple(bottom);
+        for hole in &glyph.holes {
+            let (h_top, h_bottom) = ring(hole, points);
+            let k = h_top.len();
+            // Island top face at surface level (coplanar with the
+            // engraved face): the hole contour CCW.
+            faces.push(FaceSpec::simple(h_top.clone()));
+            // Island walls: for each CCW hole edge (a→b), cycle
+            // [b, a, af, bf] twins the island top's (a→b) and the
+            // floor inner loop's (bf→af).
+            for i in 0..k {
+                let (a, b) = (h_top[i], h_top[(i + 1) % k]);
+                let (af, bf) = (h_bottom[i], h_bottom[(i + 1) % k]);
+                faces.push(FaceSpec::simple(vec![b, a, af, bf]));
+            }
+            let mut floor_inner = h_bottom;
+            floor_inner.reverse();
+            floor.inners.push(floor_inner);
+        }
+        faces.push(floor);
+    }
+}
+
+/// Bounding box of laid-out glyph polygons.
+fn polys_bbox(polys: &[GlyphPoly]) -> (f64, f64, f64, f64) {
+    let (mut min_x, mut max_x) = (f64::INFINITY, f64::NEG_INFINITY);
+    let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+    for g in polys {
+        for &(x, y) in g.outer.iter().chain(g.holes.iter().flatten()) {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y);
+        }
+    }
+    (min_x, max_x, min_y, max_y)
+}
+
+/// Engrave `text` centred and upright on a face (d6–d20 style).
+fn engrave_text_centered(
+    points: &mut Vec<Point3>,
+    faces: &mut Vec<FaceSpec>,
+    face_idx: usize,
+    font: &ttf_parser::Face,
+    text: &str,
+    depth: f64,
+) {
+    let (centroid, normal, inradius) = face_frame(points, &faces[face_idx]);
+    let up_hint = if normal.z.abs() > 0.9 {
+        Vec3::new(0.0, 1.0, 0.0)
+    } else {
+        Vec3::new(0.0, 0.0, 1.0)
+    };
+    let up = (up_hint - normal * up_hint.dot(&normal))
+        .normalized()
+        .expect("in-plane up");
+    let right = up.cross(&normal);
+    let polys = text_polygons(font, text);
+    let (min_x, max_x, min_y, max_y) = polys_bbox(&polys);
+    let half_diag = (((max_x - min_x) / 2.0).powi(2) + ((max_y - min_y) / 2.0).powi(2)).sqrt();
+    let scale = 0.62 * inradius / half_diag;
+    let layout_center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+    engrave_polys(
+        points,
+        faces,
+        face_idx,
+        &polys,
+        centroid,
+        right,
+        up,
+        normal,
+        layout_center,
+        scale,
+        depth,
+    );
+}
+
+/// Engrave a d4 face the way real d4s read: one number per corner,
+/// each the number of that ORIGINAL corner vertex, oriented with
+/// text-up pointing at the corner — so whichever vertex points up
+/// after a roll shows its number upright at the top of all three
+/// visible faces. `corners` are the original (pre-truncation)
+/// corner positions of this face paired with their numbers.
+fn engrave_d4_face(
+    points: &mut Vec<Point3>,
+    faces: &mut Vec<FaceSpec>,
+    face_idx: usize,
+    font: &ttf_parser::Face,
+    corners: &[(Point3, usize)],
+    depth: f64,
+) {
+    let (centroid, normal, _inradius) = face_frame(points, &faces[face_idx]);
+    let outline: Vec<Point3> = faces[face_idx].outer.iter().map(|&i| points[i]).collect();
+    for &(corner, number) in corners {
+        let toward = corner - centroid;
+        let toward = toward - normal * toward.dot(&normal);
+        let up = toward.normalized().expect("corner dir");
+        let right = up.cross(&normal);
+        // Reach = distance from the centroid to the TRUNCATED
+        // outline along the corner ray (the original corner lies
+        // beyond it; sizing against the corner overflows the face).
+        let mut dist = f64::INFINITY;
+        let m = outline.len();
+        for i in 0..m {
+            let a = outline[i];
+            let b = outline[(i + 1) % m];
+            // Solve centroid + t·up on segment a→b (2D in-plane).
+            let ab = b - a;
+            let denom = up.cross(&ab).dot(&normal);
+            if denom.abs() < 1e-12 {
+                continue;
+            }
+            let ac = a - centroid;
+            let t = ac.cross(&ab).dot(&normal) / denom;
+            let u = ac.cross(&up).dot(&normal) / denom;
+            if t > 0.0 && (-1e-9..=1.0 + 1e-9).contains(&u) {
+                dist = dist.min(t);
+            }
+        }
+        assert!(dist.is_finite(), "corner ray missed the face outline");
+        let polys = text_polygons(font, &number.to_string());
+        let (min_x, max_x, min_y, max_y) = polys_bbox(&polys);
+        let layout_center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0);
+        let half_h = (max_y - min_y) / 2.0;
+        // Glyph height ≈ 30% of the centroid→corner reach, centred
+        // at 55% of it.
+        let scale = 0.30 * dist / (2.0 * half_h);
+        let center = centroid + up * (0.55 * dist);
+        engrave_polys(
+            points,
+            faces,
+            face_idx,
+            &polys,
+            center,
+            right,
+            up,
+            normal,
+            layout_center,
+            scale,
+            depth,
+        );
     }
 }
 
@@ -705,6 +1021,9 @@ fn main() {
     let out_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output");
     std::fs::create_dir_all(&out_dir).expect("out dir");
 
+    let font_data = find_font();
+    let font = ttf_parser::Face::parse(&font_data, 0).expect("parse font");
+
     let mut products = Vec::new();
     let mut merged_obj = String::new();
     let mut obj_vertex_base = 1usize;
@@ -735,11 +1054,21 @@ fn main() {
         );
         let (mut tp, tf) = truncate_vertices(&scaled, &faces, trim);
         let mut specs: Vec<FaceSpec> = tf.into_iter().map(FaceSpec::simple).collect();
-        // Engrave the numbers on the original (first `sides`) faces:
-        // d10 runs 0–9 by tradition, everything else 1–N.
-        for f in 0..sides {
-            let number = if sides == 10 { f } else { f + 1 };
-            engrave_number(&mut tp, &mut specs, f, number, depth);
+        // Engrave the numbers on the original (first `sides`) faces.
+        // d4 reads per-corner (the rolled vertex shows its number
+        // upright at the top of all three visible faces); d10 runs
+        // 0–9 by tradition; everything else is 1–N centred.
+        if sides == 4 {
+            for (f, face) in faces.iter().enumerate() {
+                let corners: Vec<(Point3, usize)> =
+                    face.iter().map(|&v| (scaled[v], v + 1)).collect();
+                engrave_d4_face(&mut tp, &mut specs, f, &font, &corners, depth);
+            }
+        } else {
+            for f in 0..sides {
+                let number = if sides == 10 { f } else { f + 1 };
+                engrave_text_centered(&mut tp, &mut specs, f, &font, &number.to_string(), depth);
+            }
         }
         // Place along the row.
         let dx = i as f64 * spacing;
