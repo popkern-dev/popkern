@@ -363,16 +363,57 @@ pub(crate) fn recognize_circle(
     Some((center, normal, r))
 }
 
-/// Curve-on-edge with canonical recognition: circular curves become
-/// analytic angle-parameterized Arcs, everything else stays NURBS.
+/// Recognize a straight NURBS curve: every control point collinear
+/// with the endpoint chord (relative 1e-9). Returns the unit
+/// direction and length.
+fn recognize_line(
+    curve: &popkern_core::geometry::NurbsCurve,
+) -> Option<(
+    popkern_core::geometry::Point3,
+    popkern_core::geometry::Vec3,
+    f64,
+)> {
+    let first = *curve.control_points.first()?;
+    let last = *curve.control_points.last()?;
+    let chord = last - first;
+    let len = chord.length();
+    if len < 1e-12 {
+        return None;
+    }
+    let dir = chord * (1.0 / len);
+    for p in &curve.control_points {
+        let d = *p - first;
+        let off = d - dir * d.dot(&dir);
+        if off.length() > 1e-9 * len.max(1.0) {
+            return None;
+        }
+    }
+    Some((first, dir, len))
+}
+
+/// Curve-on-edge with canonical recognition: straight curves become
+/// analytic Lines, circular curves become analytic
+/// angle-parameterized Arcs, everything else stays NURBS.
 pub(crate) fn analytic_or_nurbs_curve(
     curve: &popkern_core::geometry::NurbsCurve,
 ) -> popkern_core::geometry::CurveOnEdge {
     use popkern_core::geometry::curve::CurveEval;
+    if let Some((origin, direction, length)) = recognize_line(curve) {
+        return popkern_core::geometry::CurveOnEdge {
+            geometry: popkern_core::geometry::curve::CurveGeometry::Line { origin, direction },
+            t_start: 0.0,
+            t_end: length,
+        };
+    }
     if let Some((center, normal, radius)) = recognize_circle(curve) {
         let (t0, _) = curve.parameter_range();
         let start = curve.point_at(t0);
-        let (e1, e2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(normal);
+        // Angles MUST be measured in the Arc evaluator's own frame
+        // (circle_basis) — orthonormal_basis is a different
+        // convention and a mismatched frame rotates the arc's
+        // parameterization off its seam vertex (measured: closed cap
+        // rims whose trim start landed 90° from the vertex).
+        let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(normal);
         let d = start - center;
         let theta0 = d.dot(&e2).atan2(d.dot(&e1));
         return popkern_core::geometry::CurveOnEdge {

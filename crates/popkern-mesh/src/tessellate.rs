@@ -503,7 +503,6 @@ fn sew_boundaries_to_edge_polylines(
                     let pc = pcurve.as_ref()?;
                     let curve = brep.edges.get(eh)?.curve.as_ref()?;
                     use popkern_core::geometry::SurfaceEval;
-                    use popkern_core::geometry::curve::CurveEval;
                     let _ = curve;
                     // Param-free agreement: the surface image of the
                     // pcurve at three params must lie ON the edge's

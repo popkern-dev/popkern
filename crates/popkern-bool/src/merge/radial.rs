@@ -38,7 +38,6 @@ pub(crate) fn sort_radial_at_node(graph: &mut IntersectionGraph, node_idx: usize
             let chord = end_pos - node_pos;
             let tangent = match &graph.half_edges[he_idx].curve {
                 Some(curve) => {
-                    use popkern_core::geometry::curve::CurveEval as _;
                     let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
                     let (t0, t1) = (curve.t_start, curve.t_end);
                     let p_start = eval.point_at(t0);

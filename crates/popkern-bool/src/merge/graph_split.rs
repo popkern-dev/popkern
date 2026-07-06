@@ -333,7 +333,6 @@ pub(crate) fn split_shared_edges_at_nodes(
     nodes: &[usize],
     tolerance: f64,
 ) {
-    use popkern_core::geometry::curve::CurveEval as _;
     let mut did_split = true;
     while did_split {
         did_split = false;
@@ -430,7 +429,6 @@ fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: us
     // takes [t_split, t_end].
     let (parent_curve_trimmed, new_half_curve) = match &graph.half_edges[he_idx].curve {
         Some(curve) => {
-            use popkern_core::geometry::curve::CurveEval as _;
             let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
             let pos = graph.nodes[node].position;
             let (t0, t1) = (curve.t_start, curve.t_end);

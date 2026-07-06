@@ -106,7 +106,21 @@ fn build_closed_profile_topology(
     let mut long_up: Vec<HalfEdgeHandle> = Vec::with_capacity(n_spans);
     let mut long_down: Vec<HalfEdgeHandle> = Vec::with_capacity(n_spans);
     for j in 0..n_spans {
-        let (_, he_up, he_down) = builder.add_edge(start_vertices[j], end_vertices[j]);
+        let (edge, he_up, he_down) = builder.add_edge(start_vertices[j], end_vertices[j]);
+        // Longitudinal edges carry the wall surface's exact u=0
+        // boundary iso-curve (v = path direction). Leaving them
+        // curveless starved every curve consumer downstream — the
+        // boundary-first tessellator has no canonical samples for
+        // them, so bare (un-booleaned, un-filleted) sweep solids
+        // could not mesh watertight.
+        let start = builder.brep().vertices[start_vertices[j]].position;
+        let end = builder.brep().vertices[end_vertices[j]].position;
+        if let Some(iso) = path_boundary_iso_curve(&surfaces[j], start, end) {
+            builder.set_edge_curve(
+                edge,
+                crate::surface::canonical::analytic_or_nurbs_curve(&iso),
+            );
+        }
         long_up.push(he_up);
         long_down.push(he_down);
     }
@@ -341,6 +355,81 @@ fn eval_surface_corner(surface: &NurbsSurface, u: f64, v: f64) -> popkern_core::
 }
 
 /// Attach a NURBS curve to an edge if available.
+/// The path-side boundary iso-curve of a sweep wall surface at the
+/// profile start (the longitudinal edge's exact geometry).
+///
+/// Extraction is VERIFICATION-DRIVEN rather than layout-trusting:
+/// both grid interpretations (column stride `num_u` with v knots,
+/// and leading row with u knots) are formed and the one whose
+/// endpoints coincide with `(start, end)` wins. Grid-layout
+/// assumptions have drifted before; endpoints cannot lie.
+fn path_boundary_iso_curve(
+    surface: &NurbsSurface,
+    start: popkern_core::geometry::Point3,
+    end: popkern_core::geometry::Point3,
+) -> Option<NurbsCurve> {
+    let strided = |stride: usize, count: usize, degree: usize, knots: &[f64]| {
+        let mut control_points = Vec::with_capacity(count);
+        let mut weights = Vec::with_capacity(count);
+        for i in 0..count {
+            let idx = i * stride;
+            if idx >= surface.control_points.len() {
+                return None;
+            }
+            control_points.push(surface.control_points[idx]);
+            weights.push(surface.weights[idx]);
+        }
+        Some(NurbsCurve {
+            degree,
+            knots: knots.to_vec(),
+            control_points,
+            weights,
+        })
+    };
+    let candidates = [
+        strided(
+            surface.num_u,
+            surface.num_v,
+            surface.degree_v,
+            &surface.knots_v,
+        ),
+        strided(1, surface.num_u, surface.degree_u, &surface.knots_u),
+        strided(
+            surface.num_v,
+            surface.num_u,
+            surface.degree_u,
+            &surface.knots_u,
+        ),
+        strided(1, surface.num_v, surface.degree_v, &surface.knots_v),
+    ];
+    for cand in candidates.into_iter().flatten() {
+        let (Some(first), Some(last)) = (
+            cand.control_points.first().copied(),
+            cand.control_points.last().copied(),
+        ) else {
+            continue;
+        };
+        let forward = first.distance_to(&start) < 1e-9 && last.distance_to(&end) < 1e-9;
+        let reversed = first.distance_to(&end) < 1e-9 && last.distance_to(&start) < 1e-9;
+        if forward {
+            return Some(cand);
+        }
+        if reversed {
+            // Reverse to run start → end (edge direction).
+            let mut c = cand;
+            c.control_points.reverse();
+            c.weights.reverse();
+            let (lo, hi) = (c.knots[0], *c.knots.last()?);
+            c.knots.reverse();
+            for k in &mut c.knots {
+                *k = lo + hi - *k;
+            }
+            return Some(c);
+        }
+    }
+    None
+}
+
 fn attach_nurbs_curve_to_edge(
     builder: &mut BRepBuilder,
     edge: popkern_core::topology::EdgeHandle,
@@ -354,8 +443,6 @@ fn attach_nurbs_curve_to_edge(
         );
     }
 }
-
-use popkern_core::geometry::curve::CurveEval;
 
 #[cfg(test)]
 mod tests {
