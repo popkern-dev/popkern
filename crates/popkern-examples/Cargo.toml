@@ -77,3 +77,7 @@ path = "src/fillet_zoo.rs"
 [[bin]]
 name = "kp15_bi6_cap_variants_compare"
 path = "src/kp15_bi6_cap_variants_compare.rs"
+
+[[bin]]
+name = "dice_set"
+path = "src/dice_set.rs"
