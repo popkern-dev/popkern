@@ -11,6 +11,8 @@ popkern-bool = { path = "../popkern-bool" }
 popkern-fillet = { path = "../popkern-fillet" }
 popkern-sweep = { path = "../popkern-sweep" }
 popkern-io = { path = "../popkern-io" }
+popkern-shell = { path = "../popkern-shell" }
+popkern-draft = { path = "../popkern-draft" }
 popkern-mesh = { path = "../popkern-mesh" }
 thiserror = "2"
 ttf-parser = { version = "0.25", optional = true }

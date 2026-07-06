@@ -3399,9 +3399,11 @@ version = "0.1.0"
 dependencies = [
  "popkern-bool",
  "popkern-core",
+ "popkern-draft",
  "popkern-fillet",
  "popkern-io",
  "popkern-mesh",
+ "popkern-shell",
  "popkern-sweep",
  "thiserror 2.0.18",
  "ttf-parser",

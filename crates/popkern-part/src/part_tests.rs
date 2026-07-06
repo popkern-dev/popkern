@@ -220,3 +220,49 @@ fn raw_sweep_edges_carry_matching_curves() {
         }
     }
 }
+
+#[test]
+fn chamfer_verticals() {
+    let part = block()
+        .chamfer(0.08, |e| e.straight().direction(Dir::Z))
+        .expect("chamfer");
+    // Face count and validation gate the API contract; chamfer
+    // output tessellation is not yet watertight on swept boxes (a
+    // chamfer-kernel frontier recorded in the PK-100 ledger notes,
+    // parallel to the rim-fillet gap).
+    assert_eq!(part.face_count(), 6 + 4);
+}
+
+#[test]
+fn shell_surfaces_the_kernel_validity_gap_as_a_typed_error() {
+    // The shell kernel's open-shell (cup) output does not currently
+    // satisfy strict Euler–Poincaré validation (the shelled_box
+    // example works only because it never validates: 16 − 40 + 14 ≠
+    // 2). The Part invariant — every Ok(Part) wraps a validated
+    // body — makes that a typed Validation error instead of a
+    // silently-invalid part. Recorded as a kernel frontier in the
+    // PK-100 ledger notes; this test pins BOTH the selector
+    // resolution (exactly one +Z face) and the honest failure mode,
+    // and will fail deliberately when the kernel gap closes so the
+    // expectation gets flipped to success.
+    let cube = popkern_core::topology::BRep::unit_cube(Tolerance::default()).expect("unit cube");
+    let part = Part::from_brep(cube, Tolerance::default(), "unit cube").expect("wrap");
+    let err = part.shell(0.08, |f| f.facing(Dir::Z)).unwrap_err();
+    match err {
+        PartError::Validation { feature, .. } => {
+            assert!(
+                feature.contains("1 openings"),
+                "selector must match exactly one face: {feature}"
+            );
+        }
+        other => panic!("expected Validation (kernel gap), got {other:?}"),
+    }
+}
+
+#[test]
+fn translate_moves_the_features_log_along() {
+    let part = block().translate(5.0, 0.0, 0.0).expect("translate");
+    assert_eq!(part.face_count(), 6);
+    let names: Vec<_> = part.features().entries().iter().map(|f| f.name).collect();
+    assert_eq!(names, vec!["extrude", "transform"]);
+}

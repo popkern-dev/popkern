@@ -35,6 +35,7 @@ mod part;
 pub mod poly;
 mod profile;
 mod select;
+mod shaping;
 #[cfg(feature = "text")]
 pub mod text;
 
@@ -49,7 +50,7 @@ pub use error::PartError;
 pub use feature::{Feature, FeatureLog};
 pub use part::Part;
 pub use profile::{Plane, Profile};
-pub use select::{Dir, EdgeInfo, EdgeQuery, SurfaceKind};
+pub use select::{Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
 
 /// Everything a modeling script usually needs.
 pub mod prelude {
@@ -57,6 +58,6 @@ pub mod prelude {
     pub use crate::error::PartError;
     pub use crate::part::Part;
     pub use crate::profile::{Plane, Profile};
-    pub use crate::select::{Dir, EdgeQuery, SurfaceKind};
+    pub use crate::select::{Dir, EdgeQuery, FaceQuery, SurfaceKind};
     pub use popkern_core::tolerance::Tolerance;
 }

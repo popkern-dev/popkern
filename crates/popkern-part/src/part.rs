@@ -83,6 +83,14 @@ impl Part {
         self.last_blend.as_ref()
     }
 
+    /// Prepend `parent`'s feature history to this part's (used by
+    /// every derived-part constructor).
+    pub(crate) fn merge_history_from(&mut self, parent: &Part) {
+        let mut log = parent.features().clone();
+        log.extend_from(&self.features);
+        self.features = log;
+    }
+
     /// The underlying kernel body.
     pub fn brep(&self) -> &BRep {
         &self.brep

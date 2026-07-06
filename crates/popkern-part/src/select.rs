@@ -71,6 +71,11 @@ pub enum Dir {
 }
 
 impl Dir {
+    /// The unit vector for this direction.
+    pub fn vector(self) -> Vec3 {
+        self.vec()
+    }
+
     fn vec(self) -> Vec3 {
         match self {
             Dir::X => Vec3::new(1.0, 0.0, 0.0),
@@ -320,6 +325,168 @@ impl EdgeQuery {
                     .iter()
                     .any(|branch| branch.iter().all(|p| p(info)))
             })
+            .map(|info| info.handle)
+            .collect()
+    }
+}
+
+/// Everything a face predicate can see. Also the payload of the
+/// [`FaceQuery::filter`] escape hatch.
+#[derive(Debug, Clone)]
+pub struct FaceInfo {
+    /// The face.
+    pub handle: popkern_core::topology::FaceHandle,
+    /// Surface family.
+    pub kind: Option<SurfaceKind>,
+    /// Outer-loop vertex centroid.
+    pub centroid: Point3,
+    /// Plane normal for planar faces (chart normal, orientation
+    /// applied); None otherwise.
+    pub normal: Option<Vec3>,
+}
+
+/// Collect the queryable facts about every face of a body.
+pub(crate) fn face_infos(brep: &BRep) -> Vec<FaceInfo> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut out = Vec::new();
+    for (fh, face) in brep.faces.iter() {
+        let kind = face.surface.as_ref().map(|s| SurfaceKind::of(&s.geometry));
+        // Outward normal from the outer-loop WINDING (Newell), not
+        // the chart normal ⊕ orientation flag: loop winding is the
+        // representation-independent outwardness (measured: a sweep
+        // cap's chart normal matched +Z on both caps).
+        let mut acc = Vec3::new(0.0, 0.0, 0.0);
+        let mut newell = Vec3::new(0.0, 0.0, 0.0);
+        let mut count = 0usize;
+        if let Some(l) = brep.loops.get(face.outer_loop) {
+            let start = l.half_edge;
+            let mut he = start;
+            loop {
+                let Some(d) = brep.half_edges.get(he) else {
+                    break;
+                };
+                let Some(next) = brep.half_edges.get(d.next) else {
+                    break;
+                };
+                if let (Some(v), Some(vn)) =
+                    (brep.vertices.get(d.origin), brep.vertices.get(next.origin))
+                {
+                    let (p, q) = (v.position, vn.position);
+                    acc = acc + (p - Point3::new(0.0, 0.0, 0.0));
+                    newell.x += (p.y - q.y) * (p.z + q.z);
+                    newell.y += (p.z - q.z) * (p.x + q.x);
+                    newell.z += (p.x - q.x) * (p.y + q.y);
+                    count += 1;
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        let normal = matches!(
+            face.surface.as_ref().map(|s| &s.geometry),
+            Some(SurfaceGeometry::Plane { .. })
+        )
+        .then(|| newell.normalized())
+        .flatten();
+        let centroid = Point3::new(0.0, 0.0, 0.0) + acc * (1.0 / count.max(1) as f64);
+        out.push(FaceInfo {
+            handle: fh,
+            kind,
+            centroid,
+            normal,
+        });
+    }
+    out
+}
+
+type FacePredicate = Box<dyn Fn(&FaceInfo) -> bool>;
+
+/// A lazy face query (predicates AND together), mirroring
+/// [`EdgeQuery`] for face-consuming operations (shell openings,
+/// draft).
+pub struct FaceQuery {
+    preds: Vec<FacePredicate>,
+    description: String,
+    allow_empty: bool,
+}
+
+impl FaceQuery {
+    pub(crate) fn new() -> FaceQuery {
+        FaceQuery {
+            preds: Vec::new(),
+            description: String::new(),
+            allow_empty: false,
+        }
+    }
+
+    fn push(mut self, label: &str, pred: impl Fn(&FaceInfo) -> bool + 'static) -> FaceQuery {
+        self.preds.push(Box::new(pred));
+        if !self.description.is_empty() {
+            self.description.push_str(" ∧ ");
+        }
+        self.description.push_str(label);
+        self
+    }
+
+    /// Keep faces of this surface family.
+    pub fn kind(self, k: SurfaceKind) -> FaceQuery {
+        self.push(&format!("kind({k:?})"), move |f| f.kind == Some(k))
+    }
+
+    /// Keep planar faces whose outward normal points along `dir`
+    /// (signed, within ~0.8°).
+    pub fn facing(self, dir: Dir) -> FaceQuery {
+        let v = dir.vec();
+        self.push(&format!("facing(+{dir:?})"), move |f| {
+            f.normal.map(|n| n.dot(&v) > 1.0 - 1e-4).unwrap_or(false)
+        })
+    }
+
+    /// Keep planar faces whose outward normal points along `-dir`.
+    pub fn facing_neg(self, dir: Dir) -> FaceQuery {
+        let v = dir.vec();
+        self.push(&format!("facing(-{dir:?})"), move |f| {
+            f.normal.map(|n| n.dot(&v) < -(1.0 - 1e-4)).unwrap_or(false)
+        })
+    }
+
+    /// Keep faces whose centroid height is `z` (within 1e-6).
+    pub fn at_height(self, z: f64) -> FaceQuery {
+        self.push(&format!("at_height({z})"), move |f| {
+            (f.centroid.z - z).abs() < 1e-6
+        })
+    }
+
+    /// Escape hatch: arbitrary predicate over [`FaceInfo`].
+    pub fn filter(self, pred: impl Fn(&FaceInfo) -> bool + 'static) -> FaceQuery {
+        self.push("filter(..)", pred)
+    }
+
+    /// Permit an empty resolution.
+    pub fn allow_empty(mut self) -> FaceQuery {
+        self.allow_empty = true;
+        self
+    }
+
+    pub(crate) fn empty_permitted(&self) -> bool {
+        self.allow_empty
+    }
+
+    pub(crate) fn describe(&self) -> String {
+        if self.description.is_empty() {
+            "any face".into()
+        } else {
+            self.description.clone()
+        }
+    }
+
+    /// Resolve against a body.
+    pub(crate) fn resolve(&self, infos: &[FaceInfo]) -> Vec<popkern_core::topology::FaceHandle> {
+        infos
+            .iter()
+            .filter(|info| self.preds.iter().all(|p| p(info)))
             .map(|info| info.handle)
             .collect()
     }

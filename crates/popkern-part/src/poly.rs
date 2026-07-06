@@ -274,8 +274,8 @@ pub fn build_polyhedron_brep(
             role: Default::default(),
         });
         let wire_cycle = |cycle: &[usize],
-                              brep: &mut BRep,
-                              he_of: &mut HashMap<(usize, usize), HalfEdgeHandle>|
+                          brep: &mut BRep,
+                          he_of: &mut HashMap<(usize, usize), HalfEdgeHandle>|
          -> Result<LoopHandle, PartError> {
             let lh = brep.loops.insert(Loop {
                 half_edge: Default::default(),
