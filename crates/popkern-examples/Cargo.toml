@@ -13,6 +13,7 @@ popkern-sweep = { path = "../popkern-sweep" }
 popkern-shell = { path = "../popkern-shell" }
 popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
+popkern-part = { path = "../popkern-part", features = ["text"] }
 popkern-mesh = { path = "../popkern-mesh" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
@@ -82,3 +83,15 @@ path = "src/kp15_bi6_cap_variants_compare.rs"
 [[bin]]
 name = "dice_set"
 path = "src/dice_set.rs"
+
+[[bin]]
+name = "flagship_boss_plate_api"
+path = "src/flagship_boss_plate_api.rs"
+
+[[bin]]
+name = "dice_set_api"
+path = "src/dice_set_api.rs"
+
+[[bin]]
+name = "pentagon_apex_api"
+path = "src/pentagon_apex_api.rs"
