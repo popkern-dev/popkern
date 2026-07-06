@@ -23,12 +23,20 @@ impl ExportContext {
         self.entities
             .push(crate::step::parser::types::EntityInstance {
                 id,
-                type_name: "PARAMETRIC_REPRESENTATION_CONTEXT".into(),
-                params: vec![],
-                complex_parts: vec![(
-                    "REPRESENTATION_CONTEXT".into(),
-                    vec![str_param("2D SPACE"), str_param("")],
-                )],
+                // Alphabetical complex-instance order per Part 21;
+                // readers (OpenCASCADE) require the context to carry
+                // GEOMETRIC_REPRESENTATION_CONTEXT — a bare
+                // parametric context is "illegal type" for
+                // DEFINITIONAL_REPRESENTATION.context_of_items.
+                type_name: "GEOMETRIC_REPRESENTATION_CONTEXT".into(),
+                params: vec![crate::step::export::int(2)],
+                complex_parts: vec![
+                    ("PARAMETRIC_REPRESENTATION_CONTEXT".into(), vec![]),
+                    (
+                        "REPRESENTATION_CONTEXT".into(),
+                        vec![str_param("2D SPACE"), str_param("")],
+                    ),
+                ],
             });
         self.param_repr_context_id = Some(id);
         id
@@ -143,12 +151,21 @@ mod tests {
             .find(|e| e.type_name == "DEFINITIONAL_REPRESENTATION");
         assert!(def_repr.is_some());
 
-        // Verify parametric context exists
+        // Verify the 2D context exists (a complex instance led by
+        // GEOMETRIC_REPRESENTATION_CONTEXT with a
+        // PARAMETRIC_REPRESENTATION_CONTEXT component).
         let ctx_ent = ctx
             .entities
             .iter()
-            .find(|e| e.type_name == "PARAMETRIC_REPRESENTATION_CONTEXT");
+            .find(|e| e.type_name == "GEOMETRIC_REPRESENTATION_CONTEXT");
         assert!(ctx_ent.is_some());
+        assert!(
+            ctx_ent
+                .unwrap()
+                .complex_parts
+                .iter()
+                .any(|(t, _)| t == "PARAMETRIC_REPRESENTATION_CONTEXT")
+        );
     }
 
     #[test]

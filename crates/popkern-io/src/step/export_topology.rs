@@ -17,8 +17,7 @@ use crate::step::export_pcurve_synthesis::step_export_pcurve_association_toleran
 use crate::step::export_topology_face_edges::pre_export_face_use_edges;
 use crate::step::export_topology_face_uses::{EdgeFaceUse, edge_face_uses, unique_edge_half_edges};
 use crate::step::export_topology_helpers::{
-    collapsed_trim_missing_curve_edges, edge_curve_same_sense,
-    edge_curve_surface_trim_disagreement, edge_end_vertex,
+    collapsed_trim_missing_curve_edges, edge_curve_surface_trim_disagreement, edge_end_vertex,
     synthesize_missing_edge_curve_from_surface_trims, synthesize_plane,
 };
 use crate::step::parser::types::EntityId;
@@ -128,11 +127,8 @@ impl ExportContext {
             let curve_id =
                 self.maybe_wrap_surface_curve(brep, curve_3d_id, eh, &surface_map, &branch_shifts);
 
-            let same_sense = edge
-                .curve
-                .as_ref()
-                .map(edge_curve_same_sense)
-                .unwrap_or(true);
+            let same_sense =
+                super::export_periodic_branches::edge_same_sense(brep, eh, &branch_shifts);
             let ec_id = self.emit(
                 "EDGE_CURVE",
                 vec![
@@ -359,7 +355,7 @@ impl ExportContext {
         curve_3d_id: EntityId,
         edge_handle: EdgeHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
-        branch_shifts: &super::export_periodic_branches::BranchShifts,
+        branch_shifts: &super::export_periodic_branches::PeriodicNormalization,
     ) -> EntityId {
         let mut pcurve_ids: Vec<EntityId> = Vec::new();
         let mut face_uses = edge_face_uses(brep, edge_handle);
@@ -426,7 +422,7 @@ impl ExportContext {
         he_handle: popkern_core::topology::HalfEdgeHandle,
         face_handle: FaceHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
-        branch_shifts: &super::export_periodic_branches::BranchShifts,
+        branch_shifts: &super::export_periodic_branches::PeriodicNormalization,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
         if he.edge != edge_handle {
@@ -458,7 +454,7 @@ impl ExportContext {
         ) {
             super::export_periodic_branches::reverse_pcurve_nurbs(&mut nurbs);
         }
-        if let Some(&(du, dv)) = branch_shifts.get(&(face_handle, he_handle)) {
+        if let Some(&(du, dv)) = branch_shifts.shifts.get(&(face_handle, he_handle)) {
             for p in &mut nurbs.control_points {
                 p.x += du;
                 p.y += dv;
@@ -475,7 +471,7 @@ impl ExportContext {
         edge_handle: EdgeHandle,
         he_handle: popkern_core::topology::HalfEdgeHandle,
         surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
-        branch_shifts: &super::export_periodic_branches::BranchShifts,
+        branch_shifts: &super::export_periodic_branches::PeriodicNormalization,
     ) -> Option<EntityId> {
         let he = brep.half_edges.get(he_handle)?;
         let loop_ = brep.loops.get(he.loop_)?;

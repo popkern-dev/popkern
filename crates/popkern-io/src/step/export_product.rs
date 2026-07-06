@@ -26,16 +26,28 @@ impl ExportContext {
         // Emit shared context entities
         let ctx_id = self.export_representation_context(&doc.units.context);
 
+        // APPLICATION_CONTEXT shared by the product contexts (their
+        // frame_of_reference attribute is a required entity ref).
+        let ac_id = self.emit(
+            "APPLICATION_CONTEXT",
+            vec![str_param(
+                "core data for automotive mechanical design processes",
+            )],
+        );
         // PRODUCT_DEFINITION_CONTEXT (shared by all product definitions)
         let pdc_id = self.emit(
             "PRODUCT_DEFINITION_CONTEXT",
-            vec![str_param("detailed design"), str_param("")],
+            vec![
+                str_param("part definition"),
+                ref_(ac_id),
+                str_param("design"),
+            ],
         );
 
         // PRODUCT_CONTEXT for PRODUCT.frame_of_reference
         let pc_id = self.emit(
             "PRODUCT_CONTEXT",
-            vec![str_param(""), str_param(""), str_param("mechanical")],
+            vec![str_param(""), ref_(ac_id), str_param("mechanical")],
         );
 
         // Emit each product
@@ -132,15 +144,48 @@ impl ExportContext {
         Ok(())
     }
 
+    /// Emit an SI unit as the standard complex instance
+    /// `(<KIND>() NAMED_UNIT(*) SI_UNIT(<prefix>,.<NAME>.))` —
+    /// standalone SI_UNIT lacks the inherited NAMED_UNIT.dimensions
+    /// and the unit-kind supertype, which strict readers flag
+    /// ("Count of Parameters is not 3 for si_unit").
+    fn emit_si_unit(&mut self, kind: &str, prefix: Option<&str>, name: &str) -> EntityId {
+        use crate::step::parser::types::Parameter;
+        let id = self.alloc_id();
+        // Components in alphabetical order per Part 21.
+        let mut parts: Vec<(String, Vec<Parameter>)> = Vec::new();
+        let si_params = vec![prefix.map(enum_).unwrap_or(Parameter::Omitted), enum_(name)];
+        let mut all: Vec<(&str, Vec<Parameter>)> = vec![
+            (kind, vec![]),
+            ("NAMED_UNIT", vec![Parameter::Derived]),
+            ("SI_UNIT", si_params),
+        ];
+        all.sort_by(|a, b| a.0.cmp(b.0));
+        let (first, rest) = all.split_first().unwrap();
+        let type_name = first.0.to_string();
+        let params = first.1.clone();
+        for (t, ps) in rest {
+            parts.push((t.to_string(), ps.clone()));
+        }
+        self.entities
+            .push(crate::step::parser::types::EntityInstance {
+                id,
+                type_name,
+                params,
+                complex_parts: parts,
+            });
+        id
+    }
+
     /// Export a geometric representation context with units.
     fn export_representation_context(&mut self, ctx: &RepresentationContext) -> EntityId {
         // SI length unit
         let lu_id = match ctx.length_unit {
-            LengthUnit::Millimetre => self.emit("SI_UNIT", vec![enum_("MILLI"), enum_("METRE")]),
-            LengthUnit::Metre => self.emit("SI_UNIT", vec![enum_("*"), enum_("METRE")]),
+            LengthUnit::Millimetre => self.emit_si_unit("LENGTH_UNIT", Some("MILLI"), "METRE"),
+            LengthUnit::Metre => self.emit_si_unit("LENGTH_UNIT", None, "METRE"),
             LengthUnit::Inch => {
                 // Conversion-based unit
-                let si = self.emit("SI_UNIT", vec![enum_("*"), enum_("METRE")]);
+                let si = self.emit_si_unit("LENGTH_UNIT", None, "METRE");
                 self.emit(
                     "CONVERSION_BASED_UNIT_AND_LENGTH_UNIT",
                     vec![str_param("inch"), ref_(si), real(0.0254)],
@@ -153,9 +198,9 @@ impl ExportContext {
 
         // SI angle unit
         let au_id = match ctx.angle_unit {
-            AngleUnit::Radian => self.emit("SI_UNIT", vec![enum_("*"), enum_("RADIAN")]),
+            AngleUnit::Radian => self.emit_si_unit("PLANE_ANGLE_UNIT", None, "RADIAN"),
             AngleUnit::Degree => {
-                let si = self.emit("SI_UNIT", vec![enum_("*"), enum_("RADIAN")]);
+                let si = self.emit_si_unit("PLANE_ANGLE_UNIT", None, "RADIAN");
                 self.emit(
                     "CONVERSION_BASED_UNIT_AND_PLANE_ANGLE_UNIT",
                     vec![
@@ -174,9 +219,15 @@ impl ExportContext {
         let unc_id = self.emit(
             "UNCERTAINTY_MEASURE_WITH_UNIT",
             vec![
-                real(ctx.uncertainty),
+                crate::step::parser::types::Parameter::Typed(
+                    "LENGTH_MEASURE".into(),
+                    Box::new(real(ctx.uncertainty)),
+                ),
                 ref_(lu_id),
                 str_param("distance_accuracy_value"),
+                str_param(
+                    "maximum model space distance between geometric entities considered equal",
+                ),
             ],
         );
 

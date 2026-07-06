@@ -32,6 +32,17 @@ use crate::step::export_topology::ExportedFaceSurface;
 /// respective period.
 pub(super) type BranchShifts = HashMap<(FaceHandle, HalfEdgeHandle), (f64, f64)>;
 
+/// Per-face-use pcurve traversal direction chosen by the loop chain
+/// (true = the walk traverses the pcurve from t_start to t_end).
+pub(super) type ChainDirections = HashMap<(FaceHandle, HalfEdgeHandle), bool>;
+
+/// Result of the periodic loop normalization pre-pass.
+#[derive(Default)]
+pub(super) struct PeriodicNormalization {
+    pub shifts: BranchShifts,
+    pub directions: ChainDirections,
+}
+
 /// The pcurve the exporter will emit for a face use: the stored
 /// face-use override or half-edge pcurve when it validates against
 /// the edge, otherwise a synthesized projection. This is the SAME
@@ -109,12 +120,105 @@ pub(super) fn reverse_pcurve_nurbs(nurbs: &mut popkern_core::geometry::NurbsCurv
     }
 }
 
-/// Compute branch shifts for every face on a periodic basis surface.
+/// EDGE_CURVE same_sense: whether the edge's topological direction
+/// — defined by its CANONICAL half-edge, the one every loop writes
+/// as the FORWARD ORIENTED_EDGE — agrees with the basis curve's
+/// parameterization. STEP consumers compute each use's traversal as
+/// curve_direction × same_sense × oriented_edge_sense; deriving the
+/// flag from anything other than the canonical half-edge (the old
+/// code used the trim ordering t_end ≥ t_start) breaks that product
+/// for one side of every edge whose canonical use runs against the
+/// curve. OpenCASCADE reprojection-heals the damage on simple faces
+/// but not on periodic ones: the flagship seam-rim circles are CCW
+/// curves whose canonical use is the CW plate-hole side, and the
+/// wrongly-true flag reversed the torus-side traversal by a full
+/// period (self-intersecting wire, the FreeCAD sliver).
+pub(super) fn edge_same_sense(
+    brep: &BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    normalization: &PeriodicNormalization,
+) -> bool {
+    use popkern_core::geometry::CurveEval;
+    let Some(edge_data) = brep.edges.get(edge) else {
+        return true;
+    };
+    let Some(curve) = edge_data.curve.as_ref() else {
+        return true;
+    };
+    let canonical = edge_data.half_edge;
+    let Some(he) = brep.half_edges.get(canonical) else {
+        return true;
+    };
+    let ceval: &dyn CurveEval = &curve.geometry;
+    let start = ceval.point_at(curve.t_start);
+    let end = ceval.point_at(curve.t_end);
+    // same_sense relates the edge direction to the curve's UNDERLYING
+    // parameterization; a decreasing trim (t_end < t_start) runs the
+    // edge against it, so every direction test XORs the trim order.
+    let trim_increasing = curve.t_end >= curve.t_start;
+    if start.distance_to(&end) > 1e-9 {
+        // Open edge: the canonical half-edge's origin sits at the
+        // trim end it departs from.
+        let Some(origin) = brep.vertices.get(he.origin).map(|v| v.position) else {
+            return true;
+        };
+        let origin_at_trim_start = origin.distance_to(&start) <= origin.distance_to(&end);
+        return origin_at_trim_start == trim_increasing;
+    }
+    // Closed rim: endpoints coincide, so the canonical direction
+    // must come from a loop-level signal. Prefer the chain direction
+    // the periodic normalization resolved by loop closure (the
+    // manifold-consistent traversal); fall back to the stored
+    // pcurve's orientation (traversal-aligned by contract, not
+    // enforced — PK-100) for uses outside periodic loops.
+    let face_handle = match brep.loops.get(he.loop_) {
+        Some(l) => l.face,
+        None => return true,
+    };
+    let Some(surface) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) else {
+        return true;
+    };
+    let Some(pcurve) = export_pcurve_for_use(brep, face_handle, canonical, &surface.geometry)
+    else {
+        return true;
+    };
+    if let Some(&chain_forward) = normalization.directions.get(&(face_handle, canonical)) {
+        let opposes = pcurve_opposes_edge_curve(brep, canonical, &surface.geometry, &pcurve);
+        let along_trim = chain_forward != opposes;
+        return along_trim == trim_increasing;
+    }
+    // No chain info for the canonical use (its face is not periodic
+    // — e.g. a plane's single-edge hole loop). The TWIN use may be
+    // chain-resolved; the canonical direction is its opposite.
+    let twin = he.twin;
+    if let Some(twin_he) = brep.half_edges.get(twin)
+        && let Some(twin_loop) = brep.loops.get(twin_he.loop_)
+        && let Some(&twin_forward) = normalization.directions.get(&(twin_loop.face, twin))
+        && let Some(twin_surface) = brep
+            .faces
+            .get(twin_loop.face)
+            .and_then(|f| f.surface.as_ref())
+        && let Some(twin_pcurve) =
+            export_pcurve_for_use(brep, twin_loop.face, twin, &twin_surface.geometry)
+    {
+        let twin_opposes =
+            pcurve_opposes_edge_curve(brep, twin, &twin_surface.geometry, &twin_pcurve);
+        let twin_along_trim = twin_forward != twin_opposes;
+        return !twin_along_trim == trim_increasing;
+    }
+    // Last resort: the stored pcurve's orientation (traversal-aligned
+    // by contract, not enforced — PK-100).
+    let opposes = pcurve_opposes_edge_curve(brep, canonical, &surface.geometry, &pcurve);
+    !opposes == trim_increasing
+}
+
+/// Compute branch shifts + chain directions for every face on a
+/// periodic basis surface.
 pub(super) fn compute_periodic_branch_shifts(
     brep: &BRep,
     surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
-) -> BranchShifts {
-    let mut shifts = BranchShifts::new();
+) -> PeriodicNormalization {
+    let mut norm = PeriodicNormalization::default();
     for (fh, face) in &brep.faces {
         let Some(exported) = surface_map.get(&fh) else {
             continue;
@@ -124,23 +228,50 @@ pub(super) fn compute_periodic_branch_shifts(
         if period_u.is_none() && period_v.is_none() {
             continue;
         }
-        let mut loops = vec![face.outer_loop];
-        loops.extend(face.inner_loops.iter().copied());
-        for lh in loops {
-            normalize_loop(brep, fh, lh, geometry, (period_u, period_v), &mut shifts);
+        let face_sense = exported.surface.orientation;
+        let mut loops = vec![(face.outer_loop, true)];
+        loops.extend(face.inner_loops.iter().map(|&lh| (lh, false)));
+        for (lh, is_outer) in loops {
+            // Required UV winding: outer contours run CCW when the
+            // face sense is true (material left of the traversal in
+            // the chart), CW when flipped; inner contours opposite.
+            let want_ccw = face_sense == is_outer;
+            normalize_loop(
+                brep,
+                fh,
+                lh,
+                geometry,
+                (period_u, period_v),
+                want_ccw,
+                &mut norm.shifts,
+                &mut norm.directions,
+            );
         }
     }
-    shifts
+    norm
 }
 
 /// Walk one loop, chaining each use's pcurve onto the previous one.
+/// Direction choices for closed uses (both pcurve endpoints at the
+/// same 3D point) are resolved by exact loop CLOSURE: greedy
+/// residuals tie for closed rims (either direction chains after a
+/// period shift), but only one assignment returns the cursor to the
+/// walk start — the other leaves a ±k·period gap. All ambiguous
+/// combinations are enumerated (loops carry at most a few closed
+/// uses) and the closing one wins. The chosen per-use traversal
+/// direction is recorded in `directions` — it is the loop-consistent
+/// (manifold) direction `edge_same_sense` needs for closed rims,
+/// where the raw pcurve orientation contract is unenforced.
+#[allow(clippy::too_many_arguments)]
 fn normalize_loop(
     brep: &BRep,
     face: FaceHandle,
     lh: LoopHandle,
     geometry: &SurfaceGeometry,
     periods: (Option<f64>, Option<f64>),
+    want_ccw: bool,
     shifts: &mut BranchShifts,
+    directions: &mut ChainDirections,
 ) {
     let Some(loop_) = brep.loops.get(lh) else {
         return;
@@ -160,6 +291,9 @@ fn normalize_loop(
         end_b: (f64, f64),
         // end_a is the walk start when known from 3D (open edges).
         a_is_start: Option<bool>,
+        // Sampled UV polyline in pcurve parameter order (for the
+        // winding sign of candidate assignments).
+        samples: Vec<(f64, f64)>,
     }
     let mut uses: Vec<Use> = Vec::new();
     let mut cursor_he = start_he;
@@ -191,11 +325,19 @@ fn normalize_loop(
         } else {
             None
         };
+        let samples: Vec<(f64, f64)> = (0..=8)
+            .map(|k| {
+                let t = pc.t_start + (pc.t_end - pc.t_start) * k as f64 / 8.0;
+                let uv = pc.point_at(t);
+                (uv.x, uv.y)
+            })
+            .collect();
         uses.push(Use {
             half_edge: cursor_he,
             end_a: (uv0.x, uv0.y),
             end_b: (uv1.x, uv1.y),
             a_is_start,
+            samples,
         });
         cursor_he = he.next;
         if cursor_he == start_he {
@@ -204,19 +346,10 @@ fn normalize_loop(
     }
     if uses.len() < 2 {
         // Single-use loops (a full rim bounding a hole) have nothing
-        // to chain against.
+        // to chain against; either direction covers the rim.
         return;
     }
 
-    // Anchor on the first use; chain the rest.
-    let first_start = match uses[0].a_is_start {
-        Some(true) | None => uses[0].end_a,
-        Some(false) => uses[0].end_b,
-    };
-    let mut cursor = match uses[0].a_is_start {
-        Some(true) | None => uses[0].end_b,
-        Some(false) => uses[0].end_a,
-    };
     let shift_for = |from: (f64, f64), to: (f64, f64)| -> (f64, f64) {
         let du = periods
             .0
@@ -230,39 +363,101 @@ fn normalize_loop(
     };
     let dist = |a: (f64, f64), b: (f64, f64)| ((a.0 - b.0).powi(2) + (a.1 - b.1).powi(2)).sqrt();
 
-    for use_ in uses.iter().skip(1) {
-        // Try both endpoint assignments (respecting 3D direction
-        // when known) and keep the one whose shifted start lands
-        // nearest the cursor.
-        let candidates: Vec<((f64, f64), (f64, f64))> = match use_.a_is_start {
-            Some(true) => vec![(use_.end_a, use_.end_b)],
-            Some(false) => vec![(use_.end_b, use_.end_a)],
-            None => vec![(use_.end_a, use_.end_b), (use_.end_b, use_.end_a)],
+    // Ambiguous (closed) uses get both direction candidates; open
+    // uses are pinned by 3D. Enumerate assignments, keep the one
+    // whose chain closes exactly.
+    let ambiguous: Vec<usize> = uses
+        .iter()
+        .enumerate()
+        .filter(|(_, u)| u.a_is_start.is_none())
+        .map(|(i, _)| i)
+        .collect();
+    let combos = 1usize << ambiguous.len().min(12);
+    // score = (chain error, winding mismatch) — lexicographic: an
+    // exactly-closed contour with the required UV winding wins; the
+    // winding disambiguates the residual two-fold symmetry of
+    // annulus loops (both windings close; only one has material on
+    // the correct side).
+    let mut best: Option<(f64, bool, Vec<((f64, f64), bool)>)> = None;
+    for mask in 0..combos {
+        let forward_of = |idx: usize| -> bool {
+            match uses[idx].a_is_start {
+                Some(fwd) => fwd,
+                None => {
+                    let pos = ambiguous.iter().position(|&k| k == idx).unwrap_or(0);
+                    mask & (1 << pos) == 0
+                }
+            }
         };
-        let mut best: Option<((f64, f64), (f64, f64), f64)> = None;
-        for (start, end) in candidates {
+        let (s0, e0) = if forward_of(0) {
+            (uses[0].end_a, uses[0].end_b)
+        } else {
+            (uses[0].end_b, uses[0].end_a)
+        };
+        let mut cursor = e0;
+        let mut assignment: Vec<((f64, f64), bool)> = vec![((0.0, 0.0), forward_of(0))];
+        let mut drift = 0.0_f64;
+        for (idx, use_) in uses.iter().enumerate().skip(1) {
+            let fwd = forward_of(idx);
+            let (start, end) = if fwd {
+                (use_.end_a, use_.end_b)
+            } else {
+                (use_.end_b, use_.end_a)
+            };
             let (du, dv) = shift_for(start, cursor);
-            let shifted_start = (start.0 + du, start.1 + dv);
-            let residual = dist(shifted_start, cursor);
-            if best.map(|(_, _, r)| residual < r).unwrap_or(true) {
-                best = Some(((du, dv), end, residual));
+            drift = drift.max(dist((start.0 + du, start.1 + dv), cursor));
+            assignment.push(((du, dv), fwd));
+            cursor = (end.0 + du, end.1 + dv);
+        }
+        let closure = dist(cursor, s0);
+        let score = closure.max(drift);
+        // Shoelace over the traversed contour.
+        let mut area2 = 0.0_f64;
+        let mut prev: Option<(f64, f64)> = None;
+        let mut first: Option<(f64, f64)> = None;
+        for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
+            let mut pts = use_.samples.clone();
+            if !*fwd {
+                pts.reverse();
+            }
+            for p in pts {
+                let q = (p.0 + du, p.1 + dv);
+                if let Some(pr) = prev {
+                    area2 += pr.0 * q.1 - q.0 * pr.1;
+                }
+                if first.is_none() {
+                    first = Some(q);
+                }
+                prev = Some(q);
             }
         }
-        let Some(((du, dv), end, _)) = best else {
-            continue;
+        if let (Some(pr), Some(f0)) = (prev, first) {
+            area2 += pr.0 * f0.1 - f0.0 * pr.1;
+        }
+        let winding_ok = (area2 > 0.0) == want_ccw;
+        let better = match &best {
+            None => true,
+            Some((b_score, b_wind, _)) => (score, !winding_ok) < (*b_score, !*b_wind),
         };
-        if du != 0.0 || dv != 0.0 {
-            shifts.insert((face, use_.half_edge), (du, dv));
+        if better {
+            best = Some((score, winding_ok, assignment));
         }
-        cursor = (end.0 + du, end.1 + dv);
+        if score < 1e-9 && winding_ok {
+            break;
+        }
     }
-
-    if std::env::var_os("PK_STEP_TRACE").is_some() {
-        let closure = dist(cursor, first_start);
-        if closure > 1e-6 {
-            eprintln!(
-                "  [step-export] periodic loop on face {face:?} does not close in UV after branch normalization (gap {closure:.3e})"
-            );
+    let Some((score, _winding_ok, assignment)) = best else {
+        return;
+    };
+    for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
+        if *du != 0.0 || *dv != 0.0 {
+            shifts.insert((face, use_.half_edge), (*du, *dv));
         }
+        directions.insert((face, use_.half_edge), *fwd);
+    }
+    if score > 1e-6 && std::env::var_os("PK_STEP_TRACE").is_some() {
+        eprintln!(
+            "  [step-export] periodic loop on face {face:?} does not close in UV after branch normalization (gap {score:.3e})"
+        );
     }
 }

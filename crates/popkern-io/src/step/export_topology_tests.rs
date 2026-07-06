@@ -9,7 +9,7 @@ use crate::step::document::{
     UnitContext,
 };
 use crate::step::export::{StepExportOptions, export_step};
-use crate::step::export_topology_helpers::edge_half_edges;
+use crate::step::export_topology_helpers::{edge_curve_same_sense, edge_half_edges};
 
 #[test]
 fn export_unit_cube_entity_counts() {
@@ -204,9 +204,9 @@ fn export_cube_has_surface_curves_and_pcurves() {
 
     // Only one shared parametric context
     assert_eq!(
-        count("PARAMETRIC_REPRESENTATION_CONTEXT"),
+        count("GEOMETRIC_REPRESENTATION_CONTEXT"),
         1,
-        "Expected 1 shared PARAMETRIC_REPRESENTATION_CONTEXT"
+        "Expected 1 shared 2D parametric context (GEOMETRIC_REPRESENTATION_CONTEXT complex)"
     );
 }
 
