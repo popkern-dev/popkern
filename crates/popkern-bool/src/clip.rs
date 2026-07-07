@@ -132,6 +132,21 @@ pub(crate) fn clip_curve_to_faces(
         return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
     }
 
+    // The fast Cyrus–Beck line clipper works on the face's VERTEX
+    // polygon — meaningless for faces bounded by closed rims (a
+    // cylinder cap has ONE vertex; the periodic wall has two). Such
+    // faces route to UV-space clipping, which samples the boundary
+    // PCURVES and handles the true trimmed domain (measured: every
+    // wall×cap intersection segment of a pocket cut into a swept
+    // cylinder was silently discarded here, leaving the tool
+    // unsplit and the boolean output corrupt).
+    let degenerate_vertex_polygon = |brep: &BRep, face: popkern_core::topology::FaceHandle| {
+        brep.face_outer_loop_positions(face).len() < 3
+    };
+    if degenerate_vertex_polygon(brep_a, face_a) || degenerate_vertex_polygon(brep_b, face_b) {
+        return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
+    }
+
     let range_a = clip_line_to_face(brep_a, face_a, &curve.curve_3d)?;
     let range_b = clip_line_to_face(brep_b, face_b, &curve.curve_3d)?;
 

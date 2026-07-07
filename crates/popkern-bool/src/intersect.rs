@@ -28,7 +28,12 @@ pub(super) fn bounded_parameter_range(
     face_handle: FaceHandle,
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
 ) -> ((f64, f64), (f64, f64)) {
-    let positions = face_vertex_positions(brep, face_handle);
+    // Boundary CURVE samples, not just vertices: a face bounded by
+    // a closed rim (cylinder/boss cap) has one vertex, and a
+    // vertex-only box collapses to a point at the seam — every
+    // pocket cut into such a cap silently no-opped because the
+    // intersection search never covered the face interior.
+    let positions = brep.face_outer_loop_sample_positions(face_handle, 8);
     popkern_core::geometry::uv_projection::bounded_parameter_range(&positions, surface)
 }
 
@@ -106,9 +111,15 @@ fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
 
     let mut points = Vec::new();
 
-    // Always add vertex positions — accurate for planar faces and provides a
-    // safe fallback when parameter range is infinite.
-    points.extend(face_vertex_positions(brep, face_handle));
+    // Boundary CURVE samples, not just vertices: a planar face
+    // bounded by a closed rim (cylinder cap) has ONE vertex, and a
+    // vertex-only AABB collapses to the seam point — every face
+    // pair with such a cap was pruned before intersection ran
+    // (measured: pockets into swept-cylinder caps silently
+    // no-opped). Curve samples span the true extent; for straight
+    // polygonal loops they add interpolants on the chords, which
+    // never widen the box.
+    points.extend(brep.face_outer_loop_sample_positions(face_handle, 8));
 
     // If the surface has a finite parameter range, also sample a 5×5 grid for
     // curved surfaces where vertices may not capture the full extent.

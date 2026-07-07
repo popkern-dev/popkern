@@ -202,9 +202,14 @@ pub(crate) fn assemble_result(
             if ghe_face.as_ref() == Some(face_ref) {
                 return graph.half_edges[ghe].pcurve.clone();
             }
-            // If the twin's face matches, the twin's pcurve is correct.
+            // If the twin's face matches, the twin's pcurve is in the
+            // correct UV space but parameterized for the OPPOSITE walk
+            // direction — reverse it. Verbatim borrowing silently
+            // flipped closed rims (both rims of a boolean-rebuilt
+            // cylinder wall wound the same way; endpoint matching
+            // cannot catch direction on a closed curve).
             if twin_face.as_ref() == Some(face_ref) {
-                return graph.half_edges[twin].pcurve.clone();
+                return graph.half_edges[twin].pcurve.as_ref().map(|p| p.reversed());
             }
             // Neither matches (original edges, not shared) — use the
             // graph half-edge's own pcurve as-is.

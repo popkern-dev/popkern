@@ -234,7 +234,15 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
         // Try each half-edge in the loop until one has curve geometry.
         for &he_idx in loop_hes {
             let he = &graph.half_edges[he_idx];
-            if let Some(ref curve) = he.curve {
+            // Curve geometry may live on either member of the pair —
+            // a rim half-edge without its own curve measured area 0,
+            // lost the outer-loop election to its 12-segment socket
+            // hole, and the cap fragment came out inside-out.
+            let curve = he
+                .curve
+                .as_ref()
+                .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+            if let Some(curve) = curve {
                 use popkern_core::geometry::curve::CurveEval;
                 let n_samples = 16;
                 let (t0, t1) = (curve.t_start, curve.t_end);
@@ -243,7 +251,9 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
                     let t = t0 + (t1 - t0) * (i as f64) / (n_samples as f64);
                     pts.push(curve.geometry.point_at(t));
                 }
-                // Newell's method on sampled points
+                // Newell's method on sampled points. Scale matches the
+                // polygon branch below (|N| = 2·area) so closed rims
+                // and polygonal loops compete on one measure.
                 let mut nx = 0.0;
                 let mut ny = 0.0;
                 let mut nz = 0.0;
@@ -255,7 +265,7 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
                     nz += (cur.x - next.x) * (cur.y + next.y);
                 }
                 let normal = Vec3::new(nx, ny, nz);
-                return normal.length() * 0.5 * normal.z.signum();
+                return normal.length() * normal.z.signum();
             }
         }
         return 0.0;

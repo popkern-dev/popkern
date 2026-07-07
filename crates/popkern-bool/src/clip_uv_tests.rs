@@ -354,13 +354,25 @@ fn build_face_with_pcurves(
 
 #[test]
 fn find_uv_crossings_near_seam_finds_crossings() {
-    // Boundary spans the seam: u=[5.5, 0.8].
-    let (brep, face) = build_face_with_pcurves([
+    // Boundary spans the seam: u=[5.5, 0.8]. The seam-shift dance
+    // is gated on the face carrying a PERIODIC surface (the raw
+    // u-value thresholds fired spuriously on planar faces whose UV
+    // coordinates are plain lengths), so this fixture must attach
+    // the cylinder its pcurves imply.
+    let (mut brep, face) = build_face_with_pcurves([
         (Point3::new(5.5, 0.0, 0.0), Point3::new(0.8, 0.0, 0.0)),
         (Point3::new(0.8, 0.0, 0.0), Point3::new(0.8, 1.0, 0.0)),
         (Point3::new(0.8, 1.0, 0.0), Point3::new(5.5, 1.0, 0.0)),
         (Point3::new(5.5, 1.0, 0.0), Point3::new(5.5, 0.0, 0.0)),
     ]);
+    brep.faces[face].surface = Some(popkern_core::geometry::SurfaceOnFace {
+        geometry: popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+            origin: Point3::new(0.0, 0.0, 0.0),
+            axis: popkern_core::geometry::Vec3::new(0.0, 0.0, 1.0),
+            radius: 1.0,
+        },
+        orientation: true,
+    });
 
     // Curve near u=0.1 crossing the face in v direction.
     let curve_uv = NurbsCurve {

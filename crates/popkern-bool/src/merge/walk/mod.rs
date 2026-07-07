@@ -157,36 +157,26 @@ pub(crate) fn walk_all_fragments(
             .fold(f64::NEG_INFINITY, f64::max);
         let threshold = max_area * 0.5;
 
-        // Check if any loop contains self-loop edges (closed curves).
-        // When self-loops are present, the Newell area for the boundary
-        // loop can be zero (all vertices on the seam line). In this case,
-        // use edge count as the primary metric: the longest loop is the
-        // outer boundary.
-        let has_self_loop_edges = loops.iter().any(|lp| {
-            lp.iter().any(|&he_idx| {
-                let twin = graph.half_edges[he_idx].twin;
-                graph.half_edges[he_idx].origin == graph.half_edges[twin].origin
-            })
-        });
-
-        let outer_idx = if has_self_loop_edges {
-            loops
-                .iter()
-                .enumerate()
-                .max_by_key(|(_, lp)| lp.len())
-                .map(|(i, _)| i)
-                .unwrap_or(0)
-        } else {
-            areas
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| {
-                    a.abs()
-                        .partial_cmp(&b.abs())
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                })
-                .map(|(i, _)| i)
-                .unwrap_or(0)
+        // Outer = largest |area|. signed_area samples curve geometry
+        // for closed/self-loop edges, so a 1-half-edge closed rim
+        // (cylinder cap) reports its true disk area. The historical
+        // fallback — "longest loop wins when self-loops are present"
+        // — chose a 4-edge interior pocket loop over the 1-edge rim
+        // and every pocket cut into a closed-rim cap lost its hole
+        // (measured: cap kept with inner 0, pocket walls orphaned,
+        // 307 open mesh edges). Length only breaks area ties now.
+        let outer_idx = {
+            let mut best = 0usize;
+            for i in 1..loops.len() {
+                let ai = areas[i].abs();
+                let ab = areas[best].abs();
+                if ai > ab * (1.0 + 1e-9)
+                    || ((ai - ab).abs() <= ab * 1e-9 && loops[i].len() > loops[best].len())
+                {
+                    best = i;
+                }
+            }
+            best
         };
 
         // Extract the outer loop (swap-remove to avoid shifting).
@@ -232,9 +222,10 @@ pub(crate) fn walk_all_fragments(
 
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!(
-                "  [walk] {face_ref:?}: outer {} hes, {} inner, {} separate",
+                "  [walk] {face_ref:?}: outer {} hes, {} inner {:?}, {} separate",
                 outer_loop.len(),
                 inner_loops_out.len(),
+                inner_loops_out.iter().map(|l| l.len()).collect::<Vec<_>>(),
                 separate_outers.len()
             );
         }

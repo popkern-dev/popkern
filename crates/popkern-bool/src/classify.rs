@@ -90,9 +90,25 @@ fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f
         return ((u_min, u_max), (v_min, v_max));
     }
 
-    // For infinite surfaces (planes), project vertices onto the surface's
-    // u/v axes to get proper parameter-space bounds.
-    let positions = face_vertex_positions(brep, face_handle);
+    // For infinite surfaces (planes), project boundary SAMPLE
+    // positions (vertices + edge-curve samples) onto the surface's
+    // u/v axes. Vertex-only projection collapses to a point for a
+    // face bounded by a closed rim — a cylinder cap has ONE vertex —
+    // so ray classification never counted cap crossings and every
+    // point below such a body classified Inside via the lone wall
+    // crossing (measured: (12, 0, −0.5) under a Ø70 cylinder).
+    // Vertex positions bound the box for ordinary faces — for the
+    // ray-crossing counter the box acts as the face-trim proxy, so a
+    // WIDER box creates phantom crossings (measured: curve-sampling
+    // every face broke disjoint-cube CSG). Only faces whose vertex
+    // polygon is degenerate (closed rims: a cylinder cap has ONE
+    // vertex) need curve samples — without them their box collapses
+    // to the seam point and cap crossings never count (a point below
+    // such a body classified Inside via the lone wall crossing).
+    let mut positions = face_vertex_positions(brep, face_handle);
+    if positions.len() < 3 {
+        positions = brep.face_outer_loop_sample_positions(face_handle, 8);
+    }
     if positions.is_empty() {
         return ((-100.0, 100.0), (-100.0, 100.0));
     }

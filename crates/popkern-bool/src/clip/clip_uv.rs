@@ -68,8 +68,29 @@ pub(crate) fn find_uv_crossings(
     };
     let boundary_nurbs: Vec<(popkern_core::topology::HalfEdgeHandle, NurbsCurve)> =
         boundary.iter().map(|(h, pc)| (*h, pc.to_nurbs())).collect();
-    let needs_shift = (is_near_seam(curve_uv)
-        || boundary_nurbs.iter().any(|(_, pc)| is_near_seam(pc)))
+    // The seam-shift dance is ONLY meaningful on periodic surfaces:
+    // its "near seam" / "in periodic range" tests are raw u-value
+    // thresholds (π/4, π) and fire spuriously on PLANAR faces whose
+    // UV coordinates are plain lengths (measured: a 20mm-wide tool
+    // wall got its intersection segment shifted by π and clipped to
+    // ±5.78 instead of ±10, so the pocket never met the wall
+    // corners and the boolean output carried degenerate stubs).
+    let surface_is_periodic = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| {
+            matches!(
+                s.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
+                    | popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
+                    | popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }
+                    | popkern_core::geometry::surface::SurfaceGeometry::Cone { .. }
+            )
+        })
+        .unwrap_or(false);
+    let needs_shift = surface_is_periodic
+        && (is_near_seam(curve_uv) || boundary_nurbs.iter().any(|(_, pc)| is_near_seam(pc)))
         && (in_periodic_range(curve_uv)
             || boundary_nurbs.iter().any(|(_, pc)| in_periodic_range(pc)));
     let shift = std::f64::consts::PI;
@@ -138,6 +159,16 @@ pub(crate) fn find_uv_crossings(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    // Crossings must lie ON the curve: the pcurve-pair intersector
+    // works on basis extensions, and hits beyond the curve's own
+    // parameter window are not boundary crossings (measured: a fully
+    // interior chord got one phantom crossing at t ≈ 4π and was
+    // clipped away as Outside, losing socket segments on the second
+    // boolean of a part).
+    let (ct0, ct1) = curve_uv.parameter_range();
+    let span = (ct1 - ct0).abs().max(1e-12);
+    let tol_t = span * 1e-6;
+    crossings.retain(|c| c.t_curve >= ct0.min(ct1) - tol_t && c.t_curve <= ct0.max(ct1) + tol_t);
     Some(crossings)
 }
 
@@ -214,6 +245,24 @@ fn uv_clip_one_face(
 ) -> UvClipResult {
     match find_uv_crossings(brep, face, curve_uv, &brep.tolerance) {
         None => UvClipResult::NoPcurves,
+        Some(crossings) if crossings.is_empty() => {
+            // ZERO boundary crossings is ambiguous: the curve lies
+            // entirely inside the face OR entirely outside it. The
+            // historical rules — open ⇒ Outside, closed ⇒ inside —
+            // both misfire (measured: fully-interior wall×cap
+            // segments of a pocket cut into a cylinder cap were
+            // discarded, while a plane×wall circle wholly outside
+            // the tool's trimmed bottom face was kept whole).
+            // Disambiguate by containment of the curve midpoint.
+            use popkern_core::geometry::curve::CurveEval;
+            let (t_min, t_max) = curve_uv.parameter_range();
+            let mid = curve_uv.point_at(0.5 * (t_min + t_max));
+            if crate::split_inner_loop::point_inside_face_uv(brep, face, mid, &brep.tolerance) {
+                UvClipResult::Range(t_min, t_max)
+            } else {
+                UvClipResult::Outside
+            }
+        }
         Some(crossings) => match uv_range_from_crossings(&crossings, curve_uv, is_closed) {
             Some((t_enter, t_exit)) => UvClipResult::Range(t_enter, t_exit),
             None => UvClipResult::Outside,

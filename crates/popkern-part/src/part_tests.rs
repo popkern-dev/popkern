@@ -402,3 +402,176 @@ fn through_hole_tessellation_gap_is_pinned() {
          flip this pin to assert_eq!(opens, 0) and update the ledger"
     );
 }
+
+/// 12-vertex hexagram (6-point star) for the polygon-profile pins:
+/// outer radius `r`, inner radius `r/√3`, starting at angle 0.
+fn hexagram_points(r: f64) -> Vec<(f64, f64)> {
+    (0..12)
+        .map(|k| {
+            let angle = std::f64::consts::TAU * k as f64 / 12.0;
+            let radius = if k % 2 == 0 { r } else { r / 3.0_f64.sqrt() };
+            (radius * angle.cos(), radius * angle.sin())
+        })
+        .collect()
+}
+
+/// Shoelace area of a simple polygon.
+fn polygon_area(points: &[(f64, f64)]) -> f64 {
+    let n = points.len();
+    (0..n)
+        .map(|i| {
+            let (x0, y0) = points[i];
+            let (x1, y1) = points[(i + 1) % n];
+            x0 * y1 - x1 * y0
+        })
+        .sum::<f64>()
+        .abs()
+        / 2.0
+}
+
+/// Mesh volume via signed tetrahedra (watertight mesh required).
+fn mesh_volume(mesh: &popkern_mesh::TriMesh) -> f64 {
+    mesh.triangles
+        .iter()
+        .map(|t| {
+            let a = mesh.vertices[t[0]].position;
+            let b = mesh.vertices[t[1]].position;
+            let c = mesh.vertices[t[2]].position;
+            (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                + a.z * (b.x * c.y - b.y * c.x))
+                / 6.0
+        })
+        .sum::<f64>()
+        .abs()
+}
+
+/// W0 pin: NON-CONVEX (reflex-vertex) polygon profiles must extrude
+/// watertight with correct volume. The hexagram has six 240° reflex
+/// vertices; the laptop-stand outlines are reflex too.
+#[test]
+fn nonconvex_polygon_extrude_is_watertight_with_exact_volume() {
+    let star = hexagram_points(12.0);
+    let part = Profile::on(Plane::XY)
+        .polygon(&star)
+        .extrude(30.0)
+        .expect("hexagram extrude");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "star prism opens");
+    let mesh = part
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let expected = polygon_area(&star) * 30.0;
+    let got = mesh_volume(&mesh);
+    assert!(
+        (got - expected).abs() < expected * 1e-3,
+        "star prism volume {got:.3} vs analytic {expected:.3}"
+    );
+
+    // Reflex L-outline as the second regime.
+    let ell = [
+        (0.0, 0.0),
+        (40.0, 0.0),
+        (40.0, 12.0),
+        (14.0, 12.0),
+        (14.0, 30.0),
+        (0.0, 30.0),
+    ];
+    let part = Profile::on(Plane::XY)
+        .polygon(&ell)
+        .extrude(8.0)
+        .expect("L extrude");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "L prism opens");
+    let mesh = part
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let expected = polygon_area(&ell) * 8.0;
+    let got = mesh_volume(&mesh);
+    assert!(
+        (got - expected).abs() < expected * 1e-3,
+        "L prism volume {got:.3} vs analytic {expected:.3}"
+    );
+}
+
+/// W1 pin: polygon-profile BLIND pockets (the hexagram sockets).
+/// Star pocket in a cylinder cap, star pocket in a prism — each cut
+/// watertight. (Every socket here is the FIRST boolean on its body;
+/// the double-socket column is pinned separately as a frontier.)
+#[test]
+fn star_blind_pockets_are_watertight() {
+    let star = hexagram_points(12.0);
+
+    // Socket in a cylinder cap (the column-end class).
+    let cylinder = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("column blank");
+    let tool = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("socket tool");
+    let socketed = cylinder.subtract(&tool).expect("bottom socket");
+    assert_eq!(socketed.open_edge_count().expect("mesh"), 0);
+    assert!(
+        socketed.face_count() > cylinder.face_count(),
+        "socket must add faces (silent no-op guard): {} vs {}",
+        socketed.face_count(),
+        cylinder.face_count()
+    );
+
+    // Socket in a prism (the base-boss regime).
+    let prism = Profile::on(Plane::XY)
+        .rect(60.0, 60.0)
+        .extrude(22.0)
+        .expect("boss blank");
+    let tool = Profile::on(Plane::xy_at(5.0))
+        .polygon(&star)
+        .extrude(18.0)
+        .expect("boss socket tool");
+    let socketed = prism.subtract(&tool).expect("boss socket");
+    assert_eq!(socketed.open_edge_count().expect("mesh"), 0);
+}
+
+/// FRONTIER PIN (flips to a watertight assert when the kernel gap
+/// closes): the SECOND boolean on a body whose cap already carries a
+/// socket loses intersection segments — a fully interior chord gets
+/// a phantom UV crossing landing on the SECOND LAP of the rebuilt
+/// rim pcurve (the recomputed closed-rim pcurve's content overshoots
+/// closure inside its parameter window). Diagnosed to
+/// pcurve authorship for closed rims after cellular assembly; the
+/// laptop-stand column (socket in BOTH ends) is blocked on this.
+#[test]
+fn double_socket_second_boolean_gap_is_pinned() {
+    let star = hexagram_points(12.0);
+    let cylinder = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("blank");
+    let bot = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("bottom tool");
+    let top = Profile::on(Plane::xy_at(44.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("top tool");
+    let pass1 = cylinder.subtract(&bot).expect("first socket");
+    assert_eq!(
+        pass1.open_edge_count().expect("mesh"),
+        0,
+        "first socket regressed"
+    );
+    match pass1.subtract(&top) {
+        Ok(column) => {
+            let opens = column.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "double-socket gap has closed ({opens} opens) — flip this pin \
+                 to a watertight assert and unblock the laptop-stand column"
+            );
+        }
+        Err(_) => {
+            // Current behavior: the second subtract fails validation
+            // (OpenLoop from the mangled cap). Either failure mode
+            // pins the gap.
+        }
+    }
+}

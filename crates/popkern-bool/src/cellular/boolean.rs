@@ -192,8 +192,23 @@ fn classify_fragments_cellular(
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
-        // Sample a point on this fragment
-        let sample = sample_fragment_point(graph, &fragment.outer_loop);
+        // Sample a point on this fragment. Fragments with inner
+        // loops or closed-rim outers need the interior-aware
+        // sampler: the edge-midpoint shortcut degenerates to the
+        // SEAM VERTEX on a closed rim (maximally unstable for
+        // point-in-solid — measured: the bottom cap of a cylinder
+        // with a star socket cut through it was dropped and the
+        // tool's outside face kept), and a plain centroid of a
+        // holed cap lands INSIDE THE HOLE.
+        let frag_surface = match fragment.face.operand {
+            Operand::A => brep_a.faces.get(fragment.face.face),
+            Operand::B => brep_b.faces.get(fragment.face.face),
+        }
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.clone());
+        let sample = frag_surface
+            .and_then(|surf| fragment_interior_sample(graph, fragment, &surf))
+            .unwrap_or_else(|| sample_fragment_point(graph, &fragment.outer_loop));
 
         // Classify against the OPPOSITE body only.
         let own_operand = fragment.face.operand;
@@ -202,7 +217,65 @@ fn classify_fragments_cellular(
             Operand::B => (brep_a, &aabbs_a),
         };
 
-        let class = robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance);
+        // OFFSET-PAIR classification: a fragment can lie exactly on
+        // (or extend) the other solid's trim geometry — a socket
+        // tool's wall below the part shares its column with the
+        // freshly cut hole outline, so every on-face sample grazes
+        // the other body's trim and single-point parity is a coin
+        // flip (measured: below-plate tool-wall fragments classified
+        // Inside and kept, duplicating pocket walls while the true
+        // cap was dropped). Classify the pair (sample ± ε·normal)
+        // instead: agreement is decisive; disagreement means the
+        // fragment sits ON the other boundary.
+        // Offset-pair classification is scoped to fragments whose
+        // geometry can coincide with the other body's trim curves
+        // (closed-rim outers and holed fragments): applying it to
+        // every fragment regressed plain cube-notch subtractions
+        // (fixtures that pass with single-point classification).
+        let needs_offset_pair = !fragment.inner_loops.is_empty()
+            || fragment.outer_loop.iter().any(|&h| {
+                let he = &graph.half_edges[h];
+                he.origin == graph.half_edges[he.twin].origin
+            });
+        let class = if !needs_offset_pair {
+            robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance)
+        } else {
+            use popkern_core::geometry::surface::SurfaceEval;
+            let frag_face = match fragment.face.operand {
+                Operand::A => brep_a.faces.get(fragment.face.face),
+                Operand::B => brep_b.faces.get(fragment.face.face),
+            };
+            let normal = frag_face
+                .and_then(|f| f.surface.as_ref())
+                .and_then(|sof| {
+                    popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &sof.geometry,
+                        &sample,
+                    )
+                    .map(|(u, v)| sof.geometry.normal_at(u, v))
+                })
+                .and_then(|n| n.normalized());
+            match normal {
+                Some(n) => {
+                    let eps = (tolerance.linear() * 1.0e3).max(1.0e-3);
+                    let p_plus = sample + n * eps;
+                    let p_minus = sample - n * eps;
+                    let c_plus = robust_point_in_solid(&p_plus, other_brep, other_aabbs, tolerance);
+                    let c_minus =
+                        robust_point_in_solid(&p_minus, other_brep, other_aabbs, tolerance);
+                    match (c_plus, c_minus) {
+                        (PointClassification::Inside, PointClassification::Inside) => {
+                            PointClassification::Inside
+                        }
+                        (PointClassification::Outside, PointClassification::Outside) => {
+                            PointClassification::Outside
+                        }
+                        _ => PointClassification::OnBoundary,
+                    }
+                }
+                None => robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance),
+            }
+        };
 
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side
@@ -235,6 +308,129 @@ fn classify_fragments_cellular(
 }
 
 /// Sample a point from a fragment's outer loop for classification.
+/// Interior sample point for a fragment, aware of inner loops and
+/// closed-rim outers. Works in the UV chart of the fragment's face:
+/// builds pcurve-sampled polygons for the outer and inner loops,
+/// scans across the outer polygon's centroid row, and picks the
+/// midpoint of the widest interval covered by the outer but not by
+/// any inner. Falls back to `None` when pcurves are missing.
+fn fragment_interior_sample(
+    graph: &IntersectionGraph,
+    fragment: &crate::merge::walk::Fragment,
+    surface: &popkern_core::geometry::surface::SurfaceGeometry,
+) -> Option<popkern_core::geometry::Point3> {
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let needs_care = !fragment.inner_loops.is_empty()
+        || fragment.outer_loop.iter().any(|&h| {
+            let he = &graph.half_edges[h];
+            he.origin == graph.half_edges[he.twin].origin
+        });
+    if !needs_care {
+        return None;
+    }
+
+    let sample_loop = |hes: &[usize]| -> Option<Vec<(f64, f64)>> {
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::uv_projection::{
+            project_point_to_uv, project_point_to_uv_near,
+        };
+        let mut poly: Vec<(f64, f64)> = Vec::new();
+        for &h in hes {
+            if let Some(pc) = graph.half_edges[h].pcurve.as_ref() {
+                for i in 0..8 {
+                    let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
+                    let p = pc.point_at(t);
+                    poly.push((p.x, p.y));
+                }
+            } else if let Some(c) = graph.half_edges[h].curve.as_ref() {
+                // No pcurve (split edges): project curve samples,
+                // with continuation to stay on one branch.
+                let ceval: &dyn CurveEval = &c.geometry;
+                for i in 0..8 {
+                    let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                    let p = ceval.point_at(t);
+                    let uv = match poly.last() {
+                        Some(&(pu, pv)) => project_point_to_uv_near(surface, &p, pu, pv)
+                            .or_else(|| project_point_to_uv(surface, &p)),
+                        None => project_point_to_uv(surface, &p),
+                    }?;
+                    poly.push(uv);
+                }
+            } else {
+                // Straight graph edge without geometry: project the
+                // endpoints.
+                let a = graph.nodes[graph.half_edges[h].origin].position;
+                let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
+                for p in [a, b] {
+                    poly.push(project_point_to_uv(surface, &p)?);
+                }
+            }
+        }
+        (poly.len() >= 3).then_some(poly)
+    };
+    let outer = sample_loop(&fragment.outer_loop)?;
+    let inners: Vec<Vec<(f64, f64)>> = fragment
+        .inner_loops
+        .iter()
+        .filter_map(|l| sample_loop(l))
+        .collect();
+    if inners.len() != fragment.inner_loops.len() {
+        return None;
+    }
+
+    // Scan row: outer centroid v.
+    let cv = outer.iter().map(|p| p.1).sum::<f64>() / outer.len() as f64;
+    let crossings_at = |poly: &[(f64, f64)], v: f64| -> Vec<f64> {
+        let mut xs = Vec::new();
+        let n = poly.len();
+        for i in 0..n {
+            let (u0, v0) = poly[i];
+            let (u1, v1) = poly[(i + 1) % n];
+            if (v0 > v) != (v1 > v) {
+                xs.push(u0 + (v - v0) / (v1 - v0) * (u1 - u0));
+            }
+        }
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        xs
+    };
+    let outer_x = crossings_at(&outer, cv);
+    if outer_x.len() < 2 {
+        return None;
+    }
+    // Candidate intervals inside the outer polygon (even-odd pairs).
+    let mut best: Option<(f64, f64)> = None; // (width, mid_u)
+    for pair in outer_x.chunks(2) {
+        let [a, b] = pair else { continue };
+        // Subtract inner coverage: split [a,b] at inner crossings.
+        let mut cuts = vec![*a, *b];
+        for inner in &inners {
+            for x in crossings_at(inner, cv) {
+                if x > *a && x < *b {
+                    cuts.push(x);
+                }
+            }
+        }
+        cuts.sort_by(|p, q| p.partial_cmp(q).unwrap_or(std::cmp::Ordering::Equal));
+        for w in cuts.windows(2) {
+            let mid = 0.5 * (w[0] + w[1]);
+            // Point-in-polygon (even-odd) for the mid against inners.
+            let inside_inner = inners.iter().any(|inner| {
+                let xs = crossings_at(inner, cv);
+                xs.iter().filter(|&&x| x < mid).count() % 2 == 1
+            });
+            if !inside_inner {
+                let width = w[1] - w[0];
+                if best.map(|(bw, _)| width > bw).unwrap_or(true) {
+                    best = Some((width, mid));
+                }
+            }
+        }
+    }
+    let (_, mid_u) = best?;
+    Some(surface.point_at(mid_u, cv))
+}
+
 fn sample_fragment_point(
     graph: &IntersectionGraph,
     loop_hes: &[usize],
