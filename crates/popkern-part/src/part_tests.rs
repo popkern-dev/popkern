@@ -859,13 +859,13 @@ fn rotated_lip_union_gap_is_pinned() {
 
 /// FRONTIER PIN (flips when closed): bounded rotated cutter whose
 /// CORNER EDGE pierces a wall — the cutter's bottom and side trims
-/// both DEAD-END at the piercing point, so neither can split first
-/// (the T-junction pre-split only splits existing boundary edges,
-/// and the deferred-retry loop can't break the mutual wait). Closing
-/// this needs the island chainer's open-chain sibling: chain open
-/// records that meet at interior dead-ends into ONE boundary-to-
-/// boundary polyline before splitting. Blocks the laptop-stand
-/// holder's stepped cuts (flat tower + 18° arms + lip tabs).
+/// both DEAD-END at the piercing point. The open-chain pre-pass
+/// (island chainer's open sibling, added with this pin) now merges
+/// such dead-ending records into one boundary-to-boundary polyline
+/// and the split itself succeeds, but the assembled result still
+/// carries an open loop on the pierced wall — the next layer is in
+/// the post-split stitch. Blocks the laptop-stand holder's stepped
+/// cuts (flat tower + 18° arms + lip tabs).
 #[test]
 fn bounded_cutter_corner_piercing_gap_is_pinned() {
     let tilt = 18.0_f64.to_radians();
