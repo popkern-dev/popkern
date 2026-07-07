@@ -104,8 +104,14 @@ pub fn bishop_frames(
 
 /// Pick a vector perpendicular to `tangent`.
 ///
-/// Uses the coordinate axis with the smallest component of `tangent` to maximize
-/// numerical stability of the cross product.
+/// Uses the coordinate axis with the smallest component of `tangent`
+/// (numerical stability), ORTHOGONALIZED against the tangent — not
+/// `tangent × seed`. The distinction is user-visible: the initial
+/// normal is where the profile's local +x lands, and the cross-
+/// product form rotated every profile 90° about the path (a
+/// rect(2, 1) extruded along +z came out spanning ±1 in Y — masked
+/// for years by circles and squares). With the orthogonalized seed,
+/// an extrusion along +z maps profile x→world x, y→world y.
 fn pick_perpendicular(tangent: Vec3) -> Result<Vec3, SweepError> {
     let ax = tangent.x.abs();
     let ay = tangent.y.abs();
@@ -119,7 +125,7 @@ fn pick_perpendicular(tangent: Vec3) -> Result<Vec3, SweepError> {
         Vec3::new(0.0, 0.0, 1.0)
     };
 
-    let candidate = tangent.cross(&seed);
+    let candidate = seed - tangent * seed.dot(&tangent);
     candidate
         .normalized()
         .ok_or_else(|| SweepError::FrameFailed {

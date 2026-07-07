@@ -187,7 +187,16 @@ fn compute_centroid(curve: &NurbsCurve) -> Point3 {
     let mut sum_z = 0.0;
     let n = PROFILE_SAMPLES;
 
-    for i in 0..=n {
+    // Half-open sampling: for a CLOSED wire, t_max evaluates to the
+    // same point as t_min — including both double-counts the seam
+    // and shifts the centroid by r/(n+1) toward it. Every swept
+    // body was rigidly mistranslated by that bias (measured:
+    // 0.003846 = 0.25/65 on an r = 0.25 circle profile, visible as
+    // an off-centre recognized cylinder). Half-open sampling is
+    // exact for symmetric profiles and unbiased for all closed
+    // wires; for open wires the missing endpoint is one sample in
+    // PROFILE_SAMPLES on an anchor whose only job is consistency.
+    for i in 0..n {
         let t = t_min + (i as f64 / n as f64) * (t_max - t_min);
         let p = curve.point_at(t);
         sum_x += p.x;
@@ -195,7 +204,7 @@ fn compute_centroid(curve: &NurbsCurve) -> Point3 {
         sum_z += p.z;
     }
 
-    let count = (n + 1) as f64;
+    let count = n as f64;
     Point3::new(sum_x / count, sum_y / count, sum_z / count)
 }
 
