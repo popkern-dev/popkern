@@ -99,6 +99,7 @@ mod sliver_absorb_classifiers;
 mod sphere_fit_edge_wire;
 mod sphere_fit_edge_wire_cap_identity;
 mod strip_end_arcs;
+mod strip_end_surface;
 mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 pub(crate) mod three_quad_apply;

@@ -224,7 +224,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // machinery's follow-up; see strip_end_arcs module docs.
     if !corner_patches.is_empty() || edge_geometries.len() > 1 {
         let (end_contracted, end_arcs, end_spurs) =
-            super::strip_end_arcs::reconstruct_strip_end_boundaries(result);
+            super::strip_end_arcs::reconstruct_strip_end_boundaries(result, &fillet_surfaces);
         if (end_contracted + end_arcs + end_spurs) > 0
             && std::env::var_os("PK_CARVE_TRACE").is_some()
         {

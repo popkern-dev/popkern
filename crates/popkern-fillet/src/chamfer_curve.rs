@@ -62,11 +62,30 @@ pub fn compute_chamfer(
         edge_points.push(curve.geometry.point_at(t));
     }
 
-    // 4. Compute offset points on each face.
-    let offset_points_1 =
-        compute_offset_points(&edge_points, &analysis.surface_1, dist_1, tolerance)?;
-    let offset_points_2 =
-        compute_offset_points(&edge_points, &analysis.surface_2, dist_2, tolerance)?;
+    // 4. Compute offset points on each face. Each face's offset must
+    // walk INTO that face's material — `normal × tangent` alone is
+    // sign-blind to which side the face lies (measured: the face-2
+    // offset row landed OUTSIDE the solid, so every chamfer bevel
+    // was authored perpendicular to the true one). The interior
+    // side is derived from the winding invariant: interior =
+    // outer-loop Newell normal × the face's own half-edge direction
+    // along this edge.
+    let interior_1 = face_interior_hint(brep, analysis.edge, analysis.face_1);
+    let interior_2 = face_interior_hint(brep, analysis.edge, analysis.face_2);
+    let offset_points_1 = compute_offset_points(
+        &edge_points,
+        &analysis.surface_1,
+        dist_1,
+        interior_1,
+        tolerance,
+    )?;
+    let offset_points_2 = compute_offset_points(
+        &edge_points,
+        &analysis.surface_2,
+        dist_2,
+        interior_2,
+        tolerance,
+    )?;
 
     // 5. Fit trim curves through the offset points.
     let trim_curve_1 = fit_nurbs_through_points(&offset_points_1)?;
@@ -129,10 +148,72 @@ fn compute_offset_distances(
 ///
 /// For each edge point, computes the direction on the surface perpendicular
 /// to the edge and offsets along that direction by the given distance.
+/// Interior direction hint for `face` at the midpoint of `edge`:
+/// outer-loop Newell normal × the face's own half-edge direction.
+/// The Newell normal points outward by the loop-winding invariant,
+/// so the cross product points into the face's material side.
+fn face_interior_hint(
+    brep: &popkern_core::topology::BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    face: popkern_core::topology::FaceHandle,
+) -> Option<Vec3> {
+    let face_data = brep.faces.get(face)?;
+    // Newell normal over the outer loop.
+    let start = brep.loops.get(face_data.outer_loop)?.half_edge;
+    let mut newell = Vec3::new(0.0, 0.0, 0.0);
+    let mut he = start;
+    let mut he_on_edge = None;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let d = brep.half_edges.get(he)?;
+        let next = brep.half_edges.get(d.next)?;
+        let p = brep.vertices.get(d.origin)?.position;
+        let q = brep.vertices.get(next.origin)?.position;
+        newell.x += (p.y - q.y) * (p.z + q.z);
+        newell.y += (p.z - q.z) * (p.x + q.x);
+        newell.z += (p.x - q.x) * (p.y + q.y);
+        if d.edge == edge {
+            he_on_edge = Some((p, q));
+        }
+        he = d.next;
+        if he == start {
+            break;
+        }
+    }
+    // The blended edge may be on an inner loop (hole rim chamfers).
+    if he_on_edge.is_none() {
+        for &lh in &face_data.inner_loops {
+            let start = brep.loops.get(lh)?.half_edge;
+            let mut he = start;
+            for _ in 0..brep.half_edges.len() + 1 {
+                let d = brep.half_edges.get(he)?;
+                let next = brep.half_edges.get(d.next)?;
+                if d.edge == edge {
+                    let p = brep.vertices.get(d.origin)?.position;
+                    let q = brep.vertices.get(next.origin)?.position;
+                    he_on_edge = Some((p, q));
+                    break;
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+            if he_on_edge.is_some() {
+                break;
+            }
+        }
+    }
+    let (p, q) = he_on_edge?;
+    let he_dir = (q - p).normalized()?;
+    let outward = newell.normalized()?;
+    outward.cross(&he_dir).normalized()
+}
+
 fn compute_offset_points(
     edge_points: &[Point3],
     surface: &SurfaceGeometry,
     distance: f64,
+    interior_hint: Option<Vec3>,
     tolerance: &Tolerance,
 ) -> Result<Vec<Point3>, String> {
     if edge_points.len() < 2 {
@@ -178,11 +259,17 @@ fn compute_offset_points(
             offset_points.push(*pt);
             continue;
         }
-        let offset_dir = Vec3::new(
+        let mut offset_dir = Vec3::new(
             offset_raw.x / offset_len,
             offset_raw.y / offset_len,
             offset_raw.z / offset_len,
         );
+        // Walk into the face's material side.
+        if let Some(hint) = interior_hint
+            && offset_dir.dot(&hint) < 0.0
+        {
+            offset_dir = offset_dir * -1.0;
+        }
 
         let offset_pt = *pt + offset_dir * distance;
 
@@ -272,6 +359,17 @@ fn build_ruled_surface(
 
     let weights = vec![1.0; 2 * n];
 
+    // Flat bevel recognition: a chamfer across a straight edge
+    // between planar supports is itself a PLANE. Emitting the
+    // analytic chart (like straight-edge fillets emit Cylinder)
+    // keeps the blend on the kernel's analytic fast paths — pcurve
+    // attachment, tessellation, STEP export. Verified point-wise:
+    // every control point must lie on the candidate plane to 1e-9
+    // of the bevel scale.
+    if let Some(plane) = recognize_planar_bevel(&control_points) {
+        return Ok(plane);
+    }
+
     let surface = NurbsSurface {
         degree_u,
         degree_v,
@@ -284,6 +382,37 @@ fn build_ruled_surface(
     };
 
     Ok(SurfaceGeometry::Nurbs(surface))
+}
+
+/// Recognize a flat ruled bevel as an analytic plane. The chart runs
+/// u along the edge and v across the bevel; `None` when the points
+/// are not coplanar (curved-edge chamfers stay NURBS).
+fn recognize_planar_bevel(control_points: &[Point3]) -> Option<SurfaceGeometry> {
+    let n = control_points.len() / 2;
+    if n < 2 {
+        return None;
+    }
+    let origin = control_points[0];
+    let u_dir = (control_points[n - 1] - origin).normalized()?;
+    let across = control_points[n] - origin;
+    let v_dir = (across - u_dir * across.dot(&u_dir)).normalized()?;
+    let normal = u_dir.cross(&v_dir).normalized()?;
+    let scale = control_points
+        .iter()
+        .map(|p| (*p - origin).length())
+        .fold(0.0_f64, f64::max)
+        .max(1e-9);
+    for p in control_points {
+        if (*p - origin).dot(&normal).abs() > 1e-9 * scale {
+            return None;
+        }
+    }
+    Some(SurfaceGeometry::Plane {
+        origin,
+        normal,
+        u_axis: u_dir,
+        v_axis: v_dir,
+    })
 }
 
 /// Build clamped uniform knot vector for `n` control points at given degree.
@@ -304,3 +433,38 @@ fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
 #[cfg(test)]
 #[path = "chamfer_curve_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod bevel_recognition_tests {
+    use super::*;
+
+    #[test]
+    fn planar_bevel_normal_is_the_true_diagonal() {
+        let mut pts = Vec::new();
+        for i in 0..20 {
+            let z = 0.5 * i as f64 / 19.0;
+            pts.push(Point3::new(0.5, 0.92, z));
+        }
+        for i in 0..20 {
+            let z = 0.5 * i as f64 / 19.0;
+            pts.push(Point3::new(0.42, 1.0, z));
+        }
+        let plane = recognize_planar_bevel(&pts).expect("recognized");
+        let SurfaceGeometry::Plane { normal, .. } = plane else {
+            panic!("not a plane");
+        };
+        println!(
+            "recognized normal ({:.3},{:.3},{:.3})",
+            normal.x, normal.y, normal.z
+        );
+        assert!(
+            (normal.x.abs() - 0.707).abs() < 1e-3
+                && (normal.y.abs() - 0.707).abs() < 1e-3
+                && (normal.x.signum() == normal.y.signum()),
+            "expected ±(0.707,0.707,0), got ({},{},{})",
+            normal.x,
+            normal.y,
+            normal.z
+        );
+    }
+}

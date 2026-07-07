@@ -29,10 +29,21 @@ fn chamfer_equal_cube_edge() {
 
     let chamfer = result.unwrap();
 
-    // Ruled surface should be NURBS.
+    // A straight-edge plane-plane chamfer bevel is FLAT: the surface
+    // must come out as an analytic Plane (canonical recognition),
+    // with the true 45° diagonal normal.
+    let SurfaceGeometry::Plane { normal, .. } = &chamfer.surface else {
+        panic!("expected analytic Plane bevel, got {:?}", chamfer.surface);
+    };
+    let n = normal.normalized().expect("bevel normal");
     assert!(
-        matches!(chamfer.surface, SurfaceGeometry::Nurbs(_)),
-        "expected NURBS ruled surface"
+        (n.x.abs() - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-9
+            || (n.y.abs() - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-9
+            || (n.z.abs() - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-9,
+        "bevel normal must be a 45° diagonal, got ({}, {}, {})",
+        n.x,
+        n.y,
+        n.z
     );
 
     // Trim curves should have control points.
@@ -132,12 +143,36 @@ fn build_ruled_surface_basic() {
     let surface = build_ruled_surface(&pts1, &pts2);
     assert!(surface.is_ok());
 
-    if let Ok(SurfaceGeometry::Nurbs(nurbs)) = surface {
+    // Coplanar rows are recognized as an analytic Plane; only
+    // genuinely curved bevels stay NURBS.
+    match surface {
+        Ok(SurfaceGeometry::Plane { .. }) => {}
+        Ok(other) => panic!("coplanar ruled rows must recognize as Plane, got {other:?}"),
+        Err(e) => panic!("ruled surface failed: {e}"),
+    }
+}
+
+#[test]
+fn build_ruled_surface_curved_stays_nurbs() {
+    // Non-coplanar rows (a genuinely twisted/curved bevel) must NOT
+    // be flattened by the planar recognition.
+    let pts1 = vec![
+        Point3::new(0.0, 0.0, 0.0),
+        Point3::new(1.0, 0.0, 0.2),
+        Point3::new(2.0, 0.0, 0.0),
+    ];
+    let pts2 = vec![
+        Point3::new(0.0, 1.0, 0.0),
+        Point3::new(1.0, 1.0, 0.0),
+        Point3::new(2.0, 1.0, 0.0),
+    ];
+    let surface = build_ruled_surface(&pts1, &pts2).expect("ruled");
+    if let SurfaceGeometry::Nurbs(nurbs) = surface {
         assert_eq!(nurbs.num_u, 3);
         assert_eq!(nurbs.num_v, 2);
         assert_eq!(nurbs.degree_v, 1);
     } else {
-        panic!("expected NURBS surface");
+        panic!("curved rows must stay NURBS");
     }
 }
 
@@ -169,9 +204,15 @@ fn two_distance_equal_distances_is_symmetric() {
     };
     let two_dist_result = compute_chamfer(&analysis, &cube, &two_dist_kind, &tolerance).unwrap();
 
-    // Both should produce ruled NURBS surfaces.
-    assert!(matches!(equal_result.surface, SurfaceGeometry::Nurbs(_)));
-    assert!(matches!(two_dist_result.surface, SurfaceGeometry::Nurbs(_)));
+    // Both flat bevels come out as analytic Planes.
+    assert!(matches!(
+        equal_result.surface,
+        SurfaceGeometry::Plane { .. }
+    ));
+    assert!(matches!(
+        two_dist_result.surface,
+        SurfaceGeometry::Plane { .. }
+    ));
 
     // With equal distances, trim curves should be at similar offsets.
     // Compare the midpoints of trim_curve_1 for both.

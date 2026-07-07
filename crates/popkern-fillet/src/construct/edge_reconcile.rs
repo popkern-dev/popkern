@@ -140,32 +140,43 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
 
     // Whitelist of analytic surface-pair combos that
     // `intersect_surfaces` resolves without falling back to the
-    // marching solver. Plane × plane is left alone; the line is
-    // already correct. NURBS-involving combos go through a
-    // separate alternating-projection fit (`approximate_curved_intersection`)
-    // — `intersect_surfaces` would hit the marching path which can
-    // loop indefinitely on small fillet face inputs.
+    // marching solver. Plane × plane is included: the "line is
+    // already correct" assumption held for fillets, but CHAMFERS
+    // move plane×plane edges (wall × bevel borders keep the
+    // original corner line — measured 5.66e-2 = the setback
+    // distance off both supports); the stale-only gate above keeps
+    // every already-exact line untouched. NURBS-involving combos go
+    // through a separate alternating-projection fit
+    // (`approximate_curved_intersection`) — `intersect_surfaces`
+    // would hit the marching path which can loop indefinitely on
+    // small fillet face inputs.
     let analytic_combo = matches!(
         (&sof_1.geometry, &sof_2.geometry),
-        (
-            SurfaceGeometry::Cylinder { .. },
-            SurfaceGeometry::Plane { .. }
-        ) | (
-            SurfaceGeometry::Plane { .. },
-            SurfaceGeometry::Cylinder { .. }
-        ) | (
-            SurfaceGeometry::Sphere { .. },
-            SurfaceGeometry::Plane { .. }
-        ) | (
-            SurfaceGeometry::Plane { .. },
-            SurfaceGeometry::Sphere { .. }
-        ) | (
-            SurfaceGeometry::Sphere { .. },
-            SurfaceGeometry::Cylinder { .. }
-        ) | (
-            SurfaceGeometry::Cylinder { .. },
-            SurfaceGeometry::Sphere { .. }
-        )
+        (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Plane { .. })
+            | (
+                SurfaceGeometry::Cylinder { .. },
+                SurfaceGeometry::Plane { .. }
+            )
+            | (
+                SurfaceGeometry::Plane { .. },
+                SurfaceGeometry::Cylinder { .. }
+            )
+            | (
+                SurfaceGeometry::Sphere { .. },
+                SurfaceGeometry::Plane { .. }
+            )
+            | (
+                SurfaceGeometry::Plane { .. },
+                SurfaceGeometry::Sphere { .. }
+            )
+            | (
+                SurfaceGeometry::Sphere { .. },
+                SurfaceGeometry::Cylinder { .. }
+            )
+            | (
+                SurfaceGeometry::Cylinder { .. },
+                SurfaceGeometry::Sphere { .. }
+            )
     );
     let nurbs_combo = matches!(
         (&sof_1.geometry, &sof_2.geometry),

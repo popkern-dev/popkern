@@ -53,33 +53,103 @@ const SNAP_GATE: f64 = 5.0e-3;
 
 /// Reconstruct strip end boundaries. Returns (contracted corners,
 /// arcs authored, spurs removed).
-pub(super) fn reconstruct_strip_end_boundaries(brep: &mut BRep) -> (usize, usize, usize) {
-    let strips: Vec<FaceHandle> = brep
+use super::strip_end_surface::{StripSurface, fill_missing_planar_pcurves, remove_spur_slits};
+
+pub(super) fn reconstruct_strip_end_boundaries(
+    brep: &mut BRep,
+    blend_surfaces: &[SurfaceGeometry],
+) -> (usize, usize, usize) {
+    let tol = popkern_core::tolerance::Tolerance::default();
+    let strips: Vec<(FaceHandle, bool)> = brep
         .faces
         .iter()
-        .filter(|(_, f)| {
-            matches!(
-                f.surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Cylinder { .. })
-            )
+        .filter_map(|(h, f)| match f.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Cylinder { .. }) => Some((h, true)),
+            // Planar strips: ONLY this operation's own authored flat
+            // bevels (the surface_fix trust rule). Arbitrary planar
+            // faces must not be contracted — Gregory support
+            // sub-faces legitimately carry corner anchors r·(√2−1)
+            // off their plane, owned by the corner passes (measured:
+            // unrestricted planar contraction broke the Gregory
+            // STEP-fidelity classification).
+            Some(&SurfaceGeometry::Plane {
+                origin: fo,
+                normal: fn_,
+                ..
+            }) => blend_surfaces
+                .iter()
+                .any(|bs| match bs {
+                    SurfaceGeometry::Plane {
+                        origin: bo,
+                        normal: bn,
+                        ..
+                    } => {
+                        let (Some(na), Some(nb)) = (fn_.normalized(), bn.normalized()) else {
+                            return false;
+                        };
+                        // Parallel within the angular tolerance and
+                        // coplanar within the contraction SNAP_GATE
+                        // (post-pipeline passes may drift the chart
+                        // origin slightly off the authored plane).
+                        (na.dot(&nb).abs() - 1.0).abs() < tol.angular()
+                            && ((fo - *bo).dot(&na)).abs() <= SNAP_GATE
+                    }
+                    _ => false,
+                })
+                .then_some((h, false)),
+            _ => None,
         })
-        .map(|(h, _)| h)
         .collect();
 
     let mut contracted = 0;
     let mut arcs = 0;
     let mut touched_planes: Vec<FaceHandle> = Vec::new();
 
-    for strip in &strips {
-        contracted += contract_end_corners(brep, *strip, &mut touched_planes);
-        arcs += arcify_runout_boundaries(brep, *strip, &mut touched_planes);
+    let mut contracted_feet: Vec<popkern_core::topology::VertexHandle> = Vec::new();
+    for &(strip, is_cylinder) in &strips {
+        contracted += contract_end_corners(brep, strip, &mut touched_planes, &mut contracted_feet);
+        if is_cylinder {
+            arcs += arcify_runout_boundaries(brep, strip, &mut touched_planes);
+        }
     }
 
     touched_planes.sort();
     touched_planes.dedup();
     let mut spurs = 0;
-    for plane in touched_planes {
-        spurs += remove_spur_slits(brep, plane);
+    for plane in &touched_planes {
+        spurs += remove_spur_slits(brep, *plane);
+    }
+    // Contractions merge edges via kve and the merged half-edges
+    // carry no pcurves; fill the gaps SURGICALLY — only faces
+    // incident to the surviving contraction feet. MISSING pcurves
+    // only (authored analytic pcurves are never overwritten), and
+    // the scope stays inside this pass's own surgery: a broad fill
+    // was measured to heal pcurve gaps that Gregory repair
+    // diagnostics deliberately probe.
+    if !contracted_feet.is_empty() {
+        let mut affected: Vec<FaceHandle> = Vec::new();
+        for (_, l) in brep.loops.iter() {
+            let start = l.half_edge;
+            let mut he = start;
+            for _ in 0..brep.half_edges.len() + 1 {
+                let Some(d) = brep.half_edges.get(he) else {
+                    break;
+                };
+                if contracted_feet.contains(&d.origin) {
+                    affected.push(l.face);
+                    break;
+                }
+                he = d.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        affected.sort();
+        affected.dedup();
+        for face in affected {
+            fill_missing_planar_pcurves(brep, face);
+        }
     }
     (contracted, arcs, spurs)
 }
@@ -109,7 +179,7 @@ fn face_across(brep: &BRep, he: HalfEdgeHandle) -> Option<FaceHandle> {
     Some(brep.loops.get(l)?.face)
 }
 
-fn radial_dist(origin: &Point3, axis: &Vec3, p: &Point3) -> f64 {
+pub(super) fn radial_dist(origin: &Point3, axis: &Vec3, p: &Point3) -> f64 {
     let d = *p - *origin;
     let ax = d.dot(axis);
     (d - *axis * ax).length()
@@ -130,12 +200,13 @@ fn contract_end_corners(
     brep: &mut BRep,
     strip: FaceHandle,
     touched_planes: &mut Vec<FaceHandle>,
+    contracted_feet: &mut Vec<popkern_core::topology::VertexHandle>,
 ) -> usize {
     let mut total = 0;
     // Restart the walk after each accepted contraction (loop
     // structure changes).
     for _ in 0..16 {
-        let Some((origin, axis, radius)) = cylinder_of(brep, strip) else {
+        let Some(surface) = StripSurface::of(brep, strip) else {
             return total;
         };
         let Some(face) = brep.faces.get(strip) else {
@@ -173,9 +244,9 @@ fn contract_end_corners(
             });
             if both_chords
                 && plane_of(brep, plane_face).is_some()
-                && radial_dist(&origin, &axis, &p_corner) - radius > SNAP_GATE
-                && (radial_dist(&origin, &axis, &p_a) - radius).abs() <= SNAP_GATE
-                && (radial_dist(&origin, &axis, &p_b) - radius).abs() <= SNAP_GATE
+                && surface.excess(&p_corner) > SNAP_GATE
+                && surface.deviation(&p_a) <= SNAP_GATE
+                && surface.deviation(&p_b) <= SNAP_GATE
             {
                 target = Some((he, plane_face));
                 break;
@@ -191,6 +262,7 @@ fn contract_end_corners(
         let mut candidate = brep.clone();
         match candidate.kve(he) {
             Ok(r) => {
+                contracted_feet.push(r.vertex);
                 super::corner_arc_boundaries::rebuild_incident_straight_edges(
                     &mut candidate,
                     r.vertex,
@@ -401,66 +473,4 @@ fn arcify_runout_boundaries(
         }
     }
     rewritten
-}
-
-/// Phase 3: remove zero-width spur slits (a half-edge immediately
-/// followed by its own twin, dangling vertex valence 1) from the end
-/// face's loops. Earlier rebuilds left the amputated L-legs doubled
-/// in the base loop; the slit has zero area, so removal preserves
-/// the face point set by construction.
-fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usize {
-    let mut removed = 0;
-    for _ in 0..16 {
-        let Some(face) = brep.faces.get(plane_face) else {
-            return removed;
-        };
-        let mut loops = vec![face.outer_loop];
-        loops.extend(face.inner_loops.iter().copied());
-        let mut target: Option<HalfEdgeHandle> = None;
-        'outer: for lh in loops {
-            let Some(l) = brep.loops.get(lh) else {
-                continue;
-            };
-            let start_he = l.half_edge;
-            let mut he = start_he;
-            for _ in 0..brep.half_edges.len() + 1 {
-                let d = &brep.half_edges[he];
-                if d.next == d.twin {
-                    target = Some(he);
-                    break 'outer;
-                }
-                he = d.next;
-                if he == start_he {
-                    break;
-                }
-            }
-        }
-        let Some(he) = target else {
-            return removed;
-        };
-        let mut candidate = brep.clone();
-        match candidate.kev(he) {
-            Ok(_) => {
-                if candidate.validate().is_ok() {
-                    *brep = candidate;
-                    removed += 1;
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
-                        eprintln!("  [strip-end] {plane_face:?}: spur slit removed");
-                    }
-                } else {
-                    if std::env::var_os("PK_CARVE_TRACE").is_some() {
-                        eprintln!("  [strip-end] {plane_face:?}: spur removal ROLLED BACK");
-                    }
-                    return removed;
-                }
-            }
-            Err(e) => {
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
-                    eprintln!("  [strip-end] {plane_face:?}: kev declined: {e:?}");
-                }
-                return removed;
-            }
-        }
-    }
-    removed
 }
