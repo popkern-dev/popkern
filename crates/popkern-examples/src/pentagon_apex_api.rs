@@ -22,9 +22,16 @@ fn blended(continuity: Continuity) -> Result<Part, PartError> {
     )?;
 
     // The five slant edges meet at the apex; they are the straight
-    // edges that leave the base plane.
+    // edges that leave the base plane. Radius 0.16 is the PK-097
+    // parity-gate value: the KP20 setback cap (production for both
+    // continuity levels) accepts it and produces the watertight
+    // 20-patch apex fan. Smaller radii (≤ ~0.1) currently make the
+    // setback boundary surgery decline ("expected 2 arc/boundary
+    // crossings, found 1") and the apex degrades to a mitred hole —
+    // that radius-robustness gap is tracked in the PK-100 ledger
+    // notes.
     part.fillet_with(
-        |f| f.radius(0.05).continuity(continuity),
+        |f| f.radius(0.16).continuity(continuity),
         |e| e.straight().filter(|i| i.midpoint.z > 1e-6),
     )
 }
@@ -47,16 +54,12 @@ fn main() {
         for w in &report.warnings {
             println!("  warning: {w}");
         }
-        // Observed metric, not a gate: the N = 5 apex vertex blend
-        // is not yet watertight under tessellation (the fillets
-        // overlap at the apex and Smooth falls back to Mitred) —
-        // the PK-101 pyramid-apex frontier. The API contract this
-        // example gates is validation, report surfacing, and export.
-        let opens = part.open_edge_count().expect("census");
-        println!("  open mesh edges (apex frontier, informational): {opens}");
+        let part = part
+            .assert_watertight()
+            .unwrap_or_else(|e| panic!("{label} watertight gate: {e}"));
         let path = out_dir.join(format!("pentagon_apex_{label}_api.step"));
         part.export_step(&path)
             .unwrap_or_else(|e| panic!("{label} export: {e}"));
-        println!("  wrote {}", path.display());
+        println!("  watertight ✓  wrote {}", path.display());
     }
 }
