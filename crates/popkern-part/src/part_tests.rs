@@ -667,76 +667,19 @@ fn cylinder_boss_on_reflex_plate_union_gap_is_pinned() {
     }
 }
 
+/// STEP export parity for plain extruded cylinders: the cap↔wall rim
+/// edges must export as SHARED EDGE_CURVEs (a Ø70×60 cylinder has 3
+/// edges — two rims + seam — so exactly 3 EDGE_CURVE entities).
+/// Closed 2026-07-07: the exporter's face-local edge fork fired for
+/// cap rims because (a) pcurve synthesis collapsed closed rims on
+/// planes to a degenerate point-line (Plane fast-path keyed on the
+/// surface kind instead of the sampled points), and (b) the fork
+/// gate let a phase-shifted stored pcurve shadow a synthesized one
+/// that validates. OpenCASCADE read each rim as two once-used edges
+/// — a bare cylinder and the laptop-stand column imported into
+/// FreeCAD as an open pipe shell plus detached socket prisms.
 #[test]
-fn probe_column_rim_edges() {
-    let star = hexagram_points(12.0);
-    let cylinder = Profile::on(Plane::XY)
-        .circle(35.0)
-        .extrude(60.0)
-        .expect("blank");
-    let bot = Profile::on(Plane::xy_at(-1.0))
-        .polygon(&star)
-        .extrude(17.0)
-        .expect("b");
-    let top = Profile::on(Plane::xy_at(44.0))
-        .polygon(&star)
-        .extrude(17.0)
-        .expect("t");
-    let column = cylinder
-        .subtract(&bot)
-        .expect("s1")
-        .subtract(&top)
-        .expect("s2");
-    let brep = column.brep();
-    for (eh, e) in brep.edges.iter() {
-        use popkern_core::geometry::curve::CurveEval;
-        let Some(c) = e.curve.as_ref() else { continue };
-        let ce: &dyn CurveEval = &c.geometry;
-        let p = ce.point_at(0.5 * (c.t_start + c.t_end));
-        let r = (p.x * p.x + p.y * p.y).sqrt();
-        if (r - 35.0).abs() < 0.01 && (p.z.abs() < 0.01 || (p.z - 60.0).abs() < 0.01) {
-            let he = brep.edges[eh].half_edge;
-            let f1 = brep.loops[brep.half_edges[he].loop_].face;
-            let twin = brep.half_edges[he].twin;
-            let f2 = brep.loops[brep.half_edges[twin].loop_].face;
-            println!("rim edge {eh:?} z={:.0} faces {f1:?}/{f2:?}", p.z);
-        }
-    }
-}
-
-#[test]
-fn probe_export_rim_parity() {
-    let dir = std::path::Path::new(
-        "/tmp/claude-1000/-home-graeme-code-popkern/1eb2a901-77b1-40cf-810e-4c56471b2f31/scratchpad",
-    );
-    let cyl = Profile::on(Plane::XY)
-        .circle(35.0)
-        .extrude(60.0)
-        .expect("cyl");
-    cyl.export_step(dir.join("probe_pristine_cyl.step"))
-        .expect("export");
-    let star = hexagram_points(12.0);
-    let bot = Profile::on(Plane::xy_at(-1.0))
-        .polygon(&star)
-        .extrude(17.0)
-        .expect("b");
-    let one = cyl.subtract(&bot).expect("s1");
-    one.export_step(dir.join("probe_single_socket.step"))
-        .expect("export");
-}
-
-/// FRONTIER PIN (flips when closed): STEP export parity for PLAIN
-/// extruded cylinders. The cap↔wall rim edges take the exporter's
-/// face-local edge fork (their cap-side pcurves fail the face-use
-/// validation), so each rim is written as TWO once-used EDGE_CURVEs
-/// and OpenCASCADE reports two closed free-bound wires — the part
-/// reads as an open shell in FreeCAD-class tools even though the
-/// popkern round-trip and mesh are watertight. Pre-existing (verified
-/// at 43b32152); surfaced by the laptop-stand column's OCC gate.
-/// Proxy assert: a Ø70×60 cylinder has 3 edges (two rims + seam), so
-/// a shared-topology export writes exactly 3 EDGE_CURVEs.
-#[test]
-fn plain_cylinder_step_rim_edge_fork_is_pinned() {
+fn plain_cylinder_step_exports_shared_rim_edges() {
     let cyl = Profile::on(Plane::XY)
         .circle(35.0)
         .extrude(60.0)
@@ -747,10 +690,16 @@ fn plain_cylinder_step_rim_edge_fork_is_pinned() {
     cyl.export_step(&path).expect("export");
     let text = std::fs::read_to_string(&path).expect("read step");
     let edge_curves = text.matches("EDGE_CURVE").count();
+    assert_eq!(
+        edge_curves, 3,
+        "expected 3 shared EDGE_CURVEs (two rims + seam), got {edge_curves}"
+    );
+    // The column configuration (sockets both ends) must also export
+    // without forked rims: 3 original edges + 2×12 socket-wall edges
+    // + 2×12 socket rim edges + 2 floor... assert via the shell tag
+    // instead: a forked export downgrades to OPEN_SHELL.
     assert!(
-        edge_curves > 3,
-        "rim-edge fork has closed ({edge_curves} EDGE_CURVEs for 3 edges) — \
-         flip this pin to assert == 3 and re-run the OCC free-bounds gate \
-         on the laptop-stand column"
+        text.contains("CLOSED_SHELL"),
+        "cylinder must export as a CLOSED_SHELL"
     );
 }

@@ -45,8 +45,16 @@ pub(super) fn synthesize_export_half_edge_pcurve_on_surface(
         params.push(fraction);
     }
 
-    let nurbs = if matches!(surface, SurfaceGeometry::Plane { .. })
-        || uv_points_are_linear(&uv_points, step_export_pcurve_association_tolerance(brep))
+    // The linear shortcut must be gated on the sampled points, not
+    // the surface kind: a CLOSED rim on a plane (a cylinder cap's
+    // boundary) sampled first-to-last collapses to a point, the
+    // degenerate "line" fails the disagreement gate below, synthesis
+    // returns None, and the exporter forks a face-local edge copy —
+    // OpenCASCADE then reads each cap rim as two once-used edges and
+    // the caps never sew to the wall (measured: a bare cylinder and
+    // the laptop-stand column imported into FreeCAD as an open pipe
+    // shell plus detached socket prisms).
+    let nurbs = if uv_points_are_linear(&uv_points, step_export_pcurve_association_tolerance(brep))
     {
         linear_nurbs(*uv_points.first()?, *uv_points.last()?)
     } else {

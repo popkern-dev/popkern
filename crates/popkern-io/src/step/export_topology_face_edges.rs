@@ -29,6 +29,9 @@ pub(super) fn pre_export_face_use_edges(
             if pcurve_exportable_for_face_use(brep, edge, face_use, surface_map).is_some() {
                 continue;
             }
+            if std::env::var_os("PK_STEP_TRACE").is_some() {
+                explain_face_use_fork(brep, edge, face_use, surface_map);
+            }
             let Some(local_edge_id) =
                 export_local_face_use_edge(export, brep, edge, face_use, vertex_map, surface_map)?
             else {
@@ -54,34 +57,114 @@ fn pcurve_exportable_for_face_use(
 ) -> Option<()> {
     let he = brep.half_edges.get(face_use.half_edge)?;
     let surface = surface_map.get(&face_use.face)?;
-    let stored_pcurve = brep
-        .face_use_pcurve(face_use.face, face_use.half_edge)
-        .or(he.pcurve.as_ref())
-        .cloned();
-    let synthesized_pcurve = stored_pcurve.or_else(|| {
-        synthesize_export_half_edge_pcurve_on_surface(
+    // Mirror `export_pcurve_for_use` exactly: a stored pcurve that
+    // fails validation must NOT shadow a synthesized one that passes.
+    // (A cylinder cap's stored rim pcurve is a phase-shifted ring —
+    // valid for tessellation, but not co-parameterized with the edge
+    // curve as STEP requires; synthesis projects the edge curve and
+    // is co-parameterized by construction.)
+    let tolerance = step_export_pcurve_association_tolerance(brep);
+    let matches = |pcurve: &popkern_core::geometry::pcurve::Pcurve| {
+        pcurve_endpoints_match_edge_segment(
+            brep,
+            edge_handle,
+            pcurve,
+            &surface.surface.geometry,
+            tolerance,
+        ) || export_pcurve_trace_matches_edge(
             brep,
             edge_handle,
             face_use.half_edge,
+            pcurve,
             &surface.surface.geometry,
+            tolerance,
         )
-    })?;
+    };
+    brep.face_use_pcurve(face_use.face, face_use.half_edge)
+        .or(he.pcurve.as_ref())
+        .cloned()
+        .filter(|pcurve| matches(pcurve))
+        .or_else(|| {
+            synthesize_export_half_edge_pcurve_on_surface(
+                brep,
+                edge_handle,
+                face_use.half_edge,
+                &surface.surface.geometry,
+            )
+            .filter(|pcurve| matches(pcurve))
+        })
+        .map(|_| ())
+}
+
+fn explain_face_use_fork(
+    brep: &BRep,
+    edge_handle: EdgeHandle,
+    face_use: EdgeFaceUse,
+    surface_map: &HashMap<FaceHandle, ExportedFaceSurface>,
+) {
+    let Some(he) = brep.half_edges.get(face_use.half_edge) else {
+        eprintln!(
+            "  [step-fork] {edge_handle:?} on {:?}: he missing",
+            face_use.face
+        );
+        return;
+    };
+    let Some(surface) = surface_map.get(&face_use.face) else {
+        eprintln!(
+            "  [step-fork] {edge_handle:?} on {:?}: no surface",
+            face_use.face
+        );
+        return;
+    };
+    let stored = brep
+        .face_use_pcurve(face_use.face, face_use.half_edge)
+        .or(he.pcurve.as_ref())
+        .cloned();
     let tolerance = step_export_pcurve_association_tolerance(brep);
-    (pcurve_endpoints_match_edge_segment(
-        brep,
-        edge_handle,
-        &synthesized_pcurve,
-        &surface.surface.geometry,
-        tolerance,
-    ) || export_pcurve_trace_matches_edge(
+    let describe = |label: &str, pc: &popkern_core::geometry::pcurve::Pcurve| {
+        let ep = pcurve_endpoints_match_edge_segment(
+            brep,
+            edge_handle,
+            pc,
+            &surface.surface.geometry,
+            tolerance,
+        );
+        let tr = export_pcurve_trace_matches_edge(
+            brep,
+            edge_handle,
+            face_use.half_edge,
+            pc,
+            &surface.surface.geometry,
+            tolerance,
+        );
+        let (t0, t1) = pc.parameter_range();
+        let a = pc.point_at(t0);
+        let b = pc.point_at(t1);
+        eprintln!(
+            "  [step-fork] {edge_handle:?} on {:?}: {label} endpoints_ok={ep} trace_ok={tr} pc ({:.2},{:.2})->({:.2},{:.2}) t[{t0:.3},{t1:.3}]",
+            face_use.face, a.x, a.y, b.x, b.y
+        );
+    };
+    match &stored {
+        Some(pc) => describe("stored", pc),
+        None => eprintln!(
+            "  [step-fork] {edge_handle:?} on {:?}: NO stored pcurve",
+            face_use.face
+        ),
+    }
+    if let Some(pc) = synthesize_export_half_edge_pcurve_on_surface(
         brep,
         edge_handle,
         face_use.half_edge,
-        &synthesized_pcurve,
         &surface.surface.geometry,
-        tolerance,
-    ))
-    .then_some(())
+    ) {
+        describe("synth ", &pc);
+    } else {
+        eprintln!(
+            "  [step-fork] {edge_handle:?} on {:?}: synthesis returned None",
+            face_use.face
+        );
+    }
 }
 
 fn export_local_face_use_edge(
