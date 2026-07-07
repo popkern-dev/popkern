@@ -351,6 +351,33 @@ impl Part {
         )
     }
 
+    /// Export the tessellated part as Wavefront OBJ.
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Mesh`] on tessellation failure; [`PartError::Io`]
+    /// on write failure.
+    pub fn export_obj(&self, path: impl AsRef<std::path::Path>) -> Result<(), PartError> {
+        let path = path.as_ref();
+        let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
+        let file = std::fs::File::create(path).map_err(|e| {
+            PartError::NotApplicable(format!("cannot create '{}': {e}", path.display()))
+        })?;
+        let mut writer = std::io::BufWriter::new(file);
+        popkern_mesh::export_obj(&mesh, &mut writer).map_err(|source| PartError::Mesh { source })
+    }
+
+    /// Export the tessellated part as STL (binary by default).
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::Mesh`] on tessellation or write failure.
+    pub fn export_stl(&self, path: impl AsRef<std::path::Path>) -> Result<(), PartError> {
+        let path = path.as_ref();
+        let mesh = self.mesh(&popkern_mesh::TessellationOptions::default())?;
+        popkern_mesh::export_stl(&mesh, path, true).map_err(|source| PartError::Mesh { source })
+    }
+
     /// Round-trip gate: re-import the STEP just written at `path`
     /// and require the full face count back (the dropped-faces
     /// defect class). Returns `self` for chaining.

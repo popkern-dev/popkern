@@ -266,3 +266,139 @@ fn translate_moves_the_features_log_along() {
     let names: Vec<_> = part.features().entries().iter().map(|f| f.name).collect();
     assert_eq!(names, vec!["extrude", "transform"]);
 }
+
+#[test]
+fn torus_passes_genus_aware_validation() {
+    // validate() rejected the kernel's own torus constructor until
+    // the Euler check became genus-aware; pin both forms.
+    let torus = popkern_core::topology::BRep::torus(2.0, 0.5, Tolerance::default()).expect("torus");
+    assert!(
+        torus.validate().is_ok(),
+        "genus-aware validate must accept a torus"
+    );
+    assert!(
+        torus.validate_euler_poincare().is_err(),
+        "strict genus-0 form still rejects it (direct callers rely on that)"
+    );
+}
+
+#[test]
+fn profile_placement_is_exact() {
+    // Two defects hid here for the kernel's whole life: the profile
+    // centroid was biased by a double-counted seam sample (bodies
+    // landed r/65 off), and the sweep frame rotated profiles 90°
+    // about the path. Pin exact placement and orientation.
+    let drill = Profile::on(Plane::XY)
+        .circle(0.25)
+        .at(1.0, 0.0)
+        .extrude(0.5)
+        .expect("drill");
+    let mut found_cylinder = false;
+    for (_, f) in drill.brep().faces.iter() {
+        if let Some(popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+            origin,
+            radius,
+            ..
+        }) = f.surface.as_ref().map(|s| &s.geometry)
+        {
+            found_cylinder = true;
+            assert!(
+                (origin.x - 1.0).abs() < 1e-9
+                    && origin.y.abs() < 1e-9
+                    && (radius - 0.25).abs() < 1e-9,
+                "cylinder must sit exactly at (1, 0) r=0.25; got ({}, {}) r={}",
+                origin.x,
+                origin.y,
+                radius
+            );
+        }
+    }
+    assert!(
+        found_cylinder,
+        "canonical recognition must produce a Cylinder wall"
+    );
+
+    let block = Profile::on(Plane::XY)
+        .rect(2.0, 1.0)
+        .extrude(0.5)
+        .expect("block");
+    let (mut max_x, mut max_y) = (0.0_f64, 0.0_f64);
+    for (_, v) in block.brep().vertices.iter() {
+        max_x = max_x.max(v.position.x.abs());
+        max_y = max_y.max(v.position.y.abs());
+    }
+    assert!(
+        (max_x - 1.0).abs() < 1e-9 && (max_y - 0.5).abs() < 1e-9,
+        "rect(2, 1) must span x ±1, y ±0.5 (frame rotation); got x ±{max_x}, y ±{max_y}"
+    );
+}
+
+#[test]
+fn chamfered_box_is_watertight() {
+    // Chamfer bevels used to be authored perpendicular to the true
+    // bevel (offset row walked OUT of the face), then wired around
+    // retained corner spikes with no pcurves — three fixes pinned
+    // by one gate.
+    let part = block()
+        .chamfer(0.08, |e| e.straight().direction(Dir::Z))
+        .expect("chamfer");
+    assert_eq!(part.face_count(), 6 + 4);
+    assert_eq!(part.open_edge_count().expect("mesh"), 0);
+}
+
+#[test]
+fn pocketed_and_chamfered_plate_is_watertight() {
+    // The chamfer-bracket example's shape: penetrating rectangular
+    // pocket + outer vertical chamfers.
+    let plate = Profile::on(Plane::XY)
+        .rect(3.0, 1.8)
+        .extrude(0.5)
+        .expect("plate");
+    let tool = Profile::on(Plane::xy_at(0.2))
+        .rect(2.0, 1.0)
+        .extrude(0.5)
+        .expect("tool");
+    let pocketed = plate.subtract(&tool).expect("pocket");
+    assert_eq!(pocketed.open_edge_count().expect("mesh"), 0);
+    let chamfered = pocketed
+        .chamfer(0.18, |e| {
+            e.straight()
+                .direction(Dir::Z)
+                .chord_length_between(0.4, 1.0)
+        })
+        .expect("chamfer");
+    assert_eq!(chamfered.face_count(), 15);
+    assert_eq!(chamfered.open_edge_count().expect("mesh"), 0);
+}
+
+/// FRONTIER PIN (flips to a watertight assert when the kernel gap
+/// closes): interior through-hole walls have never tessellated —
+/// the periodic wall ring's u-winding comes out ±2 periods instead
+/// of 0 and boundary-first declines. Constructor bodies, no sweep
+/// involvement. Ledger PK-100.
+#[test]
+fn through_hole_tessellation_gap_is_pinned() {
+    use popkern_core::topology::BRep;
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let t = popkern_core::geometry::transform::Transform3::translation(0.5, 0.5, -0.5);
+    let drill = BRep::cylinder(0.2, 2.0, Tolerance::default())
+        .expect("cyl")
+        .transform(&t)
+        .expect("move");
+    let out = popkern_bool::boolean(
+        popkern_bool::BoolOperation::Subtraction,
+        cube,
+        drill,
+        Tolerance::default(),
+        None,
+    )
+    .expect("subtract");
+    let part = Part::from_brep(out, Tolerance::default(), "cube with through-hole")
+        .expect("hole solid validates (genus-aware)");
+    let opens = part.open_edge_count().expect("mesh");
+    assert!(
+        opens > 0,
+        "through-hole tessellation gap has closed ({opens} opens) — \
+         flip this pin to assert_eq!(opens, 0) and update the ledger"
+    );
+}

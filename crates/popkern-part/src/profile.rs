@@ -121,13 +121,20 @@ impl Profile {
     /// [`PartError::Validation`] if the swept body fails validation.
     pub fn extrude(self, depth: f64) -> Result<Part, PartError> {
         let feature = self.describe();
-        let wire = self.wire()?;
+        // The sweep kernel positions the profile relative to the
+        // PATH frame (it recentres the wire onto the path start), so
+        // in-plane placement must be expressed through the path —
+        // a wire built at (cx, cy) would be silently recentred to
+        // the origin (measured: a circle profile at x=1 produced a
+        // solid at x=0).
+        let wire = self.wire_local()?;
+        let (cx, cy) = self.center;
         let (z0, z1) = if depth >= 0.0 {
             (self.plane.z, self.plane.z + depth)
         } else {
             (self.plane.z + depth, self.plane.z)
         };
-        let path = line_path(z0, z1);
+        let path = line_path(cx, cy, z0, z1);
         let result = sweep(
             &SweepProfile::Wire(wire),
             &path,
@@ -162,9 +169,11 @@ impl Profile {
         }
     }
 
-    /// Compile the profile to an exact closed NURBS wire in 3D.
-    fn wire(&self) -> Result<NurbsCurve, PartError> {
-        let (cx, cy) = self.center;
+    /// Compile the profile to an exact closed NURBS wire in the
+    /// profile's LOCAL frame (centred at the origin; placement is
+    /// carried by the sweep path).
+    fn wire_local(&self) -> Result<NurbsCurve, PartError> {
+        let (cx, cy) = (0.0, 0.0);
         let z = self.plane.z;
         match &self.shape {
             Some(Shape::Rect { width, height }) => {
@@ -244,12 +253,13 @@ fn circle_wire(cx: f64, cy: f64, r: f64, z: f64) -> NurbsCurve {
     }
 }
 
-/// Straight extrusion path from `z0` to `z1` along +Z.
-fn line_path(z0: f64, z1: f64) -> NurbsCurve {
+/// Straight extrusion path from `z0` to `z1` along +Z at the
+/// in-plane placement `(cx, cy)`.
+fn line_path(cx: f64, cy: f64, z0: f64, z1: f64) -> NurbsCurve {
     NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![Point3::new(0.0, 0.0, z0), Point3::new(0.0, 0.0, z1)],
+        control_points: vec![Point3::new(cx, cy, z0), Point3::new(cx, cy, z1)],
         weights: vec![1.0, 1.0],
     }
 }
