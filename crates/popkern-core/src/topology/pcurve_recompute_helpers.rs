@@ -67,6 +67,25 @@ impl BRep {
             let (t0, t1) = pcurve.parameter_range();
             let eval_start = pcurve.point_at(t0);
             let eval_end = pcurve.point_at(t1);
+
+            // CLOSED edges: a closed ring's pcurve may legitimately
+            // start anywhere on the ring — the vertex is an arbitrary
+            // seam anchor, not a geometric constraint (sweep-authored
+            // cylinder caps start 90° from the seam vertex and are
+            // correct). Dragging a closed pcurve's end control points
+            // to the vertex UV WARPS the ring (measured: a boolean-
+            // transplanted cap rim became an off-circle curve whose
+            // phantom second-lap crossing broke the SECOND boolean on
+            // the body). If the ring closes on itself consistently,
+            // there is nothing to anchor — leave it alone.
+            if origin_pos.distance_to(&dest_pos) < 1e-9 {
+                let uv_closure = ((eval_end.x - eval_start.x).powi(2)
+                    + (eval_end.y - eval_start.y).powi(2))
+                .sqrt();
+                if uv_closure < tol {
+                    continue;
+                }
+            }
             let exact_uv_start =
                 match project_point_to_uv_near(&surface, &origin_pos, eval_start.x, eval_start.y)
                     .or_else(|| project_point_to_uv(&surface, &origin_pos))

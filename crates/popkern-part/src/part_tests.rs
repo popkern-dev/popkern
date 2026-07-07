@@ -530,16 +530,15 @@ fn star_blind_pockets_are_watertight() {
     assert_eq!(socketed.open_edge_count().expect("mesh"), 0);
 }
 
-/// FRONTIER PIN (flips to a watertight assert when the kernel gap
-/// closes): the SECOND boolean on a body whose cap already carries a
-/// socket loses intersection segments — a fully interior chord gets
-/// a phantom UV crossing landing on the SECOND LAP of the rebuilt
-/// rim pcurve (the recomputed closed-rim pcurve's content overshoots
-/// closure inside its parameter window). Diagnosed to
-/// pcurve authorship for closed rims after cellular assembly; the
-/// laptop-stand column (socket in BOTH ends) is blocked on this.
+/// W1 pin: the COLUMN configuration — sockets cut into BOTH ends of
+/// one body (the second boolean runs on the first's output). Closed
+/// by the closed-ring guard in fix_pcurve_endpoints: the fixer was
+/// dragging a transplanted closed rim pcurve's end control points to
+/// the seam-vertex UV (a closed ring's start is an arbitrary anchor,
+/// not a constraint), warping the ring so the next boolean's clip saw
+/// a phantom crossing and dropped socket segments.
 #[test]
-fn double_socket_second_boolean_gap_is_pinned() {
+fn double_socket_column_is_watertight() {
     let star = hexagram_points(12.0);
     let cylinder = Profile::on(Plane::XY)
         .circle(35.0)
@@ -553,25 +552,205 @@ fn double_socket_second_boolean_gap_is_pinned() {
         .polygon(&star)
         .extrude(17.0)
         .expect("top tool");
-    let pass1 = cylinder.subtract(&bot).expect("first socket");
-    assert_eq!(
-        pass1.open_edge_count().expect("mesh"),
-        0,
-        "first socket regressed"
+    let column = cylinder
+        .subtract(&bot)
+        .expect("bottom socket")
+        .subtract(&top)
+        .expect("top socket");
+    assert_eq!(column.open_edge_count().expect("mesh"), 0);
+    // Both sockets must actually exist (silent no-op guard): the
+    // 28mm web between the two 16mm-deep star pockets.
+    let mesh = column
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let volume = mesh_volume(&mesh);
+    let blank = std::f64::consts::PI * 35.0 * 35.0 * 60.0;
+    let pocket = polygon_area(&star) * 16.0;
+    let expected = blank - 2.0 * pocket;
+    assert!(
+        (volume - expected).abs() / expected < 0.02,
+        "column volume {volume:.0} vs expected {expected:.0} (blank {blank:.0}, 2 pockets)"
     );
-    match pass1.subtract(&top) {
-        Ok(column) => {
-            let opens = column.open_edge_count().expect("mesh");
+}
+
+/// FRONTIER PIN (W3 — flips to a watertight assert when closed):
+/// union of two COAXIAL star prisms (the peg's stepped pilot tips —
+/// a star boss piercing a star end face). Cellular assembly fails
+/// with a NON-MANIFOLD EDGE (a fragment of the inner prism's wall
+/// that lies strictly inside the outer body appears to stay wired),
+/// and the graph-merge fallback produces an OpenLoop whose gap is
+/// exactly the offset between the two star outlines (0.6), i.e. a
+/// loop mixing the two rings. Until closed, the laptop-stand peg
+/// ships as a plain prism (containment recorded in
+/// laptop_stand_api.rs; the stepped lead-in is a fit nicety, not
+/// structural).
+#[test]
+fn star_boss_union_gap_is_pinned() {
+    let body_star = hexagram_points(11.8);
+    let pilot_star = hexagram_points(11.2);
+    let body = Profile::on(Plane::xy_at(2.0))
+        .polygon(&body_star)
+        .extrude(26.0)
+        .expect("body");
+    let pilot = Profile::on(Plane::XY)
+        .polygon(&pilot_star)
+        .extrude(6.0)
+        .expect("pilot");
+    match body.union(&pilot) {
+        Ok(peg) => {
+            let opens = peg.open_edge_count().expect("mesh");
             assert!(
                 opens > 0,
-                "double-socket gap has closed ({opens} opens) — flip this pin \
-                 to a watertight assert and unblock the laptop-stand column"
+                "star-boss union gap has closed ({opens} opens) — flip this \
+                 pin to a watertight assert and restore the peg's pilot tips"
             );
         }
         Err(_) => {
-            // Current behavior: the second subtract fails validation
-            // (OpenLoop from the mangled cap). Either failure mode
-            // pins the gap.
+            // Current behavior: validation failure (OpenLoop from the
+            // mixed-ring loop). Either failure mode pins the gap.
         }
     }
+}
+
+/// FRONTIER PIN (flips to a watertight assert when closed): union of
+/// a cylinder boss onto a REFLEX polygon plate. The same union onto a
+/// RECT plate is watertight, but on the reflex outline the cellular
+/// walker merges the plate-top's boss ring and its 9-vertex outline
+/// into ONE 13-half-edge loop (no inner loop) — Euler-Poincaré
+/// violation (expected 2, got 4) — and the silent graph-merge
+/// fallback emits garbage pcurves (mesh vertices off-outline).
+/// Until closed, the laptop-stand base ships without its socket boss
+/// (thicker plate, socket cut directly — containment recorded in
+/// laptop_stand_api.rs).
+#[test]
+fn cylinder_boss_on_reflex_plate_union_gap_is_pinned() {
+    let outline: Vec<(f64, f64)> = vec![
+        (-45.0, 0.0),
+        (45.0, 0.0),
+        (45.0, 8.0),
+        (100.0, 212.0),
+        (58.0, 212.0),
+        (0.0, 70.0),
+        (-58.0, 212.0),
+        (-100.0, 212.0),
+        (-45.0, 8.0),
+    ];
+    let plate = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(10.0)
+        .expect("plate");
+    let rect = Profile::on(Plane::XY)
+        .rect(200.0, 200.0)
+        .extrude(10.0)
+        .expect("rect");
+    let boss = Profile::on(Plane::xy_at(9.0))
+        .circle(30.0)
+        .extrude(23.0)
+        .expect("boss")
+        .translate(0.0, 35.0, 0.0)
+        .expect("boss placement");
+
+    // Control: the same boss on a rect plate is closed today.
+    let rect_union = rect.union(&boss).expect("rect union");
+    assert_eq!(rect_union.open_edge_count().expect("mesh"), 0);
+
+    match plate.union(&boss) {
+        Ok(based) => {
+            let opens = based.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "reflex-plate boss union gap has closed ({opens} opens) — flip \
+                 this pin to a watertight assert and restore the base's boss"
+            );
+        }
+        Err(_) => {}
+    }
+}
+
+#[test]
+fn probe_column_rim_edges() {
+    let star = hexagram_points(12.0);
+    let cylinder = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("blank");
+    let bot = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("b");
+    let top = Profile::on(Plane::xy_at(44.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("t");
+    let column = cylinder
+        .subtract(&bot)
+        .expect("s1")
+        .subtract(&top)
+        .expect("s2");
+    let brep = column.brep();
+    for (eh, e) in brep.edges.iter() {
+        use popkern_core::geometry::curve::CurveEval;
+        let Some(c) = e.curve.as_ref() else { continue };
+        let ce: &dyn CurveEval = &c.geometry;
+        let p = ce.point_at(0.5 * (c.t_start + c.t_end));
+        let r = (p.x * p.x + p.y * p.y).sqrt();
+        if (r - 35.0).abs() < 0.01 && (p.z.abs() < 0.01 || (p.z - 60.0).abs() < 0.01) {
+            let he = brep.edges[eh].half_edge;
+            let f1 = brep.loops[brep.half_edges[he].loop_].face;
+            let twin = brep.half_edges[he].twin;
+            let f2 = brep.loops[brep.half_edges[twin].loop_].face;
+            println!("rim edge {eh:?} z={:.0} faces {f1:?}/{f2:?}", p.z);
+        }
+    }
+}
+
+#[test]
+fn probe_export_rim_parity() {
+    let dir = std::path::Path::new(
+        "/tmp/claude-1000/-home-graeme-code-popkern/1eb2a901-77b1-40cf-810e-4c56471b2f31/scratchpad",
+    );
+    let cyl = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("cyl");
+    cyl.export_step(dir.join("probe_pristine_cyl.step"))
+        .expect("export");
+    let star = hexagram_points(12.0);
+    let bot = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("b");
+    let one = cyl.subtract(&bot).expect("s1");
+    one.export_step(dir.join("probe_single_socket.step"))
+        .expect("export");
+}
+
+/// FRONTIER PIN (flips when closed): STEP export parity for PLAIN
+/// extruded cylinders. The cap↔wall rim edges take the exporter's
+/// face-local edge fork (their cap-side pcurves fail the face-use
+/// validation), so each rim is written as TWO once-used EDGE_CURVEs
+/// and OpenCASCADE reports two closed free-bound wires — the part
+/// reads as an open shell in FreeCAD-class tools even though the
+/// popkern round-trip and mesh are watertight. Pre-existing (verified
+/// at 43b32152); surfaced by the laptop-stand column's OCC gate.
+/// Proxy assert: a Ø70×60 cylinder has 3 edges (two rims + seam), so
+/// a shared-topology export writes exactly 3 EDGE_CURVEs.
+#[test]
+fn plain_cylinder_step_rim_edge_fork_is_pinned() {
+    let cyl = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("cyl");
+    let dir = std::env::temp_dir().join("popkern_rim_fork_pin");
+    std::fs::create_dir_all(&dir).expect("tmp dir");
+    let path = dir.join("cyl.step");
+    cyl.export_step(&path).expect("export");
+    let text = std::fs::read_to_string(&path).expect("read step");
+    let edge_curves = text.matches("EDGE_CURVE").count();
+    assert!(
+        edge_curves > 3,
+        "rim-edge fork has closed ({edge_curves} EDGE_CURVEs for 3 edges) — \
+         flip this pin to assert == 3 and re-run the OCC free-bounds gate \
+         on the laptop-stand column"
+    );
 }

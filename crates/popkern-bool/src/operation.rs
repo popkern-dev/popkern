@@ -304,12 +304,22 @@ pub(crate) fn execute_boolean_full(
     )
     .ok()
     .filter(|r| {
-        let valid = r.validate().is_ok();
-        #[cfg(debug_assertions)]
-        if !valid {
-            eprintln!("[boolean] cellular assembly invalid, falling back to graph-merge");
+        // Explicit fallback boundary: record why the stronger
+        // (order-independent cellular) path didn't apply. Debug-only
+        // logging hid this in release — a whole campaign's worth of
+        // pcurve archaeology traced a defect to graph-merge before
+        // discovering graph-merge was even running.
+        match r.validate() {
+            Ok(()) => true,
+            Err(e) => {
+                if cfg!(debug_assertions) || std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
+                    );
+                }
+                false
+            }
         }
-        valid
     })
     .map(Ok)
     .unwrap_or_else(|| {

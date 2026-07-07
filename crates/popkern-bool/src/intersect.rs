@@ -14,7 +14,7 @@ use popkern_core::{
     topology::{BRep, FaceHandle},
 };
 
-use crate::clip::{clip_curve_to_faces, face_vertex_positions};
+use crate::clip::clip_curve_to_faces;
 use crate::error::{BoolDiagnostics, BoolError, Stage};
 use crate::intersect_edge_face::{EdgeFaceHit, detect_edge_face_intersections};
 
