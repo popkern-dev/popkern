@@ -181,7 +181,6 @@ pub(super) fn surface_normal_at_node(
     let face_data = brep.faces.get(face.face)?;
     let surface = face_data.surface.as_ref()?;
     let geom = &surface.geometry;
-
     // Try UV coords first.
     if let Some(&(u, v)) = graph.nodes[node_idx].uv_coords.get(face) {
         let n = geom.normal_at(u, v);
@@ -192,7 +191,10 @@ pub(super) fn surface_normal_at_node(
     // curved analytic surfaces where the cross-product fallback may fail
     // (e.g. self-loop edges produce zero incoming direction).
     // Planes are excluded: the cross-product fallback works reliably for
-    // planar faces and changing the normal source could alter edge selection.
+    // planar faces and changing the normal source could alter edge selection
+    // (measured: both the oriented normal and the raw chart normal broke
+    // seven boolean suites — the tuned walk behavior depends on the
+    // candidate-derived fallback for planar faces).
     let pos = graph.nodes[node_idx].position;
     match geom {
         SurfaceGeometry::Plane { .. } => None,
@@ -237,11 +239,18 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
             // Curve geometry may live on either member of the pair —
             // a rim half-edge without its own curve measured area 0,
             // lost the outer-loop election to its 12-segment socket
-            // hole, and the cap fragment came out inside-out.
+            // hole, and the cap fragment came out inside-out. When
+            // the curve is BORROWED from the twin, the samples run
+            // opposite this loop's traversal, so the SIGN of the
+            // area must flip (hole/piece role assignment reads the
+            // sign; an unflipped borrow made cap inner loops wind
+            // with their outer and reopened the socket seams).
+            let own = he.curve.is_some();
             let curve = he
                 .curve
                 .as_ref()
                 .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+            let borrow_sign = if own { 1.0 } else { -1.0 };
             if let Some(curve) = curve {
                 use popkern_core::geometry::curve::CurveEval;
                 let n_samples = 16;
@@ -265,7 +274,7 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
                     nz += (cur.x - next.x) * (cur.y + next.y);
                 }
                 let normal = Vec3::new(nx, ny, nz);
-                return normal.length() * normal.z.signum();
+                return normal.length() * normal.z.signum() * borrow_sign;
             }
         }
         return 0.0;

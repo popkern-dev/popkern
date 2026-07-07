@@ -76,6 +76,7 @@ fn split_face_curves(
         use_uv1,
     )?;
 
+    let mut deferred: Vec<usize> = Vec::new();
     for (i, &record_idx) in record_indices.iter().enumerate() {
         if consumed.contains(&record_idx) {
             continue;
@@ -102,7 +103,12 @@ fn split_face_curves(
             continue;
         }
 
-        split_one_face(
+        // T-junction order sensitivity: a curve that DEAD-ENDS on
+        // another trim curve can only split once that other curve has
+        // become an edge (the pre-split in split_one_face splits
+        // boundary EDGES, not future trims). Defer failures and retry
+        // after the rest of this face's curves have landed.
+        if split_one_face(
             brep,
             target_face,
             &record.curve.curve_3d,
@@ -111,7 +117,55 @@ fn split_face_curves(
             tolerance,
             records,
             fragments,
-        )?;
+        )
+        .is_err()
+        {
+            deferred.push(record_idx);
+        }
+    }
+
+    for pass in 0..2 {
+        if deferred.is_empty() {
+            break;
+        }
+        let batch = std::mem::take(&mut deferred);
+        let last_pass = pass == 1;
+        for record_idx in batch {
+            let record = &records[record_idx];
+            let curve_uv = if use_uv1 {
+                &record.curve.curve_uv1
+            } else {
+                &record.curve.curve_uv2
+            };
+            let target_face = match find_fragment_for_curve(
+                brep,
+                original_face,
+                curve_uv,
+                fragments,
+                tolerance,
+            ) {
+                Some(frag) => frag,
+                None => continue,
+            };
+            if !brep.faces.contains_key(target_face) {
+                continue;
+            }
+            let result = split_one_face(
+                brep,
+                target_face,
+                &record.curve.curve_3d,
+                curve_uv,
+                &record.curve,
+                tolerance,
+                records,
+                fragments,
+            );
+            match result {
+                Ok(()) => {}
+                Err(e) if last_pass => return Err(e),
+                Err(_) => deferred.push(record_idx),
+            }
+        }
     }
     Ok(())
 }

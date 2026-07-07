@@ -210,6 +210,30 @@ impl Part {
         )
     }
 
+    /// Rigid rotation about the global X axis (radians).
+    ///
+    /// # Errors
+    ///
+    /// Kernel transform or validation errors.
+    pub fn rotate_x(&self, angle_radians: f64) -> Result<Part, PartError> {
+        self.transformed(
+            &Transform3::rotation_x(angle_radians),
+            format!("rotate_x {angle_radians}"),
+        )
+    }
+
+    /// Rigid rotation about the global Y axis (radians).
+    ///
+    /// # Errors
+    ///
+    /// Kernel transform or validation errors.
+    pub fn rotate_y(&self, angle_radians: f64) -> Result<Part, PartError> {
+        self.transformed(
+            &Transform3::rotation_y(angle_radians),
+            format!("rotate_y {angle_radians}"),
+        )
+    }
+
     /// Rigid rotation about the global Z axis (radians).
     ///
     /// # Errors

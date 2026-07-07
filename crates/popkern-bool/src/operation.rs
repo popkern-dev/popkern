@@ -317,6 +317,34 @@ pub(crate) fn execute_boolean_full(
                         "[boolean] cellular assembly invalid ({e}), falling back to graph-merge"
                     );
                 }
+                if std::env::var_os("PK_CELL_TRACE").is_some() {
+                    // Dump every edge's use count + position for
+                    // non-manifold diagnosis.
+                    for (eh, edge) in r.edges.iter() {
+                        let mut uses = 0;
+                        for (_, he) in r.half_edges.iter() {
+                            if he.edge == eh && r.loops.contains_key(he.loop_) {
+                                uses += 1;
+                            }
+                        }
+                        if uses != 2 {
+                            use popkern_core::geometry::curve::CurveEval;
+                            let pos = edge
+                                .curve
+                                .as_ref()
+                                .map(|c| {
+                                    let p = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                                    format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+                                })
+                                .unwrap_or_else(|| {
+                                    let p =
+                                        r.vertices[r.half_edges[edge.half_edge].origin].position;
+                                    format!("v({:.2},{:.2},{:.2})", p.x, p.y, p.z)
+                                });
+                            eprintln!("  [nm] {eh:?} uses={uses} at {pos}");
+                        }
+                    }
+                }
                 false
             }
         }

@@ -45,6 +45,21 @@ pub(crate) fn walk_all_fragments(
     let mut fragments = Vec::new();
 
     for (face_ref, he_indices) in &graph.face_edges {
+        if std::env::var_os("PK_WALK_TRACE").is_some() {
+            let n_int = he_indices
+                .iter()
+                .filter(|&&h| {
+                    matches!(
+                        graph.half_edges[h].source,
+                        crate::merge::graph::EdgeSource::Shared { .. }
+                    )
+                })
+                .count();
+            eprintln!(
+                "  [walk-pre] {face_ref:?}: {} hes ({n_int} intersection)",
+                he_indices.len()
+            );
+        }
         let face_hes: HashSet<usize> = he_indices.iter().copied().collect();
         let mut visited: HashSet<usize> = HashSet::new();
         let mut loops: Vec<Vec<usize>> = Vec::new();
@@ -204,18 +219,35 @@ pub(crate) fn walk_all_fragments(
             if shares_edge_with_outer || remaining_areas[i].abs() >= threshold {
                 separate_outers.push(lp);
             } else {
-                // Skip duplicate inner loops: if this loop's edges are all
-                // twins of an already-collected inner loop, it's a duplicate
-                // (both directions of the same hole boundary were walked).
-                let is_twin_duplicate = inner_loops_out.iter().any(|existing| {
-                    existing.len() == lp.len()
-                        && lp.iter().all(|&he_idx| {
-                            let twin = graph.half_edges[he_idx].twin;
-                            existing.contains(&twin)
-                        })
-                });
-                if !is_twin_duplicate {
-                    inner_loops_out.push(lp);
+                // Both directions of an interior closed ring reach here.
+                // They are NOT duplicates: one (winding OPPOSITE the
+                // outer loop) is the hole boundary of this fragment;
+                // the other (winding WITH the outer) is the OUTER
+                // boundary of the interior piece — a genuine separate
+                // fragment. Discarding it as a "duplicate" deleted the
+                // interior piece wholesale (measured: a rotated slab's
+                // cutting face lost the quad inside the prism, so the
+                // subtracted wedge had no rest plane — shell gap = the
+                // full prism width).
+                let twin_of = |target: &[usize]| {
+                    inner_loops_out.iter().position(|existing| {
+                        existing.len() == target.len()
+                            && target.iter().all(|&he_idx| {
+                                let twin = graph.half_edges[he_idx].twin;
+                                existing.contains(&twin)
+                            })
+                    })
+                };
+                match twin_of(&lp) {
+                    None => inner_loops_out.push(lp),
+                    // The first-walked direction stays the fragment's
+                    // hole boundary — identical to the long-standing
+                    // behavior when the twin was discarded, so every
+                    // configuration that worked before is untouched.
+                    // Role-reassignment heuristics (area sign, face
+                    // ownership) were each measured to break a
+                    // configuration the other fixed.
+                    Some(_) => separate_outers.push(lp),
                 }
             }
         }

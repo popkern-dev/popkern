@@ -247,8 +247,24 @@ pub(crate) fn find_intersections_with_aabbs(
                 for isect in result.intersections {
                     match isect {
                         SurfaceSurfaceIntersection::Curve(curve) => {
-                            if let Some(clipped) = clip_curve_to_faces(a, face_a, b, face_b, &curve)
-                            {
+                            let clipped_opt = clip_curve_to_faces(a, face_a, b, face_b, &curve);
+                            if std::env::var_os("PK_CLIP_TRACE").is_some() {
+                                use popkern_core::geometry::curve::CurveEval;
+                                let (t0, t1) = curve.curve_3d.parameter_range();
+                                let p0 = curve.curve_3d.point_at(t0);
+                                let p1 = curve.curve_3d.point_at(t1);
+                                eprintln!(
+                                    "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) kept={}",
+                                    p0.x,
+                                    p0.y,
+                                    p0.z,
+                                    p1.x,
+                                    p1.y,
+                                    p1.z,
+                                    clipped_opt.is_some()
+                                );
+                            }
+                            if let Some(clipped) = clipped_opt {
                                 // Classify tangency at curve midpoint.
                                 // Uses popkern_core::adaptive_precision::
                                 // adaptive_cross_ratio_sq_lt so near-parallel

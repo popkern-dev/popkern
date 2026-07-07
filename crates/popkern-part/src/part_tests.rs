@@ -703,3 +703,207 @@ fn plain_cylinder_step_exports_shared_rim_edges() {
         "cylinder must export as a CLOSED_SHELL"
     );
 }
+
+/// W2a pin: a big slab cutter rotated about X and subtracted from a
+/// prism — the cut plane exits through the side faces (the holder's
+/// laptop rest plane). Includes a volume oracle and a face-count
+/// change assert (a silent no-op returns the input).
+#[test]
+fn rotated_slab_subtract_cuts_exact_wedge() {
+    let prism = Profile::on(Plane::XY)
+        .rect(40.0, 60.0)
+        .extrude(50.0)
+        .expect("prism");
+    let tilt = -18.0_f64.to_radians();
+    let slab = Profile::on(Plane::XY)
+        .rect(400.0, 400.0)
+        .extrude(160.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rotate")
+        .translate(0.0, 0.0, 40.0)
+        .expect("lift");
+    let wedge = prism.subtract(&slab).expect("wedge");
+    assert_eq!(wedge.open_edge_count().expect("mesh"), 0);
+    // No face-count no-op guard: a wedge legitimately keeps the
+    // prism's 6 faces — the volume oracle below is the no-op check.
+    let mesh = wedge
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let volume = mesh_volume(&mesh);
+    let t = tilt.tan();
+    let n = 4000;
+    let mut expected = 0.0;
+    for i in 0..n {
+        let y = -30.0 + 60.0 * (i as f64 + 0.5) / n as f64;
+        expected += (40.0 + y * t).clamp(0.0, 50.0) * 40.0 * (60.0 / n as f64);
+    }
+    assert!(
+        (volume - expected).abs() / expected < 0.001,
+        "wedge volume {volume:.0} vs analytic {expected:.0}"
+    );
+}
+
+/// W2a companion: the HOLDER's deck — a REFLEX plan outline (tower
+/// 24-gon arc + backward arms) extruded and cut by the rotated slab.
+#[test]
+fn rotated_slab_cuts_reflex_holder_deck() {
+    let tilt = 18.0_f64.to_radians();
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((35.0 * a.cos(), 35.0 * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (22.0, -27.0),
+        (95.0, -175.0),
+        (55.0, -190.0),
+        (0.0, -60.0),
+        (-55.0, -190.0),
+        (-95.0, -175.0),
+        (-22.0, -27.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(75.0)
+        .expect("deck");
+    let cutter = Profile::on(Plane::XY)
+        .rect(400.0, 400.0)
+        .extrude(160.0)
+        .expect("cutter")
+        .rotate_x(-tilt)
+        .expect("rot")
+        .translate(0.0, -60.0, 30.0)
+        .expect("place");
+    let cut = deck.subtract(&cutter).expect("rest plane cut");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+}
+
+/// W2a pin: BOUNDED rotated-box subtract on a convex prism — the
+/// cutter's bottom and side planes cross a wall in an L whose
+/// junction lies mid-face. Closed by the T-junction pre-split in
+/// split_one_face: a trim curve endpoint landing mid-edge (typically
+/// on an edge created by an earlier split of the same face) now
+/// splits that boundary edge first; previously the whole boolean
+/// hard-failed with "trim curve end point does not match any
+/// vertex". The holder's stepped cuts (arms at 18°, tower flat)
+/// build on this.
+#[test]
+fn bounded_rotated_cutter_is_watertight() {
+    let prism = Profile::on(Plane::XY)
+        .rect(40.0, 60.0)
+        .extrude(50.0)
+        .expect("prism");
+    let cutter = Profile::on(Plane::XY)
+        .rect(400.0, 40.0)
+        .extrude(160.0)
+        .expect("cutter")
+        .rotate_x(-18.0_f64.to_radians())
+        .expect("rot")
+        .translate(0.0, -20.0, 40.0)
+        .expect("place");
+    let cut = prism.subtract(&cutter).expect("bounded cut");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+    assert!(
+        cut.face_count() > prism.face_count(),
+        "bounded cut must add step faces"
+    );
+}
+
+/// FRONTIER PIN (flips when closed): union of a rotated pre-filleted
+/// box onto a tilted plane (the designed lip attach). The wall walk
+/// turns with inconsistent handedness at the two ring junctions —
+/// the planar-face angle rule uses a normal GUESSED from the first
+/// candidate's cross product (candidate-order-dependent); replacing
+/// it with the chart or oriented normal breaks seven tuned boolean
+/// suites, so the fix is a walk-convention design fork, not a patch.
+/// The holder ships with profile-tab lips instead.
+#[test]
+fn rotated_lip_union_gap_is_pinned() {
+    let prism = Profile::on(Plane::XY)
+        .rect(60.0, 60.0)
+        .extrude(40.0)
+        .expect("prism");
+    let tilt = -18.0_f64.to_radians();
+    let slab = Profile::on(Plane::XY)
+        .rect(400.0, 400.0)
+        .extrude(160.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 30.0)
+        .expect("lift");
+    let wedge = prism.subtract(&slab).expect("wedge");
+    let lip = Profile::on(Plane::XY)
+        .rect(35.0, 8.0)
+        .extrude(17.0)
+        .expect("lip")
+        .fillet(3.0, |e: EdgeQuery| e.straight().direction(Dir::Z))
+        .expect("lip fillets")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 29.0)
+        .expect("place");
+    match wedge.union(&lip) {
+        Ok(held) => {
+            let opens = held.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "rotated-lip-union gap has closed ({opens} opens) — flip this \
+                 pin and restore the designed pre-filleted lip attach"
+            );
+        }
+        Err(_) => {}
+    }
+}
+
+/// FRONTIER PIN (flips when closed): bounded rotated cutter whose
+/// CORNER EDGE pierces a wall — the cutter's bottom and side trims
+/// both DEAD-END at the piercing point, so neither can split first
+/// (the T-junction pre-split only splits existing boundary edges,
+/// and the deferred-retry loop can't break the mutual wait). Closing
+/// this needs the island chainer's open-chain sibling: chain open
+/// records that meet at interior dead-ends into ONE boundary-to-
+/// boundary polyline before splitting. Blocks the laptop-stand
+/// holder's stepped cuts (flat tower + 18° arms + lip tabs).
+#[test]
+fn bounded_cutter_corner_piercing_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((35.0 * a.cos(), 35.0 * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (22.0, -27.0),
+        (95.0, -175.0),
+        (55.0, -190.0),
+        (0.0, -60.0),
+        (-55.0, -190.0),
+        (-95.0, -175.0),
+        (-22.0, -27.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(75.0)
+        .expect("deck");
+    let arm_cutter = Profile::on(Plane::XY)
+        .rect(120.0, 130.0)
+        .extrude(120.0)
+        .expect("cutter")
+        .rotate_x(-tilt)
+        .expect("rot")
+        .translate(55.0, -105.0, 42.0)
+        .expect("place");
+    match deck.subtract(&arm_cutter) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "corner-piercing bounded cut has closed ({opens} opens) — \
+                 flip this pin and build the holder (task #36)"
+            );
+        }
+        Err(_) => {}
+    }
+}

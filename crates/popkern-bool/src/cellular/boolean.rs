@@ -280,6 +280,16 @@ fn classify_fragments_cellular(
         // Selection rules equivalent to graph-merge but expressed via
         // cellular logic: keep fragment if the cell on its outer side
         // is not selected by the operation predicate.
+        if std::env::var_os("PK_CELL_TRACE").is_some() {
+            eprintln!(
+                "  [sel] {:?} outer={} sample=({:.2},{:.2},{:.2}) class={class:?}",
+                fragment.face,
+                fragment.outer_loop.len(),
+                sample.x,
+                sample.y,
+                sample.z
+            );
+        }
         let (keep, flip) = match op {
             BoolOperation::Union => (
                 class == PointClassification::Outside

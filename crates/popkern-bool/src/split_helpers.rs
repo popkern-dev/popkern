@@ -320,6 +320,17 @@ pub(super) fn split_one_face(
     records: &[IntersectionRecord],
     fragments: &mut FragmentMap,
 ) -> Result<(), BoolDiagnostics> {
+    // T-junction pre-split: a trim curve's endpoint may land in the
+    // MIDDLE of a boundary edge — most commonly on an edge created by
+    // an earlier split of the same face (a bounded cutter's bottom
+    // and side planes cross a wall in an L; the second curve ends ON
+    // the first curve's edge). The face split's entry/exit machinery
+    // matches endpoints against VERTICES only, so without a vertex at
+    // the junction the whole boolean failed with "trim curve end
+    // point does not match any vertex". Split the boundary edge at
+    // the endpoint first.
+    presplit_boundary_at_endpoints(brep, face_handle, curve_3d, tolerance);
+
     if face_has_pcurves(brep, face_handle) {
         // UV-space splitting for faces with pcurves (curved or planar).
         if super::helpers_uv::try_uv_split(
@@ -351,6 +362,68 @@ pub(super) fn split_one_face(
     // Non-planar face without pcurves: skip (classified as whole face).
 
     Ok(())
+}
+
+/// Split the face's boundary edges wherever one of the trim curve's
+/// endpoints lies mid-edge (no coincident vertex). Failures are
+/// non-fatal: the subsequent face split reports its own precondition
+/// error if the junction stays vertex-less.
+fn presplit_boundary_at_endpoints(
+    brep: &mut BRep,
+    face_handle: FaceHandle,
+    curve_3d: &NurbsCurve,
+    tolerance: &Tolerance,
+) {
+    use popkern_core::geometry::curve_inversion::invert_curve_at_point;
+    let (t0, t1) = curve_3d.parameter_range();
+    for endpoint in [curve_3d.point_at(t0), curve_3d.point_at(t1)] {
+        let Some(face) = brep.faces.get(face_handle) else {
+            return;
+        };
+        let mut loops = vec![face.outer_loop];
+        loops.extend(face.inner_loops.iter().copied());
+        let mut on_vertex = false;
+        let mut split_target: Option<popkern_core::topology::EdgeHandle> = None;
+        'search: for lh in loops {
+            let Some(loop_data) = brep.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            let mut he = start;
+            loop {
+                let he_data = &brep.half_edges[he];
+                let vpos = brep.vertices[he_data.origin].position;
+                if tolerance.points_coincident(&vpos, &endpoint) {
+                    on_vertex = true;
+                    break 'search;
+                }
+                let edge = he_data.edge;
+                if let Some(curve) = brep.edges[edge].curve.as_ref()
+                    && let Ok(t) = invert_curve_at_point(curve, endpoint, tolerance)
+                {
+                    let lo = curve.t_start.min(curve.t_end);
+                    let hi = curve.t_start.max(curve.t_end);
+                    let span = (hi - lo).max(1e-12);
+                    let margin = span * 1e-6;
+                    if t > lo + margin
+                        && t < hi - margin
+                        && curve.geometry.point_at(t).distance_to(&endpoint)
+                            < tolerance.linear() * 10.0
+                    {
+                        split_target = Some(edge);
+                        break 'search;
+                    }
+                }
+                he = he_data.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        if !on_vertex && let Some(edge) = split_target {
+            let _ = brep.split_edge_at_point(edge, endpoint, tolerance);
+        }
+    }
 }
 
 /// Find which fragment face (from `original_face`) contains the midpoint of

@@ -95,62 +95,78 @@ pub(crate) fn find_uv_crossings(
             || boundary_nurbs.iter().any(|(_, pc)| in_periodic_range(pc)));
     let shift = std::f64::consts::PI;
 
-    let working_curve = if needs_shift {
-        shift_curve_u(curve_uv, shift)
-    } else {
-        curve_uv.clone()
-    };
-
-    for (he_handle, boundary_pcurve) in &boundary_nurbs {
-        let boundary_range = boundary_pcurve.parameter_range();
-        if (boundary_range.1 - boundary_range.0).abs() < tolerance.numerical_floor() {
-            continue;
-        }
-
-        let twin_he = brep.half_edges[*he_handle].twin;
-        if brep.half_edges.contains_key(twin_he)
-            && brep.half_edges[twin_he].loop_ == brep.half_edges[*he_handle].loop_
-        {
-            continue;
-        }
-
-        let working_boundary = if needs_shift {
-            shift_curve_u(boundary_pcurve, shift)
+    let collect_crossings = |shifted: bool| -> Vec<UvCrossing> {
+        let working_curve = if shifted {
+            shift_curve_u(curve_uv, shift)
         } else {
-            boundary_pcurve.clone()
+            curve_uv.clone()
         };
+        let mut found = Vec::new();
+        for (he_handle, boundary_pcurve) in &boundary_nurbs {
+            let boundary_range = boundary_pcurve.parameter_range();
+            if (boundary_range.1 - boundary_range.0).abs() < tolerance.numerical_floor() {
+                continue;
+            }
 
-        let result = intersect_curves(
-            &CurveGeometry::Nurbs(working_boundary),
-            boundary_range,
-            &CurveGeometry::Nurbs(working_curve.clone()),
-            curve_range,
-            tolerance,
-        );
+            let twin_he = brep.half_edges[*he_handle].twin;
+            if brep.half_edges.contains_key(twin_he)
+                && brep.half_edges[twin_he].loop_ == brep.half_edges[*he_handle].loop_
+            {
+                continue;
+            }
 
-        if let Ok(result) = result {
-            use popkern_core::geometry::intersection::CurveIntersection;
-            for hit in &result.intersections {
-                match hit {
-                    CurveIntersection::Point { t1, t2, .. } => {
-                        crossings.push(UvCrossing {
-                            t_curve: *t2,
-                            boundary_he: *he_handle,
-                            t_boundary: *t1,
-                        });
-                    }
-                    CurveIntersection::Overlap { t1_range, t2_range } => {
-                        let t1_mid = (t1_range.0 + t1_range.1) * 0.5;
-                        let t2_mid = (t2_range.0 + t2_range.1) * 0.5;
-                        crossings.push(UvCrossing {
-                            t_curve: t2_mid,
-                            boundary_he: *he_handle,
-                            t_boundary: t1_mid,
-                        });
+            let working_boundary = if shifted {
+                shift_curve_u(boundary_pcurve, shift)
+            } else {
+                boundary_pcurve.clone()
+            };
+
+            let result = intersect_curves(
+                &CurveGeometry::Nurbs(working_boundary),
+                boundary_range,
+                &CurveGeometry::Nurbs(working_curve.clone()),
+                curve_range,
+                tolerance,
+            );
+
+            if let Ok(result) = result {
+                use popkern_core::geometry::intersection::CurveIntersection;
+                for hit in &result.intersections {
+                    match hit {
+                        CurveIntersection::Point { t1, t2, .. } => {
+                            found.push(UvCrossing {
+                                t_curve: *t2,
+                                boundary_he: *he_handle,
+                                t_boundary: *t1,
+                            });
+                        }
+                        CurveIntersection::Overlap { t1_range, t2_range } => {
+                            let t1_mid = (t1_range.0 + t1_range.1) * 0.5;
+                            let t2_mid = (t2_range.0 + t2_range.1) * 0.5;
+                            found.push(UvCrossing {
+                                t_curve: t2_mid,
+                                boundary_he: *he_handle,
+                                t_boundary: t1_mid,
+                            });
+                        }
                     }
                 }
             }
         }
+        found
+    };
+
+    crossings.extend(collect_crossings(needs_shift));
+    if crossings.is_empty() && surface_is_periodic {
+        // The branch heuristic is a guess; when the chosen branch
+        // finds NO crossings, a curve genuinely crossing the boundary
+        // in the other branch would be misjudged by the containment
+        // probe and clipped away whole (measured: two of the four
+        // fillet-cylinder ellipses of a rotated lip union sat one
+        // period from their quarter-arc charts and were discarded, so
+        // the island ring never closed). Retry the other branch and
+        // trust whichever finds real crossings.
+        crossings.extend(collect_crossings(!needs_shift));
     }
 
     crossings.sort_by(|a, b| {
