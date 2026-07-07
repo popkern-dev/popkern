@@ -8,6 +8,13 @@ use thiserror::Error;
 /// Errors from geometric/topological validation checks.
 #[derive(Debug, Error)]
 pub enum ValidationError {
+    /// A topology entity references another that no longer exists or
+    /// does not own it (loop→face, half-edge→loop).
+    #[error("dangling topology reference: {what}")]
+    DanglingReference {
+        /// Description of the broken reference.
+        what: String,
+    },
     /// Euler-Poincaré invariant violated.
     #[error("Euler-Poincaré violation on solid {solid:?}: expected {expected}, got {actual}")]
     EulerPoincare {

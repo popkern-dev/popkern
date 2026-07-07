@@ -320,7 +320,7 @@ fn validate_one_body(
 
     // Structural checks — errors prevent boolean from producing valid output
     let structural_checks: Vec<(&str, Result<(), ValidationError>)> = vec![
-        ("Euler-Poincaré", brep.validate_euler_poincare()),
+        ("Euler-Poincaré", brep.validate_euler_poincare_any_genus()),
         ("half-edge pairing", brep.validate_half_edge_pairing()),
         ("half-edge cycles", brep.validate_half_edge_cycles()),
         ("vertex consistency", brep.validate_vertex_consistency()),

@@ -19,8 +19,13 @@ use crate::topology::BRep;
 impl BRep {
     /// Run all validation checks (structural + geometric). Returns on the first failure.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        // Structural checks (1-6)
-        self.validate_euler_poincare()?;
+        // Structural checks (1-6). Euler–Poincaré is the GENUS-AWARE
+        // form: solids with through-holes (a bored plate, a torus)
+        // are legitimate kernel outputs — the strict genus-0 form
+        // rejected the kernel's own torus constructor. Contexts that
+        // require sphere-like topology call
+        // `validate_euler_poincare()` directly.
+        self.validate_euler_poincare_any_genus()?;
         self.validate_half_edge_pairing()?;
         self.validate_half_edge_cycles()?;
         self.validate_vertex_consistency()?;
@@ -52,7 +57,7 @@ impl BRep {
     /// 5-fillet pyramid apex).
     pub fn validate_collect_fast(&self) -> Vec<ValidationError> {
         let mut errors = Vec::new();
-        if let Err(e) = self.validate_euler_poincare() {
+        if let Err(e) = self.validate_euler_poincare_any_genus() {
             errors.push(e);
         }
         if let Err(e) = self.validate_half_edge_pairing() {
@@ -89,12 +94,53 @@ impl BRep {
         errors
     }
 
+    /// Referential integrity of the topology DAG: every loop's face
+    /// must exist and own that loop (as outer or inner), and every
+    /// half-edge's loop must exist. The strict Euler arithmetic used
+    /// to catch dangling references only as a count imbalance; the
+    /// genus-aware form (correctly) tolerates the counts, so the
+    /// reference structure is validated directly.
+    pub fn validate_topology_references(&self) -> Result<(), ValidationError> {
+        // Anchored at HALF-EDGES: only REACHABLE topology is
+        // validated. A half-edge whose loop is missing, or whose
+        // loop's face is missing, is walkable corruption (the
+        // mutilated-solid class: a face removed while its boundary
+        // ring stays wired).
+        //
+        // Placement: `validate_all` ONLY — deliberately NOT in the
+        // fast `validate()` / `validate_collect_fast` paths, which
+        // construction operators use as MID-SURGERY checkpoints
+        // where a face legitimately does not exist yet (measured:
+        // running this at checkpoints flipped the pyramid3_mixed
+        // exact-boundary route from Accepted to Declined). Final
+        // results must pass it; intermediate states need not.
+        for (heh, he) in self.half_edges.iter() {
+            let Some(l) = self.loops.get(he.loop_) else {
+                return Err(ValidationError::DanglingReference {
+                    what: format!("half-edge {heh:?} references missing loop {:?}", he.loop_),
+                });
+            };
+            if !self.faces.contains_key(l.face) {
+                return Err(ValidationError::DanglingReference {
+                    what: format!(
+                        "half-edge {heh:?} walks loop {:?} whose face {:?} is missing",
+                        he.loop_, l.face
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Run all validation checks and collect all errors.
     pub fn validate_all(&self) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
-        // Structural checks (1-6)
-        if let Err(e) = self.validate_euler_poincare() {
+        // Structural checks (1-6; genus-aware Euler, see validate())
+        if let Err(e) = self.validate_euler_poincare_any_genus() {
+            errors.push(e);
+        }
+        if let Err(e) = self.validate_topology_references() {
             errors.push(e);
         }
         if let Err(e) = self.validate_half_edge_pairing() {

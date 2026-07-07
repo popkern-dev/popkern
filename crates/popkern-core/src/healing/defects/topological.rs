@@ -350,6 +350,7 @@ fn validation_error_to_defect(error: &ValidationError, severity: Severity) -> De
 fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
     match error {
         ValidationError::EulerPoincare { .. } => Vec::new(),
+        ValidationError::DanglingReference { .. } => Vec::new(),
         ValidationError::BrokenTwin { half_edge } => {
             vec![EntityRef::HalfEdge(*half_edge)]
         }

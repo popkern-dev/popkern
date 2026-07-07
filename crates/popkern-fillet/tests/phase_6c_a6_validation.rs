@@ -139,6 +139,7 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
     for err in errors {
         match err {
             ValidationError::EulerPoincare { .. }
+            | ValidationError::DanglingReference { .. }
             | ValidationError::BrokenTwin { .. }
             | ValidationError::BrokenCycle { .. }
             | ValidationError::InconsistentVertex { .. }

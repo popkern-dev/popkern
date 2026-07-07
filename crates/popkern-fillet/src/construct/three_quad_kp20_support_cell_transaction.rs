@@ -182,6 +182,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
             "surface_shape_invalid"
         }
         ValidationError::EulerPoincare { .. }
+        | ValidationError::DanglingReference { .. }
         | ValidationError::BrokenTwin { .. }
         | ValidationError::BrokenCycle { .. }
         | ValidationError::InconsistentVertex { .. }
@@ -195,6 +196,7 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
 fn validation_error_kind(error: &ValidationError) -> &'static str {
     match error {
         ValidationError::EulerPoincare { .. } => "EulerPoincare",
+        ValidationError::DanglingReference { .. } => "DanglingReference",
         ValidationError::BrokenTwin { .. } => "BrokenTwin",
         ValidationError::BrokenCycle { .. } => "BrokenCycle",
         ValidationError::InconsistentVertex { .. } => "InconsistentVertex",
