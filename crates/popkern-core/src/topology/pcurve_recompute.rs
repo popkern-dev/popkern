@@ -97,7 +97,22 @@ impl BRep {
                 let curve_start_pos = curve_on_edge.geometry.point_at(curve_on_edge.t_start);
                 let curve_end_pos = curve_on_edge.geometry.point_at(curve_on_edge.t_end);
 
-                if he_origin_pos.distance_to(&curve_start_pos)
+                let closed = curve_start_pos.distance_to(&curve_end_pos) < 1e-9;
+                if closed {
+                    // Endpoint distances are EQUAL on a closed curve —
+                    // the comparison below always picked forward, so
+                    // BOTH half-edges of a closed rim were given
+                    // same-direction pcurves and a periodic face's
+                    // loop wound ±2 periods (untessellatable). Closed
+                    // edges use the canonical convention instead: the
+                    // edge's own `half_edge` traverses the curve
+                    // forward, its twin backward.
+                    if self.edges[edge_handle].half_edge == heh {
+                        (curve_on_edge.t_start, curve_on_edge.t_end)
+                    } else {
+                        (curve_on_edge.t_end, curve_on_edge.t_start)
+                    }
+                } else if he_origin_pos.distance_to(&curve_start_pos)
                     <= he_origin_pos.distance_to(&curve_end_pos)
                 {
                     (curve_on_edge.t_start, curve_on_edge.t_end)
