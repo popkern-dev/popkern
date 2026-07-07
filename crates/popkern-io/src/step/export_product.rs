@@ -161,7 +161,11 @@ impl ExportContext {
             ("SI_UNIT", si_params),
         ];
         all.sort_by(|a, b| a.0.cmp(b.0));
-        let (first, rest) = all.split_first().unwrap();
+        let Some((first, rest)) = all.split_first() else {
+            // Unreachable: 'all' is a 3-element literal; the branch
+            // exists only to keep library code unwrap-free.
+            return id;
+        };
         let type_name = first.0.to_string();
         let params = first.1.clone();
         for (t, ps) in rest {

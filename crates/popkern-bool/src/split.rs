@@ -365,7 +365,9 @@ fn island_chain_pre_pass(
             }
             pieces[j].curve_3d.control_points[0] = weld;
             // Mirror in UV so the pcurves stay junction-consistent.
-            let end_uv = *pieces[i].curve_uv.control_points.last().unwrap();
+            let Some(&end_uv) = pieces[i].curve_uv.control_points.last() else {
+                continue;
+            };
             let start_uv = pieces[j].curve_uv.control_points[0];
             let weld_uv = popkern_core::geometry::Point3::new(
                 0.5 * (end_uv.x + start_uv.x),

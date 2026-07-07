@@ -162,7 +162,9 @@ fn find_runoff_candidate(
         if !(is_nurbs || (is_cyl && setback_blend_present)) {
             continue;
         }
-        let surface = &face.surface.as_ref().unwrap().geometry;
+        let Some(surface) = face.surface.as_ref().map(|s| &s.geometry) else {
+            continue;
+        };
         let loop_ = face.outer_loop;
         let start = brep.loops.get(loop_)?.half_edge;
         let mut he = start;
