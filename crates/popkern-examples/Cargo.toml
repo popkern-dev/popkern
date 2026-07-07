@@ -95,3 +95,7 @@ path = "src/dice_set_api.rs"
 [[bin]]
 name = "pentagon_apex_api"
 path = "src/pentagon_apex_api.rs"
+
+[[bin]]
+name = "chamfer_bracket_api"
+path = "src/chamfer_bracket_api.rs"
