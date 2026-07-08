@@ -315,6 +315,18 @@ pub(crate) fn clip_curve_uv_space(
         return Some(curve.clone());
     }
 
+    if std::env::var_os("PK_CLIP_TRACE").is_some() {
+        let name = |r: &UvClipResult| match r {
+            UvClipResult::NoPcurves => "NoPcurves".to_string(),
+            UvClipResult::Outside => "Outside".to_string(),
+            UvClipResult::Range(e, x) => format!("Range({e:.3},{x:.3})"),
+        };
+        eprintln!(
+            "  [uvclip] {face_a:?}x{face_b:?}: A={} B={}",
+            name(&clip_a),
+            name(&clip_b)
+        );
+    }
     let (t_min, t_max) = curve.curve_3d.parameter_range();
     let (a_enter, a_exit) = match clip_a {
         UvClipResult::Range(enter, exit) => (enter, exit),

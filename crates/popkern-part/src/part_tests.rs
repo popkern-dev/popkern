@@ -573,19 +573,16 @@ fn double_socket_column_is_watertight() {
     );
 }
 
-/// FRONTIER PIN (W3 — flips to a watertight assert when closed):
-/// union of two COAXIAL star prisms (the peg's stepped pilot tips —
-/// a star boss piercing a star end face). Cellular assembly fails
-/// with a NON-MANIFOLD EDGE (a fragment of the inner prism's wall
-/// that lies strictly inside the outer body appears to stay wired),
-/// and the graph-merge fallback produces an OpenLoop whose gap is
-/// exactly the offset between the two star outlines (0.6), i.e. a
-/// loop mixing the two rings. Until closed, the laptop-stand peg
-/// ships as a plain prism (containment recorded in
-/// laptop_stand_api.rs; the stepped lead-in is a fit nicety, not
-/// structural).
+/// FRONTIER PIN (W3, advanced): union of two COAXIAL star prisms
+/// (the peg's stepped pilot tips). The Bishop-frame seed fix removed
+/// the 90°-flipped inner prism (the old OpenLoop/non-manifold
+/// failure was walls genuinely crossing); the union is now
+/// WATERTIGHT but χ' = 4 — a membrane-class internal face survives
+/// (the pilot's buried cap region). Flips to a full χ assert when
+/// the membrane family closes. Until then the peg ships as a plain
+/// prism (containment in laptop_stand_api.rs).
 #[test]
-fn star_boss_union_gap_is_pinned() {
+fn star_boss_union_membrane_is_pinned() {
     let body_star = hexagram_points(11.8);
     let pilot_star = hexagram_points(11.2);
     let body = Profile::on(Plane::xy_at(2.0))
@@ -596,20 +593,21 @@ fn star_boss_union_gap_is_pinned() {
         .polygon(&pilot_star)
         .extrude(6.0)
         .expect("pilot");
-    match body.union(&pilot) {
-        Ok(peg) => {
-            let opens = peg.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "star-boss union gap has closed ({opens} opens) — flip this \
-                 pin to a watertight assert and restore the peg's pilot tips"
-            );
-        }
-        Err(_) => {
-            // Current behavior: validation failure (OpenLoop from the
-            // mixed-ring loop). Either failure mode pins the gap.
-        }
-    }
+    let peg = body.union(&pilot).expect("pilot union");
+    assert_eq!(
+        peg.open_edge_count().expect("mesh"),
+        0,
+        "watertightness regressed — the frame-seed fix held this"
+    );
+    let b = peg.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_ne!(
+        chi, 2,
+        "star-boss union χ has closed — flip this pin to a χ assert and \
+         restore the peg's stepped pilot tips (laptop_stand_api.rs)"
+    );
+    assert_eq!(chi, 4, "membrane signature drifted — re-diagnose");
 }
 
 /// Union of a cylinder boss onto a REFLEX polygon plate — watertight
@@ -1039,29 +1037,24 @@ fn perpendicular_bore_membrane_gap_is_pinned() {
     );
 }
 
-/// The holder deck on product geometry: reflex outline (hub arc +
-/// arms) → 18° rest-plane slab → SQUARE column seat bored into the
-/// tilted hub (flat floor). Watertight + χ-clean after each stage;
-/// the follow-on socket is the pinned frontier below.
+/// The holder deck END TO END on product geometry: reflex outline
+/// (12-chord hub arc + wide-pad arms) → 18° rest-plane slab → SQUARE
+/// column seat bored into the tilted hub → stacking star sockets
+/// (seat floor + flat underside) → two lip-peg star sockets at the
+/// arm tips, bored PERPENDICULAR to the rest plane. Watertight +
+/// χ'==2 asserted after every stage. Closed by: the polygon-profile
+/// centroid fix, trim-honest edge-face hit acceptance, the
+/// outer-pcurve-polygon ray gate, reflex routing off Cyrus–Beck
+/// (clip + split fallback), and the extruded-plane recognition
+/// envelope scaling with profile span.
 #[test]
-fn holder_deck_rest_plane_and_seat_are_chi_clean() {
+fn holder_deck_full_chain_is_watertight_and_chi_clean() {
     let chi = |p: &Part| {
         let b = p.brep();
         b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
             - b.loops.len() as i64
     };
-    let gate = |p: Part, label: &str| -> Part {
-        assert_eq!(
-            p.open_edge_count().expect("mesh"),
-            0,
-            "{label}: open mesh edges"
-        );
-        assert_eq!(chi(&p), 2, "{label}: χ' must be 2");
-        p
-    };
     let tilt = 18.0_f64.to_radians();
-    // Hub radius must contain the 76 mm square seat: half-diagonal
-    // 53.7 needs r ≥ 58 with margin.
     let hub_r = 58.0;
     let mut outline: Vec<(f64, f64)> = Vec::new();
     for k in 0..=12 {
@@ -1070,11 +1063,13 @@ fn holder_deck_rest_plane_and_seat_are_chi_clean() {
     }
     outline.extend_from_slice(&[
         (36.0, -46.0),
-        (95.0, -175.0),
-        (55.0, -190.0),
+        (92.0, -142.0),
+        (92.0, -178.0),
+        (52.0, -178.0),
         (0.0, -85.0),
-        (-55.0, -190.0),
-        (-95.0, -175.0),
+        (-52.0, -178.0),
+        (-92.0, -178.0),
+        (-92.0, -142.0),
         (-36.0, -46.0),
     ]);
     let deck = Profile::on(Plane::XY)
@@ -1089,39 +1084,53 @@ fn holder_deck_rest_plane_and_seat_are_chi_clean() {
         .expect("rot")
         .translate(0.0, 0.0, 55.0)
         .expect("lift");
-    let deck = gate(deck.subtract(&slab).expect("rest plane"), "rest plane");
-    // Square seat: 76 mm across, flat floor at 40.
+    let mut part = deck.subtract(&slab).expect("rest");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "rest plane");
+    assert_eq!(chi(&part), 2, "rest plane χ");
     let seat = Profile::on(Plane::xy_at(40.0))
         .rect(76.0, 76.0)
         .extrude(120.0)
         .expect("seat tool");
-    let deck = gate(deck.subtract(&seat).expect("seat"), "seat");
-    // FRONTIER (the deck's remaining blocker): the NEXT boolean on
-    // this body — a star socket into the seat floor — inherits
-    // pollution from PHANTOM intersection records created during the
-    // seat cut: pairs between the seat tool's walls and the deck's
-    // arm walls keep trim curves that lie on NEITHER face's plane
-    // (verified by direct substitution), splitting outline edges
-    // ~2 mm outside the seat and leaving topology that breaks one
-    // boolean later (35 open edges at the seat floor's edge, χ'=−9).
-    // Diagnosis trail in PK-102; the socket itself is proven on
-    // unpolluted bodies (tilted_face_star_socket / the pass-3 rect
-    // wedge chain).
+    part = part.subtract(&seat).expect("seat");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "seat");
+    assert_eq!(chi(&part), 2, "seat χ");
     let star = hexagram_points(12.0);
-    let up = Profile::on(Plane::xy_at(40.0 - 16.0))
+    let up = Profile::on(Plane::xy_at(24.0))
         .polygon(&star)
         .extrude(17.0)
         .expect("up");
-    match deck.subtract(&up) {
-        Ok(s) => {
-            let opens = s.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "deck up-socket gap has closed ({opens} opens) — extend this \
-                 pin through the remaining sockets and build the holder \
-                 (task #36)"
-            );
-        }
-        Err(_) => {}
+    part = part.subtract(&up).expect("up socket");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "up socket");
+    assert_eq!(chi(&part), 2, "up socket χ");
+    let down = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("down");
+    part = part.subtract(&down).expect("down socket");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "down socket");
+    assert_eq!(chi(&part), 2, "down socket χ");
+    // Lip-peg sockets at the ARM TIPS, bored perpendicular to the
+    // rest plane (the lip pegs mount normal to the tilted face).
+    let (ny, nz) = (tilt.sin(), tilt.cos());
+    for x in [-72.0_f64, 72.0] {
+        let y = -160.0;
+        let z_plane = 55.0 - y * tilt.tan();
+        // Tool symmetric about origin, rotated onto the plane normal,
+        // then anchored 16 mm embedded / 24 mm proud.
+        let tool = Profile::on(Plane::xy_at(-20.0))
+            .polygon(&star)
+            .extrude(40.0)
+            .expect("lip tool")
+            .rotate_x(-tilt)
+            .expect("tilt")
+            .translate(x, y + 4.0 * ny, z_plane + 4.0 * nz)
+            .expect("place");
+        part = part.subtract(&tool).expect("lip socket");
+        assert_eq!(
+            part.open_edge_count().expect("mesh"),
+            0,
+            "lip socket at {x}"
+        );
+        assert_eq!(chi(&part), 2, "lip socket χ at {x}");
     }
 }

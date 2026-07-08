@@ -331,6 +331,22 @@ pub(super) fn split_one_face(
     // the endpoint first.
     presplit_boundary_at_endpoints(brep, face_handle, curve_3d, tolerance);
 
+    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+        let (t0, t1) = curve_3d.parameter_range();
+        let p0 = curve_3d.point_at(t0);
+        let p1 = curve_3d.point_at(t1);
+        eprintln!(
+            "  [split1] {face_handle:?} pcurves={} reflex={} trim ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+            face_has_pcurves(brep, face_handle),
+            crate::clip::face_polygon_is_reflex(brep, face_handle),
+            p0.x,
+            p0.y,
+            p0.z,
+            p1.x,
+            p1.y,
+            p1.z
+        );
+    }
     if face_has_pcurves(brep, face_handle) {
         // UV-space splitting for faces with pcurves (curved or planar).
         if super::helpers_uv::try_uv_split(
@@ -347,6 +363,18 @@ pub(super) fn split_one_face(
         // UV split didn't produce crossings — try planar fallback if applicable.
     }
 
+    if face_has_pcurves(brep, face_handle) && crate::clip::face_polygon_is_reflex(brep, face_handle)
+    {
+        // A face WITH pcurves whose UV split found no crossings has a
+        // fully-interior trim (island material, handled by the island
+        // pre-pass). The planar fallback below clips with Cyrus-Beck,
+        // which is CONVEX-only — on a reflex outline it fabricates
+        // crossings at outline edges (measured: seat-ring trims on a
+        // reflex deck top split two arm edges 4 mm outside the seat,
+        // and the polluted topology broke the NEXT boolean with 35
+        // open edges at the seat floor).
+        return Ok(());
+    }
     if is_planar_face(brep, face_handle) {
         // Planar Cyrus-Beck clipping path (fallback).
         try_planar_split(

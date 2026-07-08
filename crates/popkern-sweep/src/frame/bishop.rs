@@ -113,9 +113,31 @@ pub fn bishop_frames(
 /// for years by circles and squares). With the orthogonalized seed,
 /// an extrusion along +z maps profile x→world x, y→world y.
 fn pick_perpendicular(tangent: Vec3) -> Result<Vec3, SweepError> {
-    let ax = tangent.x.abs();
-    let ay = tangent.y.abs();
-    let az = tangent.z.abs();
+    let mut ax = tangent.x.abs();
+    let mut ay = tangent.y.abs();
+    let mut az = tangent.z.abs();
+
+    // Snap noise components to zero before choosing the seed axis.
+    // A numerically-differentiated tangent of an axis-aligned path
+    // carries ULP-level trash in the other components (a lerp of two
+    // identical coordinates is not always bit-exact), and comparing
+    // two ~1e-15 values picks a data-dependent axis: the whole
+    // profile frame flipped 90° when a sweep path's y-coordinate
+    // changed in the 5th decimal (measured: a 22-gon deck built
+    // rotated about its axis purely from its centroid value).
+    let m = ax.max(ay).max(az);
+    if m > 0.0 {
+        let floor = m * 1.0e-9;
+        if ax < floor {
+            ax = 0.0;
+        }
+        if ay < floor {
+            ay = 0.0;
+        }
+        if az < floor {
+            az = 0.0;
+        }
+    }
 
     let seed = if ax <= ay && ax <= az {
         Vec3::new(1.0, 0.0, 0.0)

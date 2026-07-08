@@ -279,11 +279,34 @@ fn ray_crossing_count(
                     // gate was measured to break simple cube CSG, and
                     // holes on periodic charts have unresolved seam
                     // branches.
+                    let is_plane = matches!(
+                        surface,
+                        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                    );
+                    // A hit OUTSIDE the face's outer pcurve polygon is
+                    // not on the face at all — the padded parameter box
+                    // is a solver window, not a trim (measured: a ray
+                    // passing 6 mm UNDER a pocket wall crossed its
+                    // padded box and a buried tool fragment classified
+                    // Outside, dropping two pocket walls). Scoped to
+                    // PLANE charts (affine pcurves, no seam branches)
+                    // and to FINAL bodies (`skip_hole_hits`): mid-split
+                    // states carry STALE pcurves — recompute runs at
+                    // the end of the operation — and a stale polygon
+                    // rejects hits that ARE on the face (measured:
+                    // cube ∩ cube misclassified during the stage
+                    // classification).
                     if skip_hole_hits
-                        && matches!(
-                            surface,
-                            popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
-                        )
+                        && is_plane
+                        && !hit_inside_outer_loop(brep, *face_handle, *u, *v)
+                    {
+                        if std::env::var_os("PK_RAY_TRACE").is_some() {
+                            eprintln!("  [ray-rej] face {face_handle:?} uv=({u:.2},{v:.2})");
+                        }
+                        continue;
+                    }
+                    if skip_hole_hits
+                        && is_plane
                         && hit_inside_inner_loop(brep, *face_handle, *u, *v)
                     {
                         continue;
@@ -302,61 +325,162 @@ fn ray_crossing_count(
     Ok(count)
 }
 
+/// Sample a loop's pcurves into a UV polygon and even-odd test
+/// `(u, v)` against it. Returns `None` when the loop has no usable
+/// pcurve polygon (fewer than 3 samples) — the caller must treat
+/// that as "no verdict", not "outside".
+fn uv_point_in_loop(
+    brep: &BRep,
+    lh: popkern_core::topology::LoopHandle,
+    u: f64,
+    v: f64,
+) -> Option<bool> {
+    let loop_data = brep.loops.get(lh)?;
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return None;
+    }
+    let mut ring: Vec<(f64, f64)> = Vec::new();
+    let mut he = start;
+    let cap = brep.half_edges.len() + 1;
+    for _ in 0..cap {
+        let d = &brep.half_edges[he];
+        if let Some(pc) = d.pcurve.as_ref() {
+            let (t0, t1) = pc.parameter_range();
+            for i in 0..8 {
+                let t = t0 + (t1 - t0) * i as f64 / 8.0;
+                let p = pc.point_at(t);
+                ring.push((p.x, p.y));
+            }
+        }
+        he = d.next;
+        if he == start {
+            break;
+        }
+    }
+    if ring.len() < 3 {
+        return None;
+    }
+    let mut crossings = 0;
+    let n = ring.len();
+    for i in 0..n {
+        let (x0, y0) = ring[i];
+        let (x1, y1) = ring[(i + 1) % n];
+        if (y0 > v) != (y1 > v) {
+            let xc = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
+            if xc > u {
+                crossings += 1;
+            }
+        }
+    }
+    Some(crossings % 2 == 1)
+}
+
+/// True when the surface hit at `(u, v)` lands inside the face's
+/// OUTER pcurve polygon. The verdict is only trusted when the outer
+/// ring is COMPLETE (every half-edge carries a pcurve) and every
+/// pcurve is LINEAR — then the polygon is exact. Curved rims
+/// (cylinder-cap circles) sampled as coarse polygons misjudge hits
+/// within the sagitta band (measured: 2.7 mm at r = 35, breaking
+/// star-socket-in-cap bodies with 427 open edges), and partial
+/// rings mid-pipeline produce arbitrary polygons — both return
+/// `true` (no verdict — keep the hit; the parameter box remains the
+/// proxy).
+fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return true;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return true;
+    };
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return true;
+    }
+    // Collect each half-edge's pcurve segment, then chain them
+    // orientation-aware: a stored pcurve may run against the loop
+    // traversal (twin-shared spans), so each segment is flipped to
+    // continue from the previous tail.
+    let mut segs: Vec<((f64, f64), (f64, f64))> = Vec::new();
+    let mut he = start;
+    let cap = brep.half_edges.len() + 1;
+    for _ in 0..cap {
+        let d = &brep.half_edges[he];
+        let Some(pc) = d.pcurve.as_ref() else {
+            return true; // incomplete ring — no verdict
+        };
+        let linear_content = match &pc.geometry {
+            popkern_core::geometry::pcurve::PcurveGeometry::Linear { .. } => true,
+            popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(c) => c.degree == 1,
+            _ => false,
+        };
+        if !linear_content {
+            return true; // curved rim — polygon sampling unreliable
+        }
+        let (t0, t1) = pc.parameter_range();
+        let p0 = pc.point_at(t0);
+        let p1 = pc.point_at(t1);
+        segs.push(((p0.x, p0.y), (p1.x, p1.y)));
+        he = d.next;
+        if he == start {
+            break;
+        }
+    }
+    if segs.len() < 3 {
+        return true;
+    }
+    let mut ring: Vec<(f64, f64)> = Vec::with_capacity(segs.len());
+    let d2 = |a: (f64, f64), b: (f64, f64)| (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2);
+    let (mut tail, first_tail) = {
+        // Orient the first segment by whichever end the SECOND
+        // segment continues from.
+        let (a0, a1) = segs[0];
+        let (b0, b1) = segs[1];
+        let fwd = d2(a1, b0).min(d2(a1, b1));
+        let rev = d2(a0, b0).min(d2(a0, b1));
+        if fwd <= rev {
+            ring.push(a0);
+            (a1, a0)
+        } else {
+            ring.push(a1);
+            (a0, a1)
+        }
+    };
+    for &(p0, p1) in segs.iter().skip(1) {
+        if d2(tail, p0) <= d2(tail, p1) {
+            ring.push(p0);
+            tail = p1;
+        } else {
+            ring.push(p1);
+            tail = p0;
+        }
+    }
+    let _ = first_tail;
+    let mut crossings = 0;
+    let n = ring.len();
+    for i in 0..n {
+        let (x0, y0) = ring[i];
+        let (x1, y1) = ring[(i + 1) % n];
+        if (y0 > v) != (y1 > v) {
+            let xc = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
+            if xc > u {
+                crossings += 1;
+            }
+        }
+    }
+    crossings % 2 == 1
+}
+
 /// True when the surface hit at `(u, v)` lands inside one of the
 /// face's INNER-loop polygons (pcurve-sampled, even-odd).
 fn hit_inside_inner_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
         return false;
     };
-    if face_data.inner_loops.is_empty() {
-        return false;
-    }
-    for &lh in &face_data.inner_loops {
-        let Some(loop_data) = brep.loops.get(lh) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        if !brep.half_edges.contains_key(start) {
-            continue;
-        }
-        let mut ring: Vec<(f64, f64)> = Vec::new();
-        let mut he = start;
-        let cap = brep.half_edges.len() + 1;
-        for _ in 0..cap {
-            let d = &brep.half_edges[he];
-            if let Some(pc) = d.pcurve.as_ref() {
-                let (t0, t1) = pc.parameter_range();
-                for i in 0..8 {
-                    let t = t0 + (t1 - t0) * i as f64 / 8.0;
-                    let p = pc.point_at(t);
-                    ring.push((p.x, p.y));
-                }
-            }
-            he = d.next;
-            if he == start {
-                break;
-            }
-        }
-        if ring.len() < 3 {
-            continue;
-        }
-        let mut crossings = 0;
-        let n = ring.len();
-        for i in 0..n {
-            let (x0, y0) = ring[i];
-            let (x1, y1) = ring[(i + 1) % n];
-            if (y0 > v) != (y1 > v) {
-                let xc = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
-                if xc > u {
-                    crossings += 1;
-                }
-            }
-        }
-        if crossings % 2 == 1 {
-            return true;
-        }
-    }
-    false
+    face_data
+        .inner_loops
+        .iter()
+        .any(|&lh| uv_point_in_loop(brep, lh, u, v) == Some(true))
 }
 
 // ---------------------------------------------------------------------------
@@ -446,7 +570,22 @@ fn point_in_solid_impl(
     let mut inside_votes = 0u32;
     let mut outside_votes = 0u32;
 
+    let ray_trace = std::env::var_os("PK_RAY_TRACE").is_some();
     for direction in &RAY_DIRECTIONS {
+        if ray_trace {
+            let r = ray_crossing_count(
+                point,
+                direction,
+                solid,
+                face_aabbs,
+                tolerance,
+                skip_hole_hits,
+            );
+            eprintln!(
+                "  [ray] p=({:.2},{:.2},{:.2}) d=({:.2},{:.2},{:.2}) -> {r:?}",
+                point.x, point.y, point.z, direction.x, direction.y, direction.z
+            );
+        }
         match ray_crossing_count(
             point,
             direction,

@@ -232,6 +232,102 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
     Ok(base)
 }
 
+/// The angled holder: a front-hub deck whose arms sweep backward
+/// under the laptop, cut by the 18° rest plane; a square column seat
+/// bored into the tilted hub with stacking star sockets above and
+/// below; and a lip-peg star socket at each arm tip, bored
+/// PERPENDICULAR to the rest plane (the anti-slide lips mount there
+/// as separate printed pieces — the lip piece itself is the W3
+/// star-boss-union follow-up).
+///
+/// Six sequential booleans on a reflex outline, each stage proven
+/// watertight + χ'==2 by `holder_deck_full_chain_is_watertight_and_
+/// chi_clean` in popkern-part.
+fn build_holder(p: &StandParams) -> Result<Part, PartError> {
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let deck_h = 120.0;
+    let plane_z_at_hub = 55.0; // rest plane height over the hub centre
+    let seat_floor = 40.0;
+    let socket_star = hexagram(p.star_r, 0.0);
+
+    // Reflex plan outline: 12-chord hub arc + backward arms with
+    // wide lip pads at the tips.
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (36.0, -46.0),
+        (92.0, -142.0),
+        (92.0, -178.0),
+        (52.0, -178.0),
+        (0.0, -85.0),
+        (-52.0, -178.0),
+        (-92.0, -178.0),
+        (-92.0, -142.0),
+        (-36.0, -46.0),
+    ]);
+    p.assert_fits_plate("holder", 184.0, hub_r + 178.0);
+
+    let deck = Profile::on(Plane::XY).polygon(&outline).extrude(deck_h)?;
+
+    // One rotated slab subtract creates the coplanar 18° rest plane
+    // across the hub and both arms.
+    let slab = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)?
+        .rotate_x(-tilt)?
+        .translate(0.0, 0.0, plane_z_at_hub)?;
+    let deck = deck.subtract(&slab)?;
+
+    // Square column seat. 76 mm is the chain-pin-proven size; the
+    // close-fit 70.4 seat (column + clearance) currently breaks a
+    // later socket stage (recorded follow-up in PK-102) — the peg
+    // carries the joint either way, the seat is a locating recess.
+    let seat_side = 76.0;
+    let _ = 2.0 * p.column_r + 2.0 * p.fit_clearance; // designed close fit (see above)
+    let seat = Profile::on(Plane::xy_at(seat_floor))
+        .rect(seat_side, seat_side)
+        .extrude(deck_h)?;
+    let deck = deck.subtract(&seat)?;
+
+    // Stacking star sockets: up into the seat floor, down into the
+    // flat underside — the holder continues the column stack.
+    let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
+        .polygon(&socket_star)
+        .extrude(p.socket_depth + 1.0)?;
+    let deck = deck.subtract(&up)?;
+    let down = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&socket_star)
+        .extrude(p.socket_depth + 1.0)?;
+    let mut holder = deck.subtract(&down)?;
+
+    // Lip-peg sockets at the arm tips, perpendicular to the rest
+    // plane: the tool is a star prism symmetric about its origin,
+    // tilted onto the plane normal, then anchored socket_depth
+    // embedded.
+    let (ny, nz) = (tilt.sin(), tilt.cos());
+    for x in [-72.0_f64, 72.0] {
+        let y = -160.0;
+        let z_plane = plane_z_at_hub - y * tilt.tan();
+        let half = 20.0;
+        let tool = Profile::on(Plane::xy_at(-half))
+            .polygon(&socket_star)
+            .extrude(2.0 * half)?
+            .rotate_x(-tilt)?
+            .translate(
+                x,
+                y + (half - p.socket_depth) * ny,
+                z_plane + (half - p.socket_depth) * nz,
+            )?;
+        holder = holder.subtract(&tool)?;
+    }
+    println!("  holder: print flat on its back (rest plane up)");
+    Ok(holder)
+}
+
 /// Write a merged multi-piece OBJ (translated meshed copies — a
 /// visual stack preview, not a boolean assembly).
 fn write_assembly_preview(
@@ -297,12 +393,21 @@ fn main() {
         &out_dir,
     );
     let base = gate_and_export(build_base(&p).expect("base"), "laptop_stand_base", &out_dir);
+    let holder = gate_and_export(
+        build_holder(&p).expect("holder"),
+        "laptop_stand_holder",
+        &out_dir,
+    );
 
     // Stack preview: base, peg into the boss, column onto the peg,
     // second peg, second column. Pegs sit half-proud of each joint.
     let joint = p.peg_len - 2.0 * p.socket_depth; // peg length not in sockets (gap)
     let c1 = p.base_t + joint; // column-1 bottom z
     let c2 = c1 + p.column_h + joint;
+    // The holder's own z=0 is its flat underside; it stacks on the
+    // second column like another tier (its hub sits over the stack
+    // axis, arms sweeping toward −y = under the laptop).
+    let h1 = c2 + p.column_h + joint;
     write_assembly_preview(
         &[
             (&base, [0.0, 0.0, 0.0]),
@@ -310,12 +415,14 @@ fn main() {
             (&column, [0.0, 35.0, c1]),
             (&peg, [0.0, 35.0, c1 + p.column_h - p.socket_depth]),
             (&column, [0.0, 35.0, c2]),
+            (&peg, [0.0, 35.0, c2 + p.column_h - p.socket_depth]),
+            (&holder, [0.0, 35.0, h1]),
         ],
         &out_dir.join("laptop_stand_assembly_preview.obj"),
     )
     .expect("assembly preview");
     println!(
-        "  stack preview: base + 2 columns → top face at z ≈ {:.0} mm",
-        c2 + p.column_h
+        "  stack preview: base + 2 columns + holder → rest plane front edge at z ≈ {:.0} mm",
+        h1 + 40.0
     );
 }

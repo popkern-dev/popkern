@@ -135,6 +135,33 @@ fn detect_edges_vs_faces(
                 tolerance,
             );
 
+            // Acceptance is trim-honest: the padded range above gives the
+            // SOLVER headroom, but a hit landing in the padding is not on
+            // the face (measured: a seat tool's wall plane crossed a deck
+            // outline edge 4 mm outside the wall's bounds; the phantom hit
+            // split the cellular graph edge there and the polluted loop
+            // broke the NEXT boolean on the body). Bound acceptance by the
+            // face's exact vertex-derived parameter box plus tolerance.
+            // CLOSED-RIM CAVEAT: a face bounded by closed edges (a
+            // cylinder cap's full-circle rim) has 1–2 loop vertices,
+            // so its vertex-derived box collapses and would reject
+            // every legitimate hit (measured: star-socket corner
+            // hits on a cylinder cap all filtered, 427 open edges).
+            // Fewer than 3 vertices → no verdict, keep the padded
+            // acceptance.
+            let face_positions = face_brep.face_outer_loop_positions(*face_h);
+            let trim_box = if face_positions.len() >= 3 {
+                Some(
+                    popkern_core::geometry::uv_projection::exact_bounded_parameter_range(
+                        &face_positions,
+                        surface_on_face,
+                    ),
+                )
+            } else {
+                None
+            };
+            let uv_margin = tolerance.linear();
+
             if let Ok(result) = result {
                 for isect in &result.intersections {
                     if let SurfaceCurveIntersection::Point { t, u, v, .. } = *isect {
@@ -142,6 +169,14 @@ fn detect_edges_vs_faces(
                         // vertex-face touches, not edge-face piercings).
                         let eps = tolerance.linear();
                         if (t - t_range.0).abs() < eps || (t - t_range.1).abs() < eps {
+                            continue;
+                        }
+                        if let Some(((eu_min, eu_max), (ev_min, ev_max))) = trim_box
+                            && (u < eu_min - uv_margin
+                                || u > eu_max + uv_margin
+                                || v < ev_min - uv_margin
+                                || v > ev_max + uv_margin)
+                        {
                             continue;
                         }
                         hits.push(EdgeFaceHit {

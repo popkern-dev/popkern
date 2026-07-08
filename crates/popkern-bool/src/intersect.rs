@@ -240,6 +240,22 @@ pub(crate) fn find_intersections_with_aabbs(
         let ((u1_min, u1_max), (v1_min, v1_max)) = bounded_parameter_range(a, face_a, surf_a);
         let ((u2_min, u2_max), (v2_min, v2_max)) = bounded_parameter_range(b, face_b, surf_b);
 
+        if std::env::var_os("PK_PAIR_TRACE").is_some() {
+            let kind = |s: &popkern_core::geometry::surface::SurfaceGeometry| match s {
+                popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
+                popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
+                popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
+                _ => "Nurbs/other",
+            };
+            eprintln!(
+                "  [pair-surf] {face_a:?}({}) u[{u1_min:.1},{u1_max:.1}] v[{v1_min:.1},{v1_max:.1}] x {face_b:?}({}) u[{u2_min:.1},{u2_max:.1}] v[{v2_min:.1},{v2_max:.1}]",
+                kind(surf_a),
+                kind(surf_b)
+            );
+        }
+
         match intersect_surfaces(
             surf_a,
             (u1_min, u1_max),
@@ -259,14 +275,32 @@ pub(crate) fn find_intersections_with_aabbs(
                                 let (t0, t1) = curve.curve_3d.parameter_range();
                                 let p0 = curve.curve_3d.point_at(t0);
                                 let p1 = curve.curve_3d.point_at(t1);
+                                let plane_dist =
+                                    |s: &popkern_core::geometry::surface::SurfaceGeometry,
+                                     p: &popkern_core::geometry::Point3|
+                                     -> f64 {
+                                        match s {
+                                        popkern_core::geometry::surface::SurfaceGeometry::Plane {
+                                            origin,
+                                            normal,
+                                            ..
+                                        } => ((p.x - origin.x) * normal.x
+                                            + (p.y - origin.y) * normal.y
+                                            + (p.z - origin.z) * normal.z)
+                                            .abs(),
+                                        _ => f64::NAN,
+                                    }
+                                    };
                                 eprintln!(
-                                    "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) kept={}",
+                                    "  [clip] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) dA={:.1e} dB={:.1e} kept={}",
                                     p0.x,
                                     p0.y,
                                     p0.z,
                                     p1.x,
                                     p1.y,
                                     p1.z,
+                                    plane_dist(surf_a, &p0),
+                                    plane_dist(surf_b, &p0),
                                     clipped_opt.is_some()
                                 );
                             }
