@@ -486,6 +486,44 @@ fn next_around_face(
         return pick_by_angle(graph, he_idx, &self_loop_candidates, face, brep_a, brep_b);
     }
 
+    // TOPOLOGICAL JUNCTION RULE (convention-free): a transversal
+    // boundary-to-boundary trim separates two fragments, so every
+    // loop through one of its junction nodes must ALTERNATE — a walk
+    // arriving along the BOUNDARY turns onto the trim (it bounds the
+    // fragment on this side), and a walk arriving along the TRIM
+    // continues onto the boundary. Continuing straight past a
+    // crossing trim encloses both fragments in one loop (measured: a
+    // rest-plane trim on a reflex block/plate junction wall was left
+    // unused, both wall regions merged into one 10-half-edge
+    // fragment carrying removed-region geometry, and the trim's own
+    // walk dead-ended). This is exact whenever the junction has
+    // exactly one non-self-loop Shared candidate against non-shared
+    // boundary continuations — no surface normal or angle involved.
+    // Branch points (several trims) and circle junctions keep the
+    // angular pick below.
+    let incoming_shared = matches!(
+        graph.half_edges[he_idx].source,
+        super::graph::EdgeSource::Shared { .. }
+    ) && !is_self_loop;
+    if !incoming_shared {
+        let shared_straight: Vec<usize> = candidates
+            .iter()
+            .copied()
+            .filter(|&c| {
+                let twin_c = graph.half_edges[c].twin;
+                let self_loop_c = graph.half_edges[c].origin == graph.half_edges[twin_c].origin;
+                !self_loop_c
+                    && matches!(
+                        graph.half_edges[c].source,
+                        super::graph::EdgeSource::Shared { .. }
+                    )
+            })
+            .collect();
+        if shared_straight.len() == 1 && shared_straight.len() < candidates.len() {
+            return Some(shared_straight[0]);
+        }
+    }
+
     // Use per-face angular comparison for all multi-candidate cases.
     pick_by_angle(graph, he_idx, &candidates, face, brep_a, brep_b)
 }
