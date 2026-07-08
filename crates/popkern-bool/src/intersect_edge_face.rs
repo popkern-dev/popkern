@@ -100,17 +100,36 @@ fn detect_edges_vs_faces(
             None => continue,
         };
 
-        // Construct a line curve from vertex positions (handles cases where
-        // stored CurveOnEdge geometry is out of sync with vertex positions).
-        let direction = v_end - v_start;
-        if direction.length_squared() < tolerance.numerical_floor().powi(2) {
-            continue;
-        }
-        let edge_curve = CurveGeometry::Line {
-            origin: v_start,
-            direction,
+        // CURVED edges use their real geometry: the vertex-chord
+        // stand-in crosses faces the edge itself never touches (an
+        // ellipse edge's chord hit two pocket walls at y=0; the graph
+        // edge was split at points NOT on the ellipse and the arc
+        // degraded to its chords, shredding the mesher's boundary).
+        // STRAIGHT/missing-curve edges keep the vertex-position line,
+        // which also covers stale line geometry.
+        let stored = edge.curve.as_ref().filter(|c| {
+            !matches!(c.geometry, CurveGeometry::Line { .. })
+                && match &c.geometry {
+                    CurveGeometry::Nurbs(n) => n.degree > 1,
+                    _ => true,
+                }
+        });
+        let (edge_curve, t_range) = match stored {
+            Some(c) => (c.geometry.clone(), (c.t_start, c.t_end)),
+            None => {
+                let direction = v_end - v_start;
+                if direction.length_squared() < tolerance.numerical_floor().powi(2) {
+                    continue;
+                }
+                (
+                    CurveGeometry::Line {
+                        origin: v_start,
+                        direction,
+                    },
+                    (0.0, 1.0),
+                )
+            }
         };
-        let t_range = (0.0, 1.0);
 
         for (face_h, face_aabb) in face_aabbs {
             if !edge_aabb.overlaps(face_aabb, tolerance.linear()) {

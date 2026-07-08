@@ -239,8 +239,10 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
 /// what restores stacking clearance (the laptop tops out short of
 /// the seat). Chain pinned by
 /// `holder_v3_block_chain_is_watertight_and_chi_clean`.
-/// Smooth arc front lands when `arc_front_wedge_gap_is_pinned`
-/// flips (the faceted hub arc ships meanwhile).
+/// Smooth arc front: wedge/seat/star-socket stages are all χ-clean
+/// on it (arc_front_wedge_is_watertight); the arm-socket stage is
+/// the last blocker (arc_block_arm_socket_gap_is_pinned) — faceted
+/// ships meanwhile.
 fn build_block(p: &StandParams) -> Result<Part, PartError> {
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;

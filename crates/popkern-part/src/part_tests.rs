@@ -1494,18 +1494,17 @@ fn mixed_path_extrude_emits_true_cylinder_wall() {
     );
 }
 
-/// FRONTIER PIN (holder v3): the rest-plane wedge over a SMOOTH ARC
-/// front wall (the new mixed-path API's true Cylinder). Discovery
-/// and the island pass are healthy — the ellipse + 3-line trim ring
-/// chains closed (tip-gap 5e-8) and inserts — but the walk of the
-/// slab's bottom face produces TWO inner rings ([3, 4] half-edges)
-/// where one exists, the assembly goes non-manifold, and graph-merge
-/// leaks 94 open edges (χ' = 1). The plane×cylinder ring on a
-/// boolean-made planar face is the next walker configuration. Until
-/// closed, holder v3's block can ship with the faceted front (the
-/// proven polygon outline).
+/// Holder v3: the rest-plane wedge over a SMOOTH ARC front wall (a
+/// true Cylinder from the mixed-path API) — watertight and χ-clean.
+/// Closed by junction HEALING in the graph insert: the ellipse
+/// record's far endpoint measured 9e-6 off the true ring corner
+/// while the exact corner already existed as an edge-face hit node;
+/// record endpoints now adopt existing nodes with a wide second
+/// search AND the curve's end control points snap to the adopted
+/// node (a clamped NURBS end IS its end CP), so both the topology
+/// and the shell close.
 #[test]
-fn arc_front_wedge_gap_is_pinned() {
+fn arc_front_wedge_is_watertight() {
     let tilt = 18.0_f64.to_radians();
     let block = Profile::on(Plane::XY)
         .path(58.0, 0.0)
@@ -1524,17 +1523,12 @@ fn arc_front_wedge_gap_is_pinned() {
         .expect("rot")
         .translate(0.0, 0.0, 100.0)
         .expect("lift");
-    match block.subtract(&upper) {
-        Ok(cut) => {
-            let opens = cut.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "arc-front wedge gap has closed ({opens} opens) — flip this \
-                 pin and give holder v3 its smooth front"
-            );
-        }
-        Err(_) => {}
-    }
+    let cut = block.subtract(&upper).expect("arc-front wedge");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+    let b = cut.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "arc-front wedge must be a clean genus-0 solid");
 }
 
 /// Holder v3 BLOCK (the stacking piece): plan extrude → +tilt rest
@@ -1746,4 +1740,70 @@ fn peg_double_pilot_gap_is_pinned() {
         }
         Err(_) => {}
     }
+}
+
+//// FRONTIER PIN (smooth front, last stage): the ARM-SOCKET cut on
+/// the arc-fronted block. Wedge, seat, and both star sockets are now
+/// χ-clean on the smooth front (closed by: junction healing, real-
+/// curve edge-face hits, stored-curve adoption in assembly, and
+/// curve-true chord-split verification at both classify sites), but
+/// after the dovetail arm sockets the mesher's boundary-first pass
+/// bails on collinear u≈0 ring runs ("ring segment uncovered",
+/// zero-distance nearest point — a refinement livelock) and the
+/// legacy path cracks the cylinder wall (~556 opens). The block
+/// ships faceted until this flips.
+#[test]
+fn arc_block_arm_socket_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let mut part = Profile::on(Plane::XY)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0)
+        .line_to(44.0, -56.0)
+        .close()
+        .extrude(125.0)
+        .expect("block");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 100.0)
+        .expect("lift");
+    part = part.subtract(&upper).expect("wedge");
+    let seat = Profile::on(Plane::xy_at(70.0))
+        .rect(76.0, 76.0)
+        .extrude(60.0)
+        .expect("seat");
+    part = part.subtract(&seat).expect("seat");
+    let star = hexagram_points(12.0);
+    let up = Profile::on(Plane::xy_at(54.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("up");
+    part = part.subtract(&up).expect("up");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "up socket on arc");
+    let down = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("down");
+    part = part.subtract(&down).expect("down");
+    assert_eq!(
+        part.open_edge_count().expect("mesh"),
+        0,
+        "down socket on arc"
+    );
+    let tool = Profile::on(Plane::xy_at(20.0))
+        .polygon(&[(-6.0, -7.0), (6.0, -7.0), (9.0, 4.0), (-9.0, 4.0)])
+        .at(28.0, -50.0)
+        .extrude(110.0)
+        .expect("tool");
+    let cut = part.subtract(&tool).expect("arm socket");
+    let opens = cut.open_edge_count().expect("mesh");
+    assert!(
+        opens > 0,
+        "arc-block arm-socket gap has closed ({opens} opens) — flip this \
+         pin and give the shipping block its smooth front"
+    );
 }

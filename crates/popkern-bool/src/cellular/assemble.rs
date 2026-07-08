@@ -169,21 +169,54 @@ pub(crate) fn cellular_assemble(
                 );
             }
         } else {
-            // Original/split edge: synthesize line from endpoints.
+            // Original/split edge: ADOPT the stored curve when its
+            // endpoints coincide with this edge's nodes — an
+            // untouched curved boundary edge synthesized as a line
+            // degraded arcs to their chords (a cylinder wall's
+            // bottom arc and the wedge ellipse both flattened, the
+            // chord then generated phantom edge-face hits and the
+            // mesher's boundary-first pass bailed on the off-surface
+            // curve). Fragments of a SPLIT curved edge whose stored
+            // curve spans the whole original fail the endpoint match
+            // and keep the line fallback.
             let p_start = graph.nodes[na].position;
             let p_end = graph.nodes[nb].position;
-            let dir = p_end - p_start;
-            let len = dir.length();
-            if len > 1e-12 {
-                let line = CurveOnEdge {
-                    geometry: CurveGeometry::Line {
-                        origin: p_start,
-                        direction: dir * (1.0 / len),
-                    },
-                    t_start: 0.0,
-                    t_end: len,
-                };
-                builder.set_edge_curve(edge_h, line);
+            let stored = graph.half_edges[sample_ghe].curve.as_ref().or_else(|| {
+                graph.half_edges[graph.half_edges[sample_ghe].twin]
+                    .curve
+                    .as_ref()
+            });
+            let adopted = stored.and_then(|c| {
+                use popkern_core::geometry::curve::CurveEval;
+                let c0 = c.geometry.point_at(c.t_start);
+                let c1 = c.geometry.point_at(c.t_end);
+                let tol = 1.0e-6;
+                if c0.distance_to(&p_start) < tol && c1.distance_to(&p_end) < tol {
+                    Some(c.clone())
+                } else if c0.distance_to(&p_end) < tol && c1.distance_to(&p_start) < tol {
+                    let mut rev = c.clone();
+                    std::mem::swap(&mut rev.t_start, &mut rev.t_end);
+                    Some(rev)
+                } else {
+                    None
+                }
+            });
+            if let Some(curve) = adopted {
+                builder.set_edge_curve(edge_h, curve);
+            } else {
+                let dir = p_end - p_start;
+                let len = dir.length();
+                if len > 1e-12 {
+                    let line = CurveOnEdge {
+                        geometry: CurveGeometry::Line {
+                            origin: p_start,
+                            direction: dir * (1.0 / len),
+                        },
+                        t_start: 0.0,
+                        t_end: len,
+                    };
+                    builder.set_edge_curve(edge_h, line);
+                }
             }
         }
     }

@@ -31,21 +31,61 @@ pub(crate) fn insert_intersection_curves(
         let start_pt = curve_3d.point_at(t_start);
         let end_pt = curve_3d.point_at(t_end);
 
-        // Find or create start node.
-        let start_node = match graph.find_node(&start_pt, tolerance) {
+        // Find or create the endpoint nodes. Record ENDPOINTS get a
+        // second, wider search against existing nodes before a new
+        // node is minted: junction identification tolerates more
+        // slack than geometry does. A plane×cylinder ellipse's far
+        // endpoint measured 9e-6 off the true ring corner (its
+        // start was exact) while the corner already existed as an
+        // exact edge-face hit node — the 2e-6 snap missed it, the
+        // ring corner split into two nodes, and the fragment walk
+        // dead-ended on the disconnected ring (the arc-front wedge
+        // leaked 94 open edges). The wide search only ADOPTS
+        // existing nodes; node positions never move.
+        let wide = tolerance * 20.0;
+        let start_node = match graph
+            .find_node(&start_pt, tolerance)
+            .or_else(|| graph.find_node(&start_pt, wide))
+        {
             Some(idx) => idx,
             None => graph.add_node(start_pt, NodeSource::Intersection),
         };
-
-        // Find or create end node.
-        let end_node = match graph.find_node(&end_pt, tolerance) {
+        let end_node = match graph
+            .find_node(&end_pt, tolerance)
+            .or_else(|| graph.find_node(&end_pt, wide))
+        {
             Some(idx) => idx,
             None => graph.add_node(end_pt, NodeSource::Intersection),
         };
 
-        // Build the CurveOnEdge from the 3D intersection curve.
+        // Build the CurveOnEdge from the 3D intersection curve,
+        // HEALING the curve ends onto the adopted nodes: when the
+        // wide search matched an existing junction node, the curve
+        // still terminates at its own (slightly off) endpoint and
+        // the assembled shell inherits that as a gap (measured:
+        // 9e-6 at an ellipse/line ring corner). Clamped NURBS ends
+        // ARE their end control points, so snapping the end CPs to
+        // the node positions closes the gap with sub-tolerance shape
+        // deviation confined to the last span.
+        let mut healed = curve_3d.clone();
+        {
+            let n_cp = healed.control_points.len();
+            if n_cp >= 2 {
+                let sp = graph.nodes[start_node].position;
+                let ep = graph.nodes[end_node].position;
+                let (c0, c1) = (healed.control_points[0], healed.control_points[n_cp - 1]);
+                let start_is_first = c0.distance_to(&start_pt) <= c1.distance_to(&start_pt);
+                if start_is_first {
+                    healed.control_points[0] = sp;
+                    healed.control_points[n_cp - 1] = ep;
+                } else {
+                    healed.control_points[0] = ep;
+                    healed.control_points[n_cp - 1] = sp;
+                }
+            }
+        }
         let curve_on_edge = CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(curve_3d.clone()),
+            geometry: CurveGeometry::Nurbs(healed),
             t_start,
             t_end,
         };

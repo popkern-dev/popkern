@@ -59,6 +59,19 @@ pub(crate) fn walk_all_fragments(
                 "  [walk-pre] {face_ref:?}: {} hes ({n_int} intersection)",
                 he_indices.len()
             );
+            if std::env::var_os("PK_WALK_TRACE").is_some() {
+                for &h in he_indices.iter() {
+                    let he = &graph.half_edges[h];
+                    let o = he.origin;
+                    let e = graph.half_edges[he.twin].origin;
+                    let po = graph.nodes[o].position;
+                    let pe = graph.nodes[e].position;
+                    eprintln!(
+                        "      [he] {h} n{o}({:.9},{:.9},{:.9}) -> n{e}({:.9},{:.9},{:.9}) twin {}",
+                        po.x, po.y, po.z, pe.x, pe.y, pe.z, he.twin
+                    );
+                }
+            }
         }
         let face_hes: HashSet<usize> = he_indices.iter().copied().collect();
         let mut visited: HashSet<usize> = HashSet::new();

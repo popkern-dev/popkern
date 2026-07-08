@@ -49,6 +49,15 @@ pub(crate) fn classify_endpoint(
         let p1 = graph.nodes[twin.origin].position;
 
         if let Some(t) = point_on_segment(point, &p0, &p1, tolerance) {
+            // The segment test uses the node-to-node CHORD. For a
+            // CURVED edge a point can sit on the chord while being
+            // nowhere near the curve (a star tip at (12,0) lay on a
+            // 180° arc's chord and the hit machinery split the arc
+            // there, off-surface). Verify against the real curve.
+            if !point_on_graph_edge_curve(graph, i, point, t, tolerance) {
+                i += 2;
+                continue;
+            }
             return EndpointClass::OnEdge(i, t);
         }
 
@@ -202,6 +211,56 @@ pub(crate) fn expand_self_loops(
 /// This function finds non-shared edges that pass through shared edge
 /// endpoint nodes and splits them at those nodes (reusing the existing
 /// node, no duplicates). Must be called after Phase 3.
+/// True when `point` (already on the node-to-node CHORD of graph
+/// edge `he_idx` at chord parameter `t_chord`) also lies on the
+/// edge's REAL curve within `tolerance`. Straight/curveless edges
+/// are trivially true; curved edges get a local ternary-search
+/// refinement around the chord-parameter estimate.
+fn point_on_graph_edge_curve(
+    graph: &IntersectionGraph,
+    he_idx: usize,
+    point: &Point3,
+    t_chord: f64,
+    tolerance: f64,
+) -> bool {
+    let he = &graph.half_edges[he_idx];
+    let curve = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+    let curved = curve
+        .map(|c| match &c.geometry {
+            popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+            popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
+            _ => true,
+        })
+        .unwrap_or(false);
+    if !curved {
+        return true;
+    }
+    use popkern_core::geometry::curve::CurveEval;
+    let c = curve.expect("curved implies curve");
+    let tc = c.t_start + (c.t_end - c.t_start) * t_chord;
+    let mut best = c.geometry.point_at(tc).distance_to(point);
+    let span = (c.t_end - c.t_start).abs().max(1e-12);
+    let mut lo = (tc - 0.1 * span).max(c.t_start.min(c.t_end));
+    let mut hi = (tc + 0.1 * span).min(c.t_start.max(c.t_end));
+    for _ in 0..24 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        let d1 = c.geometry.point_at(m1).distance_to(point);
+        let d2 = c.geometry.point_at(m2).distance_to(point);
+        if d1 < d2 {
+            hi = m2;
+            best = best.min(d1);
+        } else {
+            lo = m1;
+            best = best.min(d2);
+        }
+    }
+    best <= tolerance
+}
+
 pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
     // Collect shared edge endpoint node indices.
     let shared_nodes: Vec<usize> = {
@@ -235,10 +294,16 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
                 }
                 let p0 = graph.nodes[he.origin].position;
                 let p1 = graph.nodes[twin_origin].position;
-                if point_on_segment(&pos, &p0, &p1, tolerance).is_some() {
-                    split_at_existing_node(graph, i, node_idx);
-                    did_split = true;
-                    break;
+                if let Some(t) = point_on_segment(&pos, &p0, &p1, tolerance) {
+                    // Chord test only — verify against the real
+                    // curve for curved edges (same defect as
+                    // classify_endpoint: a 180° arc was split at
+                    // points on its chord, off-surface).
+                    if point_on_graph_edge_curve(graph, i, &pos, t, tolerance) {
+                        split_at_existing_node(graph, i, node_idx);
+                        did_split = true;
+                        break;
+                    }
                 }
                 i += 2;
             }

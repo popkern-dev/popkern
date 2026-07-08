@@ -166,6 +166,49 @@ pub(crate) fn face_uv_boundary_chained(
     Some(boundary)
 }
 
+/// True when any edge of the face's outer loop carries CURVED
+/// geometry. The vertex polygon of such a face excludes the bulge
+/// between the curve's endpoints, so Cyrus–Beck clips against the
+/// CHORD and rejects real trims that live in the bulge (measured: a
+/// seat ring's y-side on an ellipse-fronted tilted top was dropped
+/// and the split stage failed on the chained remainder). Curved
+/// boundaries route to the pcurve-exact UV clip.
+pub(crate) fn face_has_curved_boundary(
+    brep: &BRep,
+    face: popkern_core::topology::FaceHandle,
+) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return false;
+    }
+    let mut he = start;
+    let cap = brep.half_edges.len() + 1;
+    for _ in 0..cap {
+        let d = &brep.half_edges[he];
+        if let Some(curve) = brep.edges.get(d.edge).and_then(|e| e.curve.as_ref()) {
+            let curved = match &curve.geometry {
+                popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+                popkern_core::geometry::curve::CurveGeometry::Nurbs(c) => c.degree > 1,
+                _ => true,
+            };
+            if curved {
+                return true;
+            }
+        }
+        he = d.next;
+        if he == start {
+            break;
+        }
+    }
+    false
+}
+
 /// True when the face's outer vertex polygon turns in both directions
 /// — a REFLEX outline. Cyrus–Beck clipping is CONVEX-only: on a
 /// reflex polygon its centroid-oriented inward normals disagree and
@@ -244,6 +287,8 @@ pub(crate) fn clip_curve_to_faces(
         || degenerate_vertex_polygon(brep_b, face_b)
         || face_polygon_is_reflex(brep_a, face_a)
         || face_polygon_is_reflex(brep_b, face_b)
+        || face_has_curved_boundary(brep_a, face_a)
+        || face_has_curved_boundary(brep_b, face_b)
     {
         return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
     }

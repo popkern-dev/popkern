@@ -226,12 +226,48 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
 /// the orientation-safe comparison (the historical `sign(N.z)` trick
 /// degenerates on vertical faces).
 pub(super) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3 {
-    // Sum cross products of consecutive vertex positions projected
-    // onto an approximate normal.
-    let positions: Vec<_> = loop_hes
-        .iter()
-        .map(|&he_idx| graph.nodes[graph.half_edges[he_idx].origin].position)
-        .collect();
+    // Sum cross products of consecutive positions projected onto an
+    // approximate normal. CURVED half-edges are SAMPLED along their
+    // span — origin-only polygons measure a curved loop as its
+    // chord polygon, and an ellipse-fronted face lost the outer-loop
+    // election to its own seat ring because the chord quad
+    // under-measured the true area (the bulge is ~30% of the face).
+    let mut positions: Vec<popkern_core::geometry::Point3> = Vec::new();
+    for &he_idx in loop_hes {
+        let he = &graph.half_edges[he_idx];
+        let origin_pos = graph.nodes[he.origin].position;
+        let own = he.curve.is_some();
+        let curve = he
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[he.twin].curve.as_ref());
+        let curved = curve
+            .map(|c| match &c.geometry {
+                popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+                popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
+                _ => true,
+            })
+            .unwrap_or(false);
+        if curved {
+            use popkern_core::geometry::curve::CurveEval;
+            let c = curve.expect("curved implies curve");
+            let (t0, t1) = (c.t_start, c.t_end);
+            // Walk the samples in THIS half-edge's traversal
+            // direction: a borrowed (twin) curve runs opposite.
+            let n_s = 8;
+            for i in 0..n_s {
+                let f = i as f64 / n_s as f64;
+                let t = if own {
+                    t0 + (t1 - t0) * f
+                } else {
+                    t1 - (t1 - t0) * f
+                };
+                positions.push(c.geometry.point_at(t));
+            }
+        } else {
+            positions.push(origin_pos);
+        }
+    }
 
     // Check if all positions are coincident (self-loop structure).
     // If so, sample curve geometry to compute area.
