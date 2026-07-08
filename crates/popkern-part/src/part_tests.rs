@@ -924,16 +924,13 @@ fn bounded_cutter_corner_piercing_gap_is_pinned() {
     }
 }
 
-/// W2a companion pin: vertical tools bored into an 18° TILTED face —
-/// the holder's stacking mechanism. A star socket (12-segment ring
-/// island on the tilted plane) and a cylindrical counterbore (full
-/// ellipse ring; gives the next column a FLAT seat) both cut
-/// watertight into a rect wedge.
+/// W2a companion pin: a vertical STAR socket bored into an 18°
+/// TILTED face — the holder's peg mechanism. Asserted watertight AND
+/// χ-clean (V − E + 2F − L = 2): the mesh gate alone is insufficient
+/// for this family (see the membrane pins below — a phantom face can
+/// seal a pocket mouth and mesh "watertight").
 #[test]
-fn tilted_face_star_socket_and_counterbore_are_watertight() {
-    // Wedge with an 18-degree top (proven cut), then vertical tools
-    // bored into the tilted face: a star socket and a cylindrical
-    // counterbore (flat floor).
+fn tilted_face_star_socket_is_watertight_and_chi_clean() {
     let tilt = -18.0_f64.to_radians();
     let prism = Profile::on(Plane::XY)
         .rect(120.0, 120.0)
@@ -948,10 +945,6 @@ fn tilted_face_star_socket_and_counterbore_are_watertight() {
         .translate(0.0, 0.0, 45.0)
         .expect("lift");
     let wedge = prism.subtract(&slab).expect("wedge");
-    println!("wedge opens: {:?}", wedge.open_edge_count());
-
-    // Star socket bored vertically into the tilted top, 16 deep at
-    // the shallow side.
     let star = hexagram_points(12.0);
     let star_tool = Profile::on(Plane::xy_at(20.0))
         .polygon(&star)
@@ -961,16 +954,65 @@ fn tilted_face_star_socket_and_counterbore_are_watertight() {
         .expect("place");
     let socketed = wedge.subtract(&star_tool).expect("tilted star socket");
     assert_eq!(socketed.open_edge_count().expect("mesh"), 0);
+    let b = socketed.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "star socket body must be a clean genus-0 solid");
 
-    // Cylindrical counterbore into the tilted top (flat floor at 21).
+    // A SQUARE counterbore (polygon ring — the working class) is
+    // also χ-clean and gives the next column a flat seat: the round
+    // seat below is pinned as a membrane.
+    let seat_tool = Profile::on(Plane::xy_at(28.0))
+        .rect(76.0, 76.0)
+        .extrude(60.0)
+        .expect("seat");
+    let seated = wedge.subtract(&seat_tool).expect("square seat");
+    assert_eq!(seated.open_edge_count().expect("mesh"), 0);
+    let b = seated.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "square seat body must be a clean genus-0 solid");
+}
+
+/// FRONTIER PIN (flips when closed): a CIRCULAR counterbore into the
+/// tilted face — same membrane family as the perpendicular bore
+/// (circular rings on cylinder charts; the seam edge's shared pcurve
+/// breaks containment). The body meshes "watertight" but χ' = 4: the
+/// tilted top loses its ellipse inner loop and a phantom disk seals
+/// the mouth. This pin previously asserted the mesh gate only and
+/// BLESSED the membrane.
+#[test]
+fn tilted_counterbore_membrane_gap_is_pinned() {
+    let tilt = -18.0_f64.to_radians();
+    let prism = Profile::on(Plane::XY)
+        .rect(120.0, 120.0)
+        .extrude(60.0)
+        .expect("prism");
+    let slab = Profile::on(Plane::XY)
+        .rect(500.0, 500.0)
+        .extrude(160.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 45.0)
+        .expect("lift");
+    let wedge = prism.subtract(&slab).expect("wedge");
     let bore = Profile::on(Plane::xy_at(21.0))
         .circle(36.0)
         .extrude(60.0)
         .expect("bore")
         .translate(-25.0, 0.0, 0.0)
         .expect("place");
-    let bored = wedge.subtract(&bore).expect("tilted counterbore");
-    assert_eq!(bored.open_edge_count().expect("mesh"), 0);
+    let bored = wedge.subtract(&bore).expect("bore");
+    let b = bored.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_ne!(
+        chi, 2,
+        "tilted-counterbore membrane gap has closed (χ' = 2) — flip this \
+         pin to assert χ' == 2 and prefer the round seat over the square \
+         one in the holder deck (task #36)"
+    );
 }
 
 /// FRONTIER PIN (flips when closed): a PERPENDICULAR cylinder pocket
