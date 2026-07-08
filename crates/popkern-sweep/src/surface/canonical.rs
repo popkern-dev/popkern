@@ -221,7 +221,14 @@ pub(crate) fn recognize_extruded_plane(
         let offset = surface.point_at(0.0, v) - row0[0];
         for (i, p0) in row0.iter().enumerate() {
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
-            if ((p - *p0) - offset).length() > 1.0e-9 * (1.0 + len + offset.length()) {
+            // 1e-8: measured construction noise reaches ~1.5e-9
+            // RELATIVE across scales (133 mm and 127 mm walls both
+            // sit at the old 1e-9 envelope — source of the ~1e-9
+            // relative floor is an open question, PK-102), while
+            // genuine non-translational surfaces (lofts, scaled
+            // sweeps) deviate at ≥1e-3 relative. Five orders of
+            // margin on the unsafe side, 7× on the noise side.
+            if ((p - *p0) - offset).length() > 1.0e-8 * (1.0 + len + offset.length()) {
                 return None;
             }
         }

@@ -1134,3 +1134,181 @@ fn holder_deck_full_chain_is_watertight_and_chi_clean() {
         assert_eq!(chi(&part), 2, "lip socket χ at {x}");
     }
 }
+
+/// FRONTIER PIN (holder v2 cluster, flips when closed): the FLIPPED
+/// rest slope — rotate_x(+tilt), plane descending toward −y so the
+/// anti-slide lips sit at the arm tips — changes the configuration
+/// of every downstream boolean, and the square seat that is χ-clean
+/// on the −tilt slope breaks on +tilt (68 open edges, χ'=3). All
+/// tuned walker suites are −tilt; the +tilt family needs its own
+/// campaign before holder v2 (thin arms + dovetail lips) can build.
+#[test]
+fn flipped_slope_seat_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (44.0, -52.0),
+        (92.0, -142.0),
+        (92.0, -178.0),
+        (52.0, -178.0),
+        (0.0, -95.0),
+        (-52.0, -178.0),
+        (-92.0, -178.0),
+        (-92.0, -142.0),
+        (-44.0, -52.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(100.0)
+        .expect("deck");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 75.0)
+        .expect("lift");
+    let part = deck.subtract(&upper).expect("flipped rest plane");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0);
+    let seat = Profile::on(Plane::xy_at(40.0))
+        .rect(76.0, 76.0)
+        .extrude(60.0)
+        .expect("seat");
+    match part.subtract(&seat) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "flipped-slope seat gap has closed ({opens} opens) — flip \
+                 this pin and build holder v2 (thin arms + dovetail lips)"
+            );
+        }
+        Err(_) => {}
+    }
+}
+
+/// FRONTIER PIN (holder v2 cluster): subtracting a TOOL-SHAPED wedge
+/// (box pre-cut by the rest plane, vertical bounding walls) to thin
+/// the arms — the cutter's front face takes a three-segment ∏ of
+/// trims; the open-chain pre-pass now chains them (edge-aware chain
+/// ends), the split succeeds, and assembly fails downstream with an
+/// OpenLoop (a 2-half-edge inner loop plus direction-conflict
+/// duplicate mints in resolve). The next layer of the walker
+/// campaign.
+#[test]
+fn shaped_wedge_arm_thinning_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (44.0, -52.0),
+        (92.0, -142.0),
+        (92.0, -178.0),
+        (52.0, -178.0),
+        (0.0, -95.0),
+        (-52.0, -178.0),
+        (-92.0, -178.0),
+        (-92.0, -142.0),
+        (-44.0, -52.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(100.0)
+        .expect("deck");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 75.0)
+        .expect("lift");
+    let part = deck.subtract(&upper).expect("flipped rest plane");
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 129.0)
+        .at(0.0, -120.5)
+        .extrude(100.0)
+        .expect("box");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("slab2")
+        .rotate_x(tilt)
+        .expect("rot2")
+        .translate(0.0, 0.0, 62.0)
+        .expect("lift2");
+    let tool = lower_box.subtract(&p2).expect("shaped tool");
+    assert_eq!(tool.open_edge_count().expect("mesh"), 0);
+    match part.subtract(&tool) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "shaped-wedge thinning gap has closed ({opens} opens) — \
+                 flip this pin and thin holder v2's arms"
+            );
+        }
+        Err(_) => {}
+    }
+}
+
+/// FRONTIER PIN (holder v2 cluster): UNION of a rotated plate prism
+/// into a vertical block — the alternative arm construction (the
+/// plate's own bottom face is the designed underside). The union
+/// walk leaks 371 open edges. Related to (but simpler than) the
+/// pinned pre-filleted rotated lip union: all faces are planes here.
+#[test]
+fn rotated_plate_union_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut block_plan: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        block_plan.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    block_plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    let block = Profile::on(Plane::XY)
+        .polygon(&block_plan)
+        .extrude(95.0)
+        .expect("block");
+    let arm_plan: Vec<(f64, f64)> = vec![
+        (44.0, -40.0),
+        (92.0, -130.0),
+        (92.0, -170.0),
+        (52.0, -170.0),
+        (0.0, -90.0),
+        (-52.0, -170.0),
+        (-92.0, -170.0),
+        (-92.0, -130.0),
+        (-44.0, -40.0),
+    ];
+    let plate = Profile::on(Plane::XY)
+        .polygon(&arm_plan)
+        .extrude(20.0)
+        .expect("plate")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 62.0)
+        .expect("place");
+    match block.union(&plate) {
+        Ok(joined) => {
+            let opens = joined.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "rotated-plate union gap has closed ({opens} opens) — flip \
+                 this pin; holder v2's arms can build by union"
+            );
+        }
+        Err(_) => {}
+    }
+}

@@ -244,17 +244,24 @@ fn open_chain_pre_pass(
     let near = |a: &popkern_core::geometry::Point3, b: &popkern_core::geometry::Point3| {
         a.distance_to(b) < gate
     };
-    // A junction is "interior" when it sits on no boundary vertex of
-    // the face (mid-edge junctions are the T-junction pre-split's
-    // job, not ours). Snapshot the vertex positions up front — the
-    // face is mutated below.
-    let boundary_vertices: Vec<popkern_core::geometry::Point3> = {
+    // A junction is "interior" when it sits on no boundary VERTEX
+    // and no boundary EDGE of the face. Mid-edge chain ENDS are
+    // boundary-reaching — the split stage's T-junction pre-split
+    // mints their vertices (measured: a shaped cutter's face took a
+    // three-segment ∏ of trims whose outer ends landed mid-edge on
+    // its top edge; the vertex-only test called them interior and
+    // the chain was rejected, failing the whole boolean). Snapshot
+    // the boundary up front — the face is mutated below.
+    let boundary_segments: Vec<(
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+    )> = {
         let Some(face) = brep.faces.get(original_face) else {
             return Ok(chained);
         };
         let mut loops = vec![face.outer_loop];
         loops.extend(face.inner_loops.iter().copied());
-        let mut pts = Vec::new();
+        let mut segs = Vec::new();
         for lh in loops {
             let Some(loop_data) = brep.loops.get(lh) else {
                 continue;
@@ -262,17 +269,32 @@ fn open_chain_pre_pass(
             let start = loop_data.half_edge;
             let mut he = start;
             loop {
-                pts.push(brep.vertices[brep.half_edges[he].origin].position);
-                he = brep.half_edges[he].next;
+                let a = brep.vertices[brep.half_edges[he].origin].position;
+                let next = brep.half_edges[he].next;
+                let b = brep.vertices[brep.half_edges[next].origin].position;
+                segs.push((a, b));
+                he = next;
                 if he == start {
                     break;
                 }
             }
         }
-        pts
+        segs
     };
     let interior_point = |p: &popkern_core::geometry::Point3| -> bool {
-        !boundary_vertices.iter().any(|v| near(v, p))
+        !boundary_segments.iter().any(|(a, b)| {
+            if near(a, p) || near(b, p) {
+                return true;
+            }
+            let ab = *b - *a;
+            let len_sq = ab.length_squared();
+            if len_sq < 1e-24 {
+                return false;
+            }
+            let t = ((*p - *a).dot(&ab) / len_sq).clamp(0.0, 1.0);
+            let closest = *a + ab * t;
+            closest.distance_to(p) < gate
+        })
     };
 
     let mut used = vec![false; candidates.len()];
