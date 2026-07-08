@@ -25,24 +25,42 @@ impl ExportContext {
         let is_rational = nurbs.weights.iter().any(|&w| (w - 1.0).abs() > 1e-15);
 
         if is_rational {
+            // Rational curves must use the FULL Part-21 complex form
+            // with the complete supertype chain in alphabetical order
+            // and parameters distributed to their declaring partials
+            // (this is the form OpenCASCADE itself writes). The
+            // previous two-partial shorthand (all parameters on
+            // B_SPLINE_CURVE_WITH_KNOTS) is rejected by OCC's
+            // reader: every wire containing a rational curve was
+            // silently dropped on import, untrimming the faces and
+            // splitting sewn shells.
             let weights: Vec<Parameter> = nurbs.weights.iter().map(|&w| real(w)).collect();
             let id = self.alloc_id();
             self.entities
                 .push(crate::step::parser::types::EntityInstance {
                     id,
-                    type_name: "B_SPLINE_CURVE_WITH_KNOTS".into(),
-                    params: vec![
-                        str_param(""),
-                        int(nurbs.degree as i64),
-                        list(ctrl_pts),
-                        enum_("UNSPECIFIED"),
-                        bool_(false), // closed
-                        bool_(false), // self-intersect
-                        list(knot_mults),
-                        list(knot_vals),
-                        enum_("UNSPECIFIED"),
+                    type_name: "BOUNDED_CURVE".into(),
+                    params: vec![],
+                    complex_parts: vec![
+                        (
+                            "B_SPLINE_CURVE".into(),
+                            vec![
+                                int(nurbs.degree as i64),
+                                list(ctrl_pts),
+                                enum_("UNSPECIFIED"),
+                                bool_(false), // closed
+                                bool_(false), // self-intersect
+                            ],
+                        ),
+                        (
+                            "B_SPLINE_CURVE_WITH_KNOTS".into(),
+                            vec![list(knot_mults), list(knot_vals), enum_("UNSPECIFIED")],
+                        ),
+                        ("CURVE".into(), vec![]),
+                        ("GEOMETRIC_REPRESENTATION_ITEM".into(), vec![]),
+                        ("RATIONAL_B_SPLINE_CURVE".into(), vec![list(weights)]),
+                        ("REPRESENTATION_ITEM".into(), vec![str_param("")]),
                     ],
-                    complex_parts: vec![("RATIONAL_B_SPLINE_CURVE".into(), vec![list(weights)])],
                 });
             id
         } else {
@@ -223,10 +241,26 @@ mod tests {
         let id = ctx.export_curve(&curve);
         let entity = ctx.entities.iter().find(|e| e.id == id);
         assert!(entity.is_some());
-        assert_eq!(entity.unwrap().complex_parts.len(), 1);
+        // Standard Part-21 complex form: leading partial is
+        // BOUNDED_CURVE, followed by the full alphabetical supertype
+        // chain with parameters on their declaring partials.
+        let entity = entity.unwrap();
+        assert_eq!(entity.type_name, "BOUNDED_CURVE");
+        let names: Vec<&str> = entity
+            .complex_parts
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
         assert_eq!(
-            entity.unwrap().complex_parts[0].0,
-            "RATIONAL_B_SPLINE_CURVE"
+            names,
+            vec![
+                "B_SPLINE_CURVE",
+                "B_SPLINE_CURVE_WITH_KNOTS",
+                "CURVE",
+                "GEOMETRIC_REPRESENTATION_ITEM",
+                "RATIONAL_B_SPLINE_CURVE",
+                "REPRESENTATION_ITEM",
+            ]
         );
     }
 

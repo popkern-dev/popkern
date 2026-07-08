@@ -1544,14 +1544,15 @@ fn holder_v3_block_chain_is_watertight_and_chi_clean() {
     };
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;
-    let mut plan: Vec<(f64, f64)> = Vec::new();
-    for k in 0..=12 {
-        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
-        plan.push((hub_r * a.cos(), hub_r * a.sin()));
-    }
-    plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    let _ = hub_r;
+    // SMOOTH arc front — a true Cylinder wall from the mixed-path
+    // sketch API.
     let mut part = Profile::on(Plane::XY)
-        .polygon(&plan)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0)
+        .line_to(44.0, -56.0)
+        .close()
         .extrude(125.0)
         .expect("block");
     let upper = Profile::on(Plane::XY)
@@ -1742,18 +1743,18 @@ fn peg_double_pilot_gap_is_pinned() {
     }
 }
 
-//// FRONTIER PIN (smooth front, last stage): the ARM-SOCKET cut on
-/// the arc-fronted block. Wedge, seat, and both star sockets are now
-/// χ-clean on the smooth front (closed by: junction healing, real-
-/// curve edge-face hits, stored-curve adoption in assembly, and
-/// curve-true chord-split verification at both classify sites), but
-/// after the dovetail arm sockets the mesher's boundary-first pass
-/// bails on collinear u≈0 ring runs ("ring segment uncovered",
-/// zero-distance nearest point — a refinement livelock) and the
-/// legacy path cracks the cylinder wall (~556 opens). The block
-/// ships faceted until this flips.
+/// Smooth front, final stage: the ARM-SOCKET cuts on the arc-fronted
+/// block — watertight and χ-clean. Closed by: the conforming T-point
+/// split in the mesher's boundary-first refinement (midpoint
+/// bisection could never land ON a foreign ring point — livelock),
+/// chord synthesis for curveless edges + zero-length ring skips,
+/// degenerate-edge removal in cellular assembly, the geometric
+/// angular gate for cylinder ray hits, and dense curved-pcurve
+/// sampling with a dead-band in the outer-polygon ray gate (the
+/// ellipse-fronted top face was exempt from the gate and accepted a
+/// phantom 0.67 outside it).
 #[test]
-fn arc_block_arm_socket_gap_is_pinned() {
+fn arc_block_arm_sockets_are_watertight() {
     let tilt = 18.0_f64.to_radians();
     let mut part = Profile::on(Plane::XY)
         .path(58.0, 0.0)
@@ -1794,16 +1795,17 @@ fn arc_block_arm_socket_gap_is_pinned() {
         0,
         "down socket on arc"
     );
-    let tool = Profile::on(Plane::xy_at(20.0))
-        .polygon(&[(-6.0, -7.0), (6.0, -7.0), (9.0, 4.0), (-9.0, 4.0)])
-        .at(28.0, -50.0)
-        .extrude(110.0)
-        .expect("tool");
-    let cut = part.subtract(&tool).expect("arm socket");
-    let opens = cut.open_edge_count().expect("mesh");
-    assert!(
-        opens > 0,
-        "arc-block arm-socket gap has closed ({opens} opens) — flip this \
-         pin and give the shipping block its smooth front"
-    );
+    for side in [1.0_f64, -1.0] {
+        let tool = Profile::on(Plane::xy_at(20.0))
+            .polygon(&[(-6.0, -7.0), (6.0, -7.0), (9.0, 4.0), (-9.0, 4.0)])
+            .at(side * 28.0, -50.0)
+            .extrude(110.0)
+            .expect("tool");
+        part = part.subtract(&tool).expect("arm socket");
+        assert_eq!(part.open_edge_count().expect("mesh"), 0, "arm socket");
+        let b = part.brep();
+        let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+            - b.loops.len() as i64;
+        assert_eq!(chi, 2, "arm socket χ");
+    }
 }

@@ -283,6 +283,78 @@ fn ray_crossing_count(
                         surface,
                         popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
                     );
+                    // CYLINDER hits: accept only within the face's
+                    // EXACT angular span (vertex-derived, +tol). The
+                    // padded parameter window is solver headroom, and
+                    // rays passing BEHIND a partial arc wall "hit"
+                    // the phantom half of the cylinder (measured: an
+                    // arm-socket tool's discarded fragments sampled
+                    // near a 180° arc front classified Inside and the
+                    // assembly went non-manifold). Full closed rims
+                    // have degenerate vertex spans and keep the
+                    // padded behavior; FINAL bodies only, like the
+                    // plane gate below.
+                    if skip_hole_hits
+                        && let popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                            origin: cyl_origin,
+                            axis: cyl_axis,
+                            ..
+                        } = surface
+                    {
+                        // Parameter conventions differ between the
+                        // solver window and the stored chart, so gate
+                        // GEOMETRICALLY: the hit's 3D point (from the
+                        // ray, not the u/v) must fall within the
+                        // face's vertex-derived angular span in the
+                        // surface's own basis.
+                        let positions = brep.face_outer_loop_positions(*face_handle);
+                        if positions.len() >= 3 {
+                            let (perp1, perp2) =
+                                popkern_core::geometry::analytic_surfaces::orthonormal_basis(
+                                    *cyl_axis,
+                                );
+                            let ang = |p: &popkern_core::geometry::Point3| -> f64 {
+                                let d = *p - *cyl_origin;
+                                d.dot(&perp2).atan2(d.dot(&perp1))
+                            };
+                            let mut angs: Vec<f64> = positions.iter().map(&ang).collect();
+                            let spread = |a: &[f64]| -> (f64, f64) {
+                                let lo = a.iter().cloned().fold(f64::MAX, f64::min);
+                                let hi = a.iter().cloned().fold(f64::MIN, f64::max);
+                                (lo, hi)
+                            };
+                            let (mut lo, mut hi) = spread(&angs);
+                            if hi - lo > std::f64::consts::PI {
+                                // The span straddles the ±π cut —
+                                // shift negatives up and retry.
+                                for a in &mut angs {
+                                    if *a < 0.0 {
+                                        *a += std::f64::consts::TAU;
+                                    }
+                                }
+                                let s = spread(&angs);
+                                lo = s.0;
+                                hi = s.1;
+                            }
+                            let span = hi - lo;
+                            if span > 1.0e-6 && span <= std::f64::consts::PI + 1.0e-6 {
+                                let hit3d = *origin + *direction * *t;
+                                let mut ha = ang(&hit3d);
+                                if ha < lo - 1.0e-6 {
+                                    ha += std::f64::consts::TAU;
+                                }
+                                let margin = 1.0e-6;
+                                if ha < lo - margin || ha > hi + margin {
+                                    if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                        eprintln!(
+                                            "  [ray-rej-cyl] {face_handle:?} ang={ha:.3} span=[{lo:.3},{hi:.3}]"
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     // A hit OUTSIDE the face's outer pcurve polygon is
                     // not on the face at all — the padded parameter box
                     // is a solver window, not a trim (measured: a ray
@@ -310,6 +382,13 @@ fn ray_crossing_count(
                         && hit_inside_inner_loop(brep, *face_handle, *u, *v)
                     {
                         continue;
+                    }
+                    if std::env::var_os("PK_RAY_ACC").is_some() {
+                        let h = *origin + *direction * *t;
+                        eprintln!(
+                            "  [ray-acc] {face_handle:?} t={t:.2} hit=({:.2},{:.2},{:.2})",
+                            h.x, h.y, h.z
+                        );
                     }
                     // Transversal crossing.
                     count += 1;
@@ -377,15 +456,17 @@ fn uv_point_in_loop(
 }
 
 /// True when the surface hit at `(u, v)` lands inside the face's
-/// OUTER pcurve polygon. The verdict is only trusted when the outer
-/// ring is COMPLETE (every half-edge carries a pcurve) and every
-/// pcurve is LINEAR — then the polygon is exact. Curved rims
-/// (cylinder-cap circles) sampled as coarse polygons misjudge hits
-/// within the sagitta band (measured: 2.7 mm at r = 35, breaking
-/// star-socket-in-cap bodies with 427 open edges), and partial
-/// rings mid-pipeline produce arbitrary polygons — both return
-/// `true` (no verdict — keep the hit; the parameter box remains the
-/// proxy).
+/// OUTER pcurve polygon. The verdict is trusted when the outer ring
+/// is COMPLETE (every half-edge carries a pcurve). Linear pcurves
+/// contribute their exact endpoints; CURVED pcurves are sampled
+/// densely (64 stations — sagitta ≲ 0.2% of the span), and hits
+/// within a dead-band of the polygon boundary abstain (keep the
+/// hit) so sampling error can never reject a rim-grazing crossing
+/// (measured: an 8-station circle misjudged a 2.7 mm band at r=35
+/// and broke star-socket caps). A hit clearly outside — like the
+/// 0.67-off phantom on an ellipse-fronted top face that flipped a
+/// tool fragment to Inside — is rejected. Partial rings
+/// mid-pipeline still abstain entirely.
 fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
         return true;
@@ -401,6 +482,7 @@ fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool 
     // orientation-aware: a stored pcurve may run against the loop
     // traversal (twin-shared spans), so each segment is flipped to
     // continue from the previous tail.
+    let mut has_curved = false;
     let mut segs: Vec<((f64, f64), (f64, f64))> = Vec::new();
     let mut he = start;
     let cap = brep.half_edges.len() + 1;
@@ -414,13 +496,23 @@ fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool 
             popkern_core::geometry::pcurve::PcurveGeometry::Nurbs(c) => c.degree == 1,
             _ => false,
         };
-        if !linear_content {
-            return true; // curved rim — polygon sampling unreliable
-        }
         let (t0, t1) = pc.parameter_range();
-        let p0 = pc.point_at(t0);
-        let p1 = pc.point_at(t1);
-        segs.push(((p0.x, p0.y), (p1.x, p1.y)));
+        if linear_content {
+            let p0 = pc.point_at(t0);
+            let p1 = pc.point_at(t1);
+            segs.push(((p0.x, p0.y), (p1.x, p1.y)));
+        } else {
+            has_curved = true;
+            // Curved pcurve: densify into chained sub-segments.
+            let n = 64;
+            let mut prev = pc.point_at(t0);
+            for i in 1..=n {
+                let t = t0 + (t1 - t0) * i as f64 / n as f64;
+                let q = pc.point_at(t);
+                segs.push(((prev.x, prev.y), (q.x, q.y)));
+                prev = q;
+            }
+        }
         he = d.next;
         if he == start {
             break;
@@ -456,8 +548,40 @@ fn hit_inside_outer_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool 
         }
     }
     let _ = first_tail;
-    let mut crossings = 0;
+    // Dead-band: within sampling error of the boundary, abstain
+    // (keep the hit) — the polygon is approximate for curved rims.
     let n = ring.len();
+    let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for &(x, y) in &ring {
+        lo_u = lo_u.min(x);
+        hi_u = hi_u.max(x);
+        lo_v = lo_v.min(y);
+        hi_v = hi_v.max(y);
+    }
+    // The dead-band exists for SAMPLING error only: linear rings are
+    // exact and get none (a 1 mm band on an exact ring re-admitted
+    // the very phantoms the gate exists to reject).
+    let band = if has_curved {
+        0.002 * ((hi_u - lo_u) + (hi_v - lo_v)).max(1e-9)
+    } else {
+        0.0
+    };
+    if band > 0.0 {
+        let mut min_d = f64::MAX;
+        for i in 0..n {
+            let (x0, y0) = ring[i];
+            let (x1, y1) = ring[(i + 1) % n];
+            let (dx, dy) = (x1 - x0, y1 - y0);
+            let l2 = (dx * dx + dy * dy).max(1e-300);
+            let t = (((u - x0) * dx + (v - y0) * dy) / l2).clamp(0.0, 1.0);
+            let d = ((u - x0 - dx * t).powi(2) + (v - y0 - dy * t).powi(2)).sqrt();
+            min_d = min_d.min(d);
+        }
+        if min_d < band {
+            return true;
+        }
+    }
+    let mut crossings = 0;
     for i in 0..n {
         let (x0, y0) = ring[i];
         let (x1, y1) = ring[(i + 1) % n];

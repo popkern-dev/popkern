@@ -44,6 +44,24 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
     let mut map = HashMap::new();
     for (eh, edge) in brep.edges.iter() {
         let Some(curve) = edge.curve.as_ref() else {
+            // Curveless edge: synthesize vertex-chord samples so the
+            // ring builder doesn't bail (a boolean can leave
+            // degenerate zero-length curveless edges at discarded
+            // tool corners; a missing entry made every face touching
+            // one fall back to the cracking legacy path). Zero-length
+            // edges get NO entry — the ring builder skips them.
+            let he = &brep.half_edges[edge.half_edge];
+            let va = brep.vertices[he.origin].position;
+            let vb = brep.vertices[brep.half_edges[he.twin].origin].position;
+            if va.distance_to(&vb) > 1.0e-9 {
+                map.insert(
+                    eh,
+                    EdgeSamples {
+                        fractions: vec![0.0, 1.0],
+                        points: vec![va, vb],
+                    },
+                );
+            }
             continue;
         };
         if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
@@ -478,23 +496,26 @@ pub(crate) fn tessellate_face_boundary_first(
             let b = start + (k + 1) % m;
             if !edge_set.contains(&(a.min(b), a.max(b))) {
                 uncovered = true;
+                // Nearest OTHER point to the segment: the encroacher
+                // (or a T-point) that displaced it from the Delaunay.
+                let (pa, pb) = (uv_pts[a], uv_pts[b]);
+                let seg_proj = |p: (f64, f64)| -> (f64, f64) {
+                    let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
+                    let l2 = (dx * dx + dy * dy).max(1e-300);
+                    let t = (((p.0 - pa.0) * dx + (p.1 - pa.1) * dy) / l2).clamp(0.0, 1.0);
+                    let d = ((p.0 - pa.0 - dx * t).powi(2) + (p.1 - pa.1 - dy * t).powi(2)).sqrt();
+                    (d, t)
+                };
+                let nearest = uv_pts
+                    .iter()
+                    .enumerate()
+                    .filter(|(i, _)| *i != a && *i != b)
+                    .map(|(i, &p)| {
+                        let (d, t) = seg_proj(p);
+                        (i, d, t)
+                    })
+                    .min_by(|x, y| x.1.partial_cmp(&y.1).unwrap_or(std::cmp::Ordering::Equal));
                 if std::env::var_os("PK_BF_TRACE").is_some() {
-                    // Nearest OTHER point to the segment: the
-                    // encroacher (or a duplicate) that displaced it
-                    // from the Delaunay.
-                    let (pa, pb) = (uv_pts[a], uv_pts[b]);
-                    let seg_d = |p: (f64, f64)| {
-                        let (dx, dy) = (pb.0 - pa.0, pb.1 - pa.1);
-                        let l2 = (dx * dx + dy * dy).max(1e-300);
-                        let t = (((p.0 - pa.0) * dx + (p.1 - pa.1) * dy) / l2).clamp(0.0, 1.0);
-                        ((p.0 - pa.0 - dx * t).powi(2) + (p.1 - pa.1 - dy * t).powi(2)).sqrt()
-                    };
-                    let nearest = uv_pts
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| *i != a && *i != b)
-                        .map(|(i, &p)| (i, seg_d(p)))
-                        .min_by(|x, y| x.1.partial_cmp(&y.1).unwrap_or(std::cmp::Ordering::Equal));
                     eprintln!("    [bf] span: a={:?}", sources.get(a));
                     eprintln!(
                         "    [bf] ring segment {a}-{b} uncovered at uv ({:.4},{:.4})-({:.4},{:.4}) nearest pt {:?} d={:.4} uv=({:.4},{:.4})",
@@ -502,17 +523,35 @@ pub(crate) fn tessellate_face_boundary_first(
                         pa.1,
                         pb.0,
                         pb.1,
-                        nearest.map(|(i, _)| i),
-                        nearest.map(|(_, d)| d).unwrap_or(f64::NAN),
-                        nearest.map(|(i, _)| uv_pts[i].0).unwrap_or(f64::NAN),
-                        nearest.map(|(i, _)| uv_pts[i].1).unwrap_or(f64::NAN),
+                        nearest.map(|(i, _, _)| i),
+                        nearest.map(|(_, d, _)| d).unwrap_or(f64::NAN),
+                        nearest.map(|(i, _, _)| uv_pts[i].0).unwrap_or(f64::NAN),
+                        nearest.map(|(i, _, _)| uv_pts[i].1).unwrap_or(f64::NAN),
                     );
                 }
-                // Encroachment refinement: split the canonical span
-                // the segment STARTING at `a` traverses (recorded
-                // walk-direction-correct in build_ring).
+                // Refinement. A T-POINT (a foreign ring point lying
+                // ON the segment) can never be resolved by midpoint
+                // bisection — the point stays interior to some
+                // sub-segment forever (measured livelock: an arm
+                // socket's ring point at v=12 on a full-height
+                // straight run). CONFORM instead: split the
+                // canonical span at the T-point's own projection
+                // parameter, so both incident faces gain a sample AT
+                // the point and the sub-segments become coverable.
+                // Genuine encroachers (off-segment) keep the
+                // Ruppert-style midpoint split.
                 let (ea, f_lo, f_hi) = sources[a];
-                split_requests.push((ea, 0.5 * (f_lo + f_hi)));
+                let seg_len = ((pb.0 - pa.0).powi(2) + (pb.1 - pa.1).powi(2)).sqrt();
+                let conforming = nearest
+                    .filter(|(_, d, t)| {
+                        *d < 1e-6 * seg_len.max(1.0) && *t > 1e-6 && *t < 1.0 - 1e-6
+                    })
+                    .map(|(_, _, t)| t);
+                let f = match conforming {
+                    Some(t) => f_lo + (f_hi - f_lo) * t,
+                    None => 0.5 * (f_lo + f_hi),
+                };
+                split_requests.push((ea, f));
             }
         }
     }
@@ -573,6 +612,21 @@ fn build_ring(
     for _ in 0..10_000 {
         let data = &brep.half_edges[he];
         let eh = data.edge;
+        // ZERO-LENGTH edges (degenerate boolean residue at discarded
+        // tool corners) contribute nothing to the ring: skip them
+        // entirely rather than bailing the whole face to the legacy
+        // path.
+        {
+            let va = brep.vertices[data.origin].position;
+            let vb = brep.vertices[brep.half_edges[data.twin].origin].position;
+            if va.distance_to(&vb) < 1.0e-9 && !edge_samples.contains_key(&eh) {
+                he = data.next;
+                if he == start {
+                    break;
+                }
+                continue;
+            }
+        }
         let Some(pc) = data.pcurve.as_ref() else {
             if std::env::var_os("PK_BF_TRACE").is_some() {
                 eprintln!("    [bf] edge {eh:?}: missing pcurve");

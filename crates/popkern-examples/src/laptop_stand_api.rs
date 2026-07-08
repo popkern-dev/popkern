@@ -239,10 +239,10 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
 /// what restores stacking clearance (the laptop tops out short of
 /// the seat). Chain pinned by
 /// `holder_v3_block_chain_is_watertight_and_chi_clean`.
-/// Smooth arc front: wedge/seat/star-socket stages are all χ-clean
-/// on it (arc_front_wedge_is_watertight); the arm-socket stage is
-/// the last blocker (arc_block_arm_socket_gap_is_pinned) — faceted
-/// ships meanwhile.
+/// The front is a SMOOTH ARC — a true Cylinder wall from the
+/// mixed-path sketch API. Booleans pinned χ-clean
+/// (arc_block_arm_sockets_are_watertight); the rational-curve STEP
+/// export uses the standard Part-21 complex form (OCC-verified).
 fn build_block(p: &StandParams) -> Result<Part, PartError> {
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;
@@ -250,15 +250,18 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
     let seat_floor = 70.0;
     let socket_star = hexagram(p.star_r, 0.0);
 
-    let mut plan: Vec<(f64, f64)> = Vec::new();
-    for k in 0..=12 {
-        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
-        plan.push((hub_r * a.cos(), hub_r * a.sin()));
-    }
-    plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    let _ = hub_r;
     p.assert_fits_plate("block", 116.0, 114.0);
 
-    let block = Profile::on(Plane::XY).polygon(&plan).extrude(125.0)?;
+    // SMOOTH arc front — one arc segment in the sketch, extruded to
+    // a true Cylinder wall.
+    let block = Profile::on(Plane::XY)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0)
+        .line_to(44.0, -56.0)
+        .close()
+        .extrude(125.0)?;
     let upper = Profile::on(Plane::XY)
         .rect(600.0, 600.0)
         .extrude(200.0)?

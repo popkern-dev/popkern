@@ -104,7 +104,42 @@ pub(crate) fn cellular_assemble(
     // follows the MIN graph half-edge's direction.
     let mut edge_he_map: HashMap<usize, (HalfEdgeHandle, HalfEdgeHandle)> = HashMap::new();
 
+    // DEGENERATE edges — coincident endpoint nodes with no curve on
+    // either half (a genuine closed rim carries its circle) — are
+    // boolean residue at discarded tool corners. Creating them left
+    // zero-length curveless edges in the output (χ' drifted to 1 and
+    // the mesher choked); skip creation and splice them out of the
+    // fragment loops below.
+    let is_degenerate_key = |key: usize| -> bool {
+        let na = graph.half_edges[key].origin;
+        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
+        if graph.nodes[na]
+            .position
+            .distance_to(&graph.nodes[nb].position)
+            >= 1.0e-9
+        {
+            return false;
+        }
+        // Coincident endpoints: a genuine closed rim (circle) has a
+        // curve with real extent — sample its midpoint. A degenerate
+        // stub's curve stays at the point.
+        let curve = graph.half_edges[key]
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref());
+        match curve {
+            None => true,
+            Some(c) => {
+                use popkern_core::geometry::curve::CurveEval;
+                let pm = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                pm.distance_to(&graph.nodes[na].position) < 1.0e-9
+            }
+        }
+    };
     for (&key, &sample_ghe) in &canonical_edges {
+        if is_degenerate_key(key) {
+            continue;
+        }
         let na = graph.half_edges[key].origin;
         let nb = graph.half_edges[graph.half_edges[key].twin].origin;
         let vh_a = node_to_vertex[&na];
@@ -246,6 +281,17 @@ pub(crate) fn cellular_assemble(
                                 flip: bool,
                                 builder: &mut BRepBuilder|
          -> Vec<HalfEdgeHandle> {
+            // Splice out degenerate zero-length hes (their edges were
+            // never created).
+            let filtered: Vec<usize> = raw_hes
+                .iter()
+                .copied()
+                .filter(|&ghe| {
+                    let twin = graph.half_edges[ghe].twin;
+                    !is_degenerate_key(ghe.min(twin))
+                })
+                .collect();
+            let raw_hes: &[usize] = &filtered;
             // Dry-run: would the straight mapping conflict with
             // already-wired half-edges? A loop whose directions were
             // consumed by other fragments (the walker may hand a face
