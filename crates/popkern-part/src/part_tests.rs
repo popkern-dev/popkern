@@ -573,16 +573,16 @@ fn double_socket_column_is_watertight() {
     );
 }
 
-/// FRONTIER PIN (W3, advanced): union of two COAXIAL star prisms
-/// (the peg's stepped pilot tips). The Bishop-frame seed fix removed
-/// the 90°-flipped inner prism (the old OpenLoop/non-manifold
-/// failure was walls genuinely crossing); the union is now
-/// WATERTIGHT but χ' = 4 — a membrane-class internal face survives
-/// (the pilot's buried cap region). Flips to a full χ assert when
-/// the membrane family closes. Until then the peg ships as a plain
-/// prism (containment in laptop_stand_api.rs).
+/// FRONTIER PIN (W3): union of two COAXIAL star prisms (the peg's
+/// stepped pilot tips). History: OpenLoop (Bishop-frame flip, fixed)
+/// → watertight-but-χ'=4 (records dropped by the `1 crossing ⇒
+/// Outside` clip arm — accidental) → with the odd-crossing
+/// containment fix the REAL pilot-wall × body-cap trims are now
+/// kept and the assembly of the coaxial star-in-star ring is the
+/// honest frontier (~120 open edges). The peg ships as a plain
+/// prism until this closes.
 #[test]
-fn star_boss_union_membrane_is_pinned() {
+fn star_boss_union_gap_is_pinned() {
     let body_star = hexagram_points(11.8);
     let pilot_star = hexagram_points(11.2);
     let body = Profile::on(Plane::xy_at(2.0))
@@ -594,20 +594,12 @@ fn star_boss_union_membrane_is_pinned() {
         .extrude(6.0)
         .expect("pilot");
     let peg = body.union(&pilot).expect("pilot union");
-    assert_eq!(
-        peg.open_edge_count().expect("mesh"),
-        0,
-        "watertightness regressed — the frame-seed fix held this"
+    let opens = peg.open_edge_count().expect("mesh");
+    assert!(
+        opens > 0,
+        "star-boss union gap has closed ({opens} opens) — flip this pin \
+         and restore the peg's stepped pilot tips (laptop_stand_api.rs)"
     );
-    let b = peg.brep();
-    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
-        - b.loops.len() as i64;
-    assert_ne!(
-        chi, 2,
-        "star-boss union χ has closed — flip this pin to a χ assert and \
-         restore the peg's stepped pilot tips (laptop_stand_api.rs)"
-    );
-    assert_eq!(chi, 4, "membrane signature drifted — re-diagnose");
 }
 
 /// Union of a cylinder boss onto a REFLEX polygon plate — watertight
@@ -1135,15 +1127,14 @@ fn holder_deck_full_chain_is_watertight_and_chi_clean() {
     }
 }
 
-/// FRONTIER PIN (holder v2 cluster, flips when closed): the FLIPPED
-/// rest slope — rotate_x(+tilt), plane descending toward −y so the
-/// anti-slide lips sit at the arm tips — changes the configuration
-/// of every downstream boolean, and the square seat that is χ-clean
-/// on the −tilt slope breaks on +tilt (68 open edges, χ'=3). All
-/// tuned walker suites are −tilt; the +tilt family needs its own
-/// campaign before holder v2 (thin arms + dovetail lips) can build.
+/// Holder v2: the FLIPPED rest slope (rotate_x(+tilt), lips at the
+/// arm tips) with the square seat — watertight. Closed by the
+/// odd-crossing containment fix in the UV clip: the seat tool's
+/// padded box pre-truncated its x-wall trims mid-face, the single
+/// surviving boundary crossing hit the `1 => None` arm, and two of
+/// the four ring records were dropped as Outside.
 #[test]
-fn flipped_slope_seat_gap_is_pinned() {
+fn flipped_slope_seat_is_watertight() {
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;
     let mut outline: Vec<(f64, f64)> = Vec::new();
@@ -1180,17 +1171,12 @@ fn flipped_slope_seat_gap_is_pinned() {
         .rect(76.0, 76.0)
         .extrude(60.0)
         .expect("seat");
-    match part.subtract(&seat) {
-        Ok(cut) => {
-            let opens = cut.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "flipped-slope seat gap has closed ({opens} opens) — flip \
-                 this pin and build holder v2 (thin arms + dovetail lips)"
-            );
-        }
-        Err(_) => {}
-    }
+    let cut = part.subtract(&seat).expect("flipped seat");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+    let b = cut.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "flipped-slope seat must be a clean genus-0 solid");
 }
 
 /// FRONTIER PIN (holder v2 cluster): subtracting a TOOL-SHAPED wedge
@@ -1262,13 +1248,12 @@ fn shaped_wedge_arm_thinning_gap_is_pinned() {
     }
 }
 
-/// FRONTIER PIN (holder v2 cluster): UNION of a rotated plate prism
-/// into a vertical block — the alternative arm construction (the
-/// plate's own bottom face is the designed underside). The union
-/// walk leaks 371 open edges. Related to (but simpler than) the
-/// pinned pre-filleted rotated lip union: all faces are planes here.
+/// Holder v2: UNION of a rotated plate prism into a vertical block —
+/// the arm construction (the plate's own bottom face is the designed
+/// underside) — watertight. Closed by the same odd-crossing
+/// containment fix (box-truncated trims ending mid-face).
 #[test]
-fn rotated_plate_union_gap_is_pinned() {
+fn rotated_plate_union_is_watertight() {
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;
     let mut block_plan: Vec<(f64, f64)> = Vec::new();
@@ -1300,13 +1285,175 @@ fn rotated_plate_union_gap_is_pinned() {
         .expect("rot")
         .translate(0.0, 0.0, 62.0)
         .expect("place");
-    match block.union(&plate) {
-        Ok(joined) => {
-            let opens = joined.open_edge_count().expect("mesh");
+    let joined = block.union(&plate).expect("plate union");
+    assert_eq!(joined.open_edge_count().expect("mesh"), 0);
+    let b = joined.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "plate union must be a clean genus-0 solid");
+}
+
+#[test]
+fn probe_tilt_chart_consistency() {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (44.0, -52.0),
+        (92.0, -142.0),
+        (92.0, -178.0),
+        (52.0, -178.0),
+        (0.0, -95.0),
+        (-52.0, -178.0),
+        (-92.0, -178.0),
+        (-92.0, -142.0),
+        (-44.0, -52.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(100.0)
+        .expect("deck");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 75.0)
+        .expect("lift");
+    let part = deck.subtract(&upper).expect("cut");
+    let brep = part.brep();
+    for (fh, f) in brep.faces.iter() {
+        let Some(sf) = f.surface.as_ref() else {
+            continue;
+        };
+        let SurfaceGeometry::Plane { origin, normal, .. } = &sf.geometry else {
+            continue;
+        };
+        // find the TILTED top: normal not axis-aligned
+        if normal.z.abs() > 0.99 || normal.z.abs() < 0.01 {
+            continue;
+        }
+        println!(
+            "tilted face {fh:?}: origin=({:.1},{:.1},{:.1}) n=({:.2},{:.2},{:.2})",
+            origin.x, origin.y, origin.z, normal.x, normal.y, normal.z
+        );
+        // walk its outer loop: compare pcurve-eval vs vertex positions
+        let loop_data = &brep.loops[f.outer_loop];
+        let start = loop_data.half_edge;
+        let mut he = start;
+        let mut worst = 0.0_f64;
+        let mut missing = 0;
+        loop {
+            let d = &brep.half_edges[he];
+            let vpos = brep.vertices[d.origin].position;
+            if let Some(pc) = d.pcurve.as_ref() {
+                use popkern_core::geometry::curve::CurveEval as _;
+                let (t0, _t1) = pc.parameter_range();
+                let uv = pc.point_at(t0);
+                let p3 = sf.geometry.point_at(uv.x, uv.y);
+                worst = worst.max(p3.distance_to(&vpos));
+            } else {
+                missing += 1;
+            }
+            he = d.next;
+            if he == start {
+                break;
+            }
+        }
+        println!("  boundary pcurve worst 3D mismatch: {worst:.3} (missing {missing})");
+        if let SurfaceGeometry::Plane {
+            origin,
+            u_axis,
+            v_axis,
+            ..
+        } = &sf.geometry
+        {
+            println!(
+                "  u_axis=({:.3},{:.3},{:.3}) v_axis=({:.3},{:.3},{:.3})",
+                u_axis.x, u_axis.y, u_axis.z, v_axis.x, v_axis.y, v_axis.z
+            );
+            // Project the 3D point (-38, -60, plane_z) with the analytic map.
+            let zp = 75.0 - 60.0 * (18.0_f64.to_radians()).tan();
+            let pt = popkern_core::geometry::Point3::new(-38.0, -60.0, zp);
+            let d = pt - *origin;
+            println!(
+                "  analytic uv of (-38,-60,{zp:.1}) = ({:.2},{:.2})",
+                d.dot(u_axis),
+                d.dot(v_axis)
+            );
+        }
+    }
+}
+
+/// FRONTIER PIN (holder v2, the remaining blocker): the rest-plane
+/// wedge cut on the UNION-BUILT body (block ∪ rotated arm plate —
+/// both now watertight). The wedge's trim ring crosses the two
+/// REFLEX block/plate junction walls, and the walk takes the trim
+/// in one direction but leaves its other direction unused (the
+/// junction candidates dead-end after the boundary loop consumes
+/// them): both wall regions merge into one 10-half-edge fragment
+/// carrying removed-region geometry — 505 open edges, χ' = −17.
+/// This is the walk-convention design fork made concrete: the
+/// planar junction pick must be made convention-true rather than
+/// candidate-order-lucky. Re-measured 2026-07-08: replacing the
+/// planar normal fallback (chart or oriented, scoped reflex-only or
+/// global) does not close it and globally breaks seven tuned suites.
+#[test]
+fn wedge_on_union_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut block_plan: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        block_plan.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    block_plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    let block = Profile::on(Plane::XY)
+        .polygon(&block_plan)
+        .extrude(95.0)
+        .expect("block");
+    let arm_plan: Vec<(f64, f64)> = vec![
+        (44.0, -40.0),
+        (92.0, -130.0),
+        (92.0, -170.0),
+        (52.0, -170.0),
+        (0.0, -90.0),
+        (-52.0, -170.0),
+        (-92.0, -170.0),
+        (-92.0, -130.0),
+        (-44.0, -40.0),
+    ];
+    let plate = Profile::on(Plane::XY)
+        .polygon(&arm_plan)
+        .extrude(20.0)
+        .expect("plate")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 62.0)
+        .expect("place");
+    let joined = block.union(&plate).expect("union");
+    assert_eq!(joined.open_edge_count().expect("mesh"), 0, "union stage");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 75.0)
+        .expect("lift");
+    match joined.subtract(&upper) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
             assert!(
                 opens > 0,
-                "rotated-plate union gap has closed ({opens} opens) — flip \
-                 this pin; holder v2's arms can build by union"
+                "wedge-on-union gap has closed ({opens} opens) — flip this \
+                 pin and build holder v2 end to end"
             );
         }
         Err(_) => {}

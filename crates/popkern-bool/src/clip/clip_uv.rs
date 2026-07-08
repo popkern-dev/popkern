@@ -259,9 +259,44 @@ fn uv_clip_one_face(
     curve_uv: &NurbsCurve,
     is_closed: bool,
 ) -> UvClipResult {
+    let trace = std::env::var_os("PK_CLIP_TRACE").is_some();
     match find_uv_crossings(brep, face, curve_uv, &brep.tolerance) {
         None => UvClipResult::NoPcurves,
         Some(crossings) if crossings.is_empty() => {
+            if trace {
+                use popkern_core::geometry::curve::CurveEval;
+                let (t0, t1) = curve_uv.parameter_range();
+                let mid = curve_uv.point_at(0.5 * (t0 + t1));
+                let p0 = curve_uv.point_at(t0);
+                let p1 = curve_uv.point_at(t1);
+                eprintln!(
+                    "    [uvclip-zero] {face:?} uv ({:.1},{:.1})->({:.1},{:.1}) mid=({:.1},{:.1}) inside={}",
+                    p0.x,
+                    p0.y,
+                    p1.x,
+                    p1.y,
+                    mid.x,
+                    mid.y,
+                    crate::split_inner_loop::point_inside_face_uv(brep, face, mid, &brep.tolerance)
+                );
+                let ring = crate::clip::face_uv_boundary(brep, face);
+                let mut lo = (f64::MAX, f64::MAX);
+                let mut hi = (f64::MIN, f64::MIN);
+                let mut n = 0;
+                for (_, pc) in ring.iter().flatten() {
+                    let (a, b) = pc.parameter_range();
+                    for i in 0..4 {
+                        let q = pc.point_at(a + (b - a) * i as f64 / 3.0);
+                        lo = (lo.0.min(q.x), lo.1.min(q.y));
+                        hi = (hi.0.max(q.x), hi.1.max(q.y));
+                        n += 1;
+                    }
+                }
+                eprintln!(
+                    "    [uvclip-zero] {face:?} boundary uv-bbox ({:.1},{:.1})..({:.1},{:.1}) from {n} samples",
+                    lo.0, lo.1, hi.0, hi.1
+                );
+            }
             // ZERO boundary crossings is ambiguous: the curve lies
             // entirely inside the face OR entirely outside it. The
             // historical rules — open ⇒ Outside, closed ⇒ inside —
@@ -279,6 +314,51 @@ fn uv_clip_one_face(
                 UvClipResult::Outside
             }
         }
+        Some(crossings) if crossings.len() == 1 && !is_closed => {
+            // ONE boundary crossing: the curve END lies inside the
+            // face — the input was pre-truncated by a padded
+            // parameter box, so the in-face span is bounded by the
+            // curve end, not by a second crossing (measured: a seat
+            // tool wall's trim on a flipped-slope deck top was
+            // truncated mid-face by the tool's own padded box; the
+            // single surviving crossing hit the `1 => None` arm and
+            // a REAL ring record was dropped as Outside). Decide
+            // which side is inside by endpoint containment.
+            use popkern_core::geometry::curve::CurveEval;
+            let t_cross = crossings[0].t_curve;
+            let (t_min, t_max) = curve_uv.parameter_range();
+            let span = (t_max - t_min).max(1e-12);
+            let inset = span * 1e-3;
+            let start_in = crate::split_inner_loop::point_inside_face_uv(
+                brep,
+                face,
+                curve_uv.point_at(t_min + inset),
+                &brep.tolerance,
+            );
+            let end_in = crate::split_inner_loop::point_inside_face_uv(
+                brep,
+                face,
+                curve_uv.point_at(t_max - inset),
+                &brep.tolerance,
+            );
+            if trace {
+                use popkern_core::geometry::curve::CurveEval as _;
+                let p0 = curve_uv.point_at(t_min + inset);
+                let p1 = curve_uv.point_at(t_max - inset);
+                eprintln!(
+                    "    [uvclip-1x] {face:?} t_cross={t_cross:.2} start=({:.2},{:.2})in={start_in} end=({:.2},{:.2})in={end_in}",
+                    p0.x, p0.y, p1.x, p1.y
+                );
+            }
+            match (start_in, end_in) {
+                (true, false) => UvClipResult::Range(t_min, t_cross),
+                (false, true) => UvClipResult::Range(t_cross, t_max),
+                (false, false) => UvClipResult::Outside,
+                // Both inside with one crossing = a numeric graze of
+                // the boundary; keep the whole curve.
+                (true, true) => UvClipResult::Range(t_min, t_max),
+            }
+        }
         Some(crossings) => match uv_range_from_crossings(&crossings, curve_uv, is_closed) {
             Some((t_enter, t_exit)) => UvClipResult::Range(t_enter, t_exit),
             None => UvClipResult::Outside,
@@ -293,6 +373,19 @@ pub(crate) fn clip_curve_uv_space(
     face_b: FaceHandle,
     curve: &CurveOnSurface,
 ) -> Option<CurveOnSurface> {
+    if std::env::var_os("PK_CLIP_TRACE").is_some() {
+        use popkern_core::geometry::curve::CurveEval;
+        let (a3, b3) = curve.curve_3d.parameter_range();
+        let (a1, b1) = curve.curve_uv1.parameter_range();
+        let p3a = curve.curve_3d.point_at(a3);
+        let p3b = curve.curve_3d.point_at(b3);
+        let p1a = curve.curve_uv1.point_at(a1);
+        let p1b = curve.curve_uv1.point_at(b1);
+        eprintln!(
+            "    [uvspace] {face_a:?}x{face_b:?} 3d t[{a3:.1},{b3:.1}] ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1}) | uv1 t[{a1:.1},{b1:.1}] ({:.1},{:.1})->({:.1},{:.1})",
+            p3a.x, p3a.y, p3a.z, p3b.x, p3b.y, p3b.z, p1a.x, p1a.y, p1b.x, p1b.y
+        );
+    }
     let clip_a = uv_clip_one_face(brep_a, face_a, &curve.curve_uv1, curve.is_closed);
     let clip_b = uv_clip_one_face(brep_b, face_b, &curve.curve_uv2, curve.is_closed);
 

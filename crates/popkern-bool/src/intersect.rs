@@ -254,6 +254,15 @@ pub(crate) fn find_intersections_with_aabbs(
                 kind(surf_a),
                 kind(surf_b)
             );
+            if let popkern_core::geometry::surface::SurfaceGeometry::Plane {
+                u_axis, v_axis, ..
+            } = surf_a
+            {
+                eprintln!(
+                    "    [pair-axes] A ua=({:.2},{:.2},{:.2}) va=({:.2},{:.2},{:.2})",
+                    u_axis.x, u_axis.y, u_axis.z, v_axis.x, v_axis.y, v_axis.z
+                );
+            }
         }
 
         match intersect_surfaces(
