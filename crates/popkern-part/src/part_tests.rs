@@ -907,3 +907,52 @@ fn bounded_cutter_corner_piercing_gap_is_pinned() {
         Err(_) => {}
     }
 }
+
+/// W2a companion pin: vertical tools bored into an 18° TILTED face —
+/// the holder's stacking mechanism. A star socket (12-segment ring
+/// island on the tilted plane) and a cylindrical counterbore (full
+/// ellipse ring; gives the next column a FLAT seat) both cut
+/// watertight into a rect wedge.
+#[test]
+fn tilted_face_star_socket_and_counterbore_are_watertight() {
+    // Wedge with an 18-degree top (proven cut), then vertical tools
+    // bored into the tilted face: a star socket and a cylindrical
+    // counterbore (flat floor).
+    let tilt = -18.0_f64.to_radians();
+    let prism = Profile::on(Plane::XY)
+        .rect(120.0, 120.0)
+        .extrude(60.0)
+        .expect("prism");
+    let slab = Profile::on(Plane::XY)
+        .rect(500.0, 500.0)
+        .extrude(160.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 45.0)
+        .expect("lift");
+    let wedge = prism.subtract(&slab).expect("wedge");
+    println!("wedge opens: {:?}", wedge.open_edge_count());
+
+    // Star socket bored vertically into the tilted top, 16 deep at
+    // the shallow side.
+    let star = hexagram_points(12.0);
+    let star_tool = Profile::on(Plane::xy_at(20.0))
+        .polygon(&star)
+        .extrude(40.0)
+        .expect("star tool")
+        .translate(30.0, 0.0, 0.0)
+        .expect("place");
+    let socketed = wedge.subtract(&star_tool).expect("tilted star socket");
+    assert_eq!(socketed.open_edge_count().expect("mesh"), 0);
+
+    // Cylindrical counterbore into the tilted top (flat floor at 21).
+    let bore = Profile::on(Plane::xy_at(21.0))
+        .circle(36.0)
+        .extrude(60.0)
+        .expect("bore")
+        .translate(-25.0, 0.0, 0.0)
+        .expect("place");
+    let bored = wedge.subtract(&bore).expect("tilted counterbore");
+    assert_eq!(bored.open_edge_count().expect("mesh"), 0);
+}

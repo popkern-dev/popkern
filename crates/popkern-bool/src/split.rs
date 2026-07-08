@@ -740,8 +740,15 @@ pub(crate) fn split_along_curves(
     };
 
     // Group records by face_a and face_b (collect all curves per face).
-    let mut curves_a: HashMap<FaceHandle, Vec<usize>> = HashMap::new();
-    let mut curves_b: HashMap<FaceHandle, Vec<usize>> = HashMap::new();
+    // Deterministic face processing order: the split cascade mutates
+    // faces (fragments feed find_fragment_for_curve), so HashMap
+    // iteration made whole boolean outcomes run-to-run
+    // nondeterministic (measured: the open-chain pre-pass fired in
+    // one of three identical runs).
+    let mut curves_a: std::collections::BTreeMap<FaceHandle, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    let mut curves_b: std::collections::BTreeMap<FaceHandle, Vec<usize>> =
+        std::collections::BTreeMap::new();
 
     for (idx, record) in records.iter().enumerate() {
         curves_a.entry(record.face_a).or_default().push(idx);
