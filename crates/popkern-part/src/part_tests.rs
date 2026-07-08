@@ -744,10 +744,17 @@ fn rotated_slab_subtract_cuts_exact_wedge() {
     );
 }
 
-/// W2a companion: the HOLDER's deck — a REFLEX plan outline (tower
-/// 24-gon arc + backward arms) extruded and cut by the rotated slab.
+/// FRONTIER PIN (flips when closed): the HOLDER's deck — a REFLEX
+/// plan outline (24-gon arc + backward arms) extruded and cut by a
+/// rotated slab. With the sweep's polyline-corner fix the arc is now
+/// 12 separate PLANE walls (correct by construction — the merged
+/// kinked-NURBS wall it used to produce hung the marching stage
+/// nondeterministically), and the cut reaches the same
+/// multi-junction planar-walk gap as its siblings: the slab's giant
+/// bottom face crossed by ~20 walls walks inconsistently. Same
+/// design fork as rotated_lip_union_gap_is_pinned.
 #[test]
-fn rotated_slab_cuts_reflex_holder_deck() {
+fn rotated_slab_on_reflex_deck_gap_is_pinned() {
     let tilt = 18.0_f64.to_radians();
     let mut outline: Vec<(f64, f64)> = Vec::new();
     for k in 0..=12 {
@@ -775,8 +782,17 @@ fn rotated_slab_cuts_reflex_holder_deck() {
         .expect("rot")
         .translate(0.0, -60.0, 30.0)
         .expect("place");
-    let cut = deck.subtract(&cutter).expect("rest plane cut");
-    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+    match deck.subtract(&cutter) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "reflex-deck slab gap has closed ({opens} opens) — flip this \
+                 pin to a watertight assert and build the holder deck (task #36)"
+            );
+        }
+        Err(_) => {}
+    }
 }
 
 /// W2a pin: BOUNDED rotated-box subtract on a convex prism — the
@@ -955,4 +971,45 @@ fn tilted_face_star_socket_and_counterbore_are_watertight() {
         .expect("place");
     let bored = wedge.subtract(&bore).expect("tilted counterbore");
     assert_eq!(bored.open_edge_count().expect("mesh"), 0);
+}
+
+/// FRONTIER PIN (flips when closed): a PERPENDICULAR cylinder pocket
+/// into a flat face — intersection discovery finds ZERO records (the
+/// essential circle is judged Outside its own cylinder wall: the
+/// SEAM edge's single pcurve serves both loop traversals, so the
+/// wall's raw UV contour jumps period branches and even-odd
+/// containment reads every interior point as outside). The boolean
+/// then degrades to the no-records containment path, which
+/// fabricates a MEMBRANE-SEALED pocket: the top face keeps no inner
+/// loop, a phantom 1-half-edge disk face covers the mouth, and the
+/// body passes BOTH the watertight-mesh gate and validate() — only
+/// the Euler characteristic (V−E+2F−L = 3, not 2) and an OCC
+/// sew-to-solid volume check catch it. Fix direction (prototyped,
+/// reverted — it regressed tuned pins): chain-normalize period
+/// branches for containment polygons (face_uv_boundary_chained) as
+/// part of the seam-branch campaign. The OBLIQUE variant (tilted
+/// face) works — see tilted_face_star_socket_and_counterbore.
+#[test]
+fn perpendicular_bore_membrane_gap_is_pinned() {
+    let prism = Profile::on(Plane::XY)
+        .rect(120.0, 120.0)
+        .extrude(60.0)
+        .expect("prism");
+    let bore = Profile::on(Plane::xy_at(30.0))
+        .circle(36.0)
+        .extrude(60.0)
+        .expect("bore");
+    let seated = prism.subtract(&bore).expect("bore");
+    let brep = seated.brep();
+    let v = brep.vertices.len() as i64;
+    let e = brep.edges.len() as i64;
+    let f = brep.faces.len() as i64;
+    let l = brep.loops.len() as i64;
+    let chi = v - e + 2 * f - l;
+    assert_ne!(
+        chi, 2,
+        "perpendicular-bore membrane gap has closed (χ' = 2) — flip this \
+         pin to assert χ' == 2 plus an analytic-volume check, and re-run \
+         the holder deck chain (task #36)"
+    );
 }

@@ -31,6 +31,25 @@ impl BRep {
         let rhs = 2 * s;
 
         if lhs != rhs {
+            if std::env::var_os("PK_EULER_TRACE").is_some() {
+                let mut orphan_v = 0;
+                let used: std::collections::HashSet<_> =
+                    self.half_edges.values().map(|he| he.origin).collect();
+                for vh in self.vertices.keys() {
+                    if !used.contains(&vh) {
+                        orphan_v += 1;
+                    }
+                }
+                let mut orphan_e = 0;
+                for (_, edge) in &self.edges {
+                    if !self.half_edges.contains_key(edge.half_edge) {
+                        orphan_e += 1;
+                    }
+                }
+                eprintln!(
+                    "  [euler] V={v} E={e} F={f} L={l} S={s} lhs={lhs} rhs={rhs} orphan_v={orphan_v} orphan_e={orphan_e}"
+                );
+            }
             let solid = self.solids.keys().next().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,
@@ -60,6 +79,23 @@ impl BRep {
         // values from one-sided edge artifacts (self-loop circles whose
         // twin was on a non-selected face).
         if two_g < -1 {
+            if std::env::var_os("PK_EULER_TRACE").is_some() {
+                let used: std::collections::HashSet<_> =
+                    self.half_edges.values().map(|he| he.origin).collect();
+                let orphan_v = self.vertices.keys().filter(|v| !used.contains(v)).count();
+                let mut loops_per_face = std::collections::HashMap::new();
+                for (_, lp) in &self.loops {
+                    *loops_per_face.entry(lp.face).or_insert(0) += 1;
+                }
+                let orphan_loops = self
+                    .loops
+                    .iter()
+                    .filter(|(_, lp)| !self.faces.contains_key(lp.face))
+                    .count();
+                eprintln!(
+                    "  [euler-g] V={v} E={e} F={f} L={l} S={s} lhs={lhs} 2G={two_g} orphan_v={orphan_v} orphan_loops={orphan_loops}"
+                );
+            }
             let solid = self.solids.keys().next().unwrap_or_default();
             return Err(ValidationError::EulerPoincare {
                 solid,

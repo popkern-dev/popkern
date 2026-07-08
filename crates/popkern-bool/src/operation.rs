@@ -126,6 +126,13 @@ pub(crate) fn execute_boolean_full(
     mut progress: Option<&mut dyn ProgressReporter>,
 ) -> Result<BRep, BoolError> {
     check_cancel(cancel)?;
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [exec] execute_boolean {op:?} ({} vs {} faces)",
+            a.faces.len(),
+            b.faces.len()
+        );
+    }
 
     // Stage 1: Intersect — compute face-face intersection curves.
     let t_intersect = Instant::now();
@@ -148,7 +155,17 @@ pub(crate) fn execute_boolean_full(
     check_cancel(cancel)?;
 
     // No-intersection shortcut.
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [exec] {} records, {} overlaps",
+            intersection_result.records.len(),
+            intersection_result.coincidence.face_overlaps.len()
+        );
+    }
     if intersection_result.records.is_empty() {
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!("  [exec] -> no-records containment path");
+        }
         return handle_no_intersection(
             op,
             a,

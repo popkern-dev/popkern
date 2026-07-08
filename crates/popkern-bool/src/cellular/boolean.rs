@@ -346,7 +346,24 @@ fn fragment_interior_sample(
             project_point_to_uv, project_point_to_uv_near,
         };
         let mut poly: Vec<(f64, f64)> = Vec::new();
-        for &h in hes {
+        for &raw in hes {
+            // Pcurves live in their OWNER face's chart. A fragment
+            // loop may carry either direction of an edge (the walker
+            // keeps the first-walked direction), so read the side
+            // that belongs to THIS face — the twin's pcurve is in
+            // the other body's chart and produced garbage scanline
+            // polygons (measured: a counterbore floor's star-hole
+            // fragment sampled its own hole centre and was dropped).
+            let h = if graph.half_edges[raw].face.as_ref() == Some(&fragment.face) {
+                raw
+            } else {
+                let twin = graph.half_edges[raw].twin;
+                if graph.half_edges[twin].face.as_ref() == Some(&fragment.face) {
+                    twin
+                } else {
+                    raw
+                }
+            };
             if let Some(pc) = graph.half_edges[h].pcurve.as_ref() {
                 for i in 0..8 {
                     let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;

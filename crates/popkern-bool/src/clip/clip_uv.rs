@@ -297,6 +297,18 @@ pub(crate) fn clip_curve_uv_space(
     let clip_b = uv_clip_one_face(brep_b, face_b, &curve.curve_uv2, curve.is_closed);
 
     if matches!(clip_a, UvClipResult::Outside) || matches!(clip_b, UvClipResult::Outside) {
+        if std::env::var_os("PK_CLIP_TRACE").is_some() {
+            let name = |r: &UvClipResult| match r {
+                UvClipResult::NoPcurves => "NoPcurves",
+                UvClipResult::Outside => "Outside",
+                UvClipResult::Range(_, _) => "Range",
+            };
+            eprintln!(
+                "  [uvclip] dropped: A={} B={}",
+                name(&clip_a),
+                name(&clip_b)
+            );
+        }
         return None;
     }
     if matches!(clip_a, UvClipResult::NoPcurves) && matches!(clip_b, UvClipResult::NoPcurves) {

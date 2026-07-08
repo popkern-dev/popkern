@@ -254,10 +254,22 @@ fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
         i += mult;
     }
     let eps = (t_max - t_min) * 1.0e-7;
+    // A POLYLINE's interior vertices are authored corners — the
+    // angular threshold exists for sampled smooth curves where
+    // numeric noise fakes kinks. A 24-gon arc's corners sit exactly
+    // AT the 15° threshold, merged into one "smooth" span, and the
+    // sweep emitted a single C0-kinked NURBS wall (pcurve-less, and
+    // the boolean's marching stage hung on it). Degree-1 profiles
+    // split at every genuine corner; only collinear joints merge.
+    let threshold = if curve.degree == 1 {
+        1.0e-6
+    } else {
+        DISCONTINUITY_ANGLE
+    };
     for &k in &candidate_knots {
         let before = curve.tangent_at(k - eps);
         let after = curve.tangent_at(k + eps);
-        if angle_between(&before, &after) > DISCONTINUITY_ANGLE {
+        if angle_between(&before, &after) > threshold {
             split_params.push(k);
         }
     }

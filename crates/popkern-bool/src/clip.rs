@@ -118,6 +118,55 @@ pub(crate) fn face_uv_boundary(
     Some(boundary)
 }
 
+/// [`face_uv_boundary`] with period branches CHAIN-NORMALIZED: a
+/// SEAM edge carries one pcurve shared by both of its uses, so one
+/// traversal sits a full period from the walk and the raw contour
+/// jumps branches (even-odd containment then reads every interior
+/// point as OUTSIDE — a perpendicular bore's essential intersection
+/// circle was clipped away against its own cylinder wall and the
+/// boolean degraded to the no-records containment path). Each pcurve
+/// is shifted by whole periods so its start meets the previous end —
+/// the same per-use normalization STEP export performs. Scoped to
+/// CONTAINMENT tests; the crossing machinery has its own tuned
+/// branch handling and double-shifts if fed normalized input.
+#[allow(dead_code)]
+pub(crate) fn face_uv_boundary_chained(
+    brep: &BRep,
+    face: FaceHandle,
+) -> Option<Vec<(HalfEdgeHandle, popkern_core::geometry::pcurve::Pcurve)>> {
+    let mut boundary = face_uv_boundary(brep, face)?;
+    if let Some((pu, pv)) = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| s.geometry.periodicity())
+        && (pu.is_some() || pv.is_some())
+        && boundary.len() > 1
+    {
+        use popkern_core::geometry::curve::CurveEval;
+        let mut prev_end: Option<popkern_core::geometry::Point3> = None;
+        for (_, pc) in boundary.iter_mut() {
+            let (t0, t1) = pc.parameter_range();
+            let start_pt = pc.point_at(t0);
+            if let Some(prev) = prev_end {
+                let mut du = 0.0;
+                if let Some(p) = pu {
+                    du = ((prev.x - start_pt.x) / p).round() * p;
+                }
+                let mut dv = 0.0;
+                if let Some(p) = pv {
+                    dv = ((prev.y - start_pt.y) / p).round() * p;
+                }
+                if du != 0.0 || dv != 0.0 {
+                    *pc = pc.translated_uv(du, dv);
+                }
+            }
+            prev_end = Some(pc.point_at(t1));
+        }
+    }
+    Some(boundary)
+}
+
 /// Clip an intersection curve to both face boundaries and produce a trimmed
 /// `CurveOnSurface`. Returns `None` if the curve does not pass through both faces.
 pub(crate) fn clip_curve_to_faces(

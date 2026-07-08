@@ -48,6 +48,67 @@ impl Pcurve {
         }
     }
 
+    /// Rigid UV translation of the whole pcurve (used to move a
+    /// SEAM-shared pcurve onto the period branch a specific loop
+    /// traversal needs — both uses of a seam edge share one pcurve,
+    /// so one side always sits a full period away).
+    pub fn translated_uv(&self, du: f64, dv: f64) -> Self {
+        let geometry = match &self.geometry {
+            PcurveGeometry::Linear { start, end } => PcurveGeometry::Linear {
+                start: (start.0 + du, start.1 + dv),
+                end: (end.0 + du, end.1 + dv),
+            },
+            PcurveGeometry::Elliptical {
+                center,
+                u_radius,
+                v_radius,
+                rotation,
+                start_angle,
+                end_angle,
+            } => PcurveGeometry::Elliptical {
+                center: (center.0 + du, center.1 + dv),
+                u_radius: *u_radius,
+                v_radius: *v_radius,
+                rotation: *rotation,
+                start_angle: *start_angle,
+                end_angle: *end_angle,
+            },
+            PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a,
+                theta_b,
+                v_const,
+            } => PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a: theta_a + du,
+                theta_b: theta_b + du,
+                v_const: v_const + dv,
+            },
+            PcurveGeometry::Sinusoidal {
+                u_offset,
+                v_const,
+                v_cos,
+                v_sin,
+            } => PcurveGeometry::Sinusoidal {
+                u_offset: u_offset + du,
+                v_const: v_const + dv,
+                v_cos: *v_cos,
+                v_sin: *v_sin,
+            },
+            PcurveGeometry::Nurbs(curve) => {
+                let mut shifted = curve.clone();
+                for cp in &mut shifted.control_points {
+                    cp.x += du;
+                    cp.y += dv;
+                }
+                PcurveGeometry::Nurbs(shifted)
+            }
+        };
+        Self {
+            geometry,
+            t_start: self.t_start,
+            t_end: self.t_end,
+        }
+    }
+
     /// Restrict this pcurve to a sub-range while preserving its UV locus.
     pub fn slice_between(&self, t_start: f64, t_end: f64) -> Option<Self> {
         if !t_start.is_finite() || !t_end.is_finite() || (t_end - t_start).abs() <= 1e-14 {

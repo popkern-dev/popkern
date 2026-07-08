@@ -209,9 +209,72 @@ pub(crate) fn cellular_assemble(
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
-        let mut resolve_loop = |raw_hes: &[usize], flip: bool| -> Vec<HalfEdgeHandle> {
+        let mut resolve_loop = |raw_hes: &[usize],
+                                flip: bool,
+                                builder: &mut BRepBuilder|
+         -> Vec<HalfEdgeHandle> {
+            // Dry-run: would the straight mapping conflict with
+            // already-wired half-edges? A loop whose directions were
+            // consumed by other fragments (the walker may hand a face
+            // the twin-direction ring wholesale) is re-wired REVERSED
+            // via the twin directions — the same ring with flipped
+            // winding, which any loop tolerates. Substituting twins
+            // per-half-edge instead breaks the chain (reversed
+            // endpoints), and minting duplicates detaches the ring
+            // (measured: a star socket in a counterbore floor went
+            // non-manifold on all 12 minted edges).
+            let straight_conflicts = raw_hes.iter().any(|&raw_ghe| {
+                let ghe = if flip {
+                    graph.half_edges[raw_ghe].twin
+                } else {
+                    raw_ghe
+                };
+                let twin_idx = graph.half_edges[ghe].twin;
+                let key = ghe.min(twin_idx);
+                match edge_he_map.get(&key) {
+                    Some(&(he_fwd, he_twin)) => {
+                        let brep_he = if ghe == key { he_fwd } else { he_twin };
+                        used_hes.contains(&brep_he)
+                    }
+                    None => false,
+                }
+            });
+            let reversed_free = raw_hes.iter().all(|&raw_ghe| {
+                let ghe = if flip {
+                    graph.half_edges[raw_ghe].twin
+                } else {
+                    raw_ghe
+                };
+                // Twin direction of this he.
+                let ghe = graph.half_edges[ghe].twin;
+                let twin_idx = graph.half_edges[ghe].twin;
+                let key = ghe.min(twin_idx);
+                match edge_he_map.get(&key) {
+                    Some(&(he_fwd, he_twin)) => {
+                        let brep_he = if ghe == key { he_fwd } else { he_twin };
+                        !used_hes.contains(&brep_he)
+                    }
+                    None => false,
+                }
+            });
+            let (order, extra_twin): (Vec<usize>, bool) = if straight_conflicts && reversed_free {
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [resolve] loop of {} re-wired reversed (direction conflict)",
+                        raw_hes.len()
+                    );
+                }
+                (raw_hes.iter().rev().copied().collect(), true)
+            } else {
+                (raw_hes.to_vec(), false)
+            };
             let mut result = Vec::new();
-            for &raw_ghe in raw_hes {
+            for &raw_ghe in &order {
+                let raw_ghe = if extra_twin {
+                    graph.half_edges[raw_ghe].twin
+                } else {
+                    raw_ghe
+                };
                 let ghe = if flip {
                     graph.half_edges[raw_ghe].twin
                 } else {
@@ -221,6 +284,11 @@ pub(crate) fn cellular_assemble(
                 let key = ghe.min(twin_idx);
 
                 let Some(&(he_fwd, he_twin)) = edge_he_map.get(&key) else {
+                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!(
+                            "  [resolve] ghe {ghe} (key {key}): edge NOT IN MAP — dropped from loop"
+                        );
+                    }
                     continue;
                 };
 
@@ -233,15 +301,43 @@ pub(crate) fn cellular_assemble(
                     used_hes.insert(brep_he);
                     result.push(brep_he);
                 } else {
-                    // Try twin
+                    // The preferred direction is taken by another
+                    // fragment's loop. The twin CANNOT substitute for
+                    // an open-chain half-edge — its endpoints are
+                    // reversed, so the wired loop breaks exactly there
+                    // (measured: a star socket cut into a counterbore
+                    // floor lost one ring segment to the swap and the
+                    // inner loop failed closure by one star chord).
+                    // Twin-substitution is only sound for self-loops
+                    // (start == end); everything else mints a fresh
+                    // edge pair with the correct orientation.
                     let twin_brep = if brep_he == he_fwd { he_twin } else { he_fwd };
-                    if !used_hes.contains(&twin_brep) {
+                    let ghe_data = &graph.half_edges[ghe];
+                    let is_self_loop = ghe_data.origin == graph.half_edges[ghe_data.twin].origin;
+                    if is_self_loop && !used_hes.contains(&twin_brep) {
                         used_hes.insert(twin_brep);
                         result.push(twin_brep);
-                    } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
-                        eprintln!(
-                            "  [resolve] ghe {ghe} (key {key}): BOTH brep half-edges consumed — dropped from loop"
-                        );
+                    } else {
+                        let origin_node = ghe_data.origin;
+                        let end_node = graph.half_edges[ghe_data.twin].origin;
+                        if let (Some(&vh_start), Some(&vh_end)) = (
+                            node_to_vertex.get(&origin_node),
+                            node_to_vertex.get(&end_node),
+                        ) {
+                            let (_dup_edge, dup_fwd, dup_twin) = builder.add_edge(vh_start, vh_end);
+                            let _ = dup_twin;
+                            used_hes.insert(dup_fwd);
+                            result.push(dup_fwd);
+                            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                                eprintln!(
+                                    "  [resolve] ghe {ghe} (key {key}): direction conflict — minted duplicate edge"
+                                );
+                            }
+                        } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                            eprintln!(
+                                "  [resolve] ghe {ghe} (key {key}): conflict and nodes unmapped — dropped"
+                            );
+                        }
                     }
                 }
             }
@@ -253,7 +349,7 @@ pub(crate) fn cellular_assemble(
         } else {
             frag.outer_loop.clone()
         };
-        let outer_hes = resolve_loop(&raw_outer, sel.flip);
+        let outer_hes = resolve_loop(&raw_outer, sel.flip, &mut builder);
 
         if !outer_hes.is_empty() {
             builder.add_loop(&outer_hes, face_h).map_err(|e| {
@@ -273,9 +369,18 @@ pub(crate) fn cellular_assemble(
             } else {
                 inner.clone()
             };
-            let inner_hes = resolve_loop(&raw_inner, sel.flip);
+            let inner_hes = resolve_loop(&raw_inner, sel.flip, &mut builder);
             if !inner_hes.is_empty() {
-                let _ = builder.add_inner_loop(&inner_hes, face_h);
+                if let Err(e) = builder.add_inner_loop(&inner_hes, face_h)
+                    && std::env::var_os("PK_BOOL_TRACE").is_some()
+                {
+                    eprintln!(
+                        "  [assemble] add_inner_loop FAILED on {face_h:?} ({} hes): {e}",
+                        inner_hes.len()
+                    );
+                }
+            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                eprintln!("  [assemble] inner loop resolved EMPTY on {face_h:?}");
             }
         }
 

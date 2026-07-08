@@ -210,7 +210,13 @@ pub(crate) fn find_intersections_with_aabbs(
     let bvh = Bvh::build(&combined);
     let candidate_pairs = bvh.find_overlapping_pairs(tolerance.linear());
 
+    if std::env::var_os("PK_PAIR_TRACE").is_some() {
+        eprintln!("  [pairs] {} candidate pairs", candidate_pairs.len());
+    }
     for (id_x, id_y) in &candidate_pairs {
+        if std::env::var_os("PK_PAIR_TRACE").is_some() {
+            eprintln!("  [pair] {id_x:?} x {id_y:?}");
+        }
         let (a_idx, b_idx) = if *id_x < n_a && *id_y >= n_a {
             (*id_x, *id_y - n_a)
         } else if *id_y < n_a && *id_x >= n_a {
