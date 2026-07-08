@@ -98,6 +98,12 @@ pub(crate) fn clip_line_to_face(
     let t_enter = t_min + s_enter * (t_max - t_min);
     let t_exit = t_min + s_exit * (t_max - t_min);
 
+    if std::env::var_os("PK_CB_TRACE").is_some() {
+        eprintln!(
+            "  [cb] {face_handle:?}: s=[{s_enter:.3},{s_exit:.3}] n_verts={}",
+            positions.len()
+        );
+    }
     Some((t_enter, t_exit))
 }
 

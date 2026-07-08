@@ -13,7 +13,7 @@ use popkern_core::geometry::intersection::surface_subdivision::Aabb;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle};
 
-use crate::classify::point_in_solid;
+use crate::classify::point_in_solid_final;
 use crate::error::PointClassification;
 
 use super::cell::{Cell, CellBoundaryFace, CellDecomposition, CellId};
@@ -94,12 +94,12 @@ pub fn decompose_cells(params: &DecomposeParams<'_>) -> CellDecomposition {
         if let Some(pt) = sample {
             cell.sample_point = pt;
             if let Ok(PointClassification::Inside) =
-                point_in_solid(&pt, params.a, params.aabbs_a, params.tolerance)
+                point_in_solid_final(&pt, params.a, params.aabbs_a, params.tolerance)
             {
                 cell.membership |= 1;
             }
             if let Ok(PointClassification::Inside) =
-                point_in_solid(&pt, params.b, params.aabbs_b, params.tolerance)
+                point_in_solid_final(&pt, params.b, params.aabbs_b, params.tolerance)
             {
                 cell.membership |= 2;
             }

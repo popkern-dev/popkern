@@ -302,6 +302,9 @@ pub(crate) fn execute_boolean_full(
     // the same way (e.g. all Inside). Infer containment and return the
     // appropriate operand directly instead of producing a 0-face result.
     if selection.keep_a.is_empty() && selection.keep_b.is_empty() {
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!("  [exec] -> empty-selection containment path");
+        }
         let result =
             handle_empty_selection(op, split_result, &classifications_a, &classifications_b);
         log_validation_issues(&result, op);

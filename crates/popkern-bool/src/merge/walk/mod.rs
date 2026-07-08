@@ -252,6 +252,21 @@ pub(crate) fn walk_all_fragments(
             }
         }
 
+        if std::env::var_os("PK_LOOP_DUMP").is_some() && outer_loop.len() >= 20 {
+            eprintln!("  [loopdump] {face_ref:?} outer {} hes:", outer_loop.len());
+            for &h in &outer_loop {
+                let n = graph.half_edges[h].origin;
+                let p = graph.nodes[n].position;
+                let shared = matches!(
+                    graph.half_edges[h].source,
+                    super::graph::EdgeSource::Shared { .. }
+                );
+                eprintln!(
+                    "    he {h} ({:.1},{:.1},{:.1}) shared={shared}",
+                    p.x, p.y, p.z
+                );
+            }
+        }
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!(
                 "  [walk] {face_ref:?}: outer {} hes, {} inner {:?}, {} separate",

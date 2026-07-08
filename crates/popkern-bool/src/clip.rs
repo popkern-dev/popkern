@@ -192,7 +192,54 @@ pub(crate) fn clip_curve_to_faces(
     let degenerate_vertex_polygon = |brep: &BRep, face: popkern_core::topology::FaceHandle| {
         brep.face_outer_loop_positions(face).len() < 3
     };
-    if degenerate_vertex_polygon(brep_a, face_a) || degenerate_vertex_polygon(brep_b, face_b) {
+    // Cyrus–Beck is CONVEX-only: on a reflex polygon its centroid-
+    // oriented inward normals disagree and the clip window comes out
+    // arbitrary (measured: a seat tool near a reflex deck's crotch
+    // kept 300 mm phantom trim lines spanning far outside both
+    // bodies, and the split stage choked on them). Reflex faces
+    // route to UV clipping, which handles arbitrary polygons.
+    let reflex_vertex_polygon = |brep: &BRep, face: popkern_core::topology::FaceHandle| {
+        let pts = brep.face_outer_loop_positions(face);
+        if pts.len() < 4 {
+            return false;
+        }
+        // Face normal from Newell's method (robust for any planar
+        // polygon), then check turn-direction consistency.
+        let n = pts.len();
+        let mut nx = 0.0;
+        let mut ny = 0.0;
+        let mut nz = 0.0;
+        for i in 0..n {
+            let p = &pts[i];
+            let q = &pts[(i + 1) % n];
+            nx += (p.y - q.y) * (p.z + q.z);
+            ny += (p.z - q.z) * (p.x + q.x);
+            nz += (p.x - q.x) * (p.y + q.y);
+        }
+        let mut sign = 0.0_f64;
+        for i in 0..n {
+            let a = &pts[i];
+            let b = &pts[(i + 1) % n];
+            let c = &pts[(i + 2) % n];
+            let e1 = *b - *a;
+            let e2 = *c - *b;
+            let cross = e1.cross(&e2);
+            let s = cross.x * nx + cross.y * ny + cross.z * nz;
+            if s.abs() > 1e-9 {
+                if sign == 0.0 {
+                    sign = s.signum();
+                } else if s.signum() != sign {
+                    return true;
+                }
+            }
+        }
+        false
+    };
+    if degenerate_vertex_polygon(brep_a, face_a)
+        || degenerate_vertex_polygon(brep_b, face_b)
+        || reflex_vertex_polygon(brep_a, face_a)
+        || reflex_vertex_polygon(brep_b, face_b)
+    {
         return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
     }
 

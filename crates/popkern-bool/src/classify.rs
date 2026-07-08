@@ -207,6 +207,7 @@ fn ray_crossing_count(
     brep: &BRep,
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
+    skip_hole_hits: bool,
 ) -> Result<usize, ()> {
     let ray_curve = CurveGeometry::Line {
         origin: *origin,
@@ -267,6 +268,26 @@ fn ray_crossing_count(
                         return Err(());
                     }
 
+                    // A hit inside one of the face's INNER LOOPS is
+                    // a hole, not a crossing: the parameter box is the
+                    // trim proxy and covers holes (measured: a point
+                    // in a counterbore void classified Inside because
+                    // the ray "hit" the holed top face through its
+                    // own hole; the tool's proud band was kept and the
+                    // result went non-manifold). Scoped to PLANE
+                    // faces with inner loops — the general trim-aware
+                    // gate was measured to break simple cube CSG, and
+                    // holes on periodic charts have unresolved seam
+                    // branches.
+                    if skip_hole_hits
+                        && matches!(
+                            surface,
+                            popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                        )
+                        && hit_inside_inner_loop(brep, *face_handle, *u, *v)
+                    {
+                        continue;
+                    }
                     // Transversal crossing.
                     count += 1;
                 }
@@ -279,6 +300,63 @@ fn ray_crossing_count(
     }
 
     Ok(count)
+}
+
+/// True when the surface hit at `(u, v)` lands inside one of the
+/// face's INNER-loop polygons (pcurve-sampled, even-odd).
+fn hit_inside_inner_loop(brep: &BRep, face: FaceHandle, u: f64, v: f64) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    if face_data.inner_loops.is_empty() {
+        return false;
+    }
+    for &lh in &face_data.inner_loops {
+        let Some(loop_data) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        if !brep.half_edges.contains_key(start) {
+            continue;
+        }
+        let mut ring: Vec<(f64, f64)> = Vec::new();
+        let mut he = start;
+        let cap = brep.half_edges.len() + 1;
+        for _ in 0..cap {
+            let d = &brep.half_edges[he];
+            if let Some(pc) = d.pcurve.as_ref() {
+                let (t0, t1) = pc.parameter_range();
+                for i in 0..8 {
+                    let t = t0 + (t1 - t0) * i as f64 / 8.0;
+                    let p = pc.point_at(t);
+                    ring.push((p.x, p.y));
+                }
+            }
+            he = d.next;
+            if he == start {
+                break;
+            }
+        }
+        if ring.len() < 3 {
+            continue;
+        }
+        let mut crossings = 0;
+        let n = ring.len();
+        for i in 0..n {
+            let (x0, y0) = ring[i];
+            let (x1, y1) = ring[(i + 1) % n];
+            if (y0 > v) != (y1 > v) {
+                let xc = x0 + (v - y0) / (y1 - y0) * (x1 - x0);
+                if xc > u {
+                    crossings += 1;
+                }
+            }
+        }
+        if crossings % 2 == 1 {
+            return true;
+        }
+    }
+    false
 }
 
 // ---------------------------------------------------------------------------
@@ -339,11 +417,44 @@ pub fn point_in_solid(
     face_aabbs: &[(FaceHandle, Aabb)],
     tolerance: &Tolerance,
 ) -> Result<PointClassification, BoolError> {
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, false)
+}
+
+/// [`point_in_solid`] for FINAL bodies (boolean inputs/outputs, not
+/// mid-split states): a hit landing inside a face's inner loop is a
+/// genuine VOID and is skipped. Mid-split "inner loops" are covered
+/// by sibling island faces, where the double-hit self-corrects by
+/// parity — skipping there flips classifications (measured: a plain
+/// wedge subtract classified everything Inside and returned an empty
+/// body).
+pub fn point_in_solid_final(
+    point: &Point3,
+    solid: &BRep,
+    face_aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &Tolerance,
+) -> Result<PointClassification, BoolError> {
+    point_in_solid_impl(point, solid, face_aabbs, tolerance, true)
+}
+
+fn point_in_solid_impl(
+    point: &Point3,
+    solid: &BRep,
+    face_aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &Tolerance,
+    skip_hole_hits: bool,
+) -> Result<PointClassification, BoolError> {
     let mut inside_votes = 0u32;
     let mut outside_votes = 0u32;
 
     for direction in &RAY_DIRECTIONS {
-        match ray_crossing_count(point, direction, solid, face_aabbs, tolerance) {
+        match ray_crossing_count(
+            point,
+            direction,
+            solid,
+            face_aabbs,
+            tolerance,
+            skip_hole_hits,
+        ) {
             Ok(count) => {
                 if count % 2 == 1 {
                     inside_votes += 1;

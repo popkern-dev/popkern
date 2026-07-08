@@ -183,7 +183,7 @@ fn classify_fragments_cellular(
     op: BoolOperation,
     tolerance: &Tolerance,
 ) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
-    use crate::adaptive_precision::robust_point_in_solid;
+    use crate::adaptive_precision::robust_point_in_solid_final;
     use crate::intersect::compute_face_aabbs;
 
     let aabbs_a = compute_face_aabbs(brep_a);
@@ -238,7 +238,7 @@ fn classify_fragments_cellular(
                 he.origin == graph.half_edges[he.twin].origin
             });
         let class = if !needs_offset_pair {
-            robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance)
+            robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance)
         } else {
             use popkern_core::geometry::surface::SurfaceEval;
             let frag_face = match fragment.face.operand {
@@ -260,9 +260,10 @@ fn classify_fragments_cellular(
                     let eps = (tolerance.linear() * 1.0e3).max(1.0e-3);
                     let p_plus = sample + n * eps;
                     let p_minus = sample - n * eps;
-                    let c_plus = robust_point_in_solid(&p_plus, other_brep, other_aabbs, tolerance);
+                    let c_plus =
+                        robust_point_in_solid_final(&p_plus, other_brep, other_aabbs, tolerance);
                     let c_minus =
-                        robust_point_in_solid(&p_minus, other_brep, other_aabbs, tolerance);
+                        robust_point_in_solid_final(&p_minus, other_brep, other_aabbs, tolerance);
                     match (c_plus, c_minus) {
                         (PointClassification::Inside, PointClassification::Inside) => {
                             PointClassification::Inside
@@ -273,7 +274,7 @@ fn classify_fragments_cellular(
                         _ => PointClassification::OnBoundary,
                     }
                 }
-                None => robust_point_in_solid(&sample, other_brep, other_aabbs, tolerance),
+                None => robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance),
             }
         };
 

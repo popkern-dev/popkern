@@ -612,18 +612,13 @@ fn star_boss_union_gap_is_pinned() {
     }
 }
 
-/// FRONTIER PIN (flips to a watertight assert when closed): union of
-/// a cylinder boss onto a REFLEX polygon plate. The same union onto a
-/// RECT plate is watertight, but on the reflex outline the cellular
-/// walker merges the plate-top's boss ring and its 9-vertex outline
-/// into ONE 13-half-edge loop (no inner loop) — Euler-Poincaré
-/// violation (expected 2, got 4) — and the silent graph-merge
-/// fallback emits garbage pcurves (mesh vertices off-outline).
-/// Until closed, the laptop-stand base ships without its socket boss
-/// (thicker plate, socket cut directly — containment recorded in
-/// laptop_stand_api.rs).
+/// Union of a cylinder boss onto a REFLEX polygon plate — watertight
+/// and χ-clean. Closed by the polygon-profile centroid fix: the
+/// "walker mega-loop" failure was the boss landing translated by the
+/// plate's −centroid, half off the authored outline. The base's
+/// designed 10 mm deck + Ø60 socket boss is unblocked.
 #[test]
-fn cylinder_boss_on_reflex_plate_union_gap_is_pinned() {
+fn cylinder_boss_on_reflex_plate_union_is_watertight() {
     let outline: Vec<(f64, f64)> = vec![
         (-45.0, 0.0),
         (45.0, 0.0),
@@ -654,17 +649,12 @@ fn cylinder_boss_on_reflex_plate_union_gap_is_pinned() {
     let rect_union = rect.union(&boss).expect("rect union");
     assert_eq!(rect_union.open_edge_count().expect("mesh"), 0);
 
-    match plate.union(&boss) {
-        Ok(based) => {
-            let opens = based.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "reflex-plate boss union gap has closed ({opens} opens) — flip \
-                 this pin to a watertight assert and restore the base's boss"
-            );
-        }
-        Err(_) => {}
-    }
+    let based = plate.union(&boss).expect("boss union");
+    assert_eq!(based.open_edge_count().expect("mesh"), 0);
+    let b = based.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "boss union must be a clean genus-0 solid");
 }
 
 /// STEP export parity for plain extruded cylinders: the cap↔wall rim
@@ -744,55 +734,48 @@ fn rotated_slab_subtract_cuts_exact_wedge() {
     );
 }
 
-/// FRONTIER PIN (flips when closed): the HOLDER's deck — a REFLEX
-/// plan outline (24-gon arc + backward arms) extruded and cut by a
-/// rotated slab. With the sweep's polyline-corner fix the arc is now
-/// 12 separate PLANE walls (correct by construction — the merged
-/// kinked-NURBS wall it used to produce hung the marching stage
-/// nondeterministically), and the cut reaches the same
-/// multi-junction planar-walk gap as its siblings: the slab's giant
-/// bottom face crossed by ~20 walls walks inconsistently. Same
-/// design fork as rotated_lip_union_gap_is_pinned.
+/// W2a companion pin: the HOLDER's deck — a REFLEX plan outline
+/// (hub arc + backward arms, separate plane walls after the
+/// polyline-corner fix) cut by the rotated rest-plane slab, on the
+/// PRODUCT geometry. Closed by the polygon-profile centroid fix:
+/// the "reflex walk" failures were tools silently translated by
+/// −centroid, piercing walls they were authored to clear.
 #[test]
-fn rotated_slab_on_reflex_deck_gap_is_pinned() {
+fn rotated_slab_cuts_reflex_holder_deck() {
     let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
     let mut outline: Vec<(f64, f64)> = Vec::new();
     for k in 0..=12 {
         let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
-        outline.push((35.0 * a.cos(), 35.0 * a.sin()));
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
     }
     outline.extend_from_slice(&[
-        (22.0, -27.0),
+        (36.0, -46.0),
         (95.0, -175.0),
         (55.0, -190.0),
-        (0.0, -60.0),
+        (0.0, -85.0),
         (-55.0, -190.0),
         (-95.0, -175.0),
-        (-22.0, -27.0),
+        (-36.0, -46.0),
     ]);
     let deck = Profile::on(Plane::XY)
         .polygon(&outline)
-        .extrude(75.0)
+        .extrude(120.0)
         .expect("deck");
-    let cutter = Profile::on(Plane::XY)
-        .rect(400.0, 400.0)
-        .extrude(160.0)
-        .expect("cutter")
+    let slab = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
         .rotate_x(-tilt)
         .expect("rot")
-        .translate(0.0, -60.0, 30.0)
-        .expect("place");
-    match deck.subtract(&cutter) {
-        Ok(cut) => {
-            let opens = cut.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "reflex-deck slab gap has closed ({opens} opens) — flip this \
-                 pin to a watertight assert and build the holder deck (task #36)"
-            );
-        }
-        Err(_) => {}
-    }
+        .translate(0.0, 0.0, 55.0)
+        .expect("lift");
+    let cut = deck.subtract(&slab).expect("rest plane cut");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0);
+    let b = cut.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "reflex deck cut must be a clean genus-0 solid");
 }
 
 /// W2a pin: BOUNDED rotated-box subtract on a convex prism — the
@@ -1054,4 +1037,91 @@ fn perpendicular_bore_membrane_gap_is_pinned() {
          pin to assert χ' == 2 plus an analytic-volume check, and re-run \
          the holder deck chain (task #36)"
     );
+}
+
+/// The holder deck on product geometry: reflex outline (hub arc +
+/// arms) → 18° rest-plane slab → SQUARE column seat bored into the
+/// tilted hub (flat floor). Watertight + χ-clean after each stage;
+/// the follow-on socket is the pinned frontier below.
+#[test]
+fn holder_deck_rest_plane_and_seat_are_chi_clean() {
+    let chi = |p: &Part| {
+        let b = p.brep();
+        b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+            - b.loops.len() as i64
+    };
+    let gate = |p: Part, label: &str| -> Part {
+        assert_eq!(
+            p.open_edge_count().expect("mesh"),
+            0,
+            "{label}: open mesh edges"
+        );
+        assert_eq!(chi(&p), 2, "{label}: χ' must be 2");
+        p
+    };
+    let tilt = 18.0_f64.to_radians();
+    // Hub radius must contain the 76 mm square seat: half-diagonal
+    // 53.7 needs r ≥ 58 with margin.
+    let hub_r = 58.0;
+    let mut outline: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        outline.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    outline.extend_from_slice(&[
+        (36.0, -46.0),
+        (95.0, -175.0),
+        (55.0, -190.0),
+        (0.0, -85.0),
+        (-55.0, -190.0),
+        (-95.0, -175.0),
+        (-36.0, -46.0),
+    ]);
+    let deck = Profile::on(Plane::XY)
+        .polygon(&outline)
+        .extrude(120.0)
+        .expect("deck");
+    let slab = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(-tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 55.0)
+        .expect("lift");
+    let deck = gate(deck.subtract(&slab).expect("rest plane"), "rest plane");
+    // Square seat: 76 mm across, flat floor at 40.
+    let seat = Profile::on(Plane::xy_at(40.0))
+        .rect(76.0, 76.0)
+        .extrude(120.0)
+        .expect("seat tool");
+    let deck = gate(deck.subtract(&seat).expect("seat"), "seat");
+    // FRONTIER (the deck's remaining blocker): the NEXT boolean on
+    // this body — a star socket into the seat floor — inherits
+    // pollution from PHANTOM intersection records created during the
+    // seat cut: pairs between the seat tool's walls and the deck's
+    // arm walls keep trim curves that lie on NEITHER face's plane
+    // (verified by direct substitution), splitting outline edges
+    // ~2 mm outside the seat and leaving topology that breaks one
+    // boolean later (35 open edges at the seat floor's edge, χ'=−9).
+    // Diagnosis trail in PK-102; the socket itself is proven on
+    // unpolluted bodies (tilted_face_star_socket / the pass-3 rect
+    // wedge chain).
+    let star = hexagram_points(12.0);
+    let up = Profile::on(Plane::xy_at(40.0 - 16.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("up");
+    match deck.subtract(&up) {
+        Ok(s) => {
+            let opens = s.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "deck up-socket gap has closed ({opens} opens) — extend this \
+                 pin through the remaining sockets and build the holder \
+                 (task #36)"
+            );
+        }
+        Err(_) => {}
+    }
 }

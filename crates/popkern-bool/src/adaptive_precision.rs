@@ -38,6 +38,25 @@ pub fn robust_point_in_solid(
     }
 }
 
+/// [`robust_point_in_solid`] against a FINAL body: hits through the
+/// holes of holed faces are genuine voids and don't count (see
+/// `point_in_solid_final`).
+pub fn robust_point_in_solid_final(
+    point: &Point3,
+    solid: &BRep,
+    face_aabbs: &[(FaceHandle, Aabb)],
+    tolerance: &Tolerance,
+) -> PointClassification {
+    match crate::classify::point_in_solid_final(point, solid, face_aabbs, tolerance) {
+        Ok(PointClassification::Inside) => PointClassification::Inside,
+        Ok(PointClassification::Outside) => PointClassification::Outside,
+        Ok(PointClassification::OnBoundary) | Err(_) => {
+            // Ambiguous or failed — fall back to winding number
+            point_in_solid_winding(point, solid)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

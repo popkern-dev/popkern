@@ -356,6 +356,15 @@ pub(crate) fn find_intersections_with_aabbs(
 
     // Diagnostic: detect edge-face intersections (legacy path).
     let edge_face_hits = detect_edge_face_intersections(a, b, aabbs_b, aabbs_a, tolerance);
+    if std::env::var_os("PK_PAIR_TRACE").is_some() {
+        eprintln!("  [hits] {} edge-face hits", edge_face_hits.len());
+        for h in &edge_face_hits {
+            eprintln!(
+                "    hit at ({:.2},{:.2},{:.2})",
+                h.point.x, h.point.y, h.point.z
+            );
+        }
+    }
 
     // Compute the sub-FF intersection hierarchy.
     let bool_tol = crate::tolerance::BoolTolerance::from(*tolerance);

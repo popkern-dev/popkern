@@ -128,7 +128,31 @@ impl Profile {
         // the origin (measured: a circle profile at x=1 produced a
         // solid at x=0).
         let wire = self.wire_local()?;
-        let (cx, cy) = self.center;
+        // The sweep recentres the wire onto ITS OWN sampled centroid
+        // before placing it on the path. Rect and circle wires are
+        // symmetric about the origin so this is a no-op, but a
+        // POLYGON wire's centroid is wherever its outline puts it —
+        // every polygon extrude was silently translated by
+        // −centroid (measured: a trapezoid deck landed 23 mm from
+        // its authored coordinates and every downstream tool
+        // missed). Fold the same sampled centroid into the path so
+        // the recentring cancels and authored coordinates are
+        // preserved.
+        let c = {
+            use popkern_core::geometry::curve::CurveEval;
+            let (t0, t1) = wire.parameter_range();
+            let n = 64;
+            let mut sx = 0.0;
+            let mut sy = 0.0;
+            for i in 0..n {
+                let t = t0 + (t1 - t0) * (i as f64) / (n as f64);
+                let p = wire.point_at(t);
+                sx += p.x;
+                sy += p.y;
+            }
+            (sx / n as f64, sy / n as f64)
+        };
+        let (cx, cy) = (self.center.0 + c.0, self.center.1 + c.1);
         let (z0, z1) = if depth >= 0.0 {
             (self.plane.z, self.plane.z + depth)
         } else {
