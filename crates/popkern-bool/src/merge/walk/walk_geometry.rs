@@ -216,6 +216,16 @@ pub(super) fn surface_normal_at_node(
 ///
 /// Positive = CCW (outer), negative = CW (inner/hole).
 pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 {
+    let normal = loop_newell(graph, loop_hes);
+    normal.length() * normal.z.signum()
+}
+
+/// The (borrow-signed) Newell vector of a loop: |N| = 2·area, and
+/// the DIRECTION encodes winding — two coplanar loops wind opposite
+/// exactly when their Newell vectors point opposite ways. This is
+/// the orientation-safe comparison (the historical `sign(N.z)` trick
+/// degenerates on vertical faces).
+pub(super) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3 {
     // Sum cross products of consecutive vertex positions projected
     // onto an approximate normal.
     let positions: Vec<_> = loop_hes
@@ -274,10 +284,10 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
                     nz += (cur.x - next.x) * (cur.y + next.y);
                 }
                 let normal = Vec3::new(nx, ny, nz);
-                return normal.length() * normal.z.signum() * borrow_sign;
+                return normal * borrow_sign;
             }
         }
-        return 0.0;
+        return Vec3::new(0.0, 0.0, 0.0);
     }
 
     // Newell's method for 3D polygon normal (proportional to area).
@@ -294,8 +304,7 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
         nz += (cur.x - next.x) * (cur.y + next.y);
     }
 
-    let normal = Vec3::new(nx, ny, nz);
-    // The length of the normal vector is proportional to twice the area.
-    // The sign indicates orientation.
-    normal.length() * normal.z.signum()
+    // The length of the vector is proportional to twice the area;
+    // the direction encodes winding.
+    Vec3::new(nx, ny, nz)
 }

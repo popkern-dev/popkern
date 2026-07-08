@@ -573,16 +573,15 @@ fn double_socket_column_is_watertight() {
     );
 }
 
-/// FRONTIER PIN (W3): union of two COAXIAL star prisms (the peg's
-/// stepped pilot tips). History: OpenLoop (Bishop-frame flip, fixed)
-/// → watertight-but-χ'=4 (records dropped by the `1 crossing ⇒
-/// Outside` clip arm — accidental) → with the odd-crossing
-/// containment fix the REAL pilot-wall × body-cap trims are now
-/// kept and the assembly of the coaxial star-in-star ring is the
-/// honest frontier (~120 open edges). The peg ships as a plain
-/// prism until this closes.
+/// W3 CLOSED: union of two COAXIAL star prisms (the peg's stepped
+/// pilot tips). Journey: OpenLoop (Bishop-frame flip) →
+/// watertight-χ'=4 (dropped records) → 120 opens (honest records,
+/// broken ring election) → closed by the WINDING override in the
+/// hole election: a large interior ring winding opposite its outer
+/// is that fragment's hole regardless of the 0.5·area size rule
+/// (workpiece faces only; tool-side rings stay candidate caps).
 #[test]
-fn star_boss_union_gap_is_pinned() {
+fn star_boss_union_is_watertight() {
     let body_star = hexagram_points(11.8);
     let pilot_star = hexagram_points(11.2);
     let body = Profile::on(Plane::xy_at(2.0))
@@ -594,12 +593,11 @@ fn star_boss_union_gap_is_pinned() {
         .extrude(6.0)
         .expect("pilot");
     let peg = body.union(&pilot).expect("pilot union");
-    let opens = peg.open_edge_count().expect("mesh");
-    assert!(
-        opens > 0,
-        "star-boss union gap has closed ({opens} opens) — flip this pin \
-         and restore the peg's stepped pilot tips (laptop_stand_api.rs)"
-    );
+    assert_eq!(peg.open_edge_count().expect("mesh"), 0);
+    let b = peg.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "stepped peg must be a clean genus-0 solid");
 }
 
 /// Union of a cylinder boss onto a REFLEX polygon plate — watertight
@@ -1533,6 +1531,217 @@ fn arc_front_wedge_gap_is_pinned() {
                 opens > 0,
                 "arc-front wedge gap has closed ({opens} opens) — flip this \
                  pin and give holder v3 its smooth front"
+            );
+        }
+        Err(_) => {}
+    }
+}
+
+/// Holder v3 BLOCK (the stacking piece): plan extrude → +tilt rest
+/// wedge → square seat → stacking star sockets → two vertical
+/// dovetail ARM sockets in the rear face. Watertight + χ'==2 at
+/// every stage.
+#[test]
+fn holder_v3_block_chain_is_watertight_and_chi_clean() {
+    let chi = |p: &Part| {
+        let b = p.brep();
+        b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+            - b.loops.len() as i64
+    };
+    let tilt = 18.0_f64.to_radians();
+    let hub_r = 58.0;
+    let mut plan: Vec<(f64, f64)> = Vec::new();
+    for k in 0..=12 {
+        let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
+        plan.push((hub_r * a.cos(), hub_r * a.sin()));
+    }
+    plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    let mut part = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(125.0)
+        .expect("block");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 100.0)
+        .expect("lift");
+    part = part.subtract(&upper).expect("wedge");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "wedge");
+    assert_eq!(chi(&part), 2, "wedge χ");
+    let seat = Profile::on(Plane::xy_at(70.0))
+        .rect(76.0, 76.0)
+        .extrude(60.0)
+        .expect("seat");
+    part = part.subtract(&seat).expect("seat");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "seat");
+    assert_eq!(chi(&part), 2, "seat χ");
+    let star = hexagram_points(12.0);
+    let up = Profile::on(Plane::xy_at(54.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("up");
+    part = part.subtract(&up).expect("up");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "up");
+    assert_eq!(chi(&part), 2, "up χ");
+    let down = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("down");
+    part = part.subtract(&down).expect("down");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "down");
+    assert_eq!(chi(&part), 2, "down χ");
+    // Two vertical dovetail arm sockets in the rear face: mouth 12
+    // wide 1 mm proud of the wall, widening to 18 at 10 deep, blind
+    // floor at z=20 (the arm hangs on it), open through the tilted
+    // top.
+    for side in [1.0_f64, -1.0] {
+        let tool = Profile::on(Plane::xy_at(20.0))
+            .polygon(&[(-6.0, -7.0), (6.0, -7.0), (9.0, 4.0), (-9.0, 4.0)])
+            .at(side * 28.0, -50.0)
+            .extrude(110.0)
+            .expect("socket tool");
+        part = part.subtract(&tool).expect("arm socket");
+        assert_eq!(part.open_edge_count().expect("mesh"), 0, "arm socket");
+        assert_eq!(chi(&part), 2, "arm socket χ");
+    }
+}
+
+/// Holder v3 ARM (identical piece ×2): ONE plan outline (root body +
+/// dovetail tab + plate run) extruded, +tilt rest wedge, tool-shaped
+/// lower thinning cut, faceted swoop gusset union, THROUGH dovetail
+/// lip slot. The through slot makes the arm genus 1 — χ' == 0 is
+/// the honest final value.
+#[test]
+fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
+    let chi = |p: &Part| {
+        let b = p.brep();
+        b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+            - b.loops.len() as i64
+    };
+    let tilt = 18.0_f64.to_radians();
+    // ONE plan outline: root body (44 wide) + dovetail tab + plate
+    // run (40 wide), extruded tall and shaped by the pin-proven
+    // sequence.
+    let plan: Vec<(f64, f64)> = vec![
+        (22.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-22.0, 0.0),
+        (-22.0, -24.0),
+        (-20.0, -24.0),
+        (-20.0, -205.0),
+        (20.0, -205.0),
+        (20.0, -24.0),
+        (22.0, -24.0),
+    ];
+    let mut part = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(96.0)
+        .expect("arm blank");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 81.8)
+        .expect("lift");
+    part = part.subtract(&upper).expect("wedge");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "wedge");
+    assert_eq!(chi(&part), 2, "wedge χ");
+    // Thin the plate run to 13 mm: tool-shaped lower cutter with a
+    // vertical front face 2 mm behind the root.
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 190.0)
+        .at(0.0, -121.0)
+        .extrude(100.0)
+        .expect("lower box");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("p2 slab")
+        .rotate_x(tilt)
+        .expect("rot2")
+        .translate(0.0, 0.0, 81.8 - 13.0 / tilt.cos())
+        .expect("lift2");
+    let tool = lower_box.subtract(&p2).expect("shaped tool");
+    part = part.subtract(&tool).expect("thin");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "thin");
+    assert_eq!(chi(&part), 2, "thin χ");
+    // Faceted swoop gusset bracing the plate into the root collar.
+    let gusset = Profile::on(Plane::XY)
+        .polygon(&[
+            (-62.0, -22.0),
+            (-46.0, -64.0),
+            (-36.0, -34.0),
+            (-32.0, -22.0),
+        ])
+        .extrude(36.0)
+        .expect("gusset")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-18.0, 0.0, 0.0)
+        .expect("center");
+    part = part.union(&gusset).expect("swoop");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "swoop");
+    assert_eq!(chi(&part), 2, "swoop χ");
+    // Through dovetail lip slot near the tip.
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)
+        .expect("slot prism")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .rotate_x(tilt)
+        .expect("tilt")
+        .translate(-22.0, -189.0, 81.8 - 189.0 * tilt.tan())
+        .expect("place");
+    part = part.subtract(&slot).expect("lip slot");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0, "slot");
+    assert_eq!(chi(&part), 0, "slot χ");
+}
+
+/// FRONTIER PIN: the peg's SECOND pilot union — a smaller-star boss
+/// onto a body that already carries one stepped pilot. The single
+/// union is closed (star_boss_union_is_watertight); the second
+/// leaks. Until flipped, the peg ships as a plain prism.
+#[test]
+fn peg_double_pilot_gap_is_pinned() {
+    let body_star = hexagram_points(11.8);
+    let pilot_star = hexagram_points(11.2);
+    let body = Profile::on(Plane::xy_at(6.0))
+        .polygon(&body_star)
+        .extrude(18.0)
+        .expect("body");
+    let bottom = Profile::on(Plane::XY)
+        .polygon(&pilot_star)
+        .extrude(10.0)
+        .expect("bottom");
+    let top = Profile::on(Plane::xy_at(20.0))
+        .polygon(&pilot_star)
+        .extrude(10.0)
+        .expect("top");
+    let stepped = body.union(&bottom).expect("first union");
+    assert_eq!(stepped.open_edge_count().expect("mesh"), 0, "first union");
+    match stepped.union(&top) {
+        Ok(peg) => {
+            let opens = peg.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "double-pilot gap has closed ({opens} opens) — flip this \\
+                 pin and restore both pilots (laptop_stand_api.rs)"
             );
         }
         Err(_) => {}

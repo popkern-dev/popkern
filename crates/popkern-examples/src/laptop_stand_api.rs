@@ -129,26 +129,25 @@ fn hexagram(r_outer: f64, edge_offset: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Joint peg, v1: plain hexagram prism at fit clearance.
+/// Joint peg, plain hexagram prism at fit clearance.
 ///
-/// TEMPORARY CONTAINMENT (recorded): the designed peg adds a
-/// stepped, smaller-star pilot tip at each end (2 mm lead-in for
-/// blind insertion). That union — a star boss piercing a star end
-/// face — is an open kernel frontier pinned as
-/// `star_boss_union_gap_is_pinned` (W3, ledger PK-102 follow-up);
-/// when it closes, restore the pilots from this function's history.
-/// The plain prism is a complete, printable joint: the step only
-/// eases insertion.
+/// TEMPORARY CONTAINMENT (recorded): the designed peg adds stepped
+/// pilot tips at BOTH ends. The single star-boss union is closed
+/// (W3, `star_boss_union_is_watertight`), but the SECOND pilot union
+/// onto the already-stepped body leaks (pinned
+/// `peg_double_pilot_gap_is_pinned`) — the second-boolean-on-a-
+/// unioned-star-body class. The plain prism remains a complete
+/// printable joint.
 fn build_peg(p: &StandParams) -> Result<Part, PartError> {
     let body_star = hexagram(p.star_r, p.fit_clearance);
-    let _ = p.pilot_clearance; // used by the pilot tips (see above)
+    let _ = p.pilot_clearance; // returns with the double-pilot pin
     let _ = p.pilot_len;
 
     let peg = Profile::on(Plane::XY)
         .polygon(&body_star)
         .extrude(p.peg_len)?;
     p.assert_fits_plate("peg", 2.0 * p.star_r, p.peg_len);
-    println!("  peg: print lying on a side face (loads shear across layers)");
+    println!("  peg: print lying on a side face");
     Ok(peg)
 }
 
@@ -232,100 +231,121 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
     Ok(base)
 }
 
-/// The angled holder, v2 (designed with the user): a full-depth
-/// STACK BLOCK at the front (column seat + stacking star sockets)
-/// unioned with a ROTATED ARM PLATE whose bottom face IS the 12 mm
-/// arm underside; the 18° rest plane is one wedge cut across the
-/// union — HIGH over the block, descending backward, so the laptop
-/// slides INTO the lips. The lips are separate printed pieces that
-/// slide into DOVETAIL slots across each arm tip (blind inboard end
-/// seats them; the laptop pushes the blade against the slot cheeks,
-/// wedging the tab down). Prints REST-FACE-DOWN: the tilted top is
-/// one flat plane on the bed, the dovetail cheeks lean ~23°, the
-/// blind end walls print vertical — no supports.
-///
-/// Every stage is pinned watertight + χ'==2 by
-/// `holder_v2_full_chain_is_watertight_and_chi_clean`.
-/// Recorded refinement (PK-102): a 45°-chopped catch face (print-
-/// orientation insurance) is one boolean config away — the chopped
-/// tool's subtract still leaks; the flat catch needs no supports in
-/// the designated orientation.
-fn build_holder(p: &StandParams) -> Result<Part, PartError> {
+/// Holder v3 BLOCK — the stacking piece. Modular architecture
+/// (designed with the user): the block carries the column seat, both
+/// stacking star sockets, and two VERTICAL dovetail sockets in its
+/// rear face where the arms hang; the arms are separate identical
+/// pieces so their length is not capped by the build plate, which is
+/// what restores stacking clearance (the laptop tops out short of
+/// the seat). Chain pinned by
+/// `holder_v3_block_chain_is_watertight_and_chi_clean`.
+/// Smooth arc front lands when `arc_front_wedge_gap_is_pinned`
+/// flips (the faceted hub arc ships meanwhile).
+fn build_block(p: &StandParams) -> Result<Part, PartError> {
     let tilt = 18.0_f64.to_radians();
     let hub_r = 58.0;
-    let rest_z_hub = 75.0;
-    let seat_floor = 40.0;
+    let rest_z_hub = 100.0;
+    let seat_floor = 70.0;
     let socket_star = hexagram(p.star_r, 0.0);
 
-    // Stack block: hub arc + straight rear, full depth.
-    let mut block_plan: Vec<(f64, f64)> = Vec::new();
+    let mut plan: Vec<(f64, f64)> = Vec::new();
     for k in 0..=12 {
         let a = std::f64::consts::PI * (1.0 - k as f64 / 12.0);
-        block_plan.push((hub_r * a.cos(), hub_r * a.sin()));
+        plan.push((hub_r * a.cos(), hub_r * a.sin()));
     }
-    block_plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
-    let block = Profile::on(Plane::XY).polygon(&block_plan).extrude(95.0)?;
+    plan.extend_from_slice(&[(44.0, -56.0), (-44.0, -56.0)]);
+    p.assert_fits_plate("block", 116.0, 114.0);
 
-    // Arm plate: fanned plan with wide lip pads, authored flat and
-    // rotated onto the slope; its bottom face is the arm underside.
-    let arm_plan: Vec<(f64, f64)> = vec![
-        (44.0, -40.0),
-        (92.0, -130.0),
-        (92.0, -170.0),
-        (52.0, -170.0),
-        (0.0, -90.0),
-        (-52.0, -170.0),
-        (-92.0, -170.0),
-        (-92.0, -130.0),
-        (-44.0, -40.0),
-    ];
-    let plate = Profile::on(Plane::XY)
-        .polygon(&arm_plan)
-        .extrude(20.0)?
-        .rotate_x(tilt)?
-        .translate(0.0, 0.0, rest_z_hub - 13.0)?;
-    p.assert_fits_plate("holder", 184.0, hub_r + 170.0 * tilt.cos().max(0.9));
-    let holder = block.union(&plate)?;
-
-    // One wedge cut = the coplanar rest plane across block and arms.
+    let block = Profile::on(Plane::XY).polygon(&plan).extrude(125.0)?;
     let upper = Profile::on(Plane::XY)
         .rect(600.0, 600.0)
         .extrude(200.0)?
         .rotate_x(tilt)?
         .translate(0.0, 0.0, rest_z_hub)?;
-    let holder = holder.subtract(&upper)?;
+    let block = block.subtract(&upper)?;
 
-    // Square column seat over the stack axis, flat floor.
     let seat = Profile::on(Plane::xy_at(seat_floor))
         .rect(76.0, 76.0)
         .extrude(60.0)?;
-    let holder = holder.subtract(&seat)?;
-
-    // Stacking star sockets (8 mm web between them).
+    let block = block.subtract(&seat)?;
     let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
-    let holder = holder.subtract(&up)?;
+    let block = block.subtract(&up)?;
     let down = Profile::on(Plane::xy_at(-1.0))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
-    let mut holder = holder.subtract(&down)?;
+    let mut block = block.subtract(&down)?;
 
-    // Dovetail lip slots across each arm tip: mouth 9 wide (2 mm
-    // proud, vertical to 1 mm depth), cheeks leaning to 14 wide at
-    // 6 deep, open at the outboard edge, blind at the inboard end.
+    // Vertical dovetail arm sockets: the arm's bending moment
+    // resolves as a horizontal couple in the dovetail; insertion is
+    // from above, and the laptop's weight locks it.
     for side in [1.0_f64, -1.0] {
-        let tool = dovetail_slot_tool(tilt, rest_z_hub, side)?;
-        holder = holder.subtract(&tool)?;
+        let tool = Profile::on(Plane::xy_at(20.0))
+            .polygon(&[(-6.0, -7.0), (6.0, -7.0), (9.0, 4.0), (-9.0, 4.0)])
+            .at(side * 28.0, -50.0)
+            .extrude(110.0)?;
+        block = block.subtract(&tool)?;
     }
-    println!("  holder: print REST-FACE DOWN (tilted top on the bed; no supports)");
-    Ok(holder)
+    println!("  block: print REST-FACE DOWN");
+    Ok(block)
 }
 
-/// The dovetail slot cutter for one arm tip (`side` = ±1).
-fn dovetail_slot_tool(tilt: f64, rest_z_hub: f64, side: f64) -> Result<Part, PartError> {
-    let slot_y = -145.0;
-    let prism = Profile::on(Plane::XY)
+/// Holder v3 ARM — one identical piece, printed twice. One plan
+/// outline (root body + dovetail tab + plate run) extruded, the rest
+/// plane cut across it, the plate run thinned to 13 mm by a
+/// tool-shaped lower cutter, a faceted swoop gusset for rigidity,
+/// a THROUGH dovetail lip slot near the tip (through ⇒ genus 1 ⇒
+/// χ' = 0 by design), and the tab relieved below the socket floor.
+/// Chain pinned by `holder_v3_arm_chain_is_watertight_and_chi_clean`.
+fn build_arm(p: &StandParams) -> Result<Part, PartError> {
+    let _ = p;
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8; // block rest plane at its rear face
+    let plan: Vec<(f64, f64)> = vec![
+        (22.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-22.0, 0.0),
+        (-22.0, -24.0),
+        (-20.0, -24.0),
+        (-20.0, -231.0),
+        (20.0, -231.0),
+        (20.0, -24.0),
+        (22.0, -24.0),
+    ];
+    let mut arm = Profile::on(Plane::XY).polygon(&plan).extrude(96.0)?;
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)?
+        .rotate_x(tilt)?
+        .translate(0.0, 0.0, plane_at_root)?;
+    arm = arm.subtract(&upper)?;
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 216.0)
+        .at(0.0, -134.0)
+        .extrude(100.0)?;
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)?
+        .rotate_x(tilt)?
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())?;
+    let tool = lower_box.subtract(&p2)?;
+    arm = arm.subtract(&tool)?;
+    let gusset = Profile::on(Plane::XY)
+        .polygon(&[
+            (-62.0, -22.0),
+            (-46.0, -64.0),
+            (-36.0, -34.0),
+            (-32.0, -22.0),
+        ])
+        .extrude(36.0)?
+        .rotate_y(90.0_f64.to_radians())?
+        .translate(-18.0, 0.0, 0.0)?;
+    arm = arm.union(&gusset)?;
+    let slot = Profile::on(Plane::XY)
         .polygon(&[
             (-2.0, -4.5),
             (1.0, -4.5),
@@ -334,26 +354,29 @@ fn dovetail_slot_tool(tilt: f64, rest_z_hub: f64, side: f64) -> Result<Part, Par
             (1.0, 4.5),
             (-2.0, 4.5),
         ])
-        .extrude(41.0)?
-        .rotate_y(90.0_f64.to_radians())?;
-    let mut tool = prism;
-    if side < 0.0 {
-        tool = tool.rotate_z(std::f64::consts::PI)?;
-    }
-    let dz = rest_z_hub + slot_y * tilt.tan();
-    tool.rotate_x(tilt)?.translate(side * 52.0, slot_y, dz)
+        .extrude(44.0)?
+        .rotate_y(90.0_f64.to_radians())?
+        .rotate_x(tilt)?
+        .translate(-22.0, -215.0, plane_at_root - 215.0 * tilt.tan())?;
+    arm = arm.subtract(&slot)?;
+    // Relieve the tab below the block's socket floor so the arm
+    // HANGS on the floor while the root face bears on the wall.
+    let relief = Profile::on(Plane::xy_at(-5.0))
+        .rect(24.0, 14.0)
+        .at(0.0, 5.0)
+        .extrude(25.0)?;
+    let arm = arm.subtract(&relief)?;
+    // 44 × 241 footprint prints diagonally on a 240 plate.
+    println!("  arm: print two, REST-FACE DOWN, placed diagonally");
+    Ok(arm)
 }
 
-/// The slide-in lip: a dovetail tab at fit clearance carrying a
-/// blade that rises 16 mm proud of the rest face to stop the
-/// laptop's bottom edge. Two identical lips per holder; prints on a
-/// side face.
+/// The slide-in lip: dovetail tab at fit clearance + blade, one
+/// 10-gon profile × one extrude (no booleans). The slot is a
+/// through-slot so identical arms serve both sides; the lip inserts
+/// from the outboard edge.
 fn build_lip(p: &StandParams) -> Result<Part, PartError> {
     let c = p.fit_clearance;
-    // Tab and blade share the prism axis, so the whole lip is ONE
-    // profile — dovetail tab below, blade above — extruded once:
-    // correct by construction, no boolean. Profile x = depth into
-    // the slot (negative = blade, proud), y = width.
     let lip = Profile::on(Plane::XY)
         .polygon(&[
             (0.0, -(4.5 - c)),
@@ -367,7 +390,7 @@ fn build_lip(p: &StandParams) -> Result<Part, PartError> {
             (-17.0, -4.0),
             (0.0, -4.0),
         ])
-        .extrude(32.0)?
+        .extrude(40.0)?
         .rotate_y(90.0_f64.to_radians())?;
     println!("  lip: print on a side face; two per holder");
     Ok(lip)
@@ -438,12 +461,13 @@ fn main() {
         &out_dir,
     );
     let base = gate_and_export(build_base(&p).expect("base"), "laptop_stand_base", &out_dir);
-    let holder = gate_and_export(
-        build_holder(&p).expect("holder"),
-        "laptop_stand_holder",
+    let block = gate_and_export(
+        build_block(&p).expect("block"),
+        "laptop_stand_block",
         &out_dir,
     );
-    let _lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
+    let arm = gate_and_export(build_arm(&p).expect("arm"), "laptop_stand_arm", &out_dir);
+    let lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
 
     // Stack preview: base, peg into the boss, column onto the peg,
     // second peg, second column. Pegs sit half-proud of each joint.
@@ -454,6 +478,7 @@ fn main() {
     // second column like another tier (its hub sits over the stack
     // axis, arms sweeping toward −y = under the laptop).
     let h1 = c2 + p.column_h + joint;
+    let tilt = 18.0_f64.to_radians();
     write_assembly_preview(
         &[
             (&base, [0.0, 0.0, 0.0]),
@@ -462,13 +487,31 @@ fn main() {
             (&peg, [0.0, 35.0, c1 + p.column_h - p.socket_depth]),
             (&column, [0.0, 35.0, c2]),
             (&peg, [0.0, 35.0, c2 + p.column_h - p.socket_depth]),
-            (&holder, [0.0, 35.0, h1]),
+            (&block, [0.0, 35.0, h1]),
+            (&arm, [28.0, 35.0 - 56.0, h1]),
+            (&arm, [-28.0, 35.0 - 56.0, h1]),
+            (
+                &lip,
+                [
+                    28.0 - 20.0,
+                    35.0 - 56.0 - 215.0,
+                    h1 + 81.8 - 215.0 * tilt.tan(),
+                ],
+            ),
+            (
+                &lip,
+                [
+                    -28.0 - 20.0,
+                    35.0 - 56.0 - 215.0,
+                    h1 + 81.8 - 215.0 * tilt.tan(),
+                ],
+            ),
         ],
         &out_dir.join("laptop_stand_assembly_preview.obj"),
     )
     .expect("assembly preview");
     println!(
-        "  stack preview: base + 2 columns + holder → rest plane front edge at z ≈ {:.0} mm",
-        h1 + 40.0
+        "  stack preview: base + 2 columns + block + arms + lips → seat mouth at z ≈ {:.0} mm",
+        h1 + 100.0
     );
 }

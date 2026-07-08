@@ -207,6 +207,15 @@ pub(crate) fn walk_all_fragments(
         // twin-overlap detection.
         let outer_he_set: HashSet<usize> = outer_loop.iter().copied().collect();
 
+        let outer_newell = walk_geometry::loop_newell(graph, &outer_loop);
+        // The winding override below applies to WORKPIECE (operand A)
+        // faces only. On the TOOL side a large interior ring's both
+        // directions serve as candidate caps for the result pieces (a
+        // plane-split's cutting box face contributes the cap to each
+        // half), and pre-assigning one as the tool-frame's hole
+        // starved a result piece of its cap (measured on the
+        // solid-by-plane splitter).
+        let face_on_workpiece = matches!(face_ref.operand, super::graph::Operand::A);
         for (i, lp) in loops.into_iter().enumerate() {
             // A loop whose half-edges share an underlying graph edge
             // with the outer loop is a face-split boundary, not a hole.
@@ -216,7 +225,35 @@ pub(crate) fn walk_all_fragments(
                 let twin = graph.half_edges[he_idx].twin;
                 outer_he_set.contains(&twin)
             });
-            if shares_edge_with_outer || remaining_areas[i].abs() >= threshold {
+            // Winding RESCUE for large PAIRED holes: the 0.5·area
+            // threshold alone called a 76 mm seat ring on a small
+            // block face a "separate fragment" purely because the
+            // hole was big relative to the face. When BOTH directions
+            // of an interior ring were walked, the one winding
+            // OPPOSITE the outer (Newell dot < 0) is the hole and its
+            // twin is the interior piece — regardless of size. An
+            // UNPAIRED big loop keeps the size rule (a sheet-split's
+            // interior piece walks once and must stay a piece), and
+            // promoting winding to the primary test for small loops
+            // was measured to break six tuned suites.
+            // Winding override for LARGE holes: the 0.5·area
+            // threshold alone called a 76 mm seat ring on a small
+            // block face a "separate fragment" purely because the
+            // hole was big relative to the face. A big loop winding
+            // clearly OPPOSITE the outer (Newell dot < 0) is its
+            // hole. Small loops keep the size rule — demoting small
+            // same-winding loops was measured to break six suites.
+            let separate_by_shape = if remaining_areas[i].abs() >= threshold {
+                if face_on_workpiece {
+                    let winding_dot = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
+                    winding_dot >= -1e-9
+                } else {
+                    true
+                }
+            } else {
+                false
+            };
+            if shares_edge_with_outer || separate_by_shape {
                 separate_outers.push(lp);
             } else {
                 // Both directions of an interior closed ring reach here.
