@@ -1451,3 +1451,90 @@ fn holder_v2_full_chain_is_watertight_and_chi_clean() {
         part = gate(part.subtract(&tool).expect("slot"), "dovetail slot");
     }
 }
+
+/// Arc-in-sketch API: a mixed line/arc outline (a rectangle whose
+/// front side bulges as a circular arc) extrudes to a watertight,
+/// χ-clean solid whose arc wall is a TRUE `Cylinder` surface and
+/// whose straight walls are `Plane`s — the sweep splits spans at
+/// curvature jumps (tangent line↔arc joints) while a full circle's
+/// quadrant joints stay merged (`plain_cylinder` pins cover that).
+#[test]
+fn mixed_path_extrude_emits_true_cylinder_wall() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let part = Profile::on(Plane::XY)
+        .path(-30.0, 0.0)
+        .line_to(30.0, 0.0)
+        .arc_to((0.0, 18.0), (-30.0, 0.0))
+        .close()
+        .extrude(20.0)
+        .expect("mixed extrude");
+    assert_eq!(part.open_edge_count().expect("mesh"), 0);
+    let b = part.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "mixed-path solid must be genus 0");
+    let mut planes = 0;
+    let mut cylinders = 0;
+    let mut nurbs = 0;
+    for (_, f) in b.faces.iter() {
+        match f.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Plane { .. }) => planes += 1,
+            Some(SurfaceGeometry::Cylinder { .. }) => cylinders += 1,
+            _ => nurbs += 1,
+        }
+    }
+    // 1 straight wall + 2 caps = 3 planes; the ~113° arc subdivides
+    // into two ≤90° rational spans → cylinder wall face(s).
+    assert!(
+        cylinders >= 1,
+        "arc wall must be a true Cylinder (got {cylinders})"
+    );
+    assert_eq!(nurbs, 0, "no unrecognized walls (got {nurbs})");
+    assert!(
+        planes >= 3,
+        "straight wall + caps must be Planes (got {planes})"
+    );
+}
+
+/// FRONTIER PIN (holder v3): the rest-plane wedge over a SMOOTH ARC
+/// front wall (the new mixed-path API's true Cylinder). Discovery
+/// and the island pass are healthy — the ellipse + 3-line trim ring
+/// chains closed (tip-gap 5e-8) and inserts — but the walk of the
+/// slab's bottom face produces TWO inner rings ([3, 4] half-edges)
+/// where one exists, the assembly goes non-manifold, and graph-merge
+/// leaks 94 open edges (χ' = 1). The plane×cylinder ring on a
+/// boolean-made planar face is the next walker configuration. Until
+/// closed, holder v3's block can ship with the faceted front (the
+/// proven polygon outline).
+#[test]
+fn arc_front_wedge_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let block = Profile::on(Plane::XY)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0)
+        .line_to(44.0, -56.0)
+        .close()
+        .extrude(125.0)
+        .expect("block");
+    assert_eq!(block.open_edge_count().expect("mesh"), 0, "block extrude");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, 100.0)
+        .expect("lift");
+    match block.subtract(&upper) {
+        Ok(cut) => {
+            let opens = cut.open_edge_count().expect("mesh");
+            assert!(
+                opens > 0,
+                "arc-front wedge gap has closed ({opens} opens) — flip this \
+                 pin and give holder v3 its smooth front"
+            );
+        }
+        Err(_) => {}
+    }
+}

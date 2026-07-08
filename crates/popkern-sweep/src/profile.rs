@@ -266,11 +266,31 @@ fn detect_and_split(curve: &NurbsCurve) -> Result<Vec<NurbsCurve>, SweepError> {
     } else {
         DISCONTINUITY_ANGLE
     };
+    // Curvature jump across a knot marks an authored TYPE boundary
+    // (line↔arc) even when tangents agree: a mixed sketch path joins
+    // straight and circular spans tangentially, and merging them
+    // yields an unrecognizable NURBS wall. A full circle's quadrant
+    // joints have EQUAL curvature on both sides and stay merged.
+    let kappa = |t: f64| -> f64 {
+        let d1 = curve.derivative_at(t, 1);
+        let d2 = curve.derivative_at(t, 2);
+        let num = d1.cross(&d2).length();
+        let den = d1.length().powi(3);
+        if den < 1.0e-30 { 0.0 } else { num / den }
+    };
     for &k in &candidate_knots {
         let before = curve.tangent_at(k - eps);
         let after = curve.tangent_at(k + eps);
         if angle_between(&before, &after) > threshold {
             split_params.push(k);
+            continue;
+        }
+        if curve.degree >= 2 {
+            let k_l = kappa(k - eps);
+            let k_r = kappa(k + eps);
+            if (k_l - k_r).abs() > 0.25 * (k_l + k_r) + 1.0e-9 {
+                split_params.push(k);
+            }
         }
     }
     let _ = n;

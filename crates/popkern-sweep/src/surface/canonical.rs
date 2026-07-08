@@ -65,6 +65,11 @@ pub(crate) fn recognize_extruded_cylinder(
     let row0: Vec<Point3> = (0..NU)
         .map(|i| surface.point_at(i as f64 / (NU - 1) as f64, 0.0))
         .collect();
+    // Same envelope shape as recognize_extruded_plane: construction
+    // noise scales with the profile span, not just the offset
+    // (measured there at ~1.5e-9 relative; the old offset-only 1e-9
+    // envelope rejected real cylinder walls).
+    let row_span = (row0[NU - 1] - row0[0]).length();
     let mut axis_dir: Option<Vec3> = None;
     let mut height = 0.0;
     for j in 1..NV {
@@ -73,7 +78,7 @@ pub(crate) fn recognize_extruded_cylinder(
         for (i, p0) in row0.iter().enumerate() {
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
             let d = p - *p0;
-            if (d - offset).length() > 1.0e-9 * (1.0 + offset.length()) {
+            if (d - offset).length() > 1.0e-8 * (1.0 + row_span + offset.length()) {
                 return None;
             }
         }
