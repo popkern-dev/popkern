@@ -67,8 +67,20 @@ pub(crate) fn walk_all_fragments(
                     let po = graph.nodes[o].position;
                     let pe = graph.nodes[e].position;
                     eprintln!(
-                        "      [he] {h} n{o}({:.9},{:.9},{:.9}) -> n{e}({:.9},{:.9},{:.9}) twin {}",
-                        po.x, po.y, po.z, pe.x, pe.y, pe.z, he.twin
+                        "      [he] {h} n{o}({:.9},{:.9},{:.9}) -> n{e}({:.9},{:.9},{:.9}) twin {} src {:?} curve {}",
+                        po.x,
+                        po.y,
+                        po.z,
+                        pe.x,
+                        pe.y,
+                        pe.z,
+                        he.twin,
+                        he.source,
+                        he.curve
+                            .as_ref()
+                            .or(graph.half_edges[he.twin].curve.as_ref())
+                            .map(|c| format!("[{:.2},{:.2}]", c.t_start, c.t_end))
+                            .unwrap_or_else(|| "none".into())
                     );
                 }
             }

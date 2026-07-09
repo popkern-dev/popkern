@@ -89,7 +89,7 @@ fn intersect_impl(
     if cos_alpha > 1.0 - tol.angular() {
         case_perpendicular(po, pn, pu, pv, co, ca, cr, tol, swapped)
     } else if cos_alpha < tol.angular() {
-        case_parallel(po, pn, pu, pv, co, ca, cr, tol, swapped)
+        case_parallel(po, pn, pu, pv, co, ca, cr, _cvr, tol, swapped)
     } else {
         case_oblique(po, pn, pu, pv, co, ca, cr, tol, swapped)
     }
@@ -139,6 +139,7 @@ fn case_perpendicular(
 
 /// Plane normal ≈ perpendicular to cylinder axis.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn case_parallel(
     po: Point3,
     pn: Vec3,
@@ -147,6 +148,7 @@ fn case_parallel(
     co: Point3,
     ca: Vec3,
     cr: f64,
+    cvr: (f64, f64),
     tol: &Tolerance,
     swapped: bool,
 ) -> Vec<SurfaceSurfaceIntersection> {
@@ -170,19 +172,26 @@ fn case_parallel(
     if ratio.abs() > 1.0 {
         return vec![];
     }
+    // Solve d + cr·(n1·cos u + n2·sin u) = 0. With n1 = amp·cos(base)
+    // and n2 = amp·sin(base) this is amp·cos(u − base) = −d/cr, so
+    // u = base ± acos(ratio). (The previous π ± δ − base form placed
+    // the lines up to a diameter off the plane — the trim-honesty
+    // gate rejected them and the real intersection went missing.)
     let base = f64::atan2(n2, n1);
     let delta = ratio.clamp(-1.0, 1.0).acos();
 
-    let angles = [
-        norm_angle(std::f64::consts::PI - delta - base),
-        norm_angle(std::f64::consts::PI + delta - base),
-    ];
+    let angles = [norm_angle(base + delta), norm_angle(base - delta)];
+
+    // Span the caller's axial window with headroom; the ±10 constant
+    // truncated the lines to 20 mm and the clip lost everything
+    // beyond it.
+    let pad = (cvr.1 - cvr.0).abs().max(1.0);
+    let (v_lo, v_hi) = (cvr.0 - pad, cvr.1 + pad);
 
     angles
         .iter()
         .map(|&u_ang| {
             let lp = co + p1 * (cr * u_ang.cos()) + p2 * (cr * u_ang.sin());
-            let (v_lo, v_hi) = (-10.0, 10.0);
             let a = lp + ca * v_lo;
             let b = lp + ca * v_hi;
             let curve_3d = nurbs_line(a, b);

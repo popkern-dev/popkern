@@ -79,6 +79,13 @@ pub(crate) fn recognize_extruded_cylinder(
             let p = surface.point_at(i as f64 / (NU - 1) as f64, v);
             let d = p - *p0;
             if (d - offset).length() > 1.0e-8 * (1.0 + row_span + offset.length()) {
+                if std::env::var_os("PK_CANON_TRACE").is_some() {
+                    eprintln!(
+                        "[canon-cyl] translation decline: dev {:.3e} vs env {:.3e}",
+                        (d - offset).length(),
+                        1.0e-8 * (1.0 + row_span + offset.length())
+                    );
+                }
                 return None;
             }
         }
@@ -101,14 +108,34 @@ pub(crate) fn recognize_extruded_cylinder(
     if radius < 1.0e-12 {
         return None;
     }
-    let gate = RECOGNITION_REL * radius.max(1.0);
+    // Construction noise scales with the profile's coordinate span,
+    // not just the radius (measured: a 27 mm arc whose profile
+    // coordinates run to ~70 mm deviated 1.0e-7 axially — far over a
+    // RECOGNITION_REL·radius gate). Same constant and shape as the
+    // translation envelope above; real non-cylinders deviate at
+    // sagitta scale, 3+ orders of magnitude above this gate.
+    let gate = 1.0e-8 * (1.0 + radius + row_span);
     for p in &row0 {
         let d = *p - center;
         if (d.dot(&axis)).abs() > gate {
+            if std::env::var_os("PK_CANON_TRACE").is_some() {
+                eprintln!(
+                    "[canon-cyl] plane decline: axial {:.3e} vs gate {:.3e}",
+                    (d.dot(&axis)).abs(),
+                    gate
+                );
+            }
             return None;
         }
         let radial = d - axis * d.dot(&axis);
         if (radial.length() - radius).abs() > gate {
+            if std::env::var_os("PK_CANON_TRACE").is_some() {
+                eprintln!(
+                    "[canon-cyl] radius decline: dev {:.3e} vs gate {:.3e} (r {radius:.3})",
+                    (radial.length() - radius).abs(),
+                    gate
+                );
+            }
             return None;
         }
     }

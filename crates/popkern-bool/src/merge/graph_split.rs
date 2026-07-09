@@ -60,6 +60,13 @@ pub(crate) fn classify_endpoint(
             }
             return EndpointClass::OnEdge(i, t);
         }
+        // The MIRROR failure: a point ON a curved edge can be far
+        // from its chord (an arc's step-face crossing sat 5.5 mm off
+        // the chord), so the segment test never fires. Test curved
+        // edges against the real curve directly.
+        if let Some(t) = point_on_curved_graph_edge(graph, i, point, tolerance) {
+            return EndpointClass::OnEdge(i, t);
+        }
 
         // Skip the twin — we only need to check each edge once.
         i += 2;
@@ -115,6 +122,40 @@ pub(crate) fn split_graph_edge(
     let _start_node = graph.half_edges[he_idx].origin;
     let end_node = graph.half_edges[twin_idx].origin;
 
+    // Split the CURVE window at the split point. The original pair
+    // keeps the window on the start side, the new fragment gets the
+    // tail. Leaving the original with its FULL window (and the
+    // fragment with none) meant a hit-split arc kept a curve
+    // overrunning its nodes — assembly's endpoint-matched adoption
+    // failed and the arc degraded to chords (a gusset cap's arc
+    // boundary, split where a step face crosses it, walked as
+    // garbage bigons). Inversion of the split point on the curve
+    // gives the split parameter; on inversion failure the old
+    // behavior is preserved.
+    let start_pos = graph.nodes[graph.half_edges[he_idx].origin].position;
+    let curve_windows = graph.half_edges[he_idx]
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[twin_idx].curve.as_ref())
+        .and_then(|c| {
+            use popkern_core::geometry::curve::CurveEval;
+            let tol = popkern_core::tolerance::Tolerance::default();
+            let t_split = popkern_core::geometry::curve_inversion::invert_curve_at_point(
+                c,
+                split_point,
+                &tol,
+            )
+            .ok()?;
+            let p_ts = c.geometry.point_at(c.t_start);
+            let start_first =
+                p_ts.distance_to(&start_pos) <= p_ts.distance_to(&graph.nodes[end_node].position);
+            if start_first {
+                Some(((c.t_start, t_split), (t_split, c.t_end)))
+            } else {
+                Some(((t_split, c.t_end), (c.t_start, t_split)))
+            }
+        });
+
     // Preserve face assignments and source before mutation.
     let fwd_face = graph.half_edges[he_idx].face;
     let twin_face = graph.half_edges[twin_idx].face;
@@ -134,12 +175,22 @@ pub(crate) fn split_graph_edge(
     let new_fwd_idx = graph.half_edges.len();
     let new_twin_idx = new_fwd_idx + 1;
 
+    let tail_curve = curve_windows.and_then(|(_, (ta, tb))| {
+        let src = graph.half_edges[he_idx]
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[twin_idx].curve.as_ref())?;
+        let mut c = src.clone();
+        c.t_start = ta;
+        c.t_end = tb;
+        Some(c)
+    });
     graph.half_edges.push(GraphHalfEdge {
         origin: new_node,
         twin: new_twin_idx,
         face: fwd_face,
-        curve: None,  // Curve splitting handled separately.
-        pcurve: None, // Pcurve splitting handled separately.
+        curve: tail_curve,
+        pcurve: None, // Pcurves are regenerated downstream.
         source: split_source.clone(),
     });
     graph.half_edges.push(GraphHalfEdge {
@@ -150,6 +201,15 @@ pub(crate) fn split_graph_edge(
         pcurve: None,
         source: split_source,
     });
+    // Trim the ORIGINAL pair's curve to the head window.
+    if let Some(((ha, hb), _)) = curve_windows {
+        for idx in [he_idx, twin_idx] {
+            if let Some(c) = graph.half_edges[idx].curve.as_mut() {
+                c.t_start = ha;
+                c.t_end = hb;
+            }
+        }
+    }
 
     // Update outgoing lists.
     graph.nodes[new_node].outgoing.push(new_fwd_idx);
@@ -261,6 +321,77 @@ fn point_on_graph_edge_curve(
     best <= tolerance
 }
 
+/// If `point` lies on the REAL curve of graph edge `he_idx` (which
+/// must be CURVED — straight edges are fully served by the chord
+/// test), return its chord-equivalent fraction. Coarse 16-station
+/// scan + local ternary refinement; interior hits only (endpoint
+/// matches are the caller's node-snap job).
+fn point_on_curved_graph_edge(
+    graph: &IntersectionGraph,
+    he_idx: usize,
+    point: &Point3,
+    tolerance: f64,
+) -> Option<f64> {
+    let he = &graph.half_edges[he_idx];
+    let curve = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref())?;
+    let curved = match &curve.geometry {
+        popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+        popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
+        _ => true,
+    };
+    if !curved {
+        return None;
+    }
+    use popkern_core::geometry::curve::CurveEval;
+    let (ta, tb) = (curve.t_start, curve.t_end);
+    let n: usize = 16;
+    let mut best = (0usize, f64::MAX);
+    for i in 0..=n {
+        let t = ta + (tb - ta) * i as f64 / n as f64;
+        let d = curve.geometry.point_at(t).distance_to(point);
+        if d < best.1 {
+            best = (i, d);
+        }
+    }
+    let (mut lo, mut hi) = (
+        ta + (tb - ta) * (best.0.saturating_sub(1)) as f64 / n as f64,
+        ta + (tb - ta) * (best.0 + 1).min(n) as f64 / n as f64,
+    );
+    let mut best_t = ta + (tb - ta) * best.0 as f64 / n as f64;
+    let mut best_d = best.1;
+    for _ in 0..40 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        let d1 = curve.geometry.point_at(m1).distance_to(point);
+        let d2 = curve.geometry.point_at(m2).distance_to(point);
+        if d1 < d2 {
+            hi = m2;
+            if d1 < best_d {
+                best_d = d1;
+                best_t = m1;
+            }
+        } else {
+            lo = m1;
+            if d2 < best_d {
+                best_d = d2;
+                best_t = m2;
+            }
+        }
+    }
+    if best_d > tolerance {
+        return None;
+    }
+    let f = ((best_t - ta) / (tb - ta)).clamp(0.0, 1.0);
+    // Interior only: endpoints belong to node snapping.
+    if !(1e-6..=(1.0 - 1e-6)).contains(&f) {
+        return None;
+    }
+    Some(f)
+}
+
 pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, tolerance: f64) {
     // Collect shared edge endpoint node indices.
     let shared_nodes: Vec<usize> = {
@@ -304,6 +435,12 @@ pub(crate) fn split_edges_at_shared_nodes(graph: &mut IntersectionGraph, toleran
                         did_split = true;
                         break;
                     }
+                } else if point_on_curved_graph_edge(graph, i, &pos, tolerance).is_some() {
+                    // Mirror case: the node sits ON the curve but
+                    // off its chord.
+                    split_at_existing_node(graph, i, node_idx);
+                    did_split = true;
+                    break;
                 }
                 i += 2;
             }
@@ -492,7 +629,16 @@ fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: us
     // ACROSS the circle — radial sorting then mis-routes the loop
     // walk. The node keeps the parent range's tail; the new half
     // takes [t_split, t_end].
-    let (parent_curve_trimmed, new_half_curve) = match &graph.half_edges[he_idx].curve {
+    // The curve may live on EITHER half of the pair — reading only
+    // he_idx left a twin-carried curve with its stale FULL window,
+    // which the curved-edge matcher then re-matched at the same
+    // node, splitting the edge again and again (duplicate n↔n
+    // pairs on a gusset cap's arc).
+    let pair_curve = graph.half_edges[he_idx]
+        .curve
+        .clone()
+        .or_else(|| graph.half_edges[twin_idx].curve.clone());
+    let (parent_curve_trimmed, new_half_curve) = match &pair_curve {
         Some(curve) => {
             let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
             let pos = graph.nodes[node].position;

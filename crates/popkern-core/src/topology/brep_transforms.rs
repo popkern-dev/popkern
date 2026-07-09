@@ -289,6 +289,61 @@ impl crate::topology::BRep {
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
         }
+        // Rotational charts (cylinder/cone/sphere/torus) anchor U to
+        // orthonormal_basis(axis) — a convention of the axis
+        // direction, not of the material. A rigid rotation moves the
+        // anchor, so every stored pcurve U on such a face is offset
+        // by the constant angle between the ROTATED old basis and
+        // the new axis's own basis (measured: a rotated arc-wall
+        // gusset's pcurves sat 2π-and-a-fraction off its chart and
+        // the UV clip kept a phantom intersection line while
+        // rejecting nothing real). Compute the shift per face before
+        // overwriting the surface, then re-anchor its pcurves.
+        let mut face_u_shift: Vec<(crate::topology::FaceHandle, f64)> = Vec::new();
+        for (fh, face) in &result.faces {
+            let Some(sof) = face.surface.as_ref() else {
+                continue;
+            };
+            let axis_old = match &sof.geometry {
+                SurfaceGeometry::Cylinder { axis, .. }
+                | SurfaceGeometry::Cone { axis, .. }
+                | SurfaceGeometry::Torus { axis, .. } => *axis,
+                _ => continue,
+            };
+            let axis_new = t.apply_direction(&axis_old);
+            let (e1_old, _) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_old);
+            let (f1, f2) = crate::geometry::analytic_surfaces::orthonormal_basis(axis_new);
+            let e1_img = t.apply_direction(&e1_old);
+            let delta = e1_img.dot(&f2).atan2(e1_img.dot(&f1));
+            if delta.abs() > 1.0e-14 {
+                face_u_shift.push((fh, delta));
+            }
+        }
+        for (fh, delta) in face_u_shift {
+            let face = &result.faces[fh];
+            let mut loops = vec![face.outer_loop];
+            loops.extend(face.inner_loops.iter().copied());
+            let mut hes = Vec::new();
+            for lh in loops {
+                let start = result.loops[lh].half_edge;
+                if !result.half_edges.contains_key(start) {
+                    continue;
+                }
+                let mut he = start;
+                loop {
+                    hes.push(he);
+                    he = result.half_edges[he].next;
+                    if he == start {
+                        break;
+                    }
+                }
+            }
+            for he in hes {
+                if let Some(pc) = result.half_edges[he].pcurve.as_mut() {
+                    pc.shift_u(delta);
+                }
+            }
+        }
         for (_, face) in &mut result.faces {
             if let Some(ref mut sof) = face.surface {
                 sof.geometry = transform_surface(&sof.geometry, t);

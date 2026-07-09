@@ -396,10 +396,10 @@ fn through_hole_tessellation_gap_is_pinned() {
     let part = Part::from_brep(out, Tolerance::default(), "cube with through-hole")
         .expect("hole solid validates (genus-aware)");
     let opens = part.open_edge_count().expect("mesh");
-    assert!(
-        opens > 0,
-        "through-hole tessellation gap has closed ({opens} opens) — \
-         flip this pin to assert_eq!(opens, 0) and update the ledger"
+    assert_eq!(
+        opens, 0,
+        "through-hole tessellation must stay watertight (closed by the \
+         conforming T-point split in the boundary-first mesher)"
     );
 }
 
@@ -1606,7 +1606,7 @@ fn holder_v3_block_chain_is_watertight_and_chi_clean() {
 
 /// Holder v3 ARM (identical piece ×2): ONE plan outline (root body +
 /// dovetail tab + plate run) extruded, +tilt rest wedge, tool-shaped
-/// lower thinning cut, faceted swoop gusset union, THROUGH dovetail
+/// lower thinning cut, smooth arc swoop gusset union, THROUGH dovetail
 /// lip slot. The through slot makes the arm genus 1 — χ' == 0 is
 /// the honest final value.
 #[test]
@@ -1668,13 +1668,22 @@ fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
     part = part.subtract(&tool).expect("thin");
     assert_eq!(part.open_edge_count().expect("mesh"), 0, "thin");
     assert_eq!(chi(&part), 2, "thin χ");
-    // Faceted swoop gusset bracing the plate into the root collar.
+    // Chorded swoop gusset: top edge parallel to (and embedded 1 mm
+    // into) the plate underside for full-run contact; free edge is a
+    // 5-chord sampling of the design arc. The TRUE-arc union is the
+    // pinned frontier (arc_gusset_union_gap_is_pinned).
+    let plate_under = |y: f64| 81.8 + y * tilt.tan() - 13.0 / tilt.cos();
+    let (y_root, y_tip) = (-20.0, -72.0);
     let gusset = Profile::on(Plane::XY)
         .polygon(&[
-            (-62.0, -22.0),
-            (-46.0, -64.0),
-            (-36.0, -34.0),
-            (-32.0, -22.0),
+            (-(plate_under(y_root) + 1.0), y_root),
+            (-(plate_under(y_tip) + 1.0), y_tip),
+            (-44.0, y_tip),
+            (-45.9, -60.2),
+            (-44.8, -48.3),
+            (-40.6, -37.0),
+            (-33.5, -27.4),
+            (-26.0, y_root),
         ])
         .extrude(36.0)
         .expect("gusset")
@@ -1808,4 +1817,84 @@ fn arc_block_arm_sockets_are_watertight() {
             - b.loops.len() as i64;
         assert_eq!(chi, 2, "arm socket χ");
     }
+}
+
+/// FRONTIER PIN (arm swoop): the TRUE-ARC gusset union — a
+/// mixed-path profile whose arc wall meets the arm as a cylinder
+/// with axis ALONG the profile normal. The campaign closed five
+/// layers (cylinder recognition envelope, plane×cylinder parallel
+/// case angles + axial span, rotational-chart pcurve re-anchoring
+/// under rigid transforms, curved cap/planar pcurve projection,
+/// curve-window splitting + curved-edge point classification in the
+/// graph), leaving one: repeated hit-splits of the same curved graph
+/// edge mis-window one fragment pair and duplicate another (measured
+/// signature: extra n↔n half-edge pairs spanning an already-split
+/// arc piece; ~6 open edges via the graph-merge fallback). The
+/// shipping arm uses the 5-chord swoop meanwhile.
+#[test]
+fn arc_gusset_union_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plan: Vec<(f64, f64)> = vec![
+        (22.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-22.0, 0.0),
+        (-22.0, -24.0),
+        (-20.0, -24.0),
+        (-20.0, -231.0),
+        (20.0, -231.0),
+        (20.0, -24.0),
+        (22.0, -24.0),
+    ];
+    let mut arm = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(96.0)
+        .expect("arm");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("lift");
+    arm = arm.subtract(&upper).expect("rest");
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 216.0)
+        .at(0.0, -134.0)
+        .extrude(100.0)
+        .expect("box");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("slab2")
+        .rotate_x(tilt)
+        .expect("rot2")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("lift2");
+    let tool = lower_box.subtract(&p2).expect("shaped tool");
+    arm = arm.subtract(&tool).expect("thin");
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let (y_root, y_tip) = (-20.0, -72.0);
+    let gusset = Profile::on(Plane::XY)
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(36.0)
+        .expect("gusset")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-18.0, 0.0, 0.0)
+        .expect("center");
+    let out = arm.union(&gusset).expect("swoop union");
+    let opens = out.open_edge_count().expect("mesh");
+    assert!(
+        opens > 0,
+        "arc-gusset union gap has closed ({opens} opens) — flip this pin \
+         and give the shipping arm its true-arc swoop"
+    );
 }

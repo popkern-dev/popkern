@@ -188,11 +188,70 @@ impl BRep {
                 current = self.half_edges[current].next;
             }
 
-            // Compute and assign pcurves.
+            // Compute and assign pcurves. The plane chart is affine,
+            // so straight edges get exact endpoint lines and CURVED
+            // edges get their full control polygon projected — a
+            // vertex-chord pcurve for a curved edge places the
+            // boundary up to the sagitta inside the real face
+            // (measured: a boolean's UV clip crossed a cap arc at
+            // its CHORD, 7.75 mm off, and the intersection ring
+            // never closed).
+            let project = |p: &Point3,
+                           u_axis: &crate::geometry::Vec3,
+                           v_axis: &crate::geometry::Vec3|
+             -> Point3 {
+                let d = *p - plane_origin;
+                Point3::new(d.dot(u_axis) / u_dot_u, d.dot(v_axis) / v_dot_v, 0.0)
+            };
             for &heh in &he_handles {
                 let origin_pos = self.vertices[self.half_edges[heh].origin].position;
                 let next_heh = self.half_edges[heh].next;
                 let dest_pos = self.vertices[self.half_edges[next_heh].origin].position;
+
+                let curved_nurbs = self
+                    .edges
+                    .get(self.half_edges[heh].edge)
+                    .and_then(|e| e.curve.as_ref())
+                    .and_then(|c| match &c.geometry {
+                        crate::geometry::curve::CurveGeometry::Line { .. } => None,
+                        crate::geometry::curve::CurveGeometry::Nurbs(n) if n.degree <= 1 => None,
+                        // Closed rims (full circles/ellipses) keep the
+                        // legacy path — their chord is degenerate and
+                        // they are handled by dedicated constructors.
+                        crate::geometry::curve::CurveGeometry::Circle { .. } => None,
+                        other => Some(other.to_nurbs_in_range({
+                            let e = self.edges.get(self.half_edges[heh].edge);
+                            let c = e.and_then(|e| e.curve.as_ref());
+                            c.map(|c| (c.t_start, c.t_end)).unwrap_or((0.0, 1.0))
+                        })),
+                    });
+                if let Some(n3d) = curved_nurbs {
+                    use crate::geometry::curve::CurveEval;
+                    let p_first = n3d.point_at(n3d.parameter_range().0);
+                    let forward =
+                        p_first.distance_to(&origin_pos) <= p_first.distance_to(&dest_pos);
+                    let mut pc = NurbsCurve {
+                        degree: n3d.degree,
+                        knots: n3d.knots.clone(),
+                        control_points: n3d
+                            .control_points
+                            .iter()
+                            .map(|p| project(p, &u_axis, &v_axis))
+                            .collect(),
+                        weights: n3d.weights.clone(),
+                    };
+                    if !forward {
+                        pc.control_points.reverse();
+                        pc.weights.reverse();
+                        let (k0, k1) = (
+                            pc.knots.first().copied().unwrap_or(0.0),
+                            pc.knots.last().copied().unwrap_or(1.0),
+                        );
+                        pc.knots = pc.knots.iter().rev().map(|&k| k0 + k1 - k).collect();
+                    }
+                    self.half_edges[heh].pcurve = Some(pc.into());
+                    continue;
+                }
 
                 let d_start = origin_pos - plane_origin;
                 let u_start = d_start.dot(&u_axis) / u_dot_u;

@@ -145,6 +145,39 @@ pub enum PcurveGeometry {
 }
 
 impl Pcurve {
+    /// Shift the U coordinate of the whole pcurve by a constant.
+    ///
+    /// Rotational charts (cylinder/cone/sphere/torus) anchor U to
+    /// `orthonormal_basis(axis)`, a convention of the AXIS DIRECTION
+    /// rather than of the material: a rigid rotation of the body
+    /// changes the anchor, offsetting every stored U by one constant
+    /// angle. `BRep::transform` uses this to re-anchor pcurves.
+    pub fn shift_u(&mut self, delta: f64) {
+        match &mut self.geometry {
+            PcurveGeometry::Linear { start, end } => {
+                start.0 += delta;
+                end.0 += delta;
+            }
+            PcurveGeometry::Elliptical { center, .. } => {
+                center.0 += delta;
+            }
+            PcurveGeometry::Sinusoidal { u_offset, .. } => {
+                *u_offset += delta;
+            }
+            PcurveGeometry::Nurbs(c) => {
+                for cp in &mut c.control_points {
+                    cp.x += delta;
+                }
+            }
+            PcurveGeometry::CylinderArcViaRationalQuad {
+                theta_a, theta_b, ..
+            } => {
+                *theta_a += delta;
+                *theta_b += delta;
+            }
+        }
+    }
+
     /// Wrap a `NurbsCurve` as a NURBS-form pcurve. Inherits the
     /// curve's intrinsic parameter range.
     pub fn from_nurbs(curve: NurbsCurve) -> Self {

@@ -98,7 +98,15 @@ fn attach_cap_pcurves(
             }
         }
     } else {
-        // Multi-edge cap: project endpoints to UV and create line pcurves.
+        // Multi-edge cap. STRAIGHT spans get exact line pcurves from
+        // projected endpoints. CURVED spans (mixed-path arcs) project
+        // the WHOLE control polygon: an endpoint-chord pcurve places
+        // the boundary up to the sagitta inside the true face
+        // (measured: a boolean's UV clip crossed a gusset cap's arc
+        // pcurve at the CHORD, 7.75 mm from the true arc crossing,
+        // and the intersection ring never closed). The cap chart is
+        // affine, so projecting each control point with unchanged
+        // weights/knots reproduces the exact rational arc in UV.
         for (&he, curve) in half_edges.iter().zip(cap_curves.iter()) {
             let (t_start, t_end) = curve.parameter_range();
             let p_start = curve.point_at(t_start);
@@ -108,6 +116,40 @@ fn attach_cap_pcurves(
             let origin_vh = builder.brep().half_edges[he].origin;
             let origin_pos = builder.brep().vertices[origin_vh].position;
             let forward = origin_pos.distance_to(&p_start) < origin_pos.distance_to(&p_end);
+
+            let curved = curve.degree > 1;
+            if curved {
+                let mut uv_cps = Vec::with_capacity(curve.control_points.len());
+                let mut ok = true;
+                for cp in &curve.control_points {
+                    match project_point_to_uv(&surface, cp) {
+                        Some((u, v)) => uv_cps.push(Point3::new(u, v, 0.0)),
+                        None => {
+                            ok = false;
+                            break;
+                        }
+                    }
+                }
+                if ok {
+                    let mut pcurve = NurbsCurve {
+                        degree: curve.degree,
+                        knots: curve.knots.clone(),
+                        control_points: uv_cps,
+                        weights: curve.weights.clone(),
+                    };
+                    if !forward {
+                        pcurve.control_points.reverse();
+                        pcurve.weights.reverse();
+                        let (k0, k1) = (
+                            pcurve.knots.first().copied().unwrap_or(0.0),
+                            pcurve.knots.last().copied().unwrap_or(1.0),
+                        );
+                        pcurve.knots = pcurve.knots.iter().rev().map(|&k| k0 + k1 - k).collect();
+                    }
+                    builder.set_half_edge_pcurve(he, pcurve);
+                    continue;
+                }
+            }
 
             let (pt_a, pt_b) = if forward {
                 (p_start, p_end)
