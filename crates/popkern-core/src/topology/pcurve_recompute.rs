@@ -377,8 +377,122 @@ impl BRep {
         let faces: Vec<_> = self.faces.keys().collect();
         for fh in faces {
             self.recompute_face_pcurves(fh)?;
+            self.close_periodic_loop_winding(fh);
         }
         Ok(())
+    }
+
+    /// Zero the net U-winding of every loop of a face on a
+    /// U-periodic chart.
+    ///
+    /// The closed-edge pcurve direction convention (canonical
+    /// half-edge forward, twin backward) makes the two uses of ONE
+    /// edge consistent, but says nothing about a LOOP that chains
+    /// several closed rims: a recess wall bounded by its bottom
+    /// circle and the mouth ellipse got both rims wound the same
+    /// way, the ring's net winding came to ±2 periods, and the
+    /// boundary-first mesher rightly declined to chart it. The
+    /// chart-valid invariant is per loop: after branch-chaining each
+    /// pcurve to its predecessor, the net winding must be zero.
+    /// Full-period members are flipped (via [`Pcurve::reversed`])
+    /// until it is.
+    fn close_periodic_loop_winding(&mut self, face_handle: FaceHandle) {
+        let Some(u_period) = self
+            .faces
+            .get(face_handle)
+            .and_then(|f| f.surface.as_ref())
+            .and_then(|s| s.geometry.periodicity().0)
+        else {
+            return;
+        };
+
+        let Some(face) = self.faces.get(face_handle) else {
+            return;
+        };
+        let mut loop_handles = vec![face.outer_loop];
+        loop_handles.extend(face.inner_loops.iter().copied());
+
+        for lh in loop_handles {
+            let Some(loop_data) = self.loops.get(lh) else {
+                continue;
+            };
+            let start = loop_data.half_edge;
+            if !self.half_edges.contains_key(start) {
+                continue;
+            }
+            let mut hes = Vec::new();
+            let mut cursor = start;
+            let limit = self.half_edges.len() + 1;
+            for _ in 0..limit {
+                hes.push(cursor);
+                cursor = self.half_edges[cursor].next;
+                if cursor == start {
+                    break;
+                }
+            }
+            if hes.len() < 2 {
+                continue;
+            }
+
+            // Iterate: chain branches, measure net winding, flip one
+            // reversible full-period member, repeat. Bounded by the
+            // loop length.
+            for _ in 0..hes.len() {
+                let mut prev_end: Option<f64> = None;
+                let mut first_start: Option<f64> = None;
+                let mut deltas: Vec<f64> = Vec::with_capacity(hes.len());
+                let mut complete = true;
+                for &heh in &hes {
+                    let Some(pc) = self.half_edges[heh].pcurve.as_ref() else {
+                        complete = false;
+                        break;
+                    };
+                    let (t0, t1) = pc.parameter_range();
+                    let mut su = pc.point_at(t0).x;
+                    let mut eu = pc.point_at(t1).x;
+                    if let Some(pe) = prev_end {
+                        let k = ((pe - su) / u_period).round();
+                        if k != 0.0 {
+                            if let Some(pc_mut) = self.half_edges[heh].pcurve.as_mut() {
+                                pc_mut.shift_u(k * u_period);
+                            }
+                            su += k * u_period;
+                            eu += k * u_period;
+                        }
+                    } else {
+                        first_start = Some(su);
+                    }
+                    deltas.push(eu - su);
+                    prev_end = Some(eu);
+                }
+                if !complete {
+                    break;
+                }
+                let (Some(fs), Some(pe)) = (first_start, prev_end) else {
+                    break;
+                };
+                let net = pe - fs;
+                if net.abs() <= 0.5 * u_period {
+                    break;
+                }
+                let mut flipped = false;
+                for (i, &heh) in hes.iter().enumerate() {
+                    let d = deltas[i];
+                    if d.abs() >= u_period * (1.0 - 1e-6)
+                        && (net - 2.0 * d).abs() < net.abs() - 0.25 * u_period
+                        && let Some(rev) =
+                            self.half_edges[heh].pcurve.as_ref().map(|p| p.reversed())
+                    {
+                        self.half_edges[heh].pcurve = Some(rev);
+                        flipped = true;
+                        break;
+                    }
+                }
+                if !flipped {
+                    break;
+                }
+            }
+        }
     }
 
     /// Detect and replace stale pcurves whose endpoints no longer match

@@ -405,6 +405,41 @@ fn through_hole_tessellation_gap_is_pinned() {
 
 /// 12-vertex hexagram (6-point star) for the polygon-profile pins:
 /// outer radius `r`, inner radius `r/√3`, starting at angle 0.
+/// Orientation-immune material probe: ray parity along +z against
+/// the default-quality mesh. Divergence-sum volume oracles are
+/// blocked by the winding-inconsistent tessellation of curved faces
+/// (arc_extrude_mesh_winding_gap_is_pinned); parity is not.
+fn mesh_contains_point(part: &Part, q: (f64, f64, f64)) -> bool {
+    let m = part
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut crossings = 0;
+    for t in &m.triangles {
+        let (a, b, c) = (
+            m.vertices[t[0]].position,
+            m.vertices[t[1]].position,
+            m.vertices[t[2]].position,
+        );
+        let (e1x, e1y) = (b.x - a.x, b.y - a.y);
+        let (e2x, e2y) = (c.x - a.x, c.y - a.y);
+        let det = e1x * e2y - e1y * e2x;
+        if det.abs() < 1e-14 {
+            continue;
+        }
+        let (rx, ry) = (q.0 - a.x, q.1 - a.y);
+        let u = (rx * e2y - ry * e2x) / det;
+        let v = (e1x * ry - e1y * rx) / det;
+        if u < -1e-12 || v < -1e-12 || u + v > 1.0 + 1e-12 {
+            continue;
+        }
+        let z = a.z + u * (b.z - a.z) + v * (c.z - a.z);
+        if z > q.2 {
+            crossings += 1;
+        }
+    }
+    crossings % 2 == 1
+}
+
 fn hexagram_points(r: f64) -> Vec<(f64, f64)> {
     (0..12)
         .map(|k| {
@@ -806,7 +841,7 @@ fn bounded_rotated_cutter_is_watertight() {
 /// suites, so the fix is a walk-convention design fork, not a patch.
 /// The holder ships with profile-tab lips instead.
 #[test]
-fn rotated_lip_union_gap_is_pinned() {
+fn rotated_prefilleted_lip_union_is_watertight() {
     let prism = Profile::on(Plane::XY)
         .rect(60.0, 60.0)
         .extrude(40.0)
@@ -831,17 +866,16 @@ fn rotated_lip_union_gap_is_pinned() {
         .expect("rot")
         .translate(0.0, 0.0, 29.0)
         .expect("place");
-    match wedge.union(&lip) {
-        Ok(held) => {
-            let opens = held.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "rotated-lip-union gap has closed ({opens} opens) — flip this \
-                 pin and restore the designed pre-filleted lip attach"
-            );
-        }
-        Err(_) => {}
-    }
+    let held = wedge.union(&lip).expect("pre-filleted lip union");
+    assert_eq!(
+        held.open_edge_count().expect("mesh"),
+        0,
+        "rotated pre-filleted lip union must stay watertight"
+    );
+    assert!(
+        mesh_contains_point(&held, (0.0, 0.0, 33.0)),
+        "the lip body must be material above the rest plane"
+    );
 }
 
 /// FRONTIER PIN (flips when closed): bounded rotated cutter whose
@@ -945,15 +979,21 @@ fn tilted_face_star_socket_is_watertight_and_chi_clean() {
     assert_eq!(chi, 2, "square seat body must be a clean genus-0 solid");
 }
 
-/// FRONTIER PIN (flips when closed): a CIRCULAR counterbore into the
-/// tilted face — same membrane family as the perpendicular bore
-/// (circular rings on cylinder charts; the seam edge's shared pcurve
-/// breaks containment). The body meshes "watertight" but χ' = 4: the
-/// tilted top loses its ellipse inner loop and a phantom disk seals
-/// the mouth. This pin previously asserted the mesh gate only and
-/// BLESSED the membrane.
+/// FRONTIER PIN (side-breaching bore): a Ø72 bore whose wall
+/// BREACHES the prism's side face by 1 mm (centre −25, radius 36 vs
+/// the wall at x = −60) cut through a tilted top. This pin
+/// originally pinned the χ' = 4 membrane — that root cause (periodic
+/// -chart containment reading interior records as outside) is fixed
+/// and the centred cases now gate as
+/// round_seat_star_socket_is_watertight_and_void and
+/// perpendicular_bore_recess_is_watertight_and_void. What remains is
+/// the harder configuration this fixture accidentally carried all
+/// along: the mouth ellipse is an OPEN arc (clipped by the breached
+/// wall) meeting the bore×wall arc at two junction points, and the
+/// subtract fails LowValence building that record network. Same
+/// class as the round-seat counterbore re-sequencing failure.
 #[test]
-fn tilted_counterbore_membrane_gap_is_pinned() {
+fn side_breaching_tilted_bore_gap_is_pinned() {
     let tilt = -18.0_f64.to_radians();
     let prism = Profile::on(Plane::XY)
         .rect(120.0, 120.0)
@@ -974,15 +1014,25 @@ fn tilted_counterbore_membrane_gap_is_pinned() {
         .expect("bore")
         .translate(-25.0, 0.0, 0.0)
         .expect("place");
-    let bored = wedge.subtract(&bore).expect("bore");
-    let b = bored.brep();
-    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
-        - b.loops.len() as i64;
-    assert_ne!(
-        chi, 2,
-        "tilted-counterbore membrane gap has closed (χ' = 2) — flip this \
-         pin to assert χ' == 2 and prefer the round seat over the square \
-         one in the holder deck (task #36)"
+    let ok = match wedge.subtract(&bore) {
+        Ok(bored) => {
+            let b = bored.brep();
+            let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+                - b.loops.len() as i64;
+            chi == 2
+                && bored.open_edge_count().map(|o| o == 0).unwrap_or(false)
+                && mesh_contains_point(&bored, (-25.0, 0.0, 10.0))
+                && !mesh_contains_point(&bored, (-25.0, 0.0, 30.0))
+        }
+        Err(e) => {
+            eprintln!("side-breaching tilted bore: {e:?}");
+            false
+        }
+    };
+    assert!(
+        !ok,
+        "side-breaching tilted bore now succeeds watertight with the bore \
+         void — flip this pin into a regression gate"
     );
 }
 
@@ -1003,7 +1053,7 @@ fn tilted_counterbore_membrane_gap_is_pinned() {
 /// part of the seam-branch campaign. The OBLIQUE variant (tilted
 /// face) works — see tilted_face_star_socket_and_counterbore.
 #[test]
-fn perpendicular_bore_membrane_gap_is_pinned() {
+fn perpendicular_bore_recess_is_watertight_and_void() {
     let prism = Profile::on(Plane::XY)
         .rect(120.0, 120.0)
         .extrude(60.0)
@@ -1019,11 +1069,15 @@ fn perpendicular_bore_membrane_gap_is_pinned() {
     let f = brep.faces.len() as i64;
     let l = brep.loops.len() as i64;
     let chi = v - e + 2 * f - l;
-    assert_ne!(
-        chi, 2,
-        "perpendicular-bore membrane gap has closed (χ' = 2) — flip this \
-         pin to assert χ' == 2 plus an analytic-volume check, and re-run \
-         the holder deck chain (task #36)"
+    assert_eq!(chi, 2, "perpendicular-bore recess must stay χ' == 2");
+    assert_eq!(seated.open_edge_count().expect("mesh"), 0);
+    assert!(
+        mesh_contains_point(&seated, (0.0, 0.0, 15.0)),
+        "below the bore floor must stay solid"
+    );
+    assert!(
+        !mesh_contains_point(&seated, (0.0, 0.0, 45.0)),
+        "the bore volume must be void"
     );
 }
 
@@ -2198,18 +2252,31 @@ fn flush_tab_relief_subtract_is_watertight_and_volume_exact() {
     );
 }
 
-/// FRONTIER PIN (membrane class): a STAR SOCKET cut into the FLOOR
-/// of a cylindrical recess. The Ø76 round recess itself cuts clean
-/// (verified inline below — that subtract is quiet and watertight);
-/// the failure is the NEXT feature: the hexagram socket into the
-/// recess's circle-bounded floor disk goes χ' = 4 (Euler-Poincaré
-/// expected 2, got 4) in both pipelines — the recorded star-membrane
-/// family. A star pocket into a SQUARE floor works (the shipping
-/// block), and into a convex cylinder cap works (W1); the concave
-/// closed-rim floor is the open case. Blocks the round-seat block
-/// variant.
+/// STAR-MEMBRANE CAMPAIGN — CLOSED. A hexagram socket cut into the
+/// floor of a Ø76 cylindrical recess comes out watertight with the
+/// pocket verified void by orientation-immune ray-parity probes.
+/// The membrane was never in the star boolean at all: the RECESS
+/// subtract silently degraded to the no-records containment path
+/// because the cylinder × tilted-plane mouth ellipse — a closed
+/// record wholly interior to the wall chart — was probed
+/// inside=false by the zero-crossing containment test and dropped.
+/// The raw UV boundary of a periodic face jumps a full period at the
+/// seam (one pcurve shared by both seam uses), so even-odd
+/// containment read every interior point as OUTSIDE; the block
+/// carried an untrimmed cutter chimney (wall to z=130 plus lid), the
+/// top face had no mouth loop, and the NEXT boolean's result counted
+/// two shells (χ' = 4). Two kernel fixes: (1) point_inside_face_uv
+/// uses the chain-normalized boundary (face_uv_boundary_chained —
+/// built for exactly this, never wired in) and tests all period
+/// images of the query point; (2) recompute_all_pcurves closes each
+/// loop's net U-winding on periodic charts — the closed-edge
+/// canonical direction convention makes the two uses of ONE edge
+/// consistent but cannot see that a loop chaining TWO full rims
+/// (bottom circle + mouth ellipse) needs them wound oppositely; the
+/// winding pass branch-chains the loop and flips full-period members
+/// (Pcurve::reversed) until the net is zero.
 #[test]
-fn round_seat_recess_gap_is_pinned() {
+fn round_seat_star_socket_is_watertight_and_void() {
     let tilt = 18.0_f64.to_radians();
     let block = Profile::on(Plane::XY)
         .path(58.0, 0.0)
@@ -2243,16 +2310,64 @@ fn round_seat_recess_gap_is_pinned() {
         .polygon(&hexagram_points(12.0))
         .extrude(17.0)
         .expect("socket tool");
+    // Orientation-immune material probe: ray parity along +z against
+    // the welded mesh. The divergence-sum volume oracle is unusable
+    // on this body (curved faces carry the winding-inconsistent
+    // tessellation pinned by arc_extrude_mesh_winding_gap_is_pinned;
+    // measured: the removed-volume delta read −7649 against the
+    // analytic +3991), but parity does not care about triangle
+    // orientation.
+    let mesh_contains = |p: &Part, q: (f64, f64, f64)| -> bool {
+        let m = p
+            .mesh(&popkern_mesh::TessellationOptions::default())
+            .expect("mesh");
+        let mut crossings = 0;
+        for t in &m.triangles {
+            let (a, b, c) = (
+                m.vertices[t[0]].position,
+                m.vertices[t[1]].position,
+                m.vertices[t[2]].position,
+            );
+            let (e1x, e1y) = (b.x - a.x, b.y - a.y);
+            let (e2x, e2y) = (c.x - a.x, c.y - a.y);
+            let det = e1x * e2y - e1y * e2x;
+            if det.abs() < 1e-14 {
+                continue;
+            }
+            let (rx, ry) = (q.0 - a.x, q.1 - a.y);
+            let u = (rx * e2y - ry * e2x) / det;
+            let v = (e1x * ry - e1y * rx) / det;
+            if u < -1e-12 || v < -1e-12 || u + v > 1.0 + 1e-12 {
+                continue;
+            }
+            let z = a.z + u * (b.z - a.z) + v * (c.z - a.z);
+            if z > q.2 {
+                crossings += 1;
+            }
+        }
+        crossings % 2 == 1
+    };
+    // Probe points strictly inside the socket prism (star shrunk to
+    // its inner radius), mid-depth.
+    let probes = [(0.0, 0.0, 60.0), (4.0, 0.0, 62.0), (-3.0, 2.0, 57.0)];
+    for &q in &probes {
+        assert!(
+            mesh_contains(&block, q),
+            "probe {q:?} must be solid before the socket cut"
+        );
+    }
     let ok = match block.subtract(&socket) {
         Ok(out) => {
+            let all_void = probes.iter().all(|&q| !mesh_contains(&out, q));
             eprintln!(
-                "star socket in round floor: faces {} -> {}, opens {:?}",
+                "star socket in round floor: faces {} -> {}, opens {:?}, pocket void={all_void}",
                 block.face_count(),
                 out.face_count(),
-                out.open_edge_count()
+                out.open_edge_count(),
             );
             out.open_edge_count().map(|o| o == 0).unwrap_or(false)
                 && out.face_count() != block.face_count()
+                && all_void
         }
         Err(e) => {
             eprintln!("star socket in round floor: {e:?}");
@@ -2260,8 +2375,8 @@ fn round_seat_recess_gap_is_pinned() {
         }
     };
     assert!(
-        !ok,
-        "star socket into a round recess floor now succeeds watertight — \
-         flip this pin and enable seat_round in the stand example"
+        ok,
+        "round-seat star socket regressed: watertightness, face count, \
+         or the pocket-void parity probes no longer hold"
     );
 }

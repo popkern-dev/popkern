@@ -64,7 +64,9 @@ struct StandParams {
     /// (flush_tab_relief_subtract_is_watertight_and_volume_exact).
     tab_relief_flush: bool,
     /// Central seat recess profile on the block. `false` (default):
-    /// the 76 × 76 square. `true`: a Ø76 cylindrical recess.
+    /// the 76 × 76 square. `true`: a Ø76 cylindrical recess —
+    /// supported since the star-membrane campaign closed
+    /// (round_seat_star_socket_is_watertight_and_void).
     seat_round: bool,
 }
 
@@ -290,35 +292,24 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
         .translate(0.0, 0.0, rest_z_hub)?;
     let block = block.subtract(&upper)?;
 
-    // Feature order is load-bearing. Square seat: recess first, then
-    // the star socket into its flat floor (proven). Round seat: OPEN
-    // FRONTIER either way — a star pocket into a circle-bounded
-    // recess floor goes membrane (χ' = 4, pinned
-    // round_seat_recess_gap_is_pinned), and the counterbore order
-    // used here (star through the rest face first, round recess
-    // across the star hole) gets one boolean further but the final
-    // subtract fails LowValence. The variant is exported through the
-    // non-panicking gate so the failure stays visible in the run
-    // log until the membrane campaign closes it.
-    let block = if p.seat_round {
-        let star_through = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
-            .polygon(&socket_star)
-            .extrude(80.0)?;
-        let block = block.subtract(&star_through)?;
-        let seat = Profile::on(Plane::xy_at(seat_floor))
+    // Seat recess (square or round), then the star socket into its
+    // floor. The round seat is supported since the star-membrane
+    // campaign closed (round_seat_star_socket_is_watertight_and_void:
+    // periodic-chart containment + loop-winding closure).
+    let seat = if p.seat_round {
+        Profile::on(Plane::xy_at(seat_floor))
             .circle(38.0)
-            .extrude(60.0)?;
-        block.subtract(&seat)?
+            .extrude(60.0)?
     } else {
-        let seat = Profile::on(Plane::xy_at(seat_floor))
+        Profile::on(Plane::xy_at(seat_floor))
             .rect(76.0, 76.0)
-            .extrude(60.0)?;
-        let block = block.subtract(&seat)?;
-        let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
-            .polygon(&socket_star)
-            .extrude(p.socket_depth + 1.0)?;
-        block.subtract(&up)?
+            .extrude(60.0)?
     };
+    let block = block.subtract(&seat)?;
+    let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
+        .polygon(&socket_star)
+        .extrude(p.socket_depth + 1.0)?;
+    let block = block.subtract(&up)?;
     let down = Profile::on(Plane::xy_at(-1.0))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
