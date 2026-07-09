@@ -2380,3 +2380,137 @@ fn round_seat_star_socket_is_watertight_and_void() {
          or the pocket-void parity probes no longer hold"
     );
 }
+
+/// Uniform-width sibling of the flush tab relief: the body has NO
+/// root shoulder, so the front wall's corner line at x = ±5.8 is
+/// where the cutter's flank plane meets the wall exactly along its
+/// own boundary edge for the cutter's 20 mm height — a sub-span of
+/// the wall's 40 mm corner edge.
+#[test]
+fn flush_tab_relief_uniform_width_is_watertight() {
+    let plan: Vec<(f64, f64)> = vec![
+        (20.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-20.0, 0.0),
+        (-20.0, -30.0),
+        (20.0, -30.0),
+    ];
+    let body = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(40.0)
+        .expect("body");
+    let relief = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&[
+            (5.8, 0.0),
+            (5.8 + 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8 - 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8, 0.0),
+        ])
+        .extrude(21.0)
+        .expect("relief");
+    let out = body.subtract(&relief).expect("flush uniform subtract");
+    let opens = out.open_edge_count().expect("mesh");
+    eprintln!(
+        "flush uniform relief: opens={opens} faces={}",
+        out.face_count()
+    );
+    assert_eq!(opens, 0);
+}
+
+/// The FULL uniform-width flush arm chain (the fully-flush product
+/// arm): uniform ±20 plan, rest-plane cut, plate thinning tool,
+/// flush swoop union, through lip slot, flush tab relief.
+#[test]
+fn flush_arm_uniform_width_chain_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plan: Vec<(f64, f64)> = vec![
+        (20.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-20.0, 0.0),
+        (-20.0, -231.0),
+        (20.0, -231.0),
+    ];
+    let mut arm = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(96.0)
+        .expect("arm");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("place");
+    arm = arm.subtract(&upper).expect("rest cut");
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 216.0)
+        .at(0.0, -134.0)
+        .extrude(100.0)
+        .expect("lower");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("p2")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("place");
+    let tool = lower_box.subtract(&p2).expect("tool");
+    arm = arm.subtract(&tool).expect("thin");
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let (y_root, y_tip) = (-20.0, -72.0);
+    let gusset = Profile::on(Plane::XY)
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(40.0)
+        .expect("gusset")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-20.0, 0.0, 0.0)
+        .expect("center");
+    arm = arm.union(&gusset).expect("swoop union");
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)
+        .expect("slot")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .rotate_x(tilt)
+        .expect("tilt")
+        .translate(-22.0, -215.0, plane_at_root - 215.0 * tilt.tan())
+        .expect("place");
+    arm = arm.subtract(&slot).expect("lip slot");
+    let relief = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&[
+            (5.8, 0.0),
+            (5.8 + 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8 - 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8, 0.0),
+        ])
+        .extrude(21.0)
+        .expect("relief");
+    let arm = arm.subtract(&relief).expect("flush relief");
+    let opens = arm.open_edge_count().expect("mesh");
+    eprintln!(
+        "flush uniform arm chain: opens={opens} faces={}",
+        arm.face_count()
+    );
+    assert_eq!(opens, 0);
+}

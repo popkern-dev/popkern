@@ -308,7 +308,7 @@ pub(super) fn signed_area(graph: &IntersectionGraph, loop_hes: &[usize]) -> f64 
 /// exactly when their Newell vectors point opposite ways. This is
 /// the orientation-safe comparison (the historical `sign(N.z)` trick
 /// degenerates on vertical faces).
-pub(super) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3 {
+pub(crate) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3 {
     // Sum cross products of consecutive positions projected onto an
     // approximate normal. CURVED half-edges are SAMPLED along their
     // span — origin-only polygons measure a curved loop as its

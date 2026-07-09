@@ -7,7 +7,7 @@
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
 
-mod walk_geometry;
+pub(crate) mod walk_geometry;
 
 use std::collections::HashSet;
 
@@ -468,6 +468,37 @@ fn next_around_face(
                 let twin_c = graph.half_edges[idx].twin;
                 let is_candidate_self_loop =
                     graph.half_edges[idx].origin == graph.half_edges[twin_c].origin;
+                // ZERO-EXTENT self-loops are point-contact records (a
+                // tangency between two faces). They bound nothing, and
+                // entering one hijacks the host loop: the closure
+                // deferral held a ceiling loop open at its closure
+                // node, the walk swallowed the tangency plus the twin
+                // of the flank it had just traversed, and the spike's
+                // flipped claim collided with the neighbouring flank
+                // fragment's (measured on the uniform-width flush
+                // arm). Their seed walks become one-half-edge
+                // zero-extent fragments, which the degenerate cull
+                // already removes.
+                if is_candidate_self_loop {
+                    use popkern_core::geometry::curve::CurveEval as _;
+                    let extent = graph.half_edges[idx]
+                        .curve
+                        .as_ref()
+                        .or_else(|| graph.half_edges[twin_c].curve.as_ref())
+                        .map(|c| {
+                            let origin = graph.nodes[graph.half_edges[idx].origin].position;
+                            (1..8)
+                                .map(|i| {
+                                    let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                                    c.geometry.point_at(t).distance_to(&origin)
+                                })
+                                .fold(0.0, f64::max)
+                        })
+                        .unwrap_or(0.0);
+                    if extent < 1e-9 {
+                        return false;
+                    }
+                }
                 // A self-loop candidate belongs to this walk when
                 // EITHER half is assigned to this face: intersection
                 // circles are cross-registered exactly so both of a

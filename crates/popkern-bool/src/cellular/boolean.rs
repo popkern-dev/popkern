@@ -254,7 +254,29 @@ fn classify_fragments_cellular(
             }
             2 => {
                 let a = fragment.outer_loop[0];
-                graph.half_edges[a].twin == fragment.outer_loop[1]
+                if graph.half_edges[a].twin == fragment.outer_loop[1] {
+                    true
+                } else {
+                    // An OPEN two-half-edge walk with (sampled) zero
+                    // area is residue of a seeded walk that swallowed
+                    // a tangency self-loop and dead-ended — e.g. the
+                    // unconsumed direction of a boundary-collinear
+                    // corner record plus the zero-extent point-contact
+                    // record at its far end. It can never assemble
+                    // (measured: kept as OnBoundary, it became an
+                    // unclosed 20 mm loop and the whole flush-arm
+                    // chain fell to graph-merge). Real two-arc bigons
+                    // (a split circle) have genuine sampled area and
+                    // stay.
+                    let start = graph.half_edges[fragment.outer_loop[0]].origin;
+                    let last = fragment.outer_loop[1];
+                    let end = graph.half_edges[graph.half_edges[last].twin].origin;
+                    let open = start != end;
+                    let area =
+                        crate::merge::walk::walk_geometry::loop_newell(graph, &fragment.outer_loop)
+                            .length();
+                    open && area < (tolerance.linear() * 10.0).powi(2)
+                }
             }
             _ => false,
         };

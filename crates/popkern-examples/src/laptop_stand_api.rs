@@ -63,6 +63,13 @@ struct StandParams {
     /// since the coincident-boolean subtract leg closed
     /// (flush_tab_relief_subtract_is_watertight_and_volume_exact).
     tab_relief_flush: bool,
+    /// Half-width step between the arm's root body and its plate
+    /// run, per side. 2.0 (default): the root is 44 mm wide against
+    /// the 40 mm run — a visible shoulder at the dovetail joint.
+    /// 0.0: uniform 40 mm width from root face to tip, the walls one
+    /// continuous plane (pairs with swoop_inset = 0 for the fully
+    /// flush arm).
+    root_shoulder: f64,
     /// Central seat recess profile on the block. `false` (default):
     /// the 76 × 76 square. `true`: a Ø76 cylindrical recess —
     /// supported since the star-membrane campaign closed
@@ -89,6 +96,7 @@ impl StandParams {
             boss_h: 22.0,
             swoop_inset: 2.0,
             tab_relief_flush: false,
+            root_shoulder: 2.0,
             seat_round: false,
         }
     }
@@ -337,23 +345,38 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
 /// χ' = 0 by design), and the tab relieved below the socket floor.
 /// Chain pinned by `holder_v3_arm_chain_is_watertight_and_chi_clean`.
 fn build_arm(p: &StandParams) -> Result<Part, PartError> {
-    let _ = p;
     let tilt = 18.0_f64.to_radians();
     let plane_at_root = 81.8; // block rest plane at its rear face
-    let plan: Vec<(f64, f64)> = vec![
-        (22.0, 0.0),
-        (5.8, 0.0),
-        (8.8, 9.8),
-        (-8.8, 9.8),
-        (-5.8, 0.0),
-        (-22.0, 0.0),
-        (-22.0, -24.0),
-        (-20.0, -24.0),
-        (-20.0, -231.0),
-        (20.0, -231.0),
-        (20.0, -24.0),
-        (22.0, -24.0),
-    ];
+    let root_half = 20.0 + p.root_shoulder;
+    let plan: Vec<(f64, f64)> = if p.root_shoulder > 0.0 {
+        vec![
+            (root_half, 0.0),
+            (5.8, 0.0),
+            (8.8, 9.8),
+            (-8.8, 9.8),
+            (-5.8, 0.0),
+            (-root_half, 0.0),
+            (-root_half, -24.0),
+            (-20.0, -24.0),
+            (-20.0, -231.0),
+            (20.0, -231.0),
+            (20.0, -24.0),
+            (root_half, -24.0),
+        ]
+    } else {
+        // Uniform width: the shoulder vertices vanish and each side
+        // wall is ONE plane from the root face to the tip.
+        vec![
+            (20.0, 0.0),
+            (5.8, 0.0),
+            (8.8, 9.8),
+            (-8.8, 9.8),
+            (-5.8, 0.0),
+            (-20.0, 0.0),
+            (-20.0, -231.0),
+            (20.0, -231.0),
+        ]
+    };
     let mut arm = Profile::on(Plane::XY).polygon(&plan).extrude(96.0)?;
     let upper = Profile::on(Plane::XY)
         .rect(600.0, 600.0)
@@ -579,6 +602,7 @@ fn main() {
     let flush_arm = StandParams {
         swoop_inset: 0.0,
         tab_relief_flush: true,
+        root_shoulder: 0.0,
         ..StandParams::default_stand()
     };
     let round_seat = StandParams {
