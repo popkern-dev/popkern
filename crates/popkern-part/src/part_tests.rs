@@ -1901,11 +1901,23 @@ fn arc_gusset_union_is_watertight() {
 /// grazes are consumed as no-ops instead of failing the split;
 /// (3) collinear boundary overlaps clip records at the overlap ENDS
 /// (mutual-extent semantics) instead of a fake midpoint crossing —
-/// the record corners now land exactly. REMAINING: cellular's
-/// fragment walk/selection on the coplanar interface itself
-/// mis-pairs (caps walk as bigons/separates; mixed A/B dangles).
-/// The shipping arm keeps the 2 mm inset (parameterized as
-/// swoop_inset) until this flips.
+/// the record corners now land exactly. Leg 2 (this session) closed
+/// five more: degenerate fragment culls, overlap-face fragments
+/// routed to offset-pair classification (mirror caps were
+/// coin-flipping Inside/Outside), assembly-level edge unification
+/// for distinct graph pairs spanning the same nodes+geometry (with
+/// position-based direction alignment), containment-based hole
+/// election (a disjoint loop can never be a hole — the size proxy
+/// mis-labeled one mirror side), and a spur guard in the junction
+/// rule (a dead-end trim is unwalkable). REMAINING (final layer):
+/// two direction conflicts at the coplanar seam — the plate's kept
+/// loop weaves a collinear cap-record into its outer at the
+/// (±20,−62.8) junction (angle pick between antiparallel collinear
+/// candidates), and the step-face and arc-wall loops traverse the
+/// shared step-line in the SAME direction (one walk
+/// orientation-inconsistent), so the resolver mints duplicate edges
+/// and each side dangles. The shipping arm keeps the 2 mm inset
+/// (parameterized as swoop_inset) until this flips.
 #[test]
 fn flush_gusset_union_gap_is_pinned() {
     let tilt = 18.0_f64.to_radians();

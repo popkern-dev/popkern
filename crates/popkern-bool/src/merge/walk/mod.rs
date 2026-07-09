@@ -42,6 +42,20 @@ pub(crate) fn walk_all_fragments(
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Vec<Fragment> {
+    walk_all_fragments_ext(graph, brep_a, brep_b, false)
+}
+
+/// `coincident_interface`: the boolean carries coplanar face
+/// overlaps — enables the disjoint-loop election override, whose
+/// sampled-polygon containment test is currently only trusted on
+/// that configuration (it mis-voted a through-slot ring on a long
+/// tapered face — see the flush-gusset pin).
+pub(crate) fn walk_all_fragments_ext(
+    graph: &IntersectionGraph,
+    brep_a: &BRep,
+    brep_b: &BRep,
+    coincident_interface: bool,
+) -> Vec<Fragment> {
     let mut fragments = Vec::new();
 
     for (face_ref, he_indices) in &graph.face_edges {
@@ -276,8 +290,27 @@ pub(crate) fn walk_all_fragments(
                     true
                 }
             } else {
-                false
+                // CONTAINMENT override: a hole must lie INSIDE the
+                // outer loop's region. The size proxy alone called a
+                // disjoint root-collar loop a "hole" of a swoop
+                // fragment on one mirror side and not the other
+                // (area 263 vs threshold 352 — pure size accident).
+                // A loop whose nodes are strictly outside the outer
+                // polygon can never be its hole; loops inside keep
+                // the existing rules.
+                coincident_interface
+                    && walk_geometry::loop_outside_outer(graph, &lp, &outer_loop, &outer_newell)
             };
+            if std::env::var_os("PK_WALK_TRACE").is_some() {
+                eprintln!(
+                    "    [elect] loop {} hes area {:.1} thr {:.1} shares={} sep={}",
+                    lp.len(),
+                    remaining_areas[i],
+                    threshold,
+                    shares_edge_with_outer,
+                    separate_by_shape
+                );
+            }
             if shares_edge_with_outer || separate_by_shape {
                 separate_outers.push(lp);
             } else {
@@ -582,7 +615,23 @@ fn next_around_face(
             })
             .collect();
         if shared_straight.len() == 1 && shared_straight.len() < candidates.len() {
-            return Some(shared_straight[0]);
+            // SPUR GUARD: a closed loop can never traverse a trim
+            // whose far node has no onward half-edge on this face —
+            // entering it forces a forbidden twin u-turn. A grazing
+            // record (a flush gusset's top-edge line lying ON the
+            // wall face) dead-ends mid-face; the rule walked the
+            // outer boundary straight into it and the walk stuck.
+            // Only take the trim when it connects onward.
+            let c = shared_straight[0];
+            let twin_c = graph.half_edges[c].twin;
+            let far = graph.half_edges[twin_c].origin;
+            let has_onward = graph.nodes[far]
+                .outgoing
+                .iter()
+                .any(|&o| o != twin_c && o != c && face_hes.contains(&o));
+            if has_onward {
+                return Some(c);
+            }
         }
     }
 

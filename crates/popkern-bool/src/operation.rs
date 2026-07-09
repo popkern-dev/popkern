@@ -459,7 +459,24 @@ pub(crate) fn execute_boolean_full(
                                         r.vertices[r.half_edges[edge.half_edge].origin].position;
                                     format!("v({:.2},{:.2},{:.2})", p.x, p.y, p.z)
                                 });
-                            eprintln!("  [nm] {eh:?} uses={uses} at {pos}");
+                            let mut endpoints = String::new();
+                            {
+                                use std::fmt::Write as _;
+                                let he0 = edge.half_edge;
+                                if r.half_edges.contains_key(he0) {
+                                    let a = r.vertices[r.half_edges[he0].origin].position;
+                                    let tw = r.half_edges[he0].twin;
+                                    if r.half_edges.contains_key(tw) {
+                                        let b = r.vertices[r.half_edges[tw].origin].position;
+                                        let _ = write!(
+                                            endpoints,
+                                            " span ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1})",
+                                            a.x, a.y, a.z, b.x, b.y, b.z
+                                        );
+                                    }
+                                }
+                            }
+                            eprintln!("  [nm] {eh:?} uses={uses} at {pos}{endpoints}");
                         }
                     }
                 }

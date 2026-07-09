@@ -24,7 +24,7 @@ use crate::merge::graph_split::{
     split_graph_edge,
 };
 use crate::merge::radial::sort_all_radial;
-use crate::merge::walk::{Fragment, walk_all_fragments};
+use crate::merge::walk::{Fragment, walk_all_fragments_ext};
 
 /// Execute a boolean operation using the cellular decomposition approach.
 ///
@@ -140,11 +140,23 @@ pub(crate) fn cellular_graph_merge(
     sort_all_radial(&mut graph);
 
     // Phase 5: Walk loops to find face fragments.
-    let fragments = walk_all_fragments(&graph, original_a, original_b);
+    let fragments = walk_all_fragments_ext(
+        &graph,
+        original_a,
+        original_b,
+        !intersection_result.coincidence.face_overlaps.is_empty(),
+    );
 
     // Phase 6 (CELLULAR): Classify fragments by cell membership.
-    let selections =
-        classify_fragments_cellular(&fragments, &graph, original_a, original_b, op, tolerance)?;
+    let selections = classify_fragments_cellular(
+        &fragments,
+        &graph,
+        original_a,
+        original_b,
+        op,
+        tolerance,
+        &intersection_result.coincidence.face_overlaps,
+    )?;
 
     // Phase 7: Order-independent assembly from selected fragments.
     let kept: Vec<usize> = (0..fragments.len())
@@ -175,6 +187,7 @@ pub(crate) fn cellular_graph_merge(
 /// 2. Test it against BOTH bodies via point-in-solid
 /// 3. Compute cell membership: bits 0=in_A, 1=in_B
 /// 4. Apply operation predicate to the cell membership
+#[allow(clippy::too_many_arguments)]
 fn classify_fragments_cellular(
     fragments: &[Fragment],
     graph: &IntersectionGraph,
@@ -182,6 +195,7 @@ fn classify_fragments_cellular(
     brep_b: &BRep,
     op: BoolOperation,
     tolerance: &Tolerance,
+    face_overlaps: &[crate::coincidence::types::FaceOverlap],
 ) -> Result<Vec<FragmentSelection>, BoolDiagnostics> {
     use crate::adaptive_precision::robust_point_in_solid_final;
     use crate::intersect::compute_face_aabbs;
@@ -189,9 +203,49 @@ fn classify_fragments_cellular(
     let aabbs_a = compute_face_aabbs(brep_a);
     let aabbs_b = compute_face_aabbs(brep_b);
 
+    // Faces participating in a COINCIDENT overlap pair: fragments of
+    // these lie in the other body's boundary plane, so a raw sample
+    // has ill-defined ray parity (measured: two mirror-image cap
+    // fragments classified Inside on one side and Outside on the
+    // other — the kept duplicate skin went non-manifold). They are
+    // routed to the offset-pair classifier, whose (in, out) verdict
+    // maps to OnBoundary and the operation's keep-one-skin rules.
+    let overlap_a: std::collections::HashSet<_> =
+        face_overlaps.iter().map(|fo| fo.face_a).collect();
+    let overlap_b: std::collections::HashSet<_> =
+        face_overlaps.iter().map(|fo| fo.face_b).collect();
+
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
+        // DEGENERATE loops (a lone non-closed half-edge, or a
+        // he/twin bigon) enclose no area — boundary-graze residue.
+        // Keeping one produced a dangling face in the assembly.
+        let degenerate = match fragment.outer_loop.len() {
+            1 => {
+                let he = &graph.half_edges[fragment.outer_loop[0]];
+                he.origin != graph.half_edges[he.twin].origin
+            }
+            2 => {
+                let a = fragment.outer_loop[0];
+                graph.half_edges[a].twin == fragment.outer_loop[1]
+            }
+            _ => false,
+        };
+        if degenerate {
+            if std::env::var_os("PK_CELL_TRACE").is_some() {
+                eprintln!(
+                    "  [sel] {:?} outer={} DEGENERATE — dropped",
+                    fragment.face,
+                    fragment.outer_loop.len()
+                );
+            }
+            selections.push(FragmentSelection {
+                keep: false,
+                flip: false,
+            });
+            continue;
+        }
         // Sample a point on this fragment. Fragments with inner
         // loops or closed-rim outers need the interior-aware
         // sampler: the edge-midpoint shortcut degenerates to the
@@ -232,7 +286,12 @@ fn classify_fragments_cellular(
         // (closed-rim outers and holed fragments): applying it to
         // every fragment regressed plain cube-notch subtractions
         // (fixtures that pass with single-point classification).
-        let needs_offset_pair = !fragment.inner_loops.is_empty()
+        let on_overlap_face = match fragment.face.operand {
+            Operand::A => overlap_a.contains(&fragment.face.face),
+            Operand::B => overlap_b.contains(&fragment.face.face),
+        };
+        let needs_offset_pair = on_overlap_face
+            || !fragment.inner_loops.is_empty()
             || fragment.outer_loop.iter().any(|&h| {
                 let he = &graph.half_edges[h];
                 he.origin == graph.half_edges[he.twin].origin

@@ -136,10 +136,68 @@ pub(crate) fn cellular_assemble(
             }
         }
     };
+    // COINCIDENT-PAIR UNIFICATION: on a coplanar interface, a face's
+    // boundary edge piece and an intersection record can span the
+    // SAME two nodes with the SAME geometry as two distinct graph
+    // pairs — one used by each side's kept fragment. Creating both
+    // left each brep edge with a single use (non-manifold seam along
+    // a flush gusset's wall line). Distinct graph pairs that connect
+    // the same nodes with matching curve midpoints share ONE brep
+    // edge; the loop wiring then consumes complementary directions.
+    let mut span_map: HashMap<(usize, usize, i64, i64, i64), usize> = HashMap::new();
+    let span_key = |key: usize| -> (usize, usize, i64, i64, i64) {
+        use popkern_core::geometry::curve::CurveEval;
+        let na = graph.half_edges[key].origin;
+        let nb = graph.half_edges[graph.half_edges[key].twin].origin;
+        let (lo, hi) = (na.min(nb), na.max(nb));
+        let mid = graph.half_edges[key]
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[graph.half_edges[key].twin].curve.as_ref())
+            .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)))
+            .unwrap_or_else(|| {
+                let pa = graph.nodes[na].position;
+                let pb = graph.nodes[nb].position;
+                popkern_core::geometry::Point3::new(
+                    0.5 * (pa.x + pb.x),
+                    0.5 * (pa.y + pb.y),
+                    0.5 * (pa.z + pb.z),
+                )
+            });
+        let q = |v: f64| (v / 1.0e-6).round() as i64;
+        (lo, hi, q(mid.x), q(mid.y), q(mid.z))
+    };
     for (&key, &sample_ghe) in &canonical_edges {
         if is_degenerate_key(key) {
             continue;
         }
+        if let Some(&prior_key) = span_map.get(&span_key(key)) {
+            // Align directions: the two graph pairs may run opposite
+            // ways along the same span. Handing both sides the same
+            // forward half-edge produced direction conflicts and the
+            // resolver minted duplicates — undoing the unification.
+            let prior_pair = edge_he_map[&prior_key];
+            // Compare POSITIONS, not node indices: the unified pairs
+            // may reference near-coincident but distinct nodes.
+            let p_key = graph.nodes[graph.half_edges[key].origin].position;
+            let p_prior_start = graph.nodes[graph.half_edges[prior_key].origin].position;
+            let p_prior_end =
+                graph.nodes[graph.half_edges[graph.half_edges[prior_key].twin].origin].position;
+            let same_dir = p_key.distance_to(&p_prior_start) <= p_key.distance_to(&p_prior_end);
+            let pair = if same_dir {
+                prior_pair
+            } else {
+                (prior_pair.1, prior_pair.0)
+            };
+            edge_he_map.insert(key, pair);
+            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                eprintln!(
+                    "  [assemble] edge key {key}: UNIFIED with key {prior_key} (same_dir={same_dir})"
+                );
+            }
+            continue;
+        }
+        span_map.insert(span_key(key), key);
         let na = graph.half_edges[key].origin;
         let nb = graph.half_edges[graph.half_edges[key].twin].origin;
         let vh_a = node_to_vertex[&na];
@@ -260,6 +318,8 @@ pub(crate) fn cellular_assemble(
     // Track which half-edges have been used (to handle shared edges).
     // When both fwd and twin are used, create a duplicate edge.
     let mut used_hes: std::collections::HashSet<HalfEdgeHandle> = std::collections::HashSet::new();
+    let mut used_by: std::collections::HashMap<HalfEdgeHandle, String> =
+        std::collections::HashMap::new();
 
     for &fi in &kept {
         let sel = &selections[fi];
@@ -378,6 +438,9 @@ pub(crate) fn cellular_assemble(
 
                 if !used_hes.contains(&brep_he) {
                     used_hes.insert(brep_he);
+                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        used_by.insert(brep_he, format!("{:?} ghe {ghe}", frag.face));
+                    }
                     result.push(brep_he);
                 } else {
                     // The preferred direction is taken by another
@@ -409,7 +472,9 @@ pub(crate) fn cellular_assemble(
                             result.push(dup_fwd);
                             if std::env::var_os("PK_BOOL_TRACE").is_some() {
                                 eprintln!(
-                                    "  [resolve] ghe {ghe} (key {key}): direction conflict — minted duplicate edge"
+                                    "  [resolve] ghe {ghe} (key {key}) for {:?}: conflict with {} — minted duplicate edge",
+                                    frag.face,
+                                    used_by.get(&brep_he).cloned().unwrap_or_else(|| "?".into())
                                 );
                             }
                         } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
