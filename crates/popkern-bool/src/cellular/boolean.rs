@@ -21,7 +21,7 @@ use crate::merge::graph_build::insert_operand_topology;
 use crate::merge::graph_intersect::insert_intersection_curves;
 use crate::merge::graph_split::{
     EndpointClass, classify_endpoint, remove_collinear_duplicates, split_edges_at_shared_nodes,
-    split_graph_edge,
+    split_graph_edge, split_shared_edges_at_nodes,
 };
 use crate::merge::radial::sort_all_radial;
 use crate::merge::walk::{Fragment, walk_all_fragments_ext};
@@ -91,6 +91,15 @@ pub(crate) fn cellular_graph_merge(
         .collect();
     insert_intersection_curves(&mut graph, &rotated, snap_tol);
     let _ = &hit_nodes;
+    // Split SHARED edges at record×record T-junctions: one record's
+    // endpoint frequently lands mid-span of another (a dovetail
+    // rail's flank trace ends ON the joint-shoulder trace), and the
+    // walk cannot route the junction without a node-split there
+    // (measured: the rail's floor strip never became a fragment and
+    // the carve went non-manifold). Every node is a candidate — the
+    // splitter skips nodes not on a shared edge's interior.
+    let all_nodes: Vec<usize> = (0..graph.nodes.len()).collect();
+    split_shared_edges_at_nodes(&mut graph, &all_nodes, snap_tol);
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
         let mut i = 0;
         while i < graph.half_edges.len() {

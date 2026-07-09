@@ -888,7 +888,7 @@ fn rotated_prefilleted_lip_union_is_watertight() {
 /// the post-split stitch. Blocks the laptop-stand holder's stepped
 /// cuts (flat tower + 18° arms + lip tabs).
 #[test]
-fn bounded_cutter_corner_piercing_gap_is_pinned() {
+fn bounded_cutter_corner_piercing_is_watertight() {
     let tilt = 18.0_f64.to_radians();
     let mut outline: Vec<(f64, f64)> = Vec::new();
     for k in 0..=12 {
@@ -916,17 +916,26 @@ fn bounded_cutter_corner_piercing_gap_is_pinned() {
         .expect("rot")
         .translate(55.0, -105.0, 42.0)
         .expect("place");
-    match deck.subtract(&arm_cutter) {
-        Ok(cut) => {
-            let opens = cut.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "corner-piercing bounded cut has closed ({opens} opens) — \
-                 flip this pin and build the holder (task #36)"
-            );
-        }
-        Err(_) => {}
-    }
+    let cut = deck
+        .subtract(&arm_cutter)
+        .expect("corner-piercing bounded cut");
+    let opens = cut.open_edge_count().expect("mesh");
+    assert_eq!(
+        opens, 0,
+        "corner-piercing bounded cut regressed (closed by record×record \
+         T-junction splitting in the cellular graph)"
+    );
+    assert!(cut.face_count() > 0);
+    // The cutter's corner edge pierces the deck's wall: the region
+    // behind the pierce must be void, the region outboard solid.
+    assert!(
+        !mesh_contains_point(&cut, (55.0, -105.0, 60.0)),
+        "the cut region must be void"
+    );
+    assert!(
+        mesh_contains_point(&cut, (-30.0, -80.0, 20.0)),
+        "the left leg must stay solid"
+    );
 }
 
 /// W2a companion pin: a vertical STAR socket bored into an 18°
@@ -2513,4 +2522,110 @@ fn flush_arm_uniform_width_chain_is_watertight() {
         arm.face_count()
     );
     assert_eq!(opens, 0);
+}
+
+/// The split arm's TIP piece: rectangular plan on the tilted plate,
+/// rest cut, thinning tool, lip slot, then the lap zone carved down
+/// to the sliding-dovetail rail (nominal minus fit clearance, floor
+/// flush with the plate underside).
+#[test]
+fn split_arm_tip_rail_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let arm_len = 275.0;
+    let (mouth, shoulder) = (120.0, 170.0);
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let z_lo = (plate_under(-arm_len) - 2.0_f64).min(-2.0);
+    // ADDITIVE construction: the full plate segment beyond the
+    // shoulder, UNIONED with the clearance rail prism (embedded 1 mm
+    // past the shoulder for a transversal margin). The earlier
+    // shaped-cutter carve needed record-network T-junction splitting
+    // at the shoulder cross-section — the pinned junction-network
+    // frontier; the additive form stays in closed classes.
+    let rail_prism_early = |y_start: f64, len: f64, inset: f64, below: f64| -> Part {
+        let slope = (11.0 - 7.0) / 7.0_f64;
+        let shift = inset * (1.0 + slope * slope).sqrt();
+        let x_at = |y: f64| 11.0 - shift - slope * y;
+        let (yb, yt) = (-below, 7.0 - inset);
+        Profile::on(Plane::XY)
+            .polygon(&[
+                (x_at(yb), yb),
+                (x_at(yt), yt),
+                (-x_at(yt), yt),
+                (-x_at(yb), yb),
+            ])
+            .extrude(len)
+            .expect("prism")
+            .rotate_x(std::f64::consts::FRAC_PI_2 + tilt)
+            .expect("align")
+            .translate(0.0, -y_start, plate_under(-y_start))
+            .expect("place")
+    };
+    let full_seg = Profile::on(Plane::xy_at(z_lo))
+        .polygon(&[
+            (20.0, -shoulder),
+            (20.0, -arm_len),
+            (-20.0, -arm_len),
+            (-20.0, -shoulder),
+        ])
+        .extrude(96.0 - z_lo)
+        .expect("plan");
+    let rail_seg = rail_prism_early(
+        mouth + 0.4,
+        (shoulder - mouth - 0.4 + 1.0) / tilt.cos(),
+        0.2,
+        0.0,
+    );
+    let mut tip = full_seg;
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("place");
+    tip = tip.subtract(&upper).expect("rest cut");
+    let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(600.0, arm_len - 16.0)
+        .at(0.0, -(26.0 + arm_len + 10.0) / 2.0)
+        .extrude(120.0)
+        .expect("lower");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("p2")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("place");
+    let tool = lower_box.subtract(&p2).expect("tool");
+    tip = tip.subtract(&tool).expect("thin");
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)
+        .expect("slot")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .rotate_x(tilt)
+        .expect("tilt")
+        .translate(
+            -22.0,
+            -(arm_len - 16.0),
+            plane_at_root - (arm_len - 16.0) * tilt.tan(),
+        )
+        .expect("place");
+    tip = tip.subtract(&slot).expect("lip slot");
+    let tip = tip.union(&rail_seg).expect("rail union");
+    let opens = tip.open_edge_count().expect("mesh");
+    eprintln!("split tip: opens={opens} faces={}", tip.face_count());
+    assert_eq!(opens, 0);
+    assert!(tip.face_count() > 0);
 }

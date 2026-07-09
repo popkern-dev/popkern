@@ -814,6 +814,33 @@ fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: us
     if let Some(face) = twin_face {
         graph.face_edges.entry(face).or_default().push(new_twin);
     }
+    // SHARED records are cross-registered: BOTH directions live in
+    // BOTH faces' walk sets (each face's two fragments consume one
+    // direction each). The per-face registration above covers only
+    // one direction per face, so a walk arriving at the split node
+    // could not turn onto the new piece and sailed across the
+    // junction (measured: a joint-shoulder record split at a rail
+    // flank's T-point still walked as if unsplit, merging the lap
+    // ring with the region beyond the shoulder).
+    if let EdgeSource::Shared { face_a, face_b } = graph.half_edges[new_fwd].source {
+        for face in [
+            crate::merge::graph::FaceRef {
+                operand: crate::merge::graph::Operand::A,
+                face: face_a,
+            },
+            crate::merge::graph::FaceRef {
+                operand: crate::merge::graph::Operand::B,
+                face: face_b,
+            },
+        ] {
+            let edges = graph.face_edges.entry(face).or_default();
+            for idx in [new_fwd, new_twin] {
+                if !edges.contains(&idx) {
+                    edges.push(idx);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

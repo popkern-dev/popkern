@@ -63,6 +63,12 @@ struct StandParams {
     /// since the coincident-boolean subtract leg closed
     /// (flush_tab_relief_subtract_is_watertight_and_volume_exact).
     tab_relief_flush: bool,
+    /// Arm plan length from the root face to the tip. 275 supports a
+    /// ~290 mm laptop with the original CG margin (~35 mm); the
+    /// SPLIT arm (root + tip with the sliding-dovetail lap) is the
+    /// printable form — a one-piece arm at this length only just
+    /// fits a 240 plate diagonally.
+    arm_len: f64,
     /// Half-width step between the arm's root body and its plate
     /// run, per side. 2.0 (default): the root is 44 mm wide against
     /// the 40 mm run — a visible shoulder at the dovetail joint.
@@ -95,6 +101,7 @@ impl StandParams {
             boss_r: 30.0,
             boss_h: 22.0,
             swoop_inset: 2.0,
+            arm_len: 275.0,
             tab_relief_flush: false,
             root_shoulder: 2.0,
             seat_round: false,
@@ -345,6 +352,13 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
 /// χ' = 0 by design), and the tab relieved below the socket floor.
 /// Chain pinned by `holder_v3_arm_chain_is_watertight_and_chi_clean`.
 fn build_arm(p: &StandParams) -> Result<Part, PartError> {
+    build_arm_shape(p, p.arm_len, true)
+}
+
+/// The arm chain with a parametric plan tip: the SPLIT pieces reuse
+/// it (the root half ends at the joint shoulder and carries no
+/// slot).
+fn build_arm_shape(p: &StandParams, plan_tip: f64, with_slot: bool) -> Result<Part, PartError> {
     let tilt = 18.0_f64.to_radians();
     let plane_at_root = 81.8; // block rest plane at its rear face
     let root_half = 20.0 + p.root_shoulder;
@@ -358,8 +372,8 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
             (-root_half, 0.0),
             (-root_half, -24.0),
             (-20.0, -24.0),
-            (-20.0, -231.0),
-            (20.0, -231.0),
+            (-20.0, -plan_tip),
+            (20.0, -plan_tip),
             (20.0, -24.0),
             (root_half, -24.0),
         ]
@@ -373,21 +387,34 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
             (-8.8, 9.8),
             (-5.8, 0.0),
             (-20.0, 0.0),
-            (-20.0, -231.0),
-            (20.0, -231.0),
+            (-20.0, -plan_tip),
+            (20.0, -plan_tip),
         ]
     };
-    let mut arm = Profile::on(Plane::XY).polygon(&plan).extrude(96.0)?;
+    // The rest plane descends from z = 81.8 at the root; past
+    // y ≈ −252 the plate sits entirely below z = 0, so the run's
+    // extrude floor follows the plate depth at the tip while the
+    // ROOT body keeps its flat z = 0 underside (cut back below).
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let z_lo = (plate_under(-plan_tip) - 2.0).min(-2.0);
+    let mut arm = Profile::on(Plane::xy_at(z_lo))
+        .polygon(&plan)
+        .extrude(96.0 - z_lo)?;
     let upper = Profile::on(Plane::XY)
         .rect(600.0, 600.0)
         .extrude(200.0)?
         .rotate_x(tilt)?
         .translate(0.0, 0.0, plane_at_root)?;
     arm = arm.subtract(&upper)?;
-    let lower_box = Profile::on(Plane::xy_at(-10.0))
-        .rect(600.0, 216.0)
-        .at(0.0, -134.0)
-        .extrude(100.0)?;
+    let root_floor = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(60.0, 46.0)
+        .at(0.0, -8.0)
+        .extrude(5.0 - z_lo)?;
+    arm = arm.subtract(&root_floor)?;
+    let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(600.0, p.arm_len - 16.0)
+        .at(0.0, -(26.0 + p.arm_len + 10.0) / 2.0)
+        .extrude(120.0)?;
     let p2 = Profile::on(Plane::XY)
         .rect(700.0, 700.0)
         .extrude(300.0)?
@@ -401,7 +428,6 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
     // the root collar (arc_gusset_union_is_watertight). Profile
     // plane maps (px, py) -> (y = py, z = -px) after the 90-degree
     // Y rotation.
-    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
     let (y_root, y_tip) = (-20.0, -72.0);
     let half_run = 20.0 - p.swoop_inset;
     let gusset = Profile::on(Plane::XY)
@@ -413,20 +439,26 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
         .rotate_y(90.0_f64.to_radians())?
         .translate(-half_run, 0.0, 0.0)?;
     arm = arm.union(&gusset)?;
-    let slot = Profile::on(Plane::XY)
-        .polygon(&[
-            (-2.0, -4.5),
-            (1.0, -4.5),
-            (6.0, -7.0),
-            (6.0, 7.0),
-            (1.0, 4.5),
-            (-2.0, 4.5),
-        ])
-        .extrude(44.0)?
-        .rotate_y(90.0_f64.to_radians())?
-        .rotate_x(tilt)?
-        .translate(-22.0, -215.0, plane_at_root - 215.0 * tilt.tan())?;
-    arm = arm.subtract(&slot)?;
+    if with_slot {
+        let slot = Profile::on(Plane::XY)
+            .polygon(&[
+                (-2.0, -4.5),
+                (1.0, -4.5),
+                (6.0, -7.0),
+                (6.0, 7.0),
+                (1.0, 4.5),
+                (-2.0, 4.5),
+            ])
+            .extrude(44.0)?
+            .rotate_y(90.0_f64.to_radians())?
+            .rotate_x(tilt)?
+            .translate(
+                -22.0,
+                -(p.arm_len - 16.0),
+                plane_at_root - (p.arm_len - 16.0) * tilt.tan(),
+            )?;
+        arm = arm.subtract(&slot)?;
+    }
     // Relieve the tab below the block's socket floor so the arm
     // HANGS on the floor while the root face bears on the wall.
     // Flush style: the cutter IS the tab's dovetail profile, so all
@@ -457,6 +489,153 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
     // 44 × 241 footprint prints diagonally on a 240 plate.
     println!("  arm: print two, REST-FACE DOWN, placed diagonally");
     Ok(arm)
+}
+
+/// Sliding-dovetail lap joint constants for the SPLIT arm. The seam
+/// sits past the swoop where the section is the plain 40 × 13 plate
+/// and the bending moment is a fraction of the root value. The top
+/// shoulder (visible seam) is the single axial stop; the rail's nose
+/// is shortened so it never bottoms first.
+const ARM_JOINT_MOUTH_Y: f64 = 120.0; // tunnel mouth / underside seam
+const ARM_JOINT_SHOULDER_Y: f64 = 170.0; // top shoulder = the stop
+const ARM_RAIL_HALF_BASE: f64 = 11.0; // dovetail half-width at the underside
+const ARM_RAIL_HALF_NECK: f64 = 7.0; // half-width at the neck (top)
+const ARM_RAIL_HEIGHT: f64 = 7.0; // of the 13 mm plate (6 mm ceiling)
+
+/// The dovetail prism used by both joint halves, aligned to the
+/// TILTED plate: profile drawn in XY (x across the arm, y along the
+/// plate normal, underside at y = 0), extruded along +z, then
+/// rotated so the axis runs down the plate (rotate_x by 90° + tilt)
+/// and translated so the profile plane sits at plan station
+/// `y_start` on the plate underside. `inset` shrinks the flanks and
+/// ceiling by a per-side clearance (0 = the tunnel's nominal shape);
+/// `below` extends the flank lines past the underside so the cutter
+/// crosses it transversally (a flank ENDING exactly on the underside
+/// would put a cutter edge in the face — the pinned corner-contact
+/// class).
+fn arm_joint_prism(
+    tilt: f64,
+    y_start: f64,
+    length_along_plate: f64,
+    inset: f64,
+    below: f64,
+    plate_under: &dyn Fn(f64) -> f64,
+) -> Result<Part, PartError> {
+    // Flank line: x(y) = ±(base − slope·y), slope = (base − neck)/h.
+    let slope = (ARM_RAIL_HALF_BASE - ARM_RAIL_HALF_NECK) / ARM_RAIL_HEIGHT;
+    // Perpendicular inset of a flank shifts x by inset·√(1+slope²).
+    let flank_shift = inset * (1.0 + slope * slope).sqrt();
+    let x_at = |y: f64| ARM_RAIL_HALF_BASE - flank_shift - slope * y;
+    let y_top = ARM_RAIL_HEIGHT - inset;
+    let y_bot = -below;
+    let profile = vec![
+        (x_at(y_bot), y_bot),
+        (x_at(y_top), y_top),
+        (-x_at(y_top), y_top),
+        (-x_at(y_bot), y_bot),
+    ];
+    Profile::on(Plane::XY)
+        .polygon(&profile)
+        .extrude(length_along_plate)?
+        .rotate_x(std::f64::consts::FRAC_PI_2 + tilt)?
+        .translate(0.0, -y_start, plate_under(-y_start))
+}
+
+/// ROOT half of the split arm: the arm chain with its plan ending at
+/// the joint shoulder (no slot — that lives on the tip), plus the
+/// dovetail TUNNEL opening in the underside over the lap zone.
+/// Prints rest-face down like the full arm.
+fn build_arm_root(p: &StandParams) -> Result<Part, PartError> {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plate_under = move |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let root = build_arm_shape(p, ARM_JOINT_SHOULDER_Y, false)?;
+    let lap_plate = (ARM_JOINT_SHOULDER_Y - ARM_JOINT_MOUTH_Y) / tilt.cos();
+    let tunnel = arm_joint_prism(
+        tilt,
+        ARM_JOINT_MOUTH_Y,
+        lap_plate + 5.0 / tilt.cos(),
+        0.0,
+        2.0,
+        &plate_under,
+    )?;
+    let root = root.subtract(&tunnel)?;
+    println!("  arm root: print REST-FACE DOWN; tunnel opens at the underside");
+    Ok(root)
+}
+
+/// TIP half of the split arm: its own simple chain — a rectangular
+/// plan from the tunnel mouth to the arm tip, the rest-plane cut,
+/// the plate-thinning tool, the lip slot — then the lap zone is
+/// carved down to the joint RAIL (dovetail at fit clearance, nose
+/// 0.4 mm short so the top shoulder is the single stop). Slides
+/// into the root piece along the plate and glues.
+fn build_arm_tip(p: &StandParams) -> Result<Part, PartError> {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plate_under = move |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let z_lo = (plate_under(-p.arm_len) - 2.0).min(-2.0);
+    // Plain plate segment from the shoulder to the tip: rest cut,
+    // thinning tool, lip slot — all canonical. The RAIL is unioned
+    // LAST (embedded 1 mm past the shoulder; its floor is coplanar
+    // with the finished underside — the closed coincident-union
+    // class). Building it first and carving the lap zone instead
+    // needs record-network T-junction splitting at the shoulder
+    // cross-section — the pinned junction-network frontier.
+    let mut tip = Profile::on(Plane::xy_at(z_lo))
+        .polygon(&[
+            (20.0, -ARM_JOINT_SHOULDER_Y),
+            (20.0, -p.arm_len),
+            (-20.0, -p.arm_len),
+            (-20.0, -ARM_JOINT_SHOULDER_Y),
+        ])
+        .extrude(96.0 - z_lo)?;
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)?
+        .rotate_x(tilt)?
+        .translate(0.0, 0.0, plane_at_root)?;
+    tip = tip.subtract(&upper)?;
+    let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(600.0, p.arm_len - 16.0)
+        .at(0.0, -(26.0 + p.arm_len + 10.0) / 2.0)
+        .extrude(120.0)?;
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)?
+        .rotate_x(tilt)?
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())?;
+    let tool = lower_box.subtract(&p2)?;
+    tip = tip.subtract(&tool)?;
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)?
+        .rotate_y(90.0_f64.to_radians())?
+        .rotate_x(tilt)?
+        .translate(
+            -22.0,
+            -(p.arm_len - 16.0),
+            plane_at_root - (p.arm_len - 16.0) * tilt.tan(),
+        )?;
+    tip = tip.subtract(&slot)?;
+    let rail = arm_joint_prism(
+        tilt,
+        ARM_JOINT_MOUTH_Y + 0.4,
+        (ARM_JOINT_SHOULDER_Y - ARM_JOINT_MOUTH_Y - 0.4 + 1.0) / tilt.cos(),
+        p.fit_clearance,
+        0.0,
+        &plate_under,
+    )?;
+    let tip = tip.union(&rail)?;
+    println!("  arm tip: print REST-FACE DOWN; rail slides into the root and glues");
+    Ok(tip)
 }
 
 /// The slide-in lip: dovetail tab at fit clearance + blade, one
@@ -519,6 +698,10 @@ fn write_assembly_preview(
 }
 
 fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
+    // An EMPTY body meshes trivially watertight — a silently swallowed
+    // boolean must not pass the gate (measured: an arm tip whose run
+    // had wedged out to nothing exported as a valid 0-face part).
+    assert!(part.face_count() > 0, "{name}: empty body");
     let part = part.assert_watertight().expect("watertight gate");
     let step = out_dir.join(format!("{name}.step"));
     part.export_step(&step).expect("STEP export");
@@ -585,7 +768,16 @@ fn main() {
         "laptop_stand_block",
         &out_dir,
     );
-    let arm = gate_and_export(build_arm(&p).expect("arm"), "laptop_stand_arm", &out_dir);
+    let arm_root = gate_and_export(
+        build_arm_root(&p).expect("arm root"),
+        "laptop_stand_arm_root",
+        &out_dir,
+    );
+    let arm_tip = gate_and_export(
+        build_arm_tip(&p).expect("arm tip"),
+        "laptop_stand_arm_tip",
+        &out_dir,
+    );
     let lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
 
     // Requested variants — exploratory, reported honestly.
@@ -635,22 +827,24 @@ fn main() {
             (&column, [0.0, 35.0, c2]),
             (&peg, [0.0, 35.0, c2 + p.column_h - p.socket_depth]),
             (&block, [0.0, 35.0, h1]),
-            (&arm, [28.0, 35.0 - 56.0, h1]),
-            (&arm, [-28.0, 35.0 - 56.0, h1]),
+            (&arm_root, [28.0, 35.0 - 56.0, h1]),
+            (&arm_tip, [28.0, 35.0 - 56.0, h1]),
+            (&arm_root, [-28.0, 35.0 - 56.0, h1]),
+            (&arm_tip, [-28.0, 35.0 - 56.0, h1]),
             (
                 &lip,
                 [
                     28.0 - 20.0,
-                    35.0 - 56.0 - 215.0,
-                    h1 + 81.8 - 215.0 * tilt.tan(),
+                    35.0 - 56.0 - (p.arm_len - 16.0),
+                    h1 + 81.8 - (p.arm_len - 16.0) * tilt.tan(),
                 ],
             ),
             (
                 &lip,
                 [
                     -28.0 - 20.0,
-                    35.0 - 56.0 - 215.0,
-                    h1 + 81.8 - 215.0 * tilt.tan(),
+                    35.0 - 56.0 - (p.arm_len - 16.0),
+                    h1 + 81.8 - (p.arm_len - 16.0) * tilt.tan(),
                 ],
             ),
         ],
@@ -660,5 +854,17 @@ fn main() {
     println!(
         "  stack preview: base + 2 columns + block + arms + lips → seat mouth at z ≈ {:.0} mm",
         h1 + 100.0
+    );
+    // Stability FYI: laptop CG plan position vs the base's rear
+    // reach. The base v1 trapezoid does not yet implement the
+    // splayed rear legs from the design doc; a negative margin here
+    // means the base needs them before shipping long arms.
+    let lip_y = 35.0 - 56.0 - (p.arm_len - 16.0);
+    let laptop_depth = 290.0_f64;
+    let cg_y = lip_y + (laptop_depth / 2.0) * tilt.cos();
+    let base_rear = -p.base_d / 2.0;
+    println!(
+        "  stability: {laptop_depth:.0} mm laptop CG at plan y ≈ {cg_y:.0} vs base rear {base_rear:.0} → margin {:.0} mm",
+        cg_y - base_rear
     );
 }

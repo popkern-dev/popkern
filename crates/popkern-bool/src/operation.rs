@@ -399,7 +399,18 @@ pub(crate) fn execute_boolean_full(
     // If selection is empty, the split/classify pipeline classified all fragments
     // the same way (e.g. all Inside). Infer containment and return the
     // appropriate operand directly instead of producing a 0-face result.
-    if selection.keep_a.is_empty() && selection.keep_b.is_empty() {
+    //
+    // NOT when coincident face overlaps exist: the face-level
+    // classifier's samples sit in the other body's boundary plane
+    // there, its parity verdicts are coin flips, and an all-drop
+    // selection is noise, not containment (measured: a dovetail-rail
+    // cutter whose void floor is flush with the plate underside
+    // emptied the whole tip piece). The cellular stage below carries
+    // the coincident-aware offset-pair classification — let it run.
+    if selection.keep_a.is_empty()
+        && selection.keep_b.is_empty()
+        && intersection_result.coincidence.face_overlaps.is_empty()
+    {
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!("  [exec] -> empty-selection containment path");
         }
