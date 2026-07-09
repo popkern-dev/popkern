@@ -1890,36 +1890,40 @@ fn arc_gusset_union_is_watertight() {
     assert_eq!(chi, 2, "true-arc swoop union must stay genus 0");
 }
 
-/// FRONTIER PIN (coincident booleans): the FLUSH swoop gusset — its
-/// end caps exactly COPLANAR with the arm's side walls. Three layers
-/// of this campaign are closed and suite-green: (1) the coincident-
-/// body shortcut VERIFIES containment geometrically with inward-
-/// offset face probes instead of a face-count heuristic — it was
-/// silently swallowing the whole tool (union returned the bare arm,
-/// watertight and χ-clean, minus 44 cm³; only the volume oracle
-/// catches this class); (2) degenerate point-trims from boundary
-/// grazes are consumed as no-ops instead of failing the split;
-/// (3) collinear boundary overlaps clip records at the overlap ENDS
-/// (mutual-extent semantics) instead of a fake midpoint crossing —
-/// the record corners now land exactly. Leg 2 (this session) closed
-/// five more: degenerate fragment culls, overlap-face fragments
-/// routed to offset-pair classification (mirror caps were
-/// coin-flipping Inside/Outside), assembly-level edge unification
-/// for distinct graph pairs spanning the same nodes+geometry (with
-/// position-based direction alignment), containment-based hole
-/// election (a disjoint loop can never be a hole — the size proxy
-/// mis-labeled one mirror side), and a spur guard in the junction
-/// rule (a dead-end trim is unwalkable). REMAINING (final layer):
-/// two direction conflicts at the coplanar seam — the plate's kept
-/// loop weaves a collinear cap-record into its outer at the
-/// (±20,−62.8) junction (angle pick between antiparallel collinear
-/// candidates), and the step-face and arc-wall loops traverse the
-/// shared step-line in the SAME direction (one walk
-/// orientation-inconsistent), so the resolver mints duplicate edges
-/// and each side dangles. The shipping arm keeps the 2 mm inset
-/// (parameterized as swoop_inset) until this flips.
+/// COINCIDENT-BOOLEAN CAMPAIGN — CLOSED. The FLUSH swoop gusset (end
+/// caps exactly COPLANAR with the arm's side walls) unions watertight
+/// with the volume oracle satisfied exactly (delta 0.000 vs the
+/// analytic 40/36 scaling of the inset reference). The campaign closed
+/// twelve layers across three legs, all suite-green:
+/// leg 1 — (1) the coincident-body shortcut VERIFIES containment
+/// geometrically with inward-offset face probes (it was silently
+/// swallowing the whole tool: watertight, χ-clean, minus 44 cm³ —
+/// only the volume oracle catches this class); (2) degenerate
+/// point-trims consumed as no-ops; (3) collinear boundary overlaps
+/// clip records at the overlap ENDS (mutual-extent semantics).
+/// leg 2 — (4) degenerate fragment culls; (5) overlap-face fragments
+/// routed to offset-pair classification; (6) assembly edge
+/// unification for distinct graph pairs on the same span (with
+/// position-based direction alignment); (7) containment-based hole
+/// election; (8) spur guard in the junction rule.
+/// leg 3 — (9) planar walk normal derived from the face's stored
+/// outer-loop winding (Newell, negated to outward) instead of a
+/// candidate-order-dependent guess, plus a deterministic last-resort
+/// rank for candidates collinear with the arrival edge; (10) the spur
+/// test promoted to a candidate FILTER so interior graze records
+/// (an embedded face's dead-end trace) are never entered by any rule;
+/// (11) period-branch alignment in the fragment sampler's scanline
+/// polygon (a stored pcurve on u−2π opened a phantom interval and the
+/// sample landed on the cylinder's far side) and a zero-extent
+/// self-loop cull (tangency-point records assembled as point-faces);
+/// (12) same-surface KEF post-passes (redundant-edge removal and face
+/// simplification) require the face pair to share exactly ONE edge —
+/// dissolving one edge of a multi-edge shared boundary left the
+/// survivor traversed twice, an untessellatable slit loop.
+/// The arm ships with swoop_inset = 2.0 as an aesthetic choice;
+/// swoop_inset = 0.0 (fully flush) is verified here.
 #[test]
-fn flush_gusset_union_gap_is_pinned() {
+fn flush_gusset_union_is_watertight_and_volume_exact() {
     let tilt = 18.0_f64.to_radians();
     let plane_at_root = 81.8;
     let plan: Vec<(f64, f64)> = vec![
@@ -2009,18 +2013,103 @@ fn flush_gusset_union_gap_is_pinned() {
         .expect("lay")
         .translate(-18.0, 0.0, 0.0)
         .expect("center");
-    let inset_added = vol(&arm.union(&gusset36).expect("inset union")) - arm_vol;
+    let inset_union = arm.union(&gusset36).expect("inset union");
+    if let Some(dir) = std::env::var_os("PK_PIN_EXPORT") {
+        let d = std::path::Path::new(&dir);
+        let _ = arm.export_step(d.join("flush_ref_arm.step"));
+        let _ = gusset36.export_step(d.join("flush_ref_gusset36.step"));
+        let _ = gusset36.export_obj(d.join("flush_ref_gusset36.obj"));
+        eprintln!("gusset36 alone: vol={:.3}", vol(&gusset36));
+        let _ = inset_union.export_step(d.join("flush_ref_inset.step"));
+        eprintln!(
+            "flush refs: arm_vol={:.3} inset_vol={:.3}",
+            arm_vol,
+            vol(&inset_union)
+        );
+    }
+    let inset_added = vol(&inset_union) - arm_vol;
     let expected_flush = arm_vol + inset_added * 40.0 / 36.0;
     let flush_ok = match arm.union(&gusset) {
         Ok(out) => {
-            out.open_edge_count().map(|o| o == 0).unwrap_or(false)
-                && (vol(&out) - expected_flush).abs() < expected_flush * 1e-3
+            let opens = out.open_edge_count();
+            let v = vol(&out);
+            eprintln!(
+                "flush union: opens={opens:?} vol={v:.3} expected={expected_flush:.3} delta={:.3}",
+                v - expected_flush
+            );
+            if let Some(dir) = std::env::var_os("PK_PIN_EXPORT") {
+                let path = std::path::Path::new(&dir).join("flush_arm_union.step");
+                let _ = out.export_step(&path);
+                eprintln!("flush union: exported {}", path.display());
+            }
+            opens.map(|o| o == 0).unwrap_or(false)
+                && (v - expected_flush).abs() < expected_flush * 1e-3
         }
-        Err(_) => false,
+        Err(e) => {
+            eprintln!("flush union: error {e:?}");
+            false
+        }
     };
     assert!(
-        !flush_ok,
-        "flush gusset union gap has closed (volume oracle satisfied) — \
-         flip this pin and default swoop_inset to taste"
+        flush_ok,
+        "flush gusset union regressed: watertightness or the exact \
+         volume oracle no longer holds (see stderr for measured values)"
+    );
+}
+
+/// FRONTIER PIN (mesher orientation): the tessellation of an
+/// arc-profile extrude emits INCONSISTENTLY WOUND triangles — 239 of
+/// 781 welded directed edges of the swoop-gusset mesh have mismatched
+/// direction counts, so a divergence-theorem volume sum reads ~3× the
+/// true volume (61802 vs the analytic/OCC 20789.4) while the mesh
+/// geometry itself encloses the correct region (Monte-Carlo parity
+/// ≈ 20.1k; OCC BRepCheck valid, zero free bounds). Ratio-based
+/// volume oracles built on this mesher stay valid (both operands
+/// carry the same bias — OCC independently confirms the flush/inset
+/// gusset unions add volume in exactly the 40/36 ratio), but ABSOLUTE
+/// mesh volumes cannot be trusted until face windings agree across
+/// faces. When the signed sum matches the analytic value, flip this
+/// pin into an equality gate.
+#[test]
+fn arc_extrude_mesh_winding_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let (y_root, y_tip) = (-20.0, -72.0);
+    let gusset = Profile::on(Plane::XY)
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(36.0)
+        .expect("gusset")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-18.0, 0.0, 0.0)
+        .expect("center");
+
+    let mesh = gusset
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut signed = 0.0;
+    for t in &mesh.triangles {
+        let (a, b, c) = (
+            mesh.vertices[t[0]].position,
+            mesh.vertices[t[1]].position,
+            mesh.vertices[t[2]].position,
+        );
+        signed += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x))
+            / 6.0;
+    }
+    // Analytic: profile area 577.48 mm² (triangle 952.44 − circular
+    // segment 374.96, circle through the three profile points) × 36.
+    let analytic = 20789.4;
+    let rel = (signed.abs() - analytic).abs() / analytic;
+    assert!(
+        rel > 0.3,
+        "arc-extrude mesh winding gap has closed (signed volume {signed:.1} \
+         within 30% of analytic {analytic:.1}) — flip this pin into an \
+         equality gate (tolerance ~1e-2 for chord error)"
     );
 }

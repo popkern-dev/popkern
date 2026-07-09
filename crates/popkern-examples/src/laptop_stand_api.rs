@@ -50,9 +50,9 @@ struct StandParams {
     boss_h: f64,
     /// Per-side inset of the arm's swoop gusset from the plate run's
     /// side walls. 2.0 reads as a distinct rib (the default look);
-    /// 0.0 makes the web fully FLUSH — a coplanar-face union, gated
-    /// by the coincident-boolean campaign
-    /// (flush_gusset_union_gap_is_pinned).
+    /// 0.0 makes the web fully FLUSH — a coplanar-face union,
+    /// supported since the coincident-boolean campaign closed
+    /// (flush_gusset_union_is_watertight_and_volume_exact).
     swoop_inset: f64,
 }
 

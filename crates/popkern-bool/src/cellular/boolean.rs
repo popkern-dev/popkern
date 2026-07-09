@@ -224,7 +224,33 @@ fn classify_fragments_cellular(
         let degenerate = match fragment.outer_loop.len() {
             1 => {
                 let he = &graph.half_edges[fragment.outer_loop[0]];
-                he.origin != graph.half_edges[he.twin].origin
+                if he.origin != graph.half_edges[he.twin].origin {
+                    true
+                } else {
+                    // A lone SELF-LOOP is a real fragment boundary when
+                    // it is a closed intersection curve (a circle cut
+                    // through a face). A ZERO-EXTENT self-loop is a
+                    // tangency-point record (a surface grazing another
+                    // at one point) — keeping it assembled a point-face
+                    // that broke the solid's Euler count. Cull by
+                    // sampled curve extent against the tolerance.
+                    let extent = he
+                        .curve
+                        .as_ref()
+                        .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+                        .map(|c| {
+                            use popkern_core::geometry::curve::CurveEval;
+                            let origin = graph.nodes[he.origin].position;
+                            (1..8)
+                                .map(|i| {
+                                    let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                                    c.geometry.point_at(t).distance_to(&origin)
+                                })
+                                .fold(0.0, f64::max)
+                        })
+                        .unwrap_or(0.0);
+                    extent < tolerance.linear() * 10.0
+                }
             }
             2 => {
                 let a = fragment.outer_loop[0];
@@ -323,6 +349,16 @@ fn classify_fragments_cellular(
                         robust_point_in_solid_final(&p_plus, other_brep, other_aabbs, tolerance);
                     let c_minus =
                         robust_point_in_solid_final(&p_minus, other_brep, other_aabbs, tolerance);
+                    if std::env::var_os("PK_SEL_TRACE").is_some() {
+                        eprintln!(
+                            "      [pair] {:?} outer={} n=({:.2},{:.2},{:.2}) eps={eps:.2e} c_plus={c_plus:?} c_minus={c_minus:?}",
+                            fragment.face,
+                            fragment.outer_loop.len(),
+                            n.x,
+                            n.y,
+                            n.z
+                        );
+                    }
                     match (c_plus, c_minus) {
                         (PointClassification::Inside, PointClassification::Inside) => {
                             PointClassification::Inside
@@ -400,11 +436,34 @@ fn fragment_interior_sample(
         return None;
     }
 
+    // Stored pcurves may live on ANY period branch of a periodic
+    // chart (a cylinder pcurve at u−2π is the same geometry), while
+    // projected samples come back on the principal branch. Mixing
+    // branches in one scanline polygon opens a phantom interval
+    // spanning the branch gap — the widest-interval pick then lands
+    // its midpoint on the far side of the cylinder (measured: an
+    // embedded sliver of a flush gusset's arc wall sampled at the
+    // antipode, classified Outside, and survived to fight the step
+    // face for its seam edge). Shift each half-edge's sample run by
+    // whole periods so it lands adjacent to the previous run.
+    let u_period = surface.parameter_periodicity().0;
+    let branch_aligned = |poly: &mut Vec<(f64, f64)>, run: Vec<(f64, f64)>| {
+        if let (Some(p), Some(&(lu, _)), Some(&(fu, _))) = (u_period, poly.last(), run.first()) {
+            let k = ((lu - fu) / p).round();
+            if k != 0.0 {
+                poly.extend(run.into_iter().map(|(u, v)| (u + k * p, v)));
+                return;
+            }
+        }
+        poly.extend(run);
+    };
+
     let sample_loop = |hes: &[usize]| -> Option<Vec<(f64, f64)>> {
         use popkern_core::geometry::curve::CurveEval;
         use popkern_core::geometry::uv_projection::{
             project_point_to_uv, project_point_to_uv_near,
         };
+        let trace = std::env::var_os("PK_SEL_TRACE").is_some();
         let mut poly: Vec<(f64, f64)> = Vec::new();
         for &raw in hes {
             // Pcurves live in their OWNER face's chart. A fragment
@@ -424,35 +483,51 @@ fn fragment_interior_sample(
                     raw
                 }
             };
+            let mut run: Vec<(f64, f64)> = Vec::new();
+            let kind;
             if let Some(pc) = graph.half_edges[h].pcurve.as_ref() {
+                kind = "PCURVE";
                 for i in 0..8 {
                     let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
                     let p = pc.point_at(t);
-                    poly.push((p.x, p.y));
+                    run.push((p.x, p.y));
                 }
             } else if let Some(c) = graph.half_edges[h].curve.as_ref() {
                 // No pcurve (split edges): project curve samples,
                 // with continuation to stay on one branch.
+                kind = "CURVE";
                 let ceval: &dyn CurveEval = &c.geometry;
                 for i in 0..8 {
                     let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
                     let p = ceval.point_at(t);
-                    let uv = match poly.last() {
+                    let uv = match run.last().or_else(|| poly.last()) {
                         Some(&(pu, pv)) => project_point_to_uv_near(surface, &p, pu, pv)
                             .or_else(|| project_point_to_uv(surface, &p)),
                         None => project_point_to_uv(surface, &p),
                     }?;
-                    poly.push(uv);
+                    run.push(uv);
                 }
             } else {
                 // Straight graph edge without geometry: project the
                 // endpoints.
+                kind = "ENDPOINTS";
                 let a = graph.nodes[graph.half_edges[h].origin].position;
                 let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
                 for p in [a, b] {
-                    poly.push(project_point_to_uv(surface, &p)?);
+                    run.push(project_point_to_uv(surface, &p)?);
                 }
             }
+            if trace && !run.is_empty() {
+                eprintln!(
+                    "      [selpoly] he {raw} (used {h}) src {:?} {kind} first=({:.3},{:.3}) last=({:.3},{:.3})",
+                    graph.half_edges[h].source,
+                    run[0].0,
+                    run[0].1,
+                    run[run.len() - 1].0,
+                    run[run.len() - 1].1
+                );
+            }
+            branch_aligned(&mut poly, run);
         }
         (poly.len() >= 3).then_some(poly)
     };
@@ -515,6 +590,9 @@ fn fragment_interior_sample(
         }
     }
     let (_, mid_u) = best?;
+    if std::env::var_os("PK_SEL_TRACE").is_some() {
+        eprintln!("      [selpoly] scan cv={cv:.3} outer_x={outer_x:?} -> mid_u={mid_u:.3}");
+    }
     Some(surface.point_at(mid_u, cv))
 }
 

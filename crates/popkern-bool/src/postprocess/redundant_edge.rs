@@ -73,7 +73,38 @@ pub fn find_redundant_edges(brep: &BRep, tolerance: &Tolerance) -> RedundantEdge
         }
 
         // Check same surface (analytic comparison only)
-        if are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
+        if !are_surfaces_coincident_analytic(&surf_a.geometry, &surf_b.geometry, tolerance) {
+            continue;
+        }
+
+        // KEF on this edge is only sound when it is the ONLY edge the
+        // two faces share: dissolving one edge of a multi-edge shared
+        // boundary leaves the survivors traversed twice by the merged
+        // loop — a zero-width slit that passes Euler and manifold
+        // validation but cannot be triangulated (measured on a flush
+        // coplanar union: an arm wall and the gusset cap shared both
+        // the slope record and the corner column; the merged face
+        // lost 70% of the swept volume to mesh failures).
+        let shared_count = brep
+            .edges
+            .iter()
+            .filter(|(_, other)| {
+                let Some(ohe) = brep.half_edges.get(other.half_edge) else {
+                    return false;
+                };
+                let Some(otwin) = brep.half_edges.get(ohe.twin) else {
+                    return false;
+                };
+                let (Some(ola), Some(olb)) =
+                    (brep.loops.get(ohe.loop_), brep.loops.get(otwin.loop_))
+                else {
+                    return false;
+                };
+                (ola.face == face_a && olb.face == face_b)
+                    || (ola.face == face_b && olb.face == face_a)
+            })
+            .count();
+        if shared_count == 1 {
             report.redundant_edges.push(eh);
         }
     }

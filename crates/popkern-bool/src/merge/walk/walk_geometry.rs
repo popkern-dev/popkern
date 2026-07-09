@@ -52,8 +52,20 @@ pub(super) fn pick_by_angle(
 
     // Try to get the surface normal from the face's geometry.
     // For curved surfaces this is critical for correct angle computation.
-    let normal =
-        surface_normal_at_node(graph, end_node, face, brep_a, brep_b).unwrap_or_else(|| {
+    // PLANAR faces use the face's own boundary winding (Newell of the
+    // stored outer loop, which points INTO the material in this
+    // kernel's convention) instead: the walk consumes boundary
+    // half-edges in their stored directions, so fragment loops wind
+    // CCW about exactly this vector. The previous candidate-derived
+    // guess was self-fulfilling — `incoming × first_candidate` always
+    // ranks the first candidate at +90°, so whichever edge happened
+    // to be registered first at the node won every straddling pick
+    // (measured: a flush coplanar union's kept slope fragment doubled
+    // back along a collinear seam record instead of continuing down
+    // its own boundary, dead-ending the walk).
+    let normal = planar_walk_normal(face, brep_a, brep_b)
+        .or_else(|| surface_normal_at_node(graph, end_node, face, brep_a, brep_b))
+        .unwrap_or_else(|| {
             // Fallback: compute from incoming direction and candidates.
             // For self-loop candidates, use curve tangent instead of position.
             let mut n = Vec3::new(0.0, 0.0, 1.0);
@@ -103,15 +115,43 @@ pub(super) fn pick_by_angle(
             end_pos - node_pos
         };
         let out_proj = out_dir - normal * out_dir.dot(&normal);
-
-        let cos_val = out_proj.dot(&ref_dir);
-        let sin_val = ref_dir.cross(&out_proj).dot(&normal);
-        let mut angle = sin_val.atan2(cos_val);
+        // A degenerate candidate (zero-length tangency self-loop, or a
+        // direction parallel to the normal) has no in-plane heading —
+        // rank it last, matching the historical atan2(0,0)→wrap
+        // behavior so touch-point self-loops still get entered when
+        // they are the only remaining candidates.
+        let mut angle = match out_proj.normalized() {
+            Some(out_unit) => {
+                let cos_val = out_unit.dot(&ref_dir);
+                let sin_val = ref_dir.cross(&out_unit).dot(&normal);
+                let a = sin_val.atan2(cos_val);
+                // A candidate nearly COLLINEAR with the arrival edge
+                // (angle at the 0/2π boundary, cos ≈ +1 against the
+                // backward reference) is a double-back along a
+                // geometrically overlapping edge. Construction noise
+                // between two representations of the same 3D line (an
+                // intersection record vs. the original boundary it
+                // overlaps) is far above the exact-zero wrap, so the
+                // pick would flip between "wins everything" and
+                // "loses everything" on the noise sign. Rank it last
+                // deterministically.
+                const COLLINEAR_EPS: f64 = 1e-7;
+                if cos_val > 0.0 && sin_val.abs() < COLLINEAR_EPS {
+                    std::f64::consts::TAU
+                } else {
+                    a
+                }
+            }
+            None => 0.0,
+        };
 
         if angle <= 1e-10 {
             angle += std::f64::consts::TAU;
         }
 
+        if std::env::var_os("PK_WALK_TRACE").is_some() {
+            eprintln!("      [angle] cand {c}: angle={angle:.3e}");
+        }
         if angle < best_angle {
             best_angle = angle;
             best = Some(c);
@@ -119,6 +159,49 @@ pub(super) fn pick_by_angle(
     }
 
     best
+}
+
+/// Walk normal for a PLANAR face, derived from the face's stored
+/// outer-loop winding via Newell's method — NEGATED, so it points OUT
+/// of the material (this kernel's loop Newell points inward).
+///
+/// This is the walk-consistent handedness: fragment loops reuse the
+/// face's boundary half-edges in their registered directions, so every
+/// valid loop winds counter-clockwise about the inward Newell vector.
+/// `pick_by_angle` measures candidates counter-clockwise from the
+/// BACKWARD direction of arrival, and the tightest fragment on the
+/// walk's material side is the candidate with the smallest CLOCKWISE
+/// angle about the inward vector — which is exactly the smallest
+/// counter-clockwise angle about this outward vector, matching the
+/// existing comparison (verified against four seam junctions of a
+/// flush coplanar union plus the convex-corner base case). Returns
+/// `None` for non-planar faces — curved charts keep the tuned
+/// UV-normal path.
+fn planar_walk_normal(face: &FaceRef, brep_a: &BRep, brep_b: &BRep) -> Option<Vec3> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let brep = match face.operand {
+        Operand::A => brep_a,
+        Operand::B => brep_b,
+    };
+    let face_data = brep.faces.get(face.face)?;
+    let surface = face_data.surface.as_ref()?;
+    if !matches!(surface.geometry, SurfaceGeometry::Plane { .. }) {
+        return None;
+    }
+    let pts = brep.face_outer_loop_positions(face.face);
+    if pts.len() < 3 {
+        return None;
+    }
+    let mut n = Vec3::new(0.0, 0.0, 0.0);
+    for i in 0..pts.len() {
+        let p = pts[i];
+        let q = pts[(i + 1) % pts.len()];
+        n.x += (p.y - q.y) * (p.z + q.z);
+        n.y += (p.z - q.z) * (p.x + q.x);
+        n.z += (p.x - q.x) * (p.y + q.y);
+    }
+    (n * -1.0).normalized()
 }
 
 /// Compute the incoming tangent direction for a self-loop edge.

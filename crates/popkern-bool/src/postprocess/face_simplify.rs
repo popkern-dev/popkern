@@ -165,17 +165,47 @@ pub fn apply_face_simplification(brep: &mut BRep, tolerance: &Tolerance) -> usiz
             // the group. Picking just one — and re-running find_merge_candidates
             // afterwards — keeps the loop self-consistent with the
             // mutating topology.
-            let shared = brep.edges.iter().find_map(|(_, edge)| {
-                let he = brep.half_edges.get(edge.half_edge)?;
-                let twin = brep.half_edges.get(he.twin)?;
-                let fa = brep.loops.get(he.loop_)?.face;
-                let fb = brep.loops.get(twin.loop_)?.face;
-                if fa != fb && group_set.contains(&fa) && group_set.contains(&fb) {
-                    Some(edge.half_edge)
-                } else {
-                    None
+            //
+            // KEF is only sound when the pair shares exactly ONE edge:
+            // dissolving one edge of a multi-edge shared boundary
+            // leaves the surviving shared edges traversed twice by the
+            // merged loop — a zero-width slit that passes Euler and
+            // manifold validation but cannot be triangulated
+            // (measured on a flush coplanar union: an arm wall and the
+            // gusset cap shared both the slope record and the corner
+            // column; the merged face lost 70% of the swept volume to
+            // mesh failures). Pairs sharing several edges stay split —
+            // a valid, meshable result.
+            let mut pair_shares: Vec<(
+                (FaceHandle, FaceHandle),
+                popkern_core::topology::HalfEdgeHandle,
+                usize,
+            )> = Vec::new();
+            for (_, edge) in brep.edges.iter() {
+                let Some(he) = brep.half_edges.get(edge.half_edge) else {
+                    continue;
+                };
+                let Some(twin) = brep.half_edges.get(he.twin) else {
+                    continue;
+                };
+                let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_))
+                else {
+                    continue;
+                };
+                let (fa, fb) = (la.face, lb.face);
+                if fa == fb || !group_set.contains(&fa) || !group_set.contains(&fb) {
+                    continue;
                 }
-            });
+                let key = if fa < fb { (fa, fb) } else { (fb, fa) };
+                match pair_shares.iter_mut().find(|(k, _, _)| *k == key) {
+                    Some((_, _, count)) => *count += 1,
+                    None => pair_shares.push((key, edge.half_edge, 1)),
+                }
+            }
+            let shared = pair_shares
+                .iter()
+                .find(|(_, _, count)| *count == 1)
+                .map(|(_, he_h, _)| *he_h);
 
             let Some(he_h) = shared else {
                 continue;
