@@ -286,9 +286,96 @@ fn classify_fragments_cellular(
         }
         .and_then(|f| f.surface.as_ref())
         .map(|s| s.geometry.clone());
-        let sample = frag_surface
-            .and_then(|surf| fragment_interior_sample(graph, fragment, &surf))
-            .unwrap_or_else(|| sample_fragment_point(graph, &fragment.outer_loop));
+        // The edge-midpoint shortcut is the tuned default. On a
+        // coincident-overlap face it can land ON the other body's
+        // boundary EDGE (a flush cutter's flank midpoint sits on the
+        // tab's corner line), where the offset-pair probes straddle
+        // an edge instead of a face and the coorientation verdict
+        // inverts. Resample interior-aware ONLY in that case —
+        // blanket interior sampling regressed the flush union, whose
+        // arc-bounded overlap fragments sample less reliably through
+        // the scanline than through the midpoint shortcut.
+        let on_overlap_face_early = match fragment.face.operand {
+            Operand::A => overlap_a.contains(&fragment.face.face),
+            Operand::B => overlap_b.contains(&fragment.face.face),
+        };
+        let other_for_edges = match fragment.face.operand {
+            Operand::A => brep_b,
+            Operand::B => brep_a,
+        };
+        let shortcut = sample_fragment_point(graph, &fragment.outer_loop);
+        let eps_probe = (tolerance.linear() * 1.0e3).max(1.0e-3);
+        // Second trigger: the shortcut point must admit a DECISIVE
+        // own-body side probe (one side in, one side out). A shortcut
+        // landing on the fragment's own crease edge is indecisive at
+        // any offset scale — and every probe made from it, against
+        // either body, is noise (measured: a flush cutter's flank
+        // fragment probed from the tab's corner edge and the
+        // relief-mouth membrane was kept).
+        let calibratable_at = |p: &popkern_core::geometry::Point3| -> bool {
+            let own_brep_ref = match fragment.face.operand {
+                Operand::A => brep_a,
+                Operand::B => brep_b,
+            };
+            let own_aabbs_ref = match fragment.face.operand {
+                Operand::A => &aabbs_a,
+                Operand::B => &aabbs_b,
+            };
+            let Some(n0) = planar_outward_normal(own_brep_ref, fragment.face.face) else {
+                return true; // no planar normal — legacy path, no opinion
+            };
+            for e in [eps_probe, eps_probe * 16.0] {
+                let a = robust_point_in_solid_final(
+                    &(*p + n0 * e),
+                    own_brep_ref,
+                    own_aabbs_ref,
+                    tolerance,
+                );
+                let b = robust_point_in_solid_final(
+                    &(*p - n0 * e),
+                    own_brep_ref,
+                    own_aabbs_ref,
+                    tolerance,
+                );
+                if matches!(
+                    (a, b),
+                    (PointClassification::Inside, PointClassification::Outside)
+                        | (PointClassification::Outside, PointClassification::Inside)
+                ) {
+                    return true;
+                }
+            }
+            false
+        };
+        let sample = if on_overlap_face_early {
+            // Both candidate samplers can fail on coincident-overlap
+            // fragments: the midpoint shortcut lands on crease edges
+            // and the other body's corners; the scanline interior
+            // sampler mis-rows on arc-heavy charts. Pick whichever
+            // admits a DECISIVE own-body side probe — the tuned
+            // shortcut first unless it sits in a known hazard — and
+            // keep the shortcut when neither calibrates (legacy
+            // behavior, orientation stays unknown downstream).
+            let interior = frag_surface
+                .as_ref()
+                .and_then(|surf| fragment_interior_sample(graph, fragment, surf, true));
+            let hazard = point_near_any_edge(other_for_edges, &shortcut, eps_probe * 10.0);
+            let ordered = if hazard {
+                [interior, Some(shortcut)]
+            } else {
+                [Some(shortcut), interior]
+            };
+            ordered
+                .into_iter()
+                .flatten()
+                .find(|p| calibratable_at(p))
+                .unwrap_or(shortcut)
+        } else {
+            frag_surface
+                .as_ref()
+                .and_then(|surf| fragment_interior_sample(graph, fragment, surf, false))
+                .unwrap_or(shortcut)
+        };
 
         // Classify against the OPPOSITE body only.
         let own_operand = fragment.face.operand;
@@ -322,41 +409,130 @@ fn classify_fragments_cellular(
                 let he = &graph.half_edges[h];
                 he.origin == graph.half_edges[he.twin].origin
             });
+        // `cooriented`: for OnBoundary fragments with a MATERIAL-TRUE
+        // outward normal available, whether the other body's outward
+        // normal at the contact agrees with this fragment's. Contact
+        // orientation decides keep-one-skin semantics per operation:
+        // a COORIENTED subtract contact means the removed region sits
+        // exactly behind the fragment (the relief mouth is open — the
+        // piece must go), while an ANTI-oriented contact is a tool
+        // pressed against the wall from outside (the wall stays).
+        // `None` = orientation unknown (no planar outward normal);
+        // legacy rules apply.
+        let mut cooriented: Option<bool> = None;
         let class = if !needs_offset_pair {
             robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance)
         } else {
             use popkern_core::geometry::surface::SurfaceEval;
-            let frag_face = match fragment.face.operand {
-                Operand::A => brep_a.faces.get(fragment.face.face),
-                Operand::B => brep_b.faces.get(fragment.face.face),
+            let own_brep = match fragment.face.operand {
+                Operand::A => brep_a,
+                Operand::B => brep_b,
             };
-            let normal = frag_face
-                .and_then(|f| f.surface.as_ref())
-                .and_then(|sof| {
-                    popkern_core::geometry::uv_projection::project_point_to_uv(
-                        &sof.geometry,
-                        &sample,
-                    )
-                    .map(|(u, v)| sof.geometry.normal_at(u, v))
-                })
-                .and_then(|n| n.normalized());
+            let frag_face = own_brep.faces.get(fragment.face.face);
+            // Prefer the material-true outward normal (the stored
+            // outer-loop Newell vector points INTO the material in
+            // this kernel; negate it). The chart normal's sign is
+            // arbitrary relative to material, which is fine for the
+            // agree/disagree verdict but useless for coorientation.
+            let outward = planar_outward_normal(own_brep, fragment.face.face);
+            let normal = outward.or_else(|| {
+                frag_face
+                    .and_then(|f| f.surface.as_ref())
+                    .and_then(|sof| {
+                        popkern_core::geometry::uv_projection::project_point_to_uv(
+                            &sof.geometry,
+                            &sample,
+                        )
+                        .map(|(u, v)| sof.geometry.normal_at(u, v))
+                    })
+                    .and_then(|n| n.normalized())
+            });
             match normal {
-                Some(n) => {
+                Some(n_raw) => {
                     let eps = (tolerance.linear() * 1.0e3).max(1.0e-3);
-                    let p_plus = sample + n * eps;
-                    let p_minus = sample - n * eps;
-                    let c_plus =
-                        robust_point_in_solid_final(&p_plus, other_brep, other_aabbs, tolerance);
-                    let c_minus =
-                        robust_point_in_solid_final(&p_minus, other_brep, other_aabbs, tolerance);
+                    // SELF-CALIBRATE the normal against the fragment's
+                    // OWN body: the loop-Newell sign convention is not
+                    // uniform across construction paths (measured: a
+                    // unit-cube face's Newell points into the material,
+                    // an extruded prism's points out of it). Probe both
+                    // sides against the own solid; outward is the side
+                    // that reads Outside. An ambiguous self-probe keeps
+                    // orientation unknown.
+                    let (own_brep_ref, own_aabbs) = match fragment.face.operand {
+                        Operand::A => (brep_a, &aabbs_a),
+                        Operand::B => (brep_b, &aabbs_b),
+                    };
+                    let calibrate = |e: f64| {
+                        let s_plus = robust_point_in_solid_final(
+                            &(sample + n_raw * e),
+                            own_brep_ref,
+                            own_aabbs,
+                            tolerance,
+                        );
+                        let s_minus = robust_point_in_solid_final(
+                            &(sample - n_raw * e),
+                            own_brep_ref,
+                            own_aabbs,
+                            tolerance,
+                        );
+                        match (s_plus, s_minus) {
+                            (PointClassification::Outside, PointClassification::Inside) => {
+                                Some(n_raw)
+                            }
+                            (PointClassification::Inside, PointClassification::Outside) => {
+                                Some(n_raw * -1.0)
+                            }
+                            _ => None,
+                        }
+                    };
+                    // Same corner-noise hazard as the classification
+                    // pair: retry an indecisive calibration at the
+                    // coarser offset.
+                    let n_outward = calibrate(eps).or_else(|| calibrate(eps * 16.0));
+                    let n = n_outward.unwrap_or(n_raw);
+                    let pair_at = |e: f64| {
+                        (
+                            robust_point_in_solid_final(
+                                &(sample + n * e),
+                                other_brep,
+                                other_aabbs,
+                                tolerance,
+                            ),
+                            robust_point_in_solid_final(
+                                &(sample - n * e),
+                                other_brep,
+                                other_aabbs,
+                                tolerance,
+                            ),
+                        )
+                    };
+                    // Probe at the tuned offset AND at 16× it: 1 µm
+                    // probes graze corner-adjacent faces when the
+                    // sample sits on the other body's edge or corner
+                    // fold, and the ray parity inverts the verdict
+                    // (measured: a flush cutter's flank fragment read
+                    // anti-oriented at its corner sample and the
+                    // relief-mouth membrane was kept). When the two
+                    // scales disagree, trust the coarser one — still
+                    // orders of magnitude below feature size.
+                    let (c_plus_f, c_minus_f) = pair_at(eps);
+                    let (c_plus, c_minus) = {
+                        let (c_plus_c, c_minus_c) = pair_at(eps * 16.0);
+                        if (c_plus_f, c_minus_f) != (c_plus_c, c_minus_c) {
+                            (c_plus_c, c_minus_c)
+                        } else {
+                            (c_plus_f, c_minus_f)
+                        }
+                    };
                     if std::env::var_os("PK_SEL_TRACE").is_some() {
                         eprintln!(
-                            "      [pair] {:?} outer={} n=({:.2},{:.2},{:.2}) eps={eps:.2e} c_plus={c_plus:?} c_minus={c_minus:?}",
+                            "      [pair] {:?} outer={} n=({:.2},{:.2},{:.2}) calibrated={} eps={eps:.2e} c_plus={c_plus:?} c_minus={c_minus:?}",
                             fragment.face,
                             fragment.outer_loop.len(),
                             n.x,
                             n.y,
-                            n.z
+                            n.z,
+                            n_outward.is_some()
                         );
                     }
                     match (c_plus, c_minus) {
@@ -366,7 +542,23 @@ fn classify_fragments_cellular(
                         (PointClassification::Outside, PointClassification::Outside) => {
                             PointClassification::Outside
                         }
-                        _ => PointClassification::OnBoundary,
+                        (c_p, c_m) => {
+                            if n_outward.is_some() {
+                                // Other body's material on the −n side
+                                // (behind this fragment's skin) means
+                                // its outward normal ≈ +n: cooriented.
+                                cooriented = match (c_p, c_m) {
+                                    (PointClassification::Outside, PointClassification::Inside) => {
+                                        Some(true)
+                                    }
+                                    (PointClassification::Inside, PointClassification::Outside) => {
+                                        Some(false)
+                                    }
+                                    _ => None,
+                                };
+                            }
+                            PointClassification::OnBoundary
+                        }
                     }
                 }
                 None => robust_point_in_solid_final(&sample, other_brep, other_aabbs, tolerance),
@@ -378,7 +570,7 @@ fn classify_fragments_cellular(
         // is not selected by the operation predicate.
         if std::env::var_os("PK_CELL_TRACE").is_some() {
             eprintln!(
-                "  [sel] {:?} outer={} sample=({:.2},{:.2},{:.2}) class={class:?}",
+                "  [sel] {:?} outer={} sample=({:.2},{:.2},{:.2}) class={class:?} co={cooriented:?}",
                 fragment.face,
                 fragment.outer_loop.len(),
                 sample.x,
@@ -386,21 +578,35 @@ fn classify_fragments_cellular(
                 sample.z
             );
         }
+        // Keep-one-skin rules with contact ORIENTATION where known:
+        // COORIENTED contact (both outward normals agree) means the
+        // two boundaries coincide as the same skin — union/intersect
+        // keep exactly one copy (operand A's), and subtract drops A's
+        // piece (the removed region sits directly behind it, opening
+        // the mouth). ANTI-oriented contact means the bodies face
+        // each other across the surface — the union of the two
+        // materials makes it interior (drop), while a subtract
+        // leaves the wall intact (keep). Unknown orientation keeps
+        // the legacy cooriented assumption.
         let (keep, flip) = match op {
             BoolOperation::Union => (
                 class == PointClassification::Outside
-                    || (own_operand == Operand::A && class == PointClassification::OnBoundary),
+                    || (own_operand == Operand::A
+                        && class == PointClassification::OnBoundary
+                        && cooriented != Some(false)),
                 false,
             ),
             BoolOperation::Intersection => (
                 class == PointClassification::Inside
-                    || (own_operand == Operand::A && class == PointClassification::OnBoundary),
+                    || (own_operand == Operand::A
+                        && class == PointClassification::OnBoundary
+                        && cooriented != Some(false)),
                 false,
             ),
             BoolOperation::Subtraction => match own_operand {
                 Operand::A => (
                     class == PointClassification::Outside
-                        || class == PointClassification::OnBoundary,
+                        || (class == PointClassification::OnBoundary && cooriented != Some(true)),
                     false,
                 ),
                 Operand::B => (class == PointClassification::Inside, true),
@@ -424,10 +630,19 @@ fn fragment_interior_sample(
     graph: &IntersectionGraph,
     fragment: &crate::merge::walk::Fragment,
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    force_interior: bool,
 ) -> Option<popkern_core::geometry::Point3> {
     use popkern_core::geometry::surface::SurfaceEval;
 
-    let needs_care = !fragment.inner_loops.is_empty()
+    // `force_interior`: fragments of coincident-overlap faces must
+    // sample strictly inside their region — the edge-midpoint
+    // shortcut lands ON the other body's boundary corner, where the
+    // offset-pair probes straddle an edge instead of a face and the
+    // coorientation verdict inverts (measured: a flush relief's
+    // flank wall probed at the tab's front corner read anti-oriented
+    // and the mouth membrane was kept).
+    let needs_care = force_interior
+        || !fragment.inner_loops.is_empty()
         || fragment.outer_loop.iter().any(|&h| {
             let he = &graph.half_edges[h];
             he.origin == graph.half_edges[he.twin].origin
@@ -487,8 +702,89 @@ fn fragment_interior_sample(
             let kind;
             if let Some(pc) = graph.half_edges[h].pcurve.as_ref() {
                 kind = "PCURVE";
+                // A split graph half-edge keeps the FULL original
+                // edge's pcurve; its own 3D-curve window is the
+                // narrowed span in the same parameter space. Sampling
+                // the full pcurve made a 1 mm stub's polygon row span
+                // the whole 21 mm wall, and the scanline midpoint
+                // landed on a different region entirely (a below-body
+                // skirt fragment classified Inside and was kept as a
+                // phantom face). Use the window when it nests inside
+                // the pcurve's range; fall back to the full range
+                // otherwise (foreign parameterization).
+                let (mut s0, mut s1) = (pc.t_start, pc.t_end);
+                if let Some(c) = graph.half_edges[h].curve.as_ref() {
+                    // The stored pcurve may cover the FULL original
+                    // edge while the half-edge's 3D window is a stub
+                    // of it, in a different parameter space (the 3D
+                    // curve is re-parameterized at split time).
+                    // Recover the pcurve sub-window by INVERTING the
+                    // he's 3D endpoints onto the pcurve through the
+                    // surface: coarse scan + ternary refinement, then
+                    // verify. Keep the full range when inversion
+                    // fails (foreign chart).
+                    let p3a = c.geometry.point_at(c.t_start);
+                    let p3b = c.geometry.point_at(c.t_end);
+                    let scale3 = 1.0 + p3a.distance_to(&p3b);
+                    let nearest = |p3: &popkern_core::geometry::Point3| -> (f64, f64) {
+                        let d_at = |t: f64| {
+                            let uv = pc.point_at(t);
+                            surface.point_at(uv.x, uv.y).distance_to(p3)
+                        };
+                        let n = 64;
+                        let mut best = (pc.t_start, f64::INFINITY);
+                        for i in 0..=n {
+                            let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / n as f64;
+                            let d = d_at(t);
+                            if d < best.1 {
+                                best = (t, d);
+                            }
+                        }
+                        let step = (pc.t_end - pc.t_start).abs() / n as f64;
+                        let (mut lo, mut hi) = (best.0 - step, best.0 + step);
+                        for _ in 0..48 {
+                            let m1 = lo + (hi - lo) / 3.0;
+                            let m2 = hi - (hi - lo) / 3.0;
+                            if d_at(m1) <= d_at(m2) {
+                                hi = m2;
+                            } else {
+                                lo = m1;
+                            }
+                        }
+                        let t = 0.5 * (lo + hi);
+                        (t, d_at(t))
+                    };
+                    // Scoped to NON-PERIODIC charts: on a periodic
+                    // chart every u-branch evaluates to the same 3D
+                    // points, so inversion cannot distinguish branches
+                    // and the recovered window can run the wrong way
+                    // around the circle (measured: a drill-hole rim's
+                    // window emptied the scanline polygon and reopened
+                    // a through-hole). Closed spans (rim half-edges)
+                    // invert both endpoints to the same parameter —
+                    // skip those too, and verify the midpoint.
+                    let u_periodic = surface.parameter_periodicity().0.is_some();
+                    if !u_periodic && p3a.distance_to(&p3b) > 1e-9 * scale3 {
+                        let (ta, da) = nearest(&p3a);
+                        let (tb, db) = nearest(&p3b);
+                        let mid_ok = {
+                            let t_mid_pc = 0.5 * (ta + tb);
+                            let uv = pc.point_at(t_mid_pc);
+                            let p3_mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+                            surface.point_at(uv.x, uv.y).distance_to(&p3_mid) < 1e-3 * scale3
+                        };
+                        if da < 1e-6 * scale3
+                            && db < 1e-6 * scale3
+                            && (ta - tb).abs() > 1e-12
+                            && mid_ok
+                        {
+                            s0 = ta;
+                            s1 = tb;
+                        }
+                    }
+                }
                 for i in 0..8 {
-                    let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
+                    let t = s0 + (s1 - s0) * i as f64 / 8.0;
                     let p = pc.point_at(t);
                     run.push((p.x, p.y));
                 }
@@ -594,6 +890,82 @@ fn fragment_interior_sample(
         eprintln!("      [selpoly] scan cv={cv:.3} outer_x={outer_x:?} -> mid_u={mid_u:.3}");
     }
     Some(surface.point_at(mid_u, cv))
+}
+
+/// Material-true OUTWARD normal for a PLANAR face: the stored
+/// outer-loop Newell vector (which points INTO the material in this
+/// kernel's winding convention), negated. Returns `None` for
+/// non-planar faces — coorientation classification then falls back to
+/// the sign-arbitrary chart normal with orientation unknown.
+fn planar_outward_normal(
+    brep: &BRep,
+    face_handle: popkern_core::topology::FaceHandle,
+) -> Option<popkern_core::geometry::Vec3> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let face = brep.faces.get(face_handle)?;
+    let surface = face.surface.as_ref()?;
+    if !matches!(surface.geometry, SurfaceGeometry::Plane { .. }) {
+        return None;
+    }
+    let pts = brep.face_outer_loop_positions(face_handle);
+    if pts.len() < 3 {
+        return None;
+    }
+    let mut n = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+    for i in 0..pts.len() {
+        let p = pts[i];
+        let q = pts[(i + 1) % pts.len()];
+        n.x += (p.y - q.y) * (p.z + q.z);
+        n.y += (p.z - q.z) * (p.x + q.x);
+        n.z += (p.x - q.x) * (p.y + q.y);
+    }
+    (n * -1.0).normalized()
+}
+
+/// True when the point lies within `band` of any edge of the body —
+/// sampled 16-station chordal distance per edge (exact for lines).
+fn point_near_any_edge(brep: &BRep, p: &popkern_core::geometry::Point3, band: f64) -> bool {
+    use popkern_core::geometry::curve::CurveEval as _;
+    for (_, edge) in brep.edges.iter() {
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let a = brep.vertices[he.origin].position;
+        let b = brep
+            .half_edges
+            .get(he.twin)
+            .map(|t| brep.vertices[t.origin].position)
+            .unwrap_or(a);
+        if let Some(c) = edge.curve.as_ref() {
+            let mut prev = c.geometry.point_at(c.t_start);
+            for i in 1..=16 {
+                let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 16.0;
+                let q = c.geometry.point_at(t);
+                if seg_dist(&prev, &q, p) < band {
+                    return true;
+                }
+                prev = q;
+            }
+        } else if seg_dist(&a, &b, p) < band {
+            return true;
+        }
+    }
+    false
+}
+
+fn seg_dist(
+    a: &popkern_core::geometry::Point3,
+    b: &popkern_core::geometry::Point3,
+    p: &popkern_core::geometry::Point3,
+) -> f64 {
+    let ab = *b - *a;
+    let l2 = ab.dot(&ab);
+    if l2 < 1e-24 {
+        return p.distance_to(a);
+    }
+    let t = ((*p - *a).dot(&ab) / l2).clamp(0.0, 1.0);
+    (*a + ab * t).distance_to(p)
 }
 
 fn sample_fragment_point(

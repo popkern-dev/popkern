@@ -59,7 +59,9 @@ struct StandParams {
     /// leaving a visible notch in the root face (the historical
     /// transversal-boolean margin rule). `true`: the cutter is the
     /// tab's own dovetail profile, every side face coplanar with an
-    /// existing arm face — a crisp flush-edged relief.
+    /// existing arm face — a crisp flush-edged relief, supported
+    /// since the coincident-boolean subtract leg closed
+    /// (flush_tab_relief_subtract_is_watertight_and_volume_exact).
     tab_relief_flush: bool,
     /// Central seat recess profile on the block. `false` (default):
     /// the 76 × 76 square. `true`: a Ø76 cylindrical recess.
@@ -424,7 +426,12 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
         // landing exactly on the tab front — one less full-face
         // coincidence, with no change to the visible flush edges.
         Profile::on(Plane::xy_at(-1.0))
-            .polygon(&[(5.8, 0.0), (9.106, 10.8), (-9.106, 10.8), (-5.8, 0.0)])
+            .polygon(&[
+                (5.8, 0.0),
+                (5.8 + 3.0 * (10.8 / 9.8), 10.8),
+                (-5.8 - 3.0 * (10.8 / 9.8), 10.8),
+                (-5.8, 0.0),
+            ])
             .extrude(21.0)?
     } else {
         Profile::on(Plane::xy_at(-5.0))

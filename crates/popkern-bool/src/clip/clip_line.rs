@@ -63,11 +63,38 @@ pub(crate) fn clip_line_to_face(
         let denom = d.dot(&inward);
         let numer = -(w.dot(&inward));
 
-        if denom.abs() < 1e-15 {
-            // Line is parallel to this edge.
-            // numer = -dot(w, inward): positive means p0 is OUTSIDE.
-            if numer > 1e-12 {
-                return None; // outside this edge
+        // Parallelism and side tests on UNNORMALIZED products are
+        // scale-dependent knife edges: |inward| carries the face
+        // normal times the edge length, so a line lying exactly ON a
+        // boundary edge produced denom ≈ 1e-12 — past the absolute
+        // 1e-15 gate — and the division fabricated an enter parameter
+        // of ~100, emptying the range (measured: a coplanar cutter's
+        // top×flank record silently discarded, the wall never split
+        // at the relief depth). Normalize to an angular test.
+        let scale = if std::env::var_os("PK_DISABLE_CBNORM").is_some() {
+            1.0
+        } else {
+            d.length().max(1e-30) * inward.length().max(1e-30)
+        };
+        if denom.abs() / scale < if scale == 1.0 { 1e-15 } else { 1e-12 } {
+            // Line is parallel to this edge. Compare the SIGNED
+            // IN-PLANE DISTANCE of the line from the edge — `numer`
+            // is scaled by the unnormalized inward vector, so an
+            // absolute threshold is a scale-dependent knife edge. A
+            // line lying ON the edge (a coplanar cutter's face whose
+            // intersection with the neighbour runs along this face's
+            // own boundary) must clip to the edge's span via the
+            // remaining edges, not vanish (measured: the flush
+            // relief's cutter-top × flank-wall record was silently
+            // discarded and the wall never split at the relief
+            // depth).
+            let inward_len = if std::env::var_os("PK_DISABLE_CBNORM").is_some() {
+                1.0
+            } else {
+                inward.length().max(1e-30)
+            };
+            if numer / inward_len > if inward_len == 1.0 { 1e-12 } else { 1e-9 } {
+                return None; // strictly outside this edge
             }
             continue;
         }

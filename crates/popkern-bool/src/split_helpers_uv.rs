@@ -38,7 +38,7 @@ pub(super) fn try_uv_split(
     let is_closed =
         tolerance.points_coincident(&curve_3d.point_at(t0_orig), &curve_3d.point_at(t1_orig));
 
-    let crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
+    let mut crossings = match find_uv_crossings(brep, face_handle, curve_uv, tolerance) {
         Some(c) => c,
         None => {
             if std::env::var_os("PK_BOOL_TRACE").is_some() {
@@ -47,11 +47,62 @@ pub(super) fn try_uv_split(
             return Ok(false);
         }
     };
+    // The crossing list accumulates per boundary edge in loop order:
+    // adjacent edges each report a shared corner, near-parallel pairs
+    // report repeatedly, and nothing guarantees monotonicity in the
+    // curve parameter. Taking `first`/`last` from that soup as
+    // enter/exit clipped garbage chords (measured: a flush cutter's
+    // boundary-collinear flank trim collected 36 hits and the split
+    // corrupted the face for every later record). Sort by curve
+    // parameter and collapse duplicates.
+    // Scoped to OPEN curves: a closed record's enter/exit pair may
+    // legitimately be the complement of the sorted pair (the interior
+    // span wraps through the closure), and the discovery order
+    // encodes that (measured: sorting the drill-circle crossings of a
+    // cube through-hole flipped the clipped arc and reopened the
+    // hole).
+    if !is_closed {
+        crossings.sort_by(|a, b| {
+            a.t_curve
+                .partial_cmp(&b.t_curve)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let param_eps = (t1_orig - t0_orig).abs() * 1e-9 + 1e-15;
+        crossings.dedup_by(|a, b| (a.t_curve - b.t_curve).abs() < param_eps);
+    }
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
         eprintln!(
             "  [bool] face {face_handle:?}: crossings={} is_closed={is_closed}",
             crossings.len()
         );
+    }
+
+    // A trim whose crossings are confined to its ENDPOINTS and whose
+    // midpoint lies ON the face boundary runs ALONG the rim — it
+    // partitions nothing. This covers both a coplanar cutter's record
+    // duplicating the target's own edge (first pass) and a record
+    // re-visited after its own split created the edge it now lies on
+    // (retry pass). Splitting instead corrupted the face's junction
+    // network for every later record.
+    if !crossings.is_empty() {
+        let interior = crossings.iter().any(|c| {
+            let span = (t1_orig - t0_orig).abs().max(1e-30);
+            let f = (c.t_curve - t0_orig.min(t1_orig)) / span;
+            f > 1e-6 && f < 1.0 - 1e-6
+        });
+        if !interior
+            && uv_point_on_face_boundary(
+                brep,
+                face_handle,
+                &curve_uv.point_at(0.5 * (t0_orig + t1_orig)),
+                tolerance,
+            )
+        {
+            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                eprintln!("  [split1] {face_handle:?} rim-collinear trim — consumed as no-op");
+            }
+            return Ok(true);
+        }
     }
 
     // Sub-problem A: curve crosses boundary (>= 2 crossings).
@@ -167,4 +218,41 @@ pub(super) fn try_uv_split(
     }
 
     Ok(false)
+}
+
+/// True when the UV point lies within tolerance of the face's outer
+/// boundary, sampled through the boundary pcurves (16-station chords
+/// per edge — exact for linear pcurves).
+fn uv_point_on_face_boundary(
+    brep: &BRep,
+    face: FaceHandle,
+    p: &popkern_core::geometry::Point3,
+    tolerance: &Tolerance,
+) -> bool {
+    let Some(boundary) = crate::clip::face_uv_boundary(brep, face) else {
+        return false;
+    };
+    let band = tolerance.linear() * 10.0;
+    for (_, pc) in &boundary {
+        let (t0, t1) = (pc.t_start, pc.t_end);
+        let mut prev = pc.point_at(t0);
+        for i in 1..=16 {
+            let t = t0 + (t1 - t0) * i as f64 / 16.0;
+            let q = pc.point_at(t);
+            let ab = popkern_core::geometry::Vec3::new(q.x - prev.x, q.y - prev.y, 0.0);
+            let l2 = ab.dot(&ab);
+            let d = if l2 < 1e-24 {
+                ((p.x - prev.x).powi(2) + (p.y - prev.y).powi(2)).sqrt()
+            } else {
+                let ap = popkern_core::geometry::Vec3::new(p.x - prev.x, p.y - prev.y, 0.0);
+                let tt = (ap.dot(&ab) / l2).clamp(0.0, 1.0);
+                ((p.x - (prev.x + ab.x * tt)).powi(2) + (p.y - (prev.y + ab.y * tt)).powi(2)).sqrt()
+            };
+            if d < band {
+                return true;
+            }
+            prev = q;
+        }
+    }
+    false
 }

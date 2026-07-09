@@ -2114,18 +2114,36 @@ fn arc_extrude_mesh_winding_gap_is_pinned() {
     );
 }
 
-/// FRONTIER PIN (coincident booleans, subtract leg): a SUBTRACTION
-/// whose cutter side faces are coplanar with the target's faces —
-/// the flush dovetail-tab relief. The cutter is the tab's own
-/// dovetail profile (flanks and root-plane face coplanar with
-/// existing arm faces), and the face-splitting stage dies with
-/// "trim curve end point does not match any vertex on the face
-/// boundary". The coincident campaign closed the UNION path through
-/// the cellular walk; the coplanar-cutter subtract fails earlier, in
-/// split_one_face. Minimal repro: a plate with a protruding dovetail
-/// tab, relieved below z = 20 by the tab's own profile.
+/// COINCIDENT-BOOLEAN SUBTRACT LEG — CLOSED. A subtraction whose
+/// cutter side faces are coplanar with the target's faces (the flush
+/// dovetail-tab relief) comes out watertight with the exact analytic
+/// volume. Five layers closed the leg, each gated to also keep the
+/// flush UNION pin exact: (1) UV crossings are sorted and deduped
+/// for OPEN trims (the raw per-edge soup made enter/exit arbitrary),
+/// and a trim whose crossings are confined to its endpoints with its
+/// midpoint ON the rim is consumed as a split no-op — a coplanar
+/// cutter's record duplicating the target's own edge partitions
+/// nothing, and the same rule self-resolves records re-visited after
+/// their own earlier split; (2) the Cyrus-Beck line clipper's
+/// parallel and side tests are normalized to angular/distance form
+/// (unnormalized products silently discarded the cutter-top ×
+/// flank-wall record, so the wall never split at the relief depth);
+/// (3) OnBoundary classification carries contact COORIENTATION,
+/// self-calibrated by probing the fragment's own body (the
+/// loop-Newell sign is not uniform across construction paths), with
+/// offset probes verified at 16× the base offset (1 µm probes graze
+/// corner-adjacent faces); subtract drops cooriented A-side pieces —
+/// keeping them left a membrane over the relief mouth; (4) on
+/// overlap faces the classifier picks whichever candidate sample
+/// (edge-midpoint shortcut or interior scanline) admits a DECISIVE
+/// own-body side probe — the shortcut lands on crease edges and the
+/// other body's corners, the scanline mis-rows on arc-heavy charts;
+/// (5) the sampler evaluates a split half-edge's pcurve over the
+/// half-edge's own window, recovered by inverting its 3D endpoints
+/// through the surface — scoped to non-periodic charts, where the
+/// inversion is decidable.
 #[test]
-fn flush_tab_relief_subtract_gap_is_pinned() {
+fn flush_tab_relief_subtract_is_watertight_and_volume_exact() {
     let plan: Vec<(f64, f64)> = vec![
         (22.0, 0.0),
         (5.8, 0.0),
@@ -2141,20 +2159,42 @@ fn flush_tab_relief_subtract_gap_is_pinned() {
         .extrude(40.0)
         .expect("body");
     let relief = Profile::on(Plane::xy_at(-1.0))
-        .polygon(&[(5.8, 0.0), (9.106, 10.8), (-9.106, 10.8), (-5.8, 0.0)])
+        .polygon(&[
+            (5.8, 0.0),
+            (5.8 + 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8 - 3.0 * (10.8 / 9.8), 10.8),
+            (-5.8, 0.0),
+        ])
         .extrude(21.0)
         .expect("relief");
-    let ok = match body.subtract(&relief) {
-        Ok(out) => out.open_edge_count().map(|o| o == 0).unwrap_or(false),
-        Err(e) => {
-            eprintln!("flush tab relief: {e:?}");
-            false
-        }
-    };
+    let out = body.subtract(&relief).expect("flush coplanar subtract");
+    let opens = out.open_edge_count().expect("mesh");
+    let mesh = out
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut v = 0.0;
+    for t in &mesh.triangles {
+        let (a, b, c) = (
+            mesh.vertices[t[0]].position,
+            mesh.vertices[t[1]].position,
+            mesh.vertices[t[2]].position,
+        );
+        v += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x))
+            / 6.0;
+    }
+    // Analytic: plan = 44×30 rect + dovetail tab trapezoid
+    // ((11.6+17.6)/2 × 9.8), extruded 40; the relief removes the tab
+    // section below z = 20. All faces planar — the divergence-sum
+    // volume is winding-safe here (the arc-extrude winding gap does
+    // not apply).
+    let tab_area = 0.5 * (11.6 + 17.6) * 9.8;
+    let expected = (44.0 * 30.0 + tab_area) * 40.0 - tab_area * 20.0;
+    eprintln!("flush tab relief: opens={opens} vol={v:.3} expected={expected:.3}");
+    assert_eq!(opens, 0, "flush coplanar relief no longer watertight");
     assert!(
-        !ok,
-        "flush coplanar tab-relief subtract now succeeds watertight — \
-         flip this pin and enable tab_relief_flush in the stand example"
+        (v - expected).abs() < expected * 1e-3,
+        "flush coplanar relief volume {v:.3} vs analytic {expected:.3}"
     );
 }
 
