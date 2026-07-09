@@ -320,6 +320,30 @@ pub(super) fn split_one_face(
     records: &[IntersectionRecord],
     fragments: &mut FragmentMap,
 ) -> Result<(), BoolDiagnostics> {
+    // DEGENERATE trims split nothing: a record can clip down to a
+    // single point when a tool face meets the target face only at a
+    // boundary touch (measured: a flush-sided gusset's embedded top
+    // wall grazed the arm's side wall exactly at its width-step
+    // vertex; the point-trim was retried until the whole boolean
+    // failed with "trim curve end point does not match any vertex").
+    // Consume them as no-ops.
+    {
+        use popkern_core::geometry::curve::CurveEval as _;
+        let (t0, t1) = curve_3d.parameter_range();
+        let mut len = 0.0;
+        let mut prev = curve_3d.point_at(t0);
+        for i in 1..=8 {
+            let q = curve_3d.point_at(t0 + (t1 - t0) * i as f64 / 8.0);
+            len += prev.distance_to(&q);
+            prev = q;
+        }
+        if len < tolerance.linear() * 10.0 {
+            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                eprintln!("  [split1] {face_handle:?} DEGENERATE trim (len {len:.2e}) — skipped");
+            }
+            return Ok(());
+        }
+    }
     // T-junction pre-split: a trim curve's endpoint may land in the
     // MIDDLE of a boundary edge — most commonly on an edge created by
     // an earlier split of the same face (a bounded cutter's bottom

@@ -1889,3 +1889,126 @@ fn arc_gusset_union_is_watertight() {
         - b.loops.len() as i64;
     assert_eq!(chi, 2, "true-arc swoop union must stay genus 0");
 }
+
+/// FRONTIER PIN (coincident booleans): the FLUSH swoop gusset — its
+/// end caps exactly COPLANAR with the arm's side walls. Three layers
+/// of this campaign are closed and suite-green: (1) the coincident-
+/// body shortcut VERIFIES containment geometrically with inward-
+/// offset face probes instead of a face-count heuristic — it was
+/// silently swallowing the whole tool (union returned the bare arm,
+/// watertight and χ-clean, minus 44 cm³; only the volume oracle
+/// catches this class); (2) degenerate point-trims from boundary
+/// grazes are consumed as no-ops instead of failing the split;
+/// (3) collinear boundary overlaps clip records at the overlap ENDS
+/// (mutual-extent semantics) instead of a fake midpoint crossing —
+/// the record corners now land exactly. REMAINING: cellular's
+/// fragment walk/selection on the coplanar interface itself
+/// mis-pairs (caps walk as bigons/separates; mixed A/B dangles).
+/// The shipping arm keeps the 2 mm inset (parameterized as
+/// swoop_inset) until this flips.
+#[test]
+fn flush_gusset_union_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let plane_at_root = 81.8;
+    let plan: Vec<(f64, f64)> = vec![
+        (22.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-22.0, 0.0),
+        (-22.0, -24.0),
+        (-20.0, -24.0),
+        (-20.0, -231.0),
+        (20.0, -231.0),
+        (20.0, -24.0),
+        (22.0, -24.0),
+    ];
+    let mut arm = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(96.0)
+        .expect("arm");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("slab")
+        .rotate_x(tilt)
+        .expect("rot")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("lift");
+    arm = arm.subtract(&upper).expect("rest");
+    let lower_box = Profile::on(Plane::xy_at(-10.0))
+        .rect(600.0, 216.0)
+        .at(0.0, -134.0)
+        .extrude(100.0)
+        .expect("box");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("slab2")
+        .rotate_x(tilt)
+        .expect("rot2")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("lift2");
+    let tool = lower_box.subtract(&p2).expect("shaped tool");
+    arm = arm.subtract(&tool).expect("thin");
+    let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
+    let (y_root, y_tip) = (-20.0, -72.0);
+    // FLUSH: full 40mm width, caps coplanar with the arm side walls.
+    let gusset = Profile::on(Plane::XY)
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(40.0)
+        .expect("gusset")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-20.0, 0.0, 0.0)
+        .expect("center");
+    let vol = |p: &Part| -> f64 {
+        let m = p
+            .mesh(&popkern_mesh::TessellationOptions::default())
+            .expect("mesh");
+        let mut v = 0.0;
+        for t in &m.triangles {
+            let (a, b, c) = (
+                m.vertices[t[0]].position,
+                m.vertices[t[1]].position,
+                m.vertices[t[2]].position,
+            );
+            v += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                + a.z * (b.x * c.y - b.y * c.x))
+                / 6.0;
+        }
+        v.abs()
+    };
+    let arm_vol = vol(&arm);
+    // The 36 mm inset union is the reference: the flush union must
+    // add the same cross-section swept over 40 mm instead of 36.
+    let gusset36 = Profile::on(Plane::XY)
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(36.0)
+        .expect("gusset36")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-18.0, 0.0, 0.0)
+        .expect("center");
+    let inset_added = vol(&arm.union(&gusset36).expect("inset union")) - arm_vol;
+    let expected_flush = arm_vol + inset_added * 40.0 / 36.0;
+    let flush_ok = match arm.union(&gusset) {
+        Ok(out) => {
+            out.open_edge_count().map(|o| o == 0).unwrap_or(false)
+                && (vol(&out) - expected_flush).abs() < expected_flush * 1e-3
+        }
+        Err(_) => false,
+    };
+    assert!(
+        !flush_ok,
+        "flush gusset union gap has closed (volume oracle satisfied) — \
+         flip this pin and default swoop_inset to taste"
+    );
+}

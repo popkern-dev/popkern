@@ -48,6 +48,12 @@ struct StandParams {
     /// Hub boss radius and height above the base plate.
     boss_r: f64,
     boss_h: f64,
+    /// Per-side inset of the arm's swoop gusset from the plate run's
+    /// side walls. 2.0 reads as a distinct rib (the default look);
+    /// 0.0 makes the web fully FLUSH — a coplanar-face union, gated
+    /// by the coincident-boolean campaign
+    /// (flush_gusset_union_gap_is_pinned).
+    swoop_inset: f64,
 }
 
 impl StandParams {
@@ -67,6 +73,7 @@ impl StandParams {
             base_t: 22.0,
             boss_r: 30.0,
             boss_h: 22.0,
+            swoop_inset: 2.0,
         }
     }
 
@@ -347,14 +354,15 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
     // Y rotation.
     let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
     let (y_root, y_tip) = (-20.0, -72.0);
+    let half_run = 20.0 - p.swoop_inset;
     let gusset = Profile::on(Plane::XY)
         .path(-(plate_under(y_root) + 1.0), y_root)
         .line_to(-(plate_under(y_tip) + 1.0), y_tip)
         .arc_to((-42.0, -36.0), (-26.0, y_root))
         .close()
-        .extrude(36.0)?
+        .extrude(2.0 * half_run)?
         .rotate_y(90.0_f64.to_radians())?
-        .translate(-18.0, 0.0, 0.0)?;
+        .translate(-half_run, 0.0, 0.0)?;
     arm = arm.union(&gusset)?;
     let slot = Profile::on(Plane::XY)
         .polygon(&[

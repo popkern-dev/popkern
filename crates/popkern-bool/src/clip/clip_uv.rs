@@ -134,6 +134,15 @@ pub(crate) fn find_uv_crossings(
                 for hit in &result.intersections {
                     match hit {
                         CurveIntersection::Point { t1, t2, .. } => {
+                            if std::env::var_os("PK_XING_TRACE").is_some() {
+                                use popkern_core::geometry::curve::CurveEval;
+                                let q = working_curve.point_at(*t2);
+                                let qb = boundary_pcurve.point_at(*t1);
+                                eprintln!(
+                                    "      [xing] he {he_handle:?} t2={t2:.4} uv=({:.4},{:.4}) bnd-uv=({:.4},{:.4})",
+                                    q.x, q.y, qb.x, qb.y
+                                );
+                            }
                             found.push(UvCrossing {
                                 t_curve: *t2,
                                 boundary_he: *he_handle,
@@ -141,12 +150,24 @@ pub(crate) fn find_uv_crossings(
                             });
                         }
                         CurveIntersection::Overlap { t1_range, t2_range } => {
-                            let t1_mid = (t1_range.0 + t1_range.1) * 0.5;
-                            let t2_mid = (t2_range.0 + t2_range.1) * 0.5;
+                            // A COLLINEAR overlap with a boundary
+                            // edge means the curve runs ALONG the
+                            // face's rim for that stretch. The
+                            // honest entry/exit candidates are the
+                            // overlap ENDS — the old single midpoint
+                            // "crossing" clipped a flush gusset
+                            // cap's plate record to a fake corner
+                            // 1.2 mm inside the true one and the
+                            // union ring never closed.
                             found.push(UvCrossing {
-                                t_curve: t2_mid,
+                                t_curve: t2_range.0,
                                 boundary_he: *he_handle,
-                                t_boundary: t1_mid,
+                                t_boundary: t1_range.0,
+                            });
+                            found.push(UvCrossing {
+                                t_curve: t2_range.1,
+                                boundary_he: *he_handle,
+                                t_boundary: t1_range.1,
                             });
                         }
                     }
