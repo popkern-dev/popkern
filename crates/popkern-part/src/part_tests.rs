@@ -2113,3 +2113,115 @@ fn arc_extrude_mesh_winding_gap_is_pinned() {
          equality gate (tolerance ~1e-2 for chord error)"
     );
 }
+
+/// FRONTIER PIN (coincident booleans, subtract leg): a SUBTRACTION
+/// whose cutter side faces are coplanar with the target's faces —
+/// the flush dovetail-tab relief. The cutter is the tab's own
+/// dovetail profile (flanks and root-plane face coplanar with
+/// existing arm faces), and the face-splitting stage dies with
+/// "trim curve end point does not match any vertex on the face
+/// boundary". The coincident campaign closed the UNION path through
+/// the cellular walk; the coplanar-cutter subtract fails earlier, in
+/// split_one_face. Minimal repro: a plate with a protruding dovetail
+/// tab, relieved below z = 20 by the tab's own profile.
+#[test]
+fn flush_tab_relief_subtract_gap_is_pinned() {
+    let plan: Vec<(f64, f64)> = vec![
+        (22.0, 0.0),
+        (5.8, 0.0),
+        (8.8, 9.8),
+        (-8.8, 9.8),
+        (-5.8, 0.0),
+        (-22.0, 0.0),
+        (-22.0, -30.0),
+        (22.0, -30.0),
+    ];
+    let body = Profile::on(Plane::XY)
+        .polygon(&plan)
+        .extrude(40.0)
+        .expect("body");
+    let relief = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&[(5.8, 0.0), (9.106, 10.8), (-9.106, 10.8), (-5.8, 0.0)])
+        .extrude(21.0)
+        .expect("relief");
+    let ok = match body.subtract(&relief) {
+        Ok(out) => out.open_edge_count().map(|o| o == 0).unwrap_or(false),
+        Err(e) => {
+            eprintln!("flush tab relief: {e:?}");
+            false
+        }
+    };
+    assert!(
+        !ok,
+        "flush coplanar tab-relief subtract now succeeds watertight — \
+         flip this pin and enable tab_relief_flush in the stand example"
+    );
+}
+
+/// FRONTIER PIN (membrane class): a STAR SOCKET cut into the FLOOR
+/// of a cylindrical recess. The Ø76 round recess itself cuts clean
+/// (verified inline below — that subtract is quiet and watertight);
+/// the failure is the NEXT feature: the hexagram socket into the
+/// recess's circle-bounded floor disk goes χ' = 4 (Euler-Poincaré
+/// expected 2, got 4) in both pipelines — the recorded star-membrane
+/// family. A star pocket into a SQUARE floor works (the shipping
+/// block), and into a convex cylinder cap works (W1); the concave
+/// closed-rim floor is the open case. Blocks the round-seat block
+/// variant.
+#[test]
+fn round_seat_recess_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let block = Profile::on(Plane::XY)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0)
+        .line_to(44.0, -56.0)
+        .close()
+        .extrude(125.0)
+        .expect("block");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("tilt")
+        .translate(0.0, 0.0, 100.0)
+        .expect("place");
+    let block = block.subtract(&upper).expect("rest cut");
+    let seat = Profile::on(Plane::xy_at(70.0))
+        .circle(38.0)
+        .extrude(60.0)
+        .expect("seat");
+    let before_faces = block.face_count();
+    let block = block
+        .subtract(&seat)
+        .expect("round recess itself cuts clean");
+    assert_eq!(block.open_edge_count().expect("mesh"), 0);
+    assert_ne!(block.face_count(), before_faces);
+    // The frontier: hexagram socket into the recess's disk floor.
+    let socket = Profile::on(Plane::xy_at(70.0 - 16.0))
+        .polygon(&hexagram_points(12.0))
+        .extrude(17.0)
+        .expect("socket tool");
+    let ok = match block.subtract(&socket) {
+        Ok(out) => {
+            eprintln!(
+                "star socket in round floor: faces {} -> {}, opens {:?}",
+                block.face_count(),
+                out.face_count(),
+                out.open_edge_count()
+            );
+            out.open_edge_count().map(|o| o == 0).unwrap_or(false)
+                && out.face_count() != block.face_count()
+        }
+        Err(e) => {
+            eprintln!("star socket in round floor: {e:?}");
+            false
+        }
+    };
+    assert!(
+        !ok,
+        "star socket into a round recess floor now succeeds watertight — \
+         flip this pin and enable seat_round in the stand example"
+    );
+}

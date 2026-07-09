@@ -54,6 +54,16 @@ struct StandParams {
     /// supported since the coincident-boolean campaign closed
     /// (flush_gusset_union_is_watertight_and_volume_exact).
     swoop_inset: f64,
+    /// Dovetail tab relief style. `false` (default): a margined
+    /// rectangular cutter that overshoots the tab by 2–3 mm per side,
+    /// leaving a visible notch in the root face (the historical
+    /// transversal-boolean margin rule). `true`: the cutter is the
+    /// tab's own dovetail profile, every side face coplanar with an
+    /// existing arm face — a crisp flush-edged relief.
+    tab_relief_flush: bool,
+    /// Central seat recess profile on the block. `false` (default):
+    /// the 76 × 76 square. `true`: a Ø76 cylindrical recess.
+    seat_round: bool,
 }
 
 impl StandParams {
@@ -74,6 +84,8 @@ impl StandParams {
             boss_r: 30.0,
             boss_h: 22.0,
             swoop_inset: 2.0,
+            tab_relief_flush: false,
+            seat_round: false,
         }
     }
 
@@ -276,14 +288,35 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
         .translate(0.0, 0.0, rest_z_hub)?;
     let block = block.subtract(&upper)?;
 
-    let seat = Profile::on(Plane::xy_at(seat_floor))
-        .rect(76.0, 76.0)
-        .extrude(60.0)?;
-    let block = block.subtract(&seat)?;
-    let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
-        .polygon(&socket_star)
-        .extrude(p.socket_depth + 1.0)?;
-    let block = block.subtract(&up)?;
+    // Feature order is load-bearing. Square seat: recess first, then
+    // the star socket into its flat floor (proven). Round seat: OPEN
+    // FRONTIER either way — a star pocket into a circle-bounded
+    // recess floor goes membrane (χ' = 4, pinned
+    // round_seat_recess_gap_is_pinned), and the counterbore order
+    // used here (star through the rest face first, round recess
+    // across the star hole) gets one boolean further but the final
+    // subtract fails LowValence. The variant is exported through the
+    // non-panicking gate so the failure stays visible in the run
+    // log until the membrane campaign closes it.
+    let block = if p.seat_round {
+        let star_through = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
+            .polygon(&socket_star)
+            .extrude(80.0)?;
+        let block = block.subtract(&star_through)?;
+        let seat = Profile::on(Plane::xy_at(seat_floor))
+            .circle(38.0)
+            .extrude(60.0)?;
+        block.subtract(&seat)?
+    } else {
+        let seat = Profile::on(Plane::xy_at(seat_floor))
+            .rect(76.0, 76.0)
+            .extrude(60.0)?;
+        let block = block.subtract(&seat)?;
+        let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
+            .polygon(&socket_star)
+            .extrude(p.socket_depth + 1.0)?;
+        block.subtract(&up)?
+    };
     let down = Profile::on(Plane::xy_at(-1.0))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
@@ -380,10 +413,25 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
     arm = arm.subtract(&slot)?;
     // Relieve the tab below the block's socket floor so the arm
     // HANGS on the floor while the root face bears on the wall.
-    let relief = Profile::on(Plane::xy_at(-5.0))
-        .rect(24.0, 14.0)
-        .at(0.0, 5.0)
-        .extrude(25.0)?;
+    // Flush style: the cutter IS the tab's dovetail profile, so all
+    // four side faces of the cut are coplanar with existing arm
+    // faces (two dovetail flanks, the tab front, and the root face
+    // plane) — no margin notch. Margined style keeps the historical
+    // 2–3 mm transversal overshoot.
+    let relief = if p.tab_relief_flush {
+        // Flank lines extended 1 mm past the tab front (to y = 10.8)
+        // so the cutter's front face exits through air instead of
+        // landing exactly on the tab front — one less full-face
+        // coincidence, with no change to the visible flush edges.
+        Profile::on(Plane::xy_at(-1.0))
+            .polygon(&[(5.8, 0.0), (9.106, 10.8), (-9.106, 10.8), (-5.8, 0.0)])
+            .extrude(21.0)?
+    } else {
+        Profile::on(Plane::xy_at(-5.0))
+            .rect(24.0, 14.0)
+            .at(0.0, 5.0)
+            .extrude(25.0)?
+    };
     let arm = arm.subtract(&relief)?;
     // 44 × 241 footprint prints diagonally on a 240 plate.
     println!("  arm: print two, REST-FACE DOWN, placed diagonally");
@@ -466,6 +514,37 @@ fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
     part
 }
 
+/// Variant pieces are exploratory: gate them like production pieces
+/// but report failures as frontier signatures instead of aborting
+/// the standard export run.
+fn gate_and_export_variant(part: Result<Part, PartError>, name: &str, out_dir: &std::path::Path) {
+    let built = match part {
+        Ok(p) => p,
+        Err(e) => {
+            println!("  {name}: BUILD FAILED — {e:?}");
+            return;
+        }
+    };
+    match built.assert_watertight() {
+        Ok(p) => {
+            let step = out_dir.join(format!("{name}.step"));
+            if let Err(e) = p.export_step(&step) {
+                println!("  {name}: STEP export failed — {e:?}");
+                return;
+            }
+            match p.assert_step_roundtrip(&step) {
+                Ok(p) => println!(
+                    "  {name}: watertight ✓ round-trip ✓ ({} faces) → {}",
+                    p.face_count(),
+                    step.display()
+                ),
+                Err(e) => println!("  {name}: round-trip FAILED — {e:?}"),
+            }
+        }
+        Err(e) => println!("  {name}: NOT WATERTIGHT — {e:?}"),
+    }
+}
+
 fn main() {
     let out_dir =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output/laptop_stand");
@@ -487,6 +566,33 @@ fn main() {
     );
     let arm = gate_and_export(build_arm(&p).expect("arm"), "laptop_stand_arm", &out_dir);
     let lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
+
+    // Requested variants — exploratory, reported honestly.
+    println!("variants:");
+    let flush_swoop = StandParams {
+        swoop_inset: 0.0,
+        ..StandParams::default_stand()
+    };
+    gate_and_export_variant(
+        build_arm(&flush_swoop),
+        "laptop_stand_arm_flush_swoop",
+        &out_dir,
+    );
+    let flush_arm = StandParams {
+        swoop_inset: 0.0,
+        tab_relief_flush: true,
+        ..StandParams::default_stand()
+    };
+    let round_seat = StandParams {
+        seat_round: true,
+        ..StandParams::default_stand()
+    };
+    gate_and_export_variant(
+        build_block(&round_seat),
+        "laptop_stand_block_round_seat",
+        &out_dir,
+    );
+    gate_and_export_variant(build_arm(&flush_arm), "laptop_stand_arm_flush", &out_dir);
 
     // Stack preview: base, peg into the boss, column onto the peg,
     // second peg, second column. Pegs sit half-proud of each joint.

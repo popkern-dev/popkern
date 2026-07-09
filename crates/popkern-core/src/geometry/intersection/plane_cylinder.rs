@@ -139,7 +139,6 @@ fn case_perpendicular(
 
 /// Plane normal ≈ perpendicular to cylinder axis.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn case_parallel(
     po: Point3,
     pn: Vec3,
