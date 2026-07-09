@@ -299,7 +299,7 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
 /// Holder v3 ARM — one identical piece, printed twice. One plan
 /// outline (root body + dovetail tab + plate run) extruded, the rest
 /// plane cut across it, the plate run thinned to 13 mm by a
-/// tool-shaped lower cutter, a chorded swoop gusset for rigidity,
+/// tool-shaped lower cutter, a true-arc swoop gusset for rigidity,
 /// a THROUGH dovetail lip slot near the tip (through ⇒ genus 1 ⇒
 /// χ' = 0 by design), and the tab relieved below the socket floor.
 /// Chain pinned by `holder_v3_arm_chain_is_watertight_and_chi_clean`.
@@ -339,29 +339,19 @@ fn build_arm(p: &StandParams) -> Result<Part, PartError> {
         .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())?;
     let tool = lower_box.subtract(&p2)?;
     arm = arm.subtract(&tool)?;
-    // Support swoop. The web's TOP edge runs PARALLEL to the plate
-    // underside, embedded 1 mm, so it bears along the full run (the
-    // old quad's edge slope diverged from the plate and left
-    // daylight); the free edge is a 5-chord sampling of the design
-    // arc (r 44.1) — the true-arc union is pinned as a frontier
-    // (arc_gusset_union_gap_is_pinned). Profile plane maps
-    // (px, py) -> (y = py, z = -px) after the 90-degree Y rotation.
+    // TRUE-ARC support swoop. The web's TOP edge runs PARALLEL to
+    // the plate underside, embedded 1 mm, so it bears along the full
+    // run; the free edge is ONE concave arc from the plate down into
+    // the root collar (arc_gusset_union_is_watertight). Profile
+    // plane maps (px, py) -> (y = py, z = -px) after the 90-degree
+    // Y rotation.
     let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
     let (y_root, y_tip) = (-20.0, -72.0);
-    // The free edge stays STRICTLY below the plate underside (a
-    // graze-depth chord near the tip pinched χ); a 1.7 mm tip facet
-    // steps down from the embedded top edge before the chords run.
     let gusset = Profile::on(Plane::XY)
-        .polygon(&[
-            (-(plate_under(y_root) + 1.0), y_root),
-            (-(plate_under(y_tip) + 1.0), y_tip),
-            (-44.0, y_tip),
-            (-45.9, -60.2),
-            (-44.8, -48.3),
-            (-40.6, -37.0),
-            (-33.5, -27.4),
-            (-26.0, y_root),
-        ])
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
         .extrude(36.0)?
         .rotate_y(90.0_f64.to_radians())?
         .translate(-18.0, 0.0, 0.0)?;

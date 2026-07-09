@@ -133,19 +133,40 @@ pub(crate) fn split_graph_edge(
     // gives the split parameter; on inversion failure the old
     // behavior is preserved.
     let start_pos = graph.nodes[graph.half_edges[he_idx].origin].position;
+    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+        let ep = graph.nodes[end_node].position;
+        let w = graph.half_edges[he_idx]
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[twin_idx].curve.as_ref())
+            .map(|c| format!("[{:.3},{:.3}]", c.t_start, c.t_end))
+            .unwrap_or_else(|| "none".into());
+        eprintln!(
+            "[gsplit] he {he_idx} ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1}) w{w} at ({:.1},{:.1},{:.1})",
+            start_pos.x,
+            start_pos.y,
+            start_pos.z,
+            ep.x,
+            ep.y,
+            ep.z,
+            split_point.x,
+            split_point.y,
+            split_point.z
+        );
+    }
     let curve_windows = graph.half_edges[he_idx]
         .curve
         .as_ref()
         .or_else(|| graph.half_edges[twin_idx].curve.as_ref())
         .and_then(|c| {
             use popkern_core::geometry::curve::CurveEval;
-            let tol = popkern_core::tolerance::Tolerance::default();
-            let t_split = popkern_core::geometry::curve_inversion::invert_curve_at_point(
-                c,
-                split_point,
-                &tol,
-            )
-            .ok()?;
+            let (t_split, dist) = nearest_param_on_curve(c, &split_point);
+            // Defensive: a split point far off the curve means the
+            // caller's bookkeeping is wrong — keep the old (no
+            // window split) behavior rather than corrupt windows.
+            if dist > 1.0e-3 {
+                return None;
+            }
             let p_ts = c.geometry.point_at(c.t_start);
             let start_first =
                 p_ts.distance_to(&start_pos) <= p_ts.distance_to(&graph.nodes[end_node].position);
@@ -209,6 +230,11 @@ pub(crate) fn split_graph_edge(
                 c.t_end = hb;
             }
         }
+    }
+    if std::env::var_os("PK_SPLIT_TRACE").is_some()
+        && let Some(((ha, hb), (na2, nb2))) = curve_windows
+    {
+        eprintln!("[gsplit]   orig w[{ha:.3},{hb:.3}] frag w[{na2:.3},{nb2:.3}]");
     }
 
     // Update outgoing lists.
@@ -321,10 +347,60 @@ fn point_on_graph_edge_curve(
     best <= tolerance
 }
 
+/// Nearest parameter on a curve window to `point`: coarse scan +
+/// local ternary refinement. Returns `(t, distance)`. This is the
+/// split-parameter workhorse — Newton-based inversion failed
+/// outright on mixed-path rational arcs (measured: both hit-splits
+/// of a gusset cap arc lost their windows, the stale full window
+/// kept re-matching, and the edge was split five ways with
+/// duplicate pairs).
+fn nearest_param_on_curve(
+    curve: &popkern_core::geometry::CurveOnEdge,
+    point: &Point3,
+) -> (f64, f64) {
+    use popkern_core::geometry::curve::CurveEval;
+    let (ta, tb) = (curve.t_start, curve.t_end);
+    let n: usize = 32;
+    let mut best = (0usize, f64::MAX);
+    for i in 0..=n {
+        let t = ta + (tb - ta) * i as f64 / n as f64;
+        let d = curve.geometry.point_at(t).distance_to(point);
+        if d < best.1 {
+            best = (i, d);
+        }
+    }
+    let (mut lo, mut hi) = (
+        ta + (tb - ta) * (best.0.saturating_sub(1)) as f64 / n as f64,
+        ta + (tb - ta) * (best.0 + 1).min(n) as f64 / n as f64,
+    );
+    let mut best_t = ta + (tb - ta) * best.0 as f64 / n as f64;
+    let mut best_d = best.1;
+    for _ in 0..48 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        let d1 = curve.geometry.point_at(m1).distance_to(point);
+        let d2 = curve.geometry.point_at(m2).distance_to(point);
+        if d1 < d2 {
+            hi = m2;
+            if d1 < best_d {
+                best_d = d1;
+                best_t = m1;
+            }
+        } else {
+            lo = m1;
+            if d2 < best_d {
+                best_d = d2;
+                best_t = m2;
+            }
+        }
+    }
+    (best_t, best_d)
+}
+
 /// If `point` lies on the REAL curve of graph edge `he_idx` (which
 /// must be CURVED — straight edges are fully served by the chord
-/// test), return its chord-equivalent fraction. Coarse 16-station
-/// scan + local ternary refinement; interior hits only (endpoint
+/// test), return its chord-equivalent fraction. Coarse scan +
+/// local ternary refinement; interior hits only (endpoint
 /// matches are the caller's node-snap job).
 fn point_on_curved_graph_edge(
     graph: &IntersectionGraph,
@@ -614,6 +690,21 @@ pub(crate) fn split_shared_edges_at_nodes(
 fn split_at_existing_node(graph: &mut IntersectionGraph, he_idx: usize, node: usize) {
     let twin_idx = graph.half_edges[he_idx].twin;
     let end_node = graph.half_edges[twin_idx].origin;
+    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+        let sp = graph.nodes[graph.half_edges[he_idx].origin].position;
+        let ep = graph.nodes[end_node].position;
+        let np = graph.nodes[node].position;
+        let w = graph.half_edges[he_idx]
+            .curve
+            .as_ref()
+            .or_else(|| graph.half_edges[twin_idx].curve.as_ref())
+            .map(|c| format!("[{:.3},{:.3}]", c.t_start, c.t_end))
+            .unwrap_or_else(|| "none".into());
+        eprintln!(
+            "[nsplit] he {he_idx} ({:.1},{:.1},{:.1})->({:.1},{:.1},{:.1}) w{w} at node ({:.1},{:.1},{:.1})",
+            sp.x, sp.y, sp.z, ep.x, ep.y, ep.z, np.x, np.y, np.z
+        );
+    }
     let fwd_face = graph.half_edges[he_idx].face;
     let twin_face = graph.half_edges[twin_idx].face;
     let source = graph.half_edges[he_idx].source.clone();

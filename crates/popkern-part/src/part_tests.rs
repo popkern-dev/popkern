@@ -1668,23 +1668,16 @@ fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
     part = part.subtract(&tool).expect("thin");
     assert_eq!(part.open_edge_count().expect("mesh"), 0, "thin");
     assert_eq!(chi(&part), 2, "thin χ");
-    // Chorded swoop gusset: top edge parallel to (and embedded 1 mm
-    // into) the plate underside for full-run contact; free edge is a
-    // 5-chord sampling of the design arc. The TRUE-arc union is the
-    // pinned frontier (arc_gusset_union_gap_is_pinned).
+    // TRUE-ARC swoop gusset: top edge parallel to (and embedded 1 mm
+    // into) the plate underside for full-run contact; free edge is
+    // one concave arc (arc_gusset_union_is_watertight).
     let plate_under = |y: f64| 81.8 + y * tilt.tan() - 13.0 / tilt.cos();
     let (y_root, y_tip) = (-20.0, -72.0);
     let gusset = Profile::on(Plane::XY)
-        .polygon(&[
-            (-(plate_under(y_root) + 1.0), y_root),
-            (-(plate_under(y_tip) + 1.0), y_tip),
-            (-44.0, y_tip),
-            (-45.9, -60.2),
-            (-44.8, -48.3),
-            (-40.6, -37.0),
-            (-33.5, -27.4),
-            (-26.0, y_root),
-        ])
+        .path(-(plate_under(y_root) + 1.0), y_root)
+        .line_to(-(plate_under(y_tip) + 1.0), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
         .extrude(36.0)
         .expect("gusset")
         .rotate_y(90.0_f64.to_radians())
@@ -1819,20 +1812,19 @@ fn arc_block_arm_sockets_are_watertight() {
     }
 }
 
-/// FRONTIER PIN (arm swoop): the TRUE-ARC gusset union — a
-/// mixed-path profile whose arc wall meets the arm as a cylinder
-/// with axis ALONG the profile normal. The campaign closed five
-/// layers (cylinder recognition envelope, plane×cylinder parallel
-/// case angles + axial span, rotational-chart pcurve re-anchoring
-/// under rigid transforms, curved cap/planar pcurve projection,
-/// curve-window splitting + curved-edge point classification in the
-/// graph), leaving one: repeated hit-splits of the same curved graph
-/// edge mis-window one fragment pair and duplicate another (measured
-/// signature: extra n↔n half-edge pairs spanning an already-split
-/// arc piece; ~6 open edges via the graph-merge fallback). The
-/// shipping arm uses the 5-chord swoop meanwhile.
+/// The TRUE-ARC gusset union — a mixed-path profile whose arc wall
+/// meets the arm as a cylinder with axis ALONG the profile normal —
+/// watertight and χ-clean. The campaign closed six layers: cylinder
+/// recognition envelope, plane×cylinder parallel-case angles + axial
+/// span, rotational-chart pcurve re-anchoring under rigid
+/// transforms, curved cap/planar pcurve projection, curve-window
+/// splitting + bidirectional curved-edge point classification, and
+/// finally the split parameter itself — Newton inversion failed
+/// outright on the rational arc, so windows never split and the
+/// stale full window kept re-matching (five-way duplicate splits);
+/// the sampled coarse-scan + ternary finder replaced it.
 #[test]
-fn arc_gusset_union_gap_is_pinned() {
+fn arc_gusset_union_is_watertight() {
     let tilt = 18.0_f64.to_radians();
     let plane_at_root = 81.8;
     let plan: Vec<(f64, f64)> = vec![
@@ -1891,10 +1883,9 @@ fn arc_gusset_union_gap_is_pinned() {
         .translate(-18.0, 0.0, 0.0)
         .expect("center");
     let out = arm.union(&gusset).expect("swoop union");
-    let opens = out.open_edge_count().expect("mesh");
-    assert!(
-        opens > 0,
-        "arc-gusset union gap has closed ({opens} opens) — flip this pin \
-         and give the shipping arm its true-arc swoop"
-    );
+    assert_eq!(out.open_edge_count().expect("mesh"), 0);
+    let b = out.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "true-arc swoop union must stay genus 0");
 }
