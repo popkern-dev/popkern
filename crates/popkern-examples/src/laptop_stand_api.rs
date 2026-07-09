@@ -41,10 +41,19 @@ struct StandParams {
     /// Column outer radius and height.
     column_r: f64,
     column_h: f64,
-    /// Base plate footprint and thickness.
+    /// Base plate width, thickness, and reach: the counterweight pad
+    /// extends `base_front` behind the tower (+y), and two legs run
+    /// `base_legs_reach` under the laptop (−y) so the rear tipping
+    /// axis sits past the laptop's centre of gravity. Total depth
+    /// must fit the plate.
     base_w: f64,
-    base_d: f64,
+    base_front: f64,
+    base_legs_reach: f64,
     base_t: f64,
+    /// Optional ballast: two open-top trays in the front pad (the
+    /// maximum-lever position from the rear tipping axis), closed by
+    /// flush drop-in lids after filling with steel shot or sand.
+    ballast_chambers: bool,
     /// Hub boss radius and height above the base plate.
     boss_r: f64,
     boss_h: f64,
@@ -96,8 +105,10 @@ impl StandParams {
             column_r: 35.0,
             column_h: 60.0,
             base_w: 200.0,
-            base_d: 220.0,
+            base_front: 70.0,
+            base_legs_reach: 162.0,
             base_t: 22.0,
+            ballast_chambers: false,
             boss_r: 30.0,
             boss_h: 22.0,
             swoop_inset: 2.0,
@@ -238,17 +249,30 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
     let socket_star = hexagram(p.star_r, 0.0);
     let _ = (p.boss_r, p.boss_h); // return with the boss (see above)
 
-    let hub_half = 45.0;
-    let rear_half = p.base_w / 2.0;
-    let rear_y = p.base_d - 8.0;
+    let half_w = p.base_w / 2.0;
+    let front = p.base_front; // counterweight pad, behind the tower (+y)
+    let legs = p.base_legs_reach; // under the laptop (−y)
+    let pad_edge = -30.0; // pad's laptop-side edge; legs continue from here
     let socket_center_y = 35.0;
+    // Two 44 mm legs under the arms (arm centres at x = ±28); the
+    // notch between them keeps the outline printable and saves
+    // plastic while the rear tip line (the tipping axis) sits past
+    // the laptop CG.
     let outline: Vec<(f64, f64)> = vec![
-        (-hub_half, 0.0),
-        (hub_half, 0.0),
-        (rear_half, rear_y),
-        (-rear_half, rear_y),
+        (-half_w, front),
+        (-half_w, pad_edge),
+        (-54.0, pad_edge),
+        (-54.0, -legs),
+        (-10.0, -legs),
+        (-10.0, pad_edge),
+        (10.0, pad_edge),
+        (10.0, -legs),
+        (54.0, -legs),
+        (54.0, pad_edge),
+        (half_w, pad_edge),
+        (half_w, front),
     ];
-    p.assert_fits_plate("base", 2.0 * rear_half, rear_y);
+    p.assert_fits_plate("base", 2.0 * half_w, front + legs);
 
     let plate = Profile::on(Plane::XY).polygon(&outline).extrude(p.base_t)?;
 
@@ -264,9 +288,49 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?
         .translate(0.0, socket_center_y, 0.0)?;
-    let base = dressed.subtract(&socket_tool)?;
+    let mut base = dressed.subtract(&socket_tool)?;
+
+    if p.ballast_chambers {
+        // Two open-top trays flanking the socket in the front pad —
+        // the farthest usable position from the rear tipping axis,
+        // and clear of the socket's 6 mm floor. Each tray: 14 mm
+        // deep over a 4 mm floor, with a 4 mm-deep rebate ledge so
+        // the lid drops in flush with the base top.
+        // Feature order is load-bearing: the shallow rebate first,
+        // then the tray into its floor — the shipping block's proven
+        // pocket-into-pocket-floor order (the reverse is a
+        // counterbore over an existing hole, a pinned class).
+        for side in [1.0_f64, -1.0] {
+            let rebate = Profile::on(Plane::xy_at(p.base_t - 4.0))
+                .rect(51.0, 66.0)
+                .at(side * 62.5, 30.0)
+                .extrude(8.0)?;
+            base = base.subtract(&rebate)?;
+            let tray = Profile::on(Plane::xy_at(4.0))
+                .rect(45.0, 60.0)
+                .at(side * 62.5, 30.0)
+                .extrude(p.base_t - 6.0)?;
+            base = base.subtract(&tray)?;
+        }
+        let shot_cc = 2.0 * (45.0 * 60.0 * (p.base_t - 8.0)) / 1000.0;
+        println!(
+            "  base: ballast trays hold ≈ {shot_cc:.0} cm³ → ~{:.0} g of steel shot",
+            shot_cc * 4.6
+        );
+    }
     println!("  base: print flat (chamfered outline, socket up)");
     Ok(base)
+}
+
+/// Flush drop-in lid for the ballast trays (print two): sits on the
+/// tray's rebate ledge at fit clearance, top flush with the base.
+fn build_ballast_lid(p: &StandParams) -> Result<Part, PartError> {
+    let c = p.fit_clearance;
+    let lid = Profile::on(Plane::XY)
+        .rect(51.0 - 2.0 * c, 66.0 - 2.0 * c)
+        .extrude(4.0)?;
+    println!("  ballast lid: print two, glue or press onto the rebate after filling");
+    Ok(lid)
 }
 
 /// Holder v3 BLOCK — the stacking piece. Modular architecture
@@ -806,6 +870,16 @@ fn main() {
         "laptop_stand_block_round_seat",
         &out_dir,
     );
+    let ballast = StandParams {
+        ballast_chambers: true,
+        ..StandParams::default_stand()
+    };
+    gate_and_export_variant(build_base(&ballast), "laptop_stand_base_ballast", &out_dir);
+    gate_and_export_variant(
+        build_ballast_lid(&ballast),
+        "laptop_stand_ballast_lid",
+        &out_dir,
+    );
     gate_and_export_variant(build_arm(&flush_arm), "laptop_stand_arm_flush", &out_dir);
 
     // Stack preview: base, peg into the boss, column onto the peg,
@@ -862,7 +936,7 @@ fn main() {
     let lip_y = 35.0 - 56.0 - (p.arm_len - 16.0);
     let laptop_depth = 290.0_f64;
     let cg_y = lip_y + (laptop_depth / 2.0) * tilt.cos();
-    let base_rear = -p.base_d / 2.0;
+    let base_rear = -p.base_legs_reach;
     println!(
         "  stability: {laptop_depth:.0} mm laptop CG at plan y ≈ {cg_y:.0} vs base rear {base_rear:.0} → margin {:.0} mm",
         cg_y - base_rear
