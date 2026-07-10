@@ -292,6 +292,20 @@ pub(crate) fn tessellate_face_boundary_first(
     if rings.is_empty() {
         return None;
     }
+    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+        for (ri, ring) in rings.iter().enumerate() {
+            eprintln!(
+                "    [bf-ring] face {face_handle:?} ring {ri} ({} pts)",
+                ring.uv.len()
+            );
+            for (i, ((u, v), p)) in ring.uv.iter().zip(ring.pos.iter()).enumerate() {
+                eprintln!(
+                    "      [bf-ring] {i} uv=({u:.4},{v:.4}) pos=({:.2},{:.2},{:.2})",
+                    p.x, p.y, p.z
+                );
+            }
+        }
+    }
     // Collinear boundary runs (straight edges sampled at several
     // stations) sit exactly on one line in UV; Bowyer–Watson then
     // connects the run's endpoints directly and the interior
@@ -420,6 +434,39 @@ pub(crate) fn tessellate_face_boundary_first(
     }
     let cell = ((u1 - u0) / n as f64).max((v1 - v0) / n as f64).max(1e-12);
     let clearance = cell / 3.0;
+    // LONG boundary segments on CURVED charts must be refined before
+    // the grid: the diametral-disk exclusion below evacuates every
+    // grid point within a segment's protecting disk, and a 2-sample
+    // straight edge (a cylinder ruling or seam — zero 3D chord
+    // height, so adaptive edge sampling never subdivides it) owns a
+    // disk covering much of the chart. The boundary-only Delaunay
+    // that results is legal in UV but its triangles are 3D CHORDS
+    // through the solid (measured: the breached-bore wall's vertical
+    // trim anchored a membrane capping the void, mesh volume +0.7%;
+    // the column wall's seam evacuated its ENTIRE 2π×60 chart).
+    // Ruppert's protection is split-the-segment, not evacuate-the-
+    // interior: request splits until segments are ~cell-sized; the
+    // rounds in `tessellate` re-run all faces with the shared
+    // refined samples, so watertightness is preserved. Planar charts
+    // skip this — their chords lie on the surface.
+    if !matches!(
+        surface,
+        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+    ) && std::env::var("PK_BF_REFINE").as_deref() != Ok("0")
+    {
+        for ring in &rings {
+            let m = ring.uv.len();
+            for k in 0..m {
+                let a = ring.uv[k];
+                let b = ring.uv[(k + 1) % m];
+                let len2 = (b.0 - a.0).powi(2) + (b.1 - a.1).powi(2);
+                if len2 > (1.5 * cell) * (1.5 * cell) {
+                    let (eh, f_lo, f_hi) = ring.sources[k];
+                    split_requests.push((eh, 0.5 * (f_lo + f_hi)));
+                }
+            }
+        }
+    }
     // A boundary segment survives unconstrained Delaunay if its
     // DIAMETRAL disk is point-free (the classic protecting-ball
     // condition); a plain distance clearance admits grid points that
@@ -443,22 +490,118 @@ pub(crate) fn tessellate_face_boundary_first(
         }
         false
     };
-    for i in 1..n {
-        for j in 1..n {
-            let u = u0 + (u1 - u0) * i as f64 / n as f64;
-            let v = v0 + (v1 - v0) * j as f64 / n as f64;
-            if point_in_region((u, v), &rings)
-                && dist_to_rings((u, v), &rings) > clearance
-                && !in_any_diametral_disk(u, v)
-            {
-                uv_pts.push((u, v));
-                pos_pts.push(None);
+    // RULED charts (v-midline deviation below chord height: cylinder
+    // and cone walls, extruded NURBS) skip the interior grid: full-
+    // height boundary strips are EXACT along the ruling, and the
+    // adaptive edge sampling makes them as dense in u as the rims —
+    // relative volume deficit ~1e-4. Interior grid points are capped
+    // at max_subdivisions (u-spacing 2π/64), so any that survive the
+    // protection filters REPLACE those strips with triangles carrying
+    // 16× the chord error (measured: the chamfered column's volume
+    // gate at 4.6e-3 vs its 2e-3 budget once the boundary splits
+    // shrank the seam's protecting disks enough for grid points to
+    // survive). Doubly-curved charts keep the grid — strips would
+    // leave their interiors flat.
+    let ruled_v = !matches!(
+        surface,
+        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+    ) && {
+        let u_mid = 0.5 * (u0 + u1);
+        let pa = surface.point_at(u_mid, v0);
+        let pb = surface.point_at(u_mid, v1);
+        let pm = surface.point_at(u_mid, 0.5 * (v0 + v1));
+        let chord_mid = Point3::new(
+            0.5 * (pa.x + pb.x),
+            0.5 * (pa.y + pb.y),
+            0.5 * (pa.z + pb.z),
+        );
+        pm.distance_to(&chord_mid) <= options.chord_height
+    };
+    if ruled_v {
+        // RULED charts (cylinder/cone walls, extruded NURBS): the
+        // interior lattice reuses the BOUNDARY's u-stations — the
+        // adaptive edge sampling already made those as dense as the
+        // curvature demands, while the bbox grid is capped at
+        // max_subdivisions and its coarser u-spacing carries 16× the
+        // chord error (measured: 4.6e-3 vs a 2e-3 volume gate on the
+        // chamfered column). Along the ruling v is STRAIGHT, so a few
+        // rows cost no accuracy and give the Delaunay interior
+        // support against trim bites (measured: the breached-bore
+        // wall membraned with boundary-only triangulation even after
+        // the trim splits).
+        let mut u_stations: Vec<f64> = rings
+            .iter()
+            .flat_map(|r| r.uv.iter().map(|&(u, _)| u))
+            .collect();
+        u_stations.sort_by(f64::total_cmp);
+        u_stations.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        if u_stations.len() > 512 {
+            let step = u_stations.len() as f64 / 512.0;
+            u_stations = (0..512)
+                .map(|i| u_stations[(i as f64 * step) as usize])
+                .collect();
+        }
+        let n_v = options.min_subdivisions.max(4);
+        for &u in &u_stations {
+            if u <= u0 || u >= u1 {
+                continue;
+            }
+            for j in 1..n_v {
+                let v = v0 + (v1 - v0) * j as f64 / n_v as f64;
+                if point_in_region((u, v), &rings)
+                    && dist_to_rings((u, v), &rings) > clearance
+                    && !in_any_diametral_disk(u, v)
+                {
+                    uv_pts.push((u, v));
+                    pos_pts.push(None);
+                }
+            }
+        }
+    } else {
+        for i in 1..n {
+            for j in 1..n {
+                let u = u0 + (u1 - u0) * i as f64 / n as f64;
+                let v = v0 + (v1 - v0) * j as f64 / n as f64;
+                if point_in_region((u, v), &rings)
+                    && dist_to_rings((u, v), &rings) > clearance
+                    && !in_any_diametral_disk(u, v)
+                {
+                    uv_pts.push((u, v));
+                    pos_pts.push(None);
+                }
             }
         }
     }
 
-    // Delaunay in UV.
-    let tris = bowyer_watson(&uv_pts)?;
+    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+        let boundary_n: usize = ring_ranges.iter().map(|&(s, e)| e - s).sum();
+        eprintln!(
+            "    [bf-grid] face {face_handle:?}: boundary {boundary_n} interior {} (n={n} cell={cell:.4} clearance={clearance:.4})",
+            uv_pts.len() - boundary_n
+        );
+    }
+
+    // Delaunay on METRIC-SCALED coordinates: the chart mixes units
+    // (radians × millimetres on a cylinder — 1 rad ≈ 35 mm on the
+    // column), and the incircle predicate degrades continuously with
+    // anisotropy (measured on the full-period wall: aspect ~78 gave
+    // a sane mesh, ~312 lost 30% of the wedge volume, ~1250 went
+    // NEGATIVE — inside-out junk). Scaling u,v by |∂S/∂u|,|∂S/∂v| at
+    // the chart centre makes the triangulation topology follow the
+    // true surface metric; only the point-insertion order and
+    // incircle tests see scaled coordinates — every filter, disk,
+    // and vertex below stays in raw UV.
+    let (su, sv) = {
+        let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        let p = surface.point_at(um, vm);
+        let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
+        let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
+        let du = surface.point_at(um + eps_u, vm).distance_to(&p) / eps_u;
+        let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
+        (du.max(1e-9), dv.max(1e-9))
+    };
+    let bw_pts: Vec<(f64, f64)> = uv_pts.iter().map(|&(u, v)| (u * su, v * sv)).collect();
+    let tris = bowyer_watson(&bw_pts)?;
 
     // Filter to the trim region and enforce winding.
     let mut triangles: Vec<[usize; 3]> = Vec::new();
@@ -477,6 +620,27 @@ pub(crate) fn tessellate_face_boundary_first(
             triangles.push(t);
         } else {
             triangles.push([t[0], t[2], t[1]]);
+        }
+    }
+    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+        let mut areas: Vec<f64> = triangles
+            .iter()
+            .map(|t| {
+                let (a, b, c) = (uv_pts[t[0]], uv_pts[t[1]], uv_pts[t[2]]);
+                ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs()
+            })
+            .collect();
+        let mut sorted = areas.clone();
+        sorted.sort_by(f64::total_cmp);
+        let median = sorted.get(sorted.len() / 2).copied().unwrap_or(0.0);
+        for (t, area) in triangles.iter().zip(areas.iter_mut()) {
+            if *area > median * 50.0 && median > 0.0 {
+                let (a, b, c) = (uv_pts[t[0]], uv_pts[t[1]], uv_pts[t[2]]);
+                eprintln!(
+                    "    [bf-outlier] face {face_handle:?} area {area:.3} (median {median:.4}) uv ({:.3},{:.3})({:.3},{:.3})({:.3},{:.3})",
+                    a.0, a.1, b.0, b.1, c.0, c.1
+                );
+            }
         }
     }
     // Boundary-edge coverage check: every ring segment must appear as
@@ -565,6 +729,12 @@ pub(crate) fn tessellate_face_boundary_first(
         return None;
     }
 
+    // Facing here follows the stored `orientation` flag; per-face
+    // witnesses are NOT universally honest (extrude caps lie in the
+    // flag, chamfer cones in the loop winding), so the final
+    // authority is the global winding-coherence pass in `tessellate`
+    // (`orient_face_meshes_coherently`), which propagates manifold
+    // consistency across shared canonical boundary vertices.
     // Materialize vertices.
     let mut vertices = Vec::with_capacity(uv_pts.len());
     for (i, &(u, v)) in uv_pts.iter().enumerate() {
@@ -587,6 +757,39 @@ pub(crate) fn tessellate_face_boundary_first(
         for t in &mut triangles {
             t.swap(1, 2);
         }
+    }
+    if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+        let mut vol6 = 0.0;
+        for t in &triangles {
+            let (a, b, c) = (
+                vertices[t[0]].position,
+                vertices[t[1]].position,
+                vertices[t[2]].position,
+            );
+            vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                + a.z * (b.x * c.y - b.y * c.x);
+        }
+        let mut uv_area2 = 0.0;
+        let mut ring_area2 = 0.0;
+        for t in &triangles {
+            let (a, b, c) = (vertices[t[0]].uv, vertices[t[1]].uv, vertices[t[2]].uv);
+            uv_area2 += ((b.0 - a.0) * (c.1 - a.1) - (c.0 - a.0) * (b.1 - a.1)).abs();
+        }
+        for ring in &rings {
+            let m = ring.uv.len();
+            let mut s = 0.0;
+            for i in 0..m {
+                let (x1, y1) = ring.uv[i];
+                let (x2, y2) = ring.uv[(i + 1) % m];
+                s += x1 * y2 - x2 * y1;
+            }
+            ring_area2 += s;
+        }
+        eprintln!(
+            "    [bf-vol] face {face_handle:?} tris {} wedge6 {vol6:.1} uv_area2 {uv_area2:.2} ring_area2 {:.2}",
+            triangles.len(),
+            ring_area2.abs()
+        );
     }
     Some(FaceMesh {
         face: face_handle,

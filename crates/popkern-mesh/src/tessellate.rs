@@ -397,7 +397,130 @@ pub(crate) fn tessellate_brep(
     // pulled onto the base-edge line, reopening the very seams the
     // canonical sampling closed).
     sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
+    orient_face_meshes_coherently(&mut face_meshes);
     Ok(TriMesh::from_face_meshes(face_meshes))
+}
+
+/// Global winding coherence: no per-face orientation witness is
+/// trustworthy on its own — `SurfaceOnFace.orientation` is measurably
+/// dishonest on extrude bottom caps (the breached-bore void floor
+/// meshed inside-out: −170516 wedge where +170516 is exact, 10% of
+/// the solid volume), while chamfer cones carry honest flags but
+/// loops wound AGAINST the CCW-about-outward convention (calibrating
+/// facing from loop winding inverted them instead). Adjacent faces of
+/// a closed solid must traverse a shared edge in OPPOSITE directions;
+/// boundary-first faces share bit-identical canonical boundary
+/// vertices, so that constraint is checkable exactly. Propagate flips
+/// across the shared-edge graph (majority vote per component seed),
+/// then fix each component's global side by the sign of the whole
+/// mesh's wedge volume. Legacy-path faces (re-projected boundaries)
+/// only join where their positions match exactly; unmatched faces
+/// keep their flag-derived facing, as today.
+fn orient_face_meshes_coherently(face_meshes: &mut [crate::mesh::FaceMesh]) {
+    use std::collections::HashMap;
+
+    let key = |p: &Point3| -> (u64, u64, u64) { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
+    // Directed edge -> (face index, count) over triangle edges.
+    #[allow(clippy::type_complexity)]
+    let mut directed: HashMap<((u64, u64, u64), (u64, u64, u64)), Vec<usize>> = HashMap::new();
+    for (fi, fm) in face_meshes.iter().enumerate() {
+        for t in &fm.triangles {
+            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
+                directed.entry((ka, kb)).or_default().push(fi);
+            }
+        }
+    }
+    // Face adjacency with agreement parity: for each undirected edge
+    // shared by exactly two DIFFERENT faces, same-direction traversal
+    // means exactly one of the pair must flip.
+    let n = face_meshes.len();
+    let mut adj: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n]; // (other, same_direction)
+    for ((ka, kb), owners) in &directed {
+        if ka >= kb {
+            continue; // visit each undirected pair once via the lower key
+        }
+        let reverse = directed.get(&(*kb, *ka));
+        let fwd: Vec<usize> = owners.clone();
+        let rev: Vec<usize> = reverse.cloned().unwrap_or_default();
+        // Interior edges (same face both directions) are consistent
+        // by construction; cross-face constraints only.
+        for &f1 in &fwd {
+            for &f2 in &rev {
+                if f1 != f2 {
+                    adj[f1].push((f2, false));
+                    adj[f2].push((f1, false));
+                }
+            }
+            for &f2 in &fwd {
+                if f1 < f2 {
+                    adj[f1].push((f2, true));
+                    adj[f2].push((f1, true));
+                }
+            }
+        }
+    }
+    // BFS parity propagation per component.
+    let mut flip: Vec<Option<bool>> = vec![None; n];
+    for seed in 0..n {
+        if flip[seed].is_some() {
+            continue;
+        }
+        flip[seed] = Some(false);
+        let mut queue = std::collections::VecDeque::from([seed]);
+        let mut component = vec![seed];
+        while let Some(f) = queue.pop_front() {
+            let f_flip = flip[f].unwrap_or(false);
+            for &(g, same_dir) in &adj[f] {
+                // Opposite traversal (same_dir=false) is CONSISTENT:
+                // g keeps f's parity. Same-direction traversal means
+                // one of the two is inside-out relative to the other.
+                let want = if same_dir { !f_flip } else { f_flip };
+                match flip[g] {
+                    None => {
+                        flip[g] = Some(want);
+                        component.push(g);
+                        queue.push_back(g);
+                    }
+                    Some(_) => {} // first assignment wins; conflicts stay
+                }
+            }
+        }
+        // Component-global side: the coherent component must enclose
+        // positive volume (outward facing). Compute the component's
+        // wedge with the proposed flips; negative → flip the whole
+        // component.
+        let mut vol6 = 0.0;
+        for &f in &component {
+            let s = if flip[f] == Some(true) { -1.0 } else { 1.0 };
+            let fm = &face_meshes[f];
+            for t in &fm.triangles {
+                let (a, b, c) = (
+                    fm.vertices[t[0]].position,
+                    fm.vertices[t[1]].position,
+                    fm.vertices[t[2]].position,
+                );
+                vol6 += s
+                    * (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+                        + a.z * (b.x * c.y - b.y * c.x));
+            }
+        }
+        if vol6 < 0.0 {
+            for &f in &component {
+                flip[f] = flip[f].map(|x| !x);
+            }
+        }
+    }
+    for (fi, fm) in face_meshes.iter_mut().enumerate() {
+        if flip[fi] == Some(true) {
+            for t in &mut fm.triangles {
+                t.swap(1, 2);
+            }
+            for v in &mut fm.vertices {
+                v.normal = -v.normal;
+            }
+        }
+    }
 }
 
 /// Boundary sewing (PK-095): face meshes are sampled independently,

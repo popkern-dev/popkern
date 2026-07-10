@@ -1019,6 +1019,10 @@ fn side_breaching_tilted_bore_is_watertight_and_void() {
         !mesh_contains_point(&bored, (-25.0, 0.0, 23.0)),
         "the void exists just above the bore floor"
     );
+    assert!(
+        !mesh_contains_point(&bored, (-25.0, 0.0, 30.0)),
+        "the void extends through the bore (PK-105 wall-membrane gate)"
+    );
 }
 
 /// The breached-bore fixture (see the regression gate above).
@@ -1046,24 +1050,53 @@ fn breached_bore_fixture() -> Part {
     wedge.subtract(&bore).expect("side-breaching bore")
 }
 
-/// FRONTIER PIN (flips when the mesher leg closes): the breached
-/// bore's deck face carries a reflex elliptical bite in its OUTER
-/// loop. The BRep is exact — arc pcurves deviate 8e-15 from the 3D
-/// curves at midspan, the loop chain is connected and ordered — but
-/// the planar tessellation spans the bite: mesh volume 550834 vs the
-/// OCC-verified 546874.6 (+0.7% membrane over the mouth), and a
-/// phantom layer caps the void above z ≈ 27 on the bore axis.
-/// Reflex-ARC outer-loop bites are the untested class (full-circle
-/// inner loops and convex outer arcs both tessellate correctly —
-/// through-hole and holder-deck fixtures). Ledger: PK-104 follow-up.
+/// REGRESSION GATE (PK-105, closed 2026-07-10): the breached bore's
+/// mesh no longer membranes. Two mesher defects were fixed, both on
+/// the WALL faces (the deck was never at fault — its planar chords
+/// are on-surface): (1) 2-sample straight edges on curved charts
+/// (rulings, seams, wall trims) owned diametral disks that evacuated
+/// the interior grid, and the boundary-only Delaunay bridged the
+/// void with chord triangles — long boundary segments now request
+/// canonical splits down to cell size before the grid; (2) the
+/// Bowyer–Watson incircle degrades continuously with chart
+/// anisotropy (radians × mm: aspect ~78 sane, ~312 lost 30% of the
+/// wedge volume, ~1250 went inside-out) — the triangulation now runs
+/// on metric-scaled coordinates (|dS/du|, |dS/dv| at the chart
+/// centre). Ruled charts reuse the boundary's adaptive u-stations
+/// for their interior lattice so wall fidelity stays at rim density,
+/// and face winding is made globally coherent after tessellation
+/// (per-face orientation witnesses are not trustworthy: extrude caps
+/// lie in the flag, chamfer cones in the loop winding — the void
+/// floor meshed inside-out, 10% of the solid volume).
 #[test]
-fn bore_mouth_bite_tessellation_gap_is_pinned() {
+fn bore_mouth_void_is_open_through_the_mesh() {
     let bored = breached_bore_fixture();
-    let void_open = !mesh_contains_point(&bored, (-25.0, 0.0, 30.0));
     assert!(
-        !void_open,
-        "the mouth-bite deck tessellation now leaves the void open — \
-         flip this pin into a regression gate"
+        !mesh_contains_point(&bored, (-25.0, 0.0, 30.0)),
+        "the void must be open above the bore floor (no wall membrane)"
+    );
+    assert!(
+        !mesh_contains_point(&bored, (-25.0, 0.0, 40.0)),
+        "the void must be open up to the tilted deck"
+    );
+    let m = bored
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut vol6 = 0.0;
+    for t in &m.triangles {
+        let (a, b, c) = (
+            m.vertices[t[0]].position,
+            m.vertices[t[1]].position,
+            m.vertices[t[2]].position,
+        );
+        vol6 += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x);
+    }
+    let volume = vol6 / 6.0;
+    // OCC-verified solid volume 546874.6 (2026-07-10).
+    assert!(
+        (volume - 546874.6).abs() / 546874.6 < 5e-3,
+        "mesh volume {volume:.1} must track the OCC solid volume 546874.6"
     );
 }
 
