@@ -364,6 +364,74 @@ fn ray_crossing_count(
                             }
                         }
                     }
+                    // AXIAL gate for cylinder and cone hits: the hit's
+                    // coordinate along the surface axis must fall
+                    // within the face's boundary-derived axial span
+                    // (+one relative margin). The padded parameter box
+                    // is solver headroom, and near a chamfered rim a
+                    // near-horizontal ray legitimately crosses the cap
+                    // and cone, then ALSO "hits" the wall's infinite
+                    // cylinder BELOW the weld (measured: rays from
+                    // under a rim-chamfered column counted cap + cone
+                    // + phantom wall at v=0.29 against a wall trimmed
+                    // to [1,59] — every below-body tool fragment
+                    // classified Inside and the subtract kept a skirt;
+                    // the mirror case accepted an extended-cone hit at
+                    // z=2.3 on a cone banded [0,1]). Geometric, like
+                    // the angular gate: boundary curve samples, not
+                    // pcurves, so seam branches cannot bias it. FINAL
+                    // bodies only.
+                    if skip_hole_hits {
+                        let axis_frame = match surface {
+                            popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                                origin: o,
+                                axis,
+                                ..
+                            } => Some((*o, *axis)),
+                            popkern_core::geometry::surface::SurfaceGeometry::Cone {
+                                apex,
+                                axis,
+                                ..
+                            } => Some((*apex, *axis)),
+                            _ => None,
+                        };
+                        if let Some((axis_origin, axis_dir)) = axis_frame {
+                            let samples = brep.face_boundary_sample_points(*face_handle, 8);
+                            if samples.len() >= 3 {
+                                let axial = |p: &popkern_core::geometry::Point3| -> f64 {
+                                    (*p - axis_origin).dot(&axis_dir)
+                                };
+                                let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+                                for sp in &samples {
+                                    let a = axial(sp);
+                                    lo = lo.min(a);
+                                    hi = hi.max(a);
+                                }
+                                let hit3d = *origin + *direction * *t;
+                                let a = axial(&hit3d);
+                                // Margin: 5% of the span (+tolerance).
+                                // The coincident-overlap machinery
+                                // probes at ~1e-3 of flush interfaces
+                                // that sit exactly ON a face's axial
+                                // end — a tight margin rejected those
+                                // knife-edge hits and re-tuned flush
+                                // verdicts (measured: the flush gusset
+                                // union lost a cooriented OnBoundary
+                                // and kept a duplicate skin). The rim
+                                // phantoms this gate exists for sit
+                                // 20–130% outside their spans.
+                                let margin = tolerance.linear().max(0.05 * (hi - lo));
+                                if a < lo - margin || a > hi + margin {
+                                    if std::env::var_os("PK_RAY_TRACE").is_some() {
+                                        eprintln!(
+                                            "  [ray-rej-axial] {face_handle:?} a={a:.3} span=[{lo:.3},{hi:.3}]"
+                                        );
+                                    }
+                                    continue;
+                                }
+                            }
+                        }
+                    }
                     // A hit OUTSIDE the face's outer pcurve polygon is
                     // not on the face at all — the padded parameter box
                     // is a solver window, not a trim (measured: a ray

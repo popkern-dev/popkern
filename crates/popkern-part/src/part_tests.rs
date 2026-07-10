@@ -2972,16 +2972,22 @@ fn closed_outer_rim_chamfer_is_watertight_and_probed() {
     assert!(mesh_contains_point(&out, (33.0, 0.0, 59.8)));
 }
 
-/// PIN (open frontier): a BOOLEAN run on a rim-chamfered body — the
-/// bottom-cap socket subtract re-processes the closed-rim surgery's
-/// welds and cracks them body-wide (24 open mesh edges; a second
-/// socket then declines OpenShellNotSupported). The shipping column
-/// inverts the order (sockets first, rim chamfers last), which is
-/// clean because the rim surgery replaces only the caps' outer rims.
-/// Flip when the boolean's pcurve maintenance learns to preserve
-/// surgery-authored rim welds.
+/// PIN → GATE (boolean after rim chamfer): socket subtracts on a
+/// rim-chamfered cylinder — the full dress-first column order. The
+/// welds were never re-broken; the RAY CLASSIFIER was lying about
+/// the chamfered blank: near a rim a near-horizontal ray crosses cap
+/// and cone legitimately and then "hits" the wall's INFINITE
+/// cylinder below the weld (the padded parameter box is solver
+/// headroom, not a trim) — every below-body tool fragment classified
+/// Inside and the subtract kept a skirt + the tool's bottom cap
+/// (24 open mesh edges from the unwelded flap). Closed by the
+/// boundary-derived AXIAL span gate on cylinder/cone ray hits
+/// (5%-of-span margin keeps knife-edge coincident probes intact),
+/// the sibling of the angular span gate. Both sockets cut clean and
+/// χ stays genus-0; the mesh volume oracle is exact vs Pappus ring
+/// removal + two socket prisms.
 #[test]
-fn boolean_after_rim_chamfer_gap_is_pinned() {
+fn sockets_after_rim_chamfer_are_watertight_and_exact() {
     let star = hexagram_points(12.0);
     let blank = Profile::on(Plane::XY)
         .circle(35.0)
@@ -2993,14 +2999,51 @@ fn boolean_after_rim_chamfer_gap_is_pinned() {
         .polygon(&star)
         .extrude(17.0)
         .expect("tool");
-    let out = blank.subtract(&bottom).expect("subtract");
-    let opens = out.open_edge_count().expect("mesh");
-    eprintln!("boolean-after-rim-chamfer: opens={opens}");
+    let top = Profile::on(Plane::xy_at(44.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("tool");
+    let out = blank.subtract(&bottom).expect("bottom socket");
+    assert_eq!(out.open_edge_count().expect("mesh"), 0, "bottom socket");
+    let out = out.subtract(&top).expect("top socket");
+    assert_eq!(out.open_edge_count().expect("mesh"), 0, "top socket");
+    let b = out.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "double-socketed chamfered column must stay genus-0");
+    // Signed mesh volume vs analytic: cylinder − 2 chamfer rings
+    // (Pappus: A = d²/2 triangle, centroid radius r − d/3) − 2 star
+    // sockets (16 mm each inside the body).
+    let mesh = out
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut signed = 0.0;
+    for t in &mesh.triangles {
+        let (a, b, c) = (
+            mesh.vertices[t[0]].position,
+            mesh.vertices[t[1]].position,
+            mesh.vertices[t[2]].position,
+        );
+        signed += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x))
+            / 6.0;
+    }
+    let ring = std::f64::consts::TAU * (35.0 - 1.0 / 3.0) * 0.5;
+    let analytic =
+        std::f64::consts::PI * 35.0 * 35.0 * 60.0 - 2.0 * ring - 2.0 * polygon_area(&star) * 16.0;
+    let rel = (signed - analytic).abs() / analytic;
+    eprintln!("chamfered column: signed={signed:.1} analytic={analytic:.1} rel={rel:.2e}");
     assert!(
-        opens > 0,
-        "boolean on a rim-chamfered body is now clean — flip this pin and \
-         consider restoring dress-before-pockets order for the column"
+        rel < 2.0e-3,
+        "volume {signed:.1} vs analytic {analytic:.1} (rel {rel:.2e}; chord \
+         error of the r=35 rim tessellation is ~1e-3)"
     );
+    // Void probes: sockets open, web solid, rims removed.
+    assert!(!mesh_contains_point(&out, (0.0, 0.3, 8.0)));
+    assert!(!mesh_contains_point(&out, (0.0, 0.3, 52.0)));
+    assert!(mesh_contains_point(&out, (0.0, 0.3, 30.0)));
+    assert!(!mesh_contains_point(&out, (34.8, 0.3, 0.1)));
+    assert!(!mesh_contains_point(&out, (34.8, 0.3, 59.9)));
 }
 
 /// PIN (open frontier, arm-dressing campaign): chamfer on a rest

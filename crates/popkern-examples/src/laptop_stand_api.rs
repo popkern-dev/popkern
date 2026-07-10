@@ -277,16 +277,12 @@ fn build_column(p: &StandParams) -> Result<Part, PartError> {
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
 
-    // Rim chamfers come AFTER the sockets — inverting the usual
-    // dress-before-pockets order deliberately: a boolean run on a
-    // rim-chamfered body re-processes the surgery's rim welds and
-    // cracks them (bottom-cap sockets measured 24 open mesh edges;
-    // the interaction is pinned in the campaign notes), while the
-    // rim chamfer on the socketed body is clean — the closed-rim
-    // surgery replaces only the caps' OUTER rims and never touches
-    // the socket inner loops. Exact cone-frustum chamfers, supported
-    // since the outer-rim campaign closed
-    // (closed_outer_rim_chamfer_is_watertight_and_probed). The top
+    // Sockets, then exact cone-frustum rim chamfers
+    // (closed_outer_rim_chamfer_is_watertight_and_probed). The order
+    // is free since the ray classifier's axial-span gate closed the
+    // boolean-after-rim-chamfer interaction
+    // (sockets_after_rim_chamfer_are_watertight_and_exact); this
+    // order simply matches how the column was first proven. The top
     // rim breaks the sharp edge in the hand; the bottom doubles as
     // elephant-foot compensation on the plate.
     let column = blank
