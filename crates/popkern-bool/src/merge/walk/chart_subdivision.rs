@@ -197,14 +197,25 @@ pub(crate) fn build_face_subdivision(
         );
         for (&h, emb) in &sub.embeddings {
             let (s0, e0) = (emb.uv[0], emb.uv[emb.uv.len() - 1]);
+            let (na, nb) = (
+                graph.half_edges[h].origin,
+                graph.half_edges[graph.half_edges[h].twin].origin,
+            );
+            let (pa, pb) = (graph.nodes[na].position, graph.nodes[nb].position);
             eprintln!(
-                "    [chart] he {h} tw {} {:?} ({:.3},{:.3})->({:.3},{:.3}) sbp={:?} ebp={:?} seam={}",
+                "    [chart] he {h} tw {} {:?} ({:.3},{:.3})->({:.3},{:.3}) n{na}({:.3},{:.3},{:.3})->n{nb}({:.3},{:.3},{:.3}) sbp={:?} ebp={:?} seam={}",
                 graph.half_edges[h].twin,
                 emb.source,
                 s0.0,
                 s0.1,
                 e0.0,
                 e0.1,
+                pa.x,
+                pa.y,
+                pa.z,
+                pb.x,
+                pb.y,
+                pb.z,
                 sub.start_bp.get(&h),
                 sub.end_bp.get(&h),
                 emb.seam_like
