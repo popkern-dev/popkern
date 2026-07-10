@@ -2629,3 +2629,229 @@ fn split_arm_tip_rail_is_watertight() {
     assert_eq!(opens, 0);
     assert!(tip.face_count() > 0);
 }
+
+/// The FANNED arm's yaw-compensated joint prism: axis along the arm
+/// centreline WITHIN the yawed plate plane, floor parallel to (and
+/// coplanar-unionable with) the yawed underside, realised as a z-x-z
+/// Euler composition. Reversed (true) dovetail: narrow at the
+/// underside mouth, widest at the crown, so the rail cannot drop out
+/// of the tunnel.
+fn yawed_rail_prism(
+    tilt: f64,
+    yaw: f64,
+    y_start: f64,
+    plan_len: f64,
+    inset: f64,
+    below: f64,
+    mouth_z: f64,
+) -> Part {
+    let slope = (11.0 - 7.0) / 7.0_f64;
+    let shift = inset * (1.0 + slope * slope).sqrt();
+    let x_at = |y: f64| 7.0 - shift + slope * y;
+    let (yb, yt) = (-below, 7.0 - inset);
+    let k = yaw.cos() * tilt.tan();
+    let n = (1.0 + k * k).sqrt();
+    let a = [0.0, -1.0 / n, -k / n];
+    let m = [-yaw.sin() * tilt.sin(), -yaw.cos() * tilt.sin(), tilt.cos()];
+    let e1 = [
+        m[1] * a[2] - m[2] * a[1],
+        m[2] * a[0] - m[0] * a[2],
+        m[0] * a[1] - m[1] * a[0],
+    ];
+    let alpha = e1[2].atan2(m[2]);
+    let phi = a[0].hypot(a[1]).atan2(a[2]);
+    let gamma = a[0].atan2(-a[1]);
+    Profile::on(Plane::XY)
+        .polygon(&[
+            (x_at(yb), yb),
+            (x_at(yt), yt),
+            (-x_at(yt), yt),
+            (-x_at(yb), yb),
+        ])
+        .extrude(plan_len * n)
+        .expect("prism")
+        .rotate_z(alpha)
+        .expect("rz1")
+        .rotate_x(phi)
+        .expect("rx")
+        .rotate_z(gamma)
+        .expect("rz2")
+        .translate(0.0, -y_start, mouth_z)
+        .expect("place")
+}
+
+/// FANNED-ARM plate segment: a straight bar whose rest plane and
+/// underside are yaw-compensated (rotate_z(−w) after rotate_x), so a
+/// mounted pair of arms shares ONE global rest plane.
+fn yawed_plate_segment(tilt: f64, w: f64, y0: f64, y1: f64, plane_at_root: f64) -> Part {
+    let cross_fall = 20.0 * w.sin().abs() * tilt.tan();
+    let z_lo = (plane_at_root - 13.0 / tilt.cos() - y1 * w.cos() * tilt.tan() - cross_fall - 2.0)
+        .min(-2.0);
+    let seg = Profile::on(Plane::xy_at(z_lo))
+        .polygon(&[(20.0, -y0), (20.0, -y1), (-20.0, -y1), (-20.0, -y0)])
+        .extrude(96.0 - z_lo)
+        .expect("plan");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("rx")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("place");
+    let seg = seg.subtract(&upper).expect("rest cut");
+    let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(600.0, y1 - y0 + 100.0)
+        .at(0.0, -(y0 + y1) / 2.0)
+        .extrude(120.0)
+        .expect("lower");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("p2")
+        .rotate_x(tilt)
+        .expect("rx")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("place");
+    let tool = lower_box.subtract(&p2).expect("tool");
+    seg.subtract(&tool).expect("thin")
+}
+
+/// PIN → GATE (fanned-arm campaign): union of the REVERSED, yawed
+/// dovetail rail onto the yaw-compensated plate — the rail floor is
+/// coplanar with the tilted-and-yawed underside (a non-axis-aligned
+/// coplanar union), and the prism frame is the z-x-z composition. A
+/// wrong frame reads as a near-coincident (not coplanar) floor and
+/// the union goes open-shell.
+#[test]
+fn fanned_reversed_rail_union_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let w = 12.0_f64.to_radians();
+    let plane_at_root = 100.0 + (-56.0 + 28.0 * w.sin()) * tilt.tan();
+    let (mouth, shoulder) = (120.0, 170.0);
+    let seg = yawed_plate_segment(tilt, w, shoulder, 275.0, plane_at_root);
+    let mouth_z = plane_at_root - 13.0 / tilt.cos() - (mouth + 0.4) * w.cos() * tilt.tan();
+    let rail = yawed_rail_prism(
+        tilt,
+        w,
+        mouth + 0.4,
+        shoulder - mouth - 0.4 + 1.0,
+        0.2,
+        0.0,
+        mouth_z,
+    );
+    let tip = seg.union(&rail).expect("rail union");
+    let opens = tip.open_edge_count().expect("mesh");
+    eprintln!("fanned rail: opens={opens} faces={}", tip.face_count());
+    assert_eq!(opens, 0);
+    assert!(tip.face_count() > 0);
+    // The reversed dovetail retains: the crown (11 half-width, 7 up)
+    // is wider than the mouth (7 at the underside) — probe material
+    // 5 mm up the plate normal at x = 8.5, inside the new flank
+    // (half-width 9.66 there) but OUTSIDE the old orientation's
+    // (7.91): air before the reversal, material after.
+    let (xq, yq, h) = (8.5_f64, -145.0_f64, 5.0_f64);
+    let under = plane_at_root - 13.0 / tilt.cos() + (xq * w.sin() + yq * w.cos()) * tilt.tan();
+    let m = (-w.sin() * tilt.sin(), -w.cos() * tilt.sin(), tilt.cos());
+    assert!(
+        mesh_contains_point(&tip, (xq + h * m.0, yq + h * m.1, under + h * m.2)),
+        "crown must be wider than the mouth (reversed dovetail)"
+    );
+}
+
+/// PIN → GATE (fanned-arm campaign): the swoop-web union on a YAWED
+/// plate. The web's cylinder × the yawed underside plane produces a
+/// closed off-branch UV record whose extent dwarfs the trim; the
+/// clip must window it to the TRUE weld line, not the extended
+/// cylinder's phantom re-crossing (period-branch normalization +
+/// torn-fold rejection + containment transition rescue), and the
+/// web fragment — whose every boundary edge hugs the arm — must
+/// classify by a cut-offset interior sample, not a boundary
+/// midpoint.
+#[test]
+fn fanned_flush_gusset_union_weld_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let w = 12.0_f64.to_radians();
+    let plane_at_root = 100.0 + (-56.0 + 28.0 * w.sin()) * tilt.tan();
+    let plate_under_c = |y: f64| plane_at_root - 13.0 / tilt.cos() + y * w.cos() * tilt.tan();
+    // Root collar + plate run, as in the arm chain.
+    let cross_fall = 20.0 * w.sin().abs() * tilt.tan();
+    let z_lo = (plate_under_c(-200.0) - cross_fall - 2.0_f64).min(-2.0);
+    let bar = Profile::on(Plane::xy_at(z_lo))
+        .polygon(&[(20.0, 0.0), (20.0, -200.0), (-20.0, -200.0), (-20.0, 0.0)])
+        .extrude(96.0 - z_lo)
+        .expect("plan");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("rx")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, 0.0, plane_at_root)
+        .expect("place");
+    let bar = bar.subtract(&upper).expect("rest cut");
+    let root_floor = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(60.0, 46.0)
+        .at(0.0, -8.0)
+        .extrude(5.0 - z_lo)
+        .expect("floor");
+    let bar = bar.subtract(&root_floor).expect("root floor");
+    let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
+        .rect(600.0, 184.0)
+        .at(0.0, -118.0)
+        .extrude(120.0)
+        .expect("lower");
+    let p2 = Profile::on(Plane::XY)
+        .rect(700.0, 700.0)
+        .extrude(300.0)
+        .expect("p2")
+        .rotate_x(tilt)
+        .expect("rx")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, 0.0, plane_at_root - 13.0 / tilt.cos())
+        .expect("place");
+    let tool = lower_box.subtract(&p2).expect("tool");
+    let bar = bar.subtract(&tool).expect("thin");
+    // Fully FLUSH swoop web (half_run = 20), embedded past the yaw
+    // cross-fall.
+    let (y_root, y_tip) = (-20.0, -72.0);
+    let half_run = 20.0_f64;
+    let embed = 1.0 + half_run * w.sin().abs() * tilt.tan();
+    let gusset = Profile::on(Plane::XY)
+        .path(-(plate_under_c(y_root) + embed), y_root)
+        .line_to(-(plate_under_c(y_tip) + embed), y_tip)
+        .arc_to((-42.0, -36.0), (-26.0, y_root))
+        .close()
+        .extrude(2.0 * half_run)
+        .expect("web")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("lay")
+        .translate(-half_run, 0.0, 0.0)
+        .expect("center");
+    let arm = bar.union(&gusset).expect("gusset union");
+    let opens = arm.open_edge_count().expect("mesh");
+    eprintln!("fanned gusset: opens={opens} faces={}", arm.face_count());
+    assert_eq!(opens, 0);
+    // The web must SURVIVE below the plate: probe material inside the
+    // web, under the underside, mid-run.
+    let y_mid = -46.0_f64;
+    let z_web = plate_under_c(y_mid) - 6.0;
+    assert!(
+        mesh_contains_point(&arm, (0.0, y_mid, z_web)),
+        "swoop web dropped below the plate — cut-offset classification regressed"
+    );
+    // And the phantom re-crossing region (past the web's end) must
+    // NOT have grown a membrane: void just below the underside there.
+    let y_ph = -95.0_f64;
+    assert!(
+        !mesh_contains_point(&arm, (0.0, y_ph, plate_under_c(y_ph) - 3.0)),
+        "material past the web's end — phantom clip window regressed"
+    );
+}

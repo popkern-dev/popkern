@@ -305,10 +305,24 @@ fn ray_crossing_count(
                         // solver window and the stored chart, so gate
                         // GEOMETRICALLY: the hit's 3D point (from the
                         // ray, not the u/v) must fall within the
-                        // face's vertex-derived angular span in the
-                        // surface's own basis.
-                        let positions = brep.face_outer_loop_positions(*face_handle);
-                        if positions.len() >= 3 {
+                        // face's boundary-derived angular span in the
+                        // surface's own basis. The span comes from
+                        // CURVE SAMPLES, not vertices alone: a face
+                        // spanning exactly half the cylinder has all
+                        // its vertices ON the atan2 ±π cut, where the
+                        // covered half is decided by the sign of a
+                        // zero (measured: a boolean emitted −0.0 in a
+                        // vertex coordinate and the span flipped to
+                        // the phantom half, rejecting every interior
+                        // hit — a prow-rear block read Outside at an
+                        // interior point and a seat-cutter wall was
+                        // dropped). The span is the minimal circular
+                        // arc covering the samples (largest-gap), so
+                        // cut placement cannot bias it; a full rim's
+                        // gap is one sample spacing, which yields
+                        // span ≈ τ and keeps the padded behavior.
+                        let samples = brep.face_boundary_sample_points(*face_handle, 8);
+                        if samples.len() >= 3 {
                             let (perp1, perp2) =
                                 popkern_core::geometry::analytic_surfaces::orthonormal_basis(
                                     *cyl_axis,
@@ -317,37 +331,32 @@ fn ray_crossing_count(
                                 let d = *p - *cyl_origin;
                                 d.dot(&perp2).atan2(d.dot(&perp1))
                             };
-                            let mut angs: Vec<f64> = positions.iter().map(&ang).collect();
-                            let spread = |a: &[f64]| -> (f64, f64) {
-                                let lo = a.iter().cloned().fold(f64::MAX, f64::min);
-                                let hi = a.iter().cloned().fold(f64::MIN, f64::max);
-                                (lo, hi)
-                            };
-                            let (mut lo, mut hi) = spread(&angs);
-                            if hi - lo > std::f64::consts::PI {
-                                // The span straddles the ±π cut —
-                                // shift negatives up and retry.
-                                for a in &mut angs {
-                                    if *a < 0.0 {
-                                        *a += std::f64::consts::TAU;
-                                    }
+                            let mut angs: Vec<f64> = samples.iter().map(&ang).collect();
+                            angs.sort_by(|a, b| a.total_cmp(b));
+                            let tau = std::f64::consts::TAU;
+                            let mut max_gap = 0.0;
+                            let mut span_start = angs[0];
+                            for i in 0..angs.len() {
+                                let a = angs[i];
+                                let b = if i + 1 < angs.len() {
+                                    angs[i + 1]
+                                } else {
+                                    angs[0] + tau
+                                };
+                                if b - a > max_gap {
+                                    max_gap = b - a;
+                                    span_start = b;
                                 }
-                                let s = spread(&angs);
-                                lo = s.0;
-                                hi = s.1;
                             }
-                            let span = hi - lo;
+                            let span = tau - max_gap;
                             if span > 1.0e-6 && span <= std::f64::consts::PI + 1.0e-6 {
                                 let hit3d = *origin + *direction * *t;
-                                let mut ha = ang(&hit3d);
-                                if ha < lo - 1.0e-6 {
-                                    ha += std::f64::consts::TAU;
-                                }
+                                let rel = (ang(&hit3d) - span_start).rem_euclid(tau);
                                 let margin = 1.0e-6;
-                                if ha < lo - margin || ha > hi + margin {
+                                if rel > span + margin && rel < tau - margin {
                                     if std::env::var_os("PK_RAY_TRACE").is_some() {
                                         eprintln!(
-                                            "  [ray-rej-cyl] {face_handle:?} ang={ha:.3} span=[{lo:.3},{hi:.3}]"
+                                            "  [ray-rej-cyl] {face_handle:?} rel={rel:.3} span={span:.3} from {span_start:.3}"
                                         );
                                     }
                                     continue;

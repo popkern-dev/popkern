@@ -401,11 +401,59 @@ fn classify_fragments_cellular(
                 .flatten()
                 .find(|p| calibratable_at(p))
                 .unwrap_or(shortcut)
+        } else if let Some(p) = frag_surface
+            .as_ref()
+            .and_then(|surf| fragment_interior_sample(graph, fragment, surf, false))
+        {
+            p
         } else {
-            frag_surface
-                .as_ref()
-                .and_then(|surf| fragment_interior_sample(graph, fragment, surf, false))
-                .unwrap_or(shortcut)
+            // A fragment CUT by the intersection (Shared edge in its
+            // loop) can have every surviving boundary edge hugging
+            // the other body while only its interior is clear of it
+            // (measured on the fanned flush arm: the swoop web's cut
+            // curve lies on the plate underside, its flush side edges
+            // on the arm walls, and both ends embed in root and
+            // plate — which boundary edge the walk enumerated first
+            // decided whether the web survived). Vote the non-shared
+            // boundary midpoints: unanimity keeps the tuned shortcut
+            // (identical to legacy behavior); disagreement means the
+            // boundary straddles the other body, and the one sample
+            // that is decisive by construction is a point stepped OFF
+            // the cut onto the fragment's own side.
+            let other = match fragment.face.operand {
+                Operand::A => (brep_b, &aabbs_b),
+                Operand::B => (brep_a, &aabbs_a),
+            };
+            let cut = fragment.outer_loop.iter().any(|&h| {
+                matches!(
+                    graph.half_edges[h].source,
+                    crate::merge::graph::EdgeSource::Shared { .. }
+                )
+            });
+            let mids = if cut {
+                non_shared_chord_midpoints(graph, &fragment.outer_loop, 6)
+            } else {
+                Vec::new()
+            };
+            let unanimous = mids.len() < 2 || {
+                let first = robust_point_in_solid_final(&mids[0], other.0, other.1, tolerance);
+                matches!(
+                    first,
+                    PointClassification::Inside | PointClassification::Outside
+                ) && mids[1..]
+                    .iter()
+                    .all(|p| robust_point_in_solid_final(p, other.0, other.1, tolerance) == first)
+            };
+            if unanimous {
+                shortcut
+            } else {
+                frag_surface
+                    .as_ref()
+                    .and_then(|surf| {
+                        super::fragment_sampling::fragment_cut_offset_sample(graph, fragment, surf)
+                    })
+                    .unwrap_or(shortcut)
+            }
         };
 
         // Classify against the OPPOSITE body only.
@@ -682,180 +730,13 @@ fn fragment_interior_sample(
         return None;
     }
 
-    // Stored pcurves may live on ANY period branch of a periodic
-    // chart (a cylinder pcurve at u−2π is the same geometry), while
-    // projected samples come back on the principal branch. Mixing
-    // branches in one scanline polygon opens a phantom interval
-    // spanning the branch gap — the widest-interval pick then lands
-    // its midpoint on the far side of the cylinder (measured: an
-    // embedded sliver of a flush gusset's arc wall sampled at the
-    // antipode, classified Outside, and survived to fight the step
-    // face for its seam edge). Shift each half-edge's sample run by
-    // whole periods so it lands adjacent to the previous run.
-    let u_period = surface.parameter_periodicity().0;
-    let branch_aligned = |poly: &mut Vec<(f64, f64)>, run: Vec<(f64, f64)>| {
-        if let (Some(p), Some(&(lu, _)), Some(&(fu, _))) = (u_period, poly.last(), run.first()) {
-            let k = ((lu - fu) / p).round();
-            if k != 0.0 {
-                poly.extend(run.into_iter().map(|(u, v)| (u + k * p, v)));
-                return;
-            }
-        }
-        poly.extend(run);
-    };
-
+    // The per-half-edge UV run sampling (pcurve windows, projection
+    // fallback, period-branch alignment) lives in
+    // `fragment_sampling::loop_uv_runs`, shared with the cut-offset
+    // sampler.
     let sample_loop = |hes: &[usize]| -> Option<Vec<(f64, f64)>> {
-        use popkern_core::geometry::curve::CurveEval;
-        use popkern_core::geometry::uv_projection::{
-            project_point_to_uv, project_point_to_uv_near,
-        };
-        let trace = std::env::var_os("PK_SEL_TRACE").is_some();
-        let mut poly: Vec<(f64, f64)> = Vec::new();
-        for &raw in hes {
-            // Pcurves live in their OWNER face's chart. A fragment
-            // loop may carry either direction of an edge (the walker
-            // keeps the first-walked direction), so read the side
-            // that belongs to THIS face — the twin's pcurve is in
-            // the other body's chart and produced garbage scanline
-            // polygons (measured: a counterbore floor's star-hole
-            // fragment sampled its own hole centre and was dropped).
-            let h = if graph.half_edges[raw].face.as_ref() == Some(&fragment.face) {
-                raw
-            } else {
-                let twin = graph.half_edges[raw].twin;
-                if graph.half_edges[twin].face.as_ref() == Some(&fragment.face) {
-                    twin
-                } else {
-                    raw
-                }
-            };
-            let mut run: Vec<(f64, f64)> = Vec::new();
-            let kind;
-            if let Some(pc) = graph.half_edges[h].pcurve.as_ref() {
-                kind = "PCURVE";
-                // A split graph half-edge keeps the FULL original
-                // edge's pcurve; its own 3D-curve window is the
-                // narrowed span in the same parameter space. Sampling
-                // the full pcurve made a 1 mm stub's polygon row span
-                // the whole 21 mm wall, and the scanline midpoint
-                // landed on a different region entirely (a below-body
-                // skirt fragment classified Inside and was kept as a
-                // phantom face). Use the window when it nests inside
-                // the pcurve's range; fall back to the full range
-                // otherwise (foreign parameterization).
-                let (mut s0, mut s1) = (pc.t_start, pc.t_end);
-                if let Some(c) = graph.half_edges[h].curve.as_ref() {
-                    // The stored pcurve may cover the FULL original
-                    // edge while the half-edge's 3D window is a stub
-                    // of it, in a different parameter space (the 3D
-                    // curve is re-parameterized at split time).
-                    // Recover the pcurve sub-window by INVERTING the
-                    // he's 3D endpoints onto the pcurve through the
-                    // surface: coarse scan + ternary refinement, then
-                    // verify. Keep the full range when inversion
-                    // fails (foreign chart).
-                    let p3a = c.geometry.point_at(c.t_start);
-                    let p3b = c.geometry.point_at(c.t_end);
-                    let scale3 = 1.0 + p3a.distance_to(&p3b);
-                    let nearest = |p3: &popkern_core::geometry::Point3| -> (f64, f64) {
-                        let d_at = |t: f64| {
-                            let uv = pc.point_at(t);
-                            surface.point_at(uv.x, uv.y).distance_to(p3)
-                        };
-                        let n = 64;
-                        let mut best = (pc.t_start, f64::INFINITY);
-                        for i in 0..=n {
-                            let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / n as f64;
-                            let d = d_at(t);
-                            if d < best.1 {
-                                best = (t, d);
-                            }
-                        }
-                        let step = (pc.t_end - pc.t_start).abs() / n as f64;
-                        let (mut lo, mut hi) = (best.0 - step, best.0 + step);
-                        for _ in 0..48 {
-                            let m1 = lo + (hi - lo) / 3.0;
-                            let m2 = hi - (hi - lo) / 3.0;
-                            if d_at(m1) <= d_at(m2) {
-                                hi = m2;
-                            } else {
-                                lo = m1;
-                            }
-                        }
-                        let t = 0.5 * (lo + hi);
-                        (t, d_at(t))
-                    };
-                    // Scoped to NON-PERIODIC charts: on a periodic
-                    // chart every u-branch evaluates to the same 3D
-                    // points, so inversion cannot distinguish branches
-                    // and the recovered window can run the wrong way
-                    // around the circle (measured: a drill-hole rim's
-                    // window emptied the scanline polygon and reopened
-                    // a through-hole). Closed spans (rim half-edges)
-                    // invert both endpoints to the same parameter —
-                    // skip those too, and verify the midpoint.
-                    let u_periodic = surface.parameter_periodicity().0.is_some();
-                    if !u_periodic && p3a.distance_to(&p3b) > 1e-9 * scale3 {
-                        let (ta, da) = nearest(&p3a);
-                        let (tb, db) = nearest(&p3b);
-                        let mid_ok = {
-                            let t_mid_pc = 0.5 * (ta + tb);
-                            let uv = pc.point_at(t_mid_pc);
-                            let p3_mid = c.geometry.point_at(0.5 * (c.t_start + c.t_end));
-                            surface.point_at(uv.x, uv.y).distance_to(&p3_mid) < 1e-3 * scale3
-                        };
-                        if da < 1e-6 * scale3
-                            && db < 1e-6 * scale3
-                            && (ta - tb).abs() > 1e-12
-                            && mid_ok
-                        {
-                            s0 = ta;
-                            s1 = tb;
-                        }
-                    }
-                }
-                for i in 0..8 {
-                    let t = s0 + (s1 - s0) * i as f64 / 8.0;
-                    let p = pc.point_at(t);
-                    run.push((p.x, p.y));
-                }
-            } else if let Some(c) = graph.half_edges[h].curve.as_ref() {
-                // No pcurve (split edges): project curve samples,
-                // with continuation to stay on one branch.
-                kind = "CURVE";
-                let ceval: &dyn CurveEval = &c.geometry;
-                for i in 0..8 {
-                    let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
-                    let p = ceval.point_at(t);
-                    let uv = match run.last().or_else(|| poly.last()) {
-                        Some(&(pu, pv)) => project_point_to_uv_near(surface, &p, pu, pv)
-                            .or_else(|| project_point_to_uv(surface, &p)),
-                        None => project_point_to_uv(surface, &p),
-                    }?;
-                    run.push(uv);
-                }
-            } else {
-                // Straight graph edge without geometry: project the
-                // endpoints.
-                kind = "ENDPOINTS";
-                let a = graph.nodes[graph.half_edges[h].origin].position;
-                let b = graph.nodes[graph.half_edges[graph.half_edges[h].twin].origin].position;
-                for p in [a, b] {
-                    run.push(project_point_to_uv(surface, &p)?);
-                }
-            }
-            if trace && !run.is_empty() {
-                eprintln!(
-                    "      [selpoly] he {raw} (used {h}) src {:?} {kind} first=({:.3},{:.3}) last=({:.3},{:.3})",
-                    graph.half_edges[h].source,
-                    run[0].0,
-                    run[0].1,
-                    run[run.len() - 1].0,
-                    run[run.len() - 1].1
-                );
-            }
-            branch_aligned(&mut poly, run);
-        }
+        let runs = super::fragment_sampling::loop_uv_runs(graph, &fragment.face, hes, surface)?;
+        let poly: Vec<(f64, f64)> = runs.into_iter().flat_map(|(_, r)| r).collect();
         (poly.len() >= 3).then_some(poly)
     };
     let outer = sample_loop(&fragment.outer_loop)?;
@@ -997,6 +878,36 @@ fn seg_dist(
     }
     let t = ((*p - *a).dot(&ab) / l2).clamp(0.0, 1.0);
     (*a + ab * t).distance_to(p)
+}
+
+/// Chord midpoints of the loop's non-Shared half-edges, in loop
+/// order, capped at `cap`. The first entry equals the tuned
+/// edge-midpoint shortcut, so a unanimous vote reproduces legacy
+/// sampling exactly.
+fn non_shared_chord_midpoints(
+    graph: &IntersectionGraph,
+    loop_hes: &[usize],
+    cap: usize,
+) -> Vec<popkern_core::geometry::Point3> {
+    use crate::merge::graph::EdgeSource;
+    let mut out = Vec::new();
+    for &he_idx in loop_hes {
+        if out.len() >= cap {
+            break;
+        }
+        let he = &graph.half_edges[he_idx];
+        if matches!(he.source, EdgeSource::Shared { .. }) {
+            continue;
+        }
+        let a = graph.nodes[he.origin].position;
+        let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+        out.push(popkern_core::geometry::Point3::new(
+            (a.x + b.x) * 0.5,
+            (a.y + b.y) * 0.5,
+            (a.z + b.z) * 0.5,
+        ));
+    }
+    out
 }
 
 fn sample_fragment_point(
