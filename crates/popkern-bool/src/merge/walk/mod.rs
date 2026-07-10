@@ -132,8 +132,9 @@ pub(crate) fn walk_all_fragments_ext(
         // A/B lever for divergence adjudication: PK_WALK_CHART=0
         // forces the legacy walk everywhere.
         let chart_disabled = std::env::var("PK_WALK_CHART").as_deref() == Ok("0");
+        let coincident_chart = std::env::var("PK_WALK_CHART_COINCIDENT").as_deref() == Ok("1");
         if chart_primary
-            && !coincident_interface
+            && (!coincident_interface || coincident_chart)
             && !chart_disabled
             && let Some((surface, orientation)) =
                 chart_subdivision::face_surface(face_ref, brep_a, brep_b)

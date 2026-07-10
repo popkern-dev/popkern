@@ -103,6 +103,11 @@ impl std::fmt::Display for SubdivisionIssue {
 pub(crate) enum FilteredRecord {
     /// Chart extent below noise — a tangency/touch-point record.
     ZeroExtent(usize),
+    /// An intersection record whose chart segment coincides with a
+    /// boundary edge or a lower-index record (I5): coplanar overlap
+    /// booleans trace segments ON existing edges; the duplicate cover
+    /// bounds nothing and unbalances every junction it touches.
+    DuplicateCover { dropped: usize, kept: usize },
 }
 
 /// Structured result of the substrate pass for one face.
@@ -193,6 +198,74 @@ pub(crate) fn build_face_subdivision(
     }
     if !sub.report.issues.is_empty() {
         return sub;
+    }
+
+    // I5 — duplicate-cover dedup: coplanar overlap records trace
+    // chart segments that COINCIDE with boundary edges (or with each
+    // other). The duplicate cover bounds no region and unbalances
+    // every junction it touches (measured on the flush-gusset weld:
+    // ±1 in/out at each overlap endpoint, whole faces falling back).
+    // Boundary edges outrank records; between records, the lower
+    // index wins. Comparison is geometric (endpoint + midpoint UVs,
+    // either direction) so it is authoring-order independent.
+    {
+        let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
+        let mut scale = 0.0_f64;
+        for emb in sub.embeddings.values() {
+            let (s, e) = (emb.uv[0], emb.uv[emb.uv.len() - 1]);
+            scale = scale.max((s.0 - e.0).abs() + (s.1 - e.1).abs());
+        }
+        let tol = 1e-7 * (1.0 + scale);
+        let near = |a: (f64, f64), b: (f64, f64)| -> bool {
+            (a.0 - b.0).abs() < tol && (a.1 - b.1).abs() < tol
+        };
+        let seg = |h: usize| -> ((f64, f64), (f64, f64), (f64, f64)) {
+            let uv = &sub.embeddings[&h].uv;
+            (uv[0], uv[uv.len() / 2], uv[uv.len() - 1])
+        };
+        let is_record = |h: usize| -> bool {
+            matches!(
+                graph.half_edges[h].source,
+                crate::merge::graph::EdgeSource::Shared { .. }
+            )
+        };
+        let mut drop: Vec<(usize, usize)> = Vec::new();
+        for (i, &a) in hes.iter().enumerate() {
+            for &b in hes.iter().skip(i + 1) {
+                if graph.half_edges[a].twin == b {
+                    continue; // twins are the two sides of one edge
+                }
+                let (sa, ma, ea) = seg(a);
+                let (sb, mb, eb) = seg(b);
+                let same = near(sa, sb) && near(ea, eb) && near(ma, mb);
+                let reversed = near(sa, eb) && near(ea, sb) && near(ma, mb);
+                if !(same || reversed) {
+                    continue;
+                }
+                match (is_record(a), is_record(b)) {
+                    (true, false) => drop.push((a, b)),
+                    (false, true) => drop.push((b, a)),
+                    (true, true) => drop.push((b, a)),
+                    (false, false) => {} // two boundary edges: not ours to judge
+                }
+            }
+        }
+        for (d, k) in drop {
+            if sub.embeddings.remove(&d).is_some() {
+                sub.report.filtered.push(FilteredRecord::DuplicateCover {
+                    dropped: d,
+                    kept: k,
+                });
+            }
+        }
+        // PARTIAL covers (records windowed at different nodes than
+        // the boundary edges they trace) are NOT dropped here:
+        // sample-on-boundary-polyline dedup was measured to also drop
+        // records that legitimately bound flush regions (two bool
+        // fixtures regressed). Coincidence-scoped partial-cover
+        // semantics + the OnBoundary arbitration rework are the
+        // PK-106 follow-up; until then those faces fail I4 and take
+        // the recorded legacy fallback.
     }
 
     // Node endpoints per half-edge (start = origin(h), end = origin(twin)).
