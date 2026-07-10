@@ -316,7 +316,7 @@ fn invert_nurbs_line_uses_analytic_line_path() {
 }
 
 #[test]
-fn invert_non_arc_nurbs_returns_unsupported() {
+fn invert_generic_nurbs_finds_on_curve_points() {
     let nurbs = NurbsCurve {
         degree: 3,
         knots: vec![0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
@@ -333,10 +333,22 @@ fn invert_non_arc_nurbs_returns_unsupported() {
         t_start: 0.0,
         t_end: 1.0,
     };
-    let result = invert_curve_at_point(&curve, Point3::new(0.5, 0.5, 0.0), &tol());
+    // Generic (scan + ternary) inversion: an on-curve point inverts
+    // to its parameter; a far point reports PointOffCurve. This
+    // replaced the Tier-2 stub — a boolean junction pre-split needed
+    // inversion on exact-arc NURBS pieces whose circular-arc
+    // reconstruction answers in a phase-shifted frame.
+    use crate::geometry::curve::CurveEval as _;
+    let probe = curve.geometry.point_at(0.37);
+    let t = invert_curve_at_point(&curve, probe, &tol()).expect("on-curve point inverts");
+    assert!(
+        curve.geometry.point_at(t).distance_to(&probe) < 1.0e-5,
+        "inverted parameter must reproduce the probe point"
+    );
+    let result = invert_curve_at_point(&curve, Point3::new(5.0, -3.0, 2.0), &tol());
     assert!(matches!(
         result,
-        Err(PointInversionError::UnsupportedCurve { .. })
+        Err(PointInversionError::PointOffCurve { .. })
     ));
 }
 

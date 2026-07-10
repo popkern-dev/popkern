@@ -995,12 +995,20 @@ fn tilted_face_star_socket_is_watertight_and_chi_clean() {
 /// -chart containment reading interior records as outside) is fixed
 /// and the centred cases now gate as
 /// round_seat_star_socket_is_watertight_and_void and
-/// perpendicular_bore_recess_is_watertight_and_void. What remains is
-/// the harder configuration this fixture accidentally carried all
-/// along: the mouth ellipse is an OPEN arc (clipped by the breached
-/// wall) meeting the bore×wall arc at two junction points, and the
-/// subtract fails LowValence building that record network. Same
-/// class as the round-seat counterbore re-sequencing failure.
+/// perpendicular_bore_recess_is_watertight_and_void. The open-arc
+/// junction network has since advanced three layers (PK-103):
+/// conservative face AABBs restored the missing plane×cylinder
+/// discovery (the BVH never paired the breached wall with the bore
+/// — 8 rational-circle samples missed the 180° extreme by 2.2 mm),
+/// the near-vertex rescue in the split-face matcher absorbs the
+/// two-authority junction spread (~2.3 µm between the wall-trim clip
+/// and the cap-chord endpoints), and the generic NURBS inversion
+/// lets junction pre-splits work on split rim pieces. Current
+/// position: the subtract assembles but a result loop fails closure
+/// by 27.1 (a rim piece's curve span disagrees with the loop after
+/// the cap split) — downstream of the principal-range arc→NURBS
+/// clamp recorded in `curve_to_nurbs.rs`, whose removal awaits the
+/// rim-anchor unification leg in the chamfer surgery.
 #[test]
 fn side_breaching_tilted_bore_gap_is_pinned() {
     let tilt = -18.0_f64.to_radians();

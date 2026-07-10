@@ -450,20 +450,27 @@ fn presplit_boundary_at_endpoints(
                     break 'search;
                 }
                 let edge = he_data.edge;
-                if let Some(curve) = brep.edges[edge].curve.as_ref()
-                    && let Ok(t) = invert_curve_at_point(curve, endpoint, tolerance)
-                {
-                    let lo = curve.t_start.min(curve.t_end);
-                    let hi = curve.t_start.max(curve.t_end);
-                    let span = (hi - lo).max(1e-12);
-                    let margin = span * 1e-6;
-                    if t > lo + margin
-                        && t < hi - margin
-                        && curve.geometry.point_at(t).distance_to(&endpoint)
-                            < tolerance.linear() * 10.0
-                    {
-                        split_target = Some(edge);
-                        break 'search;
+                if let Some(curve) = brep.edges[edge].curve.as_ref() {
+                    let inv = invert_curve_at_point(curve, endpoint, tolerance);
+                    if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                        eprintln!(
+                            "    [presplit-inv] edge {edge:?} window ({:.3},{:.3}) -> {inv:?}",
+                            curve.t_start, curve.t_end
+                        );
+                    }
+                    if let Ok(t) = inv {
+                        let lo = curve.t_start.min(curve.t_end);
+                        let hi = curve.t_start.max(curve.t_end);
+                        let span = (hi - lo).max(1e-12);
+                        let margin = span * 1e-6;
+                        if t > lo + margin
+                            && t < hi - margin
+                            && curve.geometry.point_at(t).distance_to(&endpoint)
+                                < tolerance.linear() * 10.0
+                        {
+                            split_target = Some(edge);
+                            break 'search;
+                        }
                     }
                 }
                 he = he_data.next;
@@ -473,7 +480,62 @@ fn presplit_boundary_at_endpoints(
             }
         }
         if !on_vertex && let Some(edge) = split_target {
-            let _ = brep.split_edge_at_point(edge, endpoint, tolerance);
+            let r = brep.split_edge_at_point(edge, endpoint, tolerance);
+            if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+                eprintln!(
+                    "  [presplit] {face_handle:?} edge {edge:?} at ({:.1},{:.1},{:.1}) -> {r:?}",
+                    endpoint.x, endpoint.y, endpoint.z
+                );
+            }
+        } else if std::env::var_os("PK_SPLIT_TRACE").is_some() {
+            eprintln!(
+                "  [presplit] {face_handle:?} endpoint ({:.1},{:.1},{:.1}) on_vertex={on_vertex} no-target={}",
+                endpoint.x,
+                endpoint.y,
+                endpoint.z,
+                split_target.is_none()
+            );
+            if let Some(face) = brep.faces.get(face_handle)
+                && let Some(loop_data) = brep.loops.get(face.outer_loop)
+            {
+                let start = loop_data.half_edge;
+                let mut he = start;
+                for _ in 0..12 {
+                    let h = &brep.half_edges[he];
+                    let v = brep.vertices[h.origin].position;
+                    let w = brep.edges[h.edge].curve.as_ref().map(|c| {
+                        use popkern_core::geometry::curve::CurveGeometry;
+                        let kind = match &c.geometry {
+                            CurveGeometry::Line { .. } => "Line".into(),
+                            CurveGeometry::Circle { .. } => "Circle".into(),
+                            CurveGeometry::Arc {
+                                start_angle,
+                                end_angle,
+                                ..
+                            } => format!("Arc[{start_angle:.3},{end_angle:.3}]"),
+                            CurveGeometry::Nurbs(n) => format!(
+                                "Nurbs[{:.3},{:.3}]",
+                                n.knots.first().copied().unwrap_or(0.0),
+                                n.knots.last().copied().unwrap_or(0.0)
+                            ),
+                            _ => "Other".into(),
+                        };
+                        (kind, c.t_start, c.t_end)
+                    });
+                    eprintln!(
+                        "    [presplit-loop] he edge={:?} origin=({:.1},{:.1},{:.1}) window={w:?} d_end={:.3e}",
+                        h.edge,
+                        v.x,
+                        v.y,
+                        v.z,
+                        v.distance_to(&endpoint)
+                    );
+                    he = h.next;
+                    if he == start {
+                        break;
+                    }
+                }
+            }
         }
     }
 }

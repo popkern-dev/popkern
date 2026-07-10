@@ -411,6 +411,50 @@ impl BRep {
             }
         }
 
+        // NEAR-VERTEX rescue for endpoints the strict pass missed: an
+        // intersection junction reaches this matcher through TWO
+        // independently clipped records (each face's trim computes
+        // the same junction to within clip noise), so the boundary
+        // vertex minted by the neighbor's pre-split can sit a few µm
+        // from THIS trim's endpoint (measured: 2.3e-6 on a bore rim
+        // vs a breached-wall chord — just over the strict coincidence
+        // tolerance, and the whole subtract failed). Take the NEAREST
+        // loop vertex within a 10× band (or the vertex's own recorded
+        // tolerance), never one already claimed by the other
+        // endpoint. Nearest-within-band cannot mis-pair distinct
+        // model vertices unless features are µm-scale, in which case
+        // the strict pass was already ambiguous.
+        let mut rescue = |target: &crate::geometry::Point3,
+                          taken: Option<HalfEdgeHandle>|
+         -> Option<HalfEdgeHandle> {
+            let mut best: Option<(f64, HalfEdgeHandle)> = None;
+            let mut cursor = loop_start_he;
+            let mut iters = 0;
+            loop {
+                let he_data = self.half_edges.get(cursor)?;
+                if Some(cursor) != taken {
+                    let v = &self.vertices[he_data.origin];
+                    let band = (tolerance.linear() * 10.0).max(v.tolerance.unwrap_or(0.0));
+                    let d = v.position.distance_to(target);
+                    if d <= band && best.map(|(bd, _)| d < bd).unwrap_or(true) {
+                        best = Some((d, cursor));
+                    }
+                }
+                cursor = he_data.next;
+                iters += 1;
+                if cursor == loop_start_he || iters >= max_iters {
+                    break;
+                }
+            }
+            best.map(|(_, he)| he)
+        };
+        if he_entry.is_none() {
+            he_entry = rescue(&curve_start, he_exit);
+        }
+        if he_exit.is_none() {
+            he_exit = rescue(&curve_end, he_entry);
+        }
+
         let he_entry = he_entry.ok_or_else(|| {
             CoreError::PreconditionFailed(
                 "trim curve start point does not match any vertex on the face boundary".into(),

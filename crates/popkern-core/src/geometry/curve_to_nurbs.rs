@@ -218,6 +218,23 @@ pub(super) fn hyperbola_to_nurbs(
 }
 
 /// Build a NURBS arc by constructing the full circle and splitting to the arc range.
+///
+/// KNOWN LIMITATION (recorded containment, PK-103): ranges outside
+/// the principal `[0, 2π]` branch are silently CLAMPED — an
+/// `Arc[−π/2, 3π/2]` rim converts to a curve covering only
+/// `[0, 3π/2]`, its start collapsed to angle 0. An exact
+/// generalized conversion was implemented and REVERTED here: the
+/// closed-rim chamfer surgery's anchor conventions were tuned
+/// against this clamp (three sites author the same rim circle with
+/// different angular anchors — the trim fit anchors at the offset
+/// row start, `closed_fillet` at the trim start point, and a
+/// re-derivation path at its frame's −π/2 — and the clamp is what
+/// unifies their curve START POINTS at angle 0; with the exact
+/// conversion the 0.0074 rad anchor spread surfaced as a 0.25 mm
+/// OpenLoop in `closed_outer_rim_chamfer_is_watertight_and_probed`
+/// and three sibling gates). The commercial-grade replacement is a
+/// single anchor authority for rim arcs across the surgery, then
+/// the exact conversion (kept in the PK-103 ledger notes).
 pub(super) fn arc_to_nurbs(
     center: Point3,
     normal: Vec3,

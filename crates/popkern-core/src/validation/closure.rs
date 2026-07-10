@@ -97,6 +97,32 @@ impl BRep {
             if let (Some(first), Some(last_end)) = (first_pos, prev_end_pos) {
                 let gap = first.distance_to(&last_end);
                 if gap > self.tolerance.linear() {
+                    if std::env::var_os("PK_CLOSURE_TRACE").is_some() {
+                        eprintln!("  [closure] loop {loop_handle:?} gap {gap:.4}:");
+                        let start_he = self.loops[loop_handle].half_edge;
+                        let mut he_h = start_he;
+                        for _ in 0..24 {
+                            let he = &self.half_edges[he_h];
+                            let v = self.vertices[he.origin].position;
+                            let span = self.edges[he.edge].curve.as_ref().map(|c| {
+                                use crate::geometry::curve::CurveEval as _;
+                                let p0 = c.geometry.point_at(c.t_start);
+                                let p1 = c.geometry.point_at(c.t_end);
+                                format!(
+                                    "({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) t[{:.4},{:.4}]",
+                                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, c.t_start, c.t_end
+                                )
+                            });
+                            eprintln!(
+                                "    he edge={:?} origin=({:.3},{:.3},{:.3}) span={span:?}",
+                                he.edge, v.x, v.y, v.z
+                            );
+                            he_h = he.next;
+                            if he_h == start_he {
+                                break;
+                            }
+                        }
+                    }
                     return Err(ValidationError::OpenLoop {
                         loop_: loop_handle,
                         gap,

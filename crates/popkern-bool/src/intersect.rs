@@ -121,6 +121,136 @@ fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     // never widen the box.
     points.extend(brep.face_outer_loop_sample_positions(face_handle, 8));
 
+    // CONSERVATIVE curved-edge extents. Finite sampling of a curved
+    // boundary UNDER-approximates its extent — 8 samples of a
+    // rational circle (whose parameter is not angle-uniform) missed
+    // the 180° extreme by 2.2 mm on an r = 36 bore, the box stopped
+    // at x = −58.8 instead of −61, the breached wall at x = −60 fell
+    // outside it, and the BVH never paired the faces: the whole
+    // plane×cylinder curve set went missing and the subtract failed
+    // LowValence. An AABB used as a pruning gate must CONTAIN the
+    // face; over-covering only costs candidate pairs. Analytic
+    // curves get exact per-axis amplitude boxes (full-sweep
+    // superset for arcs), NURBS curves their control-point hull
+    // (positive weights ⇒ curve ⊂ hull), parabola/hyperbola their
+    // endpoint + interior derivative-zero extremes.
+    let mut extend_curve_extent = |c: &popkern_core::geometry::curve::CurveOnEdge| {
+        use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
+        match &c.geometry {
+            CurveGeometry::Line { .. } => {} // endpoints are sampled
+            CurveGeometry::Circle {
+                center,
+                normal,
+                radius,
+            }
+            | CurveGeometry::Arc {
+                center,
+                normal,
+                radius,
+                ..
+            } => {
+                let amp = |n: f64| radius * (1.0 - n * n).max(0.0).sqrt();
+                let (ax, ay, az) = (amp(normal.x), amp(normal.y), amp(normal.z));
+                points.push(popkern_core::geometry::Point3::new(
+                    center.x - ax,
+                    center.y - ay,
+                    center.z - az,
+                ));
+                points.push(popkern_core::geometry::Point3::new(
+                    center.x + ax,
+                    center.y + ay,
+                    center.z + az,
+                ));
+            }
+            CurveGeometry::Ellipse {
+                center,
+                u_basis,
+                v_basis,
+                ..
+            } => {
+                let amp = |u: f64, v: f64| (u * u + v * v).sqrt();
+                let (ax, ay, az) = (
+                    amp(u_basis.x, v_basis.x),
+                    amp(u_basis.y, v_basis.y),
+                    amp(u_basis.z, v_basis.z),
+                );
+                points.push(popkern_core::geometry::Point3::new(
+                    center.x - ax,
+                    center.y - ay,
+                    center.z - az,
+                ));
+                points.push(popkern_core::geometry::Point3::new(
+                    center.x + ax,
+                    center.y + ay,
+                    center.z + az,
+                ));
+            }
+            CurveGeometry::Parabola {
+                linear, quadratic, ..
+            } => {
+                // Interior extreme along axis w at linear·w + 2t·quadratic·w = 0.
+                for (l, q) in [
+                    (linear.x, quadratic.x),
+                    (linear.y, quadratic.y),
+                    (linear.z, quadratic.z),
+                ] {
+                    if q.abs() > 1e-30 {
+                        let t = -l / (2.0 * q);
+                        if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
+                            points.push(c.geometry.point_at(t));
+                        }
+                    }
+                }
+            }
+            CurveGeometry::Hyperbola {
+                semi_major,
+                semi_minor,
+                ..
+            } => {
+                // Extreme along w where sinh(t)·(sM·w) + cosh(t)·(sm·w) = 0.
+                for (a, b) in [
+                    (semi_major.x, semi_minor.x),
+                    (semi_major.y, semi_minor.y),
+                    (semi_major.z, semi_minor.z),
+                ] {
+                    if a.abs() > 1e-30 && (b / a).abs() < 1.0 {
+                        let t = (-b / a).atanh();
+                        if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
+                            points.push(c.geometry.point_at(t));
+                        }
+                    }
+                }
+            }
+            CurveGeometry::Nurbs(n) => {
+                points.extend(n.control_points.iter().copied());
+            }
+        }
+    };
+    let face = &brep.faces[face_handle];
+    let mut loops = vec![face.outer_loop];
+    loops.extend(face.inner_loops.iter().copied());
+    for lh in loops {
+        let Some(lp) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = lp.half_edge;
+        let mut he = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let Some(h) = brep.half_edges.get(he) else {
+                break;
+            };
+            if let Some(edge) = brep.edges.get(h.edge)
+                && let Some(c) = edge.curve.as_ref()
+            {
+                extend_curve_extent(c);
+            }
+            he = h.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+
     // If the surface has a finite parameter range, also sample a 5×5 grid for
     // curved surfaces where vertices may not capture the full extent.
     if u_min.is_finite() && u_max.is_finite() && v_min.is_finite() && v_max.is_finite() {
@@ -212,6 +342,14 @@ pub(crate) fn find_intersections_with_aabbs(
 
     if std::env::var_os("PK_PAIR_TRACE").is_some() {
         eprintln!("  [pairs] {} candidate pairs", candidate_pairs.len());
+        for (side, aabbs) in [("A", aabbs_a), ("B", aabbs_b)] {
+            for (fh, aabb) in aabbs.iter() {
+                eprintln!(
+                    "  [pair-aabb] {side} {fh:?} ({:.1},{:.1},{:.1})..({:.1},{:.1},{:.1})",
+                    aabb.min.x, aabb.min.y, aabb.min.z, aabb.max.x, aabb.max.y, aabb.max.z
+                );
+            }
+        }
     }
     for (id_x, id_y) in &candidate_pairs {
         if std::env::var_os("PK_PAIR_TRACE").is_some() {

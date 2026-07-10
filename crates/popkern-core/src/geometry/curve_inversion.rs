@@ -162,14 +162,26 @@ pub fn invert_curve_at_point(
                 .as_line_segment_in_range(edge_range, tolerance.linear())
             {
                 let direction = (line.end - line.start) * (1.0 / (line.t_end - line.t_start));
-                invert_line(line.start, direction, point, tolerance, edge_range)
-            } else if let Some(arc) = curve.geometry.as_circular_arc(tolerance) {
-                invert_arc_params(&arc, point, tolerance, edge_range)
-            } else {
-                Err(PointInversionError::UnsupportedCurve {
-                    kind: "Nurbs (Tier 2 Newton not yet implemented)",
-                })
+                return invert_line(line.start, direction, point, tolerance, edge_range);
             }
+            // Circular-arc fast path — VERIFIED against the actual
+            // curve: the reconstruction measures its angles in its
+            // OWN circle_basis frame, which can sit a phase apart
+            // from the NURBS knot frame (measured: an exact-arc rim
+            // NURBS with knots in absolute angle inverted π/2 off,
+            // the "interior" parameter evaluated 21 mm away, and a
+            // junction pre-split silently declined). A misphased
+            // answer falls through to the generic inversion.
+            {
+                use crate::geometry::curve::CurveEval as _;
+                if let Some(arc) = curve.geometry.as_circular_arc(tolerance)
+                    && let Ok(t) = invert_arc_params(&arc, point, tolerance, edge_range)
+                    && curve.geometry.point_at(t).distance_to(&point) <= tolerance.linear() * 10.0
+                {
+                    return Ok(t);
+                }
+            }
+            invert_nurbs_generic(curve, point, tolerance)
         }
         CurveGeometry::Ellipse { .. } => Err(PointInversionError::UnsupportedCurve {
             kind: "Ellipse (Tier 1 deferred)",
@@ -180,6 +192,60 @@ pub fn invert_curve_at_point(
         CurveGeometry::Hyperbola { .. } => Err(PointInversionError::UnsupportedCurve {
             kind: "Hyperbola (Tier 3 deferred)",
         }),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generic NURBS inversion (coarse scan + ternary refinement)
+// ---------------------------------------------------------------------------
+
+/// Invert a point onto an arbitrary NURBS curve over the edge window:
+/// 64-sample coarse scan for the nearest bracket, then ternary
+/// refinement of the squared distance. Unimodal within one sample
+/// bracket for the tolerances and curvatures this kernel handles;
+/// the caller-facing contract stays "on-curve or PointOffCurve".
+fn invert_nurbs_generic(
+    curve: &CurveOnEdge,
+    point: Point3,
+    tolerance: &Tolerance,
+) -> Result<f64, PointInversionError> {
+    use crate::geometry::curve::CurveEval as _;
+    let (lo, hi) = (
+        curve.t_start.min(curve.t_end),
+        curve.t_start.max(curve.t_end),
+    );
+    if !(hi - lo).is_finite() || hi - lo <= 0.0 {
+        return Err(PointInversionError::PointOffCurve {
+            distance: f64::INFINITY,
+        });
+    }
+    let d_at = |t: f64| curve.geometry.point_at(t).distance_to(&point);
+    const N: usize = 64;
+    let mut best = (lo, f64::INFINITY);
+    for i in 0..=N {
+        let t = lo + (hi - lo) * i as f64 / N as f64;
+        let d = d_at(t);
+        if d < best.1 {
+            best = (t, d);
+        }
+    }
+    let step = (hi - lo) / N as f64;
+    let (mut a, mut b) = ((best.0 - step).max(lo), (best.0 + step).min(hi));
+    for _ in 0..64 {
+        let m1 = a + (b - a) / 3.0;
+        let m2 = b - (b - a) / 3.0;
+        if d_at(m1) <= d_at(m2) {
+            b = m2;
+        } else {
+            a = m1;
+        }
+    }
+    let t = 0.5 * (a + b);
+    let d = d_at(t);
+    if d <= tolerance.linear() * 10.0 {
+        Ok(t)
+    } else {
+        Err(PointInversionError::PointOffCurve { distance: d })
     }
 }
 
