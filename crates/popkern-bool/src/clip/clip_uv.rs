@@ -513,6 +513,43 @@ pub(crate) fn find_uv_crossings(
     Some(crossings)
 }
 
+/// Extract a WRAPPED window `[t_enter, t_exit]` (with `t_exit`
+/// beyond the curve's range end) from a CLOSED curve: the kept span
+/// runs through the parameter seam. A closed curve's anchor is
+/// arbitrary — extract `[t_enter, t_max]` and `[t_min, t_exit −
+/// period]` and re-anchor the second piece after the first (C0
+/// splice; the pieces meet AT the seam point). Wrapping is an
+/// explicit caller decision ([`UvClipResult::WrappedRange`]) — the
+/// plain extraction below keeps its historical clamping for the
+/// out-of-range exits ordinary callers pass.
+pub(crate) fn clip_curve_wrapped(
+    curve: &NurbsCurve,
+    t_enter: f64,
+    t_exit: f64,
+) -> Option<NurbsCurve> {
+    let (t_min, t_max) = curve.parameter_range();
+    if t_exit <= t_max + 1e-12 {
+        return clip_curve_to_crossings(curve, t_enter, t_exit);
+    }
+    if t_enter >= t_max - 1e-12 {
+        return clip_curve_to_crossings(curve, t_min, t_exit - (t_max - t_min));
+    }
+    let period = t_max - t_min;
+    let t_wrap = t_exit - period;
+    if t_wrap <= t_min + 1e-12 {
+        return clip_curve_to_crossings(curve, t_enter, t_max);
+    }
+    let head = clip_curve_to_crossings(curve, t_enter, t_max)?;
+    let tail = clip_curve_to_crossings(curve, t_min, t_wrap)?;
+    let join_tol = {
+        use popkern_core::geometry::curve::CurveEval as _;
+        let p0 = curve.point_at(t_min);
+        let p1 = curve.point_at(t_max);
+        p0.distance_to(&p1) + 1e-6
+    };
+    head.concatenate_clamped(&tail, join_tol).ok()
+}
+
 pub(crate) fn clip_curve_to_crossings(
     curve: &NurbsCurve,
     t_enter: f64,
@@ -576,6 +613,10 @@ enum UvClipResult {
     NoPcurves,
     Outside,
     Range(f64, f64),
+    /// Inside-span of a CLOSED curve running through the parameter
+    /// seam: `exit` lies beyond the range end by design. Extraction
+    /// re-anchors through the seam (`clip_curve_wrapped`).
+    WrappedRange(f64, f64),
 }
 
 fn uv_clip_one_face(
@@ -685,7 +726,63 @@ fn uv_clip_one_face(
             }
         }
         Some(crossings) => match uv_range_from_crossings(&crossings, curve_uv, is_closed) {
-            Some((t_enter, t_exit)) => UvClipResult::Range(t_enter, t_exit),
+            Some((t_enter, t_exit)) => {
+                // CLOSED curves: the naive crossing hull can be the
+                // WRONG SIDE — when the inside span wraps through the
+                // parameter seam, the hull is exactly its complement
+                // (measured: a bore-mouth ellipse breaching a wall
+                // kept only the 8% sliver beyond the wall, t[0.46,
+                // 0.54], and discarded the 92% real mouth arc — the
+                // wall face's opening then assembled from the sliver
+                // and failed closure by 27.1). Probe the hull's
+                // midpoint: if it lies OUTSIDE the face, emit the
+                // complement as a WRAPPED window (exit beyond the
+                // range end; the extraction re-anchors through the
+                // seam).
+                use popkern_core::geometry::curve::CurveEval;
+                let (t_min, t_max) = curve_uv.parameter_range();
+                if is_closed && t_exit - t_enter > 1e-12 && (t_exit - t_enter) < (t_max - t_min) {
+                    // The complement is taken only on UNANIMOUS
+                    // multi-sample evidence — every interior sample
+                    // of the hull outside AND every interior sample
+                    // of the complement inside. A single-midpoint
+                    // test misfired on flush fixtures whose closed
+                    // curves hug face boundaries: on-boundary
+                    // containment verdicts are coin flips there, and
+                    // one flipped midpoint inverted a correct hull
+                    // (measured: 8 tuned union/chamfer gates broke).
+                    // Boundary-hugging curves fail BOTH unanimity
+                    // tests and keep the hull.
+                    let period = t_max - t_min;
+                    let inside = |t: f64| {
+                        let mut tt = t;
+                        if tt > t_max {
+                            tt -= period;
+                        }
+                        crate::split_inner_loop::point_inside_face_uv(
+                            brep,
+                            face,
+                            curve_uv.point_at(tt),
+                            &brep.tolerance,
+                        )
+                    };
+                    let samples = |a: f64, b: f64| -> [f64; 3] {
+                        [a + (b - a) * 0.25, a + (b - a) * 0.5, a + (b - a) * 0.75]
+                    };
+                    let hull_all_out = samples(t_enter, t_exit).iter().all(|&t| !inside(t));
+                    let comp_all_in = samples(t_exit, t_enter + period).iter().all(|&t| inside(t));
+                    if hull_all_out && comp_all_in {
+                        if trace {
+                            eprintln!(
+                                "    [uvclip-wrap] {face:?} hull ({t_enter:.3},{t_exit:.3}) outside — complement ({t_exit:.3},{:.3})",
+                                t_enter + period
+                            );
+                        }
+                        return UvClipResult::WrappedRange(t_exit, t_enter + period);
+                    }
+                }
+                UvClipResult::Range(t_enter, t_exit)
+            }
             None => UvClipResult::Outside,
         },
     }
@@ -751,6 +848,7 @@ pub(crate) fn clip_curve_uv_space(
                 UvClipResult::NoPcurves => "NoPcurves",
                 UvClipResult::Outside => "Outside",
                 UvClipResult::Range(_, _) => "Range",
+                UvClipResult::WrappedRange(_, _) => "WrappedRange",
             };
             eprintln!(
                 "  [uvclip] dropped: A={} B={}",
@@ -769,6 +867,7 @@ pub(crate) fn clip_curve_uv_space(
             UvClipResult::NoPcurves => "NoPcurves".to_string(),
             UvClipResult::Outside => "Outside".to_string(),
             UvClipResult::Range(e, x) => format!("Range({e:.3},{x:.3})"),
+            UvClipResult::WrappedRange(e, x) => format!("WrappedRange({e:.3},{x:.3})"),
         };
         eprintln!(
             "  [uvclip] {face_a:?}x{face_b:?}: A={} B={}",
@@ -777,17 +876,57 @@ pub(crate) fn clip_curve_uv_space(
         );
     }
     let (t_min, t_max) = curve.curve_3d.parameter_range();
-    let (a_enter, a_exit) = match clip_a {
-        UvClipResult::Range(enter, exit) => (enter, exit),
-        _ => (t_min, t_max),
+    let (a_enter, a_exit, a_wrapped) = match clip_a {
+        UvClipResult::Range(enter, exit) => (enter, exit, false),
+        UvClipResult::WrappedRange(enter, exit) => (enter, exit, true),
+        _ => (t_min, t_max, false),
     };
-    let (b_enter, b_exit) = match clip_b {
-        UvClipResult::Range(enter, exit) => (enter, exit),
-        _ => (t_min, t_max),
+    let (b_enter, b_exit, b_wrapped) = match clip_b {
+        UvClipResult::Range(enter, exit) => (enter, exit, false),
+        UvClipResult::WrappedRange(enter, exit) => (enter, exit, true),
+        _ => (t_min, t_max, false),
     };
 
-    let t_enter = a_enter.max(b_enter);
-    let t_exit = a_exit.min(b_exit);
+    // Wrapped windows (a closed curve's inside span running through
+    // the parameter seam — explicit WrappedRange verdicts only)
+    // intersect on the unrolled line. A wrapped window meeting the
+    // FULL range survives as-is; a wrapped window meeting a proper
+    // sub-window yields up to two segments — take the longer and log
+    // the dropped one (multi-window results stay a recorded
+    // limitation).
+    let period = t_max - t_min;
+    let full =
+        |enter: f64, exit: f64| (enter - t_min).abs() < 1e-12 && (exit - t_max).abs() < 1e-12;
+    let (t_enter, t_exit, wrapped) = match (a_wrapped, b_wrapped) {
+        (false, false) => (a_enter.max(b_enter), a_exit.min(b_exit), false),
+        (true, true) => (a_enter.max(b_enter), a_exit.min(b_exit), true),
+        (true, false) | (false, true) => {
+            let (we, wx, oe, ox) = if a_wrapped {
+                (a_enter, a_exit, b_enter, b_exit)
+            } else {
+                (b_enter, b_exit, a_enter, a_exit)
+            };
+            if full(oe, ox) {
+                (we, wx, true)
+            } else {
+                // Wrapped window = [we, t_max] ∪ [t_min, wx − period].
+                let seg1 = (we.max(oe), t_max.min(ox));
+                let seg2 = (t_min.max(oe), (wx - period).min(ox));
+                let len1 = (seg1.1 - seg1.0).max(0.0);
+                let len2 = (seg2.1 - seg2.0).max(0.0);
+                if std::env::var_os("PK_CLIP_TRACE").is_some() && len1 > 0.0 && len2 > 0.0 {
+                    eprintln!(
+                        "  [uvclip] wrapped∩bounded gives 2 segments ({len1:.3} and {len2:.3}); keeping the longer"
+                    );
+                }
+                if len1 >= len2 {
+                    (seg1.0, seg1.1, false)
+                } else {
+                    (seg2.0, seg2.1, false)
+                }
+            }
+        }
+    };
     if t_exit - t_enter < 1e-15 {
         return None;
     }
@@ -795,9 +934,16 @@ pub(crate) fn clip_curve_uv_space(
         return Some(curve.clone());
     }
 
-    let clipped_3d = clip_curve_to_crossings(&curve.curve_3d, t_enter, t_exit)?;
-    let clipped_uv1 = clip_curve_to_crossings(&curve.curve_uv1, t_enter, t_exit)?;
-    let clipped_uv2 = clip_curve_to_crossings(&curve.curve_uv2, t_enter, t_exit)?;
+    let extract = |c: &NurbsCurve| -> Option<NurbsCurve> {
+        if wrapped {
+            clip_curve_wrapped(c, t_enter, t_exit)
+        } else {
+            clip_curve_to_crossings(c, t_enter, t_exit)
+        }
+    };
+    let clipped_3d = extract(&curve.curve_3d)?;
+    let clipped_uv1 = extract(&curve.curve_uv1)?;
+    let clipped_uv2 = extract(&curve.curve_uv2)?;
 
     Some(CurveOnSurface {
         curve_3d: clipped_3d,

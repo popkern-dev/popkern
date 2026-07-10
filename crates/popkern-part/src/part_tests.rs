@@ -1036,8 +1036,14 @@ fn side_breaching_tilted_bore_gap_is_pinned() {
             let b = bored.brep();
             let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
                 - b.loops.len() as i64;
+            let opens = bored.open_edge_count();
+            eprintln!(
+                "side-breaching bore: chi={chi} opens={opens:?} in10={} in30={}",
+                mesh_contains_point(&bored, (-25.0, 0.0, 10.0)),
+                mesh_contains_point(&bored, (-25.0, 0.0, 30.0))
+            );
             chi == 2
-                && bored.open_edge_count().map(|o| o == 0).unwrap_or(false)
+                && opens.map(|o| o == 0).unwrap_or(false)
                 && mesh_contains_point(&bored, (-25.0, 0.0, 10.0))
                 && !mesh_contains_point(&bored, (-25.0, 0.0, 30.0))
         }

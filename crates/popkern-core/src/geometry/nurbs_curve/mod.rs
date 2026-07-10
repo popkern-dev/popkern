@@ -182,6 +182,87 @@ impl NurbsCurve {
         ))
     }
 
+    /// Concatenate two clamped curves of the same degree into one
+    /// piecewise curve, C0 at the join.
+    ///
+    /// `self` covers `[a, b]`, `right` covers `[c, d]`; the result
+    /// covers `[a, b + (d − c)]` with `right`'s knots SHIFTED so its
+    /// start lands at `b` (the caller re-anchors wrapped windows of
+    /// closed curves this way — a periodic parameterization's anchor
+    /// is arbitrary). The shared control point is kept once; the join
+    /// knot has multiplicity `degree` (positional continuity — the
+    /// pieces meet with whatever tangent continuity they inherently
+    /// have). `right`'s weights are uniformly rescaled so the shared
+    /// point's weight matches (a global weight scale does not change
+    /// a rational curve).
+    ///
+    /// # Errors
+    ///
+    /// [`CoreError::PreconditionFailed`] when the degrees differ or
+    /// the join positions are farther apart than `tolerance`.
+    pub fn concatenate_clamped(
+        &self,
+        right: &NurbsCurve,
+        tolerance: f64,
+    ) -> Result<NurbsCurve, CoreError> {
+        if self.degree != right.degree {
+            return Err(CoreError::PreconditionFailed(format!(
+                "concatenate_clamped: degree mismatch {} vs {}",
+                self.degree, right.degree
+            )));
+        }
+        let (Some(l_end), Some(r_start)) =
+            (self.control_points.last(), right.control_points.first())
+        else {
+            return Err(CoreError::PreconditionFailed(
+                "concatenate_clamped: empty control polygon".into(),
+            ));
+        };
+        if l_end.distance_to(r_start) > tolerance {
+            return Err(CoreError::PreconditionFailed(format!(
+                "concatenate_clamped: join gap {} exceeds tolerance {tolerance}",
+                l_end.distance_to(r_start)
+            )));
+        }
+        let (Some(&w_l_end), Some(&w_r_start)) = (self.weights.last(), right.weights.first())
+        else {
+            return Err(CoreError::PreconditionFailed(
+                "concatenate_clamped: empty weights".into(),
+            ));
+        };
+        if w_r_start.abs() < 1e-30 {
+            return Err(CoreError::PreconditionFailed(
+                "concatenate_clamped: zero weight at join".into(),
+            ));
+        }
+        let deg = self.degree;
+        let b = *self.knots.last().ok_or_else(|| {
+            CoreError::PreconditionFailed("concatenate_clamped: empty knots".into())
+        })?;
+        let c = *right.knots.first().ok_or_else(|| {
+            CoreError::PreconditionFailed("concatenate_clamped: empty knots".into())
+        })?;
+        let shift = b - c;
+        let w_scale = w_l_end / w_r_start;
+
+        // Left knots minus ONE trailing clamp knot (join multiplicity
+        // becomes `degree`), then right's knots past its leading
+        // clamp, shifted.
+        let mut knots = self.knots[..self.knots.len() - 1].to_vec();
+        knots.extend(right.knots[deg + 1..].iter().map(|k| k + shift));
+        let mut control_points = self.control_points.clone();
+        control_points.extend(right.control_points[1..].iter().copied());
+        let mut weights = self.weights.clone();
+        weights.extend(right.weights[1..].iter().map(|w| w * w_scale));
+
+        Ok(NurbsCurve {
+            degree: deg,
+            knots,
+            control_points,
+            weights,
+        })
+    }
+
     /// Evaluate the curve at parameter t using de Boor's algorithm in homogeneous coordinates.
     ///
     /// Allocation-free hot path: [`de_boor_1d_points`] handles the
