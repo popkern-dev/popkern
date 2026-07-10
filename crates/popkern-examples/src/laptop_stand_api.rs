@@ -1,8 +1,8 @@
 //! Expandable laptop stand — the first *product* modeled with the
-//! `popkern-part` API. Three of the four pieces build today: the
-//! hexagram joint peg, the stacking column, and the two-leg base.
-//! The angled holder needs the rotated-slab boolean (W2, in
-//! progress) and ships separately.
+//! `popkern-part` API. The essential set ships: joint peg, stacking
+//! column, fanned-leg base (with and without ballast chambers, plus
+//! the drop-in lid), round-seat holder block, the chiral split arms
+//! (root + tip, left + right), and the slide-in lip.
 //!
 //! Joint system: loose 6-point hexagram pegs in blind star sockets
 //! on every stacking face — anti-rotation by shape, no threads, no
@@ -95,10 +95,11 @@ struct StandParams {
     /// 44 mm wide against the 40 mm run — a visible shoulder at the
     /// dovetail joint.
     root_shoulder: f64,
-    /// Central seat recess profile on the block. `false` (default):
-    /// the 76 × 76 square. `true`: a Ø76 cylindrical recess —
-    /// supported since the star-membrane campaign closed
-    /// (round_seat_star_socket_is_watertight_and_void).
+    /// Central seat recess profile on the block. `true` (default): a
+    /// Ø76 cylindrical recess — supported since the star-membrane
+    /// campaign closed
+    /// (round_seat_star_socket_is_watertight_and_void). `false`: the
+    /// historical 76 × 76 square.
     seat_round: bool,
 }
 
@@ -126,7 +127,7 @@ impl StandParams {
             arm_len: 275.0,
             tab_relief_flush: true,
             root_shoulder: 0.0,
-            seat_round: false,
+            seat_round: true,
         }
     }
 
@@ -426,6 +427,16 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
         .line_to(44.0, -56.0 + 44.0 * fan.tan())
         .close()
         .extrude(125.0)?;
+    // Dress the rear verticals BEFORE any cut (the measured
+    // pockets-after-dressing rule): the centre prow and the two
+    // facet corners get a 2 mm chamfer. Scoped to plane×plane edges
+    // — the arc-end verticals sit between the cylinder wall and the
+    // side closers, an unproven bevel class, and stay sharp.
+    let block = block.chamfer(2.0, |e: EdgeQuery| {
+        e.straight()
+            .direction(Dir::Z)
+            .between(SurfaceKind::Plane, SurfaceKind::Plane)
+    })?;
     let upper = Profile::on(Plane::XY)
         .rect(600.0, 600.0)
         .extrude(200.0)?
@@ -482,18 +493,6 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
     }
     println!("  block: print REST-FACE DOWN");
     Ok(block)
-}
-
-/// Holder v3 ARM. One plan outline (root body + dovetail tab + plate
-/// run) extruded, the rest plane cut across it, the plate run
-/// thinned to 13 mm by a tool-shaped lower cutter, a true-arc swoop
-/// gusset for rigidity, a THROUGH dovetail lip slot near the tip
-/// (through ⇒ genus 1 ⇒ χ' = 0 by design), and the tab relieved
-/// below the socket floor. Fanned arms are CHIRAL — build one per
-/// `side` (±1). Chain pinned by
-/// `holder_v3_arm_chain_is_watertight_and_chi_clean`.
-fn build_arm(p: &StandParams, side: f64) -> Result<Part, PartError> {
-    build_arm_shape(p, p.arm_len, true, side * p.fan())
 }
 
 /// The arm chain with a parametric plan tip: the SPLIT pieces reuse
@@ -735,6 +734,14 @@ fn arm_joint_prism(
         .translate(0.0, -y_start, mouth_z)
 }
 
+// DEFERRED (recorded containment): breaking the arm's rest-face side
+// edges with a chamfer selects a CHAIN of collinear edge pieces (the
+// boolean history splits the long edge at the root step, swoop ends,
+// and lap shoulder), and chamfering a chain with mid-face junction
+// vertices is the same open frontier as the flagship's 12-edge chain
+// fillet (measured here: 1061 open mesh edges). The arms ship with
+// sharp rest edges until blend-chain corner patches land.
+
 /// ROOT half of the split arm: the arm chain with its plan ending at
 /// the joint shoulder (no slot — that lives on the tip), plus the
 /// dovetail TUNNEL opening in the underside over the lap zone.
@@ -843,19 +850,29 @@ fn build_arm_tip(p: &StandParams, side: f64) -> Result<Part, PartError> {
 /// from the outboard edge.
 fn build_lip(p: &StandParams) -> Result<Part, PartError> {
     let c = p.fit_clearance;
+    // The blade's two long outer corners — the edges the laptop
+    // leans on — are rounded IN THE SKETCH (r = 2 arcs), so the
+    // extrude carries true cylinder fillets by construction: no
+    // dress-up pass, no blend-corner patches on the non-convex end
+    // caps (a post-extrude fillet left the caps' corner trims open —
+    // the flagship's blend-corner frontier). The dovetail tab stays
+    // sharp for the joint.
+    let r = 2.0;
+    let d = r - r / 2.0_f64.sqrt(); // arc mid-point sagitta offset
     let lip = Profile::on(Plane::XY)
-        .polygon(&[
-            (0.0, -(4.5 - c)),
-            (1.0, -(4.5 - c)),
-            (5.6, -(6.6 - c)),
-            (5.6, 6.6 - c),
-            (1.0, 4.5 - c),
-            (0.0, 4.5 - c),
-            (0.0, 4.0),
-            (-17.0, 4.0),
-            (-17.0, -4.0),
-            (0.0, -4.0),
-        ])
+        .path(0.0, -(4.5 - c))
+        .line_to(1.0, -(4.5 - c))
+        .line_to(5.6, -(6.6 - c))
+        .line_to(5.6, 6.6 - c)
+        .line_to(1.0, 4.5 - c)
+        .line_to(0.0, 4.5 - c)
+        .line_to(0.0, 4.0)
+        .line_to(-17.0 + r, 4.0)
+        .arc_to((-17.0 + d, 4.0 - d), (-17.0, 4.0 - r))
+        .line_to(-17.0, -4.0 + r)
+        .arc_to((-17.0 + d, -4.0 + d), (-17.0 + r, -4.0))
+        .line_to(0.0, -4.0)
+        .close()
         .extrude(40.0)?
         .rotate_y(90.0_f64.to_radians())?;
     println!("  lip: print on a side face; two per holder");
@@ -919,37 +936,6 @@ fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
     part
 }
 
-/// Variant pieces are exploratory: gate them like production pieces
-/// but report failures as frontier signatures instead of aborting
-/// the standard export run.
-fn gate_and_export_variant(part: Result<Part, PartError>, name: &str, out_dir: &std::path::Path) {
-    let built = match part {
-        Ok(p) => p,
-        Err(e) => {
-            println!("  {name}: BUILD FAILED — {e:?}");
-            return;
-        }
-    };
-    match built.assert_watertight() {
-        Ok(p) => {
-            let step = out_dir.join(format!("{name}.step"));
-            if let Err(e) = p.export_step(&step) {
-                println!("  {name}: STEP export failed — {e:?}");
-                return;
-            }
-            match p.assert_step_roundtrip(&step) {
-                Ok(p) => println!(
-                    "  {name}: watertight ✓ round-trip ✓ ({} faces) → {}",
-                    p.face_count(),
-                    step.display()
-                ),
-                Err(e) => println!("  {name}: round-trip FAILED — {e:?}"),
-            }
-        }
-        Err(e) => println!("  {name}: NOT WATERTIGHT — {e:?}"),
-    }
-}
-
 fn main() {
     let out_dir =
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/output/laptop_stand");
@@ -992,32 +978,20 @@ fn main() {
     );
     let lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
 
-    // Variants — exploratory, reported honestly. (The fully flush
-    // arm IS the default now; the one-piece arm remains for larger
-    // build plates, printed diagonally.)
-    println!("variants:");
-    let round_seat = StandParams {
-        seat_round: true,
-        ..StandParams::default_stand()
-    };
-    gate_and_export_variant(
-        build_block(&round_seat),
-        "laptop_stand_block_round_seat",
-        &out_dir,
-    );
+    // Ballast pieces are first-class: the base ships with and
+    // without chambers, plus the drop-in lid.
     let ballast = StandParams {
         ballast_chambers: true,
         ..StandParams::default_stand()
     };
-    gate_and_export_variant(build_base(&ballast), "laptop_stand_base_ballast", &out_dir);
-    gate_and_export_variant(
-        build_ballast_lid(&ballast),
-        "laptop_stand_ballast_lid",
+    gate_and_export(
+        build_base(&ballast).expect("ballast base"),
+        "laptop_stand_base_ballast",
         &out_dir,
     );
-    gate_and_export_variant(
-        build_arm(&p, 1.0),
-        "laptop_stand_arm_onepiece_right",
+    gate_and_export(
+        build_ballast_lid(&ballast).expect("ballast lid"),
+        "laptop_stand_ballast_lid",
         &out_dir,
     );
 

@@ -144,7 +144,33 @@ pub(crate) fn edge_infos(brep: &BRep) -> Vec<EdgeInfo> {
                     CurveGeometry::Ellipse { .. }
                     | CurveGeometry::Parabola { .. }
                     | CurveGeometry::Hyperbola { .. } => CurveKind::Conic,
-                    CurveGeometry::Nurbs(_) => CurveKind::Nurbs,
+                    // Boolean output edges carry their intersection
+                    // records as NURBS even when the geometry is a
+                    // straight line (a plane×plane cut). Classify by
+                    // GEOMETRY, not representation: a curve whose
+                    // interior samples lie on the endpoint chord is a
+                    // line — otherwise `straight()` silently skips
+                    // exactly the edges a dress-up pass wants
+                    // (measured: an arm's rest-face side edges were
+                    // unselectable while the same cut's vertical
+                    // edges, stored analytically, matched).
+                    CurveGeometry::Nurbs(_) => {
+                        let straight = len > 1e-9 && {
+                            let dirv = chord * (1.0 / len);
+                            (1..8).all(|i| {
+                                let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                                let p = ceval.point_at(t);
+                                let v = p - p0;
+                                let along = v.dot(&dirv);
+                                (v - dirv * along).length() < 1e-9 * (1.0 + len)
+                            })
+                        };
+                        if straight {
+                            CurveKind::Line
+                        } else {
+                            CurveKind::Nurbs
+                        }
+                    }
                 };
                 (Some(kind), mid, dir, len)
             }
