@@ -151,12 +151,21 @@ impl FaceChartSubdivision {
 }
 
 /// Build the chart subdivision for one face's registered half-edges.
+///
+/// `overlap_pairs`: coplanar face-overlap pairs from coincidence
+/// detection; records authored by exactly these pairs get the
+/// partial-cover dedup (their traces along existing boundary edges
+/// bound nothing).
 pub(crate) fn build_face_subdivision(
     graph: &IntersectionGraph,
     face: &FaceRef,
     he_indices: &[usize],
     surface: &SurfaceGeometry,
     orientation: bool,
+    overlap_pairs: &[(
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::FaceHandle,
+    )],
 ) -> FaceChartSubdivision {
     let mut sub = FaceChartSubdivision {
         sigma: if orientation { 1.0 } else { -1.0 },
@@ -258,14 +267,61 @@ pub(crate) fn build_face_subdivision(
                 });
             }
         }
-        // PARTIAL covers (records windowed at different nodes than
-        // the boundary edges they trace) are NOT dropped here:
-        // sample-on-boundary-polyline dedup was measured to also drop
+        // PARTIAL covers: overlap records are windowed at different
+        // nodes than the boundary edges they trace (a weld trace can
+        // span half of one boundary edge and all of the next), so
+        // segment-identity misses them. SCOPE: only records authored
+        // by a known coplanar overlap pair — unconditional
+        // sample-on-polyline dropping was measured to also remove
         // records that legitimately bound flush regions (two bool
-        // fixtures regressed). Coincidence-scoped partial-cover
-        // semantics + the OnBoundary arbitration rework are the
-        // PK-106 follow-up; until then those faces fail I4 and take
-        // the recorded legacy fallback.
+        // fixtures regressed). Within the overlap pair the semantics
+        // are exact: the record traces IN the shared plane, so where
+        // it lies on this face's boundary the boundary already
+        // bounds, and the record covers nothing new.
+        let from_overlap_pair = |h: usize| -> bool {
+            match &graph.half_edges[h].source {
+                crate::merge::graph::EdgeSource::Shared { face_a, face_b } => overlap_pairs
+                    .iter()
+                    .any(|&(a, b)| *face_a == a && *face_b == b),
+                _ => false,
+            }
+        };
+        let boundary_polys: Vec<Vec<(f64, f64)>> = sub
+            .embeddings
+            .iter()
+            .filter(|(h, _)| !is_record(**h))
+            .map(|(_, e)| e.uv.clone())
+            .collect();
+        let on_boundary = |p: (f64, f64)| -> bool {
+            for poly in &boundary_polys {
+                for w in poly.windows(2) {
+                    let (a, b) = (w[0], w[1]);
+                    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                    let l2 = (dx * dx + dy * dy).max(1e-300);
+                    let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
+                    let d2 = (p.0 - a.0 - dx * t).powi(2) + (p.1 - a.1 - dy * t).powi(2);
+                    if d2 < tol * tol {
+                        return true;
+                    }
+                }
+            }
+            false
+        };
+        let overlap_hes: Vec<usize> = sub
+            .embeddings
+            .keys()
+            .copied()
+            .filter(|&h| from_overlap_pair(h))
+            .collect();
+        for h in overlap_hes {
+            let covered = sub.embeddings[&h].uv.iter().all(|&p| on_boundary(p));
+            if covered && sub.embeddings.remove(&h).is_some() {
+                sub.report.filtered.push(FilteredRecord::DuplicateCover {
+                    dropped: h,
+                    kept: usize::MAX,
+                });
+            }
+        }
     }
 
     // Node endpoints per half-edge (start = origin(h), end = origin(twin)).

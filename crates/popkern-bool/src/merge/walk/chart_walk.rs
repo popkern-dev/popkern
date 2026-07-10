@@ -210,7 +210,7 @@ pub(crate) fn dual_walk_probe(
         eprintln!("[dual] {face:?}: no-surface");
         return;
     };
-    let sub = build_face_subdivision(graph, face, he_indices, surface, orientation);
+    let sub = build_face_subdivision(graph, face, he_indices, surface, orientation, &[]);
     let verbose = std::env::var_os("PK_WALK_DUAL_VERBOSE").is_some();
     if !sub.complete() {
         let issues: Vec<String> = sub.report.issues.iter().map(|i| i.to_string()).collect();

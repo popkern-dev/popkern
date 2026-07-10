@@ -48,7 +48,7 @@ pub(crate) fn walk_all_fragments(
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Vec<Fragment> {
-    walk_all_fragments_ext(graph, brep_a, brep_b, false, false)
+    walk_all_fragments_ext(graph, brep_a, brep_b, false, false, &[], &mut Vec::new())
 }
 
 /// `coincident_interface`: the boolean carries coplanar face
@@ -61,12 +61,21 @@ pub(crate) fn walk_all_fragments(
 /// when its substrate passes I1–I5, with the legacy walk as recorded
 /// per-face fallback (PK-104 stage 3; the cellular pipeline sets this,
 /// graph-merge keeps the legacy walk — its graphs lack seam splits).
+///
+/// `overlap_pairs`: the coplanar face-overlap pairs from coincidence
+/// detection — the substrate's partial-cover dedup is scoped to
+/// records authored by exactly these pairs (PK-106).
 pub(crate) fn walk_all_fragments_ext(
     graph: &IntersectionGraph,
     brep_a: &BRep,
     brep_b: &BRep,
     coincident_interface: bool,
     chart_primary: bool,
+    overlap_pairs: &[(
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::FaceHandle,
+    )],
+    walk_fallbacks: &mut Vec<(FaceRef, String)>,
 ) -> Vec<Fragment> {
     let mut fragments = Vec::new();
 
@@ -130,11 +139,24 @@ pub(crate) fn walk_all_fragments_ext(
         // doc §5, I5) — the named follow-up leg.
         let mut walked_by_chart = false;
         // A/B lever for divergence adjudication: PK_WALK_CHART=0
-        // forces the legacy walk everywhere.
+        // forces the legacy walk everywhere. Coincident booleans
+        // chart-walk since PK-106 EXCEPT the overlapping faces
+        // themselves: the chart walk correctly emits their coplanar
+        // web regions as fragments, but the keep-one-skin
+        // arbitration classifies those in-plane fragments
+        // Outside/Inside instead of OnBoundary (measured on the
+        // flush-gusset weld: both skins kept, the second one's ring
+        // edges resolve EMPTY, 138 opens). Until the arbitration is
+        // reworked for that population, overlap-pair faces keep the
+        // legacy walk — the recorded boundary where coincident
+        // fragment semantics live.
         let chart_disabled = std::env::var("PK_WALK_CHART").as_deref() == Ok("0");
-        let coincident_chart = std::env::var("PK_WALK_CHART_COINCIDENT").as_deref() == Ok("1");
+        let face_in_overlap = overlap_pairs.iter().any(|&(a, b)| match face_ref.operand {
+            super::graph::Operand::A => face_ref.face == a,
+            super::graph::Operand::B => face_ref.face == b,
+        });
         if chart_primary
-            && (!coincident_interface || coincident_chart)
+            && !face_in_overlap
             && !chart_disabled
             && let Some((surface, orientation)) =
                 chart_subdivision::face_surface(face_ref, brep_a, brep_b)
@@ -145,6 +167,7 @@ pub(crate) fn walk_all_fragments_ext(
                 he_indices,
                 surface,
                 orientation,
+                overlap_pairs,
             );
             if sub.complete() {
                 if let Some(orbits) = chart_walk::walk_chart_orbits(&sub, graph) {
@@ -157,15 +180,21 @@ pub(crate) fn walk_all_fragments_ext(
                             sub.sigma
                         );
                     }
-                } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
-                    eprintln!("  [walk] {face_ref:?}: chart orbit collision — legacy fallback");
+                } else {
+                    walk_fallbacks.push((*face_ref, "chart orbit collision".to_string()));
+                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!("  [walk] {face_ref:?}: chart orbit collision — legacy fallback");
+                    }
                 }
-            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            } else {
                 let issues: Vec<String> = sub.report.issues.iter().map(|i| i.to_string()).collect();
-                eprintln!(
-                    "  [walk] {face_ref:?}: chart substrate incomplete — legacy fallback ({})",
-                    issues.join("; ")
-                );
+                walk_fallbacks.push((*face_ref, issues.join("; ")));
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [walk] {face_ref:?}: chart substrate incomplete — legacy fallback ({})",
+                        issues.join("; ")
+                    );
+                }
             }
         }
 

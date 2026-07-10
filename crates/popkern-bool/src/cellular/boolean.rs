@@ -149,12 +149,21 @@ pub(crate) fn cellular_graph_merge(
     sort_all_radial(&mut graph);
 
     // Phase 5: Walk loops to find face fragments.
+    let overlap_pairs: Vec<_> = intersection_result
+        .coincidence
+        .face_overlaps
+        .iter()
+        .map(|o| (o.face_a, o.face_b))
+        .collect();
+    let mut walk_fallbacks: Vec<(crate::merge::graph::FaceRef, String)> = Vec::new();
     let fragments = walk_all_fragments_ext(
         &graph,
         original_a,
         original_b,
         !intersection_result.coincidence.face_overlaps.is_empty(),
         true,
+        &overlap_pairs,
+        &mut walk_fallbacks,
     );
 
     // Phase 6 (CELLULAR): Classify fragments by cell membership.
@@ -180,7 +189,25 @@ pub(crate) fn cellular_graph_merge(
         original_a,
         original_b,
         *tolerance,
-    )?;
+    )
+    .map_err(|mut diag| {
+        // ChartSubdivisionReport promotion (PK-106): a failed cellular
+        // boolean carries, per face that could not chart-walk, WHY it
+        // took the legacy fallback — the substrate defects are usually
+        // the trailhead for the assembly failure being reported.
+        for (face_ref, reason) in &walk_fallbacks {
+            diag.add(crate::error::DiagnosticEntry {
+                severity: crate::error::Severity::Warning,
+                phase: crate::error::Stage::Merge,
+                message: format!("chart walk fell back to legacy on {face_ref:?}: {reason}"),
+                entities: vec![crate::error::EntityRef::Face(face_ref.face)],
+                measured_value: None,
+                location: None,
+                remediation: None,
+            });
+        }
+        diag
+    })?;
 
     // Build provenance map (available via boolean_with_provenance).
     let _provenance =
