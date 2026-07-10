@@ -7,6 +7,12 @@
 // Used by later pipeline stages; not yet called from the main merge path.
 #![allow(dead_code)]
 
+pub(crate) mod chart_branches;
+pub(crate) mod chart_embedding;
+pub(crate) mod chart_subdivision;
+pub(crate) mod chart_walk;
+#[cfg(test)]
+mod chart_walk_tests;
 pub(crate) mod walk_geometry;
 
 use std::collections::HashSet;
@@ -42,7 +48,7 @@ pub(crate) fn walk_all_fragments(
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Vec<Fragment> {
-    walk_all_fragments_ext(graph, brep_a, brep_b, false)
+    walk_all_fragments_ext(graph, brep_a, brep_b, false, false)
 }
 
 /// `coincident_interface`: the boolean carries coplanar face
@@ -50,11 +56,17 @@ pub(crate) fn walk_all_fragments(
 /// sampled-polygon containment test is currently only trusted on
 /// that configuration (it mis-voted a through-slot ring on a long
 /// tapered face — see the flush-gusset pin).
+///
+/// `chart_primary`: walk each face as a chart-subdivision permutation
+/// when its substrate passes I1–I5, with the legacy walk as recorded
+/// per-face fallback (PK-104 stage 3; the cellular pipeline sets this,
+/// graph-merge keeps the legacy walk — its graphs lack seam splits).
 pub(crate) fn walk_all_fragments_ext(
     graph: &IntersectionGraph,
     brep_a: &BRep,
     brep_b: &BRep,
     coincident_interface: bool,
+    chart_primary: bool,
 ) -> Vec<Fragment> {
     let mut fragments = Vec::new();
 
@@ -103,6 +115,59 @@ pub(crate) fn walk_all_fragments_ext(
         let mut visited: HashSet<usize> = HashSet::new();
         let mut loops: Vec<Vec<usize>> = Vec::new();
 
+        // PK-104 stage 3: chart-subdivision permutation walk, primary
+        // for the cellular pipeline. Faces whose substrate fails the
+        // I1–I5 checks fall through to the legacy walk below, with
+        // the reason observable under PK_BOOL_TRACE. COINCIDENT
+        // interfaces keep the legacy walk wholesale: the chart walk
+        // correctly emits every chart region — including regions
+        // legacy never walked (a through-hole's coplanar disk, a
+        // flush web) — and those extra fragments reach the
+        // OnBoundary keep-one-skin arbitration, which is tuned for
+        // legacy's fragment population (measured: duplicate skins on
+        // the drill-cap and flush-gusset fixtures). Chart-walking
+        // coplanar overlaps needs the substrate overlap dedup (design
+        // doc §5, I5) — the named follow-up leg.
+        let mut walked_by_chart = false;
+        // A/B lever for divergence adjudication: PK_WALK_CHART=0
+        // forces the legacy walk everywhere.
+        let chart_disabled = std::env::var("PK_WALK_CHART").as_deref() == Ok("0");
+        if chart_primary
+            && !coincident_interface
+            && !chart_disabled
+            && let Some((surface, orientation)) =
+                chart_subdivision::face_surface(face_ref, brep_a, brep_b)
+        {
+            let sub = chart_subdivision::build_face_subdivision(
+                graph,
+                face_ref,
+                he_indices,
+                surface,
+                orientation,
+            );
+            if sub.complete() {
+                if let Some(orbits) = chart_walk::walk_chart_orbits(&sub, graph) {
+                    loops = orbits;
+                    walked_by_chart = true;
+                    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                        eprintln!(
+                            "  [walk] {face_ref:?}: chart orbits {} (sigma {})",
+                            loops.len(),
+                            sub.sigma
+                        );
+                    }
+                } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!("  [walk] {face_ref:?}: chart orbit collision — legacy fallback");
+                }
+            } else if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                let issues: Vec<String> = sub.report.issues.iter().map(|i| i.to_string()).collect();
+                eprintln!(
+                    "  [walk] {face_ref:?}: chart substrate incomplete — legacy fallback ({})",
+                    issues.join("; ")
+                );
+            }
+        }
+
         // Sort starting edges: seam-like first, then other non-shared, then shared.
         // Seam-like edges (where the twin is also on this face) form the outer
         // boundary "spine" that connects self-loop circles. Starting from them
@@ -129,6 +194,9 @@ pub(crate) fn walk_all_fragments_ext(
         });
 
         for &start_he in &sorted_hes {
+            if walked_by_chart {
+                break;
+            }
             if visited.contains(&start_he) {
                 continue;
             }
@@ -223,6 +291,13 @@ pub(crate) fn walk_all_fragments_ext(
                     current_loop.first().copied().unwrap_or(usize::MAX)
                 );
             }
+        }
+
+        // PK-104 Stage 2: dual-walk divergence instrument. Runs the
+        // chart-subdivision permutation walk beside the legacy walk
+        // and reports agreement per face (one grep-able line each).
+        if std::env::var_os("PK_WALK_DUAL").is_some() {
+            chart_walk::dual_walk_probe(graph, face_ref, he_indices, &loops, brep_a, brep_b);
         }
 
         if loops.is_empty() {
@@ -333,8 +408,9 @@ pub(crate) fn walk_all_fragments_ext(
             };
             if std::env::var_os("PK_WALK_TRACE").is_some() {
                 eprintln!(
-                    "    [elect] loop {} hes area {:.1} thr {:.1} shares={} sep={}",
-                    lp.len(),
+                    "    [elect] loop {:?}{} area {:.1} thr {:.1} shares={} sep={}",
+                    &lp[..lp.len().min(6)],
+                    if lp.len() > 6 { "…" } else { "" },
                     remaining_areas[i],
                     threshold,
                     shares_edge_with_outer,

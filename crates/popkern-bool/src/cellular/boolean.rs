@@ -154,6 +154,7 @@ pub(crate) fn cellular_graph_merge(
         original_a,
         original_b,
         !intersection_result.coincidence.face_overlaps.is_empty(),
+        true,
     );
 
     // Phase 6 (CELLULAR): Classify fragments by cell membership.

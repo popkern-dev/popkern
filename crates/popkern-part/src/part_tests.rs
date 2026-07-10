@@ -988,38 +988,41 @@ fn tilted_face_star_socket_is_watertight_and_chi_clean() {
     assert_eq!(chi, 2, "square seat body must be a clean genus-0 solid");
 }
 
-/// FRONTIER PIN (side-breaching bore): a Ø72 bore whose wall
-/// BREACHES the prism's side face by 1 mm (centre −25, radius 36 vs
-/// the wall at x = −60) cut through a tilted top. This pin
-/// originally pinned the χ' = 4 membrane — that root cause (periodic
-/// -chart containment reading interior records as outside) is fixed
-/// and the centred cases now gate as
-/// round_seat_star_socket_is_watertight_and_void and
-/// perpendicular_bore_recess_is_watertight_and_void. The open-arc
-/// junction network has since advanced three layers (PK-103):
-/// conservative face AABBs restored the missing plane×cylinder
-/// discovery (the BVH never paired the breached wall with the bore
-/// — 8 rational-circle samples missed the 180° extreme by 2.2 mm),
-/// the near-vertex rescue in the split-face matcher absorbs the
-/// two-authority junction spread (~2.3 µm between the wall-trim clip
-/// and the cap-chord endpoints), and the generic NURBS inversion
-/// lets junction pre-splits work on split rim pieces. Further
-/// layers closed since: the exact arc→NURBS conversion (rim-anchor
-/// unification retired the clamp), wrapped clip windows (the mouth
-/// ellipse's true arc), curve-evaluated fragment samples (the cap
-/// sliver now drops), topological loop closure in the walk, and
-/// conservative EDGE AABBs (a closed rim's vertex-only box collapsed
-/// to its seam point and the rim×wall hits were never detected — the
-/// rim never split at the wall). Position now: χ = −1, 36 open mesh
-/// edges — the bore-wall face's fragment walk seeds on the SEAM,
-/// meets a THREE-way Shared junction at the mouth arc's anchor node
-/// (two arc pieces + seam; the exactly-one-trim junction rule does
-/// not apply), and the angular pick weaves the kept wall and the
-/// beyond-wall strip into one 16-half-edge mega-loop. Multi-trim
-/// junction routing is the walk-convention fork — the named next
-/// leg.
+/// REGRESSION GATE (PK-104, closed 2026-07-10): a bore whose wall
+/// breaches the prism's side face by 1 mm, cut through a tilted top.
+/// This fixture drove five campaign layers and finally the
+/// chart-subdivision walker (docs/architecture/
+/// fragment-walk-chart-subdivision.md): on the bore-wall face the
+/// mouth ellipse crosses the cylinder seam, and the legacy 3D
+/// angular pick chose a candidate from the OTHER period branch —
+/// weaving all 16 half-edges into one mega-loop (χ = −1, 36 opens).
+/// The permutation walk over the face's oriented-UV chart emits the
+/// correct three orbits (two kept wall pieces + one discard region),
+/// and the result is a valid closed solid: χ = 2, zero open mesh
+/// edges, BRepCheck-valid with volume 546874.6 (OCC oracle,
+/// 2026-07-10). The deck's mouth-bite TESSELLATION still spans the
+/// bite (mesh-only defect) — pinned separately in
+/// `bore_mouth_bite_tessellation_gap_is_pinned`.
 #[test]
-fn side_breaching_tilted_bore_gap_is_pinned() {
+fn side_breaching_tilted_bore_is_watertight_and_void() {
+    let bored = breached_bore_fixture();
+    let b = bored.brep();
+    let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
+        - b.loops.len() as i64;
+    assert_eq!(chi, 2, "breached bore must be a clean genus-0 solid");
+    assert_eq!(bored.open_edge_count().expect("mesh"), 0);
+    assert!(
+        mesh_contains_point(&bored, (-25.0, 0.0, 10.0)),
+        "below the bore floor is solid"
+    );
+    assert!(
+        !mesh_contains_point(&bored, (-25.0, 0.0, 23.0)),
+        "the void exists just above the bore floor"
+    );
+}
+
+/// The breached-bore fixture (see the regression gate above).
+fn breached_bore_fixture() -> Part {
     let tilt = -18.0_f64.to_radians();
     let prism = Profile::on(Plane::XY)
         .rect(120.0, 120.0)
@@ -1040,31 +1043,27 @@ fn side_breaching_tilted_bore_gap_is_pinned() {
         .expect("bore")
         .translate(-25.0, 0.0, 0.0)
         .expect("place");
-    let ok = match wedge.subtract(&bore) {
-        Ok(bored) => {
-            let b = bored.brep();
-            let chi = b.vertices.len() as i64 - b.edges.len() as i64 + 2 * b.faces.len() as i64
-                - b.loops.len() as i64;
-            let opens = bored.open_edge_count();
-            eprintln!(
-                "side-breaching bore: chi={chi} opens={opens:?} in10={} in30={}",
-                mesh_contains_point(&bored, (-25.0, 0.0, 10.0)),
-                mesh_contains_point(&bored, (-25.0, 0.0, 30.0))
-            );
-            chi == 2
-                && opens.map(|o| o == 0).unwrap_or(false)
-                && mesh_contains_point(&bored, (-25.0, 0.0, 10.0))
-                && !mesh_contains_point(&bored, (-25.0, 0.0, 30.0))
-        }
-        Err(e) => {
-            eprintln!("side-breaching tilted bore: {e:?}");
-            false
-        }
-    };
+    wedge.subtract(&bore).expect("side-breaching bore")
+}
+
+/// FRONTIER PIN (flips when the mesher leg closes): the breached
+/// bore's deck face carries a reflex elliptical bite in its OUTER
+/// loop. The BRep is exact — arc pcurves deviate 8e-15 from the 3D
+/// curves at midspan, the loop chain is connected and ordered — but
+/// the planar tessellation spans the bite: mesh volume 550834 vs the
+/// OCC-verified 546874.6 (+0.7% membrane over the mouth), and a
+/// phantom layer caps the void above z ≈ 27 on the bore axis.
+/// Reflex-ARC outer-loop bites are the untested class (full-circle
+/// inner loops and convex outer arcs both tessellate correctly —
+/// through-hole and holder-deck fixtures). Ledger: PK-104 follow-up.
+#[test]
+fn bore_mouth_bite_tessellation_gap_is_pinned() {
+    let bored = breached_bore_fixture();
+    let void_open = !mesh_contains_point(&bored, (-25.0, 0.0, 30.0));
     assert!(
-        !ok,
-        "side-breaching tilted bore now succeeds watertight with the bore \
-         void — flip this pin into a regression gate"
+        !void_open,
+        "the mouth-bite deck tessellation now leaves the void open — \
+         flip this pin into a regression gate"
     );
 }
 

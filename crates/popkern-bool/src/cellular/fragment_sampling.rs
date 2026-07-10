@@ -75,7 +75,71 @@ pub(crate) fn loop_uv_runs(
             // nests inside the pcurve's range; fall back to the full
             // range otherwise (foreign parameterization).
             let (mut s0, mut s1) = (pc.t_start, pc.t_end);
-            if let Some(c) = graph.half_edges[h].curve.as_ref() {
+            let mut window_recovered = false;
+            {
+                // DIRECT WINDOW: a split half-edge whose 3D window
+                // shares the parent pcurve's parameter space needs no
+                // inversion — try the window verbatim and 3D-verify
+                // both ends and the middle. This is the only branch
+                // that works on periodic charts, where the inversion
+                // recovery below is disabled (measured: an embedded
+                // boss band's seam pieces sampled the FULL 23 mm
+                // pcurve for a 1 mm window, the scanline row landed
+                // in the wall region above, and the discard band
+                // classified Outside and minted a duplicate ring
+                // edge). The 3D curve may live on either half of the
+                // pair; the twin's runs opposite, so its window maps
+                // reversed.
+                let own = graph.half_edges[h].curve.is_some();
+                let c = graph.half_edges[h]
+                    .curve
+                    .as_ref()
+                    .or_else(|| graph.half_edges[graph.half_edges[h].twin].curve.as_ref());
+                if let Some(c) = c {
+                    let (w0, w1) = if own {
+                        (c.t_start, c.t_end)
+                    } else {
+                        (c.t_end, c.t_start)
+                    };
+                    let p3 = |t: f64| c.geometry.point_at(t);
+                    let span3 = p3(w0).distance_to(&p3(w1)).max(1e-9);
+                    let tol3 = 1e-6 * (1.0 + span3);
+                    let verified = [0.0_f64, 0.5, 1.0].iter().all(|&f| {
+                        let uv = pc.point_at(w0 + (w1 - w0) * f);
+                        let on_surface = surface.point_at(uv.x, uv.y);
+                        let d = on_surface.distance_to(&p3(w0 + (w1 - w0) * f));
+                        if trace {
+                            eprintln!(
+                                "      [selpoly-window] he {h} f={f} uv=({:.3},{:.3}) d={d:.3e} tol={tol3:.3e}",
+                                uv.x, uv.y
+                            );
+                        }
+                        d <= tol3
+                    });
+                    if verified {
+                        s0 = w0;
+                        s1 = w1;
+                        window_recovered = true;
+                    }
+                }
+            }
+            let inv_curve = graph.half_edges[h]
+                .curve
+                .as_ref()
+                .map(|c| (c, true))
+                .or_else(|| {
+                    // The 3D curve may live on the twin only; its
+                    // parameter window maps to this half-edge
+                    // reversed (a split seam piece's twin carries a
+                    // full-edge pcurve and no curve of its own —
+                    // without inversion it sampled the whole wall).
+                    graph.half_edges[graph.half_edges[h].twin]
+                        .curve
+                        .as_ref()
+                        .map(|c| (c, false))
+                })
+                .filter(|_| !window_recovered);
+            if let Some((c, curve_own)) = inv_curve {
                 // The stored pcurve may cover the FULL original edge
                 // while the half-edge's 3D window is a stub of it, in
                 // a different parameter space (the 3D curve is
@@ -84,8 +148,14 @@ pub(crate) fn loop_uv_runs(
                 // the pcurve through the surface: coarse scan +
                 // ternary refinement, then verify. Keep the full
                 // range when inversion fails (foreign chart).
-                let p3a = c.geometry.point_at(c.t_start);
-                let p3b = c.geometry.point_at(c.t_end);
+                // Endpoints in THIS half-edge's traversal order.
+                let (wt0, wt1) = if curve_own {
+                    (c.t_start, c.t_end)
+                } else {
+                    (c.t_end, c.t_start)
+                };
+                let p3a = c.geometry.point_at(wt0);
+                let p3b = c.geometry.point_at(wt1);
                 let scale3 = 1.0 + p3a.distance_to(&p3b);
                 let nearest = |p3: &Point3| -> (f64, f64) {
                     let d_at = |t: f64| {
@@ -115,17 +185,33 @@ pub(crate) fn loop_uv_runs(
                     let t = 0.5 * (lo + hi);
                     (t, d_at(t))
                 };
-                // Scoped to NON-PERIODIC charts: on a periodic chart
-                // every u-branch evaluates to the same 3D points, so
+                // Branch-ambiguity gate: on a periodic chart every
+                // u-branch evaluates to the same 3D points, so
                 // inversion cannot distinguish branches and the
-                // recovered window can run the wrong way around the
-                // circle (measured: a drill-hole rim's window emptied
-                // the scanline polygon and reopened a through-hole).
-                // Closed spans (rim half-edges) invert both endpoints
-                // to the same parameter — skip those too, and verify
-                // the midpoint.
-                let u_periodic = surface.parameter_periodicity().0.is_some();
-                if !u_periodic && p3a.distance_to(&p3b) > 1e-9 * scale3 {
+                // recovered window can run the wrong way around a
+                // WRAPPING pcurve (measured: a drill-hole rim's
+                // window emptied the scanline polygon and reopened a
+                // through-hole). A pcurve whose u-extent is under
+                // half a period cannot wrap — inversion is well-posed
+                // there even on periodic charts (measured: an
+                // embedded boss's split seam piece carries a
+                // reparameterized full-edge pcurve; without inversion
+                // it sampled the whole wall and the discard band
+                // classified into the kept region).
+                let unambiguous = match surface.parameter_periodicity().0 {
+                    None => true,
+                    Some(period) => {
+                        let (mut u_lo, mut u_hi) = (f64::MAX, f64::MIN);
+                        for i in 0..=8 {
+                            let t = pc.t_start + (pc.t_end - pc.t_start) * i as f64 / 8.0;
+                            let u = pc.point_at(t).x;
+                            u_lo = u_lo.min(u);
+                            u_hi = u_hi.max(u);
+                        }
+                        u_hi - u_lo < period * 0.5
+                    }
+                };
+                if unambiguous && p3a.distance_to(&p3b) > 1e-9 * scale3 {
                     let (ta, da) = nearest(&p3a);
                     let (tb, db) = nearest(&p3b);
                     let mid_ok = {
