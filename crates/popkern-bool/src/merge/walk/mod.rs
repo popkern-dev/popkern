@@ -127,38 +127,19 @@ pub(crate) fn walk_all_fragments_ext(
         // PK-104 stage 3: chart-subdivision permutation walk, primary
         // for the cellular pipeline. Faces whose substrate fails the
         // I1–I5 checks fall through to the legacy walk below, with
-        // the reason observable under PK_BOOL_TRACE. COINCIDENT
-        // interfaces keep the legacy walk wholesale: the chart walk
-        // correctly emits every chart region — including regions
-        // legacy never walked (a through-hole's coplanar disk, a
-        // flush web) — and those extra fragments reach the
-        // OnBoundary keep-one-skin arbitration, which is tuned for
-        // legacy's fragment population (measured: duplicate skins on
-        // the drill-cap and flush-gusset fixtures). Chart-walking
-        // coplanar overlaps needs the substrate overlap dedup (design
-        // doc §5, I5) — the named follow-up leg.
+        // the reason observable under PK_BOOL_TRACE and recorded in
+        // `walk_fallbacks`.
         let mut walked_by_chart = false;
         // A/B lever for divergence adjudication: PK_WALK_CHART=0
-        // forces the legacy walk everywhere. Coincident booleans
-        // chart-walk since PK-106 EXCEPT the overlapping faces
-        // themselves: the chart walk correctly emits their coplanar
-        // web regions as fragments, but the keep-one-skin
-        // arbitration classifies those in-plane fragments
-        // Outside/Inside instead of OnBoundary (measured on the
-        // flush-gusset weld: both skins kept, the second one's ring
-        // edges resolve EMPTY, 138 opens). Until the arbitration is
-        // reworked for that population, overlap-pair faces keep the
-        // legacy walk — the recorded boundary where coincident
-        // fragment semantics live.
+        // forces the legacy walk everywhere. Since PK-107 every face
+        // of a coincident boolean chart-walks, overlap faces
+        // included: the substrate's duplicate-cover dedup,
+        // gap-substitute completion, and interior-graze filter give
+        // the overlap faces the same fragment population the tuned
+        // arbitration expects (their chart-emitted web skins classify
+        // OnBoundary with correct coorientation).
         let chart_disabled = std::env::var("PK_WALK_CHART").as_deref() == Ok("0");
-        let face_in_overlap = overlap_pairs.iter().any(|&(a, b)| match face_ref.operand {
-            super::graph::Operand::A => face_ref.face == a,
-            super::graph::Operand::B => face_ref.face == b,
-        });
-        // PK-107 adjudication lever: chart-walk the overlap faces too.
-        let overlap_chart = std::env::var("PK_WALK_CHART_OVERLAP").as_deref() == Ok("1");
         if chart_primary
-            && (!face_in_overlap || overlap_chart)
             && !chart_disabled
             && let Some((surface, orientation)) =
                 chart_subdivision::face_surface(face_ref, brep_a, brep_b)
@@ -177,9 +158,10 @@ pub(crate) fn walk_all_fragments_ext(
                     walked_by_chart = true;
                     if std::env::var_os("PK_BOOL_TRACE").is_some() {
                         eprintln!(
-                            "  [walk] {face_ref:?}: chart orbits {} (sigma {})",
+                            "  [walk] {face_ref:?}: chart orbits {} (sigma {}) filtered {:?}",
                             loops.len(),
-                            sub.sigma
+                            sub.sigma,
+                            sub.report.filtered
                         );
                     }
                 } else {
@@ -505,6 +487,35 @@ pub(crate) fn walk_all_fragments_ext(
             }
         }
 
+        // PK_LOOP_DUMP_ALL: dump every fragment's loops regardless of
+        // size (PK-107 forensics: comparing 11- vs 13-half-edge outer
+        // loops between the legacy and chart walks).
+        if std::env::var_os("PK_LOOP_DUMP_ALL").is_some() {
+            for (tag, lp) in std::iter::once(("outer", &outer_loop))
+                .chain(inner_loops_out.iter().map(|l| ("inner", l)))
+                .chain(separate_outers.iter().map(|l| ("separate", l)))
+            {
+                let hes: Vec<String> = lp
+                    .iter()
+                    .map(|&h| {
+                        let n = graph.half_edges[h].origin;
+                        let p = graph.nodes[n].position;
+                        let shared = matches!(
+                            graph.half_edges[h].source,
+                            super::graph::EdgeSource::Shared { .. }
+                        );
+                        format!(
+                            "{h}@n{n}({:.1},{:.1},{:.1}){}",
+                            p.x,
+                            p.y,
+                            p.z,
+                            if shared { "S" } else { "" }
+                        )
+                    })
+                    .collect();
+                eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
+            }
+        }
         if std::env::var_os("PK_LOOP_DUMP").is_some() && outer_loop.len() >= 20 {
             eprintln!("  [loopdump] {face_ref:?} outer {} hes:", outer_loop.len());
             for &h in &outer_loop {

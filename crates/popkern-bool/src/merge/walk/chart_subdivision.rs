@@ -114,6 +114,12 @@ pub(crate) enum FilteredRecord {
     /// The kept direction is the boundary substitute; the dropped one
     /// pointed material off-face and unbalanced the gap endpoints.
     GapSubstituteDirection { dropped: usize, kept: usize },
+    /// An interior graze: a record pair dead-ending at a node with no
+    /// other registered half-edge on this face. Both sides of the
+    /// trace bound the same region there — the legacy walk's
+    /// interior-graze candidate filter refuses to enter these; the
+    /// substrate drops the pair (design doc §5).
+    InteriorGraze(usize),
 }
 
 /// Structured result of the substrate pass for one face.
@@ -397,7 +403,7 @@ pub(crate) fn build_face_subdivision(
         let imbalance_total = |d: &std::collections::HashMap<usize, i64>| -> i64 {
             d.values().map(|v| v.abs()).sum()
         };
-        let mut deg = degree(&sub);
+        let deg = degree(&sub);
         if imbalance_total(&deg) > 0 {
             let mut pairs: Vec<(usize, usize)> = Vec::new();
             for &h in sub.embeddings.keys() {
@@ -469,6 +475,60 @@ pub(crate) fn build_face_subdivision(
                     }
                 }
             }
+        }
+    }
+
+    // INTERIOR-GRAZE filter (design doc §5): a record pair whose
+    // endpoint node has NO other registered half-edge dead-ends
+    // strictly inside the face — both sides of the trace bound the
+    // same region there, and walking it weaves an out-and-back spur
+    // into a fragment loop (measured on the flush-gusset wall: the
+    // gusset's sloped-face trace ends mid-wall at a degree-1 node,
+    // and the chart outer loop carried the spur as its two extra
+    // half-edges vs the legacy walk, which filters grazes at
+    // candidate time). Iterated: removing one graze can expose a
+    // chain.
+    for _ in 0..8 {
+        let mut incident: std::collections::HashMap<usize, Vec<usize>> =
+            std::collections::HashMap::new();
+        for &h in sub.embeddings.keys() {
+            let (a, b) = ends(h);
+            incident.entry(a).or_default().push(h);
+            incident.entry(b).or_default().push(h);
+        }
+        let mut grazes: Vec<(usize, usize)> = Vec::new();
+        for &h in sub.embeddings.keys() {
+            let tw = graph.half_edges[h].twin;
+            if h > tw || !sub.embeddings.contains_key(&tw) {
+                continue;
+            }
+            if !matches!(
+                graph.half_edges[h].source,
+                crate::merge::graph::EdgeSource::Shared { .. }
+            ) {
+                continue;
+            }
+            let (a, b) = ends(h);
+            if a == b {
+                continue; // closed rings are legitimate cuts
+            }
+            let dead_end = |n: usize| -> bool {
+                incident
+                    .get(&n)
+                    .map(|v| v.iter().all(|&x| x == h || x == tw))
+                    .unwrap_or(true)
+            };
+            if dead_end(a) || dead_end(b) {
+                grazes.push((h, tw));
+            }
+        }
+        if grazes.is_empty() {
+            break;
+        }
+        for (h, tw) in grazes {
+            sub.embeddings.remove(&h);
+            sub.embeddings.remove(&tw);
+            sub.report.filtered.push(FilteredRecord::InteriorGraze(h));
         }
     }
 
