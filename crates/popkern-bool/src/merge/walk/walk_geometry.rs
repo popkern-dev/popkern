@@ -161,22 +161,24 @@ pub(super) fn pick_by_angle(
     best
 }
 
-/// Walk normal for a PLANAR face, derived from the face's stored
-/// outer-loop winding via Newell's method — NEGATED, so it points OUT
-/// of the material (this kernel's loop Newell points inward).
+/// Walk normal for a PLANAR face: the NEGATED Newell of the stored
+/// outer loop.
 ///
-/// This is the walk-consistent handedness: fragment loops reuse the
-/// face's boundary half-edges in their registered directions, so every
-/// valid loop winds counter-clockwise about the inward Newell vector.
-/// `pick_by_angle` measures candidates counter-clockwise from the
-/// BACKWARD direction of arrival, and the tightest fragment on the
-/// walk's material side is the candidate with the smallest CLOCKWISE
-/// angle about the inward vector — which is exactly the smallest
-/// counter-clockwise angle about this outward vector, matching the
-/// existing comparison (verified against four seam junctions of a
-/// flush coplanar union plus the convex-corner base case). Returns
-/// `None` for non-planar faces — curved charts keep the tuned
-/// UV-normal path.
+/// The stored loop's Newell IS the outward normal (kernel authoring
+/// convention — constructors and sweep, confirmed by the PK-104
+/// winding census), so this vector points INTO the material. That is
+/// not a mistake: `pick_by_angle` measures candidates
+/// counter-clockwise from the BACKWARD direction of arrival, and
+/// material-on-left traversal needs the smallest CLOCKWISE angle
+/// about the OUTWARD normal — equivalently the smallest
+/// counter-clockwise angle about this inward vector. The pair
+/// (backward reference, inward axis) is exactly the classical DCEL
+/// rotational successor for face-on-left walks; see the chart walker
+/// (`chart_walk::next_in_chart`), which implements the same
+/// comparison in oriented UV. (Verified against four seam junctions
+/// of a flush coplanar union plus the convex-corner base case.)
+/// Returns `None` for non-planar faces — curved charts keep the
+/// tuned UV-normal path.
 fn planar_walk_normal(face: &FaceRef, brep_a: &BRep, brep_b: &BRep) -> Option<Vec3> {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
