@@ -43,6 +43,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     radius_at_end: f64,
     trim_3d_for_face: Option<&NurbsCurve>,
     anchor_on_trim: bool,
+    bevel_plane: Option<(Point3, popkern_core::geometry::Vec3)>,
     _tolerance: &Tolerance,
 ) -> Result<(Point3, Point3), String> {
     let face_data = brep
@@ -160,6 +161,45 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         }
                         *slot = Some(along(s));
                         return;
+                    }
+                    // PLANAR-BEVEL anchor (chamfers): the strip's
+                    // true end boundary is where the BEVEL PLANE
+                    // crosses this perpendicular edge. On orthogonal
+                    // corners this equals the perp-walk position
+                    // exactly; on skewed corners the perp-walk
+                    // anchor sits OFF the bevel plane, the end
+                    // transition gets merged into the planar strip
+                    // face anyway, and the face no longer contains
+                    // its own boundary (measured: a tilted
+                    // boolean-cut bar's mitre corner 0.46 off the
+                    // recognized plane — the mesher and OCC's sewing
+                    // both cracked along both rails). Capped at 8×
+                    // the chamfer distance so a near-parallel edge
+                    // falls back to perp-walk instead of a grotesque
+                    // mitre.
+                    if let Some((po, pn)) = bevel_plane {
+                        let d = p1 - p0;
+                        let denom = pn.dot(&d);
+                        if denom.abs() > 1e-12 {
+                            let s = pn.dot(&(po - p0)) / denom;
+                            let dist_from_vertex = if forward {
+                                s * edge_len
+                            } else {
+                                (1.0 - s) * edge_len
+                            };
+                            if (0.001..0.999).contains(&s)
+                                && dist_from_vertex > 1e-9
+                                && dist_from_vertex <= radius * 8.0
+                            {
+                                if trace {
+                                    eprintln!(
+                                        "[anchor] face={face:?} bevel-plane s={s:.6} vs perp t={t_perp:.6} — using plane crossing"
+                                    );
+                                }
+                                *slot = Some(along(s));
+                                return;
+                            }
+                        }
                     }
                     if perp_accept {
                         *slot = Some(along(t_perp));

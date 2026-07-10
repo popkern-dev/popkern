@@ -136,6 +136,13 @@ pub(super) fn run_perpendicular_splits(
             None
         };
 
+        // A PLANAR blend strip is a chamfer bevel (fillet strips are
+        // cylinders/NURBS): its end anchors come from the bevel
+        // plane's crossings with the perpendicular edges.
+        let bevel_plane = match &eg.surface {
+            SurfaceGeometry::Plane { origin, normal, .. } => Some((*origin, *normal)),
+            _ => None,
+        };
         match helpers::split_perpendicular_edges_by_radius_with_overrides(
             &phase_a_snapshot,
             result,
@@ -145,6 +152,7 @@ pub(super) fn run_perpendicular_splits(
             trim_for_anchors.then_some(&eg.trim_3d_1),
             trim_for_anchors.then_some(&eg.trim_3d_2),
             anchor_on_trim,
+            bevel_plane,
             eg.radius_at_start,
             eg.radius_at_end,
             tolerance,

@@ -734,13 +734,18 @@ fn arm_joint_prism(
         .translate(0.0, -y_start, mouth_z)
 }
 
-// DEFERRED (recorded containment): breaking the arm's rest-face side
-// edges with a chamfer selects a CHAIN of collinear edge pieces (the
-// boolean history splits the long edge at the root step, swoop ends,
-// and lap shoulder), and chamfering a chain with mid-face junction
-// vertices is the same open frontier as the flagship's 12-edge chain
-// fillet (measured here: 1061 open mesh edges). The arms ship with
-// sharp rest edges until blend-chain corner patches land.
+// DEFERRED (recorded containment, second leg): the fanned-dressing
+// campaign CLOSED the skewed-corner chamfer class (bevel-plane
+// perpendicular anchors: tilted, yawed, and collinear-chain
+// boolean-cut edges all chamfer watertight — pinned by
+// boolean_cut_skewed_corner_chamfer_is_watertight), but the arm's
+// rest-edge chamfer still cracks where the edge pieces terminate at
+// the lip-slot mouth and on the rail-unioned tip body (measured: 57
+// open mesh edges on the tip, 132 on the root — end transitions at
+// through-slot flanks and post-union shoulder faces are their own
+// junction class). The arms ship with sharp rest edges until that
+// junction leg lands; they print rest-face down, so the first-layer
+// squish breaks those edges in practice.
 
 /// ROOT half of the split arm: the arm chain with its plan ending at
 /// the joint shoulder (no slot — that lives on the tip), plus the
@@ -916,6 +921,34 @@ fn write_assembly_preview(
 }
 
 fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
+    if std::env::var_os("PK_OPEN_DEBUG").is_some()
+        && let Ok(n) = part.open_edge_count()
+        && n > 0
+    {
+        let mesh = part
+            .mesh(&popkern_mesh::TessellationOptions::default())
+            .expect("mesh");
+        use std::collections::HashMap;
+        let mut count: HashMap<(usize, usize), i32> = HashMap::new();
+        for t in &mesh.triangles {
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                *count.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+            }
+        }
+        let mut shown = 0;
+        for ((a, b), c) in &count {
+            if *c != 2 && shown < 10 {
+                let pa = &mesh.vertices[*a].position;
+                let pb = &mesh.vertices[*b].position;
+                eprintln!(
+                    "  [{name}-open] uses={c} ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
+                    pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
+                );
+                shown += 1;
+            }
+        }
+    }
     // An EMPTY body meshes trivially watertight — a silently swallowed
     // boolean must not pass the gate (measured: an arm tip whose run
     // had wedged out to nothing exported as a valid 0-face part).

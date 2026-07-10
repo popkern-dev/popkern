@@ -2855,3 +2855,87 @@ fn fanned_flush_gusset_union_weld_is_watertight() {
         "material past the web's end — phantom clip window regressed"
     );
 }
+
+/// PIN → GATE (fanned-dressing campaign): chamfer on BOOLEAN-CUT
+/// skewed corners. The strip's end anchors come from the bevel
+/// plane's crossings with the perpendicular edges — the historical
+/// fixed-distance walk only lands on the bevel plane at orthogonal
+/// corners, and the end transition is merged into the planar strip
+/// face, so a skewed corner (a tilted+yawed rest cut) put the mitre
+/// corner off-plane and the face no longer contained its boundary
+/// (measured: 75 open mesh edges; with a collinear chain, 119).
+#[test]
+fn boolean_cut_skewed_corner_chamfer_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let w = 12.0_f64.to_radians();
+    let bar = Profile::on(Plane::XY)
+        .rect(40.0, 200.0)
+        .at(0.0, -100.0)
+        .extrude(60.0)
+        .expect("bar");
+    let upper = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("upper")
+        .rotate_x(tilt)
+        .expect("rx")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, 0.0, 80.0)
+        .expect("place");
+    let bar = bar.subtract(&upper).expect("rest cut");
+    // Notch the side walls so each chamfered edge is a CHAIN of
+    // collinear pieces meeting at mid-face junction vertices.
+    let notch = Profile::on(Plane::xy_at(-1.0))
+        .rect(50.0, 20.0)
+        .at(0.0, -100.0)
+        .extrude(5.0)
+        .expect("notch");
+    let bar = bar.subtract(&notch).expect("notch cut");
+    let rest_z = move |x: f64, y: f64| 80.0 + (x * w.sin() + y * w.cos()) * tilt.tan();
+    let dressed = bar
+        .chamfer(1.0, move |e: EdgeQuery| {
+            e.straight().filter(move |i| {
+                i.direction.map(|d| d.y.abs() > 0.9).unwrap_or(false)
+                    && (i.midpoint.z - rest_z(i.midpoint.x, i.midpoint.y)).abs() < 0.5
+            })
+        })
+        .expect("chamfer");
+    let opens = dressed.open_edge_count().expect("mesh");
+    eprintln!(
+        "skewed-corner chamfer: opens={opens} faces={}",
+        dressed.face_count()
+    );
+    assert_eq!(opens, 0);
+    assert!(dressed.face_count() > 0);
+}
+
+/// PIN (open frontier): chamfer around a CLOSED OUTER rim — a
+/// cylinder's top edge. The input geometry is now measured-correct
+/// (per-sample toward-centroid side selection, conical bevel
+/// recognition, exact rational rim arcs), but the closed-rim blend
+/// SURGERY was built for hole rims: on an outer rim it emits a body
+/// whose strip/cap trim representation is invalid (BRepCheck false,
+/// ~1800 open mesh edges; the closed FILLET on the same rim errors
+/// outright). Flip to a gate when the outer-rim surgery leg lands —
+/// the column's rim chamfers wait on it.
+#[test]
+fn closed_outer_rim_chamfer_gap_is_pinned() {
+    let cyl = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("cyl");
+    let out = cyl
+        .chamfer(1.5, |e: EdgeQuery| e.circular().at_height(60.0))
+        .expect("chamfer runs");
+    let opens = out.open_edge_count().expect("mesh");
+    eprintln!(
+        "outer-rim chamfer: opens={opens} faces={}",
+        out.face_count()
+    );
+    assert!(
+        opens > 0,
+        "closed-outer-rim chamfer is now watertight — flip this pin to a gate \
+         and enable the column's rim chamfers"
+    );
+}

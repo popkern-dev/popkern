@@ -375,11 +375,27 @@ impl BRep {
     /// Recompute pcurves for ALL faces in the BRep.
     pub fn recompute_all_pcurves(&mut self) -> Result<(), crate::error::CoreError> {
         let faces: Vec<_> = self.faces.keys().collect();
+        // FAULT-TOLERANT per face: one face's projection failure must
+        // not abandon every face after it — a dress-up surgery that
+        // nulled stale pcurves (fix_stale) relies on this pass to
+        // refill them, and an early abort left the remaining faces
+        // meshing against their pre-surgery extents (measured: a
+        // chamfered arm tip's rest face triangulated clear across
+        // the setbacks — 57 open mesh edges). The FIRST error is
+        // still reported after all faces are attempted.
+        let mut first_err = None;
         for fh in faces {
-            self.recompute_face_pcurves(fh)?;
+            if let Err(e) = self.recompute_face_pcurves(fh)
+                && first_err.is_none()
+            {
+                first_err = Some(e);
+            }
             self.close_periodic_loop_winding(fh);
         }
-        Ok(())
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     /// Zero the net U-winding of every loop of a face on a

@@ -65,6 +65,22 @@ pub fn chamfer_edges(
         failures: edge_failures,
     })?;
 
+    // Post-apply pcurve maintenance — the same ladder the fillet
+    // path runs. The surgery shortens the edges adjacent to each
+    // chamfered edge but leaves their pcurves covering the OLD span;
+    // without the recompute a retrimmed face tessellates to its
+    // pre-chamfer extent and overlaps the bevel strips (measured: a
+    // tilted boolean-cut top face meshed clear across both setbacks
+    // — 75 open mesh edges on a 9-face body; flat charts survived
+    // the staleness by accident, which is why the bracket suite
+    // never caught it).
+    // Order matters: `recompute_all_pcurves` is FILL-ONLY (existing
+    // pcurves are trusted), so the stale ones must be NULLED first
+    // or they survive both passes.
+    apply_result.brep.fix_stale_pcurves();
+    let _ = apply_result.brep.recompute_all_pcurves();
+    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);

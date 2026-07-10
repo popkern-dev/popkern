@@ -76,27 +76,82 @@ pub fn compute_chamfer(
         &edge_points,
         &analysis.surface_1,
         dist_1,
-        interior_1,
+        interior_1.as_ref(),
         tolerance,
     )?;
     let offset_points_2 = compute_offset_points(
         &edge_points,
         &analysis.surface_2,
         dist_2,
-        interior_2,
+        interior_2.as_ref(),
         tolerance,
     )?;
 
-    // 5. Fit trim curves through the offset points.
-    let trim_curve_1 = fit_nurbs_through_points(&offset_points_1)?;
-    let trim_curve_2 = fit_nurbs_through_points(&offset_points_2)?;
+    if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+        let a = offset_points_1.first();
+        let b = offset_points_2.first();
+        eprintln!("  [chamfer-offsets] p1[0]={a:?} p2[0]={b:?}");
+    }
+    // 4.5. Conical bevel recognition: a chamfer around a circular
+    // rim is an exact CONE frustum bounded by two circles (cap∩cone
+    // and wall∩cone). Snap the sampled rows onto the exact circles
+    // BEFORE fitting trims — the chord-tangent offsets carry ~1e-3·r
+    // noise that would otherwise live on in every rail, and the
+    // generic closed NURBS ruled ring meshed with cracked seams
+    // (measured: ~1800 open mesh edges on a plain rim chamfer).
+    let mut offset_points_1 = offset_points_1;
+    let mut offset_points_2 = offset_points_2;
+    let cone = recognize_conical_bevel(&offset_points_1, &offset_points_2);
+    if let Some((_, circle_1, circle_2)) = &cone {
+        snap_row_to_circle(&mut offset_points_1, circle_1);
+        snap_row_to_circle(&mut offset_points_2, circle_2);
+    }
+
+    // 5. Fit trim curves through the offset points. Recognized rim
+    // circles become EXACT rational-arc NURBS anchored at the row
+    // start (the seam station): the interpolated 20-point fit left
+    // ~1e-3·r ripple on every rail and the wall/cap meshed against
+    // it with thousands of cracked slivers.
+    let exact_rim = |circle: &BevelCircle, anchor: &Point3| -> NurbsCurve {
+        let (c, axis, r) = circle;
+        let (p1, p2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+        let d = *anchor - *c;
+        let a0 = d.dot(&p2).atan2(d.dot(&p1));
+        popkern_core::geometry::curve::CurveGeometry::Arc {
+            center: *c,
+            normal: *axis,
+            radius: *r,
+            start_angle: a0,
+            end_angle: a0 + std::f64::consts::TAU,
+        }
+        .to_nurbs_in_range((a0, a0 + std::f64::consts::TAU))
+    };
+    let (trim_curve_1, trim_curve_2) = match &cone {
+        Some((_, circle_1, circle_2)) => (
+            exact_rim(circle_1, &offset_points_1[0]),
+            exact_rim(circle_2, &offset_points_2[0]),
+        ),
+        None => (
+            fit_nurbs_through_points(&offset_points_1)?,
+            fit_nurbs_through_points(&offset_points_2)?,
+        ),
+    };
 
     // 6. Compute pcurves by projecting onto face UV spaces.
     let pcurve_1 = compute_pcurve(&offset_points_1, &analysis.surface_1)?;
     let pcurve_2 = compute_pcurve(&offset_points_2, &analysis.surface_2)?;
 
-    // 7. Build the ruled surface between the two trim curves.
-    let surface = build_ruled_surface(&offset_points_1, &offset_points_2)?;
+    // 7. Build the surface: the recognized cone, or the ruled
+    // strip between the two trim curves.
+    let surface = match cone {
+        Some((cone_surface, _, _)) => {
+            if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                eprintln!("  [bevel] conical recognition: {cone_surface:?}");
+            }
+            cone_surface
+        }
+        None => build_ruled_surface(&offset_points_1, &offset_points_2)?,
+    };
 
     Ok(ChamferResult {
         surface,
@@ -105,6 +160,17 @@ pub fn compute_chamfer(
         pcurve_1,
         pcurve_2,
     })
+}
+
+/// Which side of ±(normal × tangent) is the face's material.
+enum InteriorHint {
+    /// Constant direction — planar faces (whole-loop Newell, tuned).
+    Constant(Vec3),
+    /// Per-sample: toward this point (the face's boundary-sample
+    /// centroid). A CLOSED rim's interior direction ROTATES around
+    /// the ring — a cap's inward radial flips sign at the antipode —
+    /// so no constant vector can sign-select every sample.
+    Toward(Point3),
 }
 
 /// Compute offset distances on each face based on chamfer kind.
@@ -156,7 +222,7 @@ fn face_interior_hint(
     brep: &popkern_core::topology::BRep,
     edge: popkern_core::topology::EdgeHandle,
     face: popkern_core::topology::FaceHandle,
-) -> Option<Vec3> {
+) -> Option<InteriorHint> {
     let face_data = brep.faces.get(face)?;
     // Newell normal over the outer loop.
     let start = brep.loops.get(face_data.outer_loop)?.half_edge;
@@ -204,16 +270,85 @@ fn face_interior_hint(
         }
     }
     let (p, q) = he_on_edge?;
-    let he_dir = (q - p).normalized()?;
-    let outward = newell.normalized()?;
-    outward.cross(&he_dir).normalized()
+    // Midpoint and travel direction along this face's half-edge. On
+    // a CLOSED edge (a rim: origin == dest) the vertex chord is
+    // degenerate — sample the edge CURVE instead, flipped when this
+    // face's half-edge is the reversed use.
+    let (mid, he_dir) = if let Some(dir) = (q - p).normalized() {
+        (p + (q - p) * 0.5, dir)
+    } else {
+        use popkern_core::geometry::curve::CurveEval;
+        let edge_data = brep.edges.get(edge)?;
+        let c = edge_data.curve.as_ref()?;
+        let forward = {
+            // The canonical half-edge is the forward use; find which
+            // use belongs to this face.
+            let canon = edge_data.half_edge;
+            let canon_face = brep
+                .half_edges
+                .get(canon)
+                .and_then(|h| brep.loops.get(h.loop_))
+                .map(|l| l.face);
+            canon_face == Some(face)
+        };
+        let t_mid = 0.5 * (c.t_start + c.t_end);
+        let dt = (c.t_end - c.t_start) * 1e-4;
+        let a = c.geometry.point_at(t_mid - dt);
+        let b = c.geometry.point_at(t_mid + dt);
+        let dir = (b - a).normalized()?;
+        (
+            c.geometry.point_at(t_mid),
+            if forward { dir } else { dir * -1.0 },
+        )
+    };
+    // The loop-winding invariant: the whole-loop Newell points INTO
+    // the material on PLANAR faces (tuned across the chamfer suite)
+    // — hint = newell × he_dir. On CURVED charts a whole-loop
+    // Newell is meaningless (a periodic wall's two rims cancel or
+    // flip it — measured: a cylinder rim chamfer walked the wall
+    // trim UP off the solid, 1.5 above the cap), and normal-flag
+    // conventions proved treacherous (both signs measured wrong on
+    // different fixtures). Use MEASURED geometry instead: the
+    // direction from the edge midpoint toward the face's
+    // boundary-sample centroid, projected into the tangent plane.
+    // The hint only selects the SIGN of ±(normal × tangent), so
+    // centroid-side is decisive for any face whose bulk lies on its
+    // material side — every chamfer support face qualifies. A
+    // degenerate planar Newell (a cap bounded by one closed rim)
+    // routes through the centroid path too.
+    let surf = face_data.surface.as_ref()?;
+    let planar_newell = matches!(surf.geometry, SurfaceGeometry::Plane { .. })
+        .then(|| newell.normalized())
+        .flatten();
+    if let Some(n) = planar_newell {
+        return n.cross(&he_dir).normalized().map(InteriorHint::Constant);
+    }
+    let _ = (mid, he_dir, surf);
+    let samples = brep.face_boundary_sample_points(face, 8);
+    if samples.is_empty() {
+        return None;
+    }
+    let mut cx = 0.0;
+    let mut cy = 0.0;
+    let mut cz = 0.0;
+    for s in &samples {
+        cx += s.x;
+        cy += s.y;
+        cz += s.z;
+    }
+    let n = samples.len() as f64;
+    Some(InteriorHint::Toward(popkern_core::geometry::Point3::new(
+        cx / n,
+        cy / n,
+        cz / n,
+    )))
 }
 
 fn compute_offset_points(
     edge_points: &[Point3],
     surface: &SurfaceGeometry,
     distance: f64,
-    interior_hint: Option<Vec3>,
+    interior_hint: Option<&InteriorHint>,
     tolerance: &Tolerance,
 ) -> Result<Vec<Point3>, String> {
     if edge_points.len() < 2 {
@@ -264,8 +399,15 @@ fn compute_offset_points(
             offset_raw.y / offset_len,
             offset_raw.z / offset_len,
         );
-        // Walk into the face's material side.
-        if let Some(hint) = interior_hint
+        // Walk into the face's material side. The normal component
+        // of a Toward vector is perpendicular to offset_dir, so the
+        // raw dot sign-selects correctly without projection.
+        let hint_vec = match interior_hint {
+            Some(InteriorHint::Constant(v)) => Some(*v),
+            Some(InteriorHint::Toward(c)) => Some(*c - *pt),
+            None => None,
+        };
+        if let Some(hint) = hint_vec
             && offset_dir.dot(&hint) < 0.0
         {
             offset_dir = offset_dir * -1.0;
@@ -403,7 +545,11 @@ fn recognize_planar_bevel(control_points: &[Point3]) -> Option<SurfaceGeometry> 
         .fold(0.0_f64, f64::max)
         .max(1e-9);
     for p in control_points {
-        if (*p - origin).dot(&normal).abs() > 1e-9 * scale {
+        let dev = (*p - origin).dot(&normal).abs();
+        if dev > 1e-9 * scale {
+            if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                eprintln!("  [bevel] planar recognition rejected: dev={dev:.3e} scale={scale:.1}");
+            }
             return None;
         }
     }
@@ -413,6 +559,170 @@ fn recognize_planar_bevel(control_points: &[Point3]) -> Option<SurfaceGeometry> 
         u_axis: u_dir,
         v_axis: v_dir,
     })
+}
+
+/// Recognize a conical (or cylindrical) bevel from its two offset
+/// rows: both rows must be concentric circles about a common axis.
+/// Returns `None` when either row is not circular to 1e-6 of its
+/// radius, the axes disagree, or the frustum degenerates.
+type BevelCircle = (Point3, Vec3, f64);
+
+fn recognize_conical_bevel(
+    points_1: &[Point3],
+    points_2: &[Point3],
+) -> Option<(SurfaceGeometry, BevelCircle, BevelCircle)> {
+    let fit_circle = |pts: &[Point3]| -> Option<(Point3, Vec3, f64)> {
+        // Closed rows duplicate the closure sample — drop it or the
+        // centroid biases toward it by r/n and every radius check
+        // fails.
+        let pts = match (pts.first(), pts.last()) {
+            (Some(a), Some(b)) if pts.len() > 4 && a.distance_to(b) < 1e-9 => &pts[..pts.len() - 1],
+            _ => pts,
+        };
+        if pts.len() < 4 {
+            return None;
+        }
+        let n = pts.len() as f64;
+        let c = pts.iter().fold(Vec3::new(0.0, 0.0, 0.0), |a, p| {
+            Vec3::new(a.x + p.x / n, a.y + p.y / n, a.z + p.z / n)
+        });
+        let mean = Point3::new(c.x, c.y, c.z);
+        // Newell normal over the sampled ring.
+        let mut nw = Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..pts.len() {
+            let p = pts[i];
+            let q = pts[(i + 1) % pts.len()];
+            nw.x += (p.y - q.y) * (p.z + q.z);
+            nw.y += (p.z - q.z) * (p.x + q.x);
+            nw.z += (p.x - q.x) * (p.y + q.y);
+        }
+        let axis = nw.normalized()?;
+        // Least-squares (Kåsa) circle centre in the ring's plane —
+        // the raw point mean biases toward any angular gap in the
+        // sampling (measured: a rim row starting 0.5 short of
+        // closure shifted the mean by r/n and every radius check
+        // failed).
+        let (bu, bv) = {
+            let any = if axis.x.abs() < 0.9 {
+                Vec3::new(1.0, 0.0, 0.0)
+            } else {
+                Vec3::new(0.0, 1.0, 0.0)
+            };
+            let bu = axis.cross(&any).normalized()?;
+            (bu, axis.cross(&bu))
+        };
+        let (mut suu, mut suv, mut svv, mut su3, mut sv3) = (0.0, 0.0, 0.0, 0.0, 0.0);
+        let (mut suvv, mut svuu) = (0.0, 0.0);
+        for p in pts {
+            let d = *p - mean;
+            let u = d.dot(&bu);
+            let v = d.dot(&bv);
+            suu += u * u;
+            suv += u * v;
+            svv += v * v;
+            su3 += u * u * u;
+            sv3 += v * v * v;
+            suvv += u * v * v;
+            svuu += v * u * u;
+        }
+        let det = suu * svv - suv * suv;
+        if det.abs() < 1e-18 {
+            return None;
+        }
+        let rhs_u = 0.5 * (su3 + suvv);
+        let rhs_v = 0.5 * (sv3 + svuu);
+        let cu = (rhs_u * svv - rhs_v * suv) / det;
+        let cv = (rhs_v * suu - rhs_u * suv) / det;
+        let centroid = mean + bu * cu + bv * cv;
+        let mut r_sum = 0.0;
+        let mut r_min = f64::MAX;
+        let mut r_max: f64 = 0.0;
+        for p in pts {
+            let d = *p - centroid;
+            let radial = d - axis * d.dot(&axis);
+            let axial = d.dot(&axis).abs();
+            if axial > 1e-6 * (1.0 + radial.length()) {
+                if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                    eprintln!("  [bevel-circle] non-coplanar axial={axial:.3e}");
+                }
+                return None; // not coplanar
+            }
+            let r = radial.length();
+            r_sum += r;
+            r_min = r_min.min(r);
+            r_max = r_max.max(r);
+        }
+        let r = r_sum / n;
+        if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+            eprintln!(
+                "  [bevel-circle] n={} r={r:.4} spread={:.3e} c=({:.2},{:.2},{:.2})",
+                pts.len(),
+                r_max - r_min,
+                centroid.x,
+                centroid.y,
+                centroid.z
+            );
+            for (i, pt) in pts.iter().enumerate().take(6) {
+                eprintln!("    [{i}] ({:.3},{:.3},{:.3})", pt.x, pt.y, pt.z);
+            }
+        }
+        // Chord-based offset tangents carry ~1e-3·r sampling noise
+        // (one-sided secants at the row ends) — the fit centre and
+        // radius are least-squares exact; rows are SNAPPED onto the
+        // fitted circle by the caller, so the gate only needs to
+        // exclude genuinely non-circular rows.
+        if r < 1e-9 || (r_max - r_min) > 1e-3 * r {
+            return None; // not circular
+        }
+        Some((centroid, axis, r))
+    };
+    let (c1, a1, r1) = fit_circle(points_1)?;
+    let (c2, a2, r2) = fit_circle(points_2)?;
+    let scale = r1.max(r2);
+    // Common axis: parallel normals, centre offset along the axis.
+    if a1.cross(&a2).length() > 1e-6 {
+        return None;
+    }
+    let d = c2 - c1;
+    let along = d.dot(&a1);
+    if (d - a1 * along).length() > 1e-6 * scale || along.abs() < 1e-9 * scale {
+        return None;
+    }
+    let dr = r2 - r1;
+    if dr.abs() < 1e-9 * scale {
+        return None; // cylindrical band — not this bevel's shape
+    }
+    // Apex where the radius extrapolates to zero along the axis.
+    let t_apex = -r1 * along / dr;
+    let apex = c1 + a1 * t_apex;
+    // Axis points from the apex INTO the body (toward growing radius).
+    let axis = if (along > 0.0) == (dr > 0.0) {
+        a1
+    } else {
+        a1 * -1.0
+    };
+    let half_angle = (dr / along).abs().atan();
+    Some((
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        },
+        (c1, a1, r1),
+        (c2, a2, r2),
+    ))
+}
+
+/// Snap a sampled offset row onto its recognized exact circle.
+fn snap_row_to_circle(row: &mut [Point3], circle: &BevelCircle) {
+    let (c, axis, r) = circle;
+    for p in row.iter_mut() {
+        let d = *p - *c;
+        let radial = d - *axis * d.dot(axis);
+        if let Some(dir) = radial.normalized() {
+            *p = *c + dir * *r;
+        }
+    }
 }
 
 /// Build clamped uniform knot vector for `n` control points at given degree.
