@@ -103,7 +103,10 @@ pub(crate) fn walk_chart_orbits(
 
 /// Canonical form for loop-set comparison: each loop rotated so its
 /// smallest half-edge index leads (loops are cyclic; direction is
-/// preserved because direction is part of the contract).
+/// preserved because direction is part of the contract). Test-only
+/// since the dual-walk probe retired (PK-108); the convention pins
+/// use it to compare partitions.
+#[cfg(test)]
 pub(crate) fn canonical_loops(loops: &[Vec<usize>]) -> BTreeSet<Vec<usize>> {
     loops
         .iter()
@@ -123,8 +126,9 @@ pub(crate) fn canonical_loops(loops: &[Vec<usize>]) -> BTreeSet<Vec<usize>> {
         .collect()
 }
 
-/// Divergence between the legacy walk's loops and the chart orbits
-/// for one face.
+/// Divergence between two walk partitions of one face (test-only
+/// since the dual-walk probe retired — PK-108).
+#[cfg(test)]
 #[derive(Debug)]
 pub(crate) struct DualWalkDiff {
     /// Loops present in both partitions (canonical form).
@@ -138,6 +142,7 @@ pub(crate) struct DualWalkDiff {
     pub orbit_only: Vec<Vec<usize>>,
 }
 
+#[cfg(test)]
 impl DualWalkDiff {
     pub fn is_match(&self) -> bool {
         self.legacy_only.is_empty() && self.orbit_only.is_empty()
@@ -154,7 +159,8 @@ impl DualWalkDiff {
     }
 }
 
-/// Compare the legacy walk's loop set against the chart orbits.
+/// Compare two walk partitions (test-only since PK-108).
+#[cfg(test)]
 pub(crate) fn compare_walks(legacy: &[Vec<usize>], orbits: &[Vec<usize>]) -> DualWalkDiff {
     let l = canonical_loops(legacy);
     let o = canonical_loops(orbits);
@@ -163,94 +169,5 @@ pub(crate) fn compare_walks(legacy: &[Vec<usize>], orbits: &[Vec<usize>]) -> Dua
         matched,
         legacy_only: l.difference(&o).cloned().collect(),
         orbit_only: o.difference(&l).cloned().collect(),
-    }
-}
-
-/// Verbose substrate dump: one line per embedded half-edge with its
-/// chart endpoints, branch points, directions, and source — the data
-/// needed to adjudicate an incomplete or collision case by hand.
-fn dump_substrate(sub: &FaceChartSubdivision, graph: &IntersectionGraph) {
-    eprintln!("    [dual-sub] sigma={}", sub.sigma);
-    for (&h, emb) in &sub.embeddings {
-        let (u0, v0) = emb.uv[0];
-        let (u1, v1) = emb.uv[emb.uv.len() - 1];
-        let sd = emb.start_dir().unwrap_or((0.0, 0.0));
-        let ed = emb.end_dir().unwrap_or((0.0, 0.0));
-        let us: Vec<String> = emb.uv.iter().map(|&(u, _)| format!("{u:.2}")).collect();
-        eprintln!(
-            "    [dual-sub] he {h} tw {} {:?} ({u0:.4},{v0:.4})->({u1:.4},{v1:.4}) sdir=({:.3},{:.3}) edir=({:.3},{:.3}) sbp={:?} ebp={:?} seam={} u=[{}]",
-            graph.half_edges[h].twin,
-            emb.source,
-            sd.0,
-            sd.1,
-            ed.0,
-            ed.1,
-            sub.start_bp.get(&h),
-            sub.end_bp.get(&h),
-            emb.seam_like,
-            us.join(",")
-        );
-    }
-}
-
-/// Stage-2 dual-walk instrument (env-gated by the caller): build the
-/// subdivision, walk the orbits, and report agreement with the legacy
-/// walk for this face. Output is one line per face so corpus sweeps
-/// aggregate with grep; PK_WALK_DUAL_VERBOSE adds the diverging loops.
-pub(crate) fn dual_walk_probe(
-    graph: &IntersectionGraph,
-    face: &crate::merge::graph::FaceRef,
-    he_indices: &[usize],
-    legacy_loops: &[Vec<usize>],
-    brep_a: &popkern_core::topology::BRep,
-    brep_b: &popkern_core::topology::BRep,
-) {
-    use super::chart_subdivision::{build_face_subdivision, face_surface};
-    let Some((surface, orientation)) = face_surface(face, brep_a, brep_b) else {
-        eprintln!("[dual] {face:?}: no-surface");
-        return;
-    };
-    let sub = build_face_subdivision(graph, face, he_indices, surface, orientation, &[]);
-    let verbose = std::env::var_os("PK_WALK_DUAL_VERBOSE").is_some();
-    if !sub.complete() {
-        let issues: Vec<String> = sub.report.issues.iter().map(|i| i.to_string()).collect();
-        eprintln!("[dual] {face:?}: incomplete: {}", issues.join("; "));
-        if verbose {
-            dump_substrate(&sub, graph);
-        }
-        return;
-    }
-    match walk_chart_orbits(&sub, graph) {
-        None => {
-            eprintln!("[dual] {face:?}: orbit-walk-failed");
-            if verbose {
-                dump_substrate(&sub, graph);
-            }
-        }
-        Some(orbits) => {
-            let diff = compare_walks(legacy_loops, &orbits);
-            if diff.is_match() {
-                eprintln!("[dual] {face:?}: MATCH {}", diff.matched);
-                if std::env::var_os("PK_WALK_DUAL_DUMP_ALL").is_some() {
-                    dump_substrate(&sub, graph);
-                }
-            } else {
-                eprintln!(
-                    "[dual] {face:?}: DIVERGE matched={} legacy_only={} orbit_only={} contested={}",
-                    diff.matched,
-                    diff.legacy_only.len(),
-                    diff.orbit_only.len(),
-                    diff.contested()
-                );
-                if std::env::var_os("PK_WALK_DUAL_VERBOSE").is_some() {
-                    for l in &diff.legacy_only {
-                        eprintln!("    [dual-legacy] {l:?}");
-                    }
-                    for o in &diff.orbit_only {
-                        eprintln!("    [dual-orbit]  {o:?}");
-                    }
-                }
-            }
-        }
     }
 }

@@ -40,8 +40,6 @@ pub(crate) enum SubdivisionIssue {
     VPeriodicChart,
     /// A registered half-edge touches a chart-degenerate point (pole).
     PoleIncidence(usize),
-    /// The face has no surface geometry to chart against.
-    NoSurface,
     /// The anchored interior spans more than one period (I2).
     ChartOverwrap { span: f64, period: f64 },
     /// A node away from the chart seam produced >1 branch cluster (I2).
@@ -71,7 +69,6 @@ impl std::fmt::Display for SubdivisionIssue {
             Self::MissingEmbedding(h) => write!(f, "no chart embedding for he {h}"),
             Self::VPeriodicChart => write!(f, "v-periodic chart (unimplemented scope)"),
             Self::PoleIncidence(h) => write!(f, "he {h} touches a chart pole"),
-            Self::NoSurface => write!(f, "face has no surface geometry"),
             Self::ChartOverwrap { span, period } => {
                 write!(f, "anchored interior spans {span:.4} > period {period:.4}")
             }

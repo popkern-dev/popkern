@@ -4,9 +4,6 @@
 //! form face fragments. Each fragment consists of an outer loop (CCW) and
 //! zero or more inner loops (CW holes).
 
-// Used by later pipeline stages; not yet called from the main merge path.
-#![allow(dead_code)]
-
 pub(crate) mod chart_branches;
 pub(crate) mod chart_embedding;
 pub(crate) mod chart_subdivision;
@@ -33,22 +30,20 @@ pub(crate) struct Fragment {
     pub inner_loops: Vec<Vec<usize>>,
 }
 
-/// Walk all face fragments in the graph.
+/// Walk all face fragments in the graph (graph-merge pipeline entry).
 ///
-/// For each face in the graph's `face_edges`, walks closed loops of
-/// half-edges using the radial ordering at each node. Returns one
-/// [`Fragment`] per distinct outer loop found.
-///
-/// The `brep_a` and `brep_b` parameters provide surface geometry so that
-/// the walker can project edge tangent vectors onto the correct tangent
-/// plane at each node — essential for correct angle computation on curved
-/// surfaces (cylinders, cones, spheres, etc.).
+/// Chart-primary like the cellular pipeline: each face whose substrate
+/// passes I1–I5 walks as a chart permutation; the rest take the legacy
+/// walk per face. Graph-merge graphs lack the cellular phase's seam
+/// splits, so its periodic faces fall back more often — the per-face
+/// fallback absorbs exactly those (PK-108 retirement: the legacy walk
+/// is fallback-only on every pipeline).
 pub(crate) fn walk_all_fragments(
     graph: &IntersectionGraph,
     brep_a: &BRep,
     brep_b: &BRep,
 ) -> Vec<Fragment> {
-    walk_all_fragments_ext(graph, brep_a, brep_b, false, false, &[], &mut Vec::new())
+    walk_all_fragments_ext(graph, brep_a, brep_b, false, true, &[], &mut Vec::new())
 }
 
 /// `coincident_interface`: the boolean carries coplanar face
@@ -305,13 +300,6 @@ pub(crate) fn walk_all_fragments_ext(
                     current_loop.first().copied().unwrap_or(usize::MAX)
                 );
             }
-        }
-
-        // PK-104 Stage 2: dual-walk divergence instrument. Runs the
-        // chart-subdivision permutation walk beside the legacy walk
-        // and reports agreement per face (one grep-able line each).
-        if std::env::var_os("PK_WALK_DUAL").is_some() {
-            chart_walk::dual_walk_probe(graph, face_ref, he_indices, &loops, brep_a, brep_b);
         }
 
         if loops.is_empty() {
