@@ -155,8 +155,10 @@ pub(crate) fn walk_all_fragments_ext(
             super::graph::Operand::A => face_ref.face == a,
             super::graph::Operand::B => face_ref.face == b,
         });
+        // PK-107 adjudication lever: chart-walk the overlap faces too.
+        let overlap_chart = std::env::var("PK_WALK_CHART_OVERLAP").as_deref() == Ok("1");
         if chart_primary
-            && !face_in_overlap
+            && (!face_in_overlap || overlap_chart)
             && !chart_disabled
             && let Some((surface, orientation)) =
                 chart_subdivision::face_surface(face_ref, brep_a, brep_b)

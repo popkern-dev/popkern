@@ -108,6 +108,12 @@ pub(crate) enum FilteredRecord {
     /// booleans trace segments ON existing edges; the duplicate cover
     /// bounds nothing and unbalances every junction it touches.
     DuplicateCover { dropped: usize, kept: usize },
+    /// One direction of an overlap-pair record standing in for a
+    /// MISSING boundary piece (the coincident weld path leaves a gap
+    /// in the face's boundary registration and the record spans it).
+    /// The kept direction is the boundary substitute; the dropped one
+    /// pointed material off-face and unbalanced the gap endpoints.
+    GapSubstituteDirection { dropped: usize, kept: usize },
 }
 
 /// Structured result of the substrate pass for one face.
@@ -331,6 +337,140 @@ pub(crate) fn build_face_subdivision(
             graph.half_edges[graph.half_edges[h].twin].origin,
         )
     };
+
+    // Zero-extent records whose pcurves wiggle enough to fake a
+    // direction slip past the start_dir test — filter by UV bbox
+    // extent when both graph endpoints are the same node (measured:
+    // a touch-point pair on the flush-gusset arm edge carried 17
+    // near-identical samples and survived to unbalance its node).
+    {
+        let mut scale = 0.0_f64;
+        for emb in sub.embeddings.values() {
+            let (s0, e0) = (emb.uv[0], emb.uv[emb.uv.len() - 1]);
+            scale = scale.max((s0.0 - e0.0).abs() + (s0.1 - e0.1).abs());
+        }
+        let tol = 1e-9 * (1.0 + scale);
+        let degenerate: Vec<usize> = sub
+            .embeddings
+            .iter()
+            .filter(|&(&h, emb)| {
+                let (a, b) = ends(h);
+                if a != b {
+                    return false;
+                }
+                let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) =
+                    (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+                for &(u, v) in &emb.uv {
+                    lo_u = lo_u.min(u);
+                    hi_u = hi_u.max(u);
+                    lo_v = lo_v.min(v);
+                    hi_v = hi_v.max(v);
+                }
+                (hi_u - lo_u) + (hi_v - lo_v) < tol
+            })
+            .map(|(&h, _)| h)
+            .collect();
+        for h in degenerate {
+            sub.embeddings.remove(&h);
+            sub.report.filtered.push(FilteredRecord::ZeroExtent(h));
+        }
+    }
+
+    // GAP-SUBSTITUTE completion (non-periodic charts): the coincident
+    // weld path can leave a face's boundary registration with a GAP
+    // (a split middle piece missing) that an overlap-pair record
+    // spans — legacy walks the record as the boundary substitute.
+    // With BOTH record directions registered the gap endpoints are
+    // ±1 imbalanced; exactly one drop choice restores balance at
+    // both, and it is the direction agreeing with the adjacent
+    // boundary flow. Greedy per pair, deterministic, recorded.
+    if u_period.is_none() {
+        let degree = |sub: &FaceChartSubdivision| -> std::collections::HashMap<usize, i64> {
+            let mut d: std::collections::HashMap<usize, i64> = std::collections::HashMap::new();
+            for &h in sub.embeddings.keys() {
+                let (a, b) = ends(h);
+                *d.entry(a).or_default() += 1; // departure
+                *d.entry(b).or_default() -= 1; // arrival
+            }
+            d
+        };
+        let imbalance_total = |d: &std::collections::HashMap<usize, i64>| -> i64 {
+            d.values().map(|v| v.abs()).sum()
+        };
+        let mut deg = degree(&sub);
+        if imbalance_total(&deg) > 0 {
+            let mut pairs: Vec<(usize, usize)> = Vec::new();
+            for &h in sub.embeddings.keys() {
+                let tw = graph.half_edges[h].twin;
+                if h < tw
+                    && sub.embeddings.contains_key(&tw)
+                    && matches!(
+                        graph.half_edges[h].source,
+                        crate::merge::graph::EdgeSource::Shared { .. }
+                    )
+                {
+                    pairs.push((h, tw));
+                }
+            }
+            // Candidate pairs: those touching an imbalanced node. A
+            // single drop can be NET-ZERO (it moves the imbalance to
+            // its far endpoint) while a combination across pairs
+            // resolves everything — greedy per-pair stalls there
+            // (measured on the mirrored flush-arm faces). Bounded
+            // exhaustive search: 3 states per pair (keep / drop
+            // forward / drop twin), ≤4 pairs → ≤81 configs; first
+            // config in deterministic order reaching TOTAL BALANCE
+            // wins. No full balance → no drops (fallback as before).
+            let candidates: Vec<(usize, usize)> = pairs
+                .iter()
+                .copied()
+                .filter(|&(h, _)| {
+                    let (a, b) = ends(h);
+                    deg.get(&a).copied().unwrap_or(0) != 0 || deg.get(&b).copied().unwrap_or(0) != 0
+                })
+                .collect();
+            if !candidates.is_empty() && candidates.len() <= 4 {
+                let n_cfg = 3usize.pow(candidates.len() as u32);
+                let mut winning: Option<Vec<(usize, usize)>> = None;
+                'cfg: for cfg in 0..n_cfg {
+                    let mut d = deg.clone();
+                    let mut drops: Vec<(usize, usize)> = Vec::new();
+                    let mut c = cfg;
+                    for &(h, tw) in &candidates {
+                        let choice = c % 3;
+                        c /= 3;
+                        let dropped = match choice {
+                            0 => None,
+                            1 => Some((h, tw)),
+                            _ => Some((tw, h)),
+                        };
+                        if let Some((dh, kh)) = dropped {
+                            let (da, db) = ends(dh);
+                            *d.entry(da).or_default() -= 1;
+                            *d.entry(db).or_default() += 1;
+                            drops.push((dh, kh));
+                        }
+                    }
+                    if imbalance_total(&d) == 0 {
+                        winning = Some(drops);
+                        break 'cfg;
+                    }
+                }
+                if let Some(drops) = winning {
+                    for (dh, kh) in drops {
+                        if sub.embeddings.remove(&dh).is_some() {
+                            sub.report
+                                .filtered
+                                .push(FilteredRecord::GapSubstituteDirection {
+                                    dropped: dh,
+                                    kept: kh,
+                                });
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     match u_period {
         Some(period) => anchor_periodic(graph, &mut sub, period, &ends),
