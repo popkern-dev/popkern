@@ -3056,12 +3056,17 @@ fn sockets_after_rim_chamfer_are_watertight_and_exact() {
 
 /// PIN (open frontier, arm-dressing campaign): chamfer on a rest
 /// edge INTERRUPTED by a through-slot. The skewed-corner class is
-/// closed (bevel-plane anchors), but the bevel strips built over the
-/// slot-interrupted edge pieces carry stale pcurves (~0.7 off their
-/// own vertices, surviving the window/pcurve repair ladder) and the
-/// mesh cracks along the strip rails. The rail-unioned tip body has
-/// a sibling weld defect. The arms ship with sharp rest edges until
-/// the strip-authoring leg lands.
+/// closed (bevel-plane anchors). Measured position (PK-103): the
+/// bevel STRIPS tessellate self-overlapping near the slot junction —
+/// strip mesh edges with multiplicity 3–8 and zero-length edges at
+/// the junction station, one strip's rail unwelded over its whole
+/// length — the strip surfaces/pcurves authored over the interrupted
+/// edge pieces disagree with the junction corners the blend surgery
+/// leaves unconsumed (the surviving original corner sits d/√2 off
+/// the bevel plane). This is the strip-authoring/junction-corner-
+/// consumption leg of the blend surgery. The arms SHIP dressed via
+/// the dress-first ordering (dress_first_arm_tip_chain_is_watertight)
+/// — this pin no longer blocks any product piece.
 #[test]
 fn slot_interrupted_chamfer_gap_is_pinned() {
     let tilt = 18.0_f64.to_radians();
