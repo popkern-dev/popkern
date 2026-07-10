@@ -190,8 +190,38 @@ pub(crate) fn walk_all_fragments_ext(
             } else {
                 2
             };
-            if current_loop.len() >= min_len {
+            // TOPOLOGICAL CLOSURE: a chain is a loop only when its
+            // last half-edge ends at the seed's origin. A walk that
+            // dead-ends (no onward candidate at a junction) used to
+            // be pushed as a "loop" anyway — leftover cross-
+            // registered directions at a breached-wall mouth formed
+            // a 2-half-edge pseudo-loop (mouth arc + one vertical,
+            // 27 mm from closing) that assembled into the result and
+            // failed loop-closure validation. Dead-ended chains
+            // bound nothing; their half-edges stay consumed so
+            // seeding cannot livelock.
+            let closes = current_loop.last().is_some_and(|&last| {
+                let last_twin = graph.half_edges[last].twin;
+                let end_node = graph.half_edges[last_twin].origin;
+                let start_node = graph.half_edges[current_loop[0]].origin;
+                // Half-split trims legitimately dead-end ON a face
+                // boundary edge (the boundary was not split there in
+                // this phase; downstream completes the cut — the
+                // sheet splitter depends on these). Interior
+                // dead-ends bound nothing.
+                end_node == start_node || {
+                    let last_he = current_loop[current_loop.len() - 1];
+                    node_on_face_boundary(graph, end_node, &face_hes, last_he, last_twin)
+                }
+            });
+            if current_loop.len() >= min_len && closes {
                 loops.push(current_loop);
+            } else if !closes && std::env::var_os("PK_WALK_TRACE").is_some() {
+                eprintln!(
+                    "      [drop-open-chain] {} hes from he {}",
+                    current_loop.len(),
+                    current_loop.first().copied().unwrap_or(usize::MAX)
+                );
             }
         }
 

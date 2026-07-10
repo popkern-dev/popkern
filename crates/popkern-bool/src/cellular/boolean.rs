@@ -445,7 +445,23 @@ fn classify_fragments_cellular(
                     .all(|p| robust_point_in_solid_final(p, other.0, other.1, tolerance) == first)
             };
             if unanimous {
-                shortcut
+                // The shortcut itself can land ON the other body's
+                // boundary when the fragment is a thin CUT sliver —
+                // a bore-cap piece beyond a breached wall has only
+                // TWO boundary edges (the cut chord + a rim arc), so
+                // the disagreement vote above can never fire
+                // (mids.len() < 2) and the first-edge shortcut sits
+                // exactly on the cutting plane, a parity coin flip
+                // (measured: the sliver classified Inside and the
+                // subtract kept a flap outside the body). When the
+                // shortcut is hazard-positioned and a non-shared
+                // boundary midpoint exists, that midpoint is the
+                // decisive sample — it lies on the fragment's OWN
+                // original boundary, clear of the cut.
+                let hazard = cut
+                    && !mids.is_empty()
+                    && point_near_any_edge(other.0, &shortcut, eps_probe * 10.0);
+                if hazard { mids[0] } else { shortcut }
             } else {
                 frag_surface
                     .as_ref()
@@ -887,6 +903,30 @@ fn seg_dist(
 /// order, capped at `cap`. The first entry equals the tuned
 /// edge-midpoint shortcut, so a unanimous vote reproduces legacy
 /// sampling exactly.
+/// Midpoint of a graph half-edge, ON THE EDGE'S CURVE when it has
+/// one (chord midpoint otherwise). A curved edge's chord midpoint is
+/// not a point of the fragment at all — a shallow rim-arc sliver cut
+/// off by a breached wall has its arc CHORD lying exactly IN the
+/// cutting plane, so the chord midpoint sampled the parity coin-flip
+/// point on the other body's surface while the arc's belly sits
+/// decisively outside it (measured: the sliver classified Inside and
+/// a subtract kept a flap beyond the body). Straight edges are
+/// unchanged (chord == curve).
+fn he_curve_midpoint(graph: &IntersectionGraph, he_idx: usize) -> popkern_core::geometry::Point3 {
+    use popkern_core::geometry::curve::CurveEval as _;
+    let he = &graph.half_edges[he_idx];
+    if let Some(c) = he
+        .curve
+        .as_ref()
+        .or_else(|| graph.half_edges[he.twin].curve.as_ref())
+    {
+        return c.geometry.point_at(0.5 * (c.t_start + c.t_end));
+    }
+    let a = graph.nodes[he.origin].position;
+    let b = graph.nodes[graph.half_edges[he.twin].origin].position;
+    popkern_core::geometry::Point3::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5, (a.z + b.z) * 0.5)
+}
+
 fn non_shared_chord_midpoints(
     graph: &IntersectionGraph,
     loop_hes: &[usize],
@@ -902,13 +942,7 @@ fn non_shared_chord_midpoints(
         if matches!(he.source, EdgeSource::Shared { .. }) {
             continue;
         }
-        let a = graph.nodes[he.origin].position;
-        let b = graph.nodes[graph.half_edges[he.twin].origin].position;
-        out.push(popkern_core::geometry::Point3::new(
-            (a.x + b.x) * 0.5,
-            (a.y + b.y) * 0.5,
-            (a.z + b.z) * 0.5,
-        ));
+        out.push(he_curve_midpoint(graph, he_idx));
     }
     out
 }
@@ -927,14 +961,7 @@ fn sample_fragment_point(
             | EdgeSource::OriginalB(_)
             | EdgeSource::SplitA { .. }
             | EdgeSource::SplitB { .. } => {
-                let start = graph.nodes[he.origin].position;
-                let twin_idx = he.twin;
-                let end = graph.nodes[graph.half_edges[twin_idx].origin].position;
-                return popkern_core::geometry::Point3::new(
-                    (start.x + end.x) * 0.5,
-                    (start.y + end.y) * 0.5,
-                    (start.z + end.z) * 0.5,
-                );
+                return he_curve_midpoint(graph, he_idx);
             }
             EdgeSource::Shared { .. } => continue,
         }
