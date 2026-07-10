@@ -580,6 +580,18 @@ fn build_arm_shape(
         .at(0.0, -8.0)
         .extrude(5.0 - z_lo)?;
     arm = arm.subtract(&root_floor)?;
+    // Dress-first, at the earliest clean station: AFTER the root
+    // floor (which never touches the rest edges — a boolean touching
+    // the tab faces after dressing re-broke their welds, the pinned
+    // boolean-after-blend interaction) and BEFORE every later
+    // feature: each side edge is still ONE piece with single-plane
+    // ends (root face + tip face), the proven skewed-corner class,
+    // and the thinning tool, swoop, slot, relief, tunnel, and rail
+    // all cut through the finished bevels as ordinary planar faces.
+    // Dressing later instead meets chain junctions and slot-mouth
+    // corners the blend surgery cannot consume (pinned:
+    // slot_interrupted_chamfer_gap_is_pinned).
+    arm = dress_arm_rest_edges(arm, p, w)?;
     let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
         .rect(600.0, p.arm_len - 16.0)
         .at(0.0, -(26.0 + p.arm_len + 10.0) / 2.0)
@@ -750,18 +762,30 @@ fn arm_joint_prism(
         .translate(0.0, -y_start, mouth_z)
 }
 
-// DEFERRED (recorded containment, second leg): the fanned-dressing
-// campaign CLOSED the skewed-corner chamfer class (bevel-plane
-// perpendicular anchors: tilted, yawed, and collinear-chain
-// boolean-cut edges all chamfer watertight — pinned by
-// boolean_cut_skewed_corner_chamfer_is_watertight), but the arm's
-// rest-edge chamfer still cracks where the edge pieces terminate at
-// the lip-slot mouth and on the rail-unioned tip body (measured: 57
-// open mesh edges on the tip, 132 on the root — end transitions at
-// through-slot flanks and post-union shoulder faces are their own
-// junction class). The arms ship with sharp rest edges until that
-// junction leg lands; they print rest-face down, so the first-layer
-// squish breaks those edges in practice.
+/// Break the arm's rest-face side edges with a 1 mm chamfer — the
+/// laptop-side corners a hand feels. Runs BEFORE the slot cut and
+/// the rail union (dress-first): a chamfer whose edge pieces
+/// terminate at a through-slot mouth ends its strips at multi-face
+/// junction corners the blend surgery cannot consume (pinned:
+/// slot_interrupted_chamfer_gap_is_pinned), while booleans cut
+/// through finished planar bevels cleanly. The selector picks the
+/// long plane×plane edges ON the (yawed) rest plane; the dovetail
+/// tab (y > 0) and every joint surface stay sharp.
+fn dress_arm_rest_edges(arm: Part, p: &StandParams, w: f64) -> Result<Part, PartError> {
+    let tilt = p.tilt();
+    let plane_at_root = p.plane_at_root();
+    let rest_z = move |x: f64, y: f64| plane_at_root + (x * w.sin() + y * w.cos()) * tilt.tan();
+    arm.chamfer(1.0, move |e: EdgeQuery| {
+        e.straight().filter(move |info| {
+            let Some(d) = info.direction else {
+                return false;
+            };
+            d.y.abs() > 0.9
+                && info.midpoint.y < -5.0
+                && (info.midpoint.z - rest_z(info.midpoint.x, info.midpoint.y)).abs() < 0.5
+        })
+    })
+}
 
 /// ROOT half of the split arm: the arm chain with its plan ending at
 /// the joint shoulder (no slot — that lives on the tip), plus the
@@ -819,6 +843,8 @@ fn build_arm_tip(p: &StandParams, side: f64) -> Result<Part, PartError> {
         .rotate_z(-w)?
         .translate(0.0, 0.0, plane_at_root)?;
     tip = tip.subtract(&upper)?;
+    // Dress-first (see dress_arm_rest_edges in the shape chain).
+    tip = dress_arm_rest_edges(tip, p, side * p.fan())?;
     let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
         .rect(600.0, p.arm_len - 16.0)
         .at(0.0, -(26.0 + p.arm_len + 10.0) / 2.0)

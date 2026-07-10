@@ -3026,3 +3026,64 @@ fn slot_interrupted_chamfer_gap_is_pinned() {
          and enable dress_arm_rest_edges on the arm pieces"
     );
 }
+
+/// PIN → GATE (arm-dressing campaign, final leg): the DRESS-FIRST
+/// ordering — chamfer the clean plate immediately after the rest
+/// cut, then run every later feature THROUGH the finished bevels.
+/// The full tip chain (dress → lip slot → dovetail rail) assembles
+/// watertight, where dressing after the slot ends the strips at
+/// multi-face junction corners the blend surgery cannot consume
+/// (still pinned: slot_interrupted_chamfer_gap_is_pinned), and a
+/// boolean touching blend-adjacent faces re-breaks welds (still
+/// pinned: boolean_after_rim_chamfer_gap_is_pinned — the root
+/// therefore dresses after its floor cut).
+#[test]
+fn dress_first_arm_tip_chain_is_watertight() {
+    let tilt = 18.0_f64.to_radians();
+    let w = 12.0_f64.to_radians();
+    let plane_at_root = 100.0 + (-56.0 + 28.0 * w.sin()) * tilt.tan();
+    let seg = yawed_plate_segment(tilt, w, 170.0, 275.0, plane_at_root);
+    let rest_z = move |x: f64, y: f64| plane_at_root + (x * w.sin() + y * w.cos()) * tilt.tan();
+    let dressed = seg
+        .chamfer(1.0, move |e: EdgeQuery| {
+            e.straight().filter(move |i| {
+                i.direction.map(|d| d.y.abs() > 0.9).unwrap_or(false)
+                    && (i.midpoint.z - rest_z(i.midpoint.x, i.midpoint.y)).abs() < 0.5
+            })
+        })
+        .expect("dress");
+    assert_eq!(dressed.open_edge_count().expect("mesh"), 0);
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)
+        .expect("slot")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("ry")
+        .rotate_x(tilt)
+        .expect("rx")
+        .translate(-22.0, 0.0, 0.0)
+        .expect("center")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, -259.0, plane_at_root - 259.0 * w.cos() * tilt.tan())
+        .expect("place");
+    let slotted = dressed.subtract(&slot).expect("slot");
+    assert_eq!(slotted.open_edge_count().expect("mesh"), 0);
+    let mouth_z = plane_at_root - 13.0 / tilt.cos() - 120.4 * w.cos() * tilt.tan();
+    let rail = yawed_rail_prism(tilt, w, 120.4, 50.6, 0.2, 0.0, mouth_z);
+    let tip = slotted.union(&rail).expect("rail");
+    let opens = tip.open_edge_count().expect("mesh");
+    eprintln!(
+        "dress-first tip chain: opens={opens} faces={}",
+        tip.face_count()
+    );
+    assert_eq!(opens, 0);
+    assert!(tip.face_count() > 0);
+}
