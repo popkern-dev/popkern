@@ -38,8 +38,6 @@ pub(crate) enum SubdivisionIssue {
     MissingEmbedding(usize),
     /// The chart is periodic in v — outside the implemented scope.
     VPeriodicChart,
-    /// A registered half-edge touches a chart-degenerate point (pole).
-    PoleIncidence(usize),
     /// The anchored interior spans more than one period (I2).
     ChartOverwrap { span: f64, period: f64 },
     /// A node away from the chart seam produced >1 branch cluster (I2).
@@ -61,6 +59,11 @@ pub(crate) enum SubdivisionIssue {
     DuplicateChartSegment(usize, usize),
     /// The seam/component balance search exceeded its config budget.
     SeamSearchExhausted,
+    /// A zero-extent or graze drop touched a pole node: the face
+    /// carries degenerate pole-border topology (full-sphere BReps
+    /// hold zero-length pole edges) whose semantics the pole-azimuth
+    /// rotation does not model — recorded fallback.
+    PoleAdjacentDegeneracy { node: usize },
 }
 
 impl std::fmt::Display for SubdivisionIssue {
@@ -68,7 +71,6 @@ impl std::fmt::Display for SubdivisionIssue {
         match self {
             Self::MissingEmbedding(h) => write!(f, "no chart embedding for he {h}"),
             Self::VPeriodicChart => write!(f, "v-periodic chart (unimplemented scope)"),
-            Self::PoleIncidence(h) => write!(f, "he {h} touches a chart pole"),
             Self::ChartOverwrap { span, period } => {
                 write!(f, "anchored interior spans {span:.4} > period {period:.4}")
             }
@@ -90,6 +92,9 @@ impl std::fmt::Display for SubdivisionIssue {
                 write!(f, "duplicate chart segment: he {a} vs he {b}")
             }
             Self::SeamSearchExhausted => write!(f, "seam balance search exceeded budget"),
+            Self::PoleAdjacentDegeneracy { node } => {
+                write!(f, "degenerate pole-border topology at node {node}")
+            }
         }
     }
 }
@@ -148,6 +153,13 @@ pub(crate) struct FaceChartSubdivision {
     /// +1 when chart CCW = CCW about the outward normal
     /// (`SurfaceOnFace.orientation == true`), −1 otherwise.
     pub sigma: f64,
+    /// Chart u-period (rotational charts), for pole-azimuth rotation.
+    pub u_period: Option<f64>,
+    /// Pole nodes (chart-degenerate points: sphere poles, cone
+    /// apices) → rotation direction for the azimuth successor:
+    /// +1 ⇒ smallest positive (u_arrive − u_depart) mod period wins,
+    /// −1 ⇒ the mirrored order (σ and pole side folded in).
+    pub poles: BTreeMap<usize, f64>,
     /// Substrate diagnostics.
     pub report: ChartSubdivisionReport,
 }
@@ -202,10 +214,6 @@ pub(crate) fn build_face_subdivision(
                     sub.report.filtered.push(FilteredRecord::ZeroExtent(h));
                     continue;
                 }
-                if pole_incident(surface, &emb) {
-                    sub.report.issues.push(SubdivisionIssue::PoleIncidence(h));
-                    continue;
-                }
                 sub.embeddings.insert(h, emb);
             }
             None => sub
@@ -216,6 +224,55 @@ pub(crate) fn build_face_subdivision(
     }
     if !sub.report.issues.is_empty() {
         return sub;
+    }
+    sub.u_period = u_period;
+
+    // POLE NODES (design doc §5): a chart-degenerate endpoint (sphere
+    // pole, cone apex) is ONE geometric point whose UV image is the
+    // whole u-line at the pole v — every incident half-edge lands
+    // there at ITS OWN meridian azimuth. The subdivision stays valid:
+    // the pole is a single branch point, and the rotational successor
+    // there orders departures by azimuth (the endpoint u), not by
+    // local UV direction. The rotation sign folds σ with the pole
+    // side (rotation sense reverses between the two poles).
+    if u_period.is_some()
+        && matches!(
+            surface,
+            SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. }
+        )
+    {
+        let (mut v_lo, mut v_hi) = (f64::MAX, f64::MIN);
+        for emb in sub.embeddings.values() {
+            for &(_, v) in &emb.uv {
+                v_lo = v_lo.min(v);
+                v_hi = v_hi.max(v);
+            }
+        }
+        let v_mid = 0.5 * (v_lo + v_hi);
+        let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
+        for h in hes {
+            let emb = &sub.embeddings[&h];
+            let (n_start, n_end) = (
+                graph.half_edges[h].origin,
+                graph.half_edges[graph.half_edges[h].twin].origin,
+            );
+            for (node, &(u, v)) in [(n_start, &emb.uv[0]), (n_end, &emb.uv[emb.uv.len() - 1])] {
+                if sub.poles.contains_key(&node) {
+                    continue;
+                }
+                let p0 = surface.point_at(u, v);
+                let p1 = surface.point_at(u + 1e-4, v);
+                let scale =
+                    1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
+                if p0.distance_to(&p1) < 1e-11 * scale {
+                    // Pole side decides the rotation sense; σ is not
+                    // yet calibrated here, so store the side and fold
+                    // σ in at the end of the build.
+                    let side = if v >= v_mid { 1.0 } else { -1.0 };
+                    sub.poles.insert(node, side);
+                }
+            }
+        }
     }
 
     // I5 — duplicate-cover dedup: coplanar overlap records trace
@@ -529,6 +586,42 @@ pub(crate) fn build_face_subdivision(
         }
     }
 
+    // Pole-adjacency guard: the azimuth rotation models poles as
+    // clean fans of meridian endpoints. When a zero-extent or graze
+    // drop touched a pole node, the face carries degenerate
+    // pole-border topology (measured: a full sphere's zero-length
+    // pole edges embedded as collapsed runs, were zero-extent
+    // filtered, orphaned the intersection records into a graze
+    // cascade, and the single surviving orbit broke Euler downstream)
+    // — those faces keep the legacy walk, recorded.
+    if !sub.poles.is_empty() {
+        let dropped_hes: Vec<usize> = sub
+            .report
+            .filtered
+            .iter()
+            .map(|f| match f {
+                FilteredRecord::ZeroExtent(h) => *h,
+                FilteredRecord::InteriorGraze(h) => *h,
+                FilteredRecord::DuplicateCover { dropped, .. } => *dropped,
+                FilteredRecord::GapSubstituteDirection { dropped, .. } => *dropped,
+            })
+            .collect();
+        for h in dropped_hes {
+            let (a, b) = ends(h);
+            for n in [a, b] {
+                if sub.poles.contains_key(&n) {
+                    sub.report
+                        .issues
+                        .push(SubdivisionIssue::PoleAdjacentDegeneracy { node: n });
+                }
+            }
+        }
+        sub.report.issues.dedup();
+        if !sub.report.issues.is_empty() {
+            return sub;
+        }
+    }
+
     match u_period {
         Some(period) => anchor_periodic(graph, &mut sub, period, &ends),
         None => {
@@ -550,27 +643,13 @@ pub(crate) fn build_face_subdivision(
     }
 
     balance_and_duplicates(&mut sub, u_period);
+    // Fold the calibrated σ into the pole rotation directions (σ can
+    // change during the periodic anchoring's shoelace calibration).
+    let sigma = sub.sigma;
+    for dir in sub.poles.values_mut() {
+        *dir *= sigma;
+    }
     sub
-}
-
-/// Finite-difference pole test at both run endpoints — only chart
-/// types with rotational degeneracies are checked.
-fn pole_incident(surface: &SurfaceGeometry, emb: &ChartEmbedding) -> bool {
-    if !matches!(
-        surface,
-        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Cone { .. }
-    ) {
-        return false;
-    }
-    for &(u, v) in [emb.uv[0], emb.uv[emb.uv.len() - 1]].iter() {
-        let p0 = surface.point_at(u, v);
-        let p1 = surface.point_at(u + 1e-4, v);
-        let scale = 1.0 + p0.distance_to(&popkern_core::geometry::Point3::new(0.0, 0.0, 0.0));
-        if p0.distance_to(&p1) < 1e-11 * scale {
-            return true;
-        }
-    }
-    false
 }
 
 /// Non-periodic charts: every node is a single branch point.

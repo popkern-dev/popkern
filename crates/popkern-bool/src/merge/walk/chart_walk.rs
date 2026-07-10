@@ -27,9 +27,45 @@ pub(crate) fn next_in_chart(
 ) -> Option<usize> {
     let bp = sub.end_bp.get(&h)?;
     let deps = sub.departures.get(bp)?;
+    let twin = graph.half_edges[h].twin;
+
+    // POLE branch points rotate by AZIMUTH: every incident half-edge
+    // lands at the pole carrying its meridian's u, and the geometric
+    // angle around the pole IS that u — local UV directions there all
+    // point along ±v and cannot order the fan. The material-left
+    // successor is the departure with the smallest positive
+    // (u_arrive − u_depart)·dir mod period, dir folding σ with the
+    // pole side (rotation sense reverses between poles); the twin
+    // sits at the arrival azimuth (angle → period) and ranks last
+    // naturally.
+    if let Some(&dir) = sub.poles.get(&bp.node)
+        && let Some(period) = sub.u_period
+    {
+        let emb_h = sub.embeddings.get(&h)?;
+        let u_a = emb_h.uv[emb_h.uv.len() - 1].0;
+        let mut best: Option<(f64, usize)> = None;
+        for &c in deps {
+            let Some(emb_c) = sub.embeddings.get(&c) else {
+                continue;
+            };
+            let u_c = emb_c.uv[0].0;
+            let mut a = ((u_a - u_c) * dir).rem_euclid(period);
+            if a <= 1e-12 || c == twin {
+                a += period;
+            }
+            let better = match best {
+                None => true,
+                Some((ba, bc)) => a < ba - 1e-15 || ((a - ba).abs() <= 1e-15 && c < bc),
+            };
+            if better {
+                best = Some((a, c));
+            }
+        }
+        return best.map(|(_, c)| c);
+    }
+
     let arrive = sub.embeddings.get(&h)?.end_dir()?;
     let back = (-arrive.0, -arrive.1);
-    let twin = graph.half_edges[h].twin;
 
     let mut best: Option<(f64, usize)> = None;
     for &c in deps {

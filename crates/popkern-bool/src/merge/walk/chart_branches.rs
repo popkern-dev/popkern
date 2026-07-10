@@ -47,7 +47,12 @@ pub(super) fn anchor_periodic(
     for &h in &interior {
         let (s, e) = ends(h);
         for n in [s, e] {
-            if !seam_nodes.contains(&n) {
+            // Pole nodes are excluded like seam nodes: their endpoint
+            // u is the incident meridian's azimuth, not a shared
+            // chart coordinate — translating a neighbour to match it
+            // would smear the frame (the boundary-first unwrap
+            // learned the same lesson with degenerate anchors).
+            if !seam_nodes.contains(&n) && !sub.poles.contains_key(&n) {
                 node_to_hes.entry(n).or_default().push(h);
             }
         }
@@ -269,7 +274,7 @@ pub(super) fn anchor_periodic(
                 }
             }
         }
-        let clustered = cluster_branches(&hes, ends, &u_start, &u_end, period);
+        let clustered = cluster_branches(&hes, ends, &u_start, &u_end, period, &sub.poles);
         if first_result.is_none() {
             first_result = Some(clustered.clone());
         }
@@ -323,6 +328,7 @@ pub(super) fn cluster_branches(
     u_start: &BTreeMap<usize, f64>,
     u_end: &BTreeMap<usize, f64>,
     period: f64,
+    poles: &BTreeMap<usize, f64>,
 ) -> (BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>) {
     // node -> [(u, he, is_start)]
     let mut per_node: BTreeMap<usize, Vec<(f64, usize, bool)>> = BTreeMap::new();
@@ -334,11 +340,15 @@ pub(super) fn cluster_branches(
     let mut start_bp = BTreeMap::new();
     let mut end_bp = BTreeMap::new();
     for (node, mut entries) in per_node {
+        // A POLE node is one geometric point whose incident endpoints
+        // carry their meridians' azimuths — never split it by u.
+        let is_pole = poles.contains_key(&node);
         entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
         let mut branch = 0u32;
         let mut prev_u: Option<f64> = None;
         for (u, h, is_start) in entries {
-            if let Some(p) = prev_u
+            if !is_pole
+                && let Some(p) = prev_u
                 && u - p > period * 0.5
             {
                 branch += 1;
