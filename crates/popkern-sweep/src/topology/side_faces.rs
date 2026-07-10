@@ -4,7 +4,6 @@
 //! produced by sweep/loft surface generation.
 
 use popkern_core::constructors::builder::BRepBuilder;
-use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use popkern_core::history::TrackingContext;
@@ -163,11 +162,21 @@ fn build_closed_profile_topology(
             .or_else(|| crate::surface::canonical::recognize_extruded_cylinder(&surfaces[i]))
             .map(|(g, c)| (g, Some(c)))
             .unwrap_or_else(|| (SurfaceGeometry::Nurbs(surfaces[i].clone()), None));
+        // The loop below is authored against the NURBS frame (u =
+        // profile, v = path), whose du×dv normal is the face's
+        // outward direction. A recognized canonical surface carries
+        // its OWN normal convention — a cylinder's normal_at is
+        // +radial regardless of which side the material lies on
+        // (concave profile arcs put material outside the circle), so
+        // the orientation flag must record whether the canonical
+        // normal agrees with the authored frame.
+        let orientation =
+            crate::surface::canonical::canonical_normal_agreement(&surfaces[i], &geometry);
         builder.set_face_surface(
             face,
             SurfaceOnFace {
                 geometry,
-                orientation: true,
+                orientation,
             },
         );
         let uv_line_chart = |x0: f64, y0: f64, x1: f64, y1: f64| match &chart {

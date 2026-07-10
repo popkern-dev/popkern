@@ -406,9 +406,9 @@ fn through_hole_tessellation_gap_is_pinned() {
 /// 12-vertex hexagram (6-point star) for the polygon-profile pins:
 /// outer radius `r`, inner radius `r/√3`, starting at angle 0.
 /// Orientation-immune material probe: ray parity along +z against
-/// the default-quality mesh. Divergence-sum volume oracles are
-/// blocked by the winding-inconsistent tessellation of curved faces
-/// (arc_extrude_mesh_winding_gap_is_pinned); parity is not.
+/// the default-quality mesh. Predates trustworthy signed volumes
+/// (arc_extrude_mesh_volume_matches_analytic); parity remains the
+/// right tool when only containment matters.
 fn mesh_contains_point(part: &Part, q: (f64, f64, f64)) -> bool {
     let m = part
         .mesh(&popkern_mesh::TessellationOptions::default())
@@ -1773,12 +1773,16 @@ fn holder_v3_arm_chain_is_watertight_and_chi_clean() {
     assert_eq!(chi(&part), 0, "slot χ");
 }
 
-/// FRONTIER PIN: the peg's SECOND pilot union — a smaller-star boss
-/// onto a body that already carries one stepped pilot. The single
-/// union is closed (star_boss_union_is_watertight); the second
-/// leaks. Until flipped, the peg ships as a plain prism.
+/// PIN → GATE (double-pilot peg): a second smaller-star boss union
+/// onto a body already carrying one stepped pilot. Closed by the
+/// same pair that fixed absolute mesh volumes: honest
+/// extrude-orientation data (curve-sampled cap Newell + canonical
+/// normal agreement) plus the twin-owned pcurve run reversal in the
+/// fragment sampler and winding-based ring-role election in the
+/// walk. The signed-volume oracle is exact: both stepped pilots add
+/// material, no membrane or duplicate skin survives.
 #[test]
-fn peg_double_pilot_gap_is_pinned() {
+fn peg_double_pilot_leads_in_at_both_ends() {
     let body_star = hexagram_points(11.8);
     let pilot_star = hexagram_points(11.2);
     let body = Profile::on(Plane::xy_at(6.0))
@@ -1795,17 +1799,40 @@ fn peg_double_pilot_gap_is_pinned() {
         .expect("top");
     let stepped = body.union(&bottom).expect("first union");
     assert_eq!(stepped.open_edge_count().expect("mesh"), 0, "first union");
-    match stepped.union(&top) {
-        Ok(peg) => {
-            let opens = peg.open_edge_count().expect("mesh");
-            assert!(
-                opens > 0,
-                "double-pilot gap has closed ({opens} opens) — flip this \\
-                 pin and restore both pilots (laptop_stand_api.rs)"
-            );
-        }
-        Err(_) => {}
+    let peg = stepped.union(&top).expect("second union");
+    assert_eq!(peg.open_edge_count().expect("mesh"), 0, "second union");
+    // Signed mesh volume vs analytic: body prism + two pilot stubs
+    // outside the body (6 mm each).
+    let mesh = peg
+        .mesh(&popkern_mesh::TessellationOptions::default())
+        .expect("mesh");
+    let mut signed = 0.0;
+    for t in &mesh.triangles {
+        let (a, b, c) = (
+            mesh.vertices[t[0]].position,
+            mesh.vertices[t[1]].position,
+            mesh.vertices[t[2]].position,
+        );
+        signed += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x))
+            / 6.0;
     }
+    let analytic = polygon_area(&body_star) * 18.0 + polygon_area(&pilot_star) * 6.0 * 2.0;
+    let rel = (signed - analytic).abs() / analytic;
+    assert!(
+        rel < 1.0e-6,
+        "double-pilot peg volume {signed:.2} vs analytic {analytic:.2} (rel {rel:.2e})"
+    );
+    // Material probes: pilot tips present, step shoulder present.
+    // Kept off the star's symmetry line — a ray THROUGH the tip edge
+    // (y = 0) is a parity hazard, not a shape assertion. At x = 10.9
+    // the body tip's half-width is 0.52 and the pilot tip's is 0.17,
+    // so y = 0.3 lies between the two boundaries.
+    assert!(mesh_contains_point(&peg, (0.0, 0.0, 1.0)));
+    assert!(mesh_contains_point(&peg, (0.0, 0.0, 29.0)));
+    assert!(mesh_contains_point(&peg, (10.9, 0.3, 15.0)));
+    assert!(!mesh_contains_point(&peg, (10.9, 0.3, 1.0)));
+    assert!(!mesh_contains_point(&peg, (10.9, 0.3, 29.0)));
 }
 
 /// Smooth front, final stage: the ARM-SOCKET cuts on the arc-fronted
@@ -2120,21 +2147,24 @@ fn flush_gusset_union_is_watertight_and_volume_exact() {
     );
 }
 
-/// FRONTIER PIN (mesher orientation): the tessellation of an
-/// arc-profile extrude emits INCONSISTENTLY WOUND triangles — 239 of
-/// 781 welded directed edges of the swoop-gusset mesh have mismatched
-/// direction counts, so a divergence-theorem volume sum reads ~3× the
-/// true volume (61802 vs the analytic/OCC 20789.4) while the mesh
-/// geometry itself encloses the correct region (Monte-Carlo parity
-/// ≈ 20.1k; OCC BRepCheck valid, zero free bounds). Ratio-based
-/// volume oracles built on this mesher stay valid (both operands
-/// carry the same bias — OCC independently confirms the flush/inset
-/// gusset unions add volume in exactly the 40/36 ratio), but ABSOLUTE
-/// mesh volumes cannot be trusted until face windings agree across
-/// faces. When the signed sum matches the analytic value, flip this
-/// pin into an equality gate.
+/// PIN → GATE (mesher orientation): the divergence-theorem volume of
+/// an arc-profile extrude matches the analytic value. The mesher was
+/// never guilty — it faithfully trusted LYING orientation data
+/// authored by the extrude: (a) canonical recognition swapped a
+/// concave arc wall's NURBS for an analytic Cylinder whose normal_at
+/// is +radial while material lies OUTSIDE the circle, keeping
+/// `orientation: true` (the whole wall wound inward, +20484 instead
+/// of −20486); (b) `compute_cap_surface` flipped the start cap's
+/// loop-Newell normal (loops already wind CCW about the OUTWARD
+/// normal) and built the UV basis from the unflipped normal — an
+/// inward-claiming plane with a LEFT-handed frame whose two errors
+/// cancelled in the mesher, hiding the lie from every mesh oracle.
+/// Closed by curve-sampled loop Newell for cap planes (decisive even
+/// for a one-edge circle cap) and canonical-vs-NURBS-frame normal
+/// agreement for recognized wall surfaces. Absolute mesh volume
+/// oracles are trustworthy from here on.
 #[test]
-fn arc_extrude_mesh_winding_gap_is_pinned() {
+fn arc_extrude_mesh_volume_matches_analytic() {
     let tilt = 18.0_f64.to_radians();
     let plane_at_root = 81.8;
     let plate_under = |y: f64| plane_at_root + y * tilt.tan() - 13.0 / tilt.cos();
@@ -2167,13 +2197,15 @@ fn arc_extrude_mesh_winding_gap_is_pinned() {
     }
     // Analytic: profile area 577.48 mm² (triangle 952.44 − circular
     // segment 374.96, circle through the three profile points) × 36.
+    // Tolerance 1e-2 relative: chord error of the default-quality
+    // tessellation of the concave arc (measured 0.22%).
     let analytic = 20789.4;
-    let rel = (signed.abs() - analytic).abs() / analytic;
+    let rel = (signed - analytic).abs() / analytic;
     assert!(
-        rel > 0.3,
-        "arc-extrude mesh winding gap has closed (signed volume {signed:.1} \
-         within 30% of analytic {analytic:.1}) — flip this pin into an \
-         equality gate (tolerance ~1e-2 for chord error)"
+        rel < 1.0e-2,
+        "arc-extrude signed mesh volume {signed:.1} deviates from analytic \
+         {analytic:.1} by {rel:.4} relative — face orientation data or \
+         mesher winding regressed"
     );
 }
 
@@ -2320,12 +2352,10 @@ fn round_seat_star_socket_is_watertight_and_void() {
         .extrude(17.0)
         .expect("socket tool");
     // Orientation-immune material probe: ray parity along +z against
-    // the welded mesh. The divergence-sum volume oracle is unusable
-    // on this body (curved faces carry the winding-inconsistent
-    // tessellation pinned by arc_extrude_mesh_winding_gap_is_pinned;
-    // measured: the removed-volume delta read −7649 against the
-    // analytic +3991), but parity does not care about triangle
-    // orientation.
+    // the welded mesh. Written when extrude-authored orientation data
+    // lied to the mesher (closed by
+    // arc_extrude_mesh_volume_matches_analytic); parity stays the
+    // robust choice here since only containment is asserted.
     let mesh_contains = |p: &Part, q: (f64, f64, f64)| -> bool {
         let m = p
             .mesh(&popkern_mesh::TessellationOptions::default())

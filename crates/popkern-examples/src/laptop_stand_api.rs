@@ -226,25 +226,31 @@ fn hexagram(r_outer: f64, edge_offset: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Joint peg, plain hexagram prism at fit clearance.
-///
-/// TEMPORARY CONTAINMENT (recorded): the designed peg adds stepped
-/// pilot tips at BOTH ends. The single star-boss union is closed
-/// (W3, `star_boss_union_is_watertight`), but the SECOND pilot union
-/// onto the already-stepped body leaks (pinned
-/// `peg_double_pilot_gap_is_pinned`) — the second-boolean-on-a-
-/// unioned-star-body class. The plain prism remains a complete
-/// printable joint.
+/// Joint peg: hexagram prism at fit clearance with a stepped pilot
+/// tip at BOTH ends (smaller star at pilot clearance) — the designed
+/// lead-in geometry. The double-pilot union class closed with the
+/// honest extrude-orientation data and winding-based ring-role
+/// election (gate `peg_double_pilot_leads_in_at_both_ends` /
+/// formerly pinned `peg_double_pilot_gap_is_pinned`).
 fn build_peg(p: &StandParams) -> Result<Part, PartError> {
     let body_star = hexagram(p.star_r, p.fit_clearance);
-    let _ = p.pilot_clearance; // returns with the double-pilot pin
-    let _ = p.pilot_len;
+    let pilot_star = hexagram(p.star_r, p.pilot_clearance);
+    // Pilots embed 4 mm into the body so every union crossing is
+    // transversal (no coplanar contact).
+    let embed = 4.0;
 
-    let peg = Profile::on(Plane::XY)
+    let body = Profile::on(Plane::xy_at(p.pilot_len))
         .polygon(&body_star)
-        .extrude(p.peg_len)?;
+        .extrude(p.peg_len - 2.0 * p.pilot_len)?;
+    let bottom_pilot = Profile::on(Plane::XY)
+        .polygon(&pilot_star)
+        .extrude(p.pilot_len + embed)?;
+    let top_pilot = Profile::on(Plane::xy_at(p.peg_len - p.pilot_len - embed))
+        .polygon(&pilot_star)
+        .extrude(p.pilot_len + embed)?;
+    let peg = body.union(&bottom_pilot)?.union(&top_pilot)?;
     p.assert_fits_plate("peg", 2.0 * p.star_r, p.peg_len);
-    println!("  peg: print lying on a side face");
+    println!("  peg: stepped pilots both ends; print lying on a side face");
     Ok(peg)
 }
 

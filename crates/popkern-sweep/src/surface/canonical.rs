@@ -36,10 +36,6 @@ impl ChartMap {
     }
 }
 
-/// Relative recognition tolerance: the sampled surface must match
-/// the analytic candidate to this fraction of its radius.
-const RECOGNITION_REL: f64 = 1.0e-9;
-
 /// Recognize an extruded circular arc as an analytic cylinder.
 ///
 /// Conditions verified by dense sampling (not construction
@@ -111,7 +107,7 @@ pub(crate) fn recognize_extruded_cylinder(
     // Construction noise scales with the profile's coordinate span,
     // not just the radius (measured: a 27 mm arc whose profile
     // coordinates run to ~70 mm deviated 1.0e-7 axially — far over a
-    // RECOGNITION_REL·radius gate). Same constant and shape as the
+    // 1e-9·radius relative gate). Same constant and shape as the
     // translation envelope above; real non-cylinders deviate at
     // sagitta scale, 3+ orders of magnitude above this gate.
     let gate = 1.0e-8 * (1.0 + radius + row_span);
@@ -149,7 +145,6 @@ pub(crate) fn recognize_extruded_cylinder(
         d.dot(&perp2).atan2(d.dot(&perp1))
     };
     let theta0 = angle_of(&row0[0]);
-    let mut theta1 = angle_of(&row0[NU - 1]);
     // Unwrap the end angle to the branch reached by walking the row.
     let mut walked = theta0;
     for p in row0.iter().skip(1) {
@@ -162,7 +157,7 @@ pub(crate) fn recognize_extruded_cylinder(
         }
         walked = t;
     }
-    theta1 = walked;
+    let theta1 = walked;
     if (theta1 - theta0).abs() < 1.0e-12 {
         // Degenerate span; closed full circles land at ±2π.
         return None;
@@ -203,6 +198,56 @@ pub(crate) fn recognize_extruded_cylinder(
             v_scale: height,
         },
     ))
+}
+
+/// Whether a recognized canonical surface's normal field agrees with
+/// the authored NURBS frame normal (`du × dv`).
+///
+/// The sweep wires face loops and pcurves against the NURBS chart
+/// (u = profile, v = path), whose frame normal is the face's outward
+/// direction by construction. Canonical geometry carries its OWN
+/// normal convention — a cylinder's `normal_at` points +radial no
+/// matter which side the material lies on, so a CONCAVE profile arc
+/// (material outside the circle) needs `orientation = false`. The
+/// agreement is sampled at the chart midpoint with finite
+/// differences, retrying on a coarse grid if the sample is
+/// indecisive (degenerate spans).
+pub(crate) fn canonical_normal_agreement(
+    nurbs: &NurbsSurface,
+    canonical: &SurfaceGeometry,
+) -> bool {
+    let samples = [
+        (0.5, 0.5),
+        (0.25, 0.5),
+        (0.75, 0.5),
+        (0.5, 0.25),
+        (0.25, 0.25),
+    ];
+    for &(u, v) in &samples {
+        let h = 1.0e-4;
+        let p0 = nurbs.point_at(u, v);
+        let pu = nurbs.point_at(u + h, v);
+        let pv = nurbs.point_at(u, v + h);
+        let du = pu - p0;
+        let dv = pv - p0;
+        let frame_normal = du.cross(&dv);
+        let scale = du.length() * dv.length();
+        if frame_normal.length() < 1.0e-9 * (1.0 + scale) {
+            continue; // degenerate frame at this sample
+        }
+        let Some((cu, cv)) =
+            popkern_core::geometry::uv_projection::project_point_to_uv(canonical, &p0)
+        else {
+            continue;
+        };
+        let canonical_normal = canonical.normal_at(cu, cv);
+        let dot = frame_normal.dot(&canonical_normal);
+        if dot.abs() > 1.0e-9 * (1.0 + frame_normal.length() * canonical_normal.length()) {
+            return dot > 0.0;
+        }
+    }
+    // No decisive sample — keep the historical convention.
+    true
 }
 
 /// Recognize an extruded straight profile span as an analytic plane.

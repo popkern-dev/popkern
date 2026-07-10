@@ -799,7 +799,10 @@ fn fragment_interior_sample(
     }
     let (_, mid_u) = best?;
     if std::env::var_os("PK_SEL_TRACE").is_some() {
-        eprintln!("      [selpoly] scan cv={cv:.3} outer_x={outer_x:?} -> mid_u={mid_u:.3}");
+        let inner_x: Vec<Vec<f64>> = inners.iter().map(|i| crossings_at(i, cv)).collect();
+        eprintln!(
+            "      [selpoly] scan cv={cv:.3} outer_x={outer_x:?} inner_x={inner_x:?} -> mid_u={mid_u:.3}"
+        );
     }
     Some(surface.point_at(mid_u, cv))
 }

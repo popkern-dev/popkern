@@ -171,6 +171,18 @@ pub(crate) fn loop_uv_runs(
                 run.push(project_point_to_uv(surface, &p)?);
             }
         }
+        // The substituted half-edge (the twin that owns this face's
+        // pcurve) runs OPPOSITE to the loop traversal — sampling its
+        // pcurve forward yields a run whose direction contradicts the
+        // loop. Left unreversed, the concatenated polygon zigzags
+        // (correct vertices, backward runs, 12 chord jumps on a star
+        // ring) and its even-odd crossings double up on vertices
+        // (measured: the scanline sample of a pierced cap ring landed
+        // exactly ON the piercing outline's vertex and the whole ring
+        // was dropped as Inside). Reverse the run into loop order.
+        if h != raw {
+            run.reverse();
+        }
         // Stored pcurves may live on ANY period branch of a periodic
         // chart (a cylinder pcurve at u−2π is the same geometry),
         // while projected samples come back on the principal branch.

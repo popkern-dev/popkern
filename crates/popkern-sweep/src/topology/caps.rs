@@ -6,7 +6,7 @@
 use std::f64::consts::FRAC_1_SQRT_2;
 
 use popkern_core::constructors::builder::BRepBuilder;
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
@@ -36,7 +36,7 @@ pub fn create_cap_face(
     let face = builder.add_face(shell);
 
     // Compute a planar surface from the cap boundary.
-    let cap_surface = compute_cap_surface(builder, half_edges, is_start_cap);
+    let cap_surface = compute_cap_surface(builder, half_edges, cap_curves, is_start_cap);
     builder.set_face_surface(face, cap_surface);
 
     builder
@@ -244,11 +244,22 @@ fn cap_circle_pcurve(radius: f64, cu: f64, cv: f64) -> NurbsCurve {
 
 /// Compute a planar surface for a cap face.
 ///
-/// Estimates the plane from the half-edge origin vertices using
-/// a centroid and Newell's method for the normal.
+/// The stored plane normal is the face's OUTWARD normal, derived by
+/// Newell's method over the boundary traversed in loop order. The
+/// boundary is sampled from the cap CURVES (walked in each
+/// half-edge's direction) so a self-loop cap — one full-circle edge,
+/// whose single origin vertex makes a point-based Newell degenerate
+/// — still yields a decisive loop normal. Loops wind CCW about the
+/// outward normal, so no start/end flip is applied on this path; the
+/// path-direction hint (`is_start_cap`) survives only as the last
+/// resort when no curve geometry exists. The UV basis is built from
+/// the FINAL normal so the plane frame stays right-handed
+/// (`u_axis × v_axis = normal`) — a left-handed frame makes UV-CCW
+/// triangulations emit inward-facing triangles.
 fn compute_cap_surface(
     builder: &BRepBuilder,
     half_edges: &[HalfEdgeHandle],
+    cap_curves: &[NurbsCurve],
     is_start_cap: bool,
 ) -> SurfaceOnFace {
     let brep = builder.brep();
@@ -260,22 +271,84 @@ fn compute_cap_surface(
         .collect();
 
     let centroid = compute_centroid(&points);
-    let normal = compute_newell_normal(&points);
 
-    // Choose u/v axes perpendicular to the normal.
+    // Primary: Newell over the curve-sampled boundary polygon in
+    // loop-traversal order.
+    let normal = match cap_boundary_newell(builder, half_edges, cap_curves) {
+        Some(n) => n,
+        None => {
+            // Degenerate fallback (no curve geometry): origin-vertex
+            // Newell with the historical path-direction flip.
+            let n = compute_newell_normal(&points);
+            if is_start_cap { n * -1.0 } else { n }
+        }
+    };
+
+    // Choose u/v axes perpendicular to the FINAL normal.
     let (u_axis, v_axis) = orthonormal_basis(&normal);
-
-    // Flip normal for start cap (faces away from path start).
-    let oriented_normal = if is_start_cap { normal * -1.0 } else { normal };
 
     SurfaceOnFace {
         geometry: SurfaceGeometry::Plane {
             origin: centroid,
-            normal: oriented_normal,
+            normal,
             u_axis,
             v_axis,
         },
         orientation: true,
+    }
+}
+
+/// Newell normal of the cap boundary, sampled from the cap curves and
+/// traversed in loop (half-edge) order. Each curve is sampled at
+/// interior resolution and reversed when the half-edge runs against
+/// the curve's parameter direction. Returns `None` when the boundary
+/// polygon is degenerate or curve geometry is missing.
+fn cap_boundary_newell(
+    builder: &BRepBuilder,
+    half_edges: &[HalfEdgeHandle],
+    cap_curves: &[NurbsCurve],
+) -> Option<Vec3> {
+    if cap_curves.len() != half_edges.len() {
+        return None;
+    }
+    let brep = builder.brep();
+    const SAMPLES: usize = 8;
+    let mut polygon: Vec<Point3> = Vec::with_capacity(half_edges.len() * SAMPLES);
+    for (&he, curve) in half_edges.iter().zip(cap_curves.iter()) {
+        let (t0, t1) = curve.parameter_range();
+        let p_start = curve.point_at(t0);
+        let p_end = curve.point_at(t1);
+        let origin = brep.vertices[brep.half_edges[he].origin].position;
+        let forward = origin.distance_to(&p_start) <= origin.distance_to(&p_end);
+        for k in 0..SAMPLES {
+            let f = k as f64 / SAMPLES as f64;
+            let f = if forward { f } else { 1.0 - f };
+            polygon.push(curve.point_at(t0 + (t1 - t0) * f));
+        }
+    }
+    let n = compute_newell_normal_raw(&polygon)?;
+    Some(n)
+}
+
+/// Newell's method returning `None` on degenerate polygons instead of
+/// a Z-up guess.
+fn compute_newell_normal_raw(points: &[Point3]) -> Option<Vec3> {
+    let n = points.len();
+    let mut nx = 0.0;
+    let mut ny = 0.0;
+    let mut nz = 0.0;
+    for i in 0..n {
+        let curr = &points[i];
+        let next = &points[(i + 1) % n];
+        nx += (curr.y - next.y) * (curr.z + next.z);
+        ny += (curr.z - next.z) * (curr.x + next.x);
+        nz += (curr.x - next.x) * (curr.y + next.y);
+    }
+    let len = (nx * nx + ny * ny + nz * nz).sqrt();
+    if len < 1e-30 {
+        None
+    } else {
+        Some(Vec3::new(nx / len, ny / len, nz / len))
     }
 }
 

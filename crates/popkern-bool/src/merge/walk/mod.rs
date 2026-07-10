@@ -335,14 +335,34 @@ pub(crate) fn walk_all_fragments_ext(
                 };
                 match twin_of(&lp) {
                     None => inner_loops_out.push(lp),
-                    // The first-walked direction stays the fragment's
-                    // hole boundary — identical to the long-standing
-                    // behavior when the twin was discarded, so every
-                    // configuration that worked before is untouched.
-                    // Role-reassignment heuristics (area sign, face
-                    // ownership) were each measured to break a
-                    // configuration the other fixed.
-                    Some(_) => separate_outers.push(lp),
+                    // When BOTH directions of the ring were walked,
+                    // assign roles by 3D winding: a hole winds
+                    // OPPOSITE its outer loop (Newell dot < 0); the
+                    // same-winding direction is the interior piece's
+                    // outer boundary. First-walked order is chart-
+                    // iteration dependent — with honest cap charts it
+                    // flipped on boolean-authored faces, the hole
+                    // claimed the SAME graph half-edges the other
+                    // side's fragments consume, and the assembly
+                    // minted duplicate ring edges (measured: a
+                    // pre-filleted lip union left both ring copies
+                    // single-use, 8 degenerate junction stubs, and
+                    // fell back to graph-merge). Winding is decided
+                    // against the outer as walked, which is exactly
+                    // the direction assembly wires. Indecisive
+                    // windings keep first-walked order.
+                    Some(prior_idx) => {
+                        let dot_new = walk_geometry::loop_newell(graph, &lp).dot(&outer_newell);
+                        let dot_prior =
+                            walk_geometry::loop_newell(graph, &inner_loops_out[prior_idx])
+                                .dot(&outer_newell);
+                        if dot_new < 0.0 && dot_prior > 0.0 {
+                            let piece = std::mem::replace(&mut inner_loops_out[prior_idx], lp);
+                            separate_outers.push(piece);
+                        } else {
+                            separate_outers.push(lp);
+                        }
+                    }
                 }
             }
         }
