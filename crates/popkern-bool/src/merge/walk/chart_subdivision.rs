@@ -188,6 +188,43 @@ pub(crate) fn build_face_subdivision(
         popkern_core::topology::FaceHandle,
     )],
 ) -> FaceChartSubdivision {
+    let sub =
+        build_face_subdivision_inner(graph, face, he_indices, surface, orientation, overlap_pairs);
+    if std::env::var_os("PK_CHART_DUMP").is_some() {
+        eprintln!(
+            "  [chart] {face:?} sigma={} poles={:?} issues={:?} filtered={:?}",
+            sub.sigma, sub.poles, sub.report.issues, sub.report.filtered
+        );
+        for (&h, emb) in &sub.embeddings {
+            let (s0, e0) = (emb.uv[0], emb.uv[emb.uv.len() - 1]);
+            eprintln!(
+                "    [chart] he {h} tw {} {:?} ({:.3},{:.3})->({:.3},{:.3}) sbp={:?} ebp={:?} seam={}",
+                graph.half_edges[h].twin,
+                emb.source,
+                s0.0,
+                s0.1,
+                e0.0,
+                e0.1,
+                sub.start_bp.get(&h),
+                sub.end_bp.get(&h),
+                emb.seam_like
+            );
+        }
+    }
+    sub
+}
+
+fn build_face_subdivision_inner(
+    graph: &IntersectionGraph,
+    face: &FaceRef,
+    he_indices: &[usize],
+    surface: &SurfaceGeometry,
+    orientation: bool,
+    overlap_pairs: &[(
+        popkern_core::topology::FaceHandle,
+        popkern_core::topology::FaceHandle,
+    )],
+) -> FaceChartSubdivision {
     let mut sub = FaceChartSubdivision {
         sigma: if orientation { 1.0 } else { -1.0 },
         ..Default::default()

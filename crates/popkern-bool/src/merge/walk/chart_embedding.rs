@@ -226,7 +226,17 @@ fn pcurve_run(
         } else {
             (c.t_end, c.t_start)
         };
-        if verify(w0, w1) {
+        // A DEGENERATE 3D window (a zero-length pole edge — the
+        // chart's collapsed v-border) trivially verifies at a single
+        // point and would collapse the run; the pcurve's own full
+        // range carries the real border span (measured: a sphere's
+        // pole edge pcurve spans the whole u-line while its 3D curve
+        // has zero extent).
+        let span3 = c
+            .geometry
+            .point_at(c.t_start)
+            .distance_to(&c.geometry.point_at(c.t_end));
+        if span3 > 1e-9 && verify(w0, w1) {
             window = Some((w0, w1));
         }
     }
