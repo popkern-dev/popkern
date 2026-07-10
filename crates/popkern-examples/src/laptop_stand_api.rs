@@ -271,7 +271,23 @@ fn build_column(p: &StandParams) -> Result<Part, PartError> {
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
 
-    let column = blank.subtract(&bottom_tool)?.subtract(&top_tool)?;
+    // Rim chamfers come AFTER the sockets — inverting the usual
+    // dress-before-pockets order deliberately: a boolean run on a
+    // rim-chamfered body re-processes the surgery's rim welds and
+    // cracks them (bottom-cap sockets measured 24 open mesh edges;
+    // the interaction is pinned in the campaign notes), while the
+    // rim chamfer on the socketed body is clean — the closed-rim
+    // surgery replaces only the caps' OUTER rims and never touches
+    // the socket inner loops. Exact cone-frustum chamfers, supported
+    // since the outer-rim campaign closed
+    // (closed_outer_rim_chamfer_is_watertight_and_probed). The top
+    // rim breaks the sharp edge in the hand; the bottom doubles as
+    // elephant-foot compensation on the plate.
+    let column = blank
+        .subtract(&bottom_tool)?
+        .subtract(&top_tool)?
+        .chamfer(1.0, |e: EdgeQuery| e.circular().at_height(p.column_h))?
+        .chamfer(1.0, |e: EdgeQuery| e.circular().at_height(0.0))?;
     p.assert_fits_plate("column", 2.0 * p.column_r, 2.0 * p.column_r);
     println!("  column: print standing on end (loads pure compression)");
     Ok(column)

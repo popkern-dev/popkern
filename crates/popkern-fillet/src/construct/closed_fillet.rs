@@ -70,7 +70,10 @@ pub(crate) fn is_closed_fillet_edge(brep: &BRep, edge: EdgeHandle) -> bool {
 /// [`BlendFailure`] taxonomy the open path uses when the surgery
 /// can't proceed (e.g. the precomputed geometry is inconsistent
 /// with the BRep topology).
-pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<(), BlendFailure> {
+pub(crate) fn apply_closed_fillet(
+    brep: &mut BRep,
+    eg: &EdgeGeometry,
+) -> Result<popkern_core::topology::FaceHandle, BlendFailure> {
     let fillet_edge = eg.analysis.edge;
     let edge_loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);
 
@@ -523,7 +526,18 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
                 let uv_of = |p: &Point3| -> Option<(f64, f64)> {
                     popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)
                 };
-                if let (Some(uv_a), Some(uv_b)) = (uv_of(&p_out), uv_of(&p_in)) {
+                if let (Some(uv_a), Some(mut uv_b)) = (uv_of(&p_out), uv_of(&p_in)) {
+                    // The two projections can land on DIFFERENT
+                    // period branches (one endpoint at u = 2π, the
+                    // other at u = 0): interpolating across that gap
+                    // sweeps the "cross-section" a full lap around
+                    // the chart, and the seam's pcurves become a
+                    // diagonal through every u (measured: OCC flagged
+                    // the strip wire self-intersecting). Align u_b to
+                    // u_a's branch — the seam is a single station.
+                    if let Some(period) = surface.parameter_periodicity().0 {
+                        uv_b.0 -= period * ((uv_b.0 - uv_a.0) / period).round();
+                    }
                     let n = 17usize;
                     let pts: Vec<Point3> = (0..n)
                         .map(|i| {
@@ -568,7 +582,7 @@ pub(crate) fn apply_closed_fillet(brep: &mut BRep, eg: &EdgeGeometry) -> Result<
         }
     }
 
-    Ok(())
+    Ok(fillet_face)
 }
 
 /// Seam-decline observability without a tracing dependency: stderr

@@ -11,6 +11,9 @@ pub(super) struct PerpSplitData {
 pub(super) struct PerpendicularSplitState {
     pub(super) perp_data: Vec<Option<PerpSplitData>>,
     pub(super) descendants: HashMap<EdgeHandle, Vec<EdgeHandle>>,
+    /// Strip + support faces from closed-rim surgeries — protected
+    /// from the post-pipeline's sliver_absorb.
+    pub(super) closed_fillet_protected: Vec<popkern_core::topology::FaceHandle>,
 }
 
 pub(super) fn run_perpendicular_splits(
@@ -21,6 +24,14 @@ pub(super) fn run_perpendicular_splits(
     use_direct_apex_construction: bool,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> PerpendicularSplitState {
+    // Faces the closed-rim surgery created or rebuilt — the strip
+    // and its two SUPPORT faces. They must be protected from the
+    // post-pipeline's sliver_absorb: its cap-sliver classifiers were
+    // tuned on vertex-blend residue, and a second rim chamfer on the
+    // same body matched the WALL between the two cone strips
+    // (measured: pre-absorb 5 faces, post-absorb 3 — the wall and
+    // the fresh cone eaten, 638 open mesh edges).
+    let mut closed_fillet_protected: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     // ── Phase A: ALL perpendicular edge splits ─ only modifies edges (inserts vertices), not faces.
     let mut perp_data: Vec<Option<PerpSplitData>> = Vec::new();
     let mut closed_handled: std::collections::HashSet<usize> = std::collections::HashSet::new();
@@ -59,7 +70,10 @@ pub(super) fn run_perpendicular_splits(
         // already handled — skip Phase B/C for it.
         if closed_fillet::is_closed_fillet_edge(result, eg.analysis.edge) {
             match closed_fillet::apply_closed_fillet(result, eg) {
-                Ok(()) => {
+                Ok(strip_face) => {
+                    closed_fillet_protected.push(strip_face);
+                    closed_fillet_protected.push(eg.analysis.face_1);
+                    closed_fillet_protected.push(eg.analysis.face_2);
                     closed_handled.insert(idx);
                     perp_data.push(None);
                     continue;
@@ -193,6 +207,7 @@ pub(super) fn run_perpendicular_splits(
     PerpendicularSplitState {
         perp_data,
         descendants,
+        closed_fillet_protected,
     }
 }
 

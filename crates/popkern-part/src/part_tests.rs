@@ -2910,32 +2910,119 @@ fn boolean_cut_skewed_corner_chamfer_is_watertight() {
     assert!(dressed.face_count() > 0);
 }
 
-/// PIN (open frontier): chamfer around a CLOSED OUTER rim — a
-/// cylinder's top edge. The input geometry is now measured-correct
-/// (per-sample toward-centroid side selection, conical bevel
-/// recognition, exact rational rim arcs), but the closed-rim blend
-/// SURGERY was built for hole rims: on an outer rim it emits a body
-/// whose strip/cap trim representation is invalid (BRepCheck false,
-/// ~1800 open mesh edges; the closed FILLET on the same rim errors
-/// outright). Flip to a gate when the outer-rim surgery leg lands —
-/// the column's rim chamfers wait on it.
+/// PIN → GATE (outer-rim campaign): chamfer around a CLOSED OUTER
+/// rim — a cylinder's top edge — is an exact CONE frustum. Closed by
+/// feeding the recognized rim circles (Kåsa fit + common-axis
+/// reconciliation, the cleaner row authoritative) into the
+/// closed-rim surgery's analytic-Arc path, which the chamfer
+/// geometry previously left None: the fitted-NURBS fallback's
+/// parameterization broke the cap and strip trims (BRepCheck false,
+/// ~1800 open mesh edges). OCC volume agrees with the Pappus ring
+/// removal to 1.5e-6 relative.
 #[test]
-fn closed_outer_rim_chamfer_gap_is_pinned() {
+fn closed_outer_rim_chamfer_is_watertight_and_probed() {
     let cyl = Profile::on(Plane::XY)
         .circle(35.0)
         .extrude(60.0)
         .expect("cyl");
     let out = cyl
         .chamfer(1.5, |e: EdgeQuery| e.circular().at_height(60.0))
-        .expect("chamfer runs");
+        .expect("chamfer");
     let opens = out.open_edge_count().expect("mesh");
     eprintln!(
         "outer-rim chamfer: opens={opens} faces={}",
         out.face_count()
     );
+    assert_eq!(opens, 0);
+    assert_eq!(out.face_count(), 4);
+    // Material probes: the old rim corner is gone; the body below
+    // and inboard of the cone stays.
+    assert!(!mesh_contains_point(&out, (34.8, 0.0, 59.8)));
+    assert!(mesh_contains_point(&out, (34.0, 0.0, 58.0)));
+    assert!(mesh_contains_point(&out, (33.0, 0.0, 59.8)));
+}
+
+/// PIN (open frontier): a BOOLEAN run on a rim-chamfered body — the
+/// bottom-cap socket subtract re-processes the closed-rim surgery's
+/// welds and cracks them body-wide (24 open mesh edges; a second
+/// socket then declines OpenShellNotSupported). The shipping column
+/// inverts the order (sockets first, rim chamfers last), which is
+/// clean because the rim surgery replaces only the caps' outer rims.
+/// Flip when the boolean's pcurve maintenance learns to preserve
+/// surgery-authored rim welds.
+#[test]
+fn boolean_after_rim_chamfer_gap_is_pinned() {
+    let star = hexagram_points(12.0);
+    let blank = Profile::on(Plane::XY)
+        .circle(35.0)
+        .extrude(60.0)
+        .expect("cyl")
+        .chamfer(1.0, |e: EdgeQuery| e.circular())
+        .expect("rims");
+    let bottom = Profile::on(Plane::xy_at(-1.0))
+        .polygon(&star)
+        .extrude(17.0)
+        .expect("tool");
+    let out = blank.subtract(&bottom).expect("subtract");
+    let opens = out.open_edge_count().expect("mesh");
+    eprintln!("boolean-after-rim-chamfer: opens={opens}");
     assert!(
         opens > 0,
-        "closed-outer-rim chamfer is now watertight — flip this pin to a gate \
-         and enable the column's rim chamfers"
+        "boolean on a rim-chamfered body is now clean — flip this pin and \
+         consider restoring dress-before-pockets order for the column"
+    );
+}
+
+/// PIN (open frontier, arm-dressing campaign): chamfer on a rest
+/// edge INTERRUPTED by a through-slot. The skewed-corner class is
+/// closed (bevel-plane anchors), but the bevel strips built over the
+/// slot-interrupted edge pieces carry stale pcurves (~0.7 off their
+/// own vertices, surviving the window/pcurve repair ladder) and the
+/// mesh cracks along the strip rails. The rail-unioned tip body has
+/// a sibling weld defect. The arms ship with sharp rest edges until
+/// the strip-authoring leg lands.
+#[test]
+fn slot_interrupted_chamfer_gap_is_pinned() {
+    let tilt = 18.0_f64.to_radians();
+    let w = 12.0_f64.to_radians();
+    let plane_at_root = 100.0 + (-56.0 + 28.0 * w.sin()) * tilt.tan();
+    let seg = yawed_plate_segment(tilt, w, 170.0, 275.0, plane_at_root);
+    let slot = Profile::on(Plane::XY)
+        .polygon(&[
+            (-2.0, -4.5),
+            (1.0, -4.5),
+            (6.0, -7.0),
+            (6.0, 7.0),
+            (1.0, 4.5),
+            (-2.0, 4.5),
+        ])
+        .extrude(44.0)
+        .expect("slot")
+        .rotate_y(90.0_f64.to_radians())
+        .expect("ry")
+        .rotate_x(tilt)
+        .expect("rx")
+        .translate(-22.0, 0.0, 0.0)
+        .expect("center")
+        .rotate_z(-w)
+        .expect("rz")
+        .translate(0.0, -259.0, plane_at_root - 259.0 * w.cos() * tilt.tan())
+        .expect("place");
+    let seg = seg.subtract(&slot).expect("slot cut");
+    let rest_z = move |x: f64, y: f64| plane_at_root + (x * w.sin() + y * w.cos()) * tilt.tan();
+    let dressed = seg
+        .chamfer(1.0, move |e: EdgeQuery| {
+            e.straight().filter(move |i| {
+                i.direction.map(|d| d.y.abs() > 0.9).unwrap_or(false)
+                    && (i.midpoint.z - rest_z(i.midpoint.x, i.midpoint.y)).abs() < 0.5
+            })
+        })
+        .expect("chamfer");
+    let opens = dressed.open_edge_count().expect("mesh");
+    eprintln!("slot-interrupted chamfer: opens={opens}");
+    assert!(
+        opens > 0,
+        "slot-interrupted chamfer is now watertight — flip this pin to a gate \
+         and enable dress_arm_rest_edges on the arm pieces"
     );
 }

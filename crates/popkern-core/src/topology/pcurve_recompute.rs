@@ -375,26 +375,27 @@ impl BRep {
     /// Recompute pcurves for ALL faces in the BRep.
     pub fn recompute_all_pcurves(&mut self) -> Result<(), crate::error::CoreError> {
         let faces: Vec<_> = self.faces.keys().collect();
-        // FAULT-TOLERANT per face: one face's projection failure must
-        // not abandon every face after it — a dress-up surgery that
-        // nulled stale pcurves (fix_stale) relies on this pass to
-        // refill them, and an early abort left the remaining faces
-        // meshing against their pre-surgery extents (measured: a
-        // chamfered arm tip's rest face triangulated clear across
-        // the setbacks — 57 open mesh edges). The FIRST error is
-        // still reported after all faces are attempted.
-        let mut first_err = None;
         for fh in faces {
-            if let Err(e) = self.recompute_face_pcurves(fh)
-                && first_err.is_none()
-            {
-                first_err = Some(e);
-            }
+            self.recompute_face_pcurves(fh)?;
             self.close_periodic_loop_winding(fh);
         }
-        match first_err {
-            Some(e) => Err(e),
-            None => Ok(()),
+        Ok(())
+    }
+
+    /// [`Self::recompute_all_pcurves`], fault-tolerant per face: one
+    /// face's projection failure does not abandon the faces after it
+    /// — a dress-up surgery that nulled stale pcurves (fix_stale)
+    /// relies on this pass to refill them, and an early abort left
+    /// the remaining faces meshing against their pre-surgery extents
+    /// (measured: a chamfered arm tip's rest face triangulated clear
+    /// across the setbacks). Kept SEPARATE from the strict variant:
+    /// the direct-apex pipeline is tuned to the abort semantics
+    /// (measured: the lenient loop broke eight of its cap gates).
+    pub fn recompute_all_pcurves_lenient(&mut self) {
+        let faces: Vec<_> = self.faces.keys().collect();
+        for fh in faces {
+            let _ = self.recompute_face_pcurves(fh);
+            self.close_periodic_loop_winding(fh);
         }
     }
 
@@ -508,6 +509,53 @@ impl BRep {
                     break;
                 }
             }
+            // PRINCIPAL-CELL NORMALIZATION: branch-chaining anchors
+            // the loop to whatever cell its first pcurve landed on,
+            // and analytic inversion of a rim whose arc starts past
+            // +π puts the whole loop on the 2π..4π cell. That is
+            // chart-equivalent for the kernel but OUTSIDE the
+            // surface's principal parameter cell for interchange
+            // (measured: OCC's BRepCheck rejected a twice-chamfered
+            // column's bottom cone strip while the mesh welded
+            // clean). Shift the WHOLE loop by whole periods so its
+            // mean u lands in [0, period) — a rigid translation that
+            // preserves every relative relationship.
+            {
+                let mut min_u = f64::MAX;
+                let mut max_u = f64::MIN;
+                for &heh in &hes {
+                    if let Some(pc) = self.half_edges[heh].pcurve.as_ref() {
+                        let (t0, t1) = pc.parameter_range();
+                        for t in [t0, t1] {
+                            let u = pc.point_at(t).x;
+                            min_u = min_u.min(u);
+                            max_u = max_u.max(u);
+                        }
+                    }
+                }
+                // Scoped to loops WHOLLY outside [0, period): loops
+                // that merely straddle a cell edge (charts anchored
+                // at −π, seam-adjacent trims) are tuned behavior and
+                // must not move (measured: shifting by the mean
+                // broke eight direct-apex cap gates).
+                if min_u <= max_u {
+                    let eps = 1e-9 * u_period;
+                    let k = if min_u >= u_period - eps {
+                        (min_u / u_period + eps).floor()
+                    } else if max_u <= eps {
+                        (max_u / u_period - eps).ceil() - 1.0
+                    } else {
+                        0.0
+                    };
+                    if k != 0.0 {
+                        for &heh in &hes {
+                            if let Some(pc) = self.half_edges[heh].pcurve.as_mut() {
+                                pc.shift_u(-k * u_period);
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -520,6 +568,91 @@ impl BRep {
     /// exceeds the BRep imprecision budget. This happens when fillets or other
     /// operations move edge positions or reassign face surfaces without
     /// updating inherited pcurves.
+    /// Re-window edge 3D curves whose parameter window no longer
+    /// matches the edge's vertices. A topology surgery that splices
+    /// new vertices into existing edges (a chamfer shortening the
+    /// edges adjacent to its strip) can leave the CURVE window
+    /// covering the old span; every pcurve rebuilt from that curve
+    /// then faithfully reproduces the stale extent (measured: a
+    /// chamfered slotted plate's wall pcurves sat 0.7 off their own
+    /// vertices after recompute, because recompute projects curve
+    /// samples). The repair inverts both vertex positions onto the
+    /// stored curve and narrows the window to them; edges whose
+    /// vertices don't lie ON the curve (within the stale tolerance)
+    /// are left alone.
+    pub fn fix_stale_edge_windows(&mut self) {
+        use crate::geometry::curve::CurveEval;
+        let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
+        let edge_keys: Vec<_> = self.edges.keys().collect();
+        for eh in edge_keys {
+            let Some(edge) = self.edges.get(eh) else {
+                continue;
+            };
+            let Some(curve) = edge.curve.clone() else {
+                continue;
+            };
+            let he = edge.half_edge;
+            let Some(he_data) = self.half_edges.get(he) else {
+                continue;
+            };
+            let v0h = he_data.origin;
+            let Some(twin) = self.half_edges.get(he_data.twin) else {
+                continue;
+            };
+            let v1h = twin.origin;
+            if v0h == v1h {
+                continue; // closed edge — windows are full-period
+            }
+            let v0 = self.vertices[v0h].position;
+            let v1 = self.vertices[v1h].position;
+            let p0 = curve.geometry.point_at(curve.t_start);
+            let p1 = curve.geometry.point_at(curve.t_end);
+            let err = p0.distance_to(&v0).max(p1.distance_to(&v1));
+            if err <= stale_tolerance {
+                continue;
+            }
+            // Nearest parameter on the stored curve to a point:
+            // coarse scan + ternary refinement.
+            let nearest = |p: &crate::geometry::Point3| -> (f64, f64) {
+                let n = 128;
+                let mut best = (curve.t_start, f64::INFINITY);
+                for i in 0..=n {
+                    let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / n as f64;
+                    let d = curve.geometry.point_at(t).distance_to(p);
+                    if d < best.1 {
+                        best = (t, d);
+                    }
+                }
+                let step = (curve.t_end - curve.t_start).abs() / n as f64;
+                let (mut lo, mut hi) = (best.0 - step, best.0 + step);
+                for _ in 0..48 {
+                    let m1 = lo + (hi - lo) / 3.0;
+                    let m2 = hi - (hi - lo) / 3.0;
+                    if curve.geometry.point_at(m1).distance_to(p)
+                        <= curve.geometry.point_at(m2).distance_to(p)
+                    {
+                        hi = m2;
+                    } else {
+                        lo = m1;
+                    }
+                }
+                let t = 0.5 * (lo + hi);
+                (t, curve.geometry.point_at(t).distance_to(p))
+            };
+            let (t0, d0) = nearest(&v0);
+            let (t1, d1) = nearest(&v1);
+            if d0 <= stale_tolerance
+                && d1 <= stale_tolerance
+                && (t1 - t0).abs() > 1e-12
+                && let Some(edge_mut) = self.edges.get_mut(eh)
+                && let Some(c) = edge_mut.curve.as_mut()
+            {
+                c.t_start = t0;
+                c.t_end = t1;
+            }
+        }
+    }
+
     pub fn fix_stale_pcurves(&mut self) {
         use crate::geometry::surface::SurfaceEval;
 

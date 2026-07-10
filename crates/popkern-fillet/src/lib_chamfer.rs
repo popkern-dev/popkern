@@ -42,6 +42,9 @@ pub fn chamfer_edges(
         });
     }
 
+    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+        eprintln!("  [chamfer] pre-apply faces={}", brep.faces.len());
+    }
     // 3. Apply topology. Chamfers always use mitred vertex mode + no rational-Gregory.
     let mut apply_result = construct::apply_blend_geometry(
         brep,
@@ -65,6 +68,12 @@ pub fn chamfer_edges(
         failures: edge_failures,
     })?;
 
+    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+        eprintln!(
+            "  [chamfer] post-apply faces={}",
+            apply_result.brep.faces.len()
+        );
+    }
     // Post-apply pcurve maintenance — the same ladder the fillet
     // path runs. The surgery shortens the edges adjacent to each
     // chamfered edge but leaves their pcurves covering the OLD span;
@@ -74,11 +83,14 @@ pub fn chamfer_edges(
     // — 75 open mesh edges on a 9-face body; flat charts survived
     // the staleness by accident, which is why the bracket suite
     // never caught it).
-    // Order matters: `recompute_all_pcurves` is FILL-ONLY (existing
-    // pcurves are trusted), so the stale ones must be NULLED first
-    // or they survive both passes.
+    // Order matters: stale EDGE WINDOWS first (or the pcurve
+    // recompute faithfully reproduces the stale extent from the
+    // curve samples), then null stale pcurves, then refill —
+    // `recompute_all_pcurves` is FILL-ONLY (existing pcurves are
+    // trusted).
+    apply_result.brep.fix_stale_edge_windows();
     apply_result.brep.fix_stale_pcurves();
-    let _ = apply_result.brep.recompute_all_pcurves();
+    apply_result.brep.recompute_all_pcurves_lenient();
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
 
     // Assign stable names when tracking is active.

@@ -61,8 +61,13 @@ pub(super) fn find_corner_fragment_target(
                 continue;
             };
             let twin_face = twin_loop.face;
+            // Guarded like the loop lookup above: mid-pipeline
+            // topology can carry a stale loop→face reference after a
+            // blend surgery (measured: a chamfer on a slotted plate
+            // panicked here on an invalid SlotMap key).
             if twin_face != fh
-                && let Some(twin_sof) = brep.faces[twin_face].surface.as_ref()
+                && let Some(twin_face_data) = brep.faces.get(twin_face)
+                && let Some(twin_sof) = twin_face_data.surface.as_ref()
                 && matches!(
                     twin_sof.geometry,
                     SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)

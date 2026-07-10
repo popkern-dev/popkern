@@ -245,6 +245,7 @@ pub fn apply_blend_geometry(
         )
     });
     pipeline_timing.perpendicular_split_ms = ms;
+    direct_apex_built_faces.extend(split_state.closed_fillet_protected.iter().copied());
     post_pipeline::determinism_trace("post_perp_splits", &result);
     let (_, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(

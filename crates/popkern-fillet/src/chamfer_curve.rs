@@ -22,6 +22,12 @@ pub struct ChamferResult {
     pub trim_curve_1: NurbsCurve,
     /// 3D trim curve on the second face.
     pub trim_curve_2: NurbsCurve,
+    /// Exact analytic circle behind `trim_curve_1` when the bevel
+    /// was recognized as a cone frustum (closed rims) — the
+    /// closed-rim surgery builds exact Arc edges from it.
+    pub trim_circle_1: Option<(Point3, Vec3, f64)>,
+    /// Exact analytic circle behind `trim_curve_2`.
+    pub trim_circle_2: Option<(Point3, Vec3, f64)>,
     /// Parameter-space trim curve on the first face (Point3(u, v, 0) convention).
     pub pcurve_1: NurbsCurve,
     /// Parameter-space trim curve on the second face (Point3(u, v, 0) convention).
@@ -143,6 +149,10 @@ pub fn compute_chamfer(
 
     // 7. Build the surface: the recognized cone, or the ruled
     // strip between the two trim curves.
+    let (trim_circle_1, trim_circle_2) = match &cone {
+        Some((_, c1, c2)) => (Some(*c1), Some(*c2)),
+        None => (None, None),
+    };
     let surface = match cone {
         Some((cone_surface, _, _)) => {
             if std::env::var_os("PK_BEVEL_TRACE").is_some() {
@@ -157,6 +167,8 @@ pub fn compute_chamfer(
         surface,
         trim_curve_1,
         trim_curve_2,
+        trim_circle_1,
+        trim_circle_2,
         pcurve_1,
         pcurve_2,
     })
@@ -571,7 +583,7 @@ fn recognize_conical_bevel(
     points_1: &[Point3],
     points_2: &[Point3],
 ) -> Option<(SurfaceGeometry, BevelCircle, BevelCircle)> {
-    let fit_circle = |pts: &[Point3]| -> Option<(Point3, Vec3, f64)> {
+    let fit_circle = |pts: &[Point3]| -> Option<(Point3, Vec3, f64, f64)> {
         // Closed rows duplicate the closure sample — drop it or the
         // centroid biases toward it by r/n and every radius check
         // fails.
@@ -641,7 +653,11 @@ fn recognize_conical_bevel(
             let d = *p - centroid;
             let radial = d - axis * d.dot(&axis);
             let axial = d.dot(&axis).abs();
-            if axial > 1e-6 * (1.0 + radial.length()) {
+            // Chord-tangent offsets carry ~1e-3-scale sampling
+            // noise both radially and axially; rows are snapped
+            // onto the fitted circle afterwards, so the gates only
+            // exclude genuinely non-circular rows.
+            if axial > 1e-3 * (1.0 + radial.length()) {
                 if std::env::var_os("PK_BEVEL_TRACE").is_some() {
                     eprintln!("  [bevel-circle] non-coplanar axial={axial:.3e}");
                 }
@@ -674,22 +690,57 @@ fn recognize_conical_bevel(
         if r < 1e-9 || (r_max - r_min) > 1e-3 * r {
             return None; // not circular
         }
-        Some((centroid, axis, r))
+        Some((centroid, axis, r, r_max - r_min))
     };
-    let (c1, a1, r1) = fit_circle(points_1)?;
-    let (c2, a2, r2) = fit_circle(points_2)?;
+    let trace = std::env::var_os("PK_BEVEL_TRACE").is_some();
+    let (c1, a1, r1, spread1) = fit_circle(points_1)?;
+    let (c2, a2, r2, spread2) = fit_circle(points_2)?;
     let scale = r1.max(r2);
     // Common axis: parallel normals, centre offset along the axis.
     if a1.cross(&a2).length() > 1e-6 {
+        if trace {
+            eprintln!("  [bevel-cone] axes disagree: {a1:?} vs {a2:?}");
+        }
         return None;
     }
+    // RECONCILE the two fits onto one axis: rows carry unequal
+    // sampling noise (an analytic-support row fits to 1e-14 while a
+    // chord-tangent row wobbles ~1e-2), so the CLEANER circle's axis
+    // line is authoritative — re-centre the noisier circle onto it
+    // and refit its radius about the corrected centre. Without this
+    // the two centres disagree perpendicular to the axis by the
+    // noise (measured 3.9e-3) and recognition declines.
+    let refit = |c_fixed: Point3, axis: &Vec3, pts: &[Point3]| -> f64 {
+        let mut sum = 0.0;
+        for p in pts {
+            let d = *p - c_fixed;
+            sum += (d - *axis * d.dot(axis)).length();
+        }
+        sum / pts.len() as f64
+    };
+    let (c1, r1, c2, r2) = if spread1 <= spread2 {
+        let c2f = c1 + a1 * (c2 - c1).dot(&a1);
+        (c1, r1, c2f, refit(c2f, &a1, points_2))
+    } else {
+        let c1f = c2 + a2 * (c1 - c2).dot(&a2);
+        (c1f, refit(c1f, &a2, points_1), c2, r2)
+    };
     let d = c2 - c1;
     let along = d.dot(&a1);
     if (d - a1 * along).length() > 1e-6 * scale || along.abs() < 1e-9 * scale {
+        if trace {
+            eprintln!(
+                "  [bevel-cone] not concentric/coincident: perp={:.3e} along={along:.3e}",
+                (d - a1 * along).length()
+            );
+        }
         return None;
     }
     let dr = r2 - r1;
     if dr.abs() < 1e-9 * scale {
+        if trace {
+            eprintln!("  [bevel-cone] cylindrical band dr={dr:.3e}");
+        }
         return None; // cylindrical band — not this bevel's shape
     }
     // Apex where the radius extrapolates to zero along the axis.
