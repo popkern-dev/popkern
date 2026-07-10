@@ -134,98 +134,8 @@ fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     // superset for arcs), NURBS curves their control-point hull
     // (positive weights ⇒ curve ⊂ hull), parabola/hyperbola their
     // endpoint + interior derivative-zero extremes.
-    let mut extend_curve_extent = |c: &popkern_core::geometry::curve::CurveOnEdge| {
-        use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
-        match &c.geometry {
-            CurveGeometry::Line { .. } => {} // endpoints are sampled
-            CurveGeometry::Circle {
-                center,
-                normal,
-                radius,
-            }
-            | CurveGeometry::Arc {
-                center,
-                normal,
-                radius,
-                ..
-            } => {
-                let amp = |n: f64| radius * (1.0 - n * n).max(0.0).sqrt();
-                let (ax, ay, az) = (amp(normal.x), amp(normal.y), amp(normal.z));
-                points.push(popkern_core::geometry::Point3::new(
-                    center.x - ax,
-                    center.y - ay,
-                    center.z - az,
-                ));
-                points.push(popkern_core::geometry::Point3::new(
-                    center.x + ax,
-                    center.y + ay,
-                    center.z + az,
-                ));
-            }
-            CurveGeometry::Ellipse {
-                center,
-                u_basis,
-                v_basis,
-                ..
-            } => {
-                let amp = |u: f64, v: f64| (u * u + v * v).sqrt();
-                let (ax, ay, az) = (
-                    amp(u_basis.x, v_basis.x),
-                    amp(u_basis.y, v_basis.y),
-                    amp(u_basis.z, v_basis.z),
-                );
-                points.push(popkern_core::geometry::Point3::new(
-                    center.x - ax,
-                    center.y - ay,
-                    center.z - az,
-                ));
-                points.push(popkern_core::geometry::Point3::new(
-                    center.x + ax,
-                    center.y + ay,
-                    center.z + az,
-                ));
-            }
-            CurveGeometry::Parabola {
-                linear, quadratic, ..
-            } => {
-                // Interior extreme along axis w at linear·w + 2t·quadratic·w = 0.
-                for (l, q) in [
-                    (linear.x, quadratic.x),
-                    (linear.y, quadratic.y),
-                    (linear.z, quadratic.z),
-                ] {
-                    if q.abs() > 1e-30 {
-                        let t = -l / (2.0 * q);
-                        if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
-                            points.push(c.geometry.point_at(t));
-                        }
-                    }
-                }
-            }
-            CurveGeometry::Hyperbola {
-                semi_major,
-                semi_minor,
-                ..
-            } => {
-                // Extreme along w where sinh(t)·(sM·w) + cosh(t)·(sm·w) = 0.
-                for (a, b) in [
-                    (semi_major.x, semi_minor.x),
-                    (semi_major.y, semi_minor.y),
-                    (semi_major.z, semi_minor.z),
-                ] {
-                    if a.abs() > 1e-30 && (b / a).abs() < 1.0 {
-                        let t = (-b / a).atanh();
-                        if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
-                            points.push(c.geometry.point_at(t));
-                        }
-                    }
-                }
-            }
-            CurveGeometry::Nurbs(n) => {
-                points.extend(n.control_points.iter().copied());
-            }
-        }
-    };
+    let mut extend_curve_extent =
+        |c: &popkern_core::geometry::curve::CurveOnEdge| conservative_curve_extent(c, &mut points);
     let face = &brep.faces[face_handle];
     let mut loops = vec![face.outer_loop];
     loops.extend(face.inner_loops.iter().copied());
@@ -265,6 +175,111 @@ fn face_aabb(brep: &BRep, face_handle: FaceHandle) -> Option<Aabb> {
     }
 
     Aabb::from_points(&points)
+}
+
+/// Push CONSERVATIVE extent points for a curve into `points` — a
+/// superset of the curve's true axis-aligned extent. Finite sampling
+/// UNDER-approximates curved extents (a rational circle's parameter
+/// is not angle-uniform; a closed rim's two vertices coincide at the
+/// seam), and AABBs used as pruning gates must CONTAIN the geometry.
+/// Analytic curves contribute exact per-axis amplitude boxes
+/// (full-sweep superset for arcs), NURBS their control-point hull
+/// (positive weights ⇒ curve ⊂ hull), parabola/hyperbola their
+/// interior derivative-zero extremes.
+pub(crate) fn conservative_curve_extent(
+    c: &popkern_core::geometry::curve::CurveOnEdge,
+    points: &mut Vec<popkern_core::geometry::Point3>,
+) {
+    use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
+    match &c.geometry {
+        CurveGeometry::Line { .. } => {} // endpoints suffice
+        CurveGeometry::Circle {
+            center,
+            normal,
+            radius,
+        }
+        | CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            ..
+        } => {
+            let amp = |n: f64| radius * (1.0 - n * n).max(0.0).sqrt();
+            let (ax, ay, az) = (amp(normal.x), amp(normal.y), amp(normal.z));
+            points.push(popkern_core::geometry::Point3::new(
+                center.x - ax,
+                center.y - ay,
+                center.z - az,
+            ));
+            points.push(popkern_core::geometry::Point3::new(
+                center.x + ax,
+                center.y + ay,
+                center.z + az,
+            ));
+        }
+        CurveGeometry::Ellipse {
+            center,
+            u_basis,
+            v_basis,
+            ..
+        } => {
+            let amp = |u: f64, v: f64| (u * u + v * v).sqrt();
+            let (ax, ay, az) = (
+                amp(u_basis.x, v_basis.x),
+                amp(u_basis.y, v_basis.y),
+                amp(u_basis.z, v_basis.z),
+            );
+            points.push(popkern_core::geometry::Point3::new(
+                center.x - ax,
+                center.y - ay,
+                center.z - az,
+            ));
+            points.push(popkern_core::geometry::Point3::new(
+                center.x + ax,
+                center.y + ay,
+                center.z + az,
+            ));
+        }
+        CurveGeometry::Parabola {
+            linear, quadratic, ..
+        } => {
+            // Interior extreme along axis w at linear·w + 2t·quadratic·w = 0.
+            for (l, q) in [
+                (linear.x, quadratic.x),
+                (linear.y, quadratic.y),
+                (linear.z, quadratic.z),
+            ] {
+                if q.abs() > 1e-30 {
+                    let t = -l / (2.0 * q);
+                    if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
+                        points.push(c.geometry.point_at(t));
+                    }
+                }
+            }
+        }
+        CurveGeometry::Hyperbola {
+            semi_major,
+            semi_minor,
+            ..
+        } => {
+            // Extreme along w where sinh(t)·(sM·w) + cosh(t)·(sm·w) = 0.
+            for (a, b) in [
+                (semi_major.x, semi_minor.x),
+                (semi_major.y, semi_minor.y),
+                (semi_major.z, semi_minor.z),
+            ] {
+                if a.abs() > 1e-30 && (b / a).abs() < 1.0 {
+                    let t = (-b / a).atanh();
+                    if t > c.t_start.min(c.t_end) && t < c.t_start.max(c.t_end) {
+                        points.push(c.geometry.point_at(t));
+                    }
+                }
+            }
+        }
+        CurveGeometry::Nurbs(n) => {
+            points.extend(n.control_points.iter().copied());
+        }
+    }
 }
 
 /// Compute AABBs for all faces in a BRep that have surface geometry.

@@ -1003,12 +1003,21 @@ fn tilted_face_star_socket_is_watertight_and_chi_clean() {
 /// the near-vertex rescue in the split-face matcher absorbs the
 /// two-authority junction spread (~2.3 µm between the wall-trim clip
 /// and the cap-chord endpoints), and the generic NURBS inversion
-/// lets junction pre-splits work on split rim pieces. Current
-/// position: the subtract assembles but a result loop fails closure
-/// by 27.1 (a rim piece's curve span disagrees with the loop after
-/// the cap split) — downstream of the principal-range arc→NURBS
-/// clamp recorded in `curve_to_nurbs.rs`, whose removal awaits the
-/// rim-anchor unification leg in the chamfer surgery.
+/// lets junction pre-splits work on split rim pieces. Further
+/// layers closed since: the exact arc→NURBS conversion (rim-anchor
+/// unification retired the clamp), wrapped clip windows (the mouth
+/// ellipse's true arc), curve-evaluated fragment samples (the cap
+/// sliver now drops), topological loop closure in the walk, and
+/// conservative EDGE AABBs (a closed rim's vertex-only box collapsed
+/// to its seam point and the rim×wall hits were never detected — the
+/// rim never split at the wall). Position now: χ = −1, 36 open mesh
+/// edges — the bore-wall face's fragment walk seeds on the SEAM,
+/// meets a THREE-way Shared junction at the mouth arc's anchor node
+/// (two arc pieces + seam; the exactly-one-trim junction rule does
+/// not apply), and the angular pick weaves the kept wall and the
+/// beyond-wall strip into one 16-half-edge mega-loop. Multi-trim
+/// junction routing is the walk-convention fork — the named next
+/// leg.
 #[test]
 fn side_breaching_tilted_bore_gap_is_pinned() {
     let tilt = -18.0_f64.to_radians();

@@ -95,11 +95,6 @@ fn detect_edges_vs_faces(
             None => continue,
         };
 
-        let edge_aabb = match Aabb::from_points(&[v_start, v_end]) {
-            Some(a) => a,
-            None => continue,
-        };
-
         // CURVED edges use their real geometry: the vertex-chord
         // stand-in crosses faces the edge itself never touches (an
         // ellipse edge's chord hit two pocket walls at y=0; the graph
@@ -114,6 +109,22 @@ fn detect_edges_vs_faces(
                     _ => true,
                 }
         });
+        // The edge AABB must CONTAIN the edge — a vertex-only box
+        // collapses to the SEAM POINT for a closed rim (both
+        // vertices coincide), so the rim×face pair was pruned before
+        // intersection ever ran (measured: a bore's bottom rim
+        // crossing a breached wall produced no edge-face hits, the
+        // rim never split at the wall, and the fragment walk
+        // dead-ended at the mouth). Same conservative-extent rule as
+        // the face AABBs.
+        let mut extent_points = vec![v_start, v_end];
+        if let Some(c) = stored {
+            crate::intersect::conservative_curve_extent(c, &mut extent_points);
+        }
+        let edge_aabb = match Aabb::from_points(&extent_points) {
+            Some(a) => a,
+            None => continue,
+        };
         let (edge_curve, t_range) = match stored {
             Some(c) => (c.geometry.clone(), (c.t_start, c.t_end)),
             None => {
