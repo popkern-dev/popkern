@@ -120,9 +120,31 @@ pub fn compute_chamfer(
     // it with thousands of cracked slivers.
     let exact_rim = |circle: &BevelCircle, anchor: &Point3| -> NurbsCurve {
         let (c, axis, r) = circle;
-        let (p1, p2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+        // Angles measured in the Arc EVALUATOR's frame (circle_basis)
+        // so that point_at(a0) IS the anchor — the surface frame
+        // (orthonormal_basis) can sit a phase apart and the authored
+        // start then names a different point on the circle.
+        let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
         let d = *anchor - *c;
         let a0 = d.dot(&p2).atan2(d.dot(&p1));
+        if std::env::var_os("PK_RIM_TRACE").is_some() {
+            use popkern_core::geometry::curve::CurveEval as _;
+            let probe = popkern_core::geometry::curve::CurveGeometry::Arc {
+                center: *c,
+                normal: *axis,
+                radius: *r,
+                start_angle: a0,
+                end_angle: a0 + std::f64::consts::TAU,
+            };
+            let p = probe.point_at(a0);
+            eprintln!(
+                "  [rim-anchor] exact_rim anchor=({:.3},{:.3},{:.3}) a0={a0:.4} residual={:.2e}",
+                anchor.x,
+                anchor.y,
+                anchor.z,
+                p.distance_to(anchor)
+            );
+        }
         popkern_core::geometry::curve::CurveGeometry::Arc {
             center: *c,
             normal: *axis,

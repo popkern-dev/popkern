@@ -217,24 +217,23 @@ pub(super) fn hyperbola_to_nurbs(
     nurbs
 }
 
-/// Build a NURBS arc by constructing the full circle and splitting to the arc range.
+/// Build a NURBS arc covering the arc's OWN angular range, knots in
+/// ABSOLUTE angle so the NURBS parameter matches the
+/// [`CurveGeometry::Arc`] evaluator's parameter.
 ///
-/// KNOWN LIMITATION (recorded containment, PK-103): ranges outside
-/// the principal `[0, 2π]` branch are silently CLAMPED — an
-/// `Arc[−π/2, 3π/2]` rim converts to a curve covering only
-/// `[0, 3π/2]`, its start collapsed to angle 0. An exact
-/// generalized conversion was implemented and REVERTED here: the
-/// closed-rim chamfer surgery's anchor conventions were tuned
-/// against this clamp (three sites author the same rim circle with
-/// different angular anchors — the trim fit anchors at the offset
-/// row start, `closed_fillet` at the trim start point, and a
-/// re-derivation path at its frame's −π/2 — and the clamp is what
-/// unifies their curve START POINTS at angle 0; with the exact
-/// conversion the 0.0074 rad anchor spread surfaced as a 0.25 mm
-/// OpenLoop in `closed_outer_rim_chamfer_is_watertight_and_probed`
-/// and three sibling gates). The commercial-grade replacement is a
-/// single anchor authority for rim arcs across the surgery, then
-/// the exact conversion (kept in the PK-103 ledger notes).
+/// Arcs within the principal `[0, 2π]` range keep the historical
+/// construction (splitting the standard full-circle NURBS) with its
+/// parameterization byte-identical — the chamfer surgery pairs
+/// exact-arc pcurves with these curves parametrically. Ranges
+/// OUTSIDE the principal branch previously CLAMPED silently — a
+/// closed rim authored as `Arc[−π/2, 3π/2]` (seam at −π/2) converted
+/// to a curve covering only `[0, 3π/2]` with its start collapsed to
+/// angle 0, and every consumer (edge splits, clipping, inversion)
+/// inherited a rim missing a quarter. Out-of-principal ranges now
+/// build on a basis ROTATED to the range start with knots shifted to
+/// absolute angle.
+///
+/// [`CurveGeometry::Arc`]: crate::geometry::curve::CurveGeometry::Arc
 pub(super) fn arc_to_nurbs(
     center: Point3,
     normal: Vec3,
@@ -242,23 +241,87 @@ pub(super) fn arc_to_nurbs(
     start_angle: f64,
     end_angle: f64,
 ) -> NurbsCurve {
-    let full = circle_to_nurbs(center, normal, radius);
+    use std::f64::consts::TAU;
 
-    let right_of_start = if start_angle > 0.0 {
-        match full.split_at(start_angle) {
-            Ok((_left, right)) => right,
-            Err(_) => full,
-        }
-    } else {
-        full
+    let a0 = start_angle.min(end_angle);
+    let mut a1 = start_angle.max(end_angle);
+    if a1 - a0 > TAU {
+        a1 = a0 + TAU;
+    }
+    if std::env::var_os("PK_ARC_TRACE").is_some() && !((0.0..=TAU).contains(&a0) && a1 <= TAU) {
+        eprintln!("  [arc2nurbs] OUT-OF-PRINCIPAL range ({a0:.4},{a1:.4})");
+    }
+
+    if (0.0..=TAU).contains(&a0) && a1 <= TAU {
+        // Principal range: historical construction, parameterization
+        // preserved exactly.
+        let full = circle_to_nurbs(center, normal, radius);
+        let right_of_start = if a0 > 0.0 {
+            match full.split_at(a0) {
+                Ok((_left, right)) => right,
+                Err(_) => full,
+            }
+        } else {
+            full
+        };
+        return if a1 < TAU {
+            match right_of_start.split_at(a1) {
+                Ok((left, _right)) => left,
+                Err(_) => right_of_start,
+            }
+        } else {
+            right_of_start
+        };
+    }
+
+    // Out-of-principal range: full circle on a basis rotated to a0,
+    // knots shifted so the parameter is still the absolute angle,
+    // then split down to a1.
+    use crate::geometry::analytic_curves::circle_basis;
+    let (u, v) = circle_basis(normal);
+    let (cs, sn) = (a0.cos(), a0.sin());
+    let u0 = u * cs + v * sn;
+    let v0 = v * cs - u * sn;
+    let w = 1.0_f64 / 2.0_f64.sqrt();
+    let pts = [
+        center + u0 * radius,
+        center + (u0 + v0) * radius,
+        center + v0 * radius,
+        center + (v0 - u0) * radius,
+        center - u0 * radius,
+        center + (-u0 - v0) * radius,
+        center - v0 * radius,
+        center + (u0 - v0) * radius,
+        center + u0 * radius,
+    ];
+    let weights = vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0];
+    let q = TAU / 4.0;
+    let knots = vec![
+        a0,
+        a0,
+        a0,
+        a0 + q,
+        a0 + q,
+        a0 + 2.0 * q,
+        a0 + 2.0 * q,
+        a0 + 3.0 * q,
+        a0 + 3.0 * q,
+        a0 + TAU,
+        a0 + TAU,
+        a0 + TAU,
+    ];
+    let shifted_full = NurbsCurve {
+        degree: 2,
+        knots,
+        control_points: pts.to_vec(),
+        weights,
     };
-
-    if end_angle < std::f64::consts::TAU {
-        match right_of_start.split_at(end_angle) {
+    if a1 < a0 + TAU {
+        match shifted_full.split_at(a1) {
             Ok((left, _right)) => left,
-            Err(_) => right_of_start,
+            Err(_) => shifted_full,
         }
     } else {
-        right_of_start
+        shifted_full
     }
 }

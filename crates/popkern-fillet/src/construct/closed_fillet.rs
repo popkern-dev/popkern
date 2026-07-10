@@ -264,11 +264,19 @@ pub(crate) fn apply_closed_fillet(
         match circle {
             Some((center, normal, radius)) => {
                 // Angle-parameterized analytic arc starting at the
-                // edge's vertex.
-                let (e1, e2) =
-                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*normal);
+                // edge's vertex. Angles measured in the Arc
+                // evaluator's frame (circle_basis) so that
+                // point_at(theta0) IS the vertex — see the exact_rim
+                // anchor note in chamfer_curve.rs.
+                let (e1, e2) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
                 let d = start_at - *center;
                 let theta0 = d.dot(&e2).atan2(d.dot(&e1));
+                if std::env::var_os("PK_RIM_TRACE").is_some() {
+                    eprintln!(
+                        "  [rim-anchor] closed_fillet start_at=({:.3},{:.3},{:.3}) theta0={theta0:.4}",
+                        start_at.x, start_at.y, start_at.z
+                    );
+                }
                 popkern_core::geometry::CurveOnEdge {
                     geometry: popkern_core::geometry::curve::CurveGeometry::Arc {
                         center: *center,
@@ -288,9 +296,21 @@ pub(crate) fn apply_closed_fillet(
             },
         }
     };
+    // ONE anchor authority per edge: each contact-circle curve is
+    // anchored at ITS OWN vertex's position (pos_with_seam /
+    // v_fresh_pos). The previous code passed pos_for_face_a/b —
+    // selected by the analysis-face mapping — while trim_seam /
+    // circle_seam are selected by the SEAM side; when the seam sits
+    // on side B the two selectors disagree and the seam edge's arc
+    // anchors at the OTHER circle's contact point (measured: a rim
+    // trim carried the cap circle with the wall's start angle; the
+    // principal-range arc→NURBS clamp collapsed both the vertex and
+    // the crossed anchor to angle 0, hiding the crossing until the
+    // exact conversion landed and it surfaced as a 0.25 mm
+    // OpenLoop).
     let edge_seam_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(trim_curve_on_edge(trim_seam, circle_seam, pos_for_face_a)),
+        curve: Some(trim_curve_on_edge(trim_seam, circle_seam, pos_with_seam)),
         name: None,
         tolerance: None,
         canonical: Default::default(),
@@ -298,7 +318,7 @@ pub(crate) fn apply_closed_fillet(
     });
     let edge_fresh_side = brep.insert_edge_tracked(Edge {
         half_edge: HalfEdgeHandle::default(),
-        curve: Some(trim_curve_on_edge(trim_fresh, circle_fresh, pos_for_face_b)),
+        curve: Some(trim_curve_on_edge(trim_fresh, circle_fresh, v_fresh_pos)),
         name: None,
         tolerance: None,
         canonical: Default::default(),
