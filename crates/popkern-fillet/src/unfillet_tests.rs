@@ -296,16 +296,14 @@ fn round_5c3_closed_fillet_on_cube_hole_rim() {
     let translated = cyl
         .transform(&Transform3::translation(0.5, 0.5, -0.5))
         .unwrap();
-    let subtracted = match boolean(
+    let subtracted = boolean(
         BoolOperation::Subtraction,
         cube_brep,
         translated,
         tol(),
         None,
-    ) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
+    )
+    .expect("cube-minus-cylinder must subtract (round_5c3 fixture)");
 
     use popkern_core::geometry::surface::SurfaceGeometry;
     let edge = subtracted.edges.keys().find(|e| {
@@ -325,16 +323,15 @@ fn round_5c3_closed_fillet_on_cube_hole_rim() {
             )
         )
     });
-    let Some(edge) = edge else {
-        return;
-    };
+    let edge = edge.expect("subtraction must leave a plane-cylinder hole rim");
 
     let pre_face_count = subtracted.faces.len();
     let pre_faces: HashSet<_> = subtracted.faces.keys().collect();
-    let result = match crate::fillet_edge(&subtracted, edge, 0.05, tol(), None) {
-        Ok(b) => b,
-        Err(_) => return,
-    };
+    // The Err arm used to `return`, passing VACUOUSLY — the fixture's
+    // fillet failed for months (rolling-ball initial contact on the
+    // top rim) and nobody saw it. The fillet must succeed.
+    let result = crate::fillet_edge(&subtracted, edge, 0.05, tol(), None)
+        .expect("closed-fillet on the hole rim must succeed");
 
     assert!(
         result.brep.faces.len() > pre_face_count,
@@ -352,14 +349,19 @@ fn round_5c3_closed_fillet_on_cube_hole_rim() {
         "closed-fillet should produce at least one new face"
     );
 
-    // The new fillet face is an annulus (outer + inner loop).
-    let annulus_face = new_faces.iter().find(|fh| {
-        let f = &result.brep.faces[**fh];
-        !f.inner_loops.is_empty()
-    });
+    // The new fillet face is the SEAMED BAND the closed-fillet
+    // construction produces (apply_closed_fillet step 14 joins the
+    // two contact rings with a cross-section seam so the face
+    // charts as a rectangle): outer loop of four half-edges — ring,
+    // seam, ring, seam — and no inner loops. The historical annulus
+    // (outer + inner ring loops) is the PRE-seam intermediate and
+    // is deliberately not what ships.
+    let band = new_faces
+        .iter()
+        .find(|fh| crate::unfillet_closed::seamed_band_bridge(&result.brep, **fh).is_some());
     assert!(
-        annulus_face.is_some(),
-        "closed-fillet should produce an annulus face (outer + inner loop)"
+        band.is_some(),
+        "closed-fillet should produce the seamed band face (two contact rings + cross-section seam); new faces: {new_faces:?}"
     );
 }
 

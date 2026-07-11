@@ -68,9 +68,23 @@ pub(super) fn run_perpendicular_splits(
         // have perpendicular boundary edges to split. Dispatch to
         // the closed-fillet surgery path and mark the edge as
         // already handled — skip Phase B/C for it.
+        if std::env::var_os("PK_FILLET_TRACE").is_some() {
+            eprintln!(
+                "  [fillet-dispatch] edge {:?} closed={}",
+                eg.analysis.edge,
+                closed_fillet::is_closed_fillet_edge(result, eg.analysis.edge)
+            );
+        }
         if closed_fillet::is_closed_fillet_edge(result, eg.analysis.edge) {
             match closed_fillet::apply_closed_fillet(result, eg) {
                 Ok(strip_face) => {
+                    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+                        let f = &result.faces[strip_face];
+                        eprintln!(
+                            "  [closed-fillet] built face {strip_face:?} inners={} (seamed band: 0 inners by design)",
+                            f.inner_loops.len()
+                        );
+                    }
                     closed_fillet_protected.push(strip_face);
                     closed_fillet_protected.push(eg.analysis.face_1);
                     closed_fillet_protected.push(eg.analysis.face_2);
@@ -79,6 +93,9 @@ pub(super) fn run_perpendicular_splits(
                     continue;
                 }
                 Err(failure) => {
+                    if std::env::var_os("PK_FILLET_TRACE").is_some() {
+                        eprintln!("  [fillet-dispatch] closed surgery FAILED: {failure:?}");
+                    }
                     failures.push((eg.analysis.edge, failure));
                     perp_data.push(None);
                     continue;

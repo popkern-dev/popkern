@@ -24,9 +24,16 @@
 //! (the case the Round 5c-3 path produces). The rim is computed
 //! analytically from the support surfaces — Plane and Cylinder
 //! geometries are required.
+//!
+//! SEAMED BANDS: the construction no longer leaves the annulus as
+//! two disjoint ring loops — `apply_closed_fillet` step 14 joins
+//! them with a cross-section seam (`mekr`) so the face charts as a
+//! rectangle for tessellation/export. The reversal recognizes that
+//! band ([`seamed_band_bridge`]), un-seams it first (`kemr`, the
+//! exact inverse), and then runs the annulus surgery unchanged.
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::topology::{BRep, FaceHandle};
+use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 use crate::error::BlendError;
 use crate::unfillet_closed_helpers::{
@@ -35,19 +42,99 @@ use crate::unfillet_closed_helpers::{
     plane_cylinder_intersection_circle, rebuild_line_curve,
 };
 
+/// The cross-section seam bridge of a SEAMED closed-fillet band.
+///
+/// `apply_closed_fillet` step 14 joins the annulus's two contact
+/// rings with a seam edge so the face charts as a rectangle. The
+/// band's signature: NO inner loops, and an outer loop of exactly
+/// four half-edges where two of them traverse the SAME edge (the
+/// bridge, walked once in each direction) and the other two are
+/// closed contact rings (origin == twin origin) on two distinct
+/// edges. Returns one of the bridge's half-edges.
+///
+/// The signature also matches a plain periodic wall between two
+/// closed rims — callers that SEARCH for the band must scope to
+/// faces the fillet created; callers naming a face explicitly are
+/// protected by the support classification, which rejects
+/// non-blend candidates.
+pub(crate) fn seamed_band_bridge(brep: &BRep, face: FaceHandle) -> Option<HalfEdgeHandle> {
+    let face_data = brep.faces.get(face)?;
+    if !face_data.inner_loops.is_empty() {
+        return None;
+    }
+    let start = brep.loops.get(face_data.outer_loop)?.half_edge;
+    let mut hes = Vec::new();
+    let mut cur = start;
+    for _ in 0..5 {
+        hes.push(cur);
+        cur = brep.half_edges.get(cur)?.next;
+        if cur == start {
+            break;
+        }
+    }
+    if hes.len() != 4 {
+        return None;
+    }
+    let edge_of = |h: HalfEdgeHandle| brep.half_edges[h].edge;
+    let is_ring = |h: HalfEdgeHandle| {
+        let d = &brep.half_edges[h];
+        brep.half_edges
+            .get(d.twin)
+            .map(|tw| tw.origin == d.origin)
+            .unwrap_or(false)
+    };
+    // The bridge is the one edge traversed TWICE by the loop (once
+    // in each direction); the loop's start position is arbitrary, so
+    // find it by edge identity rather than position. The remaining
+    // two half-edges must be closed contact rings on distinct edges.
+    let bridge_pos = (0..4).find(|&i| edge_of(hes[i]) == edge_of(hes[(i + 2) % 4]))?;
+    let (b0, r0, r1) = (
+        hes[bridge_pos],
+        hes[(bridge_pos + 1) % 4],
+        hes[(bridge_pos + 3) % 4],
+    );
+    if edge_of(r0) != edge_of(r1)
+        && edge_of(r0) != edge_of(b0)
+        && edge_of(r1) != edge_of(b0)
+        && is_ring(r0)
+        && is_ring(r1)
+    {
+        return Some(b0);
+    }
+    None
+}
+
 /// Reverse the closed-fillet construction for `fillet_face`.
 ///
-/// Returns a fresh BRep (clone of `brep`) with the annulus face
-/// removed, the original sharp-rim edge restored, the seam edge
-/// extended back to the new rim height, and the redundant
-/// contact-circle vertex deleted.
+/// Accepts both the shipped SEAMED band (un-seamed first via `kemr`)
+/// and the pre-seam annulus. Returns a fresh BRep (clone of `brep`)
+/// with the fillet face removed, the original sharp-rim edge
+/// restored, the support seam edge extended back to the new rim
+/// height, and the redundant contact-circle vertex deleted.
 ///
 /// # Errors
 ///
-/// - [`BlendError::InvalidParameter`] if `fillet_face` is not an
-///   annulus, has no surface, or its supports aren't the
-///   plane-cylinder pair the closed-fillet path produces.
+/// - [`BlendError::InvalidParameter`] if `fillet_face` is neither a
+///   seamed band nor an annulus, has no surface, or its supports
+///   aren't the plane-cylinder pair the closed-fillet path produces.
 pub fn unfillet_closed_annulus(brep: &BRep, fillet_face: FaceHandle) -> Result<BRep, BlendError> {
+    // 0. SEAMED BAND: un-seam first. `kemr` on the bridge removes
+    //    the seam edge and splits the outer loop back into the two
+    //    disjoint ring loops (outer + inner) the annulus surgery
+    //    below was written against; the op self-verifies its Euler
+    //    postconditions.
+    if let Some(bridge) = seamed_band_bridge(brep, fillet_face) {
+        let mut unseamed = brep.clone();
+        unseamed
+            .kemr(bridge)
+            .map_err(|e| BlendError::InvalidParameter {
+                parameter: "fillet_face.seam".to_string(),
+                value: format!("{bridge:?}"),
+                reason: format!("un-seaming the closed-fillet band failed: {e}"),
+            })?;
+        return unfillet_closed_annulus(&unseamed, fillet_face);
+    }
+
     // 1. Validate the fillet face is an annulus.
     let face_data = brep
         .faces

@@ -252,7 +252,9 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
     // an annulus (outer + inner loops), it was created by the
     // closed-fillet construction path and needs the inverse
     // surgery rather than the open-edge plan.
-    if is_closed_fillet_annulus(brep, blend_face) {
+    if is_closed_fillet_annulus(brep, blend_face)
+        || crate::unfillet_closed::seamed_band_bridge(brep, blend_face).is_some()
+    {
         return crate::unfillet_closed::unfillet_closed_annulus(brep, blend_face);
     }
 
