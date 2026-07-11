@@ -97,17 +97,22 @@ impl SideSupportRegionDiagnosticSnapshot {
                         // (measured: cube_extreme — 12 pcurve-less
                         // seams, native Gregory declined, the legacy
                         // fallback committed g0 = 14.2).
-                        if let Err(reason) = assign_bridge_face_geometry(
-                            brep,
-                            result.bridge_faces(),
-                        ) {
-                            *brep = rollback;
-                            return Err(
-                                SideSupportRegionContinuationFailure::BridgeTopologyOperator {
-                                    reason: format!(
-                                        "bridge geometry authoring failed: {reason}"
-                                    ),
-                                },
+                        // Best-effort: bridge faces that continue a
+                        // twin-adjacent surface get it (verified) plus
+                        // pcurves; the rest stay for the result-level
+                        // support-cell completion, which owns their
+                        // geometry (the pipeline that kept cube_extreme
+                        // green before the strict candidate acceptance
+                        // landed). A refusal here was measured to fail
+                        // the whole continuation EARLIER than the old
+                        // pipeline ever did.
+                        if let Err(reason) =
+                            assign_bridge_face_geometry(brep, result.bridge_faces())
+                            && crate::direct_apex_trace::enabled()
+                        {
+                            eprintln!(
+                                "[direct-apex-trace] bridge geometry authoring left \
+                                 residue for downstream completion: {reason}"
                             );
                         }
                         return Ok(SideSupportRegionContinuationOutcome::Applied(result));

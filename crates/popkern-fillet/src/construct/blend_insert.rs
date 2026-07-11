@@ -373,12 +373,10 @@ pub(crate) fn insert_vertex_blend(
             n_sides,
             dispatch_boundary.sphere_fit_substituted,
         );
-    if use_rational_gregory
-        && use_kp_polar_gregory
-        && rational_gregory_compatible
-        && n_sides >= 5
-        && !rational_dispatch_preconditions_met
-    {
+    // Record WHY dispatch didn't apply for ANY rational route (was
+    // polar-gated: pyramid4_mixed binonic bailed with zero diagnostics
+    // while its fallback cap shipped at g0 = 1.34).
+    if use_rational_gregory && rational_gregory_compatible && !rational_dispatch_preconditions_met {
         diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
             n_sides,
             "precondition_failed",

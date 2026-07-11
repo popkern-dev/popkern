@@ -8,7 +8,15 @@ pub(super) fn should_promote_mixed_radius_gregory_apex(
     use_rational_gregory: bool,
     use_kp_binonic_gregory: bool,
 ) -> bool {
-    if !use_rational_gregory || edge_indices.len() != 3 {
+    // N=3 (trihedral) and N=4 mixed-radius apexes promote. N=4 joined
+    // when PK-099's orientation-honest convexity exposed that
+    // same-side-convex quad apexes never reach the rational three-quad
+    // dispatch on the legacy route (the overlap-split corner loop is
+    // not 2n-dispatch-ready), so legacy shipped an unmeasured fallback
+    // cap (pyramid4_mixed: cap/support g0 = 1.34). The direct-apex
+    // partition construction closes the same apex at 1.5e-14, and its
+    // snapshot rollback restores legacy behavior on any failure.
+    if !use_rational_gregory || !matches!(edge_indices.len(), 3 | 4) {
         return false;
     }
     let radii = edge_indices
