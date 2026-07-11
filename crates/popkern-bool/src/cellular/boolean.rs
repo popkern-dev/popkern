@@ -252,6 +252,55 @@ fn classify_fragments_cellular(
     let overlap_b: std::collections::HashSet<_> =
         face_overlaps.iter().map(|fo| fo.face_b).collect();
 
+    // Probe offset for side/coorientation sampling. It must sit
+    // decades ABOVE the linear tolerance band (so boundary parity
+    // noise cannot flip a verdict) yet decades BELOW feature scale
+    // (so the probe point stays within the local cell). The old
+    // `linear × 1e3` scaling honored only the first bound: at a
+    // coarse linear tolerance of 1e-4 the ±16× retry probes stepped
+    // 1.6 — clear outside a unit-sized model — and every
+    // coincident-skin verdict degraded to parity noise (measured:
+    // flush cube∪cube at 1e-4 kept both overlap skins, χ = −10,
+    // 16 open edges). Cap by the combined model diagonal; the floor
+    // stays above the tolerance band even for tiny models.
+    let model_diag = {
+        let mut lo = [f64::INFINITY; 3];
+        let mut hi = [f64::NEG_INFINITY; 3];
+        for brep in [brep_a, brep_b] {
+            for (_, v) in &brep.vertices {
+                for (i, c) in [v.position.x, v.position.y, v.position.z]
+                    .into_iter()
+                    .enumerate()
+                {
+                    lo[i] = lo[i].min(c);
+                    hi[i] = hi[i].max(c);
+                }
+            }
+        }
+        let d = [hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]];
+        (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+    };
+    let probe_eps = if model_diag.is_finite() && model_diag > 0.0 {
+        (tolerance.linear() * 1.0e3)
+            .max(1.0e-3)
+            .min(model_diag * 2.0e-3)
+            .max(tolerance.linear() * 8.0)
+    } else {
+        (tolerance.linear() * 1.0e3).max(1.0e-3)
+    };
+    // The coarser retry scale (corner-graze disambiguation) obeys the
+    // same upper bound: an unclamped ×16 retry at linear=1e-2 probed
+    // 1.28 — half the model away — read the far side of the solid,
+    // and the trust-the-coarser-scale rule overrode a CORRECT
+    // fine-scale verdict (measured: cube∪sphere at 1e-2 dropped the
+    // sphere wall, χ = 8). When the clamp collapses the ladder the
+    // retry degenerates to the fine scale, which is simply a no-op.
+    let probe_eps_coarse = if model_diag.is_finite() && model_diag > 0.0 {
+        (probe_eps * 16.0).min(model_diag * 5.0e-2).max(probe_eps)
+    } else {
+        probe_eps * 16.0
+    };
+
     let mut selections = Vec::with_capacity(fragments.len());
 
     for fragment in fragments {
@@ -372,7 +421,7 @@ fn classify_fragments_cellular(
             Operand::B => brep_a,
         };
         let shortcut = sample_fragment_point(graph, &fragment.outer_loop);
-        let eps_probe = (tolerance.linear() * 1.0e3).max(1.0e-3);
+        let eps_probe = probe_eps;
         // Second trigger: the shortcut point must admit a DECISIVE
         // own-body side probe (one side in, one side out). A shortcut
         // landing on the fragment's own crease edge is indecisive at
@@ -392,7 +441,7 @@ fn classify_fragments_cellular(
             let Some(n0) = planar_outward_normal(own_brep_ref, fragment.face.face) else {
                 return true; // no planar normal — legacy path, no opinion
             };
-            for e in [eps_probe, eps_probe * 16.0] {
+            for e in [eps_probe, probe_eps_coarse] {
                 let a = robust_point_in_solid_final(
                     &(*p + n0 * e),
                     own_brep_ref,
@@ -581,7 +630,7 @@ fn classify_fragments_cellular(
             });
             match normal {
                 Some(n_raw) => {
-                    let eps = (tolerance.linear() * 1.0e3).max(1.0e-3);
+                    let eps = probe_eps;
                     // SELF-CALIBRATE the normal against the fragment's
                     // OWN body: the loop-Newell sign convention is not
                     // uniform across construction paths (measured: a
@@ -620,23 +669,35 @@ fn classify_fragments_cellular(
                     // Same corner-noise hazard as the classification
                     // pair: retry an indecisive calibration at the
                     // coarser offset.
-                    let n_outward = calibrate(eps).or_else(|| calibrate(eps * 16.0));
+                    let n_outward = calibrate(eps).or_else(|| calibrate(probe_eps_coarse));
                     let n = n_outward.unwrap_or(n_raw);
                     let pair_at = |e: f64| {
-                        (
-                            robust_point_in_solid_final(
-                                &(sample + n * e),
-                                other_brep,
-                                other_aabbs,
-                                tolerance,
-                            ),
-                            robust_point_in_solid_final(
-                                &(sample - n * e),
-                                other_brep,
-                                other_aabbs,
-                                tolerance,
-                            ),
-                        )
+                        let p_plus = sample + n * e;
+                        let p_minus = sample - n * e;
+                        let v_plus = robust_point_in_solid_final(
+                            &p_plus,
+                            other_brep,
+                            other_aabbs,
+                            tolerance,
+                        );
+                        let v_minus = robust_point_in_solid_final(
+                            &p_minus,
+                            other_brep,
+                            other_aabbs,
+                            tolerance,
+                        );
+                        // PK_PAIR_TRACE: per-probe forensics for the
+                        // offset-pair classifier — prints the exact
+                        // probe points and their verdicts (PK_SEL_TRACE
+                        // shows only the resolved pair). This is how
+                        // the out-of-corridor ×16 retry was caught.
+                        if std::env::var_os("PK_PAIR_TRACE").is_some() {
+                            eprintln!(
+                                "        [pp] e={e:.3e} +({:.3},{:.3},{:.3})={v_plus:?} -({:.3},{:.3},{:.3})={v_minus:?}",
+                                p_plus.x, p_plus.y, p_plus.z, p_minus.x, p_minus.y, p_minus.z
+                            );
+                        }
+                        (v_plus, v_minus)
                     };
                     // Probe at the tuned offset AND at 16× it: 1 µm
                     // probes graze corner-adjacent faces when the
@@ -649,7 +710,7 @@ fn classify_fragments_cellular(
                     // orders of magnitude below feature size.
                     let (c_plus_f, c_minus_f) = pair_at(eps);
                     let (c_plus, c_minus) = {
-                        let (c_plus_c, c_minus_c) = pair_at(eps * 16.0);
+                        let (c_plus_c, c_minus_c) = pair_at(probe_eps_coarse);
                         if (c_plus_f, c_minus_f) != (c_plus_c, c_minus_c) {
                             (c_plus_c, c_minus_c)
                         } else {

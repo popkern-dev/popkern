@@ -45,8 +45,14 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
                 CurveGeometry::Line { ref mut origin, .. } => {
                     *origin = *origin + offset;
                 }
-                CurveGeometry::Circle { ref mut center, .. } => {
+                CurveGeometry::Circle { ref mut center, .. }
+                | CurveGeometry::Arc { ref mut center, .. } => {
                     *center = *center + offset;
+                }
+                CurveGeometry::Nurbs(ref mut n) => {
+                    for cp in &mut n.control_points {
+                        *cp = *cp + offset;
+                    }
                 }
                 _ => {}
             }
