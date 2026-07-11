@@ -397,7 +397,7 @@ pub(crate) fn tessellate_brep(
     // pulled onto the base-edge line, reopening the very seams the
     // canonical sampling closed).
     sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
-    orient_face_meshes_coherently(&mut face_meshes);
+    orient_face_meshes_coherently(brep, &mut face_meshes);
     Ok(TriMesh::from_face_meshes(face_meshes))
 }
 
@@ -408,59 +408,227 @@ pub(crate) fn tessellate_brep(
 /// the solid volume), while chamfer cones carry honest flags but
 /// loops wound AGAINST the CCW-about-outward convention (calibrating
 /// facing from loop winding inverted them instead). Adjacent faces of
-/// a closed solid must traverse a shared edge in OPPOSITE directions;
-/// boundary-first faces share bit-identical canonical boundary
-/// vertices, so that constraint is checkable exactly. Propagate flips
-/// across the shared-edge graph (majority vote per component seed),
-/// then fix each component's global side by the sign of the whole
-/// mesh's wedge volume. Legacy-path faces (re-projected boundaries)
-/// only join where their positions match exactly; unmatched faces
-/// keep their flag-derived facing, as today.
-fn orient_face_meshes_coherently(face_meshes: &mut [crate::mesh::FaceMesh]) {
+/// a closed solid must traverse a shared edge in OPPOSITE directions.
+///
+/// The traversal-direction constraint is measured against the BREP
+/// TOPOLOGY, not against bit-identical mesh vertices: for each edge
+/// with two half-edges on different faces, each face mesh's boundary
+/// segments near the edge's canonical polyline vote with their
+/// signed arc-length advance. (The earlier bit-identity segment
+/// matching only paired the handful of boundary vertices two faces
+/// happened to sample at the same parameter — 3-vote constraints on
+/// 60-segment edges — and its first-vote-wins propagation over
+/// HashMap-ordered adjacency was nondeterministic: a 2×3×1 prism's
+/// mesh wedge volume measured {+6, +2, −2, +4} across identical
+/// runs.) Flips propagate across the shared-edge graph per component,
+/// then each component's global side is fixed by the sign of its
+/// wedge volume. Faces with no measurable shared-edge constraint keep
+/// their flag-derived facing, as before.
+/// Position-weld key of a mesh vertex: the bit patterns of (x, y, z).
+type PositionBitKey = (u64, u64, u64);
+
+/// Winding votes for a face-mesh pair (mesh indices, lower first):
+/// summed matched arc length voting that the two boundaries traverse
+/// shared edges in the (same, opposite) direction.
+type PairWindingVotes = std::collections::HashMap<(usize, usize), (f64, f64)>;
+
+fn orient_face_meshes_coherently(brep: &BRep, face_meshes: &mut [crate::mesh::FaceMesh]) {
     use std::collections::HashMap;
 
-    let key = |p: &Point3| -> (u64, u64, u64) { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
-    // Directed edge -> (face index, count) over triangle edges.
-    #[allow(clippy::type_complexity)]
-    let mut directed: HashMap<((u64, u64, u64), (u64, u64, u64)), Vec<usize>> = HashMap::new();
-    for (fi, fm) in face_meshes.iter().enumerate() {
-        for t in &fm.triangles {
-            for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
-                let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
-                directed.entry((ka, kb)).or_default().push(fi);
-            }
-        }
-    }
-    // Face adjacency with agreement parity: for each undirected edge
-    // shared by exactly two DIFFERENT faces, same-direction traversal
-    // means exactly one of the pair must flip.
     let n = face_meshes.len();
-    let mut adj: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n]; // (other, same_direction)
-    for ((ka, kb), owners) in &directed {
-        if ka >= kb {
-            continue; // visit each undirected pair once via the lower key
+    let mesh_index_of: HashMap<popkern_core::topology::FaceHandle, usize> = face_meshes
+        .iter()
+        .enumerate()
+        .map(|(fi, fm)| (fm.face, fi))
+        .collect();
+
+    // Boundary directed segments per face mesh: triangle edges used
+    // exactly once (position-welded so duplicated boundary vertices
+    // at the same position don't hide the match).
+    let boundary_segments: Vec<Vec<(Point3, Point3)>> = face_meshes
+        .iter()
+        .map(|fm| {
+            let key =
+                |p: &Point3| -> PositionBitKey { (p.x.to_bits(), p.y.to_bits(), p.z.to_bits()) };
+            let mut counts: HashMap<(PositionBitKey, PositionBitKey), i64> = HashMap::new();
+            for t in &fm.triangles {
+                for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                    let (ka, kb) = (key(&fm.vertices[a].position), key(&fm.vertices[b].position));
+                    if ka == kb {
+                        continue;
+                    }
+                    if ka < kb {
+                        *counts.entry((ka, kb)).or_default() += 1;
+                    } else {
+                        *counts.entry((kb, ka)).or_default() -= 1;
+                    }
+                }
+            }
+            let from_bits = |k: (u64, u64, u64)| -> Point3 {
+                Point3::new(
+                    f64::from_bits(k.0),
+                    f64::from_bits(k.1),
+                    f64::from_bits(k.2),
+                )
+            };
+            counts
+                .into_iter()
+                .filter(|&(_, c)| c != 0)
+                .map(|((ka, kb), c)| {
+                    if c > 0 {
+                        (from_bits(ka), from_bits(kb))
+                    } else {
+                        (from_bits(kb), from_bits(ka))
+                    }
+                })
+                .collect()
+        })
+        .collect();
+
+    // Signed arc-length advance of a face's boundary along a
+    // canonical edge polyline. Positive = traverses the edge in
+    // increasing parameter, negative = decreasing; magnitude = the
+    // summed length of matched segments (the vote's weight).
+    let advance_along = |segs: &[(Point3, Point3)], polyline: &[(f64, Point3)]| -> f64 {
+        let mut length = 0.0_f64;
+        for w in polyline.windows(2) {
+            length += w[0].1.distance_to(&w[1].1);
         }
-        let reverse = directed.get(&(*kb, *ka));
-        let fwd: Vec<usize> = owners.clone();
-        let rev: Vec<usize> = reverse.cloned().unwrap_or_default();
-        // Interior edges (same face both directions) are consistent
-        // by construction; cross-face constraints only.
-        for &f1 in &fwd {
-            for &f2 in &rev {
-                if f1 != f2 {
-                    adj[f1].push((f2, false));
-                    adj[f2].push((f1, false));
+        if length <= 0.0 {
+            return 0.0;
+        }
+        let tol = (length * 1.0e-3).max(1.0e-9);
+        // Arc-length parameter of the nearest polyline point, or None
+        // if the point is farther than tol from every segment.
+        let project = |p: &Point3| -> Option<f64> {
+            let mut best: Option<(f64, f64)> = None; // (dist, s)
+            let mut s0 = 0.0_f64;
+            for w in polyline.windows(2) {
+                let (a, b) = (w[0].1, w[1].1);
+                let ab = b - a;
+                let len = ab.length();
+                if len <= 0.0 {
+                    continue;
                 }
-            }
-            for &f2 in &fwd {
-                if f1 < f2 {
-                    adj[f1].push((f2, true));
-                    adj[f2].push((f1, true));
+                let t = ((*p - a).dot(&ab) / (len * len)).clamp(0.0, 1.0);
+                let q = a + ab * t;
+                let d = p.distance_to(&q);
+                if best.is_none_or(|(bd, _)| d < bd) {
+                    best = Some((d, s0 + len * t));
                 }
+                s0 += len;
             }
+            best.and_then(|(d, s)| (d <= tol).then_some(s))
+        };
+        // Closed polylines (rim circles): a raw arc-length delta
+        // telescopes to zero around the loop — the wraparound
+        // segment's jump (−circumference + step) cancels every other
+        // step and the cap↔wall constraint silently vanishes
+        // (measured: a cylinder cap stayed inside-out, mesh wedge
+        // volume exactly ⅔ of 2πr²h). Wrap each per-segment delta to
+        // the short way around.
+        let closed = polyline
+            .first()
+            .zip(polyline.last())
+            .is_some_and(|(a, b)| a.1.distance_to(&b.1) <= tol);
+        let mut advance = 0.0_f64;
+        for (p, q) in segs {
+            if let (Some(sp), Some(sq)) = (project(p), project(q)) {
+                let mut d = sq - sp;
+                if closed {
+                    d -= length * (d / length).round();
+                }
+                advance += d;
+            }
+        }
+        advance
+    };
+
+    // Face-pair parity votes over shared BRep edges, accumulated by
+    // weight (summed matched boundary length). Same-signed advance on
+    // both sides means one of the pair is inside-out.
+    let mut votes: PairWindingVotes = HashMap::new(); // (same, opposite)
+    for (_, edge) in brep.edges.iter() {
+        let Some(curve) = edge.curve.as_ref() else {
+            continue;
+        };
+        if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
+            continue;
+        }
+        let he = edge.half_edge;
+        let (Some(h1), Some(h2)) = (
+            brep.half_edges.get(he),
+            brep.half_edges
+                .get(he)
+                .and_then(|h| brep.half_edges.get(h.twin)),
+        ) else {
+            continue;
+        };
+        let (Some(l1), Some(l2)) = (brep.loops.get(h1.loop_), brep.loops.get(h2.loop_)) else {
+            continue;
+        };
+        if l1.face == l2.face {
+            continue; // seam edge: no cross-face constraint
+        }
+        let (Some(&f1), Some(&f2)) = (mesh_index_of.get(&l1.face), mesh_index_of.get(&l2.face))
+        else {
+            continue;
+        };
+        const ORIENT_SAMPLES: usize = 33;
+        let eval: &dyn popkern_core::geometry::curve::CurveEval = &curve.geometry;
+        let polyline: Vec<(f64, Point3)> = (0..ORIENT_SAMPLES)
+            .map(|i| {
+                let t = curve.t_start
+                    + (curve.t_end - curve.t_start) * i as f64 / (ORIENT_SAMPLES - 1) as f64;
+                (t, eval.point_at(t))
+            })
+            .collect();
+        let d1 = advance_along(&boundary_segments[f1], &polyline);
+        let d2 = advance_along(&boundary_segments[f2], &polyline);
+        // Require a non-trivial matched length on BOTH sides before
+        // trusting the vote (a lone straggler segment is sew noise).
+        let mut edge_len = 0.0;
+        for w in polyline.windows(2) {
+            edge_len += w[0].1.distance_to(&w[1].1);
+        }
+        let significant = edge_len * 1.0e-3;
+        if d1.abs() < significant || d2.abs() < significant {
+            continue;
+        }
+        let weight = d1.abs().min(d2.abs());
+        let entry = votes.entry((f1.min(f2), f1.max(f2))).or_default();
+        if d1 * d2 > 0.0 {
+            entry.0 += weight;
+        } else {
+            entry.1 += weight;
         }
     }
-    // BFS parity propagation per component.
+
+    // Majority-resolved adjacency, sorted for deterministic traversal.
+    let mut adj: Vec<Vec<(usize, bool)>> = vec![Vec::new(); n]; // (other, same_direction)
+    let mut pairs: Vec<_> = votes.iter().collect();
+    pairs.sort_by_key(|(k, _)| **k);
+    for (&(f1, f2), &(same, opposite)) in pairs {
+        if same == opposite {
+            // Tied evidence — no trustworthy constraint. Leave the
+            // pair unlinked rather than guess.
+            if std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+                eprintln!("  [orient] pair ({f1},{f2}) tied votes {same}:{opposite} — unlinked");
+            }
+            continue;
+        }
+        let same_dir = same > opposite;
+        if same.min(opposite) > 0.0 && std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+            eprintln!(
+                "  [orient] pair ({f1},{f2}) conflicted votes same={same:.3} opposite={opposite:.3} — majority {}",
+                if same_dir { "same" } else { "opposite" }
+            );
+        }
+        adj[f1].push((f2, same_dir));
+        adj[f2].push((f1, same_dir));
+    }
+    // BFS parity propagation per component (deterministic: seeds in
+    // index order, adjacency sorted above).
     let mut flip: Vec<Option<bool>> = vec![None; n];
     for seed in 0..n {
         if flip[seed].is_some() {
@@ -482,7 +650,13 @@ fn orient_face_meshes_coherently(face_meshes: &mut [crate::mesh::FaceMesh]) {
                         component.push(g);
                         queue.push_back(g);
                     }
-                    Some(_) => {} // first assignment wins; conflicts stay
+                    Some(assigned) => {
+                        if assigned != want && std::env::var_os("PK_MESH_ORIENT_TRACE").is_some() {
+                            eprintln!(
+                                "  [orient] parity cycle conflict at faces ({f},{g}) — keeping first assignment"
+                            );
+                        }
+                    }
                 }
             }
         }

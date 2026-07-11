@@ -415,10 +415,21 @@ pub fn body_bounding_box(brep: &BRep) -> Result<BoundingBox, MeasureError> {
 /// Compute the second moment of mass (moment of inertia) of a BRep solid about
 /// the given axis through the body's centroid.
 ///
-/// The solid is treated as having uniform unit density. The computation
-/// approximates the integral `I = ∫ r² dV` by summing over signed tetrahedra,
-/// where `r²` is the squared perpendicular distance from each tetrahedron's
-/// centroid to the chosen axis through the body centroid.
+/// The solid is treated as having uniform unit density. The integral
+/// `I = ∫ r² dV` is computed EXACTLY per signed tetrahedron (apex at the
+/// body centroid, base at each surface triangle) via the closed-form
+/// second-moment integral: for a tetrahedron `(0, A, B, C)` with signed
+/// volume `V`,
+///
+/// ```text
+/// ∫ x² dV = (V/10)·(Ax² + Bx² + Cx² + Ax·Bx + Ax·Cx + Bx·Cx)
+/// ```
+///
+/// and likewise for y and z (barycentric monomial integrals
+/// `∫u² = 1/60`, `∫uv = 1/120` over the unit simplex, scaled by `6V`).
+/// A point-mass-at-tet-centroid approximation is NOT used: it drops each
+/// tetrahedron's own second moment and undercounts a unit cube by
+/// exactly 2× (1/12 instead of 1/6).
 pub fn body_moment_of_inertia(
     brep: &BRep,
     axis: Axis,
@@ -427,29 +438,35 @@ pub fn body_moment_of_inertia(
     let mesh = tessellate_fine(brep)?;
     let centroid = body_centroid(brep, tol)?;
 
-    let mut moi = 0.0_f64;
+    // Accumulate the exact diagonal second moments ∫x²dV, ∫y²dV, ∫z²dV
+    // with the body centroid as the coordinate origin (so the tet apex
+    // is the origin and the closed-form applies directly).
+    let mut sxx = 0.0_f64;
+    let mut syy = 0.0_f64;
+    let mut szz = 0.0_f64;
 
     for tri in &mesh.triangles {
-        let v0 = to_vec3(mesh.vertices[tri[0]].position);
-        let v1 = to_vec3(mesh.vertices[tri[1]].position);
-        let v2 = to_vec3(mesh.vertices[tri[2]].position);
+        let a = to_vec3(mesh.vertices[tri[0]].position) - to_vec3(centroid);
+        let b = to_vec3(mesh.vertices[tri[1]].position) - to_vec3(centroid);
+        let c = to_vec3(mesh.vertices[tri[2]].position) - to_vec3(centroid);
 
-        let sv = signed_tet_volume(v0, v1, v2);
+        let sv = a.dot(&b.cross(&c)) / 6.0;
 
-        // Centroid of the tetrahedron relative to the body centroid.
-        let tx = (v0.x + v1.x + v2.x) / 4.0 - centroid.x;
-        let ty = (v0.y + v1.y + v2.y) / 4.0 - centroid.y;
-        let tz = (v0.z + v1.z + v2.z) / 4.0 - centroid.z;
-
-        // Squared perpendicular distance to the axis through the centroid.
-        let r2 = match axis {
-            Axis::X => ty * ty + tz * tz,
-            Axis::Y => tx * tx + tz * tz,
-            Axis::Z => tx * tx + ty * ty,
+        let second = |pa: f64, pb: f64, pc: f64| -> f64 {
+            (sv / 10.0) * (pa * pa + pb * pb + pc * pc + pa * pb + pa * pc + pb * pc)
         };
-
-        moi += r2 * sv;
+        sxx += second(a.x, b.x, c.x);
+        syy += second(a.y, b.y, c.y);
+        szz += second(a.z, b.z, c.z);
     }
+
+    // A consistently inward-wound mesh flips the sign of every signed
+    // volume uniformly; the axis moment is the magnitude.
+    let moi = match axis {
+        Axis::X => syy + szz,
+        Axis::Y => sxx + szz,
+        Axis::Z => sxx + syy,
+    };
 
     Ok(moi.abs())
 }

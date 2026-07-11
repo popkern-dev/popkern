@@ -84,6 +84,11 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
                 | CurveGeometry::Arc { ref mut center, .. } => {
                     *center = *center + offset;
                 }
+                CurveGeometry::Nurbs(ref mut n) => {
+                    for cp in &mut n.control_points {
+                        *cp = *cp + offset;
+                    }
+                }
                 _ => {}
             }
         }
@@ -409,6 +414,86 @@ fn tessellate_cylinder_through_cube_union() {
     assert!(
         !mesh.triangles.is_empty(),
         "overlapping curved boolean tessellation should produce triangles"
+    );
+}
+
+// ── Winding coherence (PK-101) ───────────────────────────────────────
+
+/// Signed wedge (divergence-theorem) volume of a mesh about the origin.
+#[cfg(test)]
+fn mesh_wedge_volume(mesh: &crate::TriMesh) -> f64 {
+    let mut vol = 0.0_f64;
+    for tri in &mesh.triangles {
+        let a = mesh.vertices[tri[0]].position;
+        let b = mesh.vertices[tri[1]].position;
+        let c = mesh.vertices[tri[2]].position;
+        vol += (a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
+            + a.z * (b.x * c.y - b.y * c.x))
+            / 6.0;
+    }
+    vol
+}
+
+#[test]
+fn prism_mesh_wedge_volume_is_exact_and_deterministic() {
+    // The winding-coherence election used to be first-vote-wins over
+    // HashMap-ordered adjacency built from bit-identity segment
+    // matching: a 2×3×1 prism's wedge volume measured {+6, +2, −2, +4}
+    // across identical runs (PK-101). Pinned: exact and repeatable.
+    let profile = [
+        popkern_core::geometry::Point3::new(0.0, 0.0, 0.0),
+        popkern_core::geometry::Point3::new(2.0, 0.0, 0.0),
+        popkern_core::geometry::Point3::new(2.0, 3.0, 0.0),
+        popkern_core::geometry::Point3::new(0.0, 3.0, 0.0),
+    ];
+    let prism = BRep::prism(
+        &profile,
+        Vec3::new(0.0, 0.0, 1.0),
+        1.0,
+        Tolerance::default(),
+    )
+    .expect("rectangular prism");
+    let opts = TessellationOptions {
+        chord_height: 0.001,
+        min_subdivisions: 8,
+        max_subdivisions: 128,
+    };
+    let mut volumes = Vec::new();
+    for _ in 0..3 {
+        let mesh = tessellate(&prism, &opts).expect("prism tessellation");
+        volumes.push(mesh_wedge_volume(&mesh));
+    }
+    for v in &volumes {
+        assert!(
+            (v - 6.0).abs() < 1.0e-9,
+            "prism wedge volume should be exactly 6 (outward, coherent), got {volumes:?}"
+        );
+    }
+    assert!(
+        volumes.windows(2).all(|w| w[0] == w[1]),
+        "tessellation winding must be deterministic, got {volumes:?}"
+    );
+}
+
+#[test]
+fn cylinder_mesh_wedge_volume_is_outward_and_closed() {
+    // Closed-rim (circle) edges: the raw arc-length advance telescopes
+    // to zero around the rim — the wraparound segment cancels every
+    // step — so the cap↔wall orientation constraint silently vanished
+    // and one cap stayed inside-out (wedge volume exactly ⅔ of 2πr²h,
+    // PK-101). Pinned within chord error of the true volume.
+    let cyl = BRep::cylinder(1.0, 2.0, Tolerance::default()).expect("cylinder");
+    let opts = TessellationOptions {
+        chord_height: 0.001,
+        min_subdivisions: 8,
+        max_subdivisions: 128,
+    };
+    let mesh = tessellate(&cyl, &opts).expect("cylinder tessellation");
+    let vol = mesh_wedge_volume(&mesh);
+    let expected = 2.0 * std::f64::consts::PI;
+    assert!(
+        (vol - expected).abs() < expected * 5.0e-3,
+        "cylinder wedge volume should be ~{expected}, got {vol}"
     );
 }
 
