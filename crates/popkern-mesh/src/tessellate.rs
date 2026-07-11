@@ -29,8 +29,51 @@ pub fn tessellate_face(
     let (mut u_range, mut v_range) = bounded_parameter_range(brep, face_handle, surface);
 
     // Trim loops drive both the padding decision and the clip below.
-    let trim_loops =
+    let mut trim_loops =
         crate::trim::build_trim_loops(brep, face_handle, surface, options.chord_height);
+
+    // FULL-PERIODIC wall face: the outer loop is a seam-pair spine
+    // (every outer half-edge's twin lives on this same face — e.g. a
+    // full sphere wall surviving a boolean with imprint holes). The
+    // spine's pcurves all lie ON the seam iso-line, so the pcurve
+    // bbox collapses the u-range to a sliver (measured: cube∪sphere
+    // wall meshed u ∈ [0, 0.05] of a 2π chart, mesh volume 0.002)
+    // and the degenerate outer polygon suppresses hole trimming. The
+    // honest domain is the surface's full natural rectangle; the
+    // outer trim is that rectangle, and the imprint holes cut it.
+    if outer_loop_is_seam_spine(brep, face_handle) {
+        let ((nu0, nu1), (nv0, nv1)) = surface.parameter_range();
+        if nu0.is_finite() && nu1.is_finite() && nv0.is_finite() && nv1.is_finite() {
+            u_range = (nu0, nu1);
+            v_range = (nv0, nv1);
+            trim_loops.retain(|l| !l.is_outer);
+            // Push the synthetic outer rectangle a hair OUTSIDE the
+            // grid domain: a rectangle coinciding exactly with the
+            // first/last grid rows classifies every pole-row triangle
+            // as Boundary and the exact-overlap clip drops the pole
+            // fans (measured: Ø0.16 holes at both sphere poles). The
+            // outer rect exists only so the imprint holes cut — it
+            // must never itself clip.
+            let eu = (nu1 - nu0).max(1.0) * 1.0e-6;
+            let ev = (nv1 - nv0).max(1.0) * 1.0e-6;
+            let corners = [
+                (nu0 - eu, nv0 - ev),
+                (nu1 + eu, nv0 - ev),
+                (nu1 + eu, nv1 + ev),
+                (nu0 - eu, nv1 + ev),
+            ];
+            trim_loops.push(crate::trim::TrimLoop {
+                points: corners.to_vec(),
+                points_3d: corners
+                    .iter()
+                    .map(|&(u, v)| surface.point_at(u, v))
+                    .collect(),
+                is_outer: true,
+                from_pcurves: false,
+            });
+        }
+    }
+    let trim_loops = trim_loops;
     // Pad by 2% unless the outer polygon is an axis-aligned rectangle
     // spanning the range (untrimmed faces keep the exact fast grid):
     // trim-polygon iso edges coinciding with grid lines degenerate
@@ -185,6 +228,39 @@ pub fn tessellate_face(
 /// more than half the period, the boundary likely crosses the seam.
 /// In that case, shift all UV samples by half-period and recompute
 /// min/max to find the shorter arc that doesn't straddle the seam.
+/// True when every half-edge of the face's outer loop has its twin on
+/// the SAME face — the outer boundary is a periodic seam spine (two
+/// meridian copies bounding a full-period chart), not a real border.
+fn outer_loop_is_seam_spine(brep: &BRep, face_handle: FaceHandle) -> bool {
+    let Some(face) = brep.faces.get(face_handle) else {
+        return false;
+    };
+    let Some(loop_) = brep.loops.get(face.outer_loop) else {
+        return false;
+    };
+    let start = loop_.half_edge;
+    if !brep.half_edges.contains_key(start) {
+        return false;
+    }
+    let mut he = start;
+    for _ in 0..10_000 {
+        let data = &brep.half_edges[he];
+        let twin_on_face = brep
+            .half_edges
+            .get(data.twin)
+            .and_then(|twin| brep.loops.get(twin.loop_))
+            .is_some_and(|l| l.face == face_handle);
+        if !twin_on_face {
+            return false;
+        }
+        he = data.next;
+        if he == start {
+            return true;
+        }
+    }
+    false
+}
+
 fn bounded_parameter_range(
     brep: &BRep,
     face_handle: FaceHandle,
@@ -387,7 +463,16 @@ pub(crate) fn tessellate_brep(
                 .unwrap_or("None");
             eprintln!("  [bf] face {face_handle:?} ({kind}) fell back");
         }
-        legacy_faces.push(face_meshes.len());
+        // Seam-spine wall faces (full-periodic charts) keep their
+        // exact chart sampling: their boundary IS the seam iso-line
+        // plus pcurve-sampled hole rims, and the generous projection
+        // gate (20% of the face diagonal — the WHOLE model for a full
+        // sphere wall) drags rim vertices onto unrelated edge
+        // polylines (measured: cube∪sphere wall area inflated 7.93 →
+        // 8.95 by sewing flaps).
+        if !outer_loop_is_seam_spine(brep, face_handle) {
+            legacy_faces.push(face_meshes.len());
+        }
         face_meshes.push(tessellate_face(brep, face_handle, options)?);
     }
     // The projection-based sewing stopgap applies ONLY to legacy-path
