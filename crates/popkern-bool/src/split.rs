@@ -306,10 +306,7 @@ fn open_chain_pre_pass(
         // either of its ends.
         for seed_rev in [false, true] {
             let mut chain: Vec<(usize, bool)> = vec![(seed, seed_rev)];
-            loop {
-                let Some(&(tail_idx, tail_rev)) = chain.last() else {
-                    break; // unreachable: the chain is seeded non-empty
-                };
+            while let Some(&(tail_idx, tail_rev)) = chain.last() {
                 let tip = if tail_rev {
                     ends[tail_idx].0
                 } else {

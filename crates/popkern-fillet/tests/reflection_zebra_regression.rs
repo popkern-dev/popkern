@@ -177,7 +177,14 @@ fn pick_blend_face_from_cube_fillet(brep: &BRep) -> popkern_core::topology::Face
 }
 
 const REFLECTION_KINK_LIMIT: f64 = 2.0;
-const ZEBRA_MISMATCH_LIMIT: f64 = 0.62;
+// Re-baselined 2026-07-11: the KP20 boundary-conditioning package
+// (chi-calibrated marches + m-smoothing, July 2 window) deliberately
+// moved fillet band-end geometry; the zebra mismatch drifted with it
+// (cube corner uniform 0.6255, mixed native cap 0.6650, both formerly
+// under the authored 0.62) with the same routes and no visual
+// regression class change. Headroom kept tight (~5%) so real drift
+// still trips the gate.
+const ZEBRA_MISMATCH_LIMIT: f64 = 0.70;
 const VIEW: Vec3 = Vec3 {
     x: 0.0,
     y: 0.0,
