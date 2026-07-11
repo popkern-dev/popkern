@@ -46,17 +46,28 @@ pub fn solve_rolling_ball_contact(
     // Validate or clamp initial UV guesses. Default: reject
     // out-of-bounds (existing behaviour). With `clamp_initial_uv`
     // (§12.3 blend-on-blend), silently clamp to the boundary.
-    let clamped_uv0 = clamp_uv(request.initial_uv0, request.uv0_range);
-    let clamped_uv1 = clamp_uv(request.initial_uv1, request.uv1_range);
+    //
+    // PERIODIC charts wrap FIRST: a contact whose azimuth lands at
+    // u = −ε on a cylinder chart spanning [0, 2π] is on the surface —
+    // rejecting it as out-of-bounds killed every fillet whose seam
+    // start sat on the chart seam (measured: flagship boss/plate
+    // circular seam, "initial contact failed" at u = −0.0000, the
+    // failure class behind PK-099 stage 3 and the round_5c fixtures).
+    let period_0 = request.surface_0.parameter_periodicity();
+    let period_1 = request.surface_1.parameter_periodicity();
+    let wrapped_uv0 = wrap_uv_periodic(request.initial_uv0, request.uv0_range, period_0);
+    let wrapped_uv1 = wrap_uv_periodic(request.initial_uv1, request.uv1_range, period_1);
+    let clamped_uv0 = clamp_uv(wrapped_uv0, request.uv0_range);
+    let clamped_uv1 = clamp_uv(wrapped_uv1, request.uv1_range);
     if !options.clamp_initial_uv {
-        if clamped_uv0 != request.initial_uv0 {
+        if clamped_uv0 != wrapped_uv0 {
             return Err(ContactError::OutOfBounds {
                 surface_index: 0,
                 uv: request.initial_uv0,
                 clamped_uv: clamped_uv0,
             });
         }
-        if clamped_uv1 != request.initial_uv1 {
+        if clamped_uv1 != wrapped_uv1 {
             return Err(ContactError::OutOfBounds {
                 surface_index: 1,
                 uv: request.initial_uv1,
@@ -139,15 +150,17 @@ pub fn solve_rolling_ball_contact(
         // Convergence check. If we converged onto a UV bound, surface
         // it as OutOfBounds — the unconstrained Newton solution lies
         // outside the face, which means the radius is too large here.
+        // A full-period axis of a periodic chart has no boundary: a
+        // solution resting exactly on the seam iso-line is interior.
         if residual_norm < effective_tol {
-            if uv_on_boundary(uv0, request.uv0_range) {
+            if uv_on_boundary_periodic(uv0, request.uv0_range, period_0) {
                 return Err(ContactError::OutOfBounds {
                     surface_index: 0,
                     uv: uv0,
                     clamped_uv: uv0,
                 });
             }
-            if uv_on_boundary(uv1, request.uv1_range) {
+            if uv_on_boundary_periodic(uv1, request.uv1_range, period_1) {
                 return Err(ContactError::OutOfBounds {
                     surface_index: 1,
                     uv: uv1,
@@ -309,18 +322,60 @@ pub(crate) fn clamp_uv(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> (f64,
     (uv.0.clamp(u_min, u_max), uv.1.clamp(v_min, v_max))
 }
 
+/// Wrap each periodic axis of `(u, v)` into its range when a whole
+/// number of periods brings it inside. Values on a non-periodic axis,
+/// or genuinely outside a PARTIAL periodic window (no period multiple
+/// lands them inside), are returned unchanged for the caller's clamp
+/// or rejection to handle.
+fn wrap_uv_periodic(
+    uv: (f64, f64),
+    range: ((f64, f64), (f64, f64)),
+    periodicity: (Option<f64>, Option<f64>),
+) -> (f64, f64) {
+    let wrap = |value: f64, (lo, hi): (f64, f64), period: Option<f64>| -> f64 {
+        let Some(p) = period else { return value };
+        if p <= 0.0 || (lo..=hi).contains(&value) {
+            return value;
+        }
+        // Land in [lo, lo + p); accept if that is inside the window
+        // (with a relative slop for values that sit exactly on the
+        // seam iso-line, e.g. u = -1e-17 on a [0, 2π] chart).
+        let wrapped = value - p * ((value - lo) / p).floor();
+        let slop = (hi - lo).abs().max(p) * 1.0e-9;
+        if wrapped <= hi + slop {
+            wrapped.clamp(lo, hi)
+        } else {
+            value
+        }
+    };
+    (
+        wrap(uv.0, range.0, periodicity.0),
+        wrap(uv.1, range.1, periodicity.1),
+    )
+}
+
 /// True if `uv` is on the boundary of its range. Used to detect when
-/// a converged solution actually rests on a UV bound.
-fn uv_on_boundary(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> bool {
+/// a converged solution actually rests on a UV bound. An axis whose
+/// window spans a full period of a periodic chart has NO boundary —
+/// the seam iso-line is interior by wraparound.
+fn uv_on_boundary_periodic(
+    uv: (f64, f64),
+    range: ((f64, f64), (f64, f64)),
+    periodicity: (Option<f64>, Option<f64>),
+) -> bool {
     let ((u_min, u_max), (v_min, v_max)) = range;
     let u_span = (u_max - u_min).abs().max(1e-12);
     let v_span = (v_max - v_min).abs().max(1e-12);
     let tol_u = u_span * 1e-9;
     let tol_v = v_span * 1e-9;
-    (uv.0 - u_min).abs() < tol_u
-        || (uv.0 - u_max).abs() < tol_u
-        || (uv.1 - v_min).abs() < tol_v
-        || (uv.1 - v_max).abs() < tol_v
+    let axis_closed = |span: f64, period: Option<f64>| {
+        period.is_some_and(|p| p > 0.0 && span >= p * (1.0 - 1.0e-9))
+    };
+    let u_boundary = !axis_closed(u_span, periodicity.0)
+        && ((uv.0 - u_min).abs() < tol_u || (uv.0 - u_max).abs() < tol_u);
+    let v_boundary = !axis_closed(v_span, periodicity.1)
+        && ((uv.1 - v_min).abs() < tol_v || (uv.1 - v_max).abs() < tol_v);
+    u_boundary || v_boundary
 }
 
 /// Evaluate the residual norm at a candidate state without building
