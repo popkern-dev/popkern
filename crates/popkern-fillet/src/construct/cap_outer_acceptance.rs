@@ -57,6 +57,46 @@ pub(crate) fn cap_support_acceptance_error(
             continue;
         }
         expected_edges += 1;
+        // Per-edge forensics for the aggregate counts in the decline
+        // message: which seam edge, which side lacks the pcurve, and
+        // what surfaces flank it.
+        let trace_missing = |missing_side: &str, side_is_cap: bool| {
+            if !crate::direct_apex_trace::enabled() {
+                return;
+            }
+            let kind = |fh: FaceHandle| {
+                brep.faces
+                    .get(fh)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| match &s.geometry {
+                        popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+                        popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                        popkern_core::geometry::SurfaceGeometry::Sphere { .. } => "Sphere",
+                        popkern_core::geometry::SurfaceGeometry::Cone { .. } => "Cone",
+                        popkern_core::geometry::SurfaceGeometry::Torus { .. } => "Torus",
+                        popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                        popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
+                    })
+                    .unwrap_or("None")
+            };
+            let p = brep
+                .half_edges
+                .get(he_a)
+                .and_then(|h| brep.vertices.get(h.origin))
+                .map(|v| {
+                    format!(
+                        "({:.4},{:.4},{:.4})",
+                        v.position.x, v.position.y, v.position.z
+                    )
+                })
+                .unwrap_or_default();
+            eprintln!(
+                "[direct-apex-trace] seam {edge_handle:?} missing {missing_side} pcurve \
+                 (missing side is_cap={side_is_cap}) faces {face_a:?}:{} / {face_b:?}:{} at {p}",
+                kind(face_a),
+                kind(face_b),
+            );
+        };
         let Some(pa) = ha.pcurve.as_ref() else {
             missing_pcurve_edges += 1;
             if a_is_cap {
@@ -64,6 +104,7 @@ pub(crate) fn cap_support_acceptance_error(
             } else {
                 missing_support_pcurve_edges += 1;
             }
+            trace_missing("half-edge-a", a_is_cap);
             continue;
         };
         let Some(pb) = hb.pcurve.as_ref() else {
@@ -73,6 +114,7 @@ pub(crate) fn cap_support_acceptance_error(
             } else {
                 missing_support_pcurve_edges += 1;
             }
+            trace_missing("half-edge-b", b_is_cap);
             continue;
         };
         let Some(sa) = brep.faces.get(face_a).and_then(|f| f.surface.as_ref()) else {
