@@ -63,19 +63,97 @@ pub(super) fn reorient_arcs_for_hex_closure(
     // distant face.
     let tol_slack = tol_linear.max(1e-5) * 10.0;
 
-    // Valence >= 4: the successor walk below mispairs arcs whose
-    // endpoints crowd around the apex (measured on the pentagonal
-    // pyramid: it emits a star polygon whose bridges cross the apex
-    // axis). Adjacency around a convex vertex figure is an ANGULAR
-    // property; order and orient the arcs by angle about the
-    // endpoint centroid's best-fit axis instead. The walk is kept
-    // for n <= 3, where it is validated by the cube hex-closure
-    // fixtures (and where wrong-end pairing is benign — a triangle's
-    // reversed traversal still closes a simple hexagon).
+    // Valence >= 4: NEITHER candidate ordering is universally
+    // trustworthy. The successor walk mispairs arcs whose endpoints
+    // crowd around the apex (measured on the pentagonal pyramid: a
+    // star polygon whose bridges cross the apex axis), while the
+    // angular sort folds when the arc layout is asymmetric (measured
+    // on pyramid4_mixed: order [1,0,2,3] paired DIAGONAL fillets, the
+    // FaceEdge bridges grabbed a diagonal face, every sphere-fit read
+    // amplitude 0.56 where adjacent faces give 1.0, and the whole
+    // apex silently fell to the Open rung — no cap, no seams).
+    //
+    // Adjacency has a measurable definition: consecutive arc ends
+    // must be bridgeable ON A COMMON SUPPORT FACE. Build both
+    // candidates and keep the one with fewer unsupported bridges
+    // (ties: smaller total bridge length). The walk stays the sole
+    // path for n <= 3, where the cube hex-closure fixtures validate
+    // it and wrong-end pairing is benign.
     if n >= 4 {
-        return angular_arc_ordering(fillet_arcs, fillet_endpoints);
+        let walk =
+            successor_walk_ordering(fillet_arcs, fillet_endpoints, face_supports, tol_linear);
+        let angular = angular_arc_ordering(fillet_arcs, fillet_endpoints);
+        return match (walk, angular) {
+            (Some(w), Some(a)) => {
+                let score_w = ring_bridge_score(&w, fillet_endpoints, face_supports, tol_slack);
+                let score_a = ring_bridge_score(&a, fillet_endpoints, face_supports, tol_slack);
+                if std::env::var_os("POPKERN_BOUNDARY_HEX_TRACE").is_some() {
+                    eprintln!(
+                        "[boundary-hex] n={n} walk order={:?} score={score_w:?}; \
+                         angular order={:?} score={score_a:?}",
+                        w.0, a.0
+                    );
+                }
+                if score_a < score_w { Some(a) } else { Some(w) }
+            }
+            (walk, angular) => walk.or(angular),
+        };
     }
 
+    successor_walk_ordering(fillet_arcs, fillet_endpoints, face_supports, tol_linear)
+}
+
+/// Bridge validity score for a candidate ring ordering: the number of
+/// consecutive end→start bridges with NO common support face within
+/// `tol_slack` (primary), then the summed bridge length (tiebreak).
+/// Lower is better under tuple ordering.
+fn ring_bridge_score(
+    candidate: &(Vec<usize>, Vec<bool>, Vec<NurbsCurve>),
+    fillet_endpoints: &[[Point3; 2]],
+    face_supports: &[(FaceHandle, SurfaceGeometry)],
+    tol_slack: f64,
+) -> (usize, f64) {
+    let (order, flip, _) = candidate;
+    let n = order.len();
+    let mut unsupported = 0usize;
+    let mut total_len = 0.0f64;
+    for k in 0..n {
+        let idx = order[k];
+        let end = if flip[k] {
+            fillet_endpoints[idx][0]
+        } else {
+            fillet_endpoints[idx][1]
+        };
+        let next = (k + 1) % n;
+        let nidx = order[next];
+        let start = if flip[next] {
+            fillet_endpoints[nidx][1]
+        } else {
+            fillet_endpoints[nidx][0]
+        };
+        total_len += end.distance_to(&start);
+        let supported = face_supports.iter().any(|(_, surface)| {
+            point_on_surface_distance(&end, surface) <= tol_slack
+                && point_on_surface_distance(&start, surface) <= tol_slack
+        });
+        if !supported {
+            unsupported += 1;
+        }
+    }
+    (unsupported, total_len)
+}
+
+/// The original successor walk: chain arcs end-to-start by shared
+/// support faces (strict then slack tolerance), with a nearest-
+/// endpoint fallback for saddle trims that sit off every support.
+fn successor_walk_ordering(
+    fillet_arcs: &[NurbsCurve],
+    fillet_endpoints: &[[Point3; 2]],
+    face_supports: &[(FaceHandle, SurfaceGeometry)],
+    tol_linear: f64,
+) -> Option<(Vec<usize>, Vec<bool>, Vec<NurbsCurve>)> {
+    let n = fillet_arcs.len();
+    let tol_slack = tol_linear.max(1e-5) * 10.0;
     let mut order = vec![0usize; n];
     let mut flip = vec![false; n];
     let mut used = vec![false; n];
@@ -196,11 +274,36 @@ fn angular_arc_ordering(
     let count = (2 * n) as f64;
     let centroid = Point3::new(c[0] / count, c[1] / count, c[2] / count);
     // Best-fit axis from summed cross products of endpoint spokes.
+    // Each arc's [a, b] endpoint order is ARBITRARY, so the raw
+    // per-arc cross product carries an arbitrary sign — a raw sum
+    // partially cancels and can tip the axis sideways, folding the
+    // angular sort into a non-adjacent order (measured on
+    // pyramid4_mixed: order [1,0,2,3] paired diagonal fillets, the
+    // FaceEdge bridges grabbed a diagonal face, and every sphere-fit
+    // read amplitude 0.56 where its adjacent faces give 1.0).
+    // Sign-align every term against the largest-magnitude one before
+    // summing; the overall axis SIGN stays irrelevant (a reversed
+    // axis reverses the cycle, which is still an adjacency).
+    let spokes: Vec<popkern_core::geometry::Vec3> = fillet_endpoints
+        .iter()
+        .map(|ep| {
+            let a = ep[0] - centroid;
+            let b = ep[1] - centroid;
+            a.cross(&b)
+        })
+        .collect();
+    let reference = spokes.iter().copied().max_by(|x, y| {
+        x.length()
+            .partial_cmp(&y.length())
+            .unwrap_or(std::cmp::Ordering::Equal)
+    })?;
     let mut axis = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
-    for ep in fillet_endpoints {
-        let a = ep[0] - centroid;
-        let b = ep[1] - centroid;
-        axis = axis + a.cross(&b);
+    for x in &spokes {
+        if x.dot(&reference) < 0.0 {
+            axis = axis - *x;
+        } else {
+            axis = axis + *x;
+        }
     }
     let axis = axis.normalized()?;
     // In-plane frame.
@@ -220,6 +323,29 @@ fn angular_arc_ordering(
         .collect();
     keyed.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let order: Vec<usize> = keyed.iter().map(|&(_, k)| k).collect();
+    if std::env::var_os("POPKERN_BOUNDARY_HEX_TRACE").is_some() {
+        eprintln!(
+            "[boundary-hex] centroid=({:.4},{:.4},{:.4}) axis=({:.4},{:.4},{:.4}) order={order:?}",
+            centroid.x, centroid.y, centroid.z, axis.x, axis.y, axis.z
+        );
+        for &(angle, k) in &keyed {
+            let (t0, t1) = fillet_arcs[k].parameter_range();
+            let mid = fillet_arcs[k].point_at(0.5 * (t0 + t1));
+            eprintln!(
+                "[boundary-hex]   arc {k}: mid=({:.4},{:.4},{:.4}) angle={angle:.4} \
+                 ep0=({:.4},{:.4},{:.4}) ep1=({:.4},{:.4},{:.4})",
+                mid.x,
+                mid.y,
+                mid.z,
+                fillet_endpoints[k][0].x,
+                fillet_endpoints[k][0].y,
+                fillet_endpoints[k][0].z,
+                fillet_endpoints[k][1].x,
+                fillet_endpoints[k][1].y,
+                fillet_endpoints[k][1].z
+            );
+        }
+    }
     // Orient each arc counterclockwise: the signed angular step from
     // start to end (wrapped to (-pi, pi]) must be positive.
     let mut flip = vec![false; n];

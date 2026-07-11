@@ -64,6 +64,10 @@ impl SideSupportRegionContinuationResult {
         &self.bridge_loops
     }
 
+    pub(super) fn bridge_faces(&self) -> &[FaceHandle] {
+        &self.bridge_faces
+    }
+
     pub(super) fn bridge_face_count(&self) -> usize {
         self.bridge_faces.len()
     }

@@ -279,11 +279,27 @@ fn compute_per_fillet_terminations_inner(
             tolerance,
         ) {
             Ok(r) => r,
-            Err(_) if !strict => continue,
-            Err(_) => {
+            Err(fit_err) => {
+                if crate::direct_apex_trace::enabled() {
+                    eprintln!(
+                        "[direct-apex-trace] termination[{k}] fillet={fi} r={r_k:.4} \
+                         cap_centre=({:.4},{:.4},{:.4}) sphere_fit FAILED: {fit_err:?}",
+                        cap_centre.x, cap_centre.y, cap_centre.z
+                    );
+                }
+                if !strict {
+                    continue;
+                }
                 return Err(ApexPlanError::SphereCylinderNoIntersection { fillet_idx: k });
             }
         };
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace] termination[{k}] fillet={fi} r={r_k:.4} \
+                 cap_centre=({:.4},{:.4},{:.4}) sphere_fit ok",
+                cap_centre.x, cap_centre.y, cap_centre.z
+            );
+        }
         out.push(PerFilletTermination {
             fillet_idx: fi,
             endpoint_a: result.endpoint_a,

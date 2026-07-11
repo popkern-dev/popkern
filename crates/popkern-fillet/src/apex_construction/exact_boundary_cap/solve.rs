@@ -20,7 +20,13 @@ mod solve_support_pcurve_strip;
 #[path = "solve_support_strip.rs"]
 mod solve_support_strip;
 
-const DEFAULT_CORNER_TOLERANCE: f64 = 1.0e-7;
+// Corner acceptance matches the inner-spoke ANCHOR RECONCILIATION
+// scale (see corner.rs): boundary-conditioned fillet marches move
+// band ends by ~5e-4, the Coons corner tear this admits stays an
+// order of magnitude under the 5e-3 commercial seam gates that
+// measure the committed cap, and the old 1e-7 lock silently sent
+// whole pyramid apexes to the legacy fallback (measured G1 0.86).
+const DEFAULT_CORNER_TOLERANCE: f64 = 5.0e-3;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
 
 /// Local tolerances for the in-memory surface solve.

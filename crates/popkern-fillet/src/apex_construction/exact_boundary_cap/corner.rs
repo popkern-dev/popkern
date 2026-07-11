@@ -180,7 +180,17 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
             )
         })?;
         let corner = classify_outer_corner(fillet, face);
-        if corner.gap > budget.g0_tolerance {
+        // Corner acceptance runs at the ANCHOR RECONCILIATION scale,
+        // not the post-reconciliation spoke gate: `shared_point` is
+        // already the midpoint of the two curve ends, built exactly
+        // to absorb small corner gaps, and the boundary-conditioned
+        // fillet marches (chi-calibrated m-smoothing) legitimately
+        // move band ends by ~5e-4 (measured: pyramid4_uniform sector
+        // 2 gap 5.65e-4 declined the whole exact-boundary route at
+        // the old 1e-7 gate and the fallback cap failed G1 at 0.86).
+        // Downstream cap acceptance still measures the committed
+        // seams at its own commercial gates.
+        if corner.gap > GENERATED_ANCHOR_RECONCILIATION_TOLERANCE.max(budget.g0_tolerance) {
             return Err(ExactBoundaryInnerSpokeDiagnostic::new(
                 ExactBoundaryInnerSpokeDeclineReason::OuterCornerMismatch,
                 Some(sector),

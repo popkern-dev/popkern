@@ -253,6 +253,15 @@ pub(super) fn try_direct_apex_construction(
     // fall through to legacy direct-apex (§28.C-relocate path) so we don't regress
     // fixtures that were succeeding under legacy. Open is unchanged
     // (legacy short-circuits it as no-op).
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace] plan: cap_kind={:?} rung={:?} cap_kind_reason={:?} fallback_reason={:?}",
+            std::mem::discriminant(&plan.cap_kind),
+            plan.telemetry.rung,
+            plan.telemetry.cap_kind_reason,
+            plan.telemetry.fallback_reason,
+        );
+    }
     let build_result = match plan.cap_kind {
         CapKind::Sphere { .. } | CapKind::Gregory { .. } => {
             try_constructive_with_legacy_fallthrough(brep, &plan, &surfaces, tolerance)?
