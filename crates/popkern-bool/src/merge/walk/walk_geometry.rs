@@ -326,16 +326,13 @@ pub(crate) fn loop_newell(graph: &IntersectionGraph, loop_hes: &[usize]) -> Vec3
             .curve
             .as_ref()
             .or_else(|| graph.half_edges[he.twin].curve.as_ref());
-        let curved = curve
-            .map(|c| match &c.geometry {
-                popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
-                popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
-                _ => true,
-            })
-            .unwrap_or(false);
-        if curved {
+        let curved_curve = curve.filter(|c| match &c.geometry {
+            popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+            popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
+            _ => true,
+        });
+        if let Some(c) = curved_curve {
             use popkern_core::geometry::curve::CurveEval;
-            let c = curve.expect("curved implies curve");
             let (t0, t1) = (c.t_start, c.t_end);
             // Walk the samples in THIS half-edge's traversal
             // direction: a borrowed (twin) curve runs opposite.
@@ -466,16 +463,13 @@ pub(super) fn loop_outside_outer(
             .curve
             .as_ref()
             .or_else(|| graph.half_edges[he.twin].curve.as_ref());
-        let curved = curve
-            .map(|c| match &c.geometry {
-                popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
-                popkern_core::geometry::curve::CurveGeometry::Nurbs(nc) => nc.degree > 1,
-                _ => true,
-            })
-            .unwrap_or(false);
-        if curved {
+        let curved_curve = curve.filter(|c| match &c.geometry {
+            popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+            popkern_core::geometry::curve::CurveGeometry::Nurbs(nc) => nc.degree > 1,
+            _ => true,
+        });
+        if let Some(c) = curved_curve {
             use popkern_core::geometry::curve::CurveEval;
-            let c = curve.expect("curved implies curve");
             let (t0, t1) = (c.t_start, c.t_end);
             for i in 0..8 {
                 let f = i as f64 / 8.0;

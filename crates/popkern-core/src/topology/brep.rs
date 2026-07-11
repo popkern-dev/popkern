@@ -286,20 +286,18 @@ impl BRep {
                 // (measured: a vertex-scaled inner cube reported its
                 // pre-scale extent and containment booleans collapsed).
                 let dest = self.vertices[self.half_edges[he.twin].origin].position;
-                let curve_fresh = self
+                let fresh_curve = self
                     .edges
                     .get(he.edge)
                     .and_then(|e| e.curve.as_ref())
-                    .map(|curve| {
+                    .filter(|curve| {
                         let ceval: &dyn CurveEval = &curve.geometry;
                         let a = ceval.point_at(curve.t_start);
                         let b = ceval.point_at(curve.t_end);
                         (a.distance_to(&origin) < 1e-6 && b.distance_to(&dest) < 1e-6)
                             || (a.distance_to(&dest) < 1e-6 && b.distance_to(&origin) < 1e-6)
-                    })
-                    .unwrap_or(false);
-                if curve_fresh {
-                    let curve = self.edges[he.edge].curve.as_ref().expect("checked above");
+                    });
+                if let Some(curve) = fresh_curve {
                     let ceval: &dyn CurveEval = &curve.geometry;
                     for i in 1..=samples_per_edge {
                         let t = curve.t_start

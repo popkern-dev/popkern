@@ -314,18 +314,15 @@ fn point_on_graph_edge_curve(
         .curve
         .as_ref()
         .or_else(|| graph.half_edges[he.twin].curve.as_ref());
-    let curved = curve
-        .map(|c| match &c.geometry {
-            popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
-            popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
-            _ => true,
-        })
-        .unwrap_or(false);
-    if !curved {
-        return true;
-    }
+    let curved_curve = curve.filter(|c| match &c.geometry {
+        popkern_core::geometry::curve::CurveGeometry::Line { .. } => false,
+        popkern_core::geometry::curve::CurveGeometry::Nurbs(n) => n.degree > 1,
+        _ => true,
+    });
     use popkern_core::geometry::curve::CurveEval;
-    let c = curve.expect("curved implies curve");
+    let Some(c) = curved_curve else {
+        return true;
+    };
     let tc = c.t_start + (c.t_end - c.t_start) * t_chord;
     let mut best = c.geometry.point_at(tc).distance_to(point);
     let span = (c.t_end - c.t_start).abs().max(1e-12);

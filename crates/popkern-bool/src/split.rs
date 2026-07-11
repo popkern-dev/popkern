@@ -307,7 +307,9 @@ fn open_chain_pre_pass(
         for seed_rev in [false, true] {
             let mut chain: Vec<(usize, bool)> = vec![(seed, seed_rev)];
             loop {
-                let (tail_idx, tail_rev) = *chain.last().expect("nonempty");
+                let Some(&(tail_idx, tail_rev)) = chain.last() else {
+                    break; // unreachable: the chain is seeded non-empty
+                };
                 let tip = if tail_rev {
                     ends[tail_idx].0
                 } else {
@@ -346,7 +348,9 @@ fn open_chain_pre_pass(
             } else {
                 ends[head_idx].0
             };
-            let (tail_idx, tail_rev) = *chain.last().expect("nonempty");
+            let Some(&(tail_idx, tail_rev)) = chain.last() else {
+                continue; // unreachable: the chain is seeded non-empty
+            };
             let tail = if tail_rev {
                 ends[tail_idx].0
             } else {

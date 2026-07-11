@@ -96,7 +96,7 @@ pub fn kp20_cap_net_figure_point(
     label: Kp20CapNetFigureLabel,
 ) -> Result<Point3, String> {
     if let Some(index) = label.sector_index() {
-        Ok(*cap_net
+        Ok(cap_net
             .sectors
             .get(sector)
             .ok_or_else(|| {
@@ -106,7 +106,10 @@ pub fn kp20_cap_net_figure_point(
                 )
             })?
             .get(index)
-            .expect("figure label index is in c1..c6 range"))
+            .copied()
+            .ok_or_else(|| {
+                format!("KP20 cap-net figure label index {index} outside the c1..c6 sector row")
+            })?)
     } else {
         Ok(cap_net.center)
     }
