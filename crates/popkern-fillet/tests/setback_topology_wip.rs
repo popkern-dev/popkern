@@ -11,7 +11,7 @@ use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, f
 fn setback_commit_produces_valid_g2_vertex_blend() {
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()
@@ -82,7 +82,7 @@ fn setback_commit_produces_valid_g2_vertex_blend() {
             let a = ceval.point_at(curve.t_start);
             let b = ceval.point_at(curve.t_end);
             let span = a.distance_to(&b);
-            if a.z.abs() > 1e-6 || b.z.abs() > 1e-6 || span < 0.05 || span > 0.5 {
+            if a.z.abs() > 1e-6 || b.z.abs() > 1e-6 || !(0.05..=0.5).contains(&span) {
                 continue;
             }
             let mid = ceval.point_at(0.5 * (curve.t_start + curve.t_end));

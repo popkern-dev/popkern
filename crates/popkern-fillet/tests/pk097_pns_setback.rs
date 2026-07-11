@@ -7,7 +7,7 @@ use popkern_core::topology::BRep;
 #[ignore = "PK-097 Phase A: measurement + gate for the G1 setback candidate"]
 fn pns_setback_candidate_on_pentagon_g1() {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

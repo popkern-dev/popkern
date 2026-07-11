@@ -318,17 +318,15 @@ fn main() {
     }
     if seam_only {
         for (fh, f) in unioned.faces.iter() {
-            if let Some(sof) = f.surface.as_ref() {
-                if let popkern_core::geometry::SurfaceGeometry::Plane { origin, normal, .. } =
+            if let Some(sof) = f.surface.as_ref()
+                && let popkern_core::geometry::SurfaceGeometry::Plane { origin, normal, .. } =
                     &sof.geometry
-                {
-                    if (origin.z - 0.4).abs() < 1e-9 || (normal.z.abs() > 0.9) {
-                        eprintln!(
-                            "  face {fh:?} plane origin z {:.3} normal ({:.2},{:.2},{:.2}) orientation {}",
-                            origin.z, normal.x, normal.y, normal.z, sof.orientation
-                        );
-                    }
-                }
+                && ((origin.z - 0.4).abs() < 1e-9 || (normal.z.abs() > 0.9))
+            {
+                eprintln!(
+                    "  face {fh:?} plane origin z {:.3} normal ({:.2},{:.2},{:.2}) orientation {}",
+                    origin.z, normal.x, normal.y, normal.z, sof.orientation
+                );
             }
         }
         for &eh in &fillet_edges_list {
@@ -487,7 +485,7 @@ fn main() {
                     sof.geometry.point_at(uv.x, uv.y).distance_to(&mid3d)
                 };
                 let (d_own, d_twin) = (d_on(own_face), d_on(twin_face));
-                if !(d_own < 1e-6) {
+                if d_own.partial_cmp(&1e-6) != Some(std::cmp::Ordering::Less) {
                     eprintln!(
                         "  PCAUDIT {eh:?} {side}: pcurve off OWN face {own_face:?} by {d_own:.3e} (twin face {twin_face:?}: {d_twin:.3e})"
                     );

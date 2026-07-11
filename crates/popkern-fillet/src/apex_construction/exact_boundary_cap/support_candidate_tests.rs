@@ -118,6 +118,10 @@ fn periodic_cylinder_supports_reach_full_candidate_with_family_performance() {
     );
 }
 
+/// UV bounding box of a support face's seam endpoints:
+/// `((u_min, u_max), (v_min, v_max))`.
+type SupportUvBounds = ((f64, f64), (f64, f64));
+
 fn install_nurbs_plane_supports(
     brep: &mut BRep,
     cap_face: FaceHandle,
@@ -125,7 +129,7 @@ fn install_nurbs_plane_supports(
     sectors: &[GregoryCapSector],
 ) {
     let exact_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors).unwrap();
-    let mut uv_ranges: BTreeMap<FaceHandle, ((f64, f64), (f64, f64))> = BTreeMap::new();
+    let mut uv_ranges: BTreeMap<FaceHandle, SupportUvBounds> = BTreeMap::new();
     for seam in exact_sectors
         .iter()
         .flat_map(|sector| sector.outer_seams.iter())

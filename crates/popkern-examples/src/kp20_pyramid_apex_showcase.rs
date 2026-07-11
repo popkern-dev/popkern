@@ -33,8 +33,7 @@ fn main() {
 
 fn run() -> Result<(), String> {
     let tol = Tolerance::default();
-    let pyramid =
-        BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).map_err(|e| format!("pyramid: {e}"))?;
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).map_err(|e| format!("pyramid: {e}"))?;
 
     let apex = pyramid
         .vertices

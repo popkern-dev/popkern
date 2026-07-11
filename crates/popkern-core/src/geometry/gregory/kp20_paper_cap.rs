@@ -237,7 +237,8 @@ pub fn assemble_kp20_paper_cap_conditioned(
             let prev = (curve + n - 1) % n;
             let curr = curve;
             for i in 4..=6_usize {
-                for (prev_piece, curr_piece) in [(P2, P4)] {
+                {
+                    let (prev_piece, curr_piece) = (P2, P4);
                     let a = placements_per_sector[prev]
                         .iter()
                         .position(|&(p, pi, pj, _)| p == prev_piece && pi == i && pj == 0);

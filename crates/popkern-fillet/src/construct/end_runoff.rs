@@ -53,10 +53,7 @@ pub(super) fn apply_fillet_end_runoff(
     // rolls back to its own snapshot and is reported as an outcome
     // with the error recorded.
     let mut failed: Vec<VertexHandle> = Vec::new();
-    loop {
-        let Some(candidate) = find_runoff_candidate(brep, &failed, setback_blend_present) else {
-            break;
-        };
+    while let Some(candidate) = find_runoff_candidate(brep, &failed, setback_blend_present) {
         let snapshot = brep.clone();
         match runoff_one_corner(brep, &candidate) {
             Ok(()) => outcomes.push(EndRunoffOutcome {
@@ -95,8 +92,6 @@ struct RunoffCandidate {
     plane_normal: Vec3,
     overshoot: f64,
 }
-
-/// Find one strip corner whose sweep overshoots a planar end face.
 
 /// Parameter box of a face on its surface, branch-aware for analytic
 /// cylinders: vertex angles are unwrapped to the minimal covering arc
@@ -143,6 +138,7 @@ fn face_parameter_box(
     }
 }
 
+/// Find one strip corner whose sweep overshoots a planar end face.
 fn find_runoff_candidate(
     brep: &BRep,
     skip: &[VertexHandle],

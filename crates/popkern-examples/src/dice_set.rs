@@ -173,11 +173,7 @@ fn truncate_vertices(
         .fold(Vec3::new(0.0, 0.0, 0.0), |acc, p| acc + (*p - origin()))
         * (1.0 / points.len() as f64);
     for v in 0..points.len() {
-        let Some((&(_, first), _)) = succ
-            .iter()
-            .find(|((vv, _), _)| *vv == v)
-            .map(|(k, s)| (k, s))
-        else {
+        let Some((&(_, first), _)) = succ.iter().find(|((vv, _), _)| *vv == v) else {
             continue;
         };
         let mut cycle = vec![first];
@@ -535,7 +531,7 @@ fn engrave_polys(
     scale: f64,
     depth: f64,
 ) {
-    let mut ring = |poly: &[(f64, f64)], points: &mut Vec<Point3>| -> (Vec<usize>, Vec<usize>) {
+    let ring = |poly: &[(f64, f64)], points: &mut Vec<Point3>| -> (Vec<usize>, Vec<usize>) {
         let top: Vec<usize> = poly
             .iter()
             .map(|&(x, y)| {

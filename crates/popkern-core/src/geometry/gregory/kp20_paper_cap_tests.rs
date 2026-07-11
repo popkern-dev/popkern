@@ -214,8 +214,8 @@ fn paper_macro_cap_adapter_is_legacy_contract_compatible() {
     let mut sectors = Vec::with_capacity(n);
     for sector in &border.sectors {
         let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
-        for depth in 0..3 {
-            rows[depth] = merge_cubic_halves(sector[0].rows[depth], sector[1].rows[depth]);
+        for (depth, row) in rows.iter_mut().enumerate() {
+            *row = merge_cubic_halves(sector[0].rows[depth], sector[1].rows[depth]);
         }
         sectors.push(rows);
     }

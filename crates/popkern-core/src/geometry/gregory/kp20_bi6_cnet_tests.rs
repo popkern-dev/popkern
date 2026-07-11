@@ -1,3 +1,7 @@
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop)]
+
 use super::super::kp20_bi6_cap::Kp20MacroPatch;
 use super::super::kp20_bi6_tau_solve_assemble::{
     Kp20PlanarTauPaperSolveInput, solve_kp20_planar_tau_paper_sector_f3,

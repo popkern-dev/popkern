@@ -240,8 +240,10 @@ fn commit_eligible_candidate_from_boundary(
     samples: &[ExactBoundaryRibbonSample],
     pole: Point3,
 ) -> ExactBoundaryMultiPatchCandidate {
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    };
     let attempt = prepare_multipatch_candidate(ExactBoundaryMultiPatchCandidateRequest {
         sector,
         selected_sides: &[ExactBoundaryOuterSide::FaceEdge],

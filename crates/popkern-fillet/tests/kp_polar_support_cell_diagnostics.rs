@@ -1,5 +1,9 @@
 #![allow(dead_code)]
 
+// This file is both a standalone test binary and an included module of
+// kp_polar_commercial_gates.rs (whose kp_gate_helpers also loads the shared
+// trims support file), so the double load is intentional.
+#[allow(clippy::duplicate_mod)]
 #[path = "support/kp_gate_shared_trims.rs"]
 mod kp_gate_shared_trims;
 #[path = "support/kp_support_cell_candidate_diagnostics.rs"]

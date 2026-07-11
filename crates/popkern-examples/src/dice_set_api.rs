@@ -164,7 +164,7 @@ fn build_die(sides: usize, font: &Font) -> Result<Part, PartError> {
     if sides == 4 {
         // Per-vertex numbers at each corner (apex-read convention).
         let hull_faces = popkern_part::poly::convex_hull_faces(&scaled);
-        trimmed.edit_polyhedron(format!("engrave d4 corner numbers"), |points, faces| {
+        trimmed.edit_polyhedron("engrave d4 corner numbers".to_string(), |points, faces| {
             for (f, hull_face) in hull_faces.iter().enumerate() {
                 let corners: Vec<(Point3, usize)> =
                     hull_face.iter().map(|&v| (scaled[v], v + 1)).collect();

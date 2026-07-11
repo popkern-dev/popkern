@@ -163,6 +163,9 @@ pub fn kp20_pr08_stam_inner_q1_characteristic_tensor_border(
 }
 
 #[cfg(test)]
+// Index form: `delta` is simultaneously the circulant block address and the
+// DFT phase exponent of the PR08 block algebra; iterators would obscure that.
+#[allow(clippy::needless_range_loop)]
 pub fn pr08_catmull_clark_subdivision_matrix(n: usize) -> Result<Vec<Vec<f64>>, String> {
     if n < 3 {
         return Err(format!(
@@ -433,6 +436,9 @@ pub fn pr08_catmull_clark_subdivision_stencil_matrix(n: usize) -> Result<Vec<Vec
 }
 
 #[cfg(test)]
+// Index form: `(dest_sector, dest_label)` also form the flattened subdivision
+// matrix row index `dest_sector * 13 + dest_label`; keep that arithmetic visible.
+#[allow(clippy::needless_range_loop)]
 pub fn pr08_subdivide_characteristic_ring(
     ring: &Kp20CatmullClarkCharacteristicRing,
 ) -> Result<Vec<[Point3; 13]>, String> {
@@ -1002,9 +1008,9 @@ pub fn kp20_pr08_stam_appendix_b_projected_rows_from_top_vectors_for_test(
             patch_index,
         )?;
         let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
-        for out_row in 0..3 {
+        for (out_row, row) in rows.iter_mut().enumerate() {
             let source_row = if reverse_rows { 2 - out_row } else { out_row };
-            rows[out_row] = grid[row_start + source_row];
+            *row = grid[row_start + source_row];
         }
         sectors.push(rows);
     }
@@ -1021,9 +1027,9 @@ fn stam_appendix_a_pr08_scaled_q13_q2_top_rows(
 ) -> Result<[[Point3; 4]; 3], String> {
     let grid = stam_appendix_a_pr08_scaled_q13_q2_top_full_grid(ring, sector_index, patch_index)?;
     let mut rows = [[Point3::new(0.0, 0.0, 0.0); 4]; 3];
-    for out_row in 0..3 {
+    for (out_row, row) in rows.iter_mut().enumerate() {
         let source_row = if reverse_rows { 2 - out_row } else { out_row };
-        rows[out_row] = grid[row_start + source_row];
+        *row = grid[row_start + source_row];
     }
     Ok(rows)
 }
@@ -1559,8 +1565,8 @@ fn solve_real_dense(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Option<Vec<
         matrix.swap(pivot, pivot_row);
         rhs.swap(pivot, pivot_row);
         let diagonal = matrix[pivot][pivot];
-        for col in pivot..n {
-            matrix[pivot][col] /= diagonal;
+        for value in &mut matrix[pivot][pivot..n] {
+            *value /= diagonal;
         }
         rhs[pivot] /= diagonal;
         let pivot_values = matrix[pivot].clone();
@@ -1794,8 +1800,8 @@ fn solve_complex_4(
             rhs.swap(pivot, pivot_row);
         }
         let diagonal = matrix[pivot][pivot];
-        for col in pivot..4 {
-            matrix[pivot][col] = matrix[pivot][col] / diagonal;
+        for value in &mut matrix[pivot][pivot..4] {
+            *value = *value / diagonal;
         }
         rhs[pivot] = rhs[pivot] / diagonal;
         let pivot_row_values = matrix[pivot];

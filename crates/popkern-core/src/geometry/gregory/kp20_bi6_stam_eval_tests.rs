@@ -1,3 +1,7 @@
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop)]
+
 use super::super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId};
 use super::super::kp20_bi6_cc_ring::kp20_catmull_clark_characteristic_ring;
 use super::super::kp20_bi6_cnet::kp20_tensor_border_from_regular_cnet_rows;

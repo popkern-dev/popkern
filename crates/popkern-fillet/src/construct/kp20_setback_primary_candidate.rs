@@ -103,7 +103,7 @@ mod tests {
     #[test]
     fn setback_candidate_accepted_on_pentagonal_pyramid_g2() {
         let tol = Tolerance::default();
-        let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+        let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
         let apex = pyramid
             .vertices
             .iter()

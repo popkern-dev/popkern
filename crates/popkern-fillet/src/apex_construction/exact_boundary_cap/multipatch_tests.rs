@@ -231,9 +231,10 @@ fn orchestrator_declines_two_selected_outer_sides_before_construction() {
 }
 
 fn tight_budget() -> ExactBoundaryMultiPatchBudget {
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
-    budget
+    ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    }
 }
 
 fn cubic_boundary() -> NurbsCurve {

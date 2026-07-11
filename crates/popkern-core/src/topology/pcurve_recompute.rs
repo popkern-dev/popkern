@@ -653,6 +653,18 @@ impl BRep {
         }
     }
 
+    /// Detect and rebuild pcurves that no longer agree with the 3D model.
+    ///
+    /// For every half-edge that stores a pcurve, maps the pcurve's
+    /// parameter-range endpoints through the owning face's surface and
+    /// compares them against the half-edge's actual start/end vertex
+    /// positions, and also measures the interior trace deviation between
+    /// the pcurve image and the edge's 3D curve. If either error exceeds
+    /// the stale tolerance (`max_imprecision` widened to at least the
+    /// linear model tolerance), the pcurve is dropped as stale. All
+    /// missing pcurves are then recomputed via `recompute_all_pcurves`,
+    /// and `fix_pcurve_endpoints` is run per face so the rebuilt pcurves
+    /// land exactly on their loop vertices.
     pub fn fix_stale_pcurves(&mut self) {
         use crate::geometry::surface::SurfaceEval;
 

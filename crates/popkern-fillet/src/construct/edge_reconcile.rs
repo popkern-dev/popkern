@@ -478,17 +478,17 @@ pub(crate) fn snap_vertex_and_adjacent_chords(
                 // positions.
                 let dir = pb - pa;
                 let len = dir.length();
-                if len > 1e-12 {
-                    if let Some(e) = brep.edges.get_mut(eh) {
-                        e.curve = Some(popkern_core::geometry::CurveOnEdge {
-                            geometry: popkern_core::geometry::CurveGeometry::Line {
-                                origin: pa,
-                                direction: dir * (1.0 / len),
-                            },
-                            t_start: 0.0,
-                            t_end: len,
-                        });
-                    }
+                if len > 1e-12
+                    && let Some(e) = brep.edges.get_mut(eh)
+                {
+                    e.curve = Some(popkern_core::geometry::CurveOnEdge {
+                        geometry: popkern_core::geometry::CurveGeometry::Line {
+                            origin: pa,
+                            direction: dir * (1.0 / len),
+                        },
+                        t_start: 0.0,
+                        t_end: len,
+                    });
                 }
             }
             popkern_core::geometry::CurveGeometry::Nurbs(n) => {
@@ -504,16 +504,16 @@ pub(crate) fn snap_vertex_and_adjacent_chords(
                 } else {
                     n2.control_points.last_mut()
                 };
-                if let Some(cp) = moved {
-                    if cp.distance_to(&old_pos) < 1e-6 {
-                        *cp = target;
-                        if let Some(e) = brep.edges.get_mut(eh) {
-                            e.curve = Some(popkern_core::geometry::CurveOnEdge {
-                                geometry: popkern_core::geometry::CurveGeometry::Nurbs(n2),
-                                t_start: curve.t_start,
-                                t_end: curve.t_end,
-                            });
-                        }
+                if let Some(cp) = moved
+                    && cp.distance_to(&old_pos) < 1e-6
+                {
+                    *cp = target;
+                    if let Some(e) = brep.edges.get_mut(eh) {
+                        e.curve = Some(popkern_core::geometry::CurveOnEdge {
+                            geometry: popkern_core::geometry::CurveGeometry::Nurbs(n2),
+                            t_start: curve.t_start,
+                            t_end: curve.t_end,
+                        });
                     }
                 }
             }

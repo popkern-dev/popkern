@@ -387,10 +387,7 @@ pub(crate) fn face_infos(brep: &BRep) -> Vec<FaceInfo> {
         if let Some(l) = brep.loops.get(face.outer_loop) {
             let start = l.half_edge;
             let mut he = start;
-            loop {
-                let Some(d) = brep.half_edges.get(he) else {
-                    break;
-                };
+            while let Some(d) = brep.half_edges.get(he) {
                 let Some(next) = brep.half_edges.get(d.next) else {
                     break;
                 };

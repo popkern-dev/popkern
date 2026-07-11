@@ -3,6 +3,12 @@ use super::coverage::{
     validate_corner_apex_coverage_row, validate_mutator_readiness_row,
 };
 
+/// A named field-removal mutation applied to a complete coverage-row fixture.
+type RowFieldRemoval = (&'static str, fn(&mut CornerApexCoverageRow));
+
+/// A named field-removal mutation applied to a complete facet payload.
+type PayloadFieldRemoval = (&'static str, fn(&mut CornerApexCoverageFacetPayload));
+
 fn complete_row() -> CornerApexCoverageRow {
     CornerApexCoverageRow {
         row_id: "corner-apex:three-face-tangency:non-planar-support",
@@ -79,7 +85,7 @@ fn coverage_gate_rejects_generic_terminal_labels() {
 
 #[test]
 fn coverage_gate_names_missing_top_level_facets() {
-    let missing_fields: [(&str, fn(&mut CornerApexCoverageRow)); 5] = [
+    let missing_fields: [RowFieldRemoval; 5] = [
         ("primitive_family", remove_primitive_family),
         ("invalidity_reason", remove_invalidity_reason),
         ("tolerance_source", remove_tolerance_source),
@@ -99,7 +105,7 @@ fn coverage_gate_names_missing_top_level_facets() {
 
 #[test]
 fn coverage_gate_names_missing_six_facet_payload_members() {
-    let missing_fields: [(&str, fn(&mut CornerApexCoverageFacetPayload)); 6] = [
+    let missing_fields: [PayloadFieldRemoval; 6] = [
         ("facet_payload.topology", remove_topology),
         ("facet_payload.geometry", remove_geometry),
         ("facet_payload.dependency", remove_dependency),

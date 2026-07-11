@@ -103,17 +103,6 @@ pub(super) fn collapsed_trim_missing_curve_edges(brep: &BRep) -> HashSet<EdgeHan
     .collect()
 }
 
-pub(super) fn edge_curve_same_sense(curve: &CurveOnEdge) -> bool {
-    if matches!(
-        curve.geometry,
-        CurveGeometry::Circle { .. } | CurveGeometry::Arc { .. }
-    ) {
-        curve.t_end >= curve.t_start
-    } else {
-        true
-    }
-}
-
 fn surface_trim_sources(brep: &BRep, edge: EdgeHandle) -> Vec<HalfEdgeHandle> {
     brep.half_edges
         .iter()

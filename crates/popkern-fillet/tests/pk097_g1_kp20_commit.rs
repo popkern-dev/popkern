@@ -8,7 +8,7 @@ use popkern_core::topology::BRep;
 fn g1_kp20_commit_produces_valid_blend() {
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

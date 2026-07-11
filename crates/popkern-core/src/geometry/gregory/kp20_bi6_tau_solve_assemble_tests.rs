@@ -1,3 +1,11 @@
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(
+    clippy::needless_range_loop,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
+
 use super::super::kp20_bi6_assemble::{
     Kp20Bi6CapInput, Kp20Bi6MacroCapAssemblyStage, Kp20Bi6MacroCapInput, Kp20Bi6MacroCapOutput,
     assemble_kp20_bi6_cap_with_appendix_a_fig6c_tau, assemble_kp20_bi6_macro_cap,

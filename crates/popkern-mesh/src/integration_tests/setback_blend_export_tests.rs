@@ -21,7 +21,7 @@ fn setback_blend_tessellates_closed() {
 fn run_setback_closure_gate(continuity: popkern_fillet::ContinuityLevel) {
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

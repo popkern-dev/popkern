@@ -1,3 +1,11 @@
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(
+    clippy::needless_range_loop,
+    clippy::too_many_arguments,
+    clippy::type_complexity
+)]
+
 use super::super::bernstein_bi6::{bernstein_bi6_all, bernstein_bi6_deriv_all};
 use super::super::bernstein_tri5::{bernstein_tri5_partial_u, bernstein_tri5_partial_v};
 use super::super::kp13_bi5_boundary::{Bi3TensorBorder, TensorBorder};
@@ -294,27 +302,26 @@ fn pr08_stam_guide_equation26_star_point_label_sweep_is_measured() {
     let ring = kp20_catmull_clark_characteristic_ring(n).expect("PR08 characteristic ring");
     let tensor =
         kp20_pr08_stam_inner_q1_characteristic_tensor_border(n).expect("PR08/Stam inner Q1 source");
-    let mut best = None::<(
+    let mut best: Option<(
         &'static str,
         usize,
         usize,
         TestGuideOrientationReport,
         f64,
         Point3,
-    )>;
-    {
+    )> = {
         let (label, star) = ("origin", Point3::new(0.0, 0.0, 0.0));
         let output = solve_kp20_guide_lsq_with_report(&tensor, star).unwrap();
         let orientation = test_guide_local_orientation_report(n, &output.sectors);
-        best = Some((
+        Some((
             label,
             0,
             0,
             orientation,
             output.report.max_fit_residual,
             star,
-        ));
-    }
+        ))
+    };
     for first_label in 0..=7 {
         for c7_label in 0..13 {
             let star = kk12_equation26_star_point_from_pr08_labels(&ring, first_label, c7_label);

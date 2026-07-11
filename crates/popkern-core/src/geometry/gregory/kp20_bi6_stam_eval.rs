@@ -417,6 +417,9 @@ fn side_rows(grid: &[[Point3; 4]; 4], side: Kp20StamGridSide) -> [[Point3; 4]; 3
 }
 
 #[cfg(test)]
+// Index form: each `(row, col)` destination maps through a symmetry-dependent
+// `(source_row, source_col)`; the index arithmetic IS the grid transform.
+#[allow(clippy::needless_range_loop)]
 fn transform_grid(grid: &[[Point3; 4]; 4], transform: Kp20StamGridTransform) -> [[Point3; 4]; 4] {
     let mut out = [[Point3::new(0.0, 0.0, 0.0); 4]; 4];
     for row in 0..4 {

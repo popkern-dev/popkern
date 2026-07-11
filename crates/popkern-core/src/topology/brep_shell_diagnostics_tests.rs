@@ -172,16 +172,16 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
             pcurve: None,
         })
     });
-    for index in 0..4 {
+    for &half_edge in &half_edges {
         let edge = brep.edges.insert(Edge {
-            half_edge: half_edges[index],
+            half_edge,
             curve: None,
             name: None,
             tolerance: None,
             canonical: Default::default(),
             role: Default::default(),
         });
-        brep.half_edges[half_edges[index]].edge = edge;
+        brep.half_edges[half_edge].edge = edge;
         brep.boundary_edges.insert(edge);
     }
     for index in 0..4 {

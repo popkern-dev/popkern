@@ -9,6 +9,10 @@
 //!   ring values.
 //! - bi-9 grids are valid-shape with finite CPs.
 
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::Point3;
 use crate::geometry::gregory::kp15_bi6_rules::rule_5_reduce_edge;

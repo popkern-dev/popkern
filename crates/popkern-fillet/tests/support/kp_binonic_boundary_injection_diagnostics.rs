@@ -333,10 +333,7 @@ fn cap_surface_boundary_and_pcurve_trajectory_pyramid4_mixed() {
         let start_he = loop_data.half_edge;
         let mut cur = start_he;
         let mut step = 0;
-        loop {
-            let Some(he) = brep.half_edges.get(cur) else {
-                break;
-            };
+        while let Some(he) = brep.half_edges.get(cur) {
             let twin_face = brep.loops[brep.half_edges[he.twin].loop_].face;
             if !cap_set.contains(&twin_face)
                 && let Some(pa) = he.pcurve.as_ref()

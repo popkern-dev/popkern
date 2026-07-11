@@ -36,6 +36,11 @@ pub(super) type BranchShifts = HashMap<(FaceHandle, HalfEdgeHandle), (f64, f64)>
 /// (true = the walk traverses the pcurve from t_start to t_end).
 pub(super) type ChainDirections = HashMap<(FaceHandle, HalfEdgeHandle), bool>;
 
+/// One candidate loop-chain assignment, in loop-walk order: the UV
+/// branch shift `(du, dv)` applied to each use and whether the use is
+/// traversed forward (t_start → t_end).
+type ChainAssignment = Vec<((f64, f64), bool)>;
+
 /// Result of the periodic loop normalization pre-pass.
 #[derive(Default)]
 pub(super) struct PeriodicNormalization {
@@ -378,7 +383,7 @@ fn normalize_loop(
     // winding disambiguates the residual two-fold symmetry of
     // annulus loops (both windings close; only one has material on
     // the correct side).
-    let mut best: Option<(f64, bool, Vec<((f64, f64), bool)>)> = None;
+    let mut best: Option<(f64, bool, ChainAssignment)> = None;
     for mask in 0..combos {
         let forward_of = |idx: usize| -> bool {
             match uses[idx].a_is_start {

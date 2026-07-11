@@ -22,7 +22,6 @@ pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
 
 /// Test-only hooks for gated work-in-progress construction arms.
-
 pub mod construct_test_hooks {
     /// PK-097: the full PnS setback candidate (patches + surfaces).
     pub fn pns_setback_candidate_full(

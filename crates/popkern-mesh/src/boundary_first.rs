@@ -300,17 +300,17 @@ pub(crate) fn tessellate_face_boundary_first(
                     }
                 }
             }
-            if let Some(p) = period_u {
-                if !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate) {
-                    dump_ring(&ring, "u");
-                    return None;
-                }
+            if let Some(p) = period_u
+                && !unwrap_dir(&mut ring, p, |uv| &mut uv.0, &u_degenerate)
+            {
+                dump_ring(&ring, "u");
+                return None;
             }
-            if let Some(p) = period_v {
-                if !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[]) {
-                    dump_ring(&ring, "v");
-                    return None;
-                }
+            if let Some(p) = period_v
+                && !unwrap_dir(&mut ring, p, |uv| &mut uv.1, &[])
+            {
+                dump_ring(&ring, "v");
+                return None;
             }
         }
         if ring.uv.len() >= 3 {
@@ -372,10 +372,7 @@ pub(crate) fn tessellate_face_boundary_first(
             if (cross / span).abs() < eps {
                 // Left normal of q→r is inward for CCW rings.
                 let (dx, dy) = ((r.0 - q.0) / span, (r.1 - q.1) / span);
-                ring.uv[i] = (
-                    p.0 - dy * eps * inward * -1.0,
-                    p.1 + dx * eps * inward * -1.0,
-                );
+                ring.uv[i] = (p.0 - -(dy * eps * inward), p.1 + -(dx * eps * inward));
             }
         }
     }
@@ -945,17 +942,16 @@ fn build_ring(
                     popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
                 let d = target - *origin;
                 (uu, vv) = (d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis));
-            } else if sof.geometry.point_at(uu, vv).distance_to(&target) > 1.0e-9 {
-                if let Some((ru, rv)) =
+            } else if sof.geometry.point_at(uu, vv).distance_to(&target) > 1.0e-9
+                && let Some((ru, rv)) =
                     popkern_core::geometry::uv_projection::project_point_to_uv_near(
                         &sof.geometry,
                         &target,
                         uu,
                         vv,
                     )
-                {
-                    (uu, vv) = (ru, rv);
-                }
+            {
+                (uu, vv) = (ru, rv);
             }
             let residual = sof.geometry.point_at(uu, vv).distance_to(&target);
             let scale = samples

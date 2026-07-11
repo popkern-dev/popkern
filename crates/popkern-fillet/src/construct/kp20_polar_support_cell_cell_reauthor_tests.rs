@@ -129,6 +129,9 @@ fn degenerate_corner_derives_one_sided() {
 }
 
 #[test]
+// The (i, j) indices address `patch.grid` and `expected` in lockstep and
+// appear in the assert message; iterator form would obscure the grid walk.
+#[allow(clippy::needless_range_loop)]
 fn coons_fill_reproduces_bilinear_interior() {
     let mut patch = RectangularGregoryBiNonic::zeros();
     for i in 0..10 {

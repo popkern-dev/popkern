@@ -54,8 +54,12 @@ thread_local! {
     static IN_CAPTURE: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Sampled allocation sites: backtrace hash → (sample count, frame
+/// instruction pointers).
+type AllocSiteSamples = HashMap<u64, (usize, Vec<usize>)>;
+
 static ALLOC_COUNT: AtomicUsize = AtomicUsize::new(0);
-static SAMPLES: Mutex<Option<HashMap<u64, (usize, Vec<usize>)>>> = Mutex::new(None);
+static SAMPLES: Mutex<Option<AllocSiteSamples>> = Mutex::new(None);
 static TRACING_ENABLED: AtomicBool = AtomicBool::new(false);
 
 struct BacktraceCountingAlloc;
@@ -139,7 +143,7 @@ fn finish_and_dump(label: &str, top_n: usize) -> Vec<(u64, usize, Vec<String>)> 
         .into_iter()
         .map(|(h, (count, frames))| (h, count, frames))
         .collect();
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    entries.sort_by_key(|entry| std::cmp::Reverse(entry.1));
     entries.truncate(top_n);
     let total_samples: usize = entries.iter().map(|(_, c, _)| *c).sum();
     eprintln!(

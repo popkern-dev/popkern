@@ -1,6 +1,4 @@
 use super::*;
-use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use std::sync::Arc;
 
@@ -9,7 +7,7 @@ use crate::step::document::{
     UnitContext,
 };
 use crate::step::export::{StepExportOptions, export_step};
-use crate::step::export_topology_helpers::{edge_curve_same_sense, edge_half_edges};
+use crate::step::export_topology_helpers::edge_half_edges;
 
 #[test]
 fn export_unit_cube_entity_counts() {
@@ -436,24 +434,6 @@ fn collapsed_surface_trim_missing_curve_exports_degenerate_bspline() {
         "collapsed trim must not export a zero-direction LINE"
     );
     assert_eq!(count("PCURVE"), 1);
-}
-
-#[test]
-fn reversed_periodic_edge_curve_exports_same_sense_false() {
-    let curve = CurveOnEdge {
-        geometry: CurveGeometry::Circle {
-            center: Point3::new(0.0, 0.0, 0.0),
-            normal: Vec3::new(0.0, 0.0, 1.0),
-            radius: 1.0,
-        },
-        t_start: std::f64::consts::FRAC_PI_2,
-        t_end: 0.0,
-    };
-
-    assert!(
-        !edge_curve_same_sense(&curve),
-        "decreasing periodic trims must export EDGE_CURVE.same_sense = false so import recovers the short reversed arc"
-    );
 }
 
 #[test]

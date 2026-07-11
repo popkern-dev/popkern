@@ -2301,6 +2301,9 @@ fn kp20_fig6c_active_set_projection(
     })
 }
 
+// Index form: `global_axis` addresses the same component of both sector-local
+// axis vectors and feeds the flattened variable-index map; keep indices explicit.
+#[allow(clippy::needless_range_loop)]
 fn solve_kp20_fig6c_active_set_step(
     patch: &Kp20MacroPatch,
     valence: usize,
@@ -2535,6 +2538,9 @@ fn kp20_orientation_active_constraints(
     Ok(constraints)
 }
 
+// Index form: `global_axis` addresses the same component of both sector-local
+// axis vectors and feeds the flattened variable-index map; keep indices explicit.
+#[allow(clippy::needless_range_loop)]
 fn add_orientation_active_design_row(
     design_row: &mut [f64],
     active_constraint: Kp20Fig6cOrientationActiveConstraint,
@@ -2610,16 +2616,16 @@ fn sample_local_patch_derivatives(
     let bv6 = bernstein_bi6_all(v);
     let mut du = Point3::new(0.0, 0.0, 0.0);
     let mut dv = Point3::new(0.0, 0.0, 0.0);
-    for i in 0..6 {
+    for (i, &bu5_i) in bu5.iter().enumerate() {
         for (j, &bv_j) in bv6.iter().enumerate() {
             let delta = sub_point(patch.cps[i + 1][j], patch.cps[i][j]);
-            du = add_point(du, scale_point(delta, 6.0 * bu5[i] * bv_j));
+            du = add_point(du, scale_point(delta, 6.0 * bu5_i * bv_j));
         }
     }
     for (i, &bu_i) in bu6.iter().enumerate() {
-        for j in 0..6 {
+        for (j, &bv5_j) in bv5.iter().enumerate() {
             let delta = sub_point(patch.cps[i][j + 1], patch.cps[i][j]);
-            dv = add_point(dv, scale_point(delta, 6.0 * bu_i * bv5[j]));
+            dv = add_point(dv, scale_point(delta, 6.0 * bu_i * bv5_j));
         }
     }
     (du, dv)
@@ -2712,8 +2718,8 @@ fn solve_dense_linear_system(mut matrix: Vec<Vec<f64>>, mut rhs: Vec<f64>) -> Op
     let mut faer_rhs = Mat::<f64>::zeros(n, 1);
     for row in 0..n {
         faer_rhs.write(row, 0, rhs[row]);
-        for column in 0..n {
-            faer_matrix.write(row, column, matrix[row][column]);
+        for (column, &value) in matrix[row][..n].iter().enumerate() {
+            faer_matrix.write(row, column, value);
         }
     }
     let lu = faer_matrix.partial_piv_lu();

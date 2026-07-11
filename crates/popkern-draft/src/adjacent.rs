@@ -367,7 +367,7 @@ mod tests {
         drafted.insert(face, tilted);
 
         // Simulate vertex movement by shifting original positions away.
-        for (_, pos) in orig.iter_mut() {
+        for pos in orig.values_mut() {
             pos.z += 0.1;
         }
 

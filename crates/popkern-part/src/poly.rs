@@ -158,18 +158,11 @@ pub fn truncate_vertices(
         .fold(Vec3::new(0.0, 0.0, 0.0), |acc, p| acc + (*p - origin()))
         * (1.0 / points.len() as f64);
     for v in 0..points.len() {
-        let Some((&(_, first), _)) = succ
-            .iter()
-            .find(|((vv, _), _)| *vv == v)
-            .map(|(k, s)| (k, s))
-        else {
+        let Some((&(_, first), _)) = succ.iter().find(|((vv, _), _)| *vv == v) else {
             continue;
         };
         let mut cycle = vec![first];
-        loop {
-            let Some(&next) = succ.get(&(v, *cycle.last().unwrap_or(&first))) else {
-                break;
-            };
+        while let Some(&next) = succ.get(&(v, *cycle.last().unwrap_or(&first))) {
             if next == first {
                 break;
             }

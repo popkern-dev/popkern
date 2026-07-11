@@ -5,6 +5,12 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+# Example builders return rich kernel error enums by value; call sites are
+# one-shot demos, not hot paths. Package-level (not lib.rs) because each
+# example bin is its own crate root and a lib.rs allow would not reach them.
+[lints.clippy]
+result_large_err = "allow"
+
 [dependencies]
 popkern-core = { path = "../popkern-core" }
 popkern-bool = { path = "../popkern-bool" }

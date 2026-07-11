@@ -197,9 +197,7 @@ fn gregory_tessellation_chord_height_within_tolerance() {
             continue;
         };
         let is_gregory = matches!(sof.geometry, SurfaceGeometry::Gregory(_));
-        let is_native_cap = native_cap_faces(&result)
-            .iter()
-            .any(|&face| face == fm.face);
+        let is_native_cap = native_cap_faces(&result).contains(&fm.face);
         if !is_gregory && !is_native_cap {
             continue;
         }

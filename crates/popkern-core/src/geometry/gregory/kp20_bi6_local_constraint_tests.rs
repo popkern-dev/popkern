@@ -11,6 +11,10 @@
 //! `docs/decisions/2026-06-23-kp20-bi6-macro-patch-paper-grade.md`
 //! Phase A test specifications.
 
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop)]
+
 use super::*;
 use crate::geometry::Point3;
 use crate::geometry::Vec3;

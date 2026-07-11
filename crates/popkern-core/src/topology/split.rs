@@ -424,8 +424,8 @@ impl BRep {
         // endpoint. Nearest-within-band cannot mis-pair distinct
         // model vertices unless features are µm-scale, in which case
         // the strict pass was already ambiguous.
-        let mut rescue = |target: &crate::geometry::Point3,
-                          taken: Option<HalfEdgeHandle>|
+        let rescue = |target: &crate::geometry::Point3,
+                      taken: Option<HalfEdgeHandle>|
          -> Option<HalfEdgeHandle> {
             let mut best: Option<(f64, HalfEdgeHandle)> = None;
             let mut cursor = loop_start_he;

@@ -10,7 +10,7 @@ use popkern_core::topology::BRep;
 #[ignore = "PK-096 diagnostic: edge-surface stitch gaps"]
 fn edge_surface_gap_audit() {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()
@@ -205,7 +205,7 @@ fn edge_surface_gap_audit() {
 fn gregory_projection_convergence() {
     use popkern_core::geometry::surface::SurfaceEval;
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()
@@ -274,7 +274,7 @@ fn step_roundtrip_gap_audit_g1() {
 
 fn run_step_roundtrip_gap_audit(continuity: popkern_fillet::ContinuityLevel) {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

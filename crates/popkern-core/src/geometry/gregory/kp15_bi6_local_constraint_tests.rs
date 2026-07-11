@@ -22,6 +22,10 @@
 //! the pipeline that the next phases (constraint matrix, solve)
 //! will need to mind.
 
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop, clippy::type_complexity)]
+
 use super::*;
 use crate::geometry::Point3;
 use crate::geometry::Vec3;

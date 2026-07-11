@@ -170,7 +170,7 @@ impl ExportContext {
                 // matches the pcurves exactly; the ADVANCED_FACE
                 // same_sense flag carries the orientation difference
                 // (see `step_plane_sense_flip`).
-                let chart_normal = u_axis.cross(v_axis).normalized().unwrap_or_else(|| *normal);
+                let chart_normal = u_axis.cross(v_axis).normalized().unwrap_or(*normal);
                 let placement = self.export_placement(origin, &chart_normal, u_axis);
                 self.emit("PLANE", vec![str_param(""), ref_(placement)])
             }

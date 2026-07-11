@@ -1312,6 +1312,9 @@ impl RectTaylorJet {
     }
 }
 
+// Index form: `(a, b)` are the Taylor-jet derivative orders addressing both the
+// basis jet `basis.c[a][b]` and the coefficient grid; iterators would obscure that.
+#[allow(clippy::needless_range_loop)]
 fn compose_tri6_guide_planar_bi6_tau_rect_jet(
     guide: &Kp20Tri6GuideSector,
     tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
@@ -1358,6 +1361,9 @@ fn compose_tri6_guide_planar_bi6_tau_rect_jet(
     super::kp20_bi6_guide_sample::Kp20GuideJet3 { h }
 }
 
+// Index form: `(a, b)` are derivative orders used both to index the Bernstein
+// derivative tables and as `powi` exponents in the Taylor scaling.
+#[allow(clippy::needless_range_loop)]
 fn planar_bi6_tau_rect_taylor(
     tau: &super::kp20_bi6_cap::Kp20Bi6Patch,
     u: f64,

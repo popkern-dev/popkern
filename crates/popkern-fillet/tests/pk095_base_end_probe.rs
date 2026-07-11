@@ -1,6 +1,5 @@
 //! PK-095 follow-up: base-end anatomy of the G2 strips — the "indent"
 //! near the bottom of the fillet edge and the floor ledge.
-use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -9,7 +8,7 @@ use popkern_core::topology::BRep;
 #[ignore = "PK-095 diagnostic: strip base-end anatomy"]
 fn strip_base_end_anatomy() {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

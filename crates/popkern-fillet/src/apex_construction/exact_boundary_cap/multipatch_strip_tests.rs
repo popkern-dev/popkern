@@ -145,8 +145,10 @@ fn support_normal_row_solves_from_ribbon_samples_with_bounded_evidence() {
         1.0e-12,
     )
     .expect("outer boundary scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    };
 
     let solved = solve_strip_support_normal_row(
         &sector,
@@ -193,8 +195,10 @@ fn support_normal_row_declines_when_width_control_budget_is_exceeded() {
         1.0e-12,
     )
     .expect("outer boundary scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.max_width_direction_controls = 4;
+    let budget = ExactBoundaryMultiPatchBudget {
+        max_width_direction_controls: 4,
+        ..Default::default()
+    };
 
     let diagnostic = solve_strip_support_normal_row(
         &sector,
@@ -232,8 +236,10 @@ fn support_normal_row_declines_with_source_handles_and_local_tolerance() {
         1.0e-12,
     )
     .expect("outer boundary scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    };
 
     let diagnostic = solve_strip_support_normal_row(
         &sector,
@@ -281,8 +287,10 @@ fn support_normal_row_uses_candidate_boundary_tangent_for_compatibility() {
         1.0e-12,
     )
     .expect("outer boundary scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    };
 
     let diagnostic = solve_strip_support_normal_row(
         &sector,
@@ -323,8 +331,10 @@ fn support_normal_row_leaves_endpoint_normal_closure_to_interface_gates() {
     .expect("outer boundary scaffold");
     let mut samples = support_samples(Vec3::new(0.0, 0.0, 1.0));
     samples[0].support_normal = Vec3::new(0.0, 1.0, 0.0);
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-1;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-1,
+        ..Default::default()
+    };
 
     let solved =
         solve_strip_support_normal_row(&sector, strip, &scaffold, &boundary, &samples, budget)
@@ -344,7 +354,7 @@ fn rational_quadratic_boundary() -> NurbsCurve {
             Point3::new(0.5, 0.25, 0.0),
             Point3::new(1.0, 0.0, 0.0),
         ],
-        weights: vec![1.0, 0.7071067811865476, 1.0],
+        weights: vec![1.0, std::f64::consts::FRAC_1_SQRT_2, 1.0],
     }
 }
 

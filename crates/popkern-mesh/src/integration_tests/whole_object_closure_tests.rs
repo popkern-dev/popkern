@@ -9,7 +9,7 @@ use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, f
 
 fn pentagon_blend() -> BRep {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()
@@ -171,9 +171,7 @@ fn lateral_face_pcurve_detail() {
             let surface = &face.surface.as_ref().unwrap().geometry;
             let true_a = popkern_core::geometry::uv_projection::project_point_to_uv(surface, &a);
             let uv_err = match (samples.first(), true_a) {
-                (Some(&(su, sv)), Some((ta, tb))) => {
-                    (((su - ta).powi(2) + (sv - tb).powi(2)) as f64).sqrt()
-                }
+                (Some(&(su, sv)), Some((ta, tb))) => ((su - ta).powi(2) + (sv - tb).powi(2)).sqrt(),
                 _ => f64::NAN,
             };
             eprintln!(

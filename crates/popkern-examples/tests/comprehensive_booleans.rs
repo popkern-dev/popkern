@@ -54,7 +54,7 @@ fn assert_all_faces_have_surfaces(brep: &BRep) {
 fn assert_step_roundtrip(brep: &BRep, name: &str) {
     let (bytes, _) = export_and_validate_breps(
         name,
-        &[brep.clone()],
+        std::slice::from_ref(brep),
         &StepRoundTripValidationOptions::default(),
     )
     .unwrap();

@@ -399,8 +399,10 @@ fn strip_fixture(direction: ExactBoundaryStripBoundaryDirection) -> StripFixture
         1.0e-10,
     )
     .expect("scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.support_normal_deficit = 1.0e-8;
+    let budget = ExactBoundaryMultiPatchBudget {
+        support_normal_deficit: 1.0e-8,
+        ..Default::default()
+    };
     let strip_candidate = solve_strip_support_normal_row(
         &sector,
         &inventory.outer_strips[0],

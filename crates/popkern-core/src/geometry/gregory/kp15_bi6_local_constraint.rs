@@ -54,6 +54,15 @@ use crate::geometry::bernstein_poly::{
 };
 use crate::geometry::{Point3, Vec3};
 
+/// One polar-cap sector's bi-6 patch as its 7×7 Bernstein–Bézier
+/// control grid, indexed `[i][j]` per KP15's `p_{i,j}` convention.
+pub type Bi6SectorGrid = [[Point3; 7]; 7];
+
+/// Per-sector cap grids plus the achieved per-coordinate F_κ
+/// functional values `(fx, fy, fz)` — the common return shape of
+/// the F_κ population entry points.
+pub type CapGridsWithFKappa = Result<(Vec<Bi6SectorGrid>, [f64; 3]), String>;
+
 /// Build `∂_v f(u, 0)` as a Bernstein polynomial of degree 6 in
 /// `u`, from a sector's bi-6 BB grid. Uses the standard Bezier
 /// derivative rule: the BB-coefs are `6 · (p_{i, 1} − p_{i, 0})`.
@@ -1734,14 +1743,13 @@ impl Kp15Bi6GeneratingTable {
     ///
     /// Returns the per-sector grids and the achieved per-coord
     /// F_κ values `(fx, fy, fz)`.
-    #[allow(clippy::type_complexity)]
     pub fn populate_cap_grids_from_input_with_f_kappa(
         &self,
         sectors: &[super::kp15_bi6_circulant::CirculantSectorRhs],
         star: Point3,
         q_local: &[[f64; 49]; 49],
         ridge_lambda: f64,
-    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+    ) -> CapGridsWithFKappa {
         let n = self.n;
         assert_eq!(sectors.len(), n);
 
@@ -1900,7 +1908,7 @@ impl Kp15Bi6GeneratingTable {
         star: Point3,
         q_local: &[[f64; 49]; 49],
         ridge_lambda: f64,
-    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+    ) -> CapGridsWithFKappa {
         let n = self.n;
         assert_eq!(sectors.len(), n);
         let n_free = self.free_cols.len();
@@ -2036,7 +2044,7 @@ impl Kp15Bi6GeneratingTable {
         tensor_source: &[[[Point3; 7]; 7]],
         q_local: &[[f64; 49]; 49],
         ridge_lambda: f64,
-    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+    ) -> CapGridsWithFKappa {
         let n = self.n;
         assert_eq!(tensor_source.len(), n);
         let source_constraints: Vec<(usize, Point3)> = kp15_two_sided_tensor_border_columns(n)
@@ -2070,7 +2078,7 @@ impl Kp15Bi6GeneratingTable {
         q_local: &[[f64; 49]; 49],
         ridge_lambda: f64,
         source_label: &str,
-    ) -> Result<(Vec<[[Point3; 7]; 7]>, [f64; 3]), String> {
+    ) -> CapGridsWithFKappa {
         let n = self.n;
         let total = 49 * n;
         for &(col, _) in source_constraints {

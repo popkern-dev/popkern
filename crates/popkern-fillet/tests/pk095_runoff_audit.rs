@@ -6,7 +6,7 @@ use popkern_core::topology::BRep;
 #[ignore = "PK-095 diagnostic: runoff firing audit"]
 fn runoff_firing_audit() {
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

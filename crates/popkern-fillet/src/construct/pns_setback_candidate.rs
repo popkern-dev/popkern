@@ -584,6 +584,9 @@ fn bernstein4_deriv_all(t: f64) -> [f64; 5] {
 }
 
 /// Gaussian elimination for the 5×5 Bernstein interpolation system.
+// Column loops index two rows of the same matrix (pivot and target); the
+// iterator form would need split borrows and obscure the elimination math.
+#[allow(clippy::needless_range_loop)]
 fn solve_5(mat: &[[f64; 5]; 5], rhs: &[[f64; 3]; 5]) -> Option<[[f64; 3]; 5]> {
     let mut a = *mat;
     let mut b = *rhs;

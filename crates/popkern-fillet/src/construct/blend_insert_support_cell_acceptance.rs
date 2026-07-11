@@ -203,9 +203,7 @@ mod tests {
 
     #[test]
     fn accepts_four_support_cells_per_side() {
-        let patches = (0..24)
-            .map(|index| support_cell_patch(index))
-            .collect::<Vec<_>>();
+        let patches = (0..24).map(support_cell_patch).collect::<Vec<_>>();
 
         assert!(corner_patch_count_is_acceptable(&patches, 6));
     }

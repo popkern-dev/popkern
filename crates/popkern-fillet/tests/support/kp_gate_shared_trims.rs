@@ -13,14 +13,18 @@ const G2_PARAMETRIC_DEGENERACY_TOL: f64 = 1.0e-14;
 /// direction (direction-exact for affine pcurves).
 const TRIM_DIRECTION_FRACTION_STEP: f64 = 1.0e-6;
 
+/// UV endpoints of a shared trim's two pcurves:
+/// `(a_start, a_end, b_start, b_end)`.
+pub type TrimPairUvEndpoints = ((f64, f64), (f64, f64), (f64, f64), (f64, f64));
+
 pub struct SharedTrimMetrics {
     pub shared_trim_count: usize,
     pub pcurve_out_of_unit_count: usize,
     pub degenerate_pcurve_count: usize,
     pub degenerate_source_pair: Option<(usize, usize)>,
-    pub degenerate_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
+    pub degenerate_uv_edges: Option<TrimPairUvEndpoints>,
     pub worst_source_pair: Option<(usize, usize)>,
-    pub worst_uv_edges: Option<((f64, f64), (f64, f64), (f64, f64), (f64, f64))>,
+    pub worst_uv_edges: Option<TrimPairUvEndpoints>,
     pub worst_pair_best_boundary_gap: f64,
     pub max_boundary_row_shared_trim_count: usize,
     pub worst_abs_uv: f64,
@@ -126,6 +130,10 @@ pub fn measure_shared_gregory_trims_with_sources(
     metrics
 }
 
+// Test-support measurement helper: the arguments are the trim pair's full
+// provenance plus the two accumulators; a parameter struct would only rename
+// the same nine values.
+#[allow(clippy::too_many_arguments)]
 fn measure_shared_trim_pair(
     brep: &BRep,
     face_a: FaceHandle,
@@ -451,7 +459,7 @@ fn pcurve_span(pcurve: &popkern_core::geometry::pcurve::Pcurve) -> f64 {
 fn edge_uvs(
     pcurve_a: &popkern_core::geometry::pcurve::Pcurve,
     pcurve_b: &popkern_core::geometry::pcurve::Pcurve,
-) -> ((f64, f64), (f64, f64), (f64, f64), (f64, f64)) {
+) -> TrimPairUvEndpoints {
     let (a0, a1) = pcurve_a.parameter_range();
     let (b0, b1) = pcurve_b.parameter_range();
     let a_start = pcurve_a.point_at(a0);

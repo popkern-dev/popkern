@@ -338,10 +338,12 @@ fn solved_fixture(support_normal: Vec3) -> StripFixture {
         1.0e-10,
     )
     .expect("scaffold");
-    let mut budget = ExactBoundaryMultiPatchBudget::default();
-    budget.outer_boundary_residual = 1.0e-10;
-    budget.support_normal_deficit = 1.0e-8;
-    budget.min_normal_length = 1.0e-12;
+    let budget = ExactBoundaryMultiPatchBudget {
+        outer_boundary_residual: 1.0e-10,
+        support_normal_deficit: 1.0e-8,
+        min_normal_length: 1.0e-12,
+        ..Default::default()
+    };
     let candidate =
         solve_strip_support_normal_row(&sector, &strip, &scaffold, &boundary, &samples, budget)
             .unwrap_or(scaffold);

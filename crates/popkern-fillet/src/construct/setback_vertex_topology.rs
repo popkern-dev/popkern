@@ -491,9 +491,8 @@ fn build_cap_face_fan(
             }
             best
         };
-        for s in 0..1 {
+        for (s, sec) in sectors.iter().enumerate().take(1) {
             use popkern_core::geometry::gregory::Kp20PieceId as Pid;
-            let sec = &sectors[s];
             for (label, pt) in [
                 ("P1(0,0) o?", sec.piece(Pid::NearOriginLeft).cps[0][0]),
                 ("P1(0,6)", sec.piece(Pid::NearOriginLeft).cps[0][6]),
@@ -1319,12 +1318,11 @@ fn reconcile_cap_rim_to_sweeps(
                 let Some(deltas) = solve_10(&mat, &rhs) else {
                     break;
                 };
-                for k in 0..10 {
+                for (k, delta) in deltas.iter().enumerate() {
                     for d in 0..3 {
                         let (i, j) = coord(d, k);
                         let g = bp.grid[i][j];
-                        bp.grid[i][j] =
-                            Point3::new(g.x + deltas[k][0], g.y + deltas[k][1], g.z + deltas[k][2]);
+                        bp.grid[i][j] = Point3::new(g.x + delta[0], g.y + delta[1], g.z + delta[2]);
                     }
                 }
             }
@@ -1346,6 +1344,9 @@ fn bernstein9_all(t: f64) -> [f64; 10] {
 
 /// Solve the 10×10 linear system `mat · x = rhs` (3 right-hand sides)
 /// by Gaussian elimination with partial pivoting.
+// Column loops index two rows of the same matrix (pivot and target); the
+// iterator form would need split borrows and obscure the elimination math.
+#[allow(clippy::needless_range_loop)]
 fn solve_10(mat: &[[f64; 10]; 10], rhs: &[[f64; 3]; 10]) -> Option<[[f64; 3]; 10]> {
     let mut a = *mat;
     let mut b = *rhs;
@@ -1384,16 +1385,10 @@ fn solve_10(mat: &[[f64; 10]; 10], rhs: &[[f64; 3]; 10]) -> Option<[[f64; 3]; 10
     Some(x)
 }
 
-/// Subdivide the blend n-gon into the 2n PnS sector faces (PK-097
-/// Phase B): one quad per half-arc sector, all meeting at the cap's
-/// pole. The candidate's border equals the topology arcs exactly
-/// (Phase A), so no rim refit is needed; spoke curves are the
-/// patches' shared radial rows.
-
-/// Split a specific edge at the parameter nearest `point` (dense scan
-/// + ternary refine; `split_edge` takes the normalized fraction of
-/// the window). Reuses an existing vertex when the projection lands
-/// on an endpoint.
+/// Split a specific edge at the parameter nearest `point` (dense
+/// scan + ternary refine; `split_edge` takes the normalized fraction
+/// of the window). Reuses an existing vertex when the projection
+/// lands on an endpoint.
 fn split_edge_at_projected_point(
     brep: &mut BRep,
     edge: EdgeHandle,
@@ -1452,6 +1447,11 @@ fn nearest_vertex_within(brep: &BRep, p: Point3, gate: f64) -> Option<VertexHand
         .map(|(_, vh)| vh)
 }
 
+/// Subdivide the blend n-gon into the 2n PnS sector faces (PK-097
+/// Phase B): one quad per half-arc sector, all meeting at the cap's
+/// pole. The candidate's border equals the topology arcs exactly
+/// (Phase A), so no rim refit is needed; spoke curves are the
+/// patches' shared radial rows.
 fn build_pns_cap_fan(
     brep: &mut BRep,
     blend_face: FaceHandle,

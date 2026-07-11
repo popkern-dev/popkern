@@ -117,40 +117,31 @@ fn print_markdown_table(rows: &[FixtureCounts]) {
 #[test]
 #[ignore = "Stage B2 baseline generator — run with --ignored --nocapture and copy stderr into docs/reports/"]
 fn kp20_polar_coherence_baseline() {
-    let mut rows = Vec::new();
-
-    rows.push(count_for(
-        "cube_uniform",
-        &fillet_cube_corner(&[0.10, 0.10, 0.10]),
-    ));
-    rows.push(count_for(
-        "cube_mixed",
-        &fillet_cube_corner(&[0.08, 0.10, 0.12]),
-    ));
-    rows.push(count_for(
-        "cube_extreme",
-        &fillet_cube_corner(&[0.05, 0.10, 0.15]),
-    ));
-    rows.push(count_for(
-        "pyramid4_mixed",
-        &fillet_n_pyramid_corner(4, 0.8, &[0.04, 0.06, 0.05, 0.07]),
-    ));
-    rows.push(count_for(
-        "pyramid5_mixed",
-        &fillet_n_pyramid_corner(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]),
-    ));
-    rows.push(count_for(
-        "hexagon6_uniform",
-        &fillet_n_pyramid_corner(6, 0.8, &[0.04; 6]),
-    ));
-    rows.push(count_for(
-        "hexagon6_mixed",
-        &fillet_n_pyramid_corner(6, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.04, 0.06]),
-    ));
-    rows.push(count_for(
-        "hexagon6_variable",
-        &fillet_n_pyramid_corner(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]),
-    ));
+    let rows = vec![
+        count_for("cube_uniform", &fillet_cube_corner(&[0.10, 0.10, 0.10])),
+        count_for("cube_mixed", &fillet_cube_corner(&[0.08, 0.10, 0.12])),
+        count_for("cube_extreme", &fillet_cube_corner(&[0.05, 0.10, 0.15])),
+        count_for(
+            "pyramid4_mixed",
+            &fillet_n_pyramid_corner(4, 0.8, &[0.04, 0.06, 0.05, 0.07]),
+        ),
+        count_for(
+            "pyramid5_mixed",
+            &fillet_n_pyramid_corner(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]),
+        ),
+        count_for(
+            "hexagon6_uniform",
+            &fillet_n_pyramid_corner(6, 0.8, &[0.04; 6]),
+        ),
+        count_for(
+            "hexagon6_mixed",
+            &fillet_n_pyramid_corner(6, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.04, 0.06]),
+        ),
+        count_for(
+            "hexagon6_variable",
+            &fillet_n_pyramid_corner(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]),
+        ),
+    ];
 
     print_markdown_table(&rows);
 }

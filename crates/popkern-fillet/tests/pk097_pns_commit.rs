@@ -11,7 +11,7 @@ fn pns_commit_produces_valid_g1_vertex_blend() {
     unsafe { std::env::set_var("POPKERN_G1_PNS_CAP", "1") };
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
-    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol.clone()).expect("pyramid");
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
         .vertices
         .iter()

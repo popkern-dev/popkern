@@ -1,3 +1,7 @@
+// Paper-notation test module: loop indices, helper arities, and tuple shapes
+// mirror KP15/KP20/PR08 subscripts and equation forms; keep the index form.
+#![allow(clippy::needless_range_loop, clippy::too_many_arguments)]
+
 use super::super::kp_polar_boundary_input::TensorBorderBi3;
 use super::super::kp_polar_shared::weighted_sum;
 use super::super::kp20_bi6_cap::{
@@ -7698,7 +7702,7 @@ fn pr08_best_exact_stam_side_tangential_beta_right_edge_mask_residual_is_localiz
         tensor_worst.2.piece,
         tensor_worst.2.i,
         tensor_worst.2.j,
-        terms = &scalar_constraints[scalar_worst.0].terms,
+        terms = scalar_constraints[scalar_worst.0].terms,
         residual = solved.validity.residual,
         square = solved.validity.square_outside,
         neg = solved.validity.negative_determinants,
@@ -7750,7 +7754,7 @@ fn pr08_best_exact_stam_side_tangential_beta_right_edge_mask_residual_is_localiz
         corner_tensor_worst.2.piece,
         corner_tensor_worst.2.i,
         corner_tensor_worst.2.j,
-        terms = &scalar_constraints[corner_scalar_worst.0].terms,
+        terms = scalar_constraints[corner_scalar_worst.0].terms,
         residual = corner_solved.validity.residual,
         square = corner_solved.validity.square_outside,
         neg = corner_solved.validity.negative_determinants,
@@ -7912,7 +7916,7 @@ fn pr08_best_exact_stam_side_tangential_beta_self_diagonal_source_is_measured() 
             square = solved.validity.square_outside,
             neg = solved.validity.negative_determinants,
             min_det = solved.validity.min_determinant,
-            terms = &scalar_constraints[scalar_worst.0].terms,
+            terms = scalar_constraints[scalar_worst.0].terms,
         );
         measured.push((
             label,
