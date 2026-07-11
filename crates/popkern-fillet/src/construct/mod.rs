@@ -13,7 +13,6 @@ pub(crate) mod corner_patch_support_completion;
 pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
-#[path = "end_runoff.rs"]
 mod end_runoff;
 mod exact_boundary_cap_trim_fit;
 mod exact_boundary_cap_trim_restore;
@@ -113,10 +112,10 @@ mod three_quad_support_pcurve_completion;
 pub(crate) mod topology_repair;
 
 use crate::analysis::EdgeAnalysis;
+use crate::blend_warnings::trace_smooth_blend_mitred_fallback as trace_mitred;
 use crate::error::{BlendFailure, BlendWarning};
 use crate::types::VertexMode;
-use popkern_core::geometry::NurbsCurve;
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{NurbsCurve, surface::SurfaceGeometry};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use route_decision::{ApexRouteDecisionInput, apex_route_decision};
@@ -485,12 +484,7 @@ pub fn apply_blend_geometry(
                             corner_patches.extend(infos);
                         }
                         Err(err) => {
-                            if crate::direct_apex_trace::enabled() {
-                                eprintln!(
-                                    "[direct-apex-trace] smooth vertex blend at {vertex:?} \
-                                     fell back to Mitred: {err}"
-                                );
-                            }
+                            trace_mitred(*vertex, &err);
                             let edge_idx = edge_indices[0];
                             if edge_idx < edge_geometries.len() {
                                 warnings.push((

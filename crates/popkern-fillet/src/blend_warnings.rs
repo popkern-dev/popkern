@@ -319,3 +319,17 @@ pub enum BlendWarning {
         reason: String,
     },
 }
+
+/// Trace a smooth-vertex-blend fallback to Mitred under the direct-apex
+/// trace lever — the insertion error is otherwise swallowed by the
+/// warning-only fallback arm.
+pub(crate) fn trace_smooth_blend_mitred_fallback(
+    vertex: popkern_core::topology::VertexHandle,
+    err: &str,
+) {
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace] smooth vertex blend at {vertex:?} fell back to Mitred: {err}"
+        );
+    }
+}
