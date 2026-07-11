@@ -156,6 +156,34 @@ pub(crate) fn tessellate_face_boundary_first(
     let surface = &surface_on_face.geometry;
     let orientation = surface_on_face.orientation;
 
+    // A face whose outer loop traverses EVERY edge twice is a pure
+    // seam spine (a full sphere's meridian pair): its chart "polygon"
+    // is two overlapping border lines that bound no interior, and
+    // Delaunay on it emits only degenerate slivers (measured: the
+    // primitive sphere meshed 0/46 non-degenerate once its seam
+    // carried real arc geometry — the chord-era ring build failed and
+    // silently routed these faces to the legacy pcurve-grid path,
+    // which handles the periodic rectangle directly). Keep that
+    // routing explicit.
+    {
+        let mut edge_counts: HashMap<EdgeHandle, usize> = HashMap::new();
+        let start = brep.loops.get(face.outer_loop)?.half_edge;
+        let mut cur = start;
+        let mut steps = 0;
+        loop {
+            let he = brep.half_edges.get(cur)?;
+            *edge_counts.entry(he.edge).or_insert(0) += 1;
+            cur = he.next;
+            steps += 1;
+            if cur == start || steps > brep.half_edges.len() {
+                break;
+            }
+        }
+        if !edge_counts.is_empty() && edge_counts.values().all(|&c| c >= 2) {
+            return None;
+        }
+    }
+
     // Build boundary rings from canonical samples.
     let mut rings: Vec<BoundaryRing> = Vec::new();
     let mut loops = vec![face.outer_loop];

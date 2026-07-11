@@ -615,11 +615,32 @@ fn sew_boundaries_to_edge_polylines(
             let start = loop_.half_edge;
             let mut he = start;
             for _ in 0..10_000 {
-                let (eh, pcurve) = {
+                let (eh, pcurve, twin_same_face) = {
                     let data = &brep.half_edges[he];
+                    let twin_loop = brep.half_edges[data.twin].loop_;
+                    let same = brep
+                        .loops
+                        .get(twin_loop)
+                        .map(|l| l.face == fm.face)
+                        .unwrap_or(false);
                     he = data.next;
-                    (data.edge, data.pcurve.clone())
+                    (data.edge, data.pcurve.clone(), same)
                 };
+                // SEAM edges (twin on this same face) have no neighbor
+                // face to weld against — their boundary points already
+                // come from this face's own pcurves, and re-snapping
+                // them onto the canonical polyline nudged a
+                // pole-adjacent seam vertex into a folded hairline fan
+                // sliver (measured on the primitive sphere once its
+                // seam carried true arc geometry; the chord era
+                // excluded the seam by accident via the on-surface
+                // gate).
+                if twin_same_face {
+                    if he == start {
+                        break;
+                    }
+                    continue;
+                }
                 let agree = (|| {
                     // THIS face's half-edge pcurve (the twin maps into
                     // the neighboring face's surface).

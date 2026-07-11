@@ -133,8 +133,8 @@ fn clip_curve_to_faces_curve_misses_face_b_returns_none() {
     let curve = cos_line(Point3::new(0.5, 0.0, 0.0), Point3::new(0.5, 1.0, 0.0));
     let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
     assert!(
-        result.is_none(),
-        "curve in face_a but not face_b should return None"
+        result.is_empty(),
+        "curve in face_a but not face_b should clip to nothing"
     );
 }
 
@@ -185,8 +185,8 @@ fn clip_line_to_face_diagonal_outside_polygon_hits_early_exit() {
     let curve = cos_line(Point3::new(2.0, 0.0, 0.0), Point3::new(3.0, 1.0, 0.0));
     let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
     assert!(
-        result.is_none(),
-        "diagonal curve outside polygon should return None"
+        result.is_empty(),
+        "diagonal curve outside polygon should clip to nothing"
     );
 }
 
@@ -234,7 +234,10 @@ fn clip_line_to_face_tangent_to_corner_hits_post_loop_check() {
     // corner), so the post-loop check at line 122 returns None.
     let curve = cos_line(Point3::new(-1.0, -1.0, 0.0), Point3::new(0.0, 0.0, 0.0));
     let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
-    assert!(result.is_none(), "corner-tangent curve should return None");
+    assert!(
+        result.is_empty(),
+        "corner-tangent curve should clip to nothing"
+    );
 }
 
 // ── clip_curve_to_faces: disjoint clipped ranges → None (line 301) ──────
@@ -284,8 +287,8 @@ fn clip_curve_to_faces_disjoint_ranges_returns_none() {
     let curve = cos_line(Point3::new(0.0, 0.5, 0.0), Point3::new(1.0, 0.5, 0.0));
     let result = clip_curve_to_faces(&brep_a, face_a, &brep_b, face_b, &curve);
     assert!(
-        result.is_none(),
-        "disjoint clipped ranges should return None at line 301"
+        result.is_empty(),
+        "disjoint clipped ranges should clip to nothing"
     );
 }
 

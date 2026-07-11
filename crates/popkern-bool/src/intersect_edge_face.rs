@@ -195,11 +195,45 @@ fn detect_edges_vs_faces(
             if let Ok(result) = result {
                 for isect in &result.intersections {
                     if let SurfaceCurveIntersection::Point { t, u, v, .. } = *isect {
-                        // Filter out intersections at edge endpoints (these are
-                        // vertex-face touches, not edge-face piercings).
+                        // The hit must lie STRICTLY INSIDE the edge's own
+                        // parameter window: endpoint hits are vertex-face
+                        // touches, and hits beyond the window live on the
+                        // basis EXTENSION, not the edge (measured: the
+                        // sphere seam arc's quadratic extension crossed a
+                        // DISJOINT cube's face plane; the phantom node
+                        // split the seam and the union carried a 5.0-gap
+                        // open loop).
                         let eps = tolerance.linear();
-                        if (t - t_range.0).abs() < eps || (t - t_range.1).abs() < eps {
+                        let (t_lo, t_hi) = (t_range.0.min(t_range.1), t_range.0.max(t_range.1));
+                        if t < t_lo + eps || t > t_hi - eps {
                             continue;
+                        }
+                        // 3D honesty: the curve point must lie ON the
+                        // face's surface. Judged by PROJECTION, not by the
+                        // solver's claimed (u,v) — the solver uv is coarse
+                        // (measured 0.3 off on a plane-splitter's sheet
+                        // face while the 3D hit itself was exact).
+                        {
+                            use popkern_core::geometry::SurfaceEval as _;
+                            let p_curve = edge_curve.point_at(t);
+                            let off_surface =
+                                popkern_core::geometry::uv_projection::project_point_to_uv(
+                                    surface_on_face,
+                                    &p_curve,
+                                )
+                                .map(|(pu, pv)| {
+                                    surface_on_face.point_at(pu, pv).distance_to(&p_curve)
+                                        > tolerance.linear() * 10.0
+                                })
+                                .unwrap_or(false);
+                            if off_surface {
+                                if std::env::var_os("PK_HIT_TRACE").is_some() {
+                                    eprintln!(
+                                        "  [hit-reject] off-surface t={t:.3} uv=({u:.3},{v:.3})"
+                                    );
+                                }
+                                continue;
+                            }
                         }
                         if let Some(((eu_min, eu_max), (ev_min, ev_max))) = trim_box
                             && (u < eu_min - uv_margin

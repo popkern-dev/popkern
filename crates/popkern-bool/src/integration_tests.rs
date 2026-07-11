@@ -55,6 +55,11 @@ fn translate(mut brep: BRep, offset: Vec3) -> BRep {
                 | CurveGeometry::Arc { ref mut center, .. } => {
                     *center = *center + offset;
                 }
+                CurveGeometry::Nurbs(ref mut n) => {
+                    for cp in &mut n.control_points {
+                        *cp = *cp + offset;
+                    }
+                }
                 _ => {} // NURBS and other variants: no origin to translate
             }
         }
@@ -445,5 +450,26 @@ fn cube_union_overlapping_sphere_succeeds() {
         result.is_ok(),
         "Cube-sphere union should succeed: {:?}",
         result.err()
+    );
+    // PK-111 census: the sphere bulges through all six cube faces, so
+    // each cube face keeps exactly its four corner bites (24 faces)
+    // and the sphere wall survives as ONE face carrying the cube's
+    // imprint as eight triangular holes (three corner arcs each, one
+    // per cube corner). The pre-PK-111 single-window clip collapsed
+    // the four in-face arcs per face pair into hull arcs running
+    // through out-of-face regions and the result never had this
+    // partition.
+    let brep = result.expect("verified above");
+    assert_eq!(brep.faces.len(), 25, "24 corner bites + 1 sphere wall");
+    let holed: Vec<usize> = brep
+        .faces
+        .values()
+        .map(|f| f.inner_loops.len())
+        .filter(|&n| n > 0)
+        .collect();
+    assert_eq!(
+        holed,
+        vec![8],
+        "exactly one face (the sphere wall) carries the 8 imprint holes"
     );
 }

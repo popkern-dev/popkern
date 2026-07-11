@@ -9,6 +9,7 @@
 
 mod clip_line;
 mod clip_uv;
+mod clip_windows;
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveEval;
@@ -18,11 +19,10 @@ use popkern_core::geometry::nurbs_curve::NurbsCurve;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
 pub(crate) use clip_line::{clip_curve_to_single_face, clip_line_to_face};
-pub(crate) use clip_uv::{
-    UvCrossing, clip_curve_to_crossings, clip_curve_uv_space, find_uv_crossings,
-};
+pub(crate) use clip_uv::{UvCrossing, clip_curve_to_crossings, find_uv_crossings};
 #[cfg(test)]
 use clip_uv::{is_near_seam, shift_curve_u, uv_range_from_crossings};
+pub(crate) use clip_windows::clip_curve_uv_space;
 
 /// Stage 2b.58: extract the underlying `CurveOnSurface` (NURBS
 /// triple) from an `EdgeTriple` produced by
@@ -258,15 +258,18 @@ pub(crate) fn face_polygon_is_reflex(
     false
 }
 
-/// Clip an intersection curve to both face boundaries and produce a trimmed
-/// `CurveOnSurface`. Returns `None` if the curve does not pass through both faces.
+/// Clip an intersection curve to both face boundaries and produce the
+/// trimmed `CurveOnSurface` pieces — one per in-face span (a record
+/// can enter and leave a trimmed domain several times; every span is
+/// a real intersection edge). Empty when the curve does not pass
+/// through both faces.
 pub(crate) fn clip_curve_to_faces(
     brep_a: &BRep,
     face_a: FaceHandle,
     brep_b: &BRep,
     face_b: FaceHandle,
     curve: &CurveOnSurface,
-) -> Option<CurveOnSurface> {
+) -> Vec<CurveOnSurface> {
     // For non-linear curves, use UV-space clipping.
     if curve.curve_3d.degree != 1 {
         return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
@@ -293,15 +296,19 @@ pub(crate) fn clip_curve_to_faces(
         return clip_curve_uv_space(brep_a, face_a, brep_b, face_b, curve);
     }
 
-    let range_a = clip_line_to_face(brep_a, face_a, &curve.curve_3d)?;
-    let range_b = clip_line_to_face(brep_b, face_b, &curve.curve_3d)?;
+    let (Some(range_a), Some(range_b)) = (
+        clip_line_to_face(brep_a, face_a, &curve.curve_3d),
+        clip_line_to_face(brep_b, face_b, &curve.curve_3d),
+    ) else {
+        return Vec::new();
+    };
 
     // Intersect the two ranges.
     let t_start = range_a.0.max(range_b.0);
     let t_end = range_a.1.min(range_b.1);
 
     if t_start >= t_end {
-        return None;
+        return Vec::new();
     }
 
     // Build a new degree-1 NURBS for the clipped segment.
@@ -334,12 +341,12 @@ pub(crate) fn clip_curve_to_faces(
         weights: vec![1.0, 1.0],
     };
 
-    Some(CurveOnSurface {
+    vec![CurveOnSurface {
         curve_3d: clipped_3d,
         curve_uv1: clipped_uv1,
         curve_uv2: clipped_uv2,
         is_closed: false,
-    })
+    }]
 }
 
 #[cfg(test)]

@@ -203,9 +203,10 @@ pub(crate) fn build_face_subdivision(
             );
             let (pa, pb) = (graph.nodes[na].position, graph.nodes[nb].position);
             eprintln!(
-                "    [chart] he {h} tw {} {:?} ({:.3},{:.3})->({:.3},{:.3}) n{na}({:.3},{:.3},{:.3})->n{nb}({:.3},{:.3},{:.3}) sbp={:?} ebp={:?} seam={}",
+                "    [chart] he {h} tw {} {:?} src={:?} ({:.3},{:.3})->({:.3},{:.3}) n{na}({:.3},{:.3},{:.3})->n{nb}({:.3},{:.3},{:.3}) sbp={:?} ebp={:?} seam={}",
                 graph.half_edges[h].twin,
                 emb.source,
+                graph.half_edges[h].source,
                 s0.0,
                 s0.1,
                 e0.0,
@@ -635,26 +636,36 @@ fn build_face_subdivision_inner(
     }
 
     // Pole-adjacency guard: the azimuth rotation models poles as
-    // clean fans of meridian endpoints. When a zero-extent or graze
-    // drop touched a pole node, the face carries degenerate
-    // pole-border topology (measured: a full sphere's zero-length
-    // pole edges embedded as collapsed runs, were zero-extent
-    // filtered, orphaned the intersection records into a graze
-    // cascade, and the single surviving orbit broke Euler downstream)
-    // — those faces keep the legacy walk, recorded.
+    // clean fans of meridian endpoints. When a RECORD drop or a graze
+    // cascade touched a pole node, the face lost real connectivity
+    // there (measured: a full sphere's garbage hull-arc records
+    // dead-ended mid-face, graze-filtered into a cascade, and the
+    // single surviving orbit broke Euler downstream) — those faces
+    // keep the legacy walk, recorded. A ZERO-EXTENT drop of the
+    // operand's own degenerate pole BORDER is exempt: a pole is a
+    // collapsed border by construction, and dropping its zero-length
+    // edge is precisely how the fan model expects to see it.
     if !sub.poles.is_empty() {
-        let dropped_hes: Vec<usize> = sub
+        let dropped: Vec<(usize, bool)> = sub
             .report
             .filtered
             .iter()
             .map(|f| match f {
-                FilteredRecord::ZeroExtent(h) => *h,
-                FilteredRecord::InteriorGraze(h) => *h,
-                FilteredRecord::DuplicateCover { dropped, .. } => *dropped,
-                FilteredRecord::GapSubstituteDirection { dropped, .. } => *dropped,
+                FilteredRecord::ZeroExtent(h) => (*h, true),
+                FilteredRecord::InteriorGraze(h) => (*h, false),
+                FilteredRecord::DuplicateCover { dropped, .. } => (*dropped, false),
+                FilteredRecord::GapSubstituteDirection { dropped, .. } => (*dropped, false),
             })
             .collect();
-        for h in dropped_hes {
+        for (h, zero_extent) in dropped {
+            let benign_pole_border = zero_extent
+                && !matches!(
+                    graph.half_edges[h].source,
+                    crate::merge::graph::EdgeSource::Shared { .. }
+                );
+            if benign_pole_border {
+                continue;
+            }
             let (a, b) = ends(h);
             for n in [a, b] {
                 if sub.poles.contains_key(&n) {

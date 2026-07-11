@@ -95,14 +95,14 @@ pub fn section(a: &BRep, b: &BRep, tolerance: &Tolerance) -> Result<SectionResul
                 Err(_) => continue,
             };
             for triple in triples {
-                if let Some(cos) = edge_triple_to_curve_on_surface(&triple)
-                    && let Some(clipped) = clip_curve_to_faces(a, *face_a, b, *face_b, &cos)
-                {
-                    curves.push(SectionCurve {
-                        curve: clipped,
-                        face_a: *face_a,
-                        face_b: *face_b,
-                    });
+                if let Some(cos) = edge_triple_to_curve_on_surface(&triple) {
+                    for clipped in clip_curve_to_faces(a, *face_a, b, *face_b, &cos) {
+                        curves.push(SectionCurve {
+                            curve: clipped,
+                            face_a: *face_a,
+                            face_b: *face_b,
+                        });
+                    }
                 }
             }
         }

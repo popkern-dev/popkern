@@ -232,7 +232,18 @@ pub(super) fn anchor_periodic(
                 }
             }
         }
-        if cmax - cmin < period * (1.0 - 1e-9) {
+        // Branch freedom exists only where the component can MEET the
+        // rest of the walk: at a seam node. An isolated interior
+        // island (a trim ring, or a record loop imprinted mid-chart)
+        // walks identically at either bump — searching its branches
+        // doubles the config space for nothing (measured: the cube
+        // imprint on a sphere carries EIGHT corner-triangle islands
+        // and the 2^8 search tripped the budget; none had freedom).
+        let touches_seam = components[ci].iter().any(|&h| {
+            let (a, b) = ends(h);
+            seam_nodes.contains(&a) || seam_nodes.contains(&b)
+        });
+        if touches_seam && cmax - cmin < period * (1.0 - 1e-9) {
             floating.push(ci);
         }
     }

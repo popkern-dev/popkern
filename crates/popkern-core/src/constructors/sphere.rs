@@ -3,10 +3,10 @@
 use std::f64::consts::{PI, TAU};
 
 use crate::error::CoreError;
+use crate::geometry::Point3;
 use crate::geometry::curve::{CurveGeometry, CurveOnEdge};
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use crate::geometry::{Point3, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, Edge, Face, HalfEdge, Loop, Shell, Solid, Vertex};
 
@@ -30,7 +30,8 @@ impl BRep {
     /// # Geometry
     ///
     /// - Face: `SurfaceGeometry::Sphere`
-    /// - Seam edge: `CurveGeometry::Line` from south to north pole
+    /// - Seam edge: the prime-meridian semicircle (x ≥ 0, y = 0) from
+    ///   south to north pole, as an exact rational quadratic NURBS arc
     /// - Pcurves define the UV mapping on the rectangular domain
     ///   `[0, 2pi] x [0, pi]`
     ///
@@ -156,12 +157,28 @@ impl BRep {
         });
 
         // -- Edge curve --
-        // Line from south pole to north pole.
+        // The prime-meridian semicircle from south to north pole
+        // (x ≥ 0, y = 0), as an exact rational quadratic arc. The
+        // historical pole-to-pole LINE was a chord through the
+        // sphere's INTERIOR: every consumer trusting edge geometry
+        // saw the chord (measured: the edge-face intersector reported
+        // phantom seam×face hits at a cube's face centers — points
+        // nowhere near the sphere — split the graph seam there, and
+        // the boolean's sphere face lost its true seam borders).
+        let w = std::f64::consts::FRAC_1_SQRT_2;
         brep.edges[e_seam].curve = Some(CurveOnEdge {
-            geometry: CurveGeometry::Line {
-                origin: Point3::new(0.0, 0.0, -radius),
-                direction: Vec3::new(0.0, 0.0, 2.0 * radius),
-            },
+            geometry: CurveGeometry::Nurbs(NurbsCurve {
+                degree: 2,
+                knots: vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0],
+                control_points: vec![
+                    Point3::new(0.0, 0.0, -radius),
+                    Point3::new(radius, 0.0, -radius),
+                    Point3::new(radius, 0.0, 0.0),
+                    Point3::new(radius, 0.0, radius),
+                    Point3::new(0.0, 0.0, radius),
+                ],
+                weights: vec![1.0, w, 1.0, w, 1.0],
+            }),
             t_start: 0.0,
             t_end: 1.0,
         });

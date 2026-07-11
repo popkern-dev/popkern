@@ -292,7 +292,16 @@ fn classify_fragments_cellular(
             2 => {
                 let a = fragment.outer_loop[0];
                 if graph.half_edges[a].twin == fragment.outer_loop[1] {
-                    true
+                    // A he/twin bigon is graze residue only for RECORD
+                    // pairs. A BOUNDARY pair walked as one loop is a
+                    // periodic seam spine — the outer loop of a full
+                    // periodic chart (a full sphere's two meridian
+                    // copies bound the whole wall face, with the
+                    // imprint loops as its holes).
+                    matches!(
+                        graph.half_edges[a].source,
+                        crate::merge::graph::EdgeSource::Shared { .. }
+                    )
                 } else {
                     // An OPEN two-half-edge walk with (sampled) zero
                     // area is residue of a seeded walk that swallowed
@@ -1024,9 +1033,25 @@ fn rotate_closed_record_to_hits(
     use popkern_core::geometry::curve::CurveEval as _;
     let c = &record.curve.curve_3d;
     let (t0, t1) = c.parameter_range();
-    let closed = c.point_at(t0).distance_to(&c.point_at(t1)) < tolerance.linear() * 100.0;
+    // Rotation is only meaningful for a genuinely CLOSED record. The
+    // record's own flag is authoritative — the clip stage keeps it
+    // honest (a multi-window clip emits open arcs flagged open). The
+    // geometric gap check remains as a torn-closure guard, NOT as the
+    // closure test itself: a pure distance gate at containment scale
+    // (linear × 100) swallowed open corner arcs whose tip gap was
+    // 0.17 and "rotated" them into gap-bridging garbage curves
+    // (measured: cube∪sphere grew 12 arcs running through out-of-face
+    // regions and the assembly went non-manifold).
+    let closed = record.curve.is_closed
+        && c.point_at(t0).distance_to(&c.point_at(t1)) < tolerance.linear() * 100.0;
     if !closed {
         return record.clone();
+    }
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        let gap = c.point_at(t0).distance_to(&c.point_at(t1));
+        eprintln!(
+            "  [rotate] closed record considered for hit rotation: gap={gap:.3e} t[{t0:.3},{t1:.3}]"
+        );
     }
     for hit in hits {
         // Nearest parameter on the curve to the hit point.

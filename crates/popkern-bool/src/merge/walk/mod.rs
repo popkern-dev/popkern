@@ -125,6 +125,9 @@ pub(crate) fn walk_all_fragments_ext(
         // the reason observable under PK_BOOL_TRACE and recorded in
         // `walk_fallbacks`.
         let mut walked_by_chart = false;
+        // Chart polylines + σ for the role assembly below (present
+        // only when the chart walk produced the orbit partition).
+        let mut chart_roles: Option<(Vec<chart_walk::ChartPolyline>, f64)> = None;
         // A/B lever for divergence adjudication: PK_WALK_CHART=0
         // forces the legacy walk everywhere. Since PK-107 every face
         // of a coincident boolean chart-walks, overlap faces
@@ -149,6 +152,43 @@ pub(crate) fn walk_all_fragments_ext(
             );
             if sub.complete() {
                 if let Some(orbits) = chart_walk::walk_chart_orbits(&sub, graph) {
+                    // Chart-role assembly is scoped to faces whose
+                    // stored boundary is a SEAM SPINE (every
+                    // non-record half-edge's twin registered to this
+                    // same face): there the legacy 3D Newell election
+                    // degenerates BY CONSTRUCTION — two anti-parallel
+                    // border copies measure |N| ≈ 0 (a full sphere's
+                    // seam orbit lost the outer election to a record
+                    // triangle). Ordinary faces keep the legacy
+                    // election: its size/winding rules carry tuned
+                    // tool-side semantics (a plane-splitter's cutting
+                    // face serves BOTH directions of an interior ring
+                    // as caps) that the pure role model does not
+                    // reproduce (measured: unscoped roles broke four
+                    // holder/rail gates).
+                    let boundary_hes: Vec<usize> = he_indices
+                        .iter()
+                        .copied()
+                        .filter(|&h| {
+                            !matches!(
+                                graph.half_edges[h].source,
+                                super::graph::EdgeSource::Shared { .. }
+                            )
+                        })
+                        .collect();
+                    let seam_spine = !boundary_hes.is_empty()
+                        && boundary_hes
+                            .iter()
+                            .all(|&h| face_hes.contains(&graph.half_edges[h].twin));
+                    if seam_spine {
+                        chart_roles = Some((
+                            orbits
+                                .iter()
+                                .map(|o| chart_walk::orbit_polyline(&sub, o))
+                                .collect(),
+                            sub.sigma,
+                        ));
+                    }
                     loops = orbits;
                     walked_by_chart = true;
                     if std::env::var_os("PK_BOOL_TRACE").is_some() {
@@ -303,6 +343,52 @@ pub(crate) fn walk_all_fragments_ext(
         }
 
         if loops.is_empty() {
+            continue;
+        }
+
+        // Chart-role assembly (PK-111): orbit roles are decided by
+        // σ-folded chart shoelace sign — by construction of the
+        // material-left walk, not by 3D election (see
+        // `assemble_chart_roles`). Falls through to the legacy
+        // election only when no orbit winds positive (substrate lie).
+        if let Some((polys, sigma)) = chart_roles.take()
+            && let Some(asm) = chart_walk::assemble_chart_roles(graph, &loops, &polys, sigma)
+        {
+            let dump = std::env::var_os("PK_LOOP_DUMP_ALL").is_some();
+            let trace = std::env::var_os("PK_BOOL_TRACE").is_some();
+            if trace {
+                let (oi, holes) = &asm.regions[0];
+                eprintln!(
+                    "  [walk] {face_ref:?}: chart roles — outer {} hes, {} inner {:?}, {} separate",
+                    loops[*oi].len(),
+                    holes.len(),
+                    holes.iter().map(|&h| loops[h].len()).collect::<Vec<_>>(),
+                    asm.regions.len() - 1
+                );
+            }
+            for (ri, (oi, holes)) in asm.regions.iter().enumerate() {
+                if dump {
+                    for (tag, lp) in
+                        std::iter::once((if ri == 0 { "outer" } else { "separate" }, &loops[*oi]))
+                            .chain(holes.iter().map(|&h| ("inner", &loops[h])))
+                    {
+                        let hes: Vec<String> = lp
+                            .iter()
+                            .map(|&h| {
+                                let n = graph.half_edges[h].origin;
+                                let p = graph.nodes[n].position;
+                                format!("{h}@n{n}({:.1},{:.1},{:.1})", p.x, p.y, p.z)
+                            })
+                            .collect();
+                        eprintln!("  [loopdump-all] {face_ref:?} {tag} [{}]", hes.join(" "));
+                    }
+                }
+                fragments.push(Fragment {
+                    face: *face_ref,
+                    outer_loop: loops[*oi].clone(),
+                    inner_loops: holes.iter().map(|&h| loops[h].clone()).collect(),
+                });
+            }
             continue;
         }
 

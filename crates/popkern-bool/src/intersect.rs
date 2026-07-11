@@ -431,7 +431,7 @@ pub(crate) fn find_intersections_with_aabbs(
                 for isect in result.intersections {
                     match isect {
                         SurfaceSurfaceIntersection::Curve(curve) => {
-                            let clipped_opt = clip_curve_to_faces(a, face_a, b, face_b, &curve);
+                            let clipped_list = clip_curve_to_faces(a, face_a, b, face_b, &curve);
                             if std::env::var_os("PK_CLIP_TRACE").is_some() {
                                 use popkern_core::geometry::curve::CurveEval;
                                 let (t0, t1) = curve.curve_3d.parameter_range();
@@ -463,10 +463,20 @@ pub(crate) fn find_intersections_with_aabbs(
                                     p1.z,
                                     plane_dist(surf_a, &p0),
                                     plane_dist(surf_b, &p0),
-                                    clipped_opt.is_some()
+                                    clipped_list.len()
                                 );
                             }
-                            if let Some(clipped) = clipped_opt {
+                            for clipped in clipped_list {
+                                if std::env::var_os("PK_CLIP_TRACE").is_some() {
+                                    use popkern_core::geometry::curve::CurveEval;
+                                    let (t0, t1) = clipped.curve_3d.parameter_range();
+                                    let p0 = clipped.curve_3d.point_at(t0);
+                                    let p1 = clipped.curve_3d.point_at(t1);
+                                    eprintln!(
+                                        "  [clip-out] A{face_a:?} x B{face_b:?}: t[{t0:.3},{t1:.3}] ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) closed={}",
+                                        p0.x, p0.y, p0.z, p1.x, p1.y, p1.z, clipped.is_closed
+                                    );
+                                }
                                 // Classify tangency at curve midpoint.
                                 // Uses popkern_core::adaptive_precision::
                                 // adaptive_cross_ratio_sq_lt so near-parallel

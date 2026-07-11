@@ -123,11 +123,13 @@ fn process_one_pair(
     for isect in result.intersections {
         match isect {
             popkern_core::geometry::intersection::SurfaceSurfaceIntersection::Curve(curve) => {
-                if let Some(clipped) =
-                    clip_curve_to_faces(a, candidate.face_a, b, candidate.face_b, &curve)
-                {
-                    curves.push(clipped);
-                }
+                curves.extend(clip_curve_to_faces(
+                    a,
+                    candidate.face_a,
+                    b,
+                    candidate.face_b,
+                    &curve,
+                ));
             }
             popkern_core::geometry::intersection::SurfaceSurfaceIntersection::CoincidentRegion {
                 ..

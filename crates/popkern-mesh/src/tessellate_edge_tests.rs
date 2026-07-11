@@ -244,7 +244,16 @@ fn sphere_vertex_normals_are_consistent_with_winding() {
         let dot = cross.x * avg_nx + cross.y * avg_ny + cross.z * avg_nz;
         assert!(
             dot > -1e-6,
-            "sphere triangle winding should agree with vertex normals (dot={dot})"
+            "sphere triangle winding should agree with vertex normals (dot={dot}) cross_len={cross_len} v0=({:.4},{:.4},{:.4}) v1=({:.4},{:.4},{:.4}) v2=({:.4},{:.4},{:.4})",
+            v0.position.x,
+            v0.position.y,
+            v0.position.z,
+            v1.position.x,
+            v1.position.y,
+            v1.position.z,
+            v2.position.x,
+            v2.position.y,
+            v2.position.z
         );
         checked += 1;
     }

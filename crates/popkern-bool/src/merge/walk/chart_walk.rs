@@ -137,6 +137,130 @@ pub(crate) fn walk_chart_orbits(
     Some(orbits)
 }
 
+/// A chart polyline: sampled oriented-UV points in walk order.
+pub(crate) type ChartPolyline = Vec<(f64, f64)>;
+
+/// Concatenated chart polyline of an orbit: the uv points of each
+/// half-edge's embedding in walk order (consecutive embeddings share
+/// their junction point — skipped after the first).
+pub(crate) fn orbit_polyline(sub: &FaceChartSubdivision, orbit: &[usize]) -> ChartPolyline {
+    let mut pts: Vec<(f64, f64)> = Vec::new();
+    for &h in orbit {
+        if let Some(emb) = sub.embeddings.get(&h) {
+            let skip = usize::from(!pts.is_empty());
+            pts.extend(emb.uv.iter().skip(skip).copied());
+        }
+    }
+    pts
+}
+
+/// Signed shoelace area of a chart polyline (closed implicitly).
+pub(crate) fn polyline_shoelace(pts: &[(f64, f64)]) -> f64 {
+    let n = pts.len();
+    let mut s = 0.0;
+    for i in 0..n {
+        let (x0, y0) = pts[i];
+        let (x1, y1) = pts[(i + 1) % n];
+        s += x0 * y1 - x1 * y0;
+    }
+    0.5 * s
+}
+
+/// Even-odd containment of a chart point in a chart polyline.
+fn polyline_contains(pts: &[(f64, f64)], p: (f64, f64)) -> bool {
+    let n = pts.len();
+    let mut inside = false;
+    for i in 0..n {
+        let (x0, y0) = pts[i];
+        let (x1, y1) = pts[(i + 1) % n];
+        if (y0 > p.1) != (y1 > p.1) {
+            let xi = x0 + (p.1 - y0) * (x1 - x0) / (y1 - y0);
+            if xi > p.0 {
+                inside = !inside;
+            }
+        }
+    }
+    inside
+}
+
+/// Role assembly for a chart-walked face's orbit partition.
+///
+/// Each region of the face's planar subdivision contributes one orbit
+/// per boundary COMPONENT: orbits winding WITH the oriented chart
+/// (positive σ-folded shoelace) are region outer components; orbits
+/// winding AGAINST are hole components of the region that contains
+/// them. This is by construction of the material-left walk — no 3D
+/// election needed (the legacy Newell election degenerates on faces
+/// whose stored border is a seam pair: a full sphere's two
+/// anti-parallel meridian copies measure |N| ≈ 0, and the seam orbit
+/// lost the outer election to a record triangle on cube∪sphere).
+pub(crate) struct ChartRoleAssembly {
+    /// One entry per region: (outer orbit index, hole orbit indices).
+    /// The FIRST entry is the face's primary fragment (largest
+    /// positive region — same size rule the legacy election used).
+    pub regions: Vec<(usize, Vec<usize>)>,
+}
+
+/// Assign orbit roles from σ-folded chart shoelace signs. Returns
+/// `None` when no orbit winds positive (substrate defect — caller
+/// falls back to the legacy election).
+pub(crate) fn assemble_chart_roles(
+    graph: &IntersectionGraph,
+    loops: &[Vec<usize>],
+    polys: &[ChartPolyline],
+    sigma: f64,
+) -> Option<ChartRoleAssembly> {
+    let areas: Vec<f64> = polys.iter().map(|p| sigma * polyline_shoelace(p)).collect();
+    let primary = areas
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| **a > 0.0)
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(i, _)| i)?;
+
+    let mut order: Vec<usize> = (0..loops.len()).filter(|&i| areas[i] > 0.0).collect();
+    order.sort_by_key(|&i| (i != primary, i));
+    let mut holes_of: Vec<Vec<usize>> = vec![Vec::new(); loops.len()];
+    for i in 0..loops.len() {
+        if areas[i] > 0.0 {
+            continue;
+        }
+        // The hole's containing region: the SMALLEST positive region
+        // whose polygon contains the hole's first point. The twin
+        // region (the piece inside the hole) shares the hole's
+        // half-edges as twins — its polygon runs THROUGH the sample
+        // point and even-odd verdicts there are coin flips, so
+        // twin-sharing candidates are excluded (the true container
+        // never shares an edge with a hole component of another
+        // region's interior).
+        let Some(&p) = polys[i].first() else {
+            continue;
+        };
+        let hole_twins: BTreeSet<usize> =
+            loops[i].iter().map(|&h| graph.half_edges[h].twin).collect();
+        let mut best: Option<(f64, usize)> = None;
+        for (j, &aj) in areas.iter().enumerate() {
+            if aj <= 0.0
+                || loops[j].iter().any(|h| hole_twins.contains(h))
+                || !polyline_contains(&polys[j], p)
+            {
+                continue;
+            }
+            if best.is_none_or(|(ba, _)| aj < ba) {
+                best = Some((aj, j));
+            }
+        }
+        holes_of[best.map(|(_, j)| j).unwrap_or(primary)].push(i);
+    }
+
+    Some(ChartRoleAssembly {
+        regions: order
+            .into_iter()
+            .map(|i| (i, std::mem::take(&mut holes_of[i])))
+            .collect(),
+    })
+}
+
 /// Canonical form for loop-set comparison: each loop rotated so its
 /// smallest half-edge index leads (loops are cyclic; direction is
 /// preserved because direction is part of the contract). Test-only
@@ -180,10 +304,6 @@ pub(crate) struct DualWalkDiff {
 
 #[cfg(test)]
 impl DualWalkDiff {
-    pub fn is_match(&self) -> bool {
-        self.legacy_only.is_empty() && self.orbit_only.is_empty()
-    }
-
     /// Orbit-only loops that share half-edges with legacy-only loops —
     /// the genuinely divergent routing (as opposed to benign extras).
     pub fn contested(&self) -> usize {
