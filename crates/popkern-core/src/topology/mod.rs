@@ -56,6 +56,7 @@ pub use brep_nonmanifold_policy::{
 };
 
 /// Pcurve recomputation for BRep faces.
+mod pcurve_projection_walk;
 mod pcurve_recompute;
 mod pcurve_recompute_helpers;
 

@@ -19,7 +19,7 @@ impl BRep {
         face_handle: FaceHandle,
     ) -> Result<(), crate::error::CoreError> {
         use crate::geometry::surface::SurfaceEval;
-        use crate::geometry::uv_projection::{project_point_to_uv, project_point_to_uv_near};
+        use crate::geometry::uv_projection::project_point_to_uv;
         use crate::geometry::{NurbsCurve, Point3};
 
         let face = self
@@ -257,77 +257,20 @@ impl BRep {
                 } else {
                     // UV path is curved — dense sampling.
                     // OCCT-style pcurve computation (per ShapeConstruct_
-                    // ProjectCurveOnSurface): sample 3D curve, project
-                    // each point to UV using CONTINUATION from the
-                    // previous UV (not independent projection), unwrap
-                    // seam crossings, then INTERPOLATE (not fit).
-                    let n_samples = 23usize; // OCCT default
-                    let mut uv_points: Vec<Point3> = Vec::with_capacity(n_samples);
-                    let (period_u, period_v) = surface.periodicity();
-                    let mut prev_uv: Option<(f64, f64)> = None;
-
-                    for i in 0..n_samples {
-                        let frac = i as f64 / (n_samples - 1).max(1) as f64;
-                        let t = t_lo + (t_hi - t_lo) * frac;
-                        let p = if i == 0 {
-                            he_origin_pos
-                        } else if i + 1 == n_samples {
-                            he_dest_pos
-                        } else {
-                            curve_on_edge.geometry.point_at(t)
-                        };
-
-                        // Continuation: use previous UV as starting
-                        // guess for Gauss-Newton. This prevents branch
-                        // jumping on multi-valued inverse maps. If the
-                        // continuation step fails to converge, RESEED
-                        // with an independent projection rather than
-                        // dropping the sample — dropped samples used to
-                        // collapse the pcurve to a straight 2-point
-                        // fallback (PK-095: 5e-2 UV error on fillet
-                        // strip trims, the dominant tessellation crack).
-                        let seed_u = u_s + (u_e - u_s) * frac;
-                        let seed_v = v_s + (v_e - v_s) * frac;
-                        let uv = if let Some((pu, pv)) = prev_uv {
-                            project_point_to_uv_near(&surface, &p, pu, pv)
-                                .or_else(|| project_point_to_uv(&surface, &p))
-                                .or_else(|| {
-                                    // Endpoint-interpolated seed: the
-                                    // independent Newton can diverge
-                                    // along fillet-sweep trims (PK-095
-                                    // — sample loss collapsed these
-                                    // pcurves to straight 2-point
-                                    // lines, 5e-2 off).
-                                    project_point_to_uv_near(&surface, &p, seed_u, seed_v)
-                                })
-                        } else {
-                            project_point_to_uv(&surface, &p)
-                                .or_else(|| project_point_to_uv_near(&surface, &p, seed_u, seed_v))
-                        };
-
-                        if let Some((mut u, mut v)) = uv {
-                            // Seam unwrap relative to PREVIOUS point
-                            // (OCCT style: half-period threshold).
-                            if let (Some(pu), Some((prev_u, _))) = (period_u, prev_uv) {
-                                while u - prev_u > pu * 0.5 {
-                                    u -= pu;
-                                }
-                                while u - prev_u < -pu * 0.5 {
-                                    u += pu;
-                                }
-                            }
-                            if let (Some(pv), Some((_, prev_v))) = (period_v, prev_uv) {
-                                while v - prev_v > pv * 0.5 {
-                                    v -= pv;
-                                }
-                                while v - prev_v < -pv * 0.5 {
-                                    v += pv;
-                                }
-                            }
-                            prev_uv = Some((u, v));
-                            uv_points.push(Point3::new(u, v, 0.0));
-                        }
-                    }
+                    // ProjectCurveOnSurface): sample the 3D curve,
+                    // project by CONTINUATION (endpoint- and midpoint-
+                    // anchored walks race and the smaller measured
+                    // deviation wins — see pcurve_projection_walk),
+                    // unwrap seam crossings, then INTERPOLATE (not fit).
+                    let uv_points = super::pcurve_projection_walk::anchored_uv_samples(
+                        &surface,
+                        curve_on_edge,
+                        (t_lo, t_hi),
+                        he_origin_pos,
+                        he_dest_pos,
+                        ((u_s, v_s), (u_e, v_e)),
+                        23, // OCCT default sample count
+                    );
 
                     if uv_points.len() >= 4 {
                         // Interpolation (not approximation): curve
