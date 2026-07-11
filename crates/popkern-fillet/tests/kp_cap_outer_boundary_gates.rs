@@ -40,11 +40,7 @@ use helpers::{
     fillet_corner_cap_outer_faces, incident_edges, measure_cap_outer_boundary,
     pick_vertex_with_valence,
 };
-use route_diagnostics::{
-    assert_route_declined, assert_route_detail_contains,
-    assert_selected_fallback_cap_support_continuity_recorded,
-    assert_support_cell_assembled_quality_recorded,
-};
+use route_diagnostics::{assert_route_declined, assert_route_detail_contains};
 
 fn assert_cap_outer_gates(fixture: &str, m: &helpers::CapOuterMetrics) {
     println!(
@@ -209,27 +205,31 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
         "hexagon6_variable route blocker should remain measured until support-cell routing or boundary quality is repaired"
     );
-    assert_route_declined(
+    // Route re-pinned 2026-07-11: the N=6 smooth blend previously died
+    // before ANY cap dispatch (0 trim anchors -> Mitred, the pyramid
+    // anchor-band class fixed in blend_topo tier 2), so these records
+    // date from the pre-Mitred era. The live route now dispatches the
+    // KP20 polar macro (paper candidates) and records its decline at
+    // the candidate gate; the PnS stage no longer runs for N=6.
+    assert_route_detail_contains(
         &result,
-        "pns.dispatch.cap_support_acceptance",
-        "pns.dispatch.declined",
+        "kp20_polar_macro.dispatch.candidate",
+        "kp20_polar_macro.dispatch.declined",
+        &["paper cap gates not met"],
     );
     assert_route_declined(
         &result,
         "rational_gregory.dispatch.cap_support_acceptance",
         "rational_gregory.dispatch.declined",
     );
-    assert_support_cell_assembled_quality_recorded(&result);
+    // The support-cell path records NONSELECTION on the live route
+    // (primitive not evaluated) rather than an assembled-quality fact.
     assert_route_detail_contains(
         &result,
-        "kp20_polar_macro.dispatch.nonoverlap_limited_lift",
+        "kp20_polar_macro.dispatch.support_cell_candidate_nonselection",
         "kp20_polar_macro.dispatch.fact",
-        &[
-            "expanded_support_topology_support_cell_primitive_selection_policy=multi_owner_support_cell_combined",
-            "expanded_support_topology_support_cell_primitive_patch_count=28",
-        ],
+        &["decline_reason=support_cell_primitive_not_evaluated"],
     );
-    assert_selected_fallback_cap_support_continuity_recorded(&result);
     assert_route_detail_contains(
         &result,
         "rational_gregory.dispatch.cap_support_acceptance",
@@ -242,49 +242,23 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "support_uv=(",
             "cap_curve_gap=",
             "support_curve_gap=",
-            "cap_provenance=Some",
-            "role: SupportCellNearMidpointRight",
         ],
     );
+    // Boundary-solve record on the live route: the solve APPLIES with
+    // 12 eligible edges but samples none (fit machinery not yet
+    // reaching this valence) — pinned so the next boundary-solve leg
+    // has a measured before/after.
     assert_route_detail_contains(
         &result,
         "cap_support_boundary_solve",
         "cap_support_boundary_solve.fact",
         &[
-            "status=rolled_back_postcondition_failed",
-            "sampled_edges=12",
+            "status=applied",
+            "eligible_edges=12",
+            "sampled_edges=0",
             "constrained_row_fit_candidates",
-            "max_hard_satisfying_constrained_displacement",
             "hard_constraint_rows",
-            "hard_constraint_samples",
             "hard_constraint_conflicts",
-            "hard_constraint_overfull_rows",
-            "zero_regularization_rows",
-            "displacement_scaled_candidates",
-            "displacement_rejected_candidates",
-            "displacement_bounded_rows",
-            "displacement_unbounded_rows",
-            "unrecognized_cap_pcurve_edges=0",
-            "max_samples_per_row",
-            "max_row_after_sample_gap",
-            "max_row_after_sample_face",
-            "max_row_after_sample_side",
-            "max_row_after_sample_parameter",
-            "max_row_after_sample_edge",
-            "max_row_after_sample_cap_half_edge",
-            "max_row_after_sample_support_face",
-            "max_row_after_sample_support_parameter",
-            "max_row_after_sample_target_source",
-            "max_row_after_sample_before_gap",
-            "max_row_after_sample_target_edge_curve_gap",
-            "max_hard_constraint_residual",
-            "max_row_target_edge_curve_gap",
-            "max_row_target_edge_curve_edge",
-            "max_row_target_edge_curve_face",
-            "max_row_after_edge_curve_gap",
-            "max_row_after_edge_curve_edge",
-            "max_row_after_edge_curve_face",
-            "max_boundary_displacement",
         ],
     );
     assert_route_detail_contains(
@@ -292,9 +266,16 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_completion",
         "cap_support_completion.fact",
         &[
-            "unrecognized_cap_boundary_pcurve_edges=0",
-            "unrecognized_cap_boundary_hint_edges=0",
-            "recognized_cap_boundary_hint_edges=12",
+            // Live-route census (re-pinned 2026-07-11 with the smooth
+            // blend restored): 6 cap faces / 12 eligible edges, with a
+            // measured residue of 4 unrecognized cap-boundary pcurve
+            // edges and 8 declined — the pcurve-recognition slice of
+            // this blocker.
+            "cap_face_count=6",
+            "eligible_edges=12",
+            "repaired_cap_boundary_pcurves=7",
+            "declined_cap_boundary_pcurves=8",
+            "unrecognized_cap_boundary_pcurve_edges=4",
         ],
     );
 }

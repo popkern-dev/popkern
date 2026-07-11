@@ -197,6 +197,11 @@ pub(crate) fn find_face_trim_anchors(
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, String> {
     let radii = collect_radii_for_face(brep, face, vertex, edge_geometries, tolerance);
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace] find_face_trim_anchors face={face:?} vertex={vertex:?} radii={radii:?}"
+        );
+    }
     if radii.is_empty() {
         return Ok(Vec::new());
     }
@@ -244,6 +249,81 @@ pub(crate) fn find_face_trim_anchors(
         cursor = brep.half_edges[cursor].next;
         if cursor == start_he {
             break;
+        }
+    }
+
+    // Tier 2 — band-incidence identity. The radius band above assumes
+    // a trim end sits at exactly distance r from the apex; true on
+    // prismatic corners, FALSE on pyramid apices whose dihedral puts
+    // ends at ~1.18r and on boundary-conditioned marches that move
+    // ends by ~5e-4 (measured: pyramid5_mixed found 0 anchors and the
+    // whole smooth blend fell to Mitred). The construction-honest
+    // anchor is a loop vertex of THIS face that is also incident to a
+    // fillet BAND face (a cylinder whose radius matches one of this
+    // corner's fillet radii), within the corner's reach of the apex.
+    if anchors.len() < 2 {
+        let max_r = radii
+            .iter()
+            .copied()
+            .filter(|r| r.is_finite() && *r > 0.0)
+            .fold(0.0, f64::max);
+        let touches_band = |vh: VertexHandle| -> bool {
+            let Some(v) = brep.vertices.get(vh) else {
+                return false;
+            };
+            let mut cursor = v.outgoing;
+            if !brep.half_edges.contains_key(cursor) {
+                return false;
+            }
+            let fan_start = cursor;
+            for _ in 0..brep.half_edges.len() + 1 {
+                let Some(he) = brep.half_edges.get(cursor) else {
+                    break;
+                };
+                if let Some(loop_) = brep.loops.get(he.loop_)
+                    && let Some(f) = brep.faces.get(loop_.face)
+                    && let Some(sof) = f.surface.as_ref()
+                    && let popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                        radius, ..
+                    } = sof.geometry
+                    && radii
+                        .iter()
+                        .any(|&r| (radius - r).abs() <= r.max(1e-12) * 1e-3)
+                {
+                    return true;
+                }
+                let Some(twin) = brep.half_edges.get(he.twin) else {
+                    break;
+                };
+                cursor = twin.next;
+                if cursor == fan_start {
+                    break;
+                }
+            }
+            false
+        };
+        anchors.clear();
+        let mut cursor = start_he;
+        for _ in 0..max_iters {
+            let vh = brep.half_edges[cursor].origin;
+            if vh != vertex {
+                let vpos = brep.vertices[vh].position;
+                if v_pos.distance_to(&vpos) <= max_r * 2.0
+                    && touches_band(vh)
+                    && !anchors.contains(&vh)
+                {
+                    anchors.push(vh);
+                }
+            }
+            cursor = brep.half_edges[cursor].next;
+            if cursor == start_he {
+                break;
+            }
+        }
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace]   tier2 band-incidence anchors: {anchors:?} (max_r={max_r:.4})"
+            );
         }
     }
 

@@ -484,7 +484,13 @@ pub fn apply_blend_geometry(
                             }
                             corner_patches.extend(infos);
                         }
-                        Err(_) => {
+                        Err(err) => {
+                            if crate::direct_apex_trace::enabled() {
+                                eprintln!(
+                                    "[direct-apex-trace] smooth vertex blend at {vertex:?} \
+                                     fell back to Mitred: {err}"
+                                );
+                            }
                             let edge_idx = edge_indices[0];
                             if edge_idx < edge_geometries.len() {
                                 warnings.push((
