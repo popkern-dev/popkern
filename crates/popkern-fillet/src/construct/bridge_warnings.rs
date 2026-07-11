@@ -143,3 +143,31 @@ pub(crate) fn emit_corner_continuity_relaxed_warning(
         ));
     }
 }
+
+/// PK-089: an empty patch set from `insert_vertex_blend` is the
+/// N >= 5 all-or-nothing rollback — the corner was restored to its
+/// mitred state because no route produced an accepted N-patch
+/// tiling. Record the vertex-mode fallback exactly like the error
+/// arm does, so the containment is user-visible.
+pub(crate) fn emit_empty_blend_mitred_warning(
+    infos: &[CornerPatchInfo],
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    warnings: &mut Vec<(EdgeHandle, BlendWarning)>,
+) {
+    if !infos.is_empty() {
+        return;
+    }
+    let edge_idx = edge_indices[0];
+    if edge_idx < edge_geometries.len() {
+        warnings.push((
+            edge_geometries[edge_idx].analysis.edge,
+            BlendWarning::VertexModeFallback {
+                requested: crate::types::VertexMode::Smooth,
+                actual: crate::types::VertexMode::Mitred,
+                vertex: Some(vertex),
+            },
+        ));
+    }
+}

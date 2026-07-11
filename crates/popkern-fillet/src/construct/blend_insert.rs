@@ -36,6 +36,7 @@ use blend_insert_diagnostics::{
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
 use blend_insert_three_quad_acceptance::record_fallback_cap_support_continuity;
+pub(crate) use blend_insert_topology::{kev_v_bridge, remove_orphaned_vertex};
 use blend_insert_topology::{normalize_underresolved_face_loop_to_n, split_corner_triangles};
 
 type InsertVertexBlendOutput = (
@@ -80,6 +81,12 @@ pub(crate) fn insert_vertex_blend(
         crate::vertex_classifier::classify_vertex_blend(brep, vertex, &filleted_edges, tolerance)
             .classification
     });
+
+    // PK-089: N >= 5 corners are all-or-nothing — an accepted PnS or
+    // N-patch decomposition, or a full rollback to the mitred corner.
+    // A lone undecomposed N-gon Gregory misrepresents the tiling and
+    // shipped unmeasured; snapshot so partial routes can restore.
+    let mut n5_entry_snapshot = (edge_indices.len() >= 5).then(|| brep.clone());
 
     // Repair the vertex's outgoing half-edge if it has become stale
     // due to prior topology operations (edge splitting, face splitting).
@@ -425,13 +432,17 @@ pub(crate) fn insert_vertex_blend(
             }
             Err(ThreeQuadFailure::Overlap) => {
                 *brep = three_quad_snapshot;
-                let mut r = base_patch.clone();
-                r.overlap_remediated = true;
                 diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
                     n_sides,
                     "self_intersection_overlap",
                     None,
                 ));
+                if let Some(snapshot) = n5_entry_snapshot.take() {
+                    *brep = snapshot;
+                    return Ok((Vec::new(), None, diagnostics));
+                }
+                let mut r = base_patch.clone();
+                r.overlap_remediated = true;
                 return Ok((vec![r], Some(dispatch_boundary.clone()), diagnostics));
             }
             Err(ThreeQuadFailure::Other(reason)) => {
@@ -445,6 +456,19 @@ pub(crate) fn insert_vertex_blend(
         }
     }
 
+    if let Some(snapshot) = n5_entry_snapshot.take() {
+        // PK-089: no route produced an accepted N-patch tiling — restore
+        // the corner (mitred) instead of shipping the partial base patch.
+        // The dispatch-decline diagnostics above record why; the caller
+        // records the vertex-mode fallback warning.
+        *brep = snapshot;
+        diagnostics.push(rational_gregory_dispatch_declined_diagnostic(
+            n_sides,
+            "n5_all_or_nothing_rollback",
+            None,
+        ));
+        return Ok((Vec::new(), None, diagnostics));
+    }
     record_fallback_cap_support_continuity(brep, base_patch.face, &mut diagnostics);
     Ok((vec![base_patch], n_gon_boundary, diagnostics))
 }
@@ -547,71 +571,4 @@ pub(crate) fn kef_cross_face_v_edges(
     blend_face.ok_or_else(|| {
         "kef_cross_face_v_edges: no merge performed — blend face not created".to_string()
     })
-}
-
-/// Phase 2b: kev the remaining V-bridge edge (if any) to un-pinch
-/// the merged face and remove V in one Euler step.
-///
-/// At entry, V may have zero or one incident edges. Zero means
-/// Phase 2a completed cleanly (all V-edges were cross-face kefs);
-/// one means there's a same-loop bridge whose both half-edges are
-/// on the merged face. `kev` requires the edge's destination
-/// vertex to be valence-1, so we pick the half-edge that ends at
-/// V and call `kev(that)` to kill V plus the bridge together.
-///
-/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
-/// [`kef_cross_face_v_edges`].
-pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
-    if !brep.vertices.contains_key(vertex) {
-        return Ok(());
-    }
-
-    let outgoings: Vec<HalfEdgeHandle> = brep
-        .half_edges
-        .iter()
-        .filter(|(_, h)| h.origin == vertex)
-        .map(|(h, _)| h)
-        .collect();
-
-    if outgoings.is_empty() {
-        return Ok(());
-    }
-    if outgoings.len() != 1 {
-        return Err(format!(
-            "kev_v_bridge: V has valence {} (expected 0 or 1 for single-bridge teardown)",
-            outgoings.len()
-        ));
-    }
-
-    let he_out = outgoings[0];
-    let he_in = brep.half_edges[he_out].twin;
-    // kev kills the destination vertex of its argument; we want to
-    // kill V, so pass the half-edge whose destination is V.
-    debug_assert_eq!(brep.half_edges[brep.half_edges[he_in].twin].origin, vertex);
-    let same_loop = brep.half_edges[he_in].loop_ == brep.half_edges[he_out].loop_;
-    let is_only_edge = brep.half_edges[he_in].next == he_out
-        && brep.half_edges[he_out].next == he_in
-        && brep.half_edges[he_in].prev == he_out
-        && brep.half_edges[he_out].prev == he_in;
-    match brep.kev(he_in) {
-        Ok(_) => Ok(()),
-        Err(_) if same_loop && !is_only_edge => {
-            brep.dissolve_same_loop_bridge(he_in)
-                .map_err(|e| format!("same-loop bridge dissolve failed on V-bridge: {e}"))?;
-            remove_orphaned_vertex(brep, vertex);
-            Ok(())
-        }
-        Err(kev_error) => Err(format!("kev failed on V-bridge: {kev_error}")),
-    }
-}
-
-/// Phase 3: Remove vertex V if it is no longer connected to any edges.
-///
-/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
-/// [`kef_cross_face_v_edges`].
-pub(crate) fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
-    let v_has_edges = brep.half_edges.values().any(|he| he.origin == vertex);
-    if !v_has_edges {
-        brep.vertices.remove(vertex);
-    }
 }

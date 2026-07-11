@@ -214,3 +214,70 @@ fn longest_loop_edge(brep: &BRep, loop_hes: &[HalfEdgeHandle]) -> Option<EdgeHan
         .max_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(edge, _)| edge)
 }
+
+/// Phase 2b: kev the remaining V-bridge edge (if any) to un-pinch
+/// the merged face and remove V in one Euler step.
+///
+/// At entry, V may have zero or one incident edges. Zero means
+/// Phase 2a completed cleanly (all V-edges were cross-face kefs);
+/// one means there's a same-loop bridge whose both half-edges are
+/// on the merged face. `kev` requires the edge's destination
+/// vertex to be valence-1, so we pick the half-edge that ends at
+/// V and call `kev(that)` to kill V plus the bridge together.
+///
+/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
+/// [`kef_cross_face_v_edges`].
+pub(crate) fn kev_v_bridge(brep: &mut BRep, vertex: VertexHandle) -> Result<(), String> {
+    if !brep.vertices.contains_key(vertex) {
+        return Ok(());
+    }
+
+    let outgoings: Vec<HalfEdgeHandle> = brep
+        .half_edges
+        .iter()
+        .filter(|(_, h)| h.origin == vertex)
+        .map(|(h, _)| h)
+        .collect();
+
+    if outgoings.is_empty() {
+        return Ok(());
+    }
+    if outgoings.len() != 1 {
+        return Err(format!(
+            "kev_v_bridge: V has valence {} (expected 0 or 1 for single-bridge teardown)",
+            outgoings.len()
+        ));
+    }
+
+    let he_out = outgoings[0];
+    let he_in = brep.half_edges[he_out].twin;
+    // kev kills the destination vertex of its argument; we want to
+    // kill V, so pass the half-edge whose destination is V.
+    debug_assert_eq!(brep.half_edges[brep.half_edges[he_in].twin].origin, vertex);
+    let same_loop = brep.half_edges[he_in].loop_ == brep.half_edges[he_out].loop_;
+    let is_only_edge = brep.half_edges[he_in].next == he_out
+        && brep.half_edges[he_out].next == he_in
+        && brep.half_edges[he_in].prev == he_out
+        && brep.half_edges[he_out].prev == he_in;
+    match brep.kev(he_in) {
+        Ok(_) => Ok(()),
+        Err(_) if same_loop && !is_only_edge => {
+            brep.dissolve_same_loop_bridge(he_in)
+                .map_err(|e| format!("same-loop bridge dissolve failed on V-bridge: {e}"))?;
+            remove_orphaned_vertex(brep, vertex);
+            Ok(())
+        }
+        Err(kev_error) => Err(format!("kev failed on V-bridge: {kev_error}")),
+    }
+}
+
+/// Phase 3: Remove vertex V if it is no longer connected to any edges.
+///
+/// `pub(crate)` for §6c-DirectApex.2.e — same rationale as
+/// [`kef_cross_face_v_edges`].
+pub(crate) fn remove_orphaned_vertex(brep: &mut BRep, vertex: VertexHandle) {
+    let v_has_edges = brep.half_edges.values().any(|he| he.origin == vertex);
+    if !v_has_edges {
+        brep.vertices.remove(vertex);
+    }
+}

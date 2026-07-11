@@ -162,8 +162,7 @@ pub struct EdgeGeometry {
     pub start_cap: Option<crate::cap::CapGeometry>,
     /// §8.3 end-endpoint cap (`None` when `cap_kind == Open`).
     pub end_cap: Option<crate::cap::CapGeometry>,
-    /// §7 continuity downgrade record — `Some((achieved, reason))` when the engine fell
-    /// back; caller emits [`BlendWarning::ContinuityDowngraded`](crate::error::BlendWarning::ContinuityDowngraded).
+    /// §7 continuity downgrade record — `Some((achieved, reason))` when the engine fell back; caller emits [`BlendWarning::ContinuityDowngraded`](crate::error::BlendWarning::ContinuityDowngraded).
     pub continuity_downgrade: Option<(crate::types::ContinuityLevel, String)>,
 }
 
@@ -463,6 +462,7 @@ pub fn apply_blend_geometry(
                                 bridge_warnings::emit_tangent_corner_warning,
                                 bridge_warnings::emit_overlap_remediation_warning,
                                 bridge_warnings::emit_corner_continuity_relaxed_warning,
+                                bridge_warnings::emit_empty_blend_mitred_warning,
                             ] {
                                 emit(
                                     &infos,

@@ -42,8 +42,8 @@
 //! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | legacy route, no K-P ring |
 //! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | legacy route, no K-P ring |
 //! | cube_tiny_radii  | 3       | [0.001, 0.002, 0.003] (all tiny)     | legacy route, no K-P ring |
-//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | `#[ignore]` polar dispatch gap |
-//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | `#[ignore]` polar dispatch gap |
+//! | pentagon5_mixed  | 5       | [0.04, 0.06, 0.05, 0.07, 0.05]       | production-route all-or-nothing gate (PK-075/PK-089) |
+//! | hexagon6_mixed   | 6       | [0.04, 0.06, 0.05, 0.07, 0.05, 0.06] | production-route all-or-nothing gate (PK-075/PK-089) |
 //!
 //! **Known limits after exact-boundary promotion**:
 //! * cube_mixed is now covered as an exact-boundary route invariant.
@@ -54,7 +54,10 @@
 //! * pyramid4_mixed now ships rectangular binonic surfaces that
 //!   satisfy the same commercial G0/G1/G2 ring gates as the cube
 //!   fixtures.
-//! * N >= 5 still needs the K-P polar variant (Phase H.5b).
+//! * N >= 5 dispatches PnS-first (KP20 paper cap behind the polar
+//!   flag); the K-P binonic ring was written for N in {3,4} and is
+//!   not the high-valence route. The N >= 5 rows gate the PK-089
+//!   all-or-nothing production contract instead of the binonic ring.
 //!
 //! Uniform-radii fixtures are out-of-scope here — the analytic
 //! sphere-fit short-circuits Gregory dispatch upstream, so the
@@ -76,10 +79,13 @@ use popkern_fillet::{
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
+#[path = "support/kp_production_route.rs"]
+mod kp_production_route;
 use helpers::{
     N_SAMPLES, assert_all_binonic, assert_commercial_gates, assert_no_regression, collect_patches,
     fillet_corner, incident_edges, measure_ring, pick_vertex_with_valence,
 };
+use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
 
 fn run_cube(radii: &[f64], use_kp_binonic: bool) -> helpers::RingMetrics {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
@@ -165,27 +171,6 @@ fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
 fn run_square_pyramid_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
     let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, 4).expect("square_pyramid apex");
-    let edges = incident_edges(&pyr, vertex);
-    let (brep, faces) = fillet_corner(&pyr, &edges, radii, true);
-    let patches = collect_patches(&brep, &faces);
-    assert_all_binonic(&patches, fixture);
-    measure_ring(&patches, N_SAMPLES)
-}
-
-/// N-gonal pyramid (apex valence = n). Used for the N=5, N=6
-/// stress-test fixtures probing the L-M stack at higher corner
-/// valences than the N=3 cube / N=4 square-pyramid commercial
-/// matrix.
-fn run_n_gonal_pyramid_binonic(
-    n: usize,
-    base_radius: f64,
-    height: f64,
-    radii: &[f64],
-    fixture: &str,
-) -> helpers::RingMetrics {
-    assert_eq!(radii.len(), n);
-    let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
-    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
     let edges = incident_edges(&pyr, vertex);
     let (brep, faces) = fillet_corner(&pyr, &edges, radii, true);
     let patches = collect_patches(&brep, &faces);
@@ -386,37 +371,33 @@ fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
     assert_commercial_gates("cube_tiny_radii", &m);
 }
 
-/// **Documented gap — N=5 apex.** The K-P binonic dispatch path
-/// is currently written for N ∈ {3, 4}; pentagonal apex produces
-/// zero Gregory corner patches. Needs the K-P polar variant
-/// (Phase H.5b per the module header) before binonic can engage
-/// at all.
-#[ignore = "K-P polar dispatch gate: pentagon5_mixed currently produces no measurable Gregory corner patches"]
+/// N >= 5 production-route gate (PK-075). The K-P binonic ring this
+/// file's other rows measure was written for N ∈ {3, 4} and is not
+/// the high-valence route: production dispatch is PnS-first with the
+/// KP20 paper cap behind the polar flag. The commercial contract for
+/// these fixtures is the PK-089 all-or-nothing invariant: either an
+/// accepted N-patch tiling is committed (each patch Gregory or PnS
+/// with the apex's n_sides), or the corner rolls back to mitred with
+/// zero apex patches AND structured dispatch-decline diagnostics
+/// recorded. Route-quality repair beyond the contract is owned by
+/// PK-084 (pyramid5 PnS/sphere-cap) and PK-090 (paper-cap inputs).
+
 #[test]
-fn binonic_passes_commercial_gates_on_pentagon5_mixed() {
-    let m = run_n_gonal_pyramid_binonic(
+fn pentagon5_mixed_production_route_is_all_or_nothing() {
+    assert_n_gonal_production_route_all_or_nothing(
         5,
-        1.0,
-        0.8,
         &[0.04, 0.06, 0.05, 0.07, 0.05],
         "pentagon5_mixed",
     );
-    assert_commercial_gates("pentagon5_mixed", &m);
 }
 
-/// **Documented gap — N=6 apex.** Same dispatch ceiling as
-/// pentagon5 — K-P polar variant required.
-#[ignore = "K-P polar dispatch gate: hexagon6_mixed currently produces no measurable Gregory corner patches"]
 #[test]
-fn binonic_passes_commercial_gates_on_hexagon6_mixed() {
-    let m = run_n_gonal_pyramid_binonic(
+fn hexagon6_mixed_production_route_is_all_or_nothing() {
+    assert_n_gonal_production_route_all_or_nothing(
         6,
-        1.0,
-        0.8,
         &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06],
         "hexagon6_mixed",
     );
-    assert_commercial_gates("hexagon6_mixed", &m);
 }
 
 // ── Non-regression vs two-stripe ─────────────────────────────

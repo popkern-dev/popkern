@@ -29,16 +29,15 @@
 //! * G1 ≤ 5e-2  (coplanarity at samples; ≈ 2.9° normal mismatch)
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{BlendWarning, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 #[path = "support/kp_route_diagnostics.rs"]
 mod route_diagnostics;
 use helpers::{
-    G0_GATE, G1_GATE, N_SAMPLES, cap_outer_faces_from_result, fillet_corner,
-    fillet_corner_cap_outer_faces, incident_edges, measure_cap_outer_boundary,
-    pick_vertex_with_valence,
+    G0_GATE, G1_GATE, N_SAMPLES, cap_outer_faces_from_result, fillet_corner, incident_edges,
+    measure_cap_outer_boundary, pick_vertex_with_valence,
 };
 use route_diagnostics::{assert_route_declined, assert_route_detail_contains};
 
@@ -128,14 +127,6 @@ fn cap_outer_boundary_passes_on_pyramid4_mixed() {
     assert_cap_outer_gates("pyramid4_mixed", &m);
 }
 
-fn run_n_pyramid_cap_outer_faces(n: usize, h: f64, radii: &[f64]) -> helpers::CapOuterMetrics {
-    let pyr = BRep::n_gonal_pyramid(n, 1.0, h, Tolerance::default()).unwrap();
-    let vertex = pick_vertex_with_valence(&pyr, n).unwrap();
-    let edges = incident_edges(&pyr, vertex);
-    let (brep, faces) = fillet_corner_cap_outer_faces(&pyr, &edges, radii, true, true);
-    measure_cap_outer_boundary(&brep, &faces, N_SAMPLES)
-}
-
 fn run_n_pyramid_cap_outer_result(
     n: usize,
     h: f64,
@@ -168,26 +159,44 @@ fn run_n_pyramid_cap_outer_result(
     (result, metrics)
 }
 
-/// N=5 — PnS/sphere-cap path. This uses cap-surface-aware collection
-/// because the construction does not necessarily report a measurable
-/// Gregory corner ring. The row is active coverage for the remaining
-/// measured construction blocker: cap-outer edges are now visible, but
-/// the selected sphere-cap geometry is not yet commercial-grade.
+/// N=5 — production-route containment record (re-pinned 2026-07-11,
+/// PK-089). The declined PnS/sphere-cap construction used to ship its
+/// non-commercial cap anyway (g0 = 9.877e-3, g1 = 0.90 across 5
+/// edges); the dispatch now rolls the corner back to mitred with
+/// structured declines and a `VertexModeFallback` warning. An
+/// ACCEPTED N=5 cap for this fixture is PK-084.
 #[test]
-fn cap_outer_boundary_records_pyramid5_mixed_sphere_cap_blocker() {
-    let m = run_n_pyramid_cap_outer_faces(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
+fn cap_outer_boundary_records_pyramid5_mixed_all_or_nothing_rollback() {
+    let (result, m) = run_n_pyramid_cap_outer_result(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     println!(
         "cap_outer pyramid5_mixed: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
     );
-    assert!(
-        m.edges_measured >= 1,
-        "pyramid5_mixed sphere-cap coverage should expose cap/support edges"
+    assert_eq!(
+        m.edges_measured, 0,
+        "pyramid5_mixed must not ship a measurable non-commercial cap after the \
+         all-or-nothing rollback (was g0=9.877e-3/g1=0.90)"
+    );
+    let apex_patches = result
+        .corner_patches
+        .iter()
+        .filter(|patch| patch.n_sides == 5)
+        .count();
+    assert_eq!(
+        apex_patches, 0,
+        "declined N=5 dispatch must record zero apex patches"
     );
     assert!(
-        m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
-        "pyramid5_mixed blocker should remain measured until the PnS/sphere-cap construction is repaired"
+        result
+            .edge_warnings
+            .iter()
+            .any(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. })),
+        "the mitred rollback must be recorded as a VertexModeFallback warning"
     );
+    result
+        .brep
+        .validate()
+        .expect("mitred rollback must leave a valid BRep");
 }
 
 #[test]
@@ -197,13 +206,23 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
     );
-    assert!(
-        m.edges_measured >= 1,
-        "hexagon6_variable route should expose measurable cap/support edges"
+    // Re-pinned 2026-07-11 (PK-089): the declined route no longer ships
+    // its non-commercial fallback cap (was g0=5.359e-3/g1=0.99 across 6
+    // edges) — the N >= 5 all-or-nothing contract rolls the corner back
+    // to mitred. The structured decline records below remain the
+    // blocker's measured evidence; the accepted-cap repair is PK-090
+    // (paper-cap input class / fold frontier).
+    assert_eq!(
+        m.edges_measured, 0,
+        "hexagon6_variable must not ship a measurable non-commercial cap after the \
+         all-or-nothing rollback (was g0=5.359e-3/g1=0.99)"
     );
     assert!(
-        m.worst_g0_gap > G0_GATE && m.worst_g1_coplanarity > G1_GATE,
-        "hexagon6_variable route blocker should remain measured until support-cell routing or boundary quality is repaired"
+        result
+            .edge_warnings
+            .iter()
+            .any(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. })),
+        "the mitred rollback must be recorded as a VertexModeFallback warning"
     );
     // Route re-pinned 2026-07-11: the N=6 smooth blend previously died
     // before ANY cap dispatch (0 trim anchors -> Mitred, the pyramid
