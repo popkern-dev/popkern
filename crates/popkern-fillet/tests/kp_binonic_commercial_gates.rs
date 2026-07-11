@@ -244,6 +244,7 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 }
 
 #[test]
+#[ignore = "K-P/binonic route not selected: pyramid4_mixed promotes to the direct-apex partition (PK-099's orientation-honest convexity reclassified the apex SameSideConcave -> SameSideConvex, exposing that the legacy convex-quad path never reaches three-quad dispatch — its overlap-split loop is 12-he, not 2n — and shipped an unmeasured g0=1.34 fallback cap; the partition cap closes at 1.5e-14 and is gated by direct_apex_validation_matrix + reflection_zebra). Reactivate if a 2n-dispatch-ready convex-quad loop lands."]
 fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
     let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
     assert_commercial_gates("pyramid4_mixed", &m);

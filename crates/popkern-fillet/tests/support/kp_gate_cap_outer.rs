@@ -155,8 +155,20 @@ fn measure_cap_outer_boundary_inner(
                         })
                         .unwrap_or_default();
                     worst_g0_trace = format!(
-                        "edge={_eh:?} faces=({face_a:?},{face_b:?}) sample={i}{edge_trace} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) p_a=({:.4},{:.4},{:.4}) p_b=({:.4},{:.4},{:.4})",
-                        uv_a.x, uv_a.y, uv_b.x, uv_b.y, p_a.x, p_a.y, p_a.z, p_b.x, p_b.y, p_b.z
+                        "edge={_eh:?} faces=({face_a:?}:{},{face_b:?}:{}) cap={} sample={i}{edge_trace} uv_a=({:.3},{:.3}) uv_b=({:.3},{:.3}) p_a=({:.4},{:.4},{:.4}) p_b=({:.4},{:.4},{:.4})",
+                        surface_kind_label(&sa.geometry),
+                        surface_kind_label(&sb.geometry),
+                        if a_is_cap { "a" } else { "b" },
+                        uv_a.x,
+                        uv_a.y,
+                        uv_b.x,
+                        uv_b.y,
+                        p_a.x,
+                        p_a.y,
+                        p_a.z,
+                        p_b.x,
+                        p_b.y,
+                        p_b.z
                     );
                 }
             }
@@ -219,6 +231,19 @@ fn measure_cap_outer_boundary_inner(
         worst_g0_gap: worst_g0,
         worst_g1_coplanarity: worst_g1,
         edges_measured,
+    }
+}
+
+fn surface_kind_label(surface: &popkern_core::geometry::surface::SurfaceGeometry) -> &'static str {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    match surface {
+        SurfaceGeometry::Plane { .. } => "Plane",
+        SurfaceGeometry::Cylinder { .. } => "Cylinder",
+        SurfaceGeometry::Sphere { .. } => "Sphere",
+        SurfaceGeometry::Torus { .. } => "Torus",
+        SurfaceGeometry::Cone { .. } => "Cone",
+        SurfaceGeometry::Nurbs(_) => "Nurbs",
+        SurfaceGeometry::Gregory(_) => "Gregory",
     }
 }
 

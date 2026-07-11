@@ -123,7 +123,7 @@ fn cube_corner_mixed_native_cap() -> (BRep, popkern_core::topology::FaceHandle) 
     (r.brep, corner_face)
 }
 
-fn pyramid_apex_gregory() -> Option<(BRep, popkern_core::topology::FaceHandle)> {
+fn pyramid_apex_gregory() -> Option<(BRep, Vec<popkern_core::topology::FaceHandle>)> {
     let pyramid = BRep::square_pyramid(1.0, 0.8, tol()).ok()?;
     let apex = pyramid
         .vertices
@@ -154,12 +154,40 @@ fn pyramid_apex_gregory() -> Option<(BRep, popkern_core::topology::FaceHandle)> 
         ..FilletOptions::default()
     };
     let r = fillet_edges(&pyramid, &specs, &opts, tol(), None).ok()?;
-    let face = r
+    let mut faces: Vec<_> = r
         .corner_patches
         .iter()
-        .find(|p| p.vertex == apex && p.method == CornerMethod::Gregory)?
-        .face;
-    Some((r.brep, face))
+        .filter(|p| p.vertex == apex && p.method == CornerMethod::Gregory)
+        .map(|p| p.face)
+        .collect();
+    if faces.is_empty() {
+        // Mixed-radius N=4 apexes promote to the direct-apex partition
+        // route, which records its cap sectors on the apex route
+        // report instead of as Gregory corner patches. Measure the
+        // committed curved cap faces so the fixture keeps gating the
+        // production construction rather than silently skipping.
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        faces = r
+            .repair_report
+            .apex_routes
+            .iter()
+            .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
+            .filter(|&face| {
+                r.brep.faces.get(face).is_some_and(|f| {
+                    f.surface.as_ref().is_some_and(|s| {
+                        matches!(
+                            s.geometry,
+                            SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)
+                        )
+                    })
+                })
+            })
+            .collect();
+    }
+    if faces.is_empty() {
+        return None;
+    }
+    Some((r.brep, faces))
 }
 
 fn pick_blend_face_from_cube_fillet(brep: &BRep) -> popkern_core::topology::FaceHandle {
@@ -238,11 +266,12 @@ fn reflection_and_zebra_within_bounds_cross_fixture() {
     let (brep, corner_face) = cube_corner_mixed_native_cap();
     assert_within_bounds("cube corner mixed native cap", &brep, corner_face);
 
-    // Fixture 4: pyramid apex (N=4 Gregory).
-    if let Some((brep, corner_face)) = pyramid_apex_gregory() {
-        assert_within_bounds("pyramid apex Gregory", &brep, corner_face);
-    } else {
-        eprintln!("pyramid apex fixture skipped — fillet pipeline rejected");
+    // Fixture 4: pyramid apex (N=4 mixed — direct-apex partition cap
+    // sectors, or a Gregory corner patch on older routes).
+    let (brep, cap_faces) =
+        pyramid_apex_gregory().expect("pyramid apex fixture must produce measurable cap faces");
+    for (i, face) in cap_faces.iter().enumerate() {
+        assert_within_bounds(&format!("pyramid apex cap[{i}]"), &brep, *face);
     }
 }
 
