@@ -4,7 +4,6 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[test]
-#[ignore = "PK-097: G1 production route (KP20 cap family)"]
 fn g1_kp20_commit_produces_valid_blend() {
     popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();

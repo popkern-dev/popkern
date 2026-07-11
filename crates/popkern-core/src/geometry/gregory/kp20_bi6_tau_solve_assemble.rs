@@ -12,10 +12,6 @@ use super::kp20_bi6_math::{kp20_b_coeffs_near_m, kp20_b_coeffs_near_o};
 use super::kp20_bi6_piece_maps::{
     Kp20PlanarTauValidityReport, kp20_planar_bi6_tau_validity_report,
 };
-#[cfg(test)]
-use super::kp20_bi6_tau_f3_solve::kp20_planar_tau_diagonal_symmetry_constraints;
-#[cfg(test)]
-use super::kp20_bi6_tau_f3_solve::kp20_planar_tau_tensor_border_constraints_with_d1_3;
 use super::kp20_bi6_tau_f3_solve::{
     Kp20PlanarTauAugmentedF3ScalarSolveInput, Kp20PlanarTauAugmentedScalarCoeff,
     Kp20PlanarTauAugmentedScalarLinearConstraint, Kp20PlanarTauCoeff, Kp20PlanarTauScalarCoeff,
@@ -58,14 +54,25 @@ pub struct Kp20PlanarTauPaperRowSet {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kp20PlanarTauPaperRowFamily {
     /// Internal C² joins across the Fig. 8 four-piece macro-patch layout.
+    ///
+    /// Not emitted by the live §4.2 residual surface (its RC1-contaminated
+    /// emitters were retired with the KP20 recovery plan); kept because
+    /// frontier gates match on the full paper row-family vocabulary.
+    #[allow(dead_code)]
     InternalC2,
     /// KP20 Fig. 8b indicated coefficient average.
     Fig8IndicatedAverage,
     /// KP20 equation (14) tensor-border rows.
     TensorBorderEq14,
     /// KP20 equations (8)/(9) along the near-origin sector edge.
+    ///
+    /// Vocabulary-only, like [`Kp20PlanarTauPaperRowFamily::InternalC2`].
+    #[allow(dead_code)]
     SectorG1G2NearOrigin,
     /// KP20 equations (8)/(9) along the near-midpoint sector edge.
+    ///
+    /// Vocabulary-only, like [`Kp20PlanarTauPaperRowFamily::InternalC2`].
+    #[allow(dead_code)]
     SectorG1G2NearMidpoint,
     /// KP20 §4.2 C⁰ rows: `\vec p_i0 = p_i0` and underlined analogue.
     Section42C0,
@@ -857,66 +864,6 @@ fn global_to_local_planar(valence: usize, sector: usize, point: Point3) -> [f64;
     ]
 }
 
-/// Evaluate the solved macro-patch against each KP20 paper row family.
-///
-/// This is a diagnostic localization surface: it does not alter the KKT solve,
-/// but it keeps failed candidate comparisons tied to source-level constraints.
-#[cfg(test)]
-pub fn kp20_planar_tau_paper_family_residuals(
-    valence: usize,
-    sector: usize,
-    characteristic_tensor_border: &TensorBorderBi3,
-    tau_macro_patch: &Kp20MacroPatch,
-) -> Result<Vec<Kp20PlanarTauPaperFamilyResidual>, Kp20PlanarTauPaperSolveError> {
-    if valence < 3 {
-        return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
-    }
-    let c = (core::f64::consts::TAU / valence as f64).cos();
-    let tensor_border =
-        kp20_planar_tau_tensor_border_constraints(characteristic_tensor_border, sector)
-            .map_err(Kp20PlanarTauPaperSolveError::TensorBorder)?;
-    Ok(vec![
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::InternalC2,
-            &kp20_planar_tau_internal_c2_constraints(),
-            tau_macro_patch,
-        ),
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::Fig8IndicatedAverage,
-            &kp20_planar_tau_fig8_indicated_averaging_constraints(),
-            tau_macro_patch,
-        ),
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::TensorBorderEq14,
-            &tensor_border,
-            tau_macro_patch,
-        ),
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::SectorG1G2NearOrigin,
-            &kp20_planar_tau_sector_g1_g2_constraints(
-                Kp20PieceId::NearOriginLeft,
-                Kp20PieceId::NearOriginRight,
-                kp20_b_coeffs_near_o(c),
-            ),
-            tau_macro_patch,
-        ),
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::SectorG1G2NearMidpoint,
-            &kp20_planar_tau_sector_g1_g2_constraints(
-                Kp20PieceId::NearMidpointLeft,
-                Kp20PieceId::NearMidpointRight,
-                kp20_b_coeffs_near_m(c),
-            ),
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::DiagonalSymmetry,
-            &kp20_planar_tau_diagonal_symmetry_constraints(),
-            tau_macro_patch,
-        ),
-    ])
-}
-
 /// Evaluate the rotational KP20 §4.2 row set against each accepted paper family.
 #[cfg(test)]
 pub fn kp20_planar_tau_rotational_paper_family_residuals(
@@ -985,75 +932,6 @@ pub fn kp20_planar_tau_rotational_paper_family_residuals(
         scalar_family_residual(
             Kp20PlanarTauPaperRowFamily::DiagonalSymmetry,
             &diagonal_rows,
-            tau_macro_patch,
-        ),
-    ])
-}
-
-/// Evaluate the adjacent-sector row set with an explicit KP20 eq. (14)
-/// `d¹_3` value against each paper family.
-#[cfg(test)]
-pub fn kp20_planar_tau_rotational_paper_family_residuals_with_d1_3(
-    valence: usize,
-    sector: usize,
-    characteristic_tensor_border: &TensorBorderBi3,
-    d1_3: f64,
-    tau_macro_patch: &Kp20MacroPatch,
-) -> Result<Vec<Kp20PlanarTauPaperFamilyResidual>, Kp20PlanarTauPaperSolveError> {
-    if valence < 3 {
-        return Err(Kp20PlanarTauPaperSolveError::InvalidValence(valence));
-    }
-    let angle = core::f64::consts::TAU / valence as f64;
-    let c = angle.cos();
-    let tensor_border = kp20_planar_tau_tensor_border_constraints_with_d1_3(
-        characteristic_tensor_border,
-        sector,
-        d1_3,
-    )
-    .map_err(Kp20PlanarTauPaperSolveError::TensorBorder)?;
-    let map = kp20_section42_oriented_endpoint_aware_map();
-    let mut c0_rows = Vec::new();
-    add_kp20_section42_oriented_c0_rows(&mut c0_rows, map);
-    let mut eq11_rows = Vec::new();
-    add_kp20_section42_oriented_eq11_degree5_rows(&mut eq11_rows, map);
-    let mut eq12_rows = Vec::new();
-    add_kp20_section42_oriented_endpoint_aware_eq12_rows(&mut eq12_rows, map);
-    let mut eq13_rows = Vec::new();
-    add_kp20_section42_oriented_eq13_rows(&mut eq13_rows, map, 2.0 * c);
-    Ok(vec![
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::Fig8IndicatedAverage,
-            &kp20_planar_tau_fig8_indicated_averaging_constraints(),
-            tau_macro_patch,
-        ),
-        vector_family_residual(
-            Kp20PlanarTauPaperRowFamily::TensorBorderEq14,
-            &tensor_border,
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::Section42C0,
-            &c0_rows,
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::Section42Eq11Degree5,
-            &eq11_rows,
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::Section42Eq12InternalC2,
-            &eq12_rows,
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::Section42Eq13Strip,
-            &eq13_rows,
-            tau_macro_patch,
-        ),
-        scalar_family_residual(
-            Kp20PlanarTauPaperRowFamily::DiagonalSymmetry,
-            &kp20_planar_tau_diagonal_symmetry_constraints(),
             tau_macro_patch,
         ),
     ])

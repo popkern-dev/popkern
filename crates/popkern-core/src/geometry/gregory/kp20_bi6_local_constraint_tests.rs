@@ -993,7 +993,7 @@ fn kp20_tau_map_apex_derivatives_match_across_sectors() {
 /// measurement so a bad result is classified before it is interpreted as a
 /// geometry failure.
 #[test]
-#[ignore = "campaign frontier assertion pending WP2 (tau from the derived characteristic tensor-border); measurements stay in the probe log"]
+#[ignore = "live frontier gate (WP2 landed): n=5 rotational-paper-regular-source enters assembly with worst_eq8=1.78e-5 pre-assembly (gate requires roundoff); post-assembly worst_eq8=4.5e-5, worst_eq9=1.7e-4, folds=0"]
 fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
     use super::super::kp20_bi6_tau_solve_assemble::{
         Kp20PlanarTauPaperRowFamily, Kp20PlanarTauPaperSolveInput,
@@ -2258,7 +2258,7 @@ fn projected_pr08_q1_q3_candidates_rank_closed_tau_domain_before_full_sampler() 
 }
 
 #[test]
-#[ignore = "campaign frontier assertion pending WP2 (tau from the derived characteristic tensor-border); measurements stay in the probe log"]
+#[ignore = "live frontier gate (WP2 landed): NearOriginLeft[0,6] is pinned by 3 eq(14)/Fig.8 vector rows (gate requires 0); escape projection itself converges (excess=0, delta=5.5e-1, residual=2.6e-14 across reg 1e-10..1e-4)"]
 fn projected_section42_former_escape_coefficients_are_not_bound_by_accepted_rows() {
     use super::super::kp20_bi6_tau_f3_solve::Kp20PlanarTauCoeff;
     use super::super::kp20_bi6_tau_solve_assemble::{

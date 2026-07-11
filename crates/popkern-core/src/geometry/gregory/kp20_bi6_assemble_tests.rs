@@ -51,14 +51,6 @@ fn tensor_border() -> TensorBorderBi3 {
     }
 }
 
-fn tensor_border_with_valence(n: usize) -> TensorBorderBi3 {
-    TensorBorderBi3 {
-        sectors: (0..n)
-            .map(|sector| sample_sector(10.0 * sector as f64))
-            .collect(),
-    }
-}
-
 fn curved_sector(offset: f64, twist: f64) -> [[Point3; 4]; 3] {
     let mut sector = [[p(0.0, 0.0, 0.0); 4]; 3];
     for (row_idx, row) in sector.iter_mut().enumerate() {
@@ -162,26 +154,6 @@ fn assembler_rejects_valence_mismatch() {
             sampled_macro_patches: 2
         }
     ));
-}
-
-#[test]
-#[ignore = "RC1-contaminated Fig 6c tau acceptance; re-derive per recovery plan WP2"]
-fn assembler_accepts_appendix_a_fig6c_tau_as_paper_reparameterization() {
-    let input = Kp20Bi6CapInput {
-        star_point: p(0.0, 0.0, 0.0),
-        tensor_border: tensor_border_with_valence(5),
-    };
-
-    let output = assemble_kp20_bi6_cap_with_appendix_a_fig6c_tau(&input)
-        .expect("paper-valid Fig.6c tau assembly should not require triangle containment");
-
-    assert_eq!(output.sector_samples.len(), 5);
-    assert_eq!(output.cap.macro_patches.len(), 5);
-    for sample in &output.sector_samples {
-        assert_eq!(sample.tau.orientation.negative_determinants, 0);
-        assert_eq!(sample.tau.orientation.near_zero_determinants, 0);
-        assert!(sample.tau.square_domain.stays_inside_square());
-    }
 }
 
 #[test]

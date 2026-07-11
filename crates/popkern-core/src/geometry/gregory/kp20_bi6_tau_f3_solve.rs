@@ -7,13 +7,11 @@
 
 use super::direct_linalg::{condition_number_dense, solve_dense};
 use super::kp_polar_boundary_input::TensorBorderBi3;
-#[cfg(test)]
-use super::kp20_bi6_cap::split_kp20_tensor_border_with_d1_3;
 use super::kp20_bi6_cap::{Kp20MacroPatch, Kp20PieceId, split_kp20_tensor_border};
 #[cfg(test)]
 use super::kp20_bi6_local_constraint::{
-    Kp20Eq9DiagnosticTerms, Kp20Eq9TermSigns, kp20_eq9_jacobian_dense_degree8,
-    kp20_eq9_jacobian_dense_with_diagnostic_terms, kp20_eq9_jacobian_dense_with_term_signs,
+    Kp20Eq9DiagnosticTerms, kp20_eq9_jacobian_dense_degree8,
+    kp20_eq9_jacobian_dense_with_diagnostic_terms,
 };
 use super::kp20_bi6_local_constraint::{kp20_eq8_jacobian_dense, kp20_eq9_jacobian_dense};
 use crate::geometry::Point3;
@@ -485,17 +483,6 @@ pub fn kp20_planar_tau_tensor_border_constraints(
     kp20_planar_tau_tensor_border_constraints_from_split(&split, sector)
 }
 
-/// KP20 equation (14) tensor-border rows with an explicit `d¹_3`.
-#[cfg(test)]
-pub fn kp20_planar_tau_tensor_border_constraints_with_d1_3(
-    tensor_border: &TensorBorderBi3,
-    sector: usize,
-    d1_3: f64,
-) -> Result<Vec<Kp20PlanarTauLinearConstraint>, String> {
-    let split = split_kp20_tensor_border_with_d1_3(tensor_border, d1_3)?;
-    kp20_planar_tau_tensor_border_constraints_from_split(&split, sector)
-}
-
 /// KP20 equation (14) tensor-border rows from an already-split (and
 /// reparameterised) border. Public entry for natively-split sources
 /// such as the characteristic ring's two-piece sector boundary.
@@ -632,42 +619,6 @@ pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_split_b(
 }
 
 #[cfg(test)]
-/// Diagnostic variant that keeps eq. (8) fixed but allows eq. (9)'s
-/// polynomial terms to use measured sign/orientation variants.
-pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_eq9_term_signs(
-    previous_piece: Kp20PieceId,
-    current_piece: Kp20PieceId,
-    eq8_b_coeffs: [f64; 3],
-    eq9_b_coeffs: [f64; 3],
-    eq9_signs: Kp20Eq9TermSigns,
-    previous_sector_rotation_radians: f64,
-) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
-    let (sin_theta, cos_theta) = previous_sector_rotation_radians.sin_cos();
-    let mut rows = Vec::with_capacity(30);
-    for jac_row in kp20_eq8_jacobian_dense(eq8_b_coeffs) {
-        add_rotated_jacobian_rows(
-            &mut rows,
-            previous_piece,
-            current_piece,
-            &jac_row,
-            sin_theta,
-            cos_theta,
-        );
-    }
-    for jac_row in kp20_eq9_jacobian_dense_with_term_signs(eq9_b_coeffs, eq9_signs) {
-        add_rotated_jacobian_rows(
-            &mut rows,
-            previous_piece,
-            current_piece,
-            &jac_row,
-            sin_theta,
-            cos_theta,
-        );
-    }
-    rows
-}
-
-#[cfg(test)]
 /// Diagnostic variant for testing which side supplies the eq. (9) derivative
 /// terms under adjacent-sector boundary reversal.
 pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_eq9_diagnostic_terms(
@@ -704,28 +655,6 @@ pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_eq9_diagnostic_terms(
 }
 
 #[cfg(test)]
-pub fn kp20_planar_tau_rotated_sector_g1_constraints(
-    previous_piece: Kp20PieceId,
-    current_piece: Kp20PieceId,
-    b_coeffs: [f64; 3],
-    previous_sector_rotation_radians: f64,
-) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
-    let (sin_theta, cos_theta) = previous_sector_rotation_radians.sin_cos();
-    let mut rows = Vec::with_capacity(14);
-    for jac_row in kp20_eq8_jacobian_dense(b_coeffs) {
-        add_rotated_jacobian_rows(
-            &mut rows,
-            previous_piece,
-            current_piece,
-            &jac_row,
-            sin_theta,
-            cos_theta,
-        );
-    }
-    rows
-}
-
-#[cfg(test)]
 /// Diagnostic variant that enforces eq. (9) as the full degree-8
 /// polynomial before KP20's degree-reduction identity is assumed.
 pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_eq9_degree8(
@@ -748,28 +677,6 @@ pub fn kp20_planar_tau_rotated_sector_g1_g2_constraints_eq9_degree8(
         );
     }
     for jac_row in kp20_eq9_jacobian_dense_degree8(eq9_b_coeffs) {
-        add_rotated_jacobian_rows(
-            &mut rows,
-            previous_piece,
-            current_piece,
-            &jac_row,
-            sin_theta,
-            cos_theta,
-        );
-    }
-    rows
-}
-
-#[cfg(test)]
-pub fn kp20_planar_tau_rotated_sector_g2_constraints(
-    previous_piece: Kp20PieceId,
-    current_piece: Kp20PieceId,
-    b_coeffs: [f64; 3],
-    previous_sector_rotation_radians: f64,
-) -> Vec<Kp20PlanarTauScalarLinearConstraint> {
-    let (sin_theta, cos_theta) = previous_sector_rotation_radians.sin_cos();
-    let mut rows = Vec::with_capacity(16);
-    for jac_row in kp20_eq9_jacobian_dense(b_coeffs) {
         add_rotated_jacobian_rows(
             &mut rows,
             previous_piece,
