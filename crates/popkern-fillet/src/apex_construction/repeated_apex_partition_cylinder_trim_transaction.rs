@@ -206,6 +206,12 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             cap_boundary_plan.apply_adjacent_loop_rewrites(brep)?;
             author_materialized_shared_fillet_end_trims_for_plan(brep, &topology_plans)?;
         }
+        // PK-074: the support-cell surface solve runs as the LATE pocket
+        // completion in direct_apex_dispatch (acceptance preparation) —
+        // mid-transaction the model still carries transiently broken
+        // loops that fail mef's global postconditions, and later stages
+        // keep re-trimming the pocket complex. See docs/decisions/
+        // 2026-07-11-side-support-pocket-floor-reconstruction.md.
         Ok(CylinderTrimRewriteResult {
             boundary_outcome,
             diagnostics,

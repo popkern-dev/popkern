@@ -7,7 +7,7 @@ use super::*;
 pub(super) use direct_apex_acceptance_helpers::native_gregory_has_expected_cylinder_seams;
 use direct_apex_acceptance_helpers::{
     measure_exact_boundary_cap_outer_g0, native_gregory_cap_faces,
-    trace_loop_for_acceptance_failure, trace_native_gregory_cap_seam_g0,
+    trace_loop_for_acceptance_failure, trace_native_gregory_cap_seam_g0, trace_shell_gap_edge,
 };
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
@@ -17,9 +17,13 @@ pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
     brep.validate_collect_fast()
         .into_iter()
         .find_map(|err| match err {
-            ValidationError::BrokenCycle { .. } | ValidationError::ShellGap { .. } => {
+            ValidationError::ShellGap { edge, .. } => {
+                if crate::direct_apex_trace::enabled() {
+                    trace_shell_gap_edge(brep, edge);
+                }
                 Some(format!("{err:?}"))
             }
+            ValidationError::BrokenCycle { .. } => Some(format!("{err:?}")),
             ValidationError::OpenLoop { loop_, .. } => {
                 if crate::direct_apex_trace::enabled() {
                     trace_loop_for_acceptance_failure(brep, loop_);

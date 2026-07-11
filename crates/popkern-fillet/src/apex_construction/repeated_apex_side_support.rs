@@ -88,33 +88,14 @@ impl SideSupportRegionDiagnosticSnapshot {
                 let rollback = brep.clone();
                 match outside_primitive.apply_topology_operator(brep) {
                     Ok(result) => {
-                        // The core operator authors TOPOLOGY only; the
-                        // bridge faces (planar continuations of their
-                        // supports, bounded by tangency generators)
-                        // must receive verified surface geometry and
-                        // pcurves or every downstream cap/support seam
-                        // measurement declines the whole apex
-                        // (measured: cube_extreme — 12 pcurve-less
-                        // seams, native Gregory declined, the legacy
-                        // fallback committed g0 = 14.2).
-                        // Best-effort: bridge faces that continue a
-                        // twin-adjacent surface get it (verified) plus
-                        // pcurves; the rest stay for the result-level
-                        // support-cell completion, which owns their
-                        // geometry (the pipeline that kept cube_extreme
-                        // green before the strict candidate acceptance
-                        // landed). A refusal here was measured to fail
-                        // the whole continuation EARLIER than the old
-                        // pipeline ever did.
-                        if let Err(reason) =
-                            assign_bridge_face_geometry(brep, result.bridge_faces())
-                            && crate::direct_apex_trace::enabled()
-                        {
-                            eprintln!(
-                                "[direct-apex-trace] bridge geometry authoring left \
-                                 residue for downstream completion: {reason}"
-                            );
-                        }
+                        // The core operator authors TOPOLOGY only. The
+                        // support-cell surface solve runs at the END of
+                        // the cylinder-trim transaction (after every
+                        // §14.9 consumer of the bridge loops), not here:
+                        // splitting the bridges mid-transaction broke
+                        // repeated-apex normalization (BrokenCycle). See
+                        // docs/decisions/2026-07-11-side-support-pocket-
+                        // floor-reconstruction.md.
                         return Ok(SideSupportRegionContinuationOutcome::Applied(result));
                     }
                     Err(err) => {
@@ -193,156 +174,6 @@ pub(super) fn apply_selected_side_support_continuation(
                 diagnostics.diagnostic_label()
             ),
         })
-}
-
-/// Author geometry for freshly-bridged faces: each bridge face is a
-/// planar continuation of one of its twin-adjacent surfaced faces
-/// (bounded by the mediating cylinder's tangency generators, so the
-/// support surface contains it exactly). Assign the best-fitting
-/// adjacent surface — VERIFIED against every loop vertex and edge-curve
-/// midpoint — then author the face's missing pcurves and fill missing
-/// pcurves on its twin-adjacent faces (the new seam edges' other
-/// sides). A bridge face that fits no adjacent surface is a refusal:
-/// the caller rolls the candidate back and records the reason.
-fn assign_bridge_face_geometry(brep: &mut BRep, bridge_faces: &[FaceHandle]) -> Result<(), String> {
-    use popkern_core::geometry::surface::SurfaceEval;
-
-    let fit_gate = brep.tolerance.linear().max(1.0e-9) * 10.0;
-    let mut refresh: std::collections::BTreeSet<FaceHandle> = std::collections::BTreeSet::new();
-    for &bridge in bridge_faces {
-        let Some(face) = brep.faces.get(bridge) else {
-            return Err(format!("bridge face {bridge:?} is stale"));
-        };
-        if face.surface.is_some() {
-            refresh.insert(bridge);
-            continue;
-        }
-        // Loop samples: vertices plus each edge curve's midpoint.
-        let Some(loop_) = brep.loops.get(face.outer_loop) else {
-            return Err(format!("bridge face {bridge:?} has no outer loop"));
-        };
-        let start = loop_.half_edge;
-        let mut samples = Vec::new();
-        let mut neighbors: Vec<FaceHandle> = Vec::new();
-        let mut he = start;
-        for _ in 0..10_000 {
-            let Some(data) = brep.half_edges.get(he) else {
-                break;
-            };
-            samples.push(brep.vertices[data.origin].position);
-            if let Some(edge) = brep.edges.get(data.edge)
-                && let Some(curve) = edge.curve.as_ref()
-            {
-                use popkern_core::geometry::curve::CurveEval;
-                samples.push(curve.geometry.point_at(0.5 * (curve.t_start + curve.t_end)));
-            }
-            if let Some(twin) = brep.half_edges.get(data.twin)
-                && let Some(twin_loop) = brep.loops.get(twin.loop_)
-                && twin_loop.face != bridge
-                && !neighbors.contains(&twin_loop.face)
-            {
-                neighbors.push(twin_loop.face);
-            }
-            he = data.next;
-            if he == start {
-                break;
-            }
-        }
-        let mut best: Option<(f64, FaceHandle)> = None;
-        for neighbor in &neighbors {
-            let Some(sof) = brep.faces.get(*neighbor).and_then(|f| f.surface.as_ref()) else {
-                continue;
-            };
-            let mut worst = 0.0f64;
-            for p in &samples {
-                let d =
-                    popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, p)
-                        .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(p))
-                        .unwrap_or(f64::INFINITY);
-                worst = worst.max(d);
-                if worst > fit_gate {
-                    break;
-                }
-            }
-            if worst <= fit_gate && best.is_none_or(|(bd, _)| worst < bd) {
-                best = Some((worst, *neighbor));
-            }
-        }
-        let Some((_, source)) = best else {
-            if crate::direct_apex_trace::enabled() {
-                for neighbor in &neighbors {
-                    let Some(sof) = brep.faces.get(*neighbor).and_then(|f| f.surface.as_ref())
-                    else {
-                        continue;
-                    };
-                    let mut worst = 0.0f64;
-                    for p in &samples {
-                        let d = popkern_core::geometry::uv_projection::project_point_to_uv(
-                            &sof.geometry,
-                            p,
-                        )
-                        .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(p))
-                        .unwrap_or(f64::INFINITY);
-                        worst = worst.max(d);
-                    }
-                    eprintln!(
-                        "[direct-apex-trace] bridge {bridge:?} vs neighbor {neighbor:?}: worst={worst:.4e}"
-                    );
-                }
-                // Planarity of the sample set: best-fit plane residual
-                // via the centroid + Newell normal.
-                let n_pts = samples.len().max(1) as f64;
-                let mut c = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
-                for p in &samples {
-                    c = c + popkern_core::geometry::Vec3::new(p.x, p.y, p.z);
-                }
-                let c = c * (1.0 / n_pts);
-                let mut normal = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
-                for i in 0..samples.len() {
-                    let a = samples[i];
-                    let b = samples[(i + 1) % samples.len()];
-                    let a = popkern_core::geometry::Vec3::new(a.x - c.x, a.y - c.y, a.z - c.z);
-                    let b = popkern_core::geometry::Vec3::new(b.x - c.x, b.y - c.y, b.z - c.z);
-                    normal = normal + a.cross(&b);
-                }
-                let flat = normal.normalized().map(|n| {
-                    samples
-                        .iter()
-                        .map(|p| {
-                            (popkern_core::geometry::Vec3::new(p.x - c.x, p.y - c.y, p.z - c.z)
-                                .dot(&n))
-                            .abs()
-                        })
-                        .fold(0.0, f64::max)
-                });
-                eprintln!(
-                    "[direct-apex-trace] bridge {bridge:?} planarity worst={flat:?} samples={}",
-                    samples.len()
-                );
-            }
-            return Err(format!(
-                "bridge face {bridge:?} fits no twin-adjacent surface within {fit_gate:.2e} \
-                 over {} samples ({} neighbors tried)",
-                samples.len(),
-                neighbors.len()
-            ));
-        };
-        let source_surface = brep
-            .faces
-            .get(source)
-            .and_then(|f| f.surface.clone())
-            .ok_or_else(|| format!("source face {source:?} lost its surface"))?;
-        brep.faces[bridge].surface = Some(source_surface);
-        refresh.insert(bridge);
-        for neighbor in neighbors {
-            refresh.insert(neighbor);
-        }
-    }
-    for face in refresh {
-        brep.recompute_face_pcurves(face)
-            .map_err(|err| format!("pcurve authoring on {face:?} failed: {err}"))?;
-    }
-    Ok(())
 }
 
 impl SideSupportRegionContinuationOutcome {

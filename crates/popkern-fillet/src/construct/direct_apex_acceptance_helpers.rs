@@ -429,3 +429,69 @@ fn half_edge_destination_vertex_for_acceptance(
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
         .map(|(vertex, _)| vertex)
 }
+
+pub(super) fn trace_shell_gap_edge(brep: &BRep, edge: popkern_core::topology::EdgeHandle) {
+    use popkern_core::geometry::curve::CurveEval;
+    let Some(edge_data) = brep.edges.get(edge) else {
+        return;
+    };
+    let he_a = edge_data.half_edge;
+    let mid = edge_data
+        .curve
+        .as_ref()
+        .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)));
+    if let Some(c) = edge_data.curve.as_ref() {
+        let ps = c.geometry.point_at(c.t_start);
+        let pe = c.geometry.point_at(c.t_end);
+        let vo = brep
+            .half_edges
+            .get(he_a)
+            .map(|d| (d.origin, brep.vertices.get(d.origin).map(|v| v.position)));
+        let vt = brep
+            .half_edges
+            .get(he_a)
+            .and_then(|d| brep.half_edges.get(d.twin))
+            .map(|t| (t.origin, brep.vertices.get(t.origin).map(|v| v.position)));
+        eprintln!(
+            "[direct-apex-trace] shell-gap {edge:?} endpoints: curve=({ps:?} -> {pe:?}) \
+             he_origin={vo:?} twin_origin={vt:?}"
+        );
+    }
+    for (label, he) in [
+        ("a", Some(he_a)),
+        ("b", brep.half_edges.get(he_a).map(|d| d.twin)),
+    ] {
+        let Some(he) = he else { continue };
+        let Some(data) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let face = brep.loops.get(data.loop_).map(|l| l.face);
+        let surface = face
+            .and_then(|f| brep.faces.get(f))
+            .and_then(|f| f.surface.as_ref());
+        let eval = match (data.pcurve.as_ref(), surface) {
+            (Some(pcurve), Some(sof)) => {
+                let (lo, hi) = pcurve.parameter_range();
+                let at = |t: f64| {
+                    let uv = pcurve.point_at(t);
+                    sof.geometry.point_at(uv.x, uv.y)
+                };
+                Some((lo, hi, at(lo), at(0.5 * (lo + hi)), at(hi)))
+            }
+            _ => None,
+        };
+        eprintln!(
+            "[direct-apex-trace] shell-gap {edge:?} side-{label}: face={face:?} kind={} \
+             pcurve(lo,hi,eval_lo,eval_mid,eval_hi)={eval:?} curve_mid={mid:?}",
+            surface
+                .map(|s| match &s.geometry {
+                    SurfaceGeometry::Plane { .. } => "Plane",
+                    SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                    SurfaceGeometry::Nurbs(_) => "Nurbs",
+                    SurfaceGeometry::Gregory(_) => "Gregory",
+                    _ => "Other",
+                })
+                .unwrap_or("None"),
+        );
+    }
+}

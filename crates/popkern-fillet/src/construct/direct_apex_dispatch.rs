@@ -308,18 +308,21 @@ fn try_constructive_with_legacy_fallthrough(
     match construct_apex_constructively(brep, plan, surfaces, tolerance, None, execution_options) {
         Ok(mut result) => {
             if matches!(plan.cap_kind, CapKind::Gregory { .. }) {
-                let constructive_err =
-                    if !direct_apex_acceptance::native_gregory_has_expected_cylinder_seams(
-                        brep,
-                        &result,
-                        plan.n_fillets(),
-                    ) {
-                        Some(format!(
-                            "native Gregory cap has fewer than {} cap-to-cylinder seams; \
+                let acceptance_error =
+                    |brep: &BRep,
+                     result: &crate::apex_construction::construct::ApexBuildResult|
+                     -> Option<String> {
+                        if !direct_apex_acceptance::native_gregory_has_expected_cylinder_seams(
+                            brep,
+                            result,
+                            plan.n_fillets(),
+                        ) {
+                            return Some(format!(
+                                "native Gregory cap has fewer than {} cap-to-cylinder seams; \
                              treating as incomplete direct-apex topology",
-                            plan.n_fillets()
-                        ))
-                    } else {
+                                plan.n_fillets()
+                            ));
+                        }
                         direct_apex_acceptance::native_gregory_path_a_error(brep)
                             .map(|reason| {
                                 format!(
@@ -329,16 +332,88 @@ fn try_constructive_with_legacy_fallthrough(
                             })
                             .or_else(|| {
                                 direct_apex_acceptance::native_gregory_cap_outer_g0_error(
-                                    brep, &result, 5.0e-3,
+                                    brep, result, 5.0e-3,
                                 )
                                 .map(|reason| {
                                     format!(
                                         "native Gregory cap failed geometric acceptance: {reason}; \
-                                         treating as incomplete direct-apex topology"
+                                     treating as incomplete direct-apex topology"
                                     )
                                 })
                             })
                     };
+                let mut constructive_err = acceptance_error(brep, &result);
+                if constructive_err.is_some() {
+                    // PK-074 late pocket completion — a REPAIR boundary,
+                    // attempted only when honest acceptance would otherwise
+                    // decline (fixtures that already pass are untouched by
+                    // construction): consume surviving surface-less pocket
+                    // faces (and created cap faces whose committed surface
+                    // misses its own boundary — pocket-annulus residue) into
+                    // carrier-exact cells, then author still-missing cap-side
+                    // seam pcurves, and re-run acceptance. Transactional: on
+                    // no improvement the pre-completion state is restored.
+                    let pre_completion = brep.clone();
+                    let completion =
+                        crate::apex_construction::side_support_cell_solve::resolve_pocket_faces(
+                            brep,
+                            &result.created_faces,
+                        );
+                    if crate::direct_apex_trace::enabled() {
+                        eprintln!(
+                            "[direct-apex-trace] late pocket completion: cells={} whole_faces={} \
+                             demoted={:?} declined={:?}",
+                            completion.cells_created,
+                            completion.faces_surfaced,
+                            completion.demoted_refit_candidates,
+                            completion.declined
+                        );
+                    }
+                    let mut completed_result = result.clone();
+                    // A demoted refit candidate was never an honest cap face
+                    // (its surface missed its own boundary); drop it from the
+                    // measured cap set — its remaining seams are pocket-
+                    // internal structure, as in the passing fixtures.
+                    completed_result
+                        .created_faces
+                        .retain(|face| !completion.demoted_refit_candidates.contains(face));
+                    // Author any cap-side pcurves still missing on the created
+                    // caps' external seams (inner-loop seams that no pocket
+                    // cell's refresh reached).
+                    let cap_set: std::collections::BTreeSet<popkern_core::topology::FaceHandle> =
+                        completed_result.created_faces.iter().copied().collect();
+                    for &cap_face in &completed_result.created_faces {
+                        let before = brep.clone();
+                        let completion_report =
+                            crate::construct::three_quad_support_pcurve_completion::
+                                complete_missing_external_cap_support_pcurves(
+                                    brep, cap_face, &cap_set,
+                                );
+                        if crate::direct_apex_trace::enabled() {
+                            eprintln!(
+                                "[direct-apex-trace] late cap pcurve completion {cap_face:?}: \
+                                 eligible={} authored={} repaired={} declined={}",
+                                completion_report.eligible_edges,
+                                completion_report.authored_cap_boundary_pcurves,
+                                completion_report.repaired_cap_boundary_pcurves,
+                                completion_report.declined_cap_boundary_pcurves,
+                            );
+                        }
+                        if brep.validate().is_err() {
+                            *brep = before;
+                        }
+                    }
+                    match acceptance_error(brep, &completed_result) {
+                        None => {
+                            result = completed_result;
+                            constructive_err = None;
+                        }
+                        Some(err) => {
+                            *brep = pre_completion;
+                            constructive_err = Some(err);
+                        }
+                    }
+                }
                 if let Some(constructive_err) = constructive_err {
                     if crate::direct_apex_trace::enabled() {
                         eprintln!(
