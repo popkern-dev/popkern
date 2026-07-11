@@ -111,17 +111,24 @@ fn intersect_plane_sphere(
     // (which produce skewed UV projections, not axis-aligned ellipses).
     let curve_uv_plane = project_curve_to_plane_uv(&curve_3d, plane_origin, plane_u, plane_v);
 
-    // UV on sphere:
-    // The sphere parameterization is u = longitude, v = colatitude.
-    // The intersection circle sits at colatitude v_const = acos(d / radius).
-    // We build a NURBS circle in UV space at constant v.
-    let v_const = (d / sphere_radius).clamp(-1.0, 1.0).acos();
-    let curve_uv_sphere = nurbs_sphere_uv_circle(sphere_u_range, v_const);
+    // UV on sphere: co-parameterized with `curve_3d` — the pcurve must
+    // satisfy S_sphere(uv(t)) = curve_3d(t) for the SAME t. A tilted
+    // plane's circle is a transcendental curve in the (longitude,
+    // colatitude) chart, so it is fitted: chart the circle at the 3D
+    // curve's own parameters, unwrap the longitude by continuity, and
+    // interpolate with a degree-1 NURBS whose knots ARE those
+    // parameters, refining until mid-knot agreement passes. (The old
+    // placeholder was a constant-colatitude u-line: geometrically
+    // wrong for any plane not perpendicular to the polar axis, and not
+    // co-parameterized even when perpendicular — it only survived
+    // because downstream chart embeddings 3D-verify pcurves and fall
+    // back to projection.)
+    let curve_uv_sphere = fit_sphere_uv_curve(&curve_3d, sphere_center, sphere_radius, tolerance);
 
     // Respect the UV ranges — if the circle centre is outside the plane's
     // parameter box, the intersection may not be relevant, but we still
     // return it (clipping is the caller's responsibility).
-    let _ = (plane_u_range, plane_v_range, sphere_v_range);
+    let _ = (plane_u_range, plane_v_range, sphere_u_range, sphere_v_range);
 
     let (curve_uv1, curve_uv2) = if swapped {
         (curve_uv_sphere, curve_uv_plane)
@@ -170,26 +177,98 @@ fn nurbs_ellipse_3d(center: Point3, axis1: Vec3, axis2: Vec3, ra: f64, rb: f64) 
     }
 }
 
-/// Build a NURBS circle in the sphere's UV parameter space.
+/// Fit the sphere-chart image of `curve_3d` as a co-parameterized
+/// degree-1 NURBS: `S_sphere(fit(t)) ≈ curve_3d(t)` for the same `t`.
 ///
-/// The intersection circle at constant colatitude `v_const` is a horizontal
-/// line in UV space from `(u_start, v_const)` to `(u_end, v_const)`.
-/// For a full circle this is `(0, v_const)` to `(TAU, v_const)`.
-fn nurbs_sphere_uv_circle(u_range: (f64, f64), v_const: f64) -> NurbsCurve {
-    let u_start = u_range.0;
-    let u_end = u_range.1;
-    // Represent the full longitude sweep as a degree-1 NURBS line in UV space.
-    // Using the same 9-control-point structure as the 3D circle would be
-    // incorrect because the UV-to-3D map is non-linear. Instead we use a
-    // simple linear segment that traverses the full u range at constant v.
-    NurbsCurve {
-        degree: 1,
-        knots: vec![0.0, 0.0, 1.0, 1.0],
-        control_points: vec![
-            Point3::new(u_start, v_const, 0.0),
-            Point3::new(u_end, v_const, 0.0),
-        ],
-        weights: vec![1.0, 1.0],
+/// Samples the 3D circle at its own parameters, charts each sample
+/// (`u = atan2`, `v = acos` — the kernel sphere convention), unwraps
+/// the longitude by continuity so seam crossings stay a continuous
+/// polyline (period branch ±2π), and interpolates with knots AT the
+/// sample parameters. Sample density doubles until every mid-knot
+/// deviation passes the linear tolerance or the 4097-point cap is
+/// reached (chord sag shrinks quadratically per doubling, so the cap
+/// is a safeguard; at default 1e-6 a tilted great-ish circle needs
+/// ~4k points — a recorded candidate for a piecewise-quadratic
+/// upgrade if profiling ever flags it).
+///
+/// Pole guard: a sample within the chart singularity keeps its
+/// neighbor's longitude (`atan2(0, 0)` is meaningless there and any
+/// value evaluates back to the pole).
+fn fit_sphere_uv_curve(
+    curve_3d: &NurbsCurve,
+    sphere_center: Point3,
+    sphere_radius: f64,
+    tolerance: &Tolerance,
+) -> NurbsCurve {
+    use crate::geometry::curve::CurveEval;
+    use std::f64::consts::TAU;
+
+    let gate = tolerance.linear().max(1.0e-9);
+    let chart = |p: Point3, prev_u: Option<f64>| -> (f64, f64) {
+        let d = (p - sphere_center) * (1.0 / sphere_radius);
+        let v = d.z.clamp(-1.0, 1.0).acos();
+        let planar = (d.x * d.x + d.y * d.y).sqrt();
+        let mut u = if planar < 1.0e-12 {
+            prev_u.unwrap_or(0.0)
+        } else {
+            let raw = d.y.atan2(d.x);
+            if raw < 0.0 { raw + TAU } else { raw }
+        };
+        if let Some(prev) = prev_u {
+            // Continuity unwrap: stay within half a period of the
+            // previous sample.
+            u -= TAU * ((u - prev) / TAU).round();
+        }
+        (u, v)
+    };
+
+    let mut n = 65usize;
+    loop {
+        let mut params = Vec::with_capacity(n);
+        let mut uvs: Vec<(f64, f64)> = Vec::with_capacity(n);
+        for i in 0..n {
+            let t = i as f64 / (n - 1) as f64;
+            let prev_u = uvs.last().map(|&(u, _)| u);
+            let uv = chart(curve_3d.point_at(t), prev_u);
+            params.push(t);
+            uvs.push(uv);
+        }
+        // Mid-knot verification: the polyline evaluated halfway
+        // between knots must land back on the 3D circle.
+        let mut worst = 0.0f64;
+        for i in 0..n - 1 {
+            let t_mid = 0.5 * (params[i] + params[i + 1]);
+            let (u, v) = (
+                0.5 * (uvs[i].0 + uvs[i + 1].0),
+                0.5 * (uvs[i].1 + uvs[i + 1].1),
+            );
+            let on_sphere = sphere_center
+                + Vec3::new(
+                    sphere_radius * v.sin() * u.cos(),
+                    sphere_radius * v.sin() * u.sin(),
+                    sphere_radius * v.cos(),
+                );
+            worst = worst.max(on_sphere.distance_to(&curve_3d.point_at(t_mid)));
+        }
+        if worst <= gate || n >= 4097 {
+            // Clamped degree-1 knot vector with knots at the sample
+            // parameters: the curve passes through sample i at t_i,
+            // preserving co-parameterization with curve_3d.
+            let mut knots = Vec::with_capacity(n + 2);
+            knots.push(params[0]);
+            knots.extend(params.iter().copied());
+            knots.push(params[n - 1]);
+            return NurbsCurve {
+                degree: 1,
+                knots,
+                control_points: uvs
+                    .into_iter()
+                    .map(|(u, v)| Point3::new(u, v, 0.0))
+                    .collect(),
+                weights: vec![1.0; n],
+            };
+        }
+        n = (n - 1) * 2 + 1;
     }
 }
 

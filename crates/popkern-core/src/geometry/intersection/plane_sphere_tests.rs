@@ -292,3 +292,74 @@ fn returns_none_for_non_plane_sphere() {
     );
     assert!(result.is_none(), "two planes should not match");
 }
+
+/// PK-113 gate: the sphere-side pcurve is CO-PARAMETERIZED with the 3D
+/// curve — `S_sphere(uv2(t)) = curve_3d(t)` at the same `t` — for a
+/// plane perpendicular to the polar axis.
+#[test]
+fn sphere_pcurve_is_coparameterized_perpendicular() {
+    let sphere = unit_sphere();
+    let plane = xy_plane(0.3);
+    let result = try_plane_sphere(
+        &plane,
+        (-2.0, 2.0),
+        (-2.0, 2.0),
+        &sphere,
+        (0.0, std::f64::consts::TAU),
+        (0.0, std::f64::consts::PI),
+        &test_tolerance(),
+    );
+    let intersections = must_some(result, "plane-sphere should match");
+    let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] else {
+        panic!("expected curve");
+    };
+    assert_sphere_pcurve_agreement(&sphere, cos);
+}
+
+/// PK-113 gate: same agreement for a TILTED plane (not perpendicular
+/// to the polar axis) — the case the old constant-colatitude
+/// placeholder got geometrically wrong.
+#[test]
+fn sphere_pcurve_is_coparameterized_tilted() {
+    let sphere = unit_sphere();
+    let plane = SurfaceGeometry::Plane {
+        origin: Point3::new(0.4, 0.0, 0.0),
+        normal: Vec3::new(1.0, 0.0, 0.0),
+        u_axis: Vec3::new(0.0, 1.0, 0.0),
+        v_axis: Vec3::new(0.0, 0.0, 1.0),
+    };
+    let result = try_plane_sphere(
+        &plane,
+        (-2.0, 2.0),
+        (-2.0, 2.0),
+        &sphere,
+        (0.0, std::f64::consts::TAU),
+        (0.0, std::f64::consts::PI),
+        &test_tolerance(),
+    );
+    let intersections = must_some(result, "plane-sphere should match");
+    let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] else {
+        panic!("expected curve");
+    };
+    assert_sphere_pcurve_agreement(&sphere, cos);
+}
+
+fn assert_sphere_pcurve_agreement(
+    sphere: &SurfaceGeometry,
+    cos: &crate::geometry::curve_on_surface::CurveOnSurface,
+) {
+    use crate::geometry::surface::SurfaceEval;
+    let mut worst = 0.0f64;
+    for i in 0..=200 {
+        let t = i as f64 / 200.0;
+        let uv = eval_nurbs(&cos.curve_uv2, t);
+        let on_sphere = sphere.point_at(uv.x, uv.y);
+        let on_curve = eval_nurbs(&cos.curve_3d, t);
+        worst = worst.max(on_sphere.distance_to(&on_curve));
+    }
+    assert!(
+        worst < 2.0e-6,
+        "sphere pcurve must agree with curve_3d at the same parameter \
+         (2x the 1e-6 test tolerance the fit was gated at); worst {worst:.3e}"
+    );
+}
