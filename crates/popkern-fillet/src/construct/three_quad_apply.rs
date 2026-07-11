@@ -47,6 +47,7 @@ use three_quad_sphere_cap::{
 use three_quad_trace::trace_cap_subface_neighbors;
 
 use super::poke_hex::poke_n_gon_face_into_expected_n_quads;
+use super::promotion_ladder::PromotionResult;
 use super::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces;
 use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::build_n_quad_decomposition_with_options;
@@ -149,6 +150,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     let mut promotion_report = super::promotion_ladder::run_promotion_ladder(
         &mut decomp,
         fillet_surfaces,
+        Some((boundary, &*brep)),
         &mut relaxed_coplanarity,
         use_deg5,
         use_biquintic_full,
@@ -183,7 +185,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             n_sides,
             decomp.sub_patches.len(),
         );
-        promotion_report.result = super::promotion_ladder::PromotionResult::Standard;
+        promotion_report.result = PromotionResult::Standard;
         macro_family = None;
     }
 
@@ -227,7 +229,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             if !sphere_cap_boundary_preflight {
                 if !decomp_self_intersects(&unpromoted_constrained_decomp, SELF_INT_TOL) {
                     decomp = unpromoted_constrained_decomp.clone();
-                    promotion_report.result = super::promotion_ladder::PromotionResult::Standard;
+                    promotion_report.result = PromotionResult::Standard;
                     macro_family = None;
                 } else {
                     return Err(ThreeQuadFailure::Other(format!(
@@ -244,8 +246,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     if matches!(
         promotion_report.result,
-        super::promotion_ladder::PromotionResult::ExpandedKp20Support
-            | super::promotion_ladder::PromotionResult::Kp20SupportCell
+        PromotionResult::ExpandedKp20Support | PromotionResult::Kp20SupportCell
     ) && let Some(result) =
         super::three_quad_expanded_kp20_apply::try_apply_kp20_specialized_patchwork(
             super::three_quad_expanded_kp20_apply::ExpandedKp20ApplyInput {
@@ -271,18 +272,16 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         return Ok(result);
     }
 
-    let sub_faces_raw: Vec<FaceHandle> = if matches!(
-        promotion_report.result,
-        super::promotion_ladder::PromotionResult::Macro4n(_)
-    ) {
-        super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)
-            .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
-            .sub_faces
-    } else {
-        poke_n_gon_face_into_expected_n_quads(brep, blend_face, decomp.central_point, n_sides)
-            .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?
-            .sub_faces
-    };
+    let sub_faces_raw: Vec<FaceHandle> =
+        if matches!(promotion_report.result, PromotionResult::Macro4n(_)) {
+            super::poke_4n::poke_n_gon_face_into_4n_quads(brep, blend_face, decomp.central_point)
+                .map_err(|e| ThreeQuadFailure::Other(format!("4n poke failed: {e}")))?
+                .sub_faces
+        } else {
+            poke_n_gon_face_into_expected_n_quads(brep, blend_face, decomp.central_point, n_sides)
+                .map_err(|e| ThreeQuadFailure::Other(format!("poke failed: {e}")))?
+                .sub_faces
+        };
     if sub_faces_raw.len() != decomp.sub_patches.len() {
         return Err(ThreeQuadFailure::Other(format!(
             "poke/decomposition size mismatch: poke produced {} sub-faces, \

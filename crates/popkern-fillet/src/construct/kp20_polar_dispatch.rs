@@ -33,6 +33,8 @@ pub(crate) use primary_candidate::try_kp20_polar_macro_candidate;
 use report::Kp20PolarDispatchReport;
 use timing::Kp20DispatchStageTiming;
 
+#[path = "kp20_blend_boundary_primary_candidate.rs"]
+mod blend_boundary_primary_candidate;
 #[path = "kp20_polar_coupled_lift.rs"]
 mod coupled_lift;
 #[path = "kp20_polar_inner_field.rs"]
@@ -67,6 +69,7 @@ mod timing;
 pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
     sub_patches: &[GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
+    apex_boundary: Option<(&crate::blend::BlendBoundary, &popkern_core::topology::BRep)>,
 ) -> Kp20PolarDispatchReport {
     let n = sub_patches.len();
     let mut diagnostics = Vec::new();
@@ -142,44 +145,41 @@ pub(super) fn try_kp20_polar_dispatch_with_diagnostics(
             return Kp20PolarDispatchReport::declined(diagnostics);
         }
     };
-    // Setback-border paper candidate first: derives the cap border
+    // Blend-boundary paper candidate first (PK-090): the honest
+    // 2n-segment apex boundary carries the true two-piece-per-sector
+    // corner data at `c` that the collapsed adapters discard. Accept, or
+    // record the decline (folds + corner mismatch) and fall through.
+    if let Some((boundary, brep)) = apex_boundary
+        && boundary.segments.len() == 2 * n
+        && let Some(patches) = paper_primary_candidate::record_paper_candidate_outcome(
+            &mut diagnostics,
+            "blend_boundary_paper_candidate",
+            n,
+            blend_boundary_primary_candidate::try_kp20_blend_boundary_primary_candidate(
+                boundary,
+                fillet_surfaces,
+                brep,
+            ),
+        )
+    {
+        return Kp20PolarDispatchReport::accepted(patches, diagnostics);
+    }
+    // Setback-border paper candidate next: derives the cap border
     // from the fillet surfaces themselves (the geometry the blended
-    // BRep bounds) rather than the sub-patch spokes. Falls through
-    // to the legacy candidates on decline.
-    if fillet_surfaces.len() == n && n >= 5 {
-        match setback_primary_candidate::try_kp20_setback_primary_candidate(
-            fillet_surfaces,
-            polar.central_vertex,
-        ) {
-            Ok(candidate) if candidate.is_acceptable() => {
-                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
-                    "setback_paper_candidate",
-                    n,
-                    Some(candidate.detail()),
-                    None,
-                    None,
-                ));
-                return Kp20PolarDispatchReport::accepted(candidate.patches, diagnostics);
-            }
-            Ok(candidate) => {
-                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
-                    "setback_paper_candidate_declined",
-                    n,
-                    Some(candidate.detail()),
-                    None,
-                    None,
-                ));
-            }
-            Err(e) => {
-                diagnostics.push(super::kp20_polar_diagnostics::dispatch_fact(
-                    "setback_paper_candidate_error",
-                    n,
-                    Some(e),
-                    None,
-                    None,
-                ));
-            }
-        }
+    // BRep bounds). Falls through to the legacy candidates on decline.
+    if fillet_surfaces.len() == n
+        && n >= 5
+        && let Some(patches) = paper_primary_candidate::record_paper_candidate_outcome(
+            &mut diagnostics,
+            "setback_paper_candidate",
+            n,
+            setback_primary_candidate::try_kp20_setback_primary_candidate(
+                fillet_surfaces,
+                polar.central_vertex,
+            ),
+        )
+    {
+        return Kp20PolarDispatchReport::accepted(patches, diagnostics);
     }
     let (mut primary_diagnostics, primary_patches) =
         evaluate_positive_primary_candidates(n, polar.central_vertex, &tensor_border);

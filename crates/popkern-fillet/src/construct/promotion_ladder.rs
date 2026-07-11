@@ -54,10 +54,16 @@ pub(super) struct PromotionLadderReport {
 /// and `fillet_surfaces` so the binonic optimiser can use outer-
 /// fillet G1 residuals (cap-vs-fillet tangent-plane match along
 /// each cap's outer boundary).
+///
+/// PK-090: `apex_boundary` is the apex blend boundary (plus the BRep
+/// that owns its face-edge surfaces) for the honest 2n-segment
+/// blend-boundary paper candidate in the KP20 polar dispatch; call
+/// sites without one pass `None`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn run_promotion_ladder(
     decomp: &mut NQuadDecomposition,
     fillet_surfaces: &[FilletSurfaceResult],
+    apex_boundary: Option<(&crate::blend::BlendBoundary, &popkern_core::topology::BRep)>,
     relaxed_coplanarity: &mut Option<f64>,
     use_deg5: bool,
     use_biquintic_full: bool,
@@ -126,6 +132,7 @@ pub(super) fn run_promotion_ladder(
         let mut report = super::kp20_polar_dispatch::try_kp20_polar_dispatch_with_diagnostics(
             &decomp.sub_patches,
             fillet_surfaces,
+            apex_boundary,
         );
         diagnostics.append(&mut report.diagnostics);
         if let Some(patches_4n) = report.patches {
@@ -227,6 +234,7 @@ mod tests {
         let report = run_promotion_ladder(
             &mut decomp,
             &[],
+            None,
             &mut relaxed_coplanarity,
             false,
             false,

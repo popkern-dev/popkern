@@ -26,6 +26,25 @@ use popkern_core::geometry::gregory::{
 /// of the candidate's geometric radius.
 const PAPER_CAP_RELATIVE_RESIDUAL_GATE: f64 = 1.0e-6;
 
+/// Relative gate on the INPUT border's corner-band disagreement at
+/// the sector corners `c` (`input_corner_mismatch`), as a fraction of
+/// the candidate's geometric radius — a G¹-class incompatibility of
+/// the input that the assembly averages into the rim.
+///
+/// Why this is NOT the 1e-6 closure gate above: the mismatch is an
+/// input-shape-class measurement (like `guide_fit_residual`), not an
+/// assembly residual, and it is nonzero even on by-construction-valid
+/// input — measured 1.7e-1 relative on the C² B-spline ring border
+/// (fold-free, all continuity rows at machine zero) and 1.3e-1 on the
+/// accepted pentagonal-pyramid G² setback candidate. Every folding
+/// real-rolling-ball candidate measured to date sits at >= 2.3e-1
+/// relative (hexagon6_variable setback/blend-boundary, pentagon5 and
+/// hexagon6 midpoint-split adapters, PK-090 calibration). The gate is
+/// placed in the measured separation band so corner-incompatible
+/// input declines attributably (measured value in the detail string)
+/// without regressing the accepted class.
+const PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE: f64 = 2.0e-1;
+
 /// Paper-cap candidate with its acceptance evidence.
 pub(super) struct Kp20PaperPrimaryCandidate {
     /// Bi-9 Gregory patches, sector-major piece order.
@@ -42,31 +61,90 @@ impl Kp20PaperPrimaryCandidate {
     /// Accept when the paper gates close at the relative tolerance,
     /// the surface is regular, and the fold sampler agrees.
     pub(super) fn is_acceptable(&self) -> bool {
-        let gate = PAPER_CAP_RELATIVE_RESIDUAL_GATE * self.scale.max(f64::MIN_POSITIVE);
+        let scale = self.scale.max(f64::MIN_POSITIVE);
+        let gate = PAPER_CAP_RELATIVE_RESIDUAL_GATE * scale;
+        // Corner-incompatible input must DECLINE (with the measured
+        // `input_corner_mismatch` in the detail string), not ship a
+        // kinked rim; see the corner gate constant for the measured
+        // calibration and why its relative form differs from the
+        // closure rows.
+        let corner_gate = PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE * scale;
         self.report.max_g1_residual < gate
             && self.report.max_g2_residual < gate
             && self.report.max_c0_residual < gate
             && self.report.max_border_residual < gate
             && self.report.lemma4_delta < gate
+            && self.report.input_corner_mismatch < corner_gate
             && self.report.min_regularity > 0.0
             && self.summary.fold_count == 0
     }
 
     /// Structured diagnostic detail (paper residuals + fold summary).
+    /// `corner_mismatch` is the measured `input_corner_mismatch`, so
+    /// corner-gate declines are attributable from the record alone.
     pub(super) fn detail(&self) -> String {
         format!(
-            "map_family=paper_section_4_4;status=assembled;folds={};g1={:.3e};g2={:.3e};c0={:.3e};border={:.3e};lemma4={:.3e};guide_fit={:.3e};strip_move={:.3e};min_regularity={:.3e};scale={:.3e}",
+            "map_family=paper_section_4_4;status=assembled;folds={};g1={:.3e};g2={:.3e};c0={:.3e};border={:.3e};lemma4={:.3e};corner_mismatch={:.3e};guide_fit={:.3e};strip_move={:.3e};min_regularity={:.3e};scale={:.3e}",
             self.summary.fold_count,
             self.report.max_g1_residual,
             self.report.max_g2_residual,
             self.report.max_c0_residual,
             self.report.max_border_residual,
             self.report.lemma4_delta,
+            self.report.input_corner_mismatch,
             self.report.guide_fit_residual,
             self.report.max_strip_movement,
             self.report.min_regularity,
             self.scale,
         )
+    }
+}
+
+/// Record a paper candidate's outcome under `label` and return the
+/// accepted patches. Shared contract for every paper-border primary
+/// candidate (setback, blend-boundary): an ACCEPTED candidate records
+/// `label` with its full detail; a gate decline records
+/// `{label}_declined` with the same detail (fold count and measured
+/// `input_corner_mismatch` included); a construction error records
+/// `{label}_error` with the error string.
+pub(super) fn record_paper_candidate_outcome(
+    diagnostics: &mut Vec<crate::types::ApexConstructionDiagnostic>,
+    label: &str,
+    n: usize,
+    candidate: Result<Kp20PaperPrimaryCandidate, String>,
+) -> Option<Vec<GregoryPatch>> {
+    use super::super::kp20_polar_diagnostics::dispatch_fact;
+    match candidate {
+        Ok(candidate) if candidate.is_acceptable() => {
+            diagnostics.push(dispatch_fact(
+                label,
+                n,
+                Some(candidate.detail()),
+                None,
+                None,
+            ));
+            Some(candidate.patches)
+        }
+        Ok(candidate) => {
+            diagnostics.push(dispatch_fact(
+                &format!("{label}_declined"),
+                n,
+                Some(candidate.detail()),
+                None,
+                None,
+            ));
+            None
+        }
+        Err(e) => {
+            diagnostics.push(dispatch_fact(
+                &format!("{label}_error"),
+                n,
+                Some(e),
+                None,
+                None,
+            ));
+            None
+        }
     }
 }
 

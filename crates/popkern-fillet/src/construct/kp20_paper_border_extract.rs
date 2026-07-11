@@ -26,6 +26,10 @@ use popkern_core::topology::BRep;
 use crate::blend::{BlendBoundary, BoundarySegment};
 use crate::fillet_surface::FilletSurfaceResult;
 
+#[path = "kp20_paper_border_recovery.rs"]
+mod recovery;
+use recovery::recover_face_edge_surface;
+
 /// Extraction evidence for diagnostics and gating.
 #[derive(Debug, Clone)]
 pub struct Kp20PaperBorderExtractReport {
@@ -48,6 +52,11 @@ pub struct Kp20PaperBorderExtractReport {
     /// Setback path only: per-fillet setback arc data for topology
     /// insertion (the full arc cubic and its shared corner points).
     pub setback_arcs: Vec<Kp20SetbackArc>,
+    /// Face-edge segments whose recorded face handle was stale (the
+    /// n-gon boundary is computed before the corner-face topology
+    /// surgery) and whose owning surface was recovered by curve
+    /// incidence instead.
+    pub recovered_face_surfaces: usize,
 }
 
 /// One fillet's setback arc, exported for BRep topology insertion:
@@ -83,9 +92,16 @@ pub fn kp20_paper_border_from_blend_boundary(
 
     // Orient every segment along the loop: segment k must start where
     // segment k-1 ends.
+    let mut recovered_face_surfaces = 0_usize;
     let mut curves: Vec<OrientedSegment> = Vec::with_capacity(segment_count);
     for segment in &boundary.segments {
-        curves.push(OrientedSegment::new(segment, fillet_surfaces, brep)?);
+        curves.push(OrientedSegment::new(
+            segment,
+            fillet_surfaces,
+            brep,
+            boundary,
+            &mut recovered_face_surfaces,
+        )?);
     }
     let mut max_loop_gap = 0.0_f64;
     for k in 0..segment_count {
@@ -298,6 +314,7 @@ pub fn kp20_paper_border_from_blend_boundary(
             reversed_for_orientation,
             trim_corners: Vec::new(),
             setback_arcs: Vec::new(),
+            recovered_face_surfaces,
         },
     ))
 }
@@ -370,6 +387,8 @@ impl OrientedSegment {
         segment: &BoundarySegment,
         fillet_surfaces: &[FilletSurfaceResult],
         brep: &BRep,
+        boundary: &BlendBoundary,
+        recovered_face_surfaces: &mut usize,
     ) -> Result<Self, String> {
         match segment {
             BoundarySegment::FilletEnd {
@@ -389,12 +408,18 @@ impl OrientedSegment {
                 })
             }
             BoundarySegment::FaceEdge { face, curve } => {
-                let surface = brep.faces[*face]
-                    .surface
-                    .as_ref()
-                    .ok_or_else(|| format!("face {face:?} has no surface"))?
-                    .geometry
-                    .clone();
+                let surface = match brep.faces.get(*face).and_then(|f| f.surface.as_ref()) {
+                    Some(on_face) => on_face.geometry.clone(),
+                    // The n-gon boundary is computed before the
+                    // corner-face topology surgery, so its face
+                    // handles may be stale at dispatch time. Recover
+                    // the owning surface by curve incidence, counted
+                    // in the report.
+                    None => {
+                        *recovered_face_surfaces += 1;
+                        recover_face_edge_surface(brep, curve, boundary)?
+                    }
+                };
                 Ok(Self {
                     curve: curve.clone(),
                     surface,
@@ -953,6 +978,7 @@ pub fn kp20_paper_border_from_fillet_setback(
             reversed_for_orientation: false,
             trim_corners: corners.iter().map(|c| c.1).collect(),
             setback_arcs,
+            recovered_face_surfaces: 0,
         },
     ))
 }
@@ -971,90 +997,5 @@ fn split_cubic_row(row: &[Point3; 4]) -> ([Point3; 4], [Point3; 4]) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{FilletRadius, FilletSpec, preview_fillet};
-    use popkern_core::geometry::gregory::kp20_paper_border_corner_mismatch;
-    use popkern_core::tolerance::Tolerance;
-
-    /// End-to-end extraction gate on real rolling-ball data: the loop
-    /// closes exactly, every ring march is exact (cylinder/plane),
-    /// and the corner mismatch is finite and bounded — the measured
-    /// G¹-input incompatibility at c, recorded rather than hidden.
-    #[test]
-    fn pyramid_apex_extraction_is_closed_and_exact() {
-        let tol = Tolerance::default();
-        let pyramid =
-            popkern_core::topology::BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
-        let apex = pyramid
-            .vertices
-            .iter()
-            .find(|(_, v)| {
-                v.position.x.abs() < 1e-9 && v.position.y.abs() < 1e-9 && v.position.z > 0.0
-            })
-            .map(|(h, _)| h)
-            .expect("apex");
-        let apex_edges: Vec<_> = pyramid
-            .edges
-            .iter()
-            .filter_map(|(eh, _)| {
-                let he = pyramid.edges[eh].half_edge;
-                let origin = pyramid.half_edges[he].origin;
-                let twin_origin = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
-                (origin == apex || twin_origin == apex).then_some(eh)
-            })
-            .collect();
-        let specs: Vec<FilletSpec> = apex_edges
-            .iter()
-            .map(|&edge| FilletSpec {
-                edge,
-                radius: FilletRadius::Constant(0.12),
-            })
-            .collect();
-        let preview = preview_fillet(&pyramid, &specs, tol).expect("preview");
-        let fillet_surfaces: Vec<FilletSurfaceResult> = preview
-            .per_edge
-            .iter()
-            .map(|eg| FilletSurfaceResult {
-                surface: eg.blend_surface.clone(),
-                trim_curve_1: eg.trim_curve_1.clone(),
-                trim_curve_2: eg.trim_curve_2.clone(),
-                continuity_downgrade: None,
-            })
-            .collect();
-        let indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-        let boundary =
-            crate::blend::compute_blend_boundary(apex, &indices, &fillet_surfaces, &pyramid, &tol)
-                .expect("boundary");
-        let (border, report) =
-            kp20_paper_border_from_blend_boundary(&boundary, &fillet_surfaces, &pyramid)
-                .expect("extract");
-        assert_eq!(report.n, 5);
-        assert!(
-            report.max_loop_gap < 1.0e-9,
-            "loop gap {}",
-            report.max_loop_gap
-        );
-        assert_eq!(
-            report.first_order_marches, 0,
-            "cylinder/plane marches must be exact"
-        );
-        let c = (core::f64::consts::TAU / 5.0).cos();
-        let mut mismatch = 0.0_f64;
-        for sector in &border.sectors {
-            mismatch = mismatch.max(kp20_paper_border_corner_mismatch(
-                5,
-                &sector[0].rows,
-                &sector[1].rows,
-                2.0 * c / 3.0,
-            ));
-        }
-        // Rolling-ball input is G1-class: the corner mismatch is real
-        // and must be REPORTED, not zero. Bound it loosely so gross
-        // extraction bugs (orders of magnitude off) still fail.
-        assert!(
-            mismatch > 1.0e-4 && mismatch < 1.0,
-            "corner mismatch out of expected G1-class band: {mismatch:e}",
-        );
-    }
-}
+#[path = "kp20_paper_border_extract_tests.rs"]
+mod tests;
