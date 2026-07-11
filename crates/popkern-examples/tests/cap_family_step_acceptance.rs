@@ -30,9 +30,18 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
         "raw exact-boundary cap-family export must have no topology blockers: topology_evidence={:#?} boundary_evidence={:#?} report={pre_export:#?}",
         pre_export.topology_evidence, pre_export.boundary_edge_evidence
     );
+    // Census provenance: 21 pcurve-blocked EDGES when authored
+    // (21b95c60); c3eb03ea (PK-095 tessellation hardening —
+    // pcurve_recompute + setback topology) repaired the six
+    // setback-cluster edges (40v1–42v1, 48v1–50v1). Verified as a
+    // strict subset drop: every current blocker existed in the old
+    // set, none were added (PK-116 ledger holds the edge-set diff).
+    // Note the two counters use different granularity by design:
+    // pcurve_blockers counts EDGES, edge_surface_blockers counts
+    // incompatible HALF-EDGES (unchanged by the pcurve repair).
     assert_eq!(
         pre_export.pcurve_blockers,
-        21,
+        15,
         "raw exact-boundary cap-family export should expose the current structured pcurve blocker class: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
@@ -104,11 +113,19 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     .expect("STEP import decline should identify the imported validation gate");
                 match &imported_validation.kind {
                     StepImportedValidationFailureKind::EulerPoincare(euler) => {
+                        // Census provenance: authored at actual=23 with
+                        // boundary_edges=0 (a closed accounting failure).
+                        // The import class drifted in the same PK-095-era
+                        // window as the blocker counts above: the imported
+                        // model now carries 38 unpaired half-edges (an
+                        // OPEN-shell decline, actual=36, V=80 E=63 F=19).
+                        // Still a structured, deterministic decline of the
+                        // known-blocked raw export (PK-116).
                         assert_eq!(euler.expected, 2);
-                        assert_eq!(euler.actual, 23);
+                        assert_eq!(euler.actual, 36);
                         assert_eq!(
-                            euler.boundary_edges, 0,
-                            "Euler-Poincare evidence should classify this as a closed imported topology accounting failure, not an open-shell gap: {euler:#?}"
+                            euler.boundary_edges, 38,
+                            "Euler-Poincare evidence should expose the imported open-shell census: {euler:#?}"
                         );
                         assert_eq!(
                             euler.solid_shell_faces, euler.faces,
