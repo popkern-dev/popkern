@@ -92,9 +92,13 @@ pub(crate) fn cap_support_acceptance_error(
                 .unwrap_or_default();
             eprintln!(
                 "[direct-apex-trace] seam {edge_handle:?} missing {missing_side} pcurve \
-                 (missing side is_cap={side_is_cap}) faces {face_a:?}:{} / {face_b:?}:{} at {p}",
+                 (missing side is_cap={side_is_cap}) faces {face_a:?}:{} / {face_b:?}:{} at {p} \
+                 [pa={} pb={} curve={}]",
                 kind(face_a),
                 kind(face_b),
+                ha.pcurve.is_some(),
+                hb.pcurve.is_some(),
+                edge.curve.is_some(),
             );
         };
         let Some(pa) = ha.pcurve.as_ref() else {
@@ -250,6 +254,7 @@ pub(crate) fn cap_support_acceptance_error(
                 worst_g0_edge.unwrap_or_default()
             ));
         };
+        trace_seam_cap_containment(brep, &seam);
         return Some(format!(
             "cap_outer_g0 {worst_g0:.3e} on {:?} cap_face={:?} support_face={:?} sample={:.3} cap_uv=({:.3},{:.3}) support_uv=({:.3},{:.3}) cap_curve_gap={:.3e} support_curve_gap={:.3e} exceeds {max_g0_gap:.3e}",
             seam.edge,
@@ -340,6 +345,110 @@ pub(crate) fn cap_support_continuity_diagnostic(
             },
         ),
     )
+}
+
+/// Decline forensics: when the worst g0 seam fails the gate, report
+/// whether the cap SURFACE actually contains the seam curve (dense
+/// clamped projection) — separating a bad cap pcurve fit (curve on
+/// cap, pcurve off-domain) from a cap surface that misses the seam.
+fn trace_seam_cap_containment(brep: &BRep, seam: &CapSupportSeamEvidence) {
+    if !crate::direct_apex_trace::enabled() {
+        return;
+    }
+    let Some(cap_surface) = brep
+        .faces
+        .get(seam.cap_face)
+        .and_then(|f| f.surface.as_ref())
+    else {
+        return;
+    };
+    let Some(coe) = brep.edges.get(seam.edge).and_then(|e| e.curve.as_ref()) else {
+        return;
+    };
+    let ((u_lo, u_hi), (v_lo, v_hi)) = cap_surface.geometry.parameter_range();
+    let mut worst = 0.0f64;
+    let mut worst_uv = (0.0, 0.0);
+    let mut worst_s = 0.0;
+    for i in 0..25 {
+        let s = i as f64 / 24.0;
+        let p = coe
+            .geometry
+            .point_at(coe.t_start + s * (coe.t_end - coe.t_start));
+        let Some((mut u, mut v)) =
+            popkern_core::geometry::uv_projection::project_point_to_uv(&cap_surface.geometry, &p)
+        else {
+            continue;
+        };
+        if u_lo.is_finite() && u_hi.is_finite() {
+            u = u.clamp(u_lo, u_hi);
+        }
+        if v_lo.is_finite() && v_hi.is_finite() {
+            v = v.clamp(v_lo, v_hi);
+        }
+        let d = cap_surface.geometry.point_at(u, v).distance_to(&p);
+        if d > worst {
+            worst = d;
+            worst_uv = (u, v);
+            worst_s = s;
+        }
+    }
+    let p0 = coe.geometry.point_at(coe.t_start);
+    let p1 = coe.geometry.point_at(coe.t_end);
+    let vertices = brep
+        .edges
+        .get(seam.edge)
+        .and_then(|e| brep.half_edges.get(e.half_edge))
+        .map(|he| {
+            let a = brep.vertices[he.origin].position;
+            let b = brep
+                .half_edges
+                .get(he.twin)
+                .map(|t| brep.vertices[t.origin].position)
+                .unwrap_or(a);
+            (a, b)
+        });
+    eprintln!(
+        "[direct-apex-trace] worst-g0 seam {:?}: cap-contains-curve worst {worst:.3e} at s={worst_s:.3} uv=({:.3},{:.3}); curve ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4}) vertices {:?}",
+        seam.edge,
+        worst_uv.0,
+        worst_uv.1,
+        p0.x,
+        p0.y,
+        p0.z,
+        p1.x,
+        p1.y,
+        p1.z,
+        vertices.map(|(a, b)| format!(
+            "({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+            a.x, a.y, a.z, b.x, b.y, b.z
+        )),
+    );
+    for (cu, cv) in [(0.0, 0.0), (1.0, 0.0), (0.0, 1.0), (1.0, 1.0)] {
+        let c = cap_surface.geometry.point_at(cu, cv);
+        eprintln!(
+            "[direct-apex-trace]   cap {:?} corner uv=({cu:.0},{cv:.0}) = ({:.4},{:.4},{:.4})",
+            seam.cap_face, c.x, c.y, c.z
+        );
+    }
+    let cap_side_loop = brep.edges.get(seam.edge).and_then(|e| {
+        let first = brep.half_edges.get(e.half_edge)?;
+        let twin = brep.half_edges.get(first.twin)?;
+        let first_face = brep.loops.get(first.loop_)?.face;
+        Some(if first_face == seam.cap_face {
+            first.loop_
+        } else {
+            twin.loop_
+        })
+    });
+    let outer = brep.faces.get(seam.cap_face).map(|f| f.outer_loop);
+    let inner_count = brep
+        .faces
+        .get(seam.cap_face)
+        .map(|f| f.inner_loops.len())
+        .unwrap_or(0);
+    eprintln!(
+        "[direct-apex-trace]   cap-side loop {cap_side_loop:?} vs outer {outer:?} (inner_loops={inner_count})"
+    );
 }
 
 fn interior_normal_sample_parameters(surface: &impl SurfaceEval, u: f64, v: f64) -> (f64, f64) {

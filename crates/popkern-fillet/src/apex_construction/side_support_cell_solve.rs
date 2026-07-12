@@ -28,7 +28,7 @@ mod partition;
 use geometry::{author_exact_pcurve, closing_curve, pcurve_agrees_with_curve, point_on};
 use partition::{
     assign_labels, collect_carriers, face_has_live_twin, face_surface_misfits_boundary,
-    first_carrier_run, worst_boundary_misfit,
+    first_carrier_run, trace_edge_liveness_census, worst_boundary_misfit,
 };
 
 /// Outcome summary for diagnostics.
@@ -77,6 +77,12 @@ pub(crate) fn resolve_pocket_faces(
     let gate = fit_gate(brep);
     let mut targets: Vec<FaceHandle> = Vec::new();
     for (handle, face) in brep.faces.iter() {
+        // ConstructionResidual faces are retired records awaiting
+        // dismantling — solving them re-animates dead topology
+        // (measured: residual 24v1's broken cycle declined the mef).
+        if face.role == popkern_core::topology::TopologyRole::ConstructionResidual {
+            continue;
+        }
         if face.surface.is_none() && face_has_live_twin(brep, handle) {
             targets.push(handle);
         }
@@ -96,6 +102,9 @@ pub(crate) fn resolve_pocket_faces(
         if misfits {
             targets.push(candidate);
         }
+    }
+    if crate::direct_apex_trace::enabled() {
+        trace_edge_liveness_census(brep);
     }
     let mut report = SupportCellSolveReport::default();
     let carriers = collect_carriers(brep, &targets);

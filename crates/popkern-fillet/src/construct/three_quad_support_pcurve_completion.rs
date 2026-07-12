@@ -8,8 +8,8 @@ use std::collections::BTreeSet;
 #[path = "three_quad_support_pcurve_sampling.rs"]
 mod support_pcurve_sampling;
 use support_pcurve_sampling::{
-    samples_from_curve_for_half_edge, samples_from_support_pcurve, support_pcurve_endpoints_match,
-    support_pcurve_matches_edge_curve,
+    chord_samples_projected_to_support, samples_from_curve_for_half_edge,
+    samples_from_support_pcurve, support_pcurve_endpoints_match, support_pcurve_matches_edge_curve,
 };
 #[path = "three_quad_support_pcurve_completion_quality.rs"]
 mod support_pcurve_completion_quality;
@@ -380,7 +380,13 @@ fn cap_oriented_samples(
             support_pcurve,
         ));
     }
-    None
+    let chord_samples = chord_samples_projected_to_support(brep, half_edge, twin, support_surface);
+    if chord_samples.is_some() && crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace] cap seam samples from support-projected chord: {half_edge:?}"
+        );
+    }
+    chord_samples
 }
 
 fn edge_curve_sample_gap(

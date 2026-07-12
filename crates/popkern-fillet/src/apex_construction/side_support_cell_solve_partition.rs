@@ -24,24 +24,18 @@ pub(super) fn face_has_live_twin(brep: &BRep, face: FaceHandle) -> bool {
 }
 
 pub(super) fn worst_boundary_misfit(brep: &BRep, face: FaceHandle) -> Option<f64> {
-    use popkern_core::geometry::surface::SurfaceEval;
     let surface = brep.faces.get(face).and_then(|f| f.surface.as_ref())?;
     let samples = loop_samples(brep, face).ok()?;
     let mut worst = 0.0f64;
     for sample in &samples {
         for p in [Some(sample.origin), sample.mid].into_iter().flatten() {
-            let d =
-                popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
-                    .map(|(u, v)| surface.geometry.point_at(u, v).distance_to(&p))
-                    .unwrap_or(f64::INFINITY);
-            worst = worst.max(d);
+            worst = worst.max(domain_clamped_projection_distance(&surface.geometry, &p));
         }
     }
     Some(worst)
 }
 
 pub(super) fn face_surface_misfits_boundary(brep: &BRep, face: FaceHandle, gate: f64) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
     let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
         return false;
     };
@@ -52,12 +46,34 @@ pub(super) fn face_surface_misfits_boundary(brep: &BRep, face: FaceHandle, gate:
         [Some(sample.origin), sample.mid]
             .into_iter()
             .flatten()
-            .any(|p| {
-                popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
-                    .map(|(u, v)| surface.geometry.point_at(u, v).distance_to(&p) > gate)
-                    .unwrap_or(true)
-            })
+            .any(|p| domain_clamped_projection_distance(&surface.geometry, &p) > gate)
     })
+}
+
+/// Distance from a point to the surface with the projected UV clamped
+/// into the surface's finite parameter domain. Unclamped Gauss-Newton
+/// projection on a Nurbs converges OUTSIDE the domain and `point_at`
+/// extrapolates to meet the point, reporting a vacuously small misfit
+/// (measured: cube_extreme cap 5v3, boundary vertex 1.67e-1 off the
+/// clamped surface but ~0 off the extrapolation).
+fn domain_clamped_projection_distance(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    p: &popkern_core::geometry::Point3,
+) -> f64 {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let Some((mut u, mut v)) =
+        popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)
+    else {
+        return f64::INFINITY;
+    };
+    let ((u_lo, u_hi), (v_lo, v_hi)) = surface.parameter_range();
+    if u_lo.is_finite() && u_hi.is_finite() {
+        u = u.clamp(u_lo, u_hi);
+    }
+    if v_lo.is_finite() && v_hi.is_finite() {
+        v = v.clamp(v_lo, v_hi);
+    }
+    surface.point_at(u, v).distance_to(p)
 }
 
 pub(super) fn assign_labels(samples: &[HeSample], n_carriers: usize) -> Vec<usize> {
@@ -214,4 +230,71 @@ pub(super) fn collect_carriers(brep: &BRep, bridge_faces: &[FaceHandle]) -> Vec<
         });
     }
     carriers
+}
+
+/// One-shot diagnostic census (trace-gated): every edge whose two
+/// half-edges are not BOTH members of their loops' next-cycles, with
+/// face pair, topology roles, and origin — maps the unlive-twin
+/// records left when a boundary rewrite re-homes a new cycle without
+/// retiring the displaced half-edges (measured on cube_extreme:
+/// 66/108 edges broken at acceptance time).
+pub(super) fn trace_edge_liveness_census(brep: &BRep) {
+    let cycle_live = |he: popkern_core::topology::HalfEdgeHandle| -> bool {
+        let Some(data) = brep.half_edges.get(he) else {
+            return false;
+        };
+        let Some(loop_data) = brep.loops.get(data.loop_) else {
+            return false;
+        };
+        let head = loop_data.half_edge;
+        let mut cursor = head;
+        for _ in 0..brep.half_edges.len() {
+            if cursor == he {
+                return true;
+            }
+            let Some(c) = brep.half_edges.get(cursor) else {
+                return false;
+            };
+            cursor = c.next;
+            if cursor == head {
+                return false;
+            }
+        }
+        false
+    };
+    let mut both = 0usize;
+    let mut broken = 0usize;
+    for (edge_handle, edge) in brep.edges.iter() {
+        let a = edge.half_edge;
+        let b = brep.half_edges.get(a).map(|d| d.twin);
+        let a_live = cycle_live(a);
+        let b_live = b.is_some_and(cycle_live);
+        if a_live && b_live {
+            both += 1;
+            continue;
+        }
+        broken += 1;
+        let face_of = |he: Option<popkern_core::topology::HalfEdgeHandle>| {
+            he.and_then(|h| brep.half_edges.get(h))
+                .and_then(|d| brep.loops.get(d.loop_))
+                .map(|l| l.face)
+        };
+        let origin = brep
+            .half_edges
+            .get(a)
+            .and_then(|d| brep.vertices.get(d.origin))
+            .map(|v| v.position);
+        let role_of = |fh: Option<FaceHandle>| fh.and_then(|f| brep.faces.get(f)).map(|f| f.role);
+        eprintln!(
+            "[direct-apex-trace] census {edge_handle:?}: a_live={a_live} b_live={b_live} \
+             faces {:?}/{:?} roles {:?}/{:?} edge_role={:?} at {:?}",
+            face_of(Some(a)),
+            face_of(b),
+            role_of(face_of(Some(a))),
+            role_of(face_of(b)),
+            edge.role,
+            origin.map(|p| format!("({:.4},{:.4},{:.4})", p.x, p.y, p.z)),
+        );
+    }
+    eprintln!("[direct-apex-trace] census: {both} edges fully live, {broken} broken");
 }

@@ -48,6 +48,57 @@ pub(super) fn samples_from_support_pcurve(
         .collect()
 }
 
+/// Last-resort sample source for a seam edge carrying no curve and no
+/// pcurve on either side (measured: cube_extreme raw-corner cap seam).
+/// The seam lies on the analytic support surface, so the endpoint
+/// chord projected onto it is the best geometric authority available;
+/// the downstream seam g0 acceptance gate remains the arbiter of the
+/// authored geometry. Declines non-analytic supports (projection is
+/// not exact there) and periodic branch jumps (an adjacent sample
+/// step larger than the whole chord).
+pub(super) fn chord_samples_projected_to_support(
+    brep: &BRep,
+    half_edge: HalfEdgeHandle,
+    twin: HalfEdgeHandle,
+    support_surface: &SurfaceGeometry,
+) -> Option<Vec<Point3>> {
+    if !matches!(
+        support_surface,
+        SurfaceGeometry::Plane { .. } | SurfaceGeometry::Cylinder { .. }
+    ) {
+        return None;
+    }
+    let start = brep
+        .vertices
+        .get(brep.half_edges.get(half_edge)?.origin)?
+        .position;
+    let end = brep
+        .vertices
+        .get(brep.half_edges.get(twin)?.origin)?
+        .position;
+    let chord = start.distance_to(&end);
+    if chord <= 0.0 {
+        return None;
+    }
+    let samples: Vec<Point3> = (0..SAMPLE_COUNT)
+        .map(|index| {
+            let s = index as f64 / (SAMPLE_COUNT - 1) as f64;
+            let p = Point3::new(
+                start.x + (end.x - start.x) * s,
+                start.y + (end.y - start.y) * s,
+                start.z + (end.z - start.z) * s,
+            );
+            let (u, v) = super::helpers::project_to_uv(support_surface, &p);
+            support_surface.point_at(u, v)
+        })
+        .collect();
+    let max_step = samples
+        .windows(2)
+        .map(|pair| pair[0].distance_to(&pair[1]))
+        .fold(0.0, f64::max);
+    (max_step <= chord).then_some(samples)
+}
+
 pub(super) fn support_pcurve_matches_edge_curve(
     brep: &BRep,
     half_edge: HalfEdgeHandle,
