@@ -48,8 +48,10 @@
 //!    min).
 
 use super::kp_polar_boundary_input::{PolarBoundaryInput, TensorBorder, TensorBorderBi3};
+use super::kp_polar_shared::catmull_clark_star_point;
 use super::kp15_bi6_cap::Bi6CapInput;
 use super::kp15_bi6_circulant::CirculantSectorRhs;
+use super::kp15_bi6_deep_interior::Bi6DeepInteriorFree;
 use super::kp15_bi6_reparam::Bi6Reparams;
 use crate::geometry::Point3;
 
@@ -217,6 +219,242 @@ fn eval_degree7_bezier(cps: &[Point3; 8], t: f64) -> Point3 {
     work[0]
 }
 
+// =====================================================================
+// PK-087 stage 3 — the re-oriented polar → **shared cap net** bridge.
+// =====================================================================
+//
+// The `convert_polar_to_bi6_cap_input` above is the legacy frame:
+// per-sector rim borders in `CirculantSectorRhs`, no shared cap net,
+// spoke on the wrong slot. The functions below are its correct-by-
+// construction replacement that feeds the verified deep-interior
+// populator
+// ([`build_bi6_cap_from_net`](super::kp15_bi6_deep_interior::build_bi6_cap_from_net)):
+// a single **shared** 4×4 bicubic B-spline net per sector where
+// adjacent sectors share control points along the **spoke** (the
+// sector-glue edge) and the tensor border lands on the two
+// **star-opposite rim edges**. Because that sharing *is* the
+// condition that the input net is one C²-consistent B-spline surface,
+// the eq (7)/(8) ring closure `sal` vanishes and — by the oracle's
+// symbolic proof — every eq (2)/(3) cross-sector constraint closes by
+// construction, *independent of the control-point values*. The naive
+// rim-as-spoke wire grew eq (2) ~10 → ~73 (Phase-E.1 record); this
+// frame drives it to machine zero.
+
+/// The shared control ring of the coarse cap net: per-spoke control
+/// symbols `a1..a6` (indexed by spoke/sector `0..n`) plus the single
+/// global central face point `e`. This is the C²-consistent
+/// parameterisation of the whole cap net; [`shared_net_layout`]
+/// windows it into per-sector 4×4 B-spline nets.
+#[derive(Debug, Clone)]
+pub struct SharedControlRing {
+    /// `a1[k]` — outer corner control symbol on spoke `k`.
+    pub a1: Vec<Point3>,
+    /// `a2[k]` — rim-edge interior control symbol (near corner `k`).
+    pub a2: Vec<Point3>,
+    /// `a3[k]` — rim-edge interior control symbol (near corner `k+1`).
+    pub a3: Vec<Point3>,
+    /// `a4[k]` — ring-2 control symbol on spoke `k`.
+    pub a4: Vec<Point3>,
+    /// `a5[k]` — sector-`k` face control symbol.
+    pub a5: Vec<Point3>,
+    /// `a6[k]` — ring-1 control symbol on spoke `k` (adjacent to `e`).
+    pub a6: Vec<Point3>,
+    /// `E` — the global central face point (shared by all sectors).
+    pub e: Point3,
+}
+
+/// The re-oriented bridge output: per-valence reparameterisation
+/// scalars, the per-sector C²-consistent 4×4 bicubic nets, and the
+/// KP15 free set.
+pub type Bi6CapNetInputs = (Bi6Reparams, Vec<[[Point3; 4]; 4]>, Bi6DeepInteriorFree);
+
+/// Lay out one sector's 4×4 bicubic B-spline net from the shared
+/// control ring, exactly per the `n6` script's C²-consistent net
+/// (oracle `n6_oracle.py::shared_net`, script comment lines 227–230).
+///
+/// `net[s]` is written column-consistent with the populator's
+/// accessor `p(i, j) = net[j][i]`:
+///
+/// ```text
+///   [ a1[s]  , a2[s]  , a3[s]  , a4[s+1] ]
+///   [ a4[s]  , a5[s]  , a6[s]  , a5[s+1] ]
+///   [ a3[s-1], a6[s-1], E      , a6[s+1] ]
+///   [ a2[s-1], a5[s-1], a6[s-2], 0       ]
+/// ```
+///
+/// Adjacent sectors share `a4/a5/a6` along the spoke; `E` is global.
+/// This sharing is what makes the assembled bicubic net a single
+/// C²-consistent surface, so `sal ≈ 0` by construction.
+pub fn shared_net_layout(ring: &SharedControlRing, s: usize, n: usize) -> [[Point3; 4]; 4] {
+    let sf = |k: isize| k.rem_euclid(n as isize) as usize;
+    let sp1 = sf(s as isize + 1);
+    let sm1 = sf(s as isize - 1);
+    let sm2 = sf(s as isize - 2);
+    let (a1, a2, a3, a4, a5, a6, e) = (
+        &ring.a1, &ring.a2, &ring.a3, &ring.a4, &ring.a5, &ring.a6, ring.e,
+    );
+    [
+        [a1[s], a2[s], a3[s], a4[sp1]],
+        [a4[s], a5[s], a6[s], a5[sp1]],
+        [a3[sm1], a6[sm1], e, a6[sp1]],
+        [a2[sm1], a5[sm1], a6[sm2], Point3::new(0.0, 0.0, 0.0)],
+    ]
+}
+
+/// Sample a spoke's degree-7 Bézier boundary curve at parameter `t`
+/// (`t = 0` at the central vertex `C`, `t = 1` at the outer corner).
+fn eval_spoke_bezier(cps: &[Point3; 8], t: f64) -> Point3 {
+    let mut work: [Point3; 8] = *cps;
+    for r in 1..=7 {
+        for i in 0..(8 - r) {
+            let a = work[i];
+            let b = work[i + 1];
+            work[i] = Point3::new(
+                (1.0 - t) * a.x + t * b.x,
+                (1.0 - t) * a.y + t * b.y,
+                (1.0 - t) * a.z + t * b.z,
+            );
+        }
+    }
+    work[0]
+}
+
+/// Linear blend `p + t·(q − p)`.
+fn lerp_point(p: Point3, q: Point3, t: f64) -> Point3 {
+    Point3::new(
+        p.x + t * (q.x - p.x),
+        p.y + t * (q.y - p.y),
+        p.z + t * (q.z - p.z),
+    )
+}
+
+/// Convert a [`PolarBoundaryInput`] into the **shared cap net** frame
+/// the KP15 deep-interior populator consumes: the per-valence
+/// [`Bi6Reparams`], the per-sector C²-consistent 4×4 bicubic nets, and
+/// the paper free set. Feed the output tuple to
+/// [`assemble_bi6_polar_cap_from_net`](super::kp15_bi6_deep_interior::assemble_bi6_polar_cap_from_net).
+///
+/// This is the stage-3 re-orientation of [`convert_polar_to_bi6_cap_input`]:
+/// the tensor border lands on the star-opposite rim edges and the
+/// spokes carry the cross-sector glue, so the populator's ring closure
+/// and every eq (2)/(3) constraint close by construction.
+///
+/// The shared control ring is read from the polar geometry as the
+/// coarse Catmull–Clark control mesh of the cap region (each symbol a
+/// single well-defined point per index, so the shared-net sharing is
+/// exact); the free set is a monotone star→rim blend keyed by the
+/// CP's script depth so the resolved cap is fold-free. The paper
+/// determines the free set by F₅ minimisation; this supplies a
+/// well-posed, geometry-derived seed (F₅ refinement is a later layer
+/// and does not affect the closure).
+///
+/// # Errors
+///
+/// - `polar.validate()` fails (non-finite radii, length mismatch).
+/// - `n < 5` — the valence-general deep-interior populator declines
+///   `n < 5` (paper §3.5 `n = 3` and the rectangular `n = 4` path are
+///   served elsewhere); the caller's dispatch ladder handles those.
+pub fn convert_polar_to_bi6_cap_net(polar: &PolarBoundaryInput) -> Result<Bi6CapNetInputs, String> {
+    polar.validate()?;
+    let n = polar.n();
+    if n < 5 {
+        return Err(format!(
+            "shared-net bi-6 polar bridge is valence-general for n ≥ 5; got n = {n}"
+        ));
+    }
+    let params = Bi6Reparams::for_valence(n);
+    let c = polar.central_vertex;
+    let sf = |k: usize| k % n;
+
+    // Outer-corner rim vertices V_k.
+    let v: Vec<Point3> = polar.outer_corners.iter().map(|oc| oc.position).collect();
+
+    // ---- Shared control ring from the polar geometry ----
+    //
+    // The coarse Catmull–Clark control mesh of the cap region. The
+    // spoke curve `q_k(t)` runs C → V_k; the rim edge of sector s is
+    // V_s → V_{s+1}. Each symbol is a single well-defined point per
+    // index (that single-valuedness is what makes the shared-net C²
+    // sharing exact):
+    //   E  = central vertex C (the face point all sectors share).
+    //   a6 = ring-1 point on spoke k at t = 1/3 (adjacent to E).
+    //   a4 = ring-2 point on spoke k at t = 2/3.
+    //   a1 = outer corner V_k (t = 1).
+    //   a5 = sector-k face point: mid-radius average of spokes k, k+1.
+    //   a2, a3 = interior control points of rim edge V_k → V_{k+1}.
+    let mut a1 = Vec::with_capacity(n);
+    let mut a2 = Vec::with_capacity(n);
+    let mut a3 = Vec::with_capacity(n);
+    let mut a4 = Vec::with_capacity(n);
+    let mut a5 = Vec::with_capacity(n);
+    let mut a6 = Vec::with_capacity(n);
+    for k in 0..n {
+        let q = &polar.spokes[k].boundary_cps;
+        let qk1 = &polar.spokes[sf(k + 1)].boundary_cps;
+        a1.push(v[k]);
+        a4.push(eval_spoke_bezier(q, 2.0 / 3.0));
+        a6.push(eval_spoke_bezier(q, 1.0 / 3.0));
+        let m_k = eval_spoke_bezier(q, 0.6);
+        let m_k1 = eval_spoke_bezier(qk1, 0.6);
+        a5.push(lerp_point(m_k, m_k1, 0.5));
+        let vk1 = v[sf(k + 1)];
+        a2.push(lerp_point(v[k], vk1, 1.0 / 3.0));
+        a3.push(lerp_point(v[k], vk1, 2.0 / 3.0));
+    }
+    let ring = SharedControlRing {
+        a1,
+        a2,
+        a3,
+        a4,
+        a5,
+        a6,
+        e: c,
+    };
+    let net: Vec<[[Point3; 4]; 4]> = (0..n).map(|s| shared_net_layout(&ring, s, n)).collect();
+
+    // ---- Free set: monotone star → rim blend (fold-free seed) ----
+    //
+    // Star point = Catmull–Clark limit of C over the ring-1/ring-2
+    // spoke samples. The remaining free CPs sit on a monotone blend
+    // from the star (apex) toward each sector's rim reference, keyed
+    // by the CP's script depth d = (12 − i − j) / 12 (0 at star [6,6],
+    // 1 at rim [0,0]). Monotone ⇒ fold-free; F₅ refines later.
+    let c5s: Vec<Point3> = polar
+        .spokes
+        .iter()
+        .map(|s| eval_spoke_bezier(&s.boundary_cps, 1.0 / 3.0))
+        .collect();
+    let c6s: Vec<Point3> = polar
+        .spokes
+        .iter()
+        .map(|s| eval_spoke_bezier(&s.boundary_cps, 2.0 / 3.0))
+        .collect();
+    let star = catmull_clark_star_point(n, c, &c5s, &c6s);
+    let rim_ref: Vec<Point3> = (0..n)
+        .map(|k| lerp_point(v[k], v[sf(k + 1)], 0.5))
+        .collect();
+    let blend = |sector: usize, i: usize, j: usize| -> Point3 {
+        let depth = (12.0 - (i as f64) - (j as f64)) / 12.0;
+        lerp_point(star, rim_ref[sector], depth)
+    };
+
+    let free = Bi6DeepInteriorFree {
+        p00: star,
+        tan: [blend(0, 5, 6), blend(0, 6, 5)],
+        two: [blend(0, 4, 6), blend(0, 5, 5), blend(0, 6, 4)],
+        p220: blend(0, 4, 4),
+        p210: blend(0, 4, 5),
+        p23: (0..n).map(|r| blend(r, 4, 3)).collect(),
+        p33: (0..n).map(|r| blend(r, 3, 3)).collect(),
+    };
+
+    Ok((params, net, free))
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_polar_bridge_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "kp15_bi6_polar_cap_net_tests.rs"]
+mod cap_net_tests;
