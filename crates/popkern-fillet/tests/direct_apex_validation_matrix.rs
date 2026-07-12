@@ -79,14 +79,13 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             expected_fallbacks: 0,
         },
         Case {
-            // PK-074 containment (see module doc): surface-less
-            // bridges decline strict acceptance → legacy fallback.
-            // Structural validity must still hold through it. Flip
-            // to 0 when the support-cell surface solve lands.
+            // PK-074: completes natively since the displaced-membership
+            // residual collection — phantom scaffold seams no longer
+            // reach acceptance, cap/support seams measure exactly.
             name: "cube_extreme",
             radii: &[0.02, 0.10, 0.20],
             is_pyramid: false,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "pyramid3_uniform",
