@@ -301,7 +301,8 @@ pub use kp15_bi6_circulant::{
     CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
 };
 pub use kp15_bi6_deep_interior::{
-    Bi6CapScriptGrids, Bi6DeepInteriorFree, assemble_bi6_polar_cap_from_net, build_bi6_cap_from_net,
+    Bi6CapScriptGrids, Bi6DeepInteriorFree, SectorTensorBorderBi3, assemble_bi6_polar_cap_from_net,
+    build_bi6_cap_from_net, build_bi6_cap_from_tensor_border,
 };
 pub use kp15_bi6_f5::{
     BI6_CP_COUNT, f_kappa_quadratic_form, f_kappa_quadratic_form_weighted, f5_evaluate,

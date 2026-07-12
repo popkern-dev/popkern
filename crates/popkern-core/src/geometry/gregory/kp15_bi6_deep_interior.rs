@@ -135,9 +135,8 @@ pub fn build_bi6_cap_from_net(
     }
 
     let c = params.c;
-    let tau = params.tau;
     let d2 = params.d2;
-    let sf = |k: usize| k % n;
+    let tau = params.tau;
 
     let mut g: Vec<Grid> = vec![[[ZERO; 7]; 7]; n];
 
@@ -153,6 +152,105 @@ pub fn build_bi6_cap_from_net(
             }
         }
     }
+
+    resolve_deep_interior_from_border(g, params, free, n)
+}
+
+/// Per-sector bi-3 tensor border: 3 depth rows (`j = 0, 1, 2`) of 4
+/// along-edge BB-CPs each (`src[j][i]`, script convention). This is
+/// the surrounding-surface contact data the KP15 `TBdata` mechanism
+/// reparameterises directly — the same shape the fillet extractor
+/// produces per sector.
+pub type SectorTensorBorderBi3 = [[Point3; 4]; 3];
+
+/// Assemble the per-sector bi-6 cap grids from the **real** bi-3
+/// tensor borders of the two star-opposite outer edges of each
+/// sector, rather than from a B-spline cap net.
+///
+/// This is the paper's `TBdata` path (KP15 §3.3, oracle
+/// `n6_oracle.py::TBdata`): the surrounding-surface boundary is
+/// carried directly by the tensor-border rows, so the assembled
+/// cap's outer boundary **interpolates the input boundary curve's
+/// endpoints by construction** (a pure degree-3 → degree-6 raise of
+/// row 0), instead of being pulled inward by the B-spline →
+/// Bézier averaging that a coarse cap net incurs. The B-spline cap
+/// net remains available via [`build_bi6_cap_from_net`] for
+/// synthetic C²-consistent inputs (the oracle fixtures).
+///
+/// `tad_src[s]` feeds sector `s`'s along-`i` outer edge
+/// (`g[s][i][j]`, `j = 0..2`) and `tak_src[s]` its along-`j` outer
+/// edge (`g[s][j][i]`). The two arrays must have length `n = params.n`.
+/// For a ring-consistent cap the data shared on each spoke edge must
+/// agree between adjacent sectors; the returned `sal` residual
+/// measures the residual ring inconsistency (paper-zero for a
+/// genuinely C²-consistent surrounding surface).
+///
+/// Declines for `n < 5` or a length mismatch, identically to
+/// [`build_bi6_cap_from_net`].
+pub fn build_bi6_cap_from_tensor_border(
+    params: &Bi6Reparams,
+    tad_src: &[SectorTensorBorderBi3],
+    tak_src: &[SectorTensorBorderBi3],
+    free: &Bi6DeepInteriorFree,
+) -> Result<Bi6CapScriptGrids, String> {
+    let n = params.n;
+    if n < 5 {
+        return Err(format!(
+            "KP15 bi-6 deep-interior population is valence-general for n ≥ 5; got n = {n}"
+        ));
+    }
+    params.validate()?;
+    if tad_src.len() != n || tak_src.len() != n {
+        return Err(format!(
+            "tensor-border source lengths ({}, {}) ≠ n = {n}",
+            tad_src.len(),
+            tak_src.len()
+        ));
+    }
+    if free.p23.len() != n || free.p33.len() != n {
+        return Err(format!(
+            "free.p23/p33 length ({}, {}) ≠ n = {n}",
+            free.p23.len(),
+            free.p33.len()
+        ));
+    }
+
+    let c = params.c;
+    let d2 = params.d2;
+    let tau = params.tau;
+
+    let mut g: Vec<Grid> = vec![[[ZERO; 7]; 7]; n];
+
+    // ---- Border: reparameterise the REAL bi-3 tensor borders ----
+    for s in 0..n {
+        let tad = reparam_tensor_border_row(|i, j| tad_src[s][j][i], c, d2, tau);
+        let tak = reparam_tensor_border_row(|i, j| tak_src[s][j][i], c, d2, tau);
+        for i in 0..7 {
+            for j in 0..3 {
+                g[s][i][j] = tad[j][i];
+                g[s][j][i] = tak[j][i];
+            }
+        }
+    }
+
+    resolve_deep_interior_from_border(g, params, free, n)
+}
+
+/// Resolve every determined deep-interior BB-coefficient from a grid
+/// whose depth-≤2 tensor-border rows are already populated (script
+/// convention). Shared by [`build_bi6_cap_from_net`] and
+/// [`build_bi6_cap_from_tensor_border`]: the border source differs,
+/// but (S1) glue, the (S2) eq (7)/(8) rings, eq (5), row-6 glue, and
+/// (S3) are identical.
+fn resolve_deep_interior_from_border(
+    mut g: Vec<Grid>,
+    params: &Bi6Reparams,
+    free: &Bi6DeepInteriorFree,
+    n: usize,
+) -> Result<Bi6CapScriptGrids, String> {
+    let c = params.c;
+    let tau = params.tau;
+    let sf = |k: usize| k % n;
 
     // ---- (S1) central quadratic + eq (6) C² sector glue ----
     for grid in g.iter_mut() {

@@ -293,6 +293,103 @@ fn residual_metric_detects_non_closure() {
     );
 }
 
+// ---- PK-087 stage 4: measured boundary-vs-continuity trade-off ----
+//
+// The acceptance gate is `cap_outer_g0 ≤ 5 mm` (boundary fidelity of
+// the cap's outer edge to the surrounding surface). Two source
+// mechanisms exist for the cap's tensor-border rows; this test pins
+// the measured trade-off between them so a future C²-consistent
+// net-fit (the commercial-grade replacement) has a numeric baseline.
+//
+//  - **Shared B-spline cap net** ([`build_bi6_cap_from_net`]): the net
+//    sharing makes the input one C²-consistent surface, so eq (2)/(3)
+//    close at machine zero — BUT the B-spline → Bézier averaging pulls
+//    the outer boundary *inward*, so it cannot interpolate the real
+//    surrounding-surface boundary. Boundary error ≫ 5 mm.
+//  - **Real tensor border direct** ([`build_bi6_cap_from_tensor_border`],
+//    the paper `TBdata` path): the outer boundary interpolates the
+//    real boundary's endpoints exactly (error 0), and `sal` still
+//    vanishes — BUT the crude per-sector fillet extractor border is
+//    not C²-consistent across the shared spokes, so eq (2)/(3) do NOT
+//    close (G1/G2 ≫ 5e-2).
+//
+// Neither pure mechanism clears both gates; the commercial-grade fix
+// is a C²-consistent net *fitted* to the real boundary (recorded in
+// the PK-087 ADR).
+
+fn dist(a: Point3, b: Point3) -> f64 {
+    ((a.x - b.x).powi(2) + (a.y - b.y).powi(2) + (a.z - b.z).powi(2)).sqrt()
+}
+
+#[test]
+fn net_path_closes_continuity_but_shrinks_boundary() {
+    use super::super::kp_polar_boundary_input::TensorBorder;
+    use super::super::kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+    let radii = [0.30, 0.10, 0.25, 0.12, 0.28, 0.11];
+    let polar = dome_polar_input(6, 0.3, &radii);
+    let TensorBorder::Bi3(tb) = extract_bi3_tensor_border_from_polar_input(&polar).expect("tb")
+    else {
+        panic!("bi3");
+    };
+    let (params, net, free) = convert_polar_to_bi6_cap_net(&polar).expect("bridge");
+    let grids = build_bi6_cap_from_net(&params, &net, &free).expect("build");
+    let (g1, g2) = worst_g1_g2(&grids.sectors, &params);
+    // Continuity closes at machine zero.
+    assert!(g1 <= 1e-9 && g2 <= 1e-9, "net path g1={g1:.3e} g2={g2:.3e}");
+    // But the outer corner (script [0][0]) is pulled well inside the
+    // real corner — boundary fidelity is far above the 5 mm gate.
+    let mut worst = 0.0_f64;
+    for s in 0..6 {
+        worst = worst.max(dist(grids.sectors[s][0][0], tb.sectors[s][0][0]));
+    }
+    assert!(
+        worst > 0.1,
+        "net path is expected to shrink the boundary (measured on this fixture ~0.52); got {worst:.3e}"
+    );
+}
+
+#[test]
+fn tensor_border_direct_matches_boundary_but_breaks_continuity() {
+    use super::super::kp_polar_boundary_input::TensorBorder;
+    use super::super::kp15_bi6_deep_interior::{
+        SectorTensorBorderBi3, build_bi6_cap_from_tensor_border,
+    };
+    use super::super::kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+    let radii = [0.30, 0.10, 0.25, 0.12, 0.28, 0.11];
+    let polar = dome_polar_input(6, 0.3, &radii);
+    let n = 6usize;
+    let TensorBorder::Bi3(tb) = extract_bi3_tensor_border_from_polar_input(&polar).expect("tb")
+    else {
+        panic!("bi3");
+    };
+    let (params, _net, free) = convert_polar_to_bi6_cap_net(&polar).expect("bridge");
+    // Shared-spoke-consistent mapping: tak(s) shares with tad(s-1).
+    let tad_src: Vec<SectorTensorBorderBi3> = (0..n).map(|s| tb.sectors[s]).collect();
+    let tak_src: Vec<SectorTensorBorderBi3> = (0..n).map(|s| tb.sectors[(s + n - 1) % n]).collect();
+    let grids =
+        build_bi6_cap_from_tensor_border(&params, &tad_src, &tak_src, &free).expect("build");
+    // sal still vanishes (eq(8) ring closes) ...
+    let sal = grids.sal.x.hypot(grids.sal.y).hypot(grids.sal.z);
+    assert!(sal < 1e-9, "sal {sal:.3e}");
+    // ... and the outer boundary interpolates the real border endpoints.
+    let mut worst_border = 0.0_f64;
+    for s in 0..n {
+        worst_border = worst_border.max(dist(grids.sectors[s][0][0], tb.sectors[s][0][0]));
+        worst_border = worst_border.max(dist(grids.sectors[s][6][0], tb.sectors[s][0][3]));
+    }
+    assert!(
+        worst_border < 1e-12,
+        "TBdata-direct boundary must interpolate the input endpoints; got {worst_border:.3e}"
+    );
+    // But eq(2)/(3) do NOT close — the extractor border is not
+    // C²-consistent across the shared spokes.
+    let (g1, _g2) = worst_g1_g2(&grids.sectors, &params);
+    assert!(
+        g1 > 5e-2,
+        "TBdata-direct is expected to break cross-sector continuity (measured ~1.97); got g1={g1:.3e}"
+    );
+}
+
 #[test]
 fn declines_low_valence() {
     let polar = dome_polar_input(4, 0.2, &[0.15; 4]);
