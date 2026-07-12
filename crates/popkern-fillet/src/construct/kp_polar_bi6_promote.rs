@@ -44,8 +44,8 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::kp_polar_bi6_diagnostics::{self, trace_polar};
+use super::kp_polar_bi6_shared_net_primary::{SharedNetOutcome, try_kp15_shared_net_cap};
 use super::kp_polar_deep_fill::{DeepFillOutcome, try_boundary_owned_deep_fill};
-use super::kp_polar_deep_trace::deep_trace_bi6_output;
 use super::kp_polar_lm_optimizer::try_polar_lm_with_report;
 use super::kp_polar_weighted_f5::try_weighted_f5_profiles;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
@@ -213,6 +213,28 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
         }
     };
 
+    // PK-087 stage 4 — KP15 shared-net cap is the PRIMARY candidate
+    // (correct-by-construction, all-or-nothing), ahead of the guarded
+    // F_κ ladder below. See `kp_polar_bi6_shared_net_primary` docs.
+    match try_kp15_shared_net_cap(&polar) {
+        SharedNetOutcome::Committed(new_patches) => {
+            let worst_coplanarity = worst_ring_coplanarity(&new_patches);
+            new_patches
+                .into_iter()
+                .enumerate()
+                .for_each(|(i, gp)| sub_patches[i] = gp);
+            return PolarPromoteOutcome::Committed { worst_coplanarity };
+        }
+        SharedNetOutcome::Declined { reason, detail } => {
+            trace_polar(
+                &format!("shared-net declined {reason}"),
+                n,
+                Some(detail.clone()),
+            );
+            record_polar_decline(&mut diagnostics, reason, n, Some(detail));
+        }
+    }
+
     // Build the `Bi6CapInput` once so we can feed the same state
     // into the F_κ ladder and (on exhaustion) L-M warm-start.
     let tensor_border = match extract_bi3_tensor_border_from_polar_input(&polar) {
@@ -231,14 +253,6 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
             return PolarPromoteOutcome::Rejected { diagnostics };
         }
     };
-
-    // Deep-trace diagnostic: dump bi-6 CP grids of first K=5
-    // attempt for detailed fold inspection. Gated on env var.
-    if std::env::var_os("POPKERN_KP_POLAR_DEEP_TRACE").is_some()
-        && let Ok((_, cap_out)) = f_kappa_solve_optimal_bi6_cap(&cap_input, 5)
-    {
-        deep_trace_bi6_output(&cap_out.patches_bi6, n);
-    }
 
     // F_κ fallback ladder (f5-tuning-plan.md option C). On
     // self-intersection, retry with κ ∈ {4, 3, 1}. Track the

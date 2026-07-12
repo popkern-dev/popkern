@@ -74,6 +74,7 @@ mod kp_lm_solver;
 pub(crate) mod kp_polar_bi6_apply;
 mod kp_polar_bi6_diagnostics;
 pub(crate) mod kp_polar_bi6_promote;
+mod kp_polar_bi6_shared_net_primary;
 mod kp_polar_deep_fill;
 mod kp_polar_deep_trace;
 mod kp_polar_lm_optimizer;
