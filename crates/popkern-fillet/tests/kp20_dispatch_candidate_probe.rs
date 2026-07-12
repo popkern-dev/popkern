@@ -44,7 +44,13 @@ fn probe(name: &str, n: usize, height: f64, radii: &[f64]) {
         let ApexConstructionDiagnostic::ExactBoundaryCap(c) = d else {
             continue;
         };
-        if !c.stage.contains("dispatch") && !c.code.contains("dispatch") {
+        if !c.stage.contains("dispatch")
+            && !c.code.contains("dispatch")
+            && !c.stage.contains("boundary_solve")
+            && !c.code.contains("boundary_solve")
+            && !c.stage.contains("support_completion")
+            && !c.code.contains("support_completion")
+        {
             continue;
         }
         eprintln!(
