@@ -410,3 +410,7 @@ fn refresh_pcurves(brep: &mut BRep, face: FaceHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "side_support_cell_solve_tests.rs"]
+mod tests;
