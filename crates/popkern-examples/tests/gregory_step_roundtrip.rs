@@ -330,8 +330,11 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         report.before.incompatible_half_edges,
         before.incompatible_half_edges
     );
+    // Census provenance: 21 through the PK-095 era; 19 since the
+    // pcurve recompute's degree-1 shortcut verifies parameterization
+    // at the quarter points (PK-074 closure).
     assert_eq!(
-        report.before.incompatible_half_edges, 21,
+        report.before.incompatible_half_edges, 19,
         "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(

@@ -46,8 +46,13 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
     );
+    // Census provenance: 21 through the PK-095 era; dropped to 19 when
+    // the pcurve recompute's degree-1 shortcut started verifying
+    // parameterization at the quarter points (PK-074 closure) — two
+    // previously fraction-skewed linear pcurves now take the dense
+    // interpolated path and reconcile with their edge curves.
     assert_eq!(
-        pre_export.edge_surface_blockers, 21,
+        pre_export.edge_surface_blockers, 19,
         "raw exact-boundary cap-family export should expose the current structured edge/surface blocker class: {pre_export:#?}"
     );
     if pre_export.edge_curve_blockers > 0 {

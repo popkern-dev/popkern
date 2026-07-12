@@ -222,18 +222,29 @@ impl BRep {
                     Some(uv) => uv,
                     None => continue,
                 };
-                let t_mid = (t_lo + t_hi) * 0.5;
-                let p_mid = curve_on_edge.geometry.point_at(t_mid);
-                let uv_linear = if let Some((u_mid, v_mid)) = project_point_to_uv(&surface, &p_mid)
-                {
-                    let expected_u = (u_s + u_e) * 0.5;
-                    let expected_v = (v_s + v_e) * 0.5;
-                    let deviation =
-                        ((u_mid - expected_u).powi(2) + (v_mid - expected_v).powi(2)).sqrt();
-                    deviation < 1e-4
-                } else {
-                    false
-                };
+                // A degree-1 pcurve is uniform-speed in UV, so the
+                // shortcut is only exact when the curve's
+                // PARAMETERIZATION maps uniformly onto the UV line —
+                // not merely when the image is straight. A single
+                // midpoint sample accepted image-straight curves with
+                // non-uniform parameterization (measured: cube_extreme
+                // cap seam, fraction-matched deviation 1.42e-2 while
+                // the image was 3.8e-4 off); the quarter points catch
+                // the skew the symmetric midpoint cannot.
+                let uv_linear = [0.25, 0.5, 0.75].iter().all(|&fraction| {
+                    let t = t_lo + (t_hi - t_lo) * fraction;
+                    let p = curve_on_edge.geometry.point_at(t);
+                    match project_point_to_uv(&surface, &p) {
+                        Some((u, v)) => {
+                            let expected_u = u_s + (u_e - u_s) * fraction;
+                            let expected_v = v_s + (v_e - v_s) * fraction;
+                            let deviation =
+                                ((u - expected_u).powi(2) + (v - expected_v).powi(2)).sqrt();
+                            deviation < 1e-4
+                        }
+                        None => false,
+                    }
+                });
 
                 if uv_linear {
                     // UV path is linear -- exact degree-1 pcurve.

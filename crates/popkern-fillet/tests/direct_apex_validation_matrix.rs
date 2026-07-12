@@ -20,13 +20,12 @@
 //!   without containment fallback. Remaining surface-quality blockers
 //!   stay visible through `other_geometric` and the focused
 //!   cap-continuity gates.
-//! * **`cube_extreme`** is a recorded containment (PK-074): bridge
-//!   faces are topology-only (worst is 0.34 non-planar — no single
-//!   surface fits), honest acceptance measures 5/17 seams and
-//!   declines; the historical green ran on blind metrics (the June-19
-//!   model shipped 5 surface-less faces). Until the support-cell
-//!   surface solve lands, the matrix gates fallbacks == 1 and
-//!   structural validity == 0.
+//! * **`cube_extreme`** completes natively (PK-074 closed): the
+//!   partition's displaced-membership residual collection retired the
+//!   phantom scaffold seams that had forced the legacy fallback, and
+//!   the recompute's degree-1 shortcut now verifies parameterization
+//!   (not just image straightness) at the quarter points, so the
+//!   cap/support seams measure at commercial tolerance end to end.
 //!
 //! Either way: every fixture must pass the A.6 metric gate
 //! (`structural == 0`, `path_a_relevant == 0`).  This is the
@@ -165,7 +164,6 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
 }
 
 #[test]
-#[ignore = "PK-074: cube_extreme never completed natively — the June-19 green ran on blind metrics (final model shipped 5 surface-less bridge faces); honest acceptance measures 5/17 cap/support seams (12 pcurve-less), worst bridge 11v29 is 0.34 non-planar so no single-surface fit exists; needs the support-cell surface solve"]
 fn cube_extreme_exact_boundary_cap_outer_passes_commercial_gate() {
     let result = build_under_direct_apex(false, &[0.02, 0.10, 0.20]);
     let reasons = direct_apex_fallback_reasons(&result);
@@ -214,11 +212,11 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
             radii: &[0.08, 0.10, 0.12],
             is_pyramid: false,
         },
-        // cube_extreme excluded (PK-074 containment, see module doc):
-        // this gate would measure the fallback path's caps (g0 =
-        // 3.7e5 m — meaningless). Its intent gate is the ignored
-        // cube_extreme_exact_boundary_cap_outer test; restore the row
-        // with it.
+        Case {
+            name: "cube_extreme",
+            radii: &[0.02, 0.10, 0.20],
+            is_pyramid: false,
+        },
         Case {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
