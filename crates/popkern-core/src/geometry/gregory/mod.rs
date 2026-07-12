@@ -42,10 +42,8 @@
 //!   Free-form Surfaces." *Computer Graphics*, 17(3).
 //! * Farin, G. (1993). "Curves and Surfaces for CAGD", Ch. 18.
 //! * Piegl, L., & Tiller, W. (1997). "The NURBS Book", §9.
-
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
-
 mod bernstein_bi3;
 mod bernstein_bi5;
 mod bernstein_bi6;
@@ -102,6 +100,7 @@ mod kp13_bi5_star_quadratic;
 mod kp15_bi6_cap;
 mod kp15_bi6_cap_f5_solve;
 mod kp15_bi6_circulant;
+mod kp15_bi6_deep_interior;
 mod kp15_bi6_f5;
 mod kp15_bi6_local_constraint;
 mod kp15_bi6_mu;
@@ -317,6 +316,7 @@ pub use kp15_bi6_cap_f5_solve::{
 pub use kp15_bi6_circulant::{
     CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
 };
+pub use kp15_bi6_deep_interior::{Bi6CapScriptGrids, Bi6DeepInteriorFree, build_bi6_cap_from_net};
 pub use kp15_bi6_f5::{
     BI6_CP_COUNT, f_kappa_quadratic_form, f_kappa_quadratic_form_weighted, f5_evaluate,
     f5_quadratic_form,
