@@ -45,6 +45,30 @@ const PAPER_CAP_RELATIVE_RESIDUAL_GATE: f64 = 1.0e-6;
 /// without regressing the accepted class.
 const PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE: f64 = 2.0e-1;
 
+/// Commercial-tier relative gate for the derivative rows (eq (8)/(9)
+/// G¹/G² residuals and the Lemma-4 delta). Real rolling-ball apex data
+/// is not in the paper-exact input class (its corner mismatch alone is
+/// 1e-1-class), so a fold-free candidate whose derivative rows close
+/// within this band is commercially far better than the mitred
+/// fallback it would otherwise become. Calibration (PK-090 candidate
+/// table): the accepted class measures g2 ≤ 4.2e-5 relative
+/// (pentagon5_mixed setback: folds=0, g1 = 9.9e-14, g2 = 1.979e-6 abs
+/// at scale 4.8e-2); every folding candidate measures ≥ 6.4 relative.
+/// Positional rows (C⁰/border) keep the paper-exact gate — the tier
+/// relaxes smoothness bands, never watertightness.
+const PAPER_CAP_COMMERCIAL_RELATIVE_DERIVATIVE_GATE: f64 = 1.0e-3;
+
+/// How a paper-border candidate cleared acceptance.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) enum Kp20PaperAcceptanceTier {
+    /// Every paper gate closed at the 1e-6 relative form.
+    PaperExact,
+    /// Fold-free and corner-compatible with positional rows paper-exact,
+    /// derivative rows within the commercial band; carries the measured
+    /// relative g2 residual for the relaxed-continuity record.
+    Commercial { g2_relative: f64 },
+}
+
 /// Paper-cap candidate with its acceptance evidence.
 pub(super) struct Kp20PaperPrimaryCandidate {
     /// Bi-9 Gregory patches, sector-major piece order.
@@ -77,6 +101,31 @@ impl Kp20PaperPrimaryCandidate {
             && self.report.input_corner_mismatch < corner_gate
             && self.report.min_regularity > 0.0
             && self.summary.fold_count == 0
+    }
+
+    /// Acceptance tier: paper-exact, commercial, or `None` (decline).
+    /// The commercial tier keeps every positional/fold/corner
+    /// requirement and relaxes only the derivative rows to the
+    /// measured commercial band (see the gate constant).
+    pub(super) fn acceptance_tier(&self) -> Option<Kp20PaperAcceptanceTier> {
+        if self.is_acceptable() {
+            return Some(Kp20PaperAcceptanceTier::PaperExact);
+        }
+        let scale = self.scale.max(f64::MIN_POSITIVE);
+        let exact_gate = PAPER_CAP_RELATIVE_RESIDUAL_GATE * scale;
+        let derivative_gate = PAPER_CAP_COMMERCIAL_RELATIVE_DERIVATIVE_GATE * scale;
+        let corner_gate = PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE * scale;
+        let commercial = self.summary.fold_count == 0
+            && self.report.min_regularity > 0.0
+            && self.report.input_corner_mismatch < corner_gate
+            && self.report.max_c0_residual < exact_gate
+            && self.report.max_border_residual < exact_gate
+            && self.report.max_g1_residual < derivative_gate
+            && self.report.max_g2_residual < derivative_gate
+            && self.report.lemma4_delta < derivative_gate;
+        commercial.then(|| Kp20PaperAcceptanceTier::Commercial {
+            g2_relative: self.report.max_g2_residual / scale,
+        })
     }
 
     /// Structured diagnostic detail (paper residuals + fold summary).
@@ -112,29 +161,41 @@ pub(super) fn record_paper_candidate_outcome(
     label: &str,
     n: usize,
     candidate: Result<Kp20PaperPrimaryCandidate, String>,
-) -> Option<Vec<GregoryPatch>> {
+) -> Option<(Vec<GregoryPatch>, Kp20PaperAcceptanceTier)> {
     use super::super::kp20_polar_diagnostics::dispatch_fact;
     match candidate {
-        Ok(candidate) if candidate.is_acceptable() => {
-            diagnostics.push(dispatch_fact(
-                label,
-                n,
-                Some(candidate.detail()),
-                None,
-                None,
-            ));
-            Some(candidate.patches)
-        }
-        Ok(candidate) => {
-            diagnostics.push(dispatch_fact(
-                &format!("{label}_declined"),
-                n,
-                Some(candidate.detail()),
-                None,
-                None,
-            ));
-            None
-        }
+        Ok(candidate) => match candidate.acceptance_tier() {
+            Some(tier @ Kp20PaperAcceptanceTier::PaperExact) => {
+                diagnostics.push(dispatch_fact(
+                    label,
+                    n,
+                    Some(candidate.detail()),
+                    None,
+                    None,
+                ));
+                Some((candidate.patches, tier))
+            }
+            Some(tier @ Kp20PaperAcceptanceTier::Commercial { .. }) => {
+                diagnostics.push(dispatch_fact(
+                    &format!("{label}_commercial"),
+                    n,
+                    Some(format!("tier=commercial;{}", candidate.detail())),
+                    None,
+                    None,
+                ));
+                Some((candidate.patches, tier))
+            }
+            None => {
+                diagnostics.push(dispatch_fact(
+                    &format!("{label}_declined"),
+                    n,
+                    Some(candidate.detail()),
+                    None,
+                    None,
+                ));
+                None
+            }
+        },
         Err(e) => {
             diagnostics.push(dispatch_fact(
                 &format!("{label}_error"),

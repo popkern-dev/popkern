@@ -9,8 +9,27 @@ pub(super) fn corner_patch_count_is_acceptable(
     n_sides: usize,
 ) -> bool {
     patches.len() == n_sides
+        || kp20_macro_patch_count_is_acceptable(patches, n_sides)
         || support_cell_patch_count_is_acceptable(patches, n_sides)
         || mixed_support_cell_patch_count_is_acceptable(patches, n_sides)
+}
+
+/// The KP20 bi-6 macro cap tiles each of the `n` sectors with 4
+/// pieces; a full 4n tiling whose every patch carries Kp20Bi6
+/// macro-cap provenance for this corner is a complete result (the
+/// same layout the setback-commit route ships), not a partial one.
+pub(super) fn kp20_macro_patch_count_is_acceptable(
+    patches: &[CornerPatchInfo],
+    n_sides: usize,
+) -> bool {
+    patches.len() == 4 * n_sides
+        && patches.iter().all(|patch| {
+            patch.n_sides == n_sides
+                && patch.sub_patch_provenance.is_some_and(|provenance| {
+                    provenance.family == CornerSubPatchFamily::Kp20Bi6
+                        && provenance.sector_count == n_sides
+                })
+        })
 }
 
 pub(super) fn support_cell_patch_count_is_acceptable(

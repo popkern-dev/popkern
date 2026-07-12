@@ -136,6 +136,14 @@ pub(super) fn run_promotion_ladder(
         );
         diagnostics.append(&mut report.diagnostics);
         if let Some(patches_4n) = report.patches {
+            // Commercial-tier paper accepts record their measured
+            // relative g2 residual as a relaxed-continuity fact — the
+            // corner ships smooth-but-not-paper-exact and the
+            // CornerContinuityRelaxed warning makes that visible.
+            if let Some(g2_relative) = report.commercial_g2_relative {
+                *relaxed_coplanarity =
+                    Some(relaxed_coplanarity.map_or(g2_relative, |worst| worst.max(g2_relative)));
+            }
             decomp.sub_patches = patches_4n;
             let result = if report.expanded_support_topology_accepted {
                 PromotionResult::ExpandedKp20Support
