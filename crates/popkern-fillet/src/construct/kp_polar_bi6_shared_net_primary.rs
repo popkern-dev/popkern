@@ -40,7 +40,7 @@ use popkern_core::geometry::gregory::{
     convert_polar_to_bi6_cap_net,
 };
 
-use super::kp_polar_bi6_promote::SELF_INT_TOL;
+use super::SELF_INT_TOL;
 
 /// Cap-outer G0 gate (metres): the constructed cap's outer corners
 /// must lie within this distance of the real surrounding-surface

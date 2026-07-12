@@ -44,13 +44,17 @@ use popkern_core::geometry::gregory::{
 use popkern_core::geometry::surface::SurfaceGeometry;
 
 use super::kp_polar_bi6_diagnostics::{self, trace_polar};
-use super::kp_polar_bi6_shared_net_primary::{SharedNetOutcome, try_kp15_shared_net_cap};
 use super::kp_polar_deep_fill::{DeepFillOutcome, try_boundary_owned_deep_fill};
 use super::kp_polar_lm_optimizer::try_polar_lm_with_report;
 use super::kp_polar_weighted_f5::try_weighted_f5_profiles;
 use super::three_quad_apply::{extract_direct_boundary_input, worst_ring_coplanarity};
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::ApexConstructionDiagnostic;
+
+// PK-087 stage 4 — nested: private to this promotion path.
+#[path = "kp_polar_bi6_shared_net_primary.rs"]
+mod kp_polar_bi6_shared_net_primary;
+use kp_polar_bi6_shared_net_primary::{SharedNetOutcome, try_kp15_shared_net_cap};
 
 /// Commercial-grade gate on worst-case G1 coplanarity across the
 /// ring's shared spokes. Output above this threshold is still
