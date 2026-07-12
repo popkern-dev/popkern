@@ -32,9 +32,11 @@ fn load_fixture() -> serde_json::Value {
     serde_json::from_str(&text).expect("parse fixture JSON")
 }
 
-#[test]
-fn fixture_reproduces_all_deep_block_cps() {
-    let fx = load_fixture();
+/// Build `(params, net, free)` from the committed oracle fixture,
+/// verifying the fixture's `(c, τ, d2)` match `for_valence(6)`.
+fn fixture_inputs(
+    fx: &serde_json::Value,
+) -> (Bi6Reparams, Vec<[[Point3; 4]; 4]>, Bi6DeepInteriorFree) {
     let n = fx["n"].as_u64().unwrap() as usize;
     assert_eq!(n, 6);
 
@@ -45,7 +47,6 @@ fn fixture_reproduces_all_deep_block_cps() {
     assert!((params.tau - parse_rat(fx["tau"].as_str().unwrap())).abs() < 1e-15);
     assert!((params.d2 - parse_rat(fx["d2"].as_str().unwrap())).abs() < 1e-12);
 
-    // ---- free set ----
     let fs = &fx["free_set"];
     let vec_of = |key: &str| -> Vec<Point3> {
         fs[key]
@@ -72,7 +73,6 @@ fn fixture_reproduces_all_deep_block_cps() {
         p33: vec_of("P33"),
     };
 
-    // ---- input net ----
     let net_json = fx["input_net_4x4_per_sector"].as_array().unwrap();
     let net: Vec<[[Point3; 4]; 4]> = net_json
         .iter()
@@ -88,6 +88,14 @@ fn fixture_reproduces_all_deep_block_cps() {
         })
         .collect();
     assert_eq!(net.len(), n);
+    (params, net, free)
+}
+
+#[test]
+fn fixture_reproduces_all_deep_block_cps() {
+    let fx = load_fixture();
+    let n = fx["n"].as_u64().unwrap() as usize;
+    let (params, net, free) = fixture_inputs(&fx);
 
     // ---- build ----
     let grids = build_bi6_cap_from_net(&params, &net, &free).expect("build cap");
@@ -134,6 +142,54 @@ fn fixture_reproduces_all_deep_block_cps() {
     println!(
         "KP15 deep-interior fixture: worst deep-block error {worst:.3e} at sector/i/j {worst_at:?}"
     );
+}
+
+#[test]
+fn cap_output_entry_point_flips_indices_and_elevates() {
+    // The Bi6CapOutput entry point must (a) re-index script
+    // convention to the kernel cap convention (extraordinary point
+    // at [0][0]), (b) preserve every CP value, and (c) produce the
+    // bi-9 elevation alongside.
+    let fx = load_fixture();
+    let (params, net, free) = fixture_inputs(&fx);
+    let script = build_bi6_cap_from_net(&params, &net, &free).expect("script grids");
+    let out = assemble_bi6_polar_cap_from_net(&params, &net, &free, 1e-10).expect("cap output");
+
+    assert_eq!(out.patches_bi6.len(), params.n);
+    assert_eq!(out.patches_bi9.len(), params.n);
+    assert_eq!(out.star_point.x, free.p00.x);
+    for (s, grid) in out.patches_bi6.iter().enumerate() {
+        // Extraordinary point (script [6][6]) lands at kernel [0][0].
+        assert_eq!(grid[0][0].x, free.p00.x);
+        for i in 0..7 {
+            for j in 0..7 {
+                assert_eq!(
+                    grid[i][j].x,
+                    script.sectors[s][6 - i][6 - j].x,
+                    "sector {s} kernel [{i}][{j}] must be script [{}][{}]",
+                    6 - i,
+                    6 - j
+                );
+            }
+        }
+        // Degree elevation preserves the corner CPs.
+        let bi9 = &out.patches_bi9[s];
+        assert!((bi9[0][0].x - grid[0][0].x).abs() < 1e-12);
+        assert!((bi9[9][9].x - grid[6][6].x).abs() < 1e-12);
+    }
+}
+
+#[test]
+fn cap_output_entry_point_rejects_closure_violation() {
+    // A non-finite net poisons the eq (8) closure residual; the
+    // entry point must decline with the structured sal diagnostic
+    // instead of shipping a cap.
+    let fx = load_fixture();
+    let (params, mut net, free) = fixture_inputs(&fx);
+    net[0][2][2] = Point3::new(f64::NAN, 0.0, 0.0);
+    let err = assemble_bi6_polar_cap_from_net(&params, &net, &free, 1e-10)
+        .expect_err("must decline non-closing input");
+    assert!(err.contains("sal"), "diagnostic must name sal: {err}");
 }
 
 #[test]

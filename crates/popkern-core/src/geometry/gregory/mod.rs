@@ -186,23 +186,6 @@ mod spoke_poly_g1_ring;
 mod spoke_poly_g1_solver;
 mod triangular;
 mod triangular_to_nurbs;
-
-pub use build::GregoryBuildError;
-pub use normal_curvature::{NormalCurvatureComponents, NormalCurvatureError};
-pub use normal_curvature::{normal_curvature_along, normal_curvature_components_along};
-pub use rectangular::RectangularGregory;
-pub use rectangular_binonic::RectangularGregoryBiNonic;
-pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
-pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
-pub use rectangular_biseptic::RectangularGregoryBiseptic;
-pub use rectangular_deg5::RectangularGregoryDeg5;
-pub use rectangular_gregory_two_stripe::RectangularGregoryTwoStripe;
-pub use spoke_g1_solver::{
-    Side, Spoke, SpokeEnd, SpokeG1Patch, spoke_g1_solve, spoke_g1_solve_with_corner_samples,
-    spoke_g1_solve_with_corner_samples_damped,
-};
-pub use spoke_poly_g1_ring::{RingPolyG1Result, solve_ring_poly_g1};
-
 pub use bernstein_bi3::{
     bernstein_bi3, bernstein_bi3_all, bernstein_bi3_deriv, bernstein_bi3_deriv_all,
     bernstein_bi3_second_deriv, bernstein_bi3_second_deriv_all, bernstein_bi3_third_deriv,
@@ -234,6 +217,7 @@ pub use bernstein_tri6::{
     bernstein_tri6_third_partial_uuv, bernstein_tri6_third_partial_uvv,
     bernstein_tri6_third_partial_vvv, flat_index as tri6_flat_index,
 };
+pub use build::GregoryBuildError;
 pub use cc_characteristic_ring::{
     CcCharacteristicRing, CcComplex, cc_characteristic_ring, cc_extended_net_len,
     cc_extended_subdivision_rows, cc_level0_subdivision_rows, cc_picking_vectors,
@@ -316,7 +300,9 @@ pub use kp15_bi6_cap_f5_solve::{
 pub use kp15_bi6_circulant::{
     CirculantSectorRhs, S2Eq7Result, solve_bi6_circulant_s2_eq7, solve_bi6_circulant_s2_eq8,
 };
-pub use kp15_bi6_deep_interior::{Bi6CapScriptGrids, Bi6DeepInteriorFree, build_bi6_cap_from_net};
+pub use kp15_bi6_deep_interior::{
+    Bi6CapScriptGrids, Bi6DeepInteriorFree, assemble_bi6_polar_cap_from_net, build_bi6_cap_from_net,
+};
 pub use kp15_bi6_f5::{
     BI6_CP_COUNT, f_kappa_quadratic_form, f_kappa_quadratic_form_weighted, f5_evaluate,
     f5_quadratic_form,
@@ -344,6 +330,8 @@ pub use kp20_paper_guide::{
 pub use kp20_paper_tau::{
     Kp20PaperTauReport, kp20_paper_border_corner_mismatch, solve_kp20_paper_tau,
 };
+pub use normal_curvature::{NormalCurvatureComponents, NormalCurvatureError};
+pub use normal_curvature::{normal_curvature_along, normal_curvature_components_along};
 pub use pns_beta::BetaReparam;
 pub use pns_bi4_to_nurbs::pns_bi4_to_nurbs;
 pub use pns_boundary::{Bi2BorderStrip, Bi2TensorBorderRing};
@@ -352,9 +340,20 @@ pub use pns_cap_assemble::{
 };
 pub use pns_central_quad::QuadMapJet;
 pub use pns_sigma::{SigmaCenterJet, sigma_center_jet, sigma_center_jet_default};
+pub use rectangular::RectangularGregory;
+pub use rectangular_binonic::RectangularGregoryBiNonic;
+pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
+pub use rectangular_biquintic_full::RectangularGregoryBiquinticFull;
+pub use rectangular_biseptic::RectangularGregoryBiseptic;
+pub use rectangular_deg5::RectangularGregoryDeg5;
+pub use rectangular_gregory_two_stripe::RectangularGregoryTwoStripe;
 pub use self_intersection::GregorySelfIntersectionReport;
+pub use spoke_g1_solver::{
+    Side, Spoke, SpokeEnd, SpokeG1Patch, spoke_g1_solve, spoke_g1_solve_with_corner_samples,
+    spoke_g1_solve_with_corner_samples_damped,
+};
+pub use spoke_poly_g1_ring::{RingPolyG1Result, solve_ring_poly_g1};
 pub use triangular::TriangularGregory;
-
 /// A Gregory patch of either rectangular (N=4) or triangular
 /// (N=3) topology.
 ///

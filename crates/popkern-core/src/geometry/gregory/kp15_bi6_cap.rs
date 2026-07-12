@@ -241,19 +241,23 @@ pub fn assemble_bi6_polar_cap(input: &Bi6CapInput) -> Result<Bi6CapOutput, Strin
 
     // 6. Populate each per-sector bi-6 grid.
     //
-    // Unpopulated CPs (in particular, deep interior at rows 3..7
-    // × cols 3..7 not touched by interior_filler or the S3/S4
-    // rules) default to the **star point** rather than origin.
-    // Origin is a geometrically-unrelated 3D location; putting
-    // unset CPs there causes the bi-6 surface to bend through
-    // origin and produces folds at (u=1, v=1) on every sub-patch.
-    // Star-point default at least keeps the surface near the cap's
-    // natural centre. Fixes the fold diagnosed via
-    // `POPKERN_KP_POLAR_DEEP_TRACE=1` (see
-    // `f5-tuning-plan.md` finding 2026-04-21). Option B' of the
-    // plan (explicit deep-interior derivation / Coons fill) can
-    // later replace this pragmatic default with a paper-correct
-    // construction.
+    // Unpopulated CPs (deep interior at rows 3..7 × cols 3..7 not
+    // touched by interior_filler or the S3/S4 rules) default to
+    // the **star point** rather than origin (origin bends the
+    // surface through a geometrically-unrelated location and folds
+    // every sub-patch at (u=1, v=1); star at least stays near the
+    // cap centre — fold diagnosed via POPKERN_KP_POLAR_DEEP_TRACE,
+    // `f5-tuning-plan.md` 2026-04-21).
+    //
+    // PK-087: the paper-correct deep-interior derivation now
+    // exists — `kp15_bi6_deep_interior::assemble_bi6_polar_cap_from_net`,
+    // the oracle-gated port of the KP15 n6 script. It requires a
+    // shared cap net in the paper frame, which this legacy
+    // per-sector-rim `Bi6CapInput` cannot supply; see the
+    // bridge-blocker record in `docs/decisions/`
+    // `2026-06-22-kp15-bi6-deep-interior-without-maple.md`
+    // (stage 2 update). This star-default chain remains only as
+    // the legacy scaffold behind that input shape.
     let mut patches_bi6: Vec<[[Point3; 7]; 7]> = Vec::with_capacity(n);
     for k in 0..n {
         let s = &input.sectors[k];

@@ -25,14 +25,14 @@
 //! Rationale (f5-tuning-plan.md option A): the step-3 / (S1)
 //! propagation isn't implemented in this scaffold — callers
 //! supply scaffold values via `sectors[k].p_01 / p_02 / p_11`
-//! (typically from a tensor-border offset heuristic). Those
-//! scaffold values can push the cap into a self-intersecting
-//! configuration on sharp apex geometries. Promoting the
-//! sector-0 near-star CPs to free lets the F_5 solver pick
-//! values that avoid folds, at the cost of potentially breaking
-//! paper's G² guarantee at the sector 0 / sector 1 boundary
-//! (since sectors k > 0 still use scaffold values). When Phase
-//! II option (B) lands, this extension can be revisited.
+//! (typically from a tensor-border offset heuristic) which can
+//! fold the cap on sharp apexes; freeing the sector-0 near-star
+//! CPs lets F_5 avoid the fold at the cost of paper's G² at the
+//! sector 0/1 boundary. **PK-087 gate: the expanded set is
+//! legacy-scaffold-only.** The deep-interior populated path
+//! (`kp15_bi6_deep_interior::assemble_bi6_polar_cap_from_net`)
+//! determines all non-free CPs and must be optimised ONLY over
+//! the paper free set `P` ([`Bi6CapPaperFreeParams`]) — never this.
 //!
 //! Solver cardinality: `|P| = 2n + 4` per coordinate (3
 //! independent SPD systems). Layout in the flat vector:

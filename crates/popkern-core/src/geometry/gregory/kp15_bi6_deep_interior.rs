@@ -233,6 +233,66 @@ pub fn build_bi6_cap_from_net(
     Ok(Bi6CapScriptGrids { sectors: g, sal })
 }
 
+/// Assemble a [`Bi6CapOutput`](super::kp15_bi6_cap::Bi6CapOutput)
+/// through the verified deep-interior population — the KP15 cap
+/// assembly for callers that hold a **shared cap net** (paper
+/// frame: one `4 × 4` bicubic B-spline net per sector, spokes on
+/// the sector-glue edges).
+///
+/// This is the correct-by-construction replacement for the
+/// star-point-default populate step of
+/// [`assemble_bi6_polar_cap`](super::kp15_bi6_cap::assemble_bi6_polar_cap):
+/// every determined CP comes from [`build_bi6_cap_from_net`]
+/// (oracle-gated against the committed KP15 fixture); nothing is
+/// left at a star default and only the paper free set is caller
+/// input. The legacy per-sector-rim `Bi6CapInput` path cannot feed
+/// this — see the bridge-blocker record in
+/// `docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md`
+/// (stage 2 update) for the frame re-orientation that will thread a
+/// shared net through the polar bridge.
+///
+/// Grids are re-indexed from script convention to the kernel cap
+/// convention (`grid[i][j] = script[6 − i][6 − j]`; extraordinary
+/// point at `[0][0]`) and degree-elevated to bi-9, matching the
+/// other cap assembly outputs.
+///
+/// `sal_tolerance` bounds the deferred eq (8) closure residual
+/// `‖sal‖` (paper-zero for a C²-consistent net); a violation
+/// returns a structured diagnostic naming the residual rather than
+/// shipping a cap whose ring constraints did not close.
+pub fn assemble_bi6_polar_cap_from_net(
+    params: &Bi6Reparams,
+    net: &[[[Point3; 4]; 4]],
+    free: &Bi6DeepInteriorFree,
+    sal_tolerance: f64,
+) -> Result<super::kp15_bi6_cap::Bi6CapOutput, String> {
+    let script = build_bi6_cap_from_net(params, net, free)?;
+    let sal_norm =
+        (script.sal.x * script.sal.x + script.sal.y * script.sal.y + script.sal.z * script.sal.z)
+            .sqrt();
+    if !sal_norm.is_finite() || sal_norm > sal_tolerance {
+        return Err(format!(
+            "KP15 deep-interior eq (8) closure residual ‖sal‖ = {sal_norm:.3e} exceeds \
+             tolerance {sal_tolerance:.3e}: input net is not C²-consistent (n = {})",
+            params.n
+        ));
+    }
+    let patches_bi6: Vec<[[Point3; 7]; 7]> = script
+        .sectors
+        .iter()
+        .map(|s| core::array::from_fn(|i| core::array::from_fn(|j| s[6 - i][6 - j])))
+        .collect();
+    let patches_bi9: Vec<[[Point3; 10]; 10]> = patches_bi6
+        .iter()
+        .map(|g| super::kp_degree_elevate::elevate_bi6_grid_to_bi9(*g))
+        .collect();
+    Ok(super::kp15_bi6_cap::Bi6CapOutput {
+        star_point: free.p00,
+        patches_bi6,
+        patches_bi9,
+    })
+}
+
 #[cfg(test)]
 #[path = "kp15_bi6_deep_interior_tests.rs"]
 mod tests;
