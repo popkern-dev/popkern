@@ -116,6 +116,12 @@ pub(super) fn assign_labels(samples: &[HeSample], n_carriers: usize) -> Vec<usiz
         .unwrap_or_else(|| vec![bare; n])
 }
 
+/// Choose the carrier run with the most REAL (non-authored)
+/// half-edges, tie-broken by total length. Picking the FIRST run at a
+/// label boundary favored 1-half-edge runs whose bigon splits are
+/// size-neutral (remove one real, mint one closing) and burned the
+/// split budget without converging (measured on cube_extreme's 10v5:
+/// 13 splits on a fully carrier-covered loop that barely shrank).
 pub(super) fn first_carrier_run(
     labels: &[usize],
     bare: usize,
@@ -125,6 +131,7 @@ pub(super) fn first_carrier_run(
     let n = labels.len();
     // Find an index where the label changes (run boundary).
     let boundary = (0..n).find(|&i| labels[i] != labels[(i + n - 1) % n])?;
+    let mut best: Option<(usize, usize, usize, usize)> = None;
     let mut i = boundary;
     let mut walked = 0usize;
     while walked < n {
@@ -133,14 +140,19 @@ pub(super) fn first_carrier_run(
         while len < n && labels[(i + len) % n] == label {
             len += 1;
         }
-        let all_authored = (0..len).all(|k| authored.contains(&samples[(i + k) % n].he));
-        if label != bare && !all_authored {
-            return Some((i, len, label));
+        let real = (0..len)
+            .filter(|&k| !authored.contains(&samples[(i + k) % n].he))
+            .count();
+        if label != bare
+            && real > 0
+            && best.is_none_or(|(_, blen, _, breal)| real > breal || (real == breal && len > blen))
+        {
+            best = Some((i, len, label, real));
         }
         i = (i + len) % n;
         walked += len;
     }
-    None
+    best.map(|(start, len, label, _)| (start, len, label))
 }
 
 pub(super) fn collect_carriers(brep: &BRep, bridge_faces: &[FaceHandle]) -> Vec<Carrier> {
