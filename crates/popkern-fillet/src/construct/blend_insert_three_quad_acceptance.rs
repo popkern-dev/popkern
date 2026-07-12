@@ -101,7 +101,77 @@ pub(super) fn accept_three_quad_result(
         "cap_support_acceptance",
         Some(detail),
     ));
+    trace_external_seam_boundary_evidence(brep, &cap_faces);
     ThreeQuadAcceptance::Declined(diagnostics)
+}
+
+/// Decline forensics (trace-gated): for every external cap seam of the
+/// rolled-back commit, report the boundary-hint/decline state and
+/// whether the cap pcurve is border-recognizable — separates the
+/// hint-registration classes (NotOnCanonicalBoundary vs
+/// AuthoredHintEndpointMismatch) blocking the boundary-row solve.
+fn trace_external_seam_boundary_evidence(brep: &BRep, cap_faces: &[FaceHandle]) {
+    if !crate::direct_apex_trace::enabled() {
+        return;
+    }
+    let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    for &cap_face in cap_faces {
+        let Some(loop_data) = brep
+            .faces
+            .get(cap_face)
+            .and_then(|face| brep.loops.get(face.outer_loop))
+        else {
+            continue;
+        };
+        let head = loop_data.half_edge;
+        let mut cursor = head;
+        for _ in 0..brep.half_edges.len() {
+            let Some(data) = brep.half_edges.get(cursor) else {
+                break;
+            };
+            let support_face = brep
+                .half_edges
+                .get(data.twin)
+                .and_then(|twin| brep.loops.get(twin.loop_))
+                .map(|loop_data| loop_data.face);
+            if let Some(support_face) = support_face
+                && !cap_set.contains(&support_face)
+            {
+                // Mirrors the row solve's recognizer: endpoints on one
+                // chart border (1e-9) with a usable span.
+                let span = data.pcurve.as_ref().map(|pcurve| {
+                    let (t0, t1) = pcurve.parameter_range();
+                    let start = pcurve.point_at(t0);
+                    let end = pcurve.point_at(t1);
+                    let close = |a: f64, b: f64| (a - b).abs() <= 1.0e-9;
+                    if close(start.x, 0.0) && close(end.x, 0.0) {
+                        format!("UMin({:.3}->{:.3})", start.y, end.y)
+                    } else if close(start.x, 1.0) && close(end.x, 1.0) {
+                        format!("UMax({:.3}->{:.3})", start.y, end.y)
+                    } else if close(start.y, 0.0) && close(end.y, 0.0) {
+                        format!("VMin({:.3}->{:.3})", start.x, end.x)
+                    } else if close(start.y, 1.0) && close(end.y, 1.0) {
+                        format!("VMax({:.3}->{:.3})", start.x, end.x)
+                    } else {
+                        format!(
+                            "OFF-BORDER({:.3},{:.3})->({:.3},{:.3})",
+                            start.x, start.y, end.x, end.y
+                        )
+                    }
+                });
+                eprintln!(
+                    "[direct-apex-trace] external seam he {cursor:?} cap {cap_face:?} support \
+                     {support_face:?}: hint={:?} decline={:?} span={span:?}",
+                    brep.surface_boundary_hint(cursor),
+                    brep.surface_boundary_decline(cursor),
+                );
+            }
+            cursor = data.next;
+            if cursor == head {
+                break;
+            }
+        }
+    }
 }
 
 pub(super) fn record_fallback_cap_support_continuity(
