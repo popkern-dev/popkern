@@ -180,11 +180,16 @@ fn beta_bb_coeffs_for_n3_default() {
 
 #[test]
 fn gamma_k2_spot_check() {
+    // Weights match the oracle's `TBdata` `row2[2]` collected by
+    // `b_{ij}` (oracle `n6_oracle.py`, cross-checked exact).
     let p = Bi6Reparams::for_valence(6);
-    assert!(approx_eq(gamma(&p, 2, 0, 0), 1.0 - p.d2 / 25.0));
+    assert!(approx_eq(gamma(&p, 2, 0, 0), (1.0 - p.d2) / 25.0));
+    assert!(approx_eq(gamma(&p, 2, 0, 1), 3.0 / 25.0 + p.d2 / 50.0));
+    assert!(approx_eq(gamma(&p, 2, 0, 2), 1.0 / 25.0));
     assert!(approx_eq(gamma(&p, 2, 1, 0), (6.0 + p.d2) / 50.0));
     assert!(approx_eq(gamma(&p, 2, 2, 0), 1.0 / 25.0));
     assert!(approx_eq(gamma(&p, 2, 1, 1), 9.0 / 25.0));
+    assert!(approx_eq(gamma(&p, 2, 1, 2), 3.0 / 25.0));
     assert!(approx_eq(gamma(&p, 2, 2, 1), 3.0 / 25.0));
     assert!(approx_eq(gamma(&p, 2, 2, 2), 1.0 / 25.0));
 }
@@ -223,9 +228,11 @@ fn gamma_k6_spot_check() {
 #[test]
 fn gamma_outside_sparsity_returns_zero() {
     let p = Bi6Reparams::for_valence(6);
-    // Positions never exercised in the γ table.
+    // Positions never exercised in the γ table (i = 3 row is empty
+    // for k = 2).
     assert_eq!(gamma(&p, 2, 3, 0), 0.0);
-    assert_eq!(gamma(&p, 2, 0, 1), 0.0);
+    assert_eq!(gamma(&p, 2, 3, 1), 0.0);
+    assert_eq!(gamma(&p, 2, 3, 2), 0.0);
     assert_eq!(gamma(&p, 5, 0, 0), 0.0);
     assert_eq!(gamma(&p, 5, 1, 0), 0.0);
     assert_eq!(gamma(&p, 6, 0, 0), 0.0);
@@ -248,7 +255,7 @@ fn gamma_is_linear_in_parameters() {
     p1.d2 = 0.0;
     p2.d2 = 1.0;
 
-    // γ²_{00} = 1 − d2 / 25: Δ = −(1 − 0)/25 = −1/25.
+    // γ²_{00} = (1 − d2)/25: Δ = (0 − 1)/25 = −1/25.
     let diff = gamma(&p2, 2, 0, 0) - gamma(&p1, 2, 0, 0);
     assert!(approx_eq(diff, -1.0 / 25.0));
 

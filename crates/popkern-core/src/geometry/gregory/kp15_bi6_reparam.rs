@@ -207,11 +207,16 @@ pub fn gamma(reparams: &Bi6Reparams, k: usize, i: usize, j: usize) -> f64 {
     let tau = reparams.tau;
     let d2 = reparams.d2;
     match (k, i, j) {
-        // k = 2
-        (2, 0, 0) => 1.0 - d2 / 25.0,
+        // k = 2 — weights collect the reparameterised row-2 CP
+        // `q_{2,2} = Σ γ²_{ij} b_{ij}` from the KP15 script's `TBdata`
+        // row-2 entry i = 2 (oracle `n6_oracle.py::TBdata` `row2[2]`).
+        (2, 0, 0) => (1.0 - d2) / 25.0,
+        (2, 0, 1) => 3.0 / 25.0 + d2 / 50.0,
+        (2, 0, 2) => 1.0 / 25.0,
         (2, 1, 0) => (6.0 + d2) / 50.0,
         (2, 2, 0) => 1.0 / 25.0,
         (2, 1, 1) => 9.0 / 25.0,
+        (2, 1, 2) => 3.0 / 25.0,
         (2, 2, 1) => 3.0 / 25.0,
         (2, 2, 2) => 1.0 / 25.0,
 
