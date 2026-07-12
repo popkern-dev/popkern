@@ -52,6 +52,20 @@ fn cube_with_slit_spur() -> (BRep, FaceHandle) {
         }
     }
     let corner_he = corner_he.expect("top loop passes the (0,0,1) corner");
+    // Split the top face diagonally so the OTHER half keeps the z=1
+    // surface and serves as the carrier for the stripped half (in the
+    // real pocket the carriers are always other faces).
+    let opposite_he = {
+        let a = brep.half_edges[corner_he].next;
+        brep.half_edges[a].next
+    };
+    brep.mef(corner_he, opposite_he).expect("diagonal mef");
+    // The half under solve is the one whose loop kept `corner_he`.
+    let stripped = brep
+        .loops
+        .get(brep.half_edges[corner_he].loop_)
+        .map(|l| l.face)
+        .expect("corner half-edge stays in a live loop");
     // Spur into the x=0 plane: corner -> S1 -> S2 (out-and-back).
     let s1 = brep
         .mev(corner_he, Point3::new(0.0, 0.4, 0.7))
@@ -60,8 +74,8 @@ fn cube_with_slit_spur() -> (BRep, FaceHandle) {
         .mev(s1.half_edge_twin, Point3::new(0.0, 0.7, 0.4))
         .expect("second spur mev");
     // The face under solve is surface-less pocket scaffolding.
-    brep.faces[top].surface = None;
-    (brep, top)
+    brep.faces[stripped].surface = None;
+    (brep, stripped)
 }
 
 #[test]
@@ -170,4 +184,58 @@ fn pinched_slit_spur_cell_carries_its_carrier() {
         spur_cell_exists,
         "a split-off cell must carry the x=0 carrier and the spur vertices"
     );
+}
+
+/// Diagnostic dump of the post-solve topology (design aid for the
+/// appendage-excision weld). Run with --ignored --nocapture.
+#[test]
+#[ignore = "diagnostic — run with --ignored --nocapture"]
+fn dump_post_solve_spur_topology() {
+    let (mut brep, top) = cube_with_slit_spur();
+    let report = resolve_pocket_faces(&mut brep, &[]);
+    eprintln!(
+        "report: cells={} whole={} declined={:?}",
+        report.cells_created, report.faces_surfaced, report.declined
+    );
+    for (handle, face) in brep.faces.iter() {
+        let kind = face
+            .surface
+            .as_ref()
+            .map(|s| {
+                use popkern_core::geometry::SurfaceGeometry;
+                match &s.geometry {
+                    SurfaceGeometry::Plane { normal, .. } => {
+                        format!("Plane(n=({:.1},{:.1},{:.1}))", normal.x, normal.y, normal.z)
+                    }
+                    _ => "Other".to_string(),
+                }
+            })
+            .unwrap_or_else(|| "NONE".to_string());
+        let marker = if handle == top { " <== parent" } else { "" };
+        eprintln!("face {handle:?} {kind}{marker}");
+        let Some(loop_) = brep.loops.get(face.outer_loop) else {
+            continue;
+        };
+        let start = loop_.half_edge;
+        let mut he = start;
+        for i in 0..brep.half_edges.len() {
+            let Some(data) = brep.half_edges.get(he) else {
+                break;
+            };
+            let p = brep.vertices[data.origin].position;
+            let twin_face = brep
+                .half_edges
+                .get(data.twin)
+                .and_then(|t| brep.loops.get(t.loop_))
+                .map(|l| l.face);
+            eprintln!(
+                "  he[{i}] {:?} edge={:?} o=({:.2},{:.2},{:.2}) twin_face={twin_face:?}",
+                he, data.edge, p.x, p.y, p.z
+            );
+            he = data.next;
+            if he == start {
+                break;
+            }
+        }
+    }
 }
