@@ -282,7 +282,45 @@ fn solve_one_face(
         cells += 1;
         // Loop again on the shrunken parent face.
     }
-    Err("support-cell split budget exhausted (runaway split loop)".to_string())
+    // Budget exhausted. When the terminal remainder is pure wrap (no
+    // carrier fits any half-edge), the process CONVERGED — the split
+    // count was simply larger than the budget guessed (measured on
+    // cube_extreme: 13 legitimate alternating-run splits) and the bare
+    // wrap is the tolerated outcome. Only a remainder that still has
+    // carrier-fitting runs is a genuine anomaly.
+    let samples = loop_samples(brep, face)?;
+    let all_bare = samples.iter().all(|sample| {
+        carriers
+            .iter()
+            .all(|carrier| !he_fits(sample, carrier, gate))
+    });
+    if all_bare && cells > 0 {
+        return Ok((cells, false));
+    }
+    let profile = samples
+        .iter()
+        .map(|sample| {
+            let mut mask = 0u64;
+            for (index, carrier) in carriers.iter().enumerate() {
+                if he_fits(sample, carrier, gate) {
+                    mask |= 1 << index;
+                }
+            }
+            format!(
+                "{}{mask}",
+                if authored.contains(&sample.he) {
+                    "A"
+                } else {
+                    "r"
+                },
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    Err(format!(
+        "support-cell split budget exhausted with carrier runs remaining; terminal loop \
+         [authored?carrier_mask]: {profile}"
+    ))
 }
 
 fn split_off_run(
