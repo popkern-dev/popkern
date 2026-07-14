@@ -122,6 +122,7 @@ pub(super) fn extract_fillet_radius(fs: &FilletSurfaceResult) -> Option<f64> {
 pub(super) fn promote_decomp_to_kp_polar_bi6(
     sub_patches: &mut [GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
+    boundary_target: Option<&[[[popkern_core::geometry::Point3; 4]; 2]]>,
 ) -> PolarPromoteOutcome {
     let n = sub_patches.len();
     let mut diagnostics = Vec::new();
@@ -220,7 +221,7 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     // PK-087 stage 4 — KP15 shared-net cap is the PRIMARY candidate
     // (correct-by-construction, all-or-nothing), ahead of the guarded
     // F_κ ladder below. See `kp_polar_bi6_shared_net_primary` docs.
-    match try_kp15_shared_net_cap(&polar) {
+    match try_kp15_shared_net_cap(&polar, boundary_target) {
         SharedNetOutcome::Committed(new_patches) => {
             let worst_coplanarity = worst_ring_coplanarity(&new_patches);
             new_patches
@@ -438,21 +439,13 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
 /// polar is the primary rung, binonic only fires when polar
 /// rejects.
 #[allow(dead_code)]
-pub(super) fn promote_and_update_relaxed(
-    sub_patches: &mut [GregoryPatch],
-    fillet_surfaces: &[FilletSurfaceResult],
-    relaxed_coplanarity: &mut Option<f64>,
-) -> bool {
-    promote_and_update_relaxed_with_diagnostics(sub_patches, fillet_surfaces, relaxed_coplanarity).0
-}
-
-#[allow(dead_code)]
 pub(super) fn promote_and_update_relaxed_with_diagnostics(
     sub_patches: &mut [GregoryPatch],
     fillet_surfaces: &[FilletSurfaceResult],
     relaxed_coplanarity: &mut Option<f64>,
+    boundary_target: Option<&[[[popkern_core::geometry::Point3; 4]; 2]]>,
 ) -> (bool, Vec<ApexConstructionDiagnostic>) {
-    match promote_decomp_to_kp_polar_bi6(sub_patches, fillet_surfaces) {
+    match promote_decomp_to_kp_polar_bi6(sub_patches, fillet_surfaces, boundary_target) {
         PolarPromoteOutcome::Committed { worst_coplanarity } => {
             *relaxed_coplanarity = if worst_coplanarity > COMMERCIAL_GATE {
                 Some(worst_coplanarity)

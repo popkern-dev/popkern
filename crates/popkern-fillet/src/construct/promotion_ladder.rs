@@ -8,6 +8,8 @@
 //! Extracted from `three_quad_apply.rs` to keep that file under
 //! the 500-line structural limit.
 
+use popkern_core::geometry::Point3;
+use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::GregoryPatch;
 
 use super::three_quad_kp_diagnostics;
@@ -15,6 +17,7 @@ use super::three_quad_promotions::{
     promote_decomp_to_biquintic_full_with_spoke_g1, promote_decomp_to_biseptic_with_spoke_g1,
     promote_decomp_to_two_stripe_with_spoke_g1,
 };
+use crate::blend::boundary::{BlendBoundary, BoundarySegment};
 use crate::blend::gregory_three_quad::NQuadDecomposition;
 use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ApexConstructionDiagnostic, CornerSubPatchFamily, CornerSubPatchProvenance};
@@ -45,6 +48,96 @@ pub(super) struct PromotionLadderReport {
     pub kp20_support_cell_provenance: Option<Vec<CornerSubPatchProvenance>>,
     pub kp20_support_cell_floor_patches: Option<Vec<GregoryPatch>>,
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
+}
+
+/// Exact bi-3 (cubic) BB control points of a boundary segment curve:
+/// endpoints interpolated, the two interior CPs least-squares fit over
+/// 40 samples. The fillet's `FilletEnd`/`FaceEdge` segments are
+/// cubic-exact (PK-087 stage-6 measurement: best-cubic residual
+/// ~1e-16), so this recovers the curve's control polygon rather than
+/// approximating it — the accurate replacement for the spoke extractor's
+/// crude on-curve degree reduction.
+fn segment_bi3_cps(curve: &popkern_core::geometry::NurbsCurve) -> [Point3; 4] {
+    let (t0, t1) = curve.parameter_range();
+    let m = 40usize;
+    let pts: Vec<Point3> = (0..=m)
+        .map(|i| curve.point_at(t0 + (i as f64 / m as f64) * (t1 - t0)))
+        .collect();
+    let p0 = pts[0];
+    let p3 = pts[m];
+    let basis = |s: f64| {
+        let u = 1.0 - s;
+        [u * u * u, 3.0 * u * u * s, 3.0 * u * s * s, s * s * s]
+    };
+    let mut ata = [[0.0f64; 2]; 2];
+    let mut atb = [[0.0f64; 3]; 2];
+    for (i, pt) in pts.iter().enumerate() {
+        let s = i as f64 / m as f64;
+        let b = basis(s);
+        let bi = [b[1], b[2]];
+        let resid = [
+            pt.x - p0.x * b[0] - p3.x * b[3],
+            pt.y - p0.y * b[0] - p3.y * b[3],
+            pt.z - p0.z * b[0] - p3.z * b[3],
+        ];
+        for a in 0..2 {
+            for c in 0..2 {
+                ata[a][c] += bi[a] * bi[c];
+            }
+            for k in 0..3 {
+                atb[a][k] += bi[a] * resid[k];
+            }
+        }
+    }
+    let det = ata[0][0] * ata[1][1] - ata[0][1] * ata[1][0];
+    if det.abs() < 1e-18 {
+        return [p0, p0, p3, p3];
+    }
+    let solve = |k: usize| {
+        (
+            (atb[0][k] * ata[1][1] - atb[1][k] * ata[0][1]) / det,
+            (ata[0][0] * atb[1][k] - ata[1][0] * atb[0][k]) / det,
+        )
+    };
+    let (c1x, c2x) = solve(0);
+    let (c1y, c2y) = solve(1);
+    let (c1z, c2z) = solve(2);
+    [
+        p0,
+        Point3::new(c1x, c1y, c1z),
+        Point3::new(c2x, c2y, c2z),
+        p3,
+    ]
+}
+
+/// Per-sector two-outer-edge fit targets from the real blend boundary
+/// (PK-087 stage 6). For cap sector `k` the two outer edges are
+/// `FilletEnd[k]` (`segments[2k]`) and `FaceEdge[k]` (`segments[2k+1]`),
+/// which meet at the mid-sector junction `J_k`. Both edges are oriented
+/// so CP0 is `J_k` (the shared corner where the cap's `tad`/`tak` edges
+/// meet), matching the fit's `b[0][0]` corner. Returns `None` unless the
+/// boundary has exactly `2n` segments.
+fn sector_outer_edge_targets(boundary: &BlendBoundary, n: usize) -> Option<Vec<[[Point3; 4]; 2]>> {
+    if boundary.segments.len() != 2 * n {
+        return None;
+    }
+    let curve_of = |seg: &BoundarySegment| -> popkern_core::geometry::NurbsCurve {
+        match seg {
+            BoundarySegment::FilletEnd { curve, .. } | BoundarySegment::FaceEdge { curve, .. } => {
+                curve.clone()
+            }
+        }
+    };
+    let rev = |cps: [Point3; 4]| [cps[3], cps[2], cps[1], cps[0]];
+    let mut out = Vec::with_capacity(n);
+    for k in 0..n {
+        let fe = segment_bi3_cps(&curve_of(&boundary.segments[2 * k])); // W_{k-1} -> J_k
+        let face = segment_bi3_cps(&curve_of(&boundary.segments[2 * k + 1])); // J_k -> W_k
+        // tad edge (script g[s][i][0]) ← FaceEdge (CP0 = J_k already);
+        // tak edge (script g[s][0][i]) ← FilletEnd reversed (CP0 = J_k).
+        out.push([face, rev(fe)]);
+    }
+    Some(out)
 }
 
 /// Run the full promotion ladder and return its selected topology
@@ -162,10 +255,13 @@ pub(super) fn run_promotion_ladder(
     }
     let (polar_committed, mut polar_diagnostics) = if use_kp_polar && decomp.sub_patches.len() >= 5
     {
+        let boundary_target =
+            apex_boundary.and_then(|(b, _)| sector_outer_edge_targets(b, decomp.sub_patches.len()));
         super::kp_polar_bi6_promote::promote_and_update_relaxed_with_diagnostics(
             &mut decomp.sub_patches,
             fillet_surfaces,
             relaxed_coplanarity,
+            boundary_target.as_deref(),
         )
     } else {
         (false, Vec::new())
