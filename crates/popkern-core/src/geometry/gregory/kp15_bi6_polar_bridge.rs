@@ -354,7 +354,35 @@ fn lerp_point(p: Point3, q: Point3, t: f64) -> Point3 {
 /// - `n < 5` — the valence-general deep-interior populator declines
 ///   `n < 5` (paper §3.5 `n = 3` and the rectangular `n = 4` path are
 ///   served elsewhere); the caller's dispatch ladder handles those.
+///
+/// Retained as the coarse (unfitted) reference used by the trade-off
+/// tests; the production path now uses the boundary-fitted
+/// [`convert_polar_to_bi6_cap_fitted`], so this is not re-exported at
+/// the crate root (frozen module ratchet) and reads as dead in a
+/// non-test lib build.
+#[allow(dead_code)]
 pub fn convert_polar_to_bi6_cap_net(polar: &PolarBoundaryInput) -> Result<Bi6CapNetInputs, String> {
+    let (params, ring, free) = build_coarse_ring_and_free(polar)?;
+    let n = params.n;
+    let net: Vec<[[Point3; 4]; 4]> = (0..n).map(|s| shared_net_layout(&ring, s, n)).collect();
+    Ok((params, net, free))
+}
+
+/// Build the **coarse** shared control ring and the KP15 free set from
+/// the polar geometry — the geometry-derived seed before the
+/// boundary-fidelity fit
+/// ([`fit_shared_ring_to_border`](super::kp15_bi6_net_fit::fit_shared_ring_to_border)).
+/// Shared with the fitted converter
+/// ([`convert_polar_to_bi6_cap_fitted`](super::kp15_bi6_net_fit::convert_polar_to_bi6_cap_fitted)),
+/// which corrects the ring so the assembled cap interpolates the real
+/// surrounding-surface boundary while retaining the C²-consistent
+/// sharing.
+///
+/// # Errors
+/// - `polar.validate()` fails, or `n < 5` (see the fitted converter).
+pub(crate) fn build_coarse_ring_and_free(
+    polar: &PolarBoundaryInput,
+) -> Result<(Bi6Reparams, SharedControlRing, Bi6DeepInteriorFree), String> {
     polar.validate()?;
     let n = polar.n();
     if n < 5 {
@@ -410,7 +438,6 @@ pub fn convert_polar_to_bi6_cap_net(polar: &PolarBoundaryInput) -> Result<Bi6Cap
         a6,
         e: c,
     };
-    let net: Vec<[[Point3; 4]; 4]> = (0..n).map(|s| shared_net_layout(&ring, s, n)).collect();
 
     // ---- Free set: monotone star → rim blend (fold-free seed) ----
     //
@@ -448,8 +475,15 @@ pub fn convert_polar_to_bi6_cap_net(polar: &PolarBoundaryInput) -> Result<Bi6Cap
         p33: (0..n).map(|r| blend(r, 3, 3)).collect(),
     };
 
-    Ok((params, net, free))
+    Ok((params, ring, free))
 }
+
+// PK-087 stage 5 — the boundary-fidelity fit lives in a sibling file
+// for the line budget; nested here (rather than in `gregory/mod.rs`) so
+// the frozen module-registration ratchet is untouched.
+#[path = "kp15_bi6_net_fit.rs"]
+mod net_fit;
+pub use net_fit::convert_polar_to_bi6_cap_fitted;
 
 #[cfg(test)]
 #[path = "kp15_bi6_polar_bridge_tests.rs"]

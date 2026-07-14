@@ -390,6 +390,88 @@ fn tensor_border_direct_matches_boundary_but_breaks_continuity() {
     );
 }
 
+// ---- PK-087 stage 5: two-edge boundary fit escapes the trade-off ----
+//
+// The stage-4 trade-off (above) pinned that the two *pure* mechanisms
+// cannot clear both gates: the coarse shared net closes eq (2)/(3) at
+// machine zero but shrinks the outer boundary, while the raw
+// tensor-border-direct path interpolates the boundary but breaks
+// eq (2)/(3). The commercial-grade replacement is the shared ring
+// *fitted* to the real tensor border on **both** star-opposite outer
+// edges ([`convert_polar_to_bi6_cap_fitted`]): it retains the
+// C²-consistent sharing (so eq (2)/(3) stay machine zero) while
+// inverting the B-spline → Bézier shrinkage (so the outer boundary
+// corners interpolate the real surrounding-surface corners). This test
+// pins that both hold *simultaneously* — the trade-off the coarse ring
+// could not escape.
+
+#[test]
+fn two_edge_fit_closes_boundary_and_continuity_together() {
+    use super::super::kp_polar_boundary_input::TensorBorder;
+    use super::super::kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
+    use super::convert_polar_to_bi6_cap_fitted;
+    let radii = [0.30, 0.10, 0.25, 0.12, 0.28, 0.11];
+    let polar = dome_polar_input(6, 0.3, &radii);
+    let n = 6usize;
+    let TensorBorder::Bi3(tb) = extract_bi3_tensor_border_from_polar_input(&polar).expect("tb")
+    else {
+        panic!("bi3");
+    };
+
+    // The cap's two outer-boundary corners are script [6][0] = V_s (the
+    // tad edge, spoke s) and script [0][6] = V_{s-1} (the tak edge,
+    // spoke s − 1). `tb.sectors[k][0][3]` is spoke k's outer end V_k.
+    let worst_outer_corners = |grids: &[[[Point3; 7]; 7]]| -> f64 {
+        let mut worst = 0.0_f64;
+        for (s, g) in grids.iter().enumerate() {
+            worst = worst.max(dist(g[6][0], tb.sectors[s][0][3]));
+            worst = worst.max(dist(g[0][6], tb.sectors[(s + n - 1) % n][0][3]));
+        }
+        worst
+    };
+
+    // Coarse ring: continuity closes but the boundary is badly shrunk.
+    let (cparams, cnet, cfree) = convert_polar_to_bi6_cap_net(&polar).expect("coarse");
+    let coarse_grids = build_bi6_cap_from_net(&cparams, &cnet, &cfree).expect("coarse build");
+    let coarse_outer = worst_outer_corners(&coarse_grids.sectors);
+    assert!(
+        coarse_outer > 0.1,
+        "coarse ring is expected to shrink the boundary corners; got {coarse_outer:.3e}"
+    );
+
+    // Two-edge fit at a small regularisation: boundary corners collapse
+    // to the real corners while eq (2)/(3) stay machine zero.
+    let (params, net, free) = convert_polar_to_bi6_cap_fitted(&polar, 1e-3).expect("fitted");
+    let grids = build_bi6_cap_from_net(&params, &net, &free).expect("fitted build");
+    let fitted_outer = worst_outer_corners(&grids.sectors);
+    let (g1, g2) = worst_g1_g2(&grids.sectors, &params);
+
+    // Boundary fidelity: the fit inverts the shrinkage. On this
+    // pathological unit fixture (corners at radius 1, coarse shrinkage
+    // ~0.74) the two-edge fit collapses the corner error several-fold to
+    // ~0.18 — the residual is the shared-net's representable-boundary
+    // distance at unit scale. On real (~0.02-scale) fillet apexes the
+    // same fit reaches ~4e-3 at the corners (PK-087 ADR stage 5), inside
+    // the 5 mm gate. Here we pin the multiplicative improvement.
+    assert!(
+        fitted_outer < coarse_outer / 3.0,
+        "two-edge fit must sharply reduce the boundary corner error: fitted {fitted_outer:.3e} vs coarse {coarse_outer:.3e}"
+    );
+    // Continuity: eq (2)/(3) remain machine zero (the shared ring is
+    // preserved by the fit, so the oracle's G1 ≡ G2 ≡ 0 still holds).
+    assert!(
+        g1 <= 1e-9 && g2 <= 1e-9,
+        "fitted ring must keep eq(2)/(3) at machine zero: g1={g1:.3e} g2={g2:.3e}"
+    );
+    // The `sal` ring-closure residual also vanishes — the fitted net is
+    // still one C²-consistent B-spline surface.
+    assert!(
+        grids.sal.x.hypot(grids.sal.y).hypot(grids.sal.z) < 1e-9,
+        "fitted net must stay C²-consistent: sal={:?}",
+        grids.sal
+    );
+}
+
 #[test]
 fn declines_low_valence() {
     let polar = dome_polar_input(4, 0.2, &[0.15; 4]);

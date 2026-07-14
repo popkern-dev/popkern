@@ -310,7 +310,7 @@ pub use kp15_bi6_f5::{
 };
 pub use kp15_bi6_local_constraint::{Kp15Bi6GeneratingTable, apply_beta_reparameterization};
 pub use kp15_bi6_mu::{mu_bar, mu_ddot, mu_dot, mu_tdot, mu_tilde, w_scalars};
-pub use kp15_bi6_polar_bridge::{convert_polar_to_bi6_cap_input, convert_polar_to_bi6_cap_net};
+pub use kp15_bi6_polar_bridge::{convert_polar_to_bi6_cap_fitted, convert_polar_to_bi6_cap_input};
 pub use kp15_bi6_reparam::{Bi6Reparams, gamma as bi6_gamma, tau_for_valence};
 pub use kp15_bi6_rule_s3::{S3Inputs, S3Outputs, rule_s3};
 pub use kp15_bi6_rules::{

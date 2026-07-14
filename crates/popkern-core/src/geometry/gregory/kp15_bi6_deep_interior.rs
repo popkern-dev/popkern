@@ -43,7 +43,8 @@
 use super::kp_polar_shared::weighted_sum;
 use super::kp15_bi6_reparam::Bi6Reparams;
 use crate::geometry::Point3;
-use border::{bspline_net_to_bi3_bb, reparam_tensor_border_row};
+pub(crate) use border::bspline_net_to_bi3_bb;
+use border::reparam_tensor_border_row;
 use rings::{Grid, apply_s3_rules, solve_eq7_ring, solve_eq8_ring};
 
 // The tensor-border reparameterisation and the interior-ring
