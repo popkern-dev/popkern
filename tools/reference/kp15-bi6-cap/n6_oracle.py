@@ -212,7 +212,7 @@ def mub_tab(c, tau):
 #        P23[r] (r=0..n-1), P33[r] (r=0..n-1).
 # Returns (P, sal, meta) where P[s] is dict (i,j)->expr.
 # --------------------------------------------------------------------------
-def build_cap(n, c, tau, net, free, simplify=False):
+def build_cap(n, c, tau, net, free, simplify=False, border_override=None):
     sf = lambda k: k % n
     d2 = sp.together((sp.Rational(1, 2) * (3 * tau**2 + tau**2 * c - 3 * tau - 2 * tau * c + 1) / tau**2))
 
@@ -234,6 +234,22 @@ def build_cap(n, c, tau, net, free, simplify=False):
             for j in range(3):
                 P[s][(i, j)] = tad[j][i]  # p[s][i,j]
                 P[s][(j, i)] = tak[j][i]  # p[s][j,i]
+
+    # PK-087 stage-6 experiment hook: override the OUTER position row.
+    # border_override(s, edge, i) -> value or None. edge='tad' sets
+    # P[s][(i,0)]; edge='tak' sets P[s][(0,i)]. Returning None keeps the
+    # net-derived value. Lets us test whether replacing the outer
+    # boundary position with real-boundary data (keeping seam-side
+    # depth rows C2-consistent) preserves eq (2)/(3).
+    if border_override is not None:
+        for s in range(n):
+            for i in range(7):
+                vd = border_override(s, "tad", i)
+                if vd is not None:
+                    P[s][(i, 0)] = vd
+                vk = border_override(s, "tak", i)
+                if vk is not None:
+                    P[s][(0, i)] = vk
 
     # ---- (S1) central quadratic  script 128-153 ----
     for s in range(n):

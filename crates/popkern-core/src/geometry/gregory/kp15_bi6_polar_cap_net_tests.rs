@@ -441,7 +441,7 @@ fn two_edge_fit_closes_boundary_and_continuity_together() {
 
     // Two-edge fit at a small regularisation: boundary corners collapse
     // to the real corners while eq (2)/(3) stay machine zero.
-    let (params, net, free) = convert_polar_to_bi6_cap_fitted(&polar, 1e-3).expect("fitted");
+    let (params, net, free) = convert_polar_to_bi6_cap_fitted(&polar, 1e-3, None).expect("fitted");
     let grids = build_bi6_cap_from_net(&params, &net, &free).expect("fitted build");
     let fitted_outer = worst_outer_corners(&grids.sectors);
     let (g1, g2) = worst_g1_g2(&grids.sectors, &params);

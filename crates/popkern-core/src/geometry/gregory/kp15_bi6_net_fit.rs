@@ -47,44 +47,73 @@ use super::super::kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from
 use super::{Bi6CapNetInputs, SharedControlRing, build_coarse_ring_and_free, shared_net_layout};
 use crate::geometry::Point3;
 
+/// Per-sector explicit fit target: each sector's two star-opposite
+/// outer edges as exact bi-3 (cubic) BB-CP rows. `target[s][0]` is
+/// sector `s`'s `tad` edge (script `g[s][i][0]`), `target[s][1]` its
+/// `tak` edge (`g[s][0][i]`), each 4 CPs oriented from the mid-sector
+/// junction toward the spoke foot. Supplied by the fillet wire from
+/// the real `boundary.segments` (`FilletEnd`/`FaceEdge`) curves, which
+/// are cubic-exact, so the assembled cap's outer boundary interpolates
+/// the surrounding surface rather than a crude spoke-derived proxy.
+///
+/// A transparent alias for `[[Point3; 4]; 2]`; callers outside this
+/// crate build the concrete array directly (the alias is intentionally
+/// not re-exported at the crate root, to keep the frozen `gregory`
+/// module registration untouched).
+pub type SectorOuterEdgeTarget = [[Point3; 4]; 2];
+
 /// Convert a [`PolarBoundaryInput`] into the shared cap-net frame with
-/// the control ring **fitted** to the real fillet tensor border, so
-/// the assembled cap interpolates the surrounding surface *and* the
+/// the control ring **fitted** to the fillet's outer boundary, so the
+/// assembled cap interpolates the surrounding surface *and* the
 /// eq (2)/(3) cross-sector constraints still close by construction.
 ///
-/// `lambda` is the Tikhonov regularisation weight for the fit (see
+/// `lambda` is the Tikhonov regularisation weight (see
 /// [`fit_shared_ring_to_border`]): `0` interpolates the boundary
-/// exactly (at the cost of larger interior deviation → fold risk),
-/// larger `λ` keeps the ring near the fold-free coarse seed at the
-/// cost of residual boundary error. The caller sweeps `λ` from small
-/// to large and accepts the first cap that is both fold-free and
-/// within the cap-outer gate.
+/// exactly (larger interior deviation → fold risk), larger `λ` keeps
+/// the ring near the fold-free coarse seed at the cost of residual
+/// boundary error.
+///
+/// `target`: `None` falls back to the spoke-derived tensor-border
+/// extractor (retained for the core trade-off tests, whose crude
+/// on-curve degree reduction is ~2.5e-2 off the real edge);
+/// `Some(target)` fits the two outer edges of each sector to the
+/// supplied real-boundary bi-3 rows (the fillet wire's exact
+/// `boundary.segments` extraction — PK-087 stage 6).
 ///
 /// # Errors
 /// - `build_coarse_ring_and_free` fails (`polar.validate()`, `n < 5`).
-/// - The tensor-border extraction fails or returns a non-bi-3 border.
-/// - The regularised solve is singular (only possible at `λ = 0` on a
-///   rank-deficient map).
+/// - The tensor-border extraction fails (`None` path only).
+/// - `target.len() != n` (`Some` path).
+/// - The regularised solve is singular (`λ = 0` on a rank-deficient map).
 pub fn convert_polar_to_bi6_cap_fitted(
     polar: &PolarBoundaryInput,
     lambda: f64,
+    target: Option<&[SectorOuterEdgeTarget]>,
 ) -> Result<Bi6CapNetInputs, String> {
     let (params, coarse, free) = build_coarse_ring_and_free(polar)?;
     let n = params.n;
-    let TensorBorder::Bi3(tb) = extract_bi3_tensor_border_from_polar_input(polar)? else {
-        return Err("bi-6 shared-net fit requires a bi-3 tensor border".to_string());
+    let target_edges: Vec<SectorOuterEdgeTarget> = if let Some(t) = target {
+        if t.len() != n {
+            return Err(format!("explicit target length {} ≠ n = {n}", t.len()));
+        }
+        t.to_vec()
+    } else {
+        let TensorBorder::Bi3(tb) = extract_bi3_tensor_border_from_polar_input(polar)? else {
+            return Err("bi-6 shared-net fit requires a bi-3 tensor border".to_string());
+        };
+        if tb.sectors.len() != n {
+            return Err(format!(
+                "tensor-border sector count {} ≠ n = {n}",
+                tb.sectors.len()
+            ));
+        }
+        // Legacy fallback: the crude extractor shares one row-0 between
+        // adjacent sectors (tad of s, tak of s−1), reproduced here.
+        (0..n)
+            .map(|s| [tb.sectors[s][0], tb.sectors[(s + n - 1) % n][0]])
+            .collect()
     };
-    if tb.sectors.len() != n {
-        return Err(format!(
-            "tensor-border sector count {} ≠ n = {n}",
-            tb.sectors.len()
-        ));
-    }
-    // Target: sector s's star-opposite outer edge (row 0 of the bi-3
-    // tensor border) is what the cap's script row-0 boundary must
-    // interpolate. `tb.sectors[s][0]` is that 4-CP position row.
-    let target_row0: Vec<[Point3; 4]> = (0..n).map(|s| tb.sectors[s][0]).collect();
-    let ring = fit_shared_ring_to_border(&coarse, &target_row0, n, lambda)
+    let ring = fit_shared_ring_to_border(&coarse, &target_edges, n, lambda)
         .ok_or_else(|| "shared-net boundary fit solve was singular".to_string())?;
     let net: Vec<[[Point3; 4]; 4]> = (0..n).map(|s| shared_net_layout(&ring, s, n)).collect();
     Ok((params, net, free))
@@ -192,11 +221,19 @@ fn boundary_design_matrix(n: usize) -> Vec<Vec<f64>> {
 }
 
 /// The fit target for constraint row `row`, coordinate `coord`.
-/// `tad` rows (`i ∈ 0..4`) interpolate sector `s`'s own tensor border
-/// row 0 (`spoke s`); `tak` rows interpolate the previous sector's
-/// (`spoke s − 1`), matching the script→cap edge orientation
-/// (`script[0][6] = V_{s-1}`).
-fn constraint_target(target_row0: &[[Point3; 4]], row: usize, n: usize, coord: usize) -> f64 {
+/// `tad` rows (`local ∈ 0..4`) interpolate sector `s`'s `tad` outer
+/// edge (`target[s][0]`); `tak` rows (`local ∈ 4..8`) its `tak` outer
+/// edge (`target[s][1]`). Both edges belong to sector `s` — matching
+/// the real 2n-segment fillet boundary, where each cap sub-patch owns
+/// its own `FilletEnd` and `FaceEdge` meeting at the mid-sector
+/// junction (unlike the legacy shared-rim proxy, which fit `tak` from
+/// the previous sector).
+fn constraint_target(
+    target_edges: &[SectorOuterEdgeTarget],
+    row: usize,
+    _n: usize,
+    coord: usize,
+) -> f64 {
     let comp = |p: Point3| match coord {
         0 => p.x,
         1 => p.y,
@@ -204,12 +241,12 @@ fn constraint_target(target_row0: &[[Point3; 4]], row: usize, n: usize, coord: u
     };
     let s = row / 8;
     let local = row % 8;
-    let (tsec, i) = if local < 4 {
-        (s, local)
+    let (edge, i) = if local < 4 {
+        (0, local)
     } else {
-        ((s + n - 1) % n, local - 4)
+        (1, local - 4)
     };
-    comp(target_row0[tsec][i])
+    comp(target_edges[s][edge][i])
 }
 
 /// Solve the Tikhonov-regularised normal equations
@@ -241,17 +278,18 @@ fn solve_tikhonov(a: &[Vec<f64>], r: &[f64], lambda: f64, nu: usize) -> Option<V
     super::super::direct_linalg::solve_dense(ata, atr)
 }
 
-/// Fit the shared ring to the real bi-3 tensor-border row 0.
+/// Fit the shared ring to the two real outer-edge bi-3 rows of each
+/// sector.
 ///
-/// `target_row0[s][i]` is `tb.sectors[s][0][i]` — the surrounding
-/// surface's boundary BB-CP the cap must interpolate along sector
-/// `s`'s star-opposite outer edge. `lambda` is the Tikhonov weight
-/// (≥ 0; `0` = exact min-norm-from-coarse least squares). Returns the
-/// fitted ring (coarse + regularised correction), or `None` if the
-/// normal-equation solve is singular (should not happen for `λ > 0`).
+/// `target_edges[s][e][i]` is the surrounding surface's boundary BB-CP
+/// the cap must interpolate along sector `s`'s `tad` (`e = 0`) / `tak`
+/// (`e = 1`) outer edge. `lambda` is the Tikhonov weight (≥ 0; `0` =
+/// exact min-norm-from-coarse least squares). Returns the fitted ring
+/// (coarse + regularised correction), or `None` if the normal-equation
+/// solve is singular (should not happen for `λ > 0`).
 pub fn fit_shared_ring_to_border(
     coarse: &SharedControlRing,
-    target_row0: &[[Point3; 4]],
+    target_edges: &[SectorOuterEdgeTarget],
     n: usize,
     lambda: f64,
 ) -> Option<SharedControlRing> {
@@ -275,7 +313,7 @@ pub fn fit_shared_ring_to_border(
         // Residual against the target.
         let mut r = vec![0.0; n_rows];
         for (row_idx, r_cell) in r.iter_mut().enumerate() {
-            *r_cell = constraint_target(target_row0, row_idx, n, coord) - a_coarse[row_idx];
+            *r_cell = constraint_target(target_edges, row_idx, n, coord) - a_coarse[row_idx];
         }
         let delta = solve_tikhonov(&a, &r, lambda, nu)?;
         let solved: Vec<f64> = (0..nu)
