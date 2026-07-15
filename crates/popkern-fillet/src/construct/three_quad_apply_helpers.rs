@@ -15,6 +15,27 @@ pub(crate) struct ThreeQuadApplyResult {
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
 }
 
+/// §5.3 item #10 — why the three-quad dispatch failed. Callers
+/// use this to distinguish an honest topology / geometry failure
+/// (caller should record the reason + fall through to polar) from
+/// a self-intersection remediation (caller must ALSO emit the
+/// `CornerRemediationOverlap` warning).
+#[derive(Debug)]
+pub(crate) enum ThreeQuadFailure {
+    /// The Gregory sub-patches self-intersect; remediate to polar.
+    #[allow(dead_code)]
+    Overlap,
+    /// Anything else — boundary shape, decomposition rejection,
+    /// poke topology failure. Error string included for logging.
+    Other(#[allow(dead_code)] String),
+}
+
+impl From<String> for ThreeQuadFailure {
+    fn from(s: String) -> Self {
+        ThreeQuadFailure::Other(s)
+    }
+}
+
 pub(super) fn record_support_cell_nonselection(
     diagnostics: &mut Vec<ApexConstructionDiagnostic>,
     reason_code: &str,

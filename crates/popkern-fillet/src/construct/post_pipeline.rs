@@ -1,5 +1,6 @@
 //! Late post-processing passes for applied blend topology.
 
+use super::setback_vertex_topology::fan_quality_stage_probe as fanq;
 use super::*;
 
 #[path = "determinism_trace.rs"]
@@ -43,7 +44,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     determinism_trace("pre_surface_fix", result);
     surface_fix::correct_face_surfaces(result, brep, &fillet_surfaces);
     determinism_trace("post_surface_fix", result);
-
     // Reconcile edge curves with their adjacent face surfaces.
     // multi_chord and corner-blend mef calls write straight-line
     // edge curves that were correct against the original planar
@@ -56,7 +56,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     // edges; topology_repair handles those separately.
     edge_reconcile::reconcile_edge_curves(result);
     determinism_trace("post_edge_reconcile", result);
-
     // Late-pipeline clamp: any half-edge pcurve on a bounded-UV
     // surface (Gregory/NURBS/sphere/torus) whose evaluation samples
     // outside the surface's parameter range gets its control points
@@ -182,6 +181,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     pp_census("post-sliver-absorb", result);
 
     determinism_trace("post_sliver_absorb", result);
+    fanq("post_sliver_absorb", result, corner_patches);
     cap_insert::insert_caps(result, brep, edge_geometries, warnings); // §8.3 caps
     determinism_trace("post_cap_insert", result);
     if std::env::var_os("PK_CARVE_TRACE").is_some()
@@ -496,7 +496,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         eprintln!("  [closure@pre_export_repair] {e:?}");
     }
     exact_boundary_export_repair::repair_exact_boundary_export_blockers(result, repair_report);
-
+    fanq("post_export_repair", result, corner_patches);
     repair_report.edge_curve_endpoint_coherence_repairs += result.separate_nonmanifold_edge_uses();
     repair_report.edge_curve_endpoint_coherence_repairs +=
         result.repair_edge_curve_endpoint_coherence(tolerance.linear().max(1.0e-8));

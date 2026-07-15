@@ -390,11 +390,14 @@ fn item4_pentagonal_hub_n5_dispatch() {
         .filter(|p| p.vertex == apex_vh)
         .collect();
     let _ = Vec3::zero(); // touch the imported Vec3 to avoid an unused-warning on Vec3 if none of the above referenced it.
-    // Either 5 Gregory sub-patches (target) OR 0 (sphere fit swallowed).
-    // A partial result (1..5) would indicate a regression in dispatch.
+    // Full tilings: 5 macro sub-patches, 20 (the PK-087 setback
+    // vertex fan commits 4 bi-9 pieces per sector as individual cap
+    // faces), or 0 (sphere fit swallowed). A partial count would
+    // indicate a dispatch regression.
     assert!(
-        apex_patches.len() == 5 || apex_patches.is_empty(),
-        "N=5 dispatch must produce either 5 sub-patches or 0 (sphere swallow); got {}",
+        apex_patches.len() == 5 || apex_patches.len() == 20 || apex_patches.is_empty(),
+        "N=5 dispatch must produce a full tiling (5 macro or 20 setback-fan patches) \
+         or 0 (sphere swallow); got {}",
         apex_patches.len()
     );
     if apex_patches.len() == 5 {

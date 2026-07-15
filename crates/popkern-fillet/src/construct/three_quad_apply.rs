@@ -6,6 +6,8 @@
 
 #[path = "three_quad_apply_helpers.rs"]
 mod three_quad_apply_helpers;
+#[path = "three_quad_blend_seam_reanchor.rs"]
+mod three_quad_blend_seam_reanchor;
 #[path = "three_quad_face_matching.rs"]
 mod three_quad_face_matching;
 #[path = "three_quad_kp_boundary_relock.rs"]
@@ -57,26 +59,7 @@ use crate::vertex_classifier::VertexBlendClassification;
 
 pub(crate) use three_quad_apply_helpers::author_cap_face_boundary_pcurves;
 
-/// §5.3 item #10 — why the three-quad dispatch failed. Callers
-/// use this to distinguish an honest topology / geometry failure
-/// (caller should record the reason + fall through to polar) from
-/// a self-intersection remediation (caller must ALSO emit the
-/// `CornerRemediationOverlap` warning).
-#[derive(Debug)]
-pub(crate) enum ThreeQuadFailure {
-    /// The Gregory sub-patches self-intersect; remediate to polar.
-    #[allow(dead_code)]
-    Overlap,
-    /// Anything else — boundary shape, decomposition rejection,
-    /// poke topology failure. Error string included for logging.
-    Other(#[allow(dead_code)] String),
-}
-
-impl From<String> for ThreeQuadFailure {
-    fn from(s: String) -> Self {
-        ThreeQuadFailure::Other(s)
-    }
-}
+pub(crate) use three_quad_apply_helpers::ThreeQuadFailure;
 
 /// Apply a three-quad decomposition to an existing hexagonal blend
 /// face: build the decomposition, poke the face, assign Gregory
@@ -310,6 +293,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         trace_cap_subface_neighbors(brep, "ordered", &sub_faces);
     }
     brep.normalize_edge_representatives();
+    let semantic_cap_indices = semantic_cap_indices_for_subfaces(brep, boundary, &sub_faces);
 
     // Write substituted boundary curves into BRep edges when available.
     if boundary.sphere_fit_substituted {
@@ -322,6 +306,15 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
                 boundary.segments.len()
             );
         }
+    } else {
+        // Re-anchor the mitred seam ring onto the blend boundary the
+        // promoted cap interpolates (no-op when already anchored).
+        let reanchor = three_quad_blend_seam_reanchor::reanchor_blend_seams_to_boundary(
+            brep, boundary, &sub_faces,
+        );
+        diagnostics.push(three_quad_blend_seam_reanchor::reanchor_diagnostic(
+            &reanchor, n_sides,
+        ));
     }
 
     // Support-frame rewriting is diagnostic enrichment, not accepted
@@ -367,7 +360,6 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
-    let semantic_cap_indices = semantic_cap_indices_for_subfaces(brep, boundary, &sub_faces);
     for (k, sub_face) in sub_faces.iter().enumerate() {
         let semantic_cap_index = semantic_cap_indices
             .get(k)

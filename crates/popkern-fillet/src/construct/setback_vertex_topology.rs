@@ -31,12 +31,41 @@ use crate::fillet_surface::FilletSurfaceResult;
 pub(crate) static SETBACK_TOPOLOGY_COMMIT: AtomicBool = AtomicBool::new(false);
 pub(crate) static SETBACK_TOPOLOGY_COMMIT_SET: AtomicBool = AtomicBool::new(false);
 
+#[path = "setback_arc_binding.rs"]
+mod setback_arc_binding;
 /// Whether the setback vertex blend replaces the legacy corner
 /// machinery for eligible apexes. Production default: ON — the
 /// surgery declines (with a recorded reason) and falls through to
 /// the legacy path for anything out of its class, and the cap gates
 /// must close at relative 1e-6 before any topology commits.
 /// Kill-switch: POPKERN_SETBACK_VERTEX_BLEND=0.
+#[path = "setback_arc_crossings.rs"]
+mod setback_arc_crossings;
+#[path = "setback_fan_seam_refresh.rs"]
+mod setback_fan_seam_refresh;
+#[path = "setback_rim_reconcile.rs"]
+mod setback_rim_reconcile;
+#[path = "setback_shared_net_unify.rs"]
+mod setback_shared_net_unify;
+use setback_arc_crossings::arc_boundary_crossings;
+
+/// Env-gated (PK_FAN_QUALITY_PROBE) pipeline-stage observability for
+/// committed cap fans: worst live-seam g0/g1 of the corner-patch
+/// faces. This tracer localized the pentagon5_blunt post-pipeline
+/// pcurve clobber to `corner_patch_support_completion` (PK-087).
+pub(crate) fn fan_quality_stage_probe(
+    label: &str,
+    brep: &BRep,
+    corner_patches: &[crate::types::CornerPatchInfo],
+) {
+    if std::env::var_os("PK_FAN_QUALITY_PROBE").is_none() {
+        return;
+    }
+    let faces: Vec<FaceHandle> = corner_patches.iter().map(|cp| cp.face).collect();
+    let (g0, g1) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &faces);
+    eprintln!("  [fan-quality] {label}: g0={g0:.3e} g1={g1:.3e}");
+}
+
 pub(crate) fn setback_topology_commit_enabled() -> bool {
     if SETBACK_TOPOLOGY_COMMIT_SET.load(Ordering::Relaxed) {
         return SETBACK_TOPOLOGY_COMMIT.load(Ordering::Relaxed);
@@ -166,7 +195,12 @@ fn surgery_inner(
                 nearest.1, nearest.0
             );
             // And the fillet face's u-extent: distance from arc mid to the fillet face's loop edges.
-            let ff = find_fillet_face(brep, &fillet_surfaces[k])?;
+            let ff = setback_arc_binding::find_fillet_face(
+                brep,
+                &fillet_surfaces[k],
+                &arcs[k].cubic,
+                vertex_position,
+            )?;
             let mut best_edge = f64::INFINITY;
             for he in face_loop_half_edges(brep, ff)? {
                 let edge = brep.half_edges[he].edge;
@@ -210,7 +244,14 @@ fn surgery_inner(
 
     // ---- discovery: fillet faces --------------------------------------
     let fillet_faces: Vec<FaceHandle> = (0..n)
-        .map(|k| find_fillet_face(brep, &fillet_surfaces[k]))
+        .map(|k| {
+            setback_arc_binding::find_fillet_face(
+                brep,
+                &fillet_surfaces[k],
+                &arcs[k].cubic,
+                vertex_position,
+            )
+        })
         .collect::<Result<_, _>>()?;
 
     // ---- surgery A/B/C: three-segment arc insertion ---------------------
@@ -232,9 +273,28 @@ fn surgery_inner(
         // A crossing can land exactly on an existing vertex — with
         // trim-crossing anchors (PK-095/PK-097) the pre-carve already
         // split the boundary at the trim crossings, so reuse rather
-        // than split.
+        // than split. Reuse is restricted to vertices ON THIS FACE'S
+        // loop: a global nearest-vertex search grabbed unrelated
+        // vertices on hexagon6_mixed, whose skew corners (trim gaps
+        // to 1.2e-3) pack distinct crossing points inside the reuse
+        // band and the stolen vertex then fails downstream wiring
+        // ("vertex not on face loop").
         let split_or_reuse = |brep: &mut BRep, edge, point: Point3, which: &str| {
-            if let Ok(v) = find_vertex_at(brep, point) {
+            let mut nearest_on_loop: Option<(f64, VertexHandle)> = None;
+            if let Ok(hes) = face_loop_half_edges(brep, fillet_faces[k]) {
+                for he in hes {
+                    let v = brep.half_edges[he].origin;
+                    if let Some(data) = brep.vertices.get(v) {
+                        let d = data.position.distance_to(&point);
+                        if nearest_on_loop.map(|(bd, _)| d < bd).unwrap_or(true) {
+                            nearest_on_loop = Some((d, v));
+                        }
+                    }
+                }
+            }
+            if let Some((d, v)) = nearest_on_loop
+                && d < 1.0e-3
+            {
                 return Ok(v);
             }
             brep.split_edge_at_point(edge, point, tolerance)
@@ -283,10 +343,20 @@ fn surgery_inner(
     // lateral face.
     let mut corner_vertices = Vec::with_capacity(n);
     let mut wedge_slivers: Vec<FaceHandle> = Vec::new();
+    let mut corner_ring_edges: Vec<EdgeHandle> = Vec::new();
     for k in 0..n {
         let k_next = (k + 1) % n;
         let x2 = crossing_vertices[k][1].ok_or("missing X2")?;
         let x1n = crossing_vertices[k_next][0].ok_or("missing X1'")?;
+        if x2 == x1n {
+            // Adjacent arcs' crossings reused the same pre-carve
+            // anchor vertex — the ring already closes through it and
+            // a corner spur would only add a degenerate flap that
+            // breaks the ring's simple-cycle separation (measured on
+            // hexagon6_variable: 33v1 -> 39v1 -> 33v1 excursions).
+            corner_vertices.push(x2);
+            continue;
+        }
         let corner = arcs[k].corner_next;
         let seg_a = end_segments[k][1].ok_or("missing post segment")?;
         let seg_b = end_segments[k_next][0].ok_or("missing pre segment")?;
@@ -322,6 +392,8 @@ fn surgery_inner(
         let d_old = face_centroid(brep, face)?.distance_to(&vertex_position);
         let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
         wedge_slivers.push(if d_new < d_old { mef.face } else { face });
+        corner_ring_edges.push(mev.edge);
+        corner_ring_edges.push(mef.edge);
         corner_vertices.push(mev.vertex);
     }
     let arc_edges = arc_middle_edges;
@@ -330,8 +402,11 @@ fn surgery_inner(
     let mut surrendered: Vec<FaceHandle> = Vec::new();
     surrendered.extend(apex_slivers.iter().copied());
     surrendered.extend(wedge_slivers.iter().copied());
-    let blend_face =
-        merge_faces(brep, vertex, &surrendered).map_err(|e| format!("blend region merge: {e}"))?;
+    let mut ring_edges: std::collections::BTreeSet<EdgeHandle> =
+        arc_edges.iter().copied().collect();
+    ring_edges.extend(corner_ring_edges.iter().copied());
+    let blend_face = merge_faces(brep, vertex, &surrendered, &ring_edges)
+        .map_err(|e| format!("blend region merge: {e}"))?;
 
     // ---- surgery E: absorb perpendicular-split remnant bands -----------
     // The legacy pre-carve split each fillet face near the apex; the
@@ -373,6 +448,25 @@ fn surgery_inner(
     // sweep faces: the new edges follow iso/straight uv paths, so
     // endpoint-projected Linear pcurves are exact.
     author_setback_pcurves(brep, &cap_faces)?;
+
+    // Commit postcondition: the fan's live seams must be commercial.
+    // The all-or-nothing contract belongs HERE, on measured seam
+    // quality, not only on structural validity — a blunt apex (18°
+    // half-angle, pentagon5_blunt) builds a structurally valid fan
+    // whose wide flat sectors crease 2.9e-1 at one seam corner, and
+    // declining lets the legacy sphere-fit path serve the gentle
+    // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
+    // g1 ≤ 2e-3 here — orders under the gates.
+    let (seam_g0, seam_g1) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e}");
+    }
+    if seam_g0 > 1.0e-5 || seam_g1 > 5.0e-2 {
+        return Err(format!(
+            "fan seam postcondition failed: g0={seam_g0:.3e} (gate 1e-5) \
+             g1={seam_g1:.3e} (gate 5e-2)"
+        ));
+    }
 
     Ok(SetbackTopologyOutcome {
         blend_face,
@@ -429,7 +523,14 @@ fn build_cap_face_fan(
     .map_err(|e| format!("cap assembly: {e}"))?;
     // Acceptance gate: the paper residuals must close at the relative
     // tolerance (the same criterion as the stage-1 candidate) before
-    // any topology is committed.
+    // any topology is committed. The floor is the INPUT corner
+    // mismatch: skew adjacent trims (octagon8_mixed: no exact trim
+    // intersection exists, corners are closest-approach midpoints)
+    // bound how far any derivation can close, so demanding better
+    // than the input rejects an assembly that is exact up to its
+    // input (measured: g2 2.1e-7 against a 4.0e-8 pure-scale gate).
+    // Fold, regularity, and the live-seam commercial gates still
+    // protect the committed quality downstream.
     {
         let scale = border
             .sectors
@@ -438,7 +539,7 @@ fn build_cap_face_fan(
             .flat_map(|piece| piece.rows.iter().flatten())
             .map(|cp| cp.distance_to(&star))
             .fold(0.0_f64, f64::max);
-        let gate = 1.0e-6 * scale.max(f64::MIN_POSITIVE);
+        let gate = (1.0e-6 * scale.max(f64::MIN_POSITIVE)).max(10.0 * report.input_corner_mismatch);
         if report.max_g1_residual > gate
             || report.max_g2_residual > gate
             || report.max_c0_residual > gate
@@ -661,42 +762,110 @@ fn build_cap_face_fan(
             .then(|| sof.geometry.clone())
         })
         .collect();
-    reconcile_cap_rim_to_sweeps(&mut patches, fillet_surfaces, &lateral_planes);
+    // SEMANTIC rim identification: the rim sides are the rows that
+    // interpolate the setback border loop. Sweep proximity alone
+    // misclassifies cap-internal spoke seams as rim sides where
+    // adjacent fillets pinch the cap corner (hexagon6_variable's
+    // equal-radius sector boundaries put whole spoke seams 1.8e-3
+    // from the sweeps), and reconciling those seams onto the sweeps
+    // folds the cap interior (measured cap_outer g1 7.8e-1). A spoke
+    // seam touches the border loop only at one endpoint, so a
+    // max-distance-to-loop gate separates the classes exactly.
+    let border_loop: Vec<Vec<Point3>> = border
+        .sectors
+        .iter()
+        .flat_map(|sector| sector.iter())
+        .map(|piece| {
+            (0..=32)
+                .map(|i| setback_rim_reconcile::eval_cubic(&piece.rows[0], i as f64 / 32.0))
+                .collect()
+        })
+        .collect();
+    // Rim moves are per-patch solves; re-unify the shared boundary
+    // CPs afterwards or the fan tears at the spoke seams' rim ends
+    // (see setback_shared_net_unify docs).
+    let shared_groups = setback_shared_net_unify::record_shared_boundary_groups(&patches);
+    setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
+        &mut patches,
+        fillet_surfaces,
+        &lateral_planes,
+        &border_loop,
+    );
+    let rim_tear =
+        setback_shared_net_unify::reunify_shared_boundary_cps(&mut patches, &shared_groups);
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!("  [rim-unify] worst shared-CP tear closed: {rim_tear:.3e}");
+    }
+    // Face ↔ patch assignment by VERTEX-TO-GRID-CORNER agreement,
+    // globally greedy over sorted scores. Nearest-centroid matching
+    // in face-iteration order was measured order-dependent at n = 8:
+    // vertex-average centroids of the small skewed quads cross over
+    // between adjacent pieces, a face steals its neighbour's patch,
+    // and every seam downstream tears by up to the patch size
+    // (octagon8_mixed side-vs-side 3e-1). A face's outer-loop
+    // vertices sit at its own patch's grid corners to ~1e-4, but at
+    // least one vertex is a full patch width from any WRONG patch's
+    // corner set — max-over-vertices of min-corner-distance
+    // separates the classes by orders of magnitude.
     let mut cap_faces = Vec::new();
-    let mut assigned = vec![false; patches.len()];
     let face_handles: Vec<FaceHandle> = brep.faces.iter().map(|(fh, _)| fh).collect();
-    for fh in face_handles {
-        let Ok(c) = face_centroid(brep, fh) else {
-            continue;
+    let mut pairs: Vec<(f64, usize, usize)> = Vec::new();
+    let mut face_vertex_sets: Vec<Vec<Point3>> = Vec::new();
+    for fh in &face_handles {
+        let vertices: Vec<Point3> = match face_loop_half_edges(brep, *fh) {
+            Ok(hes) => hes
+                .iter()
+                .filter_map(|&he| {
+                    brep.vertices
+                        .get(brep.half_edges[he].origin)
+                        .map(|v| v.position)
+                })
+                .collect(),
+            Err(_) => Vec::new(),
         };
-        // A cap face's centroid is near one piece's mid-point.
-        let mut best = (f64::INFINITY, usize::MAX);
-        for (idx, patch) in patches.iter().enumerate() {
-            if assigned[idx] {
-                continue;
-            }
+        face_vertex_sets.push(vertices);
+    }
+    for (face_idx, vertices) in face_vertex_sets.iter().enumerate() {
+        if vertices.is_empty() {
+            continue;
+        }
+        for (patch_idx, patch) in patches.iter().enumerate() {
             let popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(bp) = patch
             else {
                 continue;
             };
-            let mid = bp.point_at(0.5, 0.5);
-            let d = mid.distance_to(&c);
-            if d < best.0 {
-                best = (d, idx);
+            let grid_corners = [bp.grid[0][0], bp.grid[0][9], bp.grid[9][0], bp.grid[9][9]];
+            let score = vertices
+                .iter()
+                .map(|v| {
+                    grid_corners
+                        .iter()
+                        .map(|c| v.distance_to(c))
+                        .fold(f64::INFINITY, f64::min)
+                })
+                .fold(0.0_f64, f64::max);
+            if score < 0.05 {
+                pairs.push((score, face_idx, patch_idx));
             }
         }
-        if best.1 != usize::MAX && best.0 < 0.05 {
-            let idx = best.1;
-            if let Some(face) = brep.faces.get_mut(fh) {
-                face.surface = Some(popkern_core::geometry::SurfaceOnFace {
-                    geometry: popkern_core::geometry::SurfaceGeometry::Gregory(
-                        patches[idx].clone(),
-                    ),
-                    orientation: true,
-                });
-                assigned[idx] = true;
-                cap_faces.push(fh);
-            }
+    }
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut face_taken = vec![false; face_handles.len()];
+    let mut patch_taken = vec![false; patches.len()];
+    for (_, face_idx, patch_idx) in pairs {
+        if face_taken[face_idx] || patch_taken[patch_idx] {
+            continue;
+        }
+        if let Some(face) = brep.faces.get_mut(face_handles[face_idx]) {
+            face.surface = Some(popkern_core::geometry::SurfaceOnFace {
+                geometry: popkern_core::geometry::SurfaceGeometry::Gregory(
+                    patches[patch_idx].clone(),
+                ),
+                orientation: true,
+            });
+            face_taken[face_idx] = true;
+            patch_taken[patch_idx] = true;
+            cap_faces.push(face_handles[face_idx]);
         }
     }
     if cap_faces.len() != 4 * n {
@@ -705,6 +874,16 @@ fn build_cap_face_fan(
             cap_faces.len(),
             4 * n
         ));
+    }
+    // The seam curves were wired from the pre-reconcile assembly rows;
+    // refresh them from the committed (reconciled + re-unified) patch
+    // boundary rows (see setback_fan_seam_refresh docs).
+    let (refreshed, worst_moved) =
+        setback_fan_seam_refresh::refresh_fan_seam_curves(brep, &cap_faces);
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!(
+            "  [seam-refresh] {refreshed} seam curves refreshed, worst move {worst_moved:.3e}"
+        );
     }
     Ok(cap_faces)
 }
@@ -760,10 +939,24 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
             // INSIDE the sweep's parameter box (measured 0.03-0.08 off
             // the v = 0/1 iso borders), so iso-assuming pcurves are
             // wrong data — replace them with point-inversion
-            // projections of the 3D curves. Cap pieces keep exact
-            // endpoint-Linear pcurves for missing entries only (their
-            // boundaries ARE iso lines).
-            if is_sweep {
+            // projections of the 3D curves. Cap pieces get the same
+            // projected pcurves on their INTERNAL seams: the seam
+            // correspondence between two pieces' boundary rows is a
+            // Bezier sub-range reparameterization (non-affine), so an
+            // endpoint-Linear pcurve skews same-parameter evaluation
+            // by up to half a row (measured 1.4e-2 on the
+            // hexagon6_variable fan while both sides trace the seam
+            // within 2e-4).
+            let cap_internal = !is_sweep && {
+                let twin = brep.half_edges[he].twin;
+                let twin_face = brep
+                    .half_edges
+                    .get(twin)
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .map(|l| l.face);
+                twin_face.is_some_and(|f| cap_faces.contains(&f) && f != fh)
+            };
+            if is_sweep || cap_internal {
                 let window = brep.half_edges[he].edge;
                 let Some(curve) = brep.edges.get(window).and_then(|e| e.curve.clone()) else {
                     continue;
@@ -778,13 +971,18 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                     <= ceval.point_at(curve.t_end).distance_to(&origin);
                 const N: usize = 33;
                 let mut cps = Vec::with_capacity(N);
+                let mut samples3d = Vec::with_capacity(N);
                 let mut ok = true;
                 for i in 0..N {
                     let f = i as f64 / (N - 1) as f64;
                     let f = if forward { f } else { 1.0 - f };
                     let t = curve.t_start + (curve.t_end - curve.t_start) * f;
-                    match project_point_to_uv(&surface, &ceval.point_at(t)) {
-                        Some((u, v)) => cps.push(popkern_core::geometry::Point3::new(u, v, 0.0)),
+                    let p3 = ceval.point_at(t);
+                    match project_point_to_uv(&surface, &p3) {
+                        Some((u, v)) => {
+                            cps.push(popkern_core::geometry::Point3::new(u, v, 0.0));
+                            samples3d.push(p3);
+                        }
                         None => {
                             ok = false;
                             break;
@@ -794,6 +992,7 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                 if !ok {
                     continue;
                 }
+                setback_arc_binding::repair_diverged_projections(&mut cps, &samples3d, &surface);
                 let mut knots = Vec::with_capacity(N + 2);
                 knots.push(0.0);
                 for i in 0..N {
@@ -1192,197 +1391,6 @@ fn bezier9_split_left(cps: &[Point3; 10], t: f64) -> [Point3; 10] {
         left[slot] = work[0];
     }
     left
-}
-
-/// Project the rim-side boundary rows of the bi-9 cap pieces onto the
-/// fillet sweeps (see call site). A grid side is a rim side when every
-/// sampled point lies within `RIM_NEAR` of some fillet surface; the
-/// projection deltas are applied to the boundary row and, in parallel,
-/// to the two rows behind it. Deltas at shared corners are computed
-/// from identical input points, so adjacent pieces stay sewn.
-fn reconcile_cap_rim_to_sweeps(
-    patches: &mut [popkern_core::geometry::gregory::GregoryPatch],
-    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-    lateral_planes: &[popkern_core::geometry::SurfaceGeometry],
-) {
-    use popkern_core::geometry::gregory::GregoryPatch;
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-    const RIM_NEAR: f64 = 2.0e-3;
-
-    // The rim's neighbors are the sweeps along the arcs AND the
-    // lateral planes along the corner segments (past the trim
-    // crossings X the border leaves the fillet surface). Candidates
-    // are enumerated so callers can track WHICH surface a sample
-    // used: min-distance alone jumps between the two planes meeting
-    // at a corner c, and interpolating the resulting discontinuous
-    // field rings at the millimetre level.
-    let candidates: Vec<popkern_core::geometry::SurfaceGeometry> = fillet_surfaces
-        .iter()
-        .map(|f| f.surface.clone())
-        .chain(lateral_planes.iter().cloned())
-        .collect();
-    let project_on = |idx: usize, p: Point3| -> Option<(f64, Point3)> {
-        let sfc = &candidates[idx];
-        let (u, v) = project_point_to_uv(sfc, &p)?;
-        let q = sfc.point_at(u, v);
-        Some((q.distance_to(&p), q))
-    };
-    let project_best = |p: Point3| -> Option<(usize, f64, Point3)> {
-        let mut best: Option<(usize, f64, Point3)> = None;
-        for idx in 0..candidates.len() {
-            if let Some((d, q)) = project_on(idx, p)
-                && best.map(|(_, bd, _)| d < bd).unwrap_or(true)
-            {
-                best = Some((idx, d, q));
-            }
-        }
-        best.filter(|(_, d, _)| *d < RIM_NEAR)
-    };
-    // Continuation projection: keep the previous sample's surface
-    // while it stays near; switch only when it drifts (the genuine
-    // arc→plane handoff at X happens where both surfaces agree).
-    let project_seq = |pts: &[Point3]| -> Option<Vec<Point3>> {
-        let mut out = Vec::with_capacity(pts.len());
-        let mut current: Option<usize> = None;
-        for &p in pts {
-            let pick = match current {
-                Some(idx) => match project_on(idx, p) {
-                    Some((d, q)) if d < RIM_NEAR => Some((idx, d, q)),
-                    _ => project_best(p),
-                },
-                None => project_best(p),
-            };
-            let (idx, _, q) = pick?;
-            current = Some(idx);
-            out.push(q);
-        }
-        Some(out)
-    };
-
-    for patch in patches.iter_mut() {
-        let GregoryPatch::RectangularBiNonic(bp) = patch else {
-            continue;
-        };
-        // Four sides: (fixed index, along index, is_row, fixed at 0 or 9).
-        // Represent as closures over (k) returning grid coordinates for
-        // depth d in 0..3.
-        for side in 0..4 {
-            // Gather the boundary row for this side.
-            let coord = |d: usize, k: usize| -> (usize, usize) {
-                match side {
-                    0 => (d, k),     // row i=0 boundary, depth into +i
-                    1 => (9 - d, k), // row i=9 boundary, depth into -i
-                    2 => (k, d),     // col j=0 boundary, depth into +j
-                    _ => (k, 9 - d), // col j=9 boundary, depth into -j
-                }
-            };
-            // Rim test on CURVE SAMPLES: control points legitimately
-            // sit 1-2e-3 off their own curve, so a CP-based gate
-            // wrongly rejects true rim sides.
-            let side_row: [Point3; 10] = core::array::from_fn(|k| {
-                let (i, j) = coord(0, k);
-                bp.grid[i][j]
-            });
-            let gate_pts: Vec<Point3> = (0..=16)
-                .map(|i| bezier9_eval(&side_row, i as f64 / 16.0))
-                .collect();
-            if project_seq(&gate_pts).is_none() {
-                continue;
-            }
-            // Land the boundary CURVE on the sweep: projecting control
-            // points directly leaves the curve ~3e-4 off (CPs are not
-            // curve points). Sample the deviation along the curve at
-            // 10 parameters and solve the degree-9 Bernstein
-            // interpolation for the exact CP deltas; iterate (the
-            // projection field is mildly nonlinear).
-            for _pass in 0..3 {
-                let row: [Point3; 10] = core::array::from_fn(|k| {
-                    let (i, j) = coord(0, k);
-                    bp.grid[i][j]
-                });
-                let ts: [f64; 10] = core::array::from_fn(|k| k as f64 / 9.0);
-                let node_pts: Vec<Point3> = ts.iter().map(|&t| bezier9_eval(&row, t)).collect();
-                let Some(projected) = project_seq(&node_pts) else {
-                    break;
-                };
-                let mut rhs = [[0.0_f64; 3]; 10];
-                for k in 0..10 {
-                    let (p, q) = (node_pts[k], projected[k]);
-                    rhs[k] = [q.x - p.x, q.y - p.y, q.z - p.z];
-                }
-                // Bernstein Vandermonde B[k][i] = B_i^9(t_k).
-                let mut mat = [[0.0_f64; 10]; 10];
-                for (k, &t) in ts.iter().enumerate() {
-                    mat[k] = bernstein9_all(t);
-                }
-                let Some(deltas) = solve_10(&mat, &rhs) else {
-                    break;
-                };
-                for (k, delta) in deltas.iter().enumerate() {
-                    for d in 0..3 {
-                        let (i, j) = coord(d, k);
-                        let g = bp.grid[i][j];
-                        bp.grid[i][j] = Point3::new(g.x + delta[0], g.y + delta[1], g.z + delta[2]);
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn bernstein9_all(t: f64) -> [f64; 10] {
-    const C: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
-    let mut out = [0.0_f64; 10];
-    let u = 1.0 - t;
-    let mut tp = 1.0;
-    for (i, slot) in out.iter_mut().enumerate() {
-        *slot = C[i] * tp * u.powi(9 - i as i32);
-        tp *= t;
-    }
-    out
-}
-
-/// Solve the 10×10 linear system `mat · x = rhs` (3 right-hand sides)
-/// by Gaussian elimination with partial pivoting.
-// Column loops index two rows of the same matrix (pivot and target); the
-// iterator form would need split borrows and obscure the elimination math.
-#[allow(clippy::needless_range_loop)]
-fn solve_10(mat: &[[f64; 10]; 10], rhs: &[[f64; 3]; 10]) -> Option<[[f64; 3]; 10]> {
-    let mut a = *mat;
-    let mut b = *rhs;
-    for col in 0..10 {
-        let mut piv = col;
-        for r in (col + 1)..10 {
-            if a[r][col].abs() > a[piv][col].abs() {
-                piv = r;
-            }
-        }
-        if a[piv][col].abs() < 1e-14 {
-            return None;
-        }
-        a.swap(col, piv);
-        b.swap(col, piv);
-        for r in (col + 1)..10 {
-            let f = a[r][col] / a[col][col];
-            for c in col..10 {
-                a[r][c] -= f * a[col][c];
-            }
-            for c in 0..3 {
-                b[r][c] -= f * b[col][c];
-            }
-        }
-    }
-    let mut x = [[0.0_f64; 3]; 10];
-    for row in (0..10).rev() {
-        for c in 0..3 {
-            let mut acc = b[row][c];
-            for col in (row + 1)..10 {
-                acc -= a[row][col] * x[col][c];
-            }
-            x[row][c] = acc / a[row][row];
-        }
-    }
-    Some(x)
 }
 
 /// Split a specific edge at the parameter nearest `point` (dense
@@ -1996,50 +2004,7 @@ fn half_edge_pair_in_common_loop(
     Err("no common loop for mef pair".into())
 }
 
-fn find_vertex_at(brep: &BRep, point: Point3) -> Result<VertexHandle, String> {
-    // Rim vertices sit on the topology's own curves, within the band
-    // reparameterization noise (~1e-4) of the cap's ideal positions.
-    let mut best: Option<(f64, VertexHandle)> = None;
-    for (vh, v) in brep.vertices.iter() {
-        let d = v.position.distance_to(&point);
-        if best.map(|(bd, _)| d < bd).unwrap_or(true) {
-            best = Some((d, vh));
-        }
-    }
-    match best {
-        Some((d, vh)) if d < 1.0e-3 => Ok(vh),
-        Some((d, _)) => Err(format!(
-            "no vertex near ({:.4},{:.4},{:.4}); nearest {d:.3e}",
-            point.x, point.y, point.z
-        )),
-        None => Err("empty vertex set".into()),
-    }
-}
-
 /// Find the face carrying this fillet's sweep surface (sample match).
-fn find_fillet_face(brep: &BRep, fillet: &FilletSurfaceResult) -> Result<FaceHandle, String> {
-    let probes = [(0.5, 0.5), (0.25, 0.75), (0.75, 0.25)];
-    let targets: Vec<Point3> = probes
-        .iter()
-        .map(|&(u, v)| fillet.surface.point_at(u, v))
-        .collect();
-    for (fh, face) in brep.faces.iter() {
-        let Some(surface) = face.surface.as_ref() else {
-            continue;
-        };
-        let matches = probes.iter().zip(&targets).all(|(&(u, v), target)| {
-            (&surface.geometry as &dyn SurfaceEval)
-                .point_at(u, v)
-                .distance_to(target)
-                < 1.0e-9
-        });
-        if matches {
-            return Ok(fh);
-        }
-    }
-    Err("no face carries the fillet sweep surface".to_string())
-}
-
 /// Merge the surrendered faces (apex slivers, wedges, and everything
 /// still touching the apex vertex) into a single blend face by
 /// kef-ing shared edges.
@@ -2047,6 +2012,7 @@ fn merge_faces(
     brep: &mut BRep,
     vertex: VertexHandle,
     seed_faces: &[FaceHandle],
+    ring_edges: &std::collections::BTreeSet<EdgeHandle>,
 ) -> Result<FaceHandle, String> {
     use std::collections::BTreeSet;
     let mut region: BTreeSet<FaceHandle> = seed_faces.iter().copied().collect();
@@ -2068,6 +2034,53 @@ fn merge_faces(
     }
     if region.is_empty() {
         return Err("no faces to merge".to_string());
+    }
+    // Flood-fill the ring interior: pre-carve slivers inside the
+    // setback ring can touch neither the apex nor a seed face
+    // (measured on hexagon6_variable — split-strip and mitre-fan
+    // pieces left the region disconnected, "3 remain"). Any face
+    // reachable from a seed without crossing a ring edge is part of
+    // the surrendered region.
+    loop {
+        let mut grew = false;
+        let frontier: Vec<FaceHandle> = region.iter().copied().collect();
+        for fh in frontier {
+            for he in face_loop_half_edges(brep, fh).unwrap_or_default() {
+                let he_data = &brep.half_edges[he];
+                if ring_edges.contains(&he_data.edge) {
+                    continue;
+                }
+                let twin_face = brep.loops[brep.half_edges[he_data.twin].loop_].face;
+                if region.insert(twin_face) {
+                    grew = true;
+                }
+            }
+        }
+        if !grew {
+            break;
+        }
+    }
+    // Leak guard: the ring must separate the region from the rest of
+    // the model — a ring edge with the region on BOTH sides means the
+    // fill escaped (a ring segment crossed an un-split edge) and the
+    // merge would eat live geometry.
+    for &eh in ring_edges {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        let he = edge.half_edge;
+        let f1 = brep.loops[brep.half_edges[he].loop_].face;
+        let f2 = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+        if region.contains(&f1) && region.contains(&f2) {
+            if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+                eprintln!(
+                    "  [merge-leak] ring edge {eh:?} has region on both sides: f1={f1:?} f2={f2:?} \
+                     (region size {})",
+                    region.len()
+                );
+            }
+            return Err("setback ring does not enclose the surrendered region".to_string());
+        }
     }
     // Iteratively kef edges interior to the region.
     loop {
@@ -2237,89 +2250,6 @@ fn curve_distance(
         best = best.min(eval.point_at(t).distance_to(&point));
     }
     best
-}
-
-/// Find where the arc crosses the face's boundary: for each boundary
-/// edge, closest approach between the arc and the edge curve; the two
-/// sub-tolerance approaches (sorted by arc parameter) are the
-/// crossings.
-fn arc_boundary_crossings(
-    brep: &BRep,
-    face: FaceHandle,
-    cubic: &[Point3; 4],
-) -> Result<[(f64, EdgeHandle, Point3); 2], String> {
-    let arc = bezier_cubic_curve(cubic);
-    let arc_eval: &dyn CurveEval = &popkern_core::geometry::CurveGeometry::Nurbs(arc);
-    let mut hits: Vec<(f64, EdgeHandle, Point3, f64)> = Vec::new();
-    for he in face_loop_half_edges(brep, face)? {
-        let edge = brep.half_edges[he].edge;
-        let Some(curve) = brep.edges[edge].curve.as_ref() else {
-            continue;
-        };
-        let edge_eval: &dyn CurveEval = &curve.geometry;
-        let (e0, e1) = if curve.t_start.is_finite() && curve.t_end.is_finite() {
-            (curve.t_start, curve.t_end)
-        } else {
-            continue;
-        };
-        let mut best = (f64::INFINITY, 0.0_f64, Point3::new(0.0, 0.0, 0.0));
-        for i in 0..=128 {
-            let t = i as f64 / 128.0;
-            let pa = arc_eval.point_at(t);
-            for j in 0..=256 {
-                let te = e0 + (e1 - e0) * j as f64 / 256.0;
-                let pe = edge_eval.point_at(te);
-                let d = pe.distance_to(&pa);
-                if d < best.0 {
-                    // Split at the EDGE's own point (the splitter
-                    // requires exact point inversion on the edge).
-                    best = (d, t, pe);
-                }
-            }
-        }
-        // Acceptance: the split lands at the EDGE's own foot point,
-        // so the arc-to-edge distance is a recorded quality margin,
-        // not a correctness condition. The G1 cylinder strips carry
-        // their setback corners a few 1e-3 from the trim extent
-        // (PK-097) — 5e-3 covers both families.
-        if best.0 < 5.0e-3 {
-            hits.push((best.1, edge, best.2, best.0));
-        } else if std::env::var_os("PK_CARVE_TRACE").is_some() {
-            eprintln!(
-                "    [crossings] edge {edge:?}: best approach {:.3e} at arc t {:.3}",
-                best.0, best.1
-            );
-        }
-    }
-    if std::env::var_os("PK_CARVE_TRACE").is_some() {
-        let a0 = arc_eval.point_at(0.0);
-        let a1 = arc_eval.point_at(1.0);
-        eprintln!(
-            "    [crossings] arc ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}): {} hits",
-            a0.x,
-            a0.y,
-            a0.z,
-            a1.x,
-            a1.y,
-            a1.z,
-            hits.len()
-        );
-    }
-    // Dedup near-identical arc parameters (shared vertices between
-    // consecutive edges register on both).
-    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    hits.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-3);
-    if hits.len() != 2 {
-        return Err(format!(
-            "expected 2 arc/boundary crossings, found {} ({:?})",
-            hits.len(),
-            hits.iter().map(|h| (h.0, h.3)).collect::<Vec<_>>()
-        ));
-    }
-    Ok([
-        (hits[0].0, hits[0].1, hits[0].2),
-        (hits[1].0, hits[1].1, hits[1].2),
-    ])
 }
 
 /// De Casteljau three-way split of a cubic at t1 < t2, returning the

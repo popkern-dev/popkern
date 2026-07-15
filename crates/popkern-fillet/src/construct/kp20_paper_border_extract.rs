@@ -59,6 +59,9 @@ pub struct Kp20PaperBorderExtractReport {
     pub recovered_face_surfaces: usize,
 }
 
+#[path = "kp20_paper_border_corners.rs"]
+mod kp20_paper_border_corners;
+
 /// One fillet's setback arc, exported for BRep topology insertion:
 /// the arc is the fillet face's new apex-side boundary, running from
 /// `corner_prev` to `corner_next` (shared with the neighbouring
@@ -706,52 +709,11 @@ pub fn kp20_paper_border_from_fillet_setback(
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Trim-intersection corner between adjacent fillets: the closest
-    // approach between any trim-curve pair (one from each side),
-    // sample-refined.
-    let closest_between = |ca: &popkern_core::geometry::NurbsCurve,
-                           cb: &popkern_core::geometry::NurbsCurve|
-     -> (f64, Point3) {
-        const S: usize = 96;
-        let (a0, a1) = ca.parameter_range();
-        let (b0, b1) = cb.parameter_range();
-        let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
-        for i in 0..=S {
-            let ta = a0 + (a1 - a0) * i as f64 / S as f64;
-            let pa = ca.point_at(ta);
-            for j in 0..=S {
-                let tb = b0 + (b1 - b0) * j as f64 / S as f64;
-                let pb = cb.point_at(tb);
-                let d = pa.distance_to(&pb);
-                if d < best.0 {
-                    best = (
-                        d,
-                        Point3::new(
-                            0.5 * (pa.x + pb.x),
-                            0.5 * (pa.y + pb.y),
-                            0.5 * (pa.z + pb.z),
-                        ),
-                    );
-                }
-            }
-        }
-        best
-    };
-    let mut corners = Vec::with_capacity(n);
-    for k in 0..n {
-        let fa = &fillet_surfaces[order[k]];
-        let fb = &fillet_surfaces[order[(k + 1) % n]];
-        let mut best = (f64::INFINITY, Point3::new(0.0, 0.0, 0.0));
-        for ca in [&fa.trim_curve_1, &fa.trim_curve_2] {
-            for cb in [&fb.trim_curve_1, &fb.trim_curve_2] {
-                let candidate = closest_between(ca, cb);
-                if candidate.0 < best.0 {
-                    best = candidate;
-                }
-            }
-        }
-        corners.push(best);
-    }
+    // Setback corners between angularly adjacent fillets — see
+    // `kp20_paper_border_corners` for the pair-selection and
+    // truncated-trim recovery model.
+    let corners =
+        kp20_paper_border_corners::setback_corners(fillet_surfaces, &order, vertex_position);
     let max_corner_gap = corners.iter().map(|c| c.0).fold(0.0_f64, f64::max);
 
     // Corner pullback: cutting each arc exactly at the trim

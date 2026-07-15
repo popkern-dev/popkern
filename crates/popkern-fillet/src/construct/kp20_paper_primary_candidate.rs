@@ -26,24 +26,18 @@ use popkern_core::geometry::gregory::{
 /// of the candidate's geometric radius.
 const PAPER_CAP_RELATIVE_RESIDUAL_GATE: f64 = 1.0e-6;
 
-/// Relative gate on the INPUT border's corner-band disagreement at
-/// the sector corners `c` (`input_corner_mismatch`), as a fraction of
-/// the candidate's geometric radius — a G¹-class incompatibility of
-/// the input that the assembly averages into the rim.
-///
-/// Why this is NOT the 1e-6 closure gate above: the mismatch is an
-/// input-shape-class measurement (like `guide_fit_residual`), not an
-/// assembly residual, and it is nonzero even on by-construction-valid
-/// input — measured 1.7e-1 relative on the C² B-spline ring border
-/// (fold-free, all continuity rows at machine zero) and 1.3e-1 on the
-/// accepted pentagonal-pyramid G² setback candidate. Every folding
-/// real-rolling-ball candidate measured to date sits at >= 2.3e-1
-/// relative (hexagon6_variable setback/blend-boundary, pentagon5 and
-/// hexagon6 midpoint-split adapters, PK-090 calibration). The gate is
-/// placed in the measured separation band so corner-incompatible
-/// input declines attributably (measured value in the detail string)
-/// without regressing the accepted class.
-const PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE: f64 = 2.0e-1;
+// `input_corner_mismatch` (the INPUT border's corner-band
+// disagreement at the sector corners `c`) is recorded in the detail
+// string as an observability fact but no longer gates acceptance.
+// Its PK-090 calibration (accepted class <= 1.7e-1 relative, every
+// folding candidate >= 2.3e-1) was measured against grid-accuracy
+// corner placement; with corners refined to the true trim
+// intersections (PK-087 stage 13) the classes overlap and the metric
+// separates nothing — re-measured: pentagon5_uniform_g2 fold-free at
+// 2.9e-1 and hexagon6_uniform fold-free at 2.7e-1 vs the folding
+// hexagon6_variable candidate at 2.1e-1. Exclusion is carried by the
+// fold sampler, the regularity floor, and the residual gates, all of
+// which remain.
 
 /// Commercial-tier relative gate for the derivative rows (eq (8)/(9)
 /// G¹/G² residuals and the Lemma-4 delta). Real rolling-ball apex data
@@ -87,18 +81,11 @@ impl Kp20PaperPrimaryCandidate {
     pub(super) fn is_acceptable(&self) -> bool {
         let scale = self.scale.max(f64::MIN_POSITIVE);
         let gate = PAPER_CAP_RELATIVE_RESIDUAL_GATE * scale;
-        // Corner-incompatible input must DECLINE (with the measured
-        // `input_corner_mismatch` in the detail string), not ship a
-        // kinked rim; see the corner gate constant for the measured
-        // calibration and why its relative form differs from the
-        // closure rows.
-        let corner_gate = PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE * scale;
         self.report.max_g1_residual < gate
             && self.report.max_g2_residual < gate
             && self.report.max_c0_residual < gate
             && self.report.max_border_residual < gate
             && self.report.lemma4_delta < gate
-            && self.report.input_corner_mismatch < corner_gate
             && self.report.min_regularity > 0.0
             && self.summary.fold_count == 0
     }
@@ -114,10 +101,8 @@ impl Kp20PaperPrimaryCandidate {
         let scale = self.scale.max(f64::MIN_POSITIVE);
         let exact_gate = PAPER_CAP_RELATIVE_RESIDUAL_GATE * scale;
         let derivative_gate = PAPER_CAP_COMMERCIAL_RELATIVE_DERIVATIVE_GATE * scale;
-        let corner_gate = PAPER_CAP_RELATIVE_CORNER_MISMATCH_GATE * scale;
         let commercial = self.summary.fold_count == 0
             && self.report.min_regularity > 0.0
-            && self.report.input_corner_mismatch < corner_gate
             && self.report.max_c0_residual < exact_gate
             && self.report.max_border_residual < exact_gate
             && self.report.max_g1_residual < derivative_gate
