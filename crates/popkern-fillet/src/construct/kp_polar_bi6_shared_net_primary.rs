@@ -264,6 +264,27 @@ pub(super) fn try_kp15_shared_net_cap(
             best_fold_free = Some((cap_outer, lambda));
         }
         if cap_outer <= CAP_OUTER_GATE {
+            if crate::direct_apex_trace::enabled() {
+                for (s, grid) in oriented.iter().enumerate() {
+                    let corners =
+                        |label: &str,
+                         a: popkern_core::geometry::Point3,
+                         b: popkern_core::geometry::Point3| {
+                            eprintln!(
+                                "[shared-net-commit] s={s} {label}: ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                                a.x, a.y, a.z, b.x, b.y, b.z
+                            );
+                        };
+                    corners("grid_u0 (grid[0][0..9])", grid[0][0], grid[0][9]);
+                    corners("grid_u1 (grid[9][0..9])", grid[9][0], grid[9][9]);
+                    corners("grid_v0 (grid[0..9][0])", grid[0][0], grid[9][0]);
+                    corners("grid_v1 (grid[0..9][9])", grid[0][9], grid[9][9]);
+                    if let Some(target) = boundary_target {
+                        corners("target_face (t[s][0])", target[s][0][0], target[s][0][3]);
+                        corners("target_fe   (t[s][1])", target[s][1][0], target[s][1][3]);
+                    }
+                }
+            }
             return SharedNetOutcome::Committed(candidate);
         }
     }

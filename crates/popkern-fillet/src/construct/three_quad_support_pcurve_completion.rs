@@ -217,6 +217,8 @@ fn complete_cap_support_half_edge(
         cap_boundary_hint,
         brep.half_edges[half_edge].pcurve.as_ref(),
         &cap_uv_samples,
+        cap_surface,
+        &samples,
     );
     let accepted_cap_boundary_candidate = if let Some(candidate) = cap_boundary_candidate {
         let acceptable = cap_boundary_pcurve_candidate_is_acceptable(
@@ -226,6 +228,19 @@ fn complete_cap_support_half_edge(
             &candidate,
             &samples,
         );
+        if crate::direct_apex_trace::enabled() {
+            let candidate_gap = support_pcurve_completion_quality::pcurve_surface_sample_gap(
+                cap_surface,
+                &candidate.pcurve,
+                &samples,
+            );
+            eprintln!(
+                "[cap-hint-trace] he {half_edge:?} boundary={:?} source={:?} acceptable={acceptable} candidate_gap={candidate_gap:.4e} samples={}",
+                candidate.boundary,
+                candidate.source,
+                samples.len(),
+            );
+        }
         completion.declined_cap_boundary_pcurve = !acceptable;
         acceptable.then_some(candidate)
     } else if cap_boundary_hint.is_some() {

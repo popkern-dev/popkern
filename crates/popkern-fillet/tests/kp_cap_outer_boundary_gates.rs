@@ -293,16 +293,20 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_completion.fact",
         &[
             // Live-route census (re-pinned 2026-07-15, PK-087
-            // fold-relaxed shared-net commit): 6 cap faces / 12
-            // eligible edges; the committed KP15 cap improves the
-            // pcurve census to 9 repaired / 7 declined / 3
-            // unrecognized (was 7 / 8 / 4 on the pre-commit route) —
-            // the remaining unrecognized edges are the seam-pcurve
-            // authoring slice of this blocker.
+            // fold-relaxed shared-net commit + surface-fit border
+            // inference): 6 cap faces / 12 eligible edges; the
+            // committed KP15 cap improves the pcurve census to 9
+            // repaired / 3 unrecognized (was 7 / 4 pre-commit), and
+            // the surface-fit inference now produces honest border
+            // candidates for the previously candidate-less diagonal
+            // seams — 3 more measured declines (10, was 7/8) instead
+            // of silent projection keeps. The remaining blocker is
+            // the live seam geometry itself (edge curves / support
+            // pcurves 1.2e-2..4.5e-2 off the fitted cap borders).
             "cap_face_count=6",
             "eligible_edges=12",
             "repaired_cap_boundary_pcurves=9",
-            "declined_cap_boundary_pcurves=7",
+            "declined_cap_boundary_pcurves=10",
             "unrecognized_cap_boundary_pcurve_edges=3",
         ],
     );
