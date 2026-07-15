@@ -318,7 +318,36 @@ impl BRep {
                 }
             };
 
-            self.half_edges[heh].pcurve = Some(pcurve.into());
+            // Survival rule: a recomputed pcurve only replaces an
+            // existing one when it satisfies the fraction-matched trim
+            // contract at least as well. Construction passes author
+            // dense pcurves with better-than-refit fidelity (PK-087:
+            // a blanket recompute degraded surgery-authored 33-point
+            // pcurves 8.5e-7 → 1.35e-3, and a refit over a partially
+            // diverged projection walk tore pentagon5_blunt fan seam
+            // normals to 2.9e-1). Half-edges without an existing
+            // pcurve or without a 3-D curve to measure against are
+            // written unconditionally, as before.
+            let candidate: crate::geometry::pcurve::Pcurve = pcurve.into();
+            let keep_existing = match (&self.half_edges[heh].pcurve, edge_curve) {
+                (Some(existing), Some(curve_on_edge)) => {
+                    pcurve_fraction_contract_error(
+                        &surface,
+                        existing,
+                        curve_on_edge,
+                        edge_direction,
+                    ) <= pcurve_fraction_contract_error(
+                        &surface,
+                        &candidate,
+                        curve_on_edge,
+                        edge_direction,
+                    )
+                }
+                _ => false,
+            };
+            if !keep_existing {
+                self.half_edges[heh].pcurve = Some(candidate);
+            }
         }
 
         self.fix_pcurve_endpoints(face_handle);
@@ -668,6 +697,10 @@ impl BRep {
         }
     }
 }
+
+#[path = "pcurve_survival.rs"]
+mod pcurve_survival;
+use pcurve_survival::pcurve_fraction_contract_error;
 
 #[cfg(test)]
 #[path = "pcurve_recompute_tests.rs"]
