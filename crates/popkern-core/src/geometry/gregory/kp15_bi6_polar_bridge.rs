@@ -370,9 +370,7 @@ pub fn convert_polar_to_bi6_cap_net(polar: &PolarBoundaryInput) -> Result<Bi6Cap
 
 /// Build the **coarse** shared control ring and the KP15 free set from
 /// the polar geometry — the geometry-derived seed before the
-/// boundary-fidelity fit
-/// ([`fit_shared_ring_to_border`](super::kp15_bi6_net_fit::fit_shared_ring_to_border)).
-/// Shared with the fitted converter
+/// sampled-metric boundary fit. Shared with the fitted converter
 /// ([`convert_polar_to_bi6_cap_fitted`](super::kp15_bi6_net_fit::convert_polar_to_bi6_cap_fitted)),
 /// which corrects the ring so the assembled cap interpolates the real
 /// surrounding-surface boundary while retaining the C²-consistent

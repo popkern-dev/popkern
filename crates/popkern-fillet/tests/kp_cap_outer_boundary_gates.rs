@@ -263,18 +263,25 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "support_curve_gap=",
         ],
     );
-    // Boundary-solve record on the live route: the solve APPLIES with
-    // 12 eligible edges but samples none (fit machinery not yet
-    // reaching this valence) — pinned so the next boundary-solve leg
-    // has a measured before/after.
+    // Boundary-solve record on the live route (re-pinned 2026-07-15,
+    // PK-087 fold-relaxed shared-net commit): the KP15 cap now COMMITS
+    // at the polar stage (sampled-metric fit ≈2.6e-3 + fold relaxation
+    // over the boundary-neutral families), so the boundary solve
+    // actually runs — 9 of 12 eligible edges sampled — and rolls back
+    // on its own postcondition (max_after_gap 2.05e-2 > 5e-3) with 3
+    // cap pcurve edges unrecognized (stale/projected off-border spans
+    // on the swapped-in surfaces — the seam-pcurve authoring blocker
+    // shared with the pentagon5 Kp20Bi6 leg). Previously the solve
+    // applied vacuously with sampled_edges=0.
     assert_route_detail_contains(
         &result,
         "cap_support_boundary_solve",
         "cap_support_boundary_solve.fact",
         &[
-            "status=applied",
+            "status=rolled_back_postcondition_failed",
             "eligible_edges=12",
-            "sampled_edges=0",
+            "sampled_edges=9",
+            "unrecognized_cap_pcurve_edges=3",
             "constrained_row_fit_candidates",
             "hard_constraint_rows",
             "hard_constraint_conflicts",
@@ -285,16 +292,18 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_completion",
         "cap_support_completion.fact",
         &[
-            // Live-route census (re-pinned 2026-07-11 with the smooth
-            // blend restored): 6 cap faces / 12 eligible edges, with a
-            // measured residue of 4 unrecognized cap-boundary pcurve
-            // edges and 8 declined — the pcurve-recognition slice of
-            // this blocker.
+            // Live-route census (re-pinned 2026-07-15, PK-087
+            // fold-relaxed shared-net commit): 6 cap faces / 12
+            // eligible edges; the committed KP15 cap improves the
+            // pcurve census to 9 repaired / 7 declined / 3
+            // unrecognized (was 7 / 8 / 4 on the pre-commit route) —
+            // the remaining unrecognized edges are the seam-pcurve
+            // authoring slice of this blocker.
             "cap_face_count=6",
             "eligible_edges=12",
-            "repaired_cap_boundary_pcurves=7",
-            "declined_cap_boundary_pcurves=8",
-            "unrecognized_cap_boundary_pcurve_edges=4",
+            "repaired_cap_boundary_pcurves=9",
+            "declined_cap_boundary_pcurves=7",
+            "unrecognized_cap_boundary_pcurve_edges=3",
         ],
     );
 }

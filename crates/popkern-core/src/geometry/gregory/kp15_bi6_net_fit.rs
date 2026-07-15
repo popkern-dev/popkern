@@ -28,24 +28,31 @@
 //! continuity closure hold **simultaneously** — the trade-off the
 //! coarse ring could not escape.
 //!
-//! # Regularisation (fold containment)
+//! # Fold containment
 //!
 //! The ring → boundary map is well-conditioned (cond ≈ 60 at `n ∈
 //! {5, 6}`) but the boundary corner is dominated by the interior
-//! symbol `a5`, so an *exact* interpolation moves interior control
-//! points far enough to fold the deep interior. We therefore solve a
-//! Tikhonov least-squares centred on the coarse ring: minimise
-//! `‖A·Δ − r‖² + λ²‖Δ‖²`, `r = target − A·coarse`, and take
-//! `ring = coarse + Δ`. `λ` trades residual boundary error against
-//! ring deviation; the caller sweeps down until the cap is fold-free
-//! *and* within the cap-outer gate, and declines with a structured
-//! diagnostic if no `λ` clears both (mechanism honesty).
+//! symbol `a5`, so a boundary-faithful fit moves interior control
+//! points far enough to fold the deep interior. The fit is solved
+//! against the **sampled** whole-edge metric the acceptance gate
+//! measures (`net_fit_sampled`), and the fold is then relaxed over
+//! the two boundary-neutral families — the design-matrix kernel and
+//! the paper free set `P` (`fold_relaxation`) — which re-place the
+//! deep interior while every fitted boundary row stays bit-identical.
+//! The caller still re-measures fold and boundary independently and
+//! declines with a structured diagnostic when a rung fails
+//! (mechanism honesty; all-or-nothing acceptance unchanged).
 
 use super::super::kp_polar_boundary_input::{PolarBoundaryInput, TensorBorder};
 use super::super::kp15_bi6_deep_interior::bspline_net_to_bi3_bb;
 use super::super::kp15_bi6_tensor_border_extract::extract_bi3_tensor_border_from_polar_input;
 use super::{Bi6CapNetInputs, SharedControlRing, build_coarse_ring_and_free, shared_net_layout};
 use crate::geometry::Point3;
+
+#[path = "kp15_bi6_fold_relaxation.rs"]
+mod fold_relaxation;
+#[path = "kp15_bi6_net_fit_sampled.rs"]
+mod net_fit_sampled;
 
 /// Per-sector explicit fit target: each sector's two star-opposite
 /// outer edges as exact bi-3 (cubic) BB-CP rows. `target[s][0]` is
@@ -67,11 +74,13 @@ pub type SectorOuterEdgeTarget = [[Point3; 4]; 2];
 /// assembled cap interpolates the surrounding surface *and* the
 /// eq (2)/(3) cross-sector constraints still close by construction.
 ///
-/// `lambda` is the Tikhonov regularisation weight (see
-/// [`fit_shared_ring_to_border`]): `0` interpolates the boundary
-/// exactly (larger interior deviation → fold risk), larger `λ` keeps
-/// the ring near the fold-free coarse seed at the cost of residual
-/// boundary error.
+/// `lambda` is the Tikhonov ridge of the sampled-metric boundary fit
+/// (`net_fit_sampled::sampled_boundary_fit`): `0` fits the sampled
+/// boundary points exactly in the least-squares sense, larger `λ`
+/// keeps the ring near the coarse seed at the cost of residual
+/// boundary error. The fitted configuration is then fold-relaxed over
+/// the boundary-neutral families (`fold_relaxation::relax_net_fold`)
+/// before the net is windowed.
 ///
 /// `target`: `None` falls back to the spoke-derived tensor-border
 /// extractor (retained for the core trade-off tests, whose crude
@@ -113,8 +122,21 @@ pub fn convert_polar_to_bi6_cap_fitted(
             .map(|s| [tb.sectors[s][0], tb.sectors[(s + n - 1) % n][0]])
             .collect()
     };
-    let ring = fit_shared_ring_to_border(&coarse, &target_edges, n, lambda)
+    // Sampled-metric fit: optimise the whole-edge distance the
+    // acceptance gate actually measures (CP-space fit floors at
+    // ~5.09e-3 on hexagon6_variable; the sampled fit reaches
+    // ~2.62e-3 — inside the 5e-3 gate).
+    let nu = n_unknowns(n);
+    let a = boundary_design_matrix(n);
+    let ring = net_fit_sampled::sampled_boundary_fit(&coarse, &target_edges, n, nu, &a, lambda)
         .ok_or_else(|| "shared-net boundary fit solve was singular".to_string())?;
+    // Fold relaxation over the two boundary-neutral families (design-
+    // matrix kernel + paper free set): boundary rows stay bit-identical
+    // while the deep interior un-folds. On `None` the unrelaxed fit is
+    // returned and the caller's fold gate declines the rung honestly.
+    let (_rank, kernel) = net_fit_sampled::boundary_kernel_basis(&a, nu);
+    let (ring, free) = fold_relaxation::relax_net_fold(&params, &ring, &free, &kernel, n, nu)
+        .unwrap_or((ring, free));
     let net: Vec<[[Point3; 4]; 4]> = (0..n).map(|s| shared_net_layout(&ring, s, n)).collect();
     Ok((params, net, free))
 }
@@ -218,110 +240,6 @@ fn boundary_design_matrix(n: usize) -> Vec<Vec<f64>> {
         }
     }
     a
-}
-
-/// The fit target for constraint row `row`, coordinate `coord`.
-/// `tad` rows (`local ∈ 0..4`) interpolate sector `s`'s `tad` outer
-/// edge (`target[s][0]`); `tak` rows (`local ∈ 4..8`) its `tak` outer
-/// edge (`target[s][1]`). Both edges belong to sector `s` — matching
-/// the real 2n-segment fillet boundary, where each cap sub-patch owns
-/// its own `FilletEnd` and `FaceEdge` meeting at the mid-sector
-/// junction (unlike the legacy shared-rim proxy, which fit `tak` from
-/// the previous sector).
-fn constraint_target(
-    target_edges: &[SectorOuterEdgeTarget],
-    row: usize,
-    _n: usize,
-    coord: usize,
-) -> f64 {
-    let comp = |p: Point3| match coord {
-        0 => p.x,
-        1 => p.y,
-        _ => p.z,
-    };
-    let s = row / 8;
-    let local = row % 8;
-    let (edge, i) = if local < 4 {
-        (0, local)
-    } else {
-        (1, local - 4)
-    };
-    comp(target_edges[s][edge][i])
-}
-
-/// Solve the Tikhonov-regularised normal equations
-/// `(AᵀA + λ²I)·Δ = Aᵀ·r` for one coordinate channel.
-fn solve_tikhonov(a: &[Vec<f64>], r: &[f64], lambda: f64, nu: usize) -> Option<Vec<f64>> {
-    // Normal matrix AᵀA + λ²I.
-    let mut ata = vec![vec![0.0; nu]; nu];
-    for (col_i, row) in ata.iter_mut().enumerate() {
-        for (col_j, cell) in row.iter_mut().enumerate() {
-            let mut acc = 0.0;
-            for a_row in a {
-                acc += a_row[col_i] * a_row[col_j];
-            }
-            *cell = acc;
-            if col_i == col_j {
-                *cell += lambda * lambda;
-            }
-        }
-    }
-    // Right-hand side Aᵀ·r.
-    let mut atr = vec![0.0; nu];
-    for (u, atr_u) in atr.iter_mut().enumerate() {
-        let mut acc = 0.0;
-        for (row_idx, a_row) in a.iter().enumerate() {
-            acc += a_row[u] * r[row_idx];
-        }
-        *atr_u = acc;
-    }
-    super::super::direct_linalg::solve_dense(ata, atr)
-}
-
-/// Fit the shared ring to the two real outer-edge bi-3 rows of each
-/// sector.
-///
-/// `target_edges[s][e][i]` is the surrounding surface's boundary BB-CP
-/// the cap must interpolate along sector `s`'s `tad` (`e = 0`) / `tak`
-/// (`e = 1`) outer edge. `lambda` is the Tikhonov weight (≥ 0; `0` =
-/// exact min-norm-from-coarse least squares). Returns the fitted ring
-/// (coarse + regularised correction), or `None` if the normal-equation
-/// solve is singular (should not happen for `λ > 0`).
-pub fn fit_shared_ring_to_border(
-    coarse: &SharedControlRing,
-    target_edges: &[SectorOuterEdgeTarget],
-    n: usize,
-    lambda: f64,
-) -> Option<SharedControlRing> {
-    let nu = n_unknowns(n);
-    let n_rows = n_constraints(n);
-    let a = boundary_design_matrix(n);
-
-    // Per-coordinate residual r = target − A·coarse, then Δ, then ring.
-    let mut fitted = coarse.clone();
-    for coord in 0..3 {
-        // A·coarse for this channel.
-        let coarse_vec: Vec<f64> = (0..nu).map(|u| ring_get(coarse, u, n, coord)).collect();
-        let mut a_coarse = vec![0.0; n_rows];
-        for (row_idx, a_row) in a.iter().enumerate() {
-            let mut acc = 0.0;
-            for (u, &c) in coarse_vec.iter().enumerate() {
-                acc += a_row[u] * c;
-            }
-            a_coarse[row_idx] = acc;
-        }
-        // Residual against the target.
-        let mut r = vec![0.0; n_rows];
-        for (row_idx, r_cell) in r.iter_mut().enumerate() {
-            *r_cell = constraint_target(target_edges, row_idx, n, coord) - a_coarse[row_idx];
-        }
-        let delta = solve_tikhonov(&a, &r, lambda, nu)?;
-        let solved: Vec<f64> = (0..nu)
-            .map(|u| ring_get(coarse, u, n, coord) + delta[u])
-            .collect();
-        write_channel(&mut fitted, &solved, n, coord);
-    }
-    Some(fitted)
 }
 
 /// Write one coordinate channel of a solved unknown vector back into
