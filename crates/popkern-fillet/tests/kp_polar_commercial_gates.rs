@@ -13,21 +13,22 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "kp_polar_support_cell_diagnostics.rs"]
-mod support_cell_diagnostics;
 use helpers::{
-    N_SAMPLES, assert_all_binonic, assert_commercial_gates, collect_patches, fillet_corner_full,
-    incident_edges, measure_ring, pick_vertex_with_valence,
+    N_SAMPLES, assert_all_binonic, assert_commercial_gates_live, collect_patches,
+    fillet_corner_full, incident_edges, measure_live_cap_seams, pick_vertex_with_valence,
 };
-use support_cell_diagnostics::assert_support_cell_quality_gate;
 
+/// Fillet the N-gonal pyramid apex and measure the committed cap
+/// across its LIVE seam topology (the setback fan ships 4 bi-9
+/// pieces per sector; the legacy `measure_ring` frame does not
+/// describe that layout — PK-087).
 fn run_n_gonal_pyramid_polar(
     n: usize,
     base_radius: f64,
     height: f64,
     radii: &[f64],
     fixture: &str,
-) -> helpers::RingMetrics {
+) -> helpers::LiveSeamMetrics {
     assert_eq!(radii.len(), n);
     let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
@@ -35,7 +36,7 @@ fn run_n_gonal_pyramid_polar(
     let (brep, faces) = fillet_corner_full(&pyr, &edges, radii, true, true);
     let patches = collect_patches(&brep, &faces);
     assert_all_binonic(&patches, fixture);
-    measure_ring(&patches, N_SAMPLES)
+    measure_live_cap_seams(&brep, &faces, N_SAMPLES)
 }
 
 fn fillet_n_gonal_pyramid_result(
@@ -69,38 +70,63 @@ fn fillet_n_gonal_pyramid_result(
     fillet_edges(&pyr, &specs, &opts, Tolerance::default(), None).unwrap()
 }
 
-/// Blunt-apex positive control (apex half-angle 18°, typical CAD).
-/// Expected to take sphere-fit path and bypass polar entirely.
-/// The `assert_all_binonic` assertion in `run_n_gonal_pyramid_polar`
-/// will fail at the moment because the sphere-fit path produces a
-/// single non-Gregory face, not N Gregory sub-patches. This is the
-/// intended commercial behaviour for gentle corners — the test is
-/// `#[ignore]` until the probe is refactored to assert "valid
-/// commercial output" (sphere-fit OR polar-bi9) rather than
-/// specifically "N Gregory bi-nonic patches."
-///
-/// Documented here as a reminder: pentagon5 at h=3.0 (18° apex) is
-/// the REAL commercial-CAD test case; the `_uniform` / `_mixed` /
-/// `_variable` sharp-apex tests below stress the polar path
-/// specifically.
-#[ignore]
+/// Blunt-apex positive control (apex half-angle 18°, typical CAD):
+/// pentagon5 at h=3.0 is the REAL commercial-CAD case; the sharp-apex
+/// fixtures below stress the polar/setback path specifically. A
+/// gentle corner may legitimately ship a sphere-fit cap (single
+/// non-Gregory face) instead of a fan, so the assertion is "valid
+/// output, and IF a multi-patch cap shipped its live seams pass the
+/// commercial gates" rather than a specific patch census.
 #[test]
-fn pentagon5_blunt_takes_sphere_fit_path() {
-    let m = run_n_gonal_pyramid_polar(5, 1.0, 3.0, &[0.05; 5], "pentagon5_blunt");
-    assert_commercial_gates("pentagon5_blunt", &m);
+fn pentagon5_blunt_ships_valid_commercial_cap() {
+    let result = fillet_n_gonal_pyramid_result(5, 1.0, 3.0, &[0.05; 5]);
+    result
+        .brep
+        .validate()
+        .expect("pentagon5_blunt must leave a valid BRep");
+    let faces: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.n_sides == 5)
+        .map(|p| p.face)
+        .collect();
+    let m = measure_live_cap_seams(&result.brep, &faces, N_SAMPLES);
+    if m.seam_count > 0 {
+        // G0/G1 commercial gates only: this control requests the
+        // default G1 fillet class, so the cap's seam G2 is recorded
+        // but not gated (measured at re-pin 2026-07-15: g0=1.6e-13,
+        // g1=2.5e-2, g2=7.0e-2 — the G2 jump across seams of a
+        // G1-request blend on the wide flat blunt fan).
+        println!(
+            "live-seam pentagon5_blunt: seams={} g0={:.3e} g1={:.3e} g2={:.3e}",
+            m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+        );
+        assert!(
+            m.worst_g0_gap < helpers::G0_GATE,
+            "[pentagon5_blunt] live-seam G0 gap {:.3e} exceeds {:.1e} gate",
+            m.worst_g0_gap,
+            helpers::G0_GATE
+        );
+        assert!(
+            m.worst_g1_normal < helpers::G1_GATE,
+            "[pentagon5_blunt] live-seam G1 misalignment {:.3e} exceeds {:.1e} gate",
+            m.worst_g1_normal,
+            helpers::G1_GATE
+        );
+    } else {
+        println!(
+            "pentagon5_blunt: single-face cap ({} apex patches), no live seams",
+            faces.len()
+        );
+    }
 }
-#[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_uniform() {
     let m = run_n_gonal_pyramid_polar(5, 1.0, 0.8, &[0.05; 5], "pentagon5_uniform");
-    assert_commercial_gates("pentagon5_uniform", &m);
+    assert_commercial_gates_live("pentagon5_uniform", &m);
 }
 
 #[test]
-#[ignore = "PK-090: pre-existing since the campaign checkpoint (baseline-verified at 0ab5f9fe) — \
-the legacy polar route died with the intentional C2 break, and the paper-cap replacement \
-declines real rolling-ball apex data until PK-090's input-class fixes land (G2 fillet sweep \
-upstream + c-corner jet reconciliation). Re-enable with the PK-090 dispatch wiring."]
 fn polar_passes_commercial_gates_on_pentagon5_mixed() {
     let m = run_n_gonal_pyramid_polar(
         5,
@@ -109,14 +135,10 @@ fn polar_passes_commercial_gates_on_pentagon5_mixed() {
         &[0.04, 0.06, 0.05, 0.07, 0.05],
         "pentagon5_mixed",
     );
-    assert_commercial_gates("pentagon5_mixed", &m);
+    assert_commercial_gates_live("pentagon5_mixed", &m);
 }
 
 #[test]
-#[ignore = "PK-090: pre-existing since the campaign checkpoint (baseline-verified at 0ab5f9fe) — \
-the legacy polar route died with the intentional C2 break, and the paper-cap replacement \
-declines real rolling-ball apex data until PK-090's input-class fixes land (G2 fillet sweep \
-upstream + c-corner jet reconciliation). Re-enable with the PK-090 dispatch wiring."]
 fn pentagon5_mixed_no_longer_records_polar_dispatch_decline() {
     let result = fillet_n_gonal_pyramid_result(5, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     result
@@ -137,34 +159,31 @@ fn pentagon5_mixed_no_longer_records_polar_dispatch_decline() {
     );
 }
 
-#[ignore = "legacy single-ring binonic gate; support-cell topology gate covers hexagon6_uniform"]
 #[test]
 fn polar_passes_commercial_gates_on_hexagon6_uniform() {
     let m = run_n_gonal_pyramid_polar(6, 1.0, 0.8, &[0.05; 6], "hexagon6_uniform");
-    assert_commercial_gates("hexagon6_uniform", &m);
+    assert_commercial_gates_live("hexagon6_uniform", &m);
 }
 
+/// Re-pinned 2026-07-15 (PK-087): the support-cell topology this
+/// test originally asserted was replaced by the setback vertex fan
+/// (4 bi-9 pieces per sector); the commercial claim is now the live
+/// seam gate, same as the sibling fixtures. (An interim "skew-trim
+/// containment" theory pinned g1 at 1.2e-1 — FALSIFIED: the 8.0e-2
+/// twist was an artifact of a projection-walk outlier-drop repair
+/// that was itself reverted; the honest reading is g1 = 2.7e-4.)
 #[test]
-#[ignore = "PK-090: pre-existing since the campaign checkpoint (baseline-verified at 0ab5f9fe) — \
-the legacy polar route died with the intentional C2 break, and the paper-cap replacement \
-declines real rolling-ball apex data until PK-090's input-class fixes land (G2 fillet sweep \
-upstream + c-corner jet reconciliation). Re-enable with the PK-090 dispatch wiring."]
-fn hexagon6_uniform_accepts_support_cell_topology() {
-    let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.05; 6]);
-    assert_support_cell_quality_gate("hexagon6_uniform", &result, 6);
+fn hexagon6_mixed_ships_commercial_setback_fan() {
+    let m = run_n_gonal_pyramid_polar(
+        6,
+        1.0,
+        0.8,
+        &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06],
+        "hexagon6_mixed",
+    );
+    assert_commercial_gates_live("hexagon6_mixed", &m);
 }
 
-#[test]
-#[ignore = "PK-090: pre-existing since the campaign checkpoint (baseline-verified at 0ab5f9fe) — \
-the legacy polar route died with the intentional C2 break, and the paper-cap replacement \
-declines real rolling-ball apex data until PK-090's input-class fixes land (G2 fillet sweep \
-upstream + c-corner jet reconciliation). Re-enable with the PK-090 dispatch wiring."]
-fn hexagon6_mixed_accepts_support_cell_topology() {
-    let result = fillet_n_gonal_pyramid_result(6, 1.0, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06]);
-    assert_support_cell_quality_gate("hexagon6_mixed", &result, 6);
-}
-
-#[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_variable() {
     // Phase I.22 variable-radius fixture. Wider 1:3 ratio spread
@@ -181,10 +200,9 @@ fn polar_passes_commercial_gates_on_pentagon5_variable() {
         &[0.02, 0.04, 0.06, 0.04, 0.02],
         "pentagon5_variable",
     );
-    assert_commercial_gates("pentagon5_variable", &m);
+    assert_commercial_gates_live("pentagon5_variable", &m);
 }
 
-#[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_hexagon6_variable() {
     // Phase I.22 variable-radius — hexagonal apex with 1:3 spread.
@@ -195,10 +213,9 @@ fn polar_passes_commercial_gates_on_hexagon6_variable() {
         &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02],
         "hexagon6_variable",
     );
-    assert_commercial_gates("hexagon6_variable", &m);
+    assert_commercial_gates_live("hexagon6_variable", &m);
 }
 
-#[ignore]
 #[test]
 fn polar_passes_commercial_gates_on_octagon8_mixed() {
     let m = run_n_gonal_pyramid_polar(
@@ -208,7 +225,7 @@ fn polar_passes_commercial_gates_on_octagon8_mixed() {
         &[0.04, 0.06, 0.05, 0.07, 0.05, 0.06, 0.04, 0.06],
         "octagon8_mixed",
     );
-    assert_commercial_gates("octagon8_mixed", &m);
+    assert_commercial_gates_live("octagon8_mixed", &m);
 }
 
 // ── Dispatch smoke test (flag flip must not crash the pipeline) ──

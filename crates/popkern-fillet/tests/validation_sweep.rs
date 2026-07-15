@@ -12,9 +12,11 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
+#[path = "support/kp_gate_live_seam.rs"]
+mod live_seam;
 #[path = "validation_sweep_scoring.rs"]
 mod scoring;
-use scoring::{Outcome, RungResult, count_variants, gregory_patch_of, sample_scorecard};
+use scoring::{Outcome, RungResult, Scorecard, count_variants, gregory_patch_of, sample_scorecard};
 
 #[derive(Clone, Copy, Debug)]
 enum Variant {
@@ -164,6 +166,7 @@ fn run_rung(
     n_samples: usize,
 ) -> RungResult {
     let prep = fixture_fn();
+    let n_sides = prep.edges.len();
     let outcome = match run_fillet(prep, radii, variant) {
         Err(e) => Outcome::FilletFailed(e),
         Ok((brep, faces)) => {
@@ -176,7 +179,26 @@ fn run_rung(
             } else {
                 let variant_counts = count_variants(&patches);
                 let brep_valid = brep.validate().is_ok();
-                let scorecard = sample_scorecard(&patches, n_samples);
+                // The index scorecard's ring convention only describes
+                // the legacy one-patch-per-sector polar layout.
+                // Multi-patch commits (setback fans, sector
+                // subdivisions) must be measured across the LIVE seam
+                // topology or the frame mismatch dominates the reading
+                // (measured 5.6e-2 on pyramid5_uniform's 20-patch fan
+                // whose true seams sit at machine zero, PK-087).
+                let scorecard = if patches.len() == n_sides {
+                    sample_scorecard(&patches, n_samples)
+                } else {
+                    let m = live_seam::measure_live_cap_seams(&brep, &faces, n_samples.max(2));
+                    Scorecard {
+                        n_samples: m.cos_samples,
+                        min_cos: m.cos_min,
+                        mean_cos: m.cos_mean,
+                        max_cos: m.cos_max,
+                        max_angle_rad: m.cos_min.clamp(-1.0, 1.0).acos(),
+                        max_position_gap: m.worst_g0_gap,
+                    }
+                };
                 Outcome::Success {
                     n_sub_patches: patches.len(),
                     variant_counts,
@@ -341,7 +363,23 @@ fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
         return;
     }
     let deg5_mean = match &rungs[0].outcome {
-        Outcome::Success { scorecard, .. } => scorecard.mean_cos,
+        Outcome::Success {
+            scorecard,
+            variant_counts,
+            ..
+        } => {
+            if variant_counts.deg5 == 0 {
+                // The deg5 rung itself shipped non-deg5 patches: the
+                // apex was built by a variant-independent construction
+                // (the PK-087 setback vertex fan ships identical KP20
+                // bi-9 patches at every rung), so there is no ladder
+                // upgrade to measure — and its baseline is already at
+                // mean-cos 1.0000 on pyramid5, where a +10% demand is
+                // unsatisfiable by construction.
+                return;
+            }
+            scorecard.mean_cos
+        }
         _ => return,
     };
     // Find the best higher rung that actually produced a

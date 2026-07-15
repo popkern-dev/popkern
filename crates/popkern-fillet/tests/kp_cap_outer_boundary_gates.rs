@@ -33,13 +33,10 @@ use popkern_fillet::{BlendWarning, FilletOptions, FilletRadius, FilletSpec, fill
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "support/kp_route_diagnostics.rs"]
-mod route_diagnostics;
 use helpers::{
     G0_GATE, G1_GATE, N_SAMPLES, cap_outer_faces_from_result, fillet_corner, incident_edges,
     measure_cap_outer_boundary, pick_vertex_with_valence,
 };
-use route_diagnostics::{assert_route_declined, assert_route_detail_contains};
 
 fn assert_cap_outer_gates(fixture: &str, m: &helpers::CapOuterMetrics) {
     println!(
@@ -159,23 +156,34 @@ fn run_n_pyramid_cap_outer_result(
     (result, metrics)
 }
 
-/// N=5 — production-route containment record (re-pinned 2026-07-11,
-/// PK-089). The declined PnS/sphere-cap construction used to ship its
-/// non-commercial cap anyway (g0 = 9.877e-3, g1 = 0.90 across 5
-/// edges); the dispatch now rolls the corner back to mitred with
-/// structured declines and a `VertexModeFallback` warning. An
-/// ACCEPTED N=5 cap for this fixture is PK-084.
+/// N=5 — the setback vertex blend ships a commercial-grade 20-patch
+/// cap fan (re-pinned 2026-07-15, PK-087). History: the declined
+/// PnS/sphere-cap construction used to ship a non-commercial cap
+/// (g0 = 9.877e-3, g1 = 0.90), then the PK-089 all-or-nothing
+/// contract rolled back to mitred (edges = 0); the PK-094/PK-087
+/// setback boundary surgery now commits the KP20 cap fan on the
+/// fillet setback border. Measured at re-pin: g0 = 3.6e-8,
+/// g1 = 1.5e-3 across 20 cap/support edges.
 #[test]
-fn cap_outer_boundary_records_pyramid5_mixed_all_or_nothing_rollback() {
+fn cap_outer_boundary_pyramid5_mixed_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(5, 0.8, &[0.04, 0.06, 0.05, 0.07, 0.05]);
     println!(
         "cap_outer pyramid5_mixed: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
     );
     assert_eq!(
-        m.edges_measured, 0,
-        "pyramid5_mixed must not ship a measurable non-commercial cap after the \
-         all-or-nothing rollback (was g0=9.877e-3/g1=0.90)"
+        m.edges_measured, 20,
+        "pyramid5_mixed setback fan must expose its full cap/support boundary"
+    );
+    assert!(
+        m.worst_g0_gap <= 5.0e-3,
+        "cap_outer_g0 {:.3e} exceeds the 5e-3 commercial gate",
+        m.worst_g0_gap
+    );
+    assert!(
+        m.worst_g1_coplanarity <= 5.0e-2,
+        "cap_outer_g1 {:.3e} exceeds the 5e-2 commercial gate",
+        m.worst_g1_coplanarity
     );
     let apex_patches = result
         .corner_patches
@@ -183,120 +191,74 @@ fn cap_outer_boundary_records_pyramid5_mixed_all_or_nothing_rollback() {
         .filter(|patch| patch.n_sides == 5)
         .count();
     assert_eq!(
-        apex_patches, 0,
-        "declined N=5 dispatch must record zero apex patches"
+        apex_patches, 20,
+        "the committed setback fan must record one CornerPatchInfo per cap face"
     );
     assert!(
-        result
+        !result
             .edge_warnings
             .iter()
             .any(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. })),
-        "the mitred rollback must be recorded as a VertexModeFallback warning"
+        "a committed setback blend must not also record a mitred-fallback warning"
     );
     result
         .brep
         .validate()
-        .expect("mitred rollback must leave a valid BRep");
+        .expect("committed setback blend must leave a valid BRep");
 }
 
+/// N=6 variable radii — the setback vertex blend ships a
+/// commercial-grade 24-patch cap fan (re-pinned 2026-07-15, PK-087
+/// semantic rim gate). History: this fixture was the long-standing
+/// route blocker (fallback cap g0=5.359e-3/g1=0.99, then PK-089
+/// mitred rollback with edges=0, then a folded fan with g1=7.8e-1
+/// from sweep-proximity rim misclassification). Three PK-087 fixes
+/// closed it: the border-loop semantic rim gate, the damped rim
+/// least-squares (exact degree-9 interpolation slung CPs 150x), and
+/// in-place outlier repair in the projection walk (dropped samples
+/// re-parameterized whole pcurves). Measured at re-pin: g0 = 9.5e-5,
+/// g1 = 2.0e-3 across 24 cap/support edges.
 #[test]
-fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
+fn cap_outer_boundary_hexagon6_variable_ships_commercial_setback_fan() {
     let (result, m) = run_n_pyramid_cap_outer_result(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
     println!(
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
     );
-    // Re-pinned 2026-07-11 (PK-089): the declined route no longer
-    // ships its non-commercial fallback cap (was g0=5.359e-3/g1=0.99)
-    // — the N >= 5 all-or-nothing contract rolls back to mitred.
     assert_eq!(
-        m.edges_measured, 0,
-        "hexagon6_variable must not ship a measurable non-commercial cap after the \
-         all-or-nothing rollback (was g0=5.359e-3/g1=0.99)"
+        m.edges_measured, 24,
+        "hexagon6_variable setback fan must expose its full cap/support boundary"
     );
     assert!(
-        result
+        m.worst_g0_gap <= 5.0e-3,
+        "cap_outer_g0 {:.3e} exceeds the 5e-3 commercial gate",
+        m.worst_g0_gap
+    );
+    assert!(
+        m.worst_g1_coplanarity <= 5.0e-2,
+        "cap_outer_g1 {:.3e} exceeds the 5e-2 commercial gate",
+        m.worst_g1_coplanarity
+    );
+    let apex_patches = result
+        .corner_patches
+        .iter()
+        .filter(|patch| patch.n_sides == 6)
+        .count();
+    assert_eq!(
+        apex_patches, 24,
+        "the committed setback fan must record one CornerPatchInfo per cap face"
+    );
+    assert!(
+        !result
             .edge_warnings
             .iter()
             .any(|(_, w)| matches!(w, BlendWarning::VertexModeFallback { .. })),
-        "the mitred rollback must be recorded as a VertexModeFallback warning"
+        "a committed setback blend must not also record a mitred-fallback warning"
     );
-    // Route re-pinned 2026-07-11: the N=6 smooth blend previously died
-    // before ANY cap dispatch (0 trim anchors -> Mitred, the pyramid
-    // anchor-band class fixed in blend_topo tier 2), so these records
-    // date from the pre-Mitred era. The live route now dispatches the
-    // KP20 polar macro (paper candidates) and records its decline at
-    // the candidate gate; the PnS stage no longer runs for N=6.
-    assert_route_detail_contains(
-        &result,
-        "kp20_polar_macro.dispatch.candidate",
-        "kp20_polar_macro.dispatch.declined",
-        &["paper cap gates not met"],
-    );
-    assert_route_declined(
-        &result,
-        "rational_gregory.dispatch.cap_support_acceptance",
-        "rational_gregory.dispatch.declined",
-    );
-    // The support-cell path records NONSELECTION on the live route
-    // (primitive not evaluated) rather than an assembled-quality fact.
-    assert_route_detail_contains(
-        &result,
-        "kp20_polar_macro.dispatch.support_cell_candidate_nonselection",
-        "kp20_polar_macro.dispatch.fact",
-        &["decline_reason=support_cell_primitive_not_evaluated"],
-    );
-    assert_route_detail_contains(
-        &result,
-        "rational_gregory.dispatch.cap_support_acceptance",
-        "rational_gregory.dispatch.declined",
-        &[
-            "cap_outer_g0",
-            "exceeds 5.000e-3",
-            "cap_support_context",
-            "cap_uv=(",
-            "support_uv=(",
-            "cap_curve_gap=",
-            "support_curve_gap=",
-        ],
-    );
-    // Re-pinned 2026-07-15 (PK-087 fold-relaxed shared-net commit):
-    // the KP15 cap now COMMITS at the polar stage, so the boundary
-    // solve actually runs — 9/12 edges sampled — and rolls back on
-    // its 2.05e-2 postcondition with 3 unrecognized cap pcurve edges
-    // (was a vacuous sampled_edges=0 apply pre-commit).
-    assert_route_detail_contains(
-        &result,
-        "cap_support_boundary_solve",
-        "cap_support_boundary_solve.fact",
-        &[
-            "status=rolled_back_postcondition_failed",
-            "eligible_edges=12",
-            "sampled_edges=9",
-            "unrecognized_cap_pcurve_edges=3",
-            "constrained_row_fit_candidates",
-            "hard_constraint_rows",
-            "hard_constraint_conflicts",
-        ],
-    );
-    assert_route_detail_contains(
-        &result,
-        "cap_support_completion",
-        "cap_support_completion.fact",
-        &[
-            // Re-pinned 2026-07-15 (fold-relaxed commit + surface-fit
-            // border inference): census 9 repaired / 10 declined / 3
-            // unrecognized (was 7/8/4 pre-commit) — the extra declines
-            // are honest border candidates for previously
-            // candidate-less diagonal seams. Remaining blocker: live
-            // seam geometry 1.2e-2..3.5e-2 off the blend boundary.
-            "cap_face_count=6",
-            "eligible_edges=12",
-            "repaired_cap_boundary_pcurves=9",
-            "declined_cap_boundary_pcurves=10",
-            "unrecognized_cap_boundary_pcurve_edges=3",
-        ],
-    );
+    result
+        .brep
+        .validate()
+        .expect("committed setback blend must leave a valid BRep");
 }
 
 #[ignore = "diagnostic probe only: single-fixture cap-outer metric printout, not an acceptance gate"]

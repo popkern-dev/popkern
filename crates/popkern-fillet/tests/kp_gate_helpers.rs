@@ -31,6 +31,10 @@ pub use kp_gate_cap_outer::{
 mod kp_gate_shared_trims;
 #[allow(unused_imports)]
 pub use kp_gate_shared_trims::measure_shared_gregory_trims_with_sources;
+#[path = "support/kp_gate_live_seam.rs"]
+mod kp_gate_live_seam;
+#[allow(unused_imports)]
+pub use kp_gate_live_seam::{LiveSeamMetrics, measure_live_cap_seams};
 
 /// Commercial-grade gate thresholds. Discussion in
 /// `kp_binonic_commercial_gates.rs` module header.
@@ -372,6 +376,42 @@ pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {
     assert!(
         m.worst_g2_residual < G2_GATE,
         "[{fixture}] binonic G2 residual {:.3e} exceeds {:.1e} gate (commercial)",
+        m.worst_g2_residual,
+        G2_GATE
+    );
+}
+
+/// Assert the commercial gates (G0, G1, G2) over the LIVE seam
+/// topology — the layout-honest sibling of [`assert_commercial_gates`]
+/// for multi-patch cap commits (the setback fan), where the legacy
+/// ring convention misreads the frame (PK-087: 5.2e-2 on a fan whose
+/// true seams sit at machine zero). Same thresholds: G0 is side-vs-
+/// shared-curve (the kernel trim contract), G1 the normal cross-
+/// product norm, G2 the normal-curvature jump along the seam.
+pub fn assert_commercial_gates_live(fixture: &str, m: &LiveSeamMetrics) {
+    println!(
+        "live-seam {fixture}: seams={} g0={:.3e} g1={:.3e} g2={:.3e}",
+        m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+    );
+    assert!(
+        m.seam_count > 0,
+        "[{fixture}] expected live cap-cap seams to measure, found none"
+    );
+    assert!(
+        m.worst_g0_gap < G0_GATE,
+        "[{fixture}] live-seam G0 gap {:.3e} exceeds {:.1e} gate",
+        m.worst_g0_gap,
+        G0_GATE
+    );
+    assert!(
+        m.worst_g1_normal < G1_GATE,
+        "[{fixture}] live-seam G1 normal misalignment {:.3e} exceeds {:.1e} gate (commercial)",
+        m.worst_g1_normal,
+        G1_GATE
+    );
+    assert!(
+        m.worst_g2_residual < G2_GATE,
+        "[{fixture}] live-seam G2 residual {:.3e} exceeds {:.1e} gate (commercial)",
         m.worst_g2_residual,
         G2_GATE
     );
