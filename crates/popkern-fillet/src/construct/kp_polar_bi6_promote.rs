@@ -221,7 +221,7 @@ pub(super) fn promote_decomp_to_kp_polar_bi6(
     // PK-087 stage 4 — KP15 shared-net cap is the PRIMARY candidate
     // (correct-by-construction, all-or-nothing), ahead of the guarded
     // F_κ ladder below. See `kp_polar_bi6_shared_net_primary` docs.
-    match try_kp15_shared_net_cap(&polar, boundary_target) {
+    match try_kp15_shared_net_cap(&polar, boundary_target, fillet_surfaces) {
         SharedNetOutcome::Committed(new_patches) => {
             let worst_coplanarity = worst_ring_coplanarity(&new_patches);
             new_patches

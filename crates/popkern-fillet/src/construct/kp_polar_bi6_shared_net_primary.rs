@@ -62,6 +62,9 @@ use popkern_core::geometry::gregory::{
 
 use super::SELF_INT_TOL;
 
+#[path = "kp15_setback_tbdata_rung.rs"]
+mod kp15_setback_tbdata_rung;
+
 /// Cap-outer G0 gate (metres): the constructed cap's two outer
 /// boundary edges must lie within this whole-edge distance of the real
 /// fillet boundary curves. Mirrors both the user-visible `5e-3`
@@ -194,8 +197,23 @@ fn worst_cap_outer(
 pub(super) fn try_kp15_shared_net_cap(
     polar: &PolarBoundaryInput,
     boundary_target: Option<&[[[popkern_core::geometry::Point3; 4]; 2]]>,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
 ) -> SharedNetOutcome {
     let n = polar.n();
+    // PK-090: boundary-faithful TBdata rung first — assembles the
+    // KP15 G² cap directly on the fixed-corner setback border
+    // (boundary-exact by construction) and commits all-or-nothing.
+    // Any decline is carried into the shared-net decline detail.
+    let corner_positions: Vec<popkern_core::geometry::Point3> =
+        polar.outer_corners.iter().map(|oc| oc.position).collect();
+    let tbdata_decline = match kp15_setback_tbdata_rung::try_kp15_setback_tbdata_rung(
+        polar.central_vertex,
+        &corner_positions,
+        fillet_surfaces,
+    ) {
+        Ok(patches) => return SharedNetOutcome::Committed(patches),
+        Err(reason) => reason,
+    };
     // Best fold-free candidate seen so far (smallest cap_outer), for a
     // measured decline diagnostic if no rung clears the gate.
     let mut best_fold_free: Option<(f64, f64)> = None; // (cap_outer, lambda)
@@ -304,19 +322,19 @@ pub(super) fn try_kp15_shared_net_cap(
             detail: format!(
                 "best fold-free boundary residual={cap_outer:.3e} (λ={lambda:.0e}) exceeds \
                  {CAP_OUTER_GATE:.3e}: boundary fit cannot clear the gate without folding \
-                 on this apex"
+                 on this apex; tbdata rung: {tbdata_decline}"
             ),
         }
     } else if let Some(e) = last_assembly_err {
         SharedNetOutcome::Declined {
             reason: "shared_net_assembly",
-            detail: e,
+            detail: format!("{e}; tbdata rung: {tbdata_decline}"),
         }
     } else {
         SharedNetOutcome::Declined {
             reason: "shared_net_fold",
             detail: format!(
-                "every fit rung folded; last fit error: {}",
+                "every fit rung folded; last fit error: {}; tbdata rung: {tbdata_decline}",
                 last_fit_err.unwrap_or_else(|| "none".to_string())
             ),
         }
