@@ -206,12 +206,9 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_outer hexagon6_variable_route: g0={:.3e} g1={:.3e} edges={}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.edges_measured
     );
-    // Re-pinned 2026-07-11 (PK-089): the declined route no longer ships
-    // its non-commercial fallback cap (was g0=5.359e-3/g1=0.99 across 6
-    // edges) — the N >= 5 all-or-nothing contract rolls the corner back
-    // to mitred. The structured decline records below remain the
-    // blocker's measured evidence; the accepted-cap repair is PK-090
-    // (paper-cap input class / fold frontier).
+    // Re-pinned 2026-07-11 (PK-089): the declined route no longer
+    // ships its non-commercial fallback cap (was g0=5.359e-3/g1=0.99)
+    // — the N >= 5 all-or-nothing contract rolls back to mitred.
     assert_eq!(
         m.edges_measured, 0,
         "hexagon6_variable must not ship a measurable non-commercial cap after the \
@@ -263,16 +260,11 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
             "support_curve_gap=",
         ],
     );
-    // Boundary-solve record on the live route (re-pinned 2026-07-15,
-    // PK-087 fold-relaxed shared-net commit): the KP15 cap now COMMITS
-    // at the polar stage (sampled-metric fit ≈2.6e-3 + fold relaxation
-    // over the boundary-neutral families), so the boundary solve
-    // actually runs — 9 of 12 eligible edges sampled — and rolls back
-    // on its own postcondition (max_after_gap 2.05e-2 > 5e-3) with 3
-    // cap pcurve edges unrecognized (stale/projected off-border spans
-    // on the swapped-in surfaces — the seam-pcurve authoring blocker
-    // shared with the pentagon5 Kp20Bi6 leg). Previously the solve
-    // applied vacuously with sampled_edges=0.
+    // Re-pinned 2026-07-15 (PK-087 fold-relaxed shared-net commit):
+    // the KP15 cap now COMMITS at the polar stage, so the boundary
+    // solve actually runs — 9/12 edges sampled — and rolls back on
+    // its 2.05e-2 postcondition with 3 unrecognized cap pcurve edges
+    // (was a vacuous sampled_edges=0 apply pre-commit).
     assert_route_detail_contains(
         &result,
         "cap_support_boundary_solve",
@@ -292,17 +284,12 @@ fn cap_outer_boundary_records_hexagon6_variable_route_blocker() {
         "cap_support_completion",
         "cap_support_completion.fact",
         &[
-            // Live-route census (re-pinned 2026-07-15, PK-087
-            // fold-relaxed shared-net commit + surface-fit border
-            // inference): 6 cap faces / 12 eligible edges; the
-            // committed KP15 cap improves the pcurve census to 9
-            // repaired / 3 unrecognized (was 7 / 4 pre-commit), and
-            // the surface-fit inference now produces honest border
-            // candidates for the previously candidate-less diagonal
-            // seams — 3 more measured declines (10, was 7/8) instead
-            // of silent projection keeps. The remaining blocker is
-            // the live seam geometry itself (edge curves / support
-            // pcurves 1.2e-2..4.5e-2 off the fitted cap borders).
+            // Re-pinned 2026-07-15 (fold-relaxed commit + surface-fit
+            // border inference): census 9 repaired / 10 declined / 3
+            // unrecognized (was 7/8/4 pre-commit) — the extra declines
+            // are honest border candidates for previously
+            // candidate-less diagonal seams. Remaining blocker: live
+            // seam geometry 1.2e-2..3.5e-2 off the blend boundary.
             "cap_face_count=6",
             "eligible_edges=12",
             "repaired_cap_boundary_pcurves=9",

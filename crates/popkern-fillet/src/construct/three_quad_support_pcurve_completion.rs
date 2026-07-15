@@ -21,6 +21,8 @@ mod support_pcurve_completion_fit;
 use support_pcurve_completion_fit::{
     best_pcurve_for_surface_samples, fit_nurbs_curve, line_geometry_from_endpoints,
 };
+#[path = "three_quad_support_pcurve_seam_census.rs"]
+mod seam_census;
 #[path = "three_quad_support_pcurve_completion_cap_hint.rs"]
 mod support_pcurve_completion_cap_hint;
 use support_pcurve_completion_cap_hint::{
@@ -51,6 +53,7 @@ pub(crate) fn complete_missing_external_cap_support_pcurves(
     cap_face: FaceHandle,
     cap_faces: &BTreeSet<FaceHandle>,
 ) -> CapSupportPcurveCompletionReport {
+    seam_census::trace_cap_support_seam_census(brep, cap_face, cap_faces);
     complete_missing_cap_support_seams_when(
         brep,
         cap_face,
