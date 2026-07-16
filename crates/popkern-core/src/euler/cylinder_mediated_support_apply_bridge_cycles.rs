@@ -188,19 +188,31 @@ fn segment_bridge_cycle_operand(
     plan: &CylinderMediatedSupportContinuationBatchPlan,
     segment: &CylinderMediatedSupportContinuationSegmentAuthoringPlan,
 ) -> Result<SegmentBridgeCycleOperand, CoreError> {
-    let first = segment.half_edges.first().copied().ok_or_else(|| {
+    // Owner exposure may CONSUME half-edges of this segment outright:
+    // retiring a slit fragment (an edge with both sides on the outside
+    // loop) removes both its half-edges and re-stitches the loop, so
+    // the pre-exposure segment list can contain dead handles (PK-092
+    // paired cross-owner batch, apex slit on the cap loop). The cycle
+    // operand is built over the surviving chain.
+    let live: Vec<HalfEdgeHandle> = segment
+        .half_edges
+        .iter()
+        .copied()
+        .filter(|half_edge| brep.half_edges.contains_key(*half_edge))
+        .collect();
+    let first = live.first().copied().ok_or_else(|| {
         CoreError::PreconditionFailed(format!(
             "segment bridge cycle has empty segment {:?}",
             segment.segment_index
         ))
     })?;
-    let last = segment.half_edges.last().copied().ok_or_else(|| {
+    let last = live.last().copied().ok_or_else(|| {
         CoreError::PreconditionFailed(format!(
             "segment bridge cycle has empty segment {:?}",
             segment.segment_index
         ))
     })?;
-    for &half_edge in &segment.half_edges {
+    for &half_edge in &live {
         require_boundary_ready_half_edge(brep, half_edge)?;
     }
     let start = brep.half_edges[first].origin;

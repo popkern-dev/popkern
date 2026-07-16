@@ -108,6 +108,31 @@ impl SideSupportRegionDiagnosticSnapshot {
                     }
                 }
             }
+            // Multi-outside-owner class (PK-092): the single-owner
+            // derivation is incomplete because the preflights classify
+            // the trims as CrossOutsideOwners. Pair each fillet end's
+            // two trims into one face_family_bridge cycle (see
+            // repeated_apex_side_support_cross_owner docs).
+            match super::repeated_apex_side_support_cross_owner::apply_cross_owner_continuation(
+                &self.selection,
+                &self.knowledge,
+                brep,
+            ) {
+                Ok(Some(result)) => {
+                    return Ok(SideSupportRegionContinuationOutcome::Applied(result));
+                }
+                Ok(None) => {}
+                Err(cross_owner_reason) => {
+                    return Err(SideSupportRegionContinuationFailure::PlannerRefused {
+                        reason: format!(
+                            "stage={:?} reason={:?}; cross-owner continuation declined: {}",
+                            refusal.stage(),
+                            refusal.reason(),
+                            cross_owner_reason
+                        ),
+                    });
+                }
+            }
             return Err(SideSupportRegionContinuationFailure::PlannerRefused {
                 reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
             });

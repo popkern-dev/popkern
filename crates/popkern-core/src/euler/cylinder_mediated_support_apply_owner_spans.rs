@@ -117,6 +117,31 @@ pub(super) fn expose_owner_repair_spans(
 ) -> Result<OwnerRepairExposureResult, CoreError> {
     let mut exposed_spans = 0usize;
     let mut exposed_half_edges = 0usize;
+    if std::env::var_os("PK_CMS_TRACE").is_some() {
+        for segment in authoring {
+            eprintln!(
+                "[cms] segment loop={:?} idx={} hes={:?} owned(cyl/out/sup/ctx)={:?}/{:?}/{:?}/{:?} boundary={:?} req={:?}",
+                segment.outside_loop,
+                segment.segment_index,
+                segment.half_edges,
+                segment.cylinder_owned_half_edges,
+                segment.outside_owned_half_edges,
+                segment.support_owned_half_edges,
+                segment.context_owned_half_edges,
+                segment.boundary_bridge_half_edges,
+                segment.requirement,
+            );
+            for span in &segment.owner_repair_spans {
+                eprintln!(
+                    "[cms]   owner-span face={:?} loop={:?} outside={:?} owner={:?}",
+                    span.owner_face,
+                    span.owner_loop,
+                    span.outside_half_edges,
+                    span.owner_half_edges
+                );
+            }
+        }
+    }
     for span in authoring
         .iter()
         .flat_map(|segment| segment.owner_repair_spans.iter())
@@ -124,8 +149,47 @@ pub(super) fn expose_owner_repair_spans(
         if span.owner_half_edges.is_empty() {
             continue;
         }
-        let first = span.owner_half_edges[0];
-        let last = span.owner_half_edges[span.owner_half_edges.len() - 1];
+        // A slit edge interior to the outside loop (both half-edges on
+        // the same loop) produces MIRRORED self-owner spans — (a; b)
+        // and (b; a). Retiring the first already exposes both sides;
+        // the mirror must be recognized as done, not re-retired into
+        // the fresh boundary ("interval already contains a boundary
+        // edge", measured on the PK-092 paired cross-owner batch whose
+        // cap loop carries an apex slit).
+        let already_exposed = span.outside_half_edges.iter().all(|&outside_half_edge| {
+            match brep.half_edges.get(outside_half_edge) {
+                None => true,
+                Some(data) => {
+                    brep.boundary_edges.contains(&data.edge)
+                        && !brep.half_edges.contains_key(data.twin)
+                }
+            }
+        });
+        if already_exposed {
+            exposed_spans += 1;
+            exposed_half_edges += span.outside_half_edges.len();
+            continue;
+        }
+        // Owner-side traversal runs OPPOSITE to the outside span
+        // (twin half-edges reverse direction), so a multi-edge owned
+        // run's fragment interval starts at the twin of the LAST
+        // outside half-edge. Single-half-edge spans masked this until
+        // the first multi-edge run (PK-092 paired cross-owner spans:
+        // the wrong-way walk swept the rest of the owner loop and hit
+        // "interval already contains a boundary edge"). Orientation
+        // is read from the loop itself rather than assumed.
+        let (first, last) = if span.owner_half_edges.len() >= 2 {
+            let head = span.owner_half_edges[0];
+            let second = span.owner_half_edges[1];
+            let head_next = brep.half_edges.get(head).map(|data| data.next);
+            if head_next == Some(second) {
+                (head, span.owner_half_edges[span.owner_half_edges.len() - 1])
+            } else {
+                (span.owner_half_edges[span.owner_half_edges.len() - 1], head)
+            }
+        } else {
+            (span.owner_half_edges[0], span.owner_half_edges[0])
+        };
         let after_last = brep
             .half_edges
             .get(last)

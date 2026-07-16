@@ -101,6 +101,15 @@ fn create_multi_run_bridge_boundary_twins(
     half_edges: &[HalfEdgeHandle],
     consumed_edges: &mut HashSet<EdgeHandle>,
 ) -> Result<MultiRunBridgePath, CoreError> {
+    // Owner exposure may have CONSUMED some path half-edges outright
+    // (retiring a slit fragment removes both of its half-edges and
+    // re-stitches the loop — PK-092 paired cross-owner batch). The
+    // path is built over the surviving chain.
+    let half_edges: Vec<HalfEdgeHandle> = half_edges
+        .iter()
+        .copied()
+        .filter(|half_edge| brep.half_edges.contains_key(*half_edge))
+        .collect();
     if half_edges.is_empty() {
         return Err(CoreError::PreconditionFailed(
             "multi-run bridge face path is empty".into(),
@@ -115,7 +124,7 @@ fn create_multi_run_bridge_boundary_twins(
         })?;
     let mut twins = Vec::with_capacity(half_edges.len());
     let mut separator_edges = 0usize;
-    for &half_edge in half_edges {
+    for &half_edge in &half_edges {
         let data = brep
             .half_edges
             .get(half_edge)

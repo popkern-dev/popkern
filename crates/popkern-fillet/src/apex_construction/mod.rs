@@ -72,6 +72,7 @@ pub(crate) mod repeated_apex_side_support;
 pub(crate) mod repeated_apex_side_support_boundary;
 pub(crate) mod repeated_apex_side_support_bridge;
 pub(crate) mod repeated_apex_side_support_bridge_operator;
+pub(crate) mod repeated_apex_side_support_cross_owner;
 pub(crate) mod repeated_apex_side_support_execution;
 pub(crate) mod repeated_apex_side_support_facts;
 pub(crate) mod repeated_apex_side_support_live_preflight;
