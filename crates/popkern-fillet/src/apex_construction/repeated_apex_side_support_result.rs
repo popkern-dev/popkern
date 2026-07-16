@@ -7,6 +7,12 @@ pub(super) struct SideSupportRegionContinuationResult {
     primitive: SideSupportContinuationPrimitive,
     bridge_faces: Vec<FaceHandle>,
     bridge_loops: Vec<LoopHandle>,
+    /// For the cross-owner paired primitive: the fillet index each
+    /// bridge face serves, aligned with `bridge_faces`. The bridge IS
+    /// that fillet's new strip and must receive its cylinder surface
+    /// (a naked bridge face makes the partition's cap-to-cylinder
+    /// seam census read zero — measured on the strict V-free gate).
+    bridge_fillet_indices: Vec<usize>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -44,6 +50,30 @@ impl SideSupportRegionContinuationResult {
         )
     }
 
+    pub(super) fn from_cross_owner_paired_payload(
+        bridge_faces: Vec<FaceHandle>,
+        bridge_loops: Vec<LoopHandle>,
+        bridge_fillet_indices: Vec<usize>,
+    ) -> Self {
+        let mut result = Self::from_bridge_payload(
+            SideSupportContinuationPrimitive::OutsideOutsideCylinderMediated,
+            bridge_faces,
+            bridge_loops,
+        );
+        result.bridge_fillet_indices = bridge_fillet_indices;
+        result
+    }
+
+    /// `(bridge_face, fillet_index)` pairs for the cross-owner paired
+    /// primitive; empty for every other outcome.
+    pub(super) fn bridge_fillet_assignments(&self) -> Vec<(FaceHandle, usize)> {
+        self.bridge_faces
+            .iter()
+            .copied()
+            .zip(self.bridge_fillet_indices.iter().copied())
+            .collect()
+    }
+
     fn from_bridge_payload(
         primitive: SideSupportContinuationPrimitive,
         bridge_faces: Vec<FaceHandle>,
@@ -53,6 +83,7 @@ impl SideSupportRegionContinuationResult {
             primitive,
             bridge_faces,
             bridge_loops,
+            bridge_fillet_indices: Vec::new(),
         }
     }
 

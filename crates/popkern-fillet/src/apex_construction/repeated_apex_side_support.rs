@@ -249,6 +249,19 @@ impl SideSupportRegionContinuationOutcome {
             SideSupportRegionContinuationOutcome::NotReady => &[],
         }
     }
+
+    /// `(bridge_face, fillet_index)` pairs for the cross-owner paired
+    /// primitive; empty otherwise.
+    pub(super) fn bridge_fillet_assignments(
+        &self,
+    ) -> Vec<(popkern_core::topology::FaceHandle, usize)> {
+        match self {
+            SideSupportRegionContinuationOutcome::Applied(result) => {
+                result.bridge_fillet_assignments()
+            }
+            SideSupportRegionContinuationOutcome::NotReady => Vec::new(),
+        }
+    }
 }
 
 impl SideSupportRegionContinuationFailure {

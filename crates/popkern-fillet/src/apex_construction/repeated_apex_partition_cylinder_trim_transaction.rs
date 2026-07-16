@@ -52,6 +52,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
     cap_loop: LoopHandle,
     face_edges: &[FaceEdgeOwnership],
     fillet_ends: &[FilletEndOwnership],
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     require_v_free_repeated_apex: bool,
 ) -> Result<CylinderTrimRewriteResult, ApexBuildError> {
     let rollback_snapshot = brep.clone();
@@ -98,6 +99,18 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
         if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {
             diagnostics.push(diagnostic);
+        }
+        // Cross-owner paired bridges ARE the fillets' new strips: give
+        // each its cylinder surface immediately, or the partition's
+        // cap-to-cylinder seam census reads zero across naked bridge
+        // faces (measured on the strict V-free gate).
+        for (bridge_face, fillet_index) in side_support_result.bridge_fillet_assignments() {
+            assign_fillet_strip_surface(brep, bridge_face, fillet_index, fillet_surfaces)?;
+            if crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace §14.9/cross-owner] bridge {bridge_face:?} <- fillet {fillet_index} surface"
+                );
+            }
         }
         let support_ownership_already_materialized = matches!(
             side_support_result,

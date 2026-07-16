@@ -303,6 +303,7 @@ impl RepeatedApexPartitionPlan {
                 self.cap_loop,
                 &face_edge_arcs,
                 &fillet_end_ownership,
+                fillet_surfaces,
                 execution_options.require_v_free_repeated_apex,
             )?;
             boundary_outcome = rewrite_result.boundary_outcome;

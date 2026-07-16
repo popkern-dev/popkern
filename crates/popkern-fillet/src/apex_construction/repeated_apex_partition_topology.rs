@@ -331,7 +331,14 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
         if matches!(surface.geometry, SurfaceGeometry::Cylinder { .. }) {
             cylinder_seams += 1;
             cylinder_faces.insert(neighbor_face);
+        } else if crate::direct_apex_trace::enabled() {
+            eprintln!("[direct-apex-trace census] cap neighbor {neighbor_face:?} is non-cylinder");
         }
+    }
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace census] cap {cap_face:?}: seams={cylinder_seams} cylinders={cylinder_faces:?}"
+        );
     }
 
     if cylinder_faces.len() < n_fillets {

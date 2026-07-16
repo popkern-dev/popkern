@@ -66,8 +66,11 @@ pub(super) fn apply_cross_owner_continuation(
         return Ok(None);
     };
     let mut requests = Vec::with_capacity(pairs.len());
+    let mut outside_arcs: Vec<Vec<HalfEdgeHandle>> = Vec::with_capacity(pairs.len());
     for pair in &pairs {
-        requests.push(paired_request(pair, knowledge, brep)?);
+        let (request, arc) = paired_request(pair, knowledge, brep)?;
+        requests.push(request);
+        outside_arcs.push(arc);
     }
     let rollback = brep.clone();
     let outcome =
@@ -80,12 +83,39 @@ pub(super) fn apply_cross_owner_continuation(
                 .map_err(|e| format!("paired batch apply: {e}"))?;
             match result.postconditions {
             popkern_core::euler::CylinderMediatedSupportContinuationPostconditions::Satisfied => {
-                Ok(
-                    SideSupportRegionContinuationResult::from_outside_outside_cylinder_payload(
-                        result.bridge_faces,
-                        result.bridge_loops,
-                    ),
-                )
+                // The batch bridges EVERY outside-loop segment (strip
+                // spans AND their complements), so bridge order does
+                // not follow request order. Each fillet's strip bridge
+                // is the one whose loop twins into that request's
+                // outside arc (measured: a positional zip mislabeled
+                // complement bridges and the seam census read 3/4).
+                let mut assignments = Vec::with_capacity(pairs.len());
+                let mut claimed: std::collections::BTreeSet<popkern_core::topology::FaceHandle> =
+                    std::collections::BTreeSet::new();
+                for (pair, arc) in pairs.iter().zip(&outside_arcs) {
+                    let arc_set: std::collections::BTreeSet<HalfEdgeHandle> =
+                        arc.iter().copied().collect();
+                    let matched = result
+                        .bridge_faces
+                        .iter()
+                        .zip(&result.bridge_loops)
+                        .filter(|(f, _)| !claimed.contains(*f))
+                        .find(|(_, l)| loop_twins_into(brep, **l, &arc_set))
+                        .map(|(f, _)| *f);
+                    let Some(face) = matched else {
+                        return Err(format!(
+                            "FilletEnd[{}]: no unclaimed bridge loop twins into its outside arc",
+                            pair.fillet_index
+                        ));
+                    };
+                    claimed.insert(face);
+                    assignments.push((face, pair.fillet_index));
+                }
+                Ok(SideSupportRegionContinuationResult::from_cross_owner_paired_payload(
+                    assignments.iter().map(|(f, _)| *f).collect(),
+                    result.bridge_loops,
+                    assignments.iter().map(|(_, i)| *i).collect(),
+                ))
             }
             popkern_core::euler::CylinderMediatedSupportContinuationPostconditions::Refused {
                 reason,
@@ -111,7 +141,13 @@ fn paired_request(
     pair: &PairedCrossOwnerTrims,
     knowledge: &TopologyKnowledgeGraph,
     brep: &BRep,
-) -> Result<CylinderMediatedSupportContinuationRequest, String> {
+) -> Result<
+    (
+        CylinderMediatedSupportContinuationRequest,
+        Vec<HalfEdgeHandle>,
+    ),
+    String,
+> {
     let twin_owner = |he: HalfEdgeHandle| -> Option<(FaceHandle, LoopHandle)> {
         let twin = brep.half_edges.get(he)?.twin;
         let loop_ = brep.half_edges.get(twin)?.loop_;
@@ -217,21 +253,52 @@ fn paired_request(
             pair.fillet_index, outside_adjacency_on_cylinder
         )
     })?;
-    Ok(CylinderMediatedSupportContinuationRequest {
-        support_face: support_a,
-        outside_face: pair.outside_face,
-        cylinder_face: pair.cylinder_face,
-        start: outside_start.0,
-        end: outside_end.0,
-        outside_loop: pair.outside_loop,
-        outside_start_half_edge: outside_start.1,
-        outside_end_half_edge: outside_end.1,
-        support_loop,
-        support_cylinder_half_edge,
-        outside_cylinder_half_edge,
-        cylinder_interval,
-        context_owner_faces: knowledge.context_faces().to_vec(),
-    })
+    let outside_arc =
+        directed_arc(brep, pair.outside_loop, outside_start.1, outside_end.1).unwrap_or_default();
+    Ok((
+        CylinderMediatedSupportContinuationRequest {
+            support_face: support_a,
+            outside_face: pair.outside_face,
+            cylinder_face: pair.cylinder_face,
+            start: outside_start.0,
+            end: outside_end.0,
+            outside_loop: pair.outside_loop,
+            outside_start_half_edge: outside_start.1,
+            outside_end_half_edge: outside_end.1,
+            support_loop,
+            support_cylinder_half_edge,
+            outside_cylinder_half_edge,
+            cylinder_interval,
+            context_owner_faces: knowledge.context_faces().to_vec(),
+        },
+        outside_arc,
+    ))
+}
+
+/// Does any half-edge of `loop_handle` have its twin inside `arc_set`?
+fn loop_twins_into(
+    brep: &BRep,
+    loop_handle: LoopHandle,
+    arc_set: &std::collections::BTreeSet<HalfEdgeHandle>,
+) -> bool {
+    let Some(loop_data) = brep.loops.get(loop_handle) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    let mut he = start;
+    for _ in 0..=brep.half_edges.len() {
+        let Some(data) = brep.half_edges.get(he) else {
+            return false;
+        };
+        if arc_set.contains(&data.twin) {
+            return true;
+        }
+        he = data.next;
+        if he == start {
+            return false;
+        }
+    }
+    false
 }
 
 /// Group and normalize the plan's cross-owner trims per fillet end,
