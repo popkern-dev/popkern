@@ -440,6 +440,9 @@ impl RepeatedApexPartitionPlan {
             );
         }
 
+        // Retired-subcomplex role coherence (see helper docs): must
+        // run after every residual face demotion above.
+        demote_residual_interior_edges(brep);
         brep.normalize_edge_representatives();
         repair_stale_shell_anchors(brep)?;
         boundary_outcome.refresh_from_current_cap_loop(brep, self.cap_face)?;

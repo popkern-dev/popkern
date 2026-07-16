@@ -184,9 +184,9 @@ use partition_rebuild_diagnostics::{
     retired_trim_runs_by_adjacent_face,
 };
 use partition_residuals::{
-    demote_retired_apex_residual_faces, mark_loop_edges_construction_residual,
-    plan_retired_base_residual_loop, residual_strip_loop_with_duplicated_seam,
-    validate_existing_target_cylinder_strip,
+    demote_residual_interior_edges, demote_retired_apex_residual_faces,
+    mark_loop_edges_construction_residual, plan_retired_base_residual_loop,
+    residual_strip_loop_with_duplicated_seam, validate_existing_target_cylinder_strip,
 };
 use partition_shared_fillet_end_trim::materialized_shared_fillet_end_cylinder_half_edge;
 use partition_support_bridge_trim_claim::{

@@ -163,8 +163,19 @@ fn materialize_validated_sector_topology(
         let (edge, anchor_to_pole, pole_to_anchor) =
             insert_unwired_edge_pair(brep, vertex, pole_vertex);
         brep.edges[edge].role = TopologyRole::Production;
+        // Semantic line storage (PK-092): a spoke whose IMAGE is
+        // straight is stored as an analytic Line at construction
+        // time. Nothing has consumed this edge yet — every pcurve,
+        // split, and export downstream derives from the edge curve —
+        // so canonicalizing here is contract-neutral, whereas the
+        // post-hoc normalization pass must (and does) roll back once
+        // pcurves have been fitted to the NURBS parameterization.
+        let spoke_geometry = CurveGeometry::Nurbs(sector.face_inner_spoke.curve.clone());
+        let spoke_geometry = spoke_geometry
+            .canonical_line_in_range((0.0, 1.0), brep.tolerance.linear().max(1.0e-8))
+            .unwrap_or(spoke_geometry);
         brep.edges[edge].curve = Some(CurveOnEdge {
-            geometry: CurveGeometry::Nurbs(sector.face_inner_spoke.curve.clone()),
+            geometry: spoke_geometry,
             t_start: 0.0,
             t_end: 1.0,
         });

@@ -398,7 +398,6 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
 /// support edges introduced by face/edge splits, so downstream topology
 /// and GUI feature logic do not need to rediscover obvious curve intent.
 #[test]
-#[ignore = "semantic line storage gate: direct-apex still materializes some straight semantic edges as NURBS"]
 fn direct_apex_does_not_store_semantic_lines_as_nurbs() {
     struct Case {
         name: &'static str,

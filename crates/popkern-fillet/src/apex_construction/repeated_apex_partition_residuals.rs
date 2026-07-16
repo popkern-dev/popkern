@@ -365,3 +365,52 @@ fn face_has_construction_boundary_edge(brep: &BRep, face: &Face) -> bool {
             })
         })
 }
+
+/// Role coherence for retired subcomplexes: an edge whose EVERY
+/// incident face is `ConstructionResidual` is itself residual. The
+/// loop-wiring helper stamps edge roles from the owning face's role
+/// DURING face creation, when the face still carries the default
+/// (`Production`) role — the caller demotes the face immediately
+/// afterwards, leaving residual-interior edges (e.g. the retired base
+/// span's apex seam self-loop) mislabeled `Production` and visible to
+/// production diagnostics (measured: pyramid4_zoo_mixed shipped a
+/// zero-length "Production" edge at the apex).
+pub(super) fn demote_residual_interior_edges(brep: &mut BRep) -> usize {
+    let edge_handles: Vec<_> = brep.edges.keys().collect();
+    let mut demoted = 0usize;
+    for eh in edge_handles {
+        let Some(edge) = brep.edges.get(eh) else {
+            continue;
+        };
+        if edge.role == TopologyRole::ConstructionResidual {
+            continue;
+        }
+        let he = edge.half_edge;
+        let Some(he_data) = brep.half_edges.get(he) else {
+            continue;
+        };
+        let twin = he_data.twin;
+        let face_of = |h| {
+            brep.half_edges
+                .get(h)
+                .and_then(|d| brep.loops.get(d.loop_))
+                .map(|l| l.face)
+        };
+        let (Some(f_a), Some(f_b)) = (face_of(he), face_of(twin)) else {
+            continue;
+        };
+        let residual = |f| {
+            brep.faces
+                .get(f)
+                .is_some_and(|d| d.role == TopologyRole::ConstructionResidual)
+        };
+        if residual(f_a)
+            && residual(f_b)
+            && let Some(edge) = brep.edges.get_mut(eh)
+        {
+            edge.role = TopologyRole::ConstructionResidual;
+            demoted += 1;
+        }
+    }
+    demoted
+}
