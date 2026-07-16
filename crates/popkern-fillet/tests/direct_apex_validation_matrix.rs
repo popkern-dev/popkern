@@ -32,6 +32,8 @@
 //! commercial-grade flip-gate's strictest form: under the new DirectApex
 //! architecture, the existing matrix doesn't regress.
 
+#[path = "support/direct_apex_stage_d_acceptance.rs"]
+mod direct_apex_stage_d_acceptance;
 #[path = "support/direct_apex_validate_all_matrix_diagnostics.rs"]
 mod direct_apex_validate_all_matrix_diagnostics;
 #[path = "support/direct_apex_validate_all_matrix_native.rs"]
