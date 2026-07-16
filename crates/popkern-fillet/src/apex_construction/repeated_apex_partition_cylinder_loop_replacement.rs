@@ -139,6 +139,7 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
                         label: segment.label,
                         fillet_index: rebuild_plan.fillet_index,
                         side_support_bridge_loops,
+                        skip_interior_patch: reuse_shared_cap_cylinder_seam,
                     },
                 )?;
                 residual_boundary_spans

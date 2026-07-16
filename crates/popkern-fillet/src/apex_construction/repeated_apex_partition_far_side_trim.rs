@@ -28,6 +28,7 @@ pub(super) fn materialized_far_side_trim_sides(
                 label,
                 fillet_index,
                 side_support_bridge_loops: &[],
+                skip_interior_patch: false,
             },
         )?;
         return Ok(vec![SupportOwnedTrimSide {

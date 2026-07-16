@@ -12,6 +12,11 @@ pub(super) struct GeneratorTrimMaterializationRequest<'a> {
     pub(super) label: &'static str,
     pub(super) fillet_index: usize,
     pub(super) side_support_bridge_loops: &'a [LoopHandle],
+    /// Strict V-free contract: skip the interior-trim-patch containment
+    /// (it parks the support side in a sliver holding face and reports
+    /// it owned, starving the facet-extension grouping) so the trim
+    /// enters the support groups instead.
+    pub(super) skip_interior_patch: bool,
 }
 
 pub(super) fn materialized_generator_trim_side(
@@ -26,6 +31,7 @@ pub(super) fn materialized_generator_trim_side(
         label,
         fillet_index,
         side_support_bridge_loops,
+        skip_interior_patch,
     } = request;
     let curve =
         exact_cylinder_trim_curve_between(brep, cylinder_face, start, end, label, fillet_index)?;
@@ -96,17 +102,19 @@ pub(super) fn materialized_generator_trim_side(
             }
         }
     }
-    if let Some(patch) = author_interior_support_trim_patch_for_cylinder_trim(
-        brep,
-        InteriorSupportTrimPatchRequest {
-            support_face,
-            start,
-            end,
-            curve: curve.clone(),
-            label,
-            fillet_index,
-        },
-    )? {
+    if !skip_interior_patch
+        && let Some(patch) = author_interior_support_trim_patch_for_cylinder_trim(
+            brep,
+            InteriorSupportTrimPatchRequest {
+                support_face,
+                start,
+                end,
+                curve: curve.clone(),
+                label,
+                fillet_index,
+            },
+        )?
+    {
         return Ok(patch);
     }
     let (edge, half_edge, _twin) = insert_unwired_edge_pair(brep, start, end);
