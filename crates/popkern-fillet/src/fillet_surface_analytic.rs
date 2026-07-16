@@ -84,8 +84,17 @@ pub(crate) fn try_plane_plane_analytic(
     } else {
         let axis = n1.cross(n2).normalized()?;
         let major_radius = radius / sin_half;
-        let bisector = (*n1 + *n2).normalized().unwrap_or(*n1);
-        let center = spine_mid - bisector * major_radius;
+        // Derive the torus center from the center curve itself (the
+        // spine is already on the correct side for both convex and
+        // concave edges) instead of assuming the anti-bisector
+        // placement, which holds only for convex arrangements.
+        let center = circumcenter(&p_start, &spine_mid, &p_end)?;
+        let measured_major = (p_start - center).length();
+        if (measured_major - major_radius).abs() > 1.0e-3 * major_radius.max(1.0) {
+            // The spine circle disagrees with the dihedral-derived
+            // major radius: not an analytic torus configuration.
+            return None;
+        }
         SurfaceGeometry::Torus {
             center,
             axis,
@@ -103,6 +112,25 @@ pub(crate) fn try_plane_plane_analytic(
         trim_curve_2: trim_2,
         continuity_downgrade: None,
     })
+}
+
+/// Circumcenter of three points (center of the circle through them);
+/// `None` when they are collinear within numerical noise.
+fn circumcenter(
+    a: &popkern_core::geometry::Point3,
+    b: &popkern_core::geometry::Point3,
+    c: &popkern_core::geometry::Point3,
+) -> Option<popkern_core::geometry::Point3> {
+    let ab = *b - *a;
+    let ac = *c - *a;
+    let cross = ab.cross(&ac);
+    let denom = 2.0 * cross.length_squared();
+    if denom < 1.0e-18 {
+        return None;
+    }
+    let offset = (cross.cross(&ab) * ac.length_squared() + ac.cross(&cross) * ab.length_squared())
+        * (1.0 / denom);
+    Some(*a + offset)
 }
 
 /// Try to build an analytic torus for a fillet whose center curve is

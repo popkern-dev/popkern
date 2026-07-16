@@ -211,6 +211,72 @@ fn cylinder_45_degree_planes() {
 }
 
 #[test]
+fn torus_center_follows_concave_spine() {
+    // Concave arrangement: the center curve's circle sits on the
+    // +bisector (void) side. The analytic torus must take its center
+    // from the spine, not from the convex anti-bisector assumption
+    // (which would misplace it by two major radii).
+    let n1 = Vec3::new(0.0, 0.0, 1.0);
+    let n2 = Vec3::new(0.0, 1.0, 0.0);
+    let radius = 0.5f64;
+    let half = std::f64::consts::FRAC_PI_4;
+    let major = radius / half.sin();
+    let bisector = Vec3::new(0.0, 1.0, 1.0).normalized().unwrap();
+    let spine_center = Point3::new(0.0, 0.0, 0.0) + bisector * major;
+    let u = bisector * -1.0;
+    let v = Vec3::new(
+        0.0,
+        -std::f64::consts::FRAC_1_SQRT_2,
+        std::f64::consts::FRAC_1_SQRT_2,
+    );
+    let spine: Vec<Point3> = [-0.3f64, -0.15, 0.0, 0.15, 0.3]
+        .iter()
+        .map(|theta| spine_center + (u * theta.cos() + v * theta.sin()) * major)
+        .collect();
+    let footprints_1: Vec<Point3> = spine
+        .iter()
+        .map(|p| Point3::new(p.x, p.y, p.z - radius))
+        .collect();
+    let footprints_2: Vec<Point3> = spine
+        .iter()
+        .map(|p| Point3::new(p.x, p.y - radius, p.z))
+        .collect();
+    let cr = CenterCurveResult {
+        center_curve: crate::center_curve::fit_nurbs_through_points(&spine).unwrap(),
+        footprint_1: footprints_1,
+        footprint_2: footprints_2,
+        contact_solutions: None,
+    };
+
+    let result = try_plane_plane_analytic(&n1, &n2, &cr, radius)
+        .expect("concave curved plane-plane fillet should produce an analytic torus");
+    match &result.surface {
+        SurfaceGeometry::Torus {
+            center,
+            major_radius,
+            minor_radius,
+            ..
+        } => {
+            let center_error = center.distance_to(&spine_center);
+            assert!(
+                center_error < 1.0e-3,
+                "torus center must follow the concave spine circle: expected {spine_center:?}, \
+                 got {center:?} (error {center_error:.3e})"
+            );
+            assert!(
+                (major_radius - major).abs() < 1.0e-3,
+                "major {major_radius}"
+            );
+            assert!(
+                (minor_radius - radius).abs() < 1e-10,
+                "minor {minor_radius}"
+            );
+        }
+        other => panic!("expected Torus, got {:?}", std::mem::discriminant(other)),
+    }
+}
+
+#[test]
 fn torus_parallel_planes_returns_none() {
     // Parallel planes (angle = 0) should fail (sin_half ~ 0).
     let n1 = Vec3::new(0.0, 0.0, 1.0);
