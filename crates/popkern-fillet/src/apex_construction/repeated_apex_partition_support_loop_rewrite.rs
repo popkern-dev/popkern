@@ -11,9 +11,15 @@ pub(super) fn materialize_closed_support_trim_cycles(
     brep: &mut BRep,
     face_edges: &[FaceEdgeOwnership],
     trim_sides: &[SupportOwnedTrimSide],
+    route_face_edges_to_coplanar_facets: bool,
 ) -> Result<(), ApexBuildError> {
     let rollback = brep.clone();
-    let result = materialize_closed_support_trim_cycles_candidate(brep, face_edges, trim_sides);
+    let result = materialize_closed_support_trim_cycles_candidate(
+        brep,
+        face_edges,
+        trim_sides,
+        route_face_edges_to_coplanar_facets,
+    );
     if let Err(err) = result {
         *brep = rollback;
         return Err(err);
@@ -156,6 +162,62 @@ pub(super) struct SupportSourceLoopTransfer {
     pub(super) replacement: HalfEdgeHandle,
 }
 
+/// Remove a side from its current loop's chain before another loop
+/// adopts it: predecessor and successor join, and the loop re-anchors
+/// if the side was its anchor. The donor is retiring scaffolding.
+fn splice_side_out_of_donor_loop(brep: &mut BRep, side: HalfEdgeHandle) {
+    let Some(data) = brep.half_edges.get(side).cloned() else {
+        return;
+    };
+    if data.prev != side
+        && data.next != side
+        && brep.half_edges.contains_key(data.prev)
+        && brep.half_edges.contains_key(data.next)
+    {
+        brep.half_edges[data.prev].next = data.next;
+        brep.half_edges[data.next].prev = data.prev;
+    }
+    if brep
+        .loops
+        .get(data.loop_)
+        .is_some_and(|loop_data| loop_data.half_edge == side)
+        && data.next != side
+    {
+        brep.loops[data.loop_].half_edge = data.next;
+    }
+}
+
+fn face_edge_endpoints_fit_face_plane(brep: &BRep, face: FaceHandle, side: HalfEdgeHandle) -> bool {
+    use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+    let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+        return false;
+    };
+    if !matches!(surface.geometry, SurfaceGeometry::Plane { .. }) {
+        return false;
+    }
+    let Some(data) = brep.half_edges.get(side) else {
+        return false;
+    };
+    let Some(end) = brep
+        .half_edges
+        .get(data.twin)
+        .map(|twin| twin.origin)
+        .or_else(|| brep.half_edges.get(data.next).map(|next| next.origin))
+    else {
+        return false;
+    };
+    let fit = brep.tolerance.linear().max(1.0e-9) * 10.0;
+    [data.origin, end].into_iter().all(|vertex| {
+        brep.vertices.get(vertex).is_some_and(|v| {
+            surface
+                .geometry
+                .closest_point(&v.position)
+                .map(|(u, w)| surface.geometry.point_at(u, w).distance_to(&v.position) <= fit)
+                .unwrap_or(false)
+        })
+    })
+}
+
 fn support_loop_contains_half_edge(
     brep: &BRep,
     loop_handle: LoopHandle,
@@ -224,6 +286,7 @@ fn materialize_closed_support_trim_cycles_candidate(
     brep: &mut BRep,
     face_edges: &[FaceEdgeOwnership],
     trim_sides: &[SupportOwnedTrimSide],
+    route_face_edges_to_coplanar_facets: bool,
 ) -> Result<(), ApexBuildError> {
     trace_topology_counts(brep, "support-loop-entry");
     let source_loop_transfers =
@@ -282,11 +345,38 @@ fn materialize_closed_support_trim_cycles_candidate(
             .or_default() += 1;
     }
     for face_edge in face_edges {
-        if let Some(half_edges) = by_support_face.get_mut(&face_edge.support_face)
+        // Strict V-free routing: the FaceEdge's neighbor side belongs to
+        // the support group whose facet plane carries both endpoints —
+        // the retiring K-P fragment it currently sits in is merely
+        // coplanar scaffolding. Index arithmetic cannot express this
+        // pairing (K-P corners and facets adjoin fillets differently).
+        let group_key = if route_face_edges_to_coplanar_facets {
+            by_support_face
+                .keys()
+                .copied()
+                .find(|support_face| {
+                    face_edge_endpoints_fit_face_plane(
+                        brep,
+                        *support_face,
+                        face_edge.support_half_edge,
+                    )
+                })
+                .unwrap_or(face_edge.support_face)
+        } else {
+            face_edge.support_face
+        };
+        if let Some(half_edges) = by_support_face.get_mut(&group_key)
             && !half_edge_is_degenerate(brep, face_edge.support_half_edge)
         {
+            if group_key != face_edge.support_face {
+                splice_side_out_of_donor_loop(brep, face_edge.support_half_edge);
+                if let Some(face) = brep.faces.get_mut(face_edge.support_face) {
+                    face.role = TopologyRole::ConstructionResidual;
+                    face.surface = None;
+                }
+            }
             half_edges.push(face_edge.support_half_edge);
-            support_faces_with_existing_boundary.insert(face_edge.support_face);
+            support_faces_with_existing_boundary.insert(group_key);
         }
     }
 

@@ -210,7 +210,12 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
         }
     }
     if !support_ownership_already_materialized {
-        materialize_closed_support_trim_cycles(brep, face_edges, &all_support_owned_trim_sides)?;
+        materialize_closed_support_trim_cycles(
+            brep,
+            face_edges,
+            &all_support_owned_trim_sides,
+            reuse_shared_cap_cylinder_seam,
+        )?;
     }
     materialize_authored_support_boundary_residual_cycles(
         brep,
