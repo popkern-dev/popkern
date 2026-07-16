@@ -8,6 +8,7 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     face_edges: &[FaceEdgeOwnership],
     fillet_ends: &[FilletEndOwnership],
     cylinder_loop_replacements: &[PendingCylinderLoopReplacement],
+    reuse_shared_cap_cylinder_seam: bool,
 ) -> Result<Option<PartitionBoundaryOutcome>, ApexBuildError> {
     if cylinder_loop_replacements.is_empty() {
         return Ok(None);
@@ -20,15 +21,33 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     let mut fillet_end_cap_sides = std::collections::BTreeMap::new();
     let mut strip_side_overrides = std::collections::BTreeMap::new();
     for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
-        let (cap_side, opposite_side) = if let Some(replacement) =
-            replacements_by_fillet.get(&fillet_end.fillet_index)
-        {
-            cloned_cap_side_from_cylinder_replacement(brep, fillet_end, replacement)?
-        } else {
-            (
+        let (cap_side, opposite_side) = match replacements_by_fillet.get(&fillet_end.fillet_index) {
+            Some(replacement)
+                if reuse_shared_cap_cylinder_seam
+                    && replacement.kind == CylinderLoopOrientationKind::CurrentSharedFilletEnd =>
+            {
+                // Strict V-free mode: the replacement loop keeps the
+                // current shared FilletEnd cylinder side, so the FilletEnd
+                // edge itself must be the cap-to-cylinder seam — the cap
+                // cycle takes that side's live twin. Cloning a parallel
+                // edge here leaves the cap and the re-trimmed cylinder on
+                // two coincident but topologically disconnected edges
+                // (Stage-D contract: exactly one cap side and one true
+                // cylinder side). Default mode keeps the clone: its
+                // opposite side is the strip side the V-spur apex cells
+                // consume via the strip-loop overrides.
+                (
+                    reused_cap_side_from_shared_cylinder_seam(brep, fillet_end, replacement)?,
+                    None,
+                )
+            }
+            Some(replacement) => {
+                cloned_cap_side_from_cylinder_replacement(brep, fillet_end, replacement)?
+            }
+            None => (
                 live_cap_side_for_edge(brep, cap_face, fillet_end.edge, fillet_end.cap_half_edge)?,
                 None,
-            )
+            ),
         };
         let face_edge_cap_side = live_cap_side_for_edge(
             brep,
@@ -54,6 +73,46 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
         fillet_end_cap_sides,
         strip_side_overrides,
     )))
+}
+
+/// The live twin of the replacement loop's shared FilletEnd cylinder
+/// side — the cap side of the reused cap/cylinder seam edge.
+fn reused_cap_side_from_shared_cylinder_seam(
+    brep: &BRep,
+    fillet_end: &FilletEndOwnership,
+    replacement: &PendingCylinderLoopReplacement,
+) -> Result<HalfEdgeHandle, ApexBuildError> {
+    let Some(shared_cylinder_side) = replacement.cycle.first().copied() else {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{}] cannot reuse the shared \
+                 cap/cylinder seam: selected target-cylinder replacement loop is empty",
+                fillet_end.fillet_index
+            ),
+        });
+    };
+    let cap_side = brep
+        .half_edges
+        .get(shared_cylinder_side)
+        .map(|half_edge| half_edge.twin)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{}] cannot reuse the shared \
+                 cap/cylinder seam: shared cylinder side {shared_cylinder_side:?} is stale",
+                fillet_end.fillet_index
+            ),
+        })?;
+    if !brep.half_edges.contains_key(cap_side) {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition FilletEnd[{}] cannot reuse the shared \
+                 cap/cylinder seam: cap-side twin {cap_side:?} of {shared_cylinder_side:?} is \
+                 dead",
+                fillet_end.fillet_index
+            ),
+        });
+    }
+    Ok(cap_side)
 }
 
 fn cloned_cap_side_from_cylinder_replacement(

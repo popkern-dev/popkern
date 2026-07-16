@@ -9,6 +9,10 @@ use popkern_core::topology::{
 
 use super::error::ApexBuildError;
 
+#[path = "repeated_apex_partition_topology_trace.rs"]
+mod census_trace;
+use census_trace::trace_cap_loop_walk;
+
 pub(super) fn oriented_edge_half_edges_on_face(
     brep: &BRep,
     face: FaceHandle,
@@ -351,6 +355,9 @@ pub(super) fn validate_partition_cap_to_cylinder_seams(
     }
 
     if cylinder_faces.len() < n_fillets {
+        if crate::direct_apex_trace::enabled() {
+            trace_cap_loop_walk(brep, cap_face);
+        }
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition exposed {cylinder_seams} cap-to-cylinder seam(s) \

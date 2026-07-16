@@ -260,7 +260,7 @@ fn read_only_snapshot_refuses_bridge_region_with_one_trim() {
 }
 
 #[test]
-fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
+fn executable_continuation_defers_outside_outside_plan_without_mutation() {
     let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
     let faces = brep.faces.keys().collect::<Vec<_>>();
     let support_face = faces[0];
@@ -310,19 +310,13 @@ fn executable_continuation_refuses_outside_outside_plan_before_mutation() {
         ),
         "{labels}"
     );
-    let refusal = apply_selected_side_support_continuation(&mut candidate, &plan)
-        .expect_err("outside/outside continuation must refuse before mutation");
-    let ApexBuildError::PlanMismatch { reason } = refusal else {
-        panic!("expected PlanMismatch refusal");
-    };
-    assert!(
-        reason.contains(
-            "planner-refused stage=SelectPlan \
-                 reason=MissingValidatedOutsideOutsideSupportContinuationPrimitive"
-        ),
-        "{reason}"
-    );
-    assert!(reason.contains(&labels), "{reason}");
+    // The blocked outside-outside class DEFERS to the materialized
+    // cylinder-loop replacement stage (which owns support ownership via
+    // materialize_closed_support_trim_cycles) without touching the BRep
+    // (ADR 2026-07-16 support-extension-rewrite-for-cross-owner-trims).
+    let outcome = apply_selected_side_support_continuation(&mut candidate, &plan)
+        .expect("outside/outside continuation defers instead of failing");
+    assert_eq!(outcome, SideSupportRegionContinuationOutcome::NotReady);
     assert_eq!(candidate.vertices.len(), brep.vertices.len());
     assert_eq!(candidate.edges.len(), brep.edges.len());
     assert_eq!(candidate.faces.len(), brep.faces.len());

@@ -108,34 +108,19 @@ impl SideSupportRegionDiagnosticSnapshot {
                     }
                 }
             }
-            // Multi-outside-owner class (PK-092): the single-owner
-            // derivation is incomplete because the preflights classify
-            // the trims as CrossOutsideOwners. Pair each fillet end's
-            // two trims into one face_family_bridge cycle (see
-            // repeated_apex_side_support_cross_owner docs).
-            match super::repeated_apex_side_support_cross_owner::apply_cross_owner_continuation(
-                &self.selection,
-                &self.knowledge,
-                brep,
-            ) {
-                Ok(Some(result)) => {
-                    return Ok(SideSupportRegionContinuationOutcome::Applied(result));
-                }
-                Ok(None) => {}
-                Err(cross_owner_reason) => {
-                    return Err(SideSupportRegionContinuationFailure::PlannerRefused {
-                        reason: format!(
-                            "stage={:?} reason={:?}; cross-owner continuation declined: {}",
-                            refusal.stage(),
-                            refusal.reason(),
-                            cross_owner_reason
-                        ),
-                    });
-                }
-            }
-            return Err(SideSupportRegionContinuationFailure::PlannerRefused {
-                reason: format!("stage={:?} reason={:?}", refusal.stage(), refusal.reason()),
-            });
+            // Multi-outside-owner class (PK-092): the batch operator's
+            // slit/expose/bridge shape assumes the continuation region is
+            // a strip alongside ONE outside loop; pairing a fillet end's
+            // two cross-owner trims into one request was measured to
+            // produce 13x the planned topology delta and re-homed
+            // support-region garbage (ADR 2026-07-16 support-extension-
+            // rewrite-for-cross-owner-trims). Defer instead: the
+            // materialized cylinder-loop replacement stage owns support
+            // ownership for this class via
+            // materialize_closed_support_trim_cycles, which rewrites each
+            // support face's loop directly from the per-side-owned trim
+            // inventory.
+            return Ok(SideSupportRegionContinuationOutcome::NotReady);
         }
         let bridge_primitive = FaceFamilyBridgePrimitiveDerivation::build(&self.selection, brep);
         let topology_report = bridge_primitive.topology_operator_report(brep);
@@ -247,19 +232,6 @@ impl SideSupportRegionContinuationOutcome {
         match self {
             SideSupportRegionContinuationOutcome::Applied(result) => result.bridge_loops(),
             SideSupportRegionContinuationOutcome::NotReady => &[],
-        }
-    }
-
-    /// `(bridge_face, fillet_index)` pairs for the cross-owner paired
-    /// primitive; empty otherwise.
-    pub(super) fn bridge_fillet_assignments(
-        &self,
-    ) -> Vec<(popkern_core::topology::FaceHandle, usize)> {
-        match self {
-            SideSupportRegionContinuationOutcome::Applied(result) => {
-                result.bridge_fillet_assignments()
-            }
-            SideSupportRegionContinuationOutcome::NotReady => Vec::new(),
         }
     }
 }
