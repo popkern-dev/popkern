@@ -276,23 +276,16 @@ fn run_fixture_all_rungs(
     ]
 }
 
-/// Fixture-specific G0 ceiling. The default commercial gate is 1e-5.
-///
-/// pyramid6 containment (2026-07-11): before PK-099's orientation-
-/// honest convexity, the N=6 apex misclassified SameSideConcave and
-/// every rung fell through to polar-NURBS — `NoGregorySubpatches`
-/// skipped the G0 assert entirely, so the historical green was
-/// vacuous. The honest SameSideConvex route now reaches the N-sector
-/// Gregory construction and its real quality is measured for the
-/// first time: 6.63e-2 on the 24-patch sector ring (the KP15
-/// high-valence cap-quality frontier — see the Phase II polar
-/// blocker record). The ceiling ratchets the measured state so
-/// regressions still trip while the frontier is open.
-fn fixture_g0_ceiling(fixture: &str) -> f64 {
-    match fixture {
-        "pyramid6_uniform" | "pyramid6_mixed" => 7.0e-2,
-        _ => 1e-5,
-    }
+/// Fixture-specific G0 ceiling — currently the uniform 1e-5
+/// commercial gate for every fixture. History: pyramid6 carried a
+/// 7e-2 containment ceiling while the KP15 high-valence cap frontier
+/// was open (the 6.63e-2 reading was the legacy ring metric on the
+/// 24-patch sector ring). That frontier closed with the PK-087
+/// setback fan: pyramid6_uniform/mixed now measure 6.6e-14 / 1.9e-13
+/// on the layout-honest live-seam scorecard, so the containment
+/// ceiling is retired (2026-07-16).
+fn fixture_g0_ceiling(_fixture: &str) -> f64 {
+    1e-5
 }
 
 /// Shared assertions: G0 position gap < fixture ceiling (1e-5
@@ -349,17 +342,6 @@ fn assert_end_to_end_improvement(fixture: &str, rungs: &[RungResult]) {
         // K-P binonic: the G1 postcondition rejects the binonic rung,
         // and the lower-rung result must preserve G0 without pretending
         // to improve continuity.
-        return;
-    }
-    if matches!(fixture, "pyramid6_uniform" | "pyramid6_mixed") {
-        // pyramid6 containment (2026-07-11, same root as
-        // `fixture_g0_ceiling`): PK-099's honest convexity routed the
-        // N=6 apex into the sector Gregory construction for the first
-        // time. The binonic-kp rung relabels all 24 sector patches as
-        // binonic with a scorecard identical to deg5's (mean-cos
-        // 0.7366 at every rung) — a label-only "upgrade" the
-        // variant-count heuristic cannot distinguish from a genuine
-        // one. Exempt until the KP15 high-valence cap frontier closes.
         return;
     }
     let deg5_mean = match &rungs[0].outcome {
