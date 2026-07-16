@@ -62,8 +62,8 @@ pub(crate) fn fan_quality_stage_probe(
         return;
     }
     let faces: Vec<FaceHandle> = corner_patches.iter().map(|cp| cp.face).collect();
-    let (g0, g1) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &faces);
-    eprintln!("  [fan-quality] {label}: g0={g0:.3e} g1={g1:.3e}");
+    let (g0, g1, g2) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &faces);
+    eprintln!("  [fan-quality] {label}: g0={g0:.3e} g1={g1:.3e} g2={g2:.3e}");
 }
 
 pub(crate) fn setback_topology_commit_enabled() -> bool {
@@ -112,9 +112,17 @@ pub(crate) fn try_setback_boundary_surgery(
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
     family: CapFamily,
+    gate_seam_g2: bool,
 ) -> Result<SetbackTopologyOutcome, String> {
     let snapshot = brep.clone();
-    match surgery_inner(brep, vertex, fillet_surfaces, tolerance, family) {
+    match surgery_inner(
+        brep,
+        vertex,
+        fillet_surfaces,
+        tolerance,
+        family,
+        gate_seam_g2,
+    ) {
         Ok(outcome) => Ok(outcome),
         Err(e) => {
             *brep = snapshot;
@@ -129,6 +137,7 @@ fn surgery_inner(
     fillet_surfaces: &[FilletSurfaceResult],
     tolerance: &Tolerance,
     family: CapFamily,
+    gate_seam_g2: bool,
 ) -> Result<SetbackTopologyOutcome, String> {
     let n = fillet_surfaces.len();
     if n < 3 {
@@ -457,14 +466,29 @@ fn surgery_inner(
     // declining lets the legacy sphere-fit path serve the gentle
     // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
     // g1 ≤ 2e-3 here — orders under the gates.
-    let (seam_g0, seam_g1) = setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
+    let (seam_g0, seam_g1, seam_g2) =
+        setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
     if std::env::var_os("PK_SETBACK_PROBE").is_some() {
-        eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e}");
+        eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e} g2={seam_g2:.3e}");
     }
     if seam_g0 > 1.0e-5 || seam_g1 > 5.0e-2 {
         return Err(format!(
             "fan seam postcondition failed: g0={seam_g0:.3e} (gate 1e-5) \
              g1={seam_g1:.3e} (gate 5e-2)"
+        ));
+    }
+    // A G2 REQUEST additionally gates the seam's normal-curvature
+    // residual (PK-122): a blunt apex (18° half-angle, pentagon5_blunt)
+    // builds a G0/G1-commercial fan whose wide flat sectors still jump
+    // 7.0e-2 in curvature across seams; committing it would report an
+    // achieved G2 the geometry does not have. Declining hands the
+    // gentle corner to the legacy sphere-fit path. Sharp-apex fixtures
+    // measure well inside the gate (the kp_polar commercial gates
+    // assert the same 5e-2 bound on their live seams).
+    if gate_seam_g2 && seam_g2 > 5.0e-2 {
+        return Err(format!(
+            "fan seam G2 postcondition failed under a G2 request: \
+             g2={seam_g2:.3e} (gate 5e-2, g0={seam_g0:.3e} g1={seam_g1:.3e})"
         ));
     }
 

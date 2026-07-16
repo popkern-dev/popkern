@@ -38,10 +38,10 @@ use super::bezier9_eval;
 /// commercial must decline (rollback) rather than ship — measured on
 /// pentagon5_blunt, whose wide flat fan creases 2.9e-1 at one seam
 /// corner while every sharp-apex fixture sits at g1 ≤ 2e-3.
-pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (f64, f64) {
+pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (f64, f64, f64) {
     use popkern_core::geometry::surface::SurfaceEval;
     let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
-    let (mut worst_g0, mut worst_g1) = (0.0_f64, 0.0_f64);
+    let (mut worst_g0, mut worst_g1, mut worst_g2) = (0.0_f64, 0.0_f64, 0.0_f64);
     for (_, edge) in brep.edges.iter() {
         let Some(he_data) = brep.half_edges.get(edge.half_edge) else {
             continue;
@@ -103,21 +103,72 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
         // it must not slip through the gate between samples.
         for k in 0..100 {
             let f = 0.05 + 0.90 * k as f64 / 99.0;
-            let c = ce.point_at(curve.t_start + f * (curve.t_end - curve.t_start));
+            let t = curve.t_start + f * (curve.t_end - curve.t_start);
+            let c = ce.point_at(t);
+            // Seam direction for the normal-curvature comparison
+            // (matches the live-seam acceptance metric).
+            let dt = 1e-4 * (curve.t_end - curve.t_start).abs().max(1e-12);
+            let seam_dir = (ce.point_at(t + dt) - c).normalized();
             let mut normals = Vec::with_capacity(2);
+            let mut curvatures = Vec::with_capacity(2);
             for (surf, pc, rev) in [sa, sb] {
                 let g = if rev { 1.0 - f } else { f };
                 let uv = pc.point_at(pc.t_start + g * (pc.t_end - pc.t_start));
                 let s = surf.point_at(uv.x, uv.y);
                 worst_g0 = worst_g0.max(s.distance_to(&c));
-                normals.push(normal_at(surf, uv.x, uv.y));
+                let normal = normal_at(surf, uv.x, uv.y);
+                if let (Some(normal), Some(dir)) = (normal, seam_dir) {
+                    curvatures.push(normal_curvature_at(surf, uv.x, uv.y, normal, dir));
+                } else {
+                    curvatures.push(None);
+                }
+                normals.push(normal);
             }
             if let (Some(Some(na)), Some(Some(nb))) = (normals.first(), normals.get(1)) {
                 worst_g1 = worst_g1.max(na.cross(nb).length());
             }
+            if let (Some(Some(ka)), Some(Some(kb))) = (curvatures.first(), curvatures.get(1)) {
+                let kmax = ka.abs().max(kb.abs());
+                worst_g2 = worst_g2.max((ka - kb).abs() / (1.0 + kmax));
+            }
         }
     }
-    (worst_g0, worst_g1)
+    (worst_g0, worst_g1, worst_g2)
+}
+
+/// Normal curvature of `surf` at `(u, v)` along the 3-D direction
+/// `dir` (κ_n = S''·n / |S'|², matching the live-seam acceptance
+/// metric): solve `dir ≈ a·Su + b·Sv` in the tangent plane, then take
+/// a second difference along `(a, b)` in UV.
+fn normal_curvature_at(
+    surf: &popkern_core::geometry::SurfaceGeometry,
+    u: f64,
+    v: f64,
+    normal: popkern_core::geometry::Vec3,
+    dir: popkern_core::geometry::Vec3,
+) -> Option<f64> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let h = 1e-6;
+    let su = (surf.point_at(u + h, v) - surf.point_at(u - h, v)) * (0.5 / h);
+    let sv = (surf.point_at(u, v + h) - surf.point_at(u, v - h)) * (0.5 / h);
+    let (e, f_, g) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
+    let (r1, r2) = (dir.dot(&su), dir.dot(&sv));
+    let det = e * g - f_ * f_;
+    if det.abs() < 1e-30 {
+        return None;
+    }
+    let a = (r1 * g - r2 * f_) / det;
+    let b = (r2 * e - r1 * f_) / det;
+    let step = 1e-4;
+    let p0 = surf.point_at(u, v);
+    let p1 = surf.point_at(u + a * step, v + b * step);
+    let p2 = surf.point_at(u - a * step, v - b * step);
+    let second = (p1 - p0) + (p2 - p0);
+    let first_len = (p1 - p2).length() * 0.5;
+    if first_len < 1e-30 {
+        return None;
+    }
+    Some(second.dot(&normal) / (first_len * first_len))
 }
 
 /// Max distance between the stale curve and the candidate row,

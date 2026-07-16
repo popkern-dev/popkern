@@ -141,6 +141,7 @@ pub(crate) fn insert_vertex_blend(
             &fillet_surfaces_pre,
             tolerance,
             family,
+            requested_continuity == ContinuityLevel::G2,
         ) {
             Ok(outcome) => {
                 if let Err(e) = brep.validate() {

@@ -45,6 +45,22 @@ fn fillet_n_gonal_pyramid_result(
     height: f64,
     radii: &[f64],
 ) -> popkern_fillet::BlendResult {
+    fillet_n_gonal_pyramid_result_with_continuity(
+        n,
+        base_radius,
+        height,
+        radii,
+        popkern_fillet::ContinuityLevel::G1,
+    )
+}
+
+fn fillet_n_gonal_pyramid_result_with_continuity(
+    n: usize,
+    base_radius: f64,
+    height: f64,
+    radii: &[f64],
+    continuity: popkern_fillet::ContinuityLevel,
+) -> popkern_fillet::BlendResult {
     assert_eq!(radii.len(), n);
     let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
     let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
@@ -58,6 +74,7 @@ fn fillet_n_gonal_pyramid_result(
         })
         .collect::<Vec<_>>();
     let opts = FilletOptions {
+        continuity,
         use_rational_gregory: true,
         use_deg5_gregory: true,
         use_biquintic_full_gregory: true,
@@ -120,6 +137,60 @@ fn pentagon5_blunt_ships_valid_commercial_cap() {
         );
     }
 }
+/// Blunt-apex G2-request contract (PK-122): the same 18°-half-angle
+/// pentagon requesting G2. The wide flat fan's seam curvature jump
+/// (measured 7.0e-2 on the G1-request control) exceeds the 5e-2 G2
+/// gate, so the setback surgery's G2 postcondition must DECLINE the
+/// fan rather than report an achieved G2 the geometry does not have;
+/// the corner then ships through a fallback path. Whatever shipped,
+/// any patch claiming achieved G2 must measure within the gate on its
+/// live seams, and the output stays valid.
+#[test]
+fn pentagon5_blunt_g2_request_is_honest() {
+    let result = fillet_n_gonal_pyramid_result_with_continuity(
+        5,
+        1.0,
+        3.0,
+        &[0.05; 5],
+        popkern_fillet::ContinuityLevel::G2,
+    );
+    result
+        .brep
+        .validate()
+        .expect("pentagon5_blunt under a G2 request must leave a valid BRep");
+    let g2_claimed: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.n_sides == 5 && p.achieved_continuity == popkern_fillet::ContinuityLevel::G2)
+        .map(|p| p.face)
+        .collect();
+    if g2_claimed.is_empty() {
+        println!(
+            "pentagon5_blunt G2 request: no patch claims achieved G2 (honest decline; {} apex patches shipped)",
+            result
+                .corner_patches
+                .iter()
+                .filter(|p| p.n_sides == 5)
+                .count()
+        );
+        return;
+    }
+    let m = measure_live_cap_seams(&result.brep, &g2_claimed, N_SAMPLES);
+    println!(
+        "live-seam pentagon5_blunt(G2 request): seams={} g0={:.3e} g1={:.3e} g2={:.3e}",
+        m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+    );
+    if m.seam_count > 0 {
+        assert!(
+            m.worst_g2_residual < helpers::G2_GATE,
+            "[pentagon5_blunt/G2] a patch claiming achieved G2 must measure within the \
+             {:.1e} live-seam G2 gate; got {:.3e}",
+            helpers::G2_GATE,
+            m.worst_g2_residual,
+        );
+    }
+}
+
 #[test]
 fn polar_passes_commercial_gates_on_pentagon5_uniform() {
     let m = run_n_gonal_pyramid_polar(5, 1.0, 0.8, &[0.05; 5], "pentagon5_uniform");
