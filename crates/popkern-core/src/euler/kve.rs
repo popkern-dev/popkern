@@ -43,18 +43,36 @@ impl BRep {
         // removed vertex's position until rebuilt), so geometric
         // checks (loop closure, watertight) belong to the caller's
         // own acceptance gate after that repair.
-        candidate
-            .validate_euler_poincare()
-            .and_then(|()| candidate.validate_half_edge_pairing())
-            .and_then(|()| candidate.validate_half_edge_cycles())
-            .and_then(|()| candidate.validate_vertex_consistency())
-            .and_then(|()| candidate.validate_manifold_edges())
-            .and_then(|()| candidate.validate_vertex_valence())
-            .map_err(|e| {
-                CoreError::PreconditionFailed(format!(
+        //
+        // No-regression contract: a check the PRE-operation state
+        // already fails is exempt afterwards — mid-pipeline repair
+        // passes legitimately run kve on models whose global Euler
+        // accounting is temporarily off (e.g. the strip-end corner
+        // contraction after a partially-failed carve, PK-121), and
+        // kve itself is chi-neutral (V-1, E-1). On a compliant input
+        // the gate is exactly as strict as before.
+        type StructuralCheck = fn(&BRep) -> Result<(), crate::error::ValidationError>;
+        let checks: [StructuralCheck; 6] = [
+            BRep::validate_euler_poincare,
+            BRep::validate_half_edge_pairing,
+            BRep::validate_half_edge_cycles,
+            BRep::validate_vertex_consistency,
+            BRep::validate_manifold_edges,
+            BRep::validate_vertex_valence,
+        ];
+        for check in &checks {
+            if let Err(e) = check(&candidate) {
+                if check(self).is_err() {
+                    // Pre-existing failure of the same check: kve is
+                    // not the author; the caller's acceptance gate
+                    // owns the final verdict.
+                    continue;
+                }
+                return Err(CoreError::PreconditionFailed(format!(
                     "kve: post-contraction structural validation failed: {e:?}"
-                ))
-            })?;
+                )));
+            }
+        }
         *self = candidate;
         Ok(result)
     }

@@ -3101,21 +3101,19 @@ fn sockets_after_rim_chamfer_are_watertight_and_exact() {
     assert!(!mesh_contains_point(&out, (34.8, 0.3, 59.9)));
 }
 
-/// PIN (open frontier, arm-dressing campaign): chamfer on a rest
-/// edge INTERRUPTED by a through-slot. The skewed-corner class is
-/// closed (bevel-plane anchors). Measured position (PK-103): the
-/// bevel STRIPS tessellate self-overlapping near the slot junction —
-/// strip mesh edges with multiplicity 3–8 and zero-length edges at
-/// the junction station, one strip's rail unwelded over its whole
-/// length — the strip surfaces/pcurves authored over the interrupted
-/// edge pieces disagree with the junction corners the blend surgery
-/// leaves unconsumed (the surviving original corner sits d/√2 off
-/// the bevel plane). This is the strip-authoring/junction-corner-
-/// consumption leg of the blend surgery. The arms SHIP dressed via
-/// the dress-first ordering (dress_first_arm_tip_chain_is_watertight)
-/// — this pin no longer blocks any product piece.
+/// PIN -> GATE (PK-121): chamfering an edge INTERRUPTED by an earlier
+/// slot cut assembles watertight. The strips historically ended in
+/// triangular flaps through the surviving original corners (d/sqrt2
+/// off the bevel plane) because the strip-end corner contraction's
+/// `kve` was rejected by an ABSOLUTE Euler postcondition on a
+/// mid-pipeline state whose global accounting was legitimately off
+/// (two far-side carve trims defer their repair); kve now enforces a
+/// no-regression structural contract, the contraction lands, and the
+/// interrupted-edge bevels close (measured: 48 open mesh edges -> 0,
+/// tessellation seams 7.3e-1 -> 0). Dress-first ordering remains the
+/// preferred product sequence; this gate covers dress-after-feature.
 #[test]
-fn slot_interrupted_chamfer_gap_is_pinned() {
+fn slot_interrupted_chamfer_closes_watertight() {
     let tilt = 18.0_f64.to_radians();
     let w = 12.0_f64.to_radians();
     let plane_at_root = 100.0 + (-56.0 + 28.0 * w.sin()) * tilt.tan();
@@ -3153,10 +3151,9 @@ fn slot_interrupted_chamfer_gap_is_pinned() {
         .expect("chamfer");
     let opens = dressed.open_edge_count().expect("mesh");
     eprintln!("slot-interrupted chamfer: opens={opens}");
-    assert!(
-        opens > 0,
-        "slot-interrupted chamfer is now watertight — flip this pin to a gate \
-         and enable dress_arm_rest_edges on the arm pieces"
+    assert_eq!(
+        opens, 0,
+        "slot-interrupted chamfer must assemble watertight"
     );
 }
 
@@ -3164,12 +3161,11 @@ fn slot_interrupted_chamfer_gap_is_pinned() {
 /// ordering — chamfer the clean plate immediately after the rest
 /// cut, then run every later feature THROUGH the finished bevels.
 /// The full tip chain (dress → lip slot → dovetail rail) assembles
-/// watertight, where dressing after the slot ends the strips at
-/// multi-face junction corners the blend surgery cannot consume
-/// (still pinned: slot_interrupted_chamfer_gap_is_pinned), and a
-/// boolean touching blend-adjacent faces re-breaks welds (still
-/// pinned: boolean_after_rim_chamfer_gap_is_pinned — the root
-/// therefore dresses after its floor cut).
+/// watertight. Both historical blockers of the reverse order are now
+/// gates: slot_interrupted_chamfer_closes_watertight (strip-end
+/// corner contraction under kve's no-regression contract, PK-121)
+/// and sockets_after_rim_chamfer_are_watertight_and_exact (axial
+/// span ray gate).
 #[test]
 fn dress_first_arm_tip_chain_is_watertight() {
     let tilt = 18.0_f64.to_radians();
