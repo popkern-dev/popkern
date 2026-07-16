@@ -58,10 +58,17 @@ fn run() -> Result<(), String> {
         .collect();
     println!("apex has {} incident edges", apex_edges.len());
 
+    // Default radius sits inside the class the KP20 setback surgery
+    // serves on this sharp pentagonal apex (PK-123): at h = 1.2 the fan
+    // commits through r = 0.06 and declines from r = 0.07 upward on the
+    // fan seam G1 postcondition (measured 1.478e-1 vs the 5e-2 gate at
+    // the old default 0.16 — the open sharp-apex/large-radius fan
+    // frontier, same family as the PK-122 blunt-apex G2 contract).
+    // Override with KP20_APEX_RADIUS to probe the boundary.
     let radius: f64 = std::env::var("KP20_APEX_RADIUS")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(0.16);
+        .unwrap_or(0.06);
     let specs: Vec<FilletSpec> = apex_edges
         .iter()
         .map(|&edge| FilletSpec {
@@ -106,6 +113,15 @@ fn run() -> Result<(), String> {
         "corner patches: {} (KP20 Gregory cap faces: {gregory_faces})",
         result.corner_patches.len()
     );
+    // The showcase exists to exhibit the KP20 apex cap: a silent decline
+    // to a mitred corner must fail loudly instead of exporting STEP with
+    // no cap (PK-123).
+    if result.corner_patches.is_empty() || gregory_faces == 0 {
+        return Err(format!(
+            "apex blend declined to a mitred corner (corner_patches={}, gregory_faces={gregory_faces});              the requested radius {radius} is outside the class the setback surgery serves",
+            result.corner_patches.len()
+        ));
+    }
     if let Some(cp) = result.corner_patches.first() {
         println!(
             "  apex blend: n_sides={} method={:?} continuity={:?}",
