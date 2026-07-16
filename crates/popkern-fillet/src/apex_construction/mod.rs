@@ -130,5 +130,6 @@ pub use construct::{construct_apex, construct_apex_with_surfaces};
 pub use construct_result::ApexBuildResult;
 pub use error::{ApexBuildError, ApexError, ApexPlanError};
 pub use plan::{ApexPlan, plan_apex_resolution};
+pub(crate) use repeated_apex_partition::absorb_coplanar_residual_scaffold_late;
 pub use target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
 pub use telemetry::{ConstructionRung, PlanTelemetry};

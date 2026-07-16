@@ -445,6 +445,17 @@ fn try_constructive_with_legacy_fallthrough(
                     result.diagnostics.push(diagnostic);
                 }
             }
+            // Stage-D seam-ownership completion: planar production faces
+            // take back coplanar scaffold fragments once every surface is
+            // solved (the partition-time pass sees surface-less faces and
+            // skips them). Self-guarding; untouched fixtures see no merges.
+            let absorbed = crate::apex_construction::absorb_coplanar_residual_scaffold_late(brep);
+            if absorbed > 0 && crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace] late carrier absorption merged {absorbed} scaffold \
+                     fragment(s)"
+                );
+            }
             Ok(result)
         }
         Err(constructive_err) => {

@@ -440,6 +440,10 @@ impl RepeatedApexPartitionPlan {
             );
         }
 
+        // Carrier absorption (Stage-D seam-ownership inventory): planar
+        // production faces take back the coplanar scaffold fragments
+        // that separate them from their true seam partners.
+        absorb_coplanar_residual_scaffold(brep);
         // Retired-subcomplex role coherence (see helper docs): must
         // run after every residual face demotion above.
         demote_residual_interior_edges(brep);

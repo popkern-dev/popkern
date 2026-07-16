@@ -53,6 +53,8 @@ mod partition_cap_boundary_rewrite;
 mod partition_cap_boundary_rewrite_curve_refresh;
 #[path = "repeated_apex_partition_cap_boundary_rewrite_diagnostics.rs"]
 mod partition_cap_boundary_rewrite_diagnostics;
+#[path = "repeated_apex_partition_carrier_absorption.rs"]
+mod partition_carrier_absorption;
 #[path = "repeated_apex_partition_cylinder_anchors.rs"]
 mod partition_cylinder_anchors;
 #[path = "repeated_apex_partition_cylinder_geometry.rs"]
@@ -132,6 +134,7 @@ use partition_cap_boundary_cycles::{
 use partition_cap_boundary_rewrite::plan_cap_boundary_rewrite_for_cylinder_trim;
 use partition_cap_boundary_rewrite::protect_source_loops_before_partition_loop_claim;
 use partition_cap_boundary_rewrite_curve_refresh::author_materialized_shared_fillet_end_trims_for_plan;
+use partition_carrier_absorption::absorb_coplanar_residual_scaffold;
 use partition_cylinder_anchors::{
     coincident_vertex_on_face_outer_loop, containing_outer_loop_edge_by_curve,
     generator_anchor_on_cylinder_loop, materialize_support_boundary_generator_anchor,
@@ -185,6 +188,16 @@ use partition_rebuild_diagnostics::{
     replacement_run_reownership_blocker, replacement_run_reownership_plan,
     retired_trim_runs_by_adjacent_face,
 };
+
+/// Late (post-surface-solve) carrier absorption entry point for the
+/// direct-apex dispatch: the partition-time pass skips surface-less
+/// production faces, so the dispatch runs the same absorption once
+/// every surface is committed.
+pub(crate) fn absorb_coplanar_residual_scaffold_late(
+    brep: &mut popkern_core::topology::BRep,
+) -> usize {
+    absorb_coplanar_residual_scaffold(brep)
+}
 use partition_residuals::{
     demote_residual_interior_edges, demote_retired_apex_residual_faces,
     mark_loop_edges_construction_residual, plan_retired_base_residual_loop,
