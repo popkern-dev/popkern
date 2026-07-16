@@ -10,6 +10,11 @@ use super::super::sector::ExactBoundaryOuterSeam;
 
 const SUPPORT_SOURCE_SAMPLES: usize = 17;
 const SUPPORT_SOURCE_TOLERANCE: f64 = 1.0e-6;
+/// Hard ceiling for replacing an off-support boundary curve with the
+/// support-pcurve authority. Boundary-conditioned fillet marches move
+/// band curves by up to ~5e-4 (see corner.rs anchor reconciliation);
+/// anything farther indicates a topology mismatch, not march error.
+const SUPPORT_SOURCE_MAX_REPLACEMENT_DEVIATION: f64 = 5.0e-4;
 
 pub(super) fn validated_support_pcurve_source_curve(
     brep: &BRep,
@@ -39,11 +44,48 @@ pub(super) fn validated_support_pcurve_source_curve(
     let edge_range = edge_curve.parameter_range();
     let edge_deviation =
         curve_pair_deviation(&support_curve, support_range, edge_curve, edge_range);
-    if edge_deviation > SUPPORT_SOURCE_TOLERANCE {
+    // The authority may legitimately differ from the raw curve by about
+    // the raw curve's own measured off-support error (that error is what
+    // it corrects); beyond that scale the candidate is rejected as a
+    // topology mismatch rather than a repair.
+    let raw_off_support = raw_curve_support_deviation(brep, seam, edge_curve)?;
+    let replacement_allowance = raw_off_support
+        .mul_add(2.0, SUPPORT_SOURCE_TOLERANCE)
+        .min(SUPPORT_SOURCE_MAX_REPLACEMENT_DEVIATION);
+    if edge_deviation > replacement_allowance {
         return None;
     }
     validate_support_curve_on_seam(brep, seam, &support_curve)?;
     Some(support_curve)
+}
+
+/// Measured deviation of a candidate boundary curve from the seam's
+/// support surface.
+pub(super) fn raw_curve_support_deviation(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    curve: &NurbsCurve,
+) -> Option<f64> {
+    Some(
+        edge_surface_deviation(
+            curve,
+            curve.parameter_range(),
+            support_surface_for_seam(brep, seam)?,
+            SUPPORT_SOURCE_SAMPLES,
+        )
+        .max_deviation,
+    )
+}
+
+/// Whether a prepared boundary curve is measurably off its support
+/// surface and should defer to the support-pcurve authority.
+pub(super) fn raw_curve_needs_support_authority(
+    brep: &BRep,
+    seam: &ExactBoundaryOuterSeam,
+    curve: &NurbsCurve,
+) -> bool {
+    raw_curve_support_deviation(brep, seam, curve)
+        .is_some_and(|deviation| deviation > SUPPORT_SOURCE_TOLERANCE)
 }
 
 pub(super) fn validated_projected_support_source_curve(

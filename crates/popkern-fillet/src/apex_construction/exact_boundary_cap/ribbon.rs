@@ -23,6 +23,15 @@ mod ribbon_surface_identity;
 mod ribbon_support_surface;
 use ribbon_support_surface::select_support_surface;
 
+// Known blindness (PK-124): 9 samples only see knot-span endpoints of
+// the mult-4 degree-9 boundary basis, so intra-span G1 spikes (measured
+// 0.65 at v=0.277 within [0.25, 0.3125] on pyramid4_uniform) pass the
+// solve-side gates. Densifying to 17/33 makes the solve HONESTLY
+// decline those caps — but the sphere/legacy fallbacks that then ship
+// measure worse (pyramid4_uniform 18 tessellation seams, pyramid3
+// loses its Gregory caps entirely), so the sparse evidence ships the
+// better surface until a G1-capable N=4 cap construction lands
+// (PK-094 setback-cap integration is the named replacement).
 const DEFAULT_SAMPLE_COUNT: usize = 9;
 
 /// Budget and local tolerances for support derivative ribbon preparation.

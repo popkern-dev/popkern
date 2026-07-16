@@ -17,6 +17,8 @@
 
 #[path = "direct_apex_acceptance.rs"]
 mod direct_apex_acceptance;
+#[path = "direct_apex_vfree_fallback.rs"]
+mod vfree_fallback;
 
 use std::collections::HashMap;
 
@@ -413,6 +415,20 @@ fn try_constructive_with_legacy_fallthrough(
                             constructive_err = Some(err);
                         }
                     }
+                }
+                if let Some(retry_result) = vfree_fallback::resolve_promoted_v_free_decline(
+                    brep,
+                    &snapshot,
+                    plan,
+                    surfaces,
+                    tolerance,
+                    execution_options,
+                    constructive_err.as_deref(),
+                    &result,
+                    |brep, result| acceptance_error(brep, result),
+                ) {
+                    result = retry_result;
+                    constructive_err = None;
                 }
                 if let Some(constructive_err) = constructive_err {
                     if crate::direct_apex_trace::enabled() {

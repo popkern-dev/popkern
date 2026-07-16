@@ -21,19 +21,30 @@ pub(super) fn apply_derivative_rows(
     num_v: usize,
 ) {
     let mut derivative_controls = vec![None; controls.len()];
+    // Degenerate ribbon evidence (zero cross-derivatives) must never
+    // become a derivative row: writing `base + 0` collapses row 1 onto
+    // the boundary row, the surface's cross-boundary partial vanishes,
+    // and the seam normal becomes garbage (measured: pyramid4_uniform
+    // strict FaceEdge g1 deficit 0.83 from a zero v-partial — PK-124).
+    // Leaving the Coons interior blend keeps the patch regular.
+    const MIN_DERIVATIVE_STEP: f64 = 1.0e-12;
     if let Some(ribbon) = ribbon_for(
         ribbons,
         sector.sector_index,
         ExactBoundaryOuterSide::FilletEnd,
     ) {
+        let step = boundary_derivative_control_step(&sector.face_boundary.curve);
         for i in 1..num_u.saturating_sub(1) {
             let parameter = i as f64 / (num_u - 1) as f64;
             let derivative = ribbon_derivative(ribbon, parameter, orientation.fillet_reversed);
+            if derivative.length() * step <= MIN_DERIVATIVE_STEP {
+                continue;
+            }
             let base = controls[index(i, 0, num_v)];
             merge_derivative_control(
                 &mut derivative_controls,
                 index(i, 1, num_v),
-                base + derivative * boundary_derivative_control_step(&sector.face_boundary.curve),
+                base + derivative * step,
             );
         }
     }
@@ -42,14 +53,18 @@ pub(super) fn apply_derivative_rows(
         sector.sector_index,
         ExactBoundaryOuterSide::FaceEdge,
     ) {
+        let step = boundary_derivative_control_step(&sector.fillet_boundary.curve);
         for j in 1..num_v.saturating_sub(1) {
             let parameter = j as f64 / (num_v - 1) as f64;
             let derivative = ribbon_derivative(ribbon, parameter, orientation.face_reversed);
+            if derivative.length() * step <= MIN_DERIVATIVE_STEP {
+                continue;
+            }
             let base = controls[index(0, j, num_v)];
             merge_derivative_control(
                 &mut derivative_controls,
                 index(1, j, num_v),
-                base + derivative * boundary_derivative_control_step(&sector.fillet_boundary.curve),
+                base + derivative * step,
             );
         }
     }

@@ -4,7 +4,6 @@ use crate::direct_apex_validate_helpers::{
 use popkern_core::diagnostics::Diagnostics;
 
 #[test]
-#[ignore = "diagnostic gate: exact fillet_zoo pyramid_n04 still leaves retired apex/support topology"]
 fn direct_apex_diagnostic_pyramid4_zoo_mixed_export_defects() {
     let result = build_under_direct_apex_with_pyramid_height(true, &[0.07, 0.09, 0.11, 0.13], 1.2);
     let reasons = direct_apex_fallback_reasons(&result);

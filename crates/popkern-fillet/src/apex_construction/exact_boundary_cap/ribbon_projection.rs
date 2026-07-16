@@ -46,7 +46,7 @@ pub(super) fn projected_support_pcurve(
         .map(Pcurve::from_nurbs)
 }
 
-fn unwrap_periodic_uv(
+pub(in crate::apex_construction::exact_boundary_cap) fn unwrap_periodic_uv(
     u: &mut f64,
     v: &mut f64,
     previous_uv: Option<(f64, f64)>,

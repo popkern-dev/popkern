@@ -108,6 +108,12 @@ pub(super) fn assign_gregory_cap_surface(
             exact_boundary_diagnostics: exact_boundary_candidate.diagnostics,
         });
     }
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace cap-assign] exact-boundary declined; falling through to \
+             assemble_gregory_cap_surface for cap {cap_face:?}"
+        );
+    }
     let surface_assembly = crate::apex_construction::gregory_cap::assemble_gregory_cap_surface(
         brep,
         cap_face,

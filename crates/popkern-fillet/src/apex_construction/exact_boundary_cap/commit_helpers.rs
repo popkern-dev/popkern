@@ -10,6 +10,10 @@ use super::super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSide};
 use super::super::solve::{ExactBoundarySectorSurface, ExactBoundarySolvedSurfaces};
 use super::commit_surface_equivalence::equivalent_surface;
 
+#[path = "commit_trim_curve.rs"]
+mod commit_trim_curve;
+pub(super) use commit_trim_curve::{canonical_shared_trim_curve, pcurve_trace_curve_deviation};
+
 pub(super) struct SharedTrimCurveSelection<'a> {
     pub(super) edge: EdgeHandle,
     pub(super) cap_half_edge: HalfEdgeHandle,
@@ -244,6 +248,11 @@ pub(super) fn project_curve_to_half_edge_pcurve(
 ) -> Option<Pcurve> {
     let forward = half_edge_curve_forward(brep, half_edge, curve)?;
     let samples = 33usize;
+    // Periodic surfaces (fillet cylinders) need branch unwrapping: a seam
+    // crossing the parameter seam otherwise interpolates across the 2-pi
+    // jump and the fitted pcurve leaves the seam mid-curve.
+    let (period_u, period_v) = surface.periodicity();
+    let mut previous_uv = None;
     let mut uv_points = Vec::with_capacity(samples);
     let mut parameters = Vec::with_capacity(samples);
     for index in 0..samples {
@@ -251,7 +260,15 @@ pub(super) fn project_curve_to_half_edge_pcurve(
         let curve_fraction = if forward { fraction } else { 1.0 - fraction };
         let curve_t = curve.t_start + (curve.t_end - curve.t_start) * curve_fraction;
         let point = curve.geometry.point_at(curve_t);
-        let (u, v) = surface.closest_point(&point)?;
+        let (mut u, mut v) = surface.closest_point(&point)?;
+        crate::apex_construction::exact_boundary_cap::ribbon_projection::unwrap_periodic_uv(
+            &mut u,
+            &mut v,
+            previous_uv,
+            period_u,
+            period_v,
+        );
+        previous_uv = Some((u, v));
         uv_points.push(Point3::new(u, v, 0.0));
         parameters.push(fraction);
     }
@@ -273,50 +290,6 @@ fn half_edge_curve_forward(
     let curve_start = curve.geometry.point_at(curve.t_start);
     let curve_end = curve.geometry.point_at(curve.t_end);
     Some(origin.distance_to(&curve_start) <= origin.distance_to(&curve_end))
-}
-
-pub(super) fn canonical_shared_trim_curve(
-    brep: &BRep,
-    selection: SharedTrimCurveSelection<'_>,
-) -> Option<CurveOnEdge> {
-    let SharedTrimCurveSelection {
-        edge,
-        cap_half_edge,
-        cap_pcurve,
-        cap_surface,
-        support_half_edge,
-        support_pcurve,
-        support_surface,
-    } = selection;
-    let cap_curve =
-        curve_from_pcurve_in_edge_direction(brep, edge, cap_half_edge, cap_pcurve, cap_surface)
-            .and_then(|curve| orient_curve_to_edge_vertices(brep, edge, curve));
-    let support_curve = curve_from_pcurve_in_edge_direction(
-        brep,
-        edge,
-        support_half_edge,
-        support_pcurve,
-        support_surface,
-    )
-    .and_then(|curve| orient_curve_to_edge_vertices(brep, edge, curve));
-    match (cap_curve, support_curve) {
-        (Some(cap_curve), Some(support_curve)) => {
-            let cap_endpoint_gap = edge_endpoint_gap(brep, edge, &cap_curve)?;
-            let support_endpoint_gap = edge_endpoint_gap(brep, edge, &support_curve)?;
-            if matches!(support_surface, SurfaceGeometry::Cylinder { .. })
-                && support_endpoint_gap <= cap_endpoint_gap.max(1.0e-6)
-            {
-                return Some(support_curve);
-            }
-            if cap_endpoint_gap <= support_endpoint_gap {
-                Some(cap_curve)
-            } else {
-                Some(support_curve)
-            }
-        }
-        (Some(curve), None) | (None, Some(curve)) => Some(curve),
-        (None, None) => None,
-    }
 }
 
 pub(super) fn reversed_pcurve(pcurve: &Pcurve) -> Pcurve {

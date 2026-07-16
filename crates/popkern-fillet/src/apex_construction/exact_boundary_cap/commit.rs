@@ -7,6 +7,8 @@ use popkern_core::topology::{
 
 #[path = "commit_helpers.rs"]
 mod commit_helpers;
+#[path = "commit_input_validation.rs"]
+mod commit_input_validation;
 #[path = "commit_live_boundary_validation.rs"]
 mod commit_live_boundary_validation;
 #[path = "commit_pcurve_orientation.rs"]
@@ -30,6 +32,7 @@ use commit_helpers::{
     normalize_semantic_line_edge_curve, project_curve_to_half_edge_pcurve,
     resolved_support_side_for_commit, reversed_pcurve, solved_surface,
 };
+use commit_input_validation::validate_commit_inputs;
 use commit_live_boundary_validation::live_pcurve_pair_residual;
 use commit_pcurve_orientation::orient_pcurve_to_half_edge_vertices;
 pub(crate) use commit_post_validation::post_commit_validation_diagnostic;
@@ -63,136 +66,6 @@ pub(crate) fn commit_exact_boundary_sector_surfaces(
             Err(diagnostic)
         }
     }
-}
-
-#[allow(clippy::result_large_err)]
-fn validate_commit_inputs(
-    brep: &BRep,
-    cap_face: FaceHandle,
-    sectors: &[ExactBoundaryCapSectorInput],
-    solved: &ExactBoundarySolvedSurfaces,
-    pcurves: &PreparedExactBoundaryPcurves,
-) -> Result<(), ExactBoundaryCommitDiagnostic> {
-    if !brep.faces.contains_key(cap_face) {
-        return Err(ExactBoundaryCommitDiagnostic::new(
-            ExactBoundaryCommitDeclineReason::CapFaceMissing,
-            None,
-            Some(cap_face),
-        ));
-    }
-    if solved.validated_surface_count() != sectors.len() {
-        return Err(ExactBoundaryCommitDiagnostic::new(
-            ExactBoundaryCommitDeclineReason::SurfaceInventoryMismatch,
-            None,
-            Some(cap_face),
-        ));
-    }
-    if pcurves.validated_pair_count() != sectors.len() * 2 {
-        return Err(ExactBoundaryCommitDiagnostic::new(
-            ExactBoundaryCommitDeclineReason::PcurveInventoryMismatch,
-            None,
-            Some(cap_face),
-        ));
-    }
-    for sector in sectors {
-        if !has_unique_surface_for_sector(solved, sector) {
-            return Err(ExactBoundaryCommitDiagnostic::new(
-                ExactBoundaryCommitDeclineReason::SurfaceInventoryMismatch,
-                Some(sector.sector_name.clone()),
-                Some(sector.cap_face),
-            ));
-        }
-        if !has_required_pcurve_pairs_for_sector(pcurves, sector) {
-            return Err(ExactBoundaryCommitDiagnostic::new(
-                ExactBoundaryCommitDeclineReason::PcurveInventoryMismatch,
-                Some(sector.sector_name.clone()),
-                Some(sector.cap_face),
-            ));
-        }
-        if (sectors.len() == 1 && sector.cap_face == cap_face)
-            || !sector_faces_are_unique(sectors, sector)
-        {
-            return Err(ExactBoundaryCommitDiagnostic::new(
-                ExactBoundaryCommitDeclineReason::SectorTopologyMissing,
-                Some(sector.sector_name.clone()),
-                Some(sector.cap_face),
-            ));
-        }
-        if !brep.faces.contains_key(sector.cap_face) {
-            return Err(ExactBoundaryCommitDiagnostic::new(
-                ExactBoundaryCommitDeclineReason::SectorFaceMissing,
-                Some(sector.sector_name.clone()),
-                Some(sector.cap_face),
-            ));
-        }
-        for half_edge in sector.cap_half_edges {
-            if !brep.half_edges.contains_key(half_edge) {
-                return Err(ExactBoundaryCommitDiagnostic::new(
-                    ExactBoundaryCommitDeclineReason::CapHalfEdgeMissing,
-                    Some(sector.sector_name.clone()),
-                    Some(sector.cap_face),
-                ));
-            }
-        }
-        for half_edge in sector.support_half_edges {
-            if !brep.half_edges.contains_key(half_edge) {
-                return Err(ExactBoundaryCommitDiagnostic::new(
-                    ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
-                    Some(sector.sector_name.clone()),
-                    Some(sector.cap_face),
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn sector_faces_are_unique(
-    sectors: &[ExactBoundaryCapSectorInput],
-    sector: &ExactBoundaryCapSectorInput,
-) -> bool {
-    sectors
-        .iter()
-        .filter(|candidate| candidate.cap_face == sector.cap_face)
-        .count()
-        == 1
-}
-
-fn has_unique_surface_for_sector(
-    solved: &ExactBoundarySolvedSurfaces,
-    sector: &ExactBoundaryCapSectorInput,
-) -> bool {
-    solved
-        .surfaces
-        .iter()
-        .filter(|surface| {
-            surface.sector_index == sector.sector_index && surface.sector_name == sector.sector_name
-        })
-        .count()
-        == 1
-}
-
-fn has_required_pcurve_pairs_for_sector(
-    pcurves: &PreparedExactBoundaryPcurves,
-    sector: &ExactBoundaryCapSectorInput,
-) -> bool {
-    [
-        ExactBoundaryOuterSide::FilletEnd,
-        ExactBoundaryOuterSide::FaceEdge,
-    ]
-    .into_iter()
-    .all(|side| {
-        pcurves
-            .pairs
-            .iter()
-            .filter(|pair| {
-                pair.sector_index == sector.sector_index
-                    && pair.sector_name == sector.sector_name
-                    && pair.side == side
-            })
-            .count()
-            == 1
-    })
 }
 
 #[allow(clippy::result_large_err)]
@@ -447,6 +320,31 @@ fn commit_validated_inputs(
                     Some(sector.cap_face),
                 )
             })?;
+            // When the canonical curve did not come from the support
+            // pcurve's own trace, the stale support pcurve can sit a
+            // measurable tangential offset away from the seam (~1e-5 on
+            // fillet cylinders); reproject it from the canonical curve so
+            // both faces tessellate the same boundary (PK-124).
+            let support_pcurve = if commit_helpers::pcurve_trace_curve_deviation(
+                &support_pcurve,
+                &support_surface,
+                &curve,
+            ) > brep.tolerance.linear().max(1.0e-6)
+            {
+                project_curve_to_half_edge_pcurve(brep, support_half_edge, &curve, &support_surface)
+                    .map(|reprojected| {
+                        orient_pcurve_to_half_edge_vertices(
+                            brep,
+                            support_half_edge,
+                            reprojected,
+                            &support_surface,
+                        )
+                    })
+                    .unwrap_or(support_pcurve)
+            } else {
+                support_pcurve
+            };
+            brep.half_edges[support_half_edge].pcurve = Some(support_pcurve.clone());
             let shared_trim_tolerance = brep.tolerance.linear().max(5.0e-3);
             if let Err(failure) = commit_shared_trim_edge_transactionally(
                 brep,

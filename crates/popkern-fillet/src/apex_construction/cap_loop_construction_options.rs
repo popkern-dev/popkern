@@ -18,6 +18,16 @@ impl Default for CapLoopConstructionOptions {
 }
 
 impl CapLoopConstructionOptions {
+    /// Copy of these options with the V-free repeated-apex contract
+    /// resolved (the mode's valence scoping lives in
+    /// `ConstructiveApexExecutionOptions`).
+    pub(crate) fn with_v_free_repeated_apex(mut self, enabled: bool) -> Self {
+        self.repeated_apex_partition = self
+            .repeated_apex_partition
+            .with_v_free_repeated_apex(enabled);
+        self
+    }
+
     pub(crate) fn from_environment_adapter() -> Self {
         Self {
             repeated_apex_partition: RepeatedApexPartitionExecutionOptions::new(
@@ -30,7 +40,7 @@ impl CapLoopConstructionOptions {
                     .is_some(),
                 std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_SHARED_CYLINDER_FILLET_END")
                     .is_some(),
-                std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX").is_some(),
+                false,
             ),
         }
     }

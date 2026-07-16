@@ -142,6 +142,14 @@ impl BRep {
     /// For v1a, gracefully skip edges with no geometry.
     pub fn validate_watertight(&self) -> Result<(), ValidationError> {
         for (edge_handle, edge_data) in &self.edges {
+            // Retired scaffolding is not part of the production shell:
+            // partition legs park displaced sides in ConstructionResidual
+            // holders whose curves legitimately go stale, matching the
+            // role skip in the naked-edge / degenerate / tessellation
+            // detectors.
+            if edge_data.role == TopologyRole::ConstructionResidual {
+                continue;
+            }
             let Some(curve_on_edge) = &edge_data.curve else {
                 // No geometry — skip.
                 continue;

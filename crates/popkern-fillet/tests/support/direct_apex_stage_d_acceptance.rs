@@ -97,3 +97,23 @@ fn direct_apex_stage_d_v_free_topology_acceptance() {
             .join("\n")
     );
 }
+
+#[test]
+#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
+fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
+    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    let result = build_under_direct_apex(true, &[0.04, 0.06, 0.05, 0.07]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "strict V-free repeated-apex mode must complete without fallback; got:\n{}",
+        reasons.join("\n"),
+    );
+    assert!(
+        !reasons
+            .iter()
+            .any(|reason| reason.contains("repeated-apex construction retained apex vertex")),
+        "strict V-free repeated-apex mode must not retain production apex topology; got:\n{}",
+        reasons.join("\n"),
+    );
+}

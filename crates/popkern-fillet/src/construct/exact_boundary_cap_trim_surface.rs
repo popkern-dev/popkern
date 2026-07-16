@@ -22,24 +22,34 @@ pub(super) fn relock_exact_boundary_cap_side(
     support_half_edge: HalfEdgeHandle,
     side: ExactBoundaryCapSurfaceSide,
     side_forward: bool,
-    support_forward: bool,
     allow_wide_adjacent_row_search: bool,
 ) -> Option<()> {
     let face = brep.loops.get(brep.half_edges.get(half_edge)?.loop_)?.face;
     let edge = brep.half_edges.get(half_edge)?.edge;
     let curve = brep.edges.get(edge)?.curve.as_ref()?;
     let edge_forward = brep.edges.get(edge)?.half_edge == half_edge;
+    // Row writes replace control points in the side's INCREASING-parameter
+    // storage order. `side_forward` converts half-edge order to storage
+    // order for the edge-curve fallback; the support trace is oriented by
+    // measurement against the current side endpoints below (the flag-based
+    // orientation flipped rows whenever the partition reused a cap
+    // half-edge running against the solved surface's parameter direction,
+    // which scrambled committed-correct caps — PK-124).
     let edge_direction = if side_forward == edge_forward {
         BoundarySampleDirection::Forward
     } else {
         BoundarySampleDirection::Reverse
     };
-    let support_direction = if support_forward {
-        BoundarySampleDirection::Forward
-    } else {
-        BoundarySampleDirection::Reverse
+    let side_endpoints = {
+        let surface = brep.faces.get(face)?.surface.as_ref()?;
+        let SurfaceGeometry::Nurbs(surface_nurbs) = &surface.geometry else {
+            return None;
+        };
+        side_storage_order_endpoints(surface_nurbs, side)
     };
-    let support_trace = support_boundary_trace(brep, support_half_edge, support_direction);
+    let support_trace =
+        support_boundary_trace(brep, support_half_edge, BoundarySampleDirection::Forward)
+            .map(|trace| orient_trace_to_side_endpoints(trace, side_endpoints));
     let surface = brep.faces.get_mut(face)?.surface.as_mut()?;
     let SurfaceGeometry::Nurbs(surface_nurbs) = &mut surface.geometry else {
         return None;
@@ -66,6 +76,53 @@ pub(super) fn relock_exact_boundary_cap_side(
 enum BoundarySampleDirection {
     Forward,
     Reverse,
+}
+
+/// Side endpoint images in increasing-parameter (storage) order.
+fn side_storage_order_endpoints(
+    surface: &NurbsSurface,
+    side: ExactBoundaryCapSurfaceSide,
+) -> (
+    popkern_core::geometry::Point3,
+    popkern_core::geometry::Point3,
+) {
+    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    let (start_uv, end_uv) = match side {
+        ExactBoundaryCapSurfaceSide::VMin => ((u_min, v_min), (u_max, v_min)),
+        ExactBoundaryCapSurfaceSide::VMax => ((u_min, v_max), (u_max, v_max)),
+        ExactBoundaryCapSurfaceSide::UMin => ((u_min, v_min), (u_min, v_max)),
+        ExactBoundaryCapSurfaceSide::UMax => ((u_max, v_min), (u_max, v_max)),
+    };
+    (
+        surface.point_at(start_uv.0, start_uv.1),
+        surface.point_at(end_uv.0, end_uv.1),
+    )
+}
+
+/// Orient a forward-sampled support trace into storage order by measuring
+/// it against the current side endpoints. The committed cap side is within
+/// commit tolerance of the support boundary, so endpoint distances decide
+/// the direction robustly; a tie (degenerate side) keeps forward order.
+fn orient_trace_to_side_endpoints(
+    trace: BoundaryTrace,
+    (side_start, side_end): (
+        popkern_core::geometry::Point3,
+        popkern_core::geometry::Point3,
+    ),
+) -> BoundaryTrace {
+    let (Some(first), Some(last)) = (trace.points.first(), trace.points.last()) else {
+        return trace;
+    };
+    let forward_gap = first.distance_to(&side_start) + last.distance_to(&side_end);
+    let reverse_gap = first.distance_to(&side_end) + last.distance_to(&side_start);
+    if reverse_gap < forward_gap {
+        BoundaryTrace {
+            points: trace.points.into_iter().rev().collect(),
+            normals: trace.normals.into_iter().rev().collect(),
+        }
+    } else {
+        trace
+    }
 }
 
 fn support_boundary_trace(

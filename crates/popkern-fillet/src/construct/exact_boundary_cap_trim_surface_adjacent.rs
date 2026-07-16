@@ -164,7 +164,18 @@ fn apply_adjacent_row_points(
     side: ExactBoundaryCapSurfaceSide,
     adjacent_points: &[Point3],
 ) -> Option<()> {
+    // The adjacent row's END control points lie ON the transverse
+    // boundary rows (a UMin-adjacent column starts in the VMin row and
+    // ends in the VMax row). Writing them displaced committed neighbour
+    // boundaries — the cap spokes and FilletEnd rows — by up to 5.4e-2;
+    // that displacement was the historical source of the pyramid4 zoo
+    // tessellation seam family (PK-124). The G1 correction pins them
+    // and moves only the interior.
+    let last = adjacent_points.len().checked_sub(1)?;
     for (index, point) in adjacent_points.iter().enumerate() {
+        if index == 0 || index == last {
+            continue;
+        }
         let surface_index = adjacent_row_index(surface, side, index)?;
         surface.control_points[surface_index] = *point;
         surface.weights[surface_index] = 1.0;

@@ -27,6 +27,11 @@ pub(crate) fn refine_support_normal_strips_with_pcurves(
 ) {
     let baseline_deficit = first_pcurve_decline_deficit(solved, pcurves, ribbons)
         .unwrap_or_else(|| worst_pcurve_support_normal_deficit(solved, pcurves, ribbons));
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace exact-boundary/pcurve-strip] baseline deficit {baseline_deficit:.4e}"
+        );
+    }
     if baseline_deficit <= MAX_SUPPORT_NORMAL_DEFICIT {
         return;
     }
@@ -52,6 +57,11 @@ pub(crate) fn refine_support_normal_strips_with_pcurves(
         .unwrap_or_else(|| worst_pcurve_support_normal_deficit(&candidate, pcurves, ribbons));
     let candidate_boundary_residual =
         worst_cap_support_position_residual(&candidate, pcurves, ribbons);
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace exact-boundary/pcurve-strip] candidate deficit {candidate_deficit:.4e} boundary_residual {candidate_boundary_residual:.4e}"
+        );
+    }
     if candidate_deficit.is_finite()
         && candidate_deficit < baseline_deficit
         && candidate_boundary_residual <= MAX_REFINED_BOUNDARY_RESIDUAL

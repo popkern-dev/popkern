@@ -3,41 +3,15 @@
 use super::*;
 use popkern_core::topology::TopologyRole;
 
+#[path = "repeated_apex_partition_execution_options.rs"]
+mod execution_options;
+pub(crate) use execution_options::RepeatedApexPartitionExecutionOptions;
+
 pub(super) struct RepeatedApexPartitionPlan {
     cap_face: FaceHandle,
     cap_loop: LoopHandle,
     cap_boundary: Vec<PartitionBoundaryEdge>,
     retired_spans: Vec<RetiredApexSpan>,
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct RepeatedApexPartitionExecutionOptions {
-    pub(super) apply_cylinder_trim_rewrite: bool,
-    pub(super) require_cylinder_trim_rewrite_ready: bool,
-    pub(super) require_cylinder_trim_rebuild_plan: bool,
-    pub(super) adopt_cylinder_fillet_end_endpoints: bool,
-    pub(super) require_shared_cylinder_fillet_end: bool,
-    pub(super) require_v_free_repeated_apex: bool,
-}
-
-impl RepeatedApexPartitionExecutionOptions {
-    pub(crate) fn new(
-        apply_cylinder_trim_rewrite: bool,
-        require_cylinder_trim_rewrite_ready: bool,
-        require_cylinder_trim_rebuild_plan: bool,
-        adopt_cylinder_fillet_end_endpoints: bool,
-        require_shared_cylinder_fillet_end: bool,
-        require_v_free_repeated_apex: bool,
-    ) -> Self {
-        Self {
-            apply_cylinder_trim_rewrite,
-            require_cylinder_trim_rewrite_ready,
-            require_cylinder_trim_rebuild_plan,
-            adopt_cylinder_fillet_end_endpoints,
-            require_shared_cylinder_fillet_end,
-            require_v_free_repeated_apex,
-        }
-    }
 }
 
 impl RepeatedApexPartitionPlan {

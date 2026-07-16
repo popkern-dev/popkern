@@ -7,9 +7,8 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
     BrepEdgeCurveCompletionOptions, BrepEdgeSurfaceCompatibilityOptions,
-    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineFailureReason, BrepRepairPipelineOptions,
-    BrepRepairPipelineStage, BrepSewingClassificationOptions, BrepSewingOptions,
-    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineOptions, BrepSewingClassificationOptions,
+    BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, repair_brep_boundary_edges_transactionally,
 };
 use popkern_fillet::{
@@ -307,21 +306,20 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         },
     );
 
-    let failure = repair_brep_boundary_edges_transactionally(
+    // Census provenance: this pipeline DECLINED at the face-use trim
+    // authority stage through PK-116 (raw blockers 21 -> 19 across
+    // PK-095/PK-074). PK-124's exact-boundary seam fidelity package
+    // (canonical shared-trim curves, reprojected support pcurves,
+    // measured-gated relock) repaired enough cap-seam pairings that
+    // the diagnostic pipeline now completes; the raw blocker census is
+    // 11 (matching cap_family_step_acceptance).
+    let result = repair_brep_boundary_edges_transactionally(
         brep,
         &[],
         gregory_edge_surface_pipeline_options(false),
     )
-    .expect_err(
-        "diagnostic repair pipeline should expose residual face-use authority blockers for the exact-boundary route",
-    );
-    assert_eq!(failure.stage, BrepRepairPipelineStage::FaceUseTrimAuthority);
-    assert!(matches!(
-        failure.reason,
-        BrepRepairPipelineFailureReason::FaceUseTrimAuthorityFailed(_)
-    ));
-
-    let report = failure
+    .expect("diagnostic repair pipeline should complete on the exact-boundary route");
+    let report = result
         .report
         .edge_surface_compatibility
         .as_ref()
@@ -330,33 +328,13 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         report.before.incompatible_half_edges,
         before.incompatible_half_edges
     );
-    // Census provenance: 21 through the PK-095 era; 19 since the
-    // pcurve recompute's degree-1 shortcut verifies parameterization
-    // at the quarter points (PK-074 closure).
     assert_eq!(
-        report.before.incompatible_half_edges, 19,
+        report.before.incompatible_half_edges, 11,
         "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(
         report.attempted_edges,
         report.repaired_edges + report.declined_edges
-    );
-    assert_eq!(
-        report.attempted_edges, 15,
-        "shared pipeline should attempt the known raw exact-boundary edge/surface blocker class"
-    );
-    assert!(
-        report.after.incompatible_half_edges > 0,
-        "pipeline should leave residual exact-boundary edge/surface blockers visible to diagnostics"
-    );
-    let face_use_report = failure
-        .report
-        .face_use_trim_authority
-        .as_ref()
-        .expect("face-use authority report should explain the decline");
-    assert!(
-        face_use_report.after.has_blocking_findings(),
-        "face-use authority decline should preserve structured residual blockers: {face_use_report:#?}"
     );
 }
 
@@ -386,30 +364,24 @@ fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendRe
 #[test]
 fn gregory_mixed_radius_strict_edge_surface_pipeline_accepts_exact_boundary_route() {
     let brep = mixed_radius_gregory_cube();
-    let failure = repair_brep_boundary_edges_transactionally(
+    // Census provenance: strict mode DECLINED with residual
+    // incompatibilities through PK-116. PK-124's seam fidelity package
+    // repaired the remaining cap-seam pairings, so the strict pipeline
+    // now accepts the route with zero residual incompatibilities.
+    let result = repair_brep_boundary_edges_transactionally(
         &brep,
         &[],
         gregory_edge_surface_pipeline_options(true),
     )
-    .expect_err(
-        "strict edge/surface compatibility should decline residual exact-boundary blockers",
-    );
-    assert_eq!(
-        failure.stage,
-        BrepRepairPipelineStage::EdgeSurfaceCompatibility
-    );
-    assert!(matches!(
-        failure.reason,
-        BrepRepairPipelineFailureReason::EdgeSurfaceCompatibilityFailed(_)
-    ));
-    let report = failure
+    .expect("strict edge/surface compatibility should accept the exact-boundary route");
+    let report = result
         .report
         .edge_surface_compatibility
         .as_ref()
         .expect("strict repair must include edge/surface report");
-    assert!(
-        report.after.incompatible_half_edges > 0,
-        "strict exact-boundary route must expose residual edge/surface incompatibilities: {report:#?}"
+    assert_eq!(
+        report.after.incompatible_half_edges, 0,
+        "strict exact-boundary route should leave no residual edge/surface incompatibilities: {report:#?}"
     );
 }
 

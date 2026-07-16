@@ -186,7 +186,7 @@ fn construct_apex_inner_constructive(
                 plan,
                 cap_face,
                 false,
-                execution_options.require_v_free_repeated_apex(),
+                execution_options.require_v_free_repeated_apex_for(plan.cap_kind.n_fillets()),
             )?;
             check_cancelled(cancel)?;
             assign_sphere_cap_surface(brep, cap_face, *cap_center, *cap_radius)?;
@@ -247,7 +247,7 @@ fn construct_apex_inner_constructive(
                 .filter(|(_, h)| h.origin == plan.apex_vertex)
                 .map(|(_, h)| h.edge)
                 .collect();
-            let cap_loop_options = execution_options.cap_loop();
+            let cap_loop_options = execution_options.cap_loop_for(plan.cap_kind.n_fillets());
 
             let apex_vertex_handles =
                 author_gregory_apex_vertices(brep, plan, fillet_surfaces, tolerance)?;
@@ -282,7 +282,7 @@ fn construct_apex_inner_constructive(
                 plan,
                 cap_face,
                 repeated_apex_normalized,
-                execution_options.require_v_free_repeated_apex(),
+                execution_options.require_v_free_repeated_apex_for(plan.cap_kind.n_fillets()),
             )?;
             check_cancelled(cancel)?;
             let sectors =

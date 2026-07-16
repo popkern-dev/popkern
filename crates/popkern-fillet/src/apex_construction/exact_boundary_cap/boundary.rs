@@ -2,17 +2,24 @@ use popkern_core::geometry::NurbsCurve;
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::topology::{BRep, EdgeHandle};
 
+#[path = "boundary_compatibility.rs"]
+mod boundary_compatibility;
 #[path = "boundary_curve_orientation.rs"]
 mod boundary_curve_orientation;
 #[path = "boundary_support_source.rs"]
 mod boundary_support_source;
 
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBoundaryOuterSide};
+use boundary_compatibility::{
+    check_budget, compatible_interior_knots, elevate_to_target, insert_missing_knots,
+    verify_prepared_curve,
+};
 use boundary_curve_orientation::{
     cap_half_edge_vertex_span, endpoint_orientation_gap, reverse_nurbs_curve,
 };
 use boundary_support_source::{
-    validated_projected_support_source_curve, validated_support_pcurve_source_curve,
+    raw_curve_needs_support_authority, validated_projected_support_source_curve,
+    validated_support_pcurve_source_curve,
 };
 
 const VERIFY_SAMPLES: usize = 9;
@@ -228,10 +235,23 @@ fn oriented_source_curve(
     let raw_curve = curve_on_edge
         .geometry
         .to_nurbs_in_range((curve_on_edge.t_start, curve_on_edge.t_end));
-    if !has_non_unit_weights(&raw_curve)
+    // The support pcurve is the boundary authority whenever the stored
+    // edge curve is measurably off its support surface — including exact
+    // rational arcs, whose termination construction can land ~1e-5 off
+    // the fillet cylinder and would otherwise bake that error into the
+    // cap boundary row (PK-124 marginal FilletEnd seams).
+    let needs_support_authority = raw_curve_needs_support_authority(brep, seam, &raw_curve);
+    if (!has_non_unit_weights(&raw_curve) || needs_support_authority)
         && let Some(support_curve) = validated_support_pcurve_source_curve(brep, seam, &raw_curve)
         && let Ok(prepared) = prepared_source_from_curve(brep, sector, seam, support_curve)
     {
+        if needs_support_authority && crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace exact-boundary/boundary] seam edge {:?}: off-support raw \
+                 curve replaced by support-pcurve authority",
+                seam.edge
+            );
+        }
         return Ok(prepared);
     }
     match prepared_source_from_curve(brep, sector, seam, raw_curve) {
@@ -376,124 +396,4 @@ fn normalize_curve_parameter_domain(curve: &NurbsCurve) -> Option<NurbsCurve> {
         control_points: curve.control_points.clone(),
         weights: curve.weights.clone(),
     })
-}
-
-fn elevate_to_target(
-    mut curve: PreparedSourceCurve,
-    budget: ExactBoundaryCurveBudget,
-) -> Result<PreparedSourceCurve, ExactBoundaryCurveDiagnostic> {
-    if curve.prepared.degree > budget.target_degree {
-        check_budget(&curve, budget)?;
-        return Err(ExactBoundaryCurveDiagnostic::new(
-            ExactBoundaryCurveDeclineReason::DegreeCompatibilityDeclined,
-            &curve,
-            None,
-        ));
-    }
-    if curve.prepared.degree < budget.target_degree {
-        curve.prepared = curve
-            .prepared
-            .elevate_degree_to(budget.target_degree)
-            .map_err(|_| {
-                ExactBoundaryCurveDiagnostic::new(
-                    ExactBoundaryCurveDeclineReason::DegreeCompatibilityDeclined,
-                    &curve,
-                    None,
-                )
-            })?;
-    }
-    check_budget(&curve, budget)?;
-    Ok(curve)
-}
-
-fn compatible_interior_knots(curves: &[PreparedSourceCurve]) -> Vec<f64> {
-    let mut knots = Vec::new();
-    for curve in curves {
-        let (start, end) = curve.prepared.parameter_range();
-        for &knot in &curve.prepared.knots {
-            if knot > start + KNOT_EPS
-                && knot < end - KNOT_EPS
-                && !knots
-                    .iter()
-                    .any(|existing| f64::abs(*existing - knot) <= KNOT_EPS)
-            {
-                knots.push(knot);
-            }
-        }
-    }
-    knots.extend(SUPPORT_RIBBON_REFINEMENT_KNOTS);
-    knots.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-    knots
-}
-
-fn insert_missing_knots(
-    curve: &mut PreparedSourceCurve,
-    union_knots: &[f64],
-    budget: ExactBoundaryCurveBudget,
-) -> Result<(), ExactBoundaryCurveDiagnostic> {
-    for &knot in union_knots {
-        let required = union_knots
-            .iter()
-            .filter(|required| f64::abs(**required - knot) <= KNOT_EPS)
-            .count();
-        let existing = curve
-            .prepared
-            .knots
-            .iter()
-            .filter(|existing| f64::abs(**existing - knot) <= KNOT_EPS)
-            .count();
-        if existing < required {
-            curve.prepared = curve.prepared.insert_knot(knot).map_err(|_| {
-                ExactBoundaryCurveDiagnostic::new(
-                    ExactBoundaryCurveDeclineReason::KnotCompatibilityDeclined,
-                    curve,
-                    None,
-                )
-            })?;
-            check_budget(curve, budget)?;
-        }
-    }
-    Ok(())
-}
-
-fn check_budget(
-    curve: &PreparedSourceCurve,
-    budget: ExactBoundaryCurveBudget,
-) -> Result<(), ExactBoundaryCurveDiagnostic> {
-    if curve.prepared.control_points.len() > budget.max_control_points
-        || curve.prepared.knots.len() > budget.max_knots
-    {
-        Err(ExactBoundaryCurveDiagnostic::new(
-            ExactBoundaryCurveDeclineReason::KnotBudgetExceeded,
-            curve,
-            None,
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-fn verify_prepared_curve(curve: &PreparedSourceCurve) -> Result<(), ExactBoundaryCurveDiagnostic> {
-    let (start, end) = curve.source_range;
-    let mut worst = 0.0;
-    for i in 0..VERIFY_SAMPLES {
-        let normalized = i as f64 / (VERIFY_SAMPLES - 1) as f64;
-        let t = start + (end - start) * normalized;
-        let residual = curve
-            .source
-            .point_at(t)
-            .distance_to(&curve.prepared.point_at(normalized));
-        if residual > worst {
-            worst = residual;
-        }
-    }
-    if worst > VERIFY_TOLERANCE {
-        Err(ExactBoundaryCurveDiagnostic::new(
-            ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed,
-            curve,
-            Some(worst),
-        ))
-    } else {
-        Ok(())
-    }
 }

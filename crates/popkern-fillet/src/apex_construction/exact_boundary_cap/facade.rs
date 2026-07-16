@@ -384,6 +384,15 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 
     let accepted = committed && diagnostics.is_empty() && performance.pcurve_pair_count > 0;
     if !accepted {
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace exact-boundary/facade] rollback: committed={} diagnostics={} pcurve_pairs={} first_diag={:?}",
+                committed,
+                diagnostics.len(),
+                performance.pcurve_pair_count,
+                diagnostics.first().map(|d| format!("{d:?}")),
+            );
+        }
         *brep = snapshot;
         committed_faces.clear();
     }

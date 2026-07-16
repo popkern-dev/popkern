@@ -36,12 +36,17 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     // setback-cluster edges (40v1–42v1, 48v1–50v1). Verified as a
     // strict subset drop: every current blocker existed in the old
     // set, none were added (PK-116 ledger holds the edge-set diff).
+    // Dropped 15 -> 14 with PK-124's exact-boundary seam fidelity
+    // package (canonical shared-trim curve prefers the measured
+    // on-support cap curve; the support pcurve is reprojected from it
+    // with periodic unwrapping), which reconciled one more
+    // cap/cylinder seam pcurve.
     // Note the two counters use different granularity by design:
     // pcurve_blockers counts EDGES, edge_surface_blockers counts
     // incompatible HALF-EDGES (unchanged by the pcurve repair).
     assert_eq!(
         pre_export.pcurve_blockers,
-        15,
+        14,
         "raw exact-boundary cap-family export should expose the current structured pcurve blocker class: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
@@ -50,9 +55,13 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     // the pcurve recompute's degree-1 shortcut started verifying
     // parameterization at the quarter points (PK-074 closure) — two
     // previously fraction-skewed linear pcurves now take the dense
-    // interpolated path and reconcile with their edge curves.
+    // interpolated path and reconcile with their edge curves. Dropped
+    // 19 -> 11 with PK-124: measured-gated transactional relock (no
+    // more destructive full-row rewrites) plus the canonical
+    // shared-trim curve + reprojected support pcurves reconciled eight
+    // more cap-seam half-edges with their edge curves.
     assert_eq!(
-        pre_export.edge_surface_blockers, 19,
+        pre_export.edge_surface_blockers, 11,
         "raw exact-boundary cap-family export should expose the current structured edge/surface blocker class: {pre_export:#?}"
     );
     if pre_export.edge_curve_blockers > 0 {
@@ -122,14 +131,18 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                         // boundary_edges=0 (a closed accounting failure).
                         // The import class drifted in the same PK-095-era
                         // window as the blocker counts above: the imported
-                        // model now carries 38 unpaired half-edges (an
+                        // model carried 38 unpaired half-edges (an
                         // OPEN-shell decline, actual=36, V=80 E=63 F=19).
-                        // Still a structured, deterministic decline of the
+                        // PK-124's seam-fidelity package (canonical
+                        // shared-trim curves + reprojected support pcurves
+                        // + measured-gated relock) paired more imported
+                        // half-edges: actual=28, boundary_edges=32. Still a
+                        // structured, deterministic decline of the
                         // known-blocked raw export (PK-116).
                         assert_eq!(euler.expected, 2);
-                        assert_eq!(euler.actual, 36);
+                        assert_eq!(euler.actual, 28);
                         assert_eq!(
-                            euler.boundary_edges, 38,
+                            euler.boundary_edges, 32,
                             "Euler-Poincare evidence should expose the imported open-shell census: {euler:#?}"
                         );
                         assert_eq!(

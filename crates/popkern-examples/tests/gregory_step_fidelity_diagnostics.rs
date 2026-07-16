@@ -185,8 +185,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
 
     let classification =
         classify_fidelity_blocker(construction_state, export_state, imported_state);
+    // Census provenance: "construction_geometry_issue" through PK-116
+    // (edge/surface blockers survived construction, export, AND import).
+    // PK-124's seam fidelity package reconciled every imported
+    // edge/surface pairing (imported edge_surface_blockers 0; only the
+    // residual imported pcurve class remains), so the classifier ladder
+    // now lands on its validator-side bucket.
     assert_eq!(
-        classification, "construction_geometry_issue",
+        classification, "validator_gap",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }

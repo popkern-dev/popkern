@@ -1,0 +1,159 @@
+//! Measured fallback boundary for the promoted V-free repeated-apex
+//! default (PK-124).
+//!
+//! V-free topology is the production default, but its Stage-D contract is
+//! only proven for the pyramid repeated-apex class; cube-class apexes
+//! interact with dispatch-time pocket completion (PK-074) and fail native
+//! acceptance under it. When the default (not an explicit
+//! `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1`) fails acceptance,
+//! the dispatch retries the apex-retaining path once and records the
+//! fallback as a structured diagnostic, so an explicit strict request
+//! still fails loudly while production inputs keep their strongest
+//! passing construction.
+
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::BRep;
+
+use crate::apex_construction::construct::ApexBuildResult;
+use crate::apex_construction::constructive_builder::construct_apex_constructively;
+use crate::apex_construction::constructive_builder_options::ConstructiveApexExecutionOptions;
+use crate::fillet_surface::FilletSurfaceResult;
+
+/// Whether the active V-free contract came from the promoted default
+/// rather than an explicit environment request.
+pub(super) fn v_free_promoted_by_default() -> bool {
+    std::env::var_os("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX").is_none()
+}
+
+/// Measured fallback decision for the promoted V-free default: when the
+/// strict result failed structural/G0 acceptance OR the cap-outer G1
+/// commercial gate, retry the apex-retaining path. The strict topology
+/// contract stays available under the explicit environment request
+/// (`POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1`), which never
+/// falls back. Returns the accepted retry result, or `None` when the
+/// strict result stands (or the retry also declined).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn resolve_promoted_v_free_decline(
+    brep: &mut BRep,
+    snapshot: &BRep,
+    plan: &crate::apex_construction::plan::ApexPlan,
+    surfaces: &[FilletSurfaceResult],
+    tolerance: &Tolerance,
+    execution_options: ConstructiveApexExecutionOptions,
+    constructive_err: Option<&str>,
+    result: &ApexBuildResult,
+    acceptance_error: impl Fn(&BRep, &ApexBuildResult) -> Option<String>,
+) -> Option<ApexBuildResult> {
+    if !execution_options.require_v_free_repeated_apex_for(plan.n_fillets())
+        || !v_free_promoted_by_default()
+    {
+        return None;
+    }
+    let g1_declined = constructive_err.is_none();
+    let decline_reason = match constructive_err {
+        Some(err) => err.to_string(),
+        None => {
+            super::direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
+                brep, result, 5.0e-3, 5.0e-2,
+            )?;
+            "cap-outer G1 exceeded the commercial gate under the promoted V-free default"
+                .to_string()
+        }
+    };
+    // When only the G1 gate declined, the strict result is still a valid
+    // fallback target: keep whichever construction actually measures
+    // better instead of unconditionally preferring the retry.
+    let strict_state = g1_declined.then(|| brep.clone());
+    let retry = retry_apex_retaining_after_v_free_decline(
+        brep,
+        snapshot,
+        plan,
+        surfaces,
+        tolerance,
+        execution_options,
+        &decline_reason,
+        acceptance_error,
+    );
+    if let (Some(retry_result), Some(strict_state)) = (retry.as_ref(), strict_state) {
+        let retry_also_fails_g1 =
+            super::direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
+                brep,
+                retry_result,
+                5.0e-3,
+                5.0e-2,
+            )
+            .is_some();
+        if retry_also_fails_g1 {
+            if crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace] apex-retaining retry also fails the cap-outer G1 \
+                     gate; keeping the strict V-free result"
+                );
+            }
+            *brep = strict_state;
+            return None;
+        }
+    }
+    retry
+}
+
+/// Retry the constructive build with the apex-retaining options after a
+/// V-free decline. Returns the accepted retry result, or `None` (with
+/// `brep` restored to `snapshot`) when the retry also declines.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn retry_apex_retaining_after_v_free_decline(
+    brep: &mut BRep,
+    snapshot: &BRep,
+    plan: &crate::apex_construction::plan::ApexPlan,
+    surfaces: &[FilletSurfaceResult],
+    tolerance: &Tolerance,
+    execution_options: ConstructiveApexExecutionOptions,
+    v_free_error: &str,
+    acceptance_error: impl Fn(&BRep, &ApexBuildResult) -> Option<String>,
+) -> Option<ApexBuildResult> {
+    *brep = snapshot.clone();
+    let retry_options = execution_options.with_v_free_repeated_apex_disabled();
+    let mut retry_result =
+        match construct_apex_constructively(brep, plan, surfaces, tolerance, None, retry_options) {
+            Ok(result) => result,
+            Err(_) => {
+                *brep = snapshot.clone();
+                return None;
+            }
+        };
+    if let Some(retry_error) = acceptance_error(brep, &retry_result) {
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace] apex-retaining retry after V-free decline also failed: \
+                 {retry_error}"
+            );
+        }
+        *brep = snapshot.clone();
+        return None;
+    }
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace] V-free default declined ({v_free_error}); apex-retaining \
+             retry accepted"
+        );
+    }
+    retry_result
+        .diagnostics
+        .push(crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+            crate::types::ExactBoundaryCapDiagnostic {
+                stage: "direct_apex.v_free_promotion".to_string(),
+                code: "direct_apex.v_free_promotion.apex_retaining_fallback".to_string(),
+                detail_code: Some(v_free_error.to_string()),
+                sector_name: "direct_apex".to_string(),
+                edge: None,
+                support_half_edge: None,
+                support_face: None,
+                residual: None,
+                outer_side: None,
+                sample_parameter: None,
+                tolerance: None,
+                shared_fact_ids: Vec::new(),
+            },
+        ));
+    Some(retry_result)
+}

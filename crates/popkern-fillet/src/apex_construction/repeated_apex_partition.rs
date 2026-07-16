@@ -192,10 +192,6 @@ use partition_rebuild_diagnostics::{
     retired_trim_runs_by_adjacent_face,
 };
 
-/// Late (post-surface-solve) carrier absorption entry point for the
-/// direct-apex dispatch: the partition-time pass skips surface-less
-/// production faces, so the dispatch runs the same absorption once
-/// every surface is committed.
 pub(crate) fn absorb_coplanar_residual_scaffold_late(
     brep: &mut popkern_core::topology::BRep,
 ) -> usize {

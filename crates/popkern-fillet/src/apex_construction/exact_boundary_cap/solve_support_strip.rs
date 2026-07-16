@@ -27,6 +27,12 @@ pub(super) fn apply_support_normal_strip_correction(
     surface: &mut NurbsSurface,
 ) {
     let baseline_deficit = worst_support_normal_deficit(sector, ribbons, orientation, surface);
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace exact-boundary/strip] sector {} baseline deficit {baseline_deficit:.4e} fillet_reversed={} face_reversed={}",
+            sector.sector_index, orientation.fillet_reversed, orientation.face_reversed
+        );
+    }
     if baseline_deficit <= MAX_SUPPORT_NORMAL_DEFICIT {
         return;
     }
@@ -45,6 +51,12 @@ pub(super) fn apply_support_normal_strip_correction(
         }
     }
     let candidate_deficit = worst_support_normal_deficit(sector, ribbons, orientation, &candidate);
+    if crate::direct_apex_trace::enabled() {
+        eprintln!(
+            "[direct-apex-trace exact-boundary/strip] sector {} corrected deficit {candidate_deficit:.4e} (baseline {baseline_deficit:.4e})",
+            sector.sector_index
+        );
+    }
     if candidate_deficit.is_finite() && candidate_deficit < baseline_deficit {
         *surface = candidate;
     }
