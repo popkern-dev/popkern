@@ -1,3 +1,4 @@
+use super::partition_spilled_corner::normalize_spilled_fillet_corners;
 use super::*;
 
 #[path = "repeated_apex_partition_support_loop_residual.rs"]
@@ -359,6 +360,7 @@ fn materialize_closed_support_trim_cycles_candidate(
         }
     }
     retire_consumed_support_source_loops(brep, &source_loop_transfers)?;
+    normalize_spilled_fillet_corners(brep, trim_sides, &source_loop_transfers)?;
     materialize_support_boundary_residual_cycles(brep, &authored_boundary_spans)?;
     Ok(())
 }

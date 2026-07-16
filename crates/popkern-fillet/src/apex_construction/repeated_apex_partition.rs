@@ -93,6 +93,8 @@ mod partition_rebuild_diagnostics;
 mod partition_residuals;
 #[path = "repeated_apex_partition_shared_fillet_end_trim.rs"]
 mod partition_shared_fillet_end_trim;
+#[path = "repeated_apex_partition_spilled_corner.rs"]
+mod partition_spilled_corner;
 #[path = "repeated_apex_partition_support_boundary_claim.rs"]
 mod partition_support_boundary_claim;
 #[path = "repeated_apex_partition_support_bridge_trim_claim.rs"]
