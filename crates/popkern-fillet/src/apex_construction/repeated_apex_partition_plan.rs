@@ -447,6 +447,16 @@ impl RepeatedApexPartitionPlan {
         // Retired-subcomplex role coherence (see helper docs): must
         // run after every residual face demotion above.
         demote_residual_interior_edges(brep);
+        // Handover completion: park genuinely orphaned loop claimers in
+        // closed residual homes (must be the LAST loop-structure pass —
+        // mid-transaction displaced claims are deliberate hand-offs, and
+        // the default cube path's PK-074 pocket completion consumes
+        // displaced claims even later, at dispatch: gate to the strict
+        // V-free contract, whose scaffold this pass makes
+        // loop-partitionable so the carrier-absorption welds can apply).
+        if execution_options.require_v_free_repeated_apex {
+            rehome_all_displaced_claimers(brep)?;
+        }
         brep.normalize_edge_representatives();
         repair_stale_shell_anchors(brep)?;
         boundary_outcome.refresh_from_current_cap_loop(brep, self.cap_face)?;

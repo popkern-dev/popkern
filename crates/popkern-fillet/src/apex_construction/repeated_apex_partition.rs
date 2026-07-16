@@ -73,6 +73,8 @@ mod partition_cylinder_trim_rebuild;
 mod partition_cylinder_trim_topology;
 #[path = "repeated_apex_partition_cylinder_trim_transaction.rs"]
 mod partition_cylinder_trim_transaction;
+#[path = "repeated_apex_partition_displaced_rehome.rs"]
+mod partition_displaced_rehome;
 #[path = "repeated_apex_partition_exact_trim_curves.rs"]
 mod partition_exact_trim_curves;
 #[path = "repeated_apex_partition_far_side_trim.rs"]
@@ -167,6 +169,7 @@ use partition_cylinder_trim_transaction::{
     apply_cylinder_trim_rewrites_transactionally, validate_cylinder_trim_rebuild_plans,
     validate_cylinder_trim_rewrite_readiness,
 };
+use partition_displaced_rehome::rehome_all_displaced_claimers;
 use partition_exact_trim_curves::{
     exact_cylinder_arc_trim_curve_between, exact_cylinder_trim_curve_between,
     exact_support_cylinder_intersection_curve_between,
