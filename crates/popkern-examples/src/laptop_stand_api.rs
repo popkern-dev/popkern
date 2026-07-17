@@ -7,8 +7,8 @@
 //! Joint system: loose 6-point hexagram pegs in blind star sockets
 //! on every stacking face — anti-rotation by shape, no threads, no
 //! supports. Sockets are cut at NOMINAL size; the peg body is
-//! offset −0.2 mm per side and its pilot tips −0.8 mm, so every
-//! joint gets a printed clearance fit with a stepped lead-in.
+//! offset −0.2 mm per side with 1.5 mm chamfer lead-ins, so every
+//! joint gets a printed clearance fit that self-guides.
 //!
 //! Print orientation (strength-driven, encoded in each builder's
 //! log): the peg lies on a side face (shear across layers), the
@@ -30,12 +30,10 @@ struct StandParams {
     star_r: f64,
     /// Per-side clearance for the peg body against a nominal socket.
     fit_clearance: f64,
-    /// Extra per-side clearance on the peg pilot tips (lead-in).
-    pilot_clearance: f64,
     /// Total peg length.
     peg_len: f64,
-    /// Pilot tip length at each end of the peg.
-    pilot_len: f64,
+    /// Chamfer lead-in on each peg end loop (PK-135).
+    lead_in: f64,
     /// Blind socket depth on every stacking face.
     socket_depth: f64,
     /// Column outer radius and height.
@@ -109,9 +107,8 @@ impl StandParams {
             plate: 240.0,
             star_r: 12.0,
             fit_clearance: 0.2,
-            pilot_clearance: 0.8,
             peg_len: 30.0,
-            pilot_len: 6.0,
+            lead_in: 1.5,
             socket_depth: 16.0,
             column_r: 35.0,
             column_h: 60.0,
@@ -226,31 +223,28 @@ fn hexagram(r_outer: f64, edge_offset: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Joint peg: hexagram prism at fit clearance with a stepped pilot
-/// tip at BOTH ends (smaller star at pilot clearance) — the designed
-/// lead-in geometry. The double-pilot union class closed with the
-/// honest extrude-orientation data and winding-based ring-role
-/// election (gate `peg_double_pilot_leads_in_at_both_ends` /
-/// formerly pinned `peg_double_pilot_gap_is_pinned`).
+/// Joint peg: uniform hexagram prism at fit clearance with TRUE
+/// chamfer lead-ins on both end loops (PK-135 closed rim chamfer
+/// chains). Replaces the stepped pilot-tip containment — the peg is
+/// one silhouette, no unions, and still self-guides into a blind
+/// socket.
 fn build_peg(p: &StandParams) -> Result<Part, PartError> {
     let body_star = hexagram(p.star_r, p.fit_clearance);
-    let pilot_star = hexagram(p.star_r, p.pilot_clearance);
-    // Pilots embed 4 mm into the body so every union crossing is
-    // transversal (no coplanar contact).
-    let embed = 4.0;
-
-    let body = Profile::on(Plane::xy_at(p.pilot_len))
+    let peg = Profile::on(Plane::XY)
         .polygon(&body_star)
-        .extrude(p.peg_len - 2.0 * p.pilot_len)?;
-    let bottom_pilot = Profile::on(Plane::XY)
-        .polygon(&pilot_star)
-        .extrude(p.pilot_len + embed)?;
-    let top_pilot = Profile::on(Plane::xy_at(p.peg_len - p.pilot_len - embed))
-        .polygon(&pilot_star)
-        .extrude(p.pilot_len + embed)?;
-    let peg = body.union(&bottom_pilot)?.union(&top_pilot)?;
+        .extrude(p.peg_len)?
+        .chamfer(p.lead_in, |e: EdgeQuery| {
+            e.straight()
+                .at_height(p.peg_len)
+                .between(SurfaceKind::Plane, SurfaceKind::Plane)
+        })?
+        .chamfer(p.lead_in, |e: EdgeQuery| {
+            e.straight()
+                .at_height(0.0)
+                .between(SurfaceKind::Plane, SurfaceKind::Plane)
+        })?;
     p.assert_fits_plate("peg", 2.0 * p.star_r, p.peg_len);
-    println!("  peg: stepped pilots both ends; print lying on a side face");
+    println!("  peg: chamfered lead-ins both ends; print lying on a side face");
     Ok(peg)
 }
 
@@ -903,24 +897,22 @@ fn build_lip(p: &StandParams) -> Result<Part, PartError> {
     // sharp for the joint.
     let r = 2.0;
     let d = r - r / 2.0_f64.sqrt(); // arc mid-point sagitta offset
-    // The tab is the arm's slot dovetail inset by a UNIFORM
-    // perpendicular clearance c, so tab and slot flanks are exactly
-    // parallel (slot flank runs (1, 4.5) -> (6, 7), slope 0.5) and
-    // the fit is c everywhere instead of snug-at-throat /
-    // sloppy-at-crown. The nose keeps the 0.4 mm single-stop setback
-    // (crown x = 5.6 vs slot depth 6): the blade shoulder at x = 0
-    // is the only datum.
+    // Tab = the arm's slot dovetail inset by a UNIFORM perpendicular
+    // clearance c (slot flank (1,4.5)->(6,7), slope 0.5), so the
+    // flanks are exactly parallel; nose keeps the 0.4 mm single-stop
+    // setback (the blade shoulder at x = 0 is the only datum).
     let slope = 0.5_f64;
     let flank_shift = c * (1.0 + slope * slope).sqrt();
     let x_throat = 1.0 + (flank_shift - c) / slope;
     let y_nose = 4.5 + slope * (5.6 - 1.0) - flank_shift;
+    // The throat land is not a working surface (flanks carry the
+    // fit), so it tapers straight to the blade edge — no sharp
+    // half-width step at the top of the tab.
     let lip = Profile::on(Plane::XY)
-        .path(0.0, -(4.5 - c))
-        .line_to(x_throat, -(4.5 - c))
+        .path(x_throat, -(4.5 - c))
         .line_to(5.6, -y_nose)
         .line_to(5.6, y_nose)
         .line_to(x_throat, 4.5 - c)
-        .line_to(0.0, 4.5 - c)
         .line_to(0.0, 4.0)
         .line_to(-17.0 + r, 4.0)
         .arc_to((-17.0 + d, 4.0 - d), (-17.0, 4.0 - r))
