@@ -80,6 +80,12 @@ pub(super) fn try_dispatch_analytic(
 /// which case `try_dispatch_analytic` runs first and produces a
 /// `PlanePlane` analytic triple, so we shouldn't reach here for
 /// that pair anyway — the `None` return is a safety measure).
+/// Stack reservation for the marching worker thread. Debug-profile
+/// marching frames are deep (16 MiB measured sufficient on the KP20
+/// paper-cap fixtures); 64 MiB gives 4× headroom and costs only lazily
+/// committed virtual pages.
+const MARCHING_WORKER_STACK_BYTES: usize = 64 * 1024 * 1024;
+
 pub(super) fn try_dispatch_marching(
     surf_a: &SurfaceGeometry,
     surf_b: &SurfaceGeometry,
@@ -114,17 +120,32 @@ pub(super) fn try_dispatch_marching(
             let tol_owned = *tol;
             let opts_owned = opts.clone();
             let (tx, rx) = std::sync::mpsc::channel();
-            let _handle = std::thread::spawn(move || {
-                let result = dispatch_marching_inner(
-                    &surf_a_owned,
-                    &surf_b_owned,
-                    &anchors_owned,
-                    hint_owned.as_ref(),
-                    &tol_owned,
-                    &opts_owned,
-                );
-                let _ = tx.send(result);
-            });
+            // Marching's debug-profile frames are deep; the default
+            // ~2 MiB worker stack overflows on dense NURBS pairs
+            // (PK-120), so reserve an explicit roomy stack. Linux
+            // commits the pages lazily, so the reservation is cheap.
+            let spawned = std::thread::Builder::new()
+                .name("edge-triple-marching".into())
+                .stack_size(MARCHING_WORKER_STACK_BYTES)
+                .spawn(move || {
+                    let result = dispatch_marching_inner(
+                        &surf_a_owned,
+                        &surf_b_owned,
+                        &anchors_owned,
+                        hint_owned.as_ref(),
+                        &tol_owned,
+                        &opts_owned,
+                    );
+                    let _ = tx.send(result);
+                });
+            if spawned.is_err() {
+                // Spawn failure (OS resource exhaustion) — run inline
+                // without the wall-clock guard rather than dropping
+                // the intersection entirely.
+                return Some(dispatch_marching_inner(
+                    surf_a, surf_b, anchors, hint, tol, opts,
+                ));
+            }
             // Timeout (Err) → return None so the caller falls
             // through to Unimplemented; the detached worker thread
             // continues until intersect_surfaces finishes and

@@ -17,6 +17,47 @@
 use crate::geometry::Vec3;
 use faer::Mat;
 
+/// Singular values of a dense matrix, in nonincreasing order,
+/// computed strictly on the calling thread.
+///
+/// `Mat::singular_values()` runs under faer's global parallelism,
+/// which hands the divide-and-conquer bidiagonal SVD to rayon's
+/// global worker pool. Those workers keep the default ~2 MiB stack,
+/// and the debug-profile recursion overflows it (PK-120) even when
+/// the caller runs on a deliberately roomy thread. Pinning
+/// `Parallelism::None` keeps every frame on the caller's stack; the
+/// matrices here are small enough that parallel SVD buys nothing.
+///
+/// Returns `None` only if the workspace size computation overflows
+/// (not reachable for our ≤~100×100 systems).
+fn sequential_singular_values(mat: &Mat<f64>) -> Option<Vec<f64>> {
+    use faer::dyn_stack::{GlobalPodBuffer, PodStack};
+    use faer::linalg::svd::{ComputeVectors, SvdParams, compute_svd, compute_svd_req};
+    let dim = usize::min(mat.nrows(), mat.ncols());
+    let params = SvdParams::default();
+    let req = compute_svd_req::<f64>(
+        mat.nrows(),
+        mat.ncols(),
+        ComputeVectors::No,
+        ComputeVectors::No,
+        faer::Parallelism::None,
+        params,
+    )
+    .ok()?;
+    let mut buffer = GlobalPodBuffer::new(req);
+    let mut s = faer::Col::<f64>::zeros(dim);
+    compute_svd(
+        mat.as_ref(),
+        s.as_mut(),
+        None,
+        None,
+        faer::Parallelism::None,
+        PodStack::new(&mut buffer),
+        params,
+    );
+    Some((0..dim).map(|i| s.read(i)).collect())
+}
+
 /// Singular-value condition report for a dense matrix.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DenseConditionReport {
@@ -39,7 +80,9 @@ pub(crate) fn dense_rank(m: &[Vec<f64>], tol: f64) -> usize {
         return 0;
     }
     let mat = Mat::from_fn(rows, cols, |r, c| m[r][c]);
-    let singular_values = mat.singular_values();
+    let Some(singular_values) = sequential_singular_values(&mat) else {
+        return 0;
+    };
     singular_values.iter().filter(|&&s| s > tol).count()
 }
 
@@ -51,7 +94,7 @@ pub(crate) fn condition_number_dense(m: &[Vec<f64>]) -> Option<DenseConditionRep
         return None;
     }
     let mat = Mat::from_fn(rows, cols, |r, c| m[r][c]);
-    let singular_values = mat.singular_values();
+    let singular_values = sequential_singular_values(&mat)?;
     let sigma_max = singular_values.first().copied().unwrap_or(0.0);
     let sigma_min = singular_values.last().copied().unwrap_or(0.0);
     let condition_number = if sigma_min > 0.0 {
