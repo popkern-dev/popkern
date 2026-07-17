@@ -33,6 +33,16 @@ pub(crate) fn log_validation_issues(result: &BRep, op: BoolOperation) {
                 errors.len(),
                 op_name,
             );
+            const MAX_LISTED: usize = 8;
+            for error in errors.iter().take(MAX_LISTED) {
+                eprintln!("[boolean] validation:   {error}");
+            }
+            if errors.len() > MAX_LISTED {
+                eprintln!(
+                    "[boolean] validation:   ... {} more suppressed",
+                    errors.len() - MAX_LISTED,
+                );
+            }
         }
         Err(_) => {
             eprintln!(

@@ -6,10 +6,14 @@ use crate::topology::{BRep, FaceHandle, LoopHandle};
 use self_intersection_trim_trace::{
     TrimOverlapTraceSample, trace_trim_overlap_point, trace_trim_overlap_sample,
 };
-use std::f64::consts::TAU;
+use self_intersection_uv_containment::{
+    TrimContainment, UvPoint, point_in_uv_loop_periodic, push_distinct_uv, unwrap_uv_for_query,
+};
 
 #[path = "self_intersection_trim_trace.rs"]
 mod self_intersection_trim_trace;
+#[path = "self_intersection_uv_containment.rs"]
+mod self_intersection_uv_containment;
 
 impl BRep {
     pub(super) fn intersection_overlaps_face_trims(
@@ -217,15 +221,16 @@ impl BRep {
             .max(1.0e-9)
             * 10.0;
 
+        let periodic_u = surface_u_is_periodic(surface);
         let outer = self.loop_uv_polygon(face.outer_loop, surface, query)?;
-        let mut containment = point_in_uv_loop(query, &outer, param_tol);
+        let mut containment = point_in_uv_loop_periodic(query, &outer, param_tol, periodic_u);
         if containment == TrimContainment::Outside {
             return Some(TrimContainment::Outside);
         }
 
         for &inner_loop in &face.inner_loops {
             if let Some(inner) = self.loop_uv_polygon(inner_loop, surface, query) {
-                match point_in_uv_loop(query, &inner, param_tol) {
+                match point_in_uv_loop_periodic(query, &inner, param_tol, periodic_u) {
                     TrimContainment::Interior => return Some(TrimContainment::Outside),
                     TrimContainment::Boundary => containment = TrimContainment::Boundary,
                     TrimContainment::Outside => {}
@@ -270,28 +275,36 @@ impl BRep {
         let walk_bound = self.half_edges.len().max(1);
         for _ in 0..=walk_bound {
             let he = self.half_edges.get(current)?;
+            // Chain-continuous unwrapping: each sample resolves its
+            // period branch against the PREVIOUS polygon point (the
+            // first against the query, only to anchor the overall
+            // branch). Unwrapping every sample independently against
+            // the query folds any loop spanning more than half a
+            // period into a self-overlapping polygon, fabricating
+            // containment for query points the trim never covers
+            // (measured: half-period cylinder wall vs rear facet on
+            // the laptop-stand block — phantom self-intersection).
+            let periodic_u = surface_u_is_periodic(surface);
             if let Some(pcurve) = &he.pcurve {
                 for sample in 0..SAMPLES_PER_PCURVE {
                     let t = pcurve.t_start
                         + (pcurve.t_end - pcurve.t_start)
                             * (sample as f64 / SAMPLES_PER_PCURVE as f64);
                     let uv = pcurve.point_at(t);
+                    let reference = polygon.last().copied().unwrap_or(query);
                     push_distinct_uv(
                         &mut polygon,
-                        unwrap_uv_for_query(
-                            UvPoint { u: uv.x, v: uv.y },
-                            query,
-                            surface_u_is_periodic(surface),
-                        ),
+                        unwrap_uv_for_query(UvPoint { u: uv.x, v: uv.y }, reference, periodic_u),
                     );
                 }
             } else {
                 let vertex = self.vertices.get(he.origin)?;
                 let (u, v) =
                     crate::geometry::uv_projection::project_point_to_uv(surface, &vertex.position)?;
+                let reference = polygon.last().copied().unwrap_or(query);
                 push_distinct_uv(
                     &mut polygon,
-                    unwrap_uv_for_query(UvPoint { u, v }, query, surface_u_is_periodic(surface)),
+                    unwrap_uv_for_query(UvPoint { u, v }, reference, periodic_u),
                 );
             }
 
@@ -307,19 +320,6 @@ impl BRep {
             None
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct UvPoint {
-    u: f64,
-    v: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TrimContainment {
-    Outside,
-    Boundary,
-    Interior,
 }
 
 fn trim_classes_overlap(a: Option<TrimContainment>, b: Option<TrimContainment>) -> bool {
@@ -379,83 +379,4 @@ fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {
         surface,
         SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)
     )
-}
-
-fn unwrap_uv_for_query(uv: UvPoint, query: UvPoint, periodic_u: bool) -> UvPoint {
-    if !periodic_u {
-        return uv;
-    }
-
-    let mut u = uv.u;
-    while u - query.u > TAU * 0.5 {
-        u -= TAU;
-    }
-    while query.u - u > TAU * 0.5 {
-        u += TAU;
-    }
-    UvPoint { u, v: uv.v }
-}
-
-fn push_distinct_uv(polygon: &mut Vec<UvPoint>, uv: UvPoint) {
-    let duplicate = polygon
-        .last()
-        .is_some_and(|last| (last.u - uv.u).hypot(last.v - uv.v) < 1.0e-12);
-    if !duplicate {
-        polygon.push(uv);
-    }
-}
-
-fn point_in_uv_loop(point: UvPoint, loop_polygon: &[UvPoint], tolerance: f64) -> TrimContainment {
-    if loop_polygon.len() < 3 {
-        return TrimContainment::Outside;
-    }
-
-    let Some(&last) = loop_polygon.last() else {
-        return TrimContainment::Outside;
-    };
-    let mut previous = last;
-    for &current in loop_polygon {
-        if distance_to_uv_segment(point, previous, current) <= tolerance {
-            return TrimContainment::Boundary;
-        }
-        previous = current;
-    }
-
-    let mut inside = false;
-    previous = last;
-    for &current in loop_polygon {
-        let crosses_v = (current.v > point.v) != (previous.v > point.v);
-        if crosses_v {
-            let u_at_v = (previous.u - current.u) * (point.v - current.v)
-                / (previous.v - current.v)
-                + current.u;
-            if point.u < u_at_v {
-                inside = !inside;
-            }
-        }
-        previous = current;
-    }
-    if inside {
-        TrimContainment::Interior
-    } else {
-        TrimContainment::Outside
-    }
-}
-
-fn distance_to_uv_segment(point: UvPoint, a: UvPoint, b: UvPoint) -> f64 {
-    let ab_u = b.u - a.u;
-    let ab_v = b.v - a.v;
-    let ap_u = point.u - a.u;
-    let ap_v = point.v - a.v;
-    let len_sq = ab_u * ab_u + ab_v * ab_v;
-    if len_sq <= f64::EPSILON {
-        return ap_u.hypot(ap_v);
-    }
-
-    let t = ((ap_u * ab_u + ap_v * ab_v) / len_sq).clamp(0.0, 1.0);
-    let closest = UvPoint {
-        u: a.u + ab_u * t,
-        v: a.v + ab_v * t,
-    };
-    (point.u - closest.u).hypot(point.v - closest.v)
 }
