@@ -371,11 +371,11 @@ fn pocketed_and_chamfered_plate_is_watertight() {
     assert_eq!(chamfered.open_edge_count().expect("mesh"), 0);
 }
 
-/// FRONTIER PIN (flips to a watertight assert when the kernel gap
-/// closes): interior through-hole walls have never tessellated —
-/// the periodic wall ring's u-winding comes out ±2 periods instead
-/// of 0 and boundary-first declines. Constructor bodies, no sweep
-/// involvement. Ledger PK-100.
+/// Watertight regression for the drilled-cube bore (the historical
+/// PK-100 u-winding gap closed with the chart-walk/mesher work).
+/// The PK-130 class matrix (tests/through_hole_tessellation.rs)
+/// widens this claim to off-center/tilted/tube/cross-drilled and
+/// adds volume oracles + the open seam-band accuracy record.
 #[test]
 fn through_hole_tessellation_gap_is_pinned() {
     use popkern_core::topology::BRep;
