@@ -248,5 +248,131 @@ fn bore_ring_sampling_probe() {
                 w.0, w.1, w.2, w.3
             );
         }
+        // Dump full vertex coords of the deepest triangles.
+        let mut deepest: Vec<(f64, [popkern_core::geometry::Point3; 3])> = Vec::new();
+        for t in &mesh.triangles {
+            let (a, b, c) = (
+                mesh.vertices[t[0]].position,
+                mesh.vertices[t[1]].position,
+                mesh.vertices[t[2]].position,
+            );
+            let cx = (a.x + b.x + c.x) / 3.0 - 0.5;
+            let cy = (a.y + b.y + c.y) / 3.0 - 0.5;
+            let cz = (a.z + b.z + c.z) / 3.0;
+            let cr = (cx * cx + cy * cy).sqrt();
+            let flat = (a.z - c.z).abs() < 1.0e-9 && (b.z - c.z).abs() < 1.0e-9;
+            if !flat && cr < 0.199 && cz > 0.01 && cz < 0.99 {
+                deepest.push((cr, [a, b, c]));
+            }
+        }
+        // Double-cover test: sum wall-triangle area over a fixed
+        // theta x z window and compare against the window's cylinder
+        // area (1x = single sheet, 2x = double cover).
+        let (th_lo, th_hi, z_lo, z_hi) = (-1.25_f64, -0.65_f64, 0.27_f64, 0.48_f64);
+        let mut window_area = 0.0;
+        for t in &mesh.triangles {
+            let (a, b, c) = (
+                mesh.vertices[t[0]].position,
+                mesh.vertices[t[1]].position,
+                mesh.vertices[t[2]].position,
+            );
+            let cx = (a.x + b.x + c.x) / 3.0 - 0.5;
+            let cy = (a.y + b.y + c.y) / 3.0 - 0.5;
+            let cz = (a.z + b.z + c.z) / 3.0;
+            let cr = (cx * cx + cy * cy).sqrt();
+            let th = cy.atan2(cx);
+            let flat = (a.z - c.z).abs() < 1.0e-9 && (b.z - c.z).abs() < 1.0e-9;
+            if !flat && cr < 0.205 && th > th_lo && th < th_hi && cz > z_lo && cz < z_hi {
+                let ux = b - a;
+                let vx = c - a;
+                let cxp = ux.cross(&vx);
+                window_area += 0.5 * cxp.length();
+            }
+        }
+        let expected_area = (th_hi - th_lo) * 0.2 * (z_hi - z_lo);
+        eprintln!(
+            "  window wall area = {window_area:.6} vs single-sheet {expected_area:.6} (ratio {:.2})",
+            window_area / expected_area
+        );
+        deepest.sort_by(|x, y| x.0.partial_cmp(&y.0).expect("finite"));
+        for (cr, vs) in deepest.iter().take(3) {
+            eprintln!("  tri r={cr:.4}:");
+            for v in vs {
+                let th = (v.y - 0.5).atan2(v.x - 0.5);
+                let r = ((v.x - 0.5).powi(2) + (v.y - 0.5).powi(2)).sqrt();
+                eprintln!(
+                    "    ({:.4}, {:.4}, {:.4}) theta={th:.3} r={r:.4}",
+                    v.x, v.y, v.z
+                );
+            }
+        }
+    }
+}
+
+/// Diagnostic probe: dump the bore wall face's boundary pcurve
+/// u-ranges (period-branch layout of the UV ring).
+#[test]
+#[ignore = "PK-146 probe — run with --ignored --nocapture"]
+fn bore_wall_pcurve_branch_probe() {
+    let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
+    let drill = BRep::cylinder(0.2, 2.0, Tolerance::default())
+        .expect("cyl")
+        .transform(&Transform3::translation(0.5, 0.5, -0.5))
+        .expect("move");
+    let part = drilled(cube, drill);
+    let b = part.brep();
+    for (fh, fd) in &b.faces {
+        let Some(s) = fd.surface.as_ref() else {
+            eprintln!("face {fh:?}: NO SURFACE");
+            continue;
+        };
+        let kind = match &s.geometry {
+            popkern_core::geometry::SurfaceGeometry::Plane { .. } => "Plane",
+            popkern_core::geometry::SurfaceGeometry::Cylinder { .. } => "Cylinder",
+            popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
+            _ => "Other",
+        };
+        let n_outer = b.face_outer_loop_positions(fh).len();
+        eprintln!(
+            "face {fh:?}: {kind} outer={n_outer} inner_loops={}",
+            fd.inner_loops.len()
+        );
+        if !matches!(
+            s.geometry,
+            popkern_core::geometry::SurfaceGeometry::Cylinder { .. }
+        ) {
+            continue;
+        }
+        eprintln!("wall {fh:?}:");
+        let mut walk = |lh: popkern_core::topology::LoopHandle, tag: &str| {
+            let Some(loop_) = b.loops.get(lh) else { return };
+            let start = loop_.half_edge;
+            let mut cursor = start;
+            for _ in 0..64 {
+                let Some(he) = b.half_edges.get(cursor) else {
+                    break;
+                };
+                match he.pcurve.as_ref() {
+                    Some(pc) => {
+                        let a = pc.point_at(pc.t_start);
+                        let z = pc.point_at(pc.t_end);
+                        let m = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+                        eprintln!(
+                            "  {tag} he={cursor:?} edge={:?} uv ({:.3},{:.3}) -> mid ({:.3},{:.3}) -> ({:.3},{:.3})",
+                            he.edge, a.x, a.y, m.x, m.y, z.x, z.y
+                        );
+                    }
+                    None => eprintln!("  {tag} he={cursor:?} edge={:?} NO PCURVE", he.edge),
+                }
+                cursor = he.next;
+                if cursor == start {
+                    break;
+                }
+            }
+        };
+        walk(fd.outer_loop, "outer");
+        for &il in &fd.inner_loops {
+            walk(il, "inner");
+        }
     }
 }

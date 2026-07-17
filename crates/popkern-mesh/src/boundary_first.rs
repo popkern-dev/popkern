@@ -567,20 +567,58 @@ pub(crate) fn tessellate_face_boundary_first(
                 .collect();
         }
         let n_v = options.min_subdivisions.max(4);
+        let seam_trace = std::env::var_os("PK_BF_SEAM_TRACE").is_some() && u_stations.len() > 100;
+        let mut kill = [0usize; 4]; // region, clearance, disk, kept — seam band only
         for &u in &u_stations {
             if u <= u0 || u >= u1 {
                 continue;
             }
             for j in 1..n_v {
                 let v = v0 + (v1 - v0) * j as f64 / n_v as f64;
-                if point_in_region((u, v), &rings)
-                    && dist_to_rings((u, v), &rings) > clearance
-                    && !in_any_diametral_disk(u, v)
-                {
+                let in_band = u - u0 < 0.8 || u1 - u < 0.8;
+                let detail = seam_trace && u1 - u < 0.9 && (v - 1.0).abs() < 0.01;
+                if !point_in_region((u, v), &rings) {
+                    if seam_trace && in_band {
+                        kill[0] += 1;
+                    }
+                    if detail {
+                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED region");
+                    }
+                } else if dist_to_rings((u, v), &rings) <= clearance {
+                    if seam_trace && in_band {
+                        kill[1] += 1;
+                    }
+                    if detail {
+                        eprintln!(
+                            "    [bf-seam] ({u:.3},{v:.3}) KILLED clearance d={:.4}",
+                            dist_to_rings((u, v), &rings)
+                        );
+                    }
+                } else if in_any_diametral_disk(u, v) {
+                    if seam_trace && in_band {
+                        kill[2] += 1;
+                    }
+                    if detail {
+                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED disk");
+                    }
+                } else {
+                    if seam_trace && in_band {
+                        kill[3] += 1;
+                    }
                     uv_pts.push((u, v));
                     pos_pts.push(None);
                 }
             }
+        }
+        if seam_trace {
+            eprintln!(
+                "  [bf-seam] stations={} n_v={n_v} cell={cell:.4} clearance={clearance:.4} band kills: region={} clearance={} disk={} kept={}",
+                u_stations.len(),
+                kill[0],
+                kill[1],
+                kill[2],
+                kill[3]
+            );
         }
     } else {
         for i in 1..n {
@@ -892,6 +930,9 @@ fn build_ring(
                 <= samples.points.last()?.distance_to(&origin)
         };
         let m = samples.points.len();
+        if std::env::var_os("PK_BF_RING_DUMP").is_some() {
+            eprintln!("      [bf-ring] he={he:?} edge={eh:?} m={m} closed={closed_edge}");
+        }
         // Emit all but the last point (the next half-edge provides
         // its own start, which is the shared vertex).
         for k in 0..(m - 1) {
