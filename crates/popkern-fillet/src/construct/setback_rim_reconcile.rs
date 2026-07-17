@@ -21,6 +21,7 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
     lateral_planes: &[popkern_core::geometry::SurfaceGeometry],
     border_loop: &[Vec<Point3>],
+    rim_off_loop_allowance: f64,
 ) {
     use popkern_core::geometry::gregory::GregoryPatch;
     use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -116,7 +117,7 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
                 .iter()
                 .map(|&p| distance_to_polylines(p, border_loop))
                 .fold(0.0_f64, f64::max);
-            if worst_off_loop > RIM_NEAR {
+            if worst_off_loop > rim_off_loop_allowance.max(RIM_NEAR) {
                 if probe {
                     eprintln!(
                         "  [rim-gate] patch {patch_index} side {side}: near sweeps but \
@@ -164,34 +165,53 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
                 // pin them to the exact endpoint deviations so shared
                 // corners land on the sweep and adjacent solves agree.
                 let d_end = [dev[0], dev[M - 1]];
-                // Least squares for the 8 interior CP deltas against
-                // the endpoint-corrected deviation samples.
+                // The NEXT-TO-END CPs (k=1, k=8) are pinned to the SAME
+                // endpoint deltas. These columns are the cross-seam G1
+                // jets of the spoke/median seams meeting the rim at the
+                // shared corners: the paper cap's cross-seam relations
+                // are affine (translation-invariant) per transversal
+                // station, so translating boundary AND jet CPs by one
+                // shared corner delta preserves eq (8)/(9) exactly no
+                // matter what the neighbouring patch's own rim solve
+                // does. Independently fitted k=1/k=8 deltas were the
+                // measured author of the wide-fan seam creases (PK-094:
+                // pentagon r=0.16 fan seam g1 1.478e-1 while the
+                // accepted candidate's own G1 residuals sit at 1e-6
+                // relative — the G0-only shared-CP reunify cannot
+                // restore the jets). The rim row keeps 6 free interior
+                // CPs (k=2..7); the corner-region residual this leaves
+                // against the sweeps is budgeted by the cap-outer G0
+                // gate (5e-3), two orders looser than the seam-G1 gate
+                // this preserves.
+                // Least squares for the 6 interior CP deltas against
+                // the pinned-corrected deviation samples.
                 let basis: Vec<[f64; 10]> = ts.iter().map(|&t| bernstein9_all(t)).collect();
-                let mut gram = [[0.0_f64; 8]; 8];
-                let mut moment = [[0.0_f64; 3]; 8];
+                let mut gram = [[0.0_f64; 6]; 6];
+                let mut moment = [[0.0_f64; 3]; 6];
                 for (b, r) in basis.iter().zip(&dev) {
-                    let rc: [f64; 3] =
-                        core::array::from_fn(|c| r[c] - b[0] * d_end[0][c] - b[9] * d_end[1][c]);
-                    for i in 0..8 {
-                        for j in 0..8 {
-                            gram[i][j] += b[i + 1] * b[j + 1];
+                    let rc: [f64; 3] = core::array::from_fn(|c| {
+                        r[c] - (b[0] + b[1]) * d_end[0][c] - (b[8] + b[9]) * d_end[1][c]
+                    });
+                    for i in 0..6 {
+                        for j in 0..6 {
+                            gram[i][j] += b[i + 2] * b[j + 2];
                         }
                         for c in 0..3 {
-                            moment[i][c] += b[i + 1] * rc[c];
+                            moment[i][c] += b[i + 2] * rc[c];
                         }
                     }
                 }
-                let mean_diag = (0..8).map(|i| gram[i][i]).sum::<f64>() / 8.0;
+                let mean_diag = (0..6).map(|i| gram[i][i]).sum::<f64>() / 6.0;
                 const DELTA_AMPLIFICATION_CAP: f64 = 20.0;
                 let cap = DELTA_AMPLIFICATION_CAP * worst_dev.max(1e-15);
-                let mut interior: Option<[[f64; 3]; 8]> = None;
+                let mut interior: Option<[[f64; 3]; 6]> = None;
                 let mut damping = 0.0_f64;
                 loop {
                     let mut damped = gram;
                     for (i, row) in damped.iter_mut().enumerate() {
                         row[i] += damping * mean_diag;
                     }
-                    if let Some(solution) = solve_8(&damped, &moment) {
+                    if let Some(solution) = solve_6(&damped, &moment) {
                         let worst_delta = solution
                             .iter()
                             .map(|d| (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt())
@@ -222,8 +242,10 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
                 };
                 let mut deltas = [[0.0_f64; 3]; 10];
                 deltas[0] = d_end[0];
+                deltas[1] = d_end[0];
+                deltas[8] = d_end[1];
                 deltas[9] = d_end[1];
-                deltas[1..9].copy_from_slice(&interior);
+                deltas[2..8].copy_from_slice(&interior);
                 for (k, delta) in deltas.iter().enumerate() {
                     for d in 0..3 {
                         let (i, j) = coord(d, k);
@@ -248,17 +270,17 @@ fn bernstein9_all(t: f64) -> [f64; 10] {
     out
 }
 
-/// Solve the 10×10 linear system `mat · x = rhs` (3 right-hand sides)
+/// Solve the 6×6 linear system `mat · x = rhs` (3 right-hand sides)
 /// by Gaussian elimination with partial pivoting.
 // Column loops index two rows of the same matrix (pivot and target); the
 // iterator form would need split borrows and obscure the elimination math.
 #[allow(clippy::needless_range_loop)]
-fn solve_8(mat: &[[f64; 8]; 8], rhs: &[[f64; 3]; 8]) -> Option<[[f64; 3]; 8]> {
+fn solve_6(mat: &[[f64; 6]; 6], rhs: &[[f64; 3]; 6]) -> Option<[[f64; 3]; 6]> {
     let mut a = *mat;
     let mut b = *rhs;
-    for col in 0..8 {
+    for col in 0..6 {
         let mut piv = col;
-        for r in (col + 1)..8 {
+        for r in (col + 1)..6 {
             if a[r][col].abs() > a[piv][col].abs() {
                 piv = r;
             }
@@ -268,9 +290,9 @@ fn solve_8(mat: &[[f64; 8]; 8], rhs: &[[f64; 3]; 8]) -> Option<[[f64; 3]; 8]> {
         }
         a.swap(col, piv);
         b.swap(col, piv);
-        for r in (col + 1)..8 {
+        for r in (col + 1)..6 {
             let f = a[r][col] / a[col][col];
-            for c in col..8 {
+            for c in col..6 {
                 a[r][c] -= f * a[col][c];
             }
             for c in 0..3 {
@@ -278,11 +300,11 @@ fn solve_8(mat: &[[f64; 8]; 8], rhs: &[[f64; 3]; 8]) -> Option<[[f64; 3]; 8]> {
             }
         }
     }
-    let mut x = [[0.0_f64; 3]; 8];
-    for row in (0..8).rev() {
+    let mut x = [[0.0_f64; 3]; 6];
+    for row in (0..6).rev() {
         for c in 0..3 {
             let mut acc = b[row][c];
-            for col in (row + 1)..8 {
+            for col in (row + 1)..6 {
                 acc -= a[row][col] * x[col][c];
             }
             x[row][c] = acc / a[row][row];

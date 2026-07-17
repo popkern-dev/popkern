@@ -809,11 +809,22 @@ fn build_cap_face_fan(
     // CPs afterwards or the fan tears at the spoke seams' rim ends
     // (see setback_shared_net_unify docs).
     let shared_groups = setback_shared_net_unify::record_shared_boundary_groups(&patches);
+    // The conditioned assembly's strip enforcement may move the
+    // boundary rows off the INPUT border loop (measured 5.06e-3 on
+    // the wide pentagon r=0.16 while HardG2 strip movement reported
+    // ~1e-2). The rim-side classifier must tolerate that measured
+    // movement or genuinely-rim sides are skipped, leaving whole
+    // patches unreconciled and creasing every seam they share with a
+    // reconciled neighbour (PK-094: fan seam g1 1.1e-1 ramp along
+    // one seam). Spoke seams stay excluded by orders of magnitude —
+    // their off-loop distance is half the loop diameter.
+    let rim_off_loop_allowance = 2.0e-3_f64.max(2.0 * report.max_strip_movement);
     setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
         &mut patches,
         fillet_surfaces,
         &lateral_planes,
         &border_loop,
+        rim_off_loop_allowance,
     );
     let rim_tear =
         setback_shared_net_unify::reunify_shared_boundary_cps(&mut patches, &shared_groups);

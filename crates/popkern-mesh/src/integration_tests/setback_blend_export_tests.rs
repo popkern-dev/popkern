@@ -7,19 +7,16 @@ use popkern_core::topology::BRep;
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
-#[ignore = "PK-097: G1 watertight gate (KP20 cap family, production default)"]
 fn setback_blend_g1_tessellates_closed() {
     run_setback_closure_gate(popkern_fillet::ContinuityLevel::G1);
 }
 
 #[test]
-#[ignore = "PK-094 stage-2: enable with the setback commit arm"]
 fn setback_blend_tessellates_closed() {
     run_setback_closure_gate(popkern_fillet::ContinuityLevel::G2);
 }
 
 fn run_setback_closure_gate(continuity: popkern_fillet::ContinuityLevel) {
-    popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid

@@ -1,15 +1,15 @@
-//! PK-094 stage-2 WIP integration probe: drive the gated setback
-//! boundary surgery through the production pipeline on the
-//! pentagonal-pyramid fixture and report how far it gets.
+//! Setback vertex-blend commit gate (PK-094): the production-default
+//! setback boundary surgery must commit a valid G2 vertex blend on
+//! the wide-radius pentagonal-pyramid fixture (r = 0.16 — the class
+//! that declined on fan-seam G1 until the strip-movement-scaled rim
+//! gate and cross-seam jet pinning landed).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{ContinuityLevel, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[test]
-#[ignore = "PK-094 stage-2: commit-mode end-to-end (enable with the WIP arm)"]
 fn setback_commit_produces_valid_g2_vertex_blend() {
-    popkern_fillet::construct_test_hooks::enable_setback_topology_commit();
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
     let apex = pyramid
