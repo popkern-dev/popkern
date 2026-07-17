@@ -202,10 +202,14 @@ const REFLECTION_KINK_LIMIT: f64 = 2.0;
 // promoted apex always fell back to the legacy cap at plan time), so
 // this fixture measures the four committed exact-boundary sector
 // caps (worst cap[3] 0.7812; g0 for the same route improved
-// 1.34 → 1.5e-14). The stripe mismatch remains the recorded
-// one-patch cap G1 limitation — PK-125 owns returning this
-// limit to <= 0.70. Headroom kept tight (~2%).
-const ZEBRA_MISMATCH_LIMIT: f64 = 0.80;
+// 1.34 → 1.5e-14).
+//
+// Re-baselined 2026-07-17 (PK-125): the ribbon cross-derivative
+// orientation-continuity fix + corner-compatible cubic spokes
+// dropped every pyramid cap to 0.50–0.59 and cube mixed to 0.5855;
+// the worst fixture is now cube corner uniform at 0.6255. Headroom
+// kept tight (~5%).
+const ZEBRA_MISMATCH_LIMIT: f64 = 0.66;
 const VIEW: Vec3 = Vec3 {
     x: 0.0,
     y: 0.0,

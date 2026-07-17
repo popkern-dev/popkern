@@ -291,6 +291,20 @@ fn prepare_side_pair(
     })
 }
 
+impl PreparedExactBoundaryPcurvePair {
+    /// A pair whose cap-side pcurve collapses to a chart point is a
+    /// point-contact seam (nano bridge edge, PK-125): its
+    /// normal-deficit evidence is direction noise and G1 across a
+    /// point is ill-posed.
+    pub(super) fn is_point_contact(&self) -> bool {
+        let (t0, t1) = self.cap_pcurve.parameter_range();
+        let a = self.cap_pcurve.point_at(t0);
+        let b = self.cap_pcurve.point_at(t1);
+        let mid = self.cap_pcurve.point_at(0.5 * (t0 + t1));
+        a.distance_to(&b) <= 1.0e-12 && a.distance_to(&mid) <= 1.0e-12
+    }
+}
+
 fn pair_diagnostic(
     reason: ExactBoundaryPcurveDeclineReason,
     sector: &PreparedExactBoundarySectorBoundary,
@@ -334,6 +348,28 @@ fn authored_cap_pcurve(
 ) -> Pcurve {
     let (fillet_start, fillet_end) = sector.fillet_boundary.curve.parameter_range();
     let (face_start, face_end) = sector.face_boundary.curve.parameter_range();
+    // A point-contact face side (nano bridge edge, PK-125) maps to the
+    // shared-corner chart point: under the polar-wedge solve the u=0
+    // column is the cap-internal spoke, so an iso-line pcurve there
+    // would trace the spoke instead of the (point) seam.
+    if side == ExactBoundaryOuterSide::FaceEdge {
+        let face_chord = sector
+            .face_boundary
+            .curve
+            .point_at(0.0)
+            .distance_to(&sector.face_boundary.curve.point_at(1.0));
+        if face_chord <= super::solve::DEGENERATE_OUTER_SIDE_TOLERANCE {
+            // The oriented solve chart always places the shared corner
+            // c at (u, v) = (start, start): orient_curve points both
+            // boundaries AWAY from c toward their spoke anchors.
+            return Pcurve::linear(
+                (fillet_start, face_start),
+                (fillet_start, face_start),
+                0.0,
+                1.0,
+            );
+        }
+    }
     let reversed = match side {
         ExactBoundaryOuterSide::FilletEnd => boundary_reversed(
             &sector.fillet_boundary.curve,

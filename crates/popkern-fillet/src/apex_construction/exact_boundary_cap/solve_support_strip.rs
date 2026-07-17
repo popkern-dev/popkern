@@ -24,9 +24,17 @@ pub(super) fn apply_support_normal_strip_correction(
     sector: &PreparedExactBoundarySectorBoundary,
     ribbons: &PreparedExactBoundaryRibbons,
     orientation: BoundaryOrientation,
+    degenerate_face_side: bool,
     surface: &mut NurbsSurface,
 ) {
-    let baseline_deficit = worst_support_normal_deficit(sector, ribbons, orientation, surface);
+    // Point-contact face sides carry nano-pcurve ribbon evidence
+    // whose deficits are direction noise; correcting against them
+    // would deform the polar-wedge chart's spoke column (PK-125).
+    let ribbon_is_live = |ribbon: &&PreparedExactBoundaryRibbon| {
+        !(degenerate_face_side && ribbon.side == ExactBoundaryOuterSide::FaceEdge)
+    };
+    let baseline_deficit =
+        worst_support_normal_deficit(sector, ribbons, orientation, ribbon_is_live, surface);
     if crate::direct_apex_trace::enabled() {
         eprintln!(
             "[direct-apex-trace exact-boundary/strip] sector {} baseline deficit {baseline_deficit:.4e} fillet_reversed={} face_reversed={}",
@@ -43,6 +51,7 @@ pub(super) fn apply_support_normal_strip_correction(
             .ribbons
             .iter()
             .filter(|ribbon| ribbon.sector_index == sector.sector_index)
+            .filter(&ribbon_is_live)
         {
             corrected |= correct_ribbon_samples(sector, ribbon, orientation, &mut candidate);
         }
@@ -50,7 +59,8 @@ pub(super) fn apply_support_normal_strip_correction(
             break;
         }
     }
-    let candidate_deficit = worst_support_normal_deficit(sector, ribbons, orientation, &candidate);
+    let candidate_deficit =
+        worst_support_normal_deficit(sector, ribbons, orientation, ribbon_is_live, &candidate);
     if crate::direct_apex_trace::enabled() {
         eprintln!(
             "[direct-apex-trace exact-boundary/strip] sector {} corrected deficit {candidate_deficit:.4e} (baseline {baseline_deficit:.4e})",
@@ -66,12 +76,14 @@ fn worst_support_normal_deficit(
     sector: &PreparedExactBoundarySectorBoundary,
     ribbons: &PreparedExactBoundaryRibbons,
     orientation: BoundaryOrientation,
+    ribbon_is_live: impl Fn(&&PreparedExactBoundaryRibbon) -> bool,
     surface: &NurbsSurface,
 ) -> f64 {
     ribbons
         .ribbons
         .iter()
         .filter(|ribbon| ribbon.sector_index == sector.sector_index)
+        .filter(ribbon_is_live)
         .flat_map(|ribbon| {
             ribbon
                 .samples

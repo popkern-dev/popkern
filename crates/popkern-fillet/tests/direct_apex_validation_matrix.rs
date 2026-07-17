@@ -343,13 +343,6 @@ fn direct_apex_native_pyramid4_uniform_no_fallback_structural() {
 }
 
 #[test]
-#[ignore = "recorded limitation (PK-124): the one-patch exact-boundary cap on pyramid4_uniform \
-carries an intra-knot-span G1 spike (pcurve-measured 0.65 vs 5e-2 gate; geometric ~6e-2) that \
-the solve's 9-sample evidence cannot see and its strip correctors plateau on (0.55 stuck). The \
-pre-PK-124 green came from the unconditional full-row relock, which bought outer G1 by \
-displacing spoke/transverse rows (the historical zoo 7-tess-nm family). Honest denser evidence \
-declines the cap and ships a worse sphere fallback (18 tessellation seams). Named replacement: \
-a G1-capable N=4 cap construction (PK-094 setback-cap production integration)."]
 fn direct_apex_native_pyramid4_uniform_cap_outer_quality_gate() {
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();

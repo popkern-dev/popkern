@@ -34,18 +34,29 @@ fn solve_locks_boundary_rows_and_derivative_controls() {
         surface.num_v,
         sector.face_boundary.curve.control_points.len()
     );
+    // Spoke sides are exact re-representations of the prepared spoke
+    // curves (degree elevation + knot insertion — PK-125); for the
+    // straight fixture spokes that equals the Greville-lerp line up
+    // to elevation roundoff, so the pin compares at 1e-12 instead of
+    // bitwise.
+    let assert_near = |actual: Point3, expected: Point3| {
+        assert!(
+            actual.distance_to(&expected) <= 1.0e-12,
+            "control point {actual:?} != {expected:?}"
+        );
+    };
     for i in 1..surface.num_u - 1 {
         assert_eq!(
             surface.control_points[index(i, 0, surface.num_v)],
             sector.fillet_boundary.curve.control_points[i]
         );
-        assert_eq!(
+        assert_near(
             surface.control_points[index(i, surface.num_v - 1, surface.num_v)],
             point_on_line(
                 sector.face_inner_spoke.anchor,
                 sector.face_inner_spoke.pole,
-                i
-            )
+                i,
+            ),
         );
     }
     for j in 0..surface.num_v {
@@ -53,13 +64,13 @@ fn solve_locks_boundary_rows_and_derivative_controls() {
             surface.control_points[index(0, j, surface.num_v)],
             sector.face_boundary.curve.control_points[j]
         );
-        assert_eq!(
+        assert_near(
             surface.control_points[index(surface.num_u - 1, j, surface.num_v)],
             point_on_line(
                 sector.fillet_inner_spoke.anchor,
                 sector.fillet_inner_spoke.pole,
-                j
-            )
+                j,
+            ),
         );
     }
 

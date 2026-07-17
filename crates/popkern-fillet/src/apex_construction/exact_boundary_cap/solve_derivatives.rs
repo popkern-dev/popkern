@@ -16,6 +16,7 @@ pub(super) fn apply_derivative_rows(
     sector: &PreparedExactBoundarySectorBoundary,
     ribbons: &PreparedExactBoundaryRibbons,
     orientation: BoundaryOrientation,
+    degenerate_face_side: bool,
     controls: &mut [Point3],
     num_u: usize,
     num_v: usize,
@@ -48,11 +49,20 @@ pub(super) fn apply_derivative_rows(
             );
         }
     }
-    if let Some(ribbon) = ribbon_for(
-        ribbons,
-        sector.sector_index,
-        ExactBoundaryOuterSide::FaceEdge,
-    ) {
+    // A degenerate (point-contact) face side has no seam span to
+    // match: its ribbon evidence is direction noise from a nano
+    // pcurve, and under the polar-wedge chart the u=0 column is the
+    // cap-internal spoke, not the face seam (PK-125).
+    if let Some(ribbon) = (!degenerate_face_side)
+        .then(|| {
+            ribbon_for(
+                ribbons,
+                sector.sector_index,
+                ExactBoundaryOuterSide::FaceEdge,
+            )
+        })
+        .flatten()
+    {
         let step = boundary_derivative_control_step(&sector.fillet_boundary.curve);
         for j in 1..num_v.saturating_sub(1) {
             let parameter = j as f64 / (num_v - 1) as f64;

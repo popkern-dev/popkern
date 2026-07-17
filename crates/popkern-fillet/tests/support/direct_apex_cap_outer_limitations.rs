@@ -8,11 +8,6 @@ use crate::helpers::measure_cap_outer_boundary;
 /// cube/pyramid3 coverage stays gated while this class's G1 limitation
 /// is recorded.
 #[test]
-#[ignore = "recorded limitation (PK-124): pyramid4_mixed's strict V-free one-patch cap reads \
-cap_outer_g1 0.99 through the pcurve measure (sector-1 boundary-strip fold; geometric closest- \
-point reads ~1e-1). All G0 measures are commercial (tess seams 9.6e-3 -> 0 this campaign). \
-Denser ribbon evidence (17 samples) fixes THIS fixture end-to-end but declines pyramid3/uniform \
-caps into worse fallbacks. Named replacement: G1-capable N=4 cap construction (PK-094)."]
 fn direct_apex_5_cap_outer_pyramid4_mixed_g1_limitation() {
     let result = build_under_direct_apex(true, &[0.04, 0.06, 0.05, 0.07]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();

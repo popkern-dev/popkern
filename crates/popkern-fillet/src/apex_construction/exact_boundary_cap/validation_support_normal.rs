@@ -35,6 +35,12 @@ pub(crate) fn collect_constrained_strip_band_diagnostics(
 ) -> Vec<ExactBoundaryValidationDiagnostic> {
     let mut diagnostics = Vec::new();
     for pair in &pcurves.pairs {
+        // Point-contact seams (nano bridge edges, PK-125): unit-normal
+        // agreement across a point contact is ill-posed; G0 residuals
+        // were already gated at preparation.
+        if pair.is_point_contact() {
+            continue;
+        }
         let Some(solved_surface) = solved.surfaces.iter().find(|surface| {
             surface.sector_index == pair.sector_index && surface.sector_name == pair.sector_name
         }) else {

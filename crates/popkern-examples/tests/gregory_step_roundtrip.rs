@@ -328,8 +328,11 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
         report.before.incompatible_half_edges,
         before.incompatible_half_edges
     );
+    // Re-pinned 11 -> 9 (2026-07-17, PK-125): ribbon orientation
+    // continuity + corner-compatible spokes resolved two more
+    // cap-seam half-edges.
     assert_eq!(
-        report.before.incompatible_half_edges, 11,
+        report.before.incompatible_half_edges, 9,
         "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(

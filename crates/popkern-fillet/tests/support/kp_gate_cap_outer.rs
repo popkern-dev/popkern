@@ -255,10 +255,34 @@ fn interior_normal_sample_parameters(
     use popkern_core::geometry::surface::SurfaceEval;
 
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
+    // Periodic directions WRAP instead of clamping: a loop legally
+    // chained onto an adjacent period branch (u - 2π on a cylinder
+    // chart) evaluates exactly, but clamping such a parameter to the
+    // domain edge samples the normal up to a full period away
+    // (PK-125: pyramid4_mixed read a phantom cap_outer_g1 of 0.99
+    // through a clamped support sample).
+    let (period_u, period_v) = surface.periodicity();
     (
-        interior_parameter(u, u_min, u_max),
-        interior_parameter(v, v_min, v_max),
+        interior_parameter(wrap_periodic(u, u_min, u_max, period_u), u_min, u_max),
+        interior_parameter(wrap_periodic(v, v_min, v_max, period_v), v_min, v_max),
     )
+}
+
+fn wrap_periodic(value: f64, min: f64, max: f64, period: Option<f64>) -> f64 {
+    let Some(period) = period else {
+        return value;
+    };
+    if !(value.is_finite() && min.is_finite() && max.is_finite()) || period <= 0.0 {
+        return value;
+    }
+    let mut wrapped = value;
+    while wrapped < min {
+        wrapped += period;
+    }
+    while wrapped > max {
+        wrapped -= period;
+    }
+    wrapped
 }
 
 fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {

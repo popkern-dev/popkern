@@ -328,7 +328,39 @@ impl BRep {
             // normals to 2.9e-1). Half-edges without an existing
             // pcurve or without a 3-D curve to measure against are
             // written unconditionally, as before.
-            let candidate: crate::geometry::pcurve::Pcurve = pcurve.into();
+            let mut candidate: crate::geometry::pcurve::Pcurve = pcurve.into();
+            // Branch consistency (PK-125): on periodic surfaces the
+            // projection's principal branch can sit whole periods away
+            // from the face's chart window. The 3-D image is identical
+            // there, so the contract comparison below is decided by
+            // trig ULPs — and a wrong-branch candidate that "wins" the
+            // tie throws every chart-space consumer (boundary-row
+            // relocks, trim fits, seam measures) a full period off
+            // (measured: pyramid4_mixed support pcurve replaced by its
+            // u − 2π copy; the export-repair relock chased the
+            // off-window trace into a cap-surface fold). Translate the
+            // candidate onto the EXISTING pcurve's branch first — an
+            // exact, image-preserving move.
+            if let Some(existing) = self.half_edges[heh].pcurve.as_ref() {
+                let (period_u, period_v) = surface.periodicity();
+                let branch_shift = |delta: f64, period: Option<f64>| -> f64 {
+                    match period {
+                        Some(period) if period > 0.0 => (delta / period).round() * period,
+                        _ => 0.0,
+                    }
+                };
+                let midpoint_of = |pc: &crate::geometry::pcurve::Pcurve| {
+                    let (t0, t1) = pc.parameter_range();
+                    pc.point_at(0.5 * (t0 + t1))
+                };
+                let target = midpoint_of(existing);
+                let current = midpoint_of(&candidate);
+                let shift_u = branch_shift(target.x - current.x, period_u);
+                let shift_v = branch_shift(target.y - current.y, period_v);
+                if shift_u != 0.0 || shift_v != 0.0 {
+                    candidate = candidate.translated_uv(shift_u, shift_v);
+                }
+            }
             let keep_existing = match (&self.half_edges[heh].pcurve, edge_curve) {
                 (Some(existing), Some(curve_on_edge)) => {
                     pcurve_fraction_contract_error(
@@ -635,69 +667,10 @@ impl BRep {
             }
         }
     }
-
-    /// Detect and rebuild pcurves that no longer agree with the 3D model.
-    ///
-    /// For every half-edge that stores a pcurve, maps the pcurve's
-    /// parameter-range endpoints through the owning face's surface and
-    /// compares them against the half-edge's actual start/end vertex
-    /// positions, and also measures the interior trace deviation between
-    /// the pcurve image and the edge's 3D curve. If either error exceeds
-    /// the stale tolerance (`max_imprecision` widened to at least the
-    /// linear model tolerance), the pcurve is dropped as stale. All
-    /// missing pcurves are then recomputed via `recompute_all_pcurves`,
-    /// and `fix_pcurve_endpoints` is run per face so the rebuilt pcurves
-    /// land exactly on their loop vertices.
-    pub fn fix_stale_pcurves(&mut self) {
-        use crate::geometry::surface::SurfaceEval;
-
-        let he_keys: Vec<_> = self.half_edges.keys().collect();
-        for heh in he_keys {
-            let pcurve = match self.half_edges[heh].pcurve.as_ref() {
-                Some(pc) => pc.clone(),
-                None => continue,
-            };
-
-            let loop_handle = self.half_edges[heh].loop_;
-            let face_handle = match self.loops.get(loop_handle) {
-                Some(l) => l.face,
-                None => continue,
-            };
-            let surface = match self.faces.get(face_handle).and_then(|f| f.surface.as_ref()) {
-                Some(s) => s.geometry.clone(),
-                None => continue,
-            };
-
-            let (t0, t1) = pcurve.parameter_range();
-            let uv_start = pcurve.point_at(t0);
-            let uv_end = pcurve.point_at(t1);
-            let start_from_pcurve = surface.point_at(uv_start.x, uv_start.y);
-            let end_from_pcurve = surface.point_at(uv_end.x, uv_end.y);
-            let actual_start = self.vertices[self.half_edges[heh].origin].position;
-            let next_heh = self.half_edges[heh].next;
-            let actual_end = self.vertices[self.half_edges[next_heh].origin].position;
-
-            let endpoint_error = start_from_pcurve
-                .distance_to(&actual_start)
-                .max(end_from_pcurve.distance_to(&actual_end));
-            let trace_error = self
-                .measure_half_edge_pcurve_deviation(heh)
-                .map_or(0.0, |report| report.max_deviation);
-            let stale_tolerance = self.max_imprecision.max(self.tolerance.linear());
-            if endpoint_error > stale_tolerance || trace_error > stale_tolerance {
-                self.half_edges[heh].pcurve = None;
-            }
-        }
-
-        let _ = self.recompute_all_pcurves();
-
-        let face_keys: Vec<_> = self.faces.keys().collect();
-        for fh in face_keys {
-            self.fix_pcurve_endpoints(fh);
-        }
-    }
 }
 
+#[path = "pcurve_stale_repair.rs"]
+mod pcurve_stale_repair;
 #[path = "pcurve_survival.rs"]
 mod pcurve_survival;
 use pcurve_survival::pcurve_fraction_contract_error;

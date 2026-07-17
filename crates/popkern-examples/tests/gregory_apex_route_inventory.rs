@@ -112,15 +112,16 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     assert!(report.tolerance_evidence.model_linear_tolerance.is_some());
     // Residual evidence is recorded per EXCEEDANCE, not per sector:
     // through the PK-095 era every sector exceeded a residual gate so
-    // the count floored at sector_count; since the pcurve recompute's
-    // quarter-point parameterization check (PK-074 closure) the
-    // mixed-radius fixture retains a single support-scope exceedance
-    // (2.1e-5 vs 1e-6 on cap_sector.1) and the other sectors are
-    // clean. An accepted route may legitimately record none.
+    // the count floored at sector_count; the PK-074 closure left a
+    // single support-scope exceedance (2.1e-5 vs 1e-6 on
+    // cap_sector.1). Re-pinned 2026-07-17 (PK-125): the ribbon
+    // cross-derivative orientation-continuity fix + corner-compatible
+    // spokes resolved the last exceedance — an accepted mixed-radius
+    // route now records NO residual diagnostics.
     assert!(
-        !report.diagnostics.is_empty(),
-        "the mixed-radius fixture currently retains one support-scope residual exceedance; \
-         if this is now empty the residual class was fully resolved — re-pin deliberately"
+        report.diagnostics.is_empty(),
+        "the mixed-radius fixture regressed a residual exceedance: {:#?}",
+        report.diagnostics
     );
     assert!(report.diagnostics.iter().all(|diagnostic| {
         diagnostic.schema_version == 1

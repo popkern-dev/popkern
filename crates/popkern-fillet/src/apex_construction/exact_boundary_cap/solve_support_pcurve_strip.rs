@@ -38,7 +38,7 @@ pub(crate) fn refine_support_normal_strips_with_pcurves(
     let mut candidate = solved.clone();
     for _ in 0..MAX_ITERATIONS {
         let mut corrected = false;
-        for pair in &pcurves.pairs {
+        for pair in pcurves.pairs.iter().filter(|pair| !pair.is_point_contact()) {
             let Some(surface) = candidate.surfaces.iter_mut().find(|surface| {
                 surface.sector_index == pair.sector_index && surface.sector_name == pair.sector_name
             }) else {
@@ -75,7 +75,7 @@ fn first_pcurve_decline_deficit(
     pcurves: &PreparedExactBoundaryPcurves,
     ribbons: &PreparedExactBoundaryRibbons,
 ) -> Option<f64> {
-    for pair in &pcurves.pairs {
+    for pair in pcurves.pairs.iter().filter(|p| !p.is_point_contact()) {
         let surface = solved.surfaces.iter().find(|surface| {
             surface.sector_index == pair.sector_index && surface.sector_name == pair.sector_name
         })?;
@@ -96,6 +96,7 @@ fn worst_pcurve_support_normal_deficit(
     pcurves
         .pairs
         .iter()
+        .filter(|pair| !pair.is_point_contact())
         .filter_map(|pair| {
             let surface = solved.surfaces.iter().find(|surface| {
                 surface.sector_index == pair.sector_index && surface.sector_name == pair.sector_name

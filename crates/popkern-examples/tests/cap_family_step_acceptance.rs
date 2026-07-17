@@ -41,12 +41,15 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     // on-support cap curve; the support pcurve is reprojected from it
     // with periodic unwrapping), which reconciled one more
     // cap/cylinder seam pcurve.
+    // Dropped 14 -> 9 with PK-125 (ribbon cross-derivative
+    // orientation continuity + corner-compatible spokes): five cap
+    // seam pcurve residuals resolved outright.
     // Note the two counters use different granularity by design:
     // pcurve_blockers counts EDGES, edge_surface_blockers counts
     // incompatible HALF-EDGES (unchanged by the pcurve repair).
     assert_eq!(
         pre_export.pcurve_blockers,
-        14,
+        9,
         "raw exact-boundary cap-family export should expose the current structured pcurve blocker class: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
@@ -59,9 +62,11 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     // 19 -> 11 with PK-124: measured-gated transactional relock (no
     // more destructive full-row rewrites) plus the canonical
     // shared-trim curve + reprojected support pcurves reconciled eight
-    // more cap-seam half-edges with their edge curves.
+    // more cap-seam half-edges with their edge curves. 11 -> 9 with
+    // PK-125 (ribbon orientation continuity + corner-compatible
+    // spokes).
     assert_eq!(
-        pre_export.edge_surface_blockers, 11,
+        pre_export.edge_surface_blockers, 9,
         "raw exact-boundary cap-family export should expose the current structured edge/surface blocker class: {pre_export:#?}"
     );
     if pre_export.edge_curve_blockers > 0 {

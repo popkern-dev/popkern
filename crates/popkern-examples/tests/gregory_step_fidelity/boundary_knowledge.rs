@@ -13,8 +13,11 @@ fn gregory_surface_boundary_knowledge_classifies_remaining_blockers() {
     // Dropped 15 -> 14 with PK-124's exact-boundary seam fidelity
     // package (canonical shared-trim curve + reprojected support
     // pcurves), matching the cap_family_step_acceptance census.
+    // Dropped 14 -> 9 with PK-125 (ribbon orientation continuity +
+    // corner-compatible spokes): five pcurve-residual blockers on the
+    // cap seams resolved outright.
     assert_eq!(
-        ownership.blockers, 14,
+        ownership.blockers, 9,
         "exact-boundary Gregory construction should expose the current structured fidelity blocker class: {ownership:#?}"
     );
     assert_eq!(

@@ -83,11 +83,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "STEP import diagnostics contain errors: {:?}",
         imported.diagnostics.entries()
     );
+    // Re-pinned 2026-07-17 (PK-125): the cap-seam pcurve residual
+    // blockers this diagnostic used to classify are fully resolved —
+    // a clean import must not report any.
     assert!(
-        imported.diagnostics.entries().iter().any(|entry| entry
+        imported.diagnostics.entries().iter().all(|entry| !entry
             .message
             .contains("STEP import pcurve fidelity blocker")),
-        "Gregory STEP roundtrip diagnostic should expose structured pcurve residual blockers: {:?}",
+        "Gregory STEP roundtrip regressed pcurve residual blockers: {:?}",
         imported.diagnostics.entries()
     );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
@@ -178,9 +181,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         }),
         "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
-    assert!(
-        imported_state.pcurve_blockers > 0,
-        "STEP import should expose the residual pcurve blocker class for classification: {states:#?}"
+    // Re-pinned 2026-07-17 (PK-125): the imported model is now fully
+    // clean (0 pcurve / 0 edge-surface blockers) — the residual
+    // pcurve class no longer survives the roundtrip. The remaining
+    // 9-blocker census lives on the construction-side analyzers only
+    // (the validator_gap classification below).
+    assert_eq!(
+        imported_state.pcurve_blockers, 0,
+        "STEP import regressed pcurve blockers: {states:#?}"
     );
 
     let classification =

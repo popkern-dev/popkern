@@ -7,10 +7,13 @@ use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 use super::corner::{PreparedExactBoundaryInnerSpokes, PreparedExactBoundarySectorBoundary};
 use super::ribbon::PreparedExactBoundaryRibbons;
 use solve_derivatives::{BoundaryOrientation, apply_derivative_rows};
+use solve_side_curves::{line_curve_like, spoke_in_basis};
 use solve_support_strip::apply_support_normal_strip_correction;
 
 #[path = "solve_derivatives.rs"]
 mod solve_derivatives;
+#[path = "solve_side_curves.rs"]
+mod solve_side_curves;
 #[path = "solve_support_pcurve_optimize.rs"]
 mod solve_support_pcurve_optimize;
 #[path = "solve_support_pcurve_residual.rs"]
@@ -28,6 +31,12 @@ mod solve_support_strip;
 // whole pyramid apexes to the legacy fallback (measured G1 0.86).
 const DEFAULT_CORNER_TOLERANCE: f64 = 5.0e-3;
 const DEFAULT_MIN_NORMAL_LENGTH: f64 = 1.0e-12;
+/// An outer boundary side whose 3-D chord is below this length is a
+/// point contact at model resolution (uniform-radius partitions carry
+/// the setback-corner bridge as a nano edge, measured 2–6e-9 on
+/// pyramid4_uniform). Matches the exact-boundary residual gates'
+/// 1e-6 scale.
+pub(crate) const DEGENERATE_OUTER_SIDE_TOLERANCE: f64 = 1.0e-6;
 
 /// Local tolerances for the in-memory surface solve.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -204,10 +213,47 @@ fn solve_sector(
         ));
     }
 
-    let top = line_curve_like(&fillet.curve, sector.face_inner_spoke.anchor, sector.pole());
-    let right = line_curve_like(&face.curve, sector.fillet_inner_spoke.anchor, sector.pole());
-    let mut controls = coons_controls(&fillet.curve, &face.curve, &top, &right, num_u, num_v);
-    let weights = coons_weights(&fillet.curve, &face.curve, &top, &right, num_u, num_v);
+    // A sector whose FACE boundary collapses below model resolution
+    // (uniform-radius partitions: the bridge between setback corners
+    // is a point, the topology carries it as a nano edge) must not
+    // put the chart collapse ON the outer boundary: the old layout
+    // (left side = the point-like face curve) made S_v vanish along
+    // u = 0, poisoning unit normals along the REAL fillet seam near
+    // the corner (measured pyramid4_uniform cap_outer_g1 0.65, all
+    // of it chart noise at the collapse — PK-125). The polar-wedge
+    // layout moves the collapse to the POLE (the standard degenerate
+    // quad every kernel uses for sphere-pole class charts): outer
+    // seams are regular everywhere, and the pole singularity is
+    // interior and shared by every sector.
+    let face_chord = face
+        .curve
+        .point_at(0.0)
+        .distance_to(&face.curve.point_at(1.0));
+    let degenerate_face_side = face_chord <= DEGENERATE_OUTER_SIDE_TOLERANCE;
+    // Inner sides come from the PREPARED spoke curves (corner-
+    // compatible cubics since PK-125), re-represented exactly in the
+    // side bases; a straight-line side would discard the in-plane
+    // anchor tangents that give the seam ends their G1.
+    let face_spoke =
+        spoke_in_basis(&sector.face_inner_spoke.curve, &fillet.curve).unwrap_or_else(|| {
+            line_curve_like(&fillet.curve, sector.face_inner_spoke.anchor, sector.pole())
+        });
+    let fillet_spoke = spoke_in_basis(&sector.fillet_inner_spoke.curve, &face.curve)
+        .unwrap_or_else(|| {
+            line_curve_like(&face.curve, sector.fillet_inner_spoke.anchor, sector.pole())
+        });
+    let (left, top) = if degenerate_face_side {
+        (
+            spoke_in_basis(&sector.face_inner_spoke.curve, &face.curve)
+                .unwrap_or_else(|| line_curve_like(&face.curve, shared, sector.pole())),
+            line_curve_like(&fillet.curve, sector.pole(), sector.pole()),
+        )
+    } else {
+        (face.curve.clone(), face_spoke)
+    };
+    let right = fillet_spoke;
+    let mut controls = coons_controls(&fillet.curve, &left, &top, &right, num_u, num_v);
+    let weights = coons_weights(&fillet.curve, &left, &top, &right, num_u, num_v);
     apply_derivative_rows(
         sector,
         ribbons,
@@ -215,6 +261,7 @@ fn solve_sector(
             fillet_reversed: fillet.reversed,
             face_reversed: face.reversed,
         },
+        degenerate_face_side,
         &mut controls,
         num_u,
         num_v,
@@ -229,6 +276,9 @@ fn solve_sector(
         num_v,
         weights,
     };
+    // PK-125 diagnostic probe (remove before commit): attribute the
+    // pyramid4 cap_outer_g1 spikes between the strip corrections and
+    // the base Coons+derivative-row solve.
     apply_support_normal_strip_correction(
         sector,
         ribbons,
@@ -236,6 +286,7 @@ fn solve_sector(
             fillet_reversed: fillet.reversed,
             face_reversed: face.reversed,
         },
+        degenerate_face_side,
         &mut surface,
     );
     if has_gross_foldover(&surface, budget) {
@@ -283,30 +334,6 @@ fn orient_curve(curve: &NurbsCurve, expected_end: Point3) -> OrientedBoundary {
             curve: curve.clone(),
             reversed: false,
         }
-    }
-}
-
-fn line_curve_like(template: &NurbsCurve, start: Point3, end: Point3) -> NurbsCurve {
-    let (lo, hi) = template.parameter_range();
-    let span = hi - lo;
-    let degree = template.degree;
-    let cps = (0..template.control_points.len())
-        .map(|i| {
-            let t = if degree == 0 {
-                i as f64 / (template.control_points.len() - 1) as f64
-            } else {
-                let greville =
-                    template.knots[i + 1..=i + degree].iter().sum::<f64>() / degree as f64;
-                (greville - lo) / span
-            };
-            lerp(start, end, t.clamp(0.0, 1.0))
-        })
-        .collect();
-    NurbsCurve {
-        degree,
-        knots: template.knots.clone(),
-        control_points: cps,
-        weights: template.weights.clone(),
     }
 }
 
@@ -398,7 +425,7 @@ fn index(i: usize, j: usize, num_v: usize) -> usize {
     i * num_v + j
 }
 
-fn lerp(a: Point3, b: Point3, t: f64) -> Point3 {
+pub(super) fn lerp(a: Point3, b: Point3, t: f64) -> Point3 {
     a + (b - a) * t
 }
 

@@ -143,6 +143,18 @@ pub(super) fn compute_support_ribbon_samples(
     } = request;
     let trace = support_trace_points(boundary, surface, pcurve, pcurve_reversed, budget)?;
     let mut samples = Vec::with_capacity(trace.len());
+    // Inward disambiguation is decided ONCE per ribbon and then
+    // propagated by field continuity. The old per-sample test
+    // (`dot(other_boundary.point_at(0.5) - sample_point)`) flipped
+    // the field's sign mid-seam whenever the reference point sat on
+    // the wrong side of a sample — measured on pyramid4_uniform,
+    // whose seam field is the constant cylinder axis: the reference
+    // (the point-like face boundary's midpoint = the corner itself)
+    // flipped D at t ≈ 0.3, and the solved surface smoothed the 180°
+    // discontinuity into the symmetric cap-vs-cylinder normal error
+    // that grew to 4.8e-1 at the seam ends (PK-125).
+    let mut previous_cross: Option<Vec3> = None;
+    let inward_reference = other_boundary.curve.point_at(0.5) - boundary.curve.point_at(0.5);
     for index in 0..trace.len() {
         let point = &trace[index];
         let boundary_tangent =
@@ -156,10 +168,14 @@ pub(super) fn compute_support_ribbon_samples(
         let Some(mut cross_unit) = cross.normalized() else {
             return Err(ExactBoundaryRibbonDeclineReason::CrossDerivativeDegenerate);
         };
-        let inward = other_boundary.curve.point_at(0.5) - point.boundary_point;
-        if cross_unit.dot(&inward) < 0.0 {
+        let orientation_sign = match previous_cross {
+            Some(previous) => cross_unit.dot(&previous),
+            None => cross_unit.dot(&inward_reference),
+        };
+        if orientation_sign < 0.0 {
             cross_unit = cross_unit * -1.0;
         }
+        previous_cross = Some(cross_unit);
         samples.push(ExactBoundaryRibbonSample {
             parameter: point.parameter,
             support_uv: point.support_uv,

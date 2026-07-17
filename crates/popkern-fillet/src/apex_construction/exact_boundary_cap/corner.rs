@@ -146,6 +146,10 @@ impl ExactBoundaryInnerSpokeDiagnostic {
     }
 }
 
+#[path = "corner_spoke_shaping.rs"]
+mod corner_spoke_shaping;
+use corner_spoke_shaping::shape_spokes_for_corner_compatibility;
+
 /// Prepare generated inner spokes and complete four-sided sector boundaries.
 pub(crate) fn prepare_exact_boundary_inner_spokes(
     sectors: &[ExactBoundaryCapSectorInput],
@@ -237,6 +241,7 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
     }
 
     reconcile_adjacent_spoke_anchors(&mut prepared, GENERATED_ANCHOR_RECONCILIATION_TOLERANCE);
+    shape_spokes_for_corner_compatibility(&mut prepared);
     validate_adjacent_spoke_g0(&prepared, budget)?;
     Ok(PreparedExactBoundaryInnerSpokes {
         sectors: prepared,

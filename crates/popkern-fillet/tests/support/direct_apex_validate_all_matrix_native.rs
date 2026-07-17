@@ -285,8 +285,12 @@ fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
 
 #[test]
 fn pyramid3_exact_boundary_acceptance_matrix() {
+    // pyramid3_uniform's one-patch cap accepted directly once the
+    // ribbon cross-derivative field stopped flipping sign mid-seam
+    // (PK-125); the constrained-strip decline that used to route it
+    // through multipatch recovery no longer fires.
     for (fixture, radii, expect_multipatch_recovery) in [
-        ("pyramid3_uniform", [0.10, 0.10, 0.10], true),
+        ("pyramid3_uniform", [0.10, 0.10, 0.10], false),
         ("pyramid3_mixed", [0.08, 0.10, 0.12], false),
         ("pyramid3_extreme", [0.02, 0.10, 0.20], false),
     ] {
@@ -299,11 +303,6 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
 }
 
 #[test]
-#[ignore = "recorded limitation (PK-124): both pyramid4 fixtures' one-patch caps fail the \
-pcurve-measured cap_outer_g1 5e-2 gate (uniform 0.65, mixed 0.99) via boundary-strip folds the \
-9-sample solve evidence cannot see; G0 is commercial across the class (zoo 0 defects end to \
-end). Pre-PK-124 green came from the destructive unconditional relock (the historical zoo \
-7-tess-nm author). Named replacement: G1-capable N=4 cap construction (PK-094)."]
 fn pyramid4_exact_boundary_acceptance_matrix() {
     for (fixture, radii, expect_multipatch_recovery) in [
         ("pyramid4_uniform", [0.05, 0.05, 0.05, 0.05], false),
