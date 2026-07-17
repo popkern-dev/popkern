@@ -117,3 +117,22 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
         reasons.join("\n"),
     );
 }
+
+/// PK-126 leg 3: pyramid3_uniform under strict V-free completes
+/// natively since the residual-strip duplication falls back to the
+/// boundary outcome's LIVE seam when the plan-recorded cylinder
+/// candidate was consumed by the N=3 trim-rewrite ordering
+/// (measured: plan error -> legacy g1 ~1.0 before; native
+/// g0 2.2e-4 / g1 3.9e-4 after).
+#[test]
+#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
+fn direct_apex_strict_v_free_pyramid3_uniform_succeeds_without_fallback() {
+    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "strict V-free pyramid3_uniform must complete without fallback; got:\n{}",
+        reasons.join("\n"),
+    );
+}

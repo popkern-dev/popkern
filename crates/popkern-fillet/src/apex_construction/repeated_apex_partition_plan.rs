@@ -321,10 +321,18 @@ impl RepeatedApexPartitionPlan {
                     ownership.fillet_index,
                     fillet_surfaces,
                 )?;
+                let live_seam_fallback = boundary_outcome
+                    .fillet_end_cap_side(ownership.fillet_index)
+                    .and_then(|cap_side| {
+                        brep.half_edges
+                            .get(cap_side)
+                            .map(|half_edge| half_edge.twin)
+                    });
                 let residual_loop = residual_strip_loop_with_duplicated_seam(
                     brep,
                     ownership,
                     boundary_outcome.strip_side_override(ownership.fillet_index),
+                    live_seam_fallback,
                 )?;
                 let residual_face =
                     insert_face_with_outer_loop(brep, self.cap_face, &residual_loop)?;

@@ -125,6 +125,7 @@ pub(super) fn residual_strip_loop_with_duplicated_seam(
     brep: &mut BRep,
     ownership: &FilletEndOwnership,
     shared_seam_override: Option<HalfEdgeHandle>,
+    live_seam_fallback: Option<HalfEdgeHandle>,
 ) -> Result<Vec<HalfEdgeHandle>, ApexBuildError> {
     if let Some(shared) = shared_seam_override {
         return Ok(vec![
@@ -133,7 +134,18 @@ pub(super) fn residual_strip_loop_with_duplicated_seam(
             ownership.retired_apex_cell.apex_to_t_b,
         ]);
     }
-    let source = shared_seam_override.unwrap_or(ownership.cylinder_candidate_half_edge);
+    // The plan-time cylinder candidate can be consumed by the strict
+    // cylinder-trim rewrite before this duplication runs (measured on
+    // pyramid3 strict: the N=3 rewrite ordering retires the recorded
+    // handle, N >= 4 keeps it live). The boundary outcome knows the
+    // CURRENT live seam representative; fall back to it.
+    let mut source = shared_seam_override.unwrap_or(ownership.cylinder_candidate_half_edge);
+    if !brep.half_edges.contains_key(source)
+        && let Some(live) = live_seam_fallback
+        && brep.half_edges.contains_key(live)
+    {
+        source = live;
+    }
     let shared = duplicate_boundary_half_edge_for_residual_strip(
         brep,
         source,
