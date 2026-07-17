@@ -277,19 +277,14 @@ fn build_column(p: &StandParams) -> Result<Part, PartError> {
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
 
-    // Sockets, then exact cone-frustum rim chamfers
-    // (closed_outer_rim_chamfer_is_watertight_and_probed). The order
-    // is free since the ray classifier's axial-span gate closed the
-    // boolean-after-rim-chamfer interaction
-    // (sockets_after_rim_chamfer_are_watertight_and_exact); this
-    // order simply matches how the column was first proven. The top
-    // rim breaks the sharp edge in the hand; the bottom doubles as
-    // elephant-foot compensation on the plate.
-    let column = blank
-        .subtract(&bottom_tool)?
-        .subtract(&top_tool)?
-        .chamfer(1.0, |e: EdgeQuery| e.circular().at_height(p.column_h))?
-        .chamfer(1.0, |e: EdgeQuery| e.circular().at_height(0.0))?;
+    // Rims stay SHARP: columns stack face-to-face, so any rim
+    // chamfer shows as a V-groove at every tier joint and shaves the
+    // bearing annulus. The rim-chamfer feature itself stays proven in
+    // the kernel gates (closed_outer_rim_chamfer_is_watertight_and_probed,
+    // sockets_after_rim_chamfer_are_watertight_and_exact — the full
+    // dress-then-double-socket order with an exact volume oracle);
+    // elephant-foot on the printed end is the slicer's job.
+    let column = blank.subtract(&bottom_tool)?.subtract(&top_tool)?;
     p.assert_fits_plate("column", 2.0 * p.column_r, 2.0 * p.column_r);
     println!("  column: print standing on end (loads pure compression)");
     Ok(column)
@@ -908,12 +903,23 @@ fn build_lip(p: &StandParams) -> Result<Part, PartError> {
     // sharp for the joint.
     let r = 2.0;
     let d = r - r / 2.0_f64.sqrt(); // arc mid-point sagitta offset
+    // The tab is the arm's slot dovetail inset by a UNIFORM
+    // perpendicular clearance c, so tab and slot flanks are exactly
+    // parallel (slot flank runs (1, 4.5) -> (6, 7), slope 0.5) and
+    // the fit is c everywhere instead of snug-at-throat /
+    // sloppy-at-crown. The nose keeps the 0.4 mm single-stop setback
+    // (crown x = 5.6 vs slot depth 6): the blade shoulder at x = 0
+    // is the only datum.
+    let slope = 0.5_f64;
+    let flank_shift = c * (1.0 + slope * slope).sqrt();
+    let x_throat = 1.0 + (flank_shift - c) / slope;
+    let y_nose = 4.5 + slope * (5.6 - 1.0) - flank_shift;
     let lip = Profile::on(Plane::XY)
         .path(0.0, -(4.5 - c))
-        .line_to(1.0, -(4.5 - c))
-        .line_to(5.6, -(6.6 - c))
-        .line_to(5.6, 6.6 - c)
-        .line_to(1.0, 4.5 - c)
+        .line_to(x_throat, -(4.5 - c))
+        .line_to(5.6, -y_nose)
+        .line_to(5.6, y_nose)
+        .line_to(x_throat, 4.5 - c)
         .line_to(0.0, 4.5 - c)
         .line_to(0.0, 4.0)
         .line_to(-17.0 + r, 4.0)
