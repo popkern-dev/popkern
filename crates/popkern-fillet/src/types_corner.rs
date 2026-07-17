@@ -268,6 +268,14 @@ pub struct CornerPatchInfo {
     /// cylinder off-surface topology repair) and legacy runoff
     /// scoping key off this to keep the two worlds apart.
     pub setback_cap: bool,
+    /// True when this patch is a committed sector face of an ACCEPTED
+    /// exact-boundary cap candidate (one-patch Coons wedge or its
+    /// multipatch partition fallback). The exact-boundary route owns
+    /// its topology and pcurves — acceptance gates every cap/support
+    /// pcurve pair transactionally — so legacy corner-patch pcurve
+    /// completion must not re-author them (same quarantine contract
+    /// as `setback_cap`, PK-087/PK-119).
+    pub exact_boundary_cap: bool,
     /// Macro-cap ownership metadata for multi-piece sector constructions.
     pub sub_patch_provenance: Option<CornerSubPatchProvenance>,
 }

@@ -184,6 +184,7 @@ pub(crate) fn insert_vertex_blend(
                         cap_sphere: None,
                         sub_patch_provenance: None,
                         setback_cap: true,
+                        exact_boundary_cap: false,
                     })
                     .collect();
                 return Ok((infos, None, Vec::new()));
@@ -331,6 +332,7 @@ pub(crate) fn insert_vertex_blend(
         cap_sphere: None,
         sub_patch_provenance: None,
         setback_cap: false,
+        exact_boundary_cap: false,
     };
     let mut diagnostics = Vec::new();
 

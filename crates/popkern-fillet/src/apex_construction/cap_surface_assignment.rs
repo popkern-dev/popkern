@@ -95,7 +95,7 @@ pub(super) fn assign_gregory_cap_surface(
     let exact_boundary_candidate = run_exact_boundary_cap_candidate(brep, cap_face, plan, sectors)?;
     if exact_boundary_candidate.status == ExactBoundaryCapCandidateStatus::Accepted {
         return Ok(GregoryCapAssignment {
-            corner_patches: Vec::new(),
+            corner_patches: exact_boundary_corner_patches(plan, &exact_boundary_candidate),
             exact_boundary_prepared_curve_count: exact_boundary_candidate.prepared_curve_count(),
             exact_boundary_inner_spoke_count: exact_boundary_candidate.inner_spoke_count(),
             exact_boundary_ribbon_count: exact_boundary_candidate.ribbon_count(),
@@ -148,6 +148,57 @@ pub(super) fn assign_gregory_cap_surface(
         exact_boundary_report: exact_boundary_candidate.report,
         exact_boundary_diagnostics,
     })
+}
+
+/// Semantic ownership records for an ACCEPTED exact-boundary cap
+/// candidate (PK-119).
+///
+/// The exact-boundary route (one-patch Coons wedge, or the multipatch
+/// partition fallback) commits per-sector NURBS faces whose ownership
+/// previously lived only on the apex route report — corner-patch
+/// consumers (continuity bookkeeping, fixtures, GUI selectors) could
+/// not find the cap without route-report archaeology. Emit one
+/// `CornerPatchInfo` per committed face:
+///
+/// - `method` is `Coons` — the construction is a Coons wedge solve
+///   with ribbon derivative rows, not a Gregory assembly; the
+///   post-pipeline method reclassifier preserves it (like PnS).
+/// - `achieved_continuity` is `G1`: candidate acceptance gates the
+///   cap/support unit-normal coplanarity deficit (≤5e-2) along every
+///   accepted seam in addition to the G0 residual gates. Known
+///   evidence-density limitation on the pyramid4 class is tracked as
+///   PK-125. A measured continuity report, when present, wins.
+/// - `exact_boundary_cap` quarantines these faces from legacy
+///   pcurve-completion passes — acceptance already gated every
+///   cap/support pcurve pair transactionally.
+fn exact_boundary_corner_patches(
+    plan: &ApexPlan,
+    candidate: &super::exact_boundary_cap::facade::ExactBoundaryCapCandidateResult,
+) -> Vec<CornerPatchInfo> {
+    let achieved = candidate
+        .report
+        .continuity
+        .achieved
+        .unwrap_or(crate::types::ContinuityLevel::G1);
+    candidate
+        .committed_faces
+        .iter()
+        .map(|&face| CornerPatchInfo {
+            vertex: plan.apex_vertex,
+            n_sides: plan.cap_kind.n_fillets(),
+            method: crate::types::CornerMethod::Coons,
+            achieved_continuity: achieved,
+            classification: crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
+            face,
+            bridge_fallbacks: Vec::new(),
+            overlap_remediated: false,
+            relaxed_continuity_coplanarity: None,
+            cap_sphere: None,
+            setback_cap: false,
+            exact_boundary_cap: true,
+            sub_patch_provenance: None,
+        })
+        .collect()
 }
 
 fn face_edge_support_surfaces(

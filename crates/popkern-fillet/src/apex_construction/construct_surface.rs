@@ -45,6 +45,7 @@ pub(super) fn assign_cap_surface(
                 cap_sphere: Some((*center, *radius)),
                 sub_patch_provenance: None,
                 setback_cap: false,
+                exact_boundary_cap: false,
             }])
         }
         CapKind::Gregory { .. } => {

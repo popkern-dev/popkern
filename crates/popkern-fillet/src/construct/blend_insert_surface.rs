@@ -90,6 +90,12 @@ pub(crate) fn reclassify_corner_methods(
         if info.method == CornerMethod::PolyhedralNetSpline {
             continue;
         }
+        // Exact-boundary caps commit NURBS sector faces with their
+        // own gated continuity claim (PK-119) — the generic
+        // Nurbs → Gregory inference would erase the Coons provenance.
+        if info.exact_boundary_cap {
+            continue;
+        }
         let Some(sof) = brep.faces.get(info.face).and_then(|f| f.surface.as_ref()) else {
             continue;
         };

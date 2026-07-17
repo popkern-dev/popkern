@@ -225,13 +225,18 @@ pub fn apply_blend_geometry(
         crate::blend::BlendBoundary,
         Vec<popkern_core::topology::FaceHandle>,
     )> = Vec::new();
-    // §6c-direct-apex dispatch.d — face handles authored by `try_direct_apex_construction`.
-    // These faces are protected from `sliver_absorb` /
-    // `cap_insert` / late re-wiring so the post-loop stages
-    // don't re-author or absorb the direct-apex-built cap.
+    // §6c-direct-apex dispatch.d — faces authored by `try_direct_apex_construction`,
+    // protected so sliver_absorb/cap_insert/late re-wiring don't re-author the cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
 
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
+    // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
+    let promoted_apexes = mixed_radius_direct_apex::promoted_mixed_radius_apexes_for_mode(
+        vertex_mode,
+        edge_geometries,
+        use_rational_gregory,
+        use_kp_binonic_gregory,
+    );
     let (mut split_state, ms) = pipeline_timing::timed(|| {
         perpendicular_splits::run_perpendicular_splits(
             brep,
@@ -239,6 +244,7 @@ pub fn apply_blend_geometry(
             edge_geometries,
             tolerance,
             use_direct_apex_construction,
+            &promoted_apexes,
             &mut failures,
         )
     });
@@ -303,14 +309,8 @@ pub fn apply_blend_geometry(
                     let pre = precomputed.get(vertex).copied().unwrap_or(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );
-
-                    let use_direct_apex_for_this_apex = use_direct_apex_construction
-                        || mixed_radius_direct_apex::should_promote_mixed_radius_gregory_apex(
-                            edge_indices,
-                            edge_geometries,
-                            use_rational_gregory,
-                            use_kp_binonic_gregory,
-                        );
+                    let use_direct_apex_for_this_apex =
+                        use_direct_apex_construction || promoted_apexes.contains(vertex);
                     let direct_apex_outcome = if use_direct_apex_for_this_apex {
                         Some(direct_apex_dispatch::try_direct_apex_construction(
                             &mut result,

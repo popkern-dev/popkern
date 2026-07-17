@@ -462,6 +462,7 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             cap_sphere: cap_sphere_per_subface[k],
             sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, semantic_cap_index),
             setback_cap: false,
+            exact_boundary_cap: false,
         });
     }
     if crate::direct_apex_trace::enabled() {

@@ -22,6 +22,7 @@ pub(super) fn run_perpendicular_splits(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
     use_direct_apex_construction: bool,
+    promoted_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
 ) -> PerpendicularSplitState {
     // Faces the closed-rim surgery created or rebuilt — the strip
@@ -45,15 +46,24 @@ pub(super) fn run_perpendicular_splits(
     // computed and discarded — proves the pre-pass runs without
     // regression on every fixture.  Gated by `use_direct_apex_
     // construction` so legacy is unaffected.
+    // Mixed-radius promoted apexes (PK-127) join the prepass without
+    // the global flag: dispatch will route them to the direct-apex
+    // partition, so Phase A must place the anchors that plan expects.
+    // Targets stay scoped to the promoted vertices when the global
+    // flag is off so legacy anchor placement elsewhere is untouched.
     let _planner_targets_per_apex: std::collections::HashMap<
         VertexHandle,
         Vec<popkern_core::geometry::Point3>,
-    > = if use_direct_apex_construction {
-        crate::apex_construction::planner_prepass::plan_apex_targets_pre_phase_a(
+    > = if use_direct_apex_construction || !promoted_direct_apex_vertices.is_empty() {
+        let mut targets = crate::apex_construction::planner_prepass::plan_apex_targets_pre_phase_a(
             &phase_a_snapshot,
             edge_geometries,
             tolerance,
-        )
+        );
+        if !use_direct_apex_construction {
+            targets.retain(|vertex, _| promoted_direct_apex_vertices.contains(vertex));
+        }
+        targets
     } else {
         std::collections::HashMap::new()
     };
@@ -141,10 +151,17 @@ pub(super) fn run_perpendicular_splits(
         // requires arc/boundary crossings and therefore trim
         // anchors.
         let setback_n3 = std::env::var_os("POPKERN_SETBACK_N3").is_some();
+        // Edges incident to a mixed-radius promoted apex take the
+        // direct-apex anchor convention even when the global flag is
+        // off (PK-127) — the partition plan consumes perp-walk
+        // anchor positions, not trim crossings.
+        let direct_apex_anchor_edge = use_direct_apex_construction
+            || promoted_direct_apex_vertices.contains(&eg.analysis.vertex_start)
+            || promoted_direct_apex_vertices.contains(&eg.analysis.vertex_end);
         let anchor_on_trim = matches!(
             eg.surface,
             SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Cylinder { .. }
-        ) && (!use_direct_apex_construction || setback_n3);
+        ) && (!direct_apex_anchor_edge || setback_n3);
 
         // §28.H Session 2 — build per-anchor planner override.  For
         // each anchor slot (V_start vs V_end on face_1 vs face_2),
@@ -153,7 +170,7 @@ pub(super) fn run_perpendicular_splits(
         // match is far (variable-radius, planner emits sphere-fit
         // positions interior to faces), the override falls back to
         // perp-walk-math at insertion time.
-        let override_ = if use_direct_apex_construction && !_planner_targets_per_apex.is_empty() {
+        let override_ = if direct_apex_anchor_edge && !_planner_targets_per_apex.is_empty() {
             Some(build_perp_anchor_override(
                 &phase_a_snapshot,
                 eg.analysis.edge,

@@ -315,6 +315,7 @@ pub fn try_pns_dispatch(
             cap_sphere: None,
             sub_patch_provenance: None,
             setback_cap: false,
+            exact_boundary_cap: false,
         })
         .collect();
     Some(patches)

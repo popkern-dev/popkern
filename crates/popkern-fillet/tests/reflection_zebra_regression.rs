@@ -36,10 +36,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::reflection_line::blend_reflection_line_kink_max;
 use popkern_fillet::zebra::blend_zebra_kink_max;
-use popkern_fillet::{
-    CornerMethod, ExactBoundaryCandidateOutcome, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
-};
+use popkern_fillet::{CornerMethod, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn tol() -> Tolerance {
     Tolerance::default()
@@ -105,20 +102,16 @@ fn cube_corner_mixed_native_cap() -> (BRep, popkern_core::topology::FaceHandle) 
         ..FilletOptions::default()
     };
     let r = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
+    // Exact-boundary commits author CornerPatchInfo per committed
+    // sector face (PK-119), so corner_patches is the single source of
+    // cap ownership for both the exact-boundary and Gregory routes.
     let corner_face = r
-        .repair_report
-        .apex_routes
+        .corner_patches
         .iter()
-        .find(|route| {
-            route.exact_boundary_report.candidate_status == ExactBoundaryCandidateOutcome::Accepted
+        .find(|p| {
+            p.vertex == vertex && matches!(p.method, CornerMethod::Coons | CornerMethod::Gregory)
         })
-        .and_then(|route| route.exact_boundary_report.committed_faces.first().copied())
-        .or_else(|| {
-            r.corner_patches
-                .iter()
-                .find(|p| p.vertex == vertex && p.method == CornerMethod::Gregory)
-                .map(|p| p.face)
-        })
+        .map(|p| p.face)
         .expect("mixed-radii corner must emit an exact-boundary or Gregory native cap face");
     (r.brep, corner_face)
 }
@@ -154,36 +147,18 @@ fn pyramid_apex_gregory() -> Option<(BRep, Vec<popkern_core::topology::FaceHandl
         ..FilletOptions::default()
     };
     let r = fillet_edges(&pyramid, &specs, &opts, tol(), None).ok()?;
-    let mut faces: Vec<_> = r
+    // Exact-boundary commits author CornerPatchInfo per committed
+    // sector face (PK-119): both the direct-apex partition route
+    // (method Coons) and legacy Gregory caps surface through
+    // corner_patches, so no route-report archaeology is needed.
+    let faces: Vec<_> = r
         .corner_patches
         .iter()
-        .filter(|p| p.vertex == apex && p.method == CornerMethod::Gregory)
+        .filter(|p| {
+            p.vertex == apex && matches!(p.method, CornerMethod::Coons | CornerMethod::Gregory)
+        })
         .map(|p| p.face)
         .collect();
-    if faces.is_empty() {
-        // Mixed-radius N=4 apexes promote to the direct-apex partition
-        // route, which records its cap sectors on the apex route
-        // report instead of as Gregory corner patches. Measure the
-        // committed curved cap faces so the fixture keeps gating the
-        // production construction rather than silently skipping.
-        use popkern_core::geometry::surface::SurfaceGeometry;
-        faces = r
-            .repair_report
-            .apex_routes
-            .iter()
-            .flat_map(|route| route.exact_boundary_report.committed_faces.iter().copied())
-            .filter(|&face| {
-                r.brep.faces.get(face).is_some_and(|f| {
-                    f.surface.as_ref().is_some_and(|s| {
-                        matches!(
-                            s.geometry,
-                            SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)
-                        )
-                    })
-                })
-            })
-            .collect();
-    }
     if faces.is_empty() {
         return None;
     }
@@ -221,7 +196,16 @@ const REFLECTION_KINK_LIMIT: f64 = 2.0;
 // strips) whose named replacement is the PK-094 setback-cap
 // integration; G0 for the same class is commercial (pyramid4 zoo 0
 // tessellation seams end to end). Headroom kept tight (~4%).
-const ZEBRA_MISMATCH_LIMIT: f64 = 0.76;
+//
+// Re-baselined 2026-07-17 (PK-127): the mixed-radius promotion now
+// reaches the partition commit under DEFAULT options (previously the
+// promoted apex always fell back to the legacy cap at plan time), so
+// this fixture measures the four committed exact-boundary sector
+// caps (worst cap[3] 0.7812; g0 for the same route improved
+// 1.34 → 1.5e-14). The stripe mismatch remains the recorded
+// one-patch cap G1 limitation — PK-125 owns returning this
+// limit to <= 0.70. Headroom kept tight (~2%).
+const ZEBRA_MISMATCH_LIMIT: f64 = 0.80;
 const VIEW: Vec3 = Vec3 {
     x: 0.0,
     y: 0.0,

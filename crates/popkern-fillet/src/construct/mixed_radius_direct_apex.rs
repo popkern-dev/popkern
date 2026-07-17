@@ -1,6 +1,59 @@
 //! Mixed-radius direct-apex dispatch policy.
 
+use popkern_core::topology::VertexHandle;
+
 use super::EdgeGeometry;
+
+/// Per-apex promotion set, computed BEFORE Phase A so anchor policy
+/// and dispatch share one decision (PK-127).
+///
+/// The promotion used to be decided only at dispatch time, after
+/// Phase A had already placed LEGACY (trim-crossing, no planner
+/// override) anchors around the apex — the repeated-apex partition
+/// plan then met anchor positions it cannot consume ("cannot
+/// duplicate stale residual strip seam" / "no existing BRep vertex
+/// within 1e-6") and every default-options promoted apex fell back
+/// to the unmeasured legacy cap. Phase A consults this set so edges
+/// incident to a promoted apex get the direct-apex anchor
+/// convention (perp-walk positions + planner-prepass overrides),
+/// exactly as if `use_direct_apex_construction` were set.
+pub(super) fn promoted_mixed_radius_apexes_for_mode(
+    vertex_mode: &super::VertexMode,
+    edge_geometries: &[EdgeGeometry],
+    use_rational_gregory: bool,
+    use_kp_binonic_gregory: bool,
+) -> std::collections::BTreeSet<VertexHandle> {
+    // Vertex blends dispatch only in Smooth mode with 2+ fillets —
+    // the same gate the dispatch loop applies.
+    if *vertex_mode != super::VertexMode::Smooth || edge_geometries.len() < 2 {
+        return std::collections::BTreeSet::new();
+    }
+    let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    for (index, geometry) in edge_geometries.iter().enumerate() {
+        vertex_edges
+            .entry(geometry.analysis.vertex_start)
+            .or_default()
+            .push(index);
+        vertex_edges
+            .entry(geometry.analysis.vertex_end)
+            .or_default()
+            .push(index);
+    }
+    vertex_edges
+        .into_iter()
+        .filter(|(_, edge_indices)| {
+            edge_indices.len() >= 2
+                && should_promote_mixed_radius_gregory_apex(
+                    edge_indices,
+                    edge_geometries,
+                    use_rational_gregory,
+                    use_kp_binonic_gregory,
+                )
+        })
+        .map(|(vertex, _)| vertex)
+        .collect()
+}
 
 pub(super) fn should_promote_mixed_radius_gregory_apex(
     edge_indices: &[usize],

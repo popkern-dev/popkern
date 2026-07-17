@@ -64,9 +64,12 @@ pub(crate) fn complete_corner_patch_support_pcurves(
 ) {
     // Setback-fan caps excluded: the surgery authors + gates their
     // pcurves; this pass tears them (blunt 2.5e-2→2.9e-1, PK-087).
+    // Exact-boundary caps excluded for the same ownership contract:
+    // candidate acceptance gates every cap/support pcurve pair
+    // transactionally (PK-119).
     let non_setback: Vec<_> = corner_patches
         .iter()
-        .filter(|cp| !cp.setback_cap)
+        .filter(|cp| !cp.setback_cap && !cp.exact_boundary_cap)
         .cloned()
         .collect();
     complete_support_cell_pcurves_transactionally(brep, &non_setback, diagnostics);

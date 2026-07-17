@@ -203,6 +203,7 @@ fn construct_apex_inner_constructive(
                 cap_sphere: Some((*cap_center, *cap_radius)),
                 sub_patch_provenance: None,
                 setback_cap: false,
+                exact_boundary_cap: false,
             }];
 
             let n = plan.cap_kind.n_fillets();
