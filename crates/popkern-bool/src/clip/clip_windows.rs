@@ -80,6 +80,42 @@ pub(super) fn decisive_windows(
         )
     };
     let min_len = span * 1e-9;
+    // Boundary-hugging guard for OPEN records (PK-114): the flush
+    // boolean's boundary-running traces classify some spans
+    // decisively OUTSIDE while lying within a hair of the trim
+    // boundary — dropping those spans starves the downstream
+    // gap-substitute completion, which pairs full-span hull records
+    // against boundary-registration gaps (measured: 46 open mesh
+    // edges + 32% volume error on the flush gusset union). An
+    // out-of-face interval only counts as decisive when its midpoint
+    // is genuinely CLEAR of the face boundary (2% of the trim
+    // scale); anything closer is ambiguous and falls back to the
+    // tuned crossing hull. Closed records keep their PK-111 contract
+    // untouched.
+    let boundary_clearance: Option<(Vec<(f64, f64)>, f64)> = if is_closed {
+        None
+    } else {
+        crate::clip::face_uv_boundary(brep, face).map(|boundary| {
+            let mut samples = Vec::new();
+            let (mut lo_u, mut hi_u, mut lo_v, mut hi_v) = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+            for (_, pcurve) in &boundary {
+                let curve = pcurve.to_nurbs();
+                let (b0, b1) = curve.parameter_range();
+                for k in 0..=24 {
+                    let point = curve.point_at(b0 + (b1 - b0) * k as f64 / 24.0);
+                    lo_u = lo_u.min(point.x);
+                    hi_u = hi_u.max(point.x);
+                    lo_v = lo_v.min(point.y);
+                    hi_v = hi_v.max(point.y);
+                    samples.push((point.x, point.y));
+                }
+            }
+            let trim_scale = ((hi_u - lo_u).powi(2) + (hi_v - lo_v).powi(2))
+                .sqrt()
+                .max(1e-9);
+            (samples, trim_scale * 0.02)
+        })
+    };
     let mut verdicts: Vec<Option<bool>> = Vec::with_capacity(intervals.len());
     for &(a, b) in &intervals {
         if b - a < min_len {
@@ -95,6 +131,21 @@ pub(super) fn decisive_windows(
         ];
         if flags[0] != flags[1] || flags[1] != flags[2] {
             return None;
+        }
+        if !flags[0]
+            && let Some((boundary_samples, clearance)) = boundary_clearance.as_ref()
+        {
+            let mid = {
+                let t = a + (b - a) * 0.5;
+                let tt = if t > t_max { t - span } else { t };
+                curve_uv.point_at(tt)
+            };
+            let near_boundary = boundary_samples
+                .iter()
+                .any(|&(u, v)| ((mid.x - u).powi(2) + (mid.y - v).powi(2)).sqrt() < *clearance);
+            if near_boundary {
+                return None;
+            }
         }
         verdicts.push(Some(flags[0]));
     }
@@ -157,6 +208,43 @@ pub(super) fn decisive_windows(
     }
     windows.retain(|w| w.1 - w.0 > min_len);
     Some(windows)
+}
+
+/// Measured transversality of an intersection record: the two faces'
+/// unit normals must disagree by at least ~3 degrees at every probed
+/// record sample. Coincident and tangential pairs (the flush
+/// boolean's coplanar overlap class) fail this and keep the tuned
+/// crossing-hull clip.
+fn record_is_transversal(
+    brep_a: &BRep,
+    face_a: FaceHandle,
+    brep_b: &BRep,
+    face_b: FaceHandle,
+    curve: &CurveOnSurface,
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let (Some(surface_a), Some(surface_b)) = (
+        brep_a.faces.get(face_a).and_then(|f| f.surface.as_ref()),
+        brep_b.faces.get(face_b).and_then(|f| f.surface.as_ref()),
+    ) else {
+        return false;
+    };
+    let (a_lo, a_hi) = curve.curve_uv1.parameter_range();
+    let (b_lo, b_hi) = curve.curve_uv2.parameter_range();
+    const MIN_NORMAL_CROSS: f64 = 5.0e-2;
+    for fraction in [0.25, 0.5, 0.75] {
+        let uv_a = curve.curve_uv1.point_at(a_lo + fraction * (a_hi - a_lo));
+        let uv_b = curve.curve_uv2.point_at(b_lo + fraction * (b_hi - b_lo));
+        let normal_a = surface_a.geometry.normal_at(uv_a.x, uv_a.y);
+        let normal_b = surface_b.geometry.normal_at(uv_b.x, uv_b.y);
+        let (Some(unit_a), Some(unit_b)) = (normal_a.normalized(), normal_b.normalized()) else {
+            return false;
+        };
+        if unit_a.cross(&unit_b).length() < MIN_NORMAL_CROSS {
+            return false;
+        }
+    }
+    true
 }
 
 /// Intersect two in-face window sets on the record's parameter line —
@@ -227,8 +315,26 @@ pub(crate) fn clip_curve_uv_space(
     if trace {
         trace_record_geometry(brep_b, face_a, face_b, curve);
     }
-    let clip_a = uv_clip_one_face(brep_a, face_a, &curve.curve_uv1, curve.is_closed);
-    let clip_b = uv_clip_one_face(brep_b, face_b, &curve.curve_uv2, curve.is_closed);
+    // Open records may take decisive multi-windows only when the
+    // record is TRANSVERSAL — the two faces' surface normals disagree
+    // along it. Flush/coincident boundary-running traces (parallel
+    // normals) keep the tuned crossing-hull contract (PK-114).
+    let open_windows_allowed =
+        !curve.is_closed && record_is_transversal(brep_a, face_a, brep_b, face_b, curve);
+    let clip_a = uv_clip_one_face(
+        brep_a,
+        face_a,
+        &curve.curve_uv1,
+        curve.is_closed,
+        open_windows_allowed,
+    );
+    let clip_b = uv_clip_one_face(
+        brep_b,
+        face_b,
+        &curve.curve_uv2,
+        curve.is_closed,
+        open_windows_allowed,
+    );
 
     let name = |r: &UvClipResult| match r {
         UvClipResult::NoPcurves => "NoPcurves".to_string(),

@@ -624,6 +624,7 @@ pub(super) fn uv_clip_one_face(
     face: FaceHandle,
     curve_uv: &NurbsCurve,
     is_closed: bool,
+    open_windows_allowed: bool,
 ) -> UvClipResult {
     let trace = std::env::var_os("PK_CLIP_TRACE").is_some();
     match find_uv_crossings(brep, face, curve_uv, &brep.tolerance) {
@@ -734,14 +735,13 @@ pub(super) fn uv_clip_one_face(
             // out-of-face gap and over a foreign junction). Classify
             // every inter-crossing interval honestly; ambiguous
             // verdicts (boundary-hugging curves) fall back to the
-            // tuned hull logic. OPEN records keep the hull even at
-            // ≥3 crossings — their multi-crossing class is the flush
-            // boolean's boundary-running traces, whose downstream
-            // dedup/arbitration is tuned to hull records (measured:
-            // decisive windows on open records broke seven flush and
-            // holder gates); the open multi-window case stays the
-            // recorded limitation it was before PK-111.
-            if is_closed
+            // tuned hull logic. OPEN records take windows only when
+            // the caller MEASURED them safe (PK-114: transversality +
+            // the boundary-hugging guard in decisive_windows) —
+            // flush/coincident boundary-running traces keep the tuned
+            // hull; splitting them starved the gap-substitute
+            // completion (46 opens + 32% volume, flush gusset).
+            if (is_closed || open_windows_allowed)
                 && crossings.len() >= 3
                 && let Some(ws) = super::clip_windows::decisive_windows(
                     brep, face, curve_uv, &crossings, is_closed,
