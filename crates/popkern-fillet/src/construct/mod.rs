@@ -21,6 +21,7 @@ mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
 #[path = "pns_setback_candidate.rs"]
 pub(crate) mod pns_setback_candidate;
+pub(crate) mod rim_chain_chamfer;
 #[path = "setback_vertex_topology.rs"]
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
@@ -110,7 +111,6 @@ mod three_quad_kp_diagnostics;
 pub(crate) mod three_quad_promotions;
 mod three_quad_support_pcurve_completion;
 pub(crate) mod topology_repair;
-
 use crate::analysis::EdgeAnalysis;
 use crate::blend_warnings::trace_smooth_blend_mitred_fallback as trace_mitred;
 use crate::error::{BlendFailure, BlendWarning};

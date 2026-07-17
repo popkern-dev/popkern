@@ -42,6 +42,101 @@ pub fn chamfer_edges(
         });
     }
 
+    // 3a. Closed rim chains (PK-135): when the chamfered edges form
+    // complete outer loops of planar cap faces, the per-edge strip
+    // pipeline cannot serve them (each edge would retrim the shared
+    // cap independently and the strips never meet at the corners).
+    // The chain surgery builds the mitred inset by construction. It
+    // only runs when EVERY requested edge belongs to a chain — a
+    // mixed request falls through whole to the per-edge path so the
+    // operation stays all-or-nothing either way.
+    let chains = construct::rim_chain_chamfer::detect_closed_rim_chains(brep, &edge_geometries);
+    let chain_edge_count: usize = chains.iter().map(|c| c.geometry_indices().count()).sum();
+    if !chains.is_empty() && chain_edge_count == edge_geometries.len() && failures.is_empty() {
+        let mut result = brep.clone();
+        let mut chain_error: Option<(FaceHandle, String)> = None;
+        for chain in &chains {
+            if let Err(reason) = construct::rim_chain_chamfer::apply_rim_chain_chamfer(
+                &mut result,
+                chain,
+                &edge_geometries,
+                &tolerance,
+            ) {
+                chain_error = Some((chain.cap_face(), reason));
+                break;
+            }
+        }
+        match chain_error {
+            None => {
+                result.fix_stale_pcurves();
+                result.recompute_all_pcurves_lenient();
+                let structural = result.validate();
+                if structural.is_ok() {
+                    if let Some(ctx) = tracking {
+                        assign_fillet_names(&mut result, ctx, &pre_faces);
+                    }
+                    return Ok(BlendResult {
+                        brep: result,
+                        edge_warnings: Vec::new(),
+                        corner_patches: Vec::new(),
+                        repair_report: Default::default(),
+                    });
+                }
+                // Post-surgery validation failed: transactional decline
+                // with the validation evidence (never ship the clone).
+                return Err(BlendError::PartialFailure {
+                    failed: specs.len(),
+                    total: specs.len(),
+                    partial_result: Box::new(brep.clone()),
+                    failures: specs
+                        .iter()
+                        .map(|s| {
+                            (
+                                s.edge,
+                                BlendFailure::InvalidTopology {
+                                    reason: format!(
+                                        "rim chain chamfer failed post-validation: {}",
+                                        structural
+                                            .as_ref()
+                                            .err()
+                                            .map(|e| e.to_string())
+                                            .unwrap_or_default()
+                                    ),
+                                    location: None,
+                                },
+                            )
+                        })
+                        .collect(),
+                });
+            }
+            Some((cap, reason)) => {
+                // Declined chain construction is a hard, transactional
+                // error: the legacy per-edge path is measured-broken
+                // for closed chains, so falling through would ship
+                // corrupt topology.
+                return Err(BlendError::PartialFailure {
+                    failed: specs.len(),
+                    total: specs.len(),
+                    partial_result: Box::new(brep.clone()),
+                    failures: specs
+                        .iter()
+                        .map(|s| {
+                            (
+                                s.edge,
+                                BlendFailure::InvalidTopology {
+                                    reason: format!(
+                                        "rim chain chamfer around {cap:?} declined: {reason}"
+                                    ),
+                                    location: None,
+                                },
+                            )
+                        })
+                        .collect(),
+                });
+            }
+        }
+    }
+
     if std::env::var_os("PK_FILLET_TRACE").is_some() {
         eprintln!("  [chamfer] pre-apply faces={}", brep.faces.len());
     }
