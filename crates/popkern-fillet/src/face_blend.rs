@@ -28,6 +28,12 @@ pub enum FaceBlendAttach {
     /// Emit the blend strip as a separate open sheet body; the input
     /// body is not modified.
     SheetOnly,
+    /// Trim both walls back to the contact curves, remove the
+    /// enclosed gap region, and seam the strip in as a face of the
+    /// (copied) body. Transactional: declines with
+    /// [`BlendError::AttachDeclined`] and the input unchanged when
+    /// the surgery preconditions do not hold.
+    TrimBoth,
 }
 
 /// Specification of one face–face blend.
@@ -49,15 +55,26 @@ pub struct FaceBlendSpec {
 pub struct FaceBlendResult {
     /// Open sheet body carrying the blend strip.
     pub sheet: BRep,
+    /// For [`FaceBlendAttach::TrimBoth`]: the modified body with the
+    /// walls trimmed and the strip seamed in. `None` for SheetOnly.
+    pub attached: Option<BRep>,
+    /// For TrimBoth: the strip face inside `attached`.
+    pub strip_face: Option<FaceHandle>,
     /// Contact points on face A, in march order.
     pub contacts_a: Vec<Point3>,
     /// Contact points on face B, in march order.
     pub contacts_b: Vec<Point3>,
 }
 
-struct FaceDomain<'a> {
-    surface: &'a SurfaceGeometry,
-    uv_range: ((f64, f64), (f64, f64)),
+/// A support face's surface plus its solver and seeding extents.
+pub(crate) struct FaceDomain<'a> {
+    pub(crate) surface: &'a SurfaceGeometry,
+    /// Padded range for solver headroom (tight-bounded, 5%).
+    pub(crate) uv_range: ((f64, f64), (f64, f64)),
+    /// Exact face extent (0% padding) — seeds must start ON the
+    /// face, not in the padding band, or the first contact solve can
+    /// pin the march outside the trim.
+    pub(crate) uv_core: ((f64, f64), (f64, f64)),
 }
 
 fn face_domain<'a>(brep: &'a BRep, face: FaceHandle) -> Result<FaceDomain<'a>, BlendError> {
@@ -74,9 +91,12 @@ fn face_domain<'a>(brep: &'a BRep, face: FaceHandle) -> Result<FaceDomain<'a>, B
     let positions = brep.face_outer_loop_positions(face);
     let (u_range, v_range) =
         popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
+    let (cu, cv) =
+        popkern_core::geometry::uv_projection::exact_bounded_parameter_range(&positions, surface);
     Ok(FaceDomain {
         surface,
         uv_range: (u_range, v_range),
+        uv_core: (cu, cv),
     })
 }
 
@@ -85,7 +105,7 @@ fn face_domain<'a>(brep: &'a BRep, face: FaceHandle) -> Result<FaceDomain<'a>, B
 fn closest_pair(a: &FaceDomain, b: &FaceDomain) -> ((f64, f64), (f64, f64)) {
     const N: usize = 16;
     let sample = |d: &FaceDomain, i: usize, j: usize| -> (f64, f64) {
-        let ((u0, u1), (v0, v1)) = d.uv_range;
+        let ((u0, u1), (v0, v1)) = d.uv_core;
         (
             u0 + (u1 - u0) * i as f64 / (N - 1) as f64,
             v0 + (v1 - v0) * j as f64 / (N - 1) as f64,
@@ -109,21 +129,22 @@ fn closest_pair(a: &FaceDomain, b: &FaceDomain) -> ((f64, f64), (f64, f64)) {
         }
     }
     let (mut uva, mut uvb, _) = best;
-    // Alternating polish: project each point onto the other surface.
+    // Alternating polish: project each point onto the other surface,
+    // clamped to the CORE extent so the seed stays on the faces.
     for _ in 0..12 {
         let pa = a.surface.point_at(uva.0, uva.1);
         if let Some(nb) = b.surface.closest_point(&pa) {
-            uvb = clamp_uv(nb, b.uv_range);
+            uvb = clamp_uv(nb, b.uv_core);
         }
         let pb = b.surface.point_at(uvb.0, uvb.1);
         if let Some(na) = a.surface.closest_point(&pb) {
-            uva = clamp_uv(na, a.uv_range);
+            uva = clamp_uv(na, a.uv_core);
         }
     }
     (uva, uvb)
 }
 
-fn clamp_uv(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> (f64, f64) {
+pub(crate) fn clamp_uv(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> (f64, f64) {
     (
         uv.0.clamp(range.0.0, range.0.1),
         uv.1.clamp(range.1.0, range.1.1),
@@ -205,7 +226,9 @@ pub fn face_blend(
                 ),
             });
         }
-        return parallel_gap_blend(&a, &b, uva, uvb, spec.radius, tolerance);
+        return crate::face_blend_parallel::parallel_gap_blend(
+            brep, spec, &a, &b, uva, uvb, tolerance,
+        );
     }
 
     // March tangent: the common tangent of the two contact planes;
@@ -271,8 +294,20 @@ pub fn face_blend(
             let Some(tangent) = march_tangent(prev.uv0, prev.uv1) else {
                 break;
             };
-            let target = prev.center + tangent * (step * sign);
-            let Ok(sol) = solve(prev.uv0, prev.uv1, target, tangent) else {
+            // A full step near the trim border can push the solve out
+            // of the padded chart; halve toward the border before
+            // giving up so the chain reaches the trim.
+            let mut advanced = None;
+            let mut try_step = step * sign;
+            for _ in 0..4 {
+                let target = prev.center + tangent * try_step;
+                if let Ok(sol) = solve(prev.uv0, prev.uv1, target, tangent) {
+                    advanced = Some(sol);
+                    break;
+                }
+                try_step *= 0.5;
+            }
+            let Some(sol) = advanced else {
                 break;
             };
             // Trim-domain exit or stagnation ends the march.
@@ -298,14 +333,11 @@ pub fn face_blend(
         });
     }
 
-    let contacts_a: Vec<Point3> = chain.iter().map(|s| s.contact0).collect();
-    let contacts_b: Vec<Point3> = chain.iter().map(|s| s.contact1).collect();
-    let sheet = crate::face_blend_sheet::strip_sheet_body(&chain, spec.radius, tolerance)?;
-    Ok(FaceBlendResult {
-        sheet,
-        contacts_a,
-        contacts_b,
-    })
+    let resolver = |target: Point3, warm: &ContactSolution| -> Option<ContactSolution> {
+        let tangent = march_tangent(warm.uv0, warm.uv1)?;
+        solve(warm.uv0, warm.uv1, target, tangent).ok()
+    };
+    crate::face_blend_attach::finish_face_blend(brep, spec, chain, &resolver, None, tolerance)
 }
 
 fn on_range_border(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> bool {
@@ -320,98 +352,4 @@ fn on_range_border(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> bool {
 /// Fit helper shared with the sheet builder.
 pub(crate) fn polyline_nurbs(points: &[Point3]) -> Result<NurbsCurve, String> {
     crate::center_curve::fit_nurbs_through_points(points)
-}
-
-/// Closed-form march for (anti)parallel supports: centres on the
-/// medial line, contacts as alternating closest-point feet; sections
-/// are half-circles (line-contact family, radius = gap/2).
-fn parallel_gap_blend(
-    a: &FaceDomain,
-    b: &FaceDomain,
-    seed_uva: (f64, f64),
-    seed_uvb: (f64, f64),
-    radius: f64,
-    tolerance: Tolerance,
-) -> Result<FaceBlendResult, BlendError> {
-    let na = a.surface.normal_at(seed_uva.0, seed_uva.1);
-    let tangent = {
-        let du = a.surface.partial_u(seed_uva.0, seed_uva.1);
-        (du - na * du.dot(&na))
-            .normalized()
-            .ok_or_else(|| BlendError::InvalidParameter {
-                parameter: "face_a".into(),
-                value: "parallel gap".into(),
-                reason: "degenerate support tangent".into(),
-            })?
-    };
-    let sample = |uva: (f64, f64), uvb: (f64, f64)| -> crate::contact::ContactSolution {
-        let pa = a.surface.point_at(uva.0, uva.1);
-        let pb = b.surface.point_at(uvb.0, uvb.1);
-        let centre = Point3::new(
-            (pa.x + pb.x) * 0.5,
-            (pa.y + pb.y) * 0.5,
-            (pa.z + pb.z) * 0.5,
-        );
-        crate::contact::ContactSolution {
-            uv0: uva,
-            uv1: uvb,
-            center: centre,
-            contact0: pa,
-            contact1: pb,
-            iterations: 0,
-            step_rejections: 0,
-            residual: 0.0,
-            condition: 1.0,
-            jacobian: [[0.0; 4]; 4],
-        }
-    };
-    let step = (radius * 0.5).max(tolerance.linear() * 100.0);
-    let advance =
-        |uva: (f64, f64), _uvb: (f64, f64), sign: f64| -> Option<((f64, f64), (f64, f64))> {
-            let pa = a.surface.point_at(uva.0, uva.1);
-            let target_a = pa + tangent * (step * sign);
-            let next_a = clamp_uv(a.surface.closest_point(&target_a)?, a.uv_range);
-            let pa2 = a.surface.point_at(next_a.0, next_a.1);
-            let next_b = clamp_uv(b.surface.closest_point(&pa2)?, b.uv_range);
-            Some((next_a, next_b))
-        };
-    let mut chain = vec![sample(seed_uva, seed_uvb)];
-    for sign in [1.0, -1.0] {
-        let (mut uva, mut uvb) = (seed_uva, seed_uvb);
-        for _ in 0..400 {
-            let Some((na2, nb2)) = advance(uva, uvb, sign) else {
-                break;
-            };
-            let moved = a
-                .surface
-                .point_at(na2.0, na2.1)
-                .distance_to(&a.surface.point_at(uva.0, uva.1));
-            let sol = sample(na2, nb2);
-            if sign > 0.0 {
-                chain.push(sol);
-            } else {
-                chain.insert(0, sol);
-            }
-            uva = na2;
-            uvb = nb2;
-            if moved < step * 0.1 {
-                break;
-            }
-        }
-    }
-    if chain.len() < 2 {
-        return Err(BlendError::InvalidParameter {
-            parameter: "radius".into(),
-            value: format!("{radius}"),
-            reason: "parallel-gap march produced fewer than two sections".into(),
-        });
-    }
-    let contacts_a: Vec<Point3> = chain.iter().map(|s| s.contact0).collect();
-    let contacts_b: Vec<Point3> = chain.iter().map(|s| s.contact1).collect();
-    let sheet = crate::face_blend_sheet::strip_sheet_body(&chain, radius, tolerance)?;
-    Ok(FaceBlendResult {
-        sheet,
-        contacts_a,
-        contacts_b,
-    })
 }

@@ -52,6 +52,20 @@ pub enum BlendError {
         fillet_b: usize,
     },
 
+    /// A face–face blend attach (TrimBoth) declined during trim
+    /// surgery. The operation works on a private copy, so the input
+    /// BRep is unchanged. `mechanism` names the surgery stage that
+    /// declined (e.g. `"end-arc support"`, `"trim side"`,
+    /// `"doomed-region flood"`), `detail` carries the measured
+    /// evidence (residuals, handles, counts).
+    #[error("face blend attach declined at {mechanism}: {detail} — input unchanged")]
+    AttachDeclined {
+        /// Surgery stage that declined.
+        mechanism: String,
+        /// Measured evidence for the decline.
+        detail: String,
+    },
+
     /// A parameter supplied by the caller is invalid (NaN, out-of-range,
     /// unknown entity handle, etc.). Reported *before* any geometry
     /// work happens, so the input BRep is guaranteed unchanged.

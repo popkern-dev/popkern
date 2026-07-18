@@ -19,62 +19,11 @@ pub(crate) mod chamfer_2d_ray;
 pub mod chamfer_curve;
 pub(crate) mod collapsed_skip;
 pub mod construct;
+/// Test-only hooks for gated work-in-progress construction arms.
+pub mod construct_test_hooks;
 pub mod contact;
 pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
-mod face_blend;
-mod face_blend_sheet;
-mod overlap_strip_interference;
-/// Test-only hooks for gated work-in-progress construction arms.
-pub mod construct_test_hooks {
-    /// PK-097: the full PnS setback candidate (patches + surfaces).
-    pub fn pns_setback_candidate_full(
-        fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-        vertex_position: popkern_core::geometry::Point3,
-    ) -> Result<crate::construct::pns_setback_candidate::PnsSetbackCandidate, String> {
-        crate::construct::pns_setback_candidate::try_pns_setback_candidate(
-            fillet_surfaces,
-            vertex_position,
-        )
-    }
-
-    /// PK-097 Phase A: run the PnS setback candidate (G1 cap on the
-    /// setback border) and return its quality report.
-    pub fn pns_setback_candidate(
-        fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
-        vertex_position: popkern_core::geometry::Point3,
-    ) -> Result<crate::construct::pns_setback_candidate::PnsSetbackReport, String> {
-        crate::construct::pns_setback_candidate::try_pns_setback_candidate(
-            fillet_surfaces,
-            vertex_position,
-        )
-        .map(|c| c.report)
-    }
-
-    /// Force COMMIT mode on (tests; production defaults to on).
-    pub fn enable_setback_topology_commit() {
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT_SET
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Force COMMIT mode off (tests needing the legacy corner path).
-    pub fn disable_setback_topology_commit() {
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT
-            .store(false, std::sync::atomic::Ordering::Relaxed);
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_COMMIT_SET
-            .store(true, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    /// Read the last WIP checkpoint report (integration tests).
-    pub fn take_setback_topology_checkpoint() -> Option<String> {
-        crate::construct::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .take()
-    }
-}
 pub mod curvature_comb;
 pub(crate) mod cusp_subdivide;
 pub(crate) mod degeneracy;
@@ -82,6 +31,12 @@ pub(crate) mod degeneracy_surface;
 pub(crate) mod direct_apex_trace;
 pub mod edges_2d;
 pub mod error;
+mod face_blend;
+mod face_blend_attach;
+mod face_blend_attach_geometry;
+mod face_blend_attach_surgery;
+mod face_blend_parallel;
+mod face_blend_sheet;
 pub mod fillet_2d;
 pub(crate) mod fillet_2d_plan;
 pub(crate) mod fillet_2d_solvers;
@@ -107,6 +62,7 @@ pub(crate) mod modify_inplace_sweep;
 pub(crate) mod naming;
 pub mod offset;
 pub mod overlap;
+mod overlap_strip_interference;
 pub mod precheck;
 pub mod preview;
 pub mod progress;

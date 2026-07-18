@@ -7,36 +7,45 @@
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::pcurve::Pcurve;
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
-use popkern_core::geometry::{CurveEval, NurbsCurve, NurbsSurface, Point3};
+use popkern_core::geometry::{CurveEval, NurbsCurve, NurbsSurface, Point3, Vec3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 use crate::contact::ContactSolution;
 use crate::error::BlendError;
 
-const ARC_SAMPLES: usize = 9;
+pub(crate) const ARC_SAMPLES: usize = 9;
 
 /// A boundary polyline paired with its chart border endpoints.
 type BoundarySide<'a> = (&'a [Point3], ((f64, f64), (f64, f64)));
 
-/// Build the strip sheet body from marched contact solutions.
-pub(crate) fn strip_sheet_body(
-    chain: &[ContactSolution],
-    radius: f64,
-    tolerance: Tolerance,
-) -> Result<BRep, BlendError> {
-    let wrap = |reason: String| BlendError::InvalidParameter {
-        parameter: "face_blend".into(),
-        value: "strip sheet".into(),
-        reason,
-    };
+/// Strip skin surface plus its four boundary polylines in chart order
+/// (`side_a` = v=0 border, `side_b` = v=1, arcs = u=0 / u=1 borders).
+pub(crate) struct StripSkin {
+    /// Skinned strip surface (degree-1 polyline skin — stage-1
+    /// geometric authority; sections and borders interpolate).
+    pub surface: NurbsSurface,
+    /// Contact polyline on face A (v = 0 border).
+    pub side_a: Vec<Point3>,
+    /// Contact polyline on face B (v = 1 border).
+    pub side_b: Vec<Point3>,
+    /// First section arc (u = 0 border), from side A to side B.
+    pub start_arc: Vec<Point3>,
+    /// Last section arc (u = 1 border), from side A to side B.
+    pub end_arc: Vec<Point3>,
+}
 
-    // Skin the section arcs into the strip surface (same section
-    // shape as the edge-fillet sweep).
+/// Skin the section arcs of a marched chain into the strip surface
+/// and extract its boundary polylines. Shared by the sheet emitter
+/// and the TrimBoth attach surgery so both use ONE geometric
+/// authority for the strip. `bulge` resolves the antipodal
+/// (half-circle) section ambiguity of line-contact (parallel-support)
+/// blends — the arc bows toward it.
+pub(crate) fn strip_skin(chain: &[ContactSolution], radius: f64, bulge: Option<Vec3>) -> StripSkin {
     let n_sections = chain.len();
     let mut control_points = Vec::with_capacity(n_sections * ARC_SAMPLES);
     for sol in chain {
-        let arc = section_arc_points(sol, radius);
+        let arc = section_arc_points(sol, radius, bulge);
         control_points.extend_from_slice(&arc);
     }
     let degree_u = 1.min(n_sections - 1);
@@ -51,8 +60,6 @@ pub(crate) fn strip_sheet_body(
         num_v: ARC_SAMPLES,
         weights: vec![1.0; n_sections * ARC_SAMPLES],
     };
-
-    // Boundary polylines in chart order.
     let side_a: Vec<Point3> = (0..n_sections)
         .map(|i| control_points[i * ARC_SAMPLES])
         .collect();
@@ -61,6 +68,36 @@ pub(crate) fn strip_sheet_body(
         .collect();
     let start_arc: Vec<Point3> = control_points[..ARC_SAMPLES].to_vec();
     let end_arc: Vec<Point3> = control_points[(n_sections - 1) * ARC_SAMPLES..].to_vec();
+    StripSkin {
+        surface,
+        side_a,
+        side_b,
+        start_arc,
+        end_arc,
+    }
+}
+
+/// Build the strip sheet body from marched contact solutions.
+pub(crate) fn strip_sheet_body(
+    chain: &[ContactSolution],
+    radius: f64,
+    bulge: Option<Vec3>,
+    tolerance: Tolerance,
+) -> Result<BRep, BlendError> {
+    let wrap = |reason: String| BlendError::InvalidParameter {
+        parameter: "face_blend".into(),
+        value: "strip sheet".into(),
+        reason,
+    };
+
+    let skin = strip_skin(chain, radius, bulge);
+    let StripSkin {
+        surface,
+        side_a,
+        side_b,
+        start_arc,
+        end_arc,
+    } = skin;
 
     let corner_a0 = side_a[0];
     let corner_a1 = *side_a.last().ok_or_else(|| wrap("empty side".into()))?;
@@ -171,7 +208,11 @@ fn polyline_curve(points: &[Point3]) -> Result<CurveOnEdge, String> {
     })
 }
 
-fn section_arc_points(sol: &ContactSolution, radius: f64) -> Vec<Point3> {
+pub(crate) fn section_arc_points(
+    sol: &ContactSolution,
+    radius: f64,
+    bulge: Option<Vec3>,
+) -> Vec<Point3> {
     // Arc from contact0 to contact1 about the ball centre, minor
     // sweep, explicit basis (no frame convention assumed).
     let u = sol.contact0 - sol.center;
@@ -180,7 +221,22 @@ fn section_arc_points(sol: &ContactSolution, radius: f64) -> Vec<Point3> {
     let mut points = Vec::with_capacity(ARC_SAMPLES);
     match normal.normalized() {
         None => {
-            // Antipodal or degenerate: fall back to a straight chord.
+            // Antipodal contacts: the section is a half-circle and
+            // its bow side is not determined by the two contacts
+            // alone — use the caller's bulge hint. Without one, fall
+            // back to a straight chord (degenerate/legacy behavior).
+            let half_circle = bulge
+                .and_then(|d| u.normalized().map(|uh| d - uh * d.dot(&uh)))
+                .and_then(|d| d.normalized());
+            if let Some(v_dir) = half_circle {
+                let v = v_dir * u.length();
+                for k in 0..ARC_SAMPLES {
+                    let theta = std::f64::consts::PI * k as f64 / (ARC_SAMPLES - 1) as f64;
+                    points.push(sol.center + u * theta.cos() + v * theta.sin());
+                }
+                let _ = radius;
+                return points;
+            }
             for k in 0..ARC_SAMPLES {
                 let t = k as f64 / (ARC_SAMPLES - 1) as f64;
                 points.push(Point3::new(
@@ -208,7 +264,7 @@ fn section_arc_points(sol: &ContactSolution, radius: f64) -> Vec<Point3> {
     points
 }
 
-fn clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
+pub(crate) fn clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
     let interior = n - degree - 1;
     let mut knots = vec![0.0; degree + 1];
     for i in 1..=interior {

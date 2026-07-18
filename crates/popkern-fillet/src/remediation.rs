@@ -195,6 +195,17 @@ impl BlendError {
                      operations against re-measured geometry."
                 ),
             ),
+            BlendError::AttachDeclined { mechanism, detail } => Remediation::new(
+                RemediationAction::FixInput,
+                format!(
+                    "The face-face blend strip computed but attaching it \
+                     declined at the {mechanism} stage ({detail}). Use \
+                     FaceBlendAttach::SheetOnly to obtain the strip and \
+                     contact curves, or simplify the gap region so the \
+                     contact curves fully cross both walls and the strip \
+                     ends land on single planar faces."
+                ),
+            ),
             BlendError::Topology(_) => Remediation::new(
                 RemediationAction::HealInput,
                 "A core topology operation failed. This usually means \
