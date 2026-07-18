@@ -406,3 +406,28 @@ fn copy_brep_into(mut a: BRep, b: BRep, flip_b_normals: bool) -> Result<BRep, Bo
 
     Ok(a)
 }
+
+/// PK_BOOL_TRACE helper: endpoint/chord dump of every intersection
+/// record (a fragmented closed curve shows up as short-chord copies).
+pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_overlaps: usize) {
+    eprintln!("  [exec] {} records, {n_overlaps} overlaps", records.len());
+    for (i, r) in records.iter().enumerate() {
+        use popkern_core::geometry::curve::CurveEval as _;
+        let c = &r.curve.curve_3d;
+        let (t0, t1) = c.parameter_range();
+        let s = c.point_at(t0);
+        let e = c.point_at(t1);
+        eprintln!(
+            "    [rec {i}] ({:?},{:?}) ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) chord {:.3}",
+            r.face_a,
+            r.face_b,
+            s.x,
+            s.y,
+            s.z,
+            e.x,
+            e.y,
+            e.z,
+            s.distance_to(&e)
+        );
+    }
+}

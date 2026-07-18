@@ -10,11 +10,11 @@ use crate::geometry::intersection::coincident::{
 use crate::geometry::intersection::coincident_analytic::are_surfaces_coincident_analytic;
 use crate::geometry::intersection::degeneracy::{DegeneracyHandler, RobustDegeneracyHandler};
 use crate::geometry::intersection::marching::{MarchSample, march};
-use crate::geometry::intersection::plane_cone;
 use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
+use crate::geometry::intersection::{cylinder_cone, plane_cone};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
@@ -117,6 +117,15 @@ pub fn intersect_surfaces_with_handler(
 
     // Fast path: plane-cone pair → analytic solver.
     if let Some(intersections) = plane_cone::try_plane_cone(
+        surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
+    ) {
+        return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
+    // Fast path: COAXIAL cylinder-cone pair → exact circle(s). The
+    // marching path fragmented this everyday class (countersunk
+    // bore) into gapped arc copies (PK-147).
+    if let Some(intersections) = cylinder_cone::try_cylinder_cone(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
         return Ok(SurfaceSurfaceIntersectionResult { intersections });

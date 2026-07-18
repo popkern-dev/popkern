@@ -10,6 +10,7 @@ pub(crate) mod chart_subdivision;
 pub(crate) mod chart_walk;
 #[cfg(test)]
 mod chart_walk_tests;
+mod hole_nesting;
 pub(crate) mod walk_geometry;
 
 use std::collections::HashSet;
@@ -605,6 +606,12 @@ pub(crate) fn walk_all_fragments_ext(
                 );
             }
         }
+        let separate_inners = hole_nesting::assign_holes_to_regions(
+            graph,
+            &outer_newell,
+            &mut inner_loops_out,
+            &separate_outers,
+        );
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!(
                 "  [walk] {face_ref:?}: outer {} hes, {} inner {:?}, {} separate",
@@ -614,24 +621,17 @@ pub(crate) fn walk_all_fragments_ext(
                 separate_outers.len()
             );
         }
-        if std::env::var_os("PK_BOOL_TRACE").is_some() && !inner_loops_out.is_empty() {
-            eprintln!(
-                "  [walk] fragment for {face_ref:?}: outer len {} + {} inner loops",
-                outer_loop.len(),
-                inner_loops_out.len()
-            );
-        }
         fragments.push(Fragment {
             face: *face_ref,
             outer_loop,
             inner_loops: inner_loops_out,
         });
 
-        for lp in separate_outers {
+        for (lp, inners) in separate_outers.into_iter().zip(separate_inners) {
             fragments.push(Fragment {
                 face: *face_ref,
                 outer_loop: lp,
-                inner_loops: vec![],
+                inner_loops: inners,
             });
         }
     }

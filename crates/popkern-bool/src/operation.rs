@@ -156,10 +156,9 @@ pub(crate) fn execute_boolean_full(
 
     // No-intersection shortcut.
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
-        eprintln!(
-            "  [exec] {} records, {} overlaps",
-            intersection_result.records.len(),
-            intersection_result.coincidence.face_overlaps.len()
+        helpers::trace_records(
+            &intersection_result.records,
+            intersection_result.coincidence.face_overlaps.len(),
         );
     }
     if intersection_result.records.is_empty() {

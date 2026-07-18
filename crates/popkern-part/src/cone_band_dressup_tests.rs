@@ -69,6 +69,62 @@ fn large_leg_rim_chamfer_stays_conical_and_watertight() {
     }
 }
 
+/// PIN → GATE (PK-147): a COUNTERSUNK BORE — coaxial drafted-frustum
+/// subtract whose cut curves cross the bore wall's periodic seam —
+/// is watertight, and so is a LATER boolean on the countersunk body.
+/// Three defects closed: (1) cylinder×cone marching fragmented the
+/// exact cut circle into ~20 rotated partial arcs whose survivors
+/// left a 96° hole (now an analytic coaxial fast path); (2) the
+/// legacy walk hung every hole on the primary fragment — with
+/// concentric rings the annulus piece lost its rim hole and the
+/// assembly went non-manifold → silent graph-merge fallback shipped
+/// an invalid body (now nested by smallest-containing-region);
+/// (3) the nesting containment test needed ≥3 node votes, which a
+/// 1-node closed rim can never supply — a faraway notch cut stole
+/// the bore rim (now curve-sampled positive-proof containment).
+#[test]
+fn countersunk_bore_and_followup_boolean_are_watertight() {
+    let plate = Profile::on(Plane::XY)
+        .rect(60.0, 60.0)
+        .extrude(30.0)
+        .expect("plate");
+    let bore = Profile::on(Plane::xy_at(-1.0))
+        .circle(10.0)
+        .extrude(32.0)
+        .expect("bore");
+    let plate = plate.subtract(&bore).expect("bore cut");
+    let sink = Profile::on(Plane::xy_at(24.0))
+        .circle(8.0)
+        .extrude(8.0)
+        .expect("sink cyl")
+        .draft(-30.0_f64.to_radians(), Dir::Z, |f: FaceQuery| {
+            f.kind(SurfaceKind::Cylinder)
+        })
+        .expect("sink draft");
+    let cut = plate.subtract(&sink).expect("countersink");
+    assert_eq!(cut.open_edge_count().expect("mesh"), 0, "countersink opens");
+    assert_eq!(cut.face_count(), 8);
+    // Countersink material probes: mouth widened at the top, bore
+    // wall intact below the cone band (cone spans z 27.46..30).
+    assert!(!contains(&cut, (10.6, 0.0, 29.8)));
+    assert!(contains(&cut, (11.9, 0.0, 29.8)));
+    assert!(contains(&cut, (10.2, 0.0, 26.0)));
+    // Follow-up boolean far from the cone: the re-walked body must
+    // keep its closed rims (measured: the bore hole vanished from
+    // the bottom face and 211 mesh edges opened).
+    let notch = Profile::on(Plane::xy_at(-1.0))
+        .rect(8.0, 8.0)
+        .at(22.0, 22.0)
+        .extrude(40.0)
+        .expect("notch");
+    let notched = cut.subtract(&notch).expect("notch cut");
+    assert_eq!(notched.open_edge_count().expect("mesh"), 0, "notch opens");
+    assert_eq!(notched.face_count(), 12);
+    assert!(contains(&notched, (0.0, -14.0, 15.0))); // web beside bore
+    assert!(!contains(&notched, (22.0, 22.0, 15.0))); // notch void
+    assert!(!contains(&notched, (0.0, 0.0, 15.0))); // bore void intact
+}
+
 /// PIN → GATE (draft cone support): drafting a cylinder side wall
 /// yields a WATERTIGHT exact frustum at any angle, both signs. Four
 /// stacked defects previously left it open (638 mesh opens at every

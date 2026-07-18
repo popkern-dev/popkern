@@ -164,6 +164,7 @@ pub(super) fn anchor_periodic(
         None
     };
     let mut sigma = sub.sigma;
+    let seam_trace = std::env::var_os("PK_SEAM_TRACE").is_some();
     let mut assigned_high: BTreeMap<usize, bool> = BTreeMap::new();
     for &(h, tw) in &seam_pairs {
         for he in [h, tw] {
@@ -177,6 +178,12 @@ pub(super) fn anchor_periodic(
                 return;
             };
             let wants_high = (dv > 0.0) == (sigma > 0.0);
+            if seam_trace {
+                eprintln!(
+                    "  [seam] he {he} dv {dv:+.3} u0 {u:.3} sigma {sigma:+.0} -> {}",
+                    if wants_high { "HIGH" } else { "low" }
+                );
+            }
             assigned_high.insert(he, wants_high);
             let shift = if wants_high { to_low + period } else { to_low };
             if shift != 0.0

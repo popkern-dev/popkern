@@ -462,15 +462,29 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
             .extrude(60.0)?
     };
     let block = block.subtract(&seat)?;
-    // Seat MOUTH stays sharp — pinned frontier, not a choice. An edge
-    // blend opens the shell (tilted elliptical mouth). Both cone
-    // COUNTERSINK cut tools (tilted 45° chamfer frustum; coaxial 8.5°
-    // drafted frustum, every edge analytic) hit the same cellular
-    // defect: the cut curve crosses the seat cylinder's chart seam
-    // and the chart walk declines (DegreeImbalance at both seam
-    // nodes) → graph-merge fallback ships an open body (483/761
-    // opens). Next mechanism: seam-node record pairing for closed
-    // seam-crossing intersection curves in chart_subdivision.rs.
+    // Round-seat mouth lead-in: a COAXIAL CONE COUNTERSINK cut (an
+    // edge blend on the tilted elliptical mouth opens the shell —
+    // measured). The tool is a drafted cylinder→cone frustum sharing
+    // the seat axis (r 37.4 at z 82 flaring 8.5°), so every cut edge
+    // is analytic: cone×wall = the exact circle at z 86, below the
+    // whole mouth (lowest point z ≈ 87.7); cone×rest plane = an
+    // ellipse strictly outside the mouth — no triple points. The
+    // lead-in is 0.25–3.9 mm, following the tilt: the honest
+    // countersink of a tilted mouth (PK-147: coaxial cylinder×cone
+    // analytic circles + nested hole assignment in the walk).
+    let block = if p.seat_round {
+        let sink = Profile::on(Plane::xy_at(82.0))
+            .circle(37.4)
+            .extrude(36.0)?
+            .draft(-8.5_f64.to_radians(), Dir::Z, |f: FaceQuery| {
+                f.kind(SurfaceKind::Cylinder)
+            })?;
+        block.subtract(&sink)?
+    } else {
+        // Square mouth: 4-corner bevel miter = the box-corner class
+        // that opens the body; stays sharp.
+        block
+    };
     let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
