@@ -185,6 +185,16 @@ impl BlendError {
                      building the spec list."
                 ),
             ),
+            BlendError::FilletInterference { fillet_a, fillet_b } => Remediation::new(
+                RemediationAction::FixInput,
+                format!(
+                    "Fillets {fillet_a} and {fillet_b} have overlapping removal \
+                     strips on a shared face (their radii exceed the space \
+                     between the edges). Reduce one or both radii so the \
+                     strips clear each other, or fillet the edges in separate \
+                     operations against re-measured geometry."
+                ),
+            ),
             BlendError::Topology(_) => Remediation::new(
                 RemediationAction::HealInput,
                 "A core topology operation failed. This usually means \

@@ -308,6 +308,19 @@ fn fillet_edges_internal(
             fillet_b: ov.fillet_b,
         });
     }
+    // Mid-face strip interference (vertex-disjoint fillets whose
+    // removal strips overlap): completing is not constructible yet
+    // and proceeding shipped silent wrong-shape output — decline
+    // transactionally before any topology is touched (PK-140).
+    if let Some(hit) = overlap::detect_strip_interference(&edge_geometries, brep, &tolerance)
+        .into_iter()
+        .next()
+    {
+        return Err(BlendError::FilletInterference {
+            fillet_a: hit.fillet_a,
+            fillet_b: hit.fillet_b,
+        });
+    }
     emit!(
         progress::FilletPhase::DetectOverlaps,
         t3,

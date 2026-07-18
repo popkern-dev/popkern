@@ -16,6 +16,29 @@ fn default_tol() -> Tolerance {
     Tolerance::default()
 }
 
+/// Variant for the mid-face collision class: the engine cannot yet
+/// construct blend×blend intersections, so the ONLY commercial-grade
+/// outcome is the structured transactional decline (PK-140 stage 3
+/// measured the alternative: one band applied trimmed at the other's
+/// rail, the second fillet silently dropped, zero warnings).
+fn run_class_expect_interference_decline(label: &str, brep: &BRep, specs: &[FilletSpec]) {
+    let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
+    match result {
+        Ok(_) => panic!(
+            "{label}: completed — blend-blend intersection is not constructed, a completion \
+             here is the silent wrong-shape class; must decline with FilletInterference"
+        ),
+        Err(err) => {
+            let msg = format!("{err:?}");
+            assert!(
+                msg.contains("FilletInterference"),
+                "{label}: decline must be the structured FilletInterference class: {msg}"
+            );
+            eprintln!("[interference] {label}: DECLINED structured (FilletInterference)");
+        }
+    }
+}
+
 /// Run specs on a body; enforce the taxonomy bar.
 fn run_class(label: &str, brep: &BRep, specs: &[FilletSpec]) {
     let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
@@ -50,7 +73,6 @@ fn short(s: &str) -> String {
 /// Two opposite edges of one cube face, radii summing past the face
 /// width — the fillet bands collide mid-face.
 #[test]
-#[ignore = "PK-140 stage 3: parallel band-band collision seam is authored against CHORDS — measured seam vertex (0,0.4,0) and band trim angle u=2.820 (img 0.031,0.410) vs the true circle-circle intersection (0.008,0.5); ShellGap 3.2e-2 on the seam-adjacent terminal edge. Fix = analytic parallel-cylinder intersection (vertical line pair through the circle-circle points) in the overlap trim; flip when the seam is arc-exact"]
 fn mid_face_collision_declines_or_completes() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     // Opposite vertical edges of the x=… face: pick two edges that
@@ -85,7 +107,7 @@ fn mid_face_collision_declines_or_completes() {
         }
     }
     let (e1, e2) = pair.expect("cube has an opposite-edge pair");
-    run_class(
+    run_class_expect_interference_decline(
         "mid-face collision r=0.6+0.6 across width 1.0",
         &brep,
         &[

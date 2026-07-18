@@ -324,3 +324,117 @@ mod tests {
         assert_eq!(consumed[0], 0);
     }
 }
+
+/// A mid-face strip interference between two vertex-disjoint fillets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StripInterference {
+    /// Spec index of the first fillet.
+    pub fillet_a: usize,
+    /// Spec index of the second fillet.
+    pub fillet_b: usize,
+}
+
+/// Detect mid-face strip interference: two fillets on VERTEX-DISJOINT
+/// edges sharing a support face whose removal strips overlap. Their
+/// rails are typically PARALLEL (opposite edges of one face), so the
+/// crossing test in [`detect_overlaps`] never fires — the overlap is
+/// a region containment: one fillet's rail lies closer to the other
+/// fillet's edge than that fillet's own rail does.
+///
+/// Corner pairs (edges sharing a vertex) are excluded — adjacent
+/// fillets legitimately meet at vertex blends and their rails always
+/// approach the shared corner.
+pub fn detect_strip_interference(
+    edge_geometries: &[crate::construct::EdgeGeometry],
+    brep: &popkern_core::topology::BRep,
+    tolerance: &Tolerance,
+) -> Vec<StripInterference> {
+    let samples = |curve: &NurbsCurve| -> Vec<popkern_core::geometry::Point3> {
+        let (t0, t1) = curve.parameter_range();
+        (0..=16)
+            .map(|k| curve.point_at(t0 + (t1 - t0) * k as f64 / 16.0))
+            .collect()
+    };
+    let edge_points = |index: usize| -> Vec<popkern_core::geometry::Point3> {
+        let analysis = &edge_geometries[index].analysis;
+        brep.edges
+            .get(analysis.edge)
+            .and_then(|edge| edge.curve.as_ref())
+            .map(|curve| {
+                (0..=16)
+                    .map(|k| {
+                        curve.geometry.point_at(
+                            curve.t_start + (curve.t_end - curve.t_start) * k as f64 / 16.0,
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let min_distance =
+        |a: &[popkern_core::geometry::Point3], b: &[popkern_core::geometry::Point3]| -> f64 {
+            let mut best = f64::INFINITY;
+            for pa in a {
+                for pb in b {
+                    best = best.min(pa.distance_to(pb));
+                }
+            }
+            best
+        };
+    let mut interferences = Vec::new();
+    for i in 0..edge_geometries.len() {
+        for j in (i + 1)..edge_geometries.len() {
+            let (a, b) = (&edge_geometries[i].analysis, &edge_geometries[j].analysis);
+            // Corner pairs are legitimate vertex-blend territory.
+            if a.vertex_start == b.vertex_start
+                || a.vertex_start == b.vertex_end
+                || a.vertex_end == b.vertex_start
+                || a.vertex_end == b.vertex_end
+            {
+                continue;
+            }
+            // Shared support face pairs, with each fillet's trim on
+            // that face.
+            let shared: Vec<(&NurbsCurve, &NurbsCurve)> = [
+                (a.face_1, &edge_geometries[i].trim_3d_1),
+                (a.face_2, &edge_geometries[i].trim_3d_2),
+            ]
+            .into_iter()
+            .flat_map(|(fa, trim_a)| {
+                [
+                    (b.face_1, &edge_geometries[j].trim_3d_1),
+                    (b.face_2, &edge_geometries[j].trim_3d_2),
+                ]
+                .into_iter()
+                .filter(move |(fb, _)| *fb == fa)
+                .map(move |(_, trim_b)| (trim_a, trim_b))
+            })
+            .collect();
+            if shared.is_empty() {
+                continue;
+            }
+            let pts_edge_i = edge_points(i);
+            let pts_edge_j = edge_points(j);
+            if pts_edge_i.is_empty() || pts_edge_j.is_empty() {
+                continue;
+            }
+            let hit = shared.iter().any(|(trim_a, trim_b)| {
+                let rail_a = samples(trim_a);
+                let rail_b = samples(trim_b);
+                let width_a = min_distance(&rail_a, &pts_edge_i);
+                let width_b = min_distance(&rail_b, &pts_edge_j);
+                let b_into_a = min_distance(&rail_b, &pts_edge_i);
+                let a_into_b = min_distance(&rail_a, &pts_edge_j);
+                let slack = tolerance.linear().max(1.0e-9) * 10.0;
+                b_into_a + slack < width_a || a_into_b + slack < width_b
+            });
+            if hit {
+                interferences.push(StripInterference {
+                    fillet_a: i,
+                    fillet_b: j,
+                });
+            }
+        }
+    }
+    interferences
+}

@@ -31,6 +31,27 @@ use thiserror::Error;
 /// Fatal error — the blend operation could not proceed.
 #[derive(Debug, Error)]
 pub enum BlendError {
+    /// Two requested fillets' removal strips overlap mid-face on a
+    /// shared support face (their edges share no vertex, so this is
+    /// not a corner blend): completing would require blend×blend
+    /// intersection surgery the engine does not construct yet, and
+    /// proceeding produced silent wrong-shape output (measured:
+    /// r=0.6+0.6 across a width-1.0 face applied ONE band trimmed at
+    /// the other's rail and dropped the second fillet with no
+    /// diagnostic). The operation declines transactionally — the
+    /// input BRep is unchanged.
+    #[error(
+        "fillet strips interfere mid-face: fillet {fillet_a} and fillet {fillet_b} overlap on a \
+         shared support face; blend-blend intersection is not yet constructed — operation \
+         declined, input unchanged"
+    )]
+    FilletInterference {
+        /// Spec index of the first fillet.
+        fillet_a: usize,
+        /// Spec index of the second fillet.
+        fillet_b: usize,
+    },
+
     /// A parameter supplied by the caller is invalid (NaN, out-of-range,
     /// unknown entity handle, etc.). Reported *before* any geometry
     /// work happens, so the input BRep is guaranteed unchanged.
