@@ -436,30 +436,29 @@ fn trace_fillet_center_curve() {
         );
 
     eprintln!(
-        "Face 1 UV range: u=[{:.3},{:.3}], v=[{:.3},{:.3}]",
-        u1_lo, u1_hi, v1_lo, v1_hi
-    );
-    eprintln!(
-        "Face 2 UV range: u=[{:.3},{:.3}], v=[{:.3},{:.3}]",
-        u2_lo, u2_hi, v2_lo, v2_hi
+        "UV ranges: f1 u=[{u1_lo:.3},{u1_hi:.3}] v=[{v1_lo:.3},{v1_hi:.3}]; f2 u=[{u2_lo:.3},{u2_hi:.3}] v=[{v2_lo:.3},{v2_hi:.3}]"
     );
 
-    let edge_mid = {
+    let (anchor_a, anchor_b) = {
         let he = &cube.half_edges[cube.edges[edge].half_edge];
-        let p1 = cube.vertices[he.origin].position;
         let twin = &cube.half_edges[he.twin];
-        let p2 = cube.vertices[twin.origin].position;
-        popkern_core::geometry::Point3::new(
-            (p1.x + p2.x) * 0.5,
-            (p1.y + p2.y) * 0.5,
-            (p1.z + p2.z) * 0.5,
+        (
+            cube.vertices[he.origin].position,
+            cube.vertices[twin.origin].position,
         )
     };
-    eprintln!(
-        "Edge midpoint: ({:.3},{:.3},{:.3})",
-        edge_mid.x, edge_mid.y, edge_mid.z
+    let edge_mid = popkern_core::geometry::Point3::new(
+        (anchor_a.x + anchor_b.x) * 0.5,
+        (anchor_a.y + anchor_b.y) * 0.5,
+        (anchor_a.z + anchor_b.z) * 0.5,
     );
-
+    let edge_anchor = |t: f64| {
+        popkern_core::geometry::Point3::new(
+            anchor_a.x + (anchor_b.x - anchor_a.x) * t,
+            anchor_a.y + (anchor_b.y - anchor_a.y) * t,
+            anchor_a.z + (anchor_b.z - anchor_a.z) * t,
+        )
+    };
     let cc = popkern_fillet::center_curve::constant_radius_center_curve(
         &analysis.surface_1,
         (u1_lo, u1_hi),
@@ -469,6 +468,7 @@ fn trace_fillet_center_curve() {
         (v2_lo, v2_hi),
         0.1,
         &edge_mid,
+        &edge_anchor,
         &tol,
         analysis.orientation_1,
         analysis.orientation_2,
