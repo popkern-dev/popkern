@@ -13,6 +13,9 @@ fn simple_center_result() -> CenterCurveResult {
     let center_pts: Vec<Point3> = (0..5).map(|i| Point3::new(i as f64, 0.0, 0.5)).collect();
     let center_curve = crate::center_curve::fit_nurbs_through_points(&center_pts).unwrap();
     CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,
@@ -242,6 +245,9 @@ fn torus_center_follows_concave_spine() {
         .map(|p| Point3::new(p.x, p.y - radius, p.z))
         .collect();
     let cr = CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve: crate::center_curve::fit_nurbs_through_points(&spine).unwrap(),
         footprint_1: footprints_1,
         footprint_2: footprints_2,

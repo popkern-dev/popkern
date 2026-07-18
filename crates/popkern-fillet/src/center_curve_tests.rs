@@ -44,6 +44,7 @@ fn constant_center_curve_two_perpendicular_planes() {
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
 
+    let edge_anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
     let result = constant_radius_center_curve(
         &s1,
         range,
@@ -53,6 +54,7 @@ fn constant_center_curve_two_perpendicular_planes() {
         range,
         1.0,
         &midpoint,
+        &edge_anchor,
         &test_tolerance(),
         true,
         true,
@@ -180,6 +182,7 @@ fn variable_center_curve_equal_radii_degenerates() {
         range,
         1.0,
         &midpoint,
+        &anchor,
         &tol,
         true,
         true,

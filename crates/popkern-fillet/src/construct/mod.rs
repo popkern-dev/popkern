@@ -210,7 +210,13 @@ pub fn apply_blend_geometry(
     pipeline_timing.face_trim_ms = ms;
     post_pipeline::determinism_trace("post_face_trim", &result);
 
-    if !failures.is_empty() && failures.len() == edge_geometries.len() {
+    // Transactional: ANY apply-phase failure fails the whole
+    // operation. The prior all-failed-only gate let partial applies
+    // proceed with the failures silently discarded — measured: a
+    // 6-spec seam-crossing chain returned Ok with ONE torus band and
+    // five blends missing, body validating clean (the same silent
+    // wrong-shape class the Phase-2 gate closed one layer up).
+    if !failures.is_empty() {
         return Err(failures);
     }
 

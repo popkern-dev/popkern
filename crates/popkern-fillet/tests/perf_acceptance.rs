@@ -65,6 +65,9 @@ fn plane_plane_fixture() -> (SurfaceGeometry, SurfaceGeometry, CenterCurveResult
         s1,
         s2,
         CenterCurveResult {
+            sweep_center_curve: None,
+            sweep_footprint_1: None,
+            sweep_footprint_2: None,
             center_curve,
             footprint_1,
             footprint_2,

@@ -299,13 +299,80 @@ fn insert_anchor_at_position(
             return Ok(vh);
         }
     }
-    let (eh, t) = find_edge_and_param_at(brep, position)
-        .ok_or_else(|| format!("no edge contains anchor position {position:?}"))?;
-    let split = brep
-        .split_edge(eh, t)
-        .map_err(|e| format!("split_edge for anchor failed: {e}"))?;
-    edge_splits.push((eh, split.edge_a, split.edge_b));
-    Ok(split.vertex)
+    if let Some((eh, t)) = find_edge_and_param_at(brep, position) {
+        let split = brep
+            .split_edge(eh, t)
+            .map_err(|e| format!("split_edge for anchor failed: {e}"))?;
+        edge_splits.push((eh, split.edge_a, split.edge_b));
+        return Ok(split.vertex);
+    }
+    // Curve-aware fallback: the chord test above misses anchors on
+    // CURVED adjacent edges twice over — perp-walk math offsets the
+    // anchor along the tangent (off-curve by the chord sagitta), and
+    // the containment test itself compares against the vertex chord
+    // (measured: a boss-wall chain's anchors sat 5e-3 off the r=1
+    // wall arc and Phase A failed "no edge contains anchor"). Find
+    // the closest interior point on any curved edge within a
+    // sagitta-scaled gate and split THERE — the realized vertex
+    // lands exactly on the curve, which is more faithful than the
+    // requested tangent-offset position.
+    let mut best: Option<(EdgeHandle, Point3, f64)> = None;
+    for (eh, edge) in brep.edges.iter() {
+        let Some(curve) = edge.curve.as_ref() else {
+            continue;
+        };
+        use popkern_core::geometry::curve::CurveEval;
+        let (t0, t1) = (curve.t_start, curve.t_end);
+        let mut bt = t0;
+        let mut bd = f64::INFINITY;
+        for k in 0..=32 {
+            let t = t0 + (t1 - t0) * k as f64 / 32.0;
+            let d = curve.geometry.point_at(t).distance_to(&position);
+            if d < bd {
+                bd = d;
+                bt = t;
+            }
+        }
+        let (mut lo, mut hi) = (
+            (bt - (t1 - t0) / 32.0).max(t0),
+            (bt + (t1 - t0) / 32.0).min(t1),
+        );
+        for _ in 0..30 {
+            let m1 = lo + (hi - lo) / 3.0;
+            let m2 = hi - (hi - lo) / 3.0;
+            if curve.geometry.point_at(m1).distance_to(&position)
+                < curve.geometry.point_at(m2).distance_to(&position)
+            {
+                hi = m2;
+            } else {
+                lo = m1;
+            }
+        }
+        let t = 0.5 * (lo + hi);
+        // Interior only — endpoint projections belong to the vertex
+        // reuse path above.
+        let frac = (t - t0) / (t1 - t0).max(1e-300);
+        if !(0.001..=0.999).contains(&frac) {
+            continue;
+        }
+        let proj = curve.geometry.point_at(t);
+        let d = proj.distance_to(&position);
+        if best.as_ref().is_none_or(|(_, _, bd2)| d < *bd2) {
+            best = Some((eh, proj, d));
+        }
+    }
+    let gate = brep.tolerance.linear().max(1.0e-9) * 1.0e4;
+    if let Some((eh, proj, d)) = best
+        && d < gate
+    {
+        let tol = brep.tolerance;
+        let split = brep
+            .split_edge_at_point(eh, proj, &tol)
+            .map_err(|e| format!("curve-aware anchor split failed: {e}"))?;
+        edge_splits.push((eh, split.edge_a, split.edge_b));
+        return Ok(split.vertex);
+    }
+    Err(format!("no edge contains anchor position {position:?}"))
 }
 
 /// Information returned by perpendicular edge splitting.

@@ -11,6 +11,7 @@ pub mod cap;
 pub mod center_curve;
 pub mod center_curve_helpers;
 mod center_curve_station;
+mod center_curve_sweep_channel;
 pub mod center_curve_walker;
 pub mod chamfer_2d;
 pub mod chamfer_2d_by_angle;
@@ -21,6 +22,7 @@ pub mod construct;
 pub mod contact;
 pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
+mod overlap_strip_interference;
 /// Test-only hooks for gated work-in-progress construction arms.
 pub mod construct_test_hooks {
     /// PK-097: the full PnS setback candidate (patches + surfaces).
@@ -310,10 +312,8 @@ fn fillet_edges_internal(
             fillet_b: ov.fillet_b,
         });
     }
-    // Mid-face strip interference (vertex-disjoint fillets whose
-    // removal strips overlap): completing is not constructible yet
-    // and proceeding shipped silent wrong-shape output — decline
-    // transactionally before any topology is touched (PK-140).
+    // Mid-face strip interference: not constructible yet; declining
+    // transactionally beats the measured silent wrong shape (PK-140).
     if let Some(hit) = overlap::detect_strip_interference(&edge_geometries, brep, &tolerance)
         .into_iter()
         .next()

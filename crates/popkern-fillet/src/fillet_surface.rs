@@ -143,24 +143,33 @@ fn build_nurbs_sweep(
     radius: f64,
     arc_samples: usize,
 ) -> Result<FilletSurfaceResult, String> {
+    // Prefer the edge-span sweep channel when the producer trimmed a
+    // grossly overhanging carrier (see CenterCurveResult docs): the
+    // legacy over-extended artifacts stay for the face-trim
+    // splitter; sections here must stay inside the edge span.
+    let (center_curve, footprint_1, footprint_2) = match (
+        center_result.sweep_center_curve.as_ref(),
+        center_result.sweep_footprint_1.as_ref(),
+        center_result.sweep_footprint_2.as_ref(),
+    ) {
+        (Some(c), Some(f1), Some(f2)) => (c, f1, f2),
+        _ => (
+            &center_result.center_curve,
+            &center_result.footprint_1,
+            &center_result.footprint_2,
+        ),
+    };
+    let center_result_curve = center_curve;
     // Footprints can differ by one sample on closed spines (the
     // closure sample lands in one list only); indexing beyond the
     // shorter list panicked. Use the common prefix; a larger
     // mismatch is a walker defect surfaced as an error.
-    let n_sections = center_result
-        .footprint_1
-        .len()
-        .min(center_result.footprint_2.len());
-    if center_result
-        .footprint_1
-        .len()
-        .abs_diff(center_result.footprint_2.len())
-        > 1
-    {
+    let n_sections = footprint_1.len().min(footprint_2.len());
+    if footprint_1.len().abs_diff(footprint_2.len()) > 1 {
         return Err(format!(
             "footprint length mismatch: {} vs {}",
-            center_result.footprint_1.len(),
-            center_result.footprint_2.len()
+            footprint_1.len(),
+            footprint_2.len()
         ));
     }
     if n_sections < 2 {
@@ -170,19 +179,35 @@ fn build_nurbs_sweep(
 
     // Sample center curve at n_sections points.
     let (t_min, t_max) =
-        popkern_core::geometry::curve::CurveEval::parameter_range(&center_result.center_curve);
+        popkern_core::geometry::curve::CurveEval::parameter_range(center_result_curve);
 
     let mut control_points = Vec::with_capacity(n_sections * n_arc);
 
     for i in 0..n_sections {
         let t = t_min + (t_max - t_min) * (i as f64) / ((n_sections - 1).max(1) as f64);
-        let center =
-            popkern_core::geometry::curve::CurveEval::point_at(&center_result.center_curve, t);
-        let fp1 = &center_result.footprint_1[i];
-        let fp2 = &center_result.footprint_2[i];
+        let center = popkern_core::geometry::curve::CurveEval::point_at(center_result_curve, t);
+        let fp1 = &footprint_1[i];
+        let fp2 = &footprint_2[i];
 
         // Build the arc from fp1 to fp2 centered at `center`.
         let arc_pts = sample_arc(&center, fp1, fp2, radius, n_arc);
+        if std::env::var_os("PK_SWEEP_TRACE").is_some() {
+            eprintln!(
+                "[sweep] sec {i}/{n_sections} t {t:.3} c ({:.3},{:.3},{:.3}) fp1 ({:.3},{:.3},{:.3}) fp2 ({:.3},{:.3},{:.3}) mid ({:.3},{:.3},{:.3})",
+                center.x,
+                center.y,
+                center.z,
+                fp1.x,
+                fp1.y,
+                fp1.z,
+                fp2.x,
+                fp2.y,
+                fp2.z,
+                arc_pts[arc_pts.len() / 2].x,
+                arc_pts[arc_pts.len() / 2].y,
+                arc_pts[arc_pts.len() / 2].z
+            );
+        }
         control_points.extend_from_slice(&arc_pts);
     }
 

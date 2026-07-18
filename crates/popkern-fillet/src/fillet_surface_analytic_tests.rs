@@ -30,6 +30,9 @@ fn linear_center_result() -> CenterCurveResult {
     let center_pts: Vec<Point3> = (0..5).map(|i| Point3::new(i as f64, 0.0, 0.5)).collect();
     let center_curve = crate::center_curve::fit_nurbs_through_points(&center_pts).unwrap();
     CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,
@@ -97,6 +100,9 @@ fn fillet_surface_plane_sphere_produces_analytic_torus() {
         })
         .collect();
     let cr = CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,
@@ -198,6 +204,9 @@ fn fillet_surface_plane_cylinder_perpendicular_produces_analytic_torus() {
         })
         .collect();
     let cr = CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,
@@ -289,6 +298,9 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
         })
         .collect();
     let cr = CenterCurveResult {
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         center_curve,
         footprint_1: fp1,
         footprint_2: fp2,

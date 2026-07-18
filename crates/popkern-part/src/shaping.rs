@@ -48,23 +48,70 @@ impl Part {
                 kind: ChamferKind::Equal(distance),
             })
             .collect();
-        let result = chamfer_edges(
+        // Recorded-survivors semantics: the kernel is transactional
+        // (ANY failed leg fails the whole op — PK-140 closed the
+        // silent partial-apply hole). Product dress-up keeps the
+        // best-effort UX: on PartialFailure, retry once WITHOUT the
+        // failing edges and surface every skipped leg as a report
+        // warning — recorded, never silent (measured: a
+        // slot-interrupted chamfer shipped for months with 2 of 4
+        // legs missing and no diagnostic).
+        let mut skipped: Vec<String> = Vec::new();
+        let attempt = chamfer_edges(
             self.brep(),
             &specs,
             &ChamferOptions::default(),
             self.tolerance(),
             None,
-        )
-        .map_err(|source| PartError::Blend {
-            selection: selection.clone(),
-            source,
-        })?;
+        );
+        let result = match attempt {
+            Ok(r) => r,
+            Err(popkern_fillet::BlendError::PartialFailure { ref failures, .. })
+                if failures.len() < specs.len() =>
+            {
+                let failed: std::collections::HashSet<_> =
+                    failures.iter().map(|(eh, _)| *eh).collect();
+                for (eh, failure) in failures {
+                    let msg = format!("{failure:?}");
+                    skipped.push(format!(
+                        "chamfer leg skipped {eh:?}: {}",
+                        &msg[..msg.len().min(160)]
+                    ));
+                }
+                let surviving: Vec<ChamferSpec> = specs
+                    .iter()
+                    .filter(|s| !failed.contains(&s.edge))
+                    .cloned()
+                    .collect();
+                chamfer_edges(
+                    self.brep(),
+                    &surviving,
+                    &ChamferOptions::default(),
+                    self.tolerance(),
+                    None,
+                )
+                .map_err(|source| PartError::Blend {
+                    selection: selection.clone(),
+                    source,
+                })?
+            }
+            Err(source) => {
+                return Err(PartError::Blend {
+                    selection: selection.clone(),
+                    source,
+                });
+            }
+        };
         let report = crate::dressup::BlendReport {
-            edges_blended: edges.len(),
-            warnings: result
-                .edge_warnings
-                .iter()
-                .map(|(eh, w)| format!("{eh:?}: {w:?}"))
+            edges_blended: edges.len() - skipped.len(),
+            warnings: skipped
+                .into_iter()
+                .chain(
+                    result
+                        .edge_warnings
+                        .iter()
+                        .map(|(eh, w)| format!("{eh:?}: {w:?}")),
+                )
                 .collect(),
             corner_patches: result.corner_patches.len(),
         };

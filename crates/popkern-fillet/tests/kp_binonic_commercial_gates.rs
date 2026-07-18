@@ -109,6 +109,13 @@ fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
 }
 
 fn fillet_cube_result(radii: &[f64], use_kp_binonic: bool) -> BlendResult {
+    try_fillet_cube_result(radii, use_kp_binonic).unwrap()
+}
+
+fn try_fillet_cube_result(
+    radii: &[f64],
+    use_kp_binonic: bool,
+) -> Result<BlendResult, popkern_fillet::BlendError> {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let edges = incident_edges(&cube, vertex);
@@ -130,7 +137,7 @@ fn fillet_cube_result(radii: &[f64], use_kp_binonic: bool) -> BlendResult {
         use_kp_binonic_gregory: use_kp_binonic,
         ..FilletOptions::default()
     };
-    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap()
+    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
 }
 
 fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
@@ -280,10 +287,19 @@ fn cube_extreme_100_accepts_legacy_route_instead_of_kp_ring() {
 }
 
 #[test]
-fn cube_tiny_radii_accepts_legacy_route_instead_of_kp_ring() {
-    assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(
-        &[0.001, 0.002, 0.003],
-        "cube_tiny_radii",
+fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
+    // Honesty re-pin (PK-140 transactional gate): the previous green
+    // measured a 2-of-3 PARTIAL body — one tiny-radius leg has
+    // always failed Phase A ("no perpendicular edge found at
+    // v_start") and was silently dropped. Until the tiny-radius perp
+    // split lands, the operation must decline naming the class.
+    let err = try_fillet_cube_result(&[0.001, 0.002, 0.003], true)
+        .expect_err("tiny-radius corner has a known Phase A gap and must decline");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("no perpendicular edge found"),
+        "decline must name the tiny-radius perp-split class: {}",
+        &msg[..msg.len().min(240)]
     );
 }
 

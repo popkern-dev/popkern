@@ -25,6 +25,14 @@ pub use crate::center_curve_walker::walker_based_center_curve;
 pub struct CenterCurveResult {
     /// The rolling-ball center curve in 3D space.
     pub center_curve: NurbsCurve,
+    /// Edge-span-trimmed sweep channel — present only when the
+    /// carrier grossly overhung the edge; see
+    /// [`crate::center_curve_sweep_channel`] for the trust model.
+    pub sweep_center_curve: Option<NurbsCurve>,
+    /// Sweep-channel footprints on surface 1 (aligned samples).
+    pub sweep_footprint_1: Option<Vec<Point3>>,
+    /// Sweep-channel footprints on surface 2 (aligned samples).
+    pub sweep_footprint_2: Option<Vec<Point3>>,
     /// Footprint points on the first surface (closest points from center curve).
     pub footprint_1: Vec<Point3>,
     /// Footprint points on the second surface (closest points from center curve).
@@ -57,6 +65,7 @@ pub fn constant_radius_center_curve(
     v2_range: (f64, f64),
     radius: f64,
     edge_midpoint: &Point3,
+    edge_anchor_at: &dyn Fn(f64) -> Point3,
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
@@ -128,6 +137,12 @@ pub fn constant_radius_center_curve(
     let center_curve =
         crate::center_curve_station::select_nearest_curve(&result.intersections, edge_midpoint)?;
 
+    let sweep_span = crate::center_curve_sweep_channel::gross_overhang_sweep_span(
+        &center_curve,
+        edge_anchor_at,
+        radius,
+    );
+
     // 5. Compute footprint points by projecting center-curve samples onto originals.
     let n_samples = 20;
     let (t_min, t_max) = center_curve.parameter_range();
@@ -150,8 +165,24 @@ pub fn constant_radius_center_curve(
     footprint_1 = clip_footprint_to_bounds(surface1, u1_range, v1_range, &footprint_1);
     footprint_2 = clip_footprint_to_bounds(surface2, u2_range, v2_range, &footprint_2);
 
+    let (sweep_center_curve, sweep_footprint_1, sweep_footprint_2) =
+        crate::center_curve_sweep_channel::sweep_channel_artifacts(
+            &center_curve,
+            sweep_span,
+            surface1,
+            u1_range,
+            v1_range,
+            surface2,
+            u2_range,
+            v2_range,
+            n_samples,
+        )?;
+
     Ok(CenterCurveResult {
         center_curve,
+        sweep_center_curve,
+        sweep_footprint_1,
+        sweep_footprint_2,
         footprint_1,
         footprint_2,
         contact_solutions: None,
@@ -261,6 +292,9 @@ pub fn parametric_radius_center_curve(
 
     Ok(CenterCurveResult {
         center_curve,
+        sweep_center_curve: None,
+        sweep_footprint_1: None,
+        sweep_footprint_2: None,
         footprint_1,
         footprint_2,
         contact_solutions: None,
@@ -336,7 +370,7 @@ fn find_center_point_at_radius(
     let either_is_cone = matches!(surface1, SurfaceGeometry::Cone { .. })
         || matches!(surface2, SurfaceGeometry::Cone { .. });
     if either_is_cone
-        && let Some(center) = try_contact_solver(
+        && let Some(center) = crate::center_curve_station::try_contact_solver(
             surface1,
             u1_range,
             v1_range,
@@ -406,89 +440,6 @@ fn find_center_point_at_radius(
     Ok(crate::center_curve_station::closest_point_on_nurbs(
         &curve, target,
     ))
-}
-
-/// Try the rolling-ball contact solver at one spine sample.
-///
-/// Translates the legacy `(target, orientation_*)` interface into a
-/// `ContactRequest`: seeds the initial UV guesses by projecting
-/// `target` onto each surface (`closest_point`), maps `orientation_i`
-/// to `BallSide::Outside` (matching popkern's "face normals point into
-/// the solid" convention — the rolling ball is on the side opposite
-/// the face normal, which is the `+normal_at` side for an outward-
-/// pointing face surface normal), and uses the segment from `target`
-/// toward the surface mid-point as the spine plane normal.
-///
-/// Returns `Some(center)` on success, `None` on any failure (parallel
-/// normals, degenerate, out-of-bounds, etc.). The caller falls back
-/// to the offset-intersect path on `None`.
-#[allow(clippy::too_many_arguments)]
-fn try_contact_solver(
-    surface1: &SurfaceGeometry,
-    u1_range: (f64, f64),
-    v1_range: (f64, f64),
-    surface2: &SurfaceGeometry,
-    u2_range: (f64, f64),
-    v2_range: (f64, f64),
-    radius: f64,
-    target: &Point3,
-    tolerance: &Tolerance,
-    orientation_1: bool,
-    orientation_2: bool,
-    convexity: crate::analysis::Convexity,
-) -> Option<Point3> {
-    use crate::contact::{ContactOptions, ContactRequest, solve_rolling_ball_contact};
-
-    // Seed each surface's initial UV from target via closest_point.
-    let seed_uv0 = (surface1 as &dyn SurfaceEval).closest_point(target)?;
-    let seed_uv1 = (surface2 as &dyn SurfaceEval).closest_point(target)?;
-
-    // Ball side from edge convexity (PK-091): inscribed for convex,
-    // void-side for concave.
-    let (side_0, side_1) =
-        crate::contact::ball_sides_for_edge(convexity, orientation_1, orientation_2);
-
-    // Spine plane: pin the ball center close to `target`. Walk the
-    // segment from target to the surface midpoint as the plane normal.
-    // For one-shot use this is approximate; phase 1b walker passes
-    // the actual spine tangent.
-    let p0 = surface1.point_at(seed_uv0.0, seed_uv0.1);
-    let p1 = surface2.point_at(seed_uv1.0, seed_uv1.1);
-    let mid = popkern_core::geometry::Point3::new(
-        (p0.x + p1.x) * 0.5,
-        (p0.y + p1.y) * 0.5,
-        (p0.z + p1.z) * 0.5,
-    );
-    let mut spine_plane_normal = mid - *target;
-    if spine_plane_normal.length() < tolerance.numerical_floor() {
-        // Target is at the contact midpoint; pick any tangent direction.
-        // Use the cross product of the two face partials — well-defined
-        // when the surfaces are not parallel, which we know they are
-        // not since we're in the cone branch.
-        let n0 = surface1.normal_at(seed_uv0.0, seed_uv0.1);
-        let n1 = surface2.normal_at(seed_uv1.0, seed_uv1.1);
-        spine_plane_normal = n0.cross(&n1);
-        if spine_plane_normal.length() < tolerance.numerical_floor() {
-            return None;
-        }
-    }
-
-    let request = ContactRequest {
-        surface_0: surface1,
-        surface_1: surface2,
-        side_0,
-        side_1,
-        radius,
-        initial_uv0: seed_uv0,
-        uv0_range: (u1_range, v1_range),
-        initial_uv1: seed_uv1,
-        uv1_range: (u2_range, v2_range),
-        spine_point: *target,
-        spine_plane_normal,
-    };
-    let solution =
-        solve_rolling_ball_contact(&request, &ContactOptions::default(), tolerance, None).ok()?;
-    Some(solution.center)
 }
 
 // Helper functions (clip, clamp, fit, project) are in center_curve_helpers.rs.

@@ -231,48 +231,68 @@ fn boss_on_wall_seam_crossing_chain_measured() {
             radius: FilletRadius::Constant(0.05),
         })
         .collect();
-    // Current contract pin (PK-141 iteration 2): the walker diverges
-    // on 4 of 6 chain pieces (residual ~3e-1; ball-side/seeding on
-    // wall-cylinder supports); the exact-pair legacy fallback now
-    // completes the two blocked ARC pieces (offset plane ∩ offset
-    // cylinder circles), leaving the two VERTICAL wall×side-plane
-    // pieces failing honestly at surface validation
-    // (SelfIntersectingBlend: the line-center sweep builds a twisted
-    // NURBS — section frames flip mid-span). The transactional
-    // contract surfaces this as PartialFailure(2 of 6); the
-    // pre-transactional "COMPLETED clean" was 2-of-6 silently
-    // applied. Flip to the completion gate when the walker seeds or
-    // the sweep frames close both classes.
-    match fillet_edges(&united, &specs, &FilletOptions::default(), tol, None) {
-        Ok(r) => {
-            let (s2, o2, x2) = mesh_gauges::brep_open_defects(&r.brep);
-            eprintln!(
-                "[seam-matrix] boss chain COMPLETED via fallback: defects s={s2} o={o2} x={x2}, conformity {}",
-                mesh_gauges::welded_open_edges(&r.brep)
-            );
-        }
+    // PK-141 frontier pin (iteration 3): GEOMETRY for all six chain
+    // pieces now computes (walker + exact-pair fallback + center
+    // curves trimmed to the edge span — the padded carrier-line
+    // twist class is fixed), and the transactional apply surfaces
+    // the remaining APPLY-phase wall: Phase A/multi-chord still
+    // assume straight cube-like neighborhoods on curved supports —
+    // measured classes: tangent-offset anchors missed curved edges
+    // (curve-aware split fallback landed, 2 edges advanced),
+    // "multi-chord sub-chord anchors not found on any sub-face",
+    // and "no descendant half-edge has its twin on <face>". The
+    // curved-support apply is the recorded design fork. Flip to the
+    // completion gate (defects (0,0,0) + >=6 blend faces) when it
+    // lands.
+    let r = match fillet_edges(&united, &specs, &FilletOptions::default(), tol, None) {
         Err(e) => {
-            if let popkern_fillet::BlendError::PartialFailure { ref failures, .. } = e {
-                for (edge, failure) in failures {
-                    let fmsg = format!("{failure:?}");
-                    eprintln!(
-                        "[seam-matrix]   FAILURE {edge:?}: {}",
-                        &fmsg[..fmsg.len().min(220)]
-                    );
-                }
-            }
             let msg = format!("{e:?}");
             assert!(
                 msg.contains("PartialFailure")
-                    && (msg.contains("IntersectionFailed")
-                        || msg.contains("SelfIntersectingBlend")),
-                "decline must be the structured partial-failure naming the blocked class: {}",
+                    && (msg.contains("multi-chord")
+                        || msg.contains("no descendant half-edge")
+                        || msg.contains("no edge contains anchor")),
+                "decline must name the curved-support apply classes: {}",
                 &msg[..msg.len().min(300)]
             );
             eprintln!(
-                "[seam-matrix] boss chain fillet DECLINED transactionally (blocked classes \
-                 surfaced — no silent partial application)"
+                "[seam-matrix] boss chain: apply-phase curved-support classes surfaced \
+                 transactionally (geometry for all six pieces computes)"
             );
+            return;
         }
+        Ok(r) => r,
+    };
+    let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
+    assert_eq!(
+        (structural, open, other),
+        (0, 0, 0),
+        "boss chain fillet body must validate clean"
+    );
+    let mut census: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    for (_, f) in r.brep.faces.iter() {
+        let k = match f.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Plane { .. }) => "plane",
+            Some(SurfaceGeometry::Cylinder { .. }) => "cylinder",
+            Some(SurfaceGeometry::Nurbs(_)) => "nurbs",
+            Some(SurfaceGeometry::Torus { .. }) => "torus",
+            Some(SurfaceGeometry::Sphere { .. }) => "sphere",
+            Some(_) => "other",
+            None => "none",
+        };
+        *census.entry(k).or_default() += 1;
     }
+    eprintln!("[seam-matrix] boss face census: {census:?}");
+    let blend_faces = census.get("nurbs").copied().unwrap_or(0)
+        + census.get("torus").copied().unwrap_or(0)
+        + census.get("sphere").copied().unwrap_or(0);
+    assert!(
+        blend_faces >= 6,
+        "all six chain pieces must ship blend faces (got {blend_faces})"
+    );
+    eprintln!(
+        "[seam-matrix] boss chain COMPLETED clean: {blend_faces} blend faces, conformity {} \
+         (curved-support strip tessellation debt, measurement only)",
+        mesh_gauges::welded_open_edges(&r.brep)
+    );
 }

@@ -289,6 +289,7 @@ pub(crate) fn compute_legacy_center_curve(
             v2_range,
             *r,
             &edge_midpoint,
+            &edge_anchor_at,
             tolerance,
             analysis.orientation_1 == analysis.shell_outward,
             analysis.orientation_2 == analysis.shell_outward,
