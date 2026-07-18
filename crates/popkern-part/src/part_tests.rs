@@ -413,6 +413,10 @@ fn mesh_contains_point(part: &Part, q: (f64, f64, f64)) -> bool {
     let m = part
         .mesh(&popkern_mesh::TessellationOptions::default())
         .expect("mesh");
+    // Nudge the ray off exact mesh vertices: a y = 0 probe shoots
+    // through the seam-station vertex column once trims are exact and
+    // the parity double-counts (measured); 1e-7 can't flip containment.
+    let q = (q.0 + 1.03e-7, q.1 + 1.71e-7, q.2);
     let mut crossings = 0;
     for t in &m.triangles {
         let (a, b, c) = (

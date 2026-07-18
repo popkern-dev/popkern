@@ -44,6 +44,10 @@ pub mod text;
 #[path = "part_tests.rs"]
 mod part_tests;
 
+#[cfg(test)]
+#[path = "cone_band_dressup_tests.rs"]
+mod cone_band_dressup_tests;
+
 pub use engrave::{
     EngravePlacement, FaceFrame, HoledPolygon, engrave_polygons, face_frame, polygons_bbox,
 };
