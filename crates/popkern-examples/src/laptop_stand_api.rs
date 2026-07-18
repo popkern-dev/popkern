@@ -448,33 +448,35 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
         .translate(0.0, 0.0, rest_z_hub)?;
     let block = block.subtract(&upper)?;
 
-    // Seat recess (square or round), then the star socket into its
-    // floor. The round seat is supported since the star-membrane
-    // campaign closed (round_seat_star_socket_is_watertight_and_void:
-    // periodic-chart containment + loop-winding closure).
+    // Seat recess (square or round) at the DESIGNED CLOSE FIT —
+    // column + printed clearance per side (Ø70.4 / 70.4 square, the
+    // PK-136 residual; the historic 76 mm loose seat dated to a
+    // PK-102-era socket-stage failure). Then the star socket into
+    // its floor. The round seat is supported since the star-membrane
+    // campaign closed (round_seat_star_socket_is_watertight_and_void).
+    let seat_r = p.column_r + p.fit_clearance;
     let seat = if p.seat_round {
         Profile::on(Plane::xy_at(seat_floor))
-            .circle(38.0)
+            .circle(seat_r)
             .extrude(60.0)?
     } else {
         Profile::on(Plane::xy_at(seat_floor))
-            .rect(76.0, 76.0)
+            .rect(2.0 * seat_r, 2.0 * seat_r)
             .extrude(60.0)?
     };
     let block = block.subtract(&seat)?;
     // Round-seat mouth lead-in: a COAXIAL CONE COUNTERSINK cut (an
     // edge blend on the tilted elliptical mouth opens the shell —
     // measured). The tool is a drafted cylinder→cone frustum sharing
-    // the seat axis (r 37.4 at z 82 flaring 8.5°), so every cut edge
-    // is analytic: cone×wall = the exact circle at z 86, below the
-    // whole mouth (lowest point z ≈ 87.7); cone×rest plane = an
-    // ellipse strictly outside the mouth — no triple points. The
-    // lead-in is 0.25–3.9 mm, following the tilt: the honest
+    // the seat axis (seat_r − 0.6 at z 82, flaring 8.5° so it crosses
+    // the wall in the exact circle at z 86, below the whole mouth);
+    // cone×rest plane = an ellipse strictly outside the mouth — no
+    // triple points. The lead-in follows the tilt: the honest
     // countersink of a tilted mouth (PK-147: coaxial cylinder×cone
     // analytic circles + nested hole assignment in the walk).
     let block = if p.seat_round {
         let sink = Profile::on(Plane::xy_at(82.0))
-            .circle(37.4)
+            .circle(seat_r - 0.6)
             .extrude(36.0)?
             .draft(-8.5_f64.to_radians(), Dir::Z, |f: FaceQuery| {
                 f.kind(SurfaceKind::Cylinder)
@@ -926,53 +928,12 @@ fn build_arm_tip(p: &StandParams, side: f64) -> Result<Part, PartError> {
     Ok(tip)
 }
 
-/// The slide-in lip: dovetail tab at fit clearance + blade, one
-/// 10-gon profile × one extrude (no booleans). The slot is a
-/// through-slot so identical arms serve both sides; the lip inserts
-/// from the outboard edge.
-fn build_lip(p: &StandParams) -> Result<Part, PartError> {
-    let c = p.fit_clearance;
-    // The blade's two long outer corners — the edges the laptop
-    // leans on — are rounded IN THE SKETCH (r = 2 arcs), so the
-    // extrude carries true cylinder fillets by construction: no
-    // dress-up pass, no blend-corner patches on the non-convex end
-    // caps (a post-extrude fillet left the caps' corner trims open —
-    // the flagship's blend-corner frontier). The dovetail tab stays
-    // sharp for the joint.
-    let r = 2.0;
-    let d = r - r / 2.0_f64.sqrt(); // arc mid-point sagitta offset
-    // Tab = the arm's slot dovetail inset by a UNIFORM perpendicular
-    // clearance c (slot flank (1,4.5)->(6,7), slope 0.5), so the
-    // flanks are exactly parallel; nose keeps the 0.4 mm single-stop
-    // setback (the blade shoulder at x = 0 is the only datum).
-    let slope = 0.5_f64;
-    let flank_shift = c * (1.0 + slope * slope).sqrt();
-    let x_throat = 1.0 + (flank_shift - c) / slope;
-    let y_nose = 4.5 + slope * (5.6 - 1.0) - flank_shift;
-    // The throat land is not a working surface (flanks carry the
-    // fit), so it tapers straight to the blade edge — no sharp
-    // half-width step at the top of the tab.
-    let lip = Profile::on(Plane::XY)
-        .path(x_throat, -(4.5 - c))
-        .line_to(5.6, -y_nose)
-        .line_to(5.6, y_nose)
-        .line_to(x_throat, 4.5 - c)
-        .line_to(0.0, 4.0)
-        .line_to(-17.0 + r, 4.0)
-        .arc_to((-17.0 + d, 4.0 - d), (-17.0, 4.0 - r))
-        .line_to(-17.0, -4.0 + r)
-        .arc_to((-17.0 + d, -4.0 + d), (-17.0 + r, -4.0))
-        .line_to(0.0, -4.0)
-        .close()
-        .extrude(40.0)?
-        .rotate_y(90.0_f64.to_radians())?;
-    println!("  lip: print on a side face; two per holder");
-    Ok(lip)
-}
-
 #[path = "laptop_stand_api/export.rs"]
 mod export;
+#[path = "laptop_stand_api/lip.rs"]
+mod lip;
 use export::{gate_and_export, write_assembly_preview};
+use lip::{build_lip, build_peg_lip};
 
 fn main() {
     let out_dir =
@@ -1015,6 +976,24 @@ fn main() {
         &out_dir,
     );
     let lip = gate_and_export(build_lip(&p).expect("lip"), "laptop_stand_lip", &out_dir);
+    gate_and_export(
+        build_peg_lip(&p).expect("peg lip"),
+        "laptop_stand_peg_lip",
+        &out_dir,
+    );
+
+    // Square close-fit seat variant of the block (70.4 = column +
+    // clearance per side; the PK-102-era socket-stage failure is
+    // healed — both variants gate green at the designed fit).
+    let square = StandParams {
+        seat_round: false,
+        ..StandParams::default_stand()
+    };
+    gate_and_export(
+        build_block(&square).expect("block square"),
+        "laptop_stand_block_square",
+        &out_dir,
+    );
 
     // Ballast pieces are first-class: the base ships with and
     // without chambers, plus the drop-in lid.
