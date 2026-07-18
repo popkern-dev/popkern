@@ -66,6 +66,17 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
         .faces
         .keys()
         .filter(|fh| {
+            // The vertex-polygon area/aspect proxy is only faithful
+            // for faces whose boundary is a simple 3-D polygon. A
+            // wrap-around face (periodic wall carrying seam edges or
+            // closed rim edges) encloses near-zero Newell area no
+            // matter its true extent — measured: the cylinder wall
+            // of a prism∪cylinder union was "detected" as a sliver
+            // and KEF-merged away, silently deleting the wall while
+            // the body still validated. Skip such faces entirely.
+            if face_boundary_wraps(brep, *fh) {
+                return false;
+            }
             let positions = face_vertex_positions(brep, *fh);
             if positions.len() < 3 {
                 return true;
@@ -172,6 +183,38 @@ fn find_killing_half_edge(
         }
     }
     None
+}
+
+/// True when a face's outer loop carries a seam half-edge (same face
+/// on both sides) or a closed edge (rim circle: origin == twin
+/// origin) — the wrap-around classes whose vertex polygon is not an
+/// area proxy.
+fn face_boundary_wraps(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(f) = brep.faces.get(face) else {
+        return false;
+    };
+    let Some(l) = brep.loops.get(f.outer_loop) else {
+        return false;
+    };
+    let start = l.half_edge;
+    let mut he = start;
+    for _ in 0..brep.half_edges.len() {
+        let Some(d) = brep.half_edges.get(he) else {
+            return false;
+        };
+        let Some(tw) = brep.half_edges.get(d.twin) else {
+            return false;
+        };
+        let twin_face = brep.loops.get(tw.loop_).map(|tl| tl.face);
+        if twin_face == Some(face) || tw.origin == d.origin {
+            return true;
+        }
+        he = d.next;
+        if he == start {
+            return false;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

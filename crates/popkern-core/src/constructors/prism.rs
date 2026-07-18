@@ -53,6 +53,16 @@ impl BRep {
         // Attach geometry to all edges and faces.
         brep.attach_geometry()?;
 
+        // Attach pcurves on the planar faces. Without them every
+        // downstream trim-domain consumer flies blind: the boolean
+        // UV clipper cannot classify records against prism faces
+        // (measured: a prism through a cylinder wall kept the full
+        // unbounded plane×cylinder intersection lines and the union
+        // was silent garbage — PK-150), and the tessellator samples
+        // faces at unrelated densities (358 T-vertex welded opens on
+        // a pristine prism box — PK-149).
+        brep.attach_planar_pcurves()?;
+
         // Validate the result.
         brep.validate().map_err(CoreError::Validation)?;
 

@@ -174,3 +174,72 @@ pub(crate) fn log_post_processing_diagnostics(result: &BRep, tolerance: &Toleran
         );
     }
 }
+
+/// PK_BOOL_TRACE-gated face/edge census line for the post-processing
+/// stages — sliver removal silently deleted a cylinder wall once
+/// (PK-150); the per-stage census makes any face-count change in the
+/// post pipeline visible.
+pub(crate) fn trace_face_census(label: &str, brep: &BRep) {
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [post] {label}: {} faces {} edges",
+            brep.faces.len(),
+            brep.edges.len()
+        );
+    }
+}
+
+/// Output post-processing pipeline shared by every boolean opcode:
+/// stranded-loop pruning, redundant-edge removal, sliver removal,
+/// face simplification, micro-edge collapse, and tolerance
+/// propagation — each stage census-traced under PK_BOOL_TRACE
+/// (sliver removal silently deleted a cylinder wall once, PK-150).
+pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
+    // Post-processing: prune stranded half-edges left behind by
+    // broken merge loops. The merge phase occasionally tags
+    // half-edges with a loop handle they're not reachable from;
+    // this pruning step removes them so the visible topology
+    // matches the Euler-Poincaré accounting.
+    trace_face_census("pre-postprocess", result);
+    let _ = crate::postprocess::loop_repair::repair_stranded_loops(result);
+    trace_face_census("post-stranded", result);
+
+    // Post-processing: remove redundant edges if the result topology is valid.
+    if result.validate().is_ok() {
+        remove_redundant_edges_safe(result, tolerance);
+    }
+    trace_face_census("post-redundant", result);
+
+    // Post-processing: remove sliver faces (§8.3.1) if the topology
+    // is still valid. The pass merges each sliver into a non-sliver
+    // neighbor via KEF, validating after every removal and bailing
+    // out on any corruption rather than compounding damage.
+    if result.validate().is_ok() {
+        let _ = crate::postprocess::sliver_removal::remove_slivers(result, tolerance);
+    }
+    trace_face_census("post-sliver", result);
+
+    // Post-processing: face simplification (§11.2). Merges adjacent
+    // co-surfacial faces via KEF, validating after each merge with
+    // rollback on regression. The previous implementation was
+    // disabled because of a stale-edge-handle bug; the iterate-and-
+    // recompute pattern fixes that.
+    if result.validate().is_ok() {
+        crate::postprocess::face_simplify::apply_face_simplification(result, tolerance);
+    }
+    trace_face_census("post-simplify", result);
+    // Note: fix_zero_thickness_sheets remains disabled — its global
+    // face-pair comparison is unrelated to this fix and still risky.
+    // fix_zero_thickness_sheets(result, tolerance);
+
+    // Post-processing: collapse micro-edges (position merge).
+    let micro_edges = crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear());
+    if !micro_edges.is_empty() {
+        crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
+    }
+
+    // Post-processing: propagate tolerances to intersection entities (§10.3).
+    // Intersection-created vertices/edges may have larger tolerance than
+    // original entities due to numerical approximation.
+    propagate_output_tolerances(result, tolerance);
+}

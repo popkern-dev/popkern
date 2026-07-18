@@ -117,7 +117,6 @@ fn direct_seam_edge_spec_declines_structured() {
 /// seam line: the acceptance fixture for seam-crossing fillet
 /// chains.
 #[test]
-#[ignore = "PK-150: the boss-through-curved-wall UNION itself is silent garbage (validates clean but boss side walls missing, doubled top/bottom planes, wall carved by full circles, point-degenerate loops) — the seam-crossing chain does not exist in the output, so the fillet leg cannot be exercised; flip when the boolean structures the wall carve correctly"]
 fn boss_on_wall_seam_crossing_chain_measured() {
     use popkern_core::geometry::{Point3, Vec3};
     let tol = default_tol();
@@ -191,9 +190,7 @@ fn boss_on_wall_seam_crossing_chain_measured() {
                 .as_ref()
                 .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
         };
-        if f1 != f2
-            && ((is_cyl(f1) && is_plane(f2)) || (is_plane(f1) && is_cyl(f2)))
-        {
+        if f1 != f2 && ((is_cyl(f1) && is_plane(f2)) || (is_plane(f1) && is_cyl(f2))) {
             // Only edges on the wall near the boss (exclude rims by z).
             let a = united.vertices[he.origin].position;
             if a.z > 0.5 && a.z < 1.5 {

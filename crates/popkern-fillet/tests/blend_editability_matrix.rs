@@ -170,9 +170,13 @@ fn outward_cube_single_edge_fillet_weld_measured() {
     ];
     let brep =
         BRep::prism(&outline, Vec3::new(0.0, 0.0, 1.0), 1.0, default_tol()).expect("outward cube");
-    eprintln!(
-        "[editability] outward cube pristine opens = {}",
-        mesh_gauges::welded_open_edges(&brep)
+    let pristine_opens = mesh_gauges::welded_open_edges(&brep);
+    eprintln!("[editability] outward cube pristine opens = {pristine_opens}");
+    // PK-149: prism constructor authors planar pcurves, so its raw
+    // tessellation conforms (read 358 before the authoring landed).
+    assert_eq!(
+        pristine_opens, 0,
+        "pristine prism tessellation must conform"
     );
     let edge = brep.edges.keys().next().unwrap();
     match fillet_edges(

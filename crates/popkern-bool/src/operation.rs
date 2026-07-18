@@ -10,10 +10,7 @@ pub(crate) mod helpers;
 #[path = "operation_postprocess.rs"]
 mod postprocess;
 
-use postprocess::{
-    log_post_processing_diagnostics, log_validation_issues, propagate_output_tolerances,
-    remove_redundant_edges_safe,
-};
+use postprocess::{log_post_processing_diagnostics, log_validation_issues, run_output_postprocess};
 
 use std::time::Instant;
 
@@ -559,48 +556,7 @@ pub(crate) fn execute_boolean_full(
         return Err(BoolError::ValidationFailed(pc_errors.join("; ")));
     }
 
-    // Post-processing: prune stranded half-edges left behind by
-    // broken merge loops. The merge phase occasionally tags
-    // half-edges with a loop handle they're not reachable from;
-    // this pruning step removes them so the visible topology
-    // matches the Euler-Poincaré accounting.
-    let _ = crate::postprocess::loop_repair::repair_stranded_loops(&mut result);
-
-    // Post-processing: remove redundant edges if the result topology is valid.
-    if result.validate().is_ok() {
-        remove_redundant_edges_safe(&mut result, tolerance);
-    }
-
-    // Post-processing: remove sliver faces (§8.3.1) if the topology
-    // is still valid. The pass merges each sliver into a non-sliver
-    // neighbor via KEF, validating after every removal and bailing
-    // out on any corruption rather than compounding damage.
-    if result.validate().is_ok() {
-        let _ = crate::postprocess::sliver_removal::remove_slivers(&mut result, tolerance);
-    }
-
-    // Post-processing: face simplification (§11.2). Merges adjacent
-    // co-surfacial faces via KEF, validating after each merge with
-    // rollback on regression. The previous implementation was
-    // disabled because of a stale-edge-handle bug; the iterate-and-
-    // recompute pattern fixes that.
-    if result.validate().is_ok() {
-        crate::postprocess::face_simplify::apply_face_simplification(&mut result, tolerance);
-    }
-    // Note: fix_zero_thickness_sheets remains disabled — its global
-    // face-pair comparison is unrelated to this fix and still risky.
-    // fix_zero_thickness_sheets(&mut result, tolerance);
-
-    // Post-processing: collapse micro-edges (position merge).
-    let micro_edges = crate::imprint::micro_edge::find_micro_edges(&result, tolerance.linear());
-    if !micro_edges.is_empty() {
-        crate::imprint::micro_edge::collapse_micro_edge_positions(&mut result, &micro_edges);
-    }
-
-    // Post-processing: propagate tolerances to intersection entities (§10.3).
-    // Intersection-created vertices/edges may have larger tolerance than
-    // original entities due to numerical approximation.
-    propagate_output_tolerances(&mut result, tolerance);
+    run_output_postprocess(&mut result, tolerance);
 
     // Post-processing diagnostics: sliver detection and watertightness.
     log_post_processing_diagnostics(&result, tolerance);
