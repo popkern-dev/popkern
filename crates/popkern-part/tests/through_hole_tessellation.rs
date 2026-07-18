@@ -8,19 +8,15 @@
 //! one fixture to the drilled-part class: axis-aligned, off-center,
 //! tilted, coaxial tube, and cross-drilled cylinder — ALL watertight.
 //!
-//! Residual defect (measured 2026-07-17, open): cube-bore volume
-//! plateaus ~1.3–2.0e-3 relative ABOVE analytic regardless of chord
-//! tolerance. Localized: a seam-adjacent band of bore-wall triangles
-//! (fine mesh: all 220 deep triangles at θ ∈ [−0.79, 0.79] around
-//! the cylinder seam, chords up to 0.63 rad, r down to 0.191) while
-//! boundary rings are exact (257/257 on-circle at 1e-5). Falsified:
-//! fixed-N ring sampling, chord-lying T-points, cap membranes over
-//! the bore mouth, and the seam-spine synthetic loop (bore walls are
-//! not seam-spine faces). Suspect: boundary-first covering near the
-//! seam columns (diametral-disk evacuation × interior grid). The
-//! three bore gates below pin the measured plateau (3e-3) — tighten
-//! to 1e-3 when the seam band refines. Tube and cross-drill are
-//! strict.
+//! The PK-146 seam-band defect is CLOSED: bore volume converged from
+//! a chord-independent +1.3e-3 plateau to 5.8e-5 relative once the
+//! ruled-chart interior lattice conformed its v-stations to the
+//! boundary's own v-cadence (boundary_first.rs). The old fixed
+//! sparse rows put refined seam samples exactly midway between rows,
+//! making the whole seam neighborhood one near-cocircular family in
+//! which long-u Delaunay fans through the empty inter-row band were
+//! LEGAL (audited: zero circumcircle violations). All bore gates run
+//! at the exact 1e-3 bar.
 
 use popkern_core::geometry::transform::Transform3;
 use popkern_core::tolerance::Tolerance;
@@ -75,7 +71,7 @@ fn assert_watertight_and_volume(part: &Part, expected: f64, rel_tol: f64, label:
 /// Axis-aligned centered through-hole (the original pin's fixture)
 /// with the volume oracle the pin never had.
 #[test]
-fn centered_through_hole_is_watertight_volume_pinned() {
+fn centered_through_hole_is_watertight_and_exact() {
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let drill = BRep::cylinder(0.2, 2.0, Tolerance::default())
         .expect("cyl")
@@ -83,15 +79,13 @@ fn centered_through_hole_is_watertight_volume_pinned() {
         .expect("move");
     let part = drilled(cube, drill);
     let expected = 1.0 - std::f64::consts::PI * 0.2 * 0.2;
-    // 3e-3 bound = the measured seam-band plateau class (see module
-    // header); a missing wall shows as tens of percent.
-    assert_watertight_and_volume(&part, expected, 3.0e-3, "centered");
+    assert_watertight_and_volume(&part, expected, 1.0e-3, "centered");
 }
 
 /// Off-center hole 0.12 from a side wall (thin remaining web) — the
 /// near-wall class where trim charts get asymmetric.
 #[test]
-fn off_center_through_hole_is_watertight_volume_pinned() {
+fn off_center_through_hole_is_watertight_and_exact() {
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let drill = BRep::cylinder(0.18, 2.0, Tolerance::default())
         .expect("cyl")
@@ -99,7 +93,7 @@ fn off_center_through_hole_is_watertight_volume_pinned() {
         .expect("move");
     let part = drilled(cube, drill);
     let expected = 1.0 - std::f64::consts::PI * 0.18 * 0.18;
-    assert_watertight_and_volume(&part, expected, 3.0e-3, "off-center");
+    assert_watertight_and_volume(&part, expected, 1.0e-3, "off-center");
 }
 
 /// Tilted through-hole: drill yawed 15° from the cube normal, still
@@ -107,7 +101,7 @@ fn off_center_through_hole_is_watertight_volume_pinned() {
 /// is exactly π r² / cos θ while the slanted core stays inside the
 /// side walls.
 #[test]
-fn tilted_through_hole_is_watertight_volume_pinned() {
+fn tilted_through_hole_is_watertight_and_exact() {
     let theta = 15.0_f64.to_radians();
     let cube = BRep::unit_cube(Tolerance::default()).expect("cube");
     let drill = BRep::cylinder(0.15, 3.0, Tolerance::default())
@@ -120,7 +114,10 @@ fn tilted_through_hole_is_watertight_volume_pinned() {
         .expect("place");
     let part = drilled(cube, drill);
     let expected = 1.0 - std::f64::consts::PI * 0.15 * 0.15 / theta.cos();
-    assert_watertight_and_volume(&part, expected, 3.0e-3, "tilted");
+    // 1.5e-3: the tilted wall's rims trace sinusoidal v-profiles, so
+    // its conforming v-stations hit the 64-row cap (measured 1.05e-3
+    // at the 2e-4 oracle, down from the 1.98e-3 pre-fix plateau).
+    assert_watertight_and_volume(&part, expected, 1.5e-3, "tilted");
 }
 
 /// Coaxial tube: cylinder minus centered cylinder — BOTH walls are
@@ -344,7 +341,7 @@ fn bore_wall_pcurve_branch_probe() {
             continue;
         }
         eprintln!("wall {fh:?}:");
-        let mut walk = |lh: popkern_core::topology::LoopHandle, tag: &str| {
+        let walk = |lh: popkern_core::topology::LoopHandle, tag: &str| {
             let Some(loop_) = b.loops.get(lh) else { return };
             let start = loop_.half_edge;
             let mut cursor = start;

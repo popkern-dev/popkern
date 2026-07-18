@@ -6,8 +6,13 @@ use popkern_core::geometry::{Point3, SurfaceEval, SurfaceGeometry, Vec3};
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::adaptive::adaptive_subdivide;
+
+#[path = "tessellate_diagnostics.rs"]
+mod tessellate_diagnostics;
 use crate::mesh::{FaceMesh, MeshVertex, TriMesh};
 use crate::{MeshError, TessellationOptions};
+use tessellate_diagnostics::deepchord_trace;
+pub(crate) use tessellate_diagnostics::face_mesh_diagonal;
 
 /// Tessellate a single BRep face into a triangle mesh.
 pub fn tessellate_face(
@@ -481,7 +486,9 @@ pub(crate) fn tessellate_brep(
     // DIFFERENT nearby incident edge (measured: floor arc points
     // pulled onto the base-edge line, reopening the very seams the
     // canonical sampling closed).
+    deepchord_trace(brep, &face_meshes, options, "pre-sew");
     sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
+    deepchord_trace(brep, &face_meshes, options, "post-sew");
     orient_face_meshes_coherently(brep, &mut face_meshes);
     Ok(TriMesh::from_face_meshes(face_meshes))
 }
@@ -989,21 +996,6 @@ fn sew_boundaries_to_edge_polylines(
             }
         }
     }
-}
-
-fn face_mesh_diagonal(fm: &crate::mesh::FaceMesh) -> f64 {
-    let mut min = [f64::INFINITY; 3];
-    let mut max = [f64::NEG_INFINITY; 3];
-    for v in &fm.vertices {
-        for (k, c) in [v.position.x, v.position.y, v.position.z]
-            .into_iter()
-            .enumerate()
-        {
-            min[k] = min[k].min(c);
-            max[k] = max[k].max(c);
-        }
-    }
-    ((max[0] - min[0]).powi(2) + (max[1] - min[1]).powi(2) + (max[2] - min[2]).powi(2)).sqrt()
 }
 
 /// Vertex indices on the face mesh's boundary: endpoints of edges

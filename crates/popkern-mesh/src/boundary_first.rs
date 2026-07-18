@@ -20,7 +20,6 @@
 
 use std::collections::HashMap;
 
-use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
@@ -28,95 +27,9 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 use crate::TessellationOptions;
 use crate::mesh::{FaceMesh, MeshVertex};
 
-/// Canonical per-edge samples: parameter fractions (0..=1 of the
-/// edge's curve window) and their 3D points. Both faces adjacent to
-/// the edge consume the same set.
-pub(crate) struct EdgeSamples {
-    /// Curve-window fractions, ascending, including 0 and 1.
-    pub fractions: Vec<f64>,
-    /// 3D points at those fractions.
-    pub points: Vec<Point3>,
-}
-
-/// Sample every edge with a finite curve window once, adaptively by
-/// 3D chord height.
-pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHandle, EdgeSamples> {
-    let mut map = HashMap::new();
-    for (eh, edge) in brep.edges.iter() {
-        let Some(curve) = edge.curve.as_ref() else {
-            // Curveless edge: synthesize vertex-chord samples so the
-            // ring builder doesn't bail (a boolean can leave
-            // degenerate zero-length curveless edges at discarded
-            // tool corners; a missing entry made every face touching
-            // one fall back to the cracking legacy path). Zero-length
-            // edges get NO entry — the ring builder skips them.
-            let he = &brep.half_edges[edge.half_edge];
-            let va = brep.vertices[he.origin].position;
-            let vb = brep.vertices[brep.half_edges[he.twin].origin].position;
-            if va.distance_to(&vb) > 1.0e-9 {
-                map.insert(
-                    eh,
-                    EdgeSamples {
-                        fractions: vec![0.0, 1.0],
-                        points: vec![va, vb],
-                    },
-                );
-            }
-            continue;
-        };
-        if !(curve.t_start.is_finite() && curve.t_end.is_finite()) {
-            continue;
-        }
-        let eval: &dyn CurveEval = &curve.geometry;
-        let at = |f: f64| eval.point_at(curve.t_start + (curve.t_end - curve.t_start) * f);
-        // Adaptive subdivision by chord height, depth-limited.
-        let mut fractions = vec![0.0, 1.0];
-        let mut i = 0;
-        while i + 1 < fractions.len() {
-            let (a, b) = (fractions[i], fractions[i + 1]);
-            let (pa, pm, pb) = (at(a), at(0.5 * (a + b)), at(b));
-            let chord_mid = Point3::new(
-                0.5 * (pa.x + pb.x),
-                0.5 * (pa.y + pb.y),
-                0.5 * (pa.z + pb.z),
-            );
-            if pm.distance_to(&chord_mid) > chord_height && fractions.len() < 256 && (b - a) > 1e-3
-            {
-                fractions.insert(i + 1, 0.5 * (a + b));
-            } else {
-                i += 1;
-            }
-        }
-        let mut points: Vec<Point3> = fractions.iter().map(|&f| at(f)).collect();
-        // Snap the endpoint samples to the shared VERTEX positions:
-        // curve-endpoint evaluations can differ from the topological
-        // vertex by ~1e-8 (refit/snap noise), and two edges meeting
-        // at a vertex would then produce near-miss boundary points
-        // that straddle the weld rounding.
-        let he = edge.half_edge;
-        if let (Some(first), Some(last)) = (points.first().copied(), points.last().copied()) {
-            let va = brep.vertices[brep.half_edges[he].origin].position;
-            let vb = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
-            let (pa, pb) = if first.distance_to(&va) + last.distance_to(&vb)
-                <= first.distance_to(&vb) + last.distance_to(&va)
-            {
-                (va, vb)
-            } else {
-                (vb, va)
-            };
-            let snap_gate = 1.0e-6;
-            if first.distance_to(&pa) < snap_gate {
-                points[0] = pa;
-            }
-            let n = points.len() - 1;
-            if points[n].distance_to(&pb) < snap_gate {
-                points[n] = pb;
-            }
-        }
-        map.insert(eh, EdgeSamples { fractions, points });
-    }
-    map
-}
+#[path = "boundary_first_edge_samples.rs"]
+mod boundary_first_edge_samples;
+pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
 
 /// One boundary ring: ordered UV polygon with matched 3D positions
 /// and, per point, the canonical edge + curve fraction it came from
@@ -559,7 +472,14 @@ pub(crate) fn tessellate_face_boundary_first(
             .flat_map(|r| r.uv.iter().map(|&(u, _)| u))
             .collect();
         u_stations.sort_by(f64::total_cmp);
-        u_stations.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+        // Dedup PROPORTIONALLY to the chart span: the two rims invert
+        // to near-identical u (differing ~1e-8 from independent
+        // atan2 of separately-sampled 3D points), and near-duplicate
+        // interior points corrupt the Bowyer-Watson cavity
+        // (measured: non-Delaunay 0.63-rad chords beside the seam
+        // with a dense kept lattice — the PK-146 seam band).
+        let station_merge = ((u1 - u0).abs() * 1.0e-7).max(1e-9);
+        u_stations.dedup_by(|a, b| (*a - *b).abs() < station_merge);
         if u_stations.len() > 512 {
             let step = u_stations.len() as f64 / 512.0;
             u_stations = (0..512)
@@ -569,12 +489,41 @@ pub(crate) fn tessellate_face_boundary_first(
         let n_v = options.min_subdivisions.max(4);
         let seam_trace = std::env::var_os("PK_BF_SEAM_TRACE").is_some() && u_stations.len() > 100;
         let mut kill = [0usize; 4]; // region, clearance, disk, kept — seam band only
+        // Interior v-stations CONFORM to the boundary's v-cadence:
+        // with a fixed sparse row count, ruling-side boundary samples
+        // (a refined seam at half the row spacing) sit exactly midway
+        // between rows and the whole seam neighborhood becomes one
+        // near-cocircular family — every triangulation is legal and
+        // Bowyer-Watson picks long-u fans through the empty inter-row
+        // band (measured: 0.63-rad chords beside the bore seam,
+        // volume +1.3e-3 at any chord tolerance, ZERO circumcircle
+        // violations — the fans are legal). Taking the rows from the
+        // ring's own interior v-values tiles the lattice conformally
+        // with the boundary; the fixed grid remains the fallback for
+        // boundaries with no interior v-samples.
+        let mut v_stations: Vec<f64> = rings
+            .iter()
+            .flat_map(|r| r.uv.iter().map(|&(_, v)| v))
+            .filter(|&v| v > v0 + 1e-9 && v < v1 - 1e-9)
+            .collect();
+        v_stations.sort_by(f64::total_cmp);
+        let v_merge = ((v1 - v0).abs() * 1.0e-7).max(1e-9);
+        v_stations.dedup_by(|a, b| (*a - *b).abs() < v_merge);
+        if v_stations.len() < n_v - 1 {
+            v_stations = (1..n_v)
+                .map(|j| v0 + (v1 - v0) * j as f64 / n_v as f64)
+                .collect();
+        } else if v_stations.len() > 64 {
+            let step = v_stations.len() as f64 / 64.0;
+            v_stations = (0..64)
+                .map(|i| v_stations[(i as f64 * step) as usize])
+                .collect();
+        }
         for &u in &u_stations {
             if u <= u0 || u >= u1 {
                 continue;
             }
-            for j in 1..n_v {
-                let v = v0 + (v1 - v0) * j as f64 / n_v as f64;
+            for &v in &v_stations {
                 let in_band = u - u0 < 0.8 || u1 - u < 0.8;
                 let detail = seam_trace && u1 - u < 0.9 && (v - 1.0).abs() < 0.01;
                 if !point_in_region((u, v), &rings) {
@@ -604,6 +553,9 @@ pub(crate) fn tessellate_face_boundary_first(
                 } else {
                     if seam_trace && in_band {
                         kill[3] += 1;
+                    }
+                    if detail {
+                        eprintln!("    [bf-seam] ({u:.3},{v:.3}) KEPT");
                     }
                     uv_pts.push((u, v));
                     pos_pts.push(None);
@@ -665,6 +617,7 @@ pub(crate) fn tessellate_face_boundary_first(
     };
     let bw_pts: Vec<(f64, f64)> = uv_pts.iter().map(|&(u, v)| (u * su, v * sv)).collect();
     let tris = bowyer_watson(&bw_pts)?;
+    boundary_first_edge_samples::delaunay_audit(face_handle, &bw_pts, &tris);
 
     // Filter to the trim region and enforce winding.
     let mut triangles: Vec<[usize; 3]> = Vec::new();
