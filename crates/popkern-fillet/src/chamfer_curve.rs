@@ -63,9 +63,15 @@ pub fn compute_chamfer(
     let (t_start, t_end) = (curve.t_start, curve.t_end);
 
     let mut edge_points = Vec::with_capacity(n_samples);
+    let mut edge_tangents = Vec::with_capacity(n_samples);
     for i in 0..n_samples {
         let t = t_start + (t_end - t_start) * (i as f64) / ((n_samples - 1).max(1) as f64);
         edge_points.push(curve.geometry.point_at(t));
+        // Exact tangents: chord tangents carry ~1e-2 rad noise at 20
+        // samples; where back-projection can't absorb it (a plane)
+        // the row spread (1.45e-2·distance) crosses the 1e-3·r cone
+        // recognition gate past ~2 mm legs → cracked NURBS band.
+        edge_tangents.push(curve.geometry.derivative_at(t, 1));
     }
 
     // 4. Compute offset points on each face. Each face's offset must
@@ -80,6 +86,7 @@ pub fn compute_chamfer(
     let interior_2 = face_interior_hint(brep, analysis.edge, analysis.face_2);
     let offset_points_1 = compute_offset_points(
         &edge_points,
+        &edge_tangents,
         &analysis.surface_1,
         dist_1,
         interior_1.as_ref(),
@@ -87,6 +94,7 @@ pub fn compute_chamfer(
     )?;
     let offset_points_2 = compute_offset_points(
         &edge_points,
+        &edge_tangents,
         &analysis.surface_2,
         dist_2,
         interior_2.as_ref(),
@@ -380,6 +388,7 @@ fn face_interior_hint(
 
 fn compute_offset_points(
     edge_points: &[Point3],
+    edge_tangents: &[Vec3],
     surface: &SurfaceGeometry,
     distance: f64,
     interior_hint: Option<&InteriorHint>,
@@ -392,8 +401,15 @@ fn compute_offset_points(
     let mut offset_points = Vec::with_capacity(edge_points.len());
 
     for (i, pt) in edge_points.iter().enumerate() {
-        // Compute approximate edge tangent from neighboring points.
-        let tangent = if i == 0 {
+        // Exact curve tangent; chord fallback only where the
+        // derivative degenerates (see the sampling loop above).
+        let exact = edge_tangents
+            .get(i)
+            .copied()
+            .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+        let tangent = if exact.length() > tolerance.numerical_floor() {
+            exact
+        } else if i == 0 {
             edge_points[1] - edge_points[0]
         } else if i == edge_points.len() - 1 {
             edge_points[i] - edge_points[i - 1]
@@ -816,38 +832,3 @@ fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
 #[cfg(test)]
 #[path = "chamfer_curve_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-mod bevel_recognition_tests {
-    use super::*;
-
-    #[test]
-    fn planar_bevel_normal_is_the_true_diagonal() {
-        let mut pts = Vec::new();
-        for i in 0..20 {
-            let z = 0.5 * i as f64 / 19.0;
-            pts.push(Point3::new(0.5, 0.92, z));
-        }
-        for i in 0..20 {
-            let z = 0.5 * i as f64 / 19.0;
-            pts.push(Point3::new(0.42, 1.0, z));
-        }
-        let plane = recognize_planar_bevel(&pts).expect("recognized");
-        let SurfaceGeometry::Plane { normal, .. } = plane else {
-            panic!("not a plane");
-        };
-        println!(
-            "recognized normal ({:.3},{:.3},{:.3})",
-            normal.x, normal.y, normal.z
-        );
-        assert!(
-            (normal.x.abs() - 0.707).abs() < 1e-3
-                && (normal.y.abs() - 0.707).abs() < 1e-3
-                && (normal.x.signum() == normal.y.signum()),
-            "expected ±(0.707,0.707,0), got ({},{},{})",
-            normal.x,
-            normal.y,
-            normal.z
-        );
-    }
-}

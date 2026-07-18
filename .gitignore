@@ -48,3 +48,4 @@ docs/books/
 docs/code/
 docs/requirements/old/
 docs/images/input/
+__pycache__/

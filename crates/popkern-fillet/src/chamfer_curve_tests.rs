@@ -411,3 +411,33 @@ fn compute_offset_distances_distance_angle() {
     assert!((d1 - 0.2).abs() < f64::EPSILON);
     assert!((d2 - 0.2).abs() < 1e-10, "tan(PI/4) * 0.2 = 0.2, got {d2}");
 }
+
+#[test]
+fn planar_bevel_normal_is_the_true_diagonal() {
+    let mut pts = Vec::new();
+    for i in 0..20 {
+        let z = 0.5 * i as f64 / 19.0;
+        pts.push(Point3::new(0.5, 0.92, z));
+    }
+    for i in 0..20 {
+        let z = 0.5 * i as f64 / 19.0;
+        pts.push(Point3::new(0.42, 1.0, z));
+    }
+    let plane = recognize_planar_bevel(&pts).expect("recognized");
+    let SurfaceGeometry::Plane { normal, .. } = plane else {
+        panic!("not a plane");
+    };
+    println!(
+        "recognized normal ({:.3},{:.3},{:.3})",
+        normal.x, normal.y, normal.z
+    );
+    assert!(
+        (normal.x.abs() - 0.707).abs() < 1e-3
+            && (normal.y.abs() - 0.707).abs() < 1e-3
+            && (normal.x.signum() == normal.y.signum()),
+        "expected ±(0.707,0.707,0), got ({},{},{})",
+        normal.x,
+        normal.y,
+        normal.z
+    );
+}
