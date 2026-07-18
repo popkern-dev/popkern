@@ -287,7 +287,9 @@ fn fillet_edges_internal(
     );
     check_cancel!();
 
-    if edge_geometries.is_empty() && !failures.is_empty() {
+    // Transactional: ANY per-edge failure fails the whole operation —
+    // the prior partial path applied survivors and DROPPED failures.
+    if !failures.is_empty() {
         return Err(BlendError::PartialFailure {
             failed: failures.len(),
             total: specs.len(),

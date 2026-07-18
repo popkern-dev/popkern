@@ -231,25 +231,31 @@ fn boss_on_wall_seam_crossing_chain_measured() {
             radius: FilletRadius::Constant(0.05),
         })
         .collect();
-    let r = fillet_edges(&united, &specs, &FilletOptions::default(), tol, None)
-        .expect("seam-crossing boss chain fillet must complete");
-    let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    assert_eq!(
-        (structural, open, other),
-        (0, 0, 0),
-        "boss chain fillet body must validate clean"
-    );
-    // Conformity is a measurement only: the UNION input already
-    // reads ~52 welded opens (prism/boolean tessellation conformity
-    // debt — PK-149), so a zero gate here would be dishonest until
-    // the constructor-side conformity lands.
-    eprintln!(
-        "[seam-matrix] boss chain fillet COMPLETED clean, conformity {} (union input reads {})",
-        mesh_gauges::welded_open_edges(&r.brep),
-        {
-            let (s2, o2, x2) = mesh_gauges::brep_open_defects(&united);
-            debug_assert_eq!((s2, o2, x2), (0, 0, 0));
-            mesh_gauges::welded_open_edges(&united)
+    // Current contract pin: the four wall-arc chain pieces fail
+    // initial rolling-ball contact (solver diverges, residual ~3e-1
+    // — ball-side/seeding on cylinder-wall × horizontal-plane
+    // supports seeded from arc edges), and the transactional
+    // contract (PK-140) surfaces that as PartialFailure instead of
+    // silently applying the two surviving line fillets (the
+    // pre-transactional "COMPLETED clean" here was a blind green —
+    // 4 of 6 dropped with no diagnostic). Flip to the completion
+    // gate when the arc-seeded contact march lands.
+    match fillet_edges(&united, &specs, &FilletOptions::default(), tol, None) {
+        Ok(_) => panic!(
+            "boss chain fillet completed — flip this pin to the full watertight completion \
+             gate (and verify all 6 chain fillets are present)"
+        ),
+        Err(e) => {
+            let msg = format!("{e:?}");
+            assert!(
+                msg.contains("PartialFailure") && msg.contains("IntersectionFailed"),
+                "decline must be the structured partial-failure with contact divergence: {}",
+                &msg[..msg.len().min(300)]
+            );
+            eprintln!(
+                "[seam-matrix] boss chain fillet DECLINED transactionally (4 wall-arc contact \
+                 divergences surfaced — no silent partial application)"
+            );
         }
-    );
+    }
 }

@@ -39,6 +39,29 @@ fn run_class_expect_interference_decline(label: &str, brep: &BRep, specs: &[Fill
     }
 }
 
+/// Variant for the transverse-overrun (thin wall) class: the rail
+/// would exit the support face across its far boundary, so the only
+/// commercial outcome today is the structured RadiusTooLarge decline
+/// (measured alternative: completed body with 12 OCC free closed
+/// edges).
+fn run_class_expect_radius_decline(label: &str, brep: &BRep, specs: &[FilletSpec]) {
+    let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
+    match result {
+        Ok(_) => panic!(
+            "{label}: completed — transverse support overrun ships open defects; must decline \
+             with RadiusTooLarge"
+        ),
+        Err(err) => {
+            let msg = format!("{err:?}");
+            assert!(
+                msg.contains("RadiusTooLarge"),
+                "{label}: decline must be the structured RadiusTooLarge class: {msg}"
+            );
+            eprintln!("[interference] {label}: DECLINED structured (RadiusTooLarge)");
+        }
+    }
+}
+
 /// Run specs on a body; enforce the taxonomy bar.
 fn run_class(label: &str, brep: &BRep, specs: &[FilletSpec]) {
     let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
@@ -157,7 +180,6 @@ fn full_face_radius_declines_or_completes() {
 /// Thin wall: plate 1.0×1.0×0.05 (square prism), fillet an edge with
 /// r=0.2 — radius exceeds the local feature size four times over.
 #[test]
-#[ignore = "PK-140 stage 3: radius > wall thickness (r=0.2, t=0.05) completes with open defects — the transverse overrun consumes the far face and the terminal treatment has no supporting cap plane to trim (OCC free_closed=12). Fix = structured decline (RadiusExceedsWallThickness) or far-face reseat; flip when the class declines or completes clean"]
 fn thin_wall_radius_declines_or_completes() {
     use popkern_core::geometry::Point3;
     let outline = [
@@ -174,7 +196,7 @@ fn thin_wall_radius_declines_or_completes() {
     )
     .expect("thin plate");
     let edge = brep.edges.keys().next().unwrap();
-    run_class(
+    run_class_expect_radius_decline(
         "thin wall t=0.05, r=0.2",
         &brep,
         &[FilletSpec {

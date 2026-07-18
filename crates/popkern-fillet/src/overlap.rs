@@ -438,3 +438,50 @@ pub fn detect_strip_interference(
     }
     interferences
 }
+
+/// PK-140 thin-wall precheck: returns `Some((requested_radius,
+/// available_extent))` when a PLANAR support face's full extent
+/// perpendicular to the filleted edge is smaller than the requested
+/// radius — the rail would exit the face across its far boundary.
+/// Curved supports are skipped (their reach is not a vertex-extent
+/// question); the max-vertex-reach extent only errs permissive.
+pub(crate) fn planar_support_extent_overrun(
+    brep: &popkern_core::topology::BRep,
+    analysis: &crate::analysis::EdgeAnalysis,
+    radius: &crate::FilletRadius,
+    tolerance: &Tolerance,
+) -> Option<(f64, f64)> {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let requested = match radius {
+        crate::FilletRadius::Constant(r) => *r,
+        crate::FilletRadius::Variable { start, end } => start.max(*end),
+        crate::FilletRadius::ByPoints(points) => {
+            points.iter().map(|(_, r)| *r).fold(0.0_f64, f64::max)
+        }
+    };
+    if !requested.is_finite() || requested <= 0.0 {
+        return None;
+    }
+    let edge_a = brep.vertices.get(analysis.vertex_start)?.position;
+    let edge_b = brep.vertices.get(analysis.vertex_end)?.position;
+    let edge_dir = (edge_b - edge_a).normalized()?;
+    let slack = tolerance.linear().max(1.0e-9) * 10.0;
+    for (face, surface) in [
+        (analysis.face_1, &analysis.surface_1),
+        (analysis.face_2, &analysis.surface_2),
+    ] {
+        if !matches!(surface, SurfaceGeometry::Plane { .. }) {
+            continue;
+        }
+        let mut extent = 0.0_f64;
+        for p in brep.face_outer_loop_positions(face) {
+            let d = p - edge_a;
+            let perp = d - edge_dir * d.dot(&edge_dir);
+            extent = extent.max(perp.length());
+        }
+        if extent > 0.0 && requested > extent + slack {
+            return Some((requested, extent));
+        }
+    }
+    None
+}

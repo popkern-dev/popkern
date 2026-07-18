@@ -53,6 +53,24 @@ pub(crate) fn compute_fillet_geometry(
         });
     }
 
+    // Transverse support overrun (PK-140 thin-wall class): the rail
+    // sits at distance `radius` from the edge on each support face;
+    // if a PLANAR support's whole extent perpendicular to the edge is
+    // smaller than the radius, the rail exits the face across its far
+    // boundary and the completed body ships open defects (measured:
+    // r=0.2 on a t=0.05 plate, 12 OCC free closed edges). The extent
+    // is the MAX vertex reach, so irregular faces only ever pass
+    // permissively — equality (exact-extent fillets) still completes.
+    if let Some((requested, available)) =
+        crate::overlap::planar_support_extent_overrun(brep, analysis, radius, tolerance)
+    {
+        return Err(BlendFailure::RadiusTooLarge {
+            requested,
+            max_radius: Some(available),
+            location: Some(edge_midpoint),
+        });
+    }
+
     let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
 
