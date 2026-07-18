@@ -185,10 +185,161 @@ fn outward_cube_single_edge_fillet_weld_measured() {
         default_tol(),
         None,
     ) {
-        Ok(result) => eprintln!(
-            "[editability] outward cube fillet opens = {}",
-            mesh_gauges::welded_open_edges(&result.brep)
-        ),
+        Ok(result) => {
+            let opens = mesh_gauges::welded_open_edges(&result.brep);
+            eprintln!("[editability] outward cube fillet opens = {opens}");
+            // The fillet pipeline's pcurve authoring heals the raw
+            // prism body's non-conforming tessellation (input reads
+            // 358) — gate the healed output.
+            assert_eq!(opens, 0, "outward-cube fillet output must conform");
+        }
         Err(e) => eprintln!("[editability] outward cube fillet DECLINED: {e:?}"),
     }
+}
+
+/// Family 3: sphere-cap MODIFY + UNFILLET legs (stage 2
+/// measurement). The corner cap's radius modify must either
+/// re-dispatch the cap or decline structured; unfillet of the cap
+/// face must decline structured (a vertex blend has no single
+/// restored edge).
+#[test]
+fn sphere_cap_modify_and_unfillet_measured() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let mut chosen = Vec::new();
+    'outer: for (v, _) in brep.vertices.iter() {
+        chosen.clear();
+        for (e, d) in brep.edges.iter() {
+            let he = &brep.half_edges[d.half_edge];
+            let ends = [he.origin, brep.half_edges[he.twin].origin];
+            if ends.contains(&v) {
+                chosen.push(e);
+            }
+        }
+        if chosen.len() == 3 {
+            break 'outer;
+        }
+    }
+    let specs: Vec<FilletSpec> = chosen
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let result = fillet_edges(
+        &brep,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    )
+    .expect("corner fillet");
+    let sphere = result
+        .brep
+        .faces
+        .iter()
+        .find(|(_, f)| {
+            f.surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Sphere { .. }))
+        })
+        .map(|(h, _)| h)
+        .expect("sphere cap");
+    // Contract pin (PK-143 stage 2): vertex-blend editing is not
+    // implemented; both legs must DECLINE with the structured
+    // VertexBlend reason — never panic, never ship a mutated body.
+    // Flip these to completion gates when vertex-blend modify /
+    // unfillet land.
+    let modify_err = modify_fillet_radius(&result.brep, sphere, 0.15, default_tol())
+        .expect_err("vertex-blend modify is unimplemented and must decline");
+    assert!(
+        format!("{modify_err:?}").contains("VertexBlend"),
+        "modify decline must name the VertexBlend class: {modify_err:?}"
+    );
+    let unfillet_err = unfillet_face(&result.brep, sphere)
+        .expect_err("vertex-blend unfillet is unimplemented and must decline");
+    assert!(
+        format!("{unfillet_err:?}").contains("VertexBlend"),
+        "unfillet decline must name the VertexBlend class: {unfillet_err:?}"
+    );
+    eprintln!("[editability] sphere-cap modify+unfillet decline structured (VertexBlend)");
+}
+
+/// Family 4: pyramid4 uniform apex (Gregory/partition cap family).
+/// Identify coverage over ALL blend faces + modify/unfillet legs on
+/// the cap, measured.
+#[test]
+fn pyramid4_apex_family_measured() {
+    let brep = BRep::square_pyramid(2.0, 1.5, default_tol()).unwrap();
+    // The four lateral edges meet at the apex.
+    let apex = brep
+        .vertices
+        .iter()
+        .find(|(_, v)| (v.position.z - 1.5).abs() < 1e-9)
+        .map(|(h, _)| h)
+        .expect("apex vertex");
+    let mut lateral = Vec::new();
+    for (e, d) in brep.edges.iter() {
+        let he = &brep.half_edges[d.half_edge];
+        let ends = [he.origin, brep.half_edges[he.twin].origin];
+        if ends.contains(&apex) {
+            lateral.push(e);
+        }
+    }
+    assert_eq!(lateral.len(), 4, "square pyramid apex has 4 edges");
+    let specs: Vec<FilletSpec> = lateral
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        })
+        .collect();
+    let result = match fillet_edges(
+        &brep,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            let msg = format!("{e:?}");
+            eprintln!(
+                "[editability] pyramid4 apex fillet DECLINED: {}",
+                &msg[..msg.len().min(240)]
+            );
+            return;
+        }
+    };
+    let mut identified = 0usize;
+    let mut missed = Vec::new();
+    let mut blend_faces = 0usize;
+    for (fh, f) in result.brep.faces.iter() {
+        let Some(sof) = f.surface.as_ref() else {
+            continue;
+        };
+        // Blend faces: anything that is not one of the pyramid's
+        // original planar walls/base (original planes have no
+        // tangent boundaries; skip planes entirely for the census).
+        if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+            continue;
+        }
+        blend_faces += 1;
+        if identify_blend(&result.brep, fh).is_some() {
+            identified += 1;
+        } else {
+            missed.push((fh, format!("{:?}", std::mem::discriminant(&sof.geometry))));
+        }
+    }
+    eprintln!(
+        "[editability] pyramid4 apex: {blend_faces} non-plane blend faces, {identified} identified, missed {missed:?}"
+    );
+    assert!(
+        blend_faces >= 5,
+        "pyramid4 apex fillet should carry 4 leg strips + cap faces"
+    );
+    assert!(
+        missed.is_empty(),
+        "every pyramid4 blend face must identify: missed {missed:?}"
+    );
 }
