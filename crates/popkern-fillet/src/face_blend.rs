@@ -88,11 +88,29 @@ fn face_domain<'a>(brep: &'a BRep, face: FaceHandle) -> Result<FaceDomain<'a>, B
             value: format!("{face:?}"),
             reason: "face is missing or has no surface".into(),
         })?;
-    let positions = brep.face_outer_loop_positions(face);
-    let (u_range, v_range) =
-        popkern_core::geometry::uv_projection::tight_bounded_parameter_range(&positions, surface);
+    // Period-aware face box: vertex-projected ranges collapse to the
+    // seam angle on full-wrap cylinder faces (measured: a rod blend
+    // seeded on the rod's FAR side). The sampled exact box is the
+    // core; the solver range pads it 5 % (min 0.05), capped at one
+    // period for periodic u.
     let (cu, cv) =
-        popkern_core::geometry::uv_projection::exact_bounded_parameter_range(&positions, surface);
+        popkern_core::geometry::uv_projection::face_exact_parameter_range(brep, face, surface);
+    let (u_period, _) = surface.parameter_periodicity();
+    let pad = |(lo, hi): (f64, f64)| -> (f64, f64) {
+        let p = (0.05 * (hi - lo).abs()).max(0.05);
+        (lo - p, hi + p)
+    };
+    let u_range = match u_period {
+        Some(period) if (cu.1 - cu.0) >= period - 1e-9 => cu,
+        Some(period) => {
+            let p = (0.05 * (cu.1 - cu.0).abs())
+                .max(0.05)
+                .min(0.5 * (period - (cu.1 - cu.0)));
+            (cu.0 - p, cu.1 + p)
+        }
+        None => pad(cu),
+    };
+    let v_range = pad(cv);
     Ok(FaceDomain {
         surface,
         uv_range: (u_range, v_range),
