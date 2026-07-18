@@ -171,7 +171,7 @@ pub fn variable_radius_center_curve(
     v2_range: (f64, f64),
     radius_start: f64,
     radius_end: f64,
-    edge_midpoint: &Point3,
+    edge_anchor_at: &dyn Fn(f64) -> Point3,
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
@@ -185,7 +185,7 @@ pub fn variable_radius_center_curve(
         u2_range,
         v2_range,
         |t| radius_start + (radius_end - radius_start) * t,
-        edge_midpoint,
+        edge_anchor_at,
         tolerance,
         orientation_1,
         orientation_2,
@@ -207,7 +207,7 @@ pub fn parametric_radius_center_curve(
     u2_range: (f64, f64),
     v2_range: (f64, f64),
     radius_at: impl Fn(f64) -> f64,
-    edge_midpoint: &Point3,
+    edge_anchor_at: &dyn Fn(f64) -> Point3,
     tolerance: &Tolerance,
     orientation_1: bool,
     orientation_2: bool,
@@ -222,6 +222,14 @@ pub fn parametric_radius_center_curve(
         let t = i as f64 / (n_samples - 1).max(1) as f64;
         let local_radius = radius_at(t);
 
+        // Anchor each sample at ITS OWN station along the sharp edge.
+        // A single shared anchor (the historic edge midpoint) made
+        // every sample resolve the same nearest center: constant-law
+        // samples all coincided ("degenerate: all points coincide")
+        // and varying laws swept a radial spur instead of a curve
+        // along the edge — the Variable ratio matrix completed with
+        // OPEN bodies (PK-139 baseline).
+        let anchor = edge_anchor_at(t);
         let center_pt = find_center_point_at_radius(
             surface1,
             u1_range,
@@ -230,7 +238,7 @@ pub fn parametric_radius_center_curve(
             u2_range,
             v2_range,
             local_radius,
-            edge_midpoint,
+            &anchor,
             tolerance,
             orientation_1,
             orientation_2,
@@ -412,11 +420,46 @@ fn find_center_point_at_radius(
     )
     .map_err(|e| format!("offset intersection failed: {e}"))?;
 
-    // Find the intersection point nearest to the target.
+    // Find the intersection point nearest to the target: select the
+    // nearest curve, then the closest point ON it. The historic
+    // curve-MIDPOINT return ignored the target's station entirely —
+    // every per-station center sample of a variable-radius march
+    // received the same point (equal radii: "all points coincide";
+    // varying radii: a radial spur swept into open bodies — the
+    // PK-139 baseline).
     let curve = select_nearest_curve(&result.intersections, target)?;
+    Ok(closest_point_on_nurbs(&curve, target))
+}
+
+/// Closest point on a NURBS curve to a target: dense sampling with
+/// two rounds of local ternary refinement (analytic offset
+/// intersections here are lines/arcs/low-degree fits — 64 samples
+/// bracket the minimum comfortably).
+fn closest_point_on_nurbs(curve: &NurbsCurve, target: &Point3) -> Point3 {
     let (t0, t1) = curve.parameter_range();
-    let mid = curve.point_at((t0 + t1) * 0.5);
-    Ok(mid)
+    let mut best_t = 0.5 * (t0 + t1);
+    let mut best_d = f64::MAX;
+    let n = 64usize;
+    for i in 0..=n {
+        let t = t0 + (t1 - t0) * i as f64 / n as f64;
+        let d = curve.point_at(t).distance_to(target);
+        if d < best_d {
+            best_d = d;
+            best_t = t;
+        }
+    }
+    let mut lo = (best_t - (t1 - t0) / n as f64).max(t0);
+    let mut hi = (best_t + (t1 - t0) / n as f64).min(t1);
+    for _ in 0..40 {
+        let m1 = lo + (hi - lo) / 3.0;
+        let m2 = hi - (hi - lo) / 3.0;
+        if curve.point_at(m1).distance_to(target) < curve.point_at(m2).distance_to(target) {
+            hi = m2;
+        } else {
+            lo = m1;
+        }
+    }
+    curve.point_at(0.5 * (lo + hi))
 }
 
 /// Try the rolling-ball contact solver at one spine sample.

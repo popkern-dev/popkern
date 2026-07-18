@@ -192,6 +192,7 @@ pub(crate) fn compute_center_with_fallback(
                 let legacy = compute_legacy_center_curve(
                     analysis,
                     radius,
+                    brep,
                     u1_range,
                     v1_range,
                     u2_range,
@@ -207,6 +208,7 @@ pub(crate) fn compute_center_with_fallback(
         compute_legacy_center_curve(
             analysis,
             radius,
+            brep,
             u1_range,
             v1_range,
             u2_range,
@@ -229,6 +231,7 @@ pub(crate) fn compute_center_with_fallback(
 pub(crate) fn compute_legacy_center_curve(
     analysis: &analysis::EdgeAnalysis,
     radius: &FilletRadius,
+    brep: &BRep,
     u1_range: (f64, f64),
     v1_range: (f64, f64),
     u2_range: (f64, f64),
@@ -239,6 +242,21 @@ pub(crate) fn compute_legacy_center_curve(
     let wrap_err = |e: String| BlendFailure::IntersectionFailed {
         reason: e,
         location: Some(edge_midpoint),
+    };
+    // Per-station anchors along the sharp edge for the variable-law
+    // center marches; midpoint fallback when the edge has no curve.
+    let edge_curve = brep
+        .edges
+        .get(analysis.edge)
+        .and_then(|edge| edge.curve.clone());
+    let edge_anchor_at = move |t: f64| -> Point3 {
+        match &edge_curve {
+            Some(c) => {
+                use popkern_core::geometry::curve::CurveEval;
+                c.geometry.point_at(c.t_start + (c.t_end - c.t_start) * t)
+            }
+            None => edge_midpoint,
+        }
     };
     match radius {
         FilletRadius::Constant(r) => center_curve::constant_radius_center_curve(
@@ -265,7 +283,7 @@ pub(crate) fn compute_legacy_center_curve(
             v2_range,
             *start,
             *end,
-            &edge_midpoint,
+            &edge_anchor_at,
             tolerance,
             analysis.orientation_1 == analysis.shell_outward,
             analysis.orientation_2 == analysis.shell_outward,
@@ -287,7 +305,7 @@ pub(crate) fn compute_legacy_center_curve(
                 u2_range,
                 v2_range,
                 |t| center_curve::bypoints_local_radius(pts, t),
-                &edge_midpoint,
+                &edge_anchor_at,
                 tolerance,
                 analysis.orientation_1 == analysis.shell_outward,
                 analysis.orientation_2 == analysis.shell_outward,

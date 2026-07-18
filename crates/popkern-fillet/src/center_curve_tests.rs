@@ -43,6 +43,7 @@ fn constant_center_curve_two_perpendicular_planes() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = constant_radius_center_curve(
         &s1,
@@ -84,6 +85,7 @@ fn variable_center_curve_two_planes() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(
         &s1,
@@ -94,7 +96,7 @@ fn variable_center_curve_two_planes() {
         range,
         0.5,
         1.5,
-        &midpoint,
+        &anchor,
         &test_tolerance(),
         true,
         true,
@@ -117,6 +119,7 @@ fn variable_center_curve_endpoints_at_expected_distance() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let cr = variable_radius_center_curve(
         &s1,
@@ -127,7 +130,7 @@ fn variable_center_curve_endpoints_at_expected_distance() {
         range,
         0.5,
         1.5,
-        &midpoint,
+        &anchor,
         &test_tolerance(),
         true,
         true,
@@ -163,6 +166,7 @@ fn variable_center_curve_equal_radii_degenerates() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
     let tol = test_tolerance();
 
     let const_result = constant_radius_center_curve(
@@ -190,15 +194,20 @@ fn variable_center_curve_equal_radii_degenerates() {
         range,
         1.0,
         1.0,
-        &midpoint,
+        &anchor,
         &tol,
         true,
         true,
         crate::analysis::Convexity::Convex,
     );
+    // PK-139 pin flip: with per-station edge anchors the equal-radius
+    // variable law marches a valid straight center line (the historic
+    // shared-midpoint anchor collapsed every sample to one point and
+    // this test pinned that defect as expected behavior).
     assert!(
-        var_result.is_err(),
-        "equal-radius variable path should degenerate for two perpendicular planes"
+        var_result.is_ok(),
+        "equal-radius variable path must march a valid center line: {:?}",
+        var_result.err()
     );
 }
 
@@ -208,6 +217,7 @@ fn variable_center_curve_with_45_degree_planes() {
     let s2 = plane_45();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(
         &s1,
@@ -218,7 +228,7 @@ fn variable_center_curve_with_45_degree_planes() {
         range,
         0.3,
         0.8,
-        &midpoint,
+        &anchor,
         &test_tolerance(),
         true,
         true,
@@ -241,6 +251,7 @@ fn variable_center_curve_small_radius_range() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(
         &s1,
@@ -251,7 +262,7 @@ fn variable_center_curve_small_radius_range() {
         range,
         0.49,
         0.51,
-        &midpoint,
+        &anchor,
         &test_tolerance(),
         true,
         true,
