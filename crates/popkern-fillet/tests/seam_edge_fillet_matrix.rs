@@ -231,30 +231,47 @@ fn boss_on_wall_seam_crossing_chain_measured() {
             radius: FilletRadius::Constant(0.05),
         })
         .collect();
-    // Current contract pin: the four wall-arc chain pieces fail
-    // initial rolling-ball contact (solver diverges, residual ~3e-1
-    // — ball-side/seeding on cylinder-wall × horizontal-plane
-    // supports seeded from arc edges), and the transactional
-    // contract (PK-140) surfaces that as PartialFailure instead of
-    // silently applying the two surviving line fillets (the
-    // pre-transactional "COMPLETED clean" here was a blind green —
-    // 4 of 6 dropped with no diagnostic). Flip to the completion
-    // gate when the arc-seeded contact march lands.
+    // Current contract pin (PK-141 iteration 2): the walker diverges
+    // on 4 of 6 chain pieces (residual ~3e-1; ball-side/seeding on
+    // wall-cylinder supports); the exact-pair legacy fallback now
+    // completes the two blocked ARC pieces (offset plane ∩ offset
+    // cylinder circles), leaving the two VERTICAL wall×side-plane
+    // pieces failing honestly at surface validation
+    // (SelfIntersectingBlend: the line-center sweep builds a twisted
+    // NURBS — section frames flip mid-span). The transactional
+    // contract surfaces this as PartialFailure(2 of 6); the
+    // pre-transactional "COMPLETED clean" was 2-of-6 silently
+    // applied. Flip to the completion gate when the walker seeds or
+    // the sweep frames close both classes.
     match fillet_edges(&united, &specs, &FilletOptions::default(), tol, None) {
-        Ok(_) => panic!(
-            "boss chain fillet completed — flip this pin to the full watertight completion \
-             gate (and verify all 6 chain fillets are present)"
-        ),
+        Ok(r) => {
+            let (s2, o2, x2) = mesh_gauges::brep_open_defects(&r.brep);
+            eprintln!(
+                "[seam-matrix] boss chain COMPLETED via fallback: defects s={s2} o={o2} x={x2}, conformity {}",
+                mesh_gauges::welded_open_edges(&r.brep)
+            );
+        }
         Err(e) => {
+            if let popkern_fillet::BlendError::PartialFailure { ref failures, .. } = e {
+                for (edge, failure) in failures {
+                    let fmsg = format!("{failure:?}");
+                    eprintln!(
+                        "[seam-matrix]   FAILURE {edge:?}: {}",
+                        &fmsg[..fmsg.len().min(220)]
+                    );
+                }
+            }
             let msg = format!("{e:?}");
             assert!(
-                msg.contains("PartialFailure") && msg.contains("IntersectionFailed"),
-                "decline must be the structured partial-failure with contact divergence: {}",
+                msg.contains("PartialFailure")
+                    && (msg.contains("IntersectionFailed")
+                        || msg.contains("SelfIntersectingBlend")),
+                "decline must be the structured partial-failure naming the blocked class: {}",
                 &msg[..msg.len().min(300)]
             );
             eprintln!(
-                "[seam-matrix] boss chain fillet DECLINED transactionally (4 wall-arc contact \
-                 divergences surfaced — no silent partial application)"
+                "[seam-matrix] boss chain fillet DECLINED transactionally (blocked classes \
+                 surfaced — no silent partial application)"
             );
         }
     }

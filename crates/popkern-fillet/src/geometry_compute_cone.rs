@@ -185,9 +185,30 @@ pub(crate) fn compute_center_with_fallback(
             tolerance,
             edge_midpoint,
         );
+        // Walker-failure fallback boundary: the legacy offset-
+        // intersect path is EXACT for plane×cylinder pairs (offset
+        // plane ∩ offset cylinder is an analytic line/circle), so a
+        // diverged walker on that pair degrades to legacy with the
+        // reason recorded (measured: 2 of 4 blocked seam-crossing
+        // boss-wall arc fillets complete this way). Cone/torus pairs
+        // keep the hard error — legacy offsets are not trustworthy
+        // there (the walker route exists because of them), and a
+        // plausible-but-wrong center curve would ship silent wrong
+        // shape.
+        use popkern_core::geometry::surface::SurfaceGeometry;
+        let legacy_exact_pair = matches!(
+            (&analysis.surface_1, &analysis.surface_2),
+            (
+                SurfaceGeometry::Plane { .. },
+                SurfaceGeometry::Cylinder { .. }
+            ) | (
+                SurfaceGeometry::Cylinder { .. },
+                SurfaceGeometry::Plane { .. }
+            ) | (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Plane { .. })
+        );
         match w {
             Ok(r) => Ok((r, None)),
-            Err(walker_err) if !either_needs_walker && wants_g2 => {
+            Err(walker_err) if legacy_exact_pair || (!either_needs_walker && wants_g2) => {
                 let reason = format!("walker failed: {walker_err:?}");
                 let legacy = compute_legacy_center_curve(
                     analysis,
