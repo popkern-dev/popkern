@@ -43,7 +43,6 @@ fn constant_center_curve_two_perpendicular_planes() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
-    let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = constant_radius_center_curve(
         &s1,
@@ -85,6 +84,7 @@ fn variable_center_curve_two_planes() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let _ = &midpoint;
     let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(
@@ -119,6 +119,7 @@ fn variable_center_curve_endpoints_at_expected_distance() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let _ = &midpoint;
     let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let cr = variable_radius_center_curve(
@@ -166,6 +167,7 @@ fn variable_center_curve_equal_radii_degenerates() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let _ = &midpoint;
     let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
     let tol = test_tolerance();
 
@@ -217,6 +219,7 @@ fn variable_center_curve_with_45_degree_planes() {
     let s2 = plane_45();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let _ = &midpoint;
     let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(
@@ -251,6 +254,7 @@ fn variable_center_curve_small_radius_range() {
     let s2 = xz_plane();
     let range = (-5.0, 5.0);
     let midpoint = Point3::new(0.0, 0.0, 0.0);
+    let _ = &midpoint;
     let anchor = |t: f64| Point3::new(-1.0 + 2.0 * t, 0.0, 0.0);
 
     let result = variable_radius_center_curve(

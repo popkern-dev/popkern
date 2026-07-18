@@ -125,7 +125,8 @@ pub fn constant_radius_center_curve(
     }
 
     // 4. Extract the curve nearest to the edge midpoint.
-    let center_curve = select_nearest_curve(&result.intersections, edge_midpoint)?;
+    let center_curve =
+        crate::center_curve_station::select_nearest_curve(&result.intersections, edge_midpoint)?;
 
     // 5. Compute footprint points by projecting center-curve samples onto originals.
     let n_samples = 20;
@@ -298,32 +299,6 @@ pub fn bypoints_local_radius(pts: &[(f64, f64)], t: f64) -> f64 {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Select the intersection curve whose midpoint is nearest to the given point.
-fn select_nearest_curve(
-    intersections: &[popkern_core::geometry::intersection::surface_surface::SurfaceSurfaceIntersection],
-    target: &Point3,
-) -> Result<NurbsCurve, String> {
-    use popkern_core::geometry::intersection::surface_surface::SurfaceSurfaceIntersection;
-
-    let mut best: Option<(f64, NurbsCurve)> = None;
-
-    for isect in intersections {
-        if let SurfaceSurfaceIntersection::Curve(cos) = isect {
-            let curve = &cos.curve_3d;
-            let (t0, t1) = curve.parameter_range();
-            let mid_pt = curve.point_at((t0 + t1) * 0.5);
-            let dist = mid_pt.distance_to(target);
-            let is_closer = best.as_ref().is_none_or(|(d, _)| dist < *d);
-            if is_closer {
-                best = Some((dist, curve.clone()));
-            }
-        }
-    }
-
-    best.map(|(_, c)| c)
-        .ok_or_else(|| "no curve intersections found in offset result".into())
-}
-
 /// Find the center point at a given radius for one spine sample.
 ///
 /// **Routing:** if either surface is a [`SurfaceGeometry::Cone`] the
@@ -427,39 +402,10 @@ fn find_center_point_at_radius(
     // received the same point (equal radii: "all points coincide";
     // varying radii: a radial spur swept into open bodies — the
     // PK-139 baseline).
-    let curve = select_nearest_curve(&result.intersections, target)?;
-    Ok(closest_point_on_nurbs(&curve, target))
-}
-
-/// Closest point on a NURBS curve to a target: dense sampling with
-/// two rounds of local ternary refinement (analytic offset
-/// intersections here are lines/arcs/low-degree fits — 64 samples
-/// bracket the minimum comfortably).
-fn closest_point_on_nurbs(curve: &NurbsCurve, target: &Point3) -> Point3 {
-    let (t0, t1) = curve.parameter_range();
-    let mut best_t = 0.5 * (t0 + t1);
-    let mut best_d = f64::MAX;
-    let n = 64usize;
-    for i in 0..=n {
-        let t = t0 + (t1 - t0) * i as f64 / n as f64;
-        let d = curve.point_at(t).distance_to(target);
-        if d < best_d {
-            best_d = d;
-            best_t = t;
-        }
-    }
-    let mut lo = (best_t - (t1 - t0) / n as f64).max(t0);
-    let mut hi = (best_t + (t1 - t0) / n as f64).min(t1);
-    for _ in 0..40 {
-        let m1 = lo + (hi - lo) / 3.0;
-        let m2 = hi - (hi - lo) / 3.0;
-        if curve.point_at(m1).distance_to(target) < curve.point_at(m2).distance_to(target) {
-            hi = m2;
-        } else {
-            lo = m1;
-        }
-    }
-    curve.point_at(0.5 * (lo + hi))
+    let curve = crate::center_curve_station::select_nearest_curve(&result.intersections, target)?;
+    Ok(crate::center_curve_station::closest_point_on_nurbs(
+        &curve, target,
+    ))
 }
 
 /// Try the rolling-ball contact solver at one spine sample.
