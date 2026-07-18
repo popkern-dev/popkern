@@ -22,6 +22,8 @@ pub mod construct;
 pub mod contact;
 pub(crate) mod continuity;
 pub(crate) mod corner_2d_helpers;
+mod face_blend;
+mod face_blend_sheet;
 mod overlap_strip_interference;
 /// Test-only hooks for gated work-in-progress construction arms.
 pub mod construct_test_hooks {
@@ -289,8 +291,7 @@ fn fillet_edges_internal(
     );
     check_cancel!();
 
-    // Transactional: ANY per-edge failure fails the whole operation —
-    // the prior partial path applied survivors and DROPPED failures.
+    // Transactional: any per-edge failure fails the whole op.
     if !failures.is_empty() {
         return Err(BlendError::PartialFailure {
             failed: failures.len(),
@@ -312,8 +313,7 @@ fn fillet_edges_internal(
             fillet_b: ov.fillet_b,
         });
     }
-    // Mid-face strip interference: not constructible yet; declining
-    // transactionally beats the measured silent wrong shape (PK-140).
+    // Strip interference: decline transactionally (PK-140).
     if let Some(hit) = overlap::detect_strip_interference(&edge_geometries, brep, &tolerance)
         .into_iter()
         .next()
@@ -433,9 +433,8 @@ fn fillet_edges_internal(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
-    // PK-148: settle stale chain-end corners (stub line curves vs
-    // strip arc pcurves) once every pcurve author has run, so the
-    // coherent terminal-arc geometry is what the operation returns.
+    // PK-148: settle stale chain-end corners once every pcurve
+    // author has run.
     apply_result.repair_report.terminal_arc_trim =
         construct::terminal_arc_trim::settle_terminal_arc_stubs(
             brep,
@@ -544,6 +543,7 @@ pub use lib_chamfer::chamfer_edges;
 /// via [`precheck::fillet_quality`].
 #[path = "lib_convenience.rs"]
 mod lib_convenience;
+pub use face_blend::{FaceBlendAttach, FaceBlendResult, FaceBlendSpec, face_blend};
 pub use lib_convenience::{
     chamfer_edge, fillet_edge, fillet_edges_cancellable, fillet_edges_with_progress,
     fillet_edges_with_quality,
