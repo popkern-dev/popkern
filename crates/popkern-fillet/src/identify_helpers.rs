@@ -23,9 +23,14 @@ pub(crate) struct BoundaryEntry {
     /// The 3D midpoint of the edge — used for sampling surface normals.
     #[allow(dead_code)]
     pub midpoint: Point3,
-    /// The dihedral angle between `face`'s normal and `neighbour`'s
-    /// normal at `midpoint`, in `[0, π]`. Near 0 = G1 tangent; near
-    /// π/2 = sharp 90°; near π = faces pointing anti-parallel.
+    /// The tangency angle between `face`'s and `neighbour`'s tangent
+    /// planes at `midpoint`, in `[0, π/2]`. Near 0 = G1 tangent;
+    /// near π/2 = sharp 90°. Measured sign-free (normals folded to
+    /// the acute angle): G1 tangency is tangent-plane agreement, so
+    /// the reading must not depend on per-face orientation flags —
+    /// blend strips can carry orientation flags whose sense is
+    /// encoded in loop winding, not the raw surface normal, and a
+    /// signed reading flips true tangency to π on such faces.
     pub angle: f64,
 }
 
@@ -111,35 +116,42 @@ pub(crate) fn boundary_tangency(brep: &BRep, face: FaceHandle) -> Option<Vec<Bou
     Some(entries)
 }
 
-/// Compute the dihedral angle between two faces sharing a 3D point.
+/// Compute the tangency angle between two faces sharing a 3D point.
 ///
 /// Projects `point` onto each surface to obtain `(u, v)` on both,
-/// evaluates the surface normals, and returns the angle between
-/// the oriented normals in `[0, π]`.
+/// evaluates the surface normals, and returns the SIGN-FREE angle
+/// between the tangent planes in `[0, π/2]`.
+///
+/// Sign-free is deliberate: G1 tangency is agreement of tangent
+/// planes, which is independent of which side each face's normal
+/// points. Orientation flags on blend strips do not always encode
+/// the raw-normal sense (loop winding can carry it instead), and a
+/// signed dihedral read flips true tangency to π on such faces —
+/// measured on corner-leg fillet cylinders whose rail and cap
+/// boundaries all read 3.1416 while being exactly G1.
 pub(crate) fn dihedral_angle(
     surface_a: &SurfaceGeometry,
-    orient_a: bool,
+    _orient_a: bool,
     surface_b: &SurfaceGeometry,
-    orient_b: bool,
+    _orient_b: bool,
     point: &Point3,
 ) -> Option<f64> {
     let (ua, va) = project_point_to_uv(surface_a, point)?;
     let (ub, vb) = project_point_to_uv(surface_b, point)?;
 
-    let n_a_raw = surface_a.normal_at(ua, va);
-    let n_b_raw = surface_b.normal_at(ub, vb);
+    let n_a = surface_a.normal_at(ua, va);
+    let n_b = surface_b.normal_at(ub, vb);
 
     // Guard against zero-length normals (parameterisation singularity).
-    if n_a_raw.length_squared() < 1e-30 || n_b_raw.length_squared() < 1e-30 {
+    if n_a.length_squared() < 1e-30 || n_b.length_squared() < 1e-30 {
         return None;
     }
 
-    let n_a = if orient_a { n_a_raw } else { -n_a_raw };
-    let n_b = if orient_b { n_b_raw } else { -n_b_raw };
-
-    // Numerically robust angle between unit-ish vectors.
+    // Numerically robust angle between unit-ish vectors, folded to
+    // the acute range.
     let cos_theta = (n_a.dot(&n_b) / (n_a.length() * n_b.length())).clamp(-1.0, 1.0);
-    Some(cos_theta.acos())
+    let theta = cos_theta.acos();
+    Some(theta.min(std::f64::consts::PI - theta))
 }
 
 /// 3D midpoint of an edge (uses the attached curve if present,

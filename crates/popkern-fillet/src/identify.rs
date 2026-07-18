@@ -140,6 +140,19 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
     // "almost tangent" rather than "perfectly tangent", so we use a
     // generous tolerance.
     let tangent_tol = 0.05; // radians ≈ 2.9°
+    if std::env::var_os("PK_IDENTIFY_TRACE").is_some() {
+        for b in &boundary {
+            let kind = brep
+                .faces
+                .get(b.neighbour)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| format!("{:?}", std::mem::discriminant(&s.geometry)));
+            eprintln!(
+                "[identify] face {face:?} nb {:?} kind {kind:?} angle {:.4}",
+                b.neighbour, b.angle
+            );
+        }
+    }
     let tangent_count = boundary
         .iter()
         .filter(|b| b.angle.abs() < tangent_tol)
