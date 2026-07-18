@@ -21,19 +21,18 @@ fn run_class(label: &str, brep: &BRep, specs: &[FilletSpec]) {
     let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
     match result {
         Ok(BlendResult { brep: out, .. }) => {
-            let opens = welded_open_edges(&out);
+            let (structural, open, other) = mesh_gauges::brep_open_defects(&out);
             assert_eq!(
-                opens, 0,
-                "{label}: completed body is OPEN ({opens} mesh edges) — silent garbage; must \
-                 decline or complete watertight"
+                (structural, open, other),
+                (0, 0, 0),
+                "{label}: completed body has {structural} structural + {open} open + {other} \
+                 other (self-intersection etc.) defects — silent garbage; must decline or \
+                 complete clean"
             );
-            let errors = out.validate_all();
-            assert!(
-                errors.is_empty(),
-                "{label}: completed body invalid ({} errors) — silent garbage",
-                errors.len()
+            eprintln!(
+                "[interference] {label}: COMPLETED clean (mesh conformity reads {} — measurement only)",
+                welded_open_edges(&out)
             );
-            eprintln!("[interference] {label}: COMPLETED watertight + validate_all clean");
         }
         Err(err) => {
             eprintln!(
@@ -51,7 +50,7 @@ fn short(s: &str) -> String {
 /// Two opposite edges of one cube face, radii summing past the face
 /// width — the fillet bands collide mid-face.
 #[test]
-#[ignore = "PK-140 stage 2: baseline gauge question first — plain single-edge cube fillet reads 26-34 welded opens on RAW fillet_edges output at every radius (r=0.3..0.95), so the interference gates cannot arm until the raw-output watertightness baseline is settled (Part-pipeline healing vs fillet_edges contract); then convert each class to structured decline"]
+#[ignore = "PK-140 stage 3: parallel band-band collision seam is authored against CHORDS — measured seam vertex (0,0.4,0) and band trim angle u=2.820 (img 0.031,0.410) vs the true circle-circle intersection (0.008,0.5); ShellGap 3.2e-2 on the seam-adjacent terminal edge. Fix = analytic parallel-cylinder intersection (vertical line pair through the circle-circle points) in the overlap trim; flip when the seam is arc-exact"]
 fn mid_face_collision_declines_or_completes() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     // Opposite vertical edges of the x=… face: pick two edges that
@@ -104,7 +103,6 @@ fn mid_face_collision_declines_or_completes() {
 
 /// Radius nearly consuming the adjacent faces (overflow/cliff class).
 #[test]
-#[ignore = "PK-140 stage 2: baseline gauge question first — plain single-edge cube fillet reads 26-34 welded opens on RAW fillet_edges output at every radius (r=0.3..0.95), so the interference gates cannot arm until the raw-output watertightness baseline is settled (Part-pipeline healing vs fillet_edges contract); then convert each class to structured decline"]
 fn large_radius_overflow_declines_or_completes() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
@@ -121,7 +119,6 @@ fn large_radius_overflow_declines_or_completes() {
 /// Radius exactly at the face extent — the degenerate boundary of
 /// the overflow class.
 #[test]
-#[ignore = "PK-140 stage 2: baseline gauge question first — plain single-edge cube fillet reads 26-34 welded opens on RAW fillet_edges output at every radius (r=0.3..0.95), so the interference gates cannot arm until the raw-output watertightness baseline is settled (Part-pipeline healing vs fillet_edges contract); then convert each class to structured decline"]
 fn full_face_radius_declines_or_completes() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
@@ -138,7 +135,7 @@ fn full_face_radius_declines_or_completes() {
 /// Thin wall: plate 1.0×1.0×0.05 (square prism), fillet an edge with
 /// r=0.2 — radius exceeds the local feature size four times over.
 #[test]
-#[ignore = "PK-140 stage 2: baseline gauge question first — plain single-edge cube fillet reads 26-34 welded opens on RAW fillet_edges output at every radius (r=0.3..0.95), so the interference gates cannot arm until the raw-output watertightness baseline is settled (Part-pipeline healing vs fillet_edges contract); then convert each class to structured decline"]
+#[ignore = "PK-140 stage 3: radius > wall thickness (r=0.2, t=0.05) completes with open defects — the transverse overrun consumes the far face and the terminal treatment has no supporting cap plane to trim (OCC free_closed=12). Fix = structured decline (RadiusExceedsWallThickness) or far-face reseat; flip when the class declines or completes clean"]
 fn thin_wall_radius_declines_or_completes() {
     use popkern_core::geometry::Point3;
     let outline = [

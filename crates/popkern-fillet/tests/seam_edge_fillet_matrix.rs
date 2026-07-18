@@ -1,0 +1,258 @@
+//! PK-141 — seam-edge fillets: measurement matrix (stage 1).
+//!
+//! Turned parts carry a periodic seam on every cylinder/cone wall.
+//! Any fillet whose edge chain touches the seam vertex historically
+//! declined ("seam edge cannot be filleted"). This matrix measures
+//! the current behavior for the acceptance fixtures; classes that
+//! complete become hard gates, classes that decline are pinned with
+//! the decline shape.
+
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::BRep;
+use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+
+#[path = "support/mesh_gauges.rs"]
+mod mesh_gauges;
+
+fn default_tol() -> Tolerance {
+    Tolerance::default()
+}
+
+/// Fillet the full top rim of a plain cylinder (the rim chain runs
+/// through the seam vertex). Measures completion or decline.
+#[test]
+fn cylinder_top_rim_through_seam_vertex() {
+    let brep = BRep::cylinder(1.0, 2.0, default_tol()).unwrap();
+    // Rim edges: endpoints both at z = top.
+    let mut rim = Vec::new();
+    let mut seam = Vec::new();
+    for (e, d) in brep.edges.iter() {
+        let he = &brep.half_edges[d.half_edge];
+        let a = brep.vertices[he.origin].position;
+        let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+        let f1 = brep.loops[he.loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        if f1 == f2 {
+            seam.push(e);
+            continue;
+        }
+        if (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9 {
+            rim.push(e);
+        }
+    }
+    eprintln!(
+        "[seam-matrix] cylinder: {} rim edges, {} seam edges, {} total",
+        rim.len(),
+        seam.len(),
+        brep.edges.len()
+    );
+    let specs: Vec<FilletSpec> = rim
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.2),
+        })
+        .collect();
+    let r = fillet_edges(
+        &brep,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    )
+    .expect("periodic rim fillet must complete (closed-ring path)");
+    let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
+    assert_eq!(
+        (structural, open, other),
+        (0, 0, 0),
+        "rim fillet body must validate clean"
+    );
+    let conformity = mesh_gauges::welded_open_edges(&r.brep);
+    eprintln!("[seam-matrix] rim fillet COMPLETED clean, conformity {conformity}");
+    assert_eq!(conformity, 0, "rim fillet tessellation must conform");
+}
+
+/// Direct seam-edge spec (face_1 == face_2) must decline with a
+/// structured reason, never panic.
+#[test]
+fn direct_seam_edge_spec_declines_structured() {
+    let brep = BRep::cylinder(1.0, 2.0, default_tol()).unwrap();
+    let seam = brep.edges.iter().find(|(_, d)| {
+        let he = &brep.half_edges[d.half_edge];
+        let f1 = brep.loops[he.loop_].face;
+        let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+        f1 == f2
+    });
+    let Some((edge, _)) = seam else {
+        eprintln!("[seam-matrix] cylinder has NO seam edge (fully periodic faces)");
+        return;
+    };
+    let result = fillet_edges(
+        &brep,
+        &[FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.1),
+        }],
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    );
+    match result {
+        Ok(_) => panic!("seam edge fillet must not complete (no crease to blend)"),
+        Err(e) => {
+            let msg = format!("{e:?}");
+            eprintln!(
+                "[seam-matrix] seam spec declined: {}",
+                &msg[..msg.len().min(300)]
+            );
+            assert!(
+                msg.contains("seam"),
+                "decline should name the seam class: {msg}"
+            );
+        }
+    }
+}
+
+/// Boss on the cylinder wall whose intersection chain crosses the
+/// seam line: the acceptance fixture for seam-crossing fillet
+/// chains.
+#[test]
+#[ignore = "PK-150: the boss-through-curved-wall UNION itself is silent garbage (validates clean but boss side walls missing, doubled top/bottom planes, wall carved by full circles, point-degenerate loops) — the seam-crossing chain does not exist in the output, so the fillet leg cannot be exercised; flip when the boolean structures the wall carve correctly"]
+fn boss_on_wall_seam_crossing_chain_measured() {
+    use popkern_core::geometry::{Point3, Vec3};
+    let tol = default_tol();
+    let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
+    // Locate the seam direction: sample the seam edge's midpoint.
+    let seam_dir = cyl
+        .edges
+        .iter()
+        .find_map(|(_, d)| {
+            let he = &cyl.half_edges[d.half_edge];
+            let f1 = cyl.loops[he.loop_].face;
+            let f2 = cyl.loops[cyl.half_edges[he.twin].loop_].face;
+            (f1 == f2).then(|| {
+                let a = cyl.vertices[he.origin].position;
+                Vec3::new(a.x, a.y, 0.0)
+            })
+        })
+        .and_then(|v| v.normalized())
+        .expect("cylinder seam direction");
+    eprintln!(
+        "[seam-matrix] seam direction ({:.2},{:.2})",
+        seam_dir.x, seam_dir.y
+    );
+    // Boss: a rectangular prism protruding through the wall centred
+    // on the seam line at mid-height. Build it axis-aligned in a
+    // frame where the seam is +X (rotate the outline if needed).
+    assert!(
+        (seam_dir.x - 1.0).abs() < 1e-9,
+        "fixture assumes seam at +X; got ({:.3},{:.3})",
+        seam_dir.x,
+        seam_dir.y
+    );
+    let boss_base_z = 0.75;
+    let outline = [
+        Point3::new(0.6, -0.25, boss_base_z),
+        Point3::new(1.3, -0.25, boss_base_z),
+        Point3::new(1.3, 0.25, boss_base_z),
+        Point3::new(0.6, 0.25, boss_base_z),
+    ];
+    let boss = BRep::prism(&outline, Vec3::new(0.0, 0.0, 1.0), 0.5, tol).unwrap();
+    let united = match popkern_bool::union(cyl, boss, tol, None) {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("[seam-matrix] union DECLINED: {e:?}");
+            return;
+        }
+    };
+    let (structural, open, other) = mesh_gauges::brep_open_defects(&united);
+    eprintln!(
+        "[seam-matrix] union defects s={structural} o={open} x={other}, faces {}, conformity {}",
+        united.faces.len(),
+        mesh_gauges::welded_open_edges(&united)
+    );
+    // The boss-wall intersection chain: edges bounded between a
+    // boss planar face and the cylinder wall.
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    let mut chain = Vec::new();
+    for (e, d) in united.edges.iter() {
+        let he = &united.half_edges[d.half_edge];
+        let f1 = united.loops[he.loop_].face;
+        let f2 = united.loops[united.half_edges[he.twin].loop_].face;
+        let is_cyl = |f: popkern_core::topology::FaceHandle| {
+            united.faces[f]
+                .surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Cylinder { .. }))
+        };
+        let is_plane = |f: popkern_core::topology::FaceHandle| {
+            united.faces[f]
+                .surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Plane { .. }))
+        };
+        if f1 != f2
+            && ((is_cyl(f1) && is_plane(f2)) || (is_plane(f1) && is_cyl(f2)))
+        {
+            // Only edges on the wall near the boss (exclude rims by z).
+            let a = united.vertices[he.origin].position;
+            if a.z > 0.5 && a.z < 1.5 {
+                chain.push(e);
+            }
+        }
+    }
+    eprintln!("[seam-matrix] boss-wall chain: {} edges", chain.len());
+    if chain.is_empty() {
+        eprintln!("[seam-matrix] no chain edges found — fixture needs revision");
+        return;
+    }
+    // The fixture is only meaningful if at least one chain edge
+    // CROSSES the seam direction (+X at y=0): its endpoints must
+    // straddle y=0 while staying on the wall (x near the +X side).
+    let mut crossing = 0usize;
+    for &e in &chain {
+        let he = &united.half_edges[united.edges[e].half_edge];
+        let a = united.vertices[he.origin].position;
+        let b = united.vertices[united.half_edges[he.twin].origin].position;
+        eprintln!(
+            "[seam-matrix]   chain edge ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
+            a.x, a.y, a.z, b.x, b.y, b.z
+        );
+        if a.x > 0.0 && b.x > 0.0 && (a.y < -1e-9) != (b.y < -1e-9) {
+            crossing += 1;
+        }
+    }
+    assert!(
+        crossing >= 1,
+        "fixture must include a seam-crossing chain edge (found none — vacuous green)"
+    );
+    eprintln!("[seam-matrix] seam-crossing edges: {crossing}");
+    let specs: Vec<FilletSpec> = chain
+        .iter()
+        .map(|&edge| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.05),
+        })
+        .collect();
+    let r = fillet_edges(&united, &specs, &FilletOptions::default(), tol, None)
+        .expect("seam-crossing boss chain fillet must complete");
+    let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
+    assert_eq!(
+        (structural, open, other),
+        (0, 0, 0),
+        "boss chain fillet body must validate clean"
+    );
+    // Conformity is a measurement only: the UNION input already
+    // reads ~52 welded opens (prism/boolean tessellation conformity
+    // debt — PK-149), so a zero gate here would be dishonest until
+    // the constructor-side conformity lands.
+    eprintln!(
+        "[seam-matrix] boss chain fillet COMPLETED clean, conformity {} (union input reads {})",
+        mesh_gauges::welded_open_edges(&r.brep),
+        {
+            let (s2, o2, x2) = mesh_gauges::brep_open_defects(&united);
+            debug_assert_eq!((s2, o2, x2), (0, 0, 0));
+            mesh_gauges::welded_open_edges(&united)
+        }
+    );
+}

@@ -1,7 +1,12 @@
-//! Welded mesh gauges for hardening matrices (same quantized weld as
-//! popkern-part's watertight gate — raw tessellation leaves per-face
-//! islands whose borders read as ~60 false opens on a plain cube
-//! fillet).
+//! Gauges for the hardening matrices.
+//!
+//! `brep_open_defects` is the WATERTIGHTNESS oracle here: structural
+//! plus open-loop/shell-gap counts from `validate_all`. The welded MESH
+//! gauge is a measurement only — it counts T-vertex non-conformity
+//! along shared edges as "open" (measured: a pristine BRep::prism box
+//! reads 358, a pristine unit cube 0, a plain single-edge fillet
+//! 26–34 — tessellation conformity, not holes). Product pipelines
+//! keep conforming meshes; raw constructor/fillet outputs need not.
 
 use popkern_core::topology::BRep;
 use std::collections::HashMap;
@@ -51,4 +56,30 @@ pub(crate) fn mesh_volume(brep: &BRep) -> f64 {
             + a.z * (b.x * c.y - b.y * c.x);
     }
     (vol / 6.0).abs()
+}
+
+/// BRep-level defects from `validate_all`: (structural, open-loop/
+/// shell-gap, other — incl. self-intersection) error counts. All
+/// three must be zero for a body to count as clean; `other` is kept
+/// separate so gates can name which class failed.
+#[allow(dead_code)] // not every matrix binary uses every gauge
+pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
+    use popkern_core::error::ValidationError;
+    let mut structural = 0usize;
+    let mut open = 0usize;
+    let mut other = 0usize;
+    for err in brep.validate_all() {
+        match err {
+            ValidationError::EulerPoincare { .. }
+            | ValidationError::DanglingReference { .. }
+            | ValidationError::BrokenTwin { .. }
+            | ValidationError::BrokenCycle { .. }
+            | ValidationError::InconsistentVertex { .. }
+            | ValidationError::NonManifoldEdge { .. }
+            | ValidationError::LowValence { .. } => structural += 1,
+            ValidationError::OpenLoop { .. } | ValidationError::ShellGap { .. } => open += 1,
+            _ => other += 1,
+        }
+    }
+    (structural, open, other)
 }
