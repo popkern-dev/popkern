@@ -9,40 +9,13 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+#[path = "support/mesh_gauges.rs"]
+mod mesh_gauges;
+use mesh_gauges::{mesh_volume, welded_open_edges};
 use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 fn default_tol() -> Tolerance {
     Tolerance::default()
-}
-
-fn mesh_open_edges(brep: &BRep) -> usize {
-    use std::collections::HashMap;
-    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
-        .expect("tessellate");
-    let mut count: HashMap<(usize, usize), i32> = HashMap::new();
-    for t in &mesh.triangles {
-        for k in 0..3 {
-            let (a, b) = (t[k], t[(k + 1) % 3]);
-            *count.entry((a.min(b), a.max(b))).or_insert(0) += 1;
-        }
-    }
-    count.values().filter(|&&c| c != 2).count()
-}
-
-fn mesh_volume(brep: &BRep) -> f64 {
-    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
-        .expect("tessellate");
-    let mut vol = 0.0_f64;
-    for t in &mesh.triangles {
-        let (a, b, c) = (
-            mesh.vertices[t[0]].position,
-            mesh.vertices[t[1]].position,
-            mesh.vertices[t[2]].position,
-        );
-        vol += a.x * (b.y * c.z - b.z * c.y) - a.y * (b.x * c.z - b.z * c.x)
-            + a.z * (b.x * c.y - b.y * c.x);
-    }
-    (vol / 6.0).abs()
 }
 
 /// Fillet one cube edge with the given radius law; assert the
@@ -63,7 +36,7 @@ fn run_law(label: &str, radius: FilletRadius, r_lo: f64, r_hi: f64) {
     );
     match result {
         Ok(BlendResult { brep: out, .. }) => {
-            let opens = mesh_open_edges(&out);
+            let opens = welded_open_edges(&out);
             assert_eq!(opens, 0, "{label}: completed blend must be watertight");
             // Volume bracket: a cube minus the fillet band removal;
             // the removed material grows with radius, so the result
@@ -178,7 +151,7 @@ fn overflow_law_declines_structured() {
             // If it claims completion, it must at least be watertight
             // and self-consistent — measure and fail loudly so the
             // overflow class gets a real decline path.
-            let opens = mesh_open_edges(&out);
+            let opens = welded_open_edges(&out);
             assert_eq!(
                 opens, 0,
                 "overflow law shipped an OPEN body — must decline instead"
@@ -255,7 +228,7 @@ fn variable_ends_feed_corner_with_endpoint_radius() {
     );
     match result {
         Ok(BlendResult { brep: out, .. }) => {
-            let opens = mesh_open_edges(&out);
+            let opens = welded_open_edges(&out);
             assert_eq!(opens, 0, "corner-fed variable blend must be watertight");
             eprintln!("[vr-matrix] corner endpoint-radius: COMPLETED watertight");
         }
