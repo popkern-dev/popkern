@@ -5,11 +5,11 @@
 //! vertices where multiple fillet edges meet.
 
 mod chains;
+mod convexity;
 
 pub use chains::{detect_chains, group_vertices};
 
 use popkern_core::geometry::Vec3;
-use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
@@ -130,7 +130,8 @@ fn analyze_single_edge(brep: &BRep, edge_handle: EdgeHandle) -> Result<EdgeAnaly
     let vertex_end = he2.origin;
 
     // Classify convexity at the edge midpoint.
-    let convexity = classify_convexity(brep, edge_handle, &surface_1, &surface_2, face_1, face_2)?;
+    let convexity =
+        convexity::classify_convexity(brep, edge_handle, &surface_1, &surface_2, face_1, face_2)?;
 
     Ok(EdgeAnalysis {
         edge: edge_handle,
@@ -195,205 +196,8 @@ fn get_face_surface_with_orientation(
 }
 
 /// Number of sample points along the edge for convexity classification.
-const CONVEXITY_SAMPLES: usize = 7;
-
-/// Classify the convexity of an edge between two surfaces.
-///
-/// Samples normals at [`CONVEXITY_SAMPLES`] points along the edge and
-/// uses the sign of (N1 x T) . N2 at each sample:
-///   - positive -> convex
-///   - negative -> concave
-///   - near zero -> indeterminate (skipped)
-///
-/// If all definite samples agree, returns [`Convexity::Convex`] or
-/// [`Convexity::Concave`]. If samples disagree, returns [`Convexity::Mixed`].
-fn classify_convexity(
-    brep: &BRep,
-    edge_handle: EdgeHandle,
-    surface_1: &SurfaceGeometry,
-    surface_2: &SurfaceGeometry,
-    face_1: FaceHandle,
-    face_2: FaceHandle,
-) -> Result<Convexity, String> {
-    let edge = brep
-        .edges
-        .get(edge_handle)
-        .ok_or_else(|| format!("edge {edge_handle:?} not found"))?;
-
-    let curve = edge
-        .curve
-        .as_ref()
-        .ok_or_else(|| format!("edge {edge_handle:?} has no curve geometry"))?;
-
-    const MIXED_THRESHOLD: f64 = 1e-6;
-
-    let mut convex_count: usize = 0;
-    let mut concave_count: usize = 0;
-
-    // Winding-free convexity: OUTWARD normals (natural normal
-    // corrected by the winding-derived effective orientation) plus
-    // INTO-FACE tangent directions (toward each face's uv-interior).
-    // For a convex edge the material wedge is < π and each face's
-    // interior direction opposes the OTHER face's outward normal;
-    // for a concave (reentrant) edge it agrees:
-    //     dot(d1, n2) + dot(d2, n1)  < 0  ⇔ convex, > 0 ⇔ concave.
-    // (Box top edge: d1=+y into the top face, n2=−y outward front
-    // ⇒ −1. Pocket floor/wall: d1=+y, n2=+y ⇒ +1.) The previous
-    // formula used the RAW curve tangent — untied to either face's
-    // winding — and stored orientation flags, so its sign was
-    // producer-dependent: every convex plate edge on boolean output
-    // classified Concave, sending the rolling ball to the exterior
-    // weld-bead mirror.
-    // Stored orientation flags are the manifold truth: primitives
-    // encode outwardness in the flag alone (their loop windings are
-    // unenforced), and boolean/sweep output is winding-flag
-    // consistent since the PK-099 source fixes (validated: zero
-    // mismatches across the flagship union). The former shoelace
-    // override compensated for a since-fixed producer defect.
-    let stored = |face: FaceHandle| -> bool {
-        brep.faces
-            .get(face)
-            .and_then(|f| f.surface.as_ref())
-            .map(|sof| sof.orientation)
-            .unwrap_or(true)
-    };
-    // GLOBAL shell orientation: primitive constructors build
-    // INWARD-oriented shells (extrude keeps the base face's
-    // winding), sweep/boolean output builds OUTWARD ones — the flag
-    // is only honest relative to its shell. One signed-volume
-    // measurement disambiguates.
-    let shell = shell_outward_sign(brep);
-
-    // Into-face direction at a boundary sample: walking a face's own
-    // half-edge with the face's OUTWARD normal up, the interior is on
-    // the LEFT — d = n_outward × t̂, with t̂ the half-edge traversal
-    // direction from its pcurve. Holds for outer AND inner loops
-    // (that is why inner loops wind opposite), unlike any
-    // uv-box-center heuristic (the plate top's box center sits in
-    // its own hole).
-    let into_face_dir = |face: FaceHandle,
-                         point: &popkern_core::geometry::Point3,
-                         outward: &Vec3|
-     -> Option<Vec3> {
-        let face_data = brep.faces.get(face)?;
-        let surface = &face_data.surface.as_ref()?.geometry;
-        // The half-edge of THIS edge whose loop belongs to `face`.
-        let edge_data = brep.edges.get(edge_handle)?;
-        let he_a = edge_data.half_edge;
-        let he_b = brep.half_edges.get(he_a)?.twin;
-        let mut he_face = None;
-        for cand in [he_a, he_b] {
-            let d = brep.half_edges.get(cand)?;
-            if brep.loops.get(d.loop_)?.face == face {
-                he_face = Some(cand);
-                break;
-            }
-        }
-        let d = brep.half_edges.get(he_face?)?;
-        let pcurve = d.pcurve.as_ref()?;
-        let (t0, t1) = pcurve.parameter_range();
-        // Pcurve parameter nearest the sample point (in 3D).
-        let mut best = (f64::INFINITY, t0);
-        for k in 0..=16 {
-            let t = t0 + (t1 - t0) * k as f64 / 16.0;
-            let uv = pcurve.point_at(t);
-            let q = surface.point_at(uv.x, uv.y);
-            let dist = q.distance_to(point);
-            if dist < best.0 {
-                best = (dist, t);
-            }
-        }
-        let t = best.1;
-        let h = (t1 - t0) * 1.0e-4;
-        let (ta, tb) = if t + h <= t1 { (t, t + h) } else { (t - h, t) };
-        let uv_a = pcurve.point_at(ta);
-        let uv_b = pcurve.point_at(tb);
-        let pa = surface.point_at(uv_a.x, uv_a.y);
-        let pb = surface.point_at(uv_b.x, uv_b.y);
-        let mut tangent = (pb - pa).normalized()?;
-        // Direction verification (no repo-wide pcurve direction
-        // contract; see effective_outward_orientation).
-        let origin = brep.vertices.get(d.origin)?.position;
-        let dest = brep
-            .vertices
-            .get(brep.half_edges.get(d.twin)?.origin)?
-            .position;
-        let uv0 = pcurve.point_at(t0);
-        let q0 = surface.point_at(uv0.x, uv0.y);
-        if q0.distance_to(&dest) + 1.0e-12 < q0.distance_to(&origin) {
-            tangent = tangent * -1.0;
-        }
-        (outward.cross(&tangent)).normalized()
-    };
-
-    for i in 0..CONVEXITY_SAMPLES {
-        let frac = (i as f64) / ((CONVEXITY_SAMPLES - 1).max(1) as f64);
-        let t = curve.t_start + (curve.t_end - curve.t_start) * frac;
-        let point = curve.geometry.point_at(t);
-
-        // Outward normals fold in the shell sign; the interior-left
-        // rule below is a property of the face's OWN manifold
-        // normal (flag-corrected natural, shell-independent) — on an
-        // inward-oriented shell the two differ and mixing them
-        // mirrors the into-face direction.
-        let nat_1 = surface_normal_at_point_natural(surface_1, &point);
-        let nat_2 = surface_normal_at_point_natural(surface_2, &point);
-        let flag_sign = |f: bool| if f { 1.0 } else { -1.0 };
-        let m1 = nat_1 * flag_sign(stored(face_1));
-        let m2 = nat_2 * flag_sign(stored(face_2));
-        let n1 = m1 * shell;
-        let n2 = m2 * shell;
-
-        let Some(d1) = into_face_dir(face_1, &point, &m1) else {
-            continue;
-        };
-        let Some(d2) = into_face_dir(face_2, &point, &m2) else {
-            continue;
-        };
-        let dot = d1.dot(&n2) + d2.dot(&n1);
-        if std::env::var_os("PK_CONVEXITY_TRACE").is_some() && i == 0 {
-            eprintln!(
-                "  [cvx] {edge_handle:?} p({:.2},{:.2},{:.2}) n1({:.2},{:.2},{:.2}) d1({:.2},{:.2},{:.2}) n2({:.2},{:.2},{:.2}) d2({:.2},{:.2},{:.2}) dot {dot:.3}",
-                point.x,
-                point.y,
-                point.z,
-                n1.x,
-                n1.y,
-                n1.z,
-                d1.x,
-                d1.y,
-                d1.z,
-                n2.x,
-                n2.y,
-                n2.z,
-                d2.x,
-                d2.y,
-                d2.z
-            );
-        }
-
-        if dot < -MIXED_THRESHOLD {
-            convex_count += 1;
-        } else if dot > MIXED_THRESHOLD {
-            concave_count += 1;
-        }
-        // Near-zero samples are indeterminate — skipped.
-    }
-
-    if convex_count > 0 && concave_count > 0 {
-        Ok(Convexity::Mixed)
-    } else if convex_count > 0 {
-        Ok(Convexity::Convex)
-    } else if concave_count > 0 {
-        Ok(Convexity::Concave)
-    } else {
-        // All samples indeterminate.
-        Ok(Convexity::Mixed)
-    }
-}
-
 /// Evaluate the surface normal at a 3D point, accounting for face orientation.
-fn surface_normal_at_point_natural(
+pub(super) fn surface_normal_at_point_natural(
     surface: &SurfaceGeometry,
     point: &popkern_core::geometry::Point3,
 ) -> Vec3 {
@@ -474,7 +278,7 @@ fn find_uv_for_point(
 /// (extrude keeps the base winding); boolean/sweep output builds
 /// outward ones — consumers needing true outwardness must fold this
 /// in until constructors are normalized (PK-100).
-fn shell_outward_sign(brep: &BRep) -> f64 {
+pub(super) fn shell_outward_sign(brep: &BRep) -> f64 {
     use popkern_core::geometry::surface::SurfaceEval;
     // Divergence theorem per face using the FLAG-CORRECTED NATURAL
     // normal — deliberately NOT the loop winding: producers disagree

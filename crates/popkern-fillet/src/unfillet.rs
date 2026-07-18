@@ -436,11 +436,37 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
     }
 
     // 8. The MEF result has TWO faces sharing the new edge: the
-    //    parent (still A) and `mef_result.face` (also A's plane,
-    //    inherited). Reassign B's plane to the new face.
+    //    parent (still carrying A's plane by inheritance) and
+    //    `mef_result.face`. Plane B belongs to whichever of the two
+    //    GEOMETRICALLY matches it — MEF's face/parent split is a
+    //    topology artifact and lands either way (measured: blind
+    //    new-face assignment left one face with a z=0 loop and a
+    //    y-plane surface, which mirrored every downstream normal
+    //    and sent a re-fillet's rolling ball outside the body).
     use popkern_core::geometry::surface::SurfaceOnFace;
-    out.faces[mef_result.face].surface = Some(SurfaceOnFace {
-        geometry: plane_b_geometry.0,
+    let plane_b_deviation = |face: popkern_core::topology::FaceHandle| -> f64 {
+        let (ref geometry, _) = plane_b_geometry;
+        let popkern_core::geometry::surface::SurfaceGeometry::Plane { origin, normal, .. } =
+            geometry
+        else {
+            return f64::INFINITY;
+        };
+        out.face_outer_loop_positions(face)
+            .iter()
+            .map(|p| ((*p - *origin).dot(normal)).abs())
+            .fold(0.0, f64::max)
+    };
+    let b_face = if plane_b_deviation(mef_result.face) <= plane_b_deviation(merged_face) {
+        mef_result.face
+    } else {
+        // The parent is B's region: move A's inherited surface to
+        // the new face and give the parent plane B.
+        let parent_surface = out.faces[merged_face].surface.clone();
+        out.faces[mef_result.face].surface = parent_surface;
+        merged_face
+    };
+    out.faces[b_face].surface = Some(SurfaceOnFace {
+        geometry: plane_b_geometry.0.clone(),
         orientation: plane_b_geometry.1,
     });
 

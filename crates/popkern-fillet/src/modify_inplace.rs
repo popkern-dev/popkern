@@ -400,12 +400,32 @@ fn modify_open_in_place_general(
     } else if (r_start - r_end).abs() > 1e-12 {
         build_variable_plane_plane_sweep(&sweep_inputs)
     } else {
-        constant_plane_plane_cylinder(&plane_a.normal, &plane_b.normal, &plan, r_start)
+        constant_plane_plane_cylinder(
+            &plane_a.normal,
+            &plane_b.normal,
+            &signed_perp_a,
+            &signed_perp_b,
+            &plan,
+            r_start,
+        )
     };
     out.faces[fillet_face].surface = Some(SurfaceOnFace {
         geometry: new_surface,
         orientation: true,
     });
+
+    // PK-148: the chain-end mid-arc corner vertices (settled onto
+    // the OLD terminal arc by the construction pipeline) must land
+    // on the NEW radius' arc, with stub curves and cap pcurves
+    // re-authored to match. Same settlement as the fresh-blend
+    // pipeline, scoped to the modified strip. Uses the body's own
+    // tolerance — the in-place API carries no caller tolerance.
+    let body_tolerance = out.tolerance;
+    let _ = crate::construct::terminal_arc_trim::settle_terminal_arc_faces(
+        &mut out,
+        &[fillet_face],
+        &body_tolerance,
+    );
 
     Ok(out)
 }
@@ -415,15 +435,29 @@ fn modify_open_in_place_general(
 /// `fillet_surface_analytic.rs`. The center curve for a straight
 /// dihedral edge is a line, so the fillet envelope is a cylinder
 /// whose axis is the edge direction and radius equals the fillet
-/// radius.
+/// radius. The rolling-ball centre sits on the MATERIAL-side
+/// bisector (the signed perpendiculars, mirroring the variable
+/// sweep) at distance `r / sin(half_angle)` from the sharp edge —
+/// distance `r` from EACH support plane, not `r` along the
+/// bisector (the old `bisector · r` placement put the axis
+/// `r·(1−1/√2)` too close to a perpendicular dihedral's edge, so
+/// the authored cylinder cut the supports instead of touching
+/// them).
 fn constant_plane_plane_cylinder(
     n_a: &Vec3,
     n_b: &Vec3,
+    signed_perp_a: &Vec3,
+    signed_perp_b: &Vec3,
     plan: &UnfilletPlan,
     radius: f64,
 ) -> SurfaceGeometry {
-    let bisector = (*n_a + *n_b).normalized().unwrap_or(*n_a);
-    let origin = plan.restored_edge_start + bisector * radius;
+    let cos_angle = n_a.dot(n_b).clamp(-1.0, 1.0);
+    let half_angle = cos_angle.acos() * 0.5;
+    let sin_half = half_angle.sin().max(1e-12);
+    let bisector = (*signed_perp_a + *signed_perp_b)
+        .normalized()
+        .unwrap_or(*n_a);
+    let origin = plan.restored_edge_start + bisector * (radius / sin_half);
     let chord = plan.restored_edge_end - plan.restored_edge_start;
     let axis = chord
         .normalized()
