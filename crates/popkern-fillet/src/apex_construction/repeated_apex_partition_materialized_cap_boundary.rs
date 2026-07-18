@@ -84,59 +84,14 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     )))
 }
 
-/// Bridge non-adjacent junctions in a reauthored cap cycle with the
-/// live `.next` chains between them (bounded walk; see call site).
+/// Bridge non-adjacent junctions in a reauthored cap cycle — now a
+/// delegation to the CENTRAL junction settlement (PK-129): the same
+/// splice serves every planned cycle inside `wire_existing_loop`,
+/// and this pre-wiring validation sees the settled cycle.
 fn bridge_cap_cycle_junction_gaps(brep: &BRep, cycle: Vec<HalfEdgeHandle>) -> Vec<HalfEdgeHandle> {
-    const MAX_BRIDGE: usize = 8;
-    let mut bridged = Vec::with_capacity(cycle.len());
-    for (index, &current) in cycle.iter().enumerate() {
-        bridged.push(current);
-        let next = cycle[(index + 1) % cycle.len()];
-        let Some(current_end) = support_split_half_edge_end_vertex(brep, current) else {
-            continue;
-        };
-        let Some(next_start) = brep.half_edges.get(next).map(|half_edge| half_edge.origin) else {
-            continue;
-        };
-        if current_end == next_start {
-            continue;
-        }
-        // Freshly cloned sides may not be wired into a loop yet, so
-        // the `.next` chain is not authoritative here. Bridge by
-        // VERTEX chain search instead: repeatedly take a live
-        // half-edge running from the current end toward the next
-        // start (deterministic smallest-handle choice).
-        let mut cursor_vertex = current_end;
-        let mut chain = Vec::new();
-        'bridge: for _ in 0..MAX_BRIDGE {
-            let mut candidates: Vec<(HalfEdgeHandle, popkern_core::topology::VertexHandle)> = brep
-                .half_edges
-                .iter()
-                .filter(|(handle, data)| {
-                    data.origin == cursor_vertex
-                        && *handle != next
-                        && !cycle.contains(handle)
-                        && !chain.contains(handle)
-                })
-                .filter_map(|(handle, _)| {
-                    support_split_half_edge_end_vertex(brep, handle).map(|end| (handle, end))
-                })
-                .collect();
-            candidates.sort_by_key(|(handle, _)| *handle);
-            // Prefer a candidate landing exactly on the next start.
-            if let Some(&(handle, _)) = candidates.iter().find(|(_, end)| *end == next_start) {
-                chain.push(handle);
-                bridged.append(&mut chain);
-                break 'bridge;
-            }
-            let Some(&(handle, end)) = candidates.first() else {
-                break;
-            };
-            chain.push(handle);
-            cursor_vertex = end;
-        }
-    }
-    bridged
+    crate::apex_construction::repeated_apex_partition_topology::settle_planned_loop_junction_gaps(
+        brep, &cycle,
+    )
 }
 
 /// The live twin of the replacement loop's shared FilletEnd cylinder

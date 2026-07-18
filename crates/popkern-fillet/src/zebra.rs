@@ -111,33 +111,140 @@ pub fn zebra_boundary_kink(
         grid_density,
     )?;
 
-    let samples_a = sample_field_in_3d(brep, face_a, &report_a);
-    let samples_b = sample_field_in_3d(brep, face_b, &report_b);
-    if samples_a.is_empty() || samples_b.is_empty() {
+    // SEAM-SAMPLED continuous stripe phase (PK-133). Two prior
+    // constructions were falsified with measurement:
+    // - the binary field paired at 0.04 had a random-agreement FLOOR
+    //   (~0.5) on curved caps — interior fairing and strip-threshold
+    //   tightening moved nothing;
+    // - continuous phase paired at 0.01 still decorrelates: the
+    //   stripe coordinate's surface gradient is ~2κ/spacing (≈ 270
+    //   per unit at these fillet curvatures), so even 0.01 of
+    //   positional pairing drift spans multiple stripes (measured
+    //   0.88–0.97 while the seam normal residual is ≤ 1e-2 rad).
+    // The artifact-free measure evaluates BOTH surfaces' normals at
+    // the SAME boundary point: sample the shared edge curves and
+    // compare the continuous stripe coordinates there. Any mismatch
+    // is then a genuine reflected-phase jump across the seam.
+    let _ = (&report_a, &report_b, boundary_tol);
+    let shared_points = shared_edge_sample_points(brep, face_a, face_b, grid_density.max(8));
+    if shared_points.is_empty() {
         return None;
     }
-
-    let tol_sq = boundary_tol * boundary_tol;
+    let spacing = if stripe_spacing.abs() < 1e-30 {
+        1.0
+    } else {
+        stripe_spacing
+    };
+    let phase_on = |face: FaceHandle, point: &Point3, seed: Option<(f64, f64)>| -> Option<f64> {
+        use popkern_core::geometry::surface::SurfaceEval;
+        use popkern_core::geometry::uv_projection::{
+            project_point_to_uv, project_point_to_uv_near,
+        };
+        let geom = &brep.faces.get(face)?.surface.as_ref()?.geometry;
+        // Global inversion on the cap NURBS lands up to 4e-2 off the
+        // seam station (measured) — a pcurve-derived seed +
+        // Gauss-Newton refinement is the honest station.
+        let (u, v) = match seed {
+            Some((su, sv)) => project_point_to_uv_near(geom, point, su, sv)?,
+            None => project_point_to_uv(geom, point)?,
+        };
+        if std::env::var_os("PK_ZEBRA_TRACE").is_some() {
+            let back = geom.point_at(u, v);
+            eprintln!(
+                "  [zebra] face {face:?} uv ({u:.4},{v:.4}) inversion residual {:.3e}",
+                back.distance_to(point)
+            );
+        }
+        let n = geom.normal_at(u, v).normalized()?;
+        let reflected = n * (2.0 * n.dot(&view_dir)) - view_dir;
+        Some(reflected.dot(&stripe_dir) / spacing)
+    };
     let mut matched = 0usize;
     let mut mismatched = 0usize;
-    for (pt_a, val_a) in &samples_a {
-        for (pt_b, val_b) in &samples_b {
-            let dx = pt_a.x - pt_b.x;
-            let dy = pt_a.y - pt_b.y;
-            let dz = pt_a.z - pt_b.z;
-            if dx * dx + dy * dy + dz * dz > tol_sq {
-                continue;
-            }
-            matched += 1;
-            if (val_a - val_b).abs() > 0.5 {
-                mismatched += 1;
-            }
+    for sample in &shared_points {
+        let (Some(pa), Some(pb)) = (
+            phase_on(face_a, &sample.point, sample.seed_a),
+            phase_on(face_b, &sample.point, sample.seed_b),
+        ) else {
+            continue;
+        };
+        matched += 1;
+        if (pa - pb).abs() > 0.5 {
+            mismatched += 1;
         }
     }
     if matched == 0 {
         return None;
     }
     Some(mismatched as f64 / matched as f64)
+}
+
+/// One seam station: the 3D point plus per-side UV SEEDS from the
+/// half-edges' pcurves (refined by the caller — the pcurve station
+/// is parameter-speed-approximate but an excellent Newton seed).
+struct SharedEdgeSample {
+    point: Point3,
+    seed_a: Option<(f64, f64)>,
+    seed_b: Option<(f64, f64)>,
+}
+
+/// Sample stations along every edge shared by the two faces.
+fn shared_edge_sample_points(
+    brep: &BRep,
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+    samples_per_edge: usize,
+) -> Vec<SharedEdgeSample> {
+    use popkern_core::geometry::curve::CurveEval;
+    let mut out = Vec::new();
+    for (_, edge) in brep.edges.iter() {
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let fa = brep.loops.get(he.loop_).map(|l| l.face);
+        let fb = brep.loops.get(twin.loop_).map(|l| l.face);
+        let (side_a, side_b) = if fa == Some(face_a) && fb == Some(face_b) {
+            (edge.half_edge, he.twin)
+        } else if fa == Some(face_b) && fb == Some(face_a) {
+            (he.twin, edge.half_edge)
+        } else {
+            continue;
+        };
+        let Some(curve) = edge.curve.as_ref() else {
+            continue;
+        };
+        // Pcurves are loop-aligned (start at the half-edge origin);
+        // map the shared 3D fraction onto each side's own traversal
+        // direction of the edge curve.
+        let start_3d = curve.geometry.point_at(curve.t_start);
+        let seed_at = |heh: popkern_core::topology::HalfEdgeHandle, f: f64| -> Option<(f64, f64)> {
+            let data = brep.half_edges.get(heh)?;
+            let pc = data.pcurve.as_ref()?;
+            let origin = brep.vertices.get(data.origin)?.position;
+            let forward = origin.distance_to(&start_3d) <= 1.0e-9
+                || origin.distance_to(&start_3d)
+                    <= origin.distance_to(&curve.geometry.point_at(curve.t_end));
+            let (p0, p1) = pc.parameter_range();
+            let fp = if forward { f } else { 1.0 - f };
+            let q = pc.point_at(p0 + (p1 - p0) * fp);
+            Some((q.x, q.y))
+        };
+        for i in 0..samples_per_edge {
+            // Interior stations only: endpoint normals belong to the
+            // corner-junction class, measured by the corner gates.
+            let f = (i as f64 + 0.5) / samples_per_edge as f64;
+            let t = curve.t_start + (curve.t_end - curve.t_start) * f;
+            out.push(SharedEdgeSample {
+                point: curve.geometry.point_at(t),
+                seed_a: seed_at(side_a, f),
+                seed_b: seed_at(side_b, f),
+            });
+        }
+    }
+    out
 }
 
 /// One-call Class-A zebra metric for a blend face: max
@@ -182,30 +289,4 @@ pub fn blend_zebra_kink_max(
         }
     }
     worst
-}
-
-/// Evaluate the face's surface at each of `report.field.params`
-/// to get a 3D position, paired with the zebra stripe value.
-fn sample_field_in_3d(
-    brep: &BRep,
-    face: FaceHandle,
-    report: &ZebraStripeReport,
-) -> Vec<(Point3, f64)> {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let Some(face_ref) = brep.faces.get(face) else {
-        return Vec::new();
-    };
-    let Some(surface_on_face) = face_ref.surface.as_ref() else {
-        return Vec::new();
-    };
-    let geom: &SurfaceGeometry = &surface_on_face.geometry;
-    let mut out = Vec::with_capacity(
-        report.field.params.len() * report.field.params.first().map_or(0, |r| r.len()),
-    );
-    for (param_row, val_row) in report.field.params.iter().zip(report.field.grid.iter()) {
-        for (&(u, v), &val) in param_row.iter().zip(val_row.iter()) {
-            out.push((geom.point_at(u, v), val));
-        }
-    }
-    out
 }

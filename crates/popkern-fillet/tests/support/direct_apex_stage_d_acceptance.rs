@@ -136,3 +136,20 @@ fn direct_apex_strict_v_free_pyramid3_uniform_succeeds_without_fallback() {
         reasons.join("\n"),
     );
 }
+
+/// PK-129 acceptance: cube_mixed under strict V-free completes
+/// natively — the pocket junction is settled before boundary
+/// materialization, so cap/strip/residual assemblies see no split
+/// junctions.
+#[test]
+#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
+fn direct_apex_strict_v_free_cube_mixed_succeeds_without_fallback() {
+    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
+    let reasons = direct_apex_fallback_reasons(&result);
+    assert!(
+        reasons.is_empty(),
+        "strict V-free cube_mixed must complete without fallback; got:\n{}",
+        reasons.join("\n"),
+    );
+}

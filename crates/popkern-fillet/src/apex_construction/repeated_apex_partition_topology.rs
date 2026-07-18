@@ -1,6 +1,5 @@
 //! Low-level topology helpers for planned repeated-apex partitioning.
 
-use popkern_core::geometry::CurveEval;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, TopologyRole,
@@ -11,7 +10,11 @@ use super::error::ApexBuildError;
 
 #[path = "repeated_apex_partition_topology_trace.rs"]
 mod census_trace;
+#[path = "repeated_apex_partition_junction_settlement.rs"]
+mod junction_settlement;
 use census_trace::trace_cap_loop_walk;
+pub(super) use junction_settlement::half_edge_destination_vertex;
+pub(crate) use junction_settlement::settle_planned_loop_junction_gaps;
 
 pub(super) fn oriented_edge_half_edges_on_face(
     brep: &BRep,
@@ -110,48 +113,6 @@ pub(super) fn insert_boundary_half_edge(
     (edge, half_edge)
 }
 
-fn half_edge_destination_vertex(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<VertexHandle> {
-    let data = brep.half_edges.get(half_edge)?;
-    if let Some(twin) = brep.half_edges.get(data.twin) {
-        return Some(twin.origin);
-    }
-    if !brep.boundary_edges.contains(&data.edge) {
-        return brep
-            .half_edges
-            .get(data.next)
-            .map(|next_half_edge| next_half_edge.origin);
-    }
-    let edge = brep.edges.get(data.edge)?;
-    let Some(curve) = edge.curve.as_ref() else {
-        return brep
-            .half_edges
-            .get(data.next)
-            .map(|next_half_edge| next_half_edge.origin);
-    };
-    let start_position = brep.vertices.get(data.origin)?.position;
-    let p0 = curve.geometry.point_at(curve.t_start);
-    let p1 = curve.geometry.point_at(curve.t_end);
-    let destination = if start_position.distance_to(&p0) <= start_position.distance_to(&p1) {
-        p1
-    } else {
-        p0
-    };
-    let tolerance = brep.tolerance.linear().max(1.0e-9);
-    brep.vertices
-        .iter()
-        .filter_map(|(vertex, data)| {
-            let distance = data.position.distance_to(&destination);
-            (distance <= tolerance).then_some((vertex, distance))
-        })
-        .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map(|(vertex, _)| vertex)
-        .or_else(|| {
-            brep.half_edges
-                .get(data.next)
-                .map(|next_half_edge| next_half_edge.origin)
-        })
-}
-
 pub(super) fn insert_face_with_outer_loop(
     brep: &mut BRep,
     template_face: FaceHandle,
@@ -233,6 +194,10 @@ pub(super) fn wire_existing_loop(
             ),
         });
     }
+    // Settle pocket-junction gaps centrally (PK-129; see
+    // settle_planned_loop_junction_gaps).
+    let half_edges = settle_planned_loop_junction_gaps(brep, half_edges);
+    let half_edges = half_edges.as_slice();
     let n = half_edges.len();
     for i in 0..n {
         let current = half_edges[i];
