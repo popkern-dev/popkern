@@ -177,33 +177,6 @@ pub fn fillet_edges(
     fillet_edges_internal(brep, specs, options, tolerance, tracking, None, None)
 }
 
-/// Cancellable variant of [`fillet_edges`] — returns
-/// [`BlendError::Cancelled`] if the token fires between phases.
-#[rustfmt::skip]
-pub fn fillet_edges_cancellable(
-    brep: &BRep,
-    specs: &[FilletSpec],
-    options: &FilletOptions,
-    tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
-    cancel: &cancellation::CancellationToken,
-) -> Result<BlendResult, BlendError> {
-    fillet_edges_internal(brep, specs, options, tolerance, tracking, Some(cancel), None)
-}
-
-/// Progress-reporting variant of [`fillet_edges`]. See [`ProgressReporter`].
-#[rustfmt::skip]
-pub fn fillet_edges_with_progress(
-    brep: &BRep,
-    specs: &[FilletSpec],
-    options: &FilletOptions,
-    tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
-    reporter: &mut dyn progress::ProgressReporter,
-) -> Result<BlendResult, BlendError> {
-    fillet_edges_internal(brep, specs, options, tolerance, tracking, None, Some(reporter))
-}
-
 /// Pipeline body for [`fillet_edges`] + cancellable/progress variants.
 fn fillet_edges_internal(
     brep: &BRep,
@@ -445,6 +418,15 @@ fn fillet_edges_internal(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
+    // PK-148: settle stale chain-end corners (stub line curves vs
+    // strip arc pcurves) once every pcurve author has run, so the
+    // coherent terminal-arc geometry is what the operation returns.
+    apply_result.repair_report.terminal_arc_trim =
+        construct::terminal_arc_trim::settle_terminal_arc_stubs(
+            brep,
+            &mut apply_result.brep,
+            &tolerance,
+        );
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
@@ -547,7 +529,10 @@ pub use lib_chamfer::chamfer_edges;
 /// via [`precheck::fillet_quality`].
 #[path = "lib_convenience.rs"]
 mod lib_convenience;
-pub use lib_convenience::{chamfer_edge, fillet_edge, fillet_edges_with_quality};
+pub use lib_convenience::{
+    chamfer_edge, fillet_edge, fillet_edges_cancellable, fillet_edges_with_progress,
+    fillet_edges_with_quality,
+};
 
 use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;

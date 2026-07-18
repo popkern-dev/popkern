@@ -80,3 +80,30 @@ pub fn chamfer_edge(
         tracking,
     )
 }
+
+/// Cancellable variant of [`fillet_edges`] — returns
+/// [`BlendError::Cancelled`] if the token fires between phases.
+#[rustfmt::skip]
+pub fn fillet_edges_cancellable(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    options: &FilletOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    cancel: &crate::cancellation::CancellationToken,
+) -> Result<BlendResult, BlendError> {
+    crate::fillet_edges_internal(brep, specs, options, tolerance, tracking, Some(cancel), None)
+}
+
+/// Progress-reporting variant of [`fillet_edges`]. See [`ProgressReporter`].
+#[rustfmt::skip]
+pub fn fillet_edges_with_progress(
+    brep: &BRep,
+    specs: &[FilletSpec],
+    options: &FilletOptions,
+    tolerance: Tolerance,
+    tracking: Option<&mut TrackingContext>,
+    reporter: &mut dyn crate::progress::ProgressReporter,
+) -> Result<BlendResult, BlendError> {
+    crate::fillet_edges_internal(brep, specs, options, tolerance, tracking, None, Some(reporter))
+}

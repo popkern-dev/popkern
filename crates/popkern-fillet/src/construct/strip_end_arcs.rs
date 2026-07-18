@@ -27,12 +27,15 @@
 //!    earlier rebuilds (`kev` on half-edges immediately followed by
 //!    their twin).
 //!
-//! Containment boundary (recorded, PK-097 Phase C): plain open
-//! cylinder fillets keep their legacy end shape because the in-place
-//! modify machinery must stay equivalent to remove-recreate. The
-//! pass therefore only runs when the blend produced corner patches
-//! (chain/blend context) — the caller gates on that. Retiring the
-//! legacy end shape belongs to the modify-machinery task.
+//! Containment boundary (recorded PK-097 Phase C, retired for the
+//! plain case by PK-148): this pass only runs when the blend
+//! produced corner patches (chain/blend context) — the caller gates
+//! on that. Plain open cylinder fillets are settled by the
+//! zero-topology `terminal_arc_trim` pass instead (corner vertex
+//! repositioned onto the arc, stub curves re-authored), which the
+//! in-place modify machinery also runs so in-place stays equivalent
+//! to remove-recreate — the equivalence concern that originally
+//! froze the legacy end shape.
 //!
 //! Per-corner and per-slit transactional: each mutation is applied on
 //! a candidate clone and accepted only when `validate()` holds;

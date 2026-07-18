@@ -12,6 +12,8 @@ mod types_exact_boundary;
 mod types_repair;
 #[path = "types_repair_exact_boundary.rs"]
 mod types_repair_exact_boundary;
+#[path = "types_repair_terminal_arc.rs"]
+mod types_repair_terminal_arc;
 
 pub use types_chamfer::{ChamferKind, ChamferOptions, ChamferSpec};
 pub use types_corner::{
@@ -37,6 +39,9 @@ pub use types_repair::{
     support_seam_rollback_reason_label,
 };
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
+pub use types_repair_terminal_arc::{
+    TerminalArcTrimDecline, TerminalArcTrimDeclineReason, TerminalArcTrimReport,
+};
 
 use popkern_core::topology::EdgeHandle;
 

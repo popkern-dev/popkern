@@ -23,6 +23,8 @@ pub struct BlendRepairReport {
     pub apex_routes: Vec<ApexConstructionRouteDecision>,
     /// Structured apex construction diagnostics and declined repair candidates.
     pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
+    /// PK-148 terminal-arc-trim settlement at open fillet chain ends.
+    pub terminal_arc_trim: super::TerminalArcTrimReport,
 }
 
 /// Construction route used for one smooth multi-fillet apex.
