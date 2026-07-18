@@ -107,7 +107,7 @@ fn bi6_first_partials(piece: &Kp20Bi6Patch, u: f64, v: f64) -> ([f64; 2], [f64; 
 
 /// Corner partials `∂^a_u ∂^b_v P(0,0)` (a, b ≤ 3) of one bi-6 piece
 /// in its own parameters, from BB differences.
-fn bi6_corner_partials(piece: &Kp20Bi6Patch) -> [[[f64; 2]; 4]; 4] {
+pub(super) fn bi6_corner_partials(piece: &Kp20Bi6Patch) -> [[[f64; 2]; 4]; 4] {
     let falling = |order: usize| -> f64 { (0..order).map(|k| (6 - k) as f64).product() };
     let binom = |order: usize, k: usize| -> f64 {
         let mut value = 1.0;
@@ -243,3 +243,7 @@ pub(crate) fn kp20_paper_tau_jet_delta(
         )
     })
 }
+
+#[cfg(test)]
+#[path = "kp20_paper_tau_eq21_fit.rs"]
+mod kp20_paper_tau_eq21_fit;

@@ -35,3 +35,23 @@ Known consumer-facing consequence: the kernel's
 `kp20_bi6_cc_ring.rs` transcribed the misprinted PR08 row k′=4
 (erratum E1), so every characteristic-ring value it produced for
 q₄..q₁₃ is wrong at every valence. See the recovery plan, RC5.
+
+## PK-134 resolution (2026-07-18): the printed µ0 table reproduced
+
+The KP20 eq (23) µ0 table IS the eq (21) normalization of the
+F3-solved paper tau. Proof lives in the Rust gate
+`printed_mu0_table_is_the_eq21_normalized_solved_tau`
+(`kp20_paper_tau_eq21_fit.rs`): with µ FIXED at the printed values, a
+9-parameter sigma-equivariant domain 3-jet psi maps the solved tau's
+cubic jet at o exactly onto the eq (22) template — residual
+1e-10..1e-9 at every printed valence n in {3, 5..10}, with 11
+equations of over-determination beyond the fitted gauge.
+
+Falsified en route (do not re-derive):
+- free-µ fits match the family at 2.9e-10 with µ0 ~ 8.9-9.6 — the
+  eq (22) template family is CLOSED under domain 3-jets, so a free µ0
+  is gauge, not data (this is why `verify_mu0.py`'s closed-form
+  candidates could never work: µ0 is only pinned relative to the
+  printed eq (21) chart convention);
+- quadratic-psi + eq (23) couplings strands Gauss-Newton in a wrong
+  basin (residual 0.46).

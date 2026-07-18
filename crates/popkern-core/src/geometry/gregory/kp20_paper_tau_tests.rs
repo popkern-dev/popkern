@@ -120,9 +120,12 @@ fn solved_paper_tau_is_feasible_fold_free_and_near_the_printed_table() {
             "n={n}: tau(o) must be the origin: {:e}",
             report.jet_delta[0],
         );
-        // Measurement bounds pending the eq (21) normalization
-        // derivation; tightened to the µ0 print-rounding scale once
-        // that lands.
+        // These orders carry the eq (21) reformulation GAUGE (the
+        // jet_delta measure compares raw charts without the domain
+        // 3-jet ψ) — the exact reproduction gate is
+        // printed_mu0_table_is_the_eq21_normalized_solved_tau
+        // (kp20_paper_tau_eq21_fit.rs, PK-134). Bounds here are
+        // regression levels for the raw-chart deviation only.
         assert!(
             report.jet_delta[2] < 0.5 && report.jet_delta[3] < 1.5,
             "n={n}: cubic-expansion deviation from the printed table grew: {:?}",

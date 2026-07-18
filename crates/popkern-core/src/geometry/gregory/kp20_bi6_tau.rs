@@ -94,7 +94,7 @@ impl Kp20TauMap {
         Self::for_sector_paper_with_mu(n, k, mu0, mu1, mu2, mu3)
     }
 
-    fn for_sector_paper_with_mu(
+    pub(super) fn for_sector_paper_with_mu(
         n: usize,
         k: usize,
         mu0: f64,
