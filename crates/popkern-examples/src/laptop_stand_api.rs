@@ -284,22 +284,12 @@ fn build_column(p: &StandParams) -> Result<Part, PartError> {
     Ok(column)
 }
 
-/// Base, v1: a convex trapezoid plate — 90 mm front edge under the
-/// holder's tower widening to the full 200 mm at the rear — with the
-/// star socket cut straight into the hub.
-///
-/// TEMPORARY CONTAINMENT (recorded, two layers):
-/// 1. The designed base is a 10 mm two-leg deck with a Ø60×22 socket
-///    boss. The boss union on a reflex plate is pinned as
-///    `cylinder_boss_on_reflex_plate_union_gap_is_pinned`; v1 uses a
-///    22 mm plate with the socket cut directly.
-/// 2. The two-leg outline itself is deferred: an interior socket
-///    ring on a REFLEX face fails at the split stage ("trim curve
-///    end point does not match any vertex"), and carving the leg
-///    V-cutout from a convex plate is a through + side-overlap
-///    boolean (both open frontiers). The trapezoid gives the same
-///    stance and stability with proven operations; the sculpted
-///    legs return with the W2 campaign.
+/// Legged base: a 12-vertex outline — counterweight pad behind the
+/// tower widening into two fanned legs under the arms — with the star
+/// socket cut straight into the 22 mm hub and the outer outline
+/// dressed. (The designed Ø60×22 socket boss is still deferred: its
+/// union on a reflex plate is pinned
+/// `cylinder_boss_on_reflex_plate_union_gap_is_pinned`.)
 fn build_base(p: &StandParams) -> Result<Part, PartError> {
     let socket_star = hexagram(p.star_r, 0.0);
     let _ = (p.boss_r, p.boss_h); // return with the boss (see above)
@@ -342,10 +332,17 @@ fn build_base(p: &StandParams) -> Result<Part, PartError> {
 
     let plate = Profile::on(Plane::XY).polygon(&outline).extrude(p.base_t)?;
 
-    // Dress the outer vertical edges BEFORE cutting the socket
-    // (measured rule: pockets-after-dressing).
-    let verticals = |e: EdgeQuery| e.straight().direction(Dir::Z);
-    let dressed = plate.chamfer(2.0, verticals)?;
+    // Dress top + bottom outline loops BEFORE the socket (proven
+    // end-loop class); verticals stay SHARP (mitered box corner opens).
+    let plane_loop = |z: f64| {
+        move |e: EdgeQuery| {
+            e.straight()
+                .at_height(z)
+                .between(SurfaceKind::Plane, SurfaceKind::Plane)
+        }
+    };
+    let dressed = plate.chamfer(2.0, plane_loop(0.0))?;
+    let dressed = dressed.chamfer(2.0, plane_loop(p.base_t))?;
 
     // Full-depth star socket straight into the hub (blind: 6 mm
     // floor at 22 mm plate).
@@ -465,6 +462,15 @@ fn build_block(p: &StandParams) -> Result<Part, PartError> {
             .extrude(60.0)?
     };
     let block = block.subtract(&seat)?;
+    // Seat MOUTH stays sharp — pinned frontier, not a choice. An edge
+    // blend opens the shell (tilted elliptical mouth). Both cone
+    // COUNTERSINK cut tools (tilted 45° chamfer frustum; coaxial 8.5°
+    // drafted frustum, every edge analytic) hit the same cellular
+    // defect: the cut curve crosses the seat cylinder's chart seam
+    // and the chart walk declines (DegreeImbalance at both seam
+    // nodes) → graph-merge fallback ships an open body (483/761
+    // opens). Next mechanism: seam-node record pairing for closed
+    // seam-crossing intersection curves in chart_subdivision.rs.
     let up = Profile::on(Plane::xy_at(seat_floor - p.socket_depth))
         .polygon(&socket_star)
         .extrude(p.socket_depth + 1.0)?;
@@ -755,15 +761,16 @@ fn arm_joint_prism(
         .translate(0.0, -y_start, mouth_z)
 }
 
-/// Break the arm's rest-face side edges with a 1 mm chamfer — the
-/// laptop-side corners a hand feels. Runs BEFORE the slot cut and
-/// the rail union (dress-first): a chamfer whose edge pieces
-/// terminate at a through-slot mouth ends its strips at multi-face
-/// junction corners the blend surgery cannot consume (pinned:
-/// slot_interrupted_chamfer_gap_is_pinned), while booleans cut
-/// through finished planar bevels cleanly. The selector picks the
-/// long plane×plane edges ON the (yawed) rest plane; the dovetail
-/// tab (y > 0) and every joint surface stay sharp.
+/// Break the arm's two LONGITUDINAL rest-face side edges with a 1 mm
+/// chamfer — the laptop-side corners a hand feels. Runs dress-first
+/// (before the slot/rail): a bevel terminating at a through-slot mouth
+/// ends its strips at junctions the surgery can't consume (pinned
+/// slot_interrupted_chamfer_gap_is_pinned), whereas booleans cut clean
+/// through finished bevels. Selector = plane×plane edges ON the yawed
+/// rest plane; the dovetail tab (y > 0) and joint surfaces stay sharp.
+///
+/// The transverse TIP edge stays sharp: its cross bevel can't miter
+/// into both side bevels without tearing the top face open (measured).
 fn dress_arm_rest_edges(arm: Part, p: &StandParams, w: f64) -> Result<Part, PartError> {
     let tilt = p.tilt();
     let plane_at_root = p.plane_at_root();
@@ -838,6 +845,27 @@ fn build_arm_tip(p: &StandParams, side: f64) -> Result<Part, PartError> {
     tip = tip.subtract(&upper)?;
     // Dress-first (see dress_arm_rest_edges in the shape chain).
     tip = dress_arm_rest_edges(tip, p, side * p.fan())?;
+    // Tip-edge bevel as a WEDGE BOOLEAN — blending this edge must
+    // miter into both side bevels and tears the top face open
+    // (measured 85–103 open edges). Cutter bottom plane holds the
+    // offset edge line: legs a (plan-y, rest face) and b (z, tip
+    // face); rotate_y aligns it to the yawed edge's cross-fall so the
+    // bevel width stays uniform across x. Later booleans cut through
+    // the finished bevel (proven skewed-corner class).
+    let (a, b) = (1.2, 1.2);
+    let s = w.sin() * tilt.tan(); // edge z-slope along x
+    let ct = w.cos() * tilt.tan();
+    let n = (s * a, b + a * ct, -a); // bevel-plane normal (outward)
+    let len = (n.0 * n.0 + n.1 * n.1 + n.2 * n.2).sqrt();
+    let theta = (n.1 / len).asin();
+    let phi = (-n.0 / (len * theta.cos())).asin();
+    let wedge = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)?
+        .rotate_x(theta)?
+        .rotate_y(phi)?
+        .translate(0.0, a - p.arm_len, plane_at_root + (a - p.arm_len) * ct)?;
+    tip = tip.subtract(&wedge)?;
     let lower_box = Profile::on(Plane::xy_at(z_lo - 5.0))
         .rect(600.0, p.arm_len - 16.0)
         .at(0.0, -(26.0 + p.arm_len + 10.0) / 2.0)
@@ -928,90 +956,9 @@ fn build_lip(p: &StandParams) -> Result<Part, PartError> {
     Ok(lip)
 }
 
-/// Write a merged multi-piece OBJ (meshed copies, each yawed about
-/// z then translated — a visual stack preview, not a boolean
-/// assembly).
-fn write_assembly_preview(
-    pieces: &[(&Part, [f64; 3], f64)],
-    path: &std::path::Path,
-) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let mut out = String::new();
-    let mut base_index = 1usize;
-    let options = popkern_mesh::TessellationOptions::default();
-    for (part, offset, yaw) in pieces {
-        let mesh = part.mesh(&options).expect("preview mesh");
-        let (c, s) = (yaw.cos(), yaw.sin());
-        for v in &mesh.vertices {
-            out.push_str(&format!(
-                "v {} {} {}\n",
-                v.position.x * c - v.position.y * s + offset[0],
-                v.position.x * s + v.position.y * c + offset[1],
-                v.position.z + offset[2]
-            ));
-        }
-        for t in &mesh.triangles {
-            out.push_str(&format!(
-                "f {} {} {}\n",
-                t[0] + base_index,
-                t[1] + base_index,
-                t[2] + base_index
-            ));
-        }
-        base_index += mesh.vertices.len();
-    }
-    let mut f = std::fs::File::create(path)?;
-    f.write_all(out.as_bytes())
-}
-
-fn gate_and_export(part: Part, name: &str, out_dir: &std::path::Path) -> Part {
-    if std::env::var_os("PK_OPEN_DEBUG").is_some()
-        && let Ok(n) = part.open_edge_count()
-        && n > 0
-    {
-        let mesh = part
-            .mesh(&popkern_mesh::TessellationOptions::default())
-            .expect("mesh");
-        use std::collections::HashMap;
-        let mut count: HashMap<(usize, usize), i32> = HashMap::new();
-        for t in &mesh.triangles {
-            for k in 0..3 {
-                let (a, b) = (t[k], t[(k + 1) % 3]);
-                *count.entry((a.min(b), a.max(b))).or_insert(0) += 1;
-            }
-        }
-        let mut shown = 0;
-        for ((a, b), c) in &count {
-            if *c != 2 && shown < 10 {
-                let pa = &mesh.vertices[*a].position;
-                let pb = &mesh.vertices[*b].position;
-                eprintln!(
-                    "  [{name}-open] uses={c} ({:.2},{:.2},{:.2})->({:.2},{:.2},{:.2})",
-                    pa.x, pa.y, pa.z, pb.x, pb.y, pb.z
-                );
-                shown += 1;
-            }
-        }
-    }
-    // An EMPTY body meshes trivially watertight — a silently swallowed
-    // boolean must not pass the gate (measured: an arm tip whose run
-    // had wedged out to nothing exported as a valid 0-face part).
-    assert!(part.face_count() > 0, "{name}: empty body");
-    let part = part.assert_watertight().expect("watertight gate");
-    let step = out_dir.join(format!("{name}.step"));
-    part.export_step(&step).expect("STEP export");
-    part.export_stl(out_dir.join(format!("{name}.stl")))
-        .expect("STL export");
-    part.export_obj(out_dir.join(format!("{name}.obj")))
-        .expect("OBJ export");
-    let part = part.assert_step_roundtrip(&step).expect("round-trip gate");
-    println!(
-        "  {name}: watertight ✓ round-trip ✓ ({} faces) → {}",
-        part.face_count(),
-        step.display()
-    );
-    part
-}
+#[path = "laptop_stand_api/export.rs"]
+mod export;
+use export::{gate_and_export, write_assembly_preview};
 
 fn main() {
     let out_dir =
