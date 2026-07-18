@@ -21,6 +21,66 @@ pub(crate) fn settle_planned_loop_junction_gaps(
     cycle: &[HalfEdgeHandle],
 ) -> Vec<HalfEdgeHandle> {
     const MAX_BRIDGE: usize = 8;
+    // Direction normalization BEFORE gap bridging: a planned member
+    // recorded in the twin direction (its destination equals the
+    // previous member's end while its origin equals the following
+    // junction) would otherwise be bridged AROUND on both sides with
+    // the same connecting span — the cycle then traverses that span
+    // three times and never closes (measured on cube_mixed strict:
+    // planned loop 5v3, 167-step overrun, both bridges spanning
+    // (0.12,0,0.12)->(0,0.12,0.12)). Substitute the live twin so the
+    // member runs WITH the cycle; genuine pocket junctions keep the
+    // bridge path below.
+    let cycle: Vec<HalfEdgeHandle> = {
+        let mut normalized = cycle.to_vec();
+        for index in 0..normalized.len() {
+            let previous = normalized[(index + normalized.len() - 1) % normalized.len()];
+            let current = normalized[index];
+            let Some(previous_end) = half_edge_destination_vertex(brep, previous) else {
+                continue;
+            };
+            let Some(current_data) = brep.half_edges.get(current) else {
+                continue;
+            };
+            if current_data.origin == previous_end {
+                continue;
+            }
+            let current_end = half_edge_destination_vertex(brep, current);
+            if current_end != Some(previous_end) {
+                continue;
+            }
+            // Double-sided guard: the twin must ALSO restore
+            // contiguity toward the following member — a member that
+            // merely dead-ends on one side is a genuine pocket
+            // junction and belongs to the bridge path below, not to
+            // direction substitution (substituting there regressed
+            // pyramid3_uniform strict from green to a 6/8 seam
+            // census).
+            let following = normalized[(index + 1) % normalized.len()];
+            let following_start = brep
+                .half_edges
+                .get(following)
+                .map(|half_edge| half_edge.origin);
+            if following_start != Some(current_data.origin) {
+                continue;
+            }
+            let twin = current_data.twin;
+            if brep.half_edges.get(twin).is_some() {
+                if crate::direct_apex_trace::enabled() {
+                    eprintln!(
+                        "[junction-settle] member {current:?} reversed against the cycle — \
+                         substituting twin {twin:?}"
+                    );
+                }
+                normalized[index] = twin;
+            }
+        }
+        normalized
+    };
+    let cycle: &[HalfEdgeHandle] = &cycle;
+    // Global claim registry: connecting material claimed by one gap
+    // must not be re-claimed by a later gap of the same cycle.
+    let mut claimed: Vec<HalfEdgeHandle> = Vec::new();
     let mut settled = Vec::with_capacity(cycle.len());
     for (index, &current) in cycle.iter().enumerate() {
         settled.push(current);
@@ -75,7 +135,12 @@ pub(crate) fn settle_planned_loop_junction_gaps(
                     half_edge_destination_vertex(brep, handle).map(|end| (rank, handle, end))
                 })
                 .collect();
-            candidates.sort_by_key(|&(rank, handle, _)| (rank, handle));
+            // Claim preference (not a hard filter): a chain claimed
+            // by an earlier gap is deprioritized so each junction
+            // takes fresh connecting material when any exists, but a
+            // legitimately shared chain still resolves (a hard filter
+            // regressed pyramid3_uniform strict).
+            candidates.sort_by_key(|&(rank, handle, _)| (claimed.contains(&handle), rank, handle));
             // Prefer a candidate landing exactly on the next start.
             if let Some(&(_, handle, _)) = candidates.iter().find(|(_, _, end)| *end == next_start)
             {
@@ -128,6 +193,7 @@ pub(crate) fn settle_planned_loop_junction_gaps(
                             .join("; ")
                     );
                 }
+                claimed.extend(chain.iter().copied());
                 settled.append(&mut chain);
                 break 'bridge;
             }
