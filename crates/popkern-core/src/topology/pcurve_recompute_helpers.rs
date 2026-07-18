@@ -177,3 +177,86 @@ impl BRep {
         }
     }
 }
+
+impl BRep {
+    /// Verdict on an EXISTING pcurve during face recompute: `true` =
+    /// keep it (skip recompute), `false` = it was cleared and must be
+    /// recomputed. `PK_PCURVE_TRACE=1` prints each verdict.
+    ///
+    /// Cleared cases, periodic charts only:
+    /// - degenerate span (~0 UV extent) under a real edge curve —
+    ///   e.g. self-loop circles on a cylinder;
+    /// - STALE IMAGE: a healthy SPAN is not a healthy pcurve — after
+    ///   a surface swap (draft's cylinder→cone) the old chart's
+    ///   pcurve keeps its span but maps off the edge curve, and
+    ///   fix_pcurve_endpoints then snaps its ends to the vertex UV
+    ///   and collapses the rim to zero span. The check is
+    ///   min-distance from the pcurve's midpoint image to SAMPLES of
+    ///   the edge curve (not the fraction-matched point: a healthy
+    ///   pcurve with different parameter speed images ONTO the curve
+    ///   at some other fraction).
+    pub(super) fn keep_or_clear_existing_pcurve(
+        &mut self,
+        heh: crate::topology::HalfEdgeHandle,
+        surface: &crate::geometry::surface::SurfaceGeometry,
+        is_periodic: bool,
+    ) -> bool {
+        use crate::geometry::curve::CurveEval;
+        use crate::geometry::surface::SurfaceEval;
+        let trace = std::env::var_os("PK_PCURVE_TRACE").is_some();
+        let Some(existing) = self.half_edges[heh].pcurve.as_ref() else {
+            return false;
+        };
+        let (t0, t1) = existing.parameter_range();
+        let s = existing.point_at(t0);
+        let e = existing.point_at(t1);
+        if trace {
+            eprintln!(
+                "  [pcurve] {heh:?} existing uv ({:.3},{:.3})->({:.3},{:.3})",
+                s.x, s.y, e.x, e.y
+            );
+        }
+        // Non-periodic self-loops use the 3D trim fallback.
+        if !is_periodic {
+            return true;
+        }
+        let uv_span = ((e.x - s.x).powi(2) + (e.y - s.y).powi(2)).sqrt();
+        let edge_h = self.half_edges[heh].edge;
+        let long_curve = self.edges[edge_h]
+            .curve
+            .as_ref()
+            .is_some_and(|c| (c.t_end - c.t_start).abs() > 1e-6);
+        let image_stale = long_curve && uv_span > 1e-6 && {
+            let mid_uv = existing.point_at(0.5 * (t0 + t1));
+            let on_surface = surface.point_at(mid_uv.x, mid_uv.y);
+            self.edges[edge_h].curve.as_ref().is_some_and(|c| {
+                let gate = self.tolerance.linear().max(1.0e-9) * 10.0;
+                let min_d = (0..=8)
+                    .map(|i| {
+                        let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                        on_surface.distance_to(&c.geometry.point_at(t))
+                    })
+                    .fold(f64::INFINITY, f64::min);
+                min_d > gate
+            })
+        };
+        if (uv_span > 1e-6 && !image_stale) || !long_curve {
+            if trace {
+                eprintln!("  [pcurve] {heh:?} KEPT (span {uv_span:.3e} long {long_curve})");
+            }
+            return true;
+        }
+        if trace {
+            eprintln!(
+                "  [pcurve] {heh:?} cleared ({}), recomputing",
+                if image_stale {
+                    "stale image"
+                } else {
+                    "degenerate span"
+                }
+            );
+        }
+        self.half_edges[heh].pcurve = None;
+        false
+    }
+}

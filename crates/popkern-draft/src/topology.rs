@@ -61,8 +61,19 @@ pub fn apply_draft_topology(
     // Step 2: Recompute vertex positions.
     recompute::recompute_draft_vertices(&mut result, drafted_surfaces, tolerance)?;
 
-    // Step 3: Recompute edge curves.
-    recompute::recompute_draft_edges(&mut result, drafted_surfaces, tolerance)?;
+    // Step 3: Recompute edge curves, then snap their endpoint
+    // vertices onto the new analytic curves (vertex recomputation
+    // only solves plane corners — rim vertices of a drafted
+    // cylinder→cone still sit at the old radius here) and re-derive
+    // parameter ranges from the snapped positions.
+    let recomputed_edges =
+        recompute::recompute_draft_edges(&mut result, drafted_surfaces, tolerance, &mut warnings)?;
+    recompute::snap_vertices_to_recomputed_curves(
+        &mut result,
+        &recomputed_edges,
+        tolerance,
+        &mut warnings,
+    );
 
     // Step 4: Vertex consistency — when a vertex is shared by multiple
     // drafted faces, each face may produce a slightly different position.

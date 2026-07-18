@@ -62,6 +62,21 @@ pub enum DraftWarning {
         /// The clamped angle in radians.
         clamped: f64,
     },
+    /// An edge adjacent to a drafted face kept its ORIGINAL curve
+    /// because the adjacent surface pair has no recompute path yet —
+    /// the curve may no longer lie on the drafted surface.
+    EdgeCurveStale {
+        /// The edge whose curve was kept.
+        edge: popkern_core::topology::EdgeHandle,
+    },
+    /// A vertex adjacent to recomputed edge curves snapped to
+    /// positions that disagree beyond tolerance between curves.
+    VertexSnapDisagreement {
+        /// The vertex in question.
+        vertex: popkern_core::topology::VertexHandle,
+        /// Largest disagreement between per-curve snap targets.
+        deviation: f64,
+    },
 }
 
 #[cfg(test)]

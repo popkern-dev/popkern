@@ -2,13 +2,17 @@
 //!
 //! For each edge between a drafted and an undrafted face (or between two
 //! drafted faces), computes the new edge curve from the intersection of
-//! the two adjacent surfaces.
+//! the two adjacent surfaces. Pairs without a recompute path keep the
+//! original curve and record [`DraftWarning::EdgeCurveStale`] — the
+//! explicit fallback boundary (measured: a drafted cylinder→cone kept
+//! its r-of-cylinder rim circle while the cone flared past it, and the
+//! inconsistent body meshed with 638 cracked seam edges).
 
 use std::collections::HashMap;
 
-use crate::error::DraftError;
+use crate::error::{DraftError, DraftWarning};
 use popkern_core::geometry::Vec3;
-use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
@@ -16,7 +20,8 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 /// Recompute edge curves affected by drafted face surfaces.
 ///
 /// For each edge adjacent to at least one drafted face, computes the new
-/// curve from the intersection of the two adjacent surfaces.
+/// curve from the intersection of the two adjacent surfaces. Returns the
+/// edges whose curves were recomputed (input for the vertex snap pass).
 ///
 /// # Errors
 ///
@@ -25,9 +30,11 @@ pub fn recompute_draft_edges(
     brep: &mut BRep,
     drafted: &HashMap<FaceHandle, SurfaceGeometry>,
     tolerance: &Tolerance,
-) -> Result<(), DraftError> {
+    warnings: &mut Vec<DraftWarning>,
+) -> Result<Vec<EdgeHandle>, DraftError> {
+    let mut recomputed = Vec::new();
     if drafted.is_empty() {
-        return Ok(());
+        return Ok(recomputed);
     }
 
     let edge_handles: Vec<EdgeHandle> = brep.edges.keys().collect();
@@ -75,13 +82,104 @@ pub fn recompute_draft_edges(
             _ => continue,
         };
 
+        // SEAM edge (both half-edges on one face): on a drafted
+        // cone the seam is the apex ruling at the seam azimuth —
+        // azimuth is preserved because the draft moves points
+        // within their meridian plane.
+        if face1 == face2 {
+            if let SurfaceGeometry::Cone {
+                apex,
+                axis,
+                half_angle,
+            } = &surf1
+            {
+                if let Some(curve) = cone_seam_ruling(brep, eh, apex, axis, *half_angle) {
+                    brep.edges[eh].curve = Some(curve);
+                    recomputed.push(eh);
+                } else {
+                    warnings.push(DraftWarning::EdgeCurveStale { edge: eh });
+                }
+            }
+            continue;
+        }
+
         // Compute new edge curve.
-        if let Some(curve_on_edge) = compute_edge_curve(brep, eh, &surf1, &surf2, tolerance)? {
-            brep.edges[eh].curve = Some(curve_on_edge);
+        match compute_edge_curve(brep, eh, &surf1, &surf2, tolerance)? {
+            EdgeCurveOutcome::Recomputed(curve_on_edge) => {
+                brep.edges[eh].curve = Some(curve_on_edge);
+                recomputed.push(eh);
+            }
+            EdgeCurveOutcome::Degenerate => {}
+            EdgeCurveOutcome::UnsupportedPair => {
+                warnings.push(DraftWarning::EdgeCurveStale { edge: eh });
+            }
         }
     }
 
-    Ok(())
+    Ok(recomputed)
+}
+
+/// Outcome of a single edge-curve recompute attempt.
+enum EdgeCurveOutcome {
+    /// A new curve was derived from the adjacent surfaces.
+    Recomputed(CurveOnEdge),
+    /// The pair is degenerate (e.g. parallel planes); the old curve
+    /// is geometrically unaffected and kept without a warning.
+    Degenerate,
+    /// No recompute path exists for this surface pair — the old
+    /// curve is kept and MAY be stale (warned by the caller).
+    UnsupportedPair,
+}
+
+/// The apex ruling of a cone at the seam azimuth of the edge's
+/// current curve. Returns `None` when the edge has no curve to take
+/// the azimuth from.
+fn cone_seam_ruling(
+    brep: &BRep,
+    edge_handle: EdgeHandle,
+    apex: &popkern_core::geometry::Point3,
+    axis: &Vec3,
+    half_angle: f64,
+) -> Option<CurveOnEdge> {
+    let edge = &brep.edges[edge_handle];
+    let old = edge.curve.as_ref()?;
+    // Azimuth and axial station of the old seam's midpoint. The
+    // azimuth and station survive the draft (points move within
+    // their meridian); only the radius changes.
+    let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
+    let sample = old.geometry.point_at(0.5 * (old.t_start + old.t_end));
+    let d = sample - *apex;
+    let phi = d.dot(&p2).atan2(d.dot(&p1));
+    let station = d.dot(axis);
+    if station.abs() <= 0.0 {
+        return None; // sample at the apex — azimuth undefined
+    }
+    // Point of the NEW cone at that station and azimuth; the ruling
+    // is apex → that point. Deriving it from the surface makes the
+    // direction correct for either apex-side convention (draft's
+    // cone need not point its axis toward growing radius).
+    let radial = p1 * phi.cos() + p2 * phi.sin();
+    let on_cone = *apex + *axis * station + radial * (station.abs() * half_angle.tan());
+    let direction = (on_cone - *apex).normalized()?;
+    // Preserve the old parameter direction.
+    let old_dir = old.geometry.point_at(old.t_end) - old.geometry.point_at(old.t_start);
+    let direction = if old_dir.dot(&direction) < 0.0 {
+        direction * -1.0
+    } else {
+        direction
+    };
+    let he = &brep.half_edges[edge.half_edge];
+    let twin = &brep.half_edges[he.twin];
+    let start = brep.vertices[he.origin].position;
+    let end = brep.vertices[twin.origin].position;
+    Some(CurveOnEdge {
+        geometry: CurveGeometry::Line {
+            origin: *apex,
+            direction,
+        },
+        t_start: (start - *apex).dot(&direction),
+        t_end: (end - *apex).dot(&direction),
+    })
 }
 
 /// Get the surface for a face, preferring the drafted version.
@@ -106,7 +204,7 @@ fn compute_edge_curve(
     surf1: &SurfaceGeometry,
     surf2: &SurfaceGeometry,
     tolerance: &Tolerance,
-) -> Result<Option<CurveOnEdge>, DraftError> {
+) -> Result<EdgeCurveOutcome, DraftError> {
     let edge = &brep.edges[edge_handle];
     let he = &brep.half_edges[edge.half_edge];
     let twin = &brep.half_edges[he.twin];
@@ -129,7 +227,7 @@ fn compute_edge_curve(
             let direction = n1.cross(n2);
             let dir_len = direction.length();
             if dir_len < tolerance.solver() {
-                return Ok(None);
+                return Ok(EdgeCurveOutcome::Degenerate);
             }
             let direction = direction * (1.0 / dir_len);
 
@@ -140,7 +238,7 @@ fn compute_edge_curve(
             let t_start = (start_pos - point_on_line).dot(&direction);
             let t_end = (end_pos - point_on_line).dot(&direction);
 
-            Ok(Some(CurveOnEdge {
+            Ok(EdgeCurveOutcome::Recomputed(CurveOnEdge {
                 geometry: CurveGeometry::Line {
                     origin: point_on_line,
                     direction,
@@ -149,10 +247,92 @@ fn compute_edge_curve(
                 t_end,
             }))
         }
-        _ => {
-            // For non-planar surfaces, keep the existing edge curve.
-            Ok(None)
+        (
+            SurfaceGeometry::Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+            SurfaceGeometry::Plane {
+                origin: po,
+                normal: pn,
+                ..
+            },
+        )
+        | (
+            SurfaceGeometry::Plane {
+                origin: po,
+                normal: pn,
+                ..
+            },
+            SurfaceGeometry::Cone {
+                apex,
+                axis,
+                half_angle,
+            },
+        ) => {
+            // Perpendicular case only: plane normal parallel to the
+            // cone axis → the intersection is the exact rim circle
+            // at that axial station. Oblique cone×plane (a conic) has
+            // no recompute path yet.
+            let n = match pn.normalized() {
+                Some(n) => n,
+                None => return Ok(EdgeCurveOutcome::Degenerate),
+            };
+            if n.cross(axis).length() > 1.0e-9 {
+                return Ok(EdgeCurveOutcome::UnsupportedPair);
+            }
+            let denom = axis.dot(&n);
+            if denom.abs() < tolerance.solver() {
+                return Ok(EdgeCurveOutcome::Degenerate);
+            }
+            let t_axis = (*po - *apex).dot(&n) / denom;
+            let radius = t_axis.abs() * half_angle.tan();
+            if radius < tolerance.linear() {
+                return Ok(EdgeCurveOutcome::Degenerate);
+            }
+            let center = *apex + *axis * t_axis;
+            // Preserve the old curve's winding: the Circle evaluator
+            // runs counter-clockwise about its normal, so pick the
+            // normal that keeps the edge's parameter direction.
+            let old_ccw = edge
+                .curve
+                .as_ref()
+                .map(|old| {
+                    let tmid = 0.5 * (old.t_start + old.t_end);
+                    let p = old.geometry.point_at(tmid);
+                    let tangent = old.geometry.derivative_at(tmid, 1);
+                    axis.cross(&(p - center)).dot(&tangent) >= 0.0
+                })
+                .unwrap_or(true);
+            let normal = if old_ccw { *axis } else { *axis * -1.0 };
+            // Anchor the angular range at the origin vertex's
+            // azimuth (azimuth survives the draft; radius does not).
+            let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(normal);
+            let d = start_pos - center;
+            let a0 = d.dot(&p2).atan2(d.dot(&p1));
+            let closed = he.origin == twin.origin;
+            let a1 = if closed {
+                a0 + std::f64::consts::TAU
+            } else {
+                let d_end = end_pos - center;
+                let mut a = d_end.dot(&p2).atan2(d_end.dot(&p1));
+                while a <= a0 {
+                    a += std::f64::consts::TAU;
+                }
+                a
+            };
+            Ok(EdgeCurveOutcome::Recomputed(CurveOnEdge {
+                geometry: CurveGeometry::Circle {
+                    center,
+                    normal,
+                    radius,
+                },
+                t_start: a0,
+                t_end: a1,
+            }))
         }
+        _ => Ok(EdgeCurveOutcome::UnsupportedPair),
     }
 }
 
@@ -218,7 +398,7 @@ mod tests {
     fn recompute_empty_drafted_is_noop() {
         let mut brep = BRep::unit_cube(tol()).unwrap();
         let drafted = HashMap::new();
-        recompute_draft_edges(&mut brep, &drafted, &tol()).unwrap();
+        recompute_draft_edges(&mut brep, &drafted, &tol(), &mut Vec::new()).unwrap();
     }
 
     #[test]
@@ -236,7 +416,7 @@ mod tests {
         let mut drafted = HashMap::new();
         drafted.insert(face, tilted);
 
-        let result = recompute_draft_edges(&mut brep, &drafted, &tol());
+        let result = recompute_draft_edges(&mut brep, &drafted, &tol(), &mut Vec::new());
         assert!(result.is_ok());
     }
 

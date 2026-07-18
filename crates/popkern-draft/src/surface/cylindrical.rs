@@ -23,7 +23,7 @@ pub fn draft_cylindrical(
     neutral: &NeutralLine,
     angle: f64,
 ) -> Result<SurfaceGeometry, DraftError> {
-    let (_origin, axis, radius) = match surface {
+    let (origin, axis, radius) = match surface {
         SurfaceGeometry::Cylinder {
             origin,
             axis,
@@ -52,14 +52,21 @@ pub fn draft_cylindrical(
         .normalized()
         .ok_or_else(|| DraftError::InvalidFace("cylinder axis is zero".into()))?;
 
-    // Apex distance from the neutral line origin along the axis.
+    // Apex distance from the neutral station along the axis.
     let apex_distance = radius / tan_a;
 
     // Determine direction toward the shrinking end.
     // If angle > 0, the cone narrows in the positive axis direction.
     let apex_dir = if angle > 0.0 { axis_norm } else { -axis_norm };
 
-    let apex = neutral.origin + apex_dir * apex_distance;
+    // The apex sits ON THE CYLINDER AXIS at the neutral line's axial
+    // station — the cone must contain the neutral circle unchanged.
+    // neutral.origin is a point on the WALL (the neutral line lies in
+    // the face), so project it onto the axis first; offsetting from
+    // the wall point directly produces an off-axis apex whose cone
+    // misses the whole neutral circle (measured: apex x = −r).
+    let axis_pt = origin + axis_norm * (neutral.origin - origin).dot(&axis_norm);
+    let apex = axis_pt + apex_dir * apex_distance;
 
     // The cone axis points away from the apex into the body.
     let cone_axis = if angle > 0.0 { -axis_norm } else { axis_norm };

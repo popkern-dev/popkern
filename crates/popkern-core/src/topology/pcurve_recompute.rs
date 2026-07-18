@@ -65,26 +65,13 @@ impl BRep {
         };
 
         for heh in he_handles {
-            if let Some(ref existing) = self.half_edges[heh].pcurve {
-                // On periodic surfaces, clear degenerate pcurves (UV span ~0
-                // but edge has a real curve) — e.g. self-loop circles on
-                // a cylinder. Non-periodic self-loops use 3D trim fallback.
-                if !is_periodic {
-                    continue;
-                }
-                let (t0, t1) = existing.parameter_range();
-                let s = existing.point_at(t0);
-                let e = existing.point_at(t1);
-                let uv_span = ((e.x - s.x).powi(2) + (e.y - s.y).powi(2)).sqrt();
-                let edge_h = self.half_edges[heh].edge;
-                let long_curve = self.edges[edge_h]
-                    .curve
-                    .as_ref()
-                    .is_some_and(|c| (c.t_end - c.t_start).abs() > 1e-6);
-                if uv_span > 1e-6 || !long_curve {
-                    continue;
-                }
-                self.half_edges[heh].pcurve = None;
+            // Existing pcurves are kept UNLESS degenerate or
+            // stale-imaged — see keep_or_clear_existing_pcurve for
+            // the verdict (and PK_PCURVE_TRACE for its trace).
+            if self.half_edges[heh].pcurve.is_some()
+                && self.keep_or_clear_existing_pcurve(heh, &surface, is_periodic)
+            {
+                continue;
             }
 
             let he_origin_pos = self.vertices[self.half_edges[heh].origin].position;
@@ -222,6 +209,39 @@ impl BRep {
                     Some(uv) => uv,
                     None => continue,
                 };
+                // A CLOSED edge on a u-periodic surface must sweep a
+                // full period in UV: both endpoints project to the
+                // same u, and walks pinned to equal endpoint seeds
+                // collapse the rim to a zero-span pcurve (measured:
+                // drafted-cone rims at (2π,v)→(2π,v), the mesher then
+                // drops the cone side of both rims — ~640 cracked
+                // weld edges on an otherwise exact frustum). Unwrap
+                // the destination seed by ±period, direction taken
+                // from an early interior sample; the unwrapped u must
+                // NOT be clamped back into the base period.
+                let closed_edge = he_origin_pos.distance_to(&he_dest_pos) < 1e-9;
+                let period_unwrapped =
+                    closed_edge && (t_hi - t_lo).abs() > 1e-9 && surface.periodicity().0.is_some();
+                let (u_e, v_e) = if period_unwrapped {
+                    let period = surface.periodicity().0.unwrap_or(std::f64::consts::TAU);
+                    let t_probe = t_lo + (t_hi - t_lo) / 16.0;
+                    let p_probe = curve_on_edge.geometry.point_at(t_probe);
+                    match project_point_to_uv(&surface, &p_probe) {
+                        Some((u_probe, _)) => {
+                            let mut du = u_probe - u_s;
+                            while du > period / 2.0 {
+                                du -= period;
+                            }
+                            while du < -period / 2.0 {
+                                du += period;
+                            }
+                            (u_s + period * du.signum(), v_e)
+                        }
+                        None => (u_e, v_e),
+                    }
+                } else {
+                    (u_e, v_e)
+                };
                 // A degree-1 pcurve is uniform-speed in UV, so the
                 // shortcut is only exact when the curve's
                 // PARAMETERIZATION maps uniformly onto the UV line —
@@ -237,6 +257,23 @@ impl BRep {
                     match project_point_to_uv(&surface, &p) {
                         Some((u, v)) => {
                             let expected_u = u_s + (u_e - u_s) * fraction;
+                            // Compare u on the expected branch: raw
+                            // projections live in the base period,
+                            // while an unwrapped sweep walks out of it.
+                            let u = if period_unwrapped {
+                                let period =
+                                    surface.periodicity().0.unwrap_or(std::f64::consts::TAU);
+                                let mut u = u;
+                                while u - expected_u > period / 2.0 {
+                                    u -= period;
+                                }
+                                while u - expected_u < -period / 2.0 {
+                                    u += period;
+                                }
+                                u
+                            } else {
+                                u
+                            };
                             let expected_v = v_s + (v_e - v_s) * fraction;
                             let deviation =
                                 ((u - expected_u).powi(2) + (v - expected_v).powi(2)).sqrt();
@@ -248,20 +285,22 @@ impl BRep {
 
                 if uv_linear {
                     // UV path is linear -- exact degree-1 pcurve.
+                    // Periodic-unwrapped u endpoints stay unclamped —
+                    // clamping would fold the full-period sweep back
+                    // onto a zero-span line.
+                    let clamp_u = |val: f64| {
+                        if period_unwrapped {
+                            val
+                        } else {
+                            clamp_if_finite(val, u_min, u_max)
+                        }
+                    };
                     NurbsCurve {
                         degree: 1,
                         knots: vec![0.0, 0.0, 1.0, 1.0],
                         control_points: vec![
-                            Point3::new(
-                                clamp_if_finite(u_s, u_min, u_max),
-                                clamp_if_finite(v_s, v_min, v_max),
-                                0.0,
-                            ),
-                            Point3::new(
-                                clamp_if_finite(u_e, u_min, u_max),
-                                clamp_if_finite(v_e, v_min, v_max),
-                                0.0,
-                            ),
+                            Point3::new(clamp_u(u_s), clamp_if_finite(v_s, v_min, v_max), 0.0),
+                            Point3::new(clamp_u(u_e), clamp_if_finite(v_e, v_min, v_max), 0.0),
                         ],
                         weights: vec![1.0, 1.0],
                     }
