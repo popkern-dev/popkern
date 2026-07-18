@@ -627,16 +627,18 @@ fn build_arm_shape(
                 (1.0, 4.5),
                 (-2.0, 4.5),
             ])
-            .extrude(44.0)?
+            .extrude(52.0)?
             .rotate_y(90.0_f64.to_radians())?
             .rotate_x(tilt)?
-            .translate(-22.0, 0.0, 0.0)?
+            .translate(-26.0, 0.0, 0.0)?
             .rotate_z(-w)?
             .translate(
                 0.0,
                 -(p.arm_len - 16.0),
                 plane_at_root - (p.arm_len - 16.0) * w.cos() * tilt.tan(),
             )?;
+        // 52-long cutter: the yawed slot's crown corner reaches only
+        // 22cos(fan)−7sin(fan) ≈ 20.06 at 44 — a 0.06 mm wall graze.
         arm = arm.subtract(&slot)?;
     }
     // Relieve the tab below the block's socket floor so the arm
@@ -857,10 +859,10 @@ fn build_arm_tip(p: &StandParams, side: f64) -> Result<Part, PartError> {
             (1.0, 4.5),
             (-2.0, 4.5),
         ])
-        .extrude(44.0)?
+        .extrude(52.0)?
         .rotate_y(90.0_f64.to_radians())?
         .rotate_x(tilt)?
-        .translate(-22.0, 0.0, 0.0)?
+        .translate(-26.0, 0.0, 0.0)?
         .rotate_z(-w)?
         .translate(
             0.0,
