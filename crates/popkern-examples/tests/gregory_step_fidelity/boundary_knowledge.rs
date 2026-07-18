@@ -16,6 +16,18 @@ fn gregory_surface_boundary_knowledge_classifies_remaining_blockers() {
     // Dropped 14 -> 9 with PK-125 (ribbon orientation continuity +
     // corner-compatible spokes): five pcurve-residual blockers on the
     // cap seams resolved outright.
+    //
+    // The remaining 9 ROOT-CAUSED (PK-132, 2026-07-18): each is a
+    // CUBE-EDGE STUB between two different-radius fillet setbacks
+    // whose loop wires the stub to the fillet CYLINDER face — and the
+    // cube edge lies exactly (√2−1)·r off that cylinder (measured
+    // 0.0331/0.0414/0.0497 = (√2−1)·{0.08,0.10,0.12}, the axis sits
+    // r√2 from the edge). No pcurve can trace a curve that is not on
+    // the surface, so no authoring or recompute pass can close these
+    // (measured: image-aware recompute clears and rebuilds the
+    // pcurves, count stays 9). The fix is CONSTRUCTION: mixed-radius
+    // corner transition geometry (the stub must border a transition
+    // patch or a properly trimmed neighbor, never the cylinder).
     assert_eq!(
         ownership.blockers, 9,
         "exact-boundary Gregory construction should expose the current structured fidelity blocker class: {ownership:#?}"
