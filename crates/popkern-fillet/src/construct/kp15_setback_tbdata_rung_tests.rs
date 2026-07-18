@@ -85,29 +85,24 @@ fn tbdata_rung_commits_on_pentagon5_uniform() {
     }
 }
 
+/// PIN → GATE (PK-131, flipped 2026-07-18): the TBdata rung COMMITS
+/// six unfolded patches on the skew-corner variable-radius hexagon.
+/// The pin originally accepted a fold-descent/eq-gates decline as the
+/// measured all-or-nothing outcome; the PK-087/PK-090 fold-descent
+/// hardening (damped rim LSQ, outlier repair-not-drop, seam-curve
+/// refresh) closed it silently — the either-way pin masked the win.
+/// A decline is a regression now.
 #[test]
 fn tbdata_rung_outcome_is_pinned_on_hexagon6_variable() {
     let (fillet_surfaces, apex) = fixture(6, 0.8, &[0.02, 0.04, 0.06, 0.06, 0.04, 0.02]);
     let corners = extractor_corners(&fillet_surfaces, apex);
-    match try_kp15_setback_tbdata_rung(apex, &corners, &fillet_surfaces) {
-        Ok(patches) => {
-            assert_eq!(patches.len(), 6);
-            for (i, p) in patches.iter().enumerate() {
-                assert!(
-                    !p.self_intersects_with_tolerance(SELF_INT_TOL),
-                    "patch {i} folded"
-                );
-            }
-        }
-        Err(reason) => {
-            // A decline is acceptable only as the measured all-or-
-            // nothing outcome (fold descent exhausted or eq gates on
-            // this fixture's skew-corner input) — never a wiring error.
-            assert!(
-                reason.contains("fold") || reason.contains("eq gates"),
-                "unexpected decline class: {reason}"
-            );
-            eprintln!("[tbdata-rung] hexagon6_variable declined (pinned): {reason}");
-        }
+    let patches = try_kp15_setback_tbdata_rung(apex, &corners, &fillet_surfaces)
+        .expect("TBdata rung must commit on hexagon6_variable (PK-131 flipped pin)");
+    assert_eq!(patches.len(), 6);
+    for (i, p) in patches.iter().enumerate() {
+        assert!(
+            !p.self_intersects_with_tolerance(SELF_INT_TOL),
+            "patch {i} folded"
+        );
     }
 }
