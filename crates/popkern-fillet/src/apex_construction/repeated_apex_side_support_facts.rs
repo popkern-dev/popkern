@@ -49,9 +49,19 @@ pub(super) enum EndpointRegionMembership {
         half_edge: HalfEdgeHandle,
     },
     Ambiguous {
-        containing_loop_count: usize,
+        /// The competing loop memberships, so refusals name their
+        /// operands (a bare count hides which loops tied).
+        memberships: Vec<AmbiguousLoopMembership>,
     },
     Unknown,
+}
+
+/// One competing loop occurrence behind an `Ambiguous` membership.
+#[derive(Clone, Debug)]
+pub(super) struct AmbiguousLoopMembership {
+    pub(super) face: FaceHandle,
+    pub(super) loop_handle: LoopHandle,
+    pub(super) half_edge: HalfEdgeHandle,
 }
 
 impl SideSupportRegionFacts {
@@ -82,24 +92,28 @@ impl SideSupportRegionFacts {
                 let support_family = support_families
                     .iter()
                     .find(|family| family.support_face() == support_face)?;
+                let start_membership = endpoint_region_membership(
+                    knowledge,
+                    support_family,
+                    trim.cylinder_face,
+                    trim.start,
+                );
+                let end_membership = endpoint_region_membership(
+                    knowledge,
+                    support_family,
+                    trim.cylinder_face,
+                    trim.end,
+                );
+                let (start_membership, end_membership) =
+                    resolve_ambiguous_pair(support_family, start_membership, end_membership);
                 Some(SideSupportTrimEndpointFacts {
                     fillet_index: trim.fillet_index,
                     cylinder_face: trim.cylinder_face,
                     support_face,
                     start: trim.start,
                     end: trim.end,
-                    start_membership: endpoint_region_membership(
-                        knowledge,
-                        support_family,
-                        trim.cylinder_face,
-                        trim.start,
-                    ),
-                    end_membership: endpoint_region_membership(
-                        knowledge,
-                        support_family,
-                        trim.cylinder_face,
-                        trim.end,
-                    ),
+                    start_membership,
+                    end_membership,
                 })
             })
             .collect();
@@ -252,14 +266,97 @@ impl EndpointRegionMembership {
             } => {
                 format!("outside-support-family({face:?}/{loop_handle:?}@{half_edge:?})")
             }
-            EndpointRegionMembership::Ambiguous {
-                containing_loop_count,
-            } => {
-                format!("ambiguous({containing_loop_count} loops)")
+            EndpointRegionMembership::Ambiguous { memberships } => {
+                format!(
+                    "ambiguous({} loops: {})",
+                    memberships.len(),
+                    memberships
+                        .iter()
+                        .map(|m| format!("{:?}/{:?}@{:?}", m.face, m.loop_handle, m.half_edge))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
             }
             EndpointRegionMembership::Unknown => "unknown".to_string(),
         }
     }
+}
+
+/// Joint disambiguation for a trim's endpoint pair. A side-support
+/// continuation runs along ONE loop interval between its endpoints,
+/// so an endpoint whose vertex sits on several loops (a generator
+/// endpoint landing where the outside face meets a NEIGHBOUR
+/// fillet's cylinder — the cube_extreme multi-outside-owner shape)
+/// resolves to the loop it shares with its partner endpoint: first
+/// by loop handle, then by face. A pair with no witnessed shared
+/// loop stays `Ambiguous` — the refusal now names the competing
+/// operands instead of a bare count.
+fn resolve_ambiguous_pair(
+    support_family: &SideSupportFamilyFacts,
+    start: EndpointRegionMembership,
+    end: EndpointRegionMembership,
+) -> (EndpointRegionMembership, EndpointRegionMembership) {
+    fn resolved_identity(m: &EndpointRegionMembership) -> Option<(FaceHandle, LoopHandle)> {
+        match m {
+            EndpointRegionMembership::SameSupportLoop {
+                face, loop_handle, ..
+            }
+            | EndpointRegionMembership::OutsideSupportFamily {
+                face, loop_handle, ..
+            } => Some((*face, *loop_handle)),
+            _ => None,
+        }
+    }
+    fn pick(
+        support_family: &SideSupportFamilyFacts,
+        candidates: &[AmbiguousLoopMembership],
+        partner: (FaceHandle, LoopHandle),
+    ) -> Option<EndpointRegionMembership> {
+        let matched: Vec<&AmbiguousLoopMembership> = {
+            let by_loop: Vec<_> = candidates
+                .iter()
+                .filter(|c| c.loop_handle == partner.1)
+                .collect();
+            if by_loop.is_empty() {
+                candidates.iter().filter(|c| c.face == partner.0).collect()
+            } else {
+                by_loop
+            }
+        };
+        let [winner] = matched.as_slice() else {
+            return None;
+        };
+        Some(if support_family.contains_face(winner.face) {
+            EndpointRegionMembership::SameSupportLoop {
+                face: winner.face,
+                loop_handle: winner.loop_handle,
+                half_edge: winner.half_edge,
+            }
+        } else {
+            EndpointRegionMembership::OutsideSupportFamily {
+                face: winner.face,
+                loop_handle: winner.loop_handle,
+                half_edge: winner.half_edge,
+            }
+        })
+    }
+    let start = if let EndpointRegionMembership::Ambiguous { memberships } = &start
+        && let Some(partner) = resolved_identity(&end)
+        && let Some(resolved) = pick(support_family, memberships, partner)
+    {
+        resolved
+    } else {
+        start
+    };
+    let end = if let EndpointRegionMembership::Ambiguous { memberships } = &end
+        && let Some(partner) = resolved_identity(&start)
+        && let Some(resolved) = pick(support_family, memberships, partner)
+    {
+        resolved
+    } else {
+        end
+    };
+    (start, end)
 }
 
 fn endpoint_region_membership(
@@ -286,7 +383,14 @@ fn endpoint_region_membership(
     }
     if support_memberships.len() > 1 {
         return EndpointRegionMembership::Ambiguous {
-            containing_loop_count: support_memberships.len(),
+            memberships: support_memberships
+                .iter()
+                .map(|m| AmbiguousLoopMembership {
+                    face: m.face(),
+                    loop_handle: m.loop_handle(),
+                    half_edge: m.half_edge(),
+                })
+                .collect(),
         };
     }
     if let Some(loop_membership) = membership
@@ -311,7 +415,15 @@ fn endpoint_region_membership(
         }
     } else {
         EndpointRegionMembership::Ambiguous {
-            containing_loop_count: membership.containing_loops().len(),
+            memberships: membership
+                .containing_loops()
+                .iter()
+                .map(|m| AmbiguousLoopMembership {
+                    face: m.face(),
+                    loop_handle: m.loop_handle(),
+                    half_edge: m.half_edge(),
+                })
+                .collect(),
         }
     }
 }
