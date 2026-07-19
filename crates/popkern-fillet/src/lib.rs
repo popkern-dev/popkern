@@ -397,6 +397,24 @@ fn fillet_edges_internal(
             &mut apply_result.brep,
             &tolerance,
         );
+    // PK-139: co-parameterize swept-strip rails whose pcurves diverge
+    // from the rail curves at the same fraction (curved variable
+    // rails; the imprecision-scaled stale gate cannot serve them).
+    {
+        let pre_faces: std::collections::HashSet<popkern_core::topology::FaceHandle> =
+            brep.faces.keys().collect();
+        let created: Vec<popkern_core::topology::FaceHandle> = apply_result
+            .brep
+            .faces
+            .keys()
+            .filter(|f| !pre_faces.contains(f))
+            .collect();
+        let _ = construct::strip_rail_coparameterization::coparameterize_strip_rails(
+            &mut apply_result.brep,
+            &created,
+            &tolerance,
+        );
+    }
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,

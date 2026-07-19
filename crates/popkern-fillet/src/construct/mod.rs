@@ -102,6 +102,7 @@ mod sphere_fit_edge_wire;
 mod sphere_fit_edge_wire_cap_identity;
 mod strip_end_arcs;
 mod strip_end_surface;
+pub(crate) mod strip_rail_coparameterization;
 mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 mod terminal_arc_author;
