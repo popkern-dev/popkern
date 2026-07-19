@@ -94,6 +94,29 @@ pub enum FilletRadius {
     ByPoints(Vec<(f64, f64)>),
 }
 
+impl FilletRadius {
+    /// Canonical form of the law: a profile whose value is constant
+    /// along the edge IS a constant law. `Variable` with equal ends
+    /// and `ByPoints` with a single value collapse to `Constant`, so
+    /// identical geometry always takes the identical pipeline (the
+    /// analytic cylinder strip and its corner settlements) regardless
+    /// of how the law was spelled. Exact value equality only — a law
+    /// with any real variation is preserved bit-for-bit, so this
+    /// carries no tolerance semantics.
+    pub fn canonical(&self) -> FilletRadius {
+        match self {
+            FilletRadius::Constant(r) => FilletRadius::Constant(*r),
+            FilletRadius::Variable { start, end } if start == end => FilletRadius::Constant(*start),
+            FilletRadius::ByPoints(points)
+                if !points.is_empty() && points.iter().all(|(_, v)| *v == points[0].1) =>
+            {
+                FilletRadius::Constant(points[0].1)
+            }
+            other => other.clone(),
+        }
+    }
+}
+
 impl From<f64> for FilletRadius {
     /// Convenience: a bare `f64` becomes a constant-radius profile.
     /// Lets `modify_fillet_radius(brep, face, 0.2, tol)` and

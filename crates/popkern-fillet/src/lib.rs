@@ -177,6 +177,21 @@ fn fillet_edges_internal(
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
 
+    // Canonicalize radius laws AFTER validation (errors report the
+    // user's spelling): a constant-valued Variable/ByPoints law is a
+    // constant law and must take the analytic cylinder pipeline —
+    // the swept-NURBS spelling of the same geometry shipped open
+    // pair corners (57 welded) because every corner settlement
+    // rightly recognizes cylinder strips only.
+    let specs: Vec<FilletSpec> = specs
+        .iter()
+        .map(|spec| FilletSpec {
+            edge: spec.edge,
+            radius: spec.radius.canonical(),
+        })
+        .collect();
+    let specs = specs.as_slice();
+
     // §13.4 soft-supports: shadow-relax tolerance for low-precision input.
     let (tolerance, soft_warn) = options.relax_tolerance(tolerance);
     let mut prepass_warnings: Vec<BlendWarning> = soft_warn.into_iter().collect();

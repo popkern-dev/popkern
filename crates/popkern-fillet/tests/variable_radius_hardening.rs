@@ -169,11 +169,13 @@ fn overflow_law_declines_structured() {
 /// two edges meeting at a cube corner, each variable, sharing the
 /// corner value — the corner must accept (mixed-radius cap dispatch
 /// receives per-edge endpoint radii, not spec averages).
+/// A constant-valued Variable law canonicalizes to Constant at the
+/// fillet entry, so these strips are analytic cylinders and the pair
+/// corner closes through the blend-seam-corner settlement (formerly
+/// 57 welded opens: the swept-NURBS spelling of the same geometry
+/// bypassed every corner settlement). Genuinely varying laws at
+/// corners remain the PK-143 vertex-blend re-dispatch design.
 #[test]
-#[ignore = "PK-152 stage 2: the blend-seam-corner settlement closes constant-radius pair corners \
-            (cylinder×cylinder analytic bisector-plane seam, see blend_seam_corner_matrix) but \
-            these swept NURBS strips need the marching intersector (57 welded opens, recognizer \
-            correctly silent on non-cylinder strips); flip when the swept-strip seam lands"]
 fn variable_ends_feed_corner_with_endpoint_radius() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     // Find two edges sharing a vertex.
