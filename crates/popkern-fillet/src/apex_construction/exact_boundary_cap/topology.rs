@@ -158,8 +158,8 @@ fn materialize_validated_sector_topology(
     });
     let mut spoke_edges = Vec::with_capacity(sectors.len());
     let mut spoke_half_edges = Vec::with_capacity(sectors.len());
-    for sector in &spokes.sectors {
-        let vertex = vertex_for_spoke_anchor(brep, sector)?;
+    for (index, sector) in spokes.sectors.iter().enumerate() {
+        let vertex = vertex_for_spoke_anchor(brep, sectors, index, sector)?;
         let (edge, anchor_to_pole, pole_to_anchor) =
             insert_unwired_edge_pair(brep, vertex, pole_vertex);
         brep.edges[edge].role = TopologyRole::Production;
@@ -232,15 +232,53 @@ fn materialize_validated_sector_topology(
     })
 }
 
+/// Resolve the anchor vertex for the generated spoke between sector
+/// `index` and its successor.
+///
+/// The anchor is resolved TOPOLOGICALLY first: the junction vertex
+/// where the sector's outer boundary ends (destination of its last
+/// outer half-edge) or begins, whichever coincides with the prepared
+/// spoke anchor position. The pure nearest-position scan is only a
+/// last resort because it cannot distinguish coincident duplicate
+/// vertices: at the N = 3 uniform trihedral corner the planned
+/// FaceEdge arcs are zero-length, so T-vertices arrive as coincident
+/// pairs and the positional pick anchored spokes to an off-cycle
+/// duplicate — the resulting sector-cycle junction gaps were then
+/// "settled" by stealing the retired apex-cell spur into the cap
+/// sector (measured on pyramid3_uniform strict: sector face misfit
+/// 1.7e-1 at the retired corner, 6/8 seam census).
 fn vertex_for_spoke_anchor(
     brep: &BRep,
-    sector: &PreparedExactBoundarySectorBoundary,
+    sectors: &[ExactBoundaryCapSectorInput],
+    index: usize,
+    boundary: &PreparedExactBoundarySectorBoundary,
 ) -> Result<VertexHandle, ExactBoundaryTopologyDiagnostic> {
     let tolerance = brep.tolerance.linear().max(1.0e-7);
+    let anchor = boundary.face_inner_spoke.anchor;
+    let on_anchor = |vertex: VertexHandle| {
+        brep.vertices
+            .get(vertex)
+            .is_some_and(|data| data.position.distance_to(&anchor) <= tolerance)
+    };
+    if let Some(outer) = sectors
+        .get(index)
+        .and_then(|sector| sector_outer_half_edges(brep, sector))
+    {
+        let end = half_edge_destination_vertex(brep, outer[1]);
+        let start = brep
+            .half_edges
+            .get(outer[0])
+            .map(|half_edge| half_edge.origin);
+        for candidate in [end, start].into_iter().flatten() {
+            if on_anchor(candidate) {
+                return Ok(candidate);
+            }
+        }
+    }
     brep.vertices
         .iter()
         .filter_map(|(vertex, data)| {
-            let distance = data.position.distance_to(&sector.face_inner_spoke.anchor);
+            let distance = data.position.distance_to(&anchor);
             (distance <= tolerance).then_some((vertex, distance))
         })
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
@@ -248,10 +286,29 @@ fn vertex_for_spoke_anchor(
         .ok_or_else(|| {
             ExactBoundaryTopologyDiagnostic::new(
                 ExactBoundaryTopologyDeclineReason::SpokeAnchorVertexMissing,
-                Some(sector.sector_name.clone()),
+                Some(boundary.sector_name.clone()),
                 None,
             )
         })
+}
+
+/// The sector's two cap-side outer half-edges in loop order, or `None`
+/// when they are stale or not consecutive.
+fn sector_outer_half_edges(
+    brep: &BRep,
+    sector: &ExactBoundaryCapSectorInput,
+) -> Option<[HalfEdgeHandle; 2]> {
+    let fillet = sector.cap_half_edges[0];
+    let face = sector.cap_half_edges[1];
+    let fillet_data = brep.half_edges.get(fillet)?;
+    let face_data = brep.half_edges.get(face)?;
+    if fillet_data.next == face {
+        Some([fillet, face])
+    } else if face_data.next == fillet {
+        Some([face, fillet])
+    } else {
+        None
+    }
 }
 
 fn sector_cycle(
@@ -260,33 +317,13 @@ fn sector_cycle(
     previous_spoke: (HalfEdgeHandle, HalfEdgeHandle),
     current_spoke: (HalfEdgeHandle, HalfEdgeHandle),
 ) -> Result<Vec<HalfEdgeHandle>, ExactBoundaryTopologyDiagnostic> {
-    let fillet = sector.cap_half_edges[0];
-    let face = sector.cap_half_edges[1];
-    let fillet_data = brep.half_edges.get(fillet).ok_or_else(|| {
+    let outer_half_edges = sector_outer_half_edges(brep, sector).ok_or_else(|| {
         ExactBoundaryTopologyDiagnostic::new(
             ExactBoundaryTopologyDeclineReason::OuterHalfEdgesNotConsecutive,
             Some(sector.sector_name.clone()),
             None,
         )
     })?;
-    let face_data = brep.half_edges.get(face).ok_or_else(|| {
-        ExactBoundaryTopologyDiagnostic::new(
-            ExactBoundaryTopologyDeclineReason::OuterHalfEdgesNotConsecutive,
-            Some(sector.sector_name.clone()),
-            None,
-        )
-    })?;
-    let outer_half_edges = if fillet_data.next == face {
-        [fillet, face]
-    } else if face_data.next == fillet {
-        [face, fillet]
-    } else {
-        return Err(ExactBoundaryTopologyDiagnostic::new(
-            ExactBoundaryTopologyDeclineReason::OuterHalfEdgesNotConsecutive,
-            Some(sector.sector_name.clone()),
-            None,
-        ));
-    };
     sector_cycle_from_endpoints(brep, outer_half_edges, previous_spoke, current_spoke).ok_or_else(
         || {
             ExactBoundaryTopologyDiagnostic::new(
