@@ -90,28 +90,31 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             &topology_plans,
             include_selected_nonmaterialized,
         )?;
-        validate_cylinder_trim_rewrite_topology_preflight(CylinderTrimRewritePreflight {
-            brep,
-            cap_face,
-            face_edges,
-            rebuild_plans: &rebuild_plans,
-            topology_plans: &topology_plans,
-            subcomplex_plan: &subcomplex_plan,
-            include_selected_nonmaterialized,
-            require_v_free_repeated_apex,
-        })?;
+        let default_preflight =
+            validate_cylinder_trim_rewrite_topology_preflight(CylinderTrimRewritePreflight {
+                brep,
+                cap_face,
+                face_edges,
+                rebuild_plans: &rebuild_plans,
+                topology_plans: &topology_plans,
+                subcomplex_plan: &subcomplex_plan,
+                include_selected_nonmaterialized,
+                require_v_free_repeated_apex,
+            });
         // Side-support bridge connectors twin the CURRENT cylinder
-        // winding, so a fillet end whose BOTH generator spans have
-        // opposing reserved bridge spans must be planned with that
-        // winding BEFORE anything applies — the fully-reversed
-        // Reauthored loop co-directs with every connector and
-        // nothing can twin (measured: cube_mixed strict seam census
-        // 3/6). Ends the continuation does NOT cover (the
-        // CrossOutsideOwners gap, e.g. cube_extreme FilletEnd[0])
-        // keep the Reauthored path — their claims miss either way
-        // and only that path's patch fallback completes. Probe the
-        // decision on a clone: the continuation's apply path is its
-        // own readiness authority.
+        // winding, so a fillet end with ANY opposing reserved bridge
+        // span must be planned with that winding BEFORE anything
+        // applies — under the fully-reversed Reauthored loop the
+        // reserved span co-directs with the planned generator and
+        // cannot twin (measured: cube_mixed strict seam census 3/6
+        // when no end flipped; cube_extreme support 13v1 chain
+        // 28->23 vs 28->24 when FilletEnd[2] kept Reauthored while
+        // its (22,25) connector was reserved). Spans without a
+        // reserved connector author through the mef/patch path,
+        // which works in either winding. Ends with NO reserved
+        // spans keep the default Reauthored path. Probe the
+        // decision on a clone: the continuation's apply path is
+        // its own readiness authority.
         let probe_bridge_spans: Vec<(VertexHandle, VertexHandle)> = {
             let mut probe = brep.clone();
             match apply_selected_side_support_continuation(&mut probe, &subcomplex_plan) {
@@ -124,60 +127,88 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             .map(|plan| {
                 plan.current_winding_generator_spans()
                     .iter()
-                    .all(|(start, end)| probe_bridge_spans.contains(&(*end, *start)))
+                    .any(|(start, end)| probe_bridge_spans.contains(&(*end, *start)))
             })
             .collect();
+        // The default (Reauthored-winding) preflight is advisory when a
+        // replan is available: a first-preflight failure with reserved
+        // connector spans is exactly the mixed-winding defect the
+        // replan repairs, so the transaction must not abort before
+        // trying it. Without a replan trigger the default preflight
+        // failure is final.
         let (topology_plans, subcomplex_plan, include_selected_nonmaterialized) =
             if !prefer_current_winding.iter().any(|prefer| *prefer) {
+                default_preflight?;
                 (
                     topology_plans,
                     subcomplex_plan,
                     include_selected_nonmaterialized,
                 )
             } else {
-                let topology_plans = rebuild_plans
-                    .iter()
-                    .zip(&prefer_current_winding)
-                    .map(|(plan, prefer)| {
-                        plan.plan_cylinder_trim_rewrite_topology_with_winding(brep, *prefer)
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let (include_selected_nonmaterialized, replanned_diagnostics) =
-                    if require_v_free_repeated_apex {
-                        selected_far_side_trim_materialization_preflight(
+                let replanned = (|| -> Result<_, ApexBuildError> {
+                    let topology_plans = rebuild_plans
+                        .iter()
+                        .zip(&prefer_current_winding)
+                        .map(|(plan, prefer)| {
+                            plan.plan_cylinder_trim_rewrite_topology_with_winding(brep, *prefer)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let (include_selected_nonmaterialized, replanned_diagnostics) =
+                        if require_v_free_repeated_apex {
+                            selected_far_side_trim_materialization_preflight(
+                                brep,
+                                cap_face,
+                                face_edges,
+                                &rebuild_plans,
+                                &topology_plans,
+                            )
+                        } else {
+                            (false, Vec::new())
+                        };
+                    let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
+                        brep,
+                        cap_face,
+                        face_edges,
+                        &rebuild_plans,
+                        &topology_plans,
+                        include_selected_nonmaterialized,
+                    )?;
+                    validate_cylinder_trim_rewrite_topology_preflight(
+                        CylinderTrimRewritePreflight {
                             brep,
                             cap_face,
                             face_edges,
-                            &rebuild_plans,
-                            &topology_plans,
-                        )
-                    } else {
-                        (false, Vec::new())
-                    };
-                diagnostics.extend(replanned_diagnostics);
-                let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
-                    brep,
-                    cap_face,
-                    face_edges,
-                    &rebuild_plans,
-                    &topology_plans,
-                    include_selected_nonmaterialized,
-                )?;
-                validate_cylinder_trim_rewrite_topology_preflight(CylinderTrimRewritePreflight {
-                    brep,
-                    cap_face,
-                    face_edges,
-                    rebuild_plans: &rebuild_plans,
-                    topology_plans: &topology_plans,
-                    subcomplex_plan: &subcomplex_plan,
-                    include_selected_nonmaterialized,
-                    require_v_free_repeated_apex,
-                })?;
-                (
-                    topology_plans,
-                    subcomplex_plan,
-                    include_selected_nonmaterialized,
-                )
+                            rebuild_plans: &rebuild_plans,
+                            topology_plans: &topology_plans,
+                            subcomplex_plan: &subcomplex_plan,
+                            include_selected_nonmaterialized,
+                            require_v_free_repeated_apex,
+                        },
+                    )?;
+                    Ok((
+                        topology_plans,
+                        subcomplex_plan,
+                        include_selected_nonmaterialized,
+                        replanned_diagnostics,
+                    ))
+                })();
+                match (replanned, default_preflight) {
+                    (Ok((plans, subcomplex, include, replanned_diagnostics)), _) => {
+                        diagnostics.extend(replanned_diagnostics);
+                        (plans, subcomplex, include)
+                    }
+                    // Replan failed but the default plans preflighted
+                    // clean — keep them rather than aborting a viable
+                    // transaction.
+                    (Err(_), Ok(())) => (
+                        topology_plans,
+                        subcomplex_plan,
+                        include_selected_nonmaterialized,
+                    ),
+                    // Both shapes failed: report the replanned wall —
+                    // it is the shape the reserved connectors demand.
+                    (Err(replanned_error), Err(_)) => return Err(replanned_error),
+                }
             };
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
         if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {

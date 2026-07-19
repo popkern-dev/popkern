@@ -200,9 +200,16 @@ fn trace_support_split_incomplete_cycles(
         .join(", ");
     let supplemented_edges = support_cycle_open_chain_diagnostic(brep, supplemented);
     let cycle_sizes = cycles.iter().map(Vec::len).collect::<Vec<_>>();
+    let current_loop = brep
+        .faces
+        .get(support_face)
+        .and_then(|face| collect_loop_half_edges(brep, face.outer_loop).ok())
+        .map(|loop_edges| support_cycle_open_chain_diagnostic(brep, &loop_edges))
+        .unwrap_or_else(|| "unavailable".to_string());
     eprintln!(
         "[direct-apex-trace §14.9/support-split] support {support_face:?} supplemented spans [{spans}] \
-         did not close all half-edges; supplemented=[{supplemented_edges}] cycle_sizes={cycle_sizes:?}"
+         did not close all half-edges; supplemented=[{supplemented_edges}] cycle_sizes={cycle_sizes:?}; \
+         current outer loop=[{current_loop}]"
     );
 }
 

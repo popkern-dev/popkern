@@ -30,6 +30,17 @@ pub(super) fn support_cycle_open_chain_diagnostic(
     brep: &BRep,
     half_edges: &[HalfEdgeHandle],
 ) -> String {
+    let position = |vertex: VertexHandle| -> String {
+        brep.vertices
+            .get(vertex)
+            .map(|data| {
+                format!(
+                    "({:.4},{:.4},{:.4})",
+                    data.position.x, data.position.y, data.position.z
+                )
+            })
+            .unwrap_or_else(|| "stale".to_string())
+    };
     half_edges
         .iter()
         .map(|half_edge| {
@@ -39,7 +50,11 @@ pub(super) fn support_cycle_open_chain_diagnostic(
                 .map(|data| data.origin)
                 .unwrap_or_default();
             let end = support_split_half_edge_end_vertex(brep, *half_edge).unwrap_or_default();
-            format!("{half_edge:?}:{start:?}->{end:?}")
+            format!(
+                "{half_edge:?}:{start:?}{}->{end:?}{}",
+                position(start),
+                position(end)
+            )
         })
         .collect::<Vec<_>>()
         .join(", ")

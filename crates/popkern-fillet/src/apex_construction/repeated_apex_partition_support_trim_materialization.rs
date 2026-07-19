@@ -203,12 +203,73 @@ fn support_family_endpoint_diagnostic(
             });
             format!(
                 "{face:?}: start_on_loop={start_on_loop} end_on_loop={end_on_loop} \
-                 start_edge={start_edge:?} end_edge={end_edge:?}"
+                 start_edge={} end_edge={}",
+                containing_edge_diagnostic(brep, start_edge),
+                containing_edge_diagnostic(brep, end_edge),
             )
         })
         .collect::<Vec<_>>()
         .join("; ");
     format!("support family endpoint status [{reports}]")
+}
+
+/// Describe an endpoint-containing loop edge with enough structure to
+/// pick the T-vertex reconciliation site: its span, boundary status,
+/// and which faces own each side.
+fn containing_edge_diagnostic(brep: &BRep, edge: Option<EdgeHandle>) -> String {
+    let Some(edge) = edge else {
+        return "None".to_string();
+    };
+    let Some(edge_data) = brep.edges.get(edge) else {
+        return format!("{edge:?}(stale)");
+    };
+    let half_edge = edge_data.half_edge;
+    let side = |handle: HalfEdgeHandle| -> String {
+        let Some(data) = brep.half_edges.get(handle) else {
+            return "dead".to_string();
+        };
+        let owner = brep.loops.get(data.loop_).map(|loop_data| loop_data.face);
+        format!("{:?}@{owner:?}", data.origin)
+    };
+    let twin = brep
+        .half_edges
+        .get(half_edge)
+        .map(|data| data.twin)
+        .unwrap_or_default();
+    let curve = edge_data
+        .curve
+        .as_ref()
+        .map(|curve| {
+            let mid = curve.geometry.point_at((curve.t_start + curve.t_end) / 2.0);
+            use popkern_core::geometry::CurveGeometry;
+            let variant = match &curve.geometry {
+                CurveGeometry::Line { .. } => "Line",
+                CurveGeometry::Circle { .. } => "Circle",
+                CurveGeometry::Arc { .. } => "Arc",
+                CurveGeometry::Nurbs { .. } => "Nurbs",
+                _ => "Other",
+            };
+            format!(
+                "{}[({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) mid ({:.3},{:.3},{:.3})]",
+                variant,
+                curve.geometry.point_at(curve.t_start).x,
+                curve.geometry.point_at(curve.t_start).y,
+                curve.geometry.point_at(curve.t_start).z,
+                curve.geometry.point_at(curve.t_end).x,
+                curve.geometry.point_at(curve.t_end).y,
+                curve.geometry.point_at(curve.t_end).z,
+                mid.x,
+                mid.y,
+                mid.z,
+            )
+        })
+        .unwrap_or_else(|| "no-curve".to_string());
+    format!(
+        "{edge:?}(boundary={} side={} twin={} curve={curve})",
+        brep.boundary_edges.contains(&edge),
+        side(half_edge),
+        side(twin),
+    )
 }
 
 fn support_residual_face_split_half_edges(
