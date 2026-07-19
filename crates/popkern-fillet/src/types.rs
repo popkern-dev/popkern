@@ -10,6 +10,8 @@ mod types_corner;
 mod types_exact_boundary;
 #[path = "types_repair.rs"]
 mod types_repair;
+#[path = "types_repair_blend_seam.rs"]
+mod types_repair_blend_seam;
 #[path = "types_repair_exact_boundary.rs"]
 mod types_repair_exact_boundary;
 #[path = "types_repair_terminal_arc.rs"]
@@ -37,6 +39,9 @@ pub use types_repair::{
     SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
     build_blend_repair_action_artifact, support_seam_decline_reason_label,
     support_seam_rollback_reason_label,
+};
+pub use types_repair_blend_seam::{
+    BlendSeamCornerDecline, BlendSeamCornerDeclineReason, BlendSeamCornerReport,
 };
 pub use types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 pub use types_repair_terminal_arc::{

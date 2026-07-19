@@ -1,4 +1,4 @@
-//! Blend×blend corner seam acceptance (PK-152 stage 1).
+//! Blend×blend corner seam acceptance (PK-152).
 //!
 //! Two fillets on adjacent cube edges meeting at a valence-2 blend
 //! corner (third edge sharp) must close by trimming both strips to
@@ -7,7 +7,10 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+use popkern_fillet::{
+    BlendResult, BlendSeamCornerDeclineReason, FilletOptions, FilletRadius, FilletSpec,
+    fillet_edges,
+};
 
 #[path = "support/mesh_gauges.rs"]
 mod mesh_gauges;
@@ -38,7 +41,7 @@ fn adjacent_edge_pair(brep: &BRep) -> (EdgeHandle, EdgeHandle) {
     panic!("cube has adjacent edges");
 }
 
-fn pair_body(r1: f64, r2: f64) -> BRep {
+fn pair_result(r1: f64, r2: f64) -> BlendResult {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let (e1, e2) = adjacent_edge_pair(&brep);
     fillet_edges(
@@ -58,41 +61,25 @@ fn pair_body(r1: f64, r2: f64) -> BRep {
         None,
     )
     .expect("adjacent pair completes")
-    .brep
 }
 
-/// Current measured state: the pair-corner body validates but ~5
-/// corner edges run through the old cube corner at (√2−1)·r off both
-/// strips, and the welded gauge reads ~58 opens. This test PINS that
-/// measurement so the defect cannot silently grow while stage 1 is
-/// built; the completion gates below flip when the seam lands.
+/// PK-152 stage 1 HARD gate: the equal-radius perpendicular pair
+/// corner closes welded-watertight with every edge on its surfaces.
+/// The blend-seam-corner settlement retires the phantom flap and
+/// re-authors the shared edge as the exact intersection ellipse
+/// (formerly the `(√2−1)·r` stale-corner class: worst deviation
+/// 3.314e-2 and 58 welded opens at r = 0.08).
 #[test]
-fn equal_radius_pair_corner_pinned_measurement() {
-    let out = pair_body(0.08, 0.08);
-    out.validate()
-        .expect("pair body validates (measured today)");
-    let worst = out
-        .edges
-        .keys()
-        .map(|eh| out.measure_edge_deviation(eh))
-        .fold(0.0_f64, f64::max);
-    let stale = (2.0_f64.sqrt() - 1.0) * 0.08;
-    assert!(
-        worst <= stale * 1.1,
-        "corner-edge staleness must not grow past the (√2−1)·r class: {worst:.3e}"
-    );
-    assert!(
-        worst >= stale * 0.9,
-        "corner staleness vanished ({worst:.3e}) — the seam landed? Flip the \
-         completion gates below and retire this pin."
-    );
-}
-
-#[test]
-#[ignore = "PK-152 stage 1: flip when the blend-x-blend corner seam lands — equal-radius \
-            perpendicular pair closes welded-watertight with every edge on its surfaces"]
 fn equal_radius_pair_corner_closes_watertight() {
-    let out = pair_body(0.08, 0.08);
+    let result = pair_result(0.08, 0.08);
+    let report = &result.repair_report.blend_seam_corner;
+    assert_eq!(report.seams_built, 1, "pair corner must build one seam");
+    assert!(
+        report.declines.is_empty(),
+        "no seam declines expected: {:?}",
+        report.declines
+    );
+    let out = result.brep;
     out.validate().expect("pair body validates");
     assert_eq!(welded_open_edges(&out), 0, "pair corner must weld shut");
     let worst = out
@@ -106,10 +93,30 @@ fn equal_radius_pair_corner_closes_watertight() {
     );
 }
 
+/// Stage-2 boundary is explicit: the mismatched-radius pair corner
+/// is RECOGNIZED and declines with the structured stage-2 reason
+/// (the intersection is a space quartic needing the marching
+/// intersector), leaving the body no worse than before.
+#[test]
+fn mixed_radius_pair_corner_declines_with_stage_two_reason() {
+    let result = pair_result(0.06, 0.10);
+    let report = &result.repair_report.blend_seam_corner;
+    assert_eq!(report.seams_built, 0, "stage 1 must not serve mixed radii");
+    assert!(
+        report
+            .declines
+            .iter()
+            .any(|d| d.reason == BlendSeamCornerDeclineReason::MismatchedRadii),
+        "mixed-radius corner must decline as MismatchedRadii: {:?}",
+        report.declines
+    );
+    result.brep.validate().expect("mixed pair body validates");
+}
+
 #[test]
 #[ignore = "PK-152 stage 2: flip when the marching-intersector seam serves mismatched radii"]
 fn mixed_radius_pair_corner_closes_watertight() {
-    let out = pair_body(0.06, 0.10);
+    let out = pair_result(0.06, 0.10).brep;
     out.validate().expect("mixed pair body validates");
     assert_eq!(
         welded_open_edges(&out),

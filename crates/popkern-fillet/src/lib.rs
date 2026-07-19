@@ -397,6 +397,16 @@ fn fillet_edges_internal(
             &mut apply_result.brep,
             &tolerance,
         );
+    // PK-152: close blend×blend pair corners (adjacent fillets whose
+    // strips interpenetrate at a shared body corner) with the exact
+    // strip×strip intersection seam. Runs after terminal settlement
+    // so valence-2 chain-end corners are already coherent.
+    apply_result.repair_report.blend_seam_corner =
+        construct::blend_seam_corner::settle_blend_seam_corners(
+            brep,
+            &mut apply_result.brep,
+            &tolerance,
+        );
     // PK-139: co-parameterize swept-strip rails whose pcurves diverge
     // from the rail curves at the same fraction (curved variable
     // rails; the imprecision-scaled stale gate cannot serve them).

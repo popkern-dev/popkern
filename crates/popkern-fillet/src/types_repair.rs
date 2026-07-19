@@ -25,6 +25,9 @@ pub struct BlendRepairReport {
     pub apex_diagnostics: Vec<ApexConstructionDiagnostic>,
     /// PK-148 terminal-arc-trim settlement at open fillet chain ends.
     pub terminal_arc_trim: super::TerminalArcTrimReport,
+    /// PK-152 blend×blend corner-seam settlement at adjacent-fillet
+    /// pair corners.
+    pub blend_seam_corner: super::BlendSeamCornerReport,
 }
 
 /// Construction route used for one smooth multi-fillet apex.

@@ -4,6 +4,8 @@ mod apply_types;
 pub use apply_types::{ApplyBlendResult, EdgeGeometry};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
+pub(crate) mod blend_seam_corner;
+mod blend_seam_corner_geometry;
 pub(crate) mod blend_topo;
 mod boundary_support_frames;
 mod bridge_warnings;
@@ -31,6 +33,7 @@ pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcur
 #[cfg(test)]
 mod apex_termination_spike;
 pub(crate) mod helpers;
+mod helpers_pcurve;
 mod kp13_bi5_promote;
 pub mod kp20_paper_border_extract;
 mod kp20_polar_bi6_split;
@@ -85,6 +88,7 @@ mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod mixed_radius_direct_apex;
 mod multi_chord;
+mod multi_chord_span_geometry;
 pub(crate) mod pcurve_attach;
 mod pcurve_measured_repair;
 mod pcurve_refit;
