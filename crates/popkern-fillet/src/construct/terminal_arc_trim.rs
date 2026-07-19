@@ -159,7 +159,7 @@ fn recognize_corners(brep: &BRep, face: FaceHandle, tolerance: &Tolerance) -> Ve
 
 /// UV endpoints of a half-edge's strip-side pcurve, oriented along
 /// the half-edge (origin → destination).
-fn strip_pcurve_span(
+pub(super) fn strip_pcurve_span(
     brep: &BRep,
     face: FaceHandle,
     he: HalfEdgeHandle,
@@ -188,7 +188,13 @@ fn recognize_corner_pair(
     // Both stubs on one iso-v station, meeting at the same u. The
     // chart values may be stale — they gate recognition only; all
     // repair positions are computed from trusted geometry.
-    let eps_uv = 1e-6;
+    // Recognition-only gate: swept-strip stub pcurves projected from
+    // a stale corner drift off the exact iso by the corner's chart
+    // shadow (measured 1.4e-3 in u on the r=0.10 end of a variable
+    // sweep), so the station tolerance is loose; every ACCEPT is
+    // still guarded downstream by off-surface, isolation, common-cap,
+    // circularity, and anchor checks.
+    let eps_uv = 5e-3;
     // Cylinder strips author their chain-end stubs on one iso-v
     // station (u meets); planar chamfer bands author them on one
     // iso-u station (v meets). Accept either — the chart values are
@@ -223,6 +229,16 @@ fn recognize_corner_pair(
         }
         SurfaceGeometry::Plane { origin, normal, .. } => {
             (corner_pos - *origin).dot(normal).abs() > tolerance.linear() * 10.0
+        }
+        SurfaceGeometry::Nurbs(_) => {
+            // Swept (variable-radius) strips: the chart + surface are
+            // the construction authority; the stale signature is the
+            // corner vertex sitting off the surface point at the
+            // stubs' shared chart corner.
+            use popkern_core::geometry::SurfaceEval;
+            let shared = a_end;
+            let on_surface = surface.point_at(shared.0, shared.1);
+            corner_pos.distance_to(&on_surface) > tolerance.linear() * 10.0
         }
         _ => return None,
     };
@@ -285,6 +301,9 @@ fn repair_corner(
             },
             Some(SurfaceGeometry::Plane { .. }) => {
                 return super::terminal_chord_trim::repair_corner_planar(brep, c, tolerance);
+            }
+            Some(SurfaceGeometry::Nurbs(_)) => {
+                return super::terminal_arc_fit_trim::repair_corner_swept(brep, c, tolerance);
             }
             _ => return Err(TerminalArcTrimDeclineReason::NonCylinderStrip),
         }

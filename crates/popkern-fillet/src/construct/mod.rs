@@ -105,6 +105,7 @@ mod strip_end_surface;
 mod surface_driven_edge_repair;
 pub(crate) mod surface_fix;
 mod terminal_arc_author;
+mod terminal_arc_fit_trim;
 pub(crate) mod terminal_arc_trim;
 mod terminal_chord_trim;
 pub(crate) mod three_quad_apply;
