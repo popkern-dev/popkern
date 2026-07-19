@@ -81,11 +81,43 @@ impl SideSupportRegionDiagnosticSnapshot {
             && refusal.reason()
                 == SideSupportRegionRefusalReason::MissingValidatedOutsideOutsideSupportContinuationPrimitive
         {
+            // Mixed plan (the cube_extreme CrossOutsideOwners corner):
+            // the selection can carry face-family bridge regions
+            // ALONGSIDE the cylinder-mediated continuations. Apply the
+            // bridges FIRST — they consume their own segments of the
+            // shared outside loop, and the continuation's core
+            // preflight re-validates every operand against the
+            // mutated loop before it commits.
+            let rollback = brep.clone();
+            let mut applied_bridge: Option<SideSupportRegionContinuationResult> = None;
+            let bridge_primitive =
+                FaceFamilyBridgePrimitiveDerivation::build(&self.selection, brep);
+            if crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace §14.9/mixed-continuation] {}; {}",
+                    bridge_primitive.diagnostic_label(),
+                    bridge_primitive.topology_operator_report(brep).diagnostic_label()
+                );
+            }
+            if bridge_primitive.is_complete()
+                && bridge_primitive.topology_operator_report(brep).is_ready()
+            {
+                match bridge_primitive.apply_topology_operator(brep) {
+                    Ok(result) => applied_bridge = Some(result),
+                    Err(err) => {
+                        *brep = rollback;
+                        return Err(
+                            SideSupportRegionContinuationFailure::BridgeTopologyOperator {
+                                reason: err,
+                            },
+                        );
+                    }
+                }
+            }
             let outside_primitive =
                 OutsideOutsideSupportPrimitiveDerivation::build(&self.selection, &self.knowledge, brep);
             let topology_report = outside_primitive.topology_operator_report(brep);
             if outside_primitive.is_complete() && topology_report.is_ready() {
-                let rollback = brep.clone();
                 match outside_primitive.apply_topology_operator(brep) {
                     Ok(result) => {
                         // The core operator authors TOPOLOGY only. The
@@ -96,6 +128,10 @@ impl SideSupportRegionDiagnosticSnapshot {
                         // repeated-apex normalization (BrokenCycle). See
                         // docs/decisions/2026-07-11-side-support-pocket-
                         // floor-reconstruction.md.
+                        let result = match applied_bridge {
+                            Some(bridge_result) => bridge_result.merged_with(result),
+                            None => result,
+                        };
                         return Ok(SideSupportRegionContinuationOutcome::Applied(result));
                     }
                     Err(err) => {
@@ -107,6 +143,11 @@ impl SideSupportRegionDiagnosticSnapshot {
                         );
                     }
                 }
+            }
+            if applied_bridge.is_some() {
+                // The continuation did not commit; a half-applied mixed
+                // plan must not survive.
+                *brep = rollback;
             }
             // Multi-outside-owner class (PK-092): the batch operator's
             // slit/expose/bridge shape assumes the continuation region is

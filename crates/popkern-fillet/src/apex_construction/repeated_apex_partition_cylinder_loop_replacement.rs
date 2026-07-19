@@ -216,6 +216,43 @@ pub(super) fn apply_materialized_cylinder_loop_replacements(
             &all_support_owned_trim_sides,
             reuse_shared_cap_cylinder_seam,
         )?;
+    } else {
+        // A continuation having applied is not a global ownership
+        // guarantee: the cylinder-mediated primitive authors
+        // cap/cylinder-side structure only, leaving support-interior
+        // far-side generators (the CrossOutsideOwners class) with
+        // unwired twins. Ownership is a per-trim-side fact —
+        // materialize the remainder the continuation did not cover.
+        // Bridge-covered fixtures have an empty remainder and are
+        // untouched.
+        // Cycle closure needs each affected support's FULL trim-side
+        // inventory (the closed cycle spans both flanking generators),
+        // so the remainder is grouped per support face: any unowned
+        // side pulls in every side of that support.
+        let unowned_supports: std::collections::BTreeSet<FaceHandle> = all_support_owned_trim_sides
+            .iter()
+            .filter(|trim_side| trim_side.requires_support_ownership)
+            .filter(|trim_side| {
+                brep.half_edges
+                    .get(trim_side.half_edge)
+                    .and_then(|data| brep.half_edges.get(data.twin))
+                    .is_some_and(|twin| brep.loops.get(twin.loop_).is_none())
+            })
+            .map(|trim_side| trim_side.support_face)
+            .collect();
+        let remainder: Vec<_> = all_support_owned_trim_sides
+            .iter()
+            .filter(|trim_side| unowned_supports.contains(&trim_side.support_face))
+            .cloned()
+            .collect();
+        if !remainder.is_empty() {
+            materialize_closed_support_trim_cycles(
+                brep,
+                face_edges,
+                &remainder,
+                reuse_shared_cap_cylinder_seam,
+            )?;
+        }
     }
     materialize_authored_support_boundary_residual_cycles(
         brep,

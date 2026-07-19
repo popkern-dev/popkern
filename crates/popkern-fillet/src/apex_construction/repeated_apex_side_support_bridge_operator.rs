@@ -123,6 +123,7 @@ pub(super) fn topology_operator_report(
         );
     }
     if let [region] = primitive.regions()
+        && region.boundary_cycles().len() != 1
         && let Some(core_operator_failure) = core_bridge_operator_failure(region, brep)
     {
         return FaceFamilyBridgeTopologyOperatorReport::refused_with_detail(
@@ -161,7 +162,15 @@ pub(super) fn apply_topology_operator(
 ) -> Result<SideSupportRegionContinuationResult, String> {
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
-    if let [region] = primitive.regions() {
+    // A shared-start region (both trims anchored at one support
+    // vertex; single boundary cycle spanning the full support loop)
+    // cannot be expressed as a two-loop bridge request — its interval
+    // pair is [full loop, degenerate point], which the pairwise
+    // complementarity contract rejects. The aggregate operator
+    // consumes the derivation's boundary cycles directly.
+    if let [region] = primitive.regions()
+        && region.boundary_cycles().len() != 1
+    {
         let bridge_result =
             apply_region_bridge(region, &mut candidate).map_err(|(_, detail)| detail)?;
         let result = SideSupportRegionContinuationResult::from_face_family_bridge_payload(

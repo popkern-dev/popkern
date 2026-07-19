@@ -193,7 +193,19 @@ impl SideSupportRegionPlanSelection {
                     saw_unknown_endpoint = true;
                 }
                 Err(BridgeSupportRegionPlanRejection::UnsupportedTrimCount) => {
-                    saw_unsupported_bridge_region = true;
+                    // Mixed region (the cube_extreme CrossOutsideOwners
+                    // shape): the support's other flank is an
+                    // outside-outside continuation trim, so no
+                    // two-generator bridge exists there — the single
+                    // bridge trim's support ownership falls to the
+                    // per-side trim-cycle materializer instead of
+                    // refusing the whole plan. Genuinely unsupported
+                    // counts still refuse.
+                    if !(bridge_candidates.len() == 1
+                        && outside_outside_candidates_by_support.contains_key(&support_face))
+                    {
+                        saw_unsupported_bridge_region = true;
+                    }
                 }
             }
         }

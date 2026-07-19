@@ -15,6 +15,10 @@ pub(super) enum SideSupportContinuationPrimitive {
     None,
     FaceFamilyBridge,
     OutsideOutsideCylinderMediated,
+    /// Mixed plan: face-family bridge regions and cylinder-mediated
+    /// continuations applied from one selection (the cube_extreme
+    /// CrossOutsideOwners corner).
+    MixedBridgeAndCylinderMediated,
 }
 
 impl SideSupportRegionContinuationResult {
@@ -51,6 +55,19 @@ impl SideSupportRegionContinuationResult {
     ) -> Self {
         Self {
             primitive,
+            bridge_faces,
+            bridge_loops,
+        }
+    }
+
+    /// Combine two applied payloads from one mixed selection.
+    pub(super) fn merged_with(self, other: Self) -> Self {
+        let mut bridge_faces = self.bridge_faces;
+        let mut bridge_loops = self.bridge_loops;
+        bridge_faces.extend(other.bridge_faces);
+        bridge_loops.extend(other.bridge_loops);
+        Self {
+            primitive: SideSupportContinuationPrimitive::MixedBridgeAndCylinderMediated,
             bridge_faces,
             bridge_loops,
         }
@@ -94,6 +111,9 @@ impl SideSupportContinuationPrimitive {
             SideSupportContinuationPrimitive::FaceFamilyBridge => "face_family_bridge",
             SideSupportContinuationPrimitive::OutsideOutsideCylinderMediated => {
                 "outside_outside_cylinder_mediated"
+            }
+            SideSupportContinuationPrimitive::MixedBridgeAndCylinderMediated => {
+                "face_family_bridge+outside_outside_cylinder_mediated"
             }
         }
     }
