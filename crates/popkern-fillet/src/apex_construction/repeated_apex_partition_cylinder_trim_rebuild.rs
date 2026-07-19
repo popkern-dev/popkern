@@ -190,6 +190,23 @@ impl SemanticCylinderTrimRebuildPlan {
         plan.validate_segment_endpoints(brep)?;
         plan.validate_segment_geometry(brep)?;
         plan.validate_oriented_cylinder_cycle(brep)?;
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace §14.9/rebuild-fragments] FilletEnd[{}] cylinder {:?} anchors \
+                 {:?}->{:?}: forward path {} he / vertices {:?} (off-surface {:?}); reverse path \
+                 {} he / vertices {:?} (off-surface {:?})",
+                plan.fillet_index,
+                plan.cylinder_face,
+                plan.start_anchor,
+                plan.end_anchor,
+                plan.retired_fragments[0].path.len(),
+                plan.retired_fragments[0].vertices,
+                plan.retired_fragments[0].off_surface_vertices,
+                plan.retired_fragments[1].path.len(),
+                plan.retired_fragments[1].vertices,
+                plan.retired_fragments[1].off_surface_vertices,
+            );
+        }
         Ok(plan)
     }
 
