@@ -170,7 +170,7 @@ fn overflow_law_declines_structured() {
 /// corner value — the corner must accept (mixed-radius cap dispatch
 /// receives per-edge endpoint radii, not spec averages).
 #[test]
-#[ignore = "PK-139/PK-143: the mitred-corner completion closes CYLINDER strips but leaves swept NURBS strips open (57 welded; smooth vertex blend falls back to Mitred for both, same as constant pairs) — flip when mitred corner trim serves swept strips"]
+#[ignore = "PK-152: adjacent fillet-PAIR corners ship open under the Mitred fallback for constant AND variable radii alike (measured 58 vs 57 welded — the class was never variable-specific); flip when the valence-2 mitred corner construction lands"]
 fn variable_ends_feed_corner_with_endpoint_radius() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     // Find two edges sharing a vertex.
