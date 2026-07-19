@@ -346,7 +346,19 @@ pub(super) fn apply_multi_chord_for_face(
 
             let p_a = brep.vertices[start_v].position;
             let p_b = brep.vertices[end_v].position;
-            let pc = match helpers::pcurve_for_face(brep, target, &p_a, &p_b) {
+            // #136 slice 6 / PK-139: the sub-chord's 3-D trim is the
+            // SUB-SPAN of the fillet's actual trim curve, not the
+            // straight chord between the anchors — a by-points
+            // variable law's rail bulges between its breakpoints and
+            // the chord line cut straight through it (measured: rail
+            // Line at offset 0.05 under a 0.12 bulge apex, 40 welded
+            // opens). Straight trims still canonicalize back to
+            // analytic lines inside `split_face`. Falls back to the
+            // chord when the anchors do not invert onto the trim
+            // (corner sub-chords off the trim span).
+            let t3d = trim_subcurve_between(&trim.trim_3d, &p_a, &p_b, tolerance)
+                .unwrap_or_else(|| helpers::line_nurbs(&p_a, &p_b));
+            let pc = match helpers::pcurve_for_face_along(brep, target, &t3d) {
                 Ok(pc) => pc,
                 Err(e) => {
                     failures.push((
@@ -360,7 +372,6 @@ pub(super) fn apply_multi_chord_for_face(
                     break;
                 }
             };
-            let t3d = helpers::line_nurbs(&p_a, &p_b);
 
             let split = match brep.split_face(target, &pc, &t3d, tolerance) {
                 Ok(s) => s,
@@ -492,4 +503,82 @@ mod tests {
         let d = Point3::new(0.5, 1.0, 1.0);
         assert!(intersect_segments(a, b, c, d).is_none());
     }
+}
+
+/// Sub-span of the fillet's actual 3-D trim curve between two anchor
+/// positions, as a uniform degree-1 polyline. `None` when either
+/// anchor does not lie on the trim (corner sub-chords) or the span is
+/// effectively straight (the chord is already exact).
+fn trim_subcurve_between(
+    trim: &NurbsCurve,
+    p_a: &Point3,
+    p_b: &Point3,
+    tolerance: &Tolerance,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::CurveEval;
+    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+    let (t0, t1) = trim.parameter_range();
+    let on_trim = CurveOnEdge {
+        geometry: CurveGeometry::Nurbs(trim.clone()),
+        t_start: t0,
+        t_end: t1,
+    };
+    let gate = tolerance.linear().max(1.0e-9) * 10.0;
+    let ta =
+        popkern_core::geometry::curve_inversion::invert_curve_at_point(&on_trim, *p_a, tolerance)
+            .ok()?;
+    let tb =
+        popkern_core::geometry::curve_inversion::invert_curve_at_point(&on_trim, *p_b, tolerance)
+            .ok()?;
+    if trim.point_at(ta).distance_to(p_a) > gate || trim.point_at(tb).distance_to(p_b) > gate {
+        return None;
+    }
+    let (lo, hi) = if ta <= tb { (ta, tb) } else { (tb, ta) };
+    if (hi - lo).abs() < 1.0e-12 {
+        return None;
+    }
+    let n = 17;
+    let mut pts = Vec::with_capacity(n);
+    for k in 0..n {
+        let t = lo + (hi - lo) * k as f64 / (n - 1) as f64;
+        pts.push(trim.point_at(t));
+    }
+    if ta > tb {
+        pts.reverse();
+    }
+    // Endpoints must be EXACTLY the anchors (split_face matches them
+    // to vertices).
+    pts[0] = *p_a;
+    let last = pts.len() - 1;
+    pts[last] = *p_b;
+    // Straight span: let the chord path (and its analytic
+    // canonicalization) serve it.
+    let chord = *p_b - *p_a;
+    let chord_len = chord.length();
+    if chord_len > 1.0e-12 {
+        let dir = chord * (1.0 / chord_len);
+        let max_dev = pts
+            .iter()
+            .map(|p| {
+                let d = *p - *p_a;
+                (d - dir * d.dot(&dir)).length()
+            })
+            .fold(0.0_f64, f64::max);
+        if max_dev <= gate {
+            return None;
+        }
+    }
+    let n_pts = pts.len();
+    let mut knots = Vec::with_capacity(n_pts + 2);
+    knots.push(0.0);
+    for k in 0..n_pts {
+        knots.push(k as f64 / (n_pts - 1) as f64);
+    }
+    knots.push(1.0);
+    Some(NurbsCurve {
+        degree: 1,
+        knots,
+        control_points: pts,
+        weights: vec![1.0; n_pts],
+    })
 }

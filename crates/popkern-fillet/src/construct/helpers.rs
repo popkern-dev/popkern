@@ -448,6 +448,10 @@ pub(crate) fn project_to_uv(surface: &SurfaceGeometry, point: &Point3) -> (f64, 
 }
 
 /// Compute a pcurve for a trim curve on the given face surface.
+/// Endpoint-projected straight pcurve (the trim-aware variant is
+/// [`pcurve_for_face_along`]; this one remains for exact 2-point
+/// trims and its unit tests).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn pcurve_for_face(
     brep: &BRep,
     face: FaceHandle,
@@ -498,3 +502,55 @@ pub fn estimate_radius_from_geometry(
 #[cfg(test)]
 #[path = "helpers_tests.rs"]
 mod tests;
+
+/// Pcurve for a face-splitting trim that follows a CURVED 3-D trim:
+/// samples the curve and projects each sample into the face's chart
+/// (degree-1 through the projections, uniform knots — matching the
+/// polyline sub-trim authored by `multi_chord`). Straight trims (2
+/// control points) delegate to the endpoint projection so analytic
+/// splits keep their exact linear pcurves.
+pub fn pcurve_for_face_along(
+    brep: &BRep,
+    face: FaceHandle,
+    trim_3d: &NurbsCurve,
+) -> Result<NurbsCurve, String> {
+    use popkern_core::geometry::CurveEval;
+    let face_data = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("face {face:?} not found"))?;
+    let surface = face_data
+        .surface
+        .as_ref()
+        .ok_or_else(|| format!("face {face:?} has no surface"))?;
+    let (t0, t1) = trim_3d.parameter_range();
+    if trim_3d.control_points.len() <= 2 {
+        let a = trim_3d.point_at(t0);
+        let b = trim_3d.point_at(t1);
+        return Ok(compute_pcurve_for_trim(&surface.geometry, &a, &b));
+    }
+    let n = trim_3d.control_points.len().max(3);
+    let mut uv_points = Vec::with_capacity(n);
+    for k in 0..n {
+        let t = t0 + (t1 - t0) * k as f64 / (n - 1) as f64;
+        let p = trim_3d.point_at(t);
+        let (u, v) =
+            popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
+                .ok_or_else(|| format!("trim sample does not project onto face {face:?}"))?;
+        uv_points.push(Point3::new(u, v, 0.0));
+    }
+    let degree = 1;
+    let n_pts = uv_points.len();
+    let mut knots = Vec::with_capacity(n_pts + 2);
+    knots.push(0.0);
+    for k in 0..n_pts {
+        knots.push(k as f64 / (n_pts - 1) as f64);
+    }
+    knots.push(1.0);
+    Ok(NurbsCurve {
+        degree,
+        knots,
+        control_points: uv_points,
+        weights: vec![1.0; n_pts],
+    })
+}

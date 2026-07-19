@@ -104,7 +104,6 @@ fn variable_extreme_ratio_1_to_20_completes_or_declines_structured() {
 
 /// Non-monotone ByPoints law (bulge).
 #[test]
-#[ignore = "PK-139 stage 2: the variable-radius SWEEP still ships open bodies (center-curve march landed 2026-07-18; trim/topology wiring is the next leg) — flip when the sweep closes"]
 fn by_points_bulge_completes_or_declines_structured() {
     run_law(
         "bulge 0.05→0.12→0.05",
@@ -116,7 +115,6 @@ fn by_points_bulge_completes_or_declines_structured() {
 
 /// Non-monotone ByPoints law (waist).
 #[test]
-#[ignore = "PK-139 stage 2: the variable-radius SWEEP still ships open bodies (center-curve march landed 2026-07-18; trim/topology wiring is the next leg) — flip when the sweep closes"]
 fn by_points_waist_completes_or_declines_structured() {
     run_law(
         "waist 0.12→0.05→0.12",
@@ -130,7 +128,6 @@ fn by_points_waist_completes_or_declines_structured() {
 /// cube overruns the adjacent faces) must DECLINE with a structured
 /// reason — a completed body here would be self-intersecting.
 #[test]
-#[ignore = "PK-139 stage 2: the variable-radius SWEEP still ships open bodies (center-curve march landed 2026-07-18; trim/topology wiring is the next leg) — flip when the sweep closes"]
 fn overflow_law_declines_structured() {
     let brep = BRep::unit_cube(default_tol()).unwrap();
     let edge = brep.edges.keys().next().unwrap();
