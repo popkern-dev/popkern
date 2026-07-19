@@ -78,6 +78,24 @@ pub struct FilletSpec {
     pub radius: FilletRadius,
 }
 
+impl FilletSpec {
+    /// Copies of `specs` with every radius law canonicalized (see
+    /// [`FilletRadius::canonical`]): a constant-valued
+    /// Variable/ByPoints law is a constant law and must take the
+    /// analytic cylinder pipeline — the swept-NURBS spelling of the
+    /// same geometry shipped open pair corners because every corner
+    /// settlement rightly recognizes cylinder strips only.
+    pub fn canonicalized_all(specs: &[FilletSpec]) -> Vec<FilletSpec> {
+        specs
+            .iter()
+            .map(|spec| FilletSpec {
+                edge: spec.edge,
+                radius: spec.radius.canonical(),
+            })
+            .collect()
+    }
+}
+
 /// Fillet radius profile along an edge.
 #[derive(Debug, Clone)]
 pub enum FilletRadius {

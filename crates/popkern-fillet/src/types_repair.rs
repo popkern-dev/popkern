@@ -28,6 +28,10 @@ pub struct BlendRepairReport {
     /// PK-152 blend×blend corner-seam settlement at adjacent-fillet
     /// pair corners.
     pub blend_seam_corner: super::BlendSeamCornerReport,
+    /// PK-153 retirement of unglued construction-residual scaffolding
+    /// (apex cells, displaced fragments, holding faces with no
+    /// production-twinned side) before the result is returned.
+    pub residual_scaffolding: crate::residual_scaffolding::ResidualScaffoldingRetirementReport,
 }
 
 /// Construction route used for one smooth multi-fillet apex.

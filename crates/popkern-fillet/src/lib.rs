@@ -69,6 +69,7 @@ pub mod progress;
 pub mod quality;
 pub mod reflection_line;
 pub mod remediation;
+pub mod residual_scaffolding;
 pub mod sensitivity;
 mod surface_boundary_evidence;
 pub mod surface_validate;
@@ -178,18 +179,8 @@ fn fillet_edges_internal(
     check_cancel!();
 
     // Canonicalize radius laws AFTER validation (errors report the
-    // user's spelling): a constant-valued Variable/ByPoints law is a
-    // constant law and must take the analytic cylinder pipeline —
-    // the swept-NURBS spelling of the same geometry shipped open
-    // pair corners (57 welded) because every corner settlement
-    // rightly recognizes cylinder strips only.
-    let specs: Vec<FilletSpec> = specs
-        .iter()
-        .map(|spec| FilletSpec {
-            edge: spec.edge,
-            radius: spec.radius.canonical(),
-        })
-        .collect();
+    // user's spelling); see [`FilletSpec::canonicalized_all`].
+    let specs: Vec<FilletSpec> = FilletSpec::canonicalized_all(specs);
     let specs = specs.as_slice();
 
     // §13.4 soft-supports: shadow-relax tolerance for low-precision input.
@@ -471,6 +462,11 @@ fn fillet_edges_internal(
         fallback_edge,
         &mut all_warnings,
     );
+
+    apply_result.repair_report.residual_scaffolding =
+        residual_scaffolding::retire_unglued_construction_residual_scaffolding(
+            &mut apply_result.brep,
+        );
 
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
         return Err(BlendError::PartialFailure {

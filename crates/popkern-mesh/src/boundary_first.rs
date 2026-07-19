@@ -834,17 +834,17 @@ fn build_ring(
         // ZERO-LENGTH edges (degenerate boolean residue at discarded
         // tool corners) contribute nothing to the ring: skip them
         // entirely rather than bailing the whole face to the legacy
-        // path.
+        // path. Endpoints resolve through twin-or-next so boundary
+        // sides with a dead twin do not panic.
+        let ends = boundary_first_edge_samples::edge_endpoint_positions(brep, he);
+        if ends.is_some_and(|(va, vb)| va.distance_to(&vb) < 1.0e-9)
+            && !edge_samples.contains_key(&eh)
         {
-            let va = brep.vertices[data.origin].position;
-            let vb = brep.vertices[brep.half_edges[data.twin].origin].position;
-            if va.distance_to(&vb) < 1.0e-9 && !edge_samples.contains_key(&eh) {
-                he = data.next;
-                if he == start {
-                    break;
-                }
-                continue;
+            he = data.next;
+            if he == start {
+                break;
             }
+            continue;
         }
         let Some(pc) = data.pcurve.as_ref() else {
             if std::env::var_os("PK_BF_TRACE").is_some() {

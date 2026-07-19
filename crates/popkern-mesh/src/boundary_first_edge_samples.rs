@@ -31,9 +31,9 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
             // tool corners; a missing entry made every face touching
             // one fall back to the cracking legacy path). Zero-length
             // edges get NO entry — the ring builder skips them.
-            let he = &brep.half_edges[edge.half_edge];
-            let va = brep.vertices[he.origin].position;
-            let vb = brep.vertices[brep.half_edges[he.twin].origin].position;
+            let Some((va, vb)) = edge_endpoint_positions(brep, edge.half_edge) else {
+                continue;
+            };
             if va.distance_to(&vb) > 1.0e-9 {
                 map.insert(
                     eh,
@@ -74,10 +74,11 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
         // vertex by ~1e-8 (refit/snap noise), and two edges meeting
         // at a vertex would then produce near-miss boundary points
         // that straddle the weld rounding.
-        let he = edge.half_edge;
-        if let (Some(first), Some(last)) = (points.first().copied(), points.last().copied()) {
-            let va = brep.vertices[brep.half_edges[he].origin].position;
-            let vb = brep.vertices[brep.half_edges[brep.half_edges[he].twin].origin].position;
+        if let (Some(first), Some(last), Some((va, vb))) = (
+            points.first().copied(),
+            points.last().copied(),
+            edge_endpoint_positions(brep, edge.half_edge),
+        ) {
             let (pa, pb) = if first.distance_to(&va) + last.distance_to(&vb)
                 <= first.distance_to(&vb) + last.distance_to(&va)
             {
@@ -97,6 +98,27 @@ pub(crate) fn sample_all_edges(brep: &BRep, chord_height: f64) -> HashMap<EdgeHa
         map.insert(eh, EdgeSamples { fractions, points });
     }
     map
+}
+
+/// Endpoint vertex positions of an edge via its canonical half-edge.
+///
+/// Boundary edges have a dead twin; the end vertex then comes from the
+/// surviving side's `next` origin. Returns `None` when neither
+/// resolution succeeds (stale canonical half-edge) — callers skip the
+/// edge rather than panic on partially-retired topology.
+pub(crate) fn edge_endpoint_positions(
+    brep: &BRep,
+    half_edge: popkern_core::topology::HalfEdgeHandle,
+) -> Option<(Point3, Point3)> {
+    let he = brep.half_edges.get(half_edge)?;
+    let end_vertex = match brep.half_edges.get(he.twin) {
+        Some(twin) => twin.origin,
+        None => brep.half_edges.get(he.next)?.origin,
+    };
+    Some((
+        brep.vertices.get(he.origin)?.position,
+        brep.vertices.get(end_vertex)?.position,
+    ))
 }
 
 /// Env-gated Delaunay validity audit (PK_BF_DELAUNAY_AUDIT): count
