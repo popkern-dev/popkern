@@ -138,8 +138,33 @@ impl SemanticCylinderTrimRebuildPlan {
         &self,
         brep: &BRep,
     ) -> Result<CylinderTrimRewriteTopologyPlan, ApexBuildError> {
+        self.plan_cylinder_trim_rewrite_topology_with_winding(brep, false)
+    }
+
+    /// The two generator spans of this fillet end as traversed by the
+    /// CURRENT-winding cylinder loop. A side-support bridge whose
+    /// reserved boundary spans oppose BOTH pairs can twin this loop
+    /// directly (the §14.9 trim-subcomplex claims succeed).
+    pub(super) fn current_winding_generator_spans(&self) -> [(VertexHandle, VertexHandle); 2] {
+        [
+            (self.cap_start, self.start_anchor),
+            (self.end_anchor, self.cap_end),
+        ]
+    }
+
+    /// Re-plan variant for after the side-support continuation
+    /// applied bridge loops: prefer the Current cylinder winding so
+    /// the generator spans twin the bridge connectors.
+    pub(super) fn plan_cylinder_trim_rewrite_topology_with_winding(
+        &self,
+        brep: &BRep,
+        prefer_current_winding: bool,
+    ) -> Result<CylinderTrimRewriteTopologyPlan, ApexBuildError> {
         let loop_candidate = self
-            .selected_cylinder_loop_orientation_candidate(brep)?
+            .selected_cylinder_loop_orientation_candidate_with_winding(
+                brep,
+                prefer_current_winding,
+            )?
             .ok_or_else(|| ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition FilletEnd[{}] cannot plan target-cylinder \
@@ -265,10 +290,19 @@ impl SemanticCylinderTrimRebuildPlan {
         &self,
         brep: &BRep,
     ) -> Result<Option<CylinderLoopOrientationCandidate>, ApexBuildError> {
+        self.selected_cylinder_loop_orientation_candidate_with_winding(brep, false)
+    }
+
+    pub(super) fn selected_cylinder_loop_orientation_candidate_with_winding(
+        &self,
+        brep: &BRep,
+        prefer_current_winding: bool,
+    ) -> Result<Option<CylinderLoopOrientationCandidate>, ApexBuildError> {
         let Some(strategy) = self.selected_far_side_strategy(brep) else {
             return Ok(None);
         };
-        let candidates = self.cylinder_loop_orientation_candidates(brep, strategy)?;
+        let candidates =
+            self.cylinder_loop_orientation_candidates(brep, strategy, prefer_current_winding)?;
         let mut rejected = Vec::new();
         for candidate in candidates {
             match candidate.validate_contiguous(self.fillet_index) {
@@ -292,6 +326,7 @@ impl SemanticCylinderTrimRebuildPlan {
         &self,
         brep: &BRep,
         strategy: FarSideTrimStrategy,
+        prefer_current_winding: bool,
     ) -> Result<Vec<CylinderLoopOrientationCandidate>, ApexBuildError> {
         let mut candidates = Vec::new();
         candidates.push(CylinderLoopOrientationCandidate {
@@ -300,6 +335,25 @@ impl SemanticCylinderTrimRebuildPlan {
             segments: self.oriented_cylinder_cycle_for_strategy(brep, strategy)?,
         });
         if strategy == FarSideTrimStrategy::Reverse {
+            if prefer_current_winding {
+                // Side-support bridge loops exist: their connector
+                // directions are FORCED by twinning the source
+                // support loops, so they pair only with the CURRENT
+                // cylinder winding. `Reverse` names which retired
+                // fragment supplies the authorable far-side geometry
+                // — not the traversal direction of the far-side
+                // segment — so traverse it start->end to keep the
+                // Current cycle contiguous (measured on cube_mixed
+                // strict: the fully-reversed loop co-directs with
+                // all six bridge connectors and the cap seam, nothing
+                // twins, and the seam census drops to 3/6).
+                candidates.push(CylinderLoopOrientationCandidate {
+                    kind: CylinderLoopOrientationKind::CurrentSharedFilletEnd,
+                    far_side_strategy: strategy,
+                    segments: self
+                        .oriented_cylinder_cycle_for_strategy(brep, FarSideTrimStrategy::Forward)?,
+                });
+            }
             candidates.push(CylinderLoopOrientationCandidate {
                 kind: CylinderLoopOrientationKind::ReauthoredSharedFilletEnd,
                 far_side_strategy: strategy,

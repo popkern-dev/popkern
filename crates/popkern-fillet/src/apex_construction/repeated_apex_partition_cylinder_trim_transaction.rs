@@ -95,6 +95,85 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             include_selected_nonmaterialized,
             require_v_free_repeated_apex,
         })?;
+        // Side-support bridge connectors twin the CURRENT cylinder
+        // winding, so a fillet end whose BOTH generator spans have
+        // opposing reserved bridge spans must be planned with that
+        // winding BEFORE anything applies — the fully-reversed
+        // Reauthored loop co-directs with every connector and
+        // nothing can twin (measured: cube_mixed strict seam census
+        // 3/6). Ends the continuation does NOT cover (the
+        // CrossOutsideOwners gap, e.g. cube_extreme FilletEnd[0])
+        // keep the Reauthored path — their claims miss either way
+        // and only that path's patch fallback completes. Probe the
+        // decision on a clone: the continuation's apply path is its
+        // own readiness authority.
+        let probe_bridge_spans: Vec<(VertexHandle, VertexHandle)> = {
+            let mut probe = brep.clone();
+            match apply_selected_side_support_continuation(&mut probe, &subcomplex_plan) {
+                Ok(outcome) => twinless_boundary_spans_of_loops(&probe, outcome.bridge_loops()),
+                Err(_) => Vec::new(),
+            }
+        };
+        let prefer_current_winding: Vec<bool> = rebuild_plans
+            .iter()
+            .map(|plan| {
+                plan.current_winding_generator_spans()
+                    .iter()
+                    .all(|(start, end)| probe_bridge_spans.contains(&(*end, *start)))
+            })
+            .collect();
+        let (topology_plans, subcomplex_plan, include_selected_nonmaterialized) =
+            if !prefer_current_winding.iter().any(|prefer| *prefer) {
+                (
+                    topology_plans,
+                    subcomplex_plan,
+                    include_selected_nonmaterialized,
+                )
+            } else {
+                let topology_plans = rebuild_plans
+                    .iter()
+                    .zip(&prefer_current_winding)
+                    .map(|(plan, prefer)| {
+                        plan.plan_cylinder_trim_rewrite_topology_with_winding(brep, *prefer)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                let (include_selected_nonmaterialized, replanned_diagnostics) =
+                    if require_v_free_repeated_apex {
+                        selected_far_side_trim_materialization_preflight(
+                            brep,
+                            cap_face,
+                            face_edges,
+                            &rebuild_plans,
+                            &topology_plans,
+                        )
+                    } else {
+                        (false, Vec::new())
+                    };
+                diagnostics.extend(replanned_diagnostics);
+                let subcomplex_plan = plan_trim_subcomplex_for_cylinder_rewrite(
+                    brep,
+                    cap_face,
+                    face_edges,
+                    &rebuild_plans,
+                    &topology_plans,
+                    include_selected_nonmaterialized,
+                )?;
+                validate_cylinder_trim_rewrite_topology_preflight(CylinderTrimRewritePreflight {
+                    brep,
+                    cap_face,
+                    face_edges,
+                    rebuild_plans: &rebuild_plans,
+                    topology_plans: &topology_plans,
+                    subcomplex_plan: &subcomplex_plan,
+                    include_selected_nonmaterialized,
+                    require_v_free_repeated_apex,
+                })?;
+                (
+                    topology_plans,
+                    subcomplex_plan,
+                    include_selected_nonmaterialized,
+                )
+            };
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
         if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {
             diagnostics.push(diagnostic);
@@ -428,4 +507,37 @@ fn plan_trim_subcomplex_for_cylinder_rewrite(
         }
     }
     Ok(builder.finish())
+}
+
+/// Twinless boundary spans (origin -> end vertex) reserved on the
+/// given loops — the seam slots a side-support bridge leaves for the
+/// cylinder replacement loop to twin.
+fn twinless_boundary_spans_of_loops(
+    brep: &BRep,
+    loops: &[LoopHandle],
+) -> Vec<(VertexHandle, VertexHandle)> {
+    let mut spans = Vec::new();
+    for &loop_handle in loops {
+        let Some(loop_data) = brep.loops.get(loop_handle) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut cursor = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let Some(data) = brep.half_edges.get(cursor) else {
+                break;
+            };
+            if !brep.half_edges.contains_key(data.twin)
+                && brep.boundary_edges.contains(&data.edge)
+                && let Some(end) = support_split_half_edge_end_vertex(brep, cursor)
+            {
+                spans.push((data.origin, end));
+            }
+            cursor = data.next;
+            if cursor == start {
+                break;
+            }
+        }
+    }
+    spans
 }
