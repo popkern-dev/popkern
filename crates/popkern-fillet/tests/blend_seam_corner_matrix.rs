@@ -7,10 +7,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
-use popkern_fillet::{
-    BlendResult, BlendSeamCornerDeclineReason, FilletOptions, FilletRadius, FilletSpec,
-    fillet_edges,
-};
+use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 #[path = "support/mesh_gauges.rs"]
 mod mesh_gauges;
@@ -93,34 +90,36 @@ fn equal_radius_pair_corner_closes_watertight() {
     );
 }
 
-/// Stage-2 boundary is explicit: the mismatched-radius pair corner
-/// is RECOGNIZED and declines with the structured stage-2 reason
-/// (the intersection is a space quartic needing the marching
-/// intersector), leaving the body no worse than before.
+/// PK-152 stage 2 HARD gate: the mismatched-radius pair corner
+/// closes welded-watertight. The seam is the marched cylinder×
+/// cylinder quartic from the rail crossing to the smaller strip's
+/// rail exit; the near anchor moves onto the exit point and the Δr
+/// mismatch stub becomes the larger strip's exact cylinder×plane
+/// ellipse arc (formerly 58 welded opens, worst 4.142e-2).
 #[test]
-fn mixed_radius_pair_corner_declines_with_stage_two_reason() {
+fn mixed_radius_pair_corner_closes_watertight() {
     let result = pair_result(0.06, 0.10);
     let report = &result.repair_report.blend_seam_corner;
-    assert_eq!(report.seams_built, 0, "stage 1 must not serve mixed radii");
+    assert_eq!(report.seams_built, 1, "mixed corner must build one seam");
     assert!(
-        report
-            .declines
-            .iter()
-            .any(|d| d.reason == BlendSeamCornerDeclineReason::MismatchedRadii),
-        "mixed-radius corner must decline as MismatchedRadii: {:?}",
+        report.declines.is_empty(),
+        "no seam declines expected: {:?}",
         report.declines
     );
-    result.brep.validate().expect("mixed pair body validates");
-}
-
-#[test]
-#[ignore = "PK-152 stage 2: flip when the marching-intersector seam serves mismatched radii"]
-fn mixed_radius_pair_corner_closes_watertight() {
-    let out = pair_result(0.06, 0.10).brep;
+    let out = result.brep;
     out.validate().expect("mixed pair body validates");
     assert_eq!(
         welded_open_edges(&out),
         0,
         "mixed pair corner must weld shut"
+    );
+    let worst = out
+        .edges
+        .keys()
+        .map(|eh| out.measure_edge_deviation(eh))
+        .fold(0.0_f64, f64::max);
+    assert!(
+        worst < 1e-6,
+        "every edge must lie on its faces' surfaces: worst {worst:.3e}"
     );
 }

@@ -43,38 +43,37 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 
 use crate::types::{BlendSeamCornerDecline, BlendSeamCornerDeclineReason, BlendSeamCornerReport};
 
-use super::blend_seam_corner_geometry as geometry;
 use super::terminal_arc_trim::StripCylinder;
 
 /// Longest stub chain the recognizer will walk on one strip.
 const MAX_CHAIN: usize = 6;
 
 /// One recognized pair-corner tangle.
-struct PairCornerCandidate {
+pub(super) struct PairCornerCandidate {
     /// Strip whose seam half-edge points AT the corner; receives the
     /// flap merge (next-walk side).
-    strip_n: FaceHandle,
+    pub(super) strip_n: FaceHandle,
     /// Strip whose seam half-edge leaves the corner (prev-walk side).
-    strip_p: FaceHandle,
+    pub(super) strip_p: FaceHandle,
     /// The stale strip-shared edge; survives as the seam.
-    seam_edge: EdgeHandle,
+    pub(super) seam_edge: EdgeHandle,
     /// Seam half-edge in `strip_n`'s loop (destination = corner).
-    he_n: HalfEdgeHandle,
+    pub(super) he_n: HalfEdgeHandle,
     /// Seam half-edge in `strip_p`'s loop (origin = corner).
-    he_p: HalfEdgeHandle,
+    pub(super) he_p: HalfEdgeHandle,
     /// The stale corner vertex (dies).
-    corner: VertexHandle,
+    pub(super) corner: VertexHandle,
     /// Seam anchor already shared by the strips (`he_n`'s origin).
-    anchor_near: VertexHandle,
+    pub(super) anchor_near: VertexHandle,
     /// Far seam anchor where both stub chains meet (survives).
-    anchor_far: VertexHandle,
+    pub(super) anchor_far: VertexHandle,
     /// Stub half-edges in `strip_n`'s loop, corner → far anchor.
-    chain_n: Vec<HalfEdgeHandle>,
+    pub(super) chain_n: Vec<HalfEdgeHandle>,
     /// Stub half-edges in `strip_p`'s loop, each oriented toward the
     /// corner, ordered corner-side first.
-    chain_p: Vec<HalfEdgeHandle>,
+    pub(super) chain_p: Vec<HalfEdgeHandle>,
     /// The phantom flap face enclosed by the chains (dies).
-    flap: FaceHandle,
+    pub(super) flap: FaceHandle,
 }
 
 /// Settle stale pair corners between blend strips the operation
@@ -97,7 +96,7 @@ pub(crate) fn settle_blend_seam_corners(
             continue;
         }
         let snapshot = result.clone();
-        let outcome = repair_pair_corner(result, &candidate, tolerance);
+        let outcome = dispatch_repair(result, &candidate, tolerance);
         if trace {
             eprintln!(
                 "[bsc] corner {:?} strips {:?}/{:?} seam {:?} -> {:?}",
@@ -123,7 +122,7 @@ pub(crate) fn settle_blend_seam_corners(
     report
 }
 
-fn strip_cylinder(brep: &BRep, face: FaceHandle) -> Option<StripCylinder> {
+pub(super) fn strip_cylinder(brep: &BRep, face: FaceHandle) -> Option<StripCylinder> {
     match brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry) {
         Some(SurfaceGeometry::Cylinder {
             origin,
@@ -138,7 +137,7 @@ fn strip_cylinder(brep: &BRep, face: FaceHandle) -> Option<StripCylinder> {
     }
 }
 
-fn off_cylinder(p: Point3, cyl: &StripCylinder) -> f64 {
+pub(super) fn off_cylinder(p: Point3, cyl: &StripCylinder) -> f64 {
     let d = p - cyl.origin;
     let radial: Vec3 = d - cyl.axis * d.dot(&cyl.axis);
     (radial.length() - cyl.radius).abs()
@@ -318,131 +317,21 @@ fn walk_corner_tangle(
     })
 }
 
-fn repair_pair_corner(
+/// Route the candidate to the analytic equal-radius path or the
+/// marching mismatched-radius path.
+fn dispatch_repair(
     brep: &mut BRep,
     c: &PairCornerCandidate,
     tolerance: &Tolerance,
 ) -> Result<(), BlendSeamCornerDeclineReason> {
-    use BlendSeamCornerDeclineReason as Reason;
-    let cyl_n = strip_cylinder(brep, c.strip_n).ok_or(Reason::EulerRejected)?;
-    let cyl_p = strip_cylinder(brep, c.strip_p).ok_or(Reason::EulerRejected)?;
-    let pos_of = |v: VertexHandle| -> Option<Point3> { Some(brep.vertices.get(v)?.position) };
-    let corner_pos = pos_of(c.corner).ok_or(Reason::EulerRejected)?;
-    let a_pos = pos_of(c.anchor_near).ok_or(Reason::EulerRejected)?;
-    let b_pos = pos_of(c.anchor_far).ok_or(Reason::EulerRejected)?;
-
-    // Author the seam geometry FIRST — every analytic decline exits
-    // before any topology is touched.
-    let frame = geometry::solve_equal_radius_seam_frame(&cyl_n, &cyl_p, a_pos, b_pos, tolerance)?;
-    let primary = brep
-        .edges
-        .get(c.seam_edge)
-        .ok_or(Reason::EulerRejected)?
-        .half_edge;
-    // After surgery `he_n` runs anchor_near → anchor_far and `he_p`
-    // the reverse; the stored curve follows the primary half-edge.
-    let (p_start, p_end) = if primary == c.he_n {
-        (a_pos, b_pos)
-    } else {
-        (b_pos, a_pos)
-    };
-    let seam_curve = geometry::author_seam_curve(&frame, p_start, p_end, corner_pos, tolerance)?;
-
-    // Euler surgery. kef keeps the given half-edge's face, so the
-    // flap (the twin side) dies into strip_n; the remaining chain_n
-    // stubs become spurs dissolved tip-first; chain_p contracts onto
-    // the far anchor, whose position kve preserves (origin side).
-    let last_n = *c.chain_n.last().ok_or(Reason::EulerRejected)?;
-    brep.kef(last_n).map_err(|_| Reason::EulerRejected)?;
-    for he in c.chain_n[..c.chain_n.len() - 1].iter().rev() {
-        brep.kev(*he).map_err(|_| Reason::EulerRejected)?;
-    }
-    for he in &c.chain_p {
-        brep.kve(*he).map_err(|_| Reason::EulerRejected)?;
-    }
-    // The seam edge must now run between the two anchors.
-    let he_n_data = brep.half_edges.get(c.he_n).ok_or(Reason::EulerRejected)?;
-    let he_p_data = brep
-        .half_edges
-        .get(he_n_data.twin)
-        .ok_or(Reason::EulerRejected)?;
-    if he_n_data.origin != c.anchor_near || he_p_data.origin != c.anchor_far {
-        return Err(Reason::EulerRejected);
-    }
-
-    // Strip-side pcurves, anchored to the loop neighbours' charts.
-    let staged: Vec<(
-        FaceHandle,
-        HalfEdgeHandle,
-        popkern_core::geometry::pcurve::Pcurve,
-    )> = [
-        (c.strip_n, c.he_n, a_pos, b_pos),
-        (c.strip_p, c.he_p, b_pos, a_pos),
-    ]
-    .into_iter()
-    .map(|(face, he, origin_pos, dest_pos)| {
-        let surface = brep
-            .faces
-            .get(face)
-            .and_then(|f| f.surface.as_ref())
-            .map(|s| s.geometry.clone())
-            .ok_or(Reason::EulerRejected)?;
-        let h = brep.half_edges.get(he).ok_or(Reason::EulerRejected)?;
-        let origin_anchor = geometry::ChartAnchor {
-            uv: neighbour_chart_point(brep, face, h.prev, true),
-        };
-        let dest_anchor = geometry::ChartAnchor {
-            uv: neighbour_chart_point(brep, face, h.next, false),
-        };
-        let pcurve = geometry::author_side_pcurve(
-            &surface,
-            &frame,
-            origin_pos,
-            dest_pos,
-            &origin_anchor,
-            &dest_anchor,
-            tolerance,
-        )?;
-        Ok((face, he, pcurve))
-    })
-    .collect::<Result<_, Reason>>()?;
-
-    // Commit.
-    if let Some(e) = brep.edges.get_mut(c.seam_edge) {
-        e.curve = Some(seam_curve);
-    }
-    for (face, he, pcurve) in staged {
-        if let Some(h) = brep.half_edges.get_mut(he) {
-            h.pcurve = Some(pcurve.clone());
-        }
-        brep.set_face_use_pcurve(face, he, pcurve);
-    }
-
-    // Postconditions: the seam must sit on both strips and the body
-    // must still validate.
+    let cyl_n =
+        strip_cylinder(brep, c.strip_n).ok_or(BlendSeamCornerDeclineReason::EulerRejected)?;
+    let cyl_p =
+        strip_cylinder(brep, c.strip_p).ok_or(BlendSeamCornerDeclineReason::EulerRejected)?;
     let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    if brep.measure_edge_deviation(c.seam_edge) > pos_tol {
-        return Err(Reason::ValidationFailed);
+    if (cyl_n.radius - cyl_p.radius).abs() <= pos_tol.max(cyl_n.radius * 1e-9) {
+        super::blend_seam_corner_repair::repair_pair_corner_equal(brep, c, tolerance)
+    } else {
+        super::blend_seam_corner_march::repair_pair_corner_mixed(brep, c, tolerance)
     }
-    brep.validate().map_err(|_| Reason::ValidationFailed)?;
-    Ok(())
-}
-
-/// Authoritative chart position of a seam endpoint on one face: the
-/// adjacent half-edge's pcurve endpoint (its end when the neighbour
-/// arrives at the vertex, its start when it leaves).
-fn neighbour_chart_point(
-    brep: &BRep,
-    face: FaceHandle,
-    neighbour: HalfEdgeHandle,
-    at_end: bool,
-) -> Option<(f64, f64)> {
-    let pc = brep.face_use_pcurve(face, neighbour).or(brep
-        .half_edges
-        .get(neighbour)?
-        .pcurve
-        .as_ref())?;
-    let (t0, t1) = pc.parameter_range();
-    let p = pc.point_at(if at_end { t1 } else { t0 });
-    Some((p.x, p.y))
 }

@@ -6,6 +6,8 @@ mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_seam_corner;
 mod blend_seam_corner_geometry;
+mod blend_seam_corner_march;
+mod blend_seam_corner_repair;
 pub(crate) mod blend_topo;
 mod boundary_support_frames;
 mod bridge_warnings;

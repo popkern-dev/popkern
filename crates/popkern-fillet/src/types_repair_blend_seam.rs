@@ -38,10 +38,18 @@ pub struct BlendSeamCornerDecline {
 /// Structural reasons a recognized pair corner is not repaired.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlendSeamCornerDeclineReason {
-    /// The strips carry different radii; the intersection is a
-    /// space quartic needing the marching intersector (stage 2,
-    /// PK-132 census class).
+    /// The strips carry different radii and the marching-intersector
+    /// preconditions did not hold (retained as the structured
+    /// boundary for corner shapes the marching path cannot serve).
     MismatchedRadii,
+    /// The near anchor sits on one strip only, but its mismatch stub
+    /// edge (toward the larger strip's terminal arc) or its rail
+    /// edge could not be identified structurally.
+    StubUnresolved,
+    /// The marching intersector could not carry the seam from the
+    /// far anchor to the support-plane exit (separating strips,
+    /// missed exit, or step exhaustion).
+    MarchUnresolved,
     /// The strip axes do not intersect within tolerance; the
     /// intersection leaves the analytic bisector-plane family
     /// (stage 2 territory).

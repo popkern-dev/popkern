@@ -266,6 +266,7 @@ pub(super) fn incident_edge_count(brep: &BRep, vertex: VertexHandle) -> usize {
 }
 
 /// Cylinder data extracted once per repair.
+#[derive(Clone)]
 pub(super) struct StripCylinder {
     pub(super) origin: Point3,
     pub(super) axis: Vec3,
