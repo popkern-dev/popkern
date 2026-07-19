@@ -129,7 +129,9 @@ pub fn build_fillet_surface(
     // General case: NURBS swept surface (G1 arc). If we fell here
     // after a G2 sweep failure, attach the downgrade reason.
     let mut result = build_nurbs_sweep(center_result, radius, arc_samples)?;
-    result.continuity_downgrade = g2_fallback_reason;
+    if g2_fallback_reason.is_some() {
+        result.continuity_downgrade = g2_fallback_reason;
+    }
     Ok(result)
 }
 
@@ -181,15 +183,28 @@ fn build_nurbs_sweep(
     let (t_min, t_max) =
         popkern_core::geometry::curve::CurveEval::parameter_range(center_result_curve);
 
-    let mut control_points = Vec::with_capacity(n_sections * n_arc);
-
+    // Section-exact skinning: each cross-section is a circular arc,
+    // exactly representable as ONE rational quadratic row (weight
+    // cos(θ/2)) for sweeps up to ~115°. A degree-1 loft of exact
+    // rows makes every STATION iso the true circle — the polyline
+    // skin's chord sagitta (measured 4.3e-4 at r=0.10 with the
+    // default sampling) was the floor for terminal settlement and
+    // seam conformity on variable strips. Sections beyond the single
+    // -segment range fall back to the legacy sampled skin, recorded
+    // as a continuity downgrade.
+    let mut rational_rows: Option<Vec<([Point3; 3], f64)>> = Some(Vec::with_capacity(n_sections));
+    let mut sampled_points = Vec::with_capacity(n_sections * n_arc);
     for i in 0..n_sections {
         let t = t_min + (t_max - t_min) * (i as f64) / ((n_sections - 1).max(1) as f64);
         let center = popkern_core::geometry::curve::CurveEval::point_at(center_result_curve, t);
         let fp1 = &footprint_1[i];
         let fp2 = &footprint_2[i];
-
-        // Build the arc from fp1 to fp2 centered at `center`.
+        if let Some(rows) = rational_rows.as_mut() {
+            match rational_arc_row(&center, fp1, fp2) {
+                Some(row) => rows.push(row),
+                None => rational_rows = None,
+            }
+        }
         let arc_pts = sample_arc(&center, fp1, fp2, radius, n_arc);
         if std::env::var_os("PK_SWEEP_TRACE").is_some() {
             eprintln!(
@@ -208,26 +223,49 @@ fn build_nurbs_sweep(
                 arc_pts[arc_pts.len() / 2].z
             );
         }
-        control_points.extend_from_slice(&arc_pts);
+        sampled_points.extend_from_slice(&arc_pts);
     }
 
-    // Build the NurbsSurface: U = along edge (n_sections), V = around arc (n_arc).
+    // U = along edge (n_sections), V = around arc.
     let degree_u = 1.min(n_sections - 1);
-    let degree_v = 1.min(n_arc - 1);
-
-    let knots_u = build_clamped_uniform_knots(n_sections, degree_u);
-    let knots_v = build_clamped_uniform_knots(n_arc, degree_v);
-    let weights = vec![1.0; n_sections * n_arc];
-
-    let nurbs = NurbsSurface {
-        degree_u,
-        degree_v,
-        knots_u,
-        knots_v,
-        control_points,
-        num_u: n_sections,
-        num_v: n_arc,
-        weights,
+    let (nurbs, continuity_downgrade) = if let Some(rows) = rational_rows {
+        let mut control_points = Vec::with_capacity(n_sections * 3);
+        let mut weights = Vec::with_capacity(n_sections * 3);
+        for (cps, w_mid) in &rows {
+            control_points.extend_from_slice(cps);
+            weights.extend_from_slice(&[1.0, *w_mid, 1.0]);
+        }
+        (
+            NurbsSurface {
+                degree_u,
+                degree_v: 2,
+                knots_u: build_clamped_uniform_knots(n_sections, degree_u),
+                knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                control_points,
+                num_u: n_sections,
+                num_v: 3,
+                weights,
+            },
+            None,
+        )
+    } else {
+        let degree_v = 1.min(n_arc - 1);
+        (
+            NurbsSurface {
+                degree_u,
+                degree_v,
+                knots_u: build_clamped_uniform_knots(n_sections, degree_u),
+                knots_v: build_clamped_uniform_knots(n_arc, degree_v),
+                control_points: sampled_points,
+                num_u: n_sections,
+                num_v: n_arc,
+                weights: vec![1.0; n_sections * n_arc],
+            },
+            Some(
+                "section sweep exceeds the single-segment rational range; sampled polyline skin"
+                    .to_string(),
+            ),
+        )
     };
 
     let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
@@ -237,8 +275,39 @@ fn build_nurbs_sweep(
         surface: SurfaceGeometry::Nurbs(nurbs),
         trim_curve_1: trim_1,
         trim_curve_2: trim_2,
-        continuity_downgrade: None,
+        continuity_downgrade,
     })
+}
+
+/// One EXACT rational-quadratic arc row from `start` to `end` about
+/// `center`: control points [start, tangent-intersection, end] with
+/// mid weight cos(θ/2). Returns `None` when the section is outside
+/// the well-conditioned single-segment range (θ > ~115°, radii
+/// mismatched, or degenerate).
+fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<([Point3; 3], f64)> {
+    let v1 = *start - *center;
+    let v2 = *end - *center;
+    let r1 = v1.length();
+    let r2 = v2.length();
+    if r1 < 1e-12 || r2 < 1e-12 {
+        return None;
+    }
+    if (r1 - r2).abs() > 1e-6 * r1.max(r2) {
+        return None;
+    }
+    let u1 = v1 * (1.0 / r1);
+    let u2 = v2 * (1.0 / r2);
+    let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
+    let theta = cos_theta.acos();
+    if !(1e-9..=2.0).contains(&theta) {
+        return None;
+    }
+    let half = 0.5 * theta;
+    let w_mid = half.cos();
+    let mid_dir = (u1 + u2).normalized()?;
+    let r = 0.5 * (r1 + r2);
+    let mid = *center + mid_dir * (r / w_mid);
+    Some(([*start, mid, *end], w_mid))
 }
 
 /// Sample a circular arc from `start` to `end` centered at `center`.

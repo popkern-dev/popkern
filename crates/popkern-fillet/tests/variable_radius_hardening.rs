@@ -76,7 +76,6 @@ fn run_law(label: &str, radius: FilletRadius, r_lo: f64, r_hi: f64) {
 
 /// Extreme but feasible ratio (1:5 on a unit cube).
 #[test]
-#[ignore = "PK-139 stage 2: the variable-radius SWEEP still ships open bodies (center-curve march landed 2026-07-18; trim/topology wiring is the next leg) — flip when the sweep closes"]
 fn variable_extreme_ratio_1_to_5_completes_or_declines_structured() {
     run_law(
         "ratio 0.02:0.10",
