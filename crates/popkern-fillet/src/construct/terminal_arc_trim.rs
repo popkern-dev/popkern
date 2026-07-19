@@ -188,28 +188,24 @@ fn recognize_corner_pair(
     // Both stubs on one iso-v station, meeting at the same u. The
     // chart values may be stale — they gate recognition only; all
     // repair positions are computed from trusted geometry.
-    // Recognition-only gate: swept-strip stub pcurves projected from
-    // a stale corner drift off the exact iso by the corner's chart
-    // shadow (measured 1.4e-3 in u on the r=0.10 end of a variable
-    // sweep), so the station tolerance is loose; every ACCEPT is
-    // still guarded downstream by off-surface, isolation, common-cap,
-    // circularity, and anchor checks.
-    let eps_uv = 5e-3;
-    // Cylinder strips author their chain-end stubs on one iso-v
-    // station (u meets); planar chamfer bands author them on one
-    // iso-u station (v meets). Accept either — the chart values are
-    // recognition-only either way.
-    let station_v = a_end.1;
-    let iso_v = (a_start.1 - station_v).abs() < eps_uv
-        && (b_start.1 - station_v).abs() < eps_uv
-        && (b_end.1 - station_v).abs() < eps_uv
-        && (a_end.0 - b_start.0).abs() < eps_uv;
-    let station_u = a_end.0;
-    let iso_u = (a_start.0 - station_u).abs() < eps_uv
-        && (b_start.0 - station_u).abs() < eps_uv
-        && (b_end.0 - station_u).abs() < eps_uv
-        && (a_end.1 - b_start.1).abs() < eps_uv;
-    if !(iso_v || iso_u) {
+    // Recognition-only gate, SCALE-FREE: swept-strip stub pcurves
+    // projected from a stale corner drift off the exact iso by the
+    // corner's chart shadow, and the shadow grows with the end
+    // radius (measured 1.4e-3 in u at r=0.10, 6.5e-3 at r=0.20), so
+    // an absolute station tolerance cannot serve every radius. Gate
+    // on the SLOPE instead — each stub's variation must be dominated
+    // by one shared chart direction — plus a meeting check relative
+    // to the spans. Cylinder strips author iso-v stubs, planar
+    // chamfer bands iso-u, swept strips near-iso with shadow drift;
+    // every ACCEPT is still guarded downstream by off-surface,
+    // isolation, common-cap, circularity, and anchor checks.
+    let d_a = (a_end.0 - a_start.0, a_end.1 - a_start.1);
+    let d_b = (b_end.0 - b_start.0, b_end.1 - b_start.1);
+    let iso_u = d_a.0.abs() <= 0.2 * d_a.1.abs() && d_b.0.abs() <= 0.2 * d_b.1.abs();
+    let iso_v = d_a.1.abs() <= 0.2 * d_a.0.abs() && d_b.1.abs() <= 0.2 * d_b.0.abs();
+    let meet_eps = 1e-6 + 0.25 * (d_a.0.abs() + d_a.1.abs() + d_b.0.abs() + d_b.1.abs());
+    let meets = (a_end.0 - b_start.0).abs() <= meet_eps && (a_end.1 - b_start.1).abs() <= meet_eps;
+    if !((iso_v || iso_u) && meets) {
         return None;
     }
     // The vertex must be OFF the strip surface — that is the stale

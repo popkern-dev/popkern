@@ -90,7 +90,6 @@ fn variable_extreme_ratio_1_to_5_completes_or_declines_structured() {
 
 /// Severe ratio 1:20 — must not panic or ship an open body.
 #[test]
-#[ignore = "PK-139 stage 2: the variable-radius SWEEP still ships open bodies (center-curve march landed 2026-07-18; trim/topology wiring is the next leg) — flip when the sweep closes"]
 fn variable_extreme_ratio_1_to_20_completes_or_declines_structured() {
     run_law(
         "ratio 0.01:0.20",
