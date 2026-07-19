@@ -296,7 +296,7 @@ fn direct_apex_native_cube_mixed_no_fallback() {
 /// during repeated-apex normalization; each must finish natively
 /// with cylinder-owned FilletEnd seams.
 #[test]
-#[ignore = "cap-to-cylinder seam exposure gate: cube_extreme is native fallback-free but exposes only two distinct cylinder neighbors"]
+#[ignore = "runs green under POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1 (strict matrix 8/8, PK-128); un-ignore when VFreeRepeatedApexMode::DefaultOn widens to n >= 3, which is blocked on the serving stack (STEP export, trim authority, mesh, measure parity — PK-126 serving leg)"]
 fn direct_apex_native_variable_cube_gregory_set_no_fallback() {
     for (name, radii) in [
         ("cube_mixed", &[0.08, 0.10, 0.12][..]),
