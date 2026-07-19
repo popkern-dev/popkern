@@ -51,13 +51,13 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, VertexHandle};
 use crate::types::{TerminalArcTrimDecline, TerminalArcTrimDeclineReason, TerminalArcTrimReport};
 
 /// A recognized stale chain-end corner on one strip face.
-struct CornerCandidate {
-    strip_face: FaceHandle,
+pub(super) struct CornerCandidate {
+    pub(super) strip_face: FaceHandle,
     /// Strip-loop half-edge arriving at the corner.
-    he_in: HalfEdgeHandle,
+    pub(super) he_in: HalfEdgeHandle,
     /// Strip-loop half-edge leaving the corner (`he_in.next`).
-    he_out: HalfEdgeHandle,
-    corner: VertexHandle,
+    pub(super) he_out: HalfEdgeHandle,
+    pub(super) corner: VertexHandle,
 }
 
 /// Settle stale chain-end corners on every face the blend operation
@@ -189,32 +189,44 @@ fn recognize_corner_pair(
     // chart values may be stale — they gate recognition only; all
     // repair positions are computed from trusted geometry.
     let eps_uv = 1e-6;
+    // Cylinder strips author their chain-end stubs on one iso-v
+    // station (u meets); planar chamfer bands author them on one
+    // iso-u station (v meets). Accept either — the chart values are
+    // recognition-only either way.
     let station_v = a_end.1;
-    let iso = (a_start.1 - station_v).abs() < eps_uv
+    let iso_v = (a_start.1 - station_v).abs() < eps_uv
         && (b_start.1 - station_v).abs() < eps_uv
-        && (b_end.1 - station_v).abs() < eps_uv;
-    if !iso {
-        return None;
-    }
-    if (a_end.0 - b_start.0).abs() > eps_uv {
+        && (b_end.1 - station_v).abs() < eps_uv
+        && (a_end.0 - b_start.0).abs() < eps_uv;
+    let station_u = a_end.0;
+    let iso_u = (a_start.0 - station_u).abs() < eps_uv
+        && (b_start.0 - station_u).abs() < eps_uv
+        && (b_end.0 - station_u).abs() < eps_uv
+        && (a_end.1 - b_start.1).abs() < eps_uv;
+    if !(iso_v || iso_u) {
         return None;
     }
     // The vertex must be OFF the strip surface — that is the stale
-    // signature. Coherent corners (already arc-authored) are left
-    // alone, which keeps the pass idempotent. Measured against the
-    // true cylinder (radial distance), not the possibly-stale chart.
+    // signature. Coherent corners (already settled) are left alone,
+    // which keeps the pass idempotent. Measured against the true
+    // support geometry, not the possibly-stale chart.
     let corner_pos = brep.vertices.get(corner)?.position;
-    let SurfaceGeometry::Cylinder {
-        origin,
-        axis,
-        radius,
-    } = surface
-    else {
-        return None;
+    let off_surface = match surface {
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => {
+            let d = corner_pos - *origin;
+            let radial = d - *axis * d.dot(axis);
+            (radial.length() - radius).abs() > tolerance.linear() * 10.0
+        }
+        SurfaceGeometry::Plane { origin, normal, .. } => {
+            (corner_pos - *origin).dot(normal).abs() > tolerance.linear() * 10.0
+        }
+        _ => return None,
     };
-    let d = corner_pos - *origin;
-    let radial = d - *axis * d.dot(axis);
-    if (radial.length() - radius).abs() <= tolerance.linear() * 10.0 {
+    if !off_surface {
         return None;
     }
     Some(CornerCandidate {
@@ -226,7 +238,7 @@ fn recognize_corner_pair(
 }
 
 /// Count edges incident to a vertex (via each edge's half-edge pair).
-fn incident_edge_count(brep: &BRep, vertex: VertexHandle) -> usize {
+pub(super) fn incident_edge_count(brep: &BRep, vertex: VertexHandle) -> usize {
     brep.edges
         .iter()
         .filter(|(_, e)| {
@@ -253,7 +265,8 @@ fn repair_corner(
     c: &CornerCandidate,
     tolerance: &Tolerance,
 ) -> Result<(), TerminalArcTrimDeclineReason> {
-    // The construction below is exact only for cylindrical strips.
+    // Cylindrical strips settle to the terminal ARC; planar strips
+    // (chamfer bands) settle to the terminal CHORD.
     let cyl = {
         let geom = brep
             .faces
@@ -270,6 +283,9 @@ fn repair_corner(
                 axis: *axis,
                 radius: *radius,
             },
+            Some(SurfaceGeometry::Plane { .. }) => {
+                return super::terminal_chord_trim::repair_corner_planar(brep, c, tolerance);
+            }
             _ => return Err(TerminalArcTrimDeclineReason::NonCylinderStrip),
         }
     };

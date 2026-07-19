@@ -116,13 +116,6 @@ fn cylinder_fillet_identity_survives_step_roundtrip() {
 }
 
 #[test]
-#[ignore = "PK-132 census blocker: the chamfered-cube STEP round-trip fails Euler-Poincare \
-            (chi 6 vs 2). Import gains exactly 4 edges + 8 vertices, all at IDENTICAL \
-            positions (max weld gap 2e-17), including two minted at the chamfer end-edge \
-            MIDPOINT (0, 0.05, 0.05) that do not exist pre-export — the export writes the \
-            band's end edges with different per-face decompositions (one side split at mid) \
-            so sewing cannot weld 2-vs-1. Flip to a hard gate when the export-side edge \
-            authority is unified."]
 fn chamfer_identity_survives_step_roundtrip() {
     let cube = BRep::unit_cube(tol()).expect("cube builds");
     let edge = cube.edges.keys().next().expect("cube edge");

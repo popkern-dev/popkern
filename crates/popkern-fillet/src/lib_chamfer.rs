@@ -187,6 +187,16 @@ pub fn chamfer_edges(
     apply_result.brep.fix_stale_pcurves();
     apply_result.brep.recompute_all_pcurves_lenient();
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    // Terminal chord trim (the planar counterpart of PK-148): settle
+    // chain-end corners so the band's end stubs carry ONE geometric
+    // authority — without it a chamfered cube round-trips through
+    // STEP with forked face-local end edges (χ=6 vs 2).
+    apply_result.repair_report.terminal_arc_trim =
+        construct::terminal_arc_trim::settle_terminal_arc_stubs(
+            brep,
+            &mut apply_result.brep,
+            &tolerance,
+        );
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
