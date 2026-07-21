@@ -332,6 +332,12 @@ pub fn unfillet_closed_annulus(brep: &BRep, fillet_face: FaceHandle) -> Result<B
         out.vertices[v_keep].outgoing = cyl_twin_h;
     }
 
+    // 11. Heal pcurves on the restored rim topology (PK-157): the
+    //     re-twinned rim edge and merged loops otherwise leave the
+    //     restored faces meshing against mismatched trims.
+    out.recompute_all_pcurves_lenient();
+    out.fix_stale_pcurves();
+
     Ok(out)
 }
 

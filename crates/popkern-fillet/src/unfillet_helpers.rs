@@ -352,3 +352,40 @@ pub(crate) fn walk_blend_boundary(
 
 // Surgery helpers live in `unfillet_surgery` — kept separate so
 // each source file stays under the 500-line structural cap.
+
+/// True when `face` is the annulus produced by the Round 5c-3
+/// closed-fillet construction path.
+///
+/// Detection is topological, not geometric: a closed-fillet annulus
+/// has exactly one outer loop AND exactly one inner loop, and BOTH
+/// loops are single-element (one self-looping half-edge). Non-
+/// closed-fillet faces with holes (e.g. a cube top with a cylinder
+/// cutout) have a multi-element outer loop and so are excluded.
+/// Checking topology rather than surface type is robust to the
+/// surface-fix post-pass, which can reassign a closed-fillet face's
+/// NURBS sweep to a nearby cylinder when the vertices happen to lie
+/// on it.
+pub(crate) fn is_closed_fillet_annulus(brep: &BRep, face: FaceHandle) -> bool {
+    let Some(face_data) = brep.faces.get(face) else {
+        return false;
+    };
+    if face_data.inner_loops.len() != 1 {
+        return false;
+    }
+    let outer_single = loop_is_single_element(brep, face_data.outer_loop);
+    let inner_single = loop_is_single_element(brep, face_data.inner_loops[0]);
+    outer_single && inner_single
+}
+
+/// True when `loop_` is a closed loop made of a single self-looping
+/// half-edge (next == prev == self).
+fn loop_is_single_element(brep: &BRep, loop_: popkern_core::topology::LoopHandle) -> bool {
+    let Some(l) = brep.loops.get(loop_) else {
+        return false;
+    };
+    let start = l.half_edge;
+    let Some(he) = brep.half_edges.get(start) else {
+        return false;
+    };
+    he.next == start && he.prev == start
+}

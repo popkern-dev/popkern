@@ -47,45 +47,9 @@ use crate::error::BlendError;
 use crate::history::FilletOperationRecord;
 use crate::identify::{BlendKind, identify_blend};
 
-/// True when `face` is the annulus produced by the Round 5c-3
-/// closed-fillet construction path.
-///
-/// Detection is topological, not geometric: a closed-fillet annulus
-/// has exactly one outer loop AND exactly one inner loop, and BOTH
-/// loops are single-element (one self-looping half-edge). Non-
-/// closed-fillet faces with holes (e.g. a cube top with a cylinder
-/// cutout) have a multi-element outer loop and so are excluded.
-/// Checking topology rather than surface type is robust to the
-/// surface-fix post-pass, which can reassign a closed-fillet face's
-/// NURBS sweep to a nearby cylinder when the vertices happen to lie
-/// on it.
-fn is_closed_fillet_annulus(brep: &BRep, face: FaceHandle) -> bool {
-    let Some(face_data) = brep.faces.get(face) else {
-        return false;
-    };
-    if face_data.inner_loops.len() != 1 {
-        return false;
-    }
-    let outer_single = loop_is_single_element(brep, face_data.outer_loop);
-    let inner_single = loop_is_single_element(brep, face_data.inner_loops[0]);
-    outer_single && inner_single
-}
-
-/// True when `loop_` is a closed loop made of a single self-looping
-/// half-edge (next == prev == self).
-fn loop_is_single_element(brep: &BRep, loop_: popkern_core::topology::LoopHandle) -> bool {
-    let Some(l) = brep.loops.get(loop_) else {
-        return false;
-    };
-    let start = l.half_edge;
-    let Some(he) = brep.half_edges.get(start) else {
-        return false;
-    };
-    he.next == start && he.prev == start
-}
 use crate::unfillet_helpers::{
     collect_end_face_planes, extract_plane, find_torus_support_faces, intersect_line_plane,
-    intersect_planes, pick_extreme_endpoints, walk_blend_boundary,
+    intersect_planes, is_closed_fillet_annulus, pick_extreme_endpoints, walk_blend_boundary,
 };
 use crate::unfillet_surgery::{
     corners_near_endpoint, find_he_in_face_with_origin, rebuild_curves_touching,
@@ -469,6 +433,14 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
         geometry: plane_b_geometry.0.clone(),
         orientation: plane_b_geometry.1,
     });
+
+    // 9. Heal pcurves on the restored topology. The surgery merged
+    //    loops and authored a new MEF edge with 3D geometry only, so
+    //    the restored faces carry missing/stale pcurves — the forward
+    //    fillet pipeline runs the same heal pass after construction
+    //    (PK-157: the restored body meshed with non-welded seams).
+    out.recompute_all_pcurves_lenient();
+    out.fix_stale_pcurves();
 
     Ok(out)
 }

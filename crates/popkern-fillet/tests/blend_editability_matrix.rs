@@ -79,15 +79,22 @@ fn cylinder_family_round_trips() {
         "unfillet must restore the pre-blend face census"
     );
     let (structural, open, other) = mesh_gauges::brep_open_defects(&restored);
+    let conformity = mesh_gauges::welded_open_edges(&restored);
     eprintln!(
         "[editability] cylinder family: restored defects structural={structural} open={open} \
-         other={other}, mesh conformity reads {}",
-        mesh_gauges::welded_open_edges(&restored)
+         other={other}, mesh conformity reads {conformity}"
     );
     assert_eq!(
         (structural, open, other),
         (0, 0, 0),
         "restored body must be structurally closed"
+    );
+    // PK-157: unfillet heals pcurves on the restored topology, so the
+    // restored body must tessellate weld-conforming (was 38 non-welded
+    // mesh edges before the heal pass).
+    assert_eq!(
+        conformity, 0,
+        "restored body must mesh weld-conforming; {conformity} non-welded mesh edges"
     );
 }
 
