@@ -68,6 +68,33 @@ fn v_free_face_census_dump() {
             .map(|p| format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z))
             .collect();
         eprintln!("FACE {fh:?} [{:?}] {desc} ring={verts:?}", f.role);
+        // Half-edge sides: edge handle + twin's owning face.
+        let Some(loop_data) = brep.loops.get(f.outer_loop) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut he = start;
+        for _ in 0..brep.half_edges.len() {
+            let Some(data) = brep.half_edges.get(he) else {
+                break;
+            };
+            let origin = brep
+                .vertices
+                .get(data.origin)
+                .map(|v| format!("({:.2},{:.2},{:.2})", v.position.x, v.position.y, v.position.z))
+                .unwrap_or_else(|| "?".into());
+            let twin_face = brep
+                .half_edges
+                .get(data.twin)
+                .and_then(|t| brep.loops.get(t.loop_))
+                .map(|l| format!("{:?}", l.face))
+                .unwrap_or_else(|| "DEAD".into());
+            eprintln!("    side {:?} edge={:?} from={origin} twin-face={twin_face}", he, data.edge);
+            he = data.next;
+            if he == start {
+                break;
+            }
+        }
     }
 }
 
