@@ -245,6 +245,72 @@ impl Part {
         Ok(part)
     }
 
+    /// Blend two faces that share no edge with a constant-radius
+    /// rolling ball, trimming both walls back to the contact curves
+    /// and seaming the strip in (the PK-142 face–face blend,
+    /// `FaceBlendAttach::TrimBoth`).
+    ///
+    /// Each selector must resolve to exactly one face — a face–face
+    /// blend is a pairwise operation, and an ambiguous selection is
+    /// an error rather than a guess.
+    ///
+    /// # Errors
+    ///
+    /// [`PartError::EmptySelection`] when a selector matches nothing;
+    /// [`PartError::NotApplicable`] when a selector is ambiguous or
+    /// the kernel declines the blend (structured diagnostics
+    /// preserved in the message).
+    pub fn face_blend(
+        &self,
+        radius: f64,
+        select_a: impl FnOnce(FaceQuery) -> FaceQuery,
+        select_b: impl FnOnce(FaceQuery) -> FaceQuery,
+    ) -> Result<Part, PartError> {
+        let infos = face_infos(self.brep());
+        let resolve_one = |label: &'static str,
+                               query: FaceQuery|
+         -> Result<popkern_core::topology::FaceHandle, PartError> {
+            let faces = query.resolve(&infos);
+            let selection = query.describe();
+            match faces.as_slice() {
+                [] => Err(PartError::EmptySelection {
+                    selection,
+                    entity: "faces",
+                    available: infos.len(),
+                }),
+                [face] => Ok(*face),
+                many => Err(PartError::NotApplicable(format!(
+                    "face_blend {label} selector must resolve to exactly one face; \
+                     `{selection}` matched {}",
+                    many.len()
+                ))),
+            }
+        };
+        let face_a = resolve_one("first", select_a(FaceQuery::new()))?;
+        let face_b = resolve_one("second", select_b(FaceQuery::new()))?;
+        let spec = popkern_fillet::FaceBlendSpec {
+            face_a,
+            face_b,
+            radius,
+            attach: popkern_fillet::FaceBlendAttach::TrimBoth,
+        };
+        let result = popkern_fillet::face_blend(self.brep(), &spec, self.tolerance())
+            .map_err(|e| PartError::NotApplicable(format!("face_blend failed: {e}")))?;
+        let attached = result.attached.ok_or_else(|| {
+            PartError::NotApplicable(
+                "face_blend attach declined: kernel returned the strip sheet only".into(),
+            )
+        })?;
+        let mut part = Part::from_validated(
+            attached,
+            self.tolerance(),
+            "face_blend",
+            format!("radius {radius} between {face_a:?} and {face_b:?}"),
+        )?;
+        part.merge_history_from(self);
+        Ok(part)
+    }
+
     /// Rigid translation.
     ///
     /// # Errors
