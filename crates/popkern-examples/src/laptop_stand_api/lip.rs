@@ -61,17 +61,21 @@ pub(crate) fn build_lip(p: &StandParams) -> Result<Part, PartError> {
 /// BEFORE the union (dress-first).
 pub(crate) fn build_peg_lip(p: &StandParams) -> Result<Part, PartError> {
     // L-profile in (depth x, height y): pad 34 deep × 4 tall, blade
-    // wall 5 thick rising to 30 at the rear with a HALF-ROUND top —
-    // one 180° sketch arc → one true cylinder face by construction.
-    // (Two corner arcs flanking a 1 mm flat exported a merged top
-    // surface OCC's reader rejects — "Entity has illegal type", the
-    // face dropped and its quad left as free bounds; single-arc
-    // crowns are the proven class.)
+    // wall 5 thick rising to 30 at the rear with the DESIGNED crown:
+    // two r=2 corner arcs flanking a 1 mm flat. (This class shipped a
+    // half-round containment crown while rational-surface STEP export
+    // used the shorthand complex form OCC rejects; the full Part-21
+    // form landed with PK-155 and the arc-line-arc crown is gated by
+    // popkern-part/tests/arc_line_arc_crown_step.rs + the OCC oracle.)
+    let r = 2.0_f64;
+    let d = r - r / 2.0_f64.sqrt();
     let bracket = Profile::on(Plane::XY)
         .path(-17.0, 0.0)
         .line_to(17.0, 0.0)
-        .line_to(17.0, 27.5)
-        .arc_to((14.5, 30.0), (12.0, 27.5))
+        .line_to(17.0, 28.0)
+        .arc_to((17.0 - d, 30.0 - d), (15.0, 30.0))
+        .line_to(14.0, 30.0)
+        .arc_to((12.0 + d, 30.0 - d), (12.0, 28.0))
         .line_to(12.0, 4.0)
         .line_to(-17.0, 4.0)
         .close()

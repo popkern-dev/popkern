@@ -129,8 +129,62 @@ impl<'a> GeometryCache<'a> {
         id: EntityId,
         log: &mut DiagnosticLog,
     ) -> Option<SurfaceGeometry> {
+        let params = self.graph.get(id)?.params.clone();
+        self.resolve_bspline_surface_from(id, &params, log)
+    }
+
+    /// Resolve the standard Part-21 complex form for rational B-spline
+    /// surfaces: leading partial `BOUNDED_SURFACE`, spline data
+    /// distributed over the `B_SPLINE_SURFACE` /
+    /// `B_SPLINE_SURFACE_WITH_KNOTS` partials, weights on
+    /// `RATIONAL_B_SPLINE_SURFACE` (the form the exporter writes and
+    /// OCC itself emits — PK-155).
+    pub(super) fn resolve_bspline_surface_complex(
+        &mut self,
+        id: EntityId,
+        log: &mut DiagnosticLog,
+    ) -> Option<SurfaceGeometry> {
         let entity = self.graph.get(id)?;
-        let bs = match BSplineSurfaceWithKnots::from_params(&entity.params) {
+        let part = |name: &str| {
+            entity
+                .complex_parts
+                .iter()
+                .find(|(n, _)| n == name)
+                .map(|(_, p)| p.clone())
+        };
+        let bs = part("B_SPLINE_SURFACE")?;
+        let bk = part("B_SPLINE_SURFACE_WITH_KNOTS")?;
+        if bs.len() < 7 || bk.len() < 5 {
+            log.error(
+                Phase::MapGeometry,
+                Some(id),
+                format!(
+                    "complex B-spline surface: expected 7 B_SPLINE_SURFACE and 5 \
+                     B_SPLINE_SURFACE_WITH_KNOTS parameters, got {} and {}",
+                    bs.len(),
+                    bk.len()
+                ),
+            );
+            return None;
+        }
+        // Reassemble the monolithic parameter layout the schema
+        // parser expects: name, degrees, control points, form, flags,
+        // multiplicities, knots, knot spec.
+        let mut params = Vec::with_capacity(13);
+        params.push(crate::step::parser::types::Parameter::String(String::new()));
+        params.extend(bs.iter().take(7).cloned());
+        params.extend(bk.iter().take(5).cloned());
+        self.resolve_bspline_surface_from(id, &params, log)
+    }
+
+    fn resolve_bspline_surface_from(
+        &mut self,
+        id: EntityId,
+        params: &[crate::step::parser::types::Parameter],
+        log: &mut DiagnosticLog,
+    ) -> Option<SurfaceGeometry> {
+        let entity = self.graph.get(id)?;
+        let bs = match BSplineSurfaceWithKnots::from_params(params) {
             Ok(b) => b,
             Err(e) => {
                 log.error(Phase::MapGeometry, Some(id), format!("{e}"));

@@ -113,30 +113,50 @@ impl ExportContext {
                 weight_rows.push(list(row));
             }
 
+            // Rational surfaces must use the FULL Part-21 complex form
+            // with the complete supertype chain in alphabetical order
+            // and parameters distributed to their declaring partials —
+            // the same rule the rational-curve writer above already
+            // follows. The previous two-partial shorthand (all
+            // parameters on B_SPLINE_SURFACE_WITH_KNOTS) is rejected
+            // by OCC's reader ("Entity has illegal type / Surface has
+            // not been created"), dropping the face and leaving its
+            // bounds as free wires (PK-155: the arc-line-arc profile
+            // crown class).
             let id = self.alloc_id();
             self.entities
                 .push(crate::step::parser::types::EntityInstance {
                     id,
-                    type_name: "B_SPLINE_SURFACE_WITH_KNOTS".into(),
-                    params: vec![
-                        str_param(""),
-                        int(nurbs.degree_u as i64),
-                        int(nurbs.degree_v as i64),
-                        list(rows),
-                        enum_("UNSPECIFIED"),
-                        bool_(false),
-                        bool_(false),
-                        bool_(false),
-                        list(ku_mults),
-                        list(kv_mults),
-                        list(ku_vals),
-                        list(kv_vals),
-                        enum_("UNSPECIFIED"),
+                    type_name: "BOUNDED_SURFACE".into(),
+                    params: vec![],
+                    complex_parts: vec![
+                        (
+                            "B_SPLINE_SURFACE".into(),
+                            vec![
+                                int(nurbs.degree_u as i64),
+                                int(nurbs.degree_v as i64),
+                                list(rows),
+                                enum_("UNSPECIFIED"),
+                                bool_(false), // u closed
+                                bool_(false), // v closed
+                                bool_(false), // self-intersect
+                            ],
+                        ),
+                        (
+                            "B_SPLINE_SURFACE_WITH_KNOTS".into(),
+                            vec![
+                                list(ku_mults),
+                                list(kv_mults),
+                                list(ku_vals),
+                                list(kv_vals),
+                                enum_("UNSPECIFIED"),
+                            ],
+                        ),
+                        ("GEOMETRIC_REPRESENTATION_ITEM".into(), vec![]),
+                        ("RATIONAL_B_SPLINE_SURFACE".into(), vec![list(weight_rows)]),
+                        ("REPRESENTATION_ITEM".into(), vec![str_param("")]),
+                        ("SURFACE".into(), vec![]),
                     ],
-                    complex_parts: vec![(
-                        "RATIONAL_B_SPLINE_SURFACE".into(),
-                        vec![list(weight_rows)],
-                    )],
                 });
             id
         } else {
@@ -364,8 +384,25 @@ mod tests {
         };
         let id = ctx.export_nurbs_surface(&nurbs);
         let entity = ctx.entities.iter().find(|e| e.id == id).unwrap();
-        assert_eq!(entity.type_name, "B_SPLINE_SURFACE_WITH_KNOTS");
-        assert_eq!(entity.complex_parts.len(), 1);
-        assert_eq!(entity.complex_parts[0].0, "RATIONAL_B_SPLINE_SURFACE");
+        // Full Part-21 complex form with the supertype chain in
+        // alphabetical order — the shorthand two-partial form is
+        // rejected by OCC's reader (PK-155).
+        assert_eq!(entity.type_name, "BOUNDED_SURFACE");
+        let names: Vec<&str> = entity
+            .complex_parts
+            .iter()
+            .map(|(n, _)| n.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "B_SPLINE_SURFACE",
+                "B_SPLINE_SURFACE_WITH_KNOTS",
+                "GEOMETRIC_REPRESENTATION_ITEM",
+                "RATIONAL_B_SPLINE_SURFACE",
+                "REPRESENTATION_ITEM",
+                "SURFACE",
+            ]
+        );
     }
 }
