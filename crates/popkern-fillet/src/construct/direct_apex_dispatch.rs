@@ -472,6 +472,14 @@ fn try_constructive_with_legacy_fallthrough(
                      fragment(s)"
                 );
             }
+            // PK-153: retire the V-free vestigial old shell (flaps,
+            // slivers, unglued membranes) and weld the exposed seams.
+            // Self-guarding no-op off the V-free path; transactional.
+            let consolidation = crate::apex_construction::v_free_shell_consolidation::
+                consolidate_vestigial_support_shell(brep);
+            if consolidation.applied() && crate::direct_apex_trace::enabled() {
+                eprintln!("[direct-apex-trace] vestigial shell consolidation: {consolidation:?}");
+            }
             Ok(result)
         }
         Err(constructive_err) => {

@@ -88,6 +88,7 @@ pub(crate) mod repeated_apex_trim_subcomplex;
 pub(crate) mod side_support_cell_solve;
 pub(crate) mod target_topology;
 pub(crate) mod telemetry;
+pub(crate) mod v_free_shell_consolidation;
 
 #[cfg(test)]
 #[path = "plan_tests.rs"]
