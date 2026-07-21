@@ -128,6 +128,10 @@ fn intersect_impl(
     }
 }
 
+#[path = "plane_cone_oblique.rs"]
+mod plane_cone_oblique;
+use plane_cone_oblique::case_oblique;
+
 // ── Perpendicular (circle) ──────────────────────────────────────────────
 
 /// Plane normal ≈ parallel to cone axis: intersection is a circle.
@@ -175,165 +179,6 @@ fn case_perpendicular(
         curve_uv2: uv2,
         is_closed: true,
     })]
-}
-
-// ── Oblique (ellipse) ───────────────────────────────────────────────────
-
-/// Compute the 3D point on the cone-plane intersection at angle `u`.
-///
-/// The cone parameterization is:
-///   P(u,v) = apex + axis*v + perp1*(v*tan_ha*cos(u)) + perp2*(v*tan_ha*sin(u))
-///
-/// The plane constraint is: (P - po) · pn = 0
-///
-/// Solving for v:  v(u) = c / (a + b*cos(u) + d*sin(u))
-/// where:
-///   c = (po - apex) · pn
-///   a = ca · pn
-///   b = perp1 · pn * tan_ha
-///   d = perp2 · pn * tan_ha
-#[allow(clippy::too_many_arguments)]
-fn oblique_point(
-    apex: Point3,
-    perp1: Vec3,
-    perp2: Vec3,
-    ca: Vec3,
-    tan_ha: f64,
-    c: f64,
-    a: f64,
-    b: f64,
-    d: f64,
-    u: f64,
-) -> (Point3, f64) {
-    let denom = a + b * u.cos() + d * u.sin();
-    let v = c / denom;
-    let r = v * tan_ha;
-    let pt = apex + ca * v + perp1 * (r * u.cos()) + perp2 * (r * u.sin());
-    (pt, v)
-}
-
-/// General oblique case: intersection is an ellipse on the cone.
-///
-/// Returns `None` for hyperbola/parabola (the denominator can reach zero),
-/// signaling fallback to marching.
-#[allow(clippy::too_many_arguments)]
-fn case_oblique(
-    po: Point3,
-    pn: Vec3,
-    pu: Vec3,
-    pv: Vec3,
-    apex: Point3,
-    ca: Vec3,
-    half_angle: f64,
-    tol: &Tolerance,
-    swapped: bool,
-) -> Option<Vec<SurfaceSurfaceIntersection>> {
-    let (perp1, perp2) = orthonormal_basis(ca);
-    let tan_ha = half_angle.tan();
-
-    let c = (po - apex).dot(&pn);
-    let a = ca.dot(&pn);
-    let b = perp1.dot(&pn) * tan_ha;
-    let d = perp2.dot(&pn) * tan_ha;
-
-    // Ellipse condition: a² > b² + d² (denominator never zero).
-    let disc = a * a - b * b - d * d;
-    if disc < tol.angular() * tol.angular() {
-        // Parabola or hyperbola: fall through to marching.
-        return None;
-    }
-
-    // Check that v is positive for all u (intersection on the real cone half).
-    // v(u) = c / (a + b*cos(u) + d*sin(u)).
-    // The denominator ranges in [a - sqrt(b²+d²), a + sqrt(b²+d²)].
-    let amp = (b * b + d * d).sqrt();
-    let denom_min = a - amp;
-    let denom_max = a + amp;
-
-    // Both v-extremes must be positive (same sign of c and denominator).
-    let v_at_min = c / denom_min;
-    let v_at_max = c / denom_max;
-    if v_at_min < tol.linear() || v_at_max < tol.linear() {
-        // The intersection is on the "wrong" side of the apex or
-        // partially behind it.  Return empty.
-        return Some(vec![]);
-    }
-
-    let pt = |u: f64| -> Point3 { oblique_point(apex, perp1, perp2, ca, tan_ha, c, a, b, d, u).0 };
-
-    // Cardinal angles: 0, π/2, π, 3π/2 (on-curve points).
-    use std::f64::consts::{FRAC_PI_2, PI};
-    let p0 = pt(0.0);
-    let p2 = pt(FRAC_PI_2);
-    let p4 = pt(PI);
-    let p6 = pt(3.0 * FRAC_PI_2);
-
-    // Tangent at angle u:
-    // dP/du = dv/du * (axis + perp1*tan_ha*cos(u) + perp2*tan_ha*sin(u))
-    //       + v * (perp1*(-tan_ha*sin(u)) + perp2*(tan_ha*cos(u)))
-    // For the NURBS construction, we use a simplified tangent direction
-    // approach: the tangent at each cardinal point.
-    let tang = |u: f64| -> Vec3 {
-        let denom = a + b * u.cos() + d * u.sin();
-        let v = c / denom;
-        let dv_du = c * (b * u.sin() - d * u.cos()) / (denom * denom);
-
-        // dP/du components:
-        let from_v_change = (ca + perp1 * (tan_ha * u.cos()) + perp2 * (tan_ha * u.sin())) * dv_du;
-        let from_u_change = (perp1 * (-tan_ha * u.sin()) + perp2 * (tan_ha * u.cos())) * v;
-        from_v_change + from_u_change
-    };
-
-    // Diagonal control points: tangent-line intersection of adjacent
-    // cardinal points.  We use P + 1*T as in the cylinder case.
-    let p1 = p0 + tang(0.0);
-    let p3 = p2 + tang(FRAC_PI_2);
-    let p5 = p4 + tang(PI);
-    let p7 = p6 + tang(3.0 * FRAC_PI_2);
-
-    let w = FRAC_1_SQRT_2;
-    let curve_3d = NurbsCurve {
-        degree: 2,
-        knots: vec![
-            0.0, 0.0, 0.0, 0.25, 0.25, 0.5, 0.5, 0.75, 0.75, 1.0, 1.0, 1.0,
-        ],
-        control_points: vec![p0, p1, p2, p3, p4, p5, p6, p7, p0],
-        weights: vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0],
-    };
-
-    // UV on plane: project all control points.
-    let uv_plane = {
-        let cps: Vec<Point3> = curve_3d
-            .control_points
-            .iter()
-            .map(|p| plane_uv_pt(*p, po, pu, pv))
-            .collect();
-        NurbsCurve {
-            degree: 2,
-            knots: curve_3d.knots.clone(),
-            control_points: cps,
-            weights: curve_3d.weights.clone(),
-        }
-    };
-
-    let uv_cone = cone_uv_curve(&curve_3d, apex, ca);
-
-    let (uv1, uv2) = if swapped {
-        (uv_cone, uv_plane)
-    } else {
-        (uv_plane, uv_cone)
-    };
-
-    // Validate: check a few sampled points lie on both surfaces.
-    // If tolerance is grossly violated, return None to fall through.
-    let _ = tol;
-
-    Some(vec![SurfaceSurfaceIntersection::Curve(CurveOnSurface {
-        curve_3d,
-        curve_uv1: uv1,
-        curve_uv2: uv2,
-        is_closed: true,
-    })])
 }
 
 // ── NURBS builders ──────────────────────────────────────────────────────

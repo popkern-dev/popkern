@@ -396,3 +396,80 @@ fn returns_none_for_non_plane_cone() {
     );
     assert!(result.is_none(), "two planes should not match");
 }
+
+/// The oblique section must be EXACT (rational-conic identity), not an
+/// approximation: the PK-154 countersink configuration (shallow 8.5°
+/// cone against an 18°-tilted plane) has only 0.38 mm of clearance
+/// between the lead-in conic and the bore mouth ellipse, and the
+/// pre-fix cardinal-point construction sagged 1.2 mm off the cone —
+/// enough to cross the neighbouring wire and fail OCC's
+/// BRepCheck_IntersectingWires on export.
+#[test]
+fn oblique_ellipse_is_exact_on_both_surfaces() {
+    // Countersink lead-in from the laptop-stand block: frustum r=34.6
+    // at z=82 flaring 8.5°, apex extrapolated below; rest plane tilted
+    // 18° about x through (0, 0, 100).
+    let ha = 8.5_f64.to_radians();
+    let apex_z = 82.0 - 34.6 / ha.tan();
+    let apex = Point3::new(0.0, 0.0, apex_z);
+    let axis = Vec3::new(0.0, 0.0, 1.0);
+    let cone = SurfaceGeometry::Cone {
+        apex,
+        axis,
+        half_angle: ha,
+    };
+
+    let tilt = 18.0_f64.to_radians();
+    let n = Vec3::new(0.0, tilt.sin(), -tilt.cos());
+    let u_axis = Vec3::new(1.0, 0.0, 0.0);
+    let v_axis = n.cross(&u_axis).normalized().unwrap();
+    let po = Point3::new(0.0, 0.0, 100.0);
+    let plane = SurfaceGeometry::Plane {
+        origin: po,
+        normal: n,
+        u_axis,
+        v_axis,
+    };
+    let tol = test_tolerance();
+
+    let intersections = try_plane_cone(
+        &plane,
+        (-60.0, 60.0),
+        (-60.0, 60.0),
+        &cone,
+        (0.0, TAU),
+        (0.0, 400.0),
+        &tol,
+    )
+    .expect("oblique countersink section should resolve analytically");
+    assert_eq!(intersections.len(), 1);
+    let SurfaceSurfaceIntersection::Curve(ref cos) = intersections[0] else {
+        panic!("expected Curve intersection");
+    };
+    assert!(cos.is_closed);
+
+    let tan_ha = ha.tan();
+    let mut worst_cone = 0.0_f64;
+    let mut worst_plane = 0.0_f64;
+    let (t_min, t_max) = (
+        cos.curve_3d.knots[0],
+        cos.curve_3d.knots[cos.curve_3d.knots.len() - 1],
+    );
+    for i in 0..=256 {
+        let t = t_min + (t_max - t_min) * (i as f64) / 256.0;
+        let pt = eval_nurbs(&cos.curve_3d, t);
+        let w = pt - apex;
+        let axial = w.dot(&axis);
+        let radial = (w - axis * axial).length();
+        worst_cone = worst_cone.max((radial - axial * tan_ha).abs());
+        worst_plane = worst_plane.max((pt - po).dot(&n).abs());
+    }
+    assert!(
+        worst_cone < 1.0e-9,
+        "oblique section must lie exactly on the cone; worst deviation {worst_cone:.3e}"
+    );
+    assert!(
+        worst_plane < 1.0e-9,
+        "oblique section must lie exactly in the plane; worst deviation {worst_plane:.3e}"
+    );
+}
