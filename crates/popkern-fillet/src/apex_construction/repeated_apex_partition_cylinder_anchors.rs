@@ -384,36 +384,53 @@ pub(super) fn generator_anchor_on_cylinder_loop(
         return None;
     }
     let endpoint_unit = endpoint_radial.normalized()?;
-    let mut vertices = constructive_topology::collect_outer_loop_vertices(brep, face)?;
+    let loop_vertices = constructive_topology::collect_outer_loop_vertices(brep, face)?;
     let extra_vertices = brep
         .vertices
         .iter()
         .filter_map(|(vertex, data)| {
-            (!vertices.contains(&vertex)
+            (!loop_vertices.contains(&vertex)
                 && (data.outgoing == HalfEdgeHandle::default()
                     || point_lies_on_cylinder_face(brep, face, data.position)))
             .then_some(vertex)
         })
         .collect::<Vec<_>>();
-    vertices.extend(extra_vertices);
-    vertices
-        .into_iter()
-        .filter_map(|vertex| {
-            let point = brep.vertices.get(vertex)?.position;
-            if point.distance_to(&endpoint) <= brep.tolerance.linear() {
-                return None;
-            }
-            if !point_lies_on_cylinder_face(brep, face, point) {
-                return None;
-            }
-            let radial = cylinder_radial_vector(point, origin, axis)?;
-            let radial_unit = radial.normalized()?;
-            if radial_unit.dot(&endpoint_unit) < 1.0 - 1.0e-5 {
-                return None;
-            }
-            Some((vertex, point.distance_to(&endpoint)))
+    let on_ruling = |vertex: &VertexHandle| -> Option<(VertexHandle, f64)> {
+        let point = brep.vertices.get(*vertex)?.position;
+        if point.distance_to(&endpoint) <= brep.tolerance.linear() {
+            return None;
+        }
+        if !point_lies_on_cylinder_face(brep, face, point) {
+            return None;
+        }
+        let radial = cylinder_radial_vector(point, origin, axis)?;
+        let radial_unit = radial.normalized()?;
+        if radial_unit.dot(&endpoint_unit) < 1.0 - 1.0e-5 {
+            return None;
+        }
+        Some((*vertex, point.distance_to(&endpoint)))
+    };
+    // The generator runs from the cap endpoint along its ruling to the
+    // OLD loop's crossing of that ruling. Among loop crossings take the
+    // FARTHEST: the generator must span the whole retained strip — the
+    // near crossing is a vertex of the retiring corner region, and
+    // anchoring there was measured to shrink the target cylinder to the
+    // corner quad (PK-153: fillet strip amputated on cube fixtures;
+    // pyramid fixtures were unaffected only because their sole crossing
+    // IS the far one). A strip loop crosses a ruling at most twice, so
+    // farthest-of-loop-crossings is exact for this class. Non-loop
+    // candidates (materialized anchors, unwired clones) keep the
+    // nearest-pick fallback semantics.
+    loop_vertices
+        .iter()
+        .filter_map(on_ruling)
+        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .or_else(|| {
+            extra_vertices
+                .iter()
+                .filter_map(on_ruling)
+                .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         })
-        .min_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
         .map(|(vertex, _)| vertex)
 }
 

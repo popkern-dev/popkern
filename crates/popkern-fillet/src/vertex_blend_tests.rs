@@ -331,28 +331,54 @@ fn vertex_blend_3d_variable_radii_produce_distinct_torus_sizes() {
     // single compromise sphere radius, or (c) fail. We accept
     // all three outcomes as long as the torus geometry is
     // correct and the BRep still validates.
-    let (_, tori, _spheres, _) = count_face_types(&result.brep);
-    assert_eq!(tori, 3, "expected 3 fillet strips, got {tori}");
-
-    let mut minor_radii: Vec<f64> = result
-        .brep
-        .faces
-        .values()
-        .filter_map(|f| match f.surface.as_ref().map(|s| &s.geometry) {
-            Some(SurfaceGeometry::Torus { minor_radius, .. }) => Some(*minor_radius),
-            Some(SurfaceGeometry::Cylinder { radius, .. }) => Some(*radius),
-            _ => None,
-        })
-        .collect();
-    minor_radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    assert_eq!(minor_radii.len(), 3);
+    // The apex-retaining direct-apex route serves each fillet as a
+    // full-length strip plus a small apex-region patch that shares
+    // the strip's cylinder surface, so the census groups by DISTINCT
+    // surface radius rather than raw face count. Per radius, one
+    // face must reach the far end of its cube edge (coordinate 1.0):
+    // this guards against the PK-153 strip amputation, where the
+    // corner fragment silently replaced the full strip and the raw
+    // 3-face count stayed green.
+    let mut strip_radii: Vec<f64> = Vec::new();
+    let mut far_reach_radii: Vec<f64> = Vec::new();
+    for fh in result.brep.faces.keys() {
+        let radius = match result.brep.faces[fh].surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Torus { minor_radius, .. }) => *minor_radius,
+            Some(SurfaceGeometry::Cylinder { radius, .. }) => *radius,
+            _ => continue,
+        };
+        if !strip_radii.iter().any(|r| (r - radius).abs() < 1e-9) {
+            strip_radii.push(radius);
+        }
+        let reaches_far_end = result
+            .brep
+            .face_outer_loop_positions(fh)
+            .iter()
+            .any(|p| [p.x, p.y, p.z].iter().any(|c| (c - 1.0).abs() < 1e-9));
+        if reaches_far_end && !far_reach_radii.iter().any(|r| (r - radius).abs() < 1e-9) {
+            far_reach_radii.push(radius);
+        }
+    }
+    strip_radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    far_reach_radii.sort_by(|a, b| a.partial_cmp(b).unwrap());
     let expected = [0.05, 0.10, 0.15];
-    for (got, want) in minor_radii.iter().zip(expected.iter()) {
+    assert_eq!(
+        strip_radii.len(),
+        3,
+        "expected 3 distinct fillet strip surfaces, got radii {strip_radii:?}"
+    );
+    for (got, want) in strip_radii.iter().zip(expected.iter()) {
         assert!(
             (got - want).abs() < 1e-6,
-            "torus minor_radius {got} != {want}"
+            "strip surface radius {got} != {want}"
         );
     }
+    assert_eq!(
+        far_reach_radii.len(),
+        3,
+        "every fillet strip must span to the far end of its cube edge \
+         (strip amputation guard); far-reaching radii: {far_reach_radii:?}"
+    );
     result.brep.validate().unwrap();
 }
 

@@ -883,10 +883,11 @@ fn sew_boundaries_to_edge_polylines(
             for _ in 0..10_000 {
                 let (eh, pcurve, twin_same_face) = {
                     let data = &brep.half_edges[he];
-                    let twin_loop = brep.half_edges[data.twin].loop_;
+                    // Boundary sides have a dead twin: not same-face.
                     let same = brep
-                        .loops
-                        .get(twin_loop)
+                        .half_edges
+                        .get(data.twin)
+                        .and_then(|twin| brep.loops.get(twin.loop_))
                         .map(|l| l.face == fm.face)
                         .unwrap_or(false);
                     he = data.next;

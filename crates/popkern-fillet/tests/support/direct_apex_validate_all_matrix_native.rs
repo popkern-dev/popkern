@@ -111,6 +111,11 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         metrics.worst_g1_coplanarity,
     );
 
+    // Since the far-anchor generator selection (PK-153), the default-mode
+    // rewrite spans each strip with full-length generators, so cube_extreme
+    // no longer needs a side-support topology continuation. A reappearing
+    // continuation diagnostic here would mean the rewrite regressed to
+    // corner-quad anchoring.
     let side_support = result
         .repair_report
         .apex_diagnostics
@@ -118,15 +123,12 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         .find_map(|diagnostic| match diagnostic {
             ApexConstructionDiagnostic::SideSupportContinuation(diagnostic) => Some(diagnostic),
             _ => None,
-        })
-        .expect("cube_extreme should report applied side-support topology continuation");
-    assert_eq!(
-        side_support.code,
-        "side_support_continuation.outside_outside_cylinder_mediated.applied"
+        });
+    assert!(
+        side_support.is_none(),
+        "cube_extreme default mode should complete without side-support \
+         continuation after far-anchor generator selection; got {side_support:?}"
     );
-    assert!(side_support.applied);
-    assert_eq!(side_support.bridge_face_count, 3);
-    assert_eq!(side_support.bridge_loop_count, 3);
 }
 
 #[test]
