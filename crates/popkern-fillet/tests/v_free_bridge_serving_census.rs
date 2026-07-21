@@ -81,7 +81,12 @@ fn v_free_face_census_dump() {
             let origin = brep
                 .vertices
                 .get(data.origin)
-                .map(|v| format!("({:.2},{:.2},{:.2})", v.position.x, v.position.y, v.position.z))
+                .map(|v| {
+                    format!(
+                        "({:.2},{:.2},{:.2})",
+                        v.position.x, v.position.y, v.position.z
+                    )
+                })
                 .unwrap_or_else(|| "?".into());
             let twin_face = brep
                 .half_edges
@@ -89,7 +94,10 @@ fn v_free_face_census_dump() {
                 .and_then(|t| brep.loops.get(t.loop_))
                 .map(|l| format!("{:?}", l.face))
                 .unwrap_or_else(|| "DEAD".into());
-            eprintln!("    side {:?} edge={:?} from={origin} twin-face={twin_face}", he, data.edge);
+            eprintln!(
+                "    side {:?} edge={:?} from={origin} twin-face={twin_face}",
+                he, data.edge
+            );
             he = data.next;
             if he == start {
                 break;
@@ -156,9 +164,7 @@ fn no_duplicate_production_plane_coverage() {
         for i in 0..poly.len() {
             let (x0, y0) = poly[i];
             let (x1, y1) = poly[(i + 1) % poly.len()];
-            if ((y0 > p.1) != (y1 > p.1))
-                && (p.0 < (x1 - x0) * (p.1 - y0) / (y1 - y0) + x0)
-            {
+            if ((y0 > p.1) != (y1 > p.1)) && (p.0 < (x1 - x0) * (p.1 - y0) / (y1 - y0) + x0) {
                 winding = !winding;
             }
             let (dx, dy) = (x1 - x0, y1 - y0);
@@ -178,8 +184,7 @@ fn no_duplicate_production_plane_coverage() {
             for j in (i + 1)..rings.len() {
                 // Sample a grid over ring i's bbox; a point strictly
                 // inside BOTH rings is genuine double coverage.
-                let (mut x0, mut y0, mut x1, mut y1) =
-                    (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
                 for &(x, y) in &rings[i] {
                     x0 = x0.min(x);
                     y0 = y0.min(y);
