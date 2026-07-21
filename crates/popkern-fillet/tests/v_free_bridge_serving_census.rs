@@ -44,19 +44,6 @@ fn mixed_radius_cube() -> BRep {
     .brep
 }
 
-fn surface_key(geometry: &SurfaceGeometry) -> Option<String> {
-    match geometry {
-        SurfaceGeometry::Plane { origin, normal, .. } => Some(format!(
-            "plane n=({:.6},{:.6},{:.6}) d={:.6}",
-            normal.x,
-            normal.y,
-            normal.z,
-            origin.x * normal.x + origin.y * normal.y + origin.z * normal.z
-        )),
-        _ => None,
-    }
-}
-
 /// Census used by the PK-153 widening work: dump the face layout of
 /// the V-free serving output. Run with
 /// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1 ... -- --ignored --nocapture`.
@@ -85,60 +72,110 @@ fn v_free_face_census_dump() {
 }
 
 /// Production planes must not duplicate: two Production faces on the
-/// SAME plane whose vertex rings overlap indicate the face-family
-/// bridge double-cover (bridge face cloned the support surface without
-/// retiring the source support face).
+/// SAME plane whose regions share interior points indicate the
+/// face-family bridge double-cover (bridge face cloned the support
+/// surface without retiring the source support face). Complementary
+/// tilings that only share boundary are legitimate.
 #[test]
 fn no_duplicate_production_plane_coverage() {
     let brep = mixed_radius_cube();
-    let mut by_plane: std::collections::BTreeMap<String, Vec<(f64, f64, f64, f64, f64, f64)>> =
+    let mut by_plane: std::collections::BTreeMap<String, Vec<Vec<(f64, f64)>>> =
         std::collections::BTreeMap::new();
     for (fh, f) in brep.faces.iter() {
         if f.role != TopologyRole::Production {
             continue;
         }
-        let Some(key) = f.surface.as_ref().and_then(|s| surface_key(&s.geometry)) else {
+        let Some(sof) = f.surface.as_ref() else {
             continue;
         };
-        let ring = brep.face_outer_loop_positions(fh);
-        if ring.is_empty() {
+        let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry else {
             continue;
+        };
+        let Some(n) = normal.normalized() else {
+            continue;
+        };
+        let key = format!(
+            "plane n=({:.6},{:.6},{:.6}) d={:.6}",
+            n.x,
+            n.y,
+            n.z,
+            origin.x * n.x + origin.y * n.y + origin.z * n.z
+        );
+        // In-plane 2D coordinates.
+        let e1 = if n.x.abs() < 0.9 {
+            popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0)
+        } else {
+            popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0)
+        };
+        let e1 = (e1 - n * e1.dot(&n)).normalized().unwrap();
+        let e2 = n.cross(&e1);
+        let ring: Vec<(f64, f64)> = brep
+            .face_outer_loop_positions(fh)
+            .iter()
+            .map(|p| {
+                let r = *p - *origin;
+                (r.dot(&e1), r.dot(&e2))
+            })
+            .collect();
+        if ring.len() >= 3 {
+            by_plane.entry(key).or_default().push(ring);
         }
-        let (mut x0, mut y0, mut z0) = (f64::MAX, f64::MAX, f64::MAX);
-        let (mut x1, mut y1, mut z1) = (f64::MIN, f64::MIN, f64::MIN);
-        for p in &ring {
-            x0 = x0.min(p.x);
-            y0 = y0.min(p.y);
-            z0 = z0.min(p.z);
-            x1 = x1.max(p.x);
-            y1 = y1.max(p.y);
-            z1 = z1.max(p.z);
-        }
-        by_plane
-            .entry(key)
-            .or_default()
-            .push((x0, y0, z0, x1, y1, z1));
     }
-    let overlaps = |a: &(f64, f64, f64, f64, f64, f64), b: &(f64, f64, f64, f64, f64, f64)| {
-        // Strict interior overlap of the in-plane bounding boxes; edge
-        // contact is legitimate tiling.
-        let eps = 1.0e-9;
-        a.0 < b.3 - eps
-            && b.0 < a.3 - eps
-            && a.1 < b.4 - eps
-            && b.1 < a.4 - eps
-            && a.2 < b.5 - eps
-            && b.2 < a.5 - eps
+    let inside = |poly: &[(f64, f64)], p: (f64, f64)| -> bool {
+        // Strict interior: positive winding test via ray casting, plus
+        // a clearance from every edge so shared boundaries don't count.
+        let mut winding = false;
+        let mut min_edge_dist = f64::MAX;
+        for i in 0..poly.len() {
+            let (x0, y0) = poly[i];
+            let (x1, y1) = poly[(i + 1) % poly.len()];
+            if ((y0 > p.1) != (y1 > p.1))
+                && (p.0 < (x1 - x0) * (p.1 - y0) / (y1 - y0) + x0)
+            {
+                winding = !winding;
+            }
+            let (dx, dy) = (x1 - x0, y1 - y0);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((p.0 - x0) * dx + (p.1 - y0) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (cx, cy) = (x0 + t * dx, y0 + t * dy);
+            min_edge_dist = min_edge_dist.min(((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt());
+        }
+        winding && min_edge_dist > 1.0e-6
     };
-    for (key, boxes) in &by_plane {
-        for i in 0..boxes.len() {
-            for j in (i + 1)..boxes.len() {
+    for (key, rings) in &by_plane {
+        for i in 0..rings.len() {
+            for j in (i + 1)..rings.len() {
+                // Sample a grid over ring i's bbox; a point strictly
+                // inside BOTH rings is genuine double coverage.
+                let (mut x0, mut y0, mut x1, mut y1) =
+                    (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for &(x, y) in &rings[i] {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+                let mut shared = None;
+                'grid: for gx in 1..40 {
+                    for gy in 1..40 {
+                        let p = (
+                            x0 + (x1 - x0) * f64::from(gx) / 40.0,
+                            y0 + (y1 - y0) * f64::from(gy) / 40.0,
+                        );
+                        if inside(&rings[i], p) && inside(&rings[j], p) {
+                            shared = Some(p);
+                            break 'grid;
+                        }
+                    }
+                }
                 assert!(
-                    !overlaps(&boxes[i], &boxes[j]),
-                    "two Production faces on the same plane overlap ({key}): \
-                     {:?} vs {:?} — face-family bridge double-cover",
-                    boxes[i],
-                    boxes[j]
+                    shared.is_none(),
+                    "two Production faces on the same plane share interior point \
+                     {shared:?} ({key}) — face-family bridge double-cover"
                 );
             }
         }
