@@ -49,3 +49,4 @@ docs/code/
 docs/requirements/old/
 docs/images/input/
 __pycache__/
+core.*
