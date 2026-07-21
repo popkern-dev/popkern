@@ -265,7 +265,7 @@ mod brep_fidelity_blocker_ownership;
 pub use brep_export_quality::{
     BrepBoundaryEdgeArtifact, BrepExportBlockerSummary, BrepExportQualityArtifact,
     BrepExportQualityOptions, BrepExportQualityReport, BrepExportQualitySummary,
-    BrepExportReadiness, analyze_brep_export_quality,
+    BrepExportReadiness, BrepSurfacelessFaceRecord, analyze_brep_export_quality,
     analyze_brep_export_quality_with_local_diagnostics,
     analyze_brep_export_quality_with_pcurve_fidelity, build_brep_export_quality_artifact,
 };

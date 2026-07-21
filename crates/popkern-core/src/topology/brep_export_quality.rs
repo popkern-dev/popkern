@@ -13,8 +13,11 @@ use serde::{Deserialize, Serialize};
 mod brep_export_quality_authority;
 #[path = "brep_export_quality_helpers.rs"]
 mod brep_export_quality_helpers;
+#[path = "brep_export_quality_surfaceless.rs"]
+mod brep_export_quality_surfaceless;
 use brep_export_quality_authority::{authoritative_degenerate_edges, export_authority_summary};
 use brep_export_quality_helpers::{edge_surface_fidelity_blockers, pcurve_fidelity_blockers};
+use brep_export_quality_surfaceless::surfaceless_face_records;
 
 /// Options for export-quality diagnostics.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -87,8 +90,29 @@ pub struct BrepExportQualityReport {
     pub edge_surface_blockers: usize,
     /// Maximum measured direct edge-curve to adjacent-surface deviation.
     pub max_edge_surface_deviation: f64,
+    /// Faces with no surface geometry reaching the export boundary. STEP
+    /// export silently synthesizes a plane for these, so a surfaceless
+    /// face surviving to serving is a structured defect in its own right
+    /// (PK-156) — the record names the face instead of letting it surface
+    /// as downstream pcurve blockers.
+    pub surfaceless_faces: Vec<BrepSurfacelessFaceRecord>,
+    /// Number of Production-role surfaceless faces (export blockers).
+    pub surfaceless_face_blockers: usize,
     /// Authority-fact summary used by export-readiness decisions.
     pub authority: BrepExportAuthoritySummary,
+}
+
+/// A face with no surface geometry observed at the export boundary.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrepSurfacelessFaceRecord {
+    /// Stable debug face handle.
+    pub face: String,
+    /// Semantic role of the face.
+    pub role: String,
+    /// Half-edge count of the outer bounding ring.
+    pub outer_ring_edges: usize,
+    /// Inner loop count.
+    pub inner_loops: usize,
 }
 
 /// Serializable debug artifact for export-quality inspection.
@@ -186,6 +210,8 @@ pub struct BrepExportBlockerSummary {
     pub face_use_trim_authority: usize,
     /// Direct edge-curve to adjacent-surface fidelity blockers.
     pub edge_surfaces: usize,
+    /// Production-role surfaceless-face blockers.
+    pub surfaceless_faces: usize,
     /// Validation blockers.
     pub validation: usize,
 }
@@ -266,6 +292,21 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
     };
     let (pcurve_blockers, max_pcurve_deviation) = pcurve_fidelity;
     let (edge_surface_blockers, max_edge_surface_deviation) = edge_surface_fidelity;
+    let surfaceless_faces = surfaceless_face_records(brep);
+    // Production-role surfaceless faces block CLOSED-SHELL export: a solid
+    // serving a face whose geometry would be silently synthesized is a
+    // defect. Open-sheet policy is the permissive exchange/repair mode
+    // (topology-only sheets are legitimate there), so the records are
+    // informational under it.
+    let surfaceless_face_blockers =
+        if options.topology_output == BrepTopologyOutputPolicy::ClosedShell {
+            surfaceless_faces
+                .iter()
+                .filter(|record| record.role == "Production")
+                .count()
+        } else {
+            0
+        };
     let authority = export_authority_summary(brep, options.trim);
     let validation_passed = validation_error.is_none();
     let blocked = topology_blockers > 0
@@ -274,6 +315,7 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
         || edge_curve_blockers > 0
         || pcurve_blockers > 0
         || edge_surface_blockers > 0
+        || surfaceless_face_blockers > 0
         || !validation_passed;
     let readiness = if blocked {
         BrepExportReadiness::Blocked
@@ -304,6 +346,8 @@ pub fn analyze_brep_export_quality_with_local_diagnostics(
         max_pcurve_deviation,
         edge_surface_blockers,
         max_edge_surface_deviation,
+        surfaceless_faces,
+        surfaceless_face_blockers,
         authority,
     }
 }
@@ -364,6 +408,7 @@ pub fn build_brep_export_quality_artifact(
             edge_curves: report.edge_curve_blockers,
             pcurves: report.pcurve_blockers,
             edge_surfaces: report.edge_surface_blockers,
+            surfaceless_faces: report.surfaceless_face_blockers,
             validation: usize::from(!report.validation_passed),
         },
         authority: report.authority.clone(),

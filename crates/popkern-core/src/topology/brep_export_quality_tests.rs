@@ -4,7 +4,7 @@ use crate::geometry::{Point3, SurfaceGeometry, SurfaceOnFace, Vec3};
 use crate::tolerance::Tolerance;
 use crate::topology::{
     BRep, Edge, EdgeHandle, Face, FaceHandle, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Shell,
-    ShellHandle, Solid, Vertex,
+    ShellHandle, Solid, TopologyRole, Vertex,
 };
 
 fn options(topology_output: BrepTopologyOutputPolicy) -> BrepExportQualityOptions {
@@ -365,4 +365,36 @@ fn add_square(brep: &mut BRep, shell: ShellHandle, points: [Point3; 4]) -> Squar
     }
     brep.loops[loop_].half_edge = half_edges[0];
     SquareHandles { face }
+}
+
+/// PK-156: a face with no surface geometry reaching the export boundary
+/// is a structured defect — STEP export would silently synthesize a
+/// plane for it. Production-role surfaceless faces block export;
+/// ConstructionResidual ones are recorded without blocking (their
+/// serving gap is pinned by the owning campaign's census gates).
+#[test]
+fn export_quality_records_surfaceless_faces() {
+    let mut brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let face = brep.faces.keys().next().unwrap();
+    brep.faces[face].surface = None;
+
+    let report = analyze_brep_export_quality(&brep, options(BrepTopologyOutputPolicy::ClosedShell));
+    assert_eq!(report.surfaceless_faces.len(), 1);
+    let record = &report.surfaceless_faces[0];
+    assert_eq!(record.face, format!("{face:?}"));
+    assert_eq!(record.role, "Production");
+    assert_eq!(record.outer_ring_edges, 4);
+    assert_eq!(record.inner_loops, 0);
+    assert_eq!(report.surfaceless_face_blockers, 1);
+    assert_eq!(report.readiness, BrepExportReadiness::Blocked);
+
+    // Demoted construction residue is recorded but does not block.
+    brep.faces[face].role = TopologyRole::ConstructionResidual;
+    let report = analyze_brep_export_quality(&brep, options(BrepTopologyOutputPolicy::ClosedShell));
+    assert_eq!(report.surfaceless_faces.len(), 1);
+    assert_eq!(report.surfaceless_faces[0].role, "ConstructionResidual");
+    assert_eq!(report.surfaceless_face_blockers, 0);
+
+    let artifact = build_brep_export_quality_artifact(&brep, &report);
+    assert_eq!(artifact.blockers.surfaceless_faces, 0);
 }
