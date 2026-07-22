@@ -431,3 +431,38 @@ pub(crate) fn trace_records(records: &[crate::intersect::IntersectionRecord], n_
         );
     }
 }
+
+/// Verify a claimed whole-body containment directly against the
+/// ORIGINAL operands: every vertex of `inner` must classify Inside
+/// or OnBoundary of `outer`. The empty-selection shortcut's claim
+/// comes from seed-propagated face classifications, and a silently
+/// under-split operand poisons every seed (measured: a rim-straddling
+/// key subtract left the disc's top/bottom faces unsplit, one seed
+/// wiped each side, and the "contained" flange came back as an EMPTY
+/// body that passed every downstream gate vacuously — PK-173).
+pub(super) fn verify_whole_body_containment(inner: &BRep, outer: &BRep) -> bool {
+    use crate::classify::point_in_solid_final;
+    use crate::error::PointClassification;
+    use crate::intersect::compute_face_aabbs;
+    let aabbs = compute_face_aabbs(outer);
+    let tolerance = outer.tolerance;
+    // Vertices alone under-cover analytic bodies (a plain cylinder
+    // has only its two seam vertices — both can sit inside a partial
+    // tool while most of the body is outside), so every face's
+    // boundary is curve-sampled as well.
+    let mut probes: Vec<popkern_core::geometry::Point3> =
+        inner.vertices.values().map(|v| v.position).collect();
+    for face in inner.faces.keys() {
+        probes.extend(inner.face_outer_loop_sample_positions(face, 8));
+    }
+    if probes.is_empty() {
+        return false;
+    }
+    for probe in &probes {
+        match point_in_solid_final(probe, outer, &aabbs, &tolerance) {
+            Ok(PointClassification::Inside) | Ok(PointClassification::OnBoundary) => {}
+            _ => return false,
+        }
+    }
+    true
+}

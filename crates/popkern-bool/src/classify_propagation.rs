@@ -61,6 +61,15 @@ pub fn classify_with_propagation(
         let sample = crate::classify::pick_sample_point(brep, seed);
         let pc = point_in_solid(&sample, other_brep, other_aabbs, tolerance)?;
         ray_cast_count += 1;
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [propagate] seed {seed:?} (component of {}) sample ({:.3},{:.3},{:.3}) -> {pc:?}",
+                component.len(),
+                sample.x,
+                sample.y,
+                sample.z
+            );
+        }
 
         let class = match pc {
             PointClassification::Inside => Classification::Inside,

@@ -64,7 +64,9 @@ fn check_cancel(cancel: Option<&CancellationToken>) -> Result<(), BoolError> {
     Ok(())
 }
 
-use self::helpers::{handle_empty_selection, handle_no_intersection};
+use self::helpers::{
+    handle_empty_selection, handle_no_intersection, verify_whole_body_containment,
+};
 
 /// Execute a boolean operation on two BRep solids.
 ///
@@ -407,13 +409,41 @@ pub(crate) fn execute_boolean_full(
         && selection.keep_b.is_empty()
         && intersection_result.coincidence.face_overlaps.is_empty()
     {
-        if std::env::var_os("PK_BOOL_TRACE").is_some() {
-            eprintln!("  [exec] -> empty-selection containment path");
+        // The inferred containment must be VERIFIED against the
+        // original operands before it is served: the classifications
+        // come from one seed per propagation component, and an
+        // under-split operand fuses both sides of the trim into one
+        // component whose single seed wipes everything (measured: a
+        // rim-straddling key subtract served an EMPTY body, PK-173).
+        // A refuted claim falls through to the cellular stage, which
+        // classifies per fragment.
+        let all_a_inside = !classifications_a.is_empty()
+            && classifications_a
+                .values()
+                .all(|c| *c == crate::error::Classification::Inside);
+        let all_b_inside = !classifications_b.is_empty()
+            && classifications_b
+                .values()
+                .all(|c| *c == crate::error::Classification::Inside);
+        let claim_verified = if all_a_inside {
+            verify_whole_body_containment(&original_a, &original_b)
+        } else if all_b_inside {
+            verify_whole_body_containment(&original_b, &original_a)
+        } else {
+            false
+        };
+        if claim_verified {
+            if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                eprintln!("  [exec] -> empty-selection containment path (verified)");
+            }
+            let result =
+                handle_empty_selection(op, split_result, &classifications_a, &classifications_b);
+            log_validation_issues(&result, op);
+            return Ok(result);
         }
-        let result =
-            handle_empty_selection(op, split_result, &classifications_a, &classifications_b);
-        log_validation_issues(&result, op);
-        return Ok(result);
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!("  [exec] empty-selection containment REFUTED — continuing to cellular");
+        }
     }
 
     // Stage 5: Cellular graph merge — order-independent fragment selection.
