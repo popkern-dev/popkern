@@ -115,7 +115,15 @@ pub(crate) fn compute_center_via_walker(
                     ur: (f64, f64),
                     vr: (f64, f64)|
          -> Option<(f64, f64)> {
-            let n = s.normal_at(0.5 * (ur.0 + ur.1), 0.5 * (vr.0 + vr.1));
+            // Nudge along the normal AT THE POINT'S OWN chart image.
+            // The old chart-CENTER normal points anywhere on periodic
+            // surfaces — for a boss edge near the cylinder seam the
+            // face's u-range midpoint is the OPPOSITE side of the
+            // drum, the nudge inverted, and the contact Newton
+            // diverged from the mirrored seed on every concave wall
+            // config (PK-158: residual 3e-1, exact-pair fallback).
+            let (u0, v0) = s.closest_point(&best_pt)?;
+            let n = s.normal_at(u0, v0);
             let (u, v) = s.closest_point(&(best_pt + n * nudge))?;
             Some((u.clamp(ur.0, ur.1), v.clamp(vr.0, vr.1)))
         };
@@ -209,6 +217,9 @@ pub(crate) fn compute_center_with_fallback(
         match w {
             Ok(r) => Ok((r, None)),
             Err(walker_err) if legacy_exact_pair || (!either_needs_walker && wants_g2) => {
+                if std::env::var_os("PK_FILLET_TRACE").is_some() {
+                    eprintln!("  [walker-fallback] {walker_err:?}");
+                }
                 let reason = format!("walker failed: {walker_err:?}");
                 let legacy = compute_legacy_center_curve(
                     analysis,
