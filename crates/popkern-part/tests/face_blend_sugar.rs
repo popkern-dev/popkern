@@ -67,11 +67,7 @@ fn face_blend_rejects_ambiguous_selection() {
 fn face_blend_rejects_empty_selection() {
     let part = v_notch();
     let err = part
-        .face_blend(
-            1.0,
-            |f| f.at_height(999.0),
-            |f| f.at_height(999.0),
-        )
+        .face_blend(1.0, |f| f.at_height(999.0), |f| f.at_height(999.0))
         .expect_err("empty selection must be a structured error");
     let msg = format!("{err}");
     assert!(

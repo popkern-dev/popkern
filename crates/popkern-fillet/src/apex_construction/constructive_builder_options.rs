@@ -8,21 +8,24 @@ use super::cap_loop_construction_options::CapLoopConstructionOptions;
 /// repeated-apex partition class (PK-124): the Stage-D seam-ownership
 /// contract holds by construction there and the pyramid4 zoo diagnostic
 /// set is clean under it (0 slivers, 0 overlaps, 0 tessellation seams).
-/// The N = 3 CONSTRUCTION class is closed under the strict env gate
-/// (PK-151 pyramid3 spoke anchoring, PK-129 pocket-junction
-/// settlement, PK-128 mixed-winding replan; strict matrix 8/8), but
-/// the default stays apex-retaining at N = 3 until the downstream
-/// serving stack handles the V-free shape: widening to n >= 3 was
-/// measured to break 13 workspace gates (STEP export "loop has fewer
-/// than 3 vertices", FaceUseTrimAuthority repair failure, mesh
-/// boundary_first_edge_samples panic, Gregory/polar measure parity) —
-/// tracked as the PK-126 serving leg.
+/// The N = 3 class is the production default since PK-153: the
+/// CONSTRUCTION class closed under the strict env gate (PK-151
+/// pyramid3 spoke anchoring, PK-129 pocket-junction settlement,
+/// PK-128 mixed-winding replan; strict matrix 8/8), and the SERVING
+/// class closed with the vestigial-shell consolidation (flap/sliver
+/// retirement, shell winding reconciliation, seam welds, periodic
+/// pcurve branch repair) plus the rim-trim short-sweep convention —
+/// all 13 previously-broken workspace serving gates are green, with
+/// the mixed cube serving a watertight 12-face shell at 0.25% area
+/// parity and an empty fidelity-blocker census. PK-167 tracks the
+/// constructive replacement for the winding repair (bridges as
+/// in-place support-loop rewrites; Reauthored cycle primary).
 /// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1` forces V-free
 /// at every valence (diagnostic gates); `=0` restores the
 /// apex-retaining path everywhere as a containment escape hatch.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum VFreeRepeatedApexMode {
-    /// Promoted production default: V-free for N >= 4.
+    /// Promoted production default: V-free for N >= 3.
     #[default]
     DefaultOn,
     /// Environment-requested strict mode at every valence.
@@ -44,7 +47,7 @@ impl VFreeRepeatedApexMode {
         match self {
             Self::ExplicitOn => true,
             Self::Off => false,
-            Self::DefaultOn => n_fillets >= 4,
+            Self::DefaultOn => n_fillets >= 3,
         }
     }
 }

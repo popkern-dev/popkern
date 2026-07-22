@@ -1,10 +1,10 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{
     BRep, BrepCurveTrimReconstructionOptions, BrepDegenerateEdgeOptions,
-    BrepEdgeCurveCompletionDeclineReason, BrepEdgeCurveCompletionOptions,
-    BrepEdgeCurveCompletionOutcome, BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind,
-    BrepFaceUseTrimAuthorityOptions, BrepRepairPipelineOptions, BrepSewingClassificationOptions,
-    BrepSewingOptions, BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
+    BrepEdgeCurveCompletionOptions, BrepEdgeCurveCompletionOutcome,
+    BrepEdgeSurfaceCompatibilityOptions, BrepEdgeSurfaceKind, BrepFaceUseTrimAuthorityOptions,
+    BrepRepairPipelineOptions, BrepSewingClassificationOptions, BrepSewingOptions,
+    BrepSnapSewingOptions, BrepTopologyOutputPolicy, BrepTrimRepairOptions,
     analyze_brep_edge_surface_compatibility, analyze_brep_export_quality,
     classify_brep_fidelity_blocker_ownership, repair_brep_boundary_edges_transactionally,
 };
@@ -107,24 +107,19 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     let construction_state = &states[0];
     let export_state = &states[1];
     let imported_state = &states[2];
+    // Re-pinned 2026-07-21 (PK-153): the V-free DefaultOn n>=3
+    // consolidated serving retires the cube-edge stub class this
+    // probe used to classify — the fidelity blocker set is empty at
+    // construction and must stay empty through export repair.
     let construction_ownership = classify_brep_fidelity_blocker_ownership(&construction, 1e-6);
-    assert!(
-        construction_ownership.blockers > 0,
-        "raw exact-boundary Gregory construction should expose structured production blocker ownership before export repair: {construction_ownership:#?}"
-    );
     assert_eq!(
-        construction_ownership.production_owned, construction_ownership.blockers,
-        "raw construction blockers should be attributed to production topology rather than hidden residual faces: {construction_ownership:#?}"
+        construction_ownership.blockers, 0,
+        "consolidated V-free construction should expose no fidelity blockers: {construction_ownership:#?}"
     );
     let export_ownership = classify_brep_fidelity_blocker_ownership(&export_input, 1e-6);
-    assert!(
-        export_ownership.blockers > 0
-            && export_ownership.blockers <= construction_ownership.blockers,
-        "repair should preserve structured production blocker ownership without inventing new blockers: {export_ownership:#?}"
-    );
     assert_eq!(
-        export_ownership.production_owned, export_ownership.blockers,
-        "remaining export pcurve blockers should stay production-owned and structured: {export_ownership:#?}"
+        export_ownership.blockers, 0,
+        "export repair must not invent fidelity blockers: {export_ownership:#?}"
     );
 
     assert!(
@@ -135,9 +130,9 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         export_state.edge_surface_blockers <= construction_state.edge_surface_blockers,
         "repair should not increase construction edge/surface blockers: {states:#?}"
     );
-    assert!(
-        export_state.pcurve_blockers > 0,
-        "repair should leave residual pcurve blockers visible to the diagnostic classifier: {states:#?}"
+    assert_eq!(
+        export_state.pcurve_blockers, 0,
+        "consolidated V-free export input should carry no pcurve blockers: {states:#?}"
     );
     let edge_surface_report = repaired
         .report
@@ -157,10 +152,12 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
             _ => None,
         })
         .collect::<Vec<_>>();
+    // Re-pinned 2026-07-21 (PK-153): the consolidated V-free serving
+    // authors every edge curve, so the completion stage has nothing
+    // to classify — a decline reappearing here is a regression.
     assert!(
-        edge_curve_decline_reasons
-            .contains(&BrepEdgeCurveCompletionDeclineReason::SurfaceTrimEndpointMismatch),
-        "Gregory missing edge-curve completion should classify inconsistent trim endpoint sources: {edge_curve_decline_reasons:#?}"
+        edge_curve_decline_reasons.is_empty(),
+        "consolidated V-free serving should leave no edge-curve completion declines: {edge_curve_decline_reasons:#?}"
     );
     assert!(
         edge_surface_report.decisions.iter().all(|decision| {
@@ -197,10 +194,11 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     // (edge/surface blockers survived construction, export, AND import).
     // PK-124's seam fidelity package reconciled every imported
     // edge/surface pairing (imported edge_surface_blockers 0; only the
-    // residual imported pcurve class remains), so the classifier ladder
-    // now lands on its validator-side bucket.
+    // residual imported pcurve class remained — "validator_gap").
+    // PK-153's consolidated V-free serving empties every class at
+    // construction, export, and import.
     assert_eq!(
-        classification, "validator_gap",
+        classification, "no_fidelity_blocker",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }

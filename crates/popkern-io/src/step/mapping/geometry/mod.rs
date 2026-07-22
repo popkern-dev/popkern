@@ -6,9 +6,9 @@
 //!
 //! Surface resolution is in the [`surfaces`] submodule.
 
+mod curves_complex;
 mod pcurves;
 mod surfaces;
-mod curves_complex;
 use curves_complex::resolve_rational_bspline_curve_weights;
 #[cfg(test)]
 mod tests_resolve;
@@ -345,7 +345,6 @@ impl<'a> GeometryCache<'a> {
         }
     }
 }
-
 
 /// Expand (knot_values, multiplicities) into a flat knot vector.
 fn expand_knots(values: &[f64], multiplicities: &[i64]) -> Vec<f64> {

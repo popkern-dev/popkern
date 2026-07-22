@@ -67,7 +67,35 @@ fn v_free_face_census_dump() {
             .iter()
             .map(|p| format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z))
             .collect();
-        eprintln!("FACE {fh:?} [{:?}] {desc} ring={verts:?}", f.role);
+        // Winding normal (Newell over the outer ring) vs stored surface
+        // normal + orientation flag: discriminates mirror-wound faces.
+        let ring = brep.face_outer_loop_positions(fh);
+        let mut newell = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+        for i in 0..ring.len() {
+            let p = ring[i];
+            let q = ring[(i + 1) % ring.len()];
+            newell.x += (p.y - q.y) * (p.z + q.z);
+            newell.y += (p.z - q.z) * (p.x + q.x);
+            newell.z += (p.x - q.x) * (p.y + q.y);
+        }
+        let flag = f
+            .surface
+            .as_ref()
+            .map(|s| format!("orient_flag={}", s.orientation))
+            .unwrap_or_else(|| "orient_flag=?".into());
+        let winding_vs_surface = match f.surface.as_ref().map(|s| &s.geometry) {
+            Some(SurfaceGeometry::Plane { normal, .. }) => {
+                format!("winding_dot_surface={:+.3}", newell.dot(normal))
+            }
+            _ => format!(
+                "winding_newell=({:+.2},{:+.2},{:+.2})",
+                newell.x, newell.y, newell.z
+            ),
+        };
+        eprintln!(
+            "FACE {fh:?} [{:?}] {desc} {flag} {winding_vs_surface} ring={verts:?}",
+            f.role
+        );
         // Half-edge sides: edge handle + twin's owning face.
         let Some(loop_data) = brep.loops.get(f.outer_loop) else {
             continue;

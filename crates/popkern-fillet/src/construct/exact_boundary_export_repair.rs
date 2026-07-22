@@ -125,6 +125,41 @@ fn surface_for_half_edge(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<Surfa
         .map(|surface| surface.geometry.clone())
 }
 
+/// Resolve the current (cap-side, support-side) half-edge pair for a
+/// sector outer edge. The half-edge handles recorded at cap
+/// construction are volatile — the V-free shell consolidation can
+/// exchange a seam's halves between loops or re-author a rebuilt
+/// support ring — while the EDGE and the support FACE keep their
+/// identity. When the recorded support face owns one side of the
+/// edge, that side is the support side and its partner the cap side;
+/// otherwise the recorded handles stand and the existing structured
+/// diagnostics (topology_missing / ownership_mismatch) report drift.
+fn resolve_sector_outer_sides(
+    result: &BRep,
+    edge: popkern_core::topology::EdgeHandle,
+    recorded_cap: HalfEdgeHandle,
+    recorded_support: HalfEdgeHandle,
+    support_face: FaceHandle,
+) -> (HalfEdgeHandle, HalfEdgeHandle) {
+    let derived = result.edges.get(edge).and_then(|edge_data| {
+        let a = edge_data.half_edge;
+        let b = result.half_edges.get(a)?.twin;
+        result.half_edges.get(b)?;
+        let face_of = |handle: HalfEdgeHandle| -> Option<FaceHandle> {
+            result
+                .loops
+                .get(result.half_edges.get(handle)?.loop_)
+                .map(|loop_data| loop_data.face)
+        };
+        match (face_of(a)?, face_of(b)?) {
+            (_, face_b) if face_b == support_face => Some((a, b)),
+            (face_a, _) if face_a == support_face => Some((b, a)),
+            _ => None,
+        }
+    });
+    derived.unwrap_or((recorded_cap, recorded_support))
+}
+
 fn record_exact_boundary_cap_outer_declines(
     result: &BRep,
     repair_report: &mut crate::types::BlendRepairReport,
@@ -142,8 +177,17 @@ fn record_exact_boundary_cap_outer_declines(
                 (0usize, sector.fillet_end_edge, "FilletEnd"),
                 (1usize, sector.face_edge, "FaceEdge"),
             ] {
-                let cap_half_edge = sector.cap_half_edges[side_index];
-                let support_half_edge = sector.support_half_edges[side_index];
+                let (cap_half_edge, support_half_edge) = resolve_sector_outer_sides(
+                    result,
+                    edge,
+                    sector.cap_half_edges[side_index],
+                    sector.support_half_edges[side_index],
+                    if side_index == 0 {
+                        sector.fillet_support_face
+                    } else {
+                        sector.bridge_support_face
+                    },
+                );
                 let (code, residual, sample_parameter) = exact_boundary_cap_outer_decline(
                     result,
                     cap_half_edge,
@@ -288,6 +332,13 @@ fn record_exact_boundary_support_scope_declines(
                     sector.bridge_support_face,
                 ),
             ] {
+                let (_, support_half_edge) = resolve_sector_outer_sides(
+                    result,
+                    edge,
+                    support_half_edge,
+                    support_half_edge,
+                    support_face,
+                );
                 let (code, residual) = exact_boundary_support_scope_decline(
                     result,
                     support_half_edge,

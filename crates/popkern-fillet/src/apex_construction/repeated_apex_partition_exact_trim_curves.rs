@@ -51,6 +51,36 @@ pub(super) fn exact_cylinder_trim_curve_between(
                 ),
             });
     }
+    // Rim arcs (both endpoints at one axial station) lie on the
+    // plane∩cylinder CIRCLE, which has two trims between the same
+    // endpoints; the intersection-inversion fallback below accepts by
+    // endpoint match only, so it serves whichever branch the circle's
+    // parameterization offers (measured: FilletEnd[1] far arc on the
+    // widened mixed cube served the 3π/2 complement — the loop's UV
+    // winding then covered the full drum and face area/tessellation
+    // misread the trim). A fillet strip's angular extent is always
+    // below π, so rim trims take the arc constructor's short-sweep
+    // convention.
+    if let Some(SurfaceGeometry::Cylinder { origin, axis, .. }) = brep
+        .faces
+        .get(cylinder_face)
+        .and_then(|face| face.surface.as_ref())
+        .map(|surface| &surface.geometry)
+        && let Some(axis_unit) = axis.normalized()
+    {
+        let start_axis = (start_point - *origin).dot(&axis_unit);
+        let end_axis = (end_point - *origin).dot(&axis_unit);
+        if (start_axis - end_axis).abs() <= brep.tolerance.linear().max(1.0e-9) {
+            return exact_cylinder_arc_trim_curve_between(
+                brep,
+                cylinder_face,
+                start,
+                end,
+                label,
+                fillet_index,
+            );
+        }
+    }
     exact_support_cylinder_intersection_curve_between(
         brep,
         cylinder_face,

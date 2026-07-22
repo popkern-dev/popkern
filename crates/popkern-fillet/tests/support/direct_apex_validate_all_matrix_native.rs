@@ -111,11 +111,12 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         metrics.worst_g1_coplanarity,
     );
 
-    // Since the far-anchor generator selection (PK-153), the default-mode
-    // rewrite spans each strip with full-length generators, so cube_extreme
-    // no longer needs a side-support topology continuation. A reappearing
-    // continuation diagnostic here would mean the rewrite regressed to
-    // corner-quad anchoring.
+    // Under the V-free DefaultOn n>=3 widening (PK-153), cube_extreme's
+    // default build takes the repeated-apex trim rewrite whose mixed
+    // plan applies the face-family bridge continuation for its three
+    // support regions. The structured diagnostic must record that
+    // application — a missing or declined record means the rewrite
+    // silently changed shape.
     let side_support = result
         .repair_report
         .apex_diagnostics
@@ -123,11 +124,21 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         .find_map(|diagnostic| match diagnostic {
             ApexConstructionDiagnostic::SideSupportContinuation(diagnostic) => Some(diagnostic),
             _ => None,
-        });
+        })
+        .expect("cube_extreme V-free default mode must record the side-support continuation");
     assert!(
-        side_support.is_none(),
-        "cube_extreme default mode should complete without side-support \
-         continuation after far-anchor generator selection; got {side_support:?}"
+        side_support.applied && side_support.primitive == "face_family_bridge",
+        "cube_extreme V-free default mode should apply the face-family bridge \
+         continuation; got {side_support:?}"
+    );
+    assert_eq!(
+        (
+            side_support.bridge_face_count,
+            side_support.bridge_loop_count
+        ),
+        (3, 3),
+        "cube_extreme face-family bridge should cover the three support regions; \
+         got {side_support:?}"
     );
 }
 

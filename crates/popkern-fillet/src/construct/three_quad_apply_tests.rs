@@ -267,10 +267,10 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
         use_rational_gregory: false,
         ..FilletOptions::default()
     };
-    let (_, baseline_q) =
+    let (baseline_result, baseline_q) =
         fillet_edges_with_quality(&cube, &specs, &baseline_opts, Tolerance::default(), None)
             .expect("baseline quality path should succeed");
-    let (_, gregory_q) = fillet_edges_with_quality(
+    let (gregory_result, gregory_q) = fillet_edges_with_quality(
         &cube,
         &specs,
         &FilletOptions {
@@ -297,17 +297,36 @@ fn r8_c8_fillet_quality_gregory_not_worse_than_polar_nurbs() {
     );
 
     // Surface area parity: both paths cover the same physical
-    // corner region, so the total new-face area should be close.
-    // Width band = 10% of baseline area (catches gross errors
-    // like a sub-patch with reversed orientation going to zero
-    // area).
-    let area_ratio = gregory_q.surface_area / baseline_q.surface_area;
+    // corner region, so the BLEND-surface (non-plane new face)
+    // area should be close (catches gross errors like a sub-patch
+    // with reversed orientation going to zero area). Compared on
+    // non-plane faces only: the V-free DefaultOn serving (PK-153)
+    // rewrites the support planes under new handles, so the raw
+    // new-face area totals differ by whole support faces between
+    // the two paths until PK-167 restores support handle identity.
+    let pre_faces: std::collections::HashSet<_> = cube.faces.keys().collect();
+    let blend_area = |brep: &BRep| -> f64 {
+        brep.faces
+            .iter()
+            .filter(|(fh, face)| {
+                !pre_faces.contains(fh)
+                    && face.surface.as_ref().is_some_and(|s| {
+                        !matches!(
+                            s.geometry,
+                            popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                        )
+                    })
+            })
+            .map(|(fh, _)| crate::quality::face_area_estimate(brep, fh))
+            .sum()
+    };
+    let baseline_blend_area = blend_area(&baseline_result.brep);
+    let gregory_blend_area = blend_area(&gregory_result.brep);
+    let area_ratio = gregory_blend_area / baseline_blend_area;
     assert!(
         (0.9..=1.1).contains(&area_ratio),
-        "R8 C8: gregory/baseline surface-area ratio {area_ratio:.3} outside [0.9, 1.1]; \
-         baseline={:.4}, gregory={:.4}",
-        baseline_q.surface_area,
-        gregory_q.surface_area,
+        "R8 C8: gregory/baseline blend-surface area ratio {area_ratio:.3} outside [0.9, 1.1]; \
+         baseline={baseline_blend_area:.4}, gregory={gregory_blend_area:.4}",
     );
 
     // Three-quad poke contributes +2 corner sub-patches (1 hex →

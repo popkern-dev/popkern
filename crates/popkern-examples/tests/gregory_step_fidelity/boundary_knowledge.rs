@@ -28,13 +28,17 @@ fn gregory_surface_boundary_knowledge_classifies_remaining_blockers() {
     // pcurves, count stays 9). The fix is CONSTRUCTION: mixed-radius
     // corner transition geometry (the stub must border a transition
     // patch or a properly trimmed neighbor, never the cylinder).
+    //
+    // Dropped 9 -> 0 with PK-153: the V-free DefaultOn n>=3 serving
+    // IS that construction fix — the consolidated shell (winding
+    // reconciliation + seam welds + rebuilt support rings) retires
+    // the cube-edge stubs entirely, so no edge borders a surface it
+    // does not lie on. The class is empty by construction.
     assert_eq!(
-        ownership.blockers, 9,
-        "exact-boundary Gregory construction should expose the current structured fidelity blocker class: {ownership:#?}"
+        ownership.blockers, 0,
+        "exact-boundary Gregory construction should expose no fidelity blockers on the \
+         consolidated V-free serving: {ownership:#?}"
     );
-    assert_eq!(
-        ownership.production_owned, ownership.blockers,
-        "remaining blockers should be production-owned, not hidden on construction residual topology: {ownership:#?}"
-    );
+    assert_eq!(ownership.production_owned, 0, "{ownership:#?}");
     assert_eq!(ownership.construction_residual_owned, 0, "{ownership:#?}");
 }

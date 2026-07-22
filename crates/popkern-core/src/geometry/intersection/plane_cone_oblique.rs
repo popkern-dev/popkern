@@ -228,4 +228,3 @@ pub(super) fn case_oblique(
         is_closed: true,
     })])
 }
-

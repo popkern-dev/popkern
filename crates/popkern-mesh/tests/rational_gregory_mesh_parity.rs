@@ -117,10 +117,16 @@ fn r8_c8_mesh_produces_output_on_both_flag_states() {
     assert!(baseline.tri_count > 0, "baseline: mesh must be non-empty");
 
     if gregory.corner_patch_count == 3 {
+        // The V-free repeated-apex serving (DefaultOn n >= 3, PK-153)
+        // replaces the baseline's retired apex micro-cells with a
+        // consolidated shell: 6 support planes + 3 fillet strips + 3
+        // Gregory cap sectors. Sub-patch serving must keep that full
+        // set — fewer means a cap or strip collapsed into a neighbor.
         assert!(
-            gregory.face_count >= baseline.face_count,
+            gregory.face_count >= 12,
             "R8 C7: concrete Gregory sub-patches must not collapse the \
-             topological face set; baseline={}, gregory={}",
+             consolidated V-free face set (supports + strips + caps); \
+             baseline={}, gregory={}",
             baseline.face_count,
             gregory.face_count
         );

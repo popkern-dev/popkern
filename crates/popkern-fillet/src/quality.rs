@@ -170,7 +170,7 @@ fn classify_face_continuity(surface: &SurfaceGeometry) -> ContinuityLevel {
     ContinuityLevel::G1
 }
 
-fn face_area_estimate(brep: &BRep, face: popkern_core::topology::FaceHandle) -> f64 {
+pub(crate) fn face_area_estimate(brep: &BRep, face: popkern_core::topology::FaceHandle) -> f64 {
     // Approximate area from the outer loop polygon (Newell's method
     // for 3D polygons).
     let positions = brep.face_outer_loop_positions(face);

@@ -268,7 +268,7 @@ impl Part {
     ) -> Result<Part, PartError> {
         let infos = face_infos(self.brep());
         let resolve_one = |label: &'static str,
-                               query: FaceQuery|
+                           query: FaceQuery|
          -> Result<popkern_core::topology::FaceHandle, PartError> {
             let faces = query.resolve(&infos);
             let selection = query.describe();

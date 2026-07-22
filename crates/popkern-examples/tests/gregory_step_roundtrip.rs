@@ -287,6 +287,7 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
                 diagnostic,
                 ApexConstructionDiagnostic::ExactBoundaryCap(_)
                     | ApexConstructionDiagnostic::CapSupportContinuity(_)
+                    | ApexConstructionDiagnostic::SideSupportContinuation(_)
             )
         })
         .count();
@@ -331,8 +332,12 @@ fn gregory_mixed_radius_edge_surface_pipeline_reports_clean_exact_boundary_route
     // Re-pinned 11 -> 9 (2026-07-17, PK-125): ribbon orientation
     // continuity + corner-compatible spokes resolved two more
     // cap-seam half-edges.
+    // Re-pinned 9 -> 0 (2026-07-21, PK-153): the V-free DefaultOn
+    // n>=3 serving consolidates the vestigial support shell (winding
+    // reconciliation + seam welds + periodic branch repair) — the
+    // raw edge/surface blocker class is empty on this fixture.
     assert_eq!(
-        report.before.incompatible_half_edges, 9,
+        report.before.incompatible_half_edges, 0,
         "accepted exact-boundary mixed-radius Gregory route should expose the current structured raw edge/surface blocker class"
     );
     assert_eq!(
