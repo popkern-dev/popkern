@@ -121,8 +121,26 @@ fn face_parameter_range(brep: &BRep, face_handle: FaceHandle) -> ((f64, f64), (f
             v_axis,
             ..
         } => (*origin, *u_axis, *v_axis),
+        cone @ SurfaceGeometry::Cone { .. } => {
+            // A cone's window must be built in its OWN chart: the
+            // Cartesian ±100 default made ray classification blind
+            // to every cone-walled solid — a drafted frustum's chart
+            // puts v (distance from apex) at |apex offset| ≈
+            // r/tan(half-angle), far outside any fixed box, so every
+            // wall hit was filtered and interior points classified
+            // Outside (measured: the stand-class countersink kept
+            // the inside-tool wall band and minted duplicate cone
+            // boundary edges, PK-166). Scoped to cones: cylinders
+            // keep the historical window — they carry their own
+            // exact angular hit gate downstream, and the tuned
+            // star-socket/seat fixtures regressed under a
+            // face-derived window (measured: 256 mesh opens).
+            return popkern_core::geometry::uv_projection::bounded_parameter_range(
+                &positions, cone,
+            );
+        }
         _ => {
-            // Non-plane infinite surface — use large default range.
+            // Other non-plane infinite surfaces — historical default.
             return ((-100.0, 100.0), (-100.0, 100.0));
         }
     };
@@ -216,8 +234,12 @@ fn ray_crossing_count(
     let t_range = (0.0, 1e6);
     let mut count = 0usize;
 
+    let ray_trace = std::env::var_os("PK_RAY_TRACE").is_some();
     for (face_handle, aabb) in face_aabbs {
         if !ray_intersects_aabb(origin, direction, aabb) {
+            if ray_trace {
+                eprintln!("  [ray] {face_handle:?} aabb miss");
+            }
             continue;
         }
 
@@ -239,6 +261,12 @@ fn ray_crossing_count(
             tolerance,
         )
         .map_err(|_| ())?;
+        if ray_trace {
+            eprintln!(
+                "  [ray] {face_handle:?} u({u_min:.2},{u_max:.2}) v({v_min:.2},{v_max:.2}) hits {}",
+                result.intersections.len()
+            );
+        }
 
         for isect in &result.intersections {
             match isect {

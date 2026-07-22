@@ -88,8 +88,22 @@ pub(crate) fn classify_and_select_fragments(
         let sample = sample_point_for_fragment(graph, &fragment.outer_loop);
         let mut classification = match point_in_solid(&sample, other_brep, other_aabbs, tolerance) {
             Ok(c) => c,
-            Err(_) => PointClassification::Outside,
+            Err(e) => {
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [classify] {:?} sample ({:.3},{:.3},{:.3}) point_in_solid ERR {e:?} -> Outside",
+                        fragment.face, sample.x, sample.y, sample.z
+                    );
+                }
+                PointClassification::Outside
+            }
         };
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [classify] {:?} sample ({:.3},{:.3},{:.3}) -> {classification:?}",
+                fragment.face, sample.x, sample.y, sample.z
+            );
+        }
 
         // When the primary sample results in rejection, retry with a
         // UV-space interior point for PLANAR faces only. On planar faces,

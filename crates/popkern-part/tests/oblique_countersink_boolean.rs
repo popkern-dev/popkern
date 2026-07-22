@@ -147,8 +147,10 @@ fn oblique_countersink_exports_clean_step() {
 /// The stand-parameter variant: 18° rest tilt, BLIND bore (seat
 /// floor at z 70), Ø70.4 seat, sink r 34.6 at z 82 flaring 8.5° so
 /// the crossing circle sits at z 86 below the whole mouth — the
-/// exact laptop-stand round-seat class (PK-166). The blind floor
-/// adds a third ring (the floor rim) to the nested-hole assignment.
+/// exact laptop-stand round-seat class (PK-166, closed by three
+/// fixes: the reversed-re-wire orientation flag, the chart-aware
+/// ray window for cone faces, and the sliver absorption containment
+/// gate).
 fn stand_class_countersunk_plate() -> popkern_part::Part {
     let plate = Profile::on(Plane::XY)
         .rect(200.0, 200.0)
@@ -182,12 +184,6 @@ fn stand_class_countersunk_plate() -> popkern_part::Part {
 }
 
 #[test]
-#[ignore = "PK-166 pin: the stand-class sink subtract's cellular walk breaks on the bore \
-cylinder's chart (degree imbalance on its two closed periodic records — the crossing \
-circle and the mouth ellipse — at the periodic seam), the cone fragment's boundary \
-conflicts mint duplicate edges instead of sharing, and a phantom outer-1/inner-1 \
-fragment ships on the tilted face: 741 open mesh edges, no cone face. Un-ignore when \
-the cellular chart handles multi-closed-record cylinder faces."]
 fn stand_class_oblique_countersink_serves_cone_band() {
     let cut = stand_class_countersunk_plate();
     assert_eq!(

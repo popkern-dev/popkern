@@ -64,7 +64,7 @@ pub mod tolerance;
 pub mod validate;
 
 pub use bool_api_extras::{boolean_strict, boolean_with_provenance, boolean_with_remediation};
-pub use classify::point_in_solid;
+pub use classify::{point_in_solid, point_in_solid_final};
 pub use csg::{CsgNode, csg_eval};
 
 pub use error::{

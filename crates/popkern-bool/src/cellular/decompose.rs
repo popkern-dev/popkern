@@ -106,6 +106,18 @@ pub fn decompose_cells(params: &DecomposeParams<'_>) -> CellDecomposition {
         }
     }
 
+    if std::env::var_os("PK_BOOL_TRACE").is_some() {
+        for cell in &cells {
+            eprintln!(
+                "  [cells] cell {} membership {:#b} sample ({:.3},{:.3},{:.3})",
+                cell.id,
+                cell.membership,
+                cell.sample_point.x,
+                cell.sample_point.y,
+                cell.sample_point.z
+            );
+        }
+    }
     // Build boundary face list
     let boundaries: Vec<_> = (0..n)
         .map(|i| {
