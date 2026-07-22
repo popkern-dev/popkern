@@ -132,7 +132,7 @@ pub fn compute_chamfer(
     // start (the seam station): the interpolated 20-point fit left
     // ~1e-3·r ripple on every rail and the wall/cap meshed against
     // it with thousands of cracked slivers.
-    let exact_rim = |circle: &BevelCircle, anchor: &Point3| -> NurbsCurve {
+    let exact_rim = |circle: &BevelCircle, anchor: &Point3, end_anchor: &Point3| -> NurbsCurve {
         let (c, axis, r) = circle;
         // Angles measured in the Arc EVALUATOR's frame (circle_basis)
         // so that point_at(a0) IS the anchor — the surface frame
@@ -159,19 +159,42 @@ pub fn compute_chamfer(
                 p.distance_to(anchor)
             );
         }
+        // INTERRUPTED rims (the chamfered edge is an ARC, not a full
+        // circle) must span only the row's actual sweep — a full-turn
+        // rim closes the strip across the gap with geometry that
+        // crosses the interrupting feature (measured: the notched
+        // flange's strip shipped a gap chord 0.53 off the cone).
+        let a1 = if anchor.distance_to(end_anchor) < 1e-9 {
+            a0 + std::f64::consts::TAU
+        } else {
+            let de = *end_anchor - *c;
+            let mut a = de.dot(&p2).atan2(de.dot(&p1));
+            while a <= a0 + 1e-12 {
+                a += std::f64::consts::TAU;
+            }
+            a
+        };
         popkern_core::geometry::curve::CurveGeometry::Arc {
             center: *c,
             normal: *axis,
             radius: *r,
             start_angle: a0,
-            end_angle: a0 + std::f64::consts::TAU,
+            end_angle: a1,
         }
-        .to_nurbs_in_range((a0, a0 + std::f64::consts::TAU))
+        .to_nurbs_in_range((a0, a1))
     };
     let (trim_curve_1, trim_curve_2) = match &cone {
         Some((_, circle_1, circle_2)) => (
-            exact_rim(circle_1, &offset_points_1[0]),
-            exact_rim(circle_2, &offset_points_2[0]),
+            exact_rim(
+                circle_1,
+                &offset_points_1[0],
+                offset_points_1.last().unwrap_or(&offset_points_1[0]),
+            ),
+            exact_rim(
+                circle_2,
+                &offset_points_2[0],
+                offset_points_2.last().unwrap_or(&offset_points_2[0]),
+            ),
         ),
         None => (
             fit_nurbs_through_points(&offset_points_1)?,

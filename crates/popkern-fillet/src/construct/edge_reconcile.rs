@@ -121,6 +121,21 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                     let radial = d - *axis * along;
                     (radial.length() - radius).abs() < gate
                 }
+                SurfaceGeometry::Cone {
+                    apex,
+                    axis,
+                    half_angle,
+                } => {
+                    let n = axis.length();
+                    if n < 1e-300 {
+                        return false;
+                    }
+                    let an = *axis * (1.0 / n);
+                    let d = *p - *apex;
+                    let station = d.dot(&an);
+                    let radial = (d - an * station).length();
+                    (radial - station.abs() * half_angle.tan().abs()).abs() < gate
+                }
                 _ => false,
             }
         };
@@ -177,6 +192,16 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
                 SurfaceGeometry::Cylinder { .. },
                 SurfaceGeometry::Sphere { .. }
             )
+            // CONE × plane: circular-chamfer strips are cones; their
+            // stale trim lines (the perp-anchor placeholder across an
+            // interrupted rim's gap) must reconcile to the conic like
+            // any other stale chord (PK-171: the notched flange's gap
+            // chord shipped 0.53 off the cone because Cone pairs
+            // silently skipped here). The edge-triple trig dispatcher
+            // resolves plane×cone analytically (ellipse) with the
+            // marching fallback for parabola/hyperbola sections.
+            | (SurfaceGeometry::Cone { .. }, SurfaceGeometry::Plane { .. })
+            | (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Cone { .. })
     );
     let nurbs_combo = matches!(
         (&sof_1.geometry, &sof_2.geometry),

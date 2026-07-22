@@ -198,6 +198,13 @@ pub fn chamfer_edges(
             &tolerance,
             construct::terminal_arc_trim::PlanarStubRecognition::SurfaceScoped,
         );
+    // Second reconcile pass AFTER the terminal settle: the settle
+    // snaps anchor vertices onto their true triple points, which is
+    // exactly what the first pass declined on (AnchorOffSurface on
+    // every stale gap chord of an interrupted rim). The stale-only
+    // gate keeps already-exact curves untouched, so the second pass
+    // only serves the edges the settle just made reconcilable.
+    construct::edge_reconcile::reconcile_edge_curves(&mut apply_result.brep);
 
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
