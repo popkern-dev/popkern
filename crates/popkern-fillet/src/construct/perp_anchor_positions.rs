@@ -78,8 +78,38 @@ pub(super) fn compute_perp_anchor_positions_for_face(
             .ok_or_else(|| format!("loop {loop_handle:?} not found"))?
             .half_edge;
 
+        // Collect the loop once so the anchor placement can walk
+        // COLLINEAR CONTINUATIONS in both directions (a boolean may
+        // pre-split a support rim mid-span; the anchor chain must
+        // cross those junction vertices).
+        let mut loop_hes: Vec<popkern_core::topology::HalfEdgeHandle> = Vec::new();
+        {
+            let mut cursor = start_he;
+            let mut iters = 0;
+            loop {
+                loop_hes.push(cursor);
+                cursor = brep
+                    .half_edges
+                    .get(cursor)
+                    .ok_or_else(|| format!("half-edge {cursor:?} not found"))?
+                    .next;
+                iters += 1;
+                if cursor == start_he || iters >= max_iters {
+                    break;
+                }
+            }
+        }
+        let seg_of = |heh: popkern_core::topology::HalfEdgeHandle| -> Option<(Point3, Point3)> {
+            let he = brep.half_edges.get(heh)?;
+            let next_he = brep.half_edges.get(he.next)?;
+            let p0 = brep.vertices.get(he.origin)?.position;
+            let p1 = brep.vertices.get(next_he.origin)?.position;
+            Some((p0, p1))
+        };
+
         let mut cursor = start_he;
         let mut iters = 0;
+        let mut loop_index = 0usize;
         loop {
             let he = brep
                 .half_edges
@@ -201,6 +231,71 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                             }
                         }
                     }
+                    // COLLINEAR-CHAIN CONTINUATION: when the anchor
+                    // distance overshoots this edge, the true anchor
+                    // lies on a collinear continuation — a prior
+                    // boolean may have split the support rim mid-span
+                    // (measured: an L-bracket union splits the base
+                    // top rim 2.0 from the corner; radius 4 clamped
+                    // the anchor onto the junction vertex, the strip
+                    // side trim slanted to it, the terminal stub
+                    // settle declined on the off-cylinder anchor, and
+                    // the stale corner stub shipped with deviation
+                    // exactly r(√2−1) — check-9 catch, PK-171). Walk
+                    // the loop while edges stay collinear, trying the
+                    // trim crossing on each piece and spending the
+                    // remaining radius.
+                    if radius >= edge_len * 0.999 {
+                        let dir0 = (p1 - p0) * (1.0 / edge_len);
+                        let mut remaining = radius - edge_len;
+                        let n = loop_hes.len();
+                        for step in 1..n {
+                            let j = if forward {
+                                (loop_index + step) % n
+                            } else {
+                                (loop_index + n - step) % n
+                            };
+                            let Some((q0, q1)) = seg_of(loop_hes[j]) else {
+                                break;
+                            };
+                            // Orient the piece along the walk.
+                            let (a, b) = if forward { (q0, q1) } else { (q1, q0) };
+                            let len = a.distance_to(&b);
+                            if len <= 1e-15 {
+                                continue;
+                            }
+                            let dir = (b - a) * (1.0 / len);
+                            let walk_dir = if forward { dir0 } else { dir0 * -1.0 };
+                            if dir.dot(&walk_dir) < 1.0 - 1e-9 {
+                                break; // chain ends at a genuine corner
+                            }
+                            if anchor_on_trim
+                                && let Some(curve) = analytic_curve
+                                && let Some((s, _)) =
+                                    crate::construct::cyl_plane_intersect::intersect_curve_with_segment(
+                                        curve, q0, q1,
+                                    )
+                                && (0.001..0.999).contains(&s)
+                            {
+                                *slot = Some(Point3::new(
+                                    q0.x + s * (q1.x - q0.x),
+                                    q0.y + s * (q1.y - q0.y),
+                                    q0.z + s * (q1.z - q0.z),
+                                ));
+                                return;
+                            }
+                            if remaining <= len * 0.999 {
+                                let f = (remaining / len).max(0.001);
+                                *slot = Some(Point3::new(
+                                    a.x + f * (b.x - a.x),
+                                    a.y + f * (b.y - a.y),
+                                    a.z + f * (b.z - a.z),
+                                ));
+                                return;
+                            }
+                            remaining -= len;
+                        }
+                    }
                     if perp_accept {
                         *slot = Some(along(t_perp));
                     }
@@ -220,6 +315,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
 
             cursor = he.next;
             iters += 1;
+            loop_index += 1;
             if cursor == start_he || iters >= max_iters {
                 break;
             }
