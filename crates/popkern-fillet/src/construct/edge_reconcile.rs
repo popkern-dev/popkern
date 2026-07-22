@@ -294,24 +294,156 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         snap_vertex_and_adjacent_chords(brep, v2, trim_end, edge);
     }
 
+    // ARC-SIDE ADJUDICATION on periodic intersections: the endpoint
+    // pair does not distinguish the short arc from its complement
+    // (PK-097), and the trig dispatcher's pick can cross a gap the
+    // topology routes around (measured: the notched flange's gap
+    // chord reconciled to the SHORT r24 arc THROUGH the notch void —
+    // on-surface, check-9 clean, but the strip ring then wound a
+    // full period and tessellation cracked the whole rim). Choose
+    // the side whose midpoint lies nearer the two faces' material
+    // (their boundary-sample centroid).
+    let (mut pick_t0, mut pick_t1) = (triple.t_start, triple.t_end);
+    {
+        use popkern_core::geometry::CurveEval as _;
+        // Angular geometries evaluate at ANY angle regardless of the
+        // stored trim, so the complement is always constructible with
+        // a 2π period; other geometries have no complement.
+        let angular = matches!(
+            triple.curve_3d,
+            popkern_core::geometry::CurveGeometry::Circle { .. }
+                | popkern_core::geometry::CurveGeometry::Arc { .. }
+                | popkern_core::geometry::CurveGeometry::Ellipse { .. }
+        );
+        let period = std::f64::consts::TAU;
+        let span = triple.t_end - triple.t_start;
+        if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            eprintln!(
+                "  [reconcile] edge {edge:?}: angular={angular} span={span:.3} kind={:?}",
+                std::mem::discriminant(&triple.curve_3d)
+            );
+        }
+        if angular && span < period * (1.0 - 1e-6) {
+            // MATERIAL CONTAINMENT vote: project each candidate arc
+            // midpoint into a PLANAR adjacent face's uv and even-odd
+            // test it against the face's boundary polygon (excluding
+            // this edge) — the wrong side's midpoint lands in the
+            // removed feature's VOID. Centroid-distance votes
+            // measured wrong twice: per-edge sampling biased to the
+            // notch's stub cluster, and even the length-weighted
+            // centroid sat nearer the gap arc on the notched flange.
+            let planar_face = [face_1, face_2].into_iter().find(|&f| {
+                matches!(
+                    brep.faces
+                        .get(f)
+                        .and_then(|fd| fd.surface.as_ref())
+                        .map(|sf| &sf.geometry),
+                    Some(SurfaceGeometry::Plane { .. })
+                )
+            });
+            let inside_planar_face = |p: &popkern_core::geometry::Point3| -> Option<bool> {
+                let f = planar_face?;
+                let fd = brep.faces.get(f)?;
+                let (origin, u_axis, v_axis) = match fd.surface.as_ref().map(|sf| &sf.geometry) {
+                    Some(SurfaceGeometry::Plane {
+                        origin,
+                        u_axis,
+                        v_axis,
+                        ..
+                    }) => (*origin, *u_axis, *v_axis),
+                    _ => return None,
+                };
+                let to_uv = |q: &popkern_core::geometry::Point3| {
+                    let d = *q - origin;
+                    (d.dot(&u_axis), d.dot(&v_axis))
+                };
+                let mut poly: Vec<(f64, f64)> = Vec::new();
+                let l = brep.loops.get(fd.outer_loop)?;
+                let lstart = l.half_edge;
+                let mut cur = lstart;
+                for _ in 0..brep.half_edges.len() {
+                    let hd = brep.half_edges.get(cur)?;
+                    if hd.edge != edge
+                        && let Some(c) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref())
+                    {
+                        for i in 0..8 {
+                            let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
+                            poly.push(to_uv(&c.geometry.point_at(t)));
+                        }
+                    }
+                    cur = hd.next;
+                    if cur == lstart {
+                        break;
+                    }
+                }
+                if poly.len() < 3 {
+                    return None;
+                }
+                let (pu, pv) = to_uv(p);
+                let mut crossings = 0;
+                for i in 0..poly.len() {
+                    let (x0, y0) = poly[i];
+                    let (x1, y1) = poly[(i + 1) % poly.len()];
+                    if (y0 > pv) != (y1 > pv) {
+                        let xc = x0 + (pv - y0) / (y1 - y0) * (x1 - x0);
+                        if xc > pu {
+                            crossings += 1;
+                        }
+                    }
+                }
+                Some(crossings % 2 == 1)
+            };
+            let mid_short = triple
+                .curve_3d
+                .point_at(0.5 * (triple.t_start + triple.t_end));
+            let comp_mid_t = 0.5 * (triple.t_start + triple.t_end) + 0.5 * period;
+            let mid_comp = triple.curve_3d.point_at(comp_mid_t);
+            let short_in = inside_planar_face(&mid_short);
+            let comp_in = inside_planar_face(&mid_comp);
+            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                eprintln!(
+                    "  [reconcile] edge {edge:?}: side vote short_in={short_in:?} comp_in={comp_in:?}"
+                );
+            }
+            if (short_in, comp_in) == (Some(false), Some(true)) {
+                // Complement wins: sweep the other way round.
+                pick_t0 = triple.t_end;
+                pick_t1 = triple.t_start + period;
+                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                    eprintln!("  [reconcile] edge {edge:?}: complement arc chosen (material side)");
+                }
+            }
+        }
+    }
+    let side_flipped = (pick_t0, pick_t1) != (triple.t_start, triple.t_end);
     // Apply: 3D curve on edge, pcurve_a on the half-edge whose face
     // is face_1, pcurve_b on the twin (face_2's half-edge).
     let geometry = triple
         .curve_3d
-        .canonical_line_in_range(
-            (triple.t_start, triple.t_end),
-            tolerance.linear().max(1.0e-8),
-        )
+        .canonical_line_in_range((pick_t0, pick_t1), tolerance.linear().max(1.0e-8))
         .unwrap_or_else(|| triple.curve_3d.clone());
     let new_curve = CurveOnEdge {
         geometry,
-        t_start: triple.t_start,
-        t_end: triple.t_end,
+        t_start: pick_t0,
+        t_end: pick_t1,
     };
     if let Some(edge_mut) = brep.edges.get_mut(edge) {
         edge_mut.curve = Some(new_curve);
     } else {
         return false;
+    }
+    if side_flipped {
+        // The triple's pcurves describe the SHORT side; drop them and
+        // let the lenient pcurve recompute derive the complement's
+        // (stale pcurves would put the mesher back on the wrong arc).
+        if let Some(he_mut) = brep.half_edges.get_mut(he) {
+            he_mut.pcurve = None;
+        }
+        if let Some(twin_mut) = brep.half_edges.get_mut(twin) {
+            twin_mut.pcurve = None;
+        }
+        brep.recompute_all_pcurves_lenient();
+        return true;
     }
     if let Some(he_mut) = brep.half_edges.get_mut(he) {
         he_mut.pcurve = Some(triple.pcurve_a.clone());
