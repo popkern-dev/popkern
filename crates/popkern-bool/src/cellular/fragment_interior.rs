@@ -20,6 +20,7 @@ pub(super) fn fragment_interior_sample(
     graph: &IntersectionGraph,
     fragment: &crate::merge::walk::Fragment,
     surface: &popkern_core::geometry::surface::SurfaceGeometry,
+    orientation: bool,
     force_interior: bool,
 ) -> Option<popkern_core::geometry::Point3> {
     use popkern_core::geometry::surface::SurfaceEval;
@@ -89,9 +90,15 @@ pub(super) fn fragment_interior_sample(
     // union — the wall fragment's window sides crossed the scan row
     // at u=0.253 and u=12.314, the paired midpoint 2π sat in the
     // boss footprint, and the whole wall classified Inside and was
-    // dropped). Fold the crossings into one period cell and pick the
-    // widest circular arc instead — arcs between adjacent fold-cell
-    // crossings partition the period circle regardless of branch.
+    // dropped). Fold the crossings into one period cell — arcs
+    // between adjacent fold-cell crossings partition the period
+    // circle regardless of branch — and choose the arc whose midpoint
+    // lies on the fragment's MATERIAL side, decided by a local 3D
+    // test against the nearest boundary sample (interior = left of
+    // the walk direction under the face's oriented normal). Width
+    // alone cannot decide: on a corner-breached bore wall the OUTSIDE
+    // region's widest fold arc ran through the kept band and the
+    // whole shank classified Inside (measured: tilted_hole_plate).
     let u_period = {
         use popkern_core::geometry::surface::SurfaceEval as _;
         surface.parameter_periodicity().0
@@ -109,6 +116,61 @@ pub(super) fn fragment_interior_sample(
             .iter()
             .map(|i| crossings_at(i, cv).into_iter().map(fold).collect())
             .collect();
+        // 3D boundary samples with walk-direction tangents for the
+        // material-side test (the polygon is in walk order).
+        let boundary_3d: Vec<(popkern_core::geometry::Point3, popkern_core::geometry::Vec3)> = {
+            let n = outer.len();
+            (0..n)
+                .map(|i| {
+                    let (u0, v0) = outer[i];
+                    let (u1, v1) = outer[(i + 1) % n];
+                    let q = surface.point_at(u0, v0);
+                    let q1 = surface.point_at(u1, v1);
+                    (q, q1 - q)
+                })
+                .collect()
+        };
+        let material_side = |mid_u: f64| -> Option<bool> {
+            let pt = surface.point_at(mid_u, cv);
+            let (mut best_d, mut best_i) = (f64::MAX, usize::MAX);
+            for (i, (q, t)) in boundary_3d.iter().enumerate() {
+                // Skip degenerate segments (branch-glue joints map to
+                // one 3D point) — their tangent carries no direction.
+                if t.length_squared() < 1e-24 {
+                    continue;
+                }
+                let d = pt.distance_to(q);
+                if d < best_d {
+                    best_d = d;
+                    best_i = i;
+                }
+            }
+            let (q, t) = boundary_3d.get(best_i)?;
+            let (qu, qv) = outer[best_i];
+            let mut n = surface.normal_at(qu, qv);
+            if !orientation {
+                n = -n;
+            }
+            let interior_dir = n.cross(t);
+            if interior_dir.length_squared() < 1e-30 {
+                return None;
+            }
+            let left = (pt - *q).dot(&interior_dir) > 0.0;
+            // Walk-order handedness is OPERAND-dependent: A fragments
+            // walk region-LEFT of travel under the oriented normal, B
+            // fragments region-RIGHT (B topology enters the graph
+            // mirror-wound; measured on three fold cases — prism A
+            // wall interior arc votes left-true, straight-bore B band
+            // full-circle arc and breached-bore B outside region vote
+            // left-false on their true interiors).
+            Some(match fragment.face.operand {
+                crate::merge::graph::Operand::A => left,
+                crate::merge::graph::Operand::B => !left,
+            })
+        };
+        if std::env::var_os("PK_SEL_TRACE").is_some() {
+            eprintln!("      [selpoly-fold] orientation={orientation}");
+        }
         let mut best: Option<(f64, f64)> = None;
         let n = xs.len();
         for i in 0..n {
@@ -118,7 +180,13 @@ pub(super) fn fragment_interior_sample(
             let inside_inner = inner_folded
                 .iter()
                 .any(|xs| xs.iter().filter(|&&x| x < mid).count() % 2 == 1);
-            if !inside_inner {
+            let side = material_side(mid);
+            if std::env::var_os("PK_SEL_TRACE").is_some() {
+                eprintln!(
+                    "      [selpoly-arc] [{a:.3},{b:.3}] mid={mid:.3} inner={inside_inner} side={side:?}"
+                );
+            }
+            if !inside_inner && side == Some(true) {
                 let width = b - a;
                 if best.map(|(bw, _)| width > bw).unwrap_or(true) {
                     best = Some((width, mid));

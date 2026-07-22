@@ -14,7 +14,10 @@
 
 use std::collections::BTreeMap;
 
-use super::chart_branches::{anchor_periodic, balance_and_duplicates, boundary_shoelace_sigma};
+use super::chart_branches::{
+    anchor_periodic,
+    clustering::{balance_and_duplicates, boundary_shoelace_sigma},
+};
 
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 
@@ -694,7 +697,7 @@ fn build_face_subdivision_inner(
             if let Some(s) = boundary_shoelace_sigma(graph, &sub) {
                 sub.sigma = s;
             }
-            cluster_single_branch(&mut sub, &ends);
+            super::chart_branches::clustering::cluster_single_branch(&mut sub, &ends);
         }
     }
     if !sub.report.issues.is_empty() {
@@ -709,49 +712,6 @@ fn build_face_subdivision_inner(
         *dir *= sigma;
     }
     sub
-}
-
-/// Non-periodic charts: every node is a single branch point.
-fn cluster_single_branch(sub: &mut FaceChartSubdivision, ends: &dyn Fn(usize) -> (usize, usize)) {
-    let hes: Vec<usize> = sub.embeddings.keys().copied().collect();
-    for h in hes {
-        let (s, e) = ends(h);
-        let s_bp = BranchPoint { node: s, branch: 0 };
-        let e_bp = BranchPoint { node: e, branch: 0 };
-        sub.start_bp.insert(h, s_bp);
-        sub.end_bp.insert(h, e_bp);
-        sub.departures.entry(s_bp).or_default().push(h);
-    }
-}
-
-/// True when chart point `p` lies on the interior of some OTHER
-/// registered half-edge's run (coarse, diagnostics-only).
-pub(super) fn node_on_some_run(sub: &FaceChartSubdivision, exclude: usize, p: (f64, f64)) -> bool {
-    let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
-    for emb in sub.embeddings.values() {
-        for &(u, v) in &emb.uv {
-            lo = (lo.0.min(u), lo.1.min(v));
-            hi = (hi.0.max(u), hi.1.max(v));
-        }
-    }
-    let eps = 1e-6 * (1.0 + (hi.0 - lo.0).abs() + (hi.1 - lo.1).abs());
-    let ex_twin = exclude; // run of the arriving he itself is fine to skip only
-    for (&h, emb) in &sub.embeddings {
-        if h == ex_twin {
-            continue;
-        }
-        for w in emb.uv.windows(2) {
-            let (a, b) = (w[0], w[1]);
-            let (dx, dy) = (b.0 - a.0, b.1 - a.1);
-            let l2 = (dx * dx + dy * dy).max(1e-300);
-            let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
-            let d = ((p.0 - a.0 - dx * t).powi(2) + (p.1 - a.1 - dy * t).powi(2)).sqrt();
-            if d < eps && t > 1e-6 && t < 1.0 - 1e-6 {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// Resolve a face's surface geometry and orientation flag.

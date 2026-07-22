@@ -8,9 +8,12 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
-use super::chart_subdivision::{
-    BranchPoint, FaceChartSubdivision, SubdivisionIssue, node_on_some_run,
-};
+#[path = "chart_branch_clustering.rs"]
+pub(crate) mod clustering;
+
+use clustering::{boundary_shoelace_sigma, cluster_branches, is_balanced};
+
+use super::chart_subdivision::{BranchPoint, FaceChartSubdivision, SubdivisionIssue};
 use crate::merge::graph::IntersectionGraph;
 
 /// Periodic charts: consensus anchoring, seam border assignment with a
@@ -221,6 +224,29 @@ pub(super) fn anchor_periodic(
     // search below (a drill wall carries four ring components, and
     // searching all of them blew the config budget for no reason —
     // none had any freedom).
+    // Domain strip: after seam assignment the face's chart occupies
+    // [seam_low, seam_low + period] (the low seam copies sit at the
+    // strip's low border). A floating component must land INSIDE this
+    // strip — the low-border WINDOW is the wrong target (it is the
+    // set of possible border positions, which extends a full period
+    // below the strip). Placement inside the strip is geometric and
+    // unique for any sub-period component, and balance cannot decide
+    // it: on the breached-bore drill wall BOTH placements of the
+    // wall×side record arc balanced, but the off-strip one (u < 0)
+    // corrupted the rotational order at its two seam nodes and every
+    // orbit collided (measured: tilted_hole_plate, 822 open edges).
+    let seam_low: Option<f64> = if seam_pairs.is_empty() {
+        None
+    } else {
+        seam_pairs
+            .iter()
+            .flat_map(|&(h, tw)| [h, tw])
+            .map(|he| {
+                let emb = &sub.embeddings[&he];
+                emb.uv.iter().map(|&(u, _)| u).fold(f64::MAX, f64::min)
+            })
+            .min_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+    };
     let mut floating: Vec<usize> = Vec::new();
     for ci in (0..components.len()).filter(|&i| Some(i) != ref_comp) {
         let (mut cmin, mut cmax) = (f64::MAX, f64::MIN);
@@ -230,7 +256,33 @@ pub(super) fn anchor_periodic(
                 cmax = cmax.max(u);
             }
         }
-        if let Some(shift) = low_shift(cmin)
+        let strip_shift = seam_low.and_then(|u_low| {
+            if cmax - cmin >= period * (1.0 - 1e-9) {
+                return None; // full-period ring: no freedom, leave as anchored
+            }
+            let k = ((u_low - cmin) / period - 1e-9).ceil();
+            let nmax = cmax + k * period;
+            // Only shift when the whole component fits the strip;
+            // a border-straddling component keeps the search below.
+            (nmax <= u_low + period + 1e-9).then_some(k * period)
+        });
+        let applied = match strip_shift {
+            Some(shift) => {
+                if shift != 0.0 {
+                    for &h in &components[ci] {
+                        if let Some(emb) = sub.embeddings.get_mut(&h) {
+                            emb.shift_u(shift);
+                        }
+                    }
+                    cmin += shift;
+                    cmax += shift;
+                }
+                true
+            }
+            None => false,
+        };
+        if !applied
+            && let Some(shift) = low_shift(cmin)
             && shift != 0.0
         {
             for &h in &components[ci] {
@@ -238,7 +290,10 @@ pub(super) fn anchor_periodic(
                     emb.shift_u(shift);
                 }
             }
+            cmin += shift;
+            cmax += shift;
         }
+        let _ = cmin;
         // Branch freedom exists only where the component can MEET the
         // rest of the walk: at a seam node. An isolated interior
         // island (a trim ring, or a record loop imprinted mid-chart)
@@ -336,157 +391,4 @@ pub(super) fn anchor_periodic(
     }
     sub.start_bp = start_bp;
     sub.end_bp = end_bp;
-}
-
-/// Cluster endpoint u values per node; branch index ascends with u.
-#[allow(clippy::type_complexity)]
-pub(super) fn cluster_branches(
-    hes: &[usize],
-    ends: &dyn Fn(usize) -> (usize, usize),
-    u_start: &BTreeMap<usize, f64>,
-    u_end: &BTreeMap<usize, f64>,
-    period: f64,
-    poles: &BTreeMap<usize, f64>,
-) -> (BTreeMap<usize, BranchPoint>, BTreeMap<usize, BranchPoint>) {
-    // node -> [(u, he, is_start)]
-    let mut per_node: BTreeMap<usize, Vec<(f64, usize, bool)>> = BTreeMap::new();
-    for &h in hes {
-        let (s, e) = ends(h);
-        per_node.entry(s).or_default().push((u_start[&h], h, true));
-        per_node.entry(e).or_default().push((u_end[&h], h, false));
-    }
-    let mut start_bp = BTreeMap::new();
-    let mut end_bp = BTreeMap::new();
-    for (node, mut entries) in per_node {
-        // A POLE node is one geometric point whose incident endpoints
-        // carry their meridians' azimuths — never split it by u.
-        let is_pole = poles.contains_key(&node);
-        entries.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
-        let mut branch = 0u32;
-        let mut prev_u: Option<f64> = None;
-        for (u, h, is_start) in entries {
-            if !is_pole
-                && let Some(p) = prev_u
-                && u - p > period * 0.5
-            {
-                branch += 1;
-            }
-            prev_u = Some(u);
-            let bp = BranchPoint { node, branch };
-            if is_start {
-                start_bp.insert(h, bp);
-            } else {
-                end_bp.insert(h, bp);
-            }
-        }
-    }
-    (start_bp, end_bp)
-}
-
-/// I4 predicate: every branch point has in-degree == out-degree.
-pub(super) fn is_balanced(
-    start_bp: &BTreeMap<usize, BranchPoint>,
-    end_bp: &BTreeMap<usize, BranchPoint>,
-) -> bool {
-    let mut deg: BTreeMap<BranchPoint, (usize, usize)> = BTreeMap::new();
-    for bp in start_bp.values() {
-        deg.entry(*bp).or_default().1 += 1;
-    }
-    for bp in end_bp.values() {
-        deg.entry(*bp).or_default().0 += 1;
-    }
-    deg.values().all(|&(a, d)| a == d)
-}
-
-/// Final I4/I3/I5 pass over the built maps, recording issues.
-pub(super) fn balance_and_duplicates(sub: &mut FaceChartSubdivision, _u_period: Option<f64>) {
-    let mut deg: BTreeMap<BranchPoint, (usize, usize)> = BTreeMap::new();
-    for bp in sub.start_bp.values() {
-        deg.entry(*bp).or_default().1 += 1;
-    }
-    for bp in sub.end_bp.values() {
-        deg.entry(*bp).or_default().0 += 1;
-    }
-    for (bp, &(arrivals, departures)) in &deg {
-        if arrivals != departures {
-            sub.report.issues.push(SubdivisionIssue::DegreeImbalance {
-                node: bp.node,
-                branch: bp.branch,
-                arrivals,
-                departures,
-            });
-            // I3 refinement: an arrival-only point sitting on another
-            // run's interior is an uncompleted T-junction.
-            if departures == 0
-                && arrivals > 0
-                && let Some((&h_arr, _)) = sub.end_bp.iter().find(|(_, b)| **b == *bp)
-            {
-                let emb = &sub.embeddings[&h_arr];
-                let p = emb.uv[emb.uv.len() - 1];
-                if node_on_some_run(sub, h_arr, p) {
-                    sub.report
-                        .issues
-                        .push(SubdivisionIssue::UnsplitTJunction { node: bp.node });
-                }
-            }
-        }
-    }
-    // I5: duplicate departures (same direction, same far point).
-    let departures = sub.departures.clone();
-    for (_, deps) in departures {
-        for i in 0..deps.len() {
-            for j in (i + 1)..deps.len() {
-                let (a, b) = (deps[i], deps[j]);
-                if sub.end_bp.get(&a) != sub.end_bp.get(&b) {
-                    continue;
-                }
-                if let (Some(da), Some(db)) = (
-                    sub.embeddings[&a].start_dir(),
-                    sub.embeddings[&b].start_dir(),
-                ) {
-                    let cross = da.0 * db.1 - da.1 * db.0;
-                    let dot = da.0 * db.0 + da.1 * db.1;
-                    if cross.abs() < 1e-9 && dot > 0.0 {
-                        sub.report
-                            .issues
-                            .push(SubdivisionIssue::DuplicateChartSegment(a, b));
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// Chart handedness from the stored boundary: the closed union of the
-/// face's non-Shared (original/split boundary) runs, traversed in
-/// registered direction, has shoelace sign +1 exactly when chart-CCW
-/// equals CCW-about-outward (stored loops wind CCW about outward —
-/// winding census E1). Returns `None` when the face has no boundary
-/// runs or the area is degenerate; caller keeps the orientation-flag
-/// fallback. The sum is order-independent because the boundary is a
-/// closed union of loops and each directed segment contributes its
-/// own wedge term.
-pub(super) fn boundary_shoelace_sigma(
-    graph: &IntersectionGraph,
-    sub: &FaceChartSubdivision,
-) -> Option<f64> {
-    use crate::merge::graph::EdgeSource;
-    let mut area2 = 0.0;
-    let mut any = false;
-    let mut scale = 0.0_f64;
-    for (&h, emb) in &sub.embeddings {
-        if matches!(graph.half_edges[h].source, EdgeSource::Shared { .. }) {
-            continue;
-        }
-        for w in emb.uv.windows(2) {
-            area2 += w[0].0 * w[1].1 - w[1].0 * w[0].1;
-            scale = scale.max(w[0].0.abs() + w[0].1.abs());
-            any = true;
-        }
-    }
-    if !any || area2.abs() < 1e-12 * (1.0 + scale * scale) {
-        None
-    } else {
-        Some(area2.signum())
-    }
 }

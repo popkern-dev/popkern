@@ -404,7 +404,7 @@ fn classify_fragments_cellular(
             Operand::B => brep_b.faces.get(fragment.face.face),
         }
         .and_then(|f| f.surface.as_ref())
-        .map(|s| s.geometry.clone());
+        .map(|s| (s.geometry.clone(), s.orientation));
         // The edge-midpoint shortcut is the tuned default. On a
         // coincident-overlap face it can land ON the other body's
         // boundary EDGE (a flush cutter's flank midpoint sits on the
@@ -475,9 +475,9 @@ fn classify_fragments_cellular(
             // shortcut first unless it sits in a known hazard — and
             // keep the shortcut when neither calibrates (legacy
             // behavior, orientation stays unknown downstream).
-            let interior = frag_surface
-                .as_ref()
-                .and_then(|surf| fragment_interior_sample(graph, fragment, surf, true));
+            let interior = frag_surface.as_ref().and_then(|(surf, ori)| {
+                fragment_interior_sample(graph, fragment, surf, *ori, true)
+            });
             let hazard = point_near_any_edge(other_for_edges, &shortcut, eps_probe * 10.0);
             let ordered = if hazard {
                 [interior, Some(shortcut)]
@@ -491,7 +491,7 @@ fn classify_fragments_cellular(
                 .unwrap_or(shortcut)
         } else if let Some(p) = frag_surface
             .as_ref()
-            .and_then(|surf| fragment_interior_sample(graph, fragment, surf, false))
+            .and_then(|(surf, ori)| fragment_interior_sample(graph, fragment, surf, *ori, false))
         {
             p
         } else {
@@ -554,7 +554,9 @@ fn classify_fragments_cellular(
                 frag_surface
                     .as_ref()
                     .and_then(|surf| {
-                        super::fragment_sampling::fragment_cut_offset_sample(graph, fragment, surf)
+                        super::fragment_sampling::fragment_cut_offset_sample(
+                            graph, fragment, &surf.0,
+                        )
                     })
                     .unwrap_or(shortcut)
             }

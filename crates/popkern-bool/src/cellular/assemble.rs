@@ -327,11 +327,12 @@ pub(crate) fn cellular_assemble(
         let frag = &fragments[fi];
         if std::env::var_os("PK_BOOL_TRACE").is_some() {
             eprintln!(
-                "  [assemble] kept fragment {:?} outer {} inner {} flip={}",
+                "  [assemble] kept fragment {:?} outer {} inner {} flip={} ghes={:?}",
                 frag.face,
                 frag.outer_loop.len(),
                 frag.inner_loops.len(),
-                sel.flip
+                sel.flip,
+                frag.outer_loop
             );
         }
         let face_h = builder.add_face(shell);
