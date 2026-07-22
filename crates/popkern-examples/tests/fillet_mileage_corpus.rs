@@ -100,15 +100,15 @@ fn corpus_pass_rate_holds_baseline() {
     // Baseline history: 3/6 (2026-07-18, PK-144 stage 1); 13/22
     // (2026-07-22, PK-161 — corpus grown to 22 parts); 14/22
     // (2026-07-22, PK-170 — corner-breaching oblique bore served:
-    // seam-strip component placement + material-side fold sampling).
+    // seam-strip component placement + material-side fold sampling);
+    // 15/22 (2026-07-22, PK-170 cross-drill leg — analytic
+    // cylinder×cylinder, LSQ fit knots, wrapping-wall chart roles).
     // Failing
     // classes, each routed to its campaign item:
     //   mounting_bracket — flush-overlap L union (coincident-boolean
     //     class, PK-106 family);
     //   pocketed_tray — pocket-floor concave fillet legs (PK-140);
     //   slotted_block — flush through-slot, 60 opens (coincident);
-    //   cross_drilled_boss — Part rotate on a cylinder body breaks
-    //     loop closure (PK-169);
     //   offset_bracket — fillet on an overlapping union serves an
     //     edge 1.66 off-surface, check-9 catch (PK-171);
     //   mixed_corner_block — V-free corner class at 30x scale serves
@@ -121,7 +121,7 @@ fn corpus_pass_rate_holds_baseline() {
     //     0.29 trim-curve lie (check-9 catch, PK-171 family).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 14;
+    const BASELINE: usize = 15;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
