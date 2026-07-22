@@ -69,6 +69,29 @@ pub(super) fn anchor_periodic(
             emb.uv[emb.uv.len() - 1].0
         }
     };
+    // Anchor value for the BFS translation. A CLOSED self-loop (both
+    // ends on one node — a full pierce ring closing at its hit node)
+    // has TWO u values at that node, one period apart, so endpoint
+    // matching is ill-defined: aligning its twin start-to-start
+    // stacks the pair over TWO periods and the overwrap check
+    // declines the face (measured: the cross-drill's second pierce
+    // loop). Self-loops anchor by their span MIDPOINT instead — the
+    // twin's reversed unwrap then lands on the same period cell.
+    let anchor_u = |sub: &FaceChartSubdivision, h: usize, n: usize| -> f64 {
+        let (s, e) = ends(h);
+        if s == e {
+            let emb = &sub.embeddings[&h];
+            let (lo, hi) = emb
+                .uv
+                .iter()
+                .fold((f64::MAX, f64::MIN), |(lo, hi), &(u, _)| {
+                    (lo.min(u), hi.max(u))
+                });
+            0.5 * (lo + hi)
+        } else {
+            u_at(sub, h, n)
+        }
+    };
     let mut comp_of: HashMap<usize, usize> = HashMap::new();
     let mut components: Vec<Vec<usize>> = Vec::new();
     for &seed in &interior {
@@ -89,7 +112,7 @@ pub(super) fn anchor_periodic(
                     if comp_of.contains_key(&g) {
                         continue;
                     }
-                    let delta = u_at(sub, h, n) - u_at(sub, g, n);
+                    let delta = anchor_u(sub, h, n) - anchor_u(sub, g, n);
                     let k = (delta / period).round();
                     if k != 0.0
                         && let Some(emb) = sub.embeddings.get_mut(&g)
@@ -146,14 +169,21 @@ pub(super) fn anchor_periodic(
     }
     // Window the low border must land in: [hi - period, lo]. Without
     // an interior reference, anchor on the first seam he's own u.
+    // Window epsilon is CHART-scale, not absolute: a full-period
+    // reference ring (a pierce loop wrapping the whole wall) pins the
+    // window to near-zero width, and a fitted record's endpoint u
+    // carries fit-level noise (~1e-8) that a hard 1e-9 rejects
+    // (measured: the cross-drill wall's seam declined as a misfit
+    // against its own ring's cut azimuth).
+    let eps_w = period * 1e-6;
     let (window_lo_min, window_lo_max) = if hi > lo {
-        (hi - period - 1e-9, lo + 1e-9)
+        (hi - period - eps_w, lo + eps_w)
     } else {
         let u0 = seam_pairs
             .first()
             .map(|&(h, _)| sub.embeddings[&h].uv[0].0)
             .unwrap_or(0.0);
-        (u0 - 1e-9, u0 + 1e-9)
+        (u0 - eps_w, u0 + eps_w)
     };
     // Snap a u value to the LOW border: choose k with u + k·period in
     // the low window; None when no k fits.

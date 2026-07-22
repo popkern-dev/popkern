@@ -153,8 +153,43 @@ fn detect_edges_vs_faces(
                 None => continue,
             };
 
-            let ((u_min, u_max), (v_min, v_max)) =
+            let ((mut u_min, mut u_max), (v_min, v_max)) =
                 bounded_parameter_range(face_brep, *face_h, surface_on_face);
+            // CLOSED-WALL CAVEAT (same family as the trim-box caveat
+            // below): a periodic wall bounded only by rims has 1–2
+            // loop vertices, ALL on the seam, so the vertex-derived u
+            // window collapses to ±padding around the seam azimuth
+            // and prunes legitimate far-side roots (measured: the
+            // cross-drilled boss — each seam-line × wall pair lost
+            // the root opposite the seam, the pierce curves never
+            // split at the missing nodes, and the graze filter
+            // cascaded ALL record pieces off both walls). A closed
+            // wall spans the full period: widen u to one full turn.
+            let distinct_positions = {
+                let ps = face_brep.face_outer_loop_positions(*face_h);
+                let mut distinct: Vec<popkern_core::geometry::Point3> = Vec::new();
+                for p in ps {
+                    if distinct
+                        .iter()
+                        .all(|q| q.distance_to(&p) > tolerance.linear())
+                    {
+                        distinct.push(p);
+                    }
+                }
+                distinct.len()
+            };
+            {
+                use popkern_core::geometry::SurfaceEval as _;
+                if let (Some(period), true) = (
+                    surface_on_face.parameter_periodicity().0,
+                    distinct_positions < 3,
+                ) && u_max - u_min < period
+                {
+                    let mid = 0.5 * (u_min + u_max);
+                    u_min = mid - 0.5 * period;
+                    u_max = mid + 0.5 * period;
+                }
+            }
 
             let result = intersect_surface_curve(
                 surface_on_face,
@@ -164,6 +199,15 @@ fn detect_edges_vs_faces(
                 t_range,
                 tolerance,
             );
+            if std::env::var_os("PK_HIT_TRACE").is_some()
+                && let Ok(r) = &result
+                && !r.intersections.is_empty()
+            {
+                eprintln!(
+                    "  [hit-pair] face {face_h:?} u[{u_min:.3},{u_max:.3}] v[{v_min:.3},{v_max:.3}] -> {} isects",
+                    r.intersections.len()
+                );
+            }
 
             // Acceptance is trim-honest: the padded range above gives the
             // SOLVER headroom, but a hit landing in the padding is not on
@@ -179,8 +223,12 @@ fn detect_edges_vs_faces(
             // hits on a cylinder cap all filtered, 427 open edges).
             // Fewer than 3 vertices → no verdict, keep the padded
             // acceptance.
+            // Distinct-position guard (same reason as the widened u
+            // window above): a closed wall's loop visits its 1–2 seam
+            // vertices twice, so the RAW position count lies about
+            // the trim information available.
             let face_positions = face_brep.face_outer_loop_positions(*face_h);
-            let trim_box = if face_positions.len() >= 3 {
+            let trim_box = if distinct_positions >= 3 {
                 Some(
                     popkern_core::geometry::uv_projection::exact_bounded_parameter_range(
                         &face_positions,

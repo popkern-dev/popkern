@@ -14,7 +14,7 @@ use crate::geometry::intersection::plane_cylinder;
 use crate::geometry::intersection::plane_plane::try_plane_plane;
 use crate::geometry::intersection::plane_sphere;
 use crate::geometry::intersection::starting_points::{find_branch_points, find_starting_points};
-use crate::geometry::intersection::{cylinder_cone, plane_cone};
+use crate::geometry::intersection::{cylinder_cone, cylinder_cylinder, plane_cone};
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::tolerance::Tolerance;
 use serde::{Deserialize, Serialize};
@@ -128,6 +128,16 @@ pub fn intersect_surfaces_with_handler(
     if let Some(intersections) = cylinder_cone::try_cylinder_cone(
         surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
     ) {
+        return Ok(SurfaceSurfaceIntersectionResult { intersections });
+    }
+
+    // Fast path: cylinder-cylinder with non-parallel axes → exact
+    // ruling-swept branches. The marching path fragments the
+    // cross-drill class into overlapping partial traces and loses
+    // whole branches (PK-170).
+    if let Some(intersections) =
+        cylinder_cylinder::try_cylinder_cylinder(surface1, v1_range, surface2, v2_range, tolerance)
+    {
         return Ok(SurfaceSurfaceIntersectionResult { intersections });
     }
 
@@ -285,7 +295,7 @@ fn try_coincident_fast(
 }
 
 /// Fit NURBS curves (3D + UV1 + UV2) to a sequence of march samples.
-fn fit_march_samples(
+pub(crate) fn fit_march_samples(
     samples: &[MarchSample],
     is_closed: bool,
 ) -> Result<CurveOnSurface, CoreError> {

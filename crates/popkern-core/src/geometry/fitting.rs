@@ -1,115 +1,11 @@
 //! Least-squares B-spline curve fitting.
 
+pub(crate) mod numerics;
+use numerics::{basis_function, solve_linear_system};
+
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::nurbs_curve::NurbsCurve;
-
-/// Compute the i-th B-spline basis function of given degree at parameter t.
-///
-/// Uses the de Boor-Cox recursion formula. Zero denominators yield 0/0 = 0.
-fn basis_function(i: usize, degree: usize, t: f64, knots: &[f64]) -> f64 {
-    if degree == 0 {
-        // For the last knot span, use <= for the right endpoint so that
-        // t == knots[last] is captured.
-        if knots[i] <= t && t < knots[i + 1] {
-            return 1.0;
-        }
-        // Special case: t == knots[i+1] and this is the last valid span
-        if (t - knots[i + 1]).abs() < 1e-14 && knots[i] < knots[i + 1] {
-            // Check if there are no more non-degenerate spans after this
-            let mut last_span = true;
-            for j in (i + 1)..knots.len().saturating_sub(1) {
-                if knots[j] < knots[j + 1] {
-                    last_span = false;
-                    break;
-                }
-            }
-            if last_span {
-                return 1.0;
-            }
-        }
-        return 0.0;
-    }
-
-    let mut result = 0.0;
-
-    let denom1 = knots[i + degree] - knots[i];
-    if denom1.abs() > 1e-14 {
-        result += ((t - knots[i]) / denom1) * basis_function(i, degree - 1, t, knots);
-    }
-
-    let denom2 = knots[i + degree + 1] - knots[i + 1];
-    if denom2.abs() > 1e-14 {
-        result +=
-            ((knots[i + degree + 1] - t) / denom2) * basis_function(i + 1, degree - 1, t, knots);
-    }
-
-    result
-}
-
-/// Solve A*x = b for a symmetric positive-definite matrix A using Gaussian
-/// elimination with partial pivoting. A is n x n, b is n x 1.
-/// Returns the solution vector x, or an error if the system is singular.
-#[allow(clippy::needless_range_loop)]
-fn solve_linear_system(a: &[Vec<f64>], b: &[f64]) -> Result<Vec<f64>, CoreError> {
-    let n = a.len();
-    if n == 0 {
-        return Ok(vec![]);
-    }
-
-    // Build augmented matrix
-    let mut aug: Vec<Vec<f64>> = Vec::with_capacity(n);
-    for i in 0..n {
-        let mut row = a[i].clone();
-        row.push(b[i]);
-        aug.push(row);
-    }
-
-    // Forward elimination with partial pivoting
-    for col in 0..n {
-        // Find pivot
-        let mut max_val = aug[col][col].abs();
-        let mut max_row = col;
-        for row in (col + 1)..n {
-            let val = aug[row][col].abs();
-            if val > max_val {
-                max_val = val;
-                max_row = row;
-            }
-        }
-
-        if max_val < 1e-14 {
-            return Err(CoreError::PreconditionFailed(
-                "singular matrix in curve fitting".to_string(),
-            ));
-        }
-
-        if max_row != col {
-            aug.swap(col, max_row);
-        }
-
-        let pivot = aug[col][col];
-        for row in (col + 1)..n {
-            let factor = aug[row][col] / pivot;
-            for j in col..=n {
-                let val = aug[col][j];
-                aug[row][j] -= factor * val;
-            }
-        }
-    }
-
-    // Back substitution
-    let mut x = vec![0.0; n];
-    for i in (0..n).rev() {
-        let mut sum = aug[i][n];
-        for j in (i + 1)..n {
-            sum -= aug[i][j] * x[j];
-        }
-        x[i] = sum / aug[i][i];
-    }
-
-    Ok(x)
-}
 
 /// **Interpolate** (not approximate) a non-rational B-spline curve
 /// through every data point exactly.
@@ -258,14 +154,36 @@ pub fn fit_curve(
         *k = params[m - 1];
     }
 
-    // Interior knots: average of parameter values
-    // knots[j+degree] = (1/degree) * sum(params[j..j+degree]) for j = 1..n-degree-1
-    // Using P&T notation: for j = 1..n-1-degree, knot[j+degree] = (1/p)*sum_{i=j}^{j+p-1} params[i]
+    // Interior knots. Two regimes with different textbook rules:
+    //  • m == n (interpolation): knot averaging (P&T Eq. 9.8) —
+    //    knots[j+degree] = mean(params[j..j+degree]) — satisfies
+    //    Schoenberg–Whitney by construction.
+    //  • m > n (least-squares approximation): P&T Eq. 9.68/9.69 —
+    //    knots distributed over the WHOLE parameter range in
+    //    proportion to data density. Using the interpolation rule
+    //    here crams every interior knot into the first n params and
+    //    the fit runs wild over the rest of the curve (measured: a
+    //    513-sample cylinder×cylinder pierce loop fitted with 102
+    //    control points deviated 1.4 from the surfaces). Conversely
+    //    the approximation rule at m == n drifts off the
+    //    Schoenberg–Whitney positions and the interpolation system
+    //    degrades (measured: every edge_triple analytic fit failed
+    //    its post-construction verify).
     if n > degree + 1 {
         let num_interior = n - degree - 1;
-        for j in 1..=num_interior {
-            let sum: f64 = params[j..(j + degree)].iter().sum();
-            knots[j + degree] = sum / degree as f64;
+        if m == n {
+            for j in 1..=num_interior {
+                let sum: f64 = params[j..(j + degree)].iter().sum();
+                knots[j + degree] = sum / degree as f64;
+            }
+        } else {
+            let d = m as f64 / (n - degree) as f64;
+            for j in 1..=num_interior {
+                let pos = j as f64 * d;
+                let i = (pos.floor() as usize).clamp(1, m - 1);
+                let alpha = pos - i as f64;
+                knots[j + degree] = (1.0 - alpha) * params[i - 1] + alpha * params[i];
+            }
         }
     }
 

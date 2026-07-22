@@ -6,6 +6,7 @@ mod circle_circle;
 pub mod coincident;
 pub mod coincident_analytic;
 pub(crate) mod cylinder_cone;
+pub(crate) mod cylinder_cylinder;
 pub mod degeneracy;
 mod line_circle;
 mod line_cone;

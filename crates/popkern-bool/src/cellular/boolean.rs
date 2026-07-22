@@ -1002,7 +1002,14 @@ fn rotate_closed_record_to_hits(
             }
         }
         let t_hit = 0.5 * (lo + hi);
-        if c.point_at(t_hit).distance_to(&hit.point) > tolerance.linear() * 100.0 {
+        let d_hit = c.point_at(t_hit).distance_to(&hit.point);
+        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+            eprintln!(
+                "  [rotate] hit ({:.3},{:.3},{:.3}) nearest t={t_hit:.4} d={d_hit:.3e}",
+                hit.point.x, hit.point.y, hit.point.z
+            );
+        }
+        if d_hit > tolerance.linear() * 100.0 {
             continue;
         }
         // Interior rotation only.
@@ -1052,7 +1059,21 @@ fn rotate_closed_record_to_hits(
             }
             knots.extend(a_knots_tail);
             let mut control_points = b.control_points.clone();
-            control_points.extend(a.control_points.iter().skip(1).copied());
+            // JUNCTION CONTINUITY: the splice joins the original END
+            // (b's tail) to the original START (a's head). In 3D
+            // those coincide, but a UV curve on a periodic chart
+            // unwraps continuously, so its two ends differ by one
+            // period — splicing raw control points leaves a full-
+            // period jump mid-curve and every downstream chart
+            // embedding of the rotated record is garbage (measured:
+            // the cross-drill pierce loop's drill-chart pcurve).
+            // Translate the appended piece so the junction matches;
+            // for 3D curves the delta is ~zero and this is a no-op.
+            let delta = match (b.control_points.last(), a.control_points.first()) {
+                (Some(bl), Some(af)) => *bl - *af,
+                _ => popkern_core::geometry::Vec3::zero(),
+            };
+            control_points.extend(a.control_points.iter().skip(1).map(|&p| p + delta));
             let mut weights = b.weights.clone();
             weights.extend(a.weights.iter().skip(1).copied());
             Some(popkern_core::geometry::NurbsCurve {
