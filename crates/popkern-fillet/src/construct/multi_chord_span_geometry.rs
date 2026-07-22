@@ -157,19 +157,40 @@ pub(super) fn trim_subcurve_between(
             return None;
         }
     }
-    let n_pts = pts.len();
-    let mut knots = Vec::with_capacity(n_pts + 2);
-    knots.push(0.0);
-    for k in 0..n_pts {
-        knots.push(k as f64 / (n_pts - 1) as f64);
+    // EXACT SLICE of the trim NURBS — the former 17-point degree-1
+    // polyline stand-in carries chord sagitta r·(1−cos(span/32)),
+    // which is 0.42 on a 5.87-rad interrupted-rim arc (measured: the
+    // z=7 contact edge's boundary-first inversion rejected at
+    // 3.8e-1 and both adjacent faces fell to the cracking legacy
+    // mesher). Short sub-chords keep sub-tolerance error either way.
+    let sliced = {
+        let eps = (trim.parameter_range().1 - trim.parameter_range().0) * 1e-9;
+        let (t_lo_full, _) = trim.parameter_range();
+        let right = if lo > t_lo_full + eps {
+            trim.split_at(lo).ok()?.1
+        } else {
+            trim.clone()
+        };
+        let (_, r_hi) = right.parameter_range();
+        if hi < r_hi - eps {
+            right.split_at(hi).ok()?.0
+        } else {
+            right
+        }
+    };
+    let mut out = sliced;
+    if ta > tb {
+        // Reverse: mirror control points/weights and the knot vector.
+        out.control_points.reverse();
+        out.weights.reverse();
+        let (k0, k1) = (out.knots[0], *out.knots.last()?);
+        out.knots = out.knots.iter().rev().map(|&k| k0 + k1 - k).collect();
     }
-    knots.push(1.0);
-    Some(NurbsCurve {
-        degree: 1,
-        knots,
-        control_points: pts,
-        weights: vec![1.0; n_pts],
-    })
+    // The slice's endpoints are EXACT trim geometry; the caller
+    // snaps the anchor VERTICES onto them (pinning control points to
+    // walk-noisy vertices bent the end spans off-surface by the
+    // anchor error — measured 1.6e-2 on the z=8 contact edge).
+    Some(out)
 }
 
 #[cfg(test)]

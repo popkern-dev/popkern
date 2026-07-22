@@ -272,7 +272,39 @@ pub(super) fn apply_multi_chord_for_face(
             // analytic lines inside `split_face`. Falls back to the
             // chord when the anchors do not invert onto the trim
             // (corner sub-chords off the trim span).
-            let t3d = trim_subcurve_between(&trim.trim_3d, &p_a, &p_b, tolerance)
+            let t3d_raw = trim_subcurve_between(&trim.trim_3d, &p_a, &p_b, tolerance);
+            // Vertex-onto-trim snap: the sliced trim's ends are exact
+            // geometry; anchor vertices carry perp-walk noise. Move
+            // the vertices (and their incident chords) onto the trim
+            // ends so split_face's endpoint matching AND the curve
+            // stay machine-exact.
+            if let Some(t) = t3d_raw.as_ref() {
+                use popkern_core::geometry::CurveEval;
+                let (tt0, tt1) = t.parameter_range();
+                let e0 = t.point_at(tt0);
+                let e1 = t.point_at(tt1);
+                let (v_first, v_last) = if e0.distance_to(&p_a) <= e0.distance_to(&p_b) {
+                    (start_v, end_v)
+                } else {
+                    (end_v, start_v)
+                };
+                for (vh, target) in [(v_first, e0), (v_last, e1)] {
+                    let d = brep
+                        .vertices
+                        .get(vh)
+                        .map(|v| v.position.distance_to(&target))
+                        .unwrap_or(0.0);
+                    if d > tolerance.linear() && d < 0.1 {
+                        if let Some(v) = brep.vertices.get_mut(vh) {
+                            v.position = target;
+                        }
+                        crate::construct::topology_repair::snap_incident_edge_curve_endpoints_robust(
+                            brep, vh, target,
+                        );
+                    }
+                }
+            }
+            let t3d = t3d_raw
                 .or_else(|| {
                     // WHOLE-TRIM identity: when the anchors ARE the
                     // trim's own endpoints, the sub-span is the trim
