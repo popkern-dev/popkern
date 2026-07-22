@@ -31,13 +31,11 @@ impl BRep {
         self.validate_vertex_consistency()?;
         self.validate_manifold_edges()?;
         self.validate_vertex_valence()?;
-        // Geometric checks (7-10). Check 9 (curve-surface
-        // consistency) is intentionally NOT part of the fast path:
-        // construction pipelines legitimately carry transient curve
-        // lies mid-rewrite that later stages repair (the same
-        // mid-pipeline exemption as the kve chi contract), and the
-        // per-stage acceptance ladders gate on this method. Serving
-        // boundaries (Part ops, export, validate_all) arm it.
+        // Geometric checks (7-10). Check 9 (curve-surface) is NOT
+        // in the fast path: pipelines carry transient curve lies
+        // mid-rewrite that later stages repair (kve-chi-contract
+        // analogue) and acceptance ladders gate on this method;
+        // serving boundaries (Part ops, validate_all) arm it.
         self.validate_face_orientation()?;
         self.validate_loop_closure()?;
         self.validate_watertight()?;

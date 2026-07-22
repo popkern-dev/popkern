@@ -14,6 +14,8 @@
 //! `operation.rs` — single-step removals with rollback on validation
 //! failure.
 
+use popkern_core::geometry::surface::SurfaceEval;
+use popkern_core::geometry::uv_projection::project_point_to_uv;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 
@@ -59,6 +61,16 @@ impl SliverRemovalReport {
 ///   [`SliverThresholds::from_tolerance`].
 pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalReport {
     let thresholds = SliverThresholds::from_tolerance(tolerance.linear() * 5.0);
+    // A sliver may only be ABSORBED into a face whose surface
+    // geometrically contains it — KEF rewires topology without
+    // moving geometry, so absorbing into a non-coincident neighbor
+    // deletes real material while the fast validation stays green
+    // (measured: a 600x4 slab-cut end face — thin by aspect ratio,
+    // 2400 in area — was merged into a face 600 away; the served
+    // "solid" carried 3 watertightness gaps and edge curves 6.0e2
+    // off their wired faces, the same silent-deletion family as the
+    // PK-150 cylinder wall).
+    let absorb_distance = tolerance.linear() * 50.0;
 
     // Snapshot detected slivers up front. Detection during the pass
     // would race with the topology mutations.
@@ -103,7 +115,7 @@ pub fn remove_slivers(brep: &mut BRep, tolerance: &Tolerance) -> SliverRemovalRe
         // to kef. kef survives `half_edge.loop_.face` and kills the
         // twin's face — so we want to choose `chosen` such that the
         // sliver is reachable through its twin.
-        let chosen = find_killing_half_edge(brep, sliver, &thresholds);
+        let chosen = find_killing_half_edge(brep, sliver, &thresholds, absorb_distance);
         let Some(he) = chosen else {
             // No safe neighbor exists (sliver fully surrounded by
             // other slivers, or only neighbor is itself).
@@ -144,6 +156,7 @@ fn find_killing_half_edge(
     brep: &BRep,
     target: FaceHandle,
     thresholds: &SliverThresholds,
+    absorb_distance: f64,
 ) -> Option<HalfEdgeHandle> {
     let face_data = brep.faces.get(target)?;
     let outer_loop = face_data.outer_loop;
@@ -169,7 +182,9 @@ fn find_killing_half_edge(
             } else {
                 true
             };
-            if !neighbor_is_sliver {
+            if !neighbor_is_sliver
+                && sliver_lies_on_face_surface(brep, target, neighbor_face, absorb_distance)
+            {
                 // Pass the TWIN to kef: kef will survive the twin's
                 // face (the neighbor) and kill `cursor`'s face (the
                 // sliver `target`).
@@ -298,4 +313,31 @@ mod tests {
             assert!(result.faces.len() <= pre_face_count);
         }
     }
+}
+
+/// True when every boundary vertex of `sliver` lies on `absorber`'s
+/// surface within `distance`. Faces without surface geometry accept
+/// (topology-only models keep the historical behavior).
+fn sliver_lies_on_face_surface(
+    brep: &BRep,
+    sliver: FaceHandle,
+    absorber: FaceHandle,
+    distance: f64,
+) -> bool {
+    let Some(surface) = brep
+        .faces
+        .get(absorber)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    else {
+        return true;
+    };
+    face_vertex_positions(brep, sliver).iter().all(|p| {
+        match project_point_to_uv(surface, p) {
+            Some((u, v)) => p.distance_to(&surface.point_at(u, v)) <= distance,
+            // Unprojectable surface kinds: keep the historical
+            // behavior rather than blocking absorption blind.
+            None => true,
+        }
+    })
 }

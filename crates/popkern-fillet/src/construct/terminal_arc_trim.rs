@@ -60,17 +60,15 @@ pub(super) struct CornerCandidate {
     pub(super) corner: VertexHandle,
 }
 
-/// How a PLANAR created face's stubs are recognized.
-///
-/// Chamfer bands are planar STRIPS: an off-plane loop corner is a
-/// defect by definition, including the skewed-stub shape (a bevel
-/// meeting its end face obliquely on a yawed+tilted boolean-cut rest
-/// plane — PK-168), so recognition is surface-scoped. Fillet
-/// pipelines also CREATE planar faces (rewritten supports, bridges,
-/// cap sectors) whose corners legitimately fail chart gates
-/// mid-construction; loosening recognition there mangled the V-free
-/// serving (measured: cube_mixed pcurve_pair_count 6 -> 0), so the
-/// fillet entry keeps the chart-gated shape.
+/// How a PLANAR created face's stubs are recognized. Chamfer bands
+/// are planar STRIPS: an off-plane loop corner is a defect by
+/// definition, including skewed stubs (bevel meeting its end face
+/// obliquely on a yawed+tilted boolean-cut rest plane — PK-168), so
+/// recognition is surface-scoped. Fillet pipelines also CREATE
+/// planar faces (supports, bridges, cap sectors) whose corners
+/// legitimately fail chart gates mid-construction; loosening there
+/// mangled the V-free serving (measured: cube_mixed
+/// pcurve_pair_count 6 -> 0), so the fillet entry stays chart-gated.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PlanarStubRecognition {
     /// Chart-direction gates apply to planar stubs (fillet entry).

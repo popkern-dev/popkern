@@ -238,6 +238,16 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
         crate::imprint::micro_edge::collapse_micro_edge_positions(result, &micro_edges);
     }
 
+    // Post-processing: settle stale edge curve windows. A trimmed
+    // edge can keep its pre-trim curve span (measured: the arm
+    // thinning tool — a 600-size slab subtract — served an edge
+    // whose curve window still covered the full slab, a 6.0e2
+    // curve-surface lie the armed serving gate rejects), and stale
+    // windows also poison any later pcurve recompute, which
+    // faithfully reproduces the stale extent from curve samples.
+    result.fix_stale_edge_windows();
+    result.fix_stale_pcurves();
+
     // Post-processing: propagate tolerances to intersection entities (§10.3).
     // Intersection-created vertices/edges may have larger tolerance than
     // original entities due to numerical approximation.
