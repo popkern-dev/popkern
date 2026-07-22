@@ -337,10 +337,18 @@ pub(crate) fn cellular_assemble(
 
         // Resolve all graph half-edges to BRep half-edges upfront,
         // before calling builder methods that borrow mutably.
+        // Returns the resolved ring plus whether the ring was re-wired
+        // REVERSED on a direction conflict — the caller must fold that
+        // into the face's orientation flag (a reversed ring flips the
+        // face's winding; leaving the flag stale ships a face whose
+        // chart shoelace degenerates and whose sigma fallback then
+        // lies to every downstream periodic walk — measured: the
+        // countersunk bore wall's next boolean failed I4 on both rim
+        // branch points, PK-166).
         let mut resolve_loop = |raw_hes: &[usize],
                                 flip: bool,
                                 builder: &mut BRepBuilder|
-         -> Vec<HalfEdgeHandle> {
+         -> (Vec<HalfEdgeHandle>, bool) {
             // Splice out degenerate zero-length hes (their edges were
             // never created).
             let filtered: Vec<usize> = raw_hes
@@ -388,13 +396,17 @@ pub(crate) fn cellular_assemble(
                 let ghe = graph.half_edges[ghe].twin;
                 let twin_idx = graph.half_edges[ghe].twin;
                 let key = ghe.min(twin_idx);
-                match edge_he_map.get(&key) {
+                let free = match edge_he_map.get(&key) {
                     Some(&(he_fwd, he_twin)) => {
                         let brep_he = if ghe == key { he_fwd } else { he_twin };
                         !used_hes.contains(&brep_he)
                     }
                     None => false,
+                };
+                if !free && std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!("  [resolve] reversal blocked at ghe {ghe} (key {key})");
                 }
+                free
             });
             let (order, extra_twin): (Vec<usize>, bool) = if straight_conflicts && reversed_free {
                 if std::env::var_os("PK_BOOL_TRACE").is_some() {
@@ -485,7 +497,7 @@ pub(crate) fn cellular_assemble(
                     }
                 }
             }
-            result
+            (result, extra_twin)
         };
 
         let raw_outer: Vec<usize> = if sel.flip {
@@ -493,7 +505,7 @@ pub(crate) fn cellular_assemble(
         } else {
             frag.outer_loop.clone()
         };
-        let outer_hes = resolve_loop(&raw_outer, sel.flip, &mut builder);
+        let (outer_hes, outer_rewired_reversed) = resolve_loop(&raw_outer, sel.flip, &mut builder);
 
         if !outer_hes.is_empty() {
             builder.add_loop(&outer_hes, face_h).map_err(|e| {
@@ -513,7 +525,7 @@ pub(crate) fn cellular_assemble(
             } else {
                 inner.clone()
             };
-            let inner_hes = resolve_loop(&raw_inner, sel.flip, &mut builder);
+            let (inner_hes, _) = resolve_loop(&raw_inner, sel.flip, &mut builder);
             if !inner_hes.is_empty() {
                 if let Err(e) = builder.add_inner_loop(&inner_hes, face_h)
                     && std::env::var_os("PK_BOOL_TRACE").is_some()
@@ -537,7 +549,7 @@ pub(crate) fn cellular_assemble(
             && let Some(ref surface) = face.surface
         {
             let mut surf = surface.clone();
-            if sel.flip {
+            if sel.flip != outer_rewired_reversed {
                 surf.orientation = !surf.orientation;
             }
             builder.set_face_surface(face_h, surf);
