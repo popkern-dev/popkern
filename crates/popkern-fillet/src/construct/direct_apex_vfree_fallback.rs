@@ -49,6 +49,9 @@ pub(super) fn resolve_promoted_v_free_decline(
     {
         return None;
     }
+    if std::env::var_os("PK_CAPG1_TRACE").is_some() {
+        eprintln!("[capg1] resolve_promoted_v_free_decline: constructive_err={constructive_err:?}");
+    }
     let g1_declined = constructive_err.is_none();
     let decline_reason = match constructive_err {
         Some(err) => err.to_string(),
