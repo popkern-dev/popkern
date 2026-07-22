@@ -51,6 +51,17 @@ impl Part {
             feature: summary.clone(),
             source,
         })?;
+        // Serving-boundary curve-surface gate (check 9, PK-165):
+        // kernel pipelines may carry transient curve lies mid-rewrite
+        // (exempted from the fast validate() path), but a Part is a
+        // finished serving — every edge curve must lie on its
+        // adjacent surfaces here (this is the gate that exposed the
+        // PK-166 fake annulus and the PK-168 chamfer corner fold).
+        brep.validate_curve_surface()
+            .map_err(|source| PartError::Validation {
+                feature: summary.clone(),
+                source,
+            })?;
         let mut features = FeatureLog::default();
         features.push(feature, summary);
         Ok(Part {

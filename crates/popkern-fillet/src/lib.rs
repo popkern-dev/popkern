@@ -402,6 +402,7 @@ fn fillet_edges_internal(
             brep,
             &mut apply_result.brep,
             &tolerance,
+            construct::terminal_arc_trim::PlanarStubRecognition::ChartGated,
         );
     // PK-152: close blend×blend pair corners (adjacent fillets whose
     // strips interpenetrate at a shared body corner) with the exact

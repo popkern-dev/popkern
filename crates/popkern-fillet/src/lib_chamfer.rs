@@ -196,6 +196,7 @@ pub fn chamfer_edges(
             brep,
             &mut apply_result.brep,
             &tolerance,
+            construct::terminal_arc_trim::PlanarStubRecognition::SurfaceScoped,
         );
 
     // Assign stable names when tracking is active.

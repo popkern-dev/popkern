@@ -60,12 +60,33 @@ pub(super) struct CornerCandidate {
     pub(super) corner: VertexHandle,
 }
 
+/// How a PLANAR created face's stubs are recognized.
+///
+/// Chamfer bands are planar STRIPS: an off-plane loop corner is a
+/// defect by definition, including the skewed-stub shape (a bevel
+/// meeting its end face obliquely on a yawed+tilted boolean-cut rest
+/// plane — PK-168), so recognition is surface-scoped. Fillet
+/// pipelines also CREATE planar faces (rewritten supports, bridges,
+/// cap sectors) whose corners legitimately fail chart gates
+/// mid-construction; loosening recognition there mangled the V-free
+/// serving (measured: cube_mixed pcurve_pair_count 6 -> 0), so the
+/// fillet entry keeps the chart-gated shape.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PlanarStubRecognition {
+    /// Chart-direction gates apply to planar stubs (fillet entry).
+    ChartGated,
+    /// Planar strips recognize on the off-plane signature alone
+    /// (chamfer entry).
+    SurfaceScoped,
+}
+
 /// Settle stale chain-end corners on every face the blend operation
 /// created. Returns the structured repair report.
 pub(crate) fn settle_terminal_arc_stubs(
     source: &BRep,
     result: &mut BRep,
     tolerance: &Tolerance,
+    planar_mode: PlanarStubRecognition,
 ) -> TerminalArcTrimReport {
     let pre_faces: HashSet<FaceHandle> = source.faces.keys().collect();
     let created: Vec<FaceHandle> = result
@@ -73,7 +94,7 @@ pub(crate) fn settle_terminal_arc_stubs(
         .keys()
         .filter(|f| !pre_faces.contains(f))
         .collect();
-    settle_terminal_arc_faces(result, &created, tolerance)
+    settle_terminal_faces_with_mode(result, &created, tolerance, planar_mode)
 }
 
 /// Settle stale chain-end corners on an explicit set of candidate
@@ -86,9 +107,18 @@ pub(crate) fn settle_terminal_arc_faces(
     faces: &[FaceHandle],
     tolerance: &Tolerance,
 ) -> TerminalArcTrimReport {
+    settle_terminal_faces_with_mode(result, faces, tolerance, PlanarStubRecognition::ChartGated)
+}
+
+fn settle_terminal_faces_with_mode(
+    result: &mut BRep,
+    faces: &[FaceHandle],
+    tolerance: &Tolerance,
+    planar_mode: PlanarStubRecognition,
+) -> TerminalArcTrimReport {
     let mut report = TerminalArcTrimReport::default();
     for &face in faces {
-        for candidate in recognize_corners(result, face, tolerance) {
+        for candidate in recognize_corners(result, face, tolerance, planar_mode) {
             let outcome = repair_corner(result, &candidate, tolerance);
             if std::env::var_os("PK_TERMINAL_ARC_TRACE").is_some() {
                 eprintln!(
@@ -116,7 +146,12 @@ pub(crate) fn settle_terminal_arc_faces(
 /// Walk one face's outer loop and recognize stale chain-end corners:
 /// two consecutive half-edges whose strip pcurves sit on one iso-v
 /// station while the shared vertex lies off the strip surface.
-fn recognize_corners(brep: &BRep, face: FaceHandle, tolerance: &Tolerance) -> Vec<CornerCandidate> {
+fn recognize_corners(
+    brep: &BRep,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+    planar_mode: PlanarStubRecognition,
+) -> Vec<CornerCandidate> {
     let mut found = Vec::new();
     let Some(f) = brep.faces.get(face) else {
         return found;
@@ -146,6 +181,7 @@ fn recognize_corners(brep: &BRep, face: FaceHandle, tolerance: &Tolerance) -> Ve
             he_out,
             b.origin,
             tolerance,
+            planar_mode,
         ) {
             found.push(candidate);
         }
@@ -182,31 +218,49 @@ fn recognize_corner_pair(
     he_out: HalfEdgeHandle,
     corner: VertexHandle,
     tolerance: &Tolerance,
+    planar_mode: PlanarStubRecognition,
 ) -> Option<CornerCandidate> {
-    let (a_start, a_end) = strip_pcurve_span(brep, face, he_in)?;
-    let (b_start, b_end) = strip_pcurve_span(brep, face, he_out)?;
-    // Both stubs on one iso-v station, meeting at the same u. The
-    // chart values may be stale — they gate recognition only; all
-    // repair positions are computed from trusted geometry.
-    // Recognition-only gate, SCALE-FREE: swept-strip stub pcurves
-    // projected from a stale corner drift off the exact iso by the
-    // corner's chart shadow, and the shadow grows with the end
-    // radius (measured 1.4e-3 in u at r=0.10, 6.5e-3 at r=0.20), so
-    // an absolute station tolerance cannot serve every radius. Gate
-    // on the SLOPE instead — each stub's variation must be dominated
-    // by one shared chart direction — plus a meeting check relative
-    // to the spans. Cylinder strips author iso-v stubs, planar
-    // chamfer bands iso-u, swept strips near-iso with shadow drift;
-    // every ACCEPT is still guarded downstream by off-surface,
-    // isolation, common-cap, circularity, and anchor checks.
-    let d_a = (a_end.0 - a_start.0, a_end.1 - a_start.1);
-    let d_b = (b_end.0 - b_start.0, b_end.1 - b_start.1);
-    let iso_u = d_a.0.abs() <= 0.2 * d_a.1.abs() && d_b.0.abs() <= 0.2 * d_b.1.abs();
-    let iso_v = d_a.1.abs() <= 0.2 * d_a.0.abs() && d_b.1.abs() <= 0.2 * d_b.0.abs();
-    let meet_eps = 1e-6 + 0.25 * (d_a.0.abs() + d_a.1.abs() + d_b.0.abs() + d_b.1.abs());
-    let meets = (a_end.0 - b_start.0).abs() <= meet_eps && (a_end.1 - b_start.1).abs() <= meet_eps;
-    if !((iso_v || iso_u) && meets) {
-        return None;
+    // A planar strip (chamfer band) needs no chart gate at all: its
+    // loop must lie in its plane, so an off-plane corner is a defect
+    // by definition regardless of stub chart direction. The iso
+    // gates below reject SKEWED stubs — a bevel meeting its end face
+    // obliquely on a yawed+tilted boolean-cut rest plane (PK-168:
+    // the strip loop folded through the uncut corner by d/sqrt(2)
+    // and every mesh gate stayed green; armed check 9 exposed it) —
+    // and the downstream guards (off-surface signature, common
+    // planar cap, vertex isolation, anchors) fully determine the
+    // candidate on planes.
+    let surface_scoped_plane = matches!(surface, SurfaceGeometry::Plane { .. })
+        && planar_mode == PlanarStubRecognition::SurfaceScoped;
+    let mut shared_chart_corner = None;
+    if !surface_scoped_plane {
+        let (a_start, a_end) = strip_pcurve_span(brep, face, he_in)?;
+        let (b_start, b_end) = strip_pcurve_span(brep, face, he_out)?;
+        shared_chart_corner = Some(a_end);
+        // Both stubs on one iso-v station, meeting at the same u. The
+        // chart values may be stale — they gate recognition only; all
+        // repair positions are computed from trusted geometry.
+        // Recognition-only gate, SCALE-FREE: swept-strip stub pcurves
+        // projected from a stale corner drift off the exact iso by the
+        // corner's chart shadow, and the shadow grows with the end
+        // radius (measured 1.4e-3 in u at r=0.10, 6.5e-3 at r=0.20), so
+        // an absolute station tolerance cannot serve every radius. Gate
+        // on the SLOPE instead — each stub's variation must be dominated
+        // by one shared chart direction — plus a meeting check relative
+        // to the spans. Cylinder strips author iso-v stubs, swept
+        // strips near-iso with shadow drift; every ACCEPT is still
+        // guarded downstream by off-surface, isolation, common-cap,
+        // circularity, and anchor checks.
+        let d_a = (a_end.0 - a_start.0, a_end.1 - a_start.1);
+        let d_b = (b_end.0 - b_start.0, b_end.1 - b_start.1);
+        let iso_u = d_a.0.abs() <= 0.2 * d_a.1.abs() && d_b.0.abs() <= 0.2 * d_b.1.abs();
+        let iso_v = d_a.1.abs() <= 0.2 * d_a.0.abs() && d_b.1.abs() <= 0.2 * d_b.0.abs();
+        let meet_eps = 1e-6 + 0.25 * (d_a.0.abs() + d_a.1.abs() + d_b.0.abs() + d_b.1.abs());
+        let meets =
+            (a_end.0 - b_start.0).abs() <= meet_eps && (a_end.1 - b_start.1).abs() <= meet_eps;
+        if !((iso_v || iso_u) && meets) {
+            return None;
+        }
     }
     // The vertex must be OFF the strip surface — that is the stale
     // signature. Coherent corners (already settled) are left alone,
@@ -232,7 +286,7 @@ fn recognize_corner_pair(
             // corner vertex sitting off the surface point at the
             // stubs' shared chart corner.
             use popkern_core::geometry::SurfaceEval;
-            let shared = a_end;
+            let shared = shared_chart_corner?;
             let on_surface = surface.point_at(shared.0, shared.1);
             corner_pos.distance_to(&on_surface) > tolerance.linear() * 10.0
         }
