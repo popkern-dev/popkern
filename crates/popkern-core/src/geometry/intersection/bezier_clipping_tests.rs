@@ -9,23 +9,28 @@ fn p(x: f64, y: f64) -> Point3 {
     Point3::new(x, y, 0.0)
 }
 
+/// Wrap Cartesian points as unit-weight homogeneous control points.
+fn hw(points: &[Point3]) -> Vec<HPoint> {
+    points.iter().map(|&wp| HPoint { wp, w: 1.0 }).collect()
+}
+
 #[test]
 fn clip_edge_cases() {
     let h = vec![p(0.0, 0.0), p(1.0, 0.0)];
     // Non-overlapping
-    assert!(clip_against_fat_line(&h, &[p(0.0, 2.0), p(1.0, 2.0)], (0.0, 1.0)).is_none());
+    assert!(clip_against_fat_line(&h, &hw(&[p(0.0, 2.0), p(1.0, 2.0)]), (0.0, 1.0)).is_none());
     // Empty/short inputs
-    assert!(clip_against_fat_line(&[p(0.0, 0.0)], &h, (0.0, 1.0)).is_none());
+    assert!(clip_against_fat_line(&[p(0.0, 0.0)], &hw(&h), (0.0, 1.0)).is_none());
     assert!(clip_against_fat_line(&h, &[], (0.0, 1.0)).is_none());
     // Degenerate A (coincident)
-    assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &h, (0.0, 1.0)).is_none());
+    assert!(clip_against_fat_line(&[p(0.5, 0.5), p(0.5, 0.5)], &hw(&h), (0.0, 1.0)).is_none());
 }
 
 #[test]
 fn clip_crossing_lines() {
     let a = vec![p(0.0, 0.0), p(1.0, 0.0)];
     let b = vec![p(0.0, -1.0), p(1.0, 1.0)];
-    let (t_min, t_max) = clip_against_fat_line(&a, &b, (0.0, 1.0)).unwrap();
+    let (t_min, t_max) = clip_against_fat_line(&a, &hw(&b), (0.0, 1.0)).unwrap();
     assert!(t_min <= 0.5 && t_max >= 0.5);
 }
 

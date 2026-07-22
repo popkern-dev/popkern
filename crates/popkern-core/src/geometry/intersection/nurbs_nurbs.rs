@@ -71,10 +71,21 @@ pub(crate) fn intersect_nurbs_nurbs(
     let geom1 = CurveGeometry::Nurbs(curve1.clone());
     let geom2 = CurveGeometry::Nurbs(curve2.clone());
 
+    let nn_trace = std::env::var_os("PK_NN_TRACE").is_some();
+    if nn_trace {
+        eprintln!(
+            "      [nn] seg1={} seg2={} candidates={:?}",
+            segments1.len(),
+            segments2.len(),
+            candidates
+        );
+    }
     for (t1_approx, t2_approx) in &candidates {
-        if let Some((t1, t2, point)) =
-            newton::newton_refine(&geom1, *t1_approx, &geom2, *t2_approx, tolerance)
-        {
+        let refined = newton::newton_refine(&geom1, *t1_approx, &geom2, *t2_approx, tolerance);
+        if nn_trace {
+            eprintln!("      [nn] seed ({t1_approx:.4},{t2_approx:.4}) -> {refined:?}");
+        }
+        if let Some((t1, t2, point)) = refined {
             // Only keep results within the requested ranges (with some slack)
             if t1 >= t1_range.0 - tolerance.parametric_base()
                 && t1 <= t1_range.1 + tolerance.parametric_base()

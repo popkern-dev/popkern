@@ -14,9 +14,11 @@
 //! predicates without modifying intersection, imprinting, or assembly.
 
 pub(crate) mod assemble;
+pub(crate) mod assemble_cleanup;
 pub mod boolean;
 pub mod cell;
 pub mod decompose;
+pub(crate) mod fragment_interior;
 pub(crate) mod fragment_sampling;
 pub mod select;
 

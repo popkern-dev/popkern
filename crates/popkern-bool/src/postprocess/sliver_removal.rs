@@ -232,6 +232,44 @@ fn face_boundary_wraps(brep: &BRep, face: FaceHandle) -> bool {
     false
 }
 
+/// True when every boundary vertex of `sliver` lies on `absorber`'s
+/// surface within `distance`. Faces without surface geometry accept
+/// (topology-only models keep the historical behavior).
+fn sliver_lies_on_face_surface(
+    brep: &BRep,
+    sliver: FaceHandle,
+    absorber: FaceHandle,
+    distance: f64,
+) -> bool {
+    let Some(surface) = brep
+        .faces
+        .get(absorber)
+        .and_then(|f| f.surface.as_ref())
+        .map(|s| &s.geometry)
+    else {
+        return true;
+    };
+    let mut worst = 0.0_f64;
+    let contained = face_vertex_positions(brep, sliver).iter().all(|p| {
+        match project_point_to_uv(surface, p) {
+            Some((u, v)) => {
+                let d = p.distance_to(&surface.point_at(u, v));
+                worst = worst.max(d);
+                d <= distance
+            }
+            // Unprojectable surface kinds: keep the historical
+            // behavior rather than blocking absorption blind.
+            None => true,
+        }
+    });
+    if !contained && std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [sliver] absorption of {sliver:?} into {absorber:?} declined: worst vertex              distance {worst:.3e} > {distance:.3e}"
+        );
+    }
+    contained
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,42 +351,4 @@ mod tests {
             assert!(result.faces.len() <= pre_face_count);
         }
     }
-}
-
-/// True when every boundary vertex of `sliver` lies on `absorber`'s
-/// surface within `distance`. Faces without surface geometry accept
-/// (topology-only models keep the historical behavior).
-fn sliver_lies_on_face_surface(
-    brep: &BRep,
-    sliver: FaceHandle,
-    absorber: FaceHandle,
-    distance: f64,
-) -> bool {
-    let Some(surface) = brep
-        .faces
-        .get(absorber)
-        .and_then(|f| f.surface.as_ref())
-        .map(|s| &s.geometry)
-    else {
-        return true;
-    };
-    let mut worst = 0.0_f64;
-    let contained = face_vertex_positions(brep, sliver).iter().all(|p| {
-        match project_point_to_uv(surface, p) {
-            Some((u, v)) => {
-                let d = p.distance_to(&surface.point_at(u, v));
-                worst = worst.max(d);
-                d <= distance
-            }
-            // Unprojectable surface kinds: keep the historical
-            // behavior rather than blocking absorption blind.
-            None => true,
-        }
-    });
-    if !contained && std::env::var_os("PK_BOOL_TRACE").is_some() {
-        eprintln!(
-            "  [sliver] absorption of {sliver:?} into {absorber:?} declined: worst vertex              distance {worst:.3e} > {distance:.3e}"
-        );
-    }
-    contained
 }

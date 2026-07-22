@@ -33,6 +33,7 @@ pub(crate) mod classify;
 pub mod classify_on_deferred;
 pub mod classify_on_face;
 pub mod classify_propagation;
+pub(crate) mod classify_uv_loops;
 pub mod classify_winding;
 pub(crate) mod clip;
 pub mod coincidence;

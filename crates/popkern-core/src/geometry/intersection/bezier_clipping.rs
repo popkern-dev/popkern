@@ -4,154 +4,12 @@
 use crate::geometry::Point3;
 use crate::tolerance::Tolerance;
 
-/// Clip the parameter range of curve_b against the fat line of curve_a.
-/// Returns the clipped parameter range of curve_b, or None if no overlap.
-pub(crate) fn clip_against_fat_line(
-    a_points: &[Point3],
-    b_points: &[Point3],
-    b_range: (f64, f64),
-) -> Option<(f64, f64)> {
-    if a_points.len() < 2 || b_points.is_empty() {
-        return None;
-    }
-
-    let a_first = a_points[0];
-    let a_last = a_points[a_points.len() - 1];
-
-    // Fat line direction: line through A[0] and A[last]
-    let line_dir = a_last - a_first;
-    let line_len_sq = line_dir.length_squared();
-
-    // Degenerate A (all control points coincide)
-    if line_len_sq < 1e-30 {
-        return None;
-    }
-
-    // Compute a normal perpendicular to the fat line
-    let normal = compute_fat_line_normal(&line_dir, a_points, b_points)?;
-
-    // Signed distance of a point from the fat line
-    let signed_distance = |p: Point3| -> f64 { (p - a_first).dot(&normal) };
-
-    // Compute d_max: max absolute distance of A's control points from the fat line
-    let mut d_max: f64 = 0.0;
-    for &ap in a_points {
-        let d = signed_distance(ap).abs();
-        if d > d_max {
-            d_max = d;
-        }
-    }
-
-    // For linear A, d_max is 0. Use a small epsilon to allow crossing detection.
-    if d_max < 1e-14 {
-        d_max = 1e-14;
-    }
-
-    // Compute signed distances of B's control points from the fat line.
-    // These form Bernstein coefficients of a distance polynomial D(t).
-    let n = b_points.len();
-    let distances: Vec<f64> = b_points.iter().map(|&p| signed_distance(p)).collect();
-
-    // Build the Bernstein polygon: points (i/(n-1), distances[i])
-    // Find the t-range where the polygon stays within [-d_max, +d_max].
-    let mut t_min = 1.0_f64;
-    let mut t_max = 0.0_f64;
-
-    let n_f = if n > 1 { (n - 1) as f64 } else { 1.0 };
-
-    // Check each vertex of the Bernstein polygon
-    for (i, &d) in distances.iter().enumerate() {
-        let t = if n == 1 { 0.5 } else { i as f64 / n_f };
-        if d.abs() <= d_max {
-            t_min = t_min.min(t);
-            t_max = t_max.max(t);
-        }
-    }
-
-    // Check each edge of the Bernstein polygon for crossings with +/- d_max
-    for i in 0..n.saturating_sub(1) {
-        let t0 = i as f64 / n_f;
-        let t1 = (i + 1) as f64 / n_f;
-        let d0 = distances[i];
-        let d1 = distances[i + 1];
-
-        // Check crossing with +d_max
-        if (d0 - d_max) * (d1 - d_max) < 0.0 {
-            let alpha = (d_max - d0) / (d1 - d0);
-            let t_cross = t0 + alpha * (t1 - t0);
-            t_min = t_min.min(t_cross);
-            t_max = t_max.max(t_cross);
-        }
-
-        // Check crossing with -d_max
-        if (d0 + d_max) * (d1 + d_max) < 0.0 {
-            let alpha = (-d_max - d0) / (d1 - d0);
-            let t_cross = t0 + alpha * (t1 - t0);
-            t_min = t_min.min(t_cross);
-            t_max = t_max.max(t_cross);
-        }
-    }
-
-    if t_min > t_max {
-        return None;
-    }
-
-    // Clamp to [0, 1]
-    t_min = t_min.max(0.0);
-    t_max = t_max.min(1.0);
-
-    // Map from [0,1] back to b_range
-    let b_len = b_range.1 - b_range.0;
-    let result_min = b_range.0 + t_min * b_len;
-    let result_max = b_range.0 + t_max * b_len;
-
-    Some((result_min, result_max))
-}
-
-/// Compute the normal direction for the fat line.
-fn compute_fat_line_normal(
-    line_dir: &crate::geometry::Vec3,
-    a_points: &[Point3],
-    b_points: &[Point3],
-) -> Option<crate::geometry::Vec3> {
-    let a_first = a_points[0];
-
-    let mut best_cross = crate::geometry::Vec3::zero();
-    let mut best_cross_len_sq = 0.0_f64;
-
-    for points in [a_points, b_points] {
-        for &p in points {
-            let v = p - a_first;
-            let c = line_dir.cross(&v);
-            let len_sq = c.length_squared();
-            if len_sq > best_cross_len_sq {
-                best_cross = c;
-                best_cross_len_sq = len_sq;
-            }
-        }
-    }
-
-    if best_cross_len_sq < 1e-30 {
-        let candidates = [
-            crate::geometry::Vec3::new(1.0, 0.0, 0.0),
-            crate::geometry::Vec3::new(0.0, 1.0, 0.0),
-            crate::geometry::Vec3::new(0.0, 0.0, 1.0),
-        ];
-        for c in &candidates {
-            let cross = line_dir.cross(c);
-            if cross.length_squared() > 1e-20 {
-                return cross.normalized();
-            }
-        }
-        return None;
-    }
-
-    let normal = line_dir.cross(&best_cross);
-    if normal.length_squared() < 1e-30 {
-        return best_cross.normalized();
-    }
-    normal.normalized()
-}
+#[cfg(test)]
+pub(crate) use super::rational_bezier::compute_fat_line_normal;
+pub(crate) use super::rational_bezier::{
+    HPoint, clip_against_fat_line, evaluate_bezier_midpoint_h, project, subdivide_bezier_h,
+    to_homogeneous,
+};
 
 /// De Casteljau subdivision: extract control points for the sub-curve
 /// on [t_lo, t_hi] from the original Bezier defined on [0, 1].
@@ -212,7 +70,7 @@ fn de_casteljau_right(points: &[Point3], t: f64) -> Vec<Point3> {
     right
 }
 
-fn lerp_point(a: Point3, b: Point3, t: f64) -> Point3 {
+pub(crate) fn lerp_point(a: Point3, b: Point3, t: f64) -> Point3 {
     Point3::new(
         a.x + (b.x - a.x) * t,
         a.y + (b.y - a.y) * t,
@@ -221,7 +79,14 @@ fn lerp_point(a: Point3, b: Point3, t: f64) -> Point3 {
 }
 
 /// Find all intersection parameter pairs between two Bezier segments.
-/// Results are approximate (t1, t2) pairs that should be refined by Newton.
+/// Results are approximate (t1, t2) pairs in the caller's a_range /
+/// b_range coordinates, to be refined by Newton.
+///
+/// The recursion runs in each segment's LOCAL [0, 1] domain — the
+/// subdivision helpers interpret ranges as fractions of the control
+/// polygon, so feeding them absolute knot values (a quarter arc's
+/// [0.25, 0.5], a trimmed line's [17, 33]) extrapolates garbage
+/// polygons. Results are mapped back to the absolute ranges here.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn bezier_intersect(
     a_points: &[Point3],
@@ -234,27 +99,23 @@ pub(crate) fn bezier_intersect(
     max_depth: usize,
     results: &mut Vec<(f64, f64)>,
 ) {
-    // Convert rational control points to Cartesian by dividing by weights
-    let a_cart = to_cartesian(a_points, a_weights);
-    let b_cart = to_cartesian(b_points, b_weights);
+    let a_h = to_homogeneous(a_points, a_weights);
+    let b_h = to_homogeneous(b_points, b_weights);
 
+    let first_new = results.len();
     bezier_intersect_inner(
-        &a_cart, a_range, &b_cart, b_range, tolerance, max_depth, results,
+        &a_h,
+        (0.0, 1.0),
+        &b_h,
+        (0.0, 1.0),
+        tolerance,
+        max_depth,
+        results,
     );
-}
-
-fn to_cartesian(points: &[Point3], weights: &[f64]) -> Vec<Point3> {
-    points
-        .iter()
-        .zip(weights.iter())
-        .map(|(&p, &w)| {
-            if (w - 1.0).abs() < f64::EPSILON {
-                p
-            } else {
-                Point3::new(p.x / w, p.y / w, p.z / w)
-            }
-        })
-        .collect()
+    for r in results[first_new..].iter_mut() {
+        r.0 = a_range.0 + r.0 * (a_range.1 - a_range.0);
+        r.1 = b_range.0 + r.1 * (b_range.1 - b_range.0);
+    }
 }
 
 /// Maximum number of intersection candidates to prevent runaway recursion.
@@ -277,9 +138,9 @@ fn evaluate_bezier_midpoint(points: &[Point3]) -> Point3 {
 
 #[allow(clippy::too_many_arguments)]
 fn bezier_intersect_inner(
-    a_points: &[Point3],
+    a_points: &[HPoint],
     a_range: (f64, f64),
-    b_points: &[Point3],
+    b_points: &[HPoint],
     b_range: (f64, f64),
     tolerance: &Tolerance,
     max_depth: usize,
@@ -292,9 +153,9 @@ fn bezier_intersect_inner(
 
 #[allow(clippy::too_many_arguments)]
 fn bezier_intersect_inner_with_stalls(
-    a_points: &[Point3],
+    a_points: &[HPoint],
     a_range: (f64, f64),
-    b_points: &[Point3],
+    b_points: &[HPoint],
     b_range: (f64, f64),
     tolerance: &Tolerance,
     max_depth: usize,
@@ -346,10 +207,10 @@ fn bezier_intersect_inner_with_stalls(
     // at parametric tolerance, check for closest approach and report if
     // the curves are within linear tolerance (handles near-tangent cases).
     if a_span < tolerance.parametric_base() * 10.0 && b_span < tolerance.parametric_base() * 10.0 {
-        let a_sub_mid = subdivide_bezier(a_points, a_range.0, a_range.1);
-        let b_sub_mid = subdivide_bezier(b_points, b_range.0, b_range.1);
-        let pa = evaluate_bezier_midpoint(&a_sub_mid);
-        let pb = evaluate_bezier_midpoint(&b_sub_mid);
+        let a_sub_mid = subdivide_bezier_h(a_points, a_range.0, a_range.1);
+        let b_sub_mid = subdivide_bezier_h(b_points, b_range.0, b_range.1);
+        let pa = evaluate_bezier_midpoint_h(&a_sub_mid);
+        let pb = evaluate_bezier_midpoint_h(&b_sub_mid);
         let lin_sq = tolerance.linear() * tolerance.linear();
         if crate::adaptive_precision::adaptive_dist_sq_lt(
             (pa.x, pa.y, pa.z),
@@ -364,11 +225,12 @@ fn bezier_intersect_inner_with_stalls(
     }
 
     // Subdivide both curves to get tight control polygons for current ranges.
-    let a_sub = subdivide_bezier(a_points, a_range.0, a_range.1);
-    let b_sub = subdivide_bezier(b_points, b_range.0, b_range.1);
+    let a_sub_h = subdivide_bezier_h(a_points, a_range.0, a_range.1);
+    let a_sub = project(&a_sub_h);
+    let b_sub_h = subdivide_bezier_h(b_points, b_range.0, b_range.1);
 
     // Clip B against A's fat line
-    let clipped = clip_against_fat_line(&a_sub, &b_sub, b_range);
+    let clipped = clip_against_fat_line(&a_sub, &b_sub_h, b_range);
     let clipped_b_range = match clipped {
         None => return, // no intersection
         Some(r) => r,
@@ -385,8 +247,12 @@ fn bezier_intersect_inner_with_stalls(
     // This is critical for near-tangent cases where one direction gives poor reduction
     // but the other direction (e.g., clipping a wide curve against a narrow line) gives
     // excellent reduction.
-    let b_sub2 = subdivide_bezier(b_points, clipped_b_range.0, clipped_b_range.1);
-    let clipped_a = clip_against_fat_line(&b_sub2, &a_sub, a_range);
+    let b_sub2 = project(&subdivide_bezier_h(
+        b_points,
+        clipped_b_range.0,
+        clipped_b_range.1,
+    ));
+    let clipped_a = clip_against_fat_line(&b_sub2, &a_sub_h, a_range);
     let clipped_a_range = match clipped_a {
         None => return,
         Some(r) => r,

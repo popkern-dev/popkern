@@ -22,6 +22,7 @@ pub(crate) mod plane_cone;
 pub(crate) mod plane_cylinder;
 pub(crate) mod plane_plane;
 pub(crate) mod plane_sphere;
+mod rational_bezier;
 pub mod starting_points;
 pub mod surface_curve;
 mod surface_curve_general;
