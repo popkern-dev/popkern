@@ -132,7 +132,7 @@ pub fn compute_chamfer(
     // start (the seam station): the interpolated 20-point fit left
     // ~1e-3·r ripple on every rail and the wall/cap meshed against
     // it with thousands of cracked slivers.
-    let exact_rim = |circle: &BevelCircle, anchor: &Point3, end_anchor: &Point3| -> NurbsCurve {
+    let _exact_rim = |circle: &BevelCircle, anchor: &Point3, end_anchor: &Point3| -> NurbsCurve {
         let (c, axis, r) = circle;
         // Angles measured in the Arc EVALUATOR's frame (circle_basis)
         // so that point_at(a0) IS the anchor — the surface frame
@@ -183,14 +183,134 @@ pub fn compute_chamfer(
         }
         .to_nurbs_in_range((a0, a1))
     };
+    // INTERRUPTED rims: the offset rows end at radial offsets of the
+    // chamfered arc's endpoints, which stop SHORT of the interrupting
+    // faces (measured 0.2 on the notched flange: the rows end at
+    // y = ±4.8 while the strip truly terminates on the notch planes
+    // at y = ±5). Every downstream stage then fights that shortfall
+    // (2e-2 anchors, CP snaps, stale-gate retriggers). Extend each
+    // rim's angular span to the trim-circle ∩ interrupting-plane
+    // crossings — the end vertices' third incident faces name the
+    // interruptors, and circle × plane is closed-form.
+    let extend_to_interruptors = |circle: &BevelCircle, a0: f64, a1: f64| -> (f64, f64) {
+        let (c, axis, r) = circle;
+        let Some((v_a, v_b)) = brep
+            .edges
+            .get(analysis.edge)
+            .and_then(|e| brep.half_edges.get(e.half_edge))
+            .and_then(|he| {
+                let tw = brep.half_edges.get(he.twin)?;
+                Some((he.origin, tw.origin))
+            })
+        else {
+            return (a0, a1);
+        };
+        let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
+        let crossing_near = |target_angle: f64, vertex| -> Option<f64> {
+            // Third incident PLANE faces at this vertex.
+            let mut best: Option<f64> = None;
+            for (_, hedata) in brep.half_edges.iter() {
+                if hedata.origin != vertex {
+                    continue;
+                }
+                let Some(l) = brep.loops.get(hedata.loop_) else {
+                    continue;
+                };
+                let f = l.face;
+                if f == analysis.face_1 || f == analysis.face_2 {
+                    continue;
+                }
+                let Some(SurfaceGeometry::Plane { origin, normal, .. }) = brep
+                    .faces
+                    .get(f)
+                    .and_then(|fd| fd.surface.as_ref())
+                    .map(|sf| &sf.geometry)
+                else {
+                    continue;
+                };
+                let Some(n) = normal.normalized() else {
+                    continue;
+                };
+                // circle(θ) on the plane: a·cosθ + b·sinθ = rhs.
+                let a_c = *r * p1.dot(&n);
+                let b_c = *r * p2.dot(&n);
+                let rhs = (*origin - *c).dot(&n);
+                let amp = (a_c * a_c + b_c * b_c).sqrt();
+                if amp < 1e-12 || rhs.abs() > amp {
+                    continue;
+                }
+                let base = b_c.atan2(a_c);
+                let delta = (rhs / amp).acos();
+                for theta in [base + delta, base - delta] {
+                    // Unwrap near the target angle.
+                    let mut t = theta;
+                    while t - target_angle > std::f64::consts::PI {
+                        t -= std::f64::consts::TAU;
+                    }
+                    while target_angle - t > std::f64::consts::PI {
+                        t += std::f64::consts::TAU;
+                    }
+                    if (t - target_angle).abs() < 0.5
+                        && best
+                            .map(|b| (t - target_angle).abs() < (b - target_angle).abs())
+                            .unwrap_or(true)
+                    {
+                        best = Some(t);
+                    }
+                }
+            }
+            best
+        };
+        let a0e = crossing_near(a0, v_a)
+            .or_else(|| crossing_near(a0, v_b))
+            .unwrap_or(a0);
+        let a1e = crossing_near(a1, v_b)
+            .or_else(|| crossing_near(a1, v_a))
+            .unwrap_or(a1);
+        if std::env::var_os("PK_BEVEL_TRACE").is_some()
+            && ((a0e - a0).abs() > 1e-9 || (a1e - a1).abs() > 1e-9)
+        {
+            eprintln!("  [bevel] rim extended: a0 {a0:.4}->{a0e:.4} a1 {a1:.4}->{a1e:.4}");
+        }
+        (a0e, a1e)
+    };
+    let exact_rim_extended = |circle: &BevelCircle, anchor: &Point3, end_anchor: &Point3| {
+        let (c, axis, r) = circle;
+        let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
+        let d = *anchor - *c;
+        let a0 = d.dot(&p2).atan2(d.dot(&p1));
+        let a1 = if anchor.distance_to(end_anchor) < 1e-9 {
+            a0 + std::f64::consts::TAU
+        } else {
+            let de = *end_anchor - *c;
+            let mut a = de.dot(&p2).atan2(de.dot(&p1));
+            while a <= a0 + 1e-12 {
+                a += std::f64::consts::TAU;
+            }
+            a
+        };
+        let (a0e, a1e) = if (a1 - a0) < std::f64::consts::TAU - 1e-9 {
+            extend_to_interruptors(circle, a0, a1)
+        } else {
+            (a0, a1)
+        };
+        popkern_core::geometry::curve::CurveGeometry::Arc {
+            center: *c,
+            normal: *axis,
+            radius: *r,
+            start_angle: a0e,
+            end_angle: a1e,
+        }
+        .to_nurbs_in_range((a0e, a1e))
+    };
     let (trim_curve_1, trim_curve_2) = match &cone {
         Some((_, circle_1, circle_2)) => (
-            exact_rim(
+            exact_rim_extended(
                 circle_1,
                 &offset_points_1[0],
                 offset_points_1.last().unwrap_or(&offset_points_1[0]),
             ),
-            exact_rim(
+            exact_rim_extended(
                 circle_2,
                 &offset_points_2[0],
                 offset_points_2.last().unwrap_or(&offset_points_2[0]),
