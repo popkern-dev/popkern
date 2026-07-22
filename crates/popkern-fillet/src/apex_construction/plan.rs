@@ -301,6 +301,12 @@ fn plan_with_rung_ladder(
                 && brep_has_all_fillet_cylinder_faces(brep, fillet_surfaces)
                 && let Some(max_gap) = sphere_anchor_support_gap(brep, &target_topology, *radius)
             {
+                if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                    eprintln!(
+                        "[spherefit] apex {apex:?}: Sphere DEMOTED to Gregory — anchor gap {max_gap:.4e} > support {:.4e}",
+                        radius * 0.9
+                    );
+                }
                 telemetry.set_value("sphere_anchor_support_gap", max_gap);
                 telemetry.cap_kind_reason = format!(
                     "{}; Sphere target anchor gap {:.3e} exceeds relocation support {:.3e} — Gregory cap chosen for constructive topology compatibility",
@@ -311,6 +317,12 @@ fn plan_with_rung_ladder(
                 cap_kind = gregory_cap_kind(&terminations);
                 target_topology = build_target_topology(&cap_kind, &terminations);
             }
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!(
+                    "[spherefit] apex {apex:?}: Direct rung OK, sphere={}",
+                    cap_kind.is_sphere()
+                );
+            }
             telemetry.rung = ConstructionRung::Direct;
             Ok(ApexPlan {
                 apex_vertex: apex,
@@ -320,6 +332,9 @@ fn plan_with_rung_ladder(
             })
         }
         Err(direct_err) => {
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!("[spherefit] apex {apex:?}: Direct rung DECLINED: {direct_err:?}");
+            }
             // --- Rung 2: Setback ---
             //
             // Setback strategy: tolerate individual per-fillet

@@ -102,7 +102,11 @@ fn corpus_pass_rate_holds_baseline() {
     // (2026-07-22, PK-170 — corner-breaching oblique bore served:
     // seam-strip component placement + material-side fold sampling);
     // 15/22 (2026-07-22, PK-170 cross-drill leg — analytic
-    // cylinder×cylinder, LSQ fit knots, wrapping-wall chart roles).
+    // cylinder×cylinder, LSQ fit knots, wrapping-wall chart roles);
+    // 16/22 (2026-07-22, PK-171/PK-160 — corner sphere promotion
+    // gates made radius-relative; the stale-outlier fit score is
+    // r(√2−1) by construction and the 0.5-absolute gate silently
+    // stopped promoting exact spheres above r ≈ 1.2).
     // Failing
     // classes, each routed to its campaign item:
     //   mounting_bracket — flush-overlap L union (coincident-boolean
@@ -111,8 +115,6 @@ fn corpus_pass_rate_holds_baseline() {
     //   slotted_block — flush through-slot, 60 opens (coincident);
     //   offset_bracket — fillet on an overlapping union serves an
     //     edge 1.66 off-surface, check-9 catch (PK-171);
-    //   mixed_corner_block — V-free corner class at 30x scale serves
-    //     0.21 off-surface, check-9 catch (PK-171);
     //   angled_rib_plate — strip interference decline on the skewed
     //     rib junction (legitimate transactional decline; recorded);
     //   notched_flange — the keyway subtract is REAL since the
@@ -121,7 +123,7 @@ fn corpus_pass_rate_holds_baseline() {
     //     0.29 trim-curve lie (check-9 catch, PK-171 family).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 15;
+    const BASELINE: usize = 16;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"

@@ -177,6 +177,28 @@ pub(crate) fn correct_face_surfaces(
             && let Some(sphere_sof) = try_sphere_for_corner(&positions, original, fillet_surfaces)
         {
             let sd = max_fit_score(&sphere_sof.geometry, &positions);
+            // SCALE-RELATIVE acceptance: the pre-repair cap loop
+            // contains the stale cube-corner outlier at distance
+            // exactly r(√2−1) from the true sphere (the Path-A
+            // relocation repairs it AFTER surface assignment), so
+            // the fit score grows linearly with the fillet radius
+            // and a 0.5-absolute gate silently stops promoting the
+            // exact sphere above r ≈ 1.2 (measured: uniform r=3
+            // cube corner — sd = 1.2426 = r(√2−1), the Gregory
+            // NURBS shipped instead, and its boundary lied 0.0712·r
+            // off the strips; check-9 catch). The legacy 0.5 floor
+            // is kept so sub-unit radii keep their historical
+            // margin.
+            let radius_scale = fillet_surfaces
+                .iter()
+                .filter_map(crate::blend::sphere_fit_centre::fillet_nominal_radius)
+                .fold(1.0_f64, f64::max);
+            let sphere_gate = 0.5 * radius_scale;
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!(
+                    "[surface-fix] face {fh:?} sphere candidate sd={sd:.4e} gate={sphere_gate:.4e}"
+                );
+            }
             // Prefer a sphere for small corner faces whenever one
             // fits cleanly. The exact-analytic sphere beats any
             // NURBS approximation (including the §5.3 Gregory
@@ -185,7 +207,7 @@ pub(crate) fn correct_face_surfaces(
             // construction. The `try_sphere_for_corner` helper's
             // own centroid-near-cube-corner filter prunes faces
             // where a sphere is semantically wrong.
-            if sd < 0.5 {
+            if sd < sphere_gate {
                 let prefer_sphere = match &best {
                     Some((existing, bd)) => {
                         let existing_is_non_sphere =
@@ -201,8 +223,16 @@ pub(crate) fn correct_face_surfaces(
         }
 
         if let Some((sof, dist)) = best {
-            // Only assign if the candidate actually fits reasonably well.
-            if dist < 0.5 {
+            // Only assign if the candidate actually fits reasonably
+            // well (same radius-scaled window as the sphere gate —
+            // the stale-outlier distance grows with r for every
+            // candidate kind).
+            let assign_gate = 0.5
+                * fillet_surfaces
+                    .iter()
+                    .filter_map(crate::blend::sphere_fit_centre::fillet_nominal_radius)
+                    .fold(1.0_f64, f64::max);
+            if dist < assign_gate {
                 brep.faces[fh].surface = Some(sof);
                 continue;
             }

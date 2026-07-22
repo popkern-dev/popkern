@@ -51,7 +51,12 @@ pub(super) fn assign_sphere_cap_surface(
             reason: format!("assign_sphere_cap_surface: cap_face {cap_face:?} no longer exists"),
         })?;
     face.surface = Some(SurfaceOnFace {
-        geometry: SurfaceGeometry::Sphere { center, radius },
+        geometry: {
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!("[corner-method] apex-sphere r={radius:.3}");
+            }
+            SurfaceGeometry::Sphere { center, radius }
+        },
         orientation: true,
     });
     Ok(())

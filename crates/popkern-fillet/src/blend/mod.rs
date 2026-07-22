@@ -30,6 +30,7 @@ pub(crate) mod sphere_fit_centre;
 pub mod surface;
 pub(crate) mod surface_bridge;
 mod surface_math;
+mod surface_sphere;
 pub(crate) mod tangent_corner;
 
 #[cfg(test)]

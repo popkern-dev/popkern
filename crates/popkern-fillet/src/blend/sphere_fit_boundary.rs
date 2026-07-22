@@ -38,6 +38,19 @@ pub(crate) fn apply_sphere_fit_substitution(
     brep: &BRep,
     tolerance: &Tolerance,
 ) -> Result<(), &'static str> {
+    let r = apply_sphere_fit_substitution_inner(boundary, fillet_surfaces, brep, tolerance);
+    if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+        eprintln!("[spherefit] vertex {:?}: {:?}", boundary.vertex, r);
+    }
+    r
+}
+
+fn apply_sphere_fit_substitution_inner(
+    boundary: &mut BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+    brep: &BRep,
+    tolerance: &Tolerance,
+) -> Result<(), &'static str> {
     let apex = boundary.vertex_position;
     let n_seg = boundary.segments.len();
 

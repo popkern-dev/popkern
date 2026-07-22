@@ -105,7 +105,12 @@ fn build_mitred_blend(
     Ok(BlendSurfaceResult {
         surface,
         boundary_curves,
-        method: CornerMethod::Mitred,
+        method: {
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!("[corner-method] mitred");
+            }
+            CornerMethod::Mitred
+        },
         continuity: ContinuityLevel::G0,
     })
 }
@@ -178,98 +183,6 @@ fn build_smooth_blend(
     }
 
     build_mitred_blend(points, boundary_curves)
-}
-
-/// Try to build a spherical cap blend.
-///
-/// Computes the circumcenter of the boundary points — the point
-/// equidistant from all of them. If the points lie on a sphere (max
-/// deviation < tolerance), returns that sphere. This handles cube
-/// corners with equal-radius perpendicular fillets exactly.
-///
-/// Returns `None` if the geometry is degenerate or the points don't
-/// lie on a sphere.
-fn try_spherical_blend(
-    _boundary: &BlendBoundary,
-    _fillet_surfaces: &[FilletSurfaceResult],
-    points: &[Point3],
-    boundary_curves: &[NurbsCurve],
-    tolerance: &Tolerance,
-) -> Option<BlendSurfaceResult> {
-    if points.len() < 4 {
-        return None;
-    }
-
-    // Compute the circumcenter by solving the linear system:
-    // 2*(p_j - p_0) · c = |p_j|² - |p_0|²  for j = 1..N
-    //
-    // This finds the point equidistant from all boundary points.
-    // Use the first 3 non-degenerate point differences to solve for c,
-    // then verify against all points.
-    let p0 = points[0];
-    let p0_sq = p0.x * p0.x + p0.y * p0.y + p0.z * p0.z;
-
-    // Build a 3x4 augmented matrix [A | b] from the first 3 valid equations.
-    let mut rows: Vec<[f64; 4]> = Vec::new();
-    for p in points.iter().skip(1) {
-        let dx = p.x - p0.x;
-        let dy = p.y - p0.y;
-        let dz = p.z - p0.z;
-        if dx.abs() + dy.abs() + dz.abs() < tolerance.solver() {
-            continue; // Skip near-duplicate points.
-        }
-        let rhs = p.x * p.x + p.y * p.y + p.z * p.z - p0_sq;
-        rows.push([2.0 * dx, 2.0 * dy, 2.0 * dz, rhs]);
-        if rows.len() == 3 {
-            break;
-        }
-    }
-
-    if rows.len() < 3 {
-        return None; // Not enough independent equations.
-    }
-
-    // Solve 3x3 system by Gaussian elimination with partial pivoting.
-    let (cx, cy, cz) = solve_circumcenter_3x3(&rows)?;
-    let center = Point3::new(cx, cy, cz);
-
-    // Compute radius as average distance from center to all points.
-    let avg_radius: f64 =
-        points.iter().map(|p| p.distance_to(&center)).sum::<f64>() / points.len() as f64;
-
-    if avg_radius < tolerance.linear() {
-        return None;
-    }
-
-    // Verify ALL boundary points are equidistant from center.
-    let max_deviation: f64 = points
-        .iter()
-        .map(|p| (p.distance_to(&center) - avg_radius).abs())
-        .fold(0.0_f64, f64::max);
-
-    // Loosened from 10× to 100× after §5.3: boundary sample
-    // points come off NURBS fits with ~1e-5 drift on unit-scale
-    // geometry, and the 10× window was rejecting legitimate cube-
-    // corner spheres. The sphere is an exact analytic surface —
-    // if its max_deviation fits within 100× tol_linear, it's the
-    // right answer and beats the polar-NURBS fallback on both
-    // representation clarity and allocation cost.
-    if max_deviation > tolerance.linear() * 100.0 {
-        return None;
-    }
-
-    let _ = CornerMethod::RollingBallSphere; // classification tag
-    let surface = SurfaceGeometry::Sphere {
-        center,
-        radius: avg_radius,
-    };
-
-    Some(BlendSurfaceResult {
-        surface,
-        boundary_curves: boundary_curves.to_vec(),
-        method: CornerMethod::RollingBallSphere,
-        continuity: ContinuityLevel::G1,
-    })
 }
 
 /// Build a polar NURBS blend surface.
@@ -421,7 +334,12 @@ fn build_gregory_g1_blend(
     Some(BlendSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves,
-        method: CornerMethod::Gregory,
+        method: {
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!("[corner-method] gregory");
+            }
+            CornerMethod::Gregory
+        },
         continuity,
     })
 }
@@ -459,7 +377,12 @@ fn try_nurbs_blend(
     Some(BlendSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
         boundary_curves: boundary_curves.to_vec(),
-        method: CornerMethod::PolarNurbs,
+        method: {
+            if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {
+                eprintln!("[corner-method] polar");
+            }
+            CornerMethod::PolarNurbs
+        },
         continuity: ContinuityLevel::G0,
     })
 }
@@ -491,7 +414,8 @@ fn sample_boundary_points(curves: &[NurbsCurve], samples_per_curve: usize) -> Ve
     points
 }
 
-use super::surface_math::{fit_plane_least_squares, pick_perpendicular, solve_circumcenter_3x3};
+use super::surface_math::{fit_plane_least_squares, pick_perpendicular};
+use super::surface_sphere::try_spherical_blend;
 
 #[cfg(test)]
 #[path = "surface_tests.rs"]

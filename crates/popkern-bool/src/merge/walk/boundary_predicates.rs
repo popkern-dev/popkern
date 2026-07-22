@@ -39,9 +39,10 @@ pub(super) fn node_on_face_boundary(
                 popkern_core::geometry::curve::CurveGeometry::Line { .. }
             )
         });
-        if curved == Some(true) {
+        if curved == Some(true)
+            && let Some(c) = he.curve.as_ref()
+        {
             use popkern_core::geometry::curve::CurveEval;
-            let c = he.curve.as_ref().expect("curved implies curve");
             let span = a.distance_to(&b).max(1e-12);
             for i in 0..=16 {
                 let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 16.0;
