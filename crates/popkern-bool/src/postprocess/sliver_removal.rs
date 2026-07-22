@@ -332,12 +332,23 @@ fn sliver_lies_on_face_surface(
     else {
         return true;
     };
-    face_vertex_positions(brep, sliver).iter().all(|p| {
+    let mut worst = 0.0_f64;
+    let contained = face_vertex_positions(brep, sliver).iter().all(|p| {
         match project_point_to_uv(surface, p) {
-            Some((u, v)) => p.distance_to(&surface.point_at(u, v)) <= distance,
+            Some((u, v)) => {
+                let d = p.distance_to(&surface.point_at(u, v));
+                worst = worst.max(d);
+                d <= distance
+            }
             // Unprojectable surface kinds: keep the historical
             // behavior rather than blocking absorption blind.
             None => true,
         }
-    })
+    });
+    if !contained && std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!(
+            "  [sliver] absorption of {sliver:?} into {absorber:?} declined: worst vertex              distance {worst:.3e} > {distance:.3e}"
+        );
+    }
+    contained
 }
