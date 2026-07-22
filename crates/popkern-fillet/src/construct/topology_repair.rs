@@ -71,6 +71,9 @@ use topology_repair_geometry::{
     remap_to_unit_range, reproject_loop_pcurves_into_plane, reverse_nurbs, slice_curve,
 };
 use topology_repair_snap::snap_incident_edge_curve_endpoints;
+/// Snap every incident edge curve endpoint to a moved vertex —
+/// shared with the cone terminal settle (PK-171).
+pub(crate) use topology_repair_snap::snap_incident_edge_curve_endpoints_robust;
 
 /// Walk every cylinder face. For each off-cylinder vertex in its
 /// outer loop, try to insert a cyl × plane intersection arc that

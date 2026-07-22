@@ -27,8 +27,9 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 use crate::types::TerminalArcTrimDeclineReason;
 
 use super::terminal_arc_author::StagedStubArc;
-use super::terminal_arc_trim::{CornerCandidate, incident_edge_count, strip_pcurve_span};
+use super::terminal_arc_trim::{CornerCandidate, incident_edge_count};
 use super::terminal_chord_trim::StripPlane;
+use super::terminal_corner_recognition::strip_pcurve_span;
 
 pub(super) fn repair_corner_swept(
     brep: &mut BRep,

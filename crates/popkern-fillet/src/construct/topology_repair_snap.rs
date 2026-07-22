@@ -8,7 +8,7 @@ use super::*;
 /// More robust than the legacy version: uses half-edge orientation
 /// to determine which end of the curve corresponds to `vh`, then
 /// modifies the appropriate control point of the curve.
-pub(super) fn snap_incident_edge_curve_endpoints_robust(
+pub(crate) fn snap_incident_edge_curve_endpoints_robust(
     brep: &mut BRep,
     vh: VertexHandle,
     new_position: Point3,
@@ -36,6 +36,19 @@ pub(super) fn snap_incident_edge_curve_endpoints_robust(
         let Some(curve_on_edge) = brep.edges.get(edge).and_then(|e| e.curve.clone()) else {
             continue;
         };
+        // ANALYTIC RE-TRIM fast path: when the new position lies ON
+        // the curve's underlying analytic geometry (a terminal settle
+        // slides a triple point ALONG the contact circle), adjust the
+        // trim bound instead of dragging a control point — the CP
+        // drag bends the promoted NURBS off its surface by O(drift)
+        // (measured: 2.1e-2 vertex snap left a 2.1e-3 curve-vs-cone
+        // lie on the notched flange's contact arc, check-9 scale).
+        if let Some(re_trimmed) = analytic_retrim(&curve_on_edge, new_position) {
+            if let Some(edge_mut) = brep.edges.get_mut(edge) {
+                edge_mut.curve = Some(re_trimmed);
+            }
+            continue;
+        }
         // Convert any analytic curve to NURBS first, so we have
         // control points to manipulate. Line/Arc/Circle types are
         // parameterised by analytic data (origin, direction, etc.)
@@ -179,4 +192,71 @@ pub(super) fn snap_incident_edge_curve_endpoints(
             });
         }
     }
+}
+
+/// Re-trim an analytic angular curve (Circle/Arc/Ellipse) whose
+/// moved endpoint still lies on the underlying geometry: replace the
+/// nearer trim bound with the new position's parameter, keeping the
+/// analytic form exact. Returns `None` when the geometry isn't
+/// angular or the point is off-curve.
+fn analytic_retrim(curve: &CurveOnEdge, new_position: Point3) -> Option<CurveOnEdge> {
+    use popkern_core::geometry::CurveEval;
+    let (basis_theta, on_curve_tol): (f64, f64) = match &curve.geometry {
+        CurveGeometry::Circle {
+            center,
+            normal,
+            radius,
+        }
+        | CurveGeometry::Arc {
+            center,
+            normal,
+            radius,
+            ..
+        } => {
+            let (bu, bv) = popkern_core::geometry::analytic_curves::circle_basis(*normal);
+            let d = new_position - *center;
+            let theta = d.dot(&bv).atan2(d.dot(&bu));
+            let radial = (d - *normal * d.dot(normal)).length();
+            if (radial - radius).abs() > radius.max(1.0) * 1e-6 {
+                return None;
+            }
+            (theta, radius.max(1.0) * 1e-6)
+        }
+        _ => return None,
+    };
+    let (t0, t1) = (curve.t_start, curve.t_end);
+    // Unwrap the angle to the branch nearest each bound; pick the
+    // bound whose endpoint is closer to the new position.
+    let unwrap_near = |theta: f64, anchor: f64| -> f64 {
+        let mut t = theta;
+        while t - anchor > std::f64::consts::PI {
+            t -= std::f64::consts::TAU;
+        }
+        while anchor - t > std::f64::consts::PI {
+            t += std::f64::consts::TAU;
+        }
+        t
+    };
+    let p_start = curve.geometry.point_at(t0);
+    let p_end = curve.geometry.point_at(t1);
+    let snap_start = p_start.distance_to(&new_position) <= p_end.distance_to(&new_position);
+    let mut out = curve.clone();
+    if snap_start {
+        out.t_start = unwrap_near(basis_theta, t0);
+    } else {
+        out.t_end = unwrap_near(basis_theta, t1);
+    }
+    if out.t_end - out.t_start <= 1e-9 {
+        return None;
+    }
+    // Postcondition: the re-trimmed endpoint lands on the target.
+    let hit = if snap_start {
+        out.geometry.point_at(out.t_start)
+    } else {
+        out.geometry.point_at(out.t_end)
+    };
+    if hit.distance_to(&new_position) > on_curve_tol * 10.0 {
+        return None;
+    }
+    Some(out)
 }

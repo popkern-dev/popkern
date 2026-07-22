@@ -115,6 +115,8 @@ mod terminal_arc_author;
 mod terminal_arc_fit_trim;
 pub(crate) mod terminal_arc_trim;
 mod terminal_chord_trim;
+mod terminal_cone_trim;
+mod terminal_corner_recognition;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
 mod three_quad_boundary_fit;
