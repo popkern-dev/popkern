@@ -382,8 +382,7 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
     }
     if side_flipped {
         // The triple's pcurves describe the SHORT side; drop them and
-        // let the lenient pcurve recompute derive the complement's
-        // (stale pcurves would put the mesher back on the wrong arc).
+        // let the lenient pcurve recompute derive the complement's.
         if let Some(he_mut) = brep.half_edges.get_mut(he) {
             he_mut.pcurve = None;
         }

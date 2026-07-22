@@ -67,8 +67,14 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     loop_handles.push(face_data.outer_loop);
     loop_handles.extend(face_data.inner_loops.iter().copied());
 
-    let mut perp_start: Option<Point3> = None;
-    let mut perp_end: Option<Point3> = None;
+    // Slot quality: 2 = exact trim crossing, 1 = perp-walk/bevel.
+    // A later edge's CROSSING must outrank an earlier edge's walk
+    // placement — slot order follows the loop walk, and on an
+    // interrupted rim the crossing edge is not always first
+    // (measured: 3 of 4 chamfer anchor slots kept their ~2e-2
+    // perp-walk noise because the walk edge came first).
+    let mut perp_start: Option<(Point3, u8)> = None;
+    let mut perp_end: Option<(Point3, u8)> = None;
 
     let max_iters = brep.half_edges.len() + 1;
     for loop_handle in loop_handles {
@@ -140,8 +146,9 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                 // `dest` (reversed).  Returns the anchor position
                 // or `None` if the edge isn't suitable.
                 let trace = std::env::var("POPKERN_ANCHOR_TRACE").is_ok();
-                let place_anchor = |radius: f64, forward: bool, slot: &mut Option<Point3>| {
-                    if slot.is_some() || edge_len <= 1e-15 {
+                let place_anchor = |radius: f64, forward: bool, slot: &mut Option<(Point3, u8)>| {
+                    let slot_quality = slot.map(|(_, q)| q).unwrap_or(0);
+                    if slot_quality >= 2 || edge_len <= 1e-15 {
                         return;
                     }
                     // Compute perp-walk t — the canonical legacy
@@ -189,7 +196,10 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                                 "[anchor] face={face:?} trim-crossing s={s:.6} vs perp t={t_perp:.6} (delta={delta:.4e}) — using trim crossing"
                             );
                         }
-                        *slot = Some(along(s));
+                        *slot = Some((along(s), 2));
+                        return;
+                    }
+                    if slot_quality >= 1 {
                         return;
                     }
                     // PLANAR-BEVEL anchor (chamfers): the strip's
@@ -226,7 +236,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                                         "[anchor] face={face:?} bevel-plane s={s:.6} vs perp t={t_perp:.6} — using plane crossing"
                                     );
                                 }
-                                *slot = Some(along(s));
+                                *slot = Some((along(s), 1));
                                 return;
                             }
                         }
@@ -277,19 +287,25 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                                     )
                                 && (0.001..0.999).contains(&s)
                             {
-                                *slot = Some(Point3::new(
-                                    q0.x + s * (q1.x - q0.x),
-                                    q0.y + s * (q1.y - q0.y),
-                                    q0.z + s * (q1.z - q0.z),
+                                *slot = Some((
+                                    Point3::new(
+                                        q0.x + s * (q1.x - q0.x),
+                                        q0.y + s * (q1.y - q0.y),
+                                        q0.z + s * (q1.z - q0.z),
+                                    ),
+                                    2,
                                 ));
                                 return;
                             }
                             if remaining <= len * 0.999 {
                                 let f = (remaining / len).max(0.001);
-                                *slot = Some(Point3::new(
-                                    a.x + f * (b.x - a.x),
-                                    a.y + f * (b.y - a.y),
-                                    a.z + f * (b.z - a.z),
+                                *slot = Some((
+                                    Point3::new(
+                                        a.x + f * (b.x - a.x),
+                                        a.y + f * (b.y - a.y),
+                                        a.z + f * (b.z - a.z),
+                                    ),
+                                    1,
                                 ));
                                 return;
                             }
@@ -297,7 +313,7 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         }
                     }
                     if perp_accept {
-                        *slot = Some(along(t_perp));
+                        *slot = Some((along(t_perp), 1));
                     }
                 };
 
@@ -323,8 +339,10 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     }
 
     let start_pos = perp_start
+        .map(|(p, _)| p)
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
-    let end_pos =
-        perp_end.ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
+    let end_pos = perp_end
+        .map(|(p, _)| p)
+        .ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
     Ok((start_pos, end_pos))
 }

@@ -138,7 +138,17 @@ pub(super) fn run_perpendicular_splits(
         // crossing anchors stay off there.
         let trim_for_anchors = matches!(
             eg.surface,
-            SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Nurbs(_)
+            SurfaceGeometry::Cylinder { .. }
+                | SurfaceGeometry::Nurbs(_)
+                // CONE strips (circular chamfers): perp-walk anchors
+                // land arc-length r along the perpendicular edge, but
+                // an interrupted rim's perpendicular edge meets the
+                // strip at a chord angle — the walk overshoots the
+                // true contact by ~2e-2 and every downstream stage
+                // (whole-trim split, stale gate, terminal settle)
+                // fights that noise (PK-171). The trim crossing IS
+                // the exact triple point.
+                | SurfaceGeometry::Cone { .. }
         );
         // Cylinder sweeps join the trim-crossing convention for the
         // setback path (PK-097: the G1 analytic strips carve at
@@ -160,7 +170,9 @@ pub(super) fn run_perpendicular_splits(
             || promoted_direct_apex_vertices.contains(&eg.analysis.vertex_end);
         let anchor_on_trim = matches!(
             eg.surface,
-            SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Cylinder { .. }
+            SurfaceGeometry::Nurbs(_)
+                | SurfaceGeometry::Cylinder { .. }
+                | SurfaceGeometry::Cone { .. }
         ) && (!direct_apex_anchor_edge || setback_n3);
 
         // §28.H Session 2 — build per-anchor planner override.  For
