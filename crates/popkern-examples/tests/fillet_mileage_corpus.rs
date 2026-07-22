@@ -369,6 +369,13 @@ fn run_corpus() -> Vec<CorpusVerdict> {
         .map(|(name, build)| {
             let outcome = match build() {
                 Err(e) => Err(format!("{e}")),
+                Ok(part) if part.brep().faces.is_empty() => {
+                    // An empty body meshes to zero edges and every
+                    // downstream gate passes VACUOUSLY (measured: the
+                    // notched flange's subtract emptied the body and
+                    // "passed watertight" — PK-173's real story).
+                    Err("EMPTY BODY (vacuous)".to_string())
+                }
                 Ok(part) => match part.open_edge_count() {
                     Err(e) => Err(format!("open_edge_count: {e}")),
                     Ok(opens) => Ok(opens),
@@ -421,10 +428,13 @@ fn corpus_pass_rate_holds_baseline() {
     //   mixed_corner_block — V-free corner class at 30x scale serves
     //     0.21 off-surface, check-9 catch (PK-171);
     //   angled_rib_plate — strip interference decline on the skewed
-    //     rib junction (legitimate transactional decline; recorded).
+    //     rib junction (legitimate transactional decline; recorded);
+    //   notched_flange — the rim-overlapping key subtract EMPTIES the
+    //     body; formerly a vacuous green (empty mesh = zero opens),
+    //     now an explicit failure (PK-173).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 14;
+    const BASELINE: usize = 13;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
@@ -451,6 +461,9 @@ fn corpus_occ_oracle_leg() {
     let mut failures: Vec<String> = Vec::new();
     for (name, build) in corpus() {
         let Ok(part) = build() else { continue };
+        if part.brep().faces.is_empty() {
+            continue;
+        }
         let Ok(0) = part.open_edge_count() else {
             continue;
         };
@@ -485,8 +498,8 @@ fn corpus_occ_oracle_leg() {
     //   bossed_housing / turned_bushing / double_boss_plate — the
     //     curved-seam TORUS strip exports a wire OCC rejects
     //     (SelfIntersectingWire + UnorientableShape; PK-172);
-    //   notched_flange — empty CLOSED_SHELL face list entity in the
-    //     export (reader WARN; PK-173).
+    // (The notched flange's former 'empty CLOSED_SHELL' entry was a
+    // vacuous empty body — excluded above, tracked as PK-173.)
     // Raise when classes close; NEVER lower.
     const OCC_BASELINE: usize = 10;
     for f in &failures {

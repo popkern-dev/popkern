@@ -189,6 +189,65 @@ fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
     }
 }
 
+/// Transform an edge's curve COHERENTLY with its trim parameters.
+///
+/// `Circle` and `Arc` parameterize angle against a basis DERIVED
+/// from the normal (`circle_basis`), which is not covariant: rotating
+/// the normal silently changes where every angle points, so a
+/// transformed rim edge's stored t-range (and an arc's stored
+/// angles) referenced the OLD basis and the evaluated endpoints
+/// drifted around the rim by the basis shift (measured: rotate_y of
+/// a plain cylinder Part failed loop closure with gap = r·√2 — the
+/// chord of the 90° basis rotation; the corpus cross-drilled boss
+/// declined at the rotate). The angular kinds get their angles and
+/// trim range remapped into the NEW derived basis; reflections flip
+/// the sweep faithfully.
+pub(super) fn transform_curve_on_edge(
+    curve: &mut crate::geometry::curve::CurveOnEdge,
+    t: &Transform3,
+) {
+    use crate::geometry::analytic_curves::circle_basis;
+    let old_normal = match &curve.geometry {
+        CurveGeometry::Circle { normal, .. } | CurveGeometry::Arc { normal, .. } => Some(*normal),
+        _ => None,
+    };
+    curve.geometry = transform_curve(&curve.geometry, t);
+    let Some(old_normal) = old_normal else {
+        return;
+    };
+    let new_normal = match &curve.geometry {
+        CurveGeometry::Circle { normal, .. } | CurveGeometry::Arc { normal, .. } => *normal,
+        _ => return,
+    };
+    let (u0, v0) = circle_basis(old_normal);
+    let (u1, v1) = circle_basis(new_normal);
+    let tu0 = t.apply_direction(&u0);
+    let tv0 = t.apply_direction(&v0);
+    let (c, s) = (tu0.dot(&u1), tu0.dot(&v1));
+    let delta = s.atan2(c);
+    // Proper rotations map v0 to (−sinδ·u1 + cosδ·v1); reflections
+    // land on the opposite handedness and the sweep direction flips.
+    let flipped = tv0.dot(&v1) * c - tv0.dot(&u1) * s < 0.0;
+    let map = |theta: f64| {
+        if flipped {
+            delta - theta
+        } else {
+            theta + delta
+        }
+    };
+    curve.t_start = map(curve.t_start);
+    curve.t_end = map(curve.t_end);
+    if let CurveGeometry::Arc {
+        start_angle,
+        end_angle,
+        ..
+    } = &mut curve.geometry
+    {
+        *start_angle = map(*start_angle);
+        *end_angle = map(*end_angle);
+    }
+}
+
 /// Transform a `CurveGeometry` by a rigid transform.
 pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeometry {
     match curve {
@@ -351,7 +410,7 @@ impl crate::topology::BRep {
         }
         for (_, edge) in &mut result.edges {
             if let Some(ref mut curve_on_edge) = edge.curve {
-                curve_on_edge.geometry = transform_curve(&curve_on_edge.geometry, t);
+                transform_curve_on_edge(curve_on_edge, t);
             }
         }
         result.attach_planar_pcurves()?;
