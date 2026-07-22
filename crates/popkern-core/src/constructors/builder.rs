@@ -360,9 +360,14 @@ mod tests {
         let f = b.add_face(shell);
         b.add_loop(&[he01, he15, he54, he40], f).unwrap();
 
-        // Top (y=1): v3->v7->v6->v2
+        // Top (y=1): v3->v7->v6->v2. (Check 9 regression note: this
+        // loop shipped with he65 — the (v5,v6) side, whose v5
+        // endpoint sits a full unit off the y=1 plane — swapped in
+        // place of he62 for its entire life; the curve-surface
+        // validation was a stub and nothing structural inspects loop
+        // vertex continuity against geometry.)
         let f = b.add_face(shell);
-        b.add_loop(&[he37, he76, he65, he23], f).unwrap();
+        b.add_loop(&[he37, he76, he62, he23], f).unwrap();
 
         // Left (x=0): v0->v4->v7->v3
         let f = b.add_face(shell);
@@ -370,7 +375,7 @@ mod tests {
 
         // Right (x=1): v1->v2->v6->v5
         let f = b.add_face(shell);
-        b.add_loop(&[he12, he26, he62, he51], f).unwrap();
+        b.add_loop(&[he12, he26, he65, he51], f).unwrap();
 
         // Attach geometry
         b.brep_mut().attach_geometry().unwrap();
