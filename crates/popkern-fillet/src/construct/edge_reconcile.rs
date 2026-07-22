@@ -324,93 +324,41 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
             );
         }
         if angular && span < period * (1.0 - 1e-6) {
-            // MATERIAL CONTAINMENT vote: project each candidate arc
-            // midpoint into a PLANAR adjacent face's uv and even-odd
-            // test it against the face's boundary polygon (excluding
-            // this edge) — the wrong side's midpoint lands in the
-            // removed feature's VOID. Centroid-distance votes
-            // measured wrong twice: per-edge sampling biased to the
-            // notch's stub cluster, and even the length-weighted
-            // centroid sat nearer the gap arc on the notched flange.
-            let planar_face = [face_1, face_2].into_iter().find(|&f| {
-                matches!(
-                    brep.faces
-                        .get(f)
-                        .and_then(|fd| fd.surface.as_ref())
-                        .map(|sf| &sf.geometry),
-                    Some(SurfaceGeometry::Plane { .. })
-                )
-            });
-            let inside_planar_face = |p: &popkern_core::geometry::Point3| -> Option<bool> {
-                let f = planar_face?;
-                let fd = brep.faces.get(f)?;
-                let (origin, u_axis, v_axis) = match fd.surface.as_ref().map(|sf| &sf.geometry) {
-                    Some(SurfaceGeometry::Plane {
-                        origin,
-                        u_axis,
-                        v_axis,
-                        ..
-                    }) => (*origin, *u_axis, *v_axis),
-                    _ => return None,
-                };
-                let to_uv = |q: &popkern_core::geometry::Point3| {
-                    let d = *q - origin;
-                    (d.dot(&u_axis), d.dot(&v_axis))
-                };
-                let mut poly: Vec<(f64, f64)> = Vec::new();
-                let l = brep.loops.get(fd.outer_loop)?;
-                let lstart = l.half_edge;
-                let mut cur = lstart;
-                for _ in 0..brep.half_edges.len() {
-                    let hd = brep.half_edges.get(cur)?;
-                    if hd.edge != edge
-                        && let Some(c) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref())
-                    {
-                        for i in 0..8 {
-                            let t = c.t_start + (c.t_end - c.t_start) * i as f64 / 8.0;
-                            poly.push(to_uv(&c.geometry.point_at(t)));
-                        }
-                    }
-                    cur = hd.next;
-                    if cur == lstart {
-                        break;
-                    }
-                }
-                if poly.len() < 3 {
-                    return None;
-                }
-                let (pu, pv) = to_uv(p);
-                let mut crossings = 0;
-                for i in 0..poly.len() {
-                    let (x0, y0) = poly[i];
-                    let (x1, y1) = poly[(i + 1) % poly.len()];
-                    if (y0 > pv) != (y1 > pv) {
-                        let xc = x0 + (pv - y0) / (y1 - y0) * (x1 - x0);
-                        if xc > pu {
-                            crossings += 1;
-                        }
-                    }
-                }
-                Some(crossings % 2 == 1)
-            };
-            let mid_short = triple
-                .curve_3d
-                .point_at(0.5 * (triple.t_start + triple.t_end));
-            let comp_mid_t = 0.5 * (triple.t_start + triple.t_end) + 0.5 * period;
-            let mid_comp = triple.curve_3d.point_at(comp_mid_t);
-            let short_in = inside_planar_face(&mid_short);
-            let comp_in = inside_planar_face(&mid_comp);
-            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
-                eprintln!(
-                    "  [reconcile] edge {edge:?}: side vote short_in={short_in:?} comp_in={comp_in:?}"
-                );
-            }
-            if (short_in, comp_in) == (Some(false), Some(true)) {
-                // Complement wins: sweep the other way round.
-                pick_t0 = triple.t_end;
-                pick_t1 = triple.t_start + period;
+            // PRIOR-CURVE side vote: both candidate midpoints lie ON
+            // the intersection circle, so face containment is
+            // degenerate for them (measured: every vote came back
+            // (false, false)). The edge's PRE-REWRITE curve carries
+            // the topological side — the interrupted-rim split
+            // authors the long arc, and a genuinely stale chord's
+            // midpoint sits nearest the short span (preserving the
+            // historical pick for the straight cases).
+            let prior_mid = brep
+                .edges
+                .get(edge)
+                .and_then(|e| e.curve.as_ref())
+                .map(|c| c.geometry.point_at(0.5 * (c.t_start + c.t_end)));
+            if let Some(pm) = prior_mid {
+                let mid_short = triple
+                    .curve_3d
+                    .point_at(0.5 * (triple.t_start + triple.t_end));
+                let comp_mid_t = 0.5 * (triple.t_start + triple.t_end) + 0.5 * period;
+                let mid_comp = triple.curve_3d.point_at(comp_mid_t);
                 if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
-                    eprintln!("  [reconcile] edge {edge:?}: complement arc chosen (material side)");
+                    eprintln!(
+                        "  [reconcile] edge {edge:?}: prior-mid vote d_short={:.3} d_comp={:.3}",
+                        mid_short.distance_to(&pm),
+                        mid_comp.distance_to(&pm)
+                    );
+                }
+                if mid_comp.distance_to(&pm) < mid_short.distance_to(&pm) {
+                    // Complement wins: sweep the other way round.
+                    pick_t0 = triple.t_end;
+                    pick_t1 = triple.t_start + period;
+                    if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                        eprintln!(
+                            "  [reconcile] edge {edge:?}: complement arc chosen (prior side)"
+                        );
+                    }
                 }
             }
         }

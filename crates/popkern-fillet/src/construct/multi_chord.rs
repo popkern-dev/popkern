@@ -273,6 +273,48 @@ pub(super) fn apply_multi_chord_for_face(
             // chord when the anchors do not invert onto the trim
             // (corner sub-chords off the trim span).
             let t3d = trim_subcurve_between(&trim.trim_3d, &p_a, &p_b, tolerance)
+                .or_else(|| {
+                    // WHOLE-TRIM identity: when the anchors ARE the
+                    // trim's own endpoints, the sub-span is the trim
+                    // itself — the subcurve extraction can fail on a
+                    // near-full-span inversion, and the chord fallback
+                    // then cuts across territory the trim routes
+                    // around (measured: the notched flange's
+                    // interrupted-rim trim spans ~331°; the chord
+                    // crossed the notch void and the split minted a
+                    // phantom top-face fragment inside it).
+                    use popkern_core::geometry::curve::CurveEval;
+                    let (t0, t1) = trim.trim_3d.parameter_range();
+                    let s0 = trim.trim_3d.point_at(t0);
+                    let s1 = trim.trim_3d.point_at(t1);
+                    // Terminal-construction noise between Phase-A
+                    // anchors and the trim's own row ends measures
+                    // ~2e-2 on the notched flange; gate relative to
+                    // the trim's span.
+                    let span = s0
+                        .distance_to(&s1)
+                        .max(trim.trim_3d.point_at(0.5 * (t0 + t1)).distance_to(&s0));
+                    let tol_d = (tolerance.linear() * 100.0).max(span * 0.02);
+                    let forward = s0.distance_to(&p_a) < tol_d && s1.distance_to(&p_b) < tol_d;
+                    let reverse = s0.distance_to(&p_b) < tol_d && s1.distance_to(&p_a) < tol_d;
+                    (forward || reverse).then(|| {
+                        // Snap the trim's endpoint CPs onto the anchor
+                        // vertices (terminal noise ~2e-2); split_face
+                        // requires exact endpoint-vertex identity, and
+                        // the end-of-pipeline reconcile re-trims the
+                        // authored edge back onto the exact analytic
+                        // intersection.
+                        let mut t = trim.trim_3d.clone();
+                        let (want_first, want_last) = if forward { (p_a, p_b) } else { (p_b, p_a) };
+                        if let Some(first) = t.control_points.first_mut() {
+                            *first = want_first;
+                        }
+                        if let Some(last) = t.control_points.last_mut() {
+                            *last = want_last;
+                        }
+                        t
+                    })
+                })
                 .unwrap_or_else(|| helpers::line_nurbs(&p_a, &p_b));
             let pc = match helpers::pcurve_for_face_along(brep, target, &t3d) {
                 Ok(pc) => pc,
