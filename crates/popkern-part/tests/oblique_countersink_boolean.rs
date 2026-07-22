@@ -10,7 +10,7 @@
 //! BRepCheck_IntersectingWires.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_part::{Dir, FaceQuery, Plane, Profile, SurfaceKind};
+use popkern_part::{Dir, EdgeQuery, FaceQuery, Plane, Profile, SurfaceKind};
 
 /// Vertical-ray parity containment against the default-quality mesh
 /// (the cone_band_dressup instrument, ray nudged off seam columns).
@@ -222,4 +222,73 @@ fn stand_class_oblique_countersink_serves_cone_band() {
     cut.brep()
         .validate()
         .expect("stand-class countersink validates");
+}
+
+/// The full stand-block variant: the stand-class countersink on the
+/// REAL block silhouette — smooth arc front (a true Cylinder wall),
+/// fanned rear facets, and the block's 2 mm rear-vertical chamfers
+/// applied BEFORE the cuts — so the sink boolean runs against the
+/// real 13-face body (the plate-silhouette variant above passes;
+/// the real block failed with a valence-1 vertex and 5.8e1
+/// watertightness gaps).
+#[test]
+fn stand_block_silhouette_countersink_serves_cone_band() {
+    let fan = 12.0_f64.to_radians();
+    let block = Profile::on(Plane::XY)
+        .path(58.0, 0.0)
+        .arc_to((0.0, 58.0), (-58.0, 0.0))
+        .line_to(-44.0, -56.0 + 44.0 * fan.tan())
+        .line_to(0.0, -56.0)
+        .line_to(44.0, -56.0 + 44.0 * fan.tan())
+        .close()
+        .extrude(125.0)
+        .expect("block")
+        .chamfer(2.0, |e: EdgeQuery| {
+            e.straight()
+                .direction(Dir::Z)
+                .between(SurfaceKind::Plane, SurfaceKind::Plane)
+        })
+        .expect("rear chamfers");
+    let shave = Profile::on(Plane::XY)
+        .rect(600.0, 600.0)
+        .extrude(200.0)
+        .expect("shave slab")
+        .rotate_x(18.0_f64.to_radians())
+        .expect("tilt")
+        .translate(0.0, 0.0, 100.0)
+        .expect("lift");
+    let block = block.subtract(&shave).expect("tilted top");
+    let seat = Profile::on(Plane::xy_at(70.0))
+        .circle(35.2)
+        .extrude(60.0)
+        .expect("seat");
+    let block = block.subtract(&seat).expect("seat cut");
+    let sink = Profile::on(Plane::xy_at(82.0))
+        .circle(34.6)
+        .extrude(36.0)
+        .expect("sink cyl")
+        .draft(-8.5_f64.to_radians(), Dir::Z, |f: FaceQuery| {
+            f.kind(SurfaceKind::Cylinder)
+        })
+        .expect("sink draft");
+    let cut = block.subtract(&sink).expect("block countersink");
+    assert_eq!(
+        cut.open_edge_count().expect("mesh"),
+        0,
+        "stand-block countersink opens the shell"
+    );
+    let cone_faces = cut
+        .brep()
+        .faces
+        .values()
+        .filter(|f| {
+            f.surface
+                .as_ref()
+                .is_some_and(|s| matches!(s.geometry, SurfaceGeometry::Cone { .. }))
+        })
+        .count();
+    assert_eq!(cone_faces, 1, "stand-block countersink must serve the cone");
+    cut.brep()
+        .validate()
+        .expect("stand-block countersink validates");
 }
