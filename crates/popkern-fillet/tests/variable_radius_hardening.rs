@@ -327,3 +327,79 @@ fn varying_laws_matched_corner_close_swept_seam() {
         Err(err) => panic!("matched-corner varying pair must not decline: {err:?}"),
     }
 }
+
+/// PK-160: varying laws whose radii DISAGREE at the shared corner
+/// (0.08 meets 0.05). The seam exits through the shared support
+/// plane: the swept W-exit branch marches the strip×strip
+/// intersection from the far anchor (tangent predictor, singular
+/// start toward the near anchor), moves the near anchor to the exit,
+/// and re-authors the Δr stub and rail as marched surface×plane
+/// intersections. Formerly: stale tangle, 76 welded opens, 0.033
+/// off-surface seam.
+#[test]
+fn varying_laws_mismatched_corner_close_swept_exit() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let mut chosen: Option<(
+        popkern_core::topology::EdgeHandle,
+        popkern_core::topology::EdgeHandle,
+    )> = None;
+    'outer: for (e1, d1) in brep.edges.iter() {
+        for (e2, d2) in brep.edges.iter() {
+            if e1 >= e2 {
+                continue;
+            }
+            let v1 = {
+                let he = &brep.half_edges[d1.half_edge];
+                [he.origin, brep.half_edges[he.twin].origin]
+            };
+            let v2 = {
+                let he = &brep.half_edges[d2.half_edge];
+                [he.origin, brep.half_edges[he.twin].origin]
+            };
+            if v1.iter().any(|v| v2.contains(v)) {
+                chosen = Some((e1, e2));
+                break 'outer;
+            }
+        }
+    }
+    let (e1, e2) = chosen.expect("cube has adjacent edges");
+    let specs = vec![
+        FilletSpec {
+            edge: e1,
+            radius: FilletRadius::Variable {
+                start: 0.08,
+                end: 0.12,
+            },
+        },
+        FilletSpec {
+            edge: e2,
+            radius: FilletRadius::Variable {
+                start: 0.08,
+                end: 0.05,
+            },
+        },
+    ];
+    let result = fillet_edges(
+        &brep,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    );
+    match result {
+        Ok(BlendResult { brep: out, .. }) => {
+            let opens = welded_open_edges(&out);
+            assert_eq!(
+                opens, 0,
+                "mismatched-corner varying pair must close through the swept W-exit"
+            );
+            let errors = out.validate_all();
+            assert!(
+                errors.is_empty(),
+                "mismatched-corner varying pair shipped an invalid body: {errors:?}"
+            );
+            eprintln!("[vr-matrix] swept mismatched corner: COMPLETED watertight");
+        }
+        Err(err) => panic!("mismatched-corner varying pair must not decline: {err:?}"),
+    }
+}

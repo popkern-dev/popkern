@@ -142,7 +142,7 @@ pub(super) fn plane_sinusoid(
     Ok(Pcurve::sinusoidal(0.0, v_const, v_cos, v_sin, u_from, u_to))
 }
 
-pub(super) fn params_reversed(params: &[f64]) -> Vec<f64> {
+pub(in crate::construct) fn params_reversed(params: &[f64]) -> Vec<f64> {
     let mut rev: Vec<f64> = params.iter().map(|t| 1.0 - t).collect();
     rev.reverse();
     rev

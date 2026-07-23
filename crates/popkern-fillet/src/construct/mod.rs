@@ -9,6 +9,7 @@ mod blend_seam_corner_geometry;
 mod blend_seam_corner_march;
 mod blend_seam_corner_repair;
 mod blend_seam_corner_swept;
+mod blend_seam_corner_swept_exit;
 pub(crate) mod blend_topo;
 mod boundary_support_frames;
 mod bridge_warnings;

@@ -68,6 +68,21 @@ pub(super) fn repair_pair_corner_swept(
         );
     }
 
+    // Mismatched corner radii: the near anchor sits on ONE strip
+    // only and the seam exits through the support plane — the W-exit
+    // branch.
+    let a_on_n = surface_distance(&geom_n, &a_pos, None) <= pos_tol;
+    let a_on_p = surface_distance(&geom_p, &a_pos, None) <= pos_tol;
+    match (a_on_n, a_on_p) {
+        (true, true) => {}
+        (true, false) | (false, true) => {
+            return super::blend_seam_corner_swept_exit::repair_swept_mismatch(
+                brep, c, &geom_n, &geom_p, a_on_n, tolerance,
+            );
+        }
+        (false, false) => return Err(Reason::StubUnresolved),
+    }
+
     // March the seam: chord samples refined onto BOTH strips by
     // alternating projection. Interior samples only — the anchors
     // are trusted fixed endpoints.
@@ -82,28 +97,8 @@ pub(super) fn repair_pair_corner_swept(
             a_pos.z + f * (b_pos.z - a_pos.z),
         );
         if i > 0 && i < SAMPLES - 1 {
-            // Alternating projection converges linearly (tangential
-            // sliding near shallow intersections keeps the step size
-            // above any fixed cutoff) — acceptance is by RESIDUAL:
-            // the point must sit on both strips within the gate.
-            for _ in 0..ROUNDS {
-                let (un, vn) = project_seeded(&geom_n, &p, hint_n).ok_or(Reason::StubUnresolved)?;
-                p = geom_n.point_at(un, vn);
-                let (up, vp) = project_seeded(&geom_p, &p, hint_p).ok_or(Reason::StubUnresolved)?;
-                let q = geom_p.point_at(up, vp);
-                let moved = p.distance_to(&q);
-                p = q;
-                hint_n = Some((un, vn));
-                hint_p = Some((up, vp));
-                if moved < pos_tol * 1e-3 {
-                    break;
-                }
-                // Residual early-break: on both strips already.
-                if moved < pos_tol * 0.05 && surface_distance(&geom_n, &p, hint_n) <= pos_tol * 0.5
-                {
-                    break;
-                }
-            }
+            p = refine_onto_both(&geom_n, &geom_p, p, &mut hint_n, &mut hint_p, pos_tol)
+                .ok_or(Reason::StubUnresolved)?;
             let off_n = surface_distance(&geom_n, &p, hint_n);
             let off_p = surface_distance(&geom_p, &p, hint_p);
             if off_n > pos_tol || off_p > pos_tol {
@@ -170,7 +165,39 @@ pub(super) fn repair_pair_corner_swept(
     Ok(())
 }
 
-fn project_seeded(
+/// Alternating-projection refinement of one point onto BOTH
+/// surfaces (residual-gated linear iteration; hint-seeded Newton
+/// projections keep the walk on the corner-local chart branch).
+/// Returns the refined point; the caller re-checks residuals.
+pub(super) fn refine_onto_both(
+    geom_a: &SurfaceGeometry,
+    geom_b: &SurfaceGeometry,
+    start: Point3,
+    hint_a: &mut Option<(f64, f64)>,
+    hint_b: &mut Option<(f64, f64)>,
+    pos_tol: f64,
+) -> Option<Point3> {
+    let mut p = start;
+    for _ in 0..ROUNDS {
+        let (ua, va) = project_seeded(geom_a, &p, *hint_a)?;
+        p = geom_a.point_at(ua, va);
+        let (ub, vb) = project_seeded(geom_b, &p, *hint_b)?;
+        let q = geom_b.point_at(ub, vb);
+        let moved = p.distance_to(&q);
+        p = q;
+        *hint_a = Some((ua, va));
+        *hint_b = Some((ub, vb));
+        if moved < pos_tol * 1e-3 {
+            break;
+        }
+        if moved < pos_tol * 0.05 && surface_distance(geom_a, &p, *hint_a) <= pos_tol * 0.5 {
+            break;
+        }
+    }
+    Some(p)
+}
+
+pub(super) fn project_seeded(
     geom: &SurfaceGeometry,
     p: &Point3,
     hint: Option<(f64, f64)>,
@@ -184,7 +211,11 @@ fn project_seeded(
     }
 }
 
-fn surface_distance(geom: &SurfaceGeometry, p: &Point3, hint: Option<(f64, f64)>) -> f64 {
+pub(super) fn surface_distance(
+    geom: &SurfaceGeometry,
+    p: &Point3,
+    hint: Option<(f64, f64)>,
+) -> f64 {
     match project_seeded(geom, p, hint) {
         Some((u, v)) => p.distance_to(&geom.point_at(u, v)),
         None => f64::INFINITY,
