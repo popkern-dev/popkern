@@ -54,6 +54,7 @@ pub mod highlight_line;
 pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
+mod interference_seam;
 pub mod modify;
 pub mod modify_inplace;
 pub(crate) mod modify_inplace_closed_sweep;
@@ -275,16 +276,15 @@ fn fillet_edges_internal(
             fillet_b: ov.fillet_b,
         });
     }
-    // Strip interference: decline transactionally (PK-140).
-    if let Some(hit) = overlap::detect_strip_interference(&edge_geometries, brep, &tolerance)
-        .into_iter()
-        .next()
-    {
-        return Err(BlendError::FilletInterference {
-            fillet_a: hit.fillet_a,
-            fillet_b: hit.fillet_b,
-        });
-    }
+    // Strip interference: complete parallel-cylinder collisions by
+    // seam trimming (PK-159); every other configuration keeps the
+    // transactional decline (PK-140).
+    interference_seam::complete_or_decline_interference(
+        &mut edge_geometries,
+        brep,
+        &tolerance,
+        &mut overlap_warnings,
+    )?;
     emit!(
         progress::FilletPhase::DetectOverlaps,
         t3,
@@ -395,6 +395,10 @@ fn fillet_edges_internal(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
+    // PK-159: weld the duplicated mid-face seam of interference-
+    // completed parallel fillets BEFORE the terminal settle so the
+    // corner machinery sees the exact seam anchors.
+    construct::parallel_seam_weld::weld_parallel_seams(brep, &mut apply_result.brep, &tolerance);
     // PK-148: settle stale chain-end corners once every pcurve
     // author has run.
     apply_result.repair_report.terminal_arc_trim =

@@ -93,6 +93,7 @@ pub(crate) mod merge;
 mod mixed_radius_direct_apex;
 mod multi_chord;
 mod multi_chord_span_geometry;
+pub(crate) mod parallel_seam_weld;
 pub(crate) mod pcurve_attach;
 mod pcurve_measured_repair;
 mod pcurve_refit;

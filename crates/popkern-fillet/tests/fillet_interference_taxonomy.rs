@@ -16,25 +16,30 @@ fn default_tol() -> Tolerance {
     Tolerance::default()
 }
 
-/// Variant for the mid-face collision class: the engine cannot yet
-/// construct blend×blend intersections, so the ONLY commercial-grade
-/// outcome is the structured transactional decline (PK-140 stage 3
-/// measured the alternative: one band applied trimmed at the other's
-/// rail, the second fillet silently dropped, zero warnings).
-fn run_class_expect_interference_decline(label: &str, brep: &BRep, specs: &[FilletSpec]) {
+/// Variant for the mid-face collision class: PK-159 completes
+/// PARALLEL-cylinder collisions by seam trimming (the analytic
+/// circle×circle intersection line), so the commercial-grade outcome
+/// is a WATERTIGHT completion; non-parallel or degenerate pairs keep
+/// the structured FilletInterference decline.
+fn run_class_expect_seam_completion(label: &str, brep: &BRep, specs: &[FilletSpec]) {
     let result = fillet_edges(brep, specs, &FilletOptions::default(), default_tol(), None);
     match result {
-        Ok(_) => panic!(
-            "{label}: completed — blend-blend intersection is not constructed, a completion \
-             here is the silent wrong-shape class; must decline with FilletInterference"
-        ),
+        Ok(BlendResult { brep: out, .. }) => {
+            let opens = welded_open_edges(&out);
+            assert_eq!(
+                opens, 0,
+                "{label}: seam completion must be welded-watertight"
+            );
+            let errors = out.validate_all();
+            assert!(
+                errors.is_empty(),
+                "{label}: seam completion shipped an invalid body: {errors:?}"
+            );
+            eprintln!("[interference] {label}: COMPLETED watertight via seam trimming");
+        }
         Err(err) => {
             let msg = format!("{err:?}");
-            assert!(
-                msg.contains("FilletInterference"),
-                "{label}: decline must be the structured FilletInterference class: {msg}"
-            );
-            eprintln!("[interference] {label}: DECLINED structured (FilletInterference)");
+            panic!("{label}: parallel collision must complete via the PK-159 seam: {msg}");
         }
     }
 }
@@ -130,7 +135,7 @@ fn mid_face_collision_declines_or_completes() {
         }
     }
     let (e1, e2) = pair.expect("cube has an opposite-edge pair");
-    run_class_expect_interference_decline(
+    run_class_expect_seam_completion(
         "mid-face collision r=0.6+0.6 across width 1.0",
         &brep,
         &[
