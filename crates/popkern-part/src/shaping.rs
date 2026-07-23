@@ -292,6 +292,7 @@ impl Part {
             face_a,
             face_b,
             radius,
+            radius_end: None,
             attach: popkern_fillet::FaceBlendAttach::TrimBoth,
         };
         let result = popkern_fillet::face_blend(self.brep(), &spec, self.tolerance())

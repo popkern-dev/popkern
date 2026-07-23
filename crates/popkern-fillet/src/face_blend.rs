@@ -43,8 +43,18 @@ pub struct FaceBlendSpec {
     pub face_a: FaceHandle,
     /// Second support face.
     pub face_b: FaceHandle,
-    /// Rolling-ball radius (constant; variable laws are stage 3).
+    /// Rolling-ball radius (the radius at the backward march
+    /// extremity when a law is set).
     pub radius: f64,
+    /// PK-162: linear radius law along the marched spine —
+    /// `Some(end)` varies the radius linearly from `radius` at the
+    /// backward extremity to `end` at the forward extremity
+    /// (consistent with [`crate::FilletRadius::Variable`]). `None`
+    /// keeps the constant law. Variable laws serve the sheet body;
+    /// `TrimBoth` attach with a law declines structurally (the wall
+    /// trim curves for law-varying contacts are the recorded
+    /// follow-up).
+    pub radius_end: Option<f64>,
     /// Attach policy.
     pub attach: FaceBlendAttach,
 }
@@ -273,17 +283,18 @@ pub fn face_blend(
         value: format!("{:?}", spec.face_a),
         reason: "degenerate support tangent at the gap-medial seed".into(),
     })?;
-    let solve = |seed_uv0: (f64, f64),
-                 seed_uv1: (f64, f64),
-                 spine_point: Point3,
-                 tangent: Vec3|
+    let solve_r = |seed_uv0: (f64, f64),
+                   seed_uv1: (f64, f64),
+                   spine_point: Point3,
+                   tangent: Vec3,
+                   radius: f64|
      -> Result<ContactSolution, String> {
         let request = ContactRequest {
             surface_0: a.surface as &dyn SurfaceEval,
             surface_1: b.surface as &dyn SurfaceEval,
             side_0: side_a,
             side_1: side_b,
-            radius: spec.radius,
+            radius,
             initial_uv0: seed_uv0,
             uv0_range: a.uv_range,
             initial_uv1: seed_uv1,
@@ -293,6 +304,13 @@ pub fn face_blend(
         };
         solve_rolling_ball_contact(&request, &options, &tolerance, None)
             .map_err(|e| format!("{e:?}"))
+    };
+    let solve = |seed_uv0: (f64, f64),
+                 seed_uv1: (f64, f64),
+                 spine_point: Point3,
+                 tangent: Vec3|
+     -> Result<ContactSolution, String> {
+        solve_r(seed_uv0, seed_uv1, spine_point, tangent, spec.radius)
     };
     let first =
         solve(uva, uvb, centre, seed_tangent).map_err(|reason| BlendError::InvalidParameter {
@@ -351,6 +369,37 @@ pub fn face_blend(
         });
     }
 
+    // PK-162: linear radius law — re-solve every station at its
+    // law radius (same spine stations, warm-started from the
+    // constant-radius probe march).
+    let chain = if let Some(r_end) = spec.radius_end {
+        if !(r_end.is_finite() && r_end > 0.0) {
+            return Err(BlendError::InvalidParameter {
+                parameter: "radius_end".into(),
+                value: format!("{r_end}"),
+                reason: "law end radius must be finite and positive".into(),
+            });
+        }
+        if spec.attach == FaceBlendAttach::TrimBoth {
+            return Err(BlendError::AttachDeclined {
+                mechanism: "variable-law trim".into(),
+                detail: "variable radius law serves the sheet body only; TrimBoth wall \
+                         trimming for law-varying contacts is the recorded follow-up"
+                    .into(),
+            });
+        }
+        apply_radius_law(
+            &chain,
+            spec.radius,
+            r_end,
+            &march_tangent,
+            &solve_r,
+            &tolerance,
+        )?
+    } else {
+        chain
+    };
+
     let resolver = |target: Point3, warm: &ContactSolution| -> Option<ContactSolution> {
         let tangent = march_tangent(warm.uv0, warm.uv1)?;
         solve(warm.uv0, warm.uv1, target, tangent).ok()
@@ -370,4 +419,73 @@ fn on_range_border(uv: (f64, f64), range: ((f64, f64), (f64, f64))) -> bool {
 /// Fit helper shared with the sheet builder.
 pub(crate) fn polyline_nurbs(points: &[Point3]) -> Result<NurbsCurve, String> {
     crate::center_curve::fit_nurbs_through_points(points)
+}
+
+/// PK-162: re-solve every marched station at its linear-law radius.
+/// The spine stations (centres and plane normals) come from the
+/// constant-radius probe march; each station's contact pair shifts
+/// within its own station plane as the radius changes. Failing END
+/// stations shrink the span (the larger radius exits the trim
+/// earlier); a failing INTERIOR station declines the whole law.
+/// Station re-solve callback: seeds, spine point, plane normal,
+/// radius.
+type StationSolve<'a> =
+    &'a dyn Fn((f64, f64), (f64, f64), Point3, Vec3, f64) -> Result<ContactSolution, String>;
+
+fn apply_radius_law(
+    chain: &[ContactSolution],
+    r_start: f64,
+    r_end: f64,
+    march_tangent: &dyn Fn((f64, f64), (f64, f64)) -> Option<Vec3>,
+    solve_r: StationSolve<'_>,
+    _tolerance: &Tolerance,
+) -> Result<Vec<ContactSolution>, BlendError> {
+    // Arc-length stations along the centre polyline.
+    let mut acc = vec![0.0_f64];
+    for w in chain.windows(2) {
+        let d = w[1].center.distance_to(&w[0].center);
+        acc.push(acc.last().copied().unwrap_or(0.0) + d.max(1e-15));
+    }
+    let total = *acc.last().unwrap_or(&1.0);
+    let mut out: Vec<Option<ContactSolution>> = Vec::with_capacity(chain.len());
+    for (i, sol) in chain.iter().enumerate() {
+        let t = acc[i] / total;
+        let r = r_start + (r_end - r_start) * t;
+        let Some(tangent) = march_tangent(sol.uv0, sol.uv1) else {
+            out.push(None);
+            continue;
+        };
+        out.push(solve_r(sol.uv0, sol.uv1, sol.center, tangent, r).ok());
+    }
+    // Trim failing ends; decline on interior holes.
+    let first_ok = out.iter().position(|s| s.is_some());
+    let last_ok = out.iter().rposition(|s| s.is_some());
+    let (Some(lo), Some(hi)) = (first_ok, last_ok) else {
+        return Err(BlendError::InvalidParameter {
+            parameter: "radius_end".into(),
+            value: format!("{r_end}"),
+            reason: "no station admits the law radius".into(),
+        });
+    };
+    let mut resolved = Vec::with_capacity(hi - lo + 1);
+    for slot in out.into_iter().take(hi + 1).skip(lo) {
+        match slot {
+            Some(s) => resolved.push(s),
+            None => {
+                return Err(BlendError::InvalidParameter {
+                    parameter: "radius_end".into(),
+                    value: format!("{r_end}"),
+                    reason: "law radius failed at an interior spine station".into(),
+                });
+            }
+        }
+    }
+    if resolved.len() < 2 {
+        return Err(BlendError::InvalidParameter {
+            parameter: "radius_end".into(),
+            value: format!("{r_end}"),
+            reason: "law march produced fewer than two sections".into(),
+        });
+    }
+    Ok(resolved)
 }

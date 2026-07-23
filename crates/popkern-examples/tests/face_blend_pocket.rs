@@ -124,6 +124,7 @@ fn trim_both_rect_pocket_attaches_watertight() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 2.0,
+            radius_end: None,
             attach: FaceBlendAttach::TrimBoth,
         },
         tol(),

@@ -66,6 +66,7 @@ fn plane_plane_gap_sheet_blend() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 2.0,
+            radius_end: None,
             attach: FaceBlendAttach::SheetOnly,
         },
         default_tol(),
@@ -119,7 +120,8 @@ fn gap_too_wide_declines_structured() {
         &FaceBlendSpec {
             face_a: wall_a,
             face_b: wall_b,
-            radius: 1.0, // diameter 2 < gap 4 — parallel walls need gap/2
+            radius: 1.0,
+            radius_end: None, // diameter 2 < gap 4 — parallel walls need gap/2
             attach: FaceBlendAttach::SheetOnly,
         },
         default_tol(),
@@ -195,6 +197,7 @@ fn trim_both_through_notch_declines_open_ends() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 1.0,
+            radius_end: None,
             attach: FaceBlendAttach::TrimBoth,
         },
         default_tol(),
@@ -220,6 +223,7 @@ fn sheet_only_v_notch_contacts_analytic() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 1.0,
+            radius_end: None,
             attach: FaceBlendAttach::SheetOnly,
         },
         default_tol(),
@@ -272,6 +276,7 @@ fn trim_both_deep_channel_declines_open_ends() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 2.0,
+            radius_end: None,
             attach: FaceBlendAttach::TrimBoth,
         },
         default_tol(),
@@ -291,6 +296,7 @@ fn trim_both_deep_channel_declines_open_ends() {
             face_a: wall_a,
             face_b: wall_b,
             radius: 2.0,
+            radius_end: None,
             attach: FaceBlendAttach::SheetOnly,
         },
         default_tol(),
@@ -336,6 +342,7 @@ fn touching_faces_decline_structured() {
             face_a: wall_a,
             face_b: wall_a,
             radius: 1.0,
+            radius_end: None,
             attach: FaceBlendAttach::SheetOnly,
         },
         default_tol(),
@@ -345,5 +352,69 @@ fn touching_faces_decline_structured() {
     assert!(
         msg.contains("touch or intersect"),
         "decline must name the touching class: {msg}"
+    );
+}
+
+/// PK-162: linear radius law along the V-notch spine. The tilted
+/// walls make the tangency height analytic PER STATION: contact
+/// y(r) = 16·r/√17 (the r=1 constant pin generalized), so a law
+/// r: 0.6 → 1.2 must produce contacts whose heights match their own
+/// station's law radius — law-aware sections, not a rescaled
+/// constant strip.
+#[test]
+fn variable_law_v_notch_contacts_analytic_per_station() {
+    let brep = v_notch();
+    let (wall_a, wall_b) = notch_walls(&brep);
+    let (r_start, r_end) = (0.6, 1.2);
+    let result = face_blend(
+        &brep,
+        &FaceBlendSpec {
+            face_a: wall_a,
+            face_b: wall_b,
+            radius: r_start,
+            radius_end: Some(r_end),
+            attach: FaceBlendAttach::SheetOnly,
+        },
+        default_tol(),
+    )
+    .expect("V-notch variable-law sheet blend must complete");
+    assert!(result.contacts_a.len() >= 2);
+    // Station fractions from the marched spine (z spans the prism).
+    let zs: Vec<f64> = result.contacts_a.iter().map(|p| p.z).collect();
+    let (z_lo, z_hi) = zs
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), z| {
+            (lo.min(*z), hi.max(*z))
+        });
+    assert!(z_hi - z_lo > 1.0, "law march must span the prism");
+    let mut max_err = 0.0_f64;
+    let mut varied = false;
+    for p in result.contacts_a.iter().chain(result.contacts_b.iter()) {
+        let t = (p.z - z_lo) / (z_hi - z_lo);
+        // The law direction along z depends on the march seed's
+        // tangent sign; accept either orientation.
+        let r_fwd = r_start + (r_end - r_start) * t;
+        let r_rev = r_end + (r_start - r_end) * t;
+        let y_fwd = 16.0 * r_fwd / 17.0_f64.sqrt();
+        let y_rev = 16.0 * r_rev / 17.0_f64.sqrt();
+        let err = (p.y - y_fwd).abs().min((p.y - y_rev).abs());
+        max_err = max_err.max(err);
+        if (p.y - 16.0 * r_start / 17.0_f64.sqrt()).abs() > 0.05 {
+            varied = true;
+        }
+    }
+    assert!(
+        max_err < 1e-6,
+        "law contacts off the analytic per-station tangency: max err {max_err:.3e}"
+    );
+    assert!(varied, "contacts did not vary with the law");
+    result
+        .sheet
+        .validate()
+        .expect("variable-law strip sheet must validate");
+    let errors = result.sheet.validate_all();
+    assert!(
+        errors.is_empty(),
+        "variable-law sheet failed validate_all: {errors:?}"
     );
 }
