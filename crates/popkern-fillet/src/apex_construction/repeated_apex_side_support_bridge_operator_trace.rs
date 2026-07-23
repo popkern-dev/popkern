@@ -52,6 +52,78 @@ pub(super) fn trace_cycle_structure(primitive: &FaceFamilyBridgePrimitivePlan, c
                     );
                 }
             }
+            trace_gap_chain(candidate, cycle, ci);
         }
+    }
+}
+
+/// Walk the gap's outer boundary by VERTEX IDENTITY between the
+/// removed interval's endpoints — the open verification for the
+/// in-place rewrite plan: the chain must close on shared vertex
+/// handles (dead sides chained destination->origin), or the rewrite
+/// needs a pre-weld/connector step first.
+fn trace_gap_chain(
+    candidate: &BRep,
+    cycle: &super::super::repeated_apex_side_support_bridge::FaceFamilyBridgeBoundaryCycle,
+    ci: usize,
+) {
+    let support = cycle.support_interval();
+    if support.len() < 2 {
+        return;
+    }
+    let removed = &support[..support.len() - 1];
+    let Some(first) = candidate.half_edges.get(removed[0]) else {
+        return;
+    };
+    let start_vertex = first.origin;
+    let Some(&last) = removed.last() else { return };
+    let end_vertex = candidate
+        .half_edges
+        .get(last)
+        .and_then(|h| candidate.half_edges.get(h.next))
+        .map(|n| n.origin);
+    let Some(end_vertex) = end_vertex else { return };
+    // Dead sides indexed by destination vertex.
+    let dead: Vec<_> = candidate
+        .half_edges
+        .iter()
+        .filter(|(h, data)| !candidate.half_edges.contains_key(data.twin) && !removed.contains(h))
+        .map(|(h, _)| h)
+        .collect();
+    let dest_of = |h| {
+        candidate
+            .half_edges
+            .get(h)
+            .and_then(|d: &popkern_core::topology::HalfEdge| candidate.half_edges.get(d.next))
+            .map(|n| n.origin)
+    };
+    let mut chain = Vec::new();
+    let mut want = start_vertex;
+    for _ in 0..16 {
+        let Some(&h) = dead
+            .iter()
+            .find(|&&h| dest_of(h) == Some(want) && !chain.contains(&h))
+        else {
+            break;
+        };
+        chain.push(h);
+        want = candidate.half_edges[h].origin;
+        if want == end_vertex {
+            break;
+        }
+    }
+    let closed = want == end_vertex;
+    eprintln!(
+        "[slir] c{ci} gap chain: {} sides, vertex-identity {} (start {start_vertex:?} end {end_vertex:?})",
+        chain.len(),
+        if closed { "CLOSES" } else { "BROKEN" }
+    );
+    for &h in &chain {
+        let d = &candidate.half_edges[h];
+        let p = candidate.vertices[d.origin].position;
+        eprintln!(
+            "[slir]   gap side {h:?} o=({:.3},{:.3},{:.3})",
+            p.x, p.y, p.z
+        );
     }
 }
