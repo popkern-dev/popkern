@@ -47,7 +47,6 @@ pub(super) struct DeferredTrim {
     pub candidate: Option<(f64, NurbsCurve, NurbsCurve)>,
     pub produced_edges: Vec<EdgeHandle>,
 }
-
 /// Resolve the deferred trims. Pushes results or failures.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn process_deferred(
@@ -125,8 +124,52 @@ pub(super) fn process_deferred(
             .get(&d.fillet_edge)
             .map(|v| v.as_slice())
             .unwrap_or(std::slice::from_ref(&d.fillet_edge));
+        // Mid-span descendant filter (PK-141 region siding): chain
+        // REMNANT segments beyond the anchor cuts (corner- and
+        // seam-side pieces) also carry descendant status and seed
+        // the flood onto remainder faces (measured: eg0's region =
+        // the whole wall including the z=0 rim). A descendant
+        // qualifies as a seed only when its midpoint projects to
+        // the INTERIOR of the trim span.
+        // The FULL analytic trim for this (edge_idx, side) — the
+        // deferred candidate's trim_3d is only the longest interior
+        // sub-chord and misclassifies span fractions.
+        let full_trim = trims
+            .iter()
+            .find(|t| t.edge_idx == d.edge_idx && t.side == d.side)
+            .map(|t| &t.trim_3d);
+        let mid_span: Vec<EdgeHandle> = fillet_desc
+            .iter()
+            .copied()
+            .filter(|&e| {
+                let Some((frac, dist)) = full_trim.and_then(|trim| {
+                    super::multi_chord_region_seeding::descendant_trim_fraction(&cand, e, trim)
+                }) else {
+                    return false;
+                };
+                if trace {
+                    eprintln!(
+                        "[mc-region]   desc {e:?} for eg{} side{}: frac {frac:.3} dist {dist:.4}",
+                        d.edge_idx, d.side
+                    );
+                }
+                (0.08..=0.92).contains(&frac)
+            })
+            .collect();
+        let seed_desc: &[EdgeHandle] = if mid_span.is_empty() {
+            fillet_desc
+        } else {
+            &mid_span
+        };
+        if trace && seed_desc.len() != fillet_desc.len() {
+            eprintln!(
+                "[mc-region] mid-span seed filter: {} of {} descendants qualify",
+                seed_desc.len(),
+                fillet_desc.len()
+            );
+        }
         let resolved = d.candidate.as_ref().and_then(|(_, pcurve, trim_3d)| {
-            consumed_region_merge(&mut cand, fillet_desc, sub_faces, &boundary, &claimed).map(
+            consumed_region_merge(&mut cand, seed_desc, sub_faces, &boundary, &claimed).map(
                 |consumed| TrimSplitResult {
                     edge_idx: d.edge_idx,
                     side: d.side,
@@ -164,7 +207,6 @@ pub(super) fn process_deferred(
         ));
     }
 }
-
 /// Phase 2: flood + merge the consumed region (strict subset,
 /// claimed-face exclusion, single-face merge).
 fn consumed_region_merge(
@@ -370,7 +412,6 @@ fn consumed_region_merge(
     }
     Some(survivor)
 }
-
 /// The live subdivision: the recorded sub-faces plus separator
 /// pieces the mefs minted from them (any face sharing an edge with a
 /// recorded sub-face, restricted to faces carrying the SAME surface
