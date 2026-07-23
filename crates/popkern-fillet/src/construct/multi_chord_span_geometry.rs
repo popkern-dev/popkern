@@ -389,3 +389,22 @@ pub(super) fn rehome_spur_tip(
     }
     Some((mev.vertex, host))
 }
+/// Trace helper: the faces each descendant edge currently borders.
+pub(super) fn descendant_holders(
+    brep: &BRep,
+    descendants: &[EdgeHandle],
+) -> Vec<(EdgeHandle, Option<FaceHandle>, Option<FaceHandle>)> {
+    descendants
+        .iter()
+        .filter_map(|&de| {
+            let e = brep.edges.get(de)?;
+            let he = brep.half_edges.get(e.half_edge)?;
+            let tw = brep.half_edges.get(he.twin)?;
+            Some((
+                de,
+                brep.loops.get(he.loop_).map(|l| l.face),
+                brep.loops.get(tw.loop_).map(|l| l.face),
+            ))
+        })
+        .collect()
+}

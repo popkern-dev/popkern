@@ -39,7 +39,6 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
-
 /// Round 5r+: given two candidate descendant faces `f_a`/`f_b`,
 /// pick the one that descends from `desired_parent`.
 ///
@@ -108,7 +107,6 @@ pub(super) fn choose_side_face(
         f_a
     }
 }
-
 /// Outcome of applying all trims on one original face via
 /// `apply_multi_chord_for_face`.
 pub(super) struct MultiChordOutcome {
@@ -122,7 +120,6 @@ pub(super) struct MultiChordOutcome {
     /// faces.
     pub extra_edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
 }
-
 /// Apply all of a face's trims, honouring chord-chord
 /// intersections. This is the Round 5r+ replacement for the
 /// per-face inner loop in Phase B.
@@ -142,7 +139,6 @@ pub(super) fn apply_multi_chord_for_face(
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut extra_edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)> = Vec::new();
-
     let n = trims.len();
     if n == 0 {
         return MultiChordOutcome {
@@ -151,7 +147,6 @@ pub(super) fn apply_multi_chord_for_face(
             extra_edge_splits,
         };
     }
-
     // Precompute pairwise chord intersections.
     let segments: Vec<(Point3, Point3)> = trims
         .iter()
@@ -162,7 +157,6 @@ pub(super) fn apply_multi_chord_for_face(
             )
         })
         .collect();
-
     let mut intersections: Vec<Vec<(f64, Point3, usize)>> = vec![Vec::new(); n];
     let cross_gate = tolerance.linear().max(1e-9) * 1.0e4;
     for i in 0..n {
@@ -188,10 +182,8 @@ pub(super) fn apply_multi_chord_for_face(
     for list in intersections.iter_mut() {
         list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     }
-
     let mut per_trim_sub_edges: Vec<Vec<EdgeHandle>> = vec![Vec::new(); n];
     let mut sub_faces: Vec<FaceHandle> = vec![original_face];
-
     for i in 0..n {
         let trim = &trims[i];
         let fillet_edge = fillet_edges_by_trim[i];
@@ -441,6 +433,14 @@ pub(super) fn apply_multi_chord_for_face(
             ) {
                 Ok(kc) => kc,
                 Err(_) => {
+                    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                        eprintln!(
+                            "[mc] sub-chord {k} on {target:?}: neither half ({:?}/{:?}) carries a descendant of {fillet_edge:?} (holders: {:?})",
+                            split.face_a,
+                            split.face_b,
+                            super::multi_chord_span_geometry::descendant_holders(brep, fillet_desc)
+                        );
+                    }
                     // Neither half contains any descendant —
                     // this sub-chord is interior. Both halves
                     // are valid sub-faces going forward, but

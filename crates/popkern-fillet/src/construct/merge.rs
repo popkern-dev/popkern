@@ -43,6 +43,29 @@ fn face_loop_contains_any_edge(
         .faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
+    // Inner loops count (PK-141): a boss piercing a curved wall puts
+    // the fillet edge on the wall face's HOLE loop; the outer-only
+    // walk failed the consumed-face identification for every rail
+    // split there.
+    for &lh in &face_data.inner_loops {
+        let Some(l) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = l.half_edge;
+        let mut cur = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            if edges.contains(&he.edge) {
+                return Ok(true);
+            }
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
     let outer_loop = face_data.outer_loop;
     let start_he = brep
         .loops
