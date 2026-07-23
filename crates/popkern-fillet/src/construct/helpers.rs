@@ -14,7 +14,7 @@ mod perp_anchor_positions;
 use perp_anchor_positions::compute_perp_anchor_positions_for_face;
 
 #[path = "helpers_anchor_insert.rs"]
-mod helpers_anchor_insert;
+pub(in crate::construct) mod helpers_anchor_insert;
 use helpers_anchor_insert::{insert_anchor_at_position, insert_anchor_with_spur};
 
 pub use super::helpers_pcurve::pcurve_for_face_along;

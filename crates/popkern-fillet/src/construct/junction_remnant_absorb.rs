@@ -73,13 +73,18 @@ pub(crate) fn absorb_junction_remnants(
         // paths). The topology carve consumes this; until it lands
         // the solve is traced so every corner's geometry is
         // measurable on real bodies.
-        if trace
-            && ta.dot(&tb).abs() < 0.99
-            && let Some(cap) = solve_corner_cap_for_junction(edge_geometries, a, b, v_pos, radius)
+        if ta.dot(&tb).abs() < 0.99
+            && let Some(cap) = super::junction_corner_solve::solve_corner_cap_for_junction(
+                edge_geometries,
+                a,
+                b,
+                v_pos,
+                radius,
+            )
         {
-            {
+            if trace {
                 eprintln!(
-                    "[junction] {vertex:?} corner-cap geometry: c=({:.4},{:.4},{:.4}) shared                      contact ({:.4},{:.4},{:.4})",
+                    "[junction] {vertex:?} corner-cap geometry: c=({:.4},{:.4},{:.4}) shared contact ({:.4},{:.4},{:.4})",
                     cap.center.x,
                     cap.center.y,
                     cap.center.z,
@@ -87,6 +92,43 @@ pub(crate) fn absorb_junction_remnants(
                     cap.shared_contact.y,
                     cap.shared_contact.z
                 );
+            }
+            // Corner-vertex snap: the stale chain-corner vertex's
+            // honest home is the corner ball's shared contact (both
+            // strips' rails meet the shared support there). The
+            // settle's alternating projection stalls on this
+            // tangential TRIPLE (measured: a 1.6e-2 decline at the
+            // -y bottom corner shipped the strip-strip corner chord
+            // 1.28e-2 off); the analytic solve replaces the crawl.
+            // Transactional: candidate clone, validate-gated.
+            // GATED until the carve lands: without the strip
+            // extensions to the corner station, snapping the chain
+            // vertex to the contact spans un-carved territory
+            // (measured: the strip-strip corner chord went 1.28e-2
+            // -> 5.0e-2). With the carve the contact is the honest
+            // home; enable together.
+            let contact_d = v_pos.distance_to(&cap.shared_contact);
+            if std::env::var_os("PK141_CORNER_SNAP").is_some()
+                && contact_d > radius * 0.05
+                && contact_d < radius * 1.5
+            {
+                let mut snap_cand = brep.clone();
+                super::edge_reconcile::snap_vertex_and_adjacent_chords(
+                    &mut snap_cand,
+                    vertex,
+                    cap.shared_contact,
+                    popkern_core::topology::EdgeHandle::default(),
+                );
+                super::edge_reconcile::reconcile_edge_curves(&mut snap_cand);
+                if snap_cand.validate().is_ok() {
+                    *brep = snap_cand;
+                    absorbed += 1;
+                    if trace {
+                        eprintln!("[junction] {vertex:?} snapped to shared contact");
+                    }
+                } else if trace {
+                    eprintln!("[junction] {vertex:?} contact snap declined validation");
+                }
             }
         }
         for face in remnants {
@@ -395,77 +437,4 @@ fn absorb_piece(
         return None;
     }
     Some(())
-}
-
-/// Solve the corner-cap geometry for a true-corner junction: find
-/// the SHARED support (present in both fillets' support pairs, by
-/// structural identity), each fillet's own support and corner-side
-/// trim endpoints, reconstruct the end stations, and run the
-/// rolling-ball corner solve.
-fn solve_corner_cap_for_junction(
-    edge_geometries: &[EdgeGeometry],
-    a: usize,
-    b: usize,
-    v_pos: Point3,
-    radius: f64,
-) -> Option<super::corner_cap_geometry::CornerCapGeometry> {
-    use popkern_core::geometry::curve::CurveEval;
-    let eg_a = edge_geometries.get(a)?;
-    let eg_b = edge_geometries.get(b)?;
-    let sig = |g: &popkern_core::geometry::surface::SurfaceGeometry| format!("{g:?}");
-    let pairs_a = [&eg_a.analysis.surface_1, &eg_a.analysis.surface_2];
-    let pairs_b = [&eg_b.analysis.surface_1, &eg_b.analysis.surface_2];
-    let (shared, own_a, own_b) = pairs_a.iter().find_map(|&sa| {
-        pairs_b.iter().find_map(|&sb| {
-            (sig(sa) == sig(sb)).then(|| {
-                let own_a = if sig(pairs_a[0]) == sig(sa) {
-                    pairs_a[1]
-                } else {
-                    pairs_a[0]
-                };
-                let own_b = if sig(pairs_b[0]) == sig(sb) {
-                    pairs_b[1]
-                } else {
-                    pairs_b[0]
-                };
-                (sa, own_a, own_b)
-            })
-        })
-    })?;
-    // Corner-side trim endpoints per fillet: the endpoint of each
-    // trim nearest the junction vertex.
-    let near_end = |trim: &popkern_core::geometry::NurbsCurve| {
-        let (t0, t1) = trim.parameter_range();
-        let p0 = trim.point_at(t0);
-        let p1 = trim.point_at(t1);
-        if v_pos.distance_to(&p0) <= v_pos.distance_to(&p1) {
-            p0
-        } else {
-            p1
-        }
-    };
-    let tol = 1e-9;
-    let end_a = super::corner_cap_geometry::end_station_center(
-        &eg_a.analysis.surface_1,
-        &eg_a.analysis.surface_2,
-        near_end(&eg_a.trim_3d_1),
-        near_end(&eg_a.trim_3d_2),
-        radius,
-        tol,
-    )?;
-    let end_b = super::corner_cap_geometry::end_station_center(
-        &eg_b.analysis.surface_1,
-        &eg_b.analysis.surface_2,
-        near_end(&eg_b.trim_3d_1),
-        near_end(&eg_b.trim_3d_2),
-        radius,
-        tol,
-    )?;
-    super::corner_cap_geometry::solve_corner_cap(
-        shared,
-        [own_a, own_b],
-        [end_a, end_b],
-        radius,
-        tol,
-    )
 }

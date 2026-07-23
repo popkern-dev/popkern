@@ -173,6 +173,45 @@ pub(super) fn apply_multi_chord_for_face(
             let mut start_v = endpoints[k];
             let mut end_v = endpoints[k + 1];
             let mut target = find_face_containing_vertices(brep, &sub_faces, start_v, end_v);
+            // Chain-holder transplant (PK-141): a trim's cut belongs
+            // on the face carrying its own fillet's chain. When both
+            // anchors are valence-1 spur tips whose loop face does
+            // NOT hold a descendant while another sub-face does (an
+            // earlier trim's split left the zero-width spur
+            // appendages on the wrong side — measured: the -y
+            // vertical wall trim's split_face returned a 2-sided
+            // banana inside the kept piece, the whole unbounded-
+            // region cascade), transplant both anchors onto the
+            // holder and cut there.
+            let holder = sub_faces.iter().copied().find(|&f| {
+                super::merge::face_loop_contains_any_edge(brep, f, fillet_desc).unwrap_or(false)
+            });
+            let target_holds = target
+                .map(|t| {
+                    super::merge::face_loop_contains_any_edge(brep, t, fillet_desc).unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if let Some(h) = holder
+                && target != Some(h)
+                && !target_holds
+                && let Some((nv_start, nv_end)) =
+                    super::multi_chord_anchor_transplant::transplant_spur_anchor_pair(
+                        brep, start_v, end_v, h, tolerance,
+                    )
+            {
+                if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                    eprintln!(
+                        "[mc-target] eg{} side{} sub {k}: transplanted anchors \
+                         {start_v:?}/{end_v:?} to chain holder {h:?}",
+                        trim.edge_idx, trim.side
+                    );
+                }
+                start_v = nv_start;
+                end_v = nv_end;
+                endpoints[k] = nv_start;
+                endpoints[k + 1] = nv_end;
+                target = Some(h);
+            }
             // PK-141 spur re-home (see rehome_spur_tip).
             if target.is_none() {
                 if let Some((nv, tf)) = super::multi_chord_span_geometry::rehome_spur_tip(

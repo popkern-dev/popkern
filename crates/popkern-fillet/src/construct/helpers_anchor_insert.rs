@@ -141,7 +141,7 @@ pub(super) fn insert_anchor_at_position(
 /// Transactional per spur: candidate clone, `validate()`-free (mid-
 /// pipeline states may fail global checks) but structural mev
 /// postconditions apply.
-pub(super) fn insert_anchor_with_spur(
+pub(in crate::construct) fn insert_anchor_with_spur(
     brep: &mut BRep,
     position: Point3,
     face: FaceHandle,

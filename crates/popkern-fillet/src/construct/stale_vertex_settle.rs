@@ -118,11 +118,22 @@ pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance
         let Some(faces) = incident.get(v) else {
             continue;
         };
-        // Alternating projection across ALL incident surfaces.
+        // Alternating projection across the incident surfaces the
+        // vertex can honestly satisfy: faces whose surface the
+        // vertex was never near (initial distance beyond 5x the
+        // gate) are TERRITORY RIDERS — corner-cap loops extend over
+        // chain vertices that belong on strip x support, and
+        // including the rider blocks every settle at that corner
+        // (measured: corner vertices declined at 7e-2..1.3e-1
+        // "residuals" that were just the sphere distance).
         let mut p = *pos;
         let surfaces: Vec<SurfaceGeometry> = faces
             .iter()
             .filter_map(|&f| {
+                let d = off_surface(brep, f, *pos)?;
+                if d > gate * 5.0 {
+                    return None;
+                }
                 cand_brep
                     .faces
                     .get(f)

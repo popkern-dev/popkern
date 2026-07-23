@@ -156,7 +156,26 @@ pub(super) fn apply_face_trim_pipeline(
     // ── Phase B: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
     let mut region_resolved: Vec<(usize, u8)> = Vec::new();
+    // Curved-support serving census: trims applied on NON-PLANAR
+    // support faces (directly or region-resolved). Gates the
+    // curved-body repair passes (junction absorb, stale settle) —
+    // the old region-only count under-gated once the chain-holder
+    // transplant let curved trims resolve directly.
+    let mut curved_support_trims = 0usize;
     for (original_face, trims) in &face_trims {
+        if result
+            .faces
+            .get(*original_face)
+            .and_then(|f| f.surface.as_ref())
+            .is_some_and(|s| {
+                !matches!(
+                    s.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                )
+            })
+        {
+            curved_support_trims += trims.len();
+        }
         let fillet_edges_by_trim: Vec<EdgeHandle> = trims
             .iter()
             .map(|t| edge_geometries[t.edge_idx].analysis.edge)
@@ -297,6 +316,30 @@ pub(super) fn apply_face_trim_pipeline(
             .get(&fillet_edge)
             .map(|v| v.as_slice())
             .unwrap_or(std::slice::from_ref(&fillet_edge));
+        // Self-pair: both sides' splits consumed the SAME face (the
+        // holder transplant routes cuts onto the chain-holder, so
+        // both trims can partition one face) — the merge is already
+        // done; assign the fillet surface and attach pcurves.
+        if s1.consumed == s2.consumed {
+            result.faces[s1.consumed].surface =
+                Some(popkern_core::geometry::surface::SurfaceOnFace {
+                    geometry: eg.surface.clone(),
+                    orientation: true,
+                });
+            merged_consumed.insert(s1.consumed);
+            let params = pcurve_attach::FilletPcurveParams {
+                fillet_face: s1.consumed,
+                fillet_surface: &eg.surface,
+                trim_edges_1: &s1.trim_edges,
+                trim_edges_2: &s2.trim_edges,
+                eg_pcurve_1: &s1.pcurve,
+                eg_pcurve_2: &s2.pcurve,
+                trim_3d_1: &s1.trim_3d,
+                trim_3d_2: &s2.trim_3d,
+            };
+            pcurve_attach::attach_fillet_pcurves(result, &params);
+            continue;
+        }
         match helpers::merge_consumed_faces_any(
             result,
             s1.consumed,
@@ -367,5 +410,5 @@ pub(super) fn apply_face_trim_pipeline(
             let _ = result.kef(he);
         }
     }
-    region_resolved.len()
+    region_resolved.len() + curved_support_trims
 }

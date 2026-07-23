@@ -29,7 +29,9 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
+pub(crate) mod junction_corner_solve;
 pub(crate) mod junction_remnant_absorb;
+mod multi_chord_anchor_transplant;
 pub(crate) mod multi_chord_region_seeding;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
 #[path = "pns_setback_candidate.rs"]

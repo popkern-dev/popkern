@@ -264,16 +264,16 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-141 measured frontier: the apply COMPLETES (all six chain
-    // pieces, region-path territories, corner separators,
-    // seam-junction remnant absorption, residual-terminated settle).
-    // The SEAM class is closed — chain seam vertices land on their
-    // honest rail points at 1e-6. One residual remains at 7.0e-3:
-    // a corner-separator chord across a hole corner where the strip
-    // surface is genuinely off the wall (no curve can satisfy both
-    // faces there) — the hole-corner CAP class, exposed honestly by
-    // the settled rail ends. Pin completion + the single-defect
-    // ceiling; flip to (0,0,0) when the hole-corner caps land.
+    // PK-141 measured frontier: the apply COMPLETES with SIX blend
+    // faces (chain-holder transplant partitions both vertical wall
+    // bands; the self-pair merge serves them; two corner spheres
+    // build). The seam class stays closed at 1e-6; one residual
+    // remains at 1.28e-2 — the strip x strip corner chord whose
+    // corner vertex's honest home is the corner-ball contact,
+    // reachable only with the strip-extension carve
+    // (PK141_CORNER_SNAP is gated on it; premature snap measured
+    // 5e-2). Pin completion + the single-defect ceiling; flip to
+    // (0,0,0) when the carve lands.
     assert_eq!(
         (structural, open),
         (0, 0),
@@ -307,8 +307,8 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     // Pin the measured census; revisit toward 6 when the corner-cap
     // layer lands.
     assert!(
-        blend_faces >= 4,
-        "boss chain blend-face census regressed: {blend_faces} < 4"
+        blend_faces >= 6,
+        "boss chain blend-face census regressed: {blend_faces} < 6"
     );
     eprintln!(
         "[seam-matrix] boss chain COMPLETED clean: {blend_faces} blend faces, conformity {} \
