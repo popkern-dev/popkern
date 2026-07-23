@@ -297,13 +297,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     let blend_faces = census.get("nurbs").copied().unwrap_or(0)
         + census.get("torus").copied().unwrap_or(0)
         + census.get("sphere").copied().unwrap_or(0);
-    // PK-141 measured completion state: 3 blend faces serve the six
-    // chain pieces (region-merged strips + one corner sphere; the
-    // remaining corner territories ride the merged strips). Pin the
-    // measured census; revisit toward 6 when per-corner caps land.
+    // PK-141 measured completion state: 4 blend faces serve the six
+    // chain pieces (region-merged strips + one corner cap; curved-
+    // support anchor discovery lets one junction blend build — the
+    // other five corner territories still ride the merged strips).
+    // Pin the measured census; revisit toward 6 when the corner-cap
+    // layer lands.
     assert!(
-        blend_faces >= 3,
-        "boss chain blend-face census regressed: {blend_faces} < 3"
+        blend_faces >= 4,
+        "boss chain blend-face census regressed: {blend_faces} < 4"
     );
     eprintln!(
         "[seam-matrix] boss chain COMPLETED clean: {blend_faces} blend faces, conformity {} \

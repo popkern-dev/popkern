@@ -129,6 +129,30 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
             determinism_edge_curve_fingerprint(brep)
         );
     }
+    // Blend-face census at stage boundaries (PK_CENSUS_TRACE=1):
+    // names the pass that merges away or re-surfaces a strip face —
+    // the region path's serving debts were invisible without a
+    // per-stage census.
+    if std::env::var_os("PK_CENSUS_TRACE").is_some() {
+        let mut kinds: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+        let mut blends: Vec<String> = Vec::new();
+        for (fh, f) in brep.faces.iter() {
+            let k = match f.surface.as_ref().map(|s| &s.geometry) {
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }) => "plane",
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }) => "cyl",
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }) => "sphere",
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Torus { .. }) => "torus",
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)) => "nurbs",
+                Some(_) => "other",
+                None => "none",
+            };
+            *kinds.entry(k).or_default() += 1;
+            if matches!(k, "nurbs" | "sphere" | "torus") {
+                blends.push(format!("{fh:?}:{k}"));
+            }
+        }
+        eprintln!("[census] {label}: {kinds:?} blends [{}]", blends.join(" "));
+    }
     // Same-face ("slit") edge census at stage boundaries: an edge
     // whose two loop sides belong to one face is a wrapped-face seam
     // that boundary-first meshing declines on; the stage that mints

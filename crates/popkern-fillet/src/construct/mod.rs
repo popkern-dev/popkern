@@ -11,6 +11,7 @@ mod blend_seam_corner_repair;
 mod blend_seam_corner_swept;
 mod blend_seam_corner_swept_exit;
 pub(crate) mod blend_topo;
+pub(crate) mod blend_topo_curved;
 mod boundary_support_frames;
 mod bridge_warnings;
 pub(crate) mod cap_insert;

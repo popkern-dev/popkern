@@ -73,6 +73,19 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
+        // PK-141 falsification record (2026-07-23): a "trust
+        // upstream fillet-strip assignments" identity skip here
+        // (bitwise NURBS match against this operation's fillet
+        // surfaces) was measured WORSE on the boss chain: check 9
+        // went from one 2.8e-3 residual to a 0.79 deviation on the
+        // wall's z=0 rim, because on region bodies some "strip"
+        // faces still own mis-sided consumed territory (the kept
+        // wall) and this re-pick is the containment that keeps the
+        // support surface honest there. Do not skip fillet-surface
+        // faces until the region path bounds consumed territories
+        // correctly (docs/architecture/curved-support-apply.md,
+        // corner-cap layer).
+
         // Phase 6c-E / Phase 6c-D: trust upstream Sphere and Gregory
         // assignments. Per-fillet Sphere sub-caps (cube_mixed/extreme,
         // pyramid_uniform with rung ON) and Gregory sub-caps

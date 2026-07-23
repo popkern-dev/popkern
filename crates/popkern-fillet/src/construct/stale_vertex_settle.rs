@@ -61,6 +61,15 @@ pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance
                 brep.faces.get(f).and_then(|fd| fd.surface.as_ref()),
                 Some(s) if matches!(s.geometry, SurfaceGeometry::Nurbs(_))
             );
+            // Staleness is measured against the NURBS strips ONLY.
+            // Widening to all incident surfaces was FALSIFIED on the
+            // boss chain (2026-07-23): corner-territory faces ride the
+            // merged strips, so corner vertices are loop-incident to
+            // surfaces they geometrically don't lie on (measured 0.32
+            // "off" the sphere cap), and tangential strip x support
+            // pairs stall the alternating projection at 1.49e-2 (the
+            // linear-crawl class). Honest incident sets need the
+            // per-corner caps first.
             if let Some(d) = off_surface(brep, f, pos)
                 && is_nurbs
             {
@@ -69,6 +78,34 @@ pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance
             }
         }
         if has_nurbs && worst > gate {
+            if trace {
+                let mut parts: Vec<String> = Vec::new();
+                for &f in faces {
+                    let kind = match brep.faces.get(f).and_then(|fd| fd.surface.as_ref()) {
+                        Some(s) => match &s.geometry {
+                            SurfaceGeometry::Plane { .. } => "plane",
+                            SurfaceGeometry::Cylinder { .. } => "cyl",
+                            SurfaceGeometry::Sphere { .. } => "sphere",
+                            SurfaceGeometry::Nurbs(_) => "nurbs",
+                            SurfaceGeometry::Torus { .. } => "torus",
+                            _ => "other",
+                        },
+                        None => "none",
+                    };
+                    let d = off_surface(brep, f, pos);
+                    parts.push(format!(
+                        "{kind}:{}",
+                        d.map_or("-".into(), |d| format!("{d:.2e}"))
+                    ));
+                }
+                eprintln!(
+                    "  [vsettle] cand {v:?} ({:.4},{:.4},{:.4}) worst {worst:.3e} [{}]",
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                    parts.join(" ")
+                );
+            }
             candidates.push((*v, pos, worst));
         }
     }

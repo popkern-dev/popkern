@@ -107,74 +107,6 @@ pub(crate) fn collect_faces_around_vertex(
 /// `y=0`. Distance-based matching picked V14 as a y=0 anchor and
 /// cut the wrong chord. The plane-containment test filters on the
 /// actual face the trim lies on.
-/// Radii of fillets whose trim curves lie on `face`'s plane — i.e.
-/// the fillets actually bordering this face at `vertex`.
-///
-/// A trim curve is *on* `face` iff all its sample points lie on
-/// `face`'s plane (mean plane-distance < `tol_plane`). This is far
-/// more robust than checking a single closest-to-V point whose
-/// sampling error bleeds into the face normal direction. Mean-of-8
-/// averages out sampling noise, while a trim curve that truly does
-/// NOT lie on this plane shows a mean distance ≥ the dihedral
-/// angle's offset (much larger than sampling noise).
-pub(crate) fn collect_radii_for_face(
-    brep: &BRep,
-    face: FaceHandle,
-    vertex: VertexHandle,
-    edge_geometries: &[EdgeGeometry],
-    tolerance: &Tolerance,
-) -> Vec<f64> {
-    use popkern_core::geometry::curve::CurveEval;
-    use popkern_core::geometry::surface::SurfaceGeometry;
-
-    let Some(face_data) = brep.faces.get(face) else {
-        return Vec::new();
-    };
-    let Some(sof) = face_data.surface.as_ref() else {
-        return Vec::new();
-    };
-    let (plane_origin, plane_normal) = match &sof.geometry {
-        SurfaceGeometry::Plane { origin, normal, .. } => (*origin, *normal),
-        _ => return Vec::new(),
-    };
-
-    let tol_plane = (tolerance.linear() * 100.0).max(1e-4);
-
-    let mut radii = Vec::with_capacity(edge_geometries.len());
-    for eg in edge_geometries {
-        for trim in [&eg.trim_3d_1, &eg.trim_3d_2] {
-            let (t0, t1) = trim.parameter_range();
-            let n_samples = 8usize;
-            let mut mean_dist = 0.0_f64;
-            for i in 0..n_samples {
-                let t = t0 + (t1 - t0) * (i as f64 + 0.5) / (n_samples as f64);
-                let p = trim.point_at(t);
-                let delta = p - plane_origin;
-                mean_dist += delta.dot(&plane_normal).abs();
-            }
-            mean_dist /= n_samples as f64;
-
-            if mean_dist < tol_plane {
-                // §5.3 item #8 — for variable-radius fillets the
-                // trim-endpoint distance from V equals the per-vertex
-                // radius, not the edge-wide average. Select the
-                // endpoint radius that matches `vertex`; fall back to
-                // `effective_radius` when V is interior to the chain.
-                let r = if vertex == eg.analysis.vertex_start {
-                    eg.radius_at_start
-                } else if vertex == eg.analysis.vertex_end {
-                    eg.radius_at_end
-                } else {
-                    eg.effective_radius
-                };
-                radii.push(r);
-                break; // At most one of eg's two trims lies on `face`.
-            }
-        }
-    }
-    radii
-}
-
 /// Find the per-face fillet-trim-endpoint anchors for a face
 /// incident to `vertex`. For every fillet whose trim curves lie on
 /// `face`'s plane (identified by [`collect_radii_for_face`]), picks
@@ -196,7 +128,13 @@ pub(crate) fn find_face_trim_anchors(
     edge_geometries: &[EdgeGeometry],
     tolerance: &Tolerance,
 ) -> Result<Vec<VertexHandle>, String> {
-    let radii = collect_radii_for_face(brep, face, vertex, edge_geometries, tolerance);
+    let radii = super::blend_topo_curved::collect_radii_for_face(
+        brep,
+        face,
+        vertex,
+        edge_geometries,
+        tolerance,
+    );
     if crate::direct_apex_trace::enabled() {
         eprintln!(
             "[direct-apex-trace] find_face_trim_anchors face={face:?} vertex={vertex:?} radii={radii:?}"
@@ -206,16 +144,9 @@ pub(crate) fn find_face_trim_anchors(
         return Ok(Vec::new());
     }
 
-    let face_data = brep
-        .faces
+    brep.faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
-    let outer_loop = face_data.outer_loop;
-    let start_he = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| format!("loop {outer_loop:?} not found"))?
-        .half_edge;
     let v_pos = brep
         .vertices
         .get(vertex)
@@ -234,21 +165,18 @@ pub(crate) fn find_face_trim_anchors(
         .fold(f64::INFINITY, f64::min);
     let band = (tolerance.linear() * 100.0).max(min_r * 1e-3);
 
+    // All loops, not just the outer one: hole-loop anchors are the
+    // norm on pierced curved supports (PK-141).
+    let loop_hes = super::blend_topo_curved::face_all_loop_half_edges(brep, face);
     let mut anchors: Vec<VertexHandle> = Vec::new();
-    let mut cursor = start_he;
-    let max_iters = brep.half_edges.len() + 1;
-    for _ in 0..max_iters {
-        let vh = brep.half_edges[cursor].origin;
+    for &he in &loop_hes {
+        let vh = brep.half_edges[he].origin;
         if vh != vertex {
             let vpos = brep.vertices[vh].position;
             let d = v_pos.distance_to(&vpos);
             if radii.iter().any(|&r| (d - r).abs() < band) && !anchors.contains(&vh) {
                 anchors.push(vh);
             }
-        }
-        cursor = brep.half_edges[cursor].next;
-        if cursor == start_he {
-            break;
         }
     }
 
@@ -303,9 +231,8 @@ pub(crate) fn find_face_trim_anchors(
             false
         };
         anchors.clear();
-        let mut cursor = start_he;
-        for _ in 0..max_iters {
-            let vh = brep.half_edges[cursor].origin;
+        for &he in &loop_hes {
+            let vh = brep.half_edges[he].origin;
             if vh != vertex {
                 let vpos = brep.vertices[vh].position;
                 if v_pos.distance_to(&vpos) <= max_r * 2.0
@@ -315,15 +242,34 @@ pub(crate) fn find_face_trim_anchors(
                     anchors.push(vh);
                 }
             }
-            cursor = brep.half_edges[cursor].next;
-            if cursor == start_he {
-                break;
-            }
         }
         if crate::direct_apex_trace::enabled() {
             eprintln!(
                 "[direct-apex-trace]   tier2 band-incidence anchors: {anchors:?} (max_r={max_r:.4})"
             );
+        }
+    }
+
+    // Tier 3 — curved-support trim-endpoint identity: match loop
+    // vertices to the computed trim-curve ENDPOINTS instead of an
+    // exact radius distance (tangent-offset anchors on curved
+    // supports land ~3% of r off the chord distance, and tier 2's
+    // band faces are NURBS strips there, not cylinders).
+    if anchors.len() < 2 {
+        let tier3 = super::blend_topo_curved::trim_endpoint_anchors(
+            brep,
+            face,
+            vertex,
+            edge_geometries,
+            &radii,
+        );
+        if crate::direct_apex_trace::enabled() {
+            eprintln!("[direct-apex-trace]   tier3 trim-endpoint anchors: {tier3:?}");
+        }
+        for vh in tier3 {
+            if !anchors.contains(&vh) {
+                anchors.push(vh);
+            }
         }
     }
 
@@ -336,24 +282,13 @@ pub(crate) fn find_halfedge_from_vertex_in_face(
     face: FaceHandle,
     vertex: VertexHandle,
 ) -> Result<HalfEdgeHandle, String> {
-    let face_data = brep
-        .faces
+    brep.faces
         .get(face)
         .ok_or_else(|| format!("face {face:?} not found"))?;
-    let outer_loop = face_data.outer_loop;
-    let start_he = brep.loops[outer_loop].half_edge;
-
-    let mut cursor = start_he;
-    let max_iters = brep.half_edges.len() + 1;
-    let mut iters = 0;
-    loop {
-        if brep.half_edges[cursor].origin == vertex {
-            return Ok(cursor);
-        }
-        cursor = brep.half_edges[cursor].next;
-        iters += 1;
-        if cursor == start_he || iters >= max_iters {
-            break;
+    // All loops: mef anchors sit on hole loops on pierced supports.
+    for he in super::blend_topo_curved::face_all_loop_half_edges(brep, face) {
+        if brep.half_edges[he].origin == vertex {
+            return Ok(he);
         }
     }
 
