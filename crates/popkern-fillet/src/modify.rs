@@ -84,6 +84,22 @@ fn modify_open_fillet_radius(
     new_radius: FilletRadius,
     tolerance: Tolerance,
 ) -> Result<BRep, BlendError> {
+    // PK-143 stale-cap guard: an in-place update on a strip whose
+    // neighbouring cap surface already disagrees with its boundary
+    // would compound the lie silently — decline toward the record
+    // re-dispatch instead.
+    let neighbours = crate::identify::blend_neighbours(brep, fillet_face);
+    let stale = crate::stale_cap::detect_stale_caps(brep, &tolerance);
+    if let Some(s) = stale.iter().find(|s| neighbours.contains(&s.face)) {
+        return Err(BlendError::InvalidParameter {
+            parameter: "fillet_face".into(),
+            value: format!("{fillet_face:?}"),
+            reason: format!(
+                "neighbouring cap {:?} is STALE (boundary deviates {:.3e} from its surface) —                  modify via modify_fillet_radius_via_record, which re-dispatches the corner",
+                s.face, s.max_deviation
+            ),
+        });
+    }
     // Fast path: in-place geometry update.
     match &new_radius {
         FilletRadius::Constant(r) => {

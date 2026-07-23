@@ -74,6 +74,7 @@ pub mod reflection_line;
 pub mod remediation;
 pub mod residual_scaffolding;
 pub mod sensitivity;
+pub mod stale_cap;
 mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;
@@ -93,6 +94,8 @@ pub mod vertex_classifier;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub mod zebra;
+use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
+use crate::construct::EdgeGeometry;
 pub use cancellation::CancellationToken;
 pub use chamfer_2d::{chamfer_corner_2d, chamfer_corner_2d_by_angle, chamfer_corners_2d};
 pub use edges_2d::*;
@@ -120,13 +123,10 @@ pub use preview::{
     preview_corner_patches, preview_fillet, preview_fillet_with_continuity,
 };
 pub use progress::*;
+pub use stale_cap::{StaleCap, detect_stale_caps};
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
 pub use vertex_blend::{vertex_blend_3d, vertex_blend_3d_variable};
-
-use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
-use crate::construct::EdgeGeometry;
-
 /// Fillet the specified edges of a BRep solid. See
 /// [`BlendError`] for failure modes.
 pub fn fillet_edges(
