@@ -237,3 +237,74 @@ mod tests {
         assert!(intersect_segments(a, b, c, d).is_none());
     }
 }
+
+/// Closest-approach crossing of two SAMPLED trim curves (PK-141:
+/// straight anchor chords miss every crossing on a curved support —
+/// a boss-wall chain's vertical rail crosses the horizontal rims'
+/// trims on the r=1 cylinder with the chords passing 5e-3 inside
+/// it). Samples both curves, finds the closest segment pair, and
+/// accepts when the approach distance is within `gate`. Returns
+/// `(frac_a, frac_b, point)` with fractions in sample space [0, 1].
+pub(super) fn intersect_trim_curves(
+    trim_a: &NurbsCurve,
+    trim_b: &NurbsCurve,
+    gate: f64,
+) -> Option<(f64, f64, Point3)> {
+    use popkern_core::geometry::curve::CurveEval;
+    const N: usize = 33;
+    let sample = |c: &NurbsCurve| -> Vec<Point3> {
+        let (t0, t1) = c.parameter_range();
+        (0..N)
+            .map(|k| c.point_at(t0 + (t1 - t0) * k as f64 / (N - 1) as f64))
+            .collect()
+    };
+    let pa = sample(trim_a);
+    let pb = sample(trim_b);
+    let mut best: Option<(f64, f64, Point3, f64)> = None;
+    for i in 0..N - 1 {
+        for j in 0..N - 1 {
+            let (s, t, d, pt) = closest_segment_pair(pa[i], pa[i + 1], pb[j], pb[j + 1]);
+            let fa = (i as f64 + s) / (N - 1) as f64;
+            let fb = (j as f64 + t) / (N - 1) as f64;
+            if best.as_ref().map(|(_, _, _, bd)| d < *bd).unwrap_or(true) {
+                best = Some((fa, fb, pt, d));
+            }
+        }
+    }
+    let (fa, fb, pt, d) = best?;
+    let interior = |x: f64| x > 1e-3 && x < 1.0 - 1e-3;
+    if d <= gate && interior(fa) && interior(fb) {
+        Some((fa, fb, pt))
+    } else {
+        None
+    }
+}
+
+/// Closest points between two segments; returns `(s, t, distance,
+/// midpoint of the closest pair)`.
+fn closest_segment_pair(a0: Point3, a1: Point3, b0: Point3, b1: Point3) -> (f64, f64, f64, Point3) {
+    let u = a1 - a0;
+    let v = b1 - b0;
+    let w = a0 - b0;
+    let (uu, uv, vv, uw, vw) = (u.dot(&u), u.dot(&v), v.dot(&v), u.dot(&w), v.dot(&w));
+    let denom = uu * vv - uv * uv;
+    let (mut s, mut t) = if denom.abs() > 1e-18 {
+        (
+            ((uv * vw - vv * uw) / denom).clamp(0.0, 1.0),
+            ((uu * vw - uv * uw) / denom).clamp(0.0, 1.0),
+        )
+    } else {
+        (0.0, (vw / vv.max(1e-18)).clamp(0.0, 1.0))
+    };
+    // One clamp round to keep the pair consistent.
+    if uu > 1e-18 {
+        s = ((t * uv - uw) / uu).clamp(0.0, 1.0);
+    }
+    if vv > 1e-18 {
+        t = ((s * uv + vw) / vv).clamp(0.0, 1.0);
+    }
+    let p = Point3::new(a0.x + s * u.x, a0.y + s * u.y, a0.z + s * u.z);
+    let q = Point3::new(b0.x + t * v.x, b0.y + t * v.y, b0.z + t * v.z);
+    let mid = Point3::new(0.5 * (p.x + q.x), 0.5 * (p.y + q.y), 0.5 * (p.z + q.z));
+    (s, t, p.distance_to(&q), mid)
+}

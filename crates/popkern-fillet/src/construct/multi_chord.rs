@@ -165,11 +165,22 @@ pub(super) fn apply_multi_chord_for_face(
         .collect();
 
     let mut intersections: Vec<Vec<(f64, Point3, usize)>> = vec![Vec::new(); n];
+    let cross_gate = tolerance.linear().max(1e-9) * 1.0e4;
     for i in 0..n {
         for j in (i + 1)..n {
             let (a, b) = segments[i];
             let (c, d) = segments[j];
             if let Some((s, t, pt)) = intersect_segments(a, b, c, d) {
+                intersections[i].push((s, pt, j));
+                intersections[j].push((t, pt, i));
+            } else if let Some((s, t, pt)) = super::multi_chord_span_geometry::intersect_trim_curves(
+                &trims[i].trim_3d,
+                &trims[j].trim_3d,
+                cross_gate,
+            ) {
+                // Curved-support crossings: the anchor chords pass
+                // inside the surface and never intersect; the sampled
+                // trim curves carry the true crossing (PK-141).
                 intersections[i].push((s, pt, j));
                 intersections[j].push((t, pt, i));
             }
