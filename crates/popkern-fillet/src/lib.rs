@@ -140,7 +140,6 @@ pub fn fillet_edges(
 ) -> Result<BlendResult, BlendError> {
     fillet_edges_internal(brep, specs, options, tolerance, tracking, None, None)
 }
-
 /// Pipeline body for [`fillet_edges`] + cancellable/progress variants.
 fn fillet_edges_internal(
     brep: &BRep,
@@ -281,7 +280,6 @@ fn fillet_edges_internal(
         overlap_warnings.len()
     );
     check_cancel!();
-
     if edge_geometries.is_empty() {
         return Err(BlendError::PartialFailure {
             failed: failures.len(),
@@ -290,7 +288,6 @@ fn fillet_edges_internal(
             failures,
         });
     }
-
     // PHASE 4: Apply topology.
     let t4 = Instant::now();
     let apply_args = (&edge_geometries, &tolerance, &options.vertex_mode);
@@ -335,7 +332,6 @@ fn fillet_edges_internal(
         edge_geometries.len()
     );
     check_cancel!();
-
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
@@ -385,6 +381,15 @@ fn fillet_edges_internal(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
+    // PK-141 smooth-through junctions: absorb unconsumed remnants
+    // into their strips — region-path bodies only.
+    if apply_result.repair_report.region_resolved_trims > 0 {
+        let _ = construct::junction_remnant_absorb::absorb_junction_remnants(
+            &mut apply_result.brep,
+            &edge_geometries,
+            &tolerance,
+        );
+    }
     // PK-159: weld the duplicated mid-face seam of interference-
     // completed parallel fillets BEFORE the terminal settle so the
     // corner machinery sees the exact seam anchors.
@@ -443,7 +448,6 @@ fn fillet_edges_internal(
         t5,
         apply_result.brep.half_edges.len()
     );
-
     // Merge overlap warnings with topology warnings, plus §13.1 pre-pass warnings.
     let mut all_warnings = apply_result.warnings;
     let fallback_edge = specs
@@ -461,7 +465,6 @@ fn fillet_edges_internal(
         };
         all_warnings.push((edge_h, warn));
     }
-
     continuity::emit_downgrade_warnings(&edge_geometries, options, &mut all_warnings);
     continuity::emit_corner_downgrade_warnings(
         &apply_result.corner_patches,
@@ -469,12 +472,10 @@ fn fillet_edges_internal(
         fallback_edge,
         &mut all_warnings,
     );
-
     apply_result.repair_report.residual_scaffolding =
         residual_scaffolding::retire_unglued_construction_residual_scaffolding(
             &mut apply_result.brep,
         );
-
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
         return Err(BlendError::PartialFailure {
             failed: 1,
@@ -489,7 +490,6 @@ fn fillet_edges_internal(
             )],
         });
     }
-
     // Assign stable names when tracking is active.
     if let Some(ctx) = tracking {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);

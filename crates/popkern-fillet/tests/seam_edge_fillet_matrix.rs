@@ -266,11 +266,12 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
     // PK-141 measured frontier: the apply COMPLETES (all six chain
     // pieces, region-path consumed territories, corner separators,
-    // stale-vertex settle); one curve-surface residual remains
-    // (2.8e-3, down from 2.1e-2 pre-settle — the three-surface
-    // corner junction where strips and the sphere cap disagree).
-    // Pin completion + the residual ceiling; flip to (0,0,0) when
-    // the corner caps land.
+    // seam-junction remnant absorption, stale-vertex settle); one
+    // curve-surface residual remains at 1.2e-4 (was 2.8e-3 before
+    // the junction absorb gave the settle honest incident surfaces;
+    // the floor is the strip-fit boundary precision, ~2e-4 class).
+    // Pin completion + the ceiling; flip to (0,0,0) when the strip
+    // fit tightens and the hole-corner caps land.
     assert_eq!(
         (structural, open),
         (0, 0),

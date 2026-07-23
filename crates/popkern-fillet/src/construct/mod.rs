@@ -28,6 +28,7 @@ mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
 mod gregory_pcurve_clamp;
+pub(crate) mod junction_remnant_absorb;
 #[path = "pns_setback_candidate.rs"]
 pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
