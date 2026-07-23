@@ -107,7 +107,7 @@ pub use identify::{
     BlendInfo, BlendKind, IdentificationSource, blend_neighbours, blend_radius,
     blend_support_faces, identify_all_blends, identify_blend,
 };
-pub use modify::modify_fillet_radius;
+pub use modify::{modify_fillet_radius, modify_fillet_radius_via_record};
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};

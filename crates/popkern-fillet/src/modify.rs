@@ -327,3 +327,120 @@ fn find_closed_plane_cylinder_edge(brep: &BRep) -> Option<EdgeHandle> {
 #[cfg(test)]
 #[path = "modify_tests.rs"]
 mod tests;
+
+/// PK-143: record-based radius modify — the cap-family re-dispatch
+/// path. Strips whose ends meet a corner cap (sphere / Gregory /
+/// setback families) cannot be modified by the local in-place or
+/// unfillet-plan paths: the cap end has no restored-edge endpoint
+/// ("found 1 valid restored-edge endpoints; need exactly 2"), and a
+/// corner's radii are COUPLED — changing one strip re-dispatches the
+/// whole corner construction. With the operation record the exact
+/// commercial semantics are a deterministic REPLAY: the target
+/// strip's spec is rewritten to the new radius and every spec is
+/// re-applied to the recorded input, so the corner (whatever cap
+/// family it dispatches to at the new radius) is rebuilt by the
+/// same machinery that built it.
+///
+/// The target spec is identified by proximity: the spec whose
+/// recorded edge midpoint lies nearest the strip face's boundary
+/// (within 2× the larger radius). Returns the full [`BlendResult`]
+/// of the replay.
+pub fn modify_fillet_radius_via_record(
+    record: &crate::history::FilletOperationRecord,
+    fillet_face: FaceHandle,
+    new_radius: impl Into<FilletRadius>,
+) -> Result<crate::BlendResult, BlendError> {
+    use popkern_core::geometry::curve::CurveEval;
+    let new_radius = new_radius.into();
+    // Strip boundary sample points in the RESULT body.
+    let face =
+        record
+            .result
+            .faces
+            .get(fillet_face)
+            .ok_or_else(|| BlendError::InvalidParameter {
+                parameter: "fillet_face".into(),
+                value: format!("{fillet_face:?}"),
+                reason: "face not present in the recorded result".into(),
+            })?;
+    let mut samples = Vec::new();
+    if let Some(l) = record.result.loops.get(face.outer_loop) {
+        let start = l.half_edge;
+        let mut cur = start;
+        for _ in 0..record.result.half_edges.len() + 1 {
+            let Some(he) = record.result.half_edges.get(cur) else {
+                break;
+            };
+            if let Some(v) = record.result.vertices.get(he.origin) {
+                samples.push(v.position);
+            }
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+    if samples.is_empty() {
+        return Err(BlendError::InvalidParameter {
+            parameter: "fillet_face".into(),
+            value: format!("{fillet_face:?}"),
+            reason: "strip face has no boundary vertices".into(),
+        });
+    }
+    // Nearest recorded spec by edge-midpoint distance to the strip.
+    let mut best: Option<(usize, f64)> = None;
+    for (i, spec) in record.specs.iter().enumerate() {
+        let Some(edge) = record.input.edges.get(spec.edge) else {
+            continue;
+        };
+        let Some(curve) = edge.curve.as_ref() else {
+            continue;
+        };
+        // Sample the spec edge along its span (the strip's stored
+        // boundary vertices sit at the ENDS, up to half the edge
+        // length from the midpoint).
+        let mut d = f64::INFINITY;
+        for k in 0..=8 {
+            let t = curve.t_start + (curve.t_end - curve.t_start) * f64::from(k) / 8.0;
+            let q = curve.geometry.point_at(t);
+            for p in &samples {
+                d = d.min(p.distance_to(&q));
+            }
+        }
+        if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+            best = Some((i, d));
+        }
+    }
+    let spec_radius_scale = |r: &FilletRadius| -> f64 {
+        match r {
+            FilletRadius::Constant(c) => *c,
+            FilletRadius::Variable { start, end } => start.max(*end),
+            _ => 1.0,
+        }
+    };
+    let (idx, d) = best.ok_or_else(|| BlendError::InvalidParameter {
+        parameter: "record".into(),
+        value: "specs".into(),
+        reason: "no recorded spec has a live edge curve".into(),
+    })?;
+    let gate = 2.0 * spec_radius_scale(&record.specs[idx].radius).max(1e-6);
+    if d > gate {
+        return Err(BlendError::InvalidParameter {
+            parameter: "fillet_face".into(),
+            value: format!("{fillet_face:?}"),
+            reason: format!(
+                "no recorded spec edge lies within {gate:.3e} of the strip (nearest {d:.3e}) — \
+                 the face does not belong to this record"
+            ),
+        });
+    }
+    let mut specs = record.specs.clone();
+    specs[idx].radius = new_radius;
+    crate::fillet_edges(
+        &record.input,
+        &specs,
+        &record.options,
+        record.tolerance,
+        None,
+    )
+}
