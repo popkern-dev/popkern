@@ -47,7 +47,13 @@ pub(crate) fn absorb_junction_remnants(
         let radius = edge_geometries[a]
             .effective_radius
             .max(edge_geometries[b].effective_radius);
-        let Some(normal) = junction_tangent_at(edge_geometries, a, v_pos) else {
+        let (Some(ta), Some(tb)) = (
+            away_tangent_at(edge_geometries, a, v_pos),
+            away_tangent_at(edge_geometries, b, v_pos),
+        ) else {
+            continue;
+        };
+        let Some(normal) = (tb - ta).normalized() else {
             continue;
         };
         let ball = radius * 3.0;
@@ -97,9 +103,12 @@ pub(crate) fn absorb_junction_remnants(
     absorbed
 }
 
-/// Valence-2 junction vertices of the operation whose two sub-edges
-/// are tangent-continuous there (|cos| >= 0.99 between the chain
-/// tangents — a genuine corner turns, a smooth chain continues).
+/// Valence-2 junction vertices of the operation: smooth-through
+/// (tangent-continuous) junctions AND true corners both partition
+/// their remnant territory with the same dividing plane — normal =
+/// difference of the two AWAY-oriented chain tangents, which is the
+/// chain tangent at a smooth junction and the diagonal bisector at
+/// a corner.
 fn smooth_junctions(
     brep: &BRep,
     edge_geometries: &[EdgeGeometry],
@@ -129,16 +138,13 @@ fn smooth_junctions(
             continue;
         };
         let (Some(ta), Some(tb)) = (
-            junction_tangent_at(edge_geometries, *a, v_pos),
-            junction_tangent_at(edge_geometries, *b, v_pos),
+            away_tangent_at(edge_geometries, *a, v_pos),
+            away_tangent_at(edge_geometries, *b, v_pos),
         ) else {
             continue;
         };
-        if ta.dot(&tb).abs() >= 0.99 {
-            out.push((v, *a, *b));
-        } else if trace {
-            eprintln!("[junction] {v:?} skipped: cos {:.3}", ta.dot(&tb));
-        }
+        let _ = (ta, tb);
+        out.push((v, *a, *b));
     }
     out
 }
@@ -147,8 +153,9 @@ fn smooth_junctions(
 /// NEAREST the junction position (the rails run parallel to the
 /// chain; sampling the far end folds the arc's curvature into the
 /// tangent — measured cos 0.968 at the top seam junction, under the
-/// smoothness gate, purely from far-end sampling).
-fn junction_tangent_at(edge_geometries: &[EdgeGeometry], idx: usize, at: Point3) -> Option<Vec3> {
+/// old smoothness gate, purely from far-end sampling), oriented to
+/// point AWAY from the junction.
+fn away_tangent_at(edge_geometries: &[EdgeGeometry], idx: usize, at: Point3) -> Option<Vec3> {
     use popkern_core::geometry::curve::CurveEval;
     let eg = edge_geometries.get(idx)?;
     let (t0, t1) = eg.trim_3d_1.parameter_range();
@@ -160,7 +167,18 @@ fn junction_tangent_at(edge_geometries: &[EdgeGeometry], idx: usize, at: Point3)
     } else {
         (eg.trim_3d_1.point_at(t1 - step), p_end)
     };
-    (b - a).normalized()
+    let t = (b - a).normalized()?;
+    // Orient away: the far sample must lie on the +t side of `at`.
+    let far = if at.distance_to(&p_start) <= at.distance_to(&p_end) {
+        p_end
+    } else {
+        p_start
+    };
+    Some(if (far - at).dot(&t) >= 0.0 {
+        t
+    } else {
+        t * -1.0
+    })
 }
 
 /// Remnant faces at the junction: support-surface faces whose whole
