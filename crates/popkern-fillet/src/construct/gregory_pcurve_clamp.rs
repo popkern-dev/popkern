@@ -80,10 +80,72 @@ pub(crate) fn clamp_bounded_pcurves(brep: &mut BRep) -> usize {
         // last CPs are exact endpoints). Sampling could miss
         // narrow excursions between samples, but CPs are the
         // ground truth.
-        // Analytic pcurve variants (Linear) live in their parent
-        // surface's UV box by construction (G4) — no clamping needed
-        // and no CPs to inspect. Only NURBS pcurves require this
-        // band-aid pass.
+        // Analytic Linear pcurves are in-box by construction (G4) —
+        // EXCEPT for sub-tolerance endpoint drift from vertex/curve
+        // repair passes (measured: pyramid4_zoo mixed served a
+        // Linear endpoint at v = -1.05e-4 on a Gregory cap, and the
+        // escape tessellated as a 3.1e-4 non-manifold seam). Clamp
+        // Linear endpoints into the box when the drift is small
+        // (<= 1e-3 of the range) — larger escapes are authoring
+        // bugs that clamping would only mask.
+        if let popkern_core::geometry::pcurve::PcurveGeometry::Linear { start, end } =
+            &pcurve.geometry
+        {
+            let band_u = ((u_hi - u_lo).abs() * 1e-3).max(1e-9);
+            let band_v = ((v_hi - v_lo).abs() * 1e-3).max(1e-9);
+            let mut new_start = *start;
+            let mut new_end = *end;
+            let mut fix = false;
+            for p in [&mut new_start, &mut new_end] {
+                if !u_periodic {
+                    if p.0 < u_lo && p.0 >= u_lo - band_u {
+                        p.0 = u_lo;
+                        fix = true;
+                    } else if p.0 > u_hi && p.0 <= u_hi + band_u {
+                        p.0 = u_hi;
+                        fix = true;
+                    }
+                }
+                if p.1 < v_lo && p.1 >= v_lo - band_v {
+                    p.1 = v_lo;
+                    fix = true;
+                } else if p.1 > v_hi && p.1 <= v_hi + band_v {
+                    p.1 = v_hi;
+                    fix = true;
+                }
+            }
+            if fix {
+                let before = brep
+                    .measure_half_edge_pcurve_deviation(heh)
+                    .map(|r| r.max_deviation);
+                let original = pcurve.clone();
+                if let Some(he_mut) = brep.half_edges.get_mut(heh)
+                    && let Some(pc) = he_mut.pcurve.as_mut()
+                {
+                    pc.geometry = popkern_core::geometry::pcurve::PcurveGeometry::Linear {
+                        start: new_start,
+                        end: new_end,
+                    };
+                }
+                let after = brep
+                    .measure_half_edge_pcurve_deviation(heh)
+                    .map(|r| r.max_deviation);
+                if std::env::var("POPKERN_CLAMP_TRACE").is_ok() {
+                    eprintln!(
+                        "  [linear_clamp] he {heh:?} face {face:?} dev {before:?} -> {after:?}"
+                    );
+                }
+                match (before, after) {
+                    (Some(b), Some(a)) if a <= b + 1e-9 => clamped += 1,
+                    _ => {
+                        if let Some(he_mut) = brep.half_edges.get_mut(heh) {
+                            he_mut.pcurve = Some(original);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
         let Some(nurbs_view) = pcurve.as_nurbs() else {
             continue;
         };

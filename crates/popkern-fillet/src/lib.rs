@@ -205,7 +205,6 @@ fn fillet_edges_internal(
     let t2 = Instant::now();
     let mut edge_geometries = Vec::new();
     let mut failures = Vec::new();
-
     for (i, spec) in specs.iter().enumerate() {
         if i >= analyses.len() {
             continue;
@@ -247,7 +246,6 @@ fn fillet_edges_internal(
         edge_geometries.len()
     );
     check_cancel!();
-
     // Transactional: any per-edge failure fails the whole op.
     if !failures.is_empty() {
         return Err(BlendError::PartialFailure {
@@ -257,12 +255,10 @@ fn fillet_edges_internal(
             failures,
         });
     }
-
     // PHASE 3: Detect overlaps (warnings only — don't block the operation).
     let t3 = Instant::now();
     let mut overlap_warnings = Vec::new();
     let (overlap_trims, _face_trim_map) = build_overlap_inputs(&edge_geometries, brep);
-
     let overlaps = overlap::detect_overlaps(&overlap_trims, &tolerance);
     for ov in &overlaps {
         overlap_warnings.push(BlendWarning::FilletOverlap {
@@ -438,6 +434,10 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
+    // PK-175: final bounded-UV pcurve clamp — the settle/reconcile
+    // stages above author sub-tolerance chart escapes (pyramid4_zoo
+    // served a cap pcurve at v = -1.05e-4).
+    let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,
