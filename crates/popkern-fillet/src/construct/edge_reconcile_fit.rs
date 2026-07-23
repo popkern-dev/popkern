@@ -63,7 +63,13 @@ pub(super) fn try_curved_fit(
             p1.y + t * (p2.y - p1.y),
             p1.z + t * (p2.z - p1.z),
         );
-        let max_iters = 8;
+        // Alternating projection converges LINEARLY near a shallow
+        // (tangential) intersection — a step-size-only test with 8
+        // iterations rejected exactly the strip-boundary edges the
+        // pass exists for (PK-141: 2.1e-2 seam remnants on the
+        // region-merged strips). Iterate deeper and accept on the
+        // RESIDUAL to both surfaces, same as the swept-corner march.
+        let max_iters = 200;
         let mut prev = p;
         let mut converged = false;
         for _ in 0..max_iters {
@@ -82,7 +88,16 @@ pub(super) fn try_curved_fit(
             prev = p;
         }
         if !converged {
-            return false;
+            // Residual acceptance: on both surfaces within the fit
+            // scale even though the tangential slide has not stalled.
+            let d1 = sof_1
+                .geometry
+                .closest_point(&p)
+                .map(|(u, v)| p.distance_to(&sof_1.geometry.point_at(u, v)))
+                .unwrap_or(f64::INFINITY);
+            if d1 > chord_len * 1e-4 {
+                return false;
+            }
         }
         // Reject samples that drift far from the chord — likely
         // landed on a different intersection branch.
