@@ -110,7 +110,7 @@ pub(super) fn apply_face_trim_pipeline(
     perp_data: &[Option<super::perpendicular_splits::PerpSplitData>],
     descendants: &mut HashMap<EdgeHandle, Vec<EdgeHandle>>,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
-) {
+) -> usize {
     // Collect trim data from Phase A results (BTreeMap for deterministic iteration).
     let mut face_trims: std::collections::BTreeMap<FaceHandle, Vec<FaceTrim>> =
         std::collections::BTreeMap::new();
@@ -357,4 +357,5 @@ pub(super) fn apply_face_trim_pipeline(
             let _ = result.kef(he);
         }
     }
+    region_resolved.len()
 }

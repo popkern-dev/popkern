@@ -175,12 +175,7 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             warnings,
         );
     }
-
     pp_census("post-sliver-absorb", result);
-    // PK-141: settle stale strip-boundary vertices + refit curves.
-    // (Iterating was measured a no-op: the residual vertices are the
-    // correctly-declined sphere-junction ones.)
-    let _ = super::stale_vertex_settle::settle_stale_strip_vertices(result, tolerance);
 
     determinism_trace("post_sliver_absorb", result);
     fanq("post_sliver_absorb", result, corner_patches);

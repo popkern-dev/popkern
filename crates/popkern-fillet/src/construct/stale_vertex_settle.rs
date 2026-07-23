@@ -28,7 +28,14 @@ use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 /// Settle stale strip-boundary vertices. Returns how many moved.
 pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance) -> usize {
     let trace = std::env::var_os("PK_RECONCILE_TRACE").is_some();
-    let gate = tolerance.linear().max(1e-9) * 100.0;
+    // Candidate gate at the genuinely-STALE scale (linear x 1000):
+    // NURBS fit precision leaves boundary vertices ~2e-4 off their
+    // strips, and settling those micro-offsets breaks welded
+    // coincidence with topology the refit does not touch (measured:
+    // both swept-corner hardening gates shipped welded opens under a
+    // linear x 100 gate). The stale class this pass exists for is
+    // 1e-2-scale.
+    let gate = tolerance.linear().max(1e-9) * 5000.0;
     // Incident faces per vertex.
     let mut incident: BTreeMap<VertexHandle, BTreeSet<FaceHandle>> = BTreeMap::new();
     for (_, he) in brep.half_edges.iter() {

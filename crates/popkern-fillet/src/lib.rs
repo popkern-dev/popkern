@@ -150,7 +150,6 @@ fn fillet_edges_internal(
     mut reporter: Option<&mut dyn progress::ProgressReporter>,
 ) -> Result<BlendResult, BlendError> {
     use std::time::Instant;
-
     macro_rules! emit {
         ($phase:expr, $start:expr, $count:expr) => {
             if let Some(r) = reporter.as_deref_mut() {
@@ -162,7 +161,6 @@ fn fillet_edges_internal(
             }
         };
     }
-
     macro_rules! check_cancel {
         () => {
             if let Some(tok) = cancel
@@ -172,22 +170,18 @@ fn fillet_edges_internal(
             }
         };
     }
-
     // PHASE 0: Validate.
     let t0 = Instant::now();
     validate::validate_fillet_specs(brep, specs)?;
     emit!(progress::FilletPhase::Validate, t0, specs.len());
     check_cancel!();
-
     // Canonicalize radius laws AFTER validation (errors report the
     // user's spelling); see [`FilletSpec::canonicalized_all`].
     let specs: Vec<FilletSpec> = FilletSpec::canonicalized_all(specs);
     let specs = specs.as_slice();
-
     // §13.4 soft-supports: shadow-relax tolerance for low-precision input.
     let (tolerance, soft_warn) = options.relax_tolerance(tolerance);
     let mut prepass_warnings: Vec<BlendWarning> = soft_warn.into_iter().collect();
-
     // PHASE 0b: §13.1(5) collapsed-edge soft-skip + §13.1(1) cusp subdivide.
     let (skipped, collapsed_warnings) =
         collapsed_skip::skip_collapsed_edges(brep, specs, &tolerance);
@@ -198,7 +192,6 @@ fn fillet_edges_internal(
     let specs: &[FilletSpec] = &healed_specs;
     // Capture pre-operation faces for naming.
     let pre_faces: std::collections::HashSet<FaceHandle> = brep.faces.keys().collect();
-
     // PHASE 1: Analyze edges.
     let t1 = Instant::now();
     let edges: Vec<EdgeHandle> = specs.iter().map(|s| s.edge).collect();
@@ -206,7 +199,6 @@ fn fillet_edges_internal(
         .map_err(BlendError::NoValidEdges)?;
     emit!(progress::FilletPhase::Analyze, t1, analyses.len());
     check_cancel!();
-
     // PHASE 2: Compute geometry for each edge.
     let t2 = Instant::now();
     let mut edge_geometries = Vec::new();
@@ -418,6 +410,14 @@ fn fillet_edges_internal(
             &mut apply_result.brep,
             &tolerance,
         );
+    // PK-141: stale-vertex settle — AFTER corner settlements and
+    // ONLY on region-path bodies (both scopes measured load-bearing).
+    if apply_result.repair_report.region_resolved_trims > 0 {
+        let _ = construct::stale_vertex_settle::settle_stale_strip_vertices(
+            &mut apply_result.brep,
+            &tolerance,
+        );
+    }
     // PK-139: co-parameterize swept-strip rails whose pcurves diverge
     // from the rail curves at the same fraction (curved variable
     // rails; the imprecision-scaled stale gate cannot serve them).

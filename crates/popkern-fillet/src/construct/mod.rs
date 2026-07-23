@@ -215,7 +215,7 @@ pub fn apply_blend_geometry(
     pipeline_timing.perpendicular_split_ms = ms;
     direct_apex_built_faces.extend(split_state.closed_fillet_protected.iter().copied());
     post_pipeline::determinism_trace("post_perp_splits", &result);
-    let (_, ms) = pipeline_timing::timed(|| {
+    let (region_resolved_trims, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(
             brep,
             &mut result,
@@ -226,6 +226,7 @@ pub fn apply_blend_geometry(
             &mut failures,
         )
     });
+    repair_report.region_resolved_trims = region_resolved_trims;
     pipeline_timing.face_trim_ms = ms;
     post_pipeline::determinism_trace("post_face_trim", &result);
 

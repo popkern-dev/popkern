@@ -14,6 +14,10 @@ use super::types_repair_exact_boundary::ExactBoundaryCapDiagnostic;
 /// blend operation.
 #[derive(Debug, Clone, Default)]
 pub struct BlendRepairReport {
+    /// PK-141: trims resolved through the curved-support region path
+    /// (gates the stale-vertex settle — it must not touch bodies the
+    /// region machinery never shaped).
+    pub region_resolved_trims: usize,
     /// Whole-blend support-face seam relocation diagnostics.
     pub support_seam_relocation: SupportSeamRelocationReport,
     /// Straight edge curves reauthored to terminate at their owning topology
