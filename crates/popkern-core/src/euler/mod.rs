@@ -21,6 +21,7 @@ mod face_merge;
 mod face_merge_split;
 mod kemr;
 mod kve;
+mod support_loop_interval_rewrite;
 pub use kve::KveResult;
 mod kfmrh;
 mod loop_bridge;
@@ -113,6 +114,9 @@ pub use mvfs::MvfsResult;
 pub use same_loop_boundary_exposure::SameLoopBoundaryExposureResult;
 pub use same_loop_face_bridge::{
     SameLoopFaceBridgePlan, SameLoopFaceBridgeRequest, SameLoopFaceBridgeResult,
+};
+pub use support_loop_interval_rewrite::{
+    SupportLoopIntervalRewritePlan, SupportLoopIntervalRewriteResult,
 };
 pub use sweep::ExtrudeResult;
 pub use sweep::RevolveResult;
