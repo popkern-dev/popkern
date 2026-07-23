@@ -142,8 +142,29 @@ pub(super) fn loop_hes_at_positions(
     pb: Point3,
     tolerance: &Tolerance,
 ) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
+    // The recorded subdivision list can lag mid-surgery (re-homed
+    // spurs and prior separator mefs mint pieces); fall through to
+    // the full face set when the recorded list misses.
+    loop_hes_at_positions_in(brep, sub_faces.iter().copied(), pa, pb, tolerance).or_else(|| {
+        loop_hes_at_positions_in(
+            brep,
+            brep.faces.keys().collect::<Vec<_>>().into_iter(),
+            pa,
+            pb,
+            tolerance,
+        )
+    })
+}
+
+fn loop_hes_at_positions_in(
+    brep: &BRep,
+    faces: impl Iterator<Item = FaceHandle>,
+    pa: Point3,
+    pb: Point3,
+    tolerance: &Tolerance,
+) -> Option<(FaceHandle, HalfEdgeHandle, HalfEdgeHandle)> {
     let tol = tolerance.linear().max(1e-9) * 100.0;
-    for &f in sub_faces {
+    for f in faces {
         let fd = brep.faces.get(f)?;
         let mut loops = vec![fd.outer_loop];
         loops.extend(fd.inner_loops.iter().copied());
