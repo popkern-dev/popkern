@@ -43,7 +43,7 @@ use super::blend_seam_corner_repair::{
 };
 
 #[path = "blend_seam_corner_march_authoring.rs"]
-mod authoring;
+pub(super) mod authoring;
 #[path = "blend_seam_corner_march_solver.rs"]
 mod solver;
 

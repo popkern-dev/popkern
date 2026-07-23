@@ -47,14 +47,17 @@ pub(super) fn chart_polyline(
 
 /// Degree-3 interpolating pcurve through chart samples with the
 /// given normalized parameters.
-pub(super) fn chart_pcurve(uv: &[(f64, f64)], params: &[f64]) -> Result<Pcurve, Reason> {
+pub(in crate::construct) fn chart_pcurve(
+    uv: &[(f64, f64)],
+    params: &[f64],
+) -> Result<Pcurve, Reason> {
     let pts: Vec<Point3> = uv.iter().map(|(u, v)| Point3::new(*u, *v, 0.0)).collect();
     let curve = interpolate_curve(&pts, params, 3).map_err(|_| Reason::PcurveClosureFailed)?;
     Ok(Pcurve::from_nurbs(curve))
 }
 
 /// Chord-length parameters normalized to [0, 1].
-pub(super) fn chord_params(pts: &[Point3]) -> Vec<f64> {
+pub(in crate::construct) fn chord_params(pts: &[Point3]) -> Vec<f64> {
     let mut acc = vec![0.0_f64];
     for w in pts.windows(2) {
         let d = (w[1] - w[0]).length();

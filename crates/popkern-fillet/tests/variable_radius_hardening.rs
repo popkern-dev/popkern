@@ -237,3 +237,93 @@ fn variable_ends_feed_corner_with_endpoint_radius() {
         }
     }
 }
+
+/// PK-160: GENUINELY varying laws meeting at a corner with MATCHED
+/// corner radii must close through the swept pair-corner settlement
+/// (`blend_seam_corner_swept`): the seam is the marched strip×strip
+/// intersection (alternating projection), not an analytic ellipse.
+/// Before the swept path, this pair shipped 76 welded opens and a
+/// 0.033 off-surface seam edge (check-9 catch at the serving layer).
+#[test]
+fn varying_laws_matched_corner_close_swept_seam() {
+    let brep = BRep::unit_cube(default_tol()).unwrap();
+    let mut chosen: Option<(
+        popkern_core::topology::EdgeHandle,
+        popkern_core::topology::EdgeHandle,
+    )> = None;
+    'outer: for (e1, d1) in brep.edges.iter() {
+        for (e2, d2) in brep.edges.iter() {
+            if e1 >= e2 {
+                continue;
+            }
+            let v1 = {
+                let he = &brep.half_edges[d1.half_edge];
+                [he.origin, brep.half_edges[he.twin].origin]
+            };
+            let v2 = {
+                let he = &brep.half_edges[d2.half_edge];
+                [he.origin, brep.half_edges[he.twin].origin]
+            };
+            if v1.iter().any(|v| v2.contains(v)) {
+                chosen = Some((e1, e2));
+                break 'outer;
+            }
+        }
+    }
+    let (e1, e2) = chosen.expect("cube has adjacent edges");
+    let shared = {
+        let v1 = {
+            let he = &brep.half_edges[brep.edges[e1].half_edge];
+            [he.origin, brep.half_edges[he.twin].origin]
+        };
+        let v2 = {
+            let he = &brep.half_edges[brep.edges[e2].half_edge];
+            [he.origin, brep.half_edges[he.twin].origin]
+        };
+        *v1.iter().find(|v| v2.contains(v)).expect("shared vertex")
+    };
+    // Orient each law so the SHARED corner carries 0.08 on both
+    // strips while the far ends genuinely differ.
+    let law = |edge: popkern_core::topology::EdgeHandle, far: f64| {
+        let he = &brep.half_edges[brep.edges[edge].half_edge];
+        let starts_at_shared = he.origin == shared;
+        FilletSpec {
+            edge,
+            radius: if starts_at_shared {
+                FilletRadius::Variable {
+                    start: 0.08,
+                    end: far,
+                }
+            } else {
+                FilletRadius::Variable {
+                    start: far,
+                    end: 0.08,
+                }
+            },
+        }
+    };
+    let specs = vec![law(e1, 0.12), law(e2, 0.05)];
+    let result = fillet_edges(
+        &brep,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    );
+    match result {
+        Ok(BlendResult { brep: out, .. }) => {
+            let opens = welded_open_edges(&out);
+            assert_eq!(
+                opens, 0,
+                "matched-corner varying pair must close welded-watertight through the swept seam"
+            );
+            let errors = out.validate_all();
+            assert!(
+                errors.is_empty(),
+                "matched-corner varying pair shipped an invalid body: {errors:?}"
+            );
+            eprintln!("[vr-matrix] swept matched corner: COMPLETED watertight");
+        }
+        Err(err) => panic!("matched-corner varying pair must not decline: {err:?}"),
+    }
+}

@@ -137,6 +137,46 @@ pub(super) fn strip_cylinder(brep: &BRep, face: FaceHandle) -> Option<StripCylin
     }
 }
 
+/// A strip surface the corner settlement can measure against:
+/// analytic cylinders (constant-radius fillets) or swept rational
+/// strips (variable-radius fillets, PK-160).
+#[derive(Clone)]
+pub(super) enum StripSurface {
+    Cylinder(StripCylinder),
+    Swept(SurfaceGeometry),
+}
+
+pub(super) fn strip_surface(brep: &BRep, face: FaceHandle) -> Option<StripSurface> {
+    match brep.faces.get(face)?.surface.as_ref().map(|s| &s.geometry) {
+        Some(SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        }) => Some(StripSurface::Cylinder(StripCylinder {
+            origin: *origin,
+            axis: *axis,
+            radius: *radius,
+        })),
+        Some(g @ SurfaceGeometry::Nurbs(_)) => Some(StripSurface::Swept(g.clone())),
+        _ => None,
+    }
+}
+
+/// Distance from a point to the strip surface (analytic for
+/// cylinders, Gauss-Newton projection for swept strips).
+pub(super) fn off_strip(p: Point3, s: &StripSurface) -> f64 {
+    match s {
+        StripSurface::Cylinder(cyl) => off_cylinder(p, cyl),
+        StripSurface::Swept(geom) => {
+            use popkern_core::geometry::SurfaceEval;
+            match popkern_core::geometry::uv_projection::project_point_to_uv(geom, &p) {
+                Some((u, v)) => p.distance_to(&geom.point_at(u, v)),
+                None => f64::INFINITY,
+            }
+        }
+    }
+}
+
 pub(super) fn off_cylinder(p: Point3, cyl: &StripCylinder) -> f64 {
     let d = p - cyl.origin;
     let radial: Vec3 = d - cyl.axis * d.dot(&cyl.axis);
@@ -165,7 +205,7 @@ fn recognize_pair_corners(
             continue;
         }
         let (Some(cyl_a), Some(cyl_b)) =
-            (strip_cylinder(brep, la.face), strip_cylinder(brep, lb.face))
+            (strip_surface(brep, la.face), strip_surface(brep, lb.face))
         else {
             continue;
         };
@@ -175,7 +215,7 @@ fn recognize_pair_corners(
         // repair then declines as the structured stage-2 reason).
         let off_all = |v: VertexHandle| -> Option<bool> {
             let p = brep.vertices.get(v)?.position;
-            Some(off_cylinder(p, &cyl_a) > stale_tol && off_cylinder(p, &cyl_b) > stale_tol)
+            Some(off_strip(p, &cyl_a) > stale_tol && off_strip(p, &cyl_b) > stale_tol)
         };
         let va = he_a.origin;
         let vb = he_b.origin;
@@ -215,13 +255,13 @@ fn walk_corner_tangle(
     he_p: HalfEdgeHandle,
     corner: VertexHandle,
     anchor_near: VertexHandle,
-    cyl_a: &StripCylinder,
-    cyl_b: &StripCylinder,
+    cyl_a: &StripSurface,
+    cyl_b: &StripSurface,
     stale_tol: f64,
 ) -> Option<PairCornerCandidate> {
     let on_both = |v: VertexHandle| -> Option<bool> {
         let p = brep.vertices.get(v)?.position;
-        Some(off_cylinder(p, cyl_a) <= stale_tol && off_cylinder(p, cyl_b) <= stale_tol)
+        Some(off_strip(p, cyl_a) <= stale_tol && off_strip(p, cyl_b) <= stale_tol)
     };
     let twin_face = |he: HalfEdgeHandle| -> Option<FaceHandle> {
         let tw = brep.half_edges.get(brep.half_edges.get(he)?.twin)?;
@@ -324,14 +364,20 @@ fn dispatch_repair(
     c: &PairCornerCandidate,
     tolerance: &Tolerance,
 ) -> Result<(), BlendSeamCornerDeclineReason> {
-    let cyl_n =
-        strip_cylinder(brep, c.strip_n).ok_or(BlendSeamCornerDeclineReason::EulerRejected)?;
-    let cyl_p =
-        strip_cylinder(brep, c.strip_p).ok_or(BlendSeamCornerDeclineReason::EulerRejected)?;
-    let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
-    if (cyl_n.radius - cyl_p.radius).abs() <= pos_tol.max(cyl_n.radius * 1e-9) {
-        super::blend_seam_corner_repair::repair_pair_corner_equal(brep, c, tolerance)
-    } else {
-        super::blend_seam_corner_march::repair_pair_corner_mixed(brep, c, tolerance)
+    match (
+        strip_cylinder(brep, c.strip_n),
+        strip_cylinder(brep, c.strip_p),
+    ) {
+        (Some(cyl_n), Some(cyl_p)) => {
+            let pos_tol = (tolerance.linear() * 10.0).max(1e-9);
+            if (cyl_n.radius - cyl_p.radius).abs() <= pos_tol.max(cyl_n.radius * 1e-9) {
+                super::blend_seam_corner_repair::repair_pair_corner_equal(brep, c, tolerance)
+            } else {
+                super::blend_seam_corner_march::repair_pair_corner_mixed(brep, c, tolerance)
+            }
+        }
+        // Swept rational strips (variable-radius fillets): the seam
+        // is the marched strip×strip intersection (PK-160).
+        _ => super::blend_seam_corner_swept::repair_pair_corner_swept(brep, c, tolerance),
     }
 }
