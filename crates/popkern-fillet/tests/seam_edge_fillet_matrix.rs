@@ -265,10 +265,12 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
     // PK-141 measured frontier: the apply COMPLETES (all six chain
-    // pieces, region-path consumed territories, corner separators);
-    // one curve-surface residual remains (2.1e-2 on a corner-region
-    // trim — the corner-cap reconcile debt). Pin completion + the
-    // residual ceiling; flip to (0,0,0) when the corner caps land.
+    // pieces, region-path consumed territories, corner separators,
+    // stale-vertex settle); one curve-surface residual remains
+    // (2.8e-3, down from 2.1e-2 pre-settle — the three-surface
+    // corner junction where strips and the sphere cap disagree).
+    // Pin completion + the residual ceiling; flip to (0,0,0) when
+    // the corner caps land.
     assert_eq!(
         (structural, open),
         (0, 0),

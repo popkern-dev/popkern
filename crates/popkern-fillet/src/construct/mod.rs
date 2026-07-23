@@ -111,6 +111,7 @@ mod sliver_absorb;
 mod sliver_absorb_classifiers;
 mod sphere_fit_edge_wire;
 mod sphere_fit_edge_wire_cap_identity;
+pub(crate) mod stale_vertex_settle;
 mod strip_end_arcs;
 mod strip_end_surface;
 pub(crate) mod strip_rail_coparameterization;

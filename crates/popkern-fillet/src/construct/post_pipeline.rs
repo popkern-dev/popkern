@@ -74,7 +74,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         pcurve_refit::refit_all_pcurves(result);
         determinism_trace("post_pcurve_refit", result);
     }
-
     // Topology repair for off-cylinder vertices in cylinder face
     // outer loops (apex-only filleting case where the cylinder
     // ribbon's base-side ends at an unfilleted original vertex via
@@ -115,7 +114,6 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
             eprintln!("[topo_repair] default post-blend repaired {repaired} chord pair(s)");
         }
     }
-
     // §13.1(2) sliver absorption: Classes A/B/C/D. 12-edge cube test is Class D regression guard (26 faces preserved).
     //
     // Phase 6c-D Stage 4.5: protect substituted-boundary cap faces
@@ -179,6 +177,8 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
     }
 
     pp_census("post-sliver-absorb", result);
+    // PK-141: settle stale strip-boundary vertices + refit curves.
+    let _ = super::stale_vertex_settle::settle_stale_strip_vertices(result, tolerance);
 
     determinism_trace("post_sliver_absorb", result);
     fanq("post_sliver_absorb", result, corner_patches);
