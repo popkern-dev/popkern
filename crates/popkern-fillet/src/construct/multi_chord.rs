@@ -184,6 +184,7 @@ pub(super) fn apply_multi_chord_for_face(
     }
     let mut per_trim_sub_edges: Vec<Vec<EdgeHandle>> = vec![Vec::new(); n];
     let mut sub_faces: Vec<FaceHandle> = vec![original_face];
+    let mut deferred: Vec<super::multi_chord_region::DeferredTrim> = Vec::new();
     for i in 0..n {
         let trim = &trims[i];
         let fillet_edge = fillet_edges_by_trim[i];
@@ -191,7 +192,6 @@ pub(super) fn apply_multi_chord_for_face(
             .get(&fillet_edge)
             .map(|v| v.as_slice())
             .unwrap_or(std::slice::from_ref(&fillet_edge));
-
         // Step 1: for every precomputed intersection with an
         // earlier trim `j < i`, split the earlier trim's current
         // sub-edge at the crossing point to create an
@@ -219,30 +219,25 @@ pub(super) fn apply_multi_chord_for_face(
                 }
             }
         }
-
         // Step 2: build the ordered vertex sequence for this
         // trim and apply one `split_face` per sub-chord.
         let mut endpoints: Vec<VertexHandle> = Vec::with_capacity(intermediate_vertices.len() + 2);
         endpoints.push(trim.anchors.0);
         endpoints.extend(intermediate_vertices.iter().copied());
         endpoints.push(trim.anchors.1);
-
         let mut produced_edges: Vec<EdgeHandle> = Vec::new();
         // Candidates: (length, consumed, pcurve, trim_3d).
         // We pick the LONGEST sub-chord's consumed as the true
         // strip for this fillet edge; shorter outer sub-chords
         // produce corner regions.
         let mut strip_candidates: Vec<(f64, FaceHandle, NurbsCurve, NurbsCurve)> = Vec::new();
+        let mut interior_candidates: Vec<(f64, NurbsCurve, NurbsCurve)> = Vec::new();
         let mut sub_chord_failed = false;
-
         for k in 0..endpoints.len() - 1 {
             let mut start_v = endpoints[k];
             let mut end_v = endpoints[k + 1];
             let mut target = find_face_containing_vertices(brep, &sub_faces, start_v, end_v);
-            // PK-141 cross-sub-face re-home: a spur-tip anchor from
-            // before earlier trims' splits can land in a different
-            // sub-face than its chord partner — re-root it there
-            // (mechanics + measurements: rehome_spur_tip).
+            // PK-141 spur re-home (see rehome_spur_tip).
             if target.is_none() {
                 if let Some((nv, tf)) = super::multi_chord_span_geometry::rehome_spur_tip(
                     brep, end_v, start_v, &sub_faces,
@@ -300,7 +295,6 @@ pub(super) fn apply_multi_chord_for_face(
                 sub_chord_failed = true;
                 break;
             };
-
             let p_a = brep.vertices[start_v].position;
             let p_b = brep.vertices[end_v].position;
             // #136 slice 6 / PK-139: the sub-chord's 3-D trim is the
@@ -403,7 +397,6 @@ pub(super) fn apply_multi_chord_for_face(
                     break;
                 }
             };
-
             let split = match brep.split_face(target, &pc, &t3d, tolerance) {
                 Ok(s) => s,
                 Err(e) => {
@@ -419,12 +412,9 @@ pub(super) fn apply_multi_chord_for_face(
                 }
             };
             produced_edges.extend(split.new_edges.iter().copied());
-
             // identify_consumed_face_any matches any descendant
-            // sub-edge. For the full-strip case this returns the
-            // strip. For outer sub-chords on a multi-fillet corner
-            // it returns a corner region (which also contains a
-            // fillet-edge descendant via the corner's trim).
+            // sub-edge (strip for the full case; corner region for
+            // outer sub-chords).
             let (kept, consumed) = match helpers::identify_consumed_face_any(
                 brep,
                 split.face_a,
@@ -442,9 +432,9 @@ pub(super) fn apply_multi_chord_for_face(
                         );
                     }
                     // Neither half contains any descendant —
-                    // this sub-chord is interior. Both halves
-                    // are valid sub-faces going forward, but
-                    // neither is a strip candidate.
+                    // this sub-chord is interior; keep its curves
+                    // for the region fallback (PK-141).
+                    interior_candidates.push((p_a.distance_to(&p_b), pc.clone(), t3d.clone()));
                     if let Some(pos) = sub_faces.iter().position(|&f| f == target) {
                         sub_faces[pos] = split.face_a;
                         sub_faces.push(split.face_b);
@@ -452,7 +442,6 @@ pub(super) fn apply_multi_chord_for_face(
                     continue;
                 }
             };
-
             if let Some(pos) = sub_faces.iter().position(|&f| f == target) {
                 sub_faces[pos] = kept;
                 sub_faces.push(consumed);
@@ -460,25 +449,25 @@ pub(super) fn apply_multi_chord_for_face(
             let length = p_a.distance_to(&p_b);
             strip_candidates.push((length, consumed, pc, t3d));
         }
-
         if sub_chord_failed {
             per_trim_sub_edges[i] = produced_edges;
             continue;
         }
         per_trim_sub_edges[i] = produced_edges.clone();
-
         // Pick the LONGEST sub-chord's consumed face as the true
         // strip for this fillet edge.
         strip_candidates.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         let Some((_, consumed, pcurve, trim_3d)) = strip_candidates.into_iter().next() else {
-            failures.push((
+            // PK-141: defer to the region fallback.
+            interior_candidates
+                .sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            deferred.push(super::multi_chord_region::DeferredTrim {
+                edge_idx: trim.edge_idx,
+                side: trim.side,
                 fillet_edge,
-                BlendFailure::InvalidTopology {
-                    reason: "multi-chord trim produced no sub-face containing the fillet edge"
-                        .to_string(),
-                    location: crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge),
-                },
-            ));
+                candidate: interior_candidates.into_iter().next(),
+                produced_edges,
+            });
             continue;
         };
 
@@ -491,7 +480,18 @@ pub(super) fn apply_multi_chord_for_face(
             trim_3d,
         });
     }
-
+    let all_trim_edges: Vec<EdgeHandle> = per_trim_sub_edges.iter().flatten().copied().collect();
+    super::multi_chord_region::process_deferred(
+        brep,
+        deferred,
+        trims,
+        descendants,
+        &sub_faces,
+        &all_trim_edges,
+        &mut trim_results,
+        &mut failures,
+        tolerance,
+    );
     MultiChordOutcome {
         trim_results,
         failures,

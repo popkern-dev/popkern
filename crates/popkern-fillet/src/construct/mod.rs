@@ -92,6 +92,8 @@ mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod mixed_radius_direct_apex;
 mod multi_chord;
+mod multi_chord_region;
+mod multi_chord_region_separators;
 mod multi_chord_span_geometry;
 pub(crate) mod parallel_seam_weld;
 pub(crate) mod pcurve_attach;

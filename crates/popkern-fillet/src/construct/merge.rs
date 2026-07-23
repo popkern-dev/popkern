@@ -34,7 +34,7 @@ pub fn identify_consumed_face_any(
     }
 }
 
-fn face_loop_contains_any_edge(
+pub(crate) fn face_loop_contains_any_edge(
     brep: &BRep,
     face: FaceHandle,
     edges: &[EdgeHandle],
@@ -138,30 +138,34 @@ fn find_adjacent_descendant_halfedge(
         .faces
         .get(consumed_1)
         .ok_or_else(|| format!("face {consumed_1:?} not found"))?;
-    let outer_loop = face_data.outer_loop;
-    let start_he = brep
-        .loops
-        .get(outer_loop)
-        .ok_or_else(|| format!("loop {outer_loop:?} not found"))?
-        .half_edge;
-
-    let mut cursor = start_he;
-    let max_iters = brep.half_edges.len() + 1;
-    for _ in 0..max_iters {
-        let he = brep
-            .half_edges
-            .get(cursor)
-            .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
-        if descendants.contains(&he.edge) {
-            let twin_handle = he.twin;
-            let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
-            if twin_face == consumed_2 {
-                return Ok(cursor);
+    // Inner loops count (PK-141): on a pierced curved wall the
+    // fillet-edge descendants sit on the consumed face's HOLE loop.
+    let mut loops = vec![face_data.outer_loop];
+    loops.extend(face_data.inner_loops.iter().copied());
+    for lh in loops {
+        let start_he = brep
+            .loops
+            .get(lh)
+            .ok_or_else(|| format!("loop {lh:?} not found"))?
+            .half_edge;
+        let mut cursor = start_he;
+        let max_iters = brep.half_edges.len() + 1;
+        for _ in 0..max_iters {
+            let he = brep
+                .half_edges
+                .get(cursor)
+                .ok_or_else(|| format!("half-edge {cursor:?} not found"))?;
+            if descendants.contains(&he.edge) {
+                let twin_handle = he.twin;
+                let twin_face = brep.loops[brep.half_edges[twin_handle].loop_].face;
+                if twin_face == consumed_2 {
+                    return Ok(cursor);
+                }
             }
-        }
-        cursor = he.next;
-        if cursor == start_he {
-            break;
+            cursor = he.next;
+            if cursor == start_he {
+                break;
+            }
         }
     }
     Err(format!(
