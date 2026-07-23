@@ -69,6 +69,9 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
     let mut open = 0usize;
     let mut other = 0usize;
     for err in brep.validate_all() {
+        if std::env::var_os("PK_GAUGE_TRACE").is_some() {
+            eprintln!("[gauge] {err:?}");
+        }
         match err {
             ValidationError::EulerPoincare { .. }
             | ValidationError::DanglingReference { .. }

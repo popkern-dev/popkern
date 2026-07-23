@@ -264,16 +264,14 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-141 measured frontier: the apply COMPLETES with SIX blend
-    // faces (chain-holder transplant partitions both vertical wall
-    // bands; the self-pair merge serves them; two corner spheres
-    // build). The seam class stays closed at 1e-6; one residual
-    // remains at 1.28e-2 — the strip x strip corner chord whose
-    // corner vertex's honest home is the corner-ball contact,
-    // reachable only with the strip-extension carve
-    // (PK141_CORNER_SNAP is gated on it; premature snap measured
-    // 5e-2). Pin completion + the single-defect ceiling; flip to
-    // (0,0,0) when the carve lands.
+    // PK-141 frontier: all six chain pieces serve as honest NURBS
+    // strips (chain-holder transplant + self-pair merge + NURBS
+    // identity in surfaces_equal). A run-order-unstable residual
+    // remains: validate_all flickers between clean and ONE 0.7
+    // CurveSurfaceDeviation on a rim edge (nondeterminism under
+    // investigation — the first measured determinism break in this
+    // campaign). Pin structural/open exactness + the single-defect
+    // ceiling; flip `other` to == 0 with the determinism fix.
     assert_eq!(
         (structural, open),
         (0, 0),

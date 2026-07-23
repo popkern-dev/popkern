@@ -397,6 +397,19 @@ pub(super) fn surfaces_equal(
         // Mismatched surface types are never equal. NURBS vs NURBS
         // would need control-polygon comparison which is rarely
         // useful here — leave `false`.
+        // NURBS: structural identity (cloned assignments from the
+        // operation's fillet-surface list — the vertical band strips
+        // carried eg NURBS surfaces that this equality couldn't see,
+        // so surface_fix's sphere fallback ate them).
+        (SurfaceGeometry::Nurbs(na), SurfaceGeometry::Nurbs(nb)) => {
+            na.degree_u == nb.degree_u
+                && na.degree_v == nb.degree_v
+                && na.num_u == nb.num_u
+                && na.num_v == nb.num_v
+                && na.knots_u == nb.knots_u
+                && na.knots_v == nb.knots_v
+                && na.control_points == nb.control_points
+        }
         _ => false,
     }
 }

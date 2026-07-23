@@ -387,14 +387,26 @@ pub(super) fn apply_multi_chord_for_face(
                 }
             };
             produced_edges.extend(split.new_edges.iter().copied());
-            // identify_consumed_face_any matches any descendant
-            // sub-edge (strip for the full case; corner region for
-            // outer sub-chords).
+            // identify_consumed_face_any matches any descendant.
+            // MID-SPAN descendants take priority: corner/seam
+            // remnant segments also carry descendant status, and
+            // identification through a remnant picked the rim-side
+            // piece (measured: 0.7 rim deviation).
+            let mid_span_desc = super::multi_chord_region_seeding::mid_span_descendants(
+                brep,
+                fillet_desc,
+                &trim.trim_3d,
+            );
+            let identify_desc: &[EdgeHandle] = if mid_span_desc.is_empty() {
+                fillet_desc
+            } else {
+                &mid_span_desc
+            };
             let (kept, consumed) = match helpers::identify_consumed_face_any(
                 brep,
                 split.face_a,
                 split.face_b,
-                fillet_desc,
+                identify_desc,
             ) {
                 Ok(kc) => kc,
                 Err(_) => {
@@ -445,7 +457,6 @@ pub(super) fn apply_multi_chord_for_face(
             });
             continue;
         };
-
         trim_results.push(TrimSplitResult {
             edge_idx: trim.edge_idx,
             side: trim.side,

@@ -10,7 +10,7 @@ use popkern_core::topology::{BRep, EdgeHandle};
 /// parameter steps are not equal lengths (the param-fraction filter
 /// classified an endpoint as frac 0.5). `None` when handles are
 /// stale.
-pub(super) fn descendant_trim_fraction(
+pub(in crate::construct) fn descendant_trim_fraction(
     brep: &BRep,
     e: EdgeHandle,
     trim: &NurbsCurve,
@@ -50,4 +50,24 @@ pub(super) fn descendant_trim_fraction(
         return None;
     }
     Some((lengths[best.0] / total, best.1))
+}
+
+/// Descendants of `fillet_desc` whose midpoints project to the
+/// INTERIOR of the trim span (see [`descendant_trim_fraction`]) —
+/// the span classification shared by region seeding and the direct
+/// consumed identification.
+pub(in crate::construct) fn mid_span_descendants(
+    brep: &BRep,
+    fillet_desc: &[EdgeHandle],
+    trim: &NurbsCurve,
+) -> Vec<EdgeHandle> {
+    fillet_desc
+        .iter()
+        .copied()
+        .filter(|&e| {
+            descendant_trim_fraction(brep, e, trim)
+                .map(|(frac, _)| (0.08..=0.92).contains(&frac))
+                .unwrap_or(false)
+        })
+        .collect()
 }

@@ -250,6 +250,11 @@ fn consumed_region_merge(
     if seeds.is_empty() {
         return None;
     }
+    // Deterministic seed order: `member` is a HashSet, and seed
+    // iteration order decided the flood/merge order (measured: a
+    // run-to-run defect flicker on the boss chain once the
+    // transplant made multiple seeds live).
+    seeds.sort();
     if trace {
         for &f in &seeds {
             let positions = brep.face_outer_loop_positions(f);
@@ -257,38 +262,6 @@ fn consumed_region_merge(
             let zmin = positions.iter().map(|p| p.z).fold(f64::MAX, f64::min);
             let zmax = positions.iter().map(|p| p.z).fold(f64::MIN, f64::max);
             eprintln!("[mc-region]   seed {f:?}: {n} loop vertices, z [{zmin:.3}, {zmax:.3}]");
-            if zmax - zmin > 0.2 {
-                let walk: Vec<String> = positions
-                    .iter()
-                    .map(|p| format!("({:.3},{:.3},{:.3})", p.x, p.y, p.z))
-                    .collect();
-                eprintln!("[mc-region]     outer: {}", walk.join(" "));
-                if let Some(fd) = brep.faces.get(f) {
-                    for &il in &fd.inner_loops {
-                        let Some(ld) = brep.loops.get(il) else {
-                            continue;
-                        };
-                        let mut cur = ld.half_edge;
-                        let mut ws: Vec<String> = Vec::new();
-                        for _ in 0..brep.half_edges.len() + 1 {
-                            let Some(he) = brep.half_edges.get(cur) else {
-                                break;
-                            };
-                            if let Some(v) = brep.vertices.get(he.origin) {
-                                ws.push(format!(
-                                    "({:.3},{:.3},{:.3})",
-                                    v.position.x, v.position.y, v.position.z
-                                ));
-                            }
-                            cur = he.next;
-                            if cur == ld.half_edge {
-                                break;
-                            }
-                        }
-                        eprintln!("[mc-region]     inner: {}", ws.join(" "));
-                    }
-                }
-            }
         }
     }
     let mut seen: HashSet<FaceHandle> = seeds.iter().copied().collect();
