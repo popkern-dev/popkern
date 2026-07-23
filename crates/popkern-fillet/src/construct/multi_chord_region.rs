@@ -184,6 +184,21 @@ fn consumed_region_merge(
         if crate::construct::merge::face_loop_contains_any_edge(brep, f, fillet_desc)
             .unwrap_or(false)
         {
+            if trace {
+                for &d in fillet_desc {
+                    if let Some(ed) = brep.edges.get(d)
+                        && let Some(he) = brep.half_edges.get(ed.half_edge)
+                    {
+                        let f1 = brep.loops.get(he.loop_).map(|l| l.face);
+                        let tw = brep.half_edges.get(he.twin);
+                        let f2 = tw.and_then(|t| brep.loops.get(t.loop_)).map(|l| l.face);
+                        if f1 == Some(f) || f2 == Some(f) {
+                            let a = brep.vertices.get(he.origin).map(|v| v.position);
+                            eprintln!("[mc-region]   seed {f:?} matched descendant {d:?} at {a:?}");
+                        }
+                    }
+                }
+            }
             seeds.push(f);
         }
     }
@@ -192,6 +207,47 @@ fn consumed_region_merge(
     }
     if seeds.is_empty() {
         return None;
+    }
+    if trace {
+        for &f in &seeds {
+            let positions = brep.face_outer_loop_positions(f);
+            let n = positions.len();
+            let zmin = positions.iter().map(|p| p.z).fold(f64::MAX, f64::min);
+            let zmax = positions.iter().map(|p| p.z).fold(f64::MIN, f64::max);
+            eprintln!("[mc-region]   seed {f:?}: {n} loop vertices, z [{zmin:.3}, {zmax:.3}]");
+            if zmax - zmin > 0.2 {
+                let walk: Vec<String> = positions
+                    .iter()
+                    .map(|p| format!("({:.3},{:.3},{:.3})", p.x, p.y, p.z))
+                    .collect();
+                eprintln!("[mc-region]     outer: {}", walk.join(" "));
+                if let Some(fd) = brep.faces.get(f) {
+                    for &il in &fd.inner_loops {
+                        let Some(ld) = brep.loops.get(il) else {
+                            continue;
+                        };
+                        let mut cur = ld.half_edge;
+                        let mut ws: Vec<String> = Vec::new();
+                        for _ in 0..brep.half_edges.len() + 1 {
+                            let Some(he) = brep.half_edges.get(cur) else {
+                                break;
+                            };
+                            if let Some(v) = brep.vertices.get(he.origin) {
+                                ws.push(format!(
+                                    "({:.3},{:.3},{:.3})",
+                                    v.position.x, v.position.y, v.position.z
+                                ));
+                            }
+                            cur = he.next;
+                            if cur == ld.half_edge {
+                                break;
+                            }
+                        }
+                        eprintln!("[mc-region]     inner: {}", ws.join(" "));
+                    }
+                }
+            }
+        }
     }
     let mut seen: HashSet<FaceHandle> = seeds.iter().copied().collect();
     let mut queue = seeds;

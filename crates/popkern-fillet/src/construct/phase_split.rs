@@ -193,6 +193,16 @@ pub(super) fn apply_face_trim_pipeline(
             }
         }
         region_resolved.extend(outcome.region_resolved.iter().copied());
+        if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+            for tr in &outcome.trim_results {
+                eprintln!(
+                    "[mc-trim] face {original_face:?} eg{} side{} -> {} trim edge(s)",
+                    tr.edge_idx,
+                    tr.side,
+                    tr.trim_edges.len()
+                );
+            }
+        }
         trim_results.extend(outcome.trim_results);
         failures.extend(outcome.failures);
         crate::construct::post_pipeline::determinism_trace(
