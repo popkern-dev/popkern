@@ -15,10 +15,11 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 use crate::contact::ContactSolution;
 use crate::error::BlendError;
 use crate::face_blend::FaceBlendSpec;
-use crate::face_blend_attach::{AttachOutcome, lerp};
+use crate::face_blend_attach::AttachOutcome;
+use crate::face_blend_attach_ends::{EndOutcome, split_end_face};
 use crate::face_blend_attach_geometry::{
-    arc_departure, decline, ensure_boundary_vertex, face_surface, face_uv_polygon, loop_half_edges,
-    pick_doomed, point_in_polygon, project_uv, uniform_polyline_nurbs, uv_polyline_nurbs,
+    arc_departure, decline, ensure_boundary_vertex, face_surface, loop_half_edges, pick_doomed,
+    project_uv, uniform_polyline_nurbs, uv_polyline_nurbs,
 };
 use crate::face_blend_sheet::{StripSkin, strip_skin};
 
@@ -67,13 +68,30 @@ pub(crate) fn surgery(
     let end_start = split_end_face(&mut work, &skin.start_arc, first, &wall_faces, &tolerance)?;
     let end_end = split_end_face(&mut work, &skin.end_arc, last, &wall_faces, &tolerance)?;
 
-    let blocked = [wall_a.edge, wall_b.edge, end_start.edge, end_end.edge];
-    let region = flood_doomed(&work, wall_a.doomed, &blocked)?;
-    for (label, member) in [
-        ("wall B doomed part", wall_b.doomed),
-        ("start-end doomed part", end_start.doomed),
-        ("far-end doomed part", end_end.doomed),
+    let mut blocked = vec![wall_a.edge, wall_b.edge];
+    let mut barriers: Vec<FaceHandle> = Vec::new();
+    let mut members = vec![("wall B doomed part", wall_b.doomed)];
+    let mut kept_faces = vec![wall_a.kept, wall_b.kept];
+    let mut through_ends: Vec<&crate::face_blend_attach_through::ThroughEnd> = Vec::new();
+    for (label, outcome) in [
+        ("start-end doomed part", &end_start),
+        ("far-end doomed part", &end_end),
     ] {
+        match outcome {
+            EndOutcome::Closed(split) => {
+                blocked.push(split.edge);
+                members.push((label, split.doomed));
+                kept_faces.push(split.kept);
+            }
+            EndOutcome::Through(t) => {
+                barriers.push(t.end_face);
+                kept_faces.push(t.end_face);
+                through_ends.push(t);
+            }
+        }
+    }
+    let region = flood_doomed(&work, wall_a.doomed, &blocked, &barriers)?;
+    for (label, member) in members {
         if !region.contains(&member) {
             return Err(decline(
                 "doomed-region flood",
@@ -81,7 +99,7 @@ pub(crate) fn surgery(
             ));
         }
     }
-    for kept in [wall_a.kept, wall_b.kept, end_start.kept, end_end.kept] {
+    for kept in kept_faces {
         if region.contains(&kept) {
             return Err(decline(
                 "doomed-region flood",
@@ -100,7 +118,15 @@ pub(crate) fn surgery(
         ));
     }
 
-    let strip_face = merge_region(&mut work, region, &blocked)?;
+    let mut strip_face = merge_region(&mut work, region, &blocked)?;
+    // PK-163: extend the end caps of through ends down to the arcs
+    // before the strip resurface (the mef arcs complete the strip's
+    // four-border loop).
+    for t in &through_ends {
+        strip_face = crate::face_blend_attach_through::extend_through_end(
+            &mut work, strip_face, t, &tolerance,
+        )?;
+    }
     resurface_strip(&mut work, strip_face, &skin, chain, &tolerance)?;
 
     work.validate()
@@ -174,122 +200,11 @@ fn split_wall(
     Ok(WallSplit { kept, doomed, edge })
 }
 
-struct EndSplit {
-    kept: FaceHandle,
-    doomed: FaceHandle,
-    edge: EdgeHandle,
-}
-
-fn split_end_face(
-    work: &mut BRep,
-    arc: &[Point3],
-    section: &ContactSolution,
-    exclude: &[FaceHandle; 4],
-    tolerance: &Tolerance,
-) -> Result<EndSplit, BlendError> {
-    let gate = tolerance.linear().max(1.0e-9) * 100.0;
-    let mut best: Option<(FaceHandle, f64)> = None;
-    for (fh, f) in work.faces.iter() {
-        if exclude.contains(&fh) {
-            continue;
-        }
-        let Some(sof) = f.surface.as_ref() else {
-            continue;
-        };
-        let mut max_d = 0.0_f64;
-        let mut projectable = true;
-        let mut arc_uv = Vec::with_capacity(arc.len());
-        for p in arc {
-            let Some(uv) = sof.geometry.closest_point(p) else {
-                projectable = false;
-                break;
-            };
-            max_d = max_d.max(sof.geometry.point_at(uv.0, uv.1).distance_to(p));
-            arc_uv.push(uv);
-        }
-        if !(projectable && max_d < gate) {
-            continue;
-        }
-        // The arc must lie inside the face's TRIM, not merely on its
-        // surface — a through-gap's end arc sits on the cap plane but
-        // over the void (interior samples outside the trim polygon;
-        // endpoints legitimately sit ON the boundary, so only the
-        // interior samples are tested).
-        let Ok(polygon) = face_uv_polygon(work, fh) else {
-            continue;
-        };
-        let contained = arc_uv[1..arc_uv.len().saturating_sub(1)]
-            .iter()
-            .all(|&uv| point_in_polygon(uv, &polygon));
-        if contained && best.map(|(_, bd)| max_d < bd).unwrap_or(true) {
-            best = Some((fh, max_d));
-        }
-    }
-    let (cap, _) = best.ok_or_else(|| {
-        decline(
-            "end-arc support",
-            format!(
-                "no face carries the strip end arc inside its trim within {gate:.3e} \
-                 (open-ended gaps need the material-adding attach — not built yet)"
-            ),
-        )
-    })?;
-
-    let surface = face_surface(work, cap)?.clone();
-    let uv_pts = project_uv(&surface, arc)?;
-    let uv_curve = uv_polyline_nurbs(&uv_pts);
-    let curve3 = uniform_polyline_nurbs(arc);
-    let split = work
-        .split_face(cap, &uv_curve, &curve3, tolerance)
-        .map_err(|e| decline("end split", format!("{e}")))?;
-    let edge = *split
-        .new_edges
-        .first()
-        .ok_or_else(|| decline("end split", "split_face produced no trim edge".into()))?;
-    reconcile_edge_curve(work, edge, &curve3, tolerance);
-
-    // Witness: anchor at the arc CHORD midpoint with the sag
-    // direction — the doomed wedge's vertices all sit on the sag
-    // side of the chord, while the arc-bottom anchor would put both
-    // centroids on the same side (measured on the channel end wall).
-    let mid = arc[arc.len() / 2];
-    let chord_mid = lerp(arc[0], arc[arc.len() - 1], 0.5);
-    let w3 = (mid - chord_mid).normalized().ok_or_else(|| {
-        decline(
-            "end trim side",
-            "end arc has no sag — witness degenerate".into(),
-        )
-    })?;
-    let uv_mid = surface.closest_point(&mid).ok_or_else(|| {
-        decline(
-            "end trim side",
-            "arc midpoint does not project onto the end face".into(),
-        )
-    })?;
-    let n = surface.normal_at(uv_mid.0, uv_mid.1);
-    let w = (w3 - n * w3.dot(&n)).normalized().ok_or_else(|| {
-        decline(
-            "end trim side",
-            "arc sag is normal to the end face — witness degenerate".into(),
-        )
-    })?;
-    let (doomed, kept) = pick_doomed(
-        work,
-        split.face_a,
-        split.face_b,
-        chord_mid,
-        w,
-        "end trim side",
-    )?;
-    let _ = section;
-    Ok(EndSplit { kept, doomed, edge })
-}
-
 /// `split_face` may canonicalize a straight trim polyline into an
 /// analytic line; keep that recognition when its parameterization
 /// agrees with the authored polyline, otherwise restore the polyline
 /// as the single geometric authority.
-fn reconcile_edge_curve(
+pub(crate) fn reconcile_edge_curve(
     work: &mut BRep,
     edge: EdgeHandle,
     poly: &NurbsCurve,
@@ -317,7 +232,8 @@ fn reconcile_edge_curve(
 fn flood_doomed(
     work: &BRep,
     seed: FaceHandle,
-    blocked: &[EdgeHandle; 4],
+    blocked: &[EdgeHandle],
+    barriers: &[FaceHandle],
 ) -> Result<HashSet<FaceHandle>, BlendError> {
     let mut region = HashSet::new();
     region.insert(seed);
@@ -336,6 +252,9 @@ fn flood_doomed(
             }
             let twin = work.half_edges[he].twin;
             let neighbor = work.loops[work.half_edges[twin].loop_].face;
+            if barriers.contains(&neighbor) {
+                continue;
+            }
             if region.insert(neighbor) {
                 queue.push(neighbor);
             }
@@ -347,7 +266,7 @@ fn flood_doomed(
 fn merge_region(
     work: &mut BRep,
     mut region: HashSet<FaceHandle>,
-    blocked: &[EdgeHandle; 4],
+    blocked: &[EdgeHandle],
 ) -> Result<FaceHandle, BlendError> {
     for &f in &region {
         work.faces[f].surface = None;

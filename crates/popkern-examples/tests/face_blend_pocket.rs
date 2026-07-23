@@ -165,6 +165,7 @@ fn trim_both_trapezoid_pocket_attaches_watertight() {
             face_a: wall_a,
             face_b: wall_b,
             radius,
+            radius_end: None,
             attach: FaceBlendAttach::TrimBoth,
         },
         tol(),

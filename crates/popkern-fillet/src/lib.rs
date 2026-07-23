@@ -33,8 +33,10 @@ pub mod edges_2d;
 pub mod error;
 mod face_blend;
 mod face_blend_attach;
+mod face_blend_attach_ends;
 mod face_blend_attach_geometry;
 mod face_blend_attach_surgery;
+mod face_blend_attach_through;
 mod face_blend_parallel;
 mod face_blend_sheet;
 pub mod fillet_2d;
@@ -76,7 +78,6 @@ mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;
 pub mod types;
-
 #[cfg(test)]
 #[path = "types_tests.rs"]
 mod types_tests;
@@ -107,6 +108,9 @@ pub use identify::{
     blend_support_faces, identify_all_blends, identify_blend,
 };
 pub use modify::modify_fillet_radius;
+use popkern_core::history::TrackingContext;
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 pub use precheck::{
     BlendQuality, ComputeQualityInput, FilletFeasibility, FilletIssue, FilletRadiusBounds,
     feasible_radius_bounds, fillet_quality, precheck_fillet,
@@ -119,10 +123,6 @@ pub use progress::*;
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
 pub use vertex_blend::{vertex_blend_3d, vertex_blend_3d_variable};
-
-use popkern_core::history::TrackingContext;
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 
 use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
 use crate::construct::EdgeGeometry;

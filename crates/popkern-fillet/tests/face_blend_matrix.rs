@@ -182,16 +182,16 @@ fn notch_walls(brep: &BRep) -> (FaceHandle, FaceHandle) {
 }
 
 #[test]
-fn trim_both_through_notch_declines_open_ends() {
+fn trim_both_through_notch_completes_cap_extension() {
     // The V-notch is a THROUGH feature: the gap pocket is open at
-    // both prism ends, so the strip end arcs land over void — the
-    // closed-pocket trim surgery must decline by name (the
-    // material-adding attach is the recorded follow-up). The blend
-    // GEOMETRY (sheet mode) still completes and is pinned
-    // analytically below.
+    // both prism ends, so the strip end arcs land over void. PK-163:
+    // the material-adding attach extends both end caps down to the
+    // arcs (mef the merged gap region along each arc, merge the
+    // emerging cross-section sliver into the cap) and the attach
+    // COMPLETES watertight.
     let brep = v_notch();
     let (wall_a, wall_b) = notch_walls(&brep);
-    let err = face_blend(
+    let result = face_blend(
         &brep,
         &FaceBlendSpec {
             face_a: wall_a,
@@ -202,11 +202,15 @@ fn trim_both_through_notch_declines_open_ends() {
         },
         default_tol(),
     )
-    .expect_err("through-notch TrimBoth must decline");
-    let msg = format!("{err}");
+    .expect("through-notch TrimBoth must complete via the cap extension");
+    let attached = result.attached.expect("attached body");
+    attached
+        .validate()
+        .expect("cap-extension body must validate");
+    let errors = attached.validate_all();
     assert!(
-        msg.contains("end-arc support"),
-        "decline must name the end-arc mechanism: {msg}"
+        errors.is_empty(),
+        "cap-extension body failed validate_all: {errors:?}"
     );
 }
 
@@ -262,15 +266,14 @@ fn deep_channel() -> BRep {
 }
 
 #[test]
-fn trim_both_deep_channel_declines_open_ends() {
+fn trim_both_deep_channel_completes_cap_extension() {
     // The deep channel is open at both extrusion ends — same
     // open-ended class as the through notch, via the parallel
-    // (line-contact) march. The canonical placement is still pinned:
-    // line contacts at the wall mid-extent height, half-circle
-    // sections bowing toward the floor (the closed side).
+    // (line-contact) march. PK-163: the cap extension completes the
+    // attach watertight.
     let brep = deep_channel();
     let (wall_a, wall_b) = slot_walls(&brep);
-    let err = face_blend(
+    let result = face_blend(
         &brep,
         &FaceBlendSpec {
             face_a: wall_a,
@@ -281,11 +284,15 @@ fn trim_both_deep_channel_declines_open_ends() {
         },
         default_tol(),
     )
-    .expect_err("open-ended channel TrimBoth must decline");
-    let msg = format!("{err}");
+    .expect("open-ended channel TrimBoth must complete via the cap extension");
+    let attached = result.attached.expect("attached body");
+    attached
+        .validate()
+        .expect("channel cap-extension body must validate");
+    let errors = attached.validate_all();
     assert!(
-        msg.contains("end-arc support"),
-        "decline must name the end-arc mechanism: {msg}"
+        errors.is_empty(),
+        "channel cap-extension body failed validate_all: {errors:?}"
     );
 
     // Sheet mode: canonical mid-extent line contact + floor-bowed
