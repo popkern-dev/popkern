@@ -6,6 +6,7 @@
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
+use popkern_core::topology::{FaceHandle, VertexHandle};
 
 /// Compute the intersection of two 3D line segments.
 ///
@@ -307,4 +308,84 @@ fn closest_segment_pair(a0: Point3, a1: Point3, b0: Point3, b1: Point3) -> (f64,
     let q = Point3::new(b0.x + t * v.x, b0.y + t * v.y, b0.z + t * v.z);
     let mid = Point3::new(0.5 * (p.x + q.x), 0.5 * (p.y + q.y), 0.5 * (p.z + q.z));
     (s, t, p.distance_to(&q), mid)
+}
+
+/// PK-141: move a pure mev-spur anchor (`tip`) into the sub-face
+/// that contains its chord `partner`. The old spur is `kev`-removed
+/// and a fresh spur is rooted at that face's nearest boundary
+/// vertex; the tip position is preserved. Returns the replacement
+/// vertex and the host face, or `None` when `tip` is not a spur or
+/// no host contains the partner.
+pub(super) fn rehome_spur_tip(
+    brep: &mut BRep,
+    tip: VertexHandle,
+    partner: VertexHandle,
+    sub_faces: &[FaceHandle],
+) -> Option<(VertexHandle, FaceHandle)> {
+    // The spur out-half-edge: origin = root, dest = tip, and the mev
+    // shape (out.next == out.twin). Tip must have no other edges.
+    let mut spur_out = None;
+    let mut incident = 0usize;
+    for (heh, he) in brep.half_edges.iter() {
+        let Some(tw) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        if tw.origin == tip {
+            incident += 1;
+            if he.next == he.twin {
+                spur_out = Some(heh);
+            }
+        }
+        if he.origin == tip && he.twin != heh {
+            // counted via the twin side; nothing extra
+        }
+    }
+    if incident != 1 {
+        return None;
+    }
+    let spur_out = spur_out?;
+    let pos = brep.vertices.get(tip)?.position;
+    let host =
+        super::phase_split::find_face_containing_vertices(brep, sub_faces, partner, partner)?;
+    // Nearest boundary origin on the host face.
+    let fd = brep.faces.get(host)?;
+    let mut loops = vec![fd.outer_loop];
+    loops.extend(fd.inner_loops.iter().copied());
+    let mut best: Option<(popkern_core::topology::HalfEdgeHandle, f64)> = None;
+    for lh in loops {
+        let l = brep.loops.get(lh)?;
+        let start = l.half_edge;
+        let mut cur = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let he = brep.half_edges.get(cur)?;
+            if let Some(v) = brep.vertices.get(he.origin) {
+                let d = v.position.distance_to(&pos);
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((cur, d));
+                }
+            }
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+    let (root_he, _) = best?;
+    let root_pos = brep
+        .half_edges
+        .get(root_he)
+        .and_then(|h| brep.vertices.get(h.origin))
+        .map(|v| v.position)?;
+    brep.kev(spur_out).ok()?;
+    let mev = brep.mev(root_he, pos).ok()?;
+    if let Some(e) = brep.edges.get_mut(mev.edge) {
+        e.curve = popkern_core::geometry::CurveOnEdge::line_segment(root_pos, pos, 1e-9);
+    }
+    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+        eprintln!(
+            "[mc] re-homed spur tip {tip:?} -> {:?} into {host:?} at {pos:?}",
+            mev.vertex
+        );
+    }
+    Some((mev.vertex, host))
 }

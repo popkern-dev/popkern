@@ -29,17 +29,16 @@
 //!    fillet strip. Shorter outer sub-chords produce corner
 //!    regions that become sphere vertex blends later.
 
-use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{NurbsCurve, Point3};
-use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
-
 use super::helpers;
 use super::multi_chord_span_geometry::{
     find_sub_edge_containing_point, intersect_segments, remap_split, trim_subcurve_between,
 };
 use super::phase_split::{FaceTrim, TrimSplitResult, find_face_containing_vertices};
 use crate::error::BlendFailure;
+use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::{NurbsCurve, Point3};
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 /// Round 5r+: given two candidate descendant faces `f_a`/`f_b`,
 /// pick the one that descends from `desired_parent`.
@@ -245,9 +244,28 @@ pub(super) fn apply_multi_chord_for_face(
         let mut sub_chord_failed = false;
 
         for k in 0..endpoints.len() - 1 {
-            let start_v = endpoints[k];
-            let end_v = endpoints[k + 1];
-            let target = find_face_containing_vertices(brep, &sub_faces, start_v, end_v);
+            let mut start_v = endpoints[k];
+            let mut end_v = endpoints[k + 1];
+            let mut target = find_face_containing_vertices(brep, &sub_faces, start_v, end_v);
+            // PK-141 cross-sub-face re-home: a spur-tip anchor from
+            // before earlier trims' splits can land in a different
+            // sub-face than its chord partner — re-root it there
+            // (mechanics + measurements: rehome_spur_tip).
+            if target.is_none() {
+                if let Some((nv, tf)) = super::multi_chord_span_geometry::rehome_spur_tip(
+                    brep, end_v, start_v, &sub_faces,
+                ) {
+                    end_v = nv;
+                    endpoints[k + 1] = nv;
+                    target = Some(tf);
+                } else if let Some((nv, tf)) = super::multi_chord_span_geometry::rehome_spur_tip(
+                    brep, start_v, end_v, &sub_faces,
+                ) {
+                    start_v = nv;
+                    endpoints[k] = nv;
+                    target = Some(tf);
+                }
+            }
             let sub_midpoint = {
                 let p_a = brep.vertices[start_v].position;
                 let p_b = brep.vertices[end_v].position;
