@@ -179,6 +179,84 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         tolerance,
     )?;
 
+    // PK-141 curved-support anchors: on a NON-PLANAR support the
+    // perp-walk boundary selection is unreliable (measured on the
+    // boss-on-cylinder-wall chain: the vertical edge's wall-rail
+    // anchor walked +r along the pierced wall's hole arc to
+    // y=-0.1995 while the true rail contact runs outside the hole
+    // at y=-0.30). The trim curve's ENDPOINTS are the exact contact
+    // positions — prefer them whenever the walk disagrees; the
+    // insert path lands interior positions with an mev spur.
+    let curved_correct = |face: FaceHandle,
+                          trim: Option<&NurbsCurve>,
+                          pos: (Point3, Point3)|
+     -> (Point3, Point3) {
+        let planar = matches!(
+            brep_snapshot
+                .faces
+                .get(face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry),
+            Some(popkern_core::geometry::surface::SurfaceGeometry::Plane { .. })
+        );
+        let Some(trim) = trim else { return pos };
+        if planar {
+            return pos;
+        }
+        use popkern_core::geometry::CurveEval;
+        let (t0, t1) = trim.parameter_range();
+        let (a, b) = (trim.point_at(t0), trim.point_at(t1));
+        let ps = brep_snapshot
+            .vertices
+            .get(v_start)
+            .map(|v| v.position)
+            .unwrap_or(pos.0);
+        let pe = brep_snapshot
+            .vertices
+            .get(v_end)
+            .map(|v| v.position)
+            .unwrap_or(pos.1);
+        // Orient the trim ends to the edge's vertices.
+        let (near_start, near_end) =
+            if ps.distance_to(&a) + pe.distance_to(&b) <= ps.distance_to(&b) + pe.distance_to(&a) {
+                (a, b)
+            } else {
+                (b, a)
+            };
+        let gate = tolerance.linear().max(1e-9) * 100.0;
+        let trace = std::env::var_os("POPKERN_ANCHOR_TRACE").is_some();
+        // Only override a walk that is off the WHOLE trim curve —
+        // legitimate setback anchors differ from the endpoints but
+        // still lie ON the trim (measured: the broad endpoint
+        // preference broke 9 corner fixtures).
+        let off_trim = |p: Point3| -> f64 {
+            let mut d = f64::INFINITY;
+            for k in 0..=32 {
+                let t = t0 + (t1 - t0) * f64::from(k) / 32.0;
+                d = d.min(trim.point_at(t).distance_to(&p));
+            }
+            d
+        };
+        let pick = |walk: Point3, exact: Point3, label: &str| -> Point3 {
+            if walk.distance_to(&exact) > gate && off_trim(walk) > gate {
+                if trace {
+                    eprintln!(
+                        "[anchor] curved support {face:?} {label}: perp-walk {walk:?} (off-trim) -> trim endpoint {exact:?}"
+                    );
+                }
+                exact
+            } else {
+                walk
+            }
+        };
+        (
+            pick(pos.0, near_start, "v_start"),
+            pick(pos.1, near_end, "v_end"),
+        )
+    };
+    let perp_pos_1 = curved_correct(face_1, trim_3d_face_1, perp_pos_1);
+    let perp_pos_2 = curved_correct(face_2, trim_3d_face_2, perp_pos_2);
+
     // §28.H Session 2 — apply planner overrides per anchor slot.
     // Each `Some` override replaces the perp-walk-math position;
     // `None` keeps the perp-walk-math default.  Caller passes
@@ -206,12 +284,16 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     // unbroken.  Session 3 will introduce the topology surgery
     // (mev/mef) needed to land genuine interior anchors.
     let v1_start = insert_anchor_at_position(brep, pos_1.0, &mut edge_splits)
+        .or_else(|_| insert_anchor_with_spur(brep, pos_1.0, face_1, tolerance))
         .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.0, &mut edge_splits))?;
     let v1_end = insert_anchor_at_position(brep, pos_1.1, &mut edge_splits)
+        .or_else(|_| insert_anchor_with_spur(brep, pos_1.1, face_1, tolerance))
         .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.1, &mut edge_splits))?;
     let v2_start = insert_anchor_at_position(brep, pos_2.0, &mut edge_splits)
+        .or_else(|_| insert_anchor_with_spur(brep, pos_2.0, face_2, tolerance))
         .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.0, &mut edge_splits))?;
     let v2_end = insert_anchor_at_position(brep, pos_2.1, &mut edge_splits)
+        .or_else(|_| insert_anchor_with_spur(brep, pos_2.1, face_2, tolerance))
         .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.1, &mut edge_splits))?;
 
     let p1_a = brep.vertices[v1_start].position;
@@ -452,3 +534,97 @@ pub fn estimate_radius_from_geometry(
 #[cfg(test)]
 #[path = "helpers_tests.rs"]
 mod tests;
+
+/// §28.H Session 3 (PK-141): land a genuinely INTERIOR anchor by
+/// splicing an mev spur into the target face's loop from the nearest
+/// boundary vertex. The spur edge carries the straight chord curve;
+/// downstream phases treat the new vertex like any Phase A anchor
+/// and the spur is consumed or dissolved by the corner machinery.
+/// Transactional per spur: candidate clone, `validate()`-free (mid-
+/// pipeline states may fail global checks) but structural mev
+/// postconditions apply.
+fn insert_anchor_with_spur(
+    brep: &mut BRep,
+    position: Point3,
+    face: FaceHandle,
+    tolerance: &Tolerance,
+) -> Result<VertexHandle, String> {
+    // The position must actually lie on the face's surface.
+    let sof = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .ok_or_else(|| "spur target face has no surface".to_string())?;
+    // Scoped to CURVED supports (PK-141): planar interior overrides
+    // keep the documented Session-2 perp-walk fallback — the
+    // direct-apex fixtures depend on it (measured: 9 corner tests
+    // regressed when the spur landed planner apex targets).
+    if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
+        return Err("interior anchor spur is scoped to curved supports".to_string());
+    }
+    use popkern_core::geometry::SurfaceEval;
+    let on_surface =
+        popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &position)
+            .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(&position))
+            .unwrap_or(f64::INFINITY);
+    let gate = tolerance.linear().max(1e-9) * 100.0;
+    if on_surface > gate {
+        return Err(format!(
+            "anchor {position:?} is {on_surface:.3e} off face {face:?} — not an interior anchor"
+        ));
+    }
+    // Nearest boundary half-edge origin across all loops.
+    let fd = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| "spur target face vanished".to_string())?;
+    let mut loops = vec![fd.outer_loop];
+    loops.extend(fd.inner_loops.iter().copied());
+    let mut best: Option<(popkern_core::topology::HalfEdgeHandle, f64)> = None;
+    for lh in loops {
+        let Some(l) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = l.half_edge;
+        let mut cur = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            if let Some(v) = brep.vertices.get(he.origin) {
+                let d = v.position.distance_to(&position);
+                if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+                    best = Some((cur, d));
+                }
+            }
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+    let (he, _) = best.ok_or_else(|| "spur target face has no boundary vertices".to_string())?;
+    let origin_pos = brep
+        .half_edges
+        .get(he)
+        .and_then(|h| brep.vertices.get(h.origin))
+        .map(|v| v.position)
+        .ok_or_else(|| "spur origin vanished".to_string())?;
+    let mev = brep
+        .mev(he, position)
+        .map_err(|e| format!("anchor spur mev failed: {e}"))?;
+    if let Some(e) = brep.edges.get_mut(mev.edge) {
+        e.curve = popkern_core::geometry::CurveOnEdge::line_segment(
+            origin_pos,
+            position,
+            tolerance.linear(),
+        );
+    }
+    if std::env::var_os("POPKERN_ANCHOR_TRACE").is_some() {
+        eprintln!(
+            "[anchor] interior anchor spur on {face:?}: {origin_pos:?} -> {position:?} (vertex {:?})",
+            mev.vertex
+        );
+    }
+    Ok(mev.vertex)
+}
