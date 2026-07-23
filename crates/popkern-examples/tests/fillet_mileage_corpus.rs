@@ -106,7 +106,13 @@ fn corpus_pass_rate_holds_baseline() {
     // 16/22 (2026-07-22, PK-171/PK-160 — corner sphere promotion
     // gates made radius-relative; the stale-outlier fit score is
     // r(√2−1) by construction and the 0.5-absolute gate silently
-    // stopped promoting exact spheres above r ≈ 1.2).
+    // stopped promoting exact spheres above r ≈ 1.2); 17/22
+    // (2026-07-22, PK-171 — notched_flange chamfer over the
+    // interrupted rim: arc_to_nurbs split at parameter-of-angle
+    // (rational quadratic parameter ≠ angle inside a 90° span), rim
+    // extension candidates ranked by vertex distance, exact NURBS
+    // trim slicing + vertex-onto-trim snapping, terminal Cone conic
+    // stubs, second edge_reconcile pass after terminal settle).
     // Failing
     // classes, each routed to its campaign item:
     //   mounting_bracket — flush-overlap L union (coincident-boolean
@@ -116,14 +122,10 @@ fn corpus_pass_rate_holds_baseline() {
     //   offset_bracket — fillet on an overlapping union serves an
     //     edge 1.66 off-surface, check-9 catch (PK-171);
     //   angled_rib_plate — strip interference decline on the skewed
-    //     rib junction (legitimate transactional decline; recorded);
-    //   notched_flange — the keyway subtract is REAL since the
-    //     bezier-clipping root fix (PK-173 closed); the rim chamfer
-    //     over the interrupted circle now declines honestly with a
-    //     0.29 trim-curve lie (check-9 catch, PK-171 family).
+    //     rib junction (legitimate transactional decline; recorded).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 16;
+    const BASELINE: usize = 17;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
@@ -182,15 +184,15 @@ fn corpus_occ_oracle_leg() {
     }
     let occ_passed = checked - failures.len();
     eprintln!("[corpus-occ] {occ_passed}/{checked} watertight part(s) OCC-clean");
-    // OCC baseline (2026-07-22, PK-161): 10/14. Recorded failing
-    // classes, routed to their campaign items:
+    // OCC baseline (2026-07-22, PK-161): 10/14; 14/17 (2026-07-22,
+    // PK-170/PK-171 — bore, cross-drill, mixed-corner and
+    // notched-flange classes serve and export OCC-clean). Recorded
+    // failing classes, routed to their campaign items:
     //   bossed_housing / turned_bushing / double_boss_plate — the
     //     curved-seam TORUS strip exports a wire OCC rejects
-    //     (SelfIntersectingWire + UnorientableShape; PK-172);
-    // (The notched flange's former 'empty CLOSED_SHELL' entry was a
-    // vacuous empty body — excluded above, tracked as PK-173.)
+    //     (SelfIntersectingWire + UnorientableShape; PK-172).
     // Raise when classes close; NEVER lower.
-    const OCC_BASELINE: usize = 10;
+    const OCC_BASELINE: usize = 14;
     for f in &failures {
         eprintln!("[corpus-occ] recorded: {}", &f[..f.len().min(200)]);
     }

@@ -9,6 +9,79 @@
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 
+/// Parameter on a circle-derived rational NURBS whose POINT sits at
+/// the requested absolute angle (measured in the `(u, v)` basis about
+/// `center`).
+///
+/// A rational quadratic circle's parameter is NOT the angle: inside
+/// each 90° knot span the two diverge by up to ~4% of the span, and
+/// only agree at the span boundaries. Splitting such a curve at
+/// `t = angle` therefore cuts at the wrong geometric point for any
+/// bound that is not a multiple of π/2 (measured: a chamfer rim on
+/// the notched flange asked to end at its notch-plane triple point
+/// at angle 4.5025 was cut 0.0153 rad away — 0.37 of arc — and every
+/// downstream stage inherited the shortfall). Callers must split at
+/// the parameter this returns instead.
+///
+/// The unwrapped angle-from-start is monotone along the curve, so
+/// bisection is exact and unconditionally convergent. Returns `None`
+/// when the target lies at (or beyond) either end of the curve's
+/// span — no split is needed there.
+fn param_at_angle(
+    curve: &NurbsCurve,
+    center: Point3,
+    u: Vec3,
+    v: Vec3,
+    target_angle: f64,
+) -> Option<f64> {
+    use crate::geometry::curve::CurveEval;
+    use std::f64::consts::TAU;
+    let (t_lo, t_hi) = curve.parameter_range();
+    let raw_angle = |t: f64| -> f64 {
+        let p = curve.point_at(t);
+        let d = p - center;
+        d.dot(&v).atan2(d.dot(&u))
+    };
+    let a_start = raw_angle(t_lo);
+    // Angle relative to the curve start, unwrapped into [0, TAU).
+    let rel = |t: f64| -> f64 {
+        let mut a = raw_angle(t) - a_start;
+        while a < -1e-9 {
+            a += TAU;
+        }
+        while a >= TAU - 1e-9 {
+            a -= TAU;
+        }
+        a.max(0.0)
+    };
+    let span = {
+        // The end angle needs unwrapping too: a closed curve reports
+        // rel(t_hi) = 0.
+        let r = rel(t_hi);
+        if r <= 1e-9 { TAU } else { r }
+    };
+    let mut target = target_angle - a_start;
+    while target < 0.0 {
+        target += TAU;
+    }
+    while target >= TAU {
+        target -= TAU;
+    }
+    if target <= 1e-12 || target >= span - 1e-12 {
+        return None;
+    }
+    let (mut lo, mut hi) = (t_lo, t_hi);
+    for _ in 0..64 {
+        let mid = 0.5 * (lo + hi);
+        if rel(mid) < target {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    Some(0.5 * (lo + hi))
+}
+
 /// Build a full-circle NURBS (degree 2, 9 control points, 4 quarter arcs).
 pub(super) fn circle_to_nurbs(center: Point3, normal: Vec3, radius: f64) -> NurbsCurve {
     use crate::geometry::analytic_curves::circle_basis;
@@ -254,23 +327,27 @@ pub(super) fn arc_to_nurbs(
 
     if (0.0..=TAU).contains(&a0) && a1 <= TAU {
         // Principal range: historical construction, parameterization
-        // preserved exactly.
+        // preserved exactly on the retained span. Splits happen at
+        // the PARAMETER whose point sits at the requested angle
+        // (`param_at_angle`), not at `t = angle` — the rational
+        // quadratic's parameter and the angle only agree at π/2
+        // multiples.
+        use crate::geometry::analytic_curves::circle_basis;
+        let (u, v) = circle_basis(normal);
         let full = circle_to_nurbs(center, normal, radius);
-        let right_of_start = if a0 > 0.0 {
-            match full.split_at(a0) {
+        let right_of_start = match param_at_angle(&full, center, u, v, a0) {
+            Some(t) => match full.split_at(t) {
                 Ok((_left, right)) => right,
                 Err(_) => full,
-            }
-        } else {
-            full
+            },
+            None => full,
         };
-        return if a1 < TAU {
-            match right_of_start.split_at(a1) {
+        return match param_at_angle(&right_of_start, center, u, v, a1) {
+            Some(t) => match right_of_start.split_at(t) {
                 Ok((left, _right)) => left,
                 Err(_) => right_of_start,
-            }
-        } else {
-            right_of_start
+            },
+            None => right_of_start,
         };
     }
 
@@ -316,12 +393,11 @@ pub(super) fn arc_to_nurbs(
         control_points: pts.to_vec(),
         weights,
     };
-    if a1 < a0 + TAU {
-        match shifted_full.split_at(a1) {
+    match param_at_angle(&shifted_full, center, u, v, a1) {
+        Some(t) => match shifted_full.split_at(t) {
             Ok((left, _right)) => left,
             Err(_) => shifted_full,
-        }
-    } else {
-        shifted_full
+        },
+        None => shifted_full,
     }
 }

@@ -199,6 +199,29 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                         *slot = Some((along(s), 2));
                         return;
                     }
+                    if trace {
+                        let probe = analytic_curve.map(|curve| {
+                            crate::construct::cyl_plane_intersect::intersect_curve_with_segment(
+                                curve, p0, p1,
+                            )
+                        });
+                        let ends = analytic_curve.map(|c| {
+                            let (lo, hi) = c.parameter_range();
+                            (c.point_at(lo), c.point_at(hi))
+                        });
+                        eprintln!(
+                            "[anchor] face={face:?} NO trim-crossing on ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) anchor_on_trim={anchor_on_trim} have_curve={} result={:?} curve_ends={:?}",
+                            p0.x,
+                            p0.y,
+                            p0.z,
+                            p1.x,
+                            p1.y,
+                            p1.z,
+                            analytic_curve.is_some(),
+                            probe.map(|r| r.map(|(s, _)| s)),
+                            ends.map(|(a, b)| ((a.x, a.y, a.z), (b.x, b.y, b.z))),
+                        );
+                    }
                     if slot_quality >= 1 {
                         return;
                     }

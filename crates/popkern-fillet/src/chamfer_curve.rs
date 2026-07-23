@@ -208,7 +208,18 @@ pub fn compute_chamfer(
         let (p1, p2) = popkern_core::geometry::analytic_curves::circle_basis(*axis);
         let crossing_near = |target_angle: f64, vertex| -> Option<f64> {
             // Third incident PLANE faces at this vertex.
-            let mut best: Option<f64> = None;
+            // Candidates are ranked by 3-D distance from the crossing
+            // point to THIS vertex — not by angular distance to the
+            // row end. On a symmetric interruptor (the notched
+            // flange's ±5 notch planes) both plane crossings sit at
+            // exactly equal angular offsets from the row end, and a
+            // nearest-angle rule breaks the tie by half-edge iteration
+            // order (measured: the −5 rim end extended to the +5
+            // plane's crossing, shrinking the arc 0.2 short of its
+            // triple point). The correct crossing is the one on the
+            // interruptor near the vertex the row end derives from.
+            let v_pos = brep.vertices.get(vertex).map(|v| v.position);
+            let mut best: Option<(f64, f64)> = None;
             for (_, hedata) in brep.half_edges.iter() {
                 if hedata.origin != vertex {
                     continue;
@@ -250,16 +261,33 @@ pub fn compute_chamfer(
                     while target_angle - t > std::f64::consts::PI {
                         t += std::f64::consts::TAU;
                     }
-                    if (t - target_angle).abs() < 0.5
-                        && best
-                            .map(|b| (t - target_angle).abs() < (b - target_angle).abs())
-                            .unwrap_or(true)
-                    {
-                        best = Some(t);
+                    if std::env::var_os("PK_BEVEL_TRACE").is_some() {
+                        let cp = Point3::new(
+                            c.x + *r * (p1.x * t.cos() + p2.x * t.sin()),
+                            c.y + *r * (p1.y * t.cos() + p2.y * t.sin()),
+                            c.z + *r * (p1.z * t.cos() + p2.z * t.sin()),
+                        );
+                        eprintln!(
+                            "  [bevel]   cand face={f:?} t={t:.4} target={target_angle:.4} pt=({:.3},{:.3},{:.3})",
+                            cp.x, cp.y, cp.z
+                        );
+                    }
+                    if (t - target_angle).abs() < 0.5 {
+                        let cross_pt = Point3::new(
+                            c.x + *r * (p1.x * t.cos() + p2.x * t.sin()),
+                            c.y + *r * (p1.y * t.cos() + p2.y * t.sin()),
+                            c.z + *r * (p1.z * t.cos() + p2.z * t.sin()),
+                        );
+                        let rank = v_pos
+                            .map(|vp| cross_pt.distance_to(&vp))
+                            .unwrap_or_else(|| (t - target_angle).abs());
+                        if best.map(|(_, b)| rank < b).unwrap_or(true) {
+                            best = Some((t, rank));
+                        }
                     }
                 }
             }
-            best
+            best.map(|(t, _)| t)
         };
         let a0e = crossing_near(a0, v_a)
             .or_else(|| crossing_near(a0, v_b))
