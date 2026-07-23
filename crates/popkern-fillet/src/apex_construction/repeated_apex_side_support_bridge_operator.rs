@@ -14,6 +14,8 @@ use super::repeated_apex_side_support_result::SideSupportRegionContinuationResul
 mod bridge_operator_exposure;
 #[path = "repeated_apex_side_support_bridge_operator_exposure_walk.rs"]
 mod bridge_operator_exposure_walk;
+#[path = "repeated_apex_side_support_bridge_operator_trace.rs"]
+mod bridge_operator_trace;
 
 use bridge_operator_exposure::{expose_aggregate_bridge_boundaries, expose_bridge_boundaries};
 
@@ -162,12 +164,7 @@ pub(super) fn apply_topology_operator(
 ) -> Result<SideSupportRegionContinuationResult, String> {
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
-    // A shared-start region (both trims anchored at one support
-    // vertex; single boundary cycle spanning the full support loop)
-    // cannot be expressed as a two-loop bridge request — its interval
-    // pair is [full loop, degenerate point], which the pairwise
-    // complementarity contract rejects. The aggregate operator
-    // consumes the derivation's boundary cycles directly.
+    bridge_operator_trace::trace_cycle_structure(primitive, &candidate);
     if let [region] = primitive.regions()
         && region.boundary_cycles().len() != 1
     {
