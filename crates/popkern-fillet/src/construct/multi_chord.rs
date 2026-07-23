@@ -247,6 +247,26 @@ pub(super) fn apply_multi_chord_for_face(
                 ))
             };
             let Some(target) = target else {
+                if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                    let pa = brep.vertices.get(start_v).map(|v| v.position);
+                    let pb = brep.vertices.get(end_v).map(|v| v.position);
+                    let faces_of = |v: popkern_core::topology::VertexHandle| -> Vec<popkern_core::topology::FaceHandle> {
+                        let mut out = std::collections::BTreeSet::new();
+                        for (_, he) in brep.half_edges.iter() {
+                            if he.origin == v
+                                && let Some(l) = brep.loops.get(he.loop_)
+                            {
+                                out.insert(l.face);
+                            }
+                        }
+                        out.into_iter().collect()
+                    };
+                    eprintln!(
+                        "[mc] sub-chord {start_v:?}@{pa:?} faces {:?} -> {end_v:?}@{pb:?} faces {:?}; sub_faces {sub_faces:?}",
+                        faces_of(start_v),
+                        faces_of(end_v)
+                    );
+                }
                 failures.push((
                     fillet_edge,
                     BlendFailure::InvalidTopology {

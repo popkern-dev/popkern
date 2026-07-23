@@ -366,6 +366,12 @@ fn insert_anchor_at_position(
         }
     }
     let gate = brep.tolerance.linear().max(1.0e-9) * 1.0e4;
+    if std::env::var_os("PK_ANCHOR_INSERT_TRACE").is_some() {
+        eprintln!(
+            "[anchor-insert] position {position:?} best {:?} gate {gate:.3e}",
+            best.as_ref().map(|(eh, p, d)| (*eh, (p.x, p.y, p.z), *d))
+        );
+    }
     if let Some((eh, proj, d)) = best
         && d < gate
     {
@@ -375,6 +381,26 @@ fn insert_anchor_at_position(
             .map_err(|e| format!("curve-aware anchor split failed: {e}"))?;
         edge_splits.push((eh, split.edge_a, split.edge_b));
         return Ok(split.vertex);
+    }
+    // Loose vertex reuse: a NEIGHBOURING fillet's Phase A may have
+    // already split the shared curved edge at (the on-curve image
+    // of) this anchor — the perp-walk request sits a chord-sagitta
+    // off the curve, so the tight reuse above misses it (measured on
+    // the boss-wall chain: requested (0.9937, −0.0496) vs the
+    // existing on-arc vertex 5.1e-3 away; the arc no longer has an
+    // interior point to split). Reuse the nearest existing vertex
+    // within the same sagitta-scaled gate.
+    let mut best_v: Option<(VertexHandle, f64)> = None;
+    for (vh, v) in brep.vertices.iter() {
+        let d = v.position.distance_to(&position);
+        if best_v.map(|(_, bd)| d < bd).unwrap_or(true) {
+            best_v = Some((vh, d));
+        }
+    }
+    if let Some((vh, d)) = best_v
+        && d < gate
+    {
+        return Ok(vh);
     }
     Err(format!("no edge contains anchor position {position:?}"))
 }

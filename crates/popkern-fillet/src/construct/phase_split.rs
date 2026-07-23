@@ -46,7 +46,11 @@ pub(super) struct TrimSplitResult {
     pub trim_3d: NurbsCurve,
 }
 
-/// Find which face in `candidates` has both vertices on its outer loop.
+/// Find which face in `candidates` has both vertices on one of its
+/// loops. Inner loops count: a boss piercing a curved wall puts the
+/// whole blend chain on the wall face's HOLE loop (PK-141 — the
+/// outer-loop-only search failed every sub-chord on the boss-wall
+/// fixture).
 pub(super) fn find_face_containing_vertices(
     brep: &BRep,
     candidates: &[FaceHandle],
@@ -58,32 +62,35 @@ pub(super) fn find_face_containing_vertices(
             Some(f) => f,
             None => continue,
         };
-        let start_he = match brep.loops.get(face.outer_loop) {
-            Some(l) => l.half_edge,
-            None => continue,
-        };
-        if !brep.half_edges.contains_key(start_he) {
-            continue;
-        }
-
-        let mut found_v1 = false;
-        let mut found_v2 = false;
-        let mut cursor = start_he;
-        let limit = brep.half_edges.len() + 1;
-        for _ in 0..limit {
-            let origin = brep.half_edges[cursor].origin;
-            if origin == v1 {
-                found_v1 = true;
+        let mut loops = vec![face.outer_loop];
+        loops.extend(face.inner_loops.iter().copied());
+        for lh in loops {
+            let start_he = match brep.loops.get(lh) {
+                Some(l) => l.half_edge,
+                None => continue,
+            };
+            if !brep.half_edges.contains_key(start_he) {
+                continue;
             }
-            if origin == v2 {
-                found_v2 = true;
-            }
-            if found_v1 && found_v2 {
-                return Some(fh);
-            }
-            cursor = brep.half_edges[cursor].next;
-            if cursor == start_he {
-                break;
+            let mut found_v1 = false;
+            let mut found_v2 = false;
+            let mut cursor = start_he;
+            let limit = brep.half_edges.len() + 1;
+            for _ in 0..limit {
+                let origin = brep.half_edges[cursor].origin;
+                if origin == v1 {
+                    found_v1 = true;
+                }
+                if origin == v2 {
+                    found_v2 = true;
+                }
+                if found_v1 && found_v2 {
+                    return Some(fh);
+                }
+                cursor = brep.half_edges[cursor].next;
+                if cursor == start_he {
+                    break;
+                }
             }
         }
     }
