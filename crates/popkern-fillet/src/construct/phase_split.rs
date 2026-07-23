@@ -155,6 +155,7 @@ pub(super) fn apply_face_trim_pipeline(
 
     // ── Phase B: split faces by trim curves via `multi_chord`. ───
     let mut trim_results: Vec<TrimSplitResult> = Vec::new();
+    let mut region_resolved: Vec<(usize, u8)> = Vec::new();
     for (original_face, trims) in &face_trims {
         let fillet_edges_by_trim: Vec<EdgeHandle> = trims
             .iter()
@@ -191,6 +192,7 @@ pub(super) fn apply_face_trim_pipeline(
                 }
             }
         }
+        region_resolved.extend(outcome.region_resolved.iter().copied());
         trim_results.extend(outcome.trim_results);
         failures.extend(outcome.failures);
         crate::construct::post_pipeline::determinism_trace(
@@ -201,6 +203,13 @@ pub(super) fn apply_face_trim_pipeline(
 
     // ── Re-identify consumed faces from descendants (longest-sub-edge). ──
     for tr in &mut trim_results {
+        // Region-resolved trims (PK-141) carry merged consumed faces
+        // with no split ancestry — the re-pick cannot trace them and
+        // clobbers both sides onto one face (measured: the kef
+        // self-pair on the boss chain).
+        if region_resolved.contains(&(tr.edge_idx, tr.side)) {
+            continue;
+        }
         let original_edge = edge_geometries[tr.edge_idx].analysis.edge;
         let fillet_descendants: &[EdgeHandle] = descendants
             .get(&original_edge)
@@ -242,7 +251,13 @@ pub(super) fn apply_face_trim_pipeline(
         }
         if let Some((_, f_a, f_b)) = longest {
             // Prefer whichever of f_a, f_b descends from `desired_parent`.
-            let pick = multi_chord::choose_side_face(result, brep, desired_parent, f_a, f_b);
+            let pick = super::multi_chord_span_geometry::choose_side_face(
+                result,
+                brep,
+                desired_parent,
+                f_a,
+                f_b,
+            );
             tr.consumed = pick;
         }
     }

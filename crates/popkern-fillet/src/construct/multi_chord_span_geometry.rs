@@ -3,6 +3,7 @@
 //! trim-true sub-span extraction (PK-139 slice 6). Pure helpers for
 //! `multi_chord`; nothing here mutates the BRep beyond bookkeeping.
 
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle};
@@ -407,4 +408,73 @@ pub(super) fn descendant_holders(
             ))
         })
         .collect()
+}
+
+/// Round 5r+: given two candidate descendant faces `f_a`/`f_b`,
+/// pick the one that descends from `desired_parent`.
+///
+/// "Descends" is checked by surface identity: sub-faces created
+/// by `split_face` inherit the surface of the original face, so
+/// if `desired_parent`'s surface in the original BRep matches
+/// `f_a`'s current surface, `f_a` is the descendant we want.
+/// Falls back to `f_a` if neither matches.
+pub(super) fn choose_side_face(
+    result: &BRep,
+    original: &BRep,
+    desired_parent: FaceHandle,
+    f_a: FaceHandle,
+    f_b: FaceHandle,
+) -> FaceHandle {
+    if f_a == desired_parent {
+        return f_a;
+    }
+    if f_b == desired_parent {
+        return f_b;
+    }
+    let Some(parent_face) = original.faces.get(desired_parent) else {
+        return f_a;
+    };
+    let Some(parent_surf) = parent_face.surface.as_ref() else {
+        return f_a;
+    };
+    let surf_matches = |fh: FaceHandle| -> bool {
+        let Some(face) = result.faces.get(fh) else {
+            return false;
+        };
+        let Some(sof) = face.surface.as_ref() else {
+            return false;
+        };
+        match (&parent_surf.geometry, &sof.geometry) {
+            (
+                SurfaceGeometry::Plane {
+                    origin: o1,
+                    normal: n1,
+                    ..
+                },
+                SurfaceGeometry::Plane {
+                    origin: o2,
+                    normal: n2,
+                    ..
+                },
+            ) => {
+                let dot_n = n1.x * n2.x + n1.y * n2.y + n1.z * n2.z;
+                if dot_n.abs() < 0.999 {
+                    return false;
+                }
+                let dx = o2.x - o1.x;
+                let dy = o2.y - o1.y;
+                let dz = o2.z - o1.z;
+                let off = dx * n1.x + dy * n1.y + dz * n1.z;
+                off.abs() < 1e-6
+            }
+            _ => false,
+        }
+    };
+    if surf_matches(f_a) {
+        f_a
+    } else if surf_matches(f_b) {
+        f_b
+    } else {
+        f_a
+    }
 }

@@ -35,78 +35,9 @@ use super::multi_chord_span_geometry::{
 };
 use super::phase_split::{FaceTrim, TrimSplitResult, find_face_containing_vertices};
 use crate::error::BlendFailure;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{NurbsCurve, Point3};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
-/// Round 5r+: given two candidate descendant faces `f_a`/`f_b`,
-/// pick the one that descends from `desired_parent`.
-///
-/// "Descends" is checked by surface identity: sub-faces created
-/// by `split_face` inherit the surface of the original face, so
-/// if `desired_parent`'s surface in the original BRep matches
-/// `f_a`'s current surface, `f_a` is the descendant we want.
-/// Falls back to `f_a` if neither matches.
-pub(super) fn choose_side_face(
-    result: &BRep,
-    original: &BRep,
-    desired_parent: FaceHandle,
-    f_a: FaceHandle,
-    f_b: FaceHandle,
-) -> FaceHandle {
-    if f_a == desired_parent {
-        return f_a;
-    }
-    if f_b == desired_parent {
-        return f_b;
-    }
-    let Some(parent_face) = original.faces.get(desired_parent) else {
-        return f_a;
-    };
-    let Some(parent_surf) = parent_face.surface.as_ref() else {
-        return f_a;
-    };
-    let surf_matches = |fh: FaceHandle| -> bool {
-        let Some(face) = result.faces.get(fh) else {
-            return false;
-        };
-        let Some(sof) = face.surface.as_ref() else {
-            return false;
-        };
-        match (&parent_surf.geometry, &sof.geometry) {
-            (
-                SurfaceGeometry::Plane {
-                    origin: o1,
-                    normal: n1,
-                    ..
-                },
-                SurfaceGeometry::Plane {
-                    origin: o2,
-                    normal: n2,
-                    ..
-                },
-            ) => {
-                let dot_n = n1.x * n2.x + n1.y * n2.y + n1.z * n2.z;
-                if dot_n.abs() < 0.999 {
-                    return false;
-                }
-                let dx = o2.x - o1.x;
-                let dy = o2.y - o1.y;
-                let dz = o2.z - o1.z;
-                let off = dx * n1.x + dy * n1.y + dz * n1.z;
-                off.abs() < 1e-6
-            }
-            _ => false,
-        }
-    };
-    if surf_matches(f_a) {
-        f_a
-    } else if surf_matches(f_b) {
-        f_b
-    } else {
-        f_a
-    }
-}
 /// Outcome of applying all trims on one original face via
 /// `apply_multi_chord_for_face`.
 pub(super) struct MultiChordOutcome {
@@ -119,6 +50,10 @@ pub(super) struct MultiChordOutcome {
     /// sees them as valid descendants when identifying consumed
     /// faces.
     pub extra_edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
+    /// Trims resolved through the PK-141 region path — their
+    /// consumed faces are merged regions with no split ancestry, so
+    /// the caller's longest-descendant re-pick must skip them.
+    pub region_resolved: Vec<(usize, u8)>,
 }
 /// Apply all of a face's trims, honouring chord-chord
 /// intersections. This is the Round 5r+ replacement for the
@@ -145,6 +80,7 @@ pub(super) fn apply_multi_chord_for_face(
             trim_results,
             failures,
             extra_edge_splits,
+            region_resolved: Vec::new(),
         };
     }
     // Precompute pairwise chord intersections.
@@ -480,7 +416,14 @@ pub(super) fn apply_multi_chord_for_face(
             trim_3d,
         });
     }
+    super::multi_chord_region::reroute_all_when_deferred(
+        &mut deferred,
+        &mut trim_results,
+        trims,
+        fillet_edges_by_trim,
+    );
     let all_trim_edges: Vec<EdgeHandle> = per_trim_sub_edges.iter().flatten().copied().collect();
+    let pre_deferred_len = trim_results.len();
     super::multi_chord_region::process_deferred(
         brep,
         deferred,
@@ -492,9 +435,14 @@ pub(super) fn apply_multi_chord_for_face(
         &mut failures,
         tolerance,
     );
+    let region_resolved: Vec<(usize, u8)> = trim_results[pre_deferred_len..]
+        .iter()
+        .map(|r| (r.edge_idx, r.side))
+        .collect();
     MultiChordOutcome {
         trim_results,
         failures,
         extra_edge_splits,
+        region_resolved,
     }
 }

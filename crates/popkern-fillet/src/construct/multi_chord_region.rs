@@ -369,3 +369,33 @@ fn live_subdivision(brep: &BRep, sub_faces: &[FaceHandle]) -> HashSet<FaceHandle
     }
     member
 }
+
+/// PK-141 uniform resolution: when any trim deferred, the other
+/// trims' per-sub-chord identifications came from the same entangled
+/// subdivision (their phase-C kef self-pairs) — re-route every trim
+/// of the face through the region path.
+pub(super) fn reroute_all_when_deferred(
+    deferred: &mut Vec<DeferredTrim>,
+    trim_results: &mut Vec<TrimSplitResult>,
+    trims: &[FaceTrim],
+    fillet_edges_by_trim: &[EdgeHandle],
+) {
+    if deferred.is_empty() {
+        return;
+    }
+    for r in trim_results.drain(..) {
+        let fe = trims
+            .iter()
+            .zip(fillet_edges_by_trim.iter())
+            .find(|(t, _)| t.edge_idx == r.edge_idx && t.side == r.side)
+            .map(|(_, &fe)| fe);
+        let Some(fillet_edge) = fe else { continue };
+        deferred.push(DeferredTrim {
+            edge_idx: r.edge_idx,
+            side: r.side,
+            fillet_edge,
+            candidate: Some((0.0, r.pcurve, r.trim_3d)),
+            produced_edges: r.trim_edges,
+        });
+    }
+}
