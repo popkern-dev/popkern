@@ -189,21 +189,16 @@ pub(crate) fn rebuild_curves_touching(brep: &mut BRep, welded: &[VertexHandle]) 
 ///    removed half-edges
 /// 3. Delete the edge and both half-edges from the slotmaps
 pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
-    // Collect edges to remove first to avoid mutating during iteration.
-    let mut to_remove: Vec<EdgeHandle> = Vec::new();
-    for (eh, edge) in brep.edges.iter() {
-        let Some(he) = brep.half_edges.get(edge.half_edge) else {
-            continue;
-        };
-        let Some(twin) = brep.half_edges.get(he.twin) else {
-            continue;
-        };
-        if he.origin == twin.origin {
-            to_remove.push(eh);
-        }
-    }
-
-    for eh in to_remove {
+    // One edge per pass, re-scanning after each removal: removing a
+    // degenerate edge rewrites its neighbours' next/prev pointers,
+    // and a batch collected up front dereferences stale handles when
+    // degenerate edges form CHAINS (the collapsed cap ring of a
+    // corner-group unfillet panicked on an already-removed prev).
+    while let Some(eh) = brep.edges.iter().find_map(|(eh, edge)| {
+        let he = brep.half_edges.get(edge.half_edge)?;
+        let twin = brep.half_edges.get(he.twin)?;
+        (he.origin == twin.origin).then_some(eh)
+    }) {
         let Some(edge) = brep.edges.get(eh) else {
             continue;
         };
@@ -216,27 +211,59 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
             continue;
         };
 
-        // Splice he out of its loop.
-        if he.next != he_handle {
-            brep.half_edges[he.prev].next = he.next;
-            brep.half_edges[he.next].prev = he.prev;
+        if he.next == twin_handle && twin.next == he_handle {
+            // Isolated 2-cycle: the pair IS its whole loop. Nothing
+            // outside references the half-edges; drop them and leave
+            // the (empty) loop for the caller's loop-level cleanup.
+            brep.half_edges.remove(he_handle);
+            brep.half_edges.remove(twin_handle);
+            brep.edges.remove(eh);
+            continue;
         }
-        // Splice twin out of its loop.
-        if twin.next != twin_handle {
-            brep.half_edges[twin.prev].next = twin.next;
-            brep.half_edges[twin.next].prev = twin.prev;
+        if he.next == twin_handle || twin.next == he_handle {
+            // Zero-length SPUR: the pair sits consecutively in one
+            // loop (a collapsed cap-ring arc after the corner weld).
+            // Splice the pair out as a unit — the generic
+            // one-at-a-time splice below writes through the partner's
+            // stale pointers and dangles the neighbours (measured:
+            // invalid-SlotMap-key panic on the corner-group restore).
+            let (first, second) = if he.next == twin_handle {
+                (he_handle, twin_handle)
+            } else {
+                (twin_handle, he_handle)
+            };
+            let before = brep.half_edges[first].prev;
+            let after = brep.half_edges[second].next;
+            brep.half_edges[before].next = after;
+            brep.half_edges[after].prev = before;
+            for h in [first, second] {
+                let lp = brep.half_edges[h].loop_;
+                if let Some(loop_data) = brep.loops.get(lp)
+                    && loop_data.half_edge == h
+                {
+                    brep.loops[lp].half_edge = after;
+                }
+            }
+            brep.half_edges.remove(he_handle);
+            brep.half_edges.remove(twin_handle);
+            brep.edges.remove(eh);
+            continue;
         }
+
+        // Separated pair: splice each side out of its loop.
+        brep.half_edges[he.prev].next = he.next;
+        brep.half_edges[he.next].prev = he.prev;
+        brep.half_edges[twin.prev].next = twin.next;
+        brep.half_edges[twin.next].prev = twin.prev;
         // Update each loop's `half_edge` pointer if it pointed at
         // one of the removed half-edges.
         if let Some(loop_data) = brep.loops.get(he.loop_)
             && loop_data.half_edge == he_handle
-            && he.next != he_handle
         {
             brep.loops[he.loop_].half_edge = he.next;
         }
         if let Some(loop_data) = brep.loops.get(twin.loop_)
             && loop_data.half_edge == twin_handle
-            && twin.next != twin_handle
         {
             brep.loops[twin.loop_].half_edge = twin.next;
         }
@@ -244,6 +271,32 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
         brep.half_edges.remove(he_handle);
         brep.half_edges.remove(twin_handle);
         brep.edges.remove(eh);
+    }
+    // Boundary (twin-less) edges collapsed to zero length by the
+    // welds: splice the lone half-edge out and retire the edge.
+    // Twin-less edges only exist after tolerant residual removal
+    // (corner-group unfillet); paired-edge paths never enter here.
+    while let Some((eh, he_handle)) = brep.edges.iter().find_map(|(eh, edge)| {
+        let he = brep.half_edges.get(edge.half_edge)?;
+        if brep.half_edges.contains_key(he.twin) {
+            return None;
+        }
+        let dest = brep.half_edges.get(he.next)?.origin;
+        (he.origin == dest).then_some((eh, edge.half_edge))
+    }) {
+        let he = brep.half_edges[he_handle].clone();
+        if he.next != he_handle {
+            brep.half_edges[he.prev].next = he.next;
+            brep.half_edges[he.next].prev = he.prev;
+            if let Some(loop_data) = brep.loops.get(he.loop_)
+                && loop_data.half_edge == he_handle
+            {
+                brep.loops[he.loop_].half_edge = he.next;
+            }
+        }
+        brep.half_edges.remove(he_handle);
+        brep.edges.remove(eh);
+        brep.boundary_edges.remove(&eh);
     }
 }
 

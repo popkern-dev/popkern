@@ -169,6 +169,7 @@ pub fn compute_unfillet_plan(
                     Some(
                         popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
                             | popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                            | popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)
                     )
                 )
             });
@@ -214,19 +215,9 @@ pub fn compute_unfillet_plan(
     })
 }
 
-/// Run an algorithmic unfillet on `blend_face`.
-///
-/// **Round 5b status:** this entry point currently returns a
-/// structured error directing callers to one of the two working
-/// paths (snapshot undo via [`unfillet_via_record`], or the plan
-/// query via [`compute_unfillet_plan`]). The full topology surgery
-/// is Round 5c and requires vertex-welding primitives that
-/// popkern-core does not yet expose.
-///
-/// The function is shipped today so callers can wire their UI
-/// against the eventual public shape — the signature is stable
-/// and Round 5c will replace the body without changing the
-/// signature.
+/// Run an algorithmic unfillet on `blend_face` — the open-fillet
+/// surgery (Round 5c), closed-annulus dispatch (5c-4), or the
+/// recordless corner-group restore (PK-174), chosen by structure.
 ///
 /// # Errors
 ///
@@ -247,10 +238,23 @@ pub fn unfillet_face(brep: &BRep, blend_face: FaceHandle) -> Result<BRep, BlendE
         return crate::unfillet_closed::unfillet_closed_annulus(brep, blend_face);
     }
 
-    // 1. Plan validates that the face is a blend and gives us the
-    //    geometry we need (restored edge endpoints, support pair,
-    //    long boundary half-edges).
-    let plan = compute_unfillet_plan(brep, blend_face)?;
+    // 1. Plan (restored endpoints, support pair, long boundaries).
+    //    PK-174: a plan decline (strip ends at a corner cap) routes
+    //    to the recordless corner-group surgery; the record-path
+    //    hint stays the fallback when that class doesn't apply.
+    let plan = match compute_unfillet_plan(brep, blend_face) {
+        Ok(plan) => plan,
+        Err(plan_err) => {
+            return crate::unfillet_corner_group::unfillet_corner_group(brep, blend_face).map_err(
+                |group_err| {
+                    if std::env::var_os("PK_UCG_TRACE").is_some() {
+                        eprintln!("[ucg] group surgery declined: {group_err:?}");
+                    }
+                    plan_err
+                },
+            );
+        }
+    };
 
     let long_a = plan
         .long_he_to_a

@@ -132,7 +132,41 @@ fn modify_open_fillet_radius(
     }
 
     // Fallback: remove + recreate.
-    let plan = compute_unfillet_plan(brep, fillet_face)?;
+    //
+    // PK-174: when the plan declines (capped strip), the recordless
+    // corner-group restore replaces the whole trihedral group and
+    // re-fillets it with the target strip at the new radius and its
+    // siblings at their measured radii — the coupled-radii semantics
+    // of the record path, without a record.
+    let plan = match compute_unfillet_plan(brep, fillet_face) {
+        Ok(plan) => plan,
+        Err(plan_err) => {
+            let Ok(restore) = crate::unfillet_corner_group::restore_corner_group(brep, fillet_face)
+            else {
+                return Err(plan_err);
+            };
+            let specs: Vec<FilletSpec> = restore
+                .edges
+                .iter()
+                .map(|&(edge, old_radius, was_seed)| FilletSpec {
+                    edge,
+                    radius: if was_seed {
+                        new_radius.clone()
+                    } else {
+                        FilletRadius::Constant(old_radius)
+                    },
+                })
+                .collect();
+            let result = crate::fillet_edges(
+                &restore.brep,
+                &specs,
+                &FilletOptions::default(),
+                tolerance,
+                None,
+            )?;
+            return Ok(result.brep);
+        }
+    };
     let p_start = plan.restored_edge_start;
     let p_end = plan.restored_edge_end;
 

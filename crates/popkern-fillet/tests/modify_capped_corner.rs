@@ -85,12 +85,16 @@ fn record_modify_identity_replay_clean() {
 #[test]
 fn record_modify_capped_corner_re_dispatches() {
     let (record, strip) = capped_corner_record();
-    // The local path must decline with the structured signature.
+    // PK-174: the local (recordless) path now COMPLETES on the
+    // trihedral capped corner through the corner-group restore —
+    // hold it to the same pinned frontier as the record path.
     let local =
-        popkern_fillet::modify_fillet_radius(&record.result, strip, 0.15, Tolerance::default());
+        popkern_fillet::modify_fillet_radius(&record.result, strip, 0.15, Tolerance::default())
+            .expect("recordless corner-group modify completes on the trihedral class");
+    let local_errors = local.validate_all();
     assert!(
-        local.is_err(),
-        "local modify on a capped corner should decline (record path exists for it)"
+        local_errors.len() <= 1,
+        "recordless capped-corner modify regressed: {local_errors:?}"
     );
     let m = popkern_fillet::modify_fillet_radius_via_record(&record, strip, 0.15)
         .expect("record re-dispatch");

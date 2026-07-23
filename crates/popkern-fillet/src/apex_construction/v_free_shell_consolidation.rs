@@ -380,7 +380,12 @@ fn detect_slivers(brep: &BRep) -> Vec<FaceHandle> {
 
 /// Remove a face, its loops, and its half-edges; surviving twin sides
 /// become boundary sides (mirrors the scaffolding-retirement rules).
-fn remove_face(brep: &mut BRep, face: FaceHandle) {
+/// Tolerant face removal for vestigial/residual faces: half-edges
+/// are dropped side-by-side, surviving twins become boundary sides,
+/// fully-orphaned edges are retired. Shared with the recordless
+/// corner-group unfillet (PK-174), which meets the same
+/// ghost-ridden residual class this pass was built for.
+pub(crate) fn remove_face(brep: &mut BRep, face: FaceHandle) {
     let sides = face_sides(brep, face);
     let Some(face_data) = brep.faces.get(face) else {
         return;

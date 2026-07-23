@@ -85,6 +85,8 @@ mod types_tests;
 pub mod unfillet;
 pub mod unfillet_closed;
 pub(crate) mod unfillet_closed_helpers;
+pub(crate) mod unfillet_corner_group;
+pub(crate) mod unfillet_corner_group_geometry;
 pub(crate) mod unfillet_helpers;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
@@ -500,7 +502,6 @@ fn fillet_edges_internal(
         repair_report: apply_result.repair_report,
     })
 }
-
 fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry]) -> EdgeHandle {
     specs
         .first()
@@ -508,7 +509,6 @@ fn fallback_edge_for_specs(specs: &[FilletSpec], edge_geometries: &[EdgeGeometry
         .or_else(|| edge_geometries.first().map(|g| g.analysis.edge))
         .unwrap_or_default()
 }
-
 fn first_structural_validation_error(brep: &BRep) -> Option<String> {
     [
         brep.validate_half_edge_pairing().err(),
