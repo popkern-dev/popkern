@@ -133,21 +133,53 @@ pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance
         if surfaces.is_empty() {
             continue;
         }
-        for _ in 0..200 {
-            let mut max_step = 0.0_f64;
+        // Terminate on RESIDUAL, not step size: tangential surface
+        // pairs crawl linearly (ratio ~0.975 measured on the boss
+        // wall-seam triple), so the step shrinks below any step
+        // threshold while the point is still ~1e-4 off — the exact
+        // plateau the boss chain pinned. But the crawl also DRIFTS
+        // along the intersection valley (unbounded iteration slid a
+        // vertex far enough to break an adjacent chord at 7e-3), so
+        // track the best-residual point WITHIN a travel budget and
+        // commit that.
+        let residual_target = tolerance.linear().max(1e-9);
+        let travel_budget = *before * 4.0 + gate;
+        let residual_at = |q: &Point3| -> f64 {
+            surfaces
+                .iter()
+                .filter_map(|g| {
+                    popkern_core::geometry::uv_projection::project_point_to_uv(g, q)
+                        .map(|(u, vv)| q.distance_to(&g.point_at(u, vv)))
+                })
+                .fold(0.0_f64, f64::max)
+        };
+        // Iterate selection scores residual PLUS a drift penalty
+        // (1% of travel): the tangential crawl slides along the
+        // intersection valley, and an iterate that gains 1e-4 of
+        // residual by drifting 6e-2 breaks the chords ANCHORED at
+        // the vertex (measured: an adjacent wall-rail chord went to
+        // 7e-3 under pure-residual selection).
+        let score = |residual: f64, q: &Point3| residual + q.distance_to(pos) * 0.01;
+        let r0 = residual_at(&p);
+        let mut best = (score(r0, &p), r0, p);
+        for _ in 0..2000 {
             for geom in &surfaces {
                 if let Some((u, vv)) =
                     popkern_core::geometry::uv_projection::project_point_to_uv(geom, &p)
                 {
-                    let q = geom.point_at(u, vv);
-                    max_step = max_step.max(p.distance_to(&q));
-                    p = q;
+                    p = geom.point_at(u, vv);
                 }
             }
-            if max_step < gate * 1e-3 {
+            let residual = residual_at(&p);
+            let sc = score(residual, &p);
+            if sc < best.0 && p.distance_to(pos) <= travel_budget {
+                best = (sc, residual, p);
+            }
+            if best.1 < residual_target {
                 break;
             }
         }
+        p = best.2;
         // Residual + travel gates.
         let after = surfaces
             .iter()
@@ -157,7 +189,16 @@ pub(crate) fn settle_stale_strip_vertices(brep: &mut BRep, tolerance: &Tolerance
             })
             .fold(0.0_f64, f64::max);
         let travel = p.distance_to(pos);
-        if after >= *before || travel > before * 4.0 + gate {
+        // Only FULLY-settled vertices commit (residual inside 100x
+        // linear): a partial improvement (the hole-corner class
+        // stalls at ~1.5e-2 against the over-extended sphere
+        // territory) leaves the vertex between its old and honest
+        // positions and skews every chord anchored there (measured:
+        // a 7e-3 chord deviation from a 2.1e-2 -> 1.6e-2 "improved"
+        // corner vertex, while the fully-converging seam vertices
+        // land at 1e-6).
+        let settle_accept = tolerance.linear().max(1e-9) * 100.0;
+        if after >= settle_accept || travel > before * 4.0 + gate {
             if trace {
                 eprintln!(
                     "  [vsettle] {v:?} declined: before {before:.3e} after {after:.3e} travel {travel:.3e}"

@@ -265,13 +265,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
     // PK-141 measured frontier: the apply COMPLETES (all six chain
-    // pieces, region-path consumed territories, corner separators,
-    // seam-junction remnant absorption, stale-vertex settle); one
-    // curve-surface residual remains at 1.2e-4 (was 2.8e-3 before
-    // the junction absorb gave the settle honest incident surfaces;
-    // the floor is the strip-fit boundary precision, ~2e-4 class).
-    // Pin completion + the ceiling; flip to (0,0,0) when the strip
-    // fit tightens and the hole-corner caps land.
+    // pieces, region-path territories, corner separators,
+    // seam-junction remnant absorption, residual-terminated settle).
+    // The SEAM class is closed — chain seam vertices land on their
+    // honest rail points at 1e-6. One residual remains at 7.0e-3:
+    // a corner-separator chord across a hole corner where the strip
+    // surface is genuinely off the wall (no curve can satisfy both
+    // faces there) — the hole-corner CAP class, exposed honestly by
+    // the settled rail ends. Pin completion + the single-defect
+    // ceiling; flip to (0,0,0) when the hole-corner caps land.
     assert_eq!(
         (structural, open),
         (0, 0),
