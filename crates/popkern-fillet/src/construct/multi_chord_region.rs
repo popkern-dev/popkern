@@ -222,7 +222,9 @@ fn consumed_region_merge(
     // boundary with it is approximated by seeding + flood limits.
     let member: HashSet<FaceHandle> = live_subdivision(brep, sub_faces);
     let mut seeds: Vec<FaceHandle> = Vec::new();
-    for &f in &member {
+    let mut member_ordered: Vec<FaceHandle> = member.iter().copied().collect();
+    member_ordered.sort();
+    for &f in &member_ordered {
         if crate::construct::merge::face_loop_contains_any_edge(brep, f, fillet_desc)
             .unwrap_or(false)
         {
@@ -396,7 +398,10 @@ fn live_subdivision(brep: &BRep, sub_faces: &[FaceHandle]) -> HashSet<FaceHandle
         .copied()
         .filter(|f| brep.faces.contains_key(*f))
         .collect();
-    let snapshot: Vec<FaceHandle> = member.iter().copied().collect();
+    // Deterministic order: `member` is a HashSet and this walk
+    // mutates topology (PK-176 flicker class).
+    let mut snapshot: Vec<FaceHandle> = member.iter().copied().collect();
+    snapshot.sort();
     for f in snapshot {
         let Some(fd) = brep.faces.get(f) else {
             continue;

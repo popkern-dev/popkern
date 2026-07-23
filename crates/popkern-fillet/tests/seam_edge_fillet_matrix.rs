@@ -265,13 +265,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
     // PK-141 frontier: all six chain pieces serve as honest NURBS
-    // strips (chain-holder transplant + self-pair merge + NURBS
-    // identity in surfaces_equal). A run-order-unstable residual
-    // remains: validate_all flickers between clean and ONE 0.7
-    // CurveSurfaceDeviation on a rim edge (nondeterminism under
-    // investigation — the first measured determinism break in this
-    // campaign). Pin structural/open exactness + the single-defect
-    // ceiling; flip `other` to == 0 with the determinism fix.
+    // strips. ONE deterministic residual remains (0.7 on the top
+    // rim): eg5's wall piece cannot isolate its band — the +y top
+    // corner is sealed by the contact separator while the -y one
+    // carries a legacy corner chord, so the +y rail cut yields
+    // band+upper as one piece and the strip surface over-extends to
+    // the rim. Pin the single-defect ceiling; the corner-seal
+    // unification (cut the corner segment like the -y side, or
+    // extend the enclosure at the rail's corner end) flips this to
+    // (0,0,0).
     assert_eq!(
         (structural, open),
         (0, 0),

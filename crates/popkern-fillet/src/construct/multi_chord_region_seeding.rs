@@ -61,13 +61,27 @@ pub(in crate::construct) fn mid_span_descendants(
     fillet_desc: &[EdgeHandle],
     trim: &NurbsCurve,
 ) -> Vec<EdgeHandle> {
-    fillet_desc
+    // RELATIVE distance gate: the fillet's own chain segments all
+    // sit at the same distance from the trim (exactly r for a wall
+    // rail); cross-junction POLLUTION in the descendant lists sits
+    // measurably farther (a cross-seam segment at 1.38x the chain
+    // distance steered eg5's consumed identification onto the piece
+    // holding the top rim — the 0.7 deviation class). Keep only
+    // interior-span descendants within 1.25x of the nearest one.
+    let scored: Vec<(EdgeHandle, f64)> = fillet_desc
         .iter()
         .copied()
-        .filter(|&e| {
+        .filter_map(|e| {
             descendant_trim_fraction(brep, e, trim)
-                .map(|(frac, _)| (0.08..=0.92).contains(&frac))
-                .unwrap_or(false)
+                .and_then(|(frac, dist)| (0.08..=0.92).contains(&frac).then_some((e, dist)))
         })
+        .collect();
+    let Some(min_dist) = scored.iter().map(|(_, d)| *d).min_by(f64::total_cmp) else {
+        return Vec::new();
+    };
+    scored
+        .into_iter()
+        .filter(|(_, d)| *d <= min_dist * 1.25 + 1e-9)
+        .map(|(e, _)| e)
         .collect()
 }
