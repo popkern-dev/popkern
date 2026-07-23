@@ -142,6 +142,36 @@ pub(super) fn cut_corner_separators(
                 separators.push(mef.edge);
                 used.insert(x);
                 used.insert(y);
+                // Corner-seal unification (PK-141): also cut the
+                // hole-corner chord (the chain-corner vertex to the
+                // rail end) so the band seals from the territory
+                // BEYOND the rail at this corner. The -y corners
+                // carried this seal from legacy routing while the +y
+                // ones only had the contact separator — measured:
+                // eg5's rail cut yielded band+upper as ONE piece and
+                // the strip surface over-extended 0.7 to the rim.
+                let mid2 = Point3::new(
+                    0.5 * (pa.x + pb.x),
+                    0.5 * (pa.y + pb.y),
+                    0.5 * (pa.z + pb.z),
+                );
+                if let Some(pc) = nearest_vertex_position(brep, mid2, d)
+                    && let Some((cface, ca, cb)) =
+                        loop_hes_at_positions(brep, sub_faces, pc, pa, tolerance)
+                    && let Ok(cmef) = brep.mef(ca, cb)
+                {
+                    if let Some(e) = brep.edges.get_mut(cmef.edge) {
+                        e.curve = popkern_core::geometry::CurveOnEdge::line_segment(
+                            pc,
+                            pa,
+                            tolerance.linear(),
+                        );
+                    }
+                    if trace {
+                        eprintln!("[mc-region] corner-seal on {cface:?}: {pc:?} -> {pa:?}");
+                    }
+                    separators.push(cmef.edge);
+                }
             }
             Err(e) => {
                 if trace {

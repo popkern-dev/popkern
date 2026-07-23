@@ -101,12 +101,11 @@ pub(crate) fn absorb_junction_remnants(
             // -y bottom corner shipped the strip-strip corner chord
             // 1.28e-2 off); the analytic solve replaces the crawl.
             // Transactional: candidate clone, validate-gated.
-            // GATED until the carve lands: without the strip
-            // extensions to the corner station, snapping the chain
-            // vertex to the contact spans un-carved territory
-            // (measured: the strip-strip corner chord went 1.28e-2
-            // -> 5.0e-2). With the carve the contact is the honest
-            // home; enable together.
+            // GATED (PK141_CORNER_SNAP=1): with the pocket expel +
+            // cross-strip refits landed, the snap now measures WORSE
+            // (corner chord 1.28e-2 -> 5.0e-2 = r: the strips do not
+            // extend to the snapped contact) — the wedge insertion
+            // is the enabling construction; flip together.
             let contact_d = v_pos.distance_to(&cap.shared_contact);
             if std::env::var_os("PK141_CORNER_SNAP").is_some()
                 && contact_d > radius * 0.05
@@ -437,4 +436,26 @@ fn absorb_piece(
         return None;
     }
     Some(())
+}
+
+/// Dissolve seam slits left on strip loops and expel foreign
+/// pockets (a strip that absorbed neighbouring territory and later
+/// released the area can keep the neighbour's seam+rim as a
+/// zero-width excursion — measured 0.7 on the boss top rim).
+pub(crate) fn cleanup_strip_slits_and_pockets(brep: &mut BRep, tolerance: &Tolerance) {
+    let strip_faces: Vec<FaceHandle> = brep
+        .faces
+        .iter()
+        .filter(|(_, f)| {
+            matches!(
+                f.surface.as_ref().map(|s| &s.geometry),
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_))
+            )
+        })
+        .map(|(h, _)| h)
+        .collect();
+    for f in strip_faces {
+        let _ = super::strip_end_surface::remove_spur_slits(brep, f);
+    }
+    let _ = super::strip_pocket_expel::expel_strip_pockets(brep, tolerance);
 }

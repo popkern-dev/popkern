@@ -265,15 +265,12 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
     // PK-141 frontier: all six chain pieces serve as honest NURBS
-    // strips. ONE deterministic residual remains (0.7 on the top
-    // rim): eg5's wall piece cannot isolate its band — the +y top
-    // corner is sealed by the contact separator while the -y one
-    // carries a legacy corner chord, so the +y rail cut yields
-    // band+upper as one piece and the strip surface over-extends to
-    // the rim. Pin the single-defect ceiling; the corner-seal
-    // unification (cut the corner segment like the -y side, or
-    // extend the enclosure at the rail's corner end) flips this to
-    // (0,0,0).
+    // strips, the seam+rim pocket is expelled to the wall, the
+    // cross-strip seam chord refits with its achieved gap recorded.
+    // ONE residual remains (1.28e-2): the strip x strip CORNER chord
+    // — the corner sphere-wedge insertion (geometry fully solved in
+    // corner_cap_geometry) is the last construction; the gated
+    // corner snap (PK141_CORNER_SNAP) flips with it.
     assert_eq!(
         (structural, open),
         (0, 0),

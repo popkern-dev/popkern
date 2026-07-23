@@ -140,7 +140,7 @@ pub(super) fn fill_missing_planar_pcurves(brep: &mut BRep, face: FaceHandle) {
 /// face's loops. Earlier rebuilds left the amputated L-legs doubled
 /// in the base loop; the slit has zero area, so removal preserves
 /// the face point set by construction.
-pub(super) fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usize {
+pub(crate) fn remove_spur_slits(brep: &mut BRep, plane_face: FaceHandle) -> usize {
     let mut removed = 0;
     for _ in 0..16 {
         let Some(face) = brep.faces.get(plane_face) else {

@@ -34,6 +34,40 @@ pub fn identify_consumed_face_any(
     }
 }
 
+/// Majority variant of the consumed identification: the consumed
+/// side is the one whose loops hold MORE of the descendants. A
+/// single stray descendant (a seam-side chain remnant that ends up
+/// on the kept piece) must not outvote the mid-span chain (measured:
+/// eg5's strip surface landed on the piece holding the top rim
+/// because the pair check tested that side first).
+pub fn identify_consumed_face_majority(
+    brep: &BRep,
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+    descendants: &[EdgeHandle],
+) -> Result<(FaceHandle, FaceHandle), String> {
+    let count = |f: FaceHandle| -> usize {
+        descendants
+            .iter()
+            .filter(|&&d| {
+                face_loop_contains_any_edge(brep, f, std::slice::from_ref(&d)).unwrap_or(false)
+            })
+            .count()
+    };
+    let (na, nb) = (count(face_a), count(face_b));
+    if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+        eprintln!(
+            "[mc-identify] {face_a:?}:{na} vs {face_b:?}:{nb} of {} desc",
+            descendants.len()
+        );
+    }
+    match nb.cmp(&na) {
+        std::cmp::Ordering::Greater => Ok((face_a, face_b)),
+        std::cmp::Ordering::Less => Ok((face_b, face_a)),
+        std::cmp::Ordering::Equal => identify_consumed_face_any(brep, face_a, face_b, descendants),
+    }
+}
+
 pub(crate) fn face_loop_contains_any_edge(
     brep: &BRep,
     face: FaceHandle,

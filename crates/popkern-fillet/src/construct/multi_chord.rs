@@ -402,7 +402,7 @@ pub(super) fn apply_multi_chord_for_face(
             } else {
                 &mid_span_desc
             };
-            let (kept, consumed) = match helpers::identify_consumed_face_any(
+            let (kept, consumed) = match super::merge::identify_consumed_face_majority(
                 brep,
                 split.face_a,
                 split.face_b,

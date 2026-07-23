@@ -21,7 +21,7 @@ pub use super::helpers_pcurve::pcurve_for_face_along;
 #[cfg(test)]
 pub(crate) use super::helpers_pcurve::{compute_pcurve_for_trim, pcurve_for_face};
 pub(crate) use super::helpers_pcurve::{line_nurbs, project_to_uv};
-pub use super::merge::{identify_consumed_face_any, merge_consumed_faces_any};
+pub use super::merge::merge_consumed_faces_any;
 
 /// Split perpendicular edges at the fillet offset distance.
 ///

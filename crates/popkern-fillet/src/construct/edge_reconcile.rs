@@ -215,6 +215,12 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
             | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Sphere { .. })
             | (SurfaceGeometry::Plane { .. }, SurfaceGeometry::Nurbs(_))
             | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Plane { .. })
+            // Strip x strip boundaries (the cross-seam join of two
+            // NURBS strip halves): a chord between settled endpoints
+            // must refit onto both strips like any other stale chord
+            // (measured: the boss top seam's cross-strip Line sat at
+            // a 2.77e-3 mid-chord sagitta forever).
+            | (SurfaceGeometry::Nurbs(_), SurfaceGeometry::Nurbs(_))
     );
     if !analytic_combo && !nurbs_combo {
         return false;

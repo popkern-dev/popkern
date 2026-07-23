@@ -382,8 +382,14 @@ fn fillet_edges_internal(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
-    // PK-141 smooth-through junctions: absorb unconsumed remnants
-    // into their strips — region-path bodies only.
+    // PK-141 strip cleanup: seam slits + foreign pockets (see
+    // cleanup_strip_slits_and_pockets docs).
+    if apply_result.repair_report.region_resolved_trims > 0 {
+        construct::junction_remnant_absorb::cleanup_strip_slits_and_pockets(
+            &mut apply_result.brep,
+            &tolerance,
+        );
+    }
     if apply_result.repair_report.region_resolved_trims > 0 {
         let _ = construct::junction_remnant_absorb::absorb_junction_remnants(
             &mut apply_result.brep,
@@ -404,8 +410,7 @@ fn fillet_edges_internal(
             &tolerance,
             construct::terminal_arc_trim::PlanarStubRecognition::ChartGated,
         );
-    // PK-152: close blend×blend pair corners (adjacent fillets whose
-    // strips interpenetrate at a shared body corner) with the exact
+    // PK-152: close blend×blend pair corners with the exact
     // strip×strip intersection seam. Runs after terminal settlement
     // so valence-2 chain-end corners are already coherent.
     apply_result.repair_report.blend_seam_corner =
@@ -414,8 +419,7 @@ fn fillet_edges_internal(
             &mut apply_result.brep,
             &tolerance,
         );
-    // PK-141: stale-vertex settle — AFTER corner settlements and
-    // ONLY on region-path bodies (both scopes measured load-bearing).
+    // PK-141 settle: AFTER corner settlements, region bodies only.
     if apply_result.repair_report.region_resolved_trims > 0 {
         let _ = construct::stale_vertex_settle::settle_stale_strip_vertices(
             &mut apply_result.brep,
@@ -440,9 +444,8 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-175: final bounded-UV pcurve clamp — the settle/reconcile
-    // stages above author sub-tolerance chart escapes (pyramid4_zoo
-    // served a cap pcurve at v = -1.05e-4).
+    // PK-175: final bounded-UV pcurve clamp (late stages author
+    // sub-tolerance chart escapes).
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     emit!(
         progress::FilletPhase::RepairPcurves,
@@ -531,11 +534,9 @@ fn first_structural_validation_error(brep: &BRep) -> Option<String> {
     })
     .map(|err| format!("post-blend structural validation failed: {err:?}"))
 }
-
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;
 pub use lib_chamfer::chamfer_edges;
-
 /// Fillet the specified edges and bundle the result with post-op
 /// [`BlendQuality`] metrics (`R_min`, `patch_count`, `surface_area`,
 /// composite score). Same parameter validation and error taxonomy
@@ -544,12 +545,11 @@ pub use lib_chamfer::chamfer_edges;
 #[path = "lib_convenience.rs"]
 mod lib_convenience;
 pub use face_blend::{FaceBlendAttach, FaceBlendResult, FaceBlendSpec, face_blend};
+use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 pub use lib_convenience::{
     chamfer_edge, fillet_edge, fillet_edges_cancellable, fillet_edges_with_progress,
     fillet_edges_with_quality,
 };
-
-use geometry_compute::{build_overlap_inputs, compute_chamfer_geometry, compute_fillet_geometry};
 use naming::assign_fillet_names;
 #[cfg(test)]
 #[path = "corner_warning_tests.rs"]

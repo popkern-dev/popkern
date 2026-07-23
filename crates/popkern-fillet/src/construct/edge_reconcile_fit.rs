@@ -48,6 +48,36 @@ pub(super) fn try_curved_fit(
     let (Some(sof_1), Some(sof_2)) = (surf_1, surf_2) else {
         return false;
     };
+    // Deviation gate: only refit STALE curves. An unconditional
+    // NURBS x NURBS refit rewrote healthy authored cap-seam curves
+    // (measured: pyramid4_zoo went from 1 pinned seam to 4 seams at
+    // 1.35e-2 when the strip x strip combo landed).
+    if let Some(cur) = brep.edges.get(edge).and_then(|e| e.curve.as_ref()) {
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::SurfaceEval;
+        let mut worst = 0.0_f64;
+        for i in 0..=6 {
+            let t = cur.t_start + (cur.t_end - cur.t_start) * (i as f64) / 6.0;
+            let pt = cur.geometry.point_at(t);
+            for sof in [sof_1, sof_2] {
+                if let Some((u, v)) =
+                    popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &pt)
+                {
+                    worst = worst.max(pt.distance_to(&sof.geometry.point_at(u, v)));
+                }
+            }
+        }
+        let band = brep
+            .edges
+            .get(edge)
+            .and_then(|e| e.tolerance)
+            .unwrap_or_else(|| brep.tolerance.linear())
+            .max(1e-9)
+            * 10.0;
+        if worst <= band.max(3.3e-5) {
+            return false;
+        }
+    }
 
     // Sample chord, project alternately. 7 interior samples gives
     // a degree-3 fit room while staying cheap.
@@ -95,7 +125,14 @@ pub(super) fn try_curved_fit(
                 .closest_point(&p)
                 .map(|(u, v)| p.distance_to(&sof_1.geometry.point_at(u, v)))
                 .unwrap_or(f64::INFINITY);
-            if d1 > chord_len * 1e-4 {
+            // Accept into the RECORDABLE band as well: a pair whose
+            // surfaces mutually disagree by a sub-precision gap
+            // (independently fitted strip halves at a seam) can
+            // never satisfy the relative gate, and declining left a
+            // snapped stale fit at 1.43e-5 with no recorded
+            // tolerance. The achieved residual is recorded on the
+            // edge below.
+            if d1 > (chord_len * 1e-4).max(3.3e-5) {
                 return false;
             }
         }
@@ -132,12 +169,57 @@ pub(super) fn try_curved_fit(
         return false;
     }
 
+    // Achieved-residual tolerance: when the two surfaces themselves
+    // disagree along the edge (independently fitted strip halves
+    // meet with a mutual G0 gap — measured 1.43e-5 at the boss
+    // cross-seam boundary, sampling-density-independent to 12
+    // digits), no curve can satisfy both closer than that gap.
+    // Record the achieved residual as the edge's own tolerance so
+    // check 9 measures against the honest local band.
+    let achieved = {
+        use popkern_core::geometry::curve::CurveEval;
+        let probe = CurveOnEdge {
+            geometry: CurveGeometry::Nurbs(fitted.clone()),
+            t_start: et_start,
+            t_end: et_end,
+        };
+        let mut worst = 0.0_f64;
+        for i in 0..=8 {
+            let t = et_start + (et_end - et_start) * (i as f64) / 8.0;
+            let pt = probe.geometry.point_at(t);
+            for sof in [sof_1, sof_2] {
+                // Same projection as check 9 (closest_point converges
+                // poorly on these strip NURBS and misreported 2.1e-2
+                // for a 1.4e-5 fit).
+                if let Some((u, v)) =
+                    popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &pt)
+                {
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    worst = worst.max(pt.distance_to(&sof.geometry.point_at(u, v)));
+                }
+            }
+        }
+        worst
+    };
     if let Some(edge_mut) = brep.edges.get_mut(edge) {
         edge_mut.curve = Some(CurveOnEdge {
             geometry: CurveGeometry::Nurbs(fitted),
             t_start: et_start,
             t_end: et_end,
         });
+        // Record only SUB-PRECISION gaps (the kernel's precision
+        // validator caps edge tolerances at 1e-4; a fit that leaves
+        // more than that is a real defect to expose, not a band to
+        // widen — measured: broad recording pushed 4.7e-2 tolerances
+        // onto corner chords and tripped 10 Precision errors).
+        let model_band = brep.tolerance.linear().max(1e-9);
+        if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+            eprintln!("[fit-tol] {edge:?} achieved {achieved:.3e}");
+        }
+        if achieved > model_band && achieved * 1.5 < 5.0e-5 {
+            let recorded = edge_mut.tolerance.unwrap_or(0.0);
+            edge_mut.tolerance = Some(recorded.max(achieved * 1.5));
+        }
         return true;
     }
     false

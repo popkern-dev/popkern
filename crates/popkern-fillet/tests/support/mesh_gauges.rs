@@ -70,7 +70,14 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
     let mut other = 0usize;
     for err in brep.validate_all() {
         if std::env::var_os("PK_GAUGE_TRACE").is_some() {
-            eprintln!("[gauge] {err:?}");
+            if let popkern_core::error::ValidationError::CurveSurfaceDeviation { edge, .. } = &err {
+                eprintln!(
+                    "[gauge] {err:?} (edge tolerance {:?})",
+                    brep.edges.get(*edge).and_then(|e| e.tolerance)
+                );
+            } else {
+                eprintln!("[gauge] {err:?}");
+            }
         }
         match err {
             ValidationError::EulerPoincare { .. }
