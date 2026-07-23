@@ -125,98 +125,6 @@ pub(super) fn reverse_pcurve_nurbs(nurbs: &mut popkern_core::geometry::NurbsCurv
     }
 }
 
-/// EDGE_CURVE same_sense: whether the edge's topological direction
-/// — defined by its CANONICAL half-edge, the one every loop writes
-/// as the FORWARD ORIENTED_EDGE — agrees with the basis curve's
-/// parameterization. STEP consumers compute each use's traversal as
-/// curve_direction × same_sense × oriented_edge_sense; deriving the
-/// flag from anything other than the canonical half-edge (the old
-/// code used the trim ordering t_end ≥ t_start) breaks that product
-/// for one side of every edge whose canonical use runs against the
-/// curve. OpenCASCADE reprojection-heals the damage on simple faces
-/// but not on periodic ones: the flagship seam-rim circles are CCW
-/// curves whose canonical use is the CW plate-hole side, and the
-/// wrongly-true flag reversed the torus-side traversal by a full
-/// period (self-intersecting wire, the FreeCAD sliver).
-pub(super) fn edge_same_sense(
-    brep: &BRep,
-    edge: popkern_core::topology::EdgeHandle,
-    normalization: &PeriodicNormalization,
-) -> bool {
-    use popkern_core::geometry::CurveEval;
-    let Some(edge_data) = brep.edges.get(edge) else {
-        return true;
-    };
-    let Some(curve) = edge_data.curve.as_ref() else {
-        return true;
-    };
-    let canonical = edge_data.half_edge;
-    let Some(he) = brep.half_edges.get(canonical) else {
-        return true;
-    };
-    let ceval: &dyn CurveEval = &curve.geometry;
-    let start = ceval.point_at(curve.t_start);
-    let end = ceval.point_at(curve.t_end);
-    // same_sense relates the edge direction to the curve's UNDERLYING
-    // parameterization; a decreasing trim (t_end < t_start) runs the
-    // edge against it, so every direction test XORs the trim order.
-    let trim_increasing = curve.t_end >= curve.t_start;
-    if start.distance_to(&end) > 1e-9 {
-        // Open edge: the canonical half-edge's origin sits at the
-        // trim end it departs from.
-        let Some(origin) = brep.vertices.get(he.origin).map(|v| v.position) else {
-            return true;
-        };
-        let origin_at_trim_start = origin.distance_to(&start) <= origin.distance_to(&end);
-        return origin_at_trim_start == trim_increasing;
-    }
-    // Closed rim: endpoints coincide, so the canonical direction
-    // must come from a loop-level signal. Prefer the chain direction
-    // the periodic normalization resolved by loop closure (the
-    // manifold-consistent traversal); fall back to the stored
-    // pcurve's orientation (traversal-aligned by contract, not
-    // enforced — PK-100) for uses outside periodic loops.
-    let face_handle = match brep.loops.get(he.loop_) {
-        Some(l) => l.face,
-        None => return true,
-    };
-    let Some(surface) = brep.faces.get(face_handle).and_then(|f| f.surface.as_ref()) else {
-        return true;
-    };
-    let Some(pcurve) = export_pcurve_for_use(brep, face_handle, canonical, &surface.geometry)
-    else {
-        return true;
-    };
-    if let Some(&chain_forward) = normalization.directions.get(&(face_handle, canonical)) {
-        let opposes = pcurve_opposes_edge_curve(brep, canonical, &surface.geometry, &pcurve);
-        let along_trim = chain_forward != opposes;
-        return along_trim == trim_increasing;
-    }
-    // No chain info for the canonical use (its face is not periodic
-    // — e.g. a plane's single-edge hole loop). The TWIN use may be
-    // chain-resolved; the canonical direction is its opposite.
-    let twin = he.twin;
-    if let Some(twin_he) = brep.half_edges.get(twin)
-        && let Some(twin_loop) = brep.loops.get(twin_he.loop_)
-        && let Some(&twin_forward) = normalization.directions.get(&(twin_loop.face, twin))
-        && let Some(twin_surface) = brep
-            .faces
-            .get(twin_loop.face)
-            .and_then(|f| f.surface.as_ref())
-        && let Some(twin_pcurve) =
-            export_pcurve_for_use(brep, twin_loop.face, twin, &twin_surface.geometry)
-    {
-        let twin_opposes =
-            pcurve_opposes_edge_curve(brep, twin, &twin_surface.geometry, &twin_pcurve);
-        let twin_along_trim = twin_forward != twin_opposes;
-        return !twin_along_trim == trim_increasing;
-    }
-    // Last resort: the stored pcurve's orientation (traversal-aligned
-    // by contract, not enforced — PK-100).
-    let opposes = pcurve_opposes_edge_curve(brep, canonical, &surface.geometry, &pcurve);
-    !opposes == trim_increasing
-}
-
 /// Compute branch shifts + chain directions for every face on a
 /// periodic basis surface.
 pub(super) fn compute_periodic_branch_shifts(
@@ -378,12 +286,21 @@ fn normalize_loop(
         .map(|(i, _)| i)
         .collect();
     let combos = 1usize << ambiguous.len().min(12);
-    // score = (chain error, winding mismatch) — lexicographic: an
-    // exactly-closed contour with the required UV winding wins; the
-    // winding disambiguates the residual two-fold symmetry of
-    // annulus loops (both windings close; only one has material on
-    // the correct side).
-    let mut best: Option<(f64, bool, ChainAssignment)> = None;
+    // score = (chain error, flips from stored, winding mismatch) —
+    // lexicographic. Closure first. Then FEWEST reversals of the
+    // stored per-use pcurve directions: when the stored directions
+    // themselves chain into an exactly-closed contour they ARE the
+    // manifold traversal (the face-use pcurve contract), and an
+    // annulus's two-fold symmetry must NOT be re-decided by chart
+    // winding — a valid torus band exports with its outer contour
+    // wound clockwise (orientation-true boss round-over, measured:
+    // the assumed CCW-iff-face-sense convention flipped the top
+    // rim's chain direction, the shared rim's EDGE_CURVE flag came
+    // out .T. instead of .F., and OCC rejected the torus face with
+    // SelfIntersectingWire + UnorientableShape on every corpus
+    // curved-seam part). Winding stays as the LAST tiebreak for
+    // loops whose stored directions do not close on their own.
+    let mut best: Option<(f64, u32, bool, ChainAssignment)> = None;
     for mask in 0..combos {
         let forward_of = |idx: usize| -> bool {
             match uses[idx].a_is_start {
@@ -440,18 +357,23 @@ fn normalize_loop(
             area2 += pr.0 * f0.1 - f0.0 * pr.1;
         }
         let winding_ok = (area2 > 0.0) == want_ccw;
+        let flips = (mask as u32).count_ones();
         let better = match &best {
             None => true,
-            Some((b_score, b_wind, _)) => (score, !winding_ok) < (*b_score, !*b_wind),
+            Some((b_score, b_flips, b_wind, _)) => {
+                (score, flips, !winding_ok) < (*b_score, *b_flips, !*b_wind)
+            }
         };
         if better {
-            best = Some((score, winding_ok, assignment));
+            best = Some((score, flips, winding_ok, assignment));
         }
-        if score < 1e-9 && winding_ok {
+        // The zero-flip assignment is unbeatable once it closes
+        // exactly (flips outranks winding).
+        if score < 1e-9 && mask == 0 {
             break;
         }
     }
-    let Some((score, _winding_ok, assignment)) = best else {
+    let Some((score, _flips, _winding_ok, assignment)) = best else {
         return;
     };
     for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {

@@ -190,13 +190,14 @@ fn corpus_occ_oracle_leg() {
     // OCC baseline (2026-07-22, PK-161): 10/14; 14/17 (2026-07-22,
     // PK-170/PK-171 — bore, cross-drill, mixed-corner and
     // notched-flange classes serve and export OCC-clean); 15/18
-    // (2026-07-23, PK-171 — offset_bracket obstructed-end class).
-    // Recorded failing classes, routed to their campaign items:
-    //   bossed_housing / turned_bushing / double_boss_plate — the
-    //     curved-seam TORUS strip exports a wire OCC rejects
-    //     (SelfIntersectingWire + UnorientableShape; PK-172).
+    // (2026-07-23, PK-171 — offset_bracket obstructed-end class);
+    // 18/18 (2026-07-23, PK-172 — torus-band EDGE_CURVE senses: the
+    // periodic chain normalization now trusts stored pcurve
+    // directions over the assumed chart winding, closing the
+    // SelfIntersectingWire + UnorientableShape class on every
+    // curved-seam Torus face). No recorded failing classes.
     // Raise when classes close; NEVER lower.
-    const OCC_BASELINE: usize = 15;
+    const OCC_BASELINE: usize = 18;
     for f in &failures {
         eprintln!("[corpus-occ] recorded: {}", &f[..f.len().min(200)]);
     }

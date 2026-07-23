@@ -127,8 +127,7 @@ impl ExportContext {
             let curve_id =
                 self.maybe_wrap_surface_curve(brep, curve_3d_id, eh, &surface_map, &branch_shifts);
 
-            let same_sense =
-                super::export_periodic_branches::edge_same_sense(brep, eh, &branch_shifts);
+            let same_sense = super::export_edge_sense::edge_same_sense(brep, eh, &branch_shifts);
             let ec_id = self.emit(
                 "EDGE_CURVE",
                 vec![

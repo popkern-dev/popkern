@@ -3,6 +3,7 @@
 pub mod diagnostics;
 pub mod document;
 pub mod export;
+mod export_edge_sense;
 mod export_geometry;
 mod export_nurbs;
 mod export_pcurve;
