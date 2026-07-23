@@ -14,6 +14,8 @@ use super::repeated_apex_side_support_result::SideSupportRegionContinuationResul
 mod bridge_operator_exposure;
 #[path = "repeated_apex_side_support_bridge_operator_exposure_walk.rs"]
 mod bridge_operator_exposure_walk;
+#[path = "repeated_apex_side_support_bridge_operator_rewrite.rs"]
+mod bridge_operator_rewrite;
 #[path = "repeated_apex_side_support_bridge_operator_trace.rs"]
 mod bridge_operator_trace;
 
@@ -165,6 +167,27 @@ pub(super) fn apply_topology_operator(
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
     bridge_operator_trace::trace_cycle_structure(primitive, &candidate);
+    // PK-167 stage 1b substrate (opt-in): in-place support-loop
+    // rewrites — the Fix-A weld executed constructively (no mirror
+    // bridge face, no flap; measured on the V-free mixed cube:
+    // 3 rewrites + 3 welds, ZERO boundary edges at operator exit,
+    // consolidation repair legitimately empty). NOT yet the default:
+    // the exact-boundary consumers (support-face subdivision, cap
+    // materialization) walk the bridge face and the dead sides
+    // (measured: 8 direct-apex matrix gates fail constructively);
+    // porting them is the recorded step-2/3 work. All-or-nothing; a
+    // region whose chain doesn't close falls back to the bridge.
+    if std::env::var_os("PK167_INPLACE").is_some() {
+        let mut rewrite_candidate = brep.clone();
+        expose_aggregate_bridge_boundaries(primitive, &mut rewrite_candidate)?;
+        if let Some(result) = bridge_operator_rewrite::try_in_place_support_rewrites(
+            primitive,
+            &mut rewrite_candidate,
+        ) {
+            *brep = rewrite_candidate;
+            return Ok(result);
+        }
+    }
     if let [region] = primitive.regions()
         && region.boundary_cycles().len() != 1
     {

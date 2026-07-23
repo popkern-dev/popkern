@@ -45,7 +45,9 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, TopologyRole, Ver
 mod shell_orientation;
 #[path = "v_free_shell_weld.rs"]
 mod shell_weld;
-use shell_weld::{merge_coincident_seam_vertices, weld_dead_coincident_sides};
+pub(in crate::apex_construction) use shell_weld::{
+    merge_coincident_seam_vertices, weld_dead_coincident_sides,
+};
 
 /// Structured counts for the consolidation.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

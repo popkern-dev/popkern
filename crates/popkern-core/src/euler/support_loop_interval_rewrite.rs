@@ -49,6 +49,15 @@ pub struct SupportLoopIntervalRewritePlan {
     /// created twins run start-to-end along the loop direction (see
     /// module contract for the chaining rule).
     pub replacement: Vec<HalfEdgeHandle>,
+    /// Coincident-weld pairing: when true (requires equal interval
+    /// lengths; the caller has verified `removed[k]` and
+    /// `replacement[k]` span the same geometry), each created twin
+    /// ADOPTS the removed side's edge record and the replacement's
+    /// duplicate edge record retires instead. Downstream plans hold
+    /// handles to the production (removed-side) edges — retiring
+    /// those broke the direct-apex Gregory cap materialization
+    /// ("edge has no twin face on the non-cap side").
+    pub pair_removed_edges: bool,
 }
 
 /// Result of a committed interval rewrite.
@@ -184,23 +193,51 @@ impl BRep {
         }
         let _ = face;
 
+        if plan.pair_removed_edges && plan.removed.len() != plan.replacement.len() {
+            return Err(CoreError::PreconditionFailed(
+                "interval rewrite: pair_removed_edges requires equal interval lengths".into(),
+            ));
+        }
         // --- Apply ---------------------------------------------------------
-        // 1. Create the twin chain in loop order.
+        // 1. Create the twin chain in loop order. In paired mode the
+        //    created twin adopts the REMOVED side's edge record (the
+        //    production handle downstream plans reference).
         let mut created: Vec<HalfEdgeHandle> = Vec::with_capacity(plan.replacement.len());
-        for &r in &plan.replacement {
+        let mut paired_retired: Vec<EdgeHandle> = Vec::new();
+        for (k, &r) in plan.replacement.iter().enumerate() {
             let r_data = self.half_edges[r].clone();
             let origin = destination_of(self, r);
+            let edge = if plan.pair_removed_edges {
+                self.half_edges[plan.removed[k]].edge
+            } else {
+                r_data.edge
+            };
             let new_h = self.half_edges.insert(HalfEdge {
                 origin,
                 twin: r,
                 next: HalfEdgeHandle::default(),
                 prev: HalfEdgeHandle::default(),
-                edge: r_data.edge,
+                edge,
                 loop_: plan.loop_,
                 pcurve: None,
             });
             self.half_edges[r].twin = new_h;
-            self.boundary_edges.remove(&r_data.edge);
+            if plan.pair_removed_edges {
+                // Re-point the replacement side onto the adopted
+                // production edge and retire its duplicate record.
+                let dup = r_data.edge;
+                self.half_edges[r].edge = edge;
+                if let Some(e) = self.edges.get_mut(edge) {
+                    e.half_edge = r;
+                }
+                self.boundary_edges.remove(&dup);
+                self.boundary_edges.remove(&edge);
+                if dup != edge && self.edges.remove(dup).is_some() {
+                    paired_retired.push(dup);
+                }
+            } else {
+                self.boundary_edges.remove(&r_data.edge);
+            }
             created.push(new_h);
         }
         // 2. Splice the chain between `before` and `after`.
@@ -217,13 +254,17 @@ impl BRep {
         {
             self.loops[plan.loop_].half_edge = created[0];
         }
-        // 3. Retire the removed sides.
-        let mut retired_edges = Vec::new();
+        // 3. Retire the removed sides. In paired mode their edges
+        //    were adopted by the created twins and must survive.
+        let mut retired_edges = paired_retired;
         let mut exposed_edges = Vec::new();
         for &h in &plan.removed {
             let data = self.half_edges.remove(h).ok_or_else(|| {
                 CoreError::InvalidHandle(format!("interval rewrite: removed side {h:?} vanished"))
             })?;
+            if plan.pair_removed_edges {
+                continue;
+            }
             if self.half_edges.contains_key(data.twin) {
                 self.boundary_edges.insert(data.edge);
                 if let Some(edge) = self.edges.get_mut(data.edge)

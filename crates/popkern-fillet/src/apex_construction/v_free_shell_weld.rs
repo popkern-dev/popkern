@@ -15,7 +15,9 @@ use super::side_span;
 /// Re-twin dead boundary sides whose spans coincide antiparallel,
 /// unifying the duplicate edge records (curve authority prefers the
 /// side that carries a non-linear curve).
-pub(super) fn weld_dead_coincident_sides(brep: &mut BRep) -> (usize, Vec<VertexHandle>) {
+pub(in crate::apex_construction) fn weld_dead_coincident_sides(
+    brep: &mut BRep,
+) -> (usize, Vec<VertexHandle>) {
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let dead: Vec<HalfEdgeHandle> = brep
         .half_edges
@@ -111,7 +113,10 @@ pub(super) fn weld_dead_coincident_sides(brep: &mut BRep) -> (usize, Vec<VertexH
 /// Merge coincident vertex records referenced across welded seams.
 /// Scoped to the weld-adjacent vertices — position-coincident distinct
 /// vertices elsewhere (periodic seams) are by-design and untouched.
-pub(super) fn merge_coincident_seam_vertices(brep: &mut BRep, seam: &[VertexHandle]) -> usize {
+pub(in crate::apex_construction) fn merge_coincident_seam_vertices(
+    brep: &mut BRep,
+    seam: &[VertexHandle],
+) -> usize {
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let mut unique: Vec<VertexHandle> = seam.to_vec();
     unique.sort();

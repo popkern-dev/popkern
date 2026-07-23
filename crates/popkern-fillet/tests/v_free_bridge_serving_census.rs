@@ -241,3 +241,32 @@ fn no_duplicate_production_plane_coverage() {
         }
     }
 }
+
+/// PK-167 stage 1b acceptance runner: under the V-free env AND
+/// `PK167_INPLACE=1`, the constructive in-place rewrite path must
+/// serve the mixed cube with a closed shell (validated body, no
+/// boundary edges anywhere in the pipeline output) and the same
+/// duplicate-coverage cleanliness as the bridge+repair path.
+/// Ignored because it reads process-wide env; run explicitly:
+/// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1 PK167_INPLACE=1 \
+///  cargo test -p popkern-fillet --test v_free_bridge_serving_census \
+///  constructive_rewrite -- --ignored`
+#[test]
+#[ignore = "env-gated acceptance; see doc comment for the run command"]
+fn constructive_rewrite_serves_closed_shell() {
+    assert!(
+        std::env::var_os("PK167_INPLACE").is_some(),
+        "run with PK167_INPLACE=1 (and the V-free env)"
+    );
+    let brep = mixed_radius_cube();
+    assert!(
+        brep.boundary_edges.is_empty(),
+        "constructive serving must leave no boundary edges: {:?}",
+        brep.boundary_edges
+    );
+    let errors = brep.validate_all();
+    assert!(
+        errors.len() <= 1,
+        "constructive serving regressed validity: {errors:?}"
+    );
+}

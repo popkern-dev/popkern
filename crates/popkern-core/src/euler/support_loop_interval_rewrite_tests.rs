@@ -76,6 +76,7 @@ fn opening_rewrite_plan(brep: &BRep) -> SupportLoopIntervalRewritePlan {
         loop_: brep.half_edges[removed_side].loop_,
         removed: vec![removed_side],
         replacement: chain,
+        pair_removed_edges: false,
     }
 }
 
@@ -173,6 +174,7 @@ fn rewrite_declines_whole_loop_removal() {
         loop_: base.loop_,
         removed,
         replacement: base.replacement,
+        pair_removed_edges: false,
     };
     let err = brep
         .support_loop_interval_rewrite(&plan)
