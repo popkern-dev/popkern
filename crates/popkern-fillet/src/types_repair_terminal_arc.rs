@@ -58,4 +58,10 @@ pub enum TerminalArcTrimDeclineReason {
     /// The arc sweep could not be branch-resolved against the strip
     /// pcurve midpoint witness within tolerance.
     ArcBranchUnresolved,
+    /// One anchor sits off the cylinder because an adjacent face
+    /// rises inside the fillet's terminal footprint (support face
+    /// wraps the obstruction), and the obstructed-end surgery
+    /// (`terminal_obstructed_end`) could not establish or commit its
+    /// supported single-crossing configuration.
+    ObstructedEnd,
 }

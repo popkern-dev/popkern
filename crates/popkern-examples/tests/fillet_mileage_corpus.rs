@@ -112,20 +112,23 @@ fn corpus_pass_rate_holds_baseline() {
     // (rational quadratic parameter ≠ angle inside a 90° span), rim
     // extension candidates ranked by vertex distance, exact NURBS
     // trim slicing + vertex-onto-trim snapping, terminal Cone conic
-    // stubs, second edge_reconcile pass after terminal settle).
+    // stubs, second edge_reconcile pass after terminal settle);
+    // 18/22 (2026-07-23, PK-171 — offset_bracket: obstructed
+    // strip-end surgery (interior tangency foot + terminal-arc
+    // crossing + ceiling face via split/mef/kve) and seam-slit
+    // dissolve after coplanar RedundantEdge face merges in
+    // sliver_absorb).
     // Failing
     // classes, each routed to its campaign item:
     //   mounting_bracket — flush-overlap L union (coincident-boolean
     //     class, PK-106 family);
     //   pocketed_tray — pocket-floor concave fillet legs (PK-140);
     //   slotted_block — flush through-slot, 60 opens (coincident);
-    //   offset_bracket — fillet on an overlapping union serves an
-    //     edge 1.66 off-surface, check-9 catch (PK-171);
     //   angled_rib_plate — strip interference decline on the skewed
     //     rib junction (legitimate transactional decline; recorded).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 17;
+    const BASELINE: usize = 18;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
@@ -186,13 +189,14 @@ fn corpus_occ_oracle_leg() {
     eprintln!("[corpus-occ] {occ_passed}/{checked} watertight part(s) OCC-clean");
     // OCC baseline (2026-07-22, PK-161): 10/14; 14/17 (2026-07-22,
     // PK-170/PK-171 — bore, cross-drill, mixed-corner and
-    // notched-flange classes serve and export OCC-clean). Recorded
-    // failing classes, routed to their campaign items:
+    // notched-flange classes serve and export OCC-clean); 15/18
+    // (2026-07-23, PK-171 — offset_bracket obstructed-end class).
+    // Recorded failing classes, routed to their campaign items:
     //   bossed_housing / turned_bushing / double_boss_plate — the
     //     curved-seam TORUS strip exports a wire OCC rejects
     //     (SelfIntersectingWire + UnorientableShape; PK-172).
     // Raise when classes close; NEVER lower.
-    const OCC_BASELINE: usize = 14;
+    const OCC_BASELINE: usize = 15;
     for f in &failures {
         eprintln!("[corpus-occ] recorded: {}", &f[..f.len().min(200)]);
     }

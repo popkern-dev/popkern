@@ -129,6 +129,30 @@ pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
             determinism_edge_curve_fingerprint(brep)
         );
     }
+    // Same-face ("slit") edge census at stage boundaries: an edge
+    // whose two loop sides belong to one face is a wrapped-face seam
+    // that boundary-first meshing declines on; the stage that mints
+    // one names the pass owing a dissolve.
+    if std::env::var_os("PK_SLIT_TRACE").is_some() {
+        let mut slits = 0usize;
+        for (_, e) in brep.edges.iter() {
+            let Some(he) = brep.half_edges.get(e.half_edge) else {
+                continue;
+            };
+            let Some(tw) = brep.half_edges.get(he.twin) else {
+                continue;
+            };
+            let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(tw.loop_)) else {
+                continue;
+            };
+            if la.face == lb.face {
+                slits += 1;
+            }
+        }
+        if slits > 0 {
+            eprintln!("[slit] {label}: {slits} same-face edge(s)");
+        }
+    }
 }
 
 /// Per-face fingerprints (POPKERN_DETERMINISM_FACE_TRACE=1): the

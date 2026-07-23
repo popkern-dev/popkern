@@ -296,7 +296,14 @@ fn repair_corner(
                     cyl.axis
                 );
             }
-            return Err(TerminalArcTrimDeclineReason::AnchorsOffSurface);
+            // One off-surface anchor with the other exact is the
+            // signature of an OBSTRUCTED end (an adjacent face rises
+            // inside the fillet's terminal footprint and the
+            // perp-walk clamped the anchor short) — attempt the
+            // topology surgery before declining.
+            return super::terminal_obstructed_end::try_repair_obstructed_end(
+                brep, c, &cyl, tolerance,
+            );
         }
     }
     let (sa, sb) = (station_of(anchor_in), station_of(anchor_out));

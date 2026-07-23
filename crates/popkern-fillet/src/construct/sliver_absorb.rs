@@ -254,6 +254,24 @@ fn absorb_slivers_with_protected(
         if brep.kef(he).is_err() {
             warnings.push(SliverAbsorbWarning::Retained { face, kind });
             retained.insert(face);
+        } else if matches!(kind, SliverKind::RedundantEdge)
+            && let Some(sf) = surviving_face
+        {
+            // A coplanar merge may have joined faces that shared
+            // MORE than the killed edge (an L-bracket wall's south
+            // face shares three boundary edges with the base's): the
+            // survivors become same-face seams walked twice
+            // consecutively in the merged loop, and boundary-first
+            // meshing declines the self-touching ring (measured: 167
+            // open mesh edges on the corpus offset_bracket). The
+            // turnaround makes them exact spur slits — dissolve them
+            // now. Scoped to RedundantEdge merges only: Class D
+            // corner fragments deliberately leave absorbed wall
+            // chords for the downstream contact harvest.
+            let dissolved = super::strip_end_surface::remove_spur_slits(brep, sf);
+            if dissolved > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!("  [absorb] {sf:?}: {dissolved} seam slit(s) dissolved after merge");
+            }
         }
     }
     warnings
