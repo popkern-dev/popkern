@@ -69,25 +69,45 @@ pub(super) fn cut_corner_separators(
             let corner = nearest_vertex_position(brep, mid, d);
             let mut routed = 0;
             if let Some(pc) = corner {
-                for (qa, qb) in [(pa, pc), (pc, pb)] {
-                    if let Some((face, ha, hb)) =
-                        loop_hes_at_positions(brep, sub_faces, qa, qb, tolerance)
-                        && let Ok(mef) = brep.mef(ha, hb)
-                    {
-                        if let Some(e) = brep.edges.get_mut(mef.edge) {
-                            e.curve = popkern_core::geometry::CurveOnEdge::line_segment(
-                                qa,
-                                qb,
-                                tolerance.linear(),
-                            );
+                // ALL-OR-NOTHING: resolve both chords before cutting
+                // either. A half-route (measured at the boss -y top
+                // corner: corner->rail cut, corner->contact missing)
+                // ships the lone chord as a detour edge 7e-3 off the
+                // wall; when the second chord has no loop pair the
+                // trims already partition the territory and no
+                // separator is needed at that corner.
+                let precheck = [(pa, pc), (pc, pb)].map(|(qa, qb)| {
+                    loop_hes_at_positions(brep, sub_faces, qa, qb, tolerance).is_some()
+                });
+                if trace && precheck.iter().any(|ok| !ok) {
+                    eprintln!(
+                        "[mc-region] via-corner SKIPPED (chords resolvable: {precheck:?}): \
+                         {pa:?} <-> {pb:?} via {pc:?}"
+                    );
+                }
+                if precheck.iter().all(|&ok| ok) {
+                    for (qa, qb) in [(pa, pc), (pc, pb)] {
+                        // Re-resolve per chord: the first mef moves
+                        // loop assignments.
+                        if let Some((face, ha, hb)) =
+                            loop_hes_at_positions(brep, sub_faces, qa, qb, tolerance)
+                            && let Ok(mef) = brep.mef(ha, hb)
+                        {
+                            if let Some(e) = brep.edges.get_mut(mef.edge) {
+                                e.curve = popkern_core::geometry::CurveOnEdge::line_segment(
+                                    qa,
+                                    qb,
+                                    tolerance.linear(),
+                                );
+                            }
+                            if trace {
+                                eprintln!(
+                                    "[mc-region] via-corner separator on {face:?}: {qa:?} -> {qb:?}"
+                                );
+                            }
+                            separators.push(mef.edge);
+                            routed += 1;
                         }
-                        if trace {
-                            eprintln!(
-                                "[mc-region] via-corner separator on {face:?}: {qa:?} -> {qb:?}"
-                            );
-                        }
-                        separators.push(mef.edge);
-                        routed += 1;
                     }
                 }
             }

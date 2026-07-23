@@ -239,6 +239,7 @@ fn fillet_edges_internal(
             Err(failure) => failures.push((spec.edge, failure)),
         }
     }
+    construct::post_pipeline_trace_trim_endpoints(&edge_geometries);
     emit!(
         progress::FilletPhase::ComputeGeometry,
         t2,
@@ -494,7 +495,6 @@ fn fillet_edges_internal(
     if let Some(ctx) = tracking {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
     }
-
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: all_warnings,

@@ -231,3 +231,25 @@ pub(crate) fn determinism_face_trace(label: &str, brep: &BRep) {
         }
     }
 }
+
+/// PK-141 campaign observability (PK_TRIM_END_TRACE=1): dump every
+/// edge geometry's trim-curve endpoints at geometry-phase exit —
+/// separator pairing, corner anchoring, and region siding all key
+/// on these positions.
+pub(crate) fn trace_trim_endpoints(edge_geometries: &[crate::construct::EdgeGeometry]) {
+    if std::env::var_os("PK_TRIM_END_TRACE").is_none() {
+        return;
+    }
+    use popkern_core::geometry::curve::CurveEval;
+    for (i, eg) in edge_geometries.iter().enumerate() {
+        for (si, trim) in [&eg.trim_3d_1, &eg.trim_3d_2].into_iter().enumerate() {
+            let (t0, t1) = trim.parameter_range();
+            let a = trim.point_at(t0);
+            let b = trim.point_at(t1);
+            eprintln!(
+                "[trim-end] eg{i} side{si} ({:.4},{:.4},{:.4}) -> ({:.4},{:.4},{:.4})",
+                a.x, a.y, a.z, b.x, b.y, b.z
+            );
+        }
+    }
+}
