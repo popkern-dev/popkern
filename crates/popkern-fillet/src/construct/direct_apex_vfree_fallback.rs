@@ -161,11 +161,17 @@ pub(super) fn retry_apex_retaining_after_v_free_decline(
     Some(retry_result)
 }
 
-/// PK-153: retire the V-free vestigial old shell (flaps, slivers,
-/// mirror winding, unglued membranes) and weld the exposed seams.
-/// Self-guarding no-op off the V-free path; transactional inside the
-/// consolidation itself.
-pub(super) fn consolidate_served_shell(brep: &mut popkern_core::topology::BRep) {
+/// PK-153/PK-167: retire the V-free vestigial old shell (flaps,
+/// slivers, mirror winding, unglued membranes) and weld the exposed
+/// seams. Self-guarding no-op off the V-free path; transactional
+/// inside the consolidation itself. Since the constructive in-place
+/// path became primary, the winding reconciliation here is a
+/// VALIDATOR BACKSTOP: firing means an upstream constructive
+/// invariant broke, so the caller surfaces a structured diagnostic
+/// (the aggregate fallback path may legitimately still use it).
+pub(super) fn consolidate_served_shell(
+    brep: &mut popkern_core::topology::BRep,
+) -> Option<crate::types::ApexConstructionDiagnostic> {
     let consolidation =
         crate::apex_construction::v_free_shell_consolidation::consolidate_vestigial_support_shell(
             brep,
@@ -173,4 +179,26 @@ pub(super) fn consolidate_served_shell(brep: &mut popkern_core::topology::BRep) 
     if consolidation.applied() && crate::direct_apex_trace::enabled() {
         eprintln!("[direct-apex-trace] vestigial shell consolidation: {consolidation:?}");
     }
+    if consolidation.reversed_faces == 0 && consolidation.rebuilt_rings == 0 {
+        return None;
+    }
+    Some(crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "v_free_consolidation".to_string(),
+            code: "v_free_consolidation.winding_backstop_fired".to_string(),
+            detail_code: Some(format!(
+                "reversed_faces={};rebuilt_rings={}",
+                consolidation.reversed_faces, consolidation.rebuilt_rings
+            )),
+            sector_name: "direct_apex".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    ))
 }

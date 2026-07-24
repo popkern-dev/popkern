@@ -117,6 +117,19 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
     // support regions. The structured diagnostic must record that
     // application — a missing or declined record means the rewrite
     // silently changed shape.
+    // PK-167 step 3: the constructive path preserves winding by
+    // construction — the consolidation's winding reconciliation is a
+    // validator backstop and must NOT fire on the served build.
+    assert!(
+        !result.repair_report.apex_diagnostics.iter().any(|d| {
+            matches!(
+                d,
+                ApexConstructionDiagnostic::ExactBoundaryCap(d)
+                    if d.code == "v_free_consolidation.winding_backstop_fired"
+            )
+        }),
+        "winding reconciliation backstop fired on the constructive default build"
+    );
     let side_support = result
         .repair_report
         .apex_diagnostics

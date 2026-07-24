@@ -472,7 +472,9 @@ fn try_constructive_with_legacy_fallthrough(
                      fragment(s)"
                 );
             }
-            vfree_fallback::consolidate_served_shell(brep);
+            if let Some(diagnostic) = vfree_fallback::consolidate_served_shell(brep) {
+                result.diagnostics.push(diagnostic);
+            }
             Ok(result)
         }
         Err(constructive_err) => {
