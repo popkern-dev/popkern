@@ -57,6 +57,7 @@ pub mod history;
 pub mod identify;
 pub(crate) mod identify_helpers;
 mod interference_seam;
+pub(crate) mod loft_chart_extension;
 pub mod modify;
 pub mod modify_inplace;
 pub(crate) mod modify_inplace_closed_sweep;
@@ -129,8 +130,7 @@ pub use stale_cap::{StaleCap, detect_stale_caps};
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
 pub use vertex_blend::{vertex_blend_3d, vertex_blend_3d_variable};
-/// Fillet the specified edges of a BRep solid. See
-/// [`BlendError`] for failure modes.
+/// Fillet the specified edges of a BRep solid. See [`BlendError`] for failure modes.
 pub fn fillet_edges(
     brep: &BRep,
     specs: &[FilletSpec],

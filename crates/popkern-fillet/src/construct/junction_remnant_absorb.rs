@@ -101,13 +101,13 @@ pub(crate) fn absorb_junction_remnants(
             // -y bottom corner shipped the strip-strip corner chord
             // 1.28e-2 off); the analytic solve replaces the crawl.
             // Transactional: candidate clone, validate-gated.
-            // GATED (PK141_CORNER_SNAP=1): with the pocket expel +
-            // cross-strip refits landed, the snap now measures WORSE
-            // (corner chord 1.28e-2 -> 5.0e-2 = r: the strips do not
-            // extend to the snapped contact) — the wedge insertion
-            // is the enabling construction; flip together.
+            // Default ON with the chart extension landed: snap +
+            // extended charts + far-end settle measure 3.5e-3 on the
+            // corner chord vs 1.28e-2 without (the earlier 5e-2
+            // regression came from un-extended charts).
+            // PK141_CORNER_SNAP_OFF preserves the fallback.
             let contact_d = v_pos.distance_to(&cap.shared_contact);
-            if std::env::var_os("PK141_CORNER_SNAP").is_some()
+            if std::env::var_os("PK141_CORNER_SNAP_OFF").is_none()
                 && contact_d > radius * 0.05
                 && contact_d < radius * 1.5
             {
@@ -124,6 +124,21 @@ pub(crate) fn absorb_junction_remnants(
                     absorbed += 1;
                     if trace {
                         eprintln!("[junction] {vertex:?} snapped to shared contact");
+                    }
+                    // Settle the corner chord's OTHER endpoint onto
+                    // the envelope intersection: it sits at the
+                    // chain-level rail end, ~3.3e-3 off the twin
+                    // strip (below the global settle gate). Its
+                    // honest home = strip_a x strip_b x own-plane,
+                    // a transversal triple the alternating
+                    // projection solves directly.
+                    if let Some(n) = super::corner_chord_settle::settle_corner_chord_far_end(
+                        brep, vertex, tolerance,
+                    ) {
+                        absorbed += n;
+                        if trace && n > 0 {
+                            eprintln!("[junction] {vertex:?} chord far-end settled");
+                        }
                     }
                 } else if trace {
                     eprintln!("[junction] {vertex:?} contact snap declined validation");

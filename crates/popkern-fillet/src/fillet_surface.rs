@@ -128,7 +128,12 @@ pub fn build_fillet_surface(
 
     // General case: NURBS swept surface (G1 arc). If we fell here
     // after a G2 sweep failure, attach the downgrade reason.
-    let mut result = build_nurbs_sweep(center_result, radius, arc_samples)?;
+    let mut result = build_nurbs_sweep(
+        center_result,
+        radius,
+        arc_samples,
+        is_constant_radius.then_some((surface1, surface2)),
+    )?;
     if g2_fallback_reason.is_some() {
         result.continuity_downgrade = g2_fallback_reason;
     }
@@ -144,6 +149,7 @@ fn build_nurbs_sweep(
     center_result: &CenterCurveResult,
     radius: f64,
     arc_samples: usize,
+    supports: Option<(&SurfaceGeometry, &SurfaceGeometry)>,
 ) -> Result<FilletSurfaceResult, String> {
     // Prefer the edge-span sweep channel when the producer trimmed a
     // grossly overhanging carrier (see CenterCurveResult docs): the
@@ -235,19 +241,32 @@ fn build_nurbs_sweep(
             control_points.extend_from_slice(cps);
             weights.extend_from_slice(&[1.0, *w_mid, 1.0]);
         }
-        (
-            NurbsSurface {
-                degree_u,
-                degree_v: 2,
-                knots_u: build_clamped_uniform_knots(n_sections, degree_u),
-                knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
-                control_points,
-                num_u: n_sections,
-                num_v: 3,
-                weights,
-            },
-            None,
-        )
+        let mut loft = NurbsSurface {
+            degree_u,
+            degree_v: 2,
+            knots_u: build_clamped_uniform_knots(n_sections, degree_u),
+            knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points,
+            num_u: n_sections,
+            num_v: 3,
+            weights,
+        };
+        // Chart overlap (PK-141): extend the loft by ONE extrapolated
+        // exact row at each end on curved-support strips, so the
+        // chart covers the corner mutual-trim chords beyond the
+        // chain stations (clamped charts left them 1.28e-2 off).
+        // Rows are re-projected onto the supports and re-arced, so
+        // the extension is exact station geometry, not extrapolation
+        // error; trims and anchors are untouched (walk-based window
+        // extension was falsified three ways — see the ledger).
+        if let Some((s1, s2)) = supports {
+            let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
+                || !matches!(s2, SurfaceGeometry::Plane { .. });
+            if curved && n_sections >= 3 {
+                crate::loft_chart_extension::extend_loft_rows(&mut loft, s1, s2, radius);
+            }
+        }
+        (loft, None)
     } else {
         let degree_v = 1.min(n_arc - 1);
         (
@@ -377,7 +396,7 @@ fn sample_arc(
 }
 
 /// Build clamped uniform knot vector for `n` control points at given degree.
-fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
+pub(crate) fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
     let n_knots = n + degree + 1;
     let n_interior = n.saturating_sub(degree);
     let mut knots = Vec::with_capacity(n_knots);
