@@ -142,12 +142,34 @@ impl BRep {
                     e_u - s_u
                 );
             }
-            if (e_u - s_u - true_sweep).abs() > period / 2.0 {
+            // Positional outliers rebuild too: a degenerate or
+            // never-authored pcurve can have the RIGHT u-sweep
+            // (e.g. a zero-length image for a seam-vertical side)
+            // while sitting at a garbage position — the branch
+            // chain then drifts whole periods around it (measured:
+            // the boss wall's upper-seam slit sides at (u+1, 0)
+            // pushed the top rim a full period up and OCC read the
+            // wire as self-intersecting). Compare the pcurve MID
+            // image against the projected mid sample: v directly,
+            // u modulo whole periods (the chain step repairs those).
+            let mid_sample = samples[samples.len() / 2];
+            let Some(existing) = self.half_edges[*side].pcurve.clone() else {
+                return false;
+            };
+            let (t0, t1) = existing.parameter_range();
+            let pc_mid = existing.point_at(0.5 * (t0 + t1));
+            let u_residual = nearest_branch_delta(pc_mid.x - mid_sample.x, period).abs();
+            let v_residual = (pc_mid.y - mid_sample.y).abs();
+            // Gate sits between honest-fit deviation (parameter
+            // noise + settle drift, <= 1e-2 rad measured) and the
+            // garbage class (>= 1.0 rad): period/32.
+            let positional_gate = period / 32.0;
+            if (e_u - s_u - true_sweep).abs() > period / 2.0
+                || u_residual > positional_gate
+                || v_residual > positional_gate
+            {
                 candidate.push(polyline_pcurve(&samples));
             } else {
-                let Some(existing) = self.half_edges[*side].pcurve.clone() else {
-                    return false;
-                };
                 candidate.push(existing);
             }
         }
