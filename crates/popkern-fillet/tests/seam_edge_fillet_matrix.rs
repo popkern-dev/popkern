@@ -113,11 +113,10 @@ fn direct_seam_edge_spec_declines_structured() {
     }
 }
 
-/// Boss on the cylinder wall whose intersection chain crosses the
-/// seam line: the acceptance fixture for seam-crossing fillet
-/// chains.
-#[test]
-fn boss_on_wall_seam_crossing_chain_measured() {
+/// Build the boss-on-wall union and collect its seam-crossing chain
+/// specs (r = 0.05). Panics on fixture-invalidity (no seam-crossing
+/// edge); returns `None` when the union itself declines.
+fn build_boss_chain_fixture() -> Option<(BRep, Vec<FilletSpec>)> {
     use popkern_core::geometry::{Point3, Vec3};
     let tol = default_tol();
     let cyl = BRep::cylinder(1.0, 2.0, tol).unwrap();
@@ -161,15 +160,9 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(u) => u,
         Err(e) => {
             eprintln!("[seam-matrix] union DECLINED: {e:?}");
-            return;
+            return None;
         }
     };
-    let (structural, open, other) = mesh_gauges::brep_open_defects(&united);
-    eprintln!(
-        "[seam-matrix] union defects s={structural} o={open} x={other}, faces {}, conformity {}",
-        united.faces.len(),
-        mesh_gauges::welded_open_edges(&united)
-    );
     // The boss-wall intersection chain: edges bounded between a
     // boss planar face and the cylinder wall.
     use popkern_core::geometry::surface::SurfaceGeometry;
@@ -201,7 +194,7 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     eprintln!("[seam-matrix] boss-wall chain: {} edges", chain.len());
     if chain.is_empty() {
         eprintln!("[seam-matrix] no chain edges found — fixture needs revision");
-        return;
+        return None;
     }
     // The fixture is only meaningful if at least one chain edge
     // CROSSES the seam direction (+X at y=0): its endpoints must
@@ -231,6 +224,25 @@ fn boss_on_wall_seam_crossing_chain_measured() {
             radius: FilletRadius::Constant(0.05),
         })
         .collect();
+    Some((united, specs))
+}
+
+/// Boss on the cylinder wall whose intersection chain crosses the
+/// seam line: the acceptance fixture for seam-crossing fillet
+/// chains.
+#[test]
+fn boss_on_wall_seam_crossing_chain_measured() {
+    let tol = default_tol();
+    let Some((united, specs)) = build_boss_chain_fixture() else {
+        return;
+    };
+    let (structural, open, other) = mesh_gauges::brep_open_defects(&united);
+    eprintln!(
+        "[seam-matrix] union defects s={structural} o={open} x={other}, faces {}, conformity {}",
+        united.faces.len(),
+        mesh_gauges::welded_open_edges(&united)
+    );
+    use popkern_core::geometry::surface::SurfaceGeometry;
     // PK-141 frontier pin (iteration 3): GEOMETRY for all six chain
     // pieces now computes (walker + exact-pair fallback + center
     // curves trimmed to the edge span — the padded carrier-line
@@ -314,4 +326,114 @@ fn boss_on_wall_seam_crossing_chain_measured() {
          (curved-support strip tessellation debt, measurement only)",
         mesh_gauges::welded_open_edges(&r.brep)
     );
+}
+
+fn export_step_solid(brep: &BRep, path: &std::path::Path) -> Result<(), String> {
+    let name = path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "fixture".into());
+    let doc = popkern_io::StepDocument {
+        products: vec![popkern_io::StepProductNode {
+            name: name.clone(),
+            id: name.to_uppercase(),
+            children: vec![],
+            shapes: vec![std::sync::Arc::new(popkern_io::ShapeRep {
+                kind: popkern_io::ShapeRepKind::AdvancedBrep,
+                solids: vec![brep.clone()],
+                context: popkern_io::RepresentationContext::default(),
+                non_brep_items: vec![],
+            })],
+            metadata: popkern_io::ProductMetadata::default(),
+        }],
+        roots: vec![0],
+        units: popkern_io::UnitContext::default(),
+        opaque_bag: popkern_io::OpaqueBag::default(),
+    };
+    popkern_io::export_step_file(&doc, path, &popkern_io::StepExportOptions::default())
+        .map_err(|e| format!("{e:?}"))
+}
+
+/// Run the OCC oracle on an exported STEP file. `None` when the OCP
+/// venv is absent (the leg skips; CI without the oracle stays green).
+fn occ_oracle_passes(path: &std::path::Path) -> Option<bool> {
+    let oracle_python = std::path::Path::new(&std::env::var("HOME").unwrap_or_default())
+        .join("venvs/ocp/bin/python");
+    let oracle_script = std::path::Path::new("../../tools/occ-oracle/occ_check.py");
+    if !oracle_python.exists() || !oracle_script.exists() {
+        return None;
+    }
+    let output = std::process::Command::new(&oracle_python)
+        .arg(oracle_script)
+        .arg(path)
+        .output()
+        .ok()?;
+    let report = String::from_utf8_lossy(&output.stdout);
+    eprintln!(
+        "[seam-matrix] occ {}: {}",
+        path.display(),
+        report.chars().take(400).collect::<String>()
+    );
+    Some(report.contains("\"passed\": true"))
+}
+
+/// PK-141 acceptance leg: both seam fixtures export to STEP; the
+/// rim fillet must be OCC-clean (the boss chain's OCC verdict is
+/// measured and pinned in-line).
+#[test]
+fn seam_fixtures_step_export_and_occ() {
+    let out_dir = std::path::Path::new("../../examples/output/fixtures/seam");
+    std::fs::create_dir_all(out_dir).expect("seam fixture dir");
+
+    // Rim fixture: full periodic rim chain through the seam vertex.
+    let brep = BRep::cylinder(1.0, 2.0, default_tol()).unwrap();
+    let rim: Vec<FilletSpec> = brep
+        .edges
+        .iter()
+        .filter(|(_, d)| {
+            let he = &brep.half_edges[d.half_edge];
+            let a = brep.vertices[he.origin].position;
+            let b = brep.vertices[brep.half_edges[he.twin].origin].position;
+            let f1 = brep.loops[he.loop_].face;
+            let f2 = brep.loops[brep.half_edges[he.twin].loop_].face;
+            f1 != f2 && (a.z - 2.0).abs() < 1e-9 && (b.z - 2.0).abs() < 1e-9
+        })
+        .map(|(edge, _)| FilletSpec {
+            edge,
+            radius: FilletRadius::Constant(0.2),
+        })
+        .collect();
+    let rim_fillet = fillet_edges(&brep, &rim, &FilletOptions::default(), default_tol(), None)
+        .expect("rim fillet completes");
+    let rim_path = out_dir.join("cylinder_rim_seam_fillet.step");
+    export_step_solid(&rim_fillet.brep, &rim_path).expect("rim STEP export");
+    match occ_oracle_passes(&rim_path) {
+        Some(passed) => assert!(passed, "rim seam fillet must be OCC-clean"),
+        None => eprintln!("[seam-matrix] OCP oracle unavailable — OCC leg skipped"),
+    }
+
+    // Boss fixture: seam-crossing chain. Export gates hard; the OCC
+    // verdict is measured (the serving body carries one pinned
+    // 3.5e-3 corner-chord deviation — see the measured test).
+    let Some((united, specs)) = build_boss_chain_fixture() else {
+        return;
+    };
+    let Ok(boss_fillet) = fillet_edges(
+        &united,
+        &specs,
+        &FilletOptions::default(),
+        default_tol(),
+        None,
+    ) else {
+        eprintln!("[seam-matrix] boss chain declined — STEP leg covers the rim fixture only");
+        return;
+    };
+    let boss_path = out_dir.join("boss_on_wall_seam_chain_fillet.step");
+    export_step_solid(&boss_fillet.brep, &boss_path).expect("boss STEP export");
+    if let Some(passed) = occ_oracle_passes(&boss_path) {
+        eprintln!(
+            "[seam-matrix] boss chain OCC verdict: {}",
+            if passed { "PASS" } else { "FAIL (measured)" }
+        );
+    }
 }

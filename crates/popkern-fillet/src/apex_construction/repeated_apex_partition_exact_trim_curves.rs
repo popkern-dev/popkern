@@ -101,8 +101,22 @@ pub(super) fn exact_cylinder_arc_trim_curve_between(
     label: &'static str,
     fillet_index: usize,
 ) -> Result<CurveOnEdge, ApexBuildError> {
-    let start_point = brep.vertices[start].position;
-    let end_point = brep.vertices[end].position;
+    let stale = |which: &str, vertex: VertexHandle| ApexBuildError::PlanMismatch {
+        reason: format!(
+            "planned repeated-apex partition FilletEnd[{fillet_index}] cannot author cylinder \
+             arc {label}: {which} vertex {vertex:?} is stale (removed since planning)"
+        ),
+    };
+    let start_point = brep
+        .vertices
+        .get(start)
+        .ok_or_else(|| stale("start", start))?
+        .position;
+    let end_point = brep
+        .vertices
+        .get(end)
+        .ok_or_else(|| stale("end", end))?
+        .position;
     let Some(SurfaceGeometry::Cylinder {
         origin,
         axis,

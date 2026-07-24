@@ -11,6 +11,7 @@ pub(super) use trim_subcomplex_topology::{
     TopologyBalanceRequirement, TopologyCountDelta, topology_count_summary,
 };
 
+#[derive(Clone)]
 pub(super) struct TrimRewriteSubcomplexPlan {
     edge_plans: Vec<TrimRewriteEdgePlan>,
     expected_edge_only_delta: TopologyCountDelta,
@@ -31,6 +32,7 @@ struct TrimRewriteEdgePlan {
     end: VertexHandle,
 }
 
+#[derive(Clone)]
 pub(super) struct TrimRewriteSupportGroup {
     support_face: FaceHandle,
     generated_trim_count: usize,
@@ -183,6 +185,21 @@ impl TrimRewriteSubcomplexPlan {
 
     fn edge_plans(&self) -> &[TrimRewriteEdgePlan] {
         &self.edge_plans
+    }
+
+    /// Clone of this plan with every trim endpoint re-resolved
+    /// through `canonical` (coincident-duplicate merge survivorship
+    /// — see the PK-167 in-place continuation).
+    pub(super) fn with_canonical_vertices(
+        &self,
+        canonical: impl Fn(VertexHandle) -> VertexHandle,
+    ) -> Self {
+        let mut plan = self.clone();
+        for edge_plan in &mut plan.edge_plans {
+            edge_plan.start = canonical(edge_plan.start);
+            edge_plan.end = canonical(edge_plan.end);
+        }
+        plan
     }
 
     pub(super) fn support_groups(&self) -> &[TrimRewriteSupportGroup] {

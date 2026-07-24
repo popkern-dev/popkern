@@ -76,28 +76,45 @@ pub(crate) fn extend_loft_rows(
         let mid = centre + bis * (radius / w);
         Some(([f0, mid, f2], w))
     };
-    let first = row(&loft.control_points, 0);
-    let second = row(&loft.control_points, 1);
-    let last = row(&loft.control_points, n - 1);
-    let prev = row(&loft.control_points, n - 2);
     let step = |a: Point3, b: Point3| -> Point3 {
         Point3::new(2.0 * a.x - b.x, 2.0 * a.y - b.y, 2.0 * a.z - b.z)
     };
-    let head = solve_row(step(first[0], second[0]), step(first[2], second[2]));
-    let tail = solve_row(step(last[0], prev[0]), step(last[2], prev[2]));
-    let (Some((head_row, head_w)), Some((tail_row, tail_w))) = (head, tail) else {
+    // ONE exact extrapolated row per end. Deeper extension was
+    // measured and REGRESSED: 3-4 rows per end moved the boss
+    // corner-chord gauge from 3.5e-3 to 3.7e-2 (the wider chart
+    // shifts later refit/region choices), and the residual it
+    // targeted is not a U-coverage gap — the corner vertex sits off
+    // the AS-BUILT twin strip laterally (see corner_chord_settle).
+    let mut head_rows: Vec<([Point3; 3], f64)> = Vec::new();
+    let mut tail_rows: Vec<([Point3; 3], f64)> = Vec::new();
+    for (rows, edge_index, inner_index) in [
+        (&mut head_rows, 0usize, 1usize),
+        (&mut tail_rows, n - 1, n - 2),
+    ] {
+        let outer = row(&loft.control_points, edge_index);
+        let inner = row(&loft.control_points, inner_index);
+        if let Some((new_row, w)) = solve_row(step(outer[0], inner[0]), step(outer[2], inner[2])) {
+            rows.push((new_row, w));
+        }
+    }
+    if head_rows.is_empty() && tail_rows.is_empty() {
         return;
-    };
-    let mut cps = Vec::with_capacity((n + 2) * 3);
-    let mut ws = Vec::with_capacity((n + 2) * 3);
-    cps.extend_from_slice(&head_row);
-    ws.extend_from_slice(&[1.0, head_w, 1.0]);
+    }
+    let added = head_rows.len() + tail_rows.len();
+    let mut cps = Vec::with_capacity((n + added) * 3);
+    let mut ws = Vec::with_capacity((n + added) * 3);
+    for (r, w) in head_rows.iter().rev() {
+        cps.extend_from_slice(r);
+        ws.extend_from_slice(&[1.0, *w, 1.0]);
+    }
     cps.extend_from_slice(&loft.control_points);
     ws.extend_from_slice(&loft.weights);
-    cps.extend_from_slice(&tail_row);
-    ws.extend_from_slice(&[1.0, tail_w, 1.0]);
+    for (r, w) in &tail_rows {
+        cps.extend_from_slice(r);
+        ws.extend_from_slice(&[1.0, *w, 1.0]);
+    }
     loft.control_points = cps;
     loft.weights = ws;
-    loft.num_u = n + 2;
-    loft.knots_u = build_clamped_uniform_knots(n + 2, loft.degree_u);
+    loft.num_u = n + added;
+    loft.knots_u = build_clamped_uniform_knots(n + added, loft.degree_u);
 }

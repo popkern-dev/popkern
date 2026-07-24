@@ -6,9 +6,55 @@
 //! chord ends sit on the envelope intersection (transactional —
 //! snap + reconcile accepted only when validation passes and the
 //! residual strictly improves).
+//!
+//! FALSIFIED mechanisms for the remaining 3.5e-3 mid-span residual
+//! (both measured on the boss fixture, both reverted): (a) an
+//! arc-length intersection march refit — the residual is ENDPOINT-
+//! dominated (the corner vertex sits 3.7e-2 off the as-built
+//! region-merged twin strip; every marched curve shares those
+//! endpoints, before == after); (b) settling the corner vertex onto
+//! its actual incident surfaces — with 4+ as-built surfaces no
+//! zero-residual common point exists, gauge regressed to 1.28e-2.
+//! The remaining mechanism is UPSTREAM: strip surface accuracy near
+//! corners (the region-merged refit deviates from the envelope).
 
+use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
+
+/// Locate the strip x strip chord at `corner_vertex`: the edge, its
+/// far-end vertex, and the two strip surface geometries.
+fn corner_strip_chord(
+    brep: &BRep,
+    corner_vertex: VertexHandle,
+) -> Option<(EdgeHandle, VertexHandle, SurfaceGeometry, SurfaceGeometry)> {
+    brep.edges.iter().find_map(|(e, ed)| {
+        let he = brep.half_edges.get(ed.half_edge)?;
+        let tw = brep.half_edges.get(he.twin)?;
+        let f1 = brep.loops.get(he.loop_)?.face;
+        let f2 = brep.loops.get(tw.loop_)?.face;
+        let strip_geometry = |f: FaceHandle| -> Option<SurfaceGeometry> {
+            match brep.faces.get(f).and_then(|d| d.surface.as_ref()) {
+                Some(s) if matches!(s.geometry, SurfaceGeometry::Nurbs(_)) => {
+                    Some(s.geometry.clone())
+                }
+                _ => None,
+            }
+        };
+        if f1 == f2 {
+            return None;
+        }
+        let (g1, g2) = (strip_geometry(f1)?, strip_geometry(f2)?);
+        let far = if he.origin == corner_vertex {
+            tw.origin
+        } else if tw.origin == corner_vertex {
+            he.origin
+        } else {
+            return None;
+        };
+        Some((e, far, g1, g2))
+    })
+}
 
 /// Settle the far endpoint of the strip x strip corner chord at a
 /// snapped corner vertex onto all of ITS incident surfaces
@@ -19,33 +65,24 @@ pub(crate) fn settle_corner_chord_far_end(
     corner_vertex: VertexHandle,
     tolerance: &Tolerance,
 ) -> Option<usize> {
+    let (_, far, _, _) = corner_strip_chord(brep, corner_vertex)?;
+    settle_vertex_on_incident_surfaces(brep, far, tolerance)
+}
+
+/// Settle a vertex onto the mutual intersection of ALL its incident
+/// face surfaces by alternating projection (transactional — snap +
+/// reconcile accepted only when validation passes and the residual
+/// strictly improves). NOT applied to the corner vertex itself:
+/// with 4+ as-built surfaces no zero-residual common point exists
+/// (measured: settling the boss corner vertex regressed the corner
+/// chord gauge 3.5e-3 -> 1.28e-2); the analytic corner-ball snap
+/// stays the corner target.
+pub(crate) fn settle_vertex_on_incident_surfaces(
+    brep: &mut BRep,
+    far: VertexHandle,
+    tolerance: &Tolerance,
+) -> Option<usize> {
     use popkern_core::geometry::SurfaceEval;
-    let chord = brep.edges.iter().find_map(|(_, ed)| {
-        let he = brep.half_edges.get(ed.half_edge)?;
-        let tw = brep.half_edges.get(he.twin)?;
-        let f1 = brep.loops.get(he.loop_)?.face;
-        let f2 = brep.loops.get(tw.loop_)?.face;
-        let is_strip = |f: FaceHandle| {
-            matches!(
-                brep.faces
-                    .get(f)
-                    .and_then(|d| d.surface.as_ref())
-                    .map(|s| &s.geometry),
-                Some(popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_))
-            )
-        };
-        if f1 == f2 || !is_strip(f1) || !is_strip(f2) {
-            return None;
-        }
-        if he.origin == corner_vertex {
-            Some(tw.origin)
-        } else if tw.origin == corner_vertex {
-            Some(he.origin)
-        } else {
-            None
-        }
-    });
-    let far = chord?;
     let pos = brep.vertices.get(far)?.position;
     // Incident surfaces of the far endpoint.
     let mut surfaces: Vec<popkern_core::geometry::surface::SurfaceGeometry> = Vec::new();

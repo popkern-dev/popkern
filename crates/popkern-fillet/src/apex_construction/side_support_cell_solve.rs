@@ -81,10 +81,23 @@ pub(crate) fn resolve_pocket_faces(
         // dismantling — solving them re-animates dead topology
         // (measured: residual 24v1's broken cycle declined the mef).
         if face.role == popkern_core::topology::TopologyRole::ConstructionResidual {
+            if face.surface.is_none() && crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace] pocket scan: surface-less {handle:?} skipped \
+                     (ConstructionResidual)"
+                );
+            }
             continue;
         }
-        if face.surface.is_none() && face_has_live_twin(brep, handle) {
-            targets.push(handle);
+        if face.surface.is_none() {
+            if face_has_live_twin(brep, handle) {
+                targets.push(handle);
+            } else if crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace] pocket scan: surface-less {handle:?} skipped (no live \
+                     twin / unwalkable loop)"
+                );
+            }
         }
     }
     for &candidate in refit_candidates {

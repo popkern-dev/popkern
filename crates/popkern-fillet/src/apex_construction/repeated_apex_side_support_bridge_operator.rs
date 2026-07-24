@@ -178,11 +178,21 @@ pub(super) fn apply_topology_operator(
     // porting them is the recorded step-2/3 work. All-or-nothing; a
     // region whose chain doesn't close falls back to the bridge.
     if std::env::var_os("PK167_INPLACE").is_some() {
+        // Pre-existing records are the survivorship-preferred set for
+        // the weld/merge: topology plans authored before this
+        // continuation (cylinder trim rewrite) hold these handles and
+        // consume them after it.
+        let plan_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
+            brep.edges.keys().collect();
+        let plan_vertices: std::collections::BTreeSet<popkern_core::topology::VertexHandle> =
+            brep.vertices.keys().collect();
         let mut rewrite_candidate = brep.clone();
         expose_aggregate_bridge_boundaries(primitive, &mut rewrite_candidate)?;
         if let Some(result) = bridge_operator_rewrite::try_in_place_support_rewrites(
             primitive,
             &mut rewrite_candidate,
+            &plan_edges,
+            &plan_vertices,
         ) {
             *brep = rewrite_candidate;
             return Ok(result);

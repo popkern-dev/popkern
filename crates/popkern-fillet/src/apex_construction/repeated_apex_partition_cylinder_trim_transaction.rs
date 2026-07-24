@@ -211,9 +211,31 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                 }
             };
         let side_support_result = apply_selected_side_support_continuation(brep, &subcomplex_plan)?;
+        if std::env::var_os("PK_SLIR_TRACE").is_some() {
+            eprintln!(
+                "[slir] transaction FINAL apply: continuation outcome {}",
+                side_support_result.diagnostic_label()
+            );
+        }
         if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {
             diagnostics.push(diagnostic);
         }
+        // The in-place continuation (PK-167) unifies coincident
+        // duplicate vertex records; the topology plans above were
+        // authored BEFORE it applied and hold pre-merge handles.
+        // Re-resolve them through the continuation's remap.
+        let (topology_plans, subcomplex_plan) =
+            if let SideSupportRegionContinuationOutcome::Applied(result) = &side_support_result {
+                (
+                    topology_plans
+                        .iter()
+                        .map(|plan| plan.with_canonical_vertices(|v| result.canonical_vertex(v)))
+                        .collect::<Vec<_>>(),
+                    subcomplex_plan.with_canonical_vertices(|v| result.canonical_vertex(v)),
+                )
+            } else {
+                (topology_plans, subcomplex_plan)
+            };
         let support_ownership_already_materialized = matches!(
             side_support_result,
             SideSupportRegionContinuationOutcome::Applied(_)
@@ -381,6 +403,23 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         SideSupportRegionContinuationOutcome::Applied(_)
     );
     let side_support_bridge_loops = side_support_result.bridge_loops();
+    // Re-resolve plan vertex handles through the continuation's
+    // coincident-duplicate merge (PK-167 in-place path) — the plans
+    // were authored pre-merge.
+    let remapped_plans: Vec<CylinderTrimRewriteTopologyPlan>;
+    let remapped_subcomplex: TrimRewriteSubcomplexPlan;
+    let (topology_plans, subcomplex_plan) =
+        if let SideSupportRegionContinuationOutcome::Applied(result) = &side_support_result {
+            remapped_plans = topology_plans
+                .iter()
+                .map(|plan| plan.with_canonical_vertices(|v| result.canonical_vertex(v)))
+                .collect();
+            remapped_subcomplex =
+                subcomplex_plan.with_canonical_vertices(|v| result.canonical_vertex(v));
+            (&remapped_plans[..], &remapped_subcomplex)
+        } else {
+            (topology_plans, subcomplex_plan)
+        };
     let pre_materialized = pre_materialize_far_side_trim_sides(
         &mut candidate,
         cap_face,

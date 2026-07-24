@@ -30,6 +30,8 @@ use super::SideSupportRegionContinuationResult;
 pub(super) fn try_in_place_support_rewrites(
     primitive: &FaceFamilyBridgePrimitivePlan,
     candidate: &mut BRep,
+    plan_edges: &std::collections::BTreeSet<popkern_core::topology::EdgeHandle>,
+    plan_vertices: &std::collections::BTreeSet<VertexHandle>,
 ) -> Option<SideSupportRegionContinuationResult> {
     let mut faces: Vec<FaceHandle> = Vec::new();
     let mut loops: Vec<LoopHandle> = Vec::new();
@@ -94,22 +96,39 @@ pub(super) fn try_in_place_support_rewrites(
     // to run inside the consolidation, which the constructive path
     // legitimately short-circuits — no flap exists to detect).
     let (welded, seam_vertices) =
-        super::super::v_free_shell_consolidation::weld_dead_coincident_sides(candidate);
+        super::super::v_free_shell_consolidation::weld_dead_coincident_sides(candidate, plan_edges);
     let merged = super::super::v_free_shell_consolidation::merge_coincident_seam_vertices(
         candidate,
         &seam_vertices,
+        plan_vertices,
     );
+    // Heal pcurves on the faces whose loops gained welded sides (the
+    // weld clears the dropped side's pcurve; the consolidation stage
+    // that normally recomputes them is legitimately short-circuited
+    // by this constructive path — measured: the V-free acceptance
+    // declined with missing_support_pcurve_edges=3 on cube_extreme).
+    let healed_faces: Vec<popkern_core::topology::FaceHandle> = candidate.faces.keys().collect();
+    for face in &healed_faces {
+        let _ = candidate.recompute_face_pcurves(*face);
+    }
+    candidate.fix_stale_pcurves();
+    for face in &healed_faces {
+        candidate.reconcile_periodic_pcurve_branches(*face);
+    }
     if std::env::var_os("PK_SLIR_TRACE").is_some() {
         eprintln!(
             "[slir] in-place rewrites committed for {} region(s); welded {} pair(s), merged {} \
              vertex(es); boundary edges left: {}",
             plans.len(),
             welded,
-            merged,
+            merged.len(),
             candidate.boundary_edges.len()
         );
     }
-    Some(SideSupportRegionContinuationResult::from_face_family_bridge_payload(faces, loops))
+    Some(
+        SideSupportRegionContinuationResult::from_face_family_bridge_payload(faces, loops)
+            .with_vertex_remap(merged),
+    )
 }
 
 /// Pairwise geometric coincidence between the removed interval and

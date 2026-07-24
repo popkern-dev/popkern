@@ -40,7 +40,13 @@ pub(crate) fn split_1d(
 
     // Count current multiplicity of t
     let current_mult = knots.iter().filter(|&&k| (k - t).abs() < 1e-15).count();
-    let insertions_needed = degree + 1 - current_mult;
+    let Some(insertions_needed) = (degree + 1).checked_sub(current_mult) else {
+        return Err(CoreError::PreconditionFailed(format!(
+            "split parameter {t} already has knot multiplicity {current_mult} exceeding \
+             degree+1 ({}) — invalid knot vector",
+            degree + 1
+        )));
+    };
 
     // Insert t until multiplicity = degree + 1
     let mut k = knots.to_vec();

@@ -59,6 +59,7 @@ pub(in crate::apex_construction) fn topology_count_summary(brep: &BRep) -> Topol
     }
 }
 
+#[derive(Clone, Copy)]
 pub(in crate::apex_construction) struct TopologyCountDelta {
     vertices: i64,
     edges: i64,

@@ -4,19 +4,25 @@
 //! prefers the non-linear record), and vertex records duplicated
 //! across welded seams merge by position.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::curve::CurveGeometry;
-use popkern_core::topology::{BRep, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{BRep, EdgeHandle, HalfEdgeHandle, VertexHandle};
 
 use super::side_span;
 
 /// Re-twin dead boundary sides whose spans coincide antiparallel,
-/// unifying the duplicate edge records (curve authority prefers the
-/// side that carries a non-linear curve).
+/// unifying the duplicate edge records. Record survivorship:
+/// `preferred` handles win (downstream plans hold them — retiring a
+/// plan-referenced record strands every later consumer, measured as
+/// the exact-boundary `stale_edge` decline under the PK-167 in-place
+/// rewrite); otherwise the side carrying a non-linear curve wins.
+/// When a preferred linear record beats a curved duplicate, the
+/// survivor ADOPTS the curve so authority is never lost.
 pub(in crate::apex_construction) fn weld_dead_coincident_sides(
     brep: &mut BRep,
+    preferred: &BTreeSet<EdgeHandle>,
 ) -> (usize, Vec<VertexHandle>) {
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let dead: Vec<HalfEdgeHandle> = brep
@@ -55,13 +61,35 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
                     .and_then(|e| e.curve.as_ref())
                     .is_some_and(|c| !matches!(c.geometry, CurveGeometry::Line { .. }))
             };
+            let b_wins = (preferred.contains(&edge_b) && !preferred.contains(&edge_a))
+                || (!preferred.contains(&edge_a) && is_curved(edge_b) && !is_curved(edge_a));
             let (keep, drop, drop_side) = if edge_a == edge_b {
                 (edge_a, None, side_b)
-            } else if is_curved(edge_b) && !is_curved(edge_a) {
+            } else if b_wins {
                 (edge_b, Some(edge_a), side_a)
             } else {
                 (edge_a, Some(edge_b), side_b)
             };
+            // Curve-authority transplant: a preferred survivor that
+            // is linear adopts the dropped record's non-linear curve
+            // (and its recorded tolerance) before the duplicate dies.
+            if let Some(dropped) = drop
+                && is_curved(dropped)
+                && !is_curved(keep)
+            {
+                let adopted = brep
+                    .edges
+                    .get(dropped)
+                    .map(|e| (e.curve.clone(), e.tolerance));
+                if let (Some((curve, tolerance)), Some(keep_data)) =
+                    (adopted, brep.edges.get_mut(keep))
+                {
+                    keep_data.curve = curve;
+                    if tolerance.is_some() {
+                        keep_data.tolerance = tolerance;
+                    }
+                }
+            }
             brep.half_edges[side_a].twin = side_b;
             brep.half_edges[side_b].twin = side_a;
             brep.half_edges[drop_side].edge = keep;
@@ -113,10 +141,14 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
 /// Merge coincident vertex records referenced across welded seams.
 /// Scoped to the weld-adjacent vertices — position-coincident distinct
 /// vertices elsewhere (periodic seams) are by-design and untouched.
+/// `preferred` handles win canonicalship (downstream plans hold them
+/// — removing a plan-referenced record strands later consumers on an
+/// invalid SlotMap key, measured at the pyramid3 exact-trim author).
 pub(in crate::apex_construction) fn merge_coincident_seam_vertices(
     brep: &mut BRep,
     seam: &[VertexHandle],
-) -> usize {
+    preferred: &BTreeSet<VertexHandle>,
+) -> BTreeMap<VertexHandle, VertexHandle> {
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let mut unique: Vec<VertexHandle> = seam.to_vec();
     unique.sort();
@@ -138,8 +170,45 @@ pub(in crate::apex_construction) fn merge_coincident_seam_vertices(
             }
         }
     }
+    // Preferred canonicalship: re-root every cluster whose members
+    // include a preferred handle so the plan-referenced record
+    // survives the merge.
+    if !preferred.is_empty() {
+        let mut cluster_root: BTreeMap<VertexHandle, VertexHandle> = BTreeMap::new();
+        for (&dup, &target) in &canonical {
+            let root = *cluster_root.get(&target).unwrap_or(&target);
+            if preferred.contains(&dup) && !preferred.contains(&root) {
+                cluster_root.insert(target, dup);
+            }
+        }
+        if !cluster_root.is_empty() {
+            let mut rerooted: BTreeMap<VertexHandle, VertexHandle> = BTreeMap::new();
+            for (&dup, &target) in &canonical {
+                let root = *cluster_root.get(&target).unwrap_or(&target);
+                if dup == root {
+                    // The new root must not be removed; its old root
+                    // becomes the duplicate instead.
+                    if target != root {
+                        rerooted.insert(target, root);
+                    }
+                } else {
+                    rerooted.insert(dup, root);
+                }
+            }
+            canonical = rerooted;
+        }
+    }
     if canonical.is_empty() {
-        return 0;
+        return BTreeMap::new();
+    }
+    if std::env::var_os("PK_SLIR_TRACE").is_some() {
+        for (dup, target) in &canonical {
+            eprintln!(
+                "[slir] vertex merge {dup:?} -> {target:?} (dup preferred: {}, target preferred: {})",
+                preferred.contains(dup),
+                preferred.contains(target)
+            );
+        }
     }
     let handles: Vec<HalfEdgeHandle> = brep.half_edges.keys().collect();
     for handle in handles {
@@ -148,10 +217,10 @@ pub(in crate::apex_construction) fn merge_coincident_seam_vertices(
             brep.half_edges[handle].origin = *target;
         }
     }
-    let mut merged = 0usize;
-    for (duplicate, _) in canonical {
+    let mut merged: BTreeMap<VertexHandle, VertexHandle> = BTreeMap::new();
+    for (duplicate, target) in canonical {
         if brep.vertices.remove(duplicate).is_some() {
-            merged += 1;
+            merged.insert(duplicate, target);
         }
     }
     merged

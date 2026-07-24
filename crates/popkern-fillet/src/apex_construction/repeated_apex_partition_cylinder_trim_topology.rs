@@ -35,6 +35,7 @@ pub(super) struct PendingCylinderLoopReplacement {
     pub(super) cycle: Vec<HalfEdgeHandle>,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum FilletEndSeamRewrite {
     ReuseCurrentTwinPair {
         edge: EdgeHandle,
@@ -56,6 +57,26 @@ pub(super) struct OrientedCylinderTrimSegment {
 }
 
 impl CylinderTrimRewriteTopologyPlan {
+    /// Clone of this plan with every referenced vertex handle
+    /// re-resolved through `canonical` (coincident-duplicate merge
+    /// survivorship — see the PK-167 in-place continuation).
+    pub(super) fn with_canonical_vertices(
+        &self,
+        canonical: impl Fn(VertexHandle) -> VertexHandle,
+    ) -> Self {
+        let mut loop_candidate = self.loop_candidate.clone();
+        for segment in &mut loop_candidate.segments {
+            segment.start = canonical(segment.start);
+            segment.end = canonical(segment.end);
+        }
+        Self {
+            fillet_index: self.fillet_index,
+            cylinder_face: self.cylinder_face,
+            loop_candidate,
+            seam_rewrite: self.seam_rewrite,
+        }
+    }
+
     pub(super) fn diagnostic_label(&self) -> String {
         format!(
             "FilletEnd[{}] cylinder {:?}: {}, {}",

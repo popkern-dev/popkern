@@ -109,10 +109,13 @@ pub(crate) fn consolidate_vestigial_support_shell(
     report.reversed_faces = winding.reversed_faces;
     report.rebuilt_rings = winding.rebuilt_rings;
 
-    let (welded, mut seam_vertices) = weld_dead_coincident_sides(brep);
+    let (welded, mut seam_vertices) =
+        weld_dead_coincident_sides(brep, &std::collections::BTreeSet::new());
     report.welded_side_pairs = welded;
     seam_vertices.extend(winding.seam_vertices);
-    report.merged_vertices = merge_coincident_seam_vertices(brep, &seam_vertices);
+    report.merged_vertices =
+        merge_coincident_seam_vertices(brep, &seam_vertices, &std::collections::BTreeSet::new())
+            .len();
     repair_vertex_outgoing(brep);
 
     // Heal pcurves on faces that gained welded sides, reconcile

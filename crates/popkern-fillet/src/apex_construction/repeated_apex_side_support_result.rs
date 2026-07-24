@@ -1,12 +1,19 @@
 //! Result payloads from executable side-support continuation.
 
-use popkern_core::topology::{FaceHandle, LoopHandle};
+use std::collections::BTreeMap;
+
+use popkern_core::topology::{FaceHandle, LoopHandle, VertexHandle};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct SideSupportRegionContinuationResult {
     primitive: SideSupportContinuationPrimitive,
     bridge_faces: Vec<FaceHandle>,
     bridge_loops: Vec<LoopHandle>,
+    /// Coincident-duplicate vertex records unified by the in-place
+    /// rewrite path (duplicate -> canonical). Plans authored before
+    /// the continuation must re-resolve their vertex handles through
+    /// this map before consuming them.
+    vertex_remap: BTreeMap<VertexHandle, VertexHandle>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -57,7 +64,22 @@ impl SideSupportRegionContinuationResult {
             primitive,
             bridge_faces,
             bridge_loops,
+            vertex_remap: BTreeMap::new(),
         }
+    }
+
+    pub(super) fn with_vertex_remap(
+        mut self,
+        vertex_remap: BTreeMap<VertexHandle, VertexHandle>,
+    ) -> Self {
+        self.vertex_remap = vertex_remap;
+        self
+    }
+
+    /// Resolve a possibly-merged vertex handle to its canonical
+    /// survivor.
+    pub(super) fn canonical_vertex(&self, vertex: VertexHandle) -> VertexHandle {
+        *self.vertex_remap.get(&vertex).unwrap_or(&vertex)
     }
 
     /// Combine two applied payloads from one mixed selection.
@@ -66,10 +88,13 @@ impl SideSupportRegionContinuationResult {
         let mut bridge_loops = self.bridge_loops;
         bridge_faces.extend(other.bridge_faces);
         bridge_loops.extend(other.bridge_loops);
+        let mut vertex_remap = self.vertex_remap;
+        vertex_remap.extend(other.vertex_remap);
         Self {
             primitive: SideSupportContinuationPrimitive::MixedBridgeAndCylinderMediated,
             bridge_faces,
             bridge_loops,
+            vertex_remap,
         }
     }
 
