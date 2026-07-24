@@ -102,6 +102,41 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
                     brep.edges.get(*edge).and_then(|e| e.tolerance),
                     identity.unwrap_or_default()
                 );
+                // Midpoint witness dump: where does each face's chart
+                // place the defect curve's midpoint?
+                if let Some(ed) = brep.edges.get(*edge)
+                    && let Some(cur) = ed.curve.as_ref()
+                {
+                    use popkern_core::geometry::curve::CurveEval;
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    for frac in [0.0, 0.25, 0.5, 0.75, 1.0] {
+                        let t = cur.t_start + (cur.t_end - cur.t_start) * frac;
+                        let pt = cur.geometry.point_at(t);
+                        eprintln!(
+                            "[gauge]   curve f={frac:.2} t={t:.4} p=({:.4},{:.4},{:.4})",
+                            pt.x, pt.y, pt.z
+                        );
+                    }
+                    let mid = cur.geometry.point_at(0.5 * (cur.t_start + cur.t_end));
+                    let he = &brep.half_edges[ed.half_edge];
+                    let tw = &brep.half_edges[he.twin];
+                    for f in [brep.loops[he.loop_].face, brep.loops[tw.loop_].face] {
+                        if let Some(sof) = brep.faces.get(f).and_then(|fd| fd.surface.as_ref()) {
+                            let g = &sof.geometry;
+                            let ((u0, u1), (v0, v1)) = g.parameter_range();
+                            let w =
+                                popkern_core::geometry::uv_projection::project_point_to_uv(g, &mid)
+                                    .map(|(u, v)| {
+                                        let q = g.point_at(u, v);
+                                        format!("uv=({u:.4},{v:.4}) d={:.3e}", mid.distance_to(&q))
+                                    })
+                                    .unwrap_or_else(|| "proj FAILED".into());
+                            eprintln!(
+                                "[gauge]   mid on {f:?}: {w} (chart u[{u0:.3},{u1:.3}]                                  v[{v0:.3},{v1:.3}])"
+                            );
+                        }
+                    }
+                }
             } else {
                 eprintln!("[gauge] {err:?}");
             }
