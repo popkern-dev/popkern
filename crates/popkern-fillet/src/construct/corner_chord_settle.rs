@@ -24,7 +24,7 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 /// Locate the strip x strip chord at `corner_vertex`: the edge, its
 /// far-end vertex, and the two strip surface geometries.
-fn corner_strip_chord(
+pub(super) fn corner_strip_chord(
     brep: &BRep,
     corner_vertex: VertexHandle,
 ) -> Option<(EdgeHandle, VertexHandle, SurfaceGeometry, SurfaceGeometry)> {

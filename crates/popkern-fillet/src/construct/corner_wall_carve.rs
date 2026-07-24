@@ -128,5 +128,32 @@ pub(crate) fn carve_corner_wall_trims(
             }
         }
     }
+    if trace
+        && let Some((chord, far, g1, g2)) =
+            super::corner_chord_settle::corner_strip_chord(brep, corner_vertex)
+    {
+        // Chart-validity probe at the corner: where does each strip
+        // chart place W, and how far off is its image?
+        use popkern_core::geometry::SurfaceEval;
+        let w = brep.vertices.get(corner_vertex)?.position;
+        let far_pos = brep.vertices.get(far)?.position;
+        for (label, g) in [("g1", &g1), ("g2", &g2)] {
+            let (nu, nv) = match g {
+                SurfaceGeometry::Nurbs(n) => (n.num_u, n.num_v),
+                _ => (0, 0),
+            };
+            let img = popkern_core::geometry::uv_projection::project_point_to_uv(g, &w)
+                .map(|(u, v)| {
+                    let q = g.point_at(u, v);
+                    format!("uv=({u:.4},{v:.4}) d={:.3e}", w.distance_to(&q))
+                })
+                .unwrap_or_else(|| "proj FAILED".into());
+            eprintln!("[corner-carve]   chord {chord:?} {label} ({nu}x{nv}): W {img}");
+        }
+        eprintln!(
+            "[corner-carve]   chord far {far:?} at ({:.4},{:.4},{:.4})",
+            far_pos.x, far_pos.y, far_pos.z
+        );
+    }
     Some(moved > 0)
 }

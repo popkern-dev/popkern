@@ -276,15 +276,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-141 frontier: all six chain pieces serve as honest NURBS
-    // strips; corner vertices snap to the rails' wall crossings,
-    // charts extend one exact row past the chain stations, and the
-    // corner chords' far ends settle onto the envelope
-    // intersection. ONE residual remains (3.5e-3, was 1.28e-2): the
-    // corner chord's mid-span — a chord-projection fit cannot land
-    // on both envelopes where their mutual gap grows; the true
-    // mutual-trim intersection march between the extended strips is
-    // the remaining mechanism for (0,0,0).
+    // PK-177 frontier: chart extension now covers BOTH strip
+    // layouts (rational loft + sampled skin) out past the
+    // corner-ball station, putting the corner contact W inside
+    // every chart — the corner-chord class is GONE (was 3.5e-3).
+    // ONE residual remains (2.07e-5): the near-corner
+    // original-edge segment's true worst sits ~6e-5 between the
+    // check-9 fractions, above the declared-accuracy recording
+    // ceiling — honestly exposed; the corner carve topology is the
+    // recorded mechanism for (0,0,0).
     assert_eq!(
         (structural, open),
         (0, 0),

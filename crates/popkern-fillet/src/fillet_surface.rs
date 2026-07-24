@@ -241,7 +241,7 @@ fn build_nurbs_sweep(
             control_points.extend_from_slice(cps);
             weights.extend_from_slice(&[1.0, *w_mid, 1.0]);
         }
-        let mut loft = NurbsSurface {
+        let loft = NurbsSurface {
             degree_u,
             degree_v: 2,
             knots_u: build_clamped_uniform_knots(n_sections, degree_u),
@@ -251,21 +251,6 @@ fn build_nurbs_sweep(
             num_v: 3,
             weights,
         };
-        // Chart overlap (PK-141): extend the loft by ONE extrapolated
-        // exact row at each end on curved-support strips, so the
-        // chart covers the corner mutual-trim chords beyond the
-        // chain stations (clamped charts left them 1.28e-2 off).
-        // Rows are re-projected onto the supports and re-arced, so
-        // the extension is exact station geometry, not extrapolation
-        // error; trims and anchors are untouched (walk-based window
-        // extension was falsified three ways — see the ledger).
-        if let Some((s1, s2)) = supports {
-            let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
-                || !matches!(s2, SurfaceGeometry::Plane { .. });
-            if curved && n_sections >= 3 {
-                crate::loft_chart_extension::extend_loft_rows(&mut loft, s1, s2, radius);
-            }
-        }
         (loft, None)
     } else {
         let degree_v = 1.min(n_arc - 1);
@@ -287,6 +272,24 @@ fn build_nurbs_sweep(
         )
     };
 
+    // Chart overlap (PK-141/PK-177): extend the loft by exact
+    // extrapolated station rows at each end on curved-support
+    // strips, until the chart reaches past the corner-ball station
+    // (clamped charts left the corner chord endpoint OUTSIDE both
+    // charts — measured 2.4e-2/3.7e-2 clamp distances at W). Both
+    // the rational 3-row loft and the sampled-skin fallback extend;
+    // rows are re-projected onto the supports and re-arced, so the
+    // extension is exact station geometry; trims and anchors are
+    // untouched (walk-based window extension was falsified three
+    // ways — see the ledger).
+    let (mut nurbs, continuity_downgrade) = (nurbs, continuity_downgrade);
+    if let Some((s1, s2)) = supports {
+        let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
+            || !matches!(s2, SurfaceGeometry::Plane { .. });
+        if curved && nurbs.num_u >= 3 {
+            crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
+        }
+    }
     let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
     let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
 
@@ -334,7 +337,7 @@ fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<([P
 /// The arc lies in the plane defined by the three points. If `start` and
 /// `end` are equidistant from `center` at approximately `radius`, the arc
 /// sweeps the shorter angle between them.
-fn sample_arc(
+pub(crate) fn sample_arc(
     center: &Point3,
     start: &Point3,
     end: &Point3,

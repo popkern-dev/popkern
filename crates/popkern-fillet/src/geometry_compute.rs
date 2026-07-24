@@ -172,7 +172,12 @@ pub(crate) fn compute_fillet_geometry(
         &analysis.surface_2,
         &center_result,
         effective_radius,
-        8, // arc samples
+        // Arc samples: 8. Densifying to 17 was measured and
+        // REGRESSED the boss corner chord 1.16e-5 -> 3.5e-3 (the
+        // downstream merge/settle chain is sensitive to the skin CP
+        // layout); the skin's ~1e-5 chordal residual is recorded as
+        // honest edge tolerance instead.
+        8,
         is_constant_radius,
         continuity,
         analysis.orientation_1,

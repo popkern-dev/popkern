@@ -69,21 +69,86 @@ impl BRep {
                     .unwrap_or_else(|| self.tolerance.linear())
                     .max(1.0e-9)
                     * 10.0;
+                // Witness-based sampling: the check verifies the
+                // sample's distance TO THE SURFACE, and the cold
+                // global projection is only a heuristic minimizer —
+                // on extended or periodic charts it can clamp to the
+                // wrong chart region and misreport an on-surface
+                // sample as deviating (measured 2.07e-5 on a boss
+                // corner-adjacent edge whose true residual is below
+                // the band). Each sample accepts the best of the
+                // cold projection and a continuation seed from the
+                // previous sample's witness; a real defect has no
+                // nearby witness either way.
+                let mut prev_uv: Option<(f64, f64)> = None;
                 for fraction in SAMPLE_FRACTIONS {
                     let t = curve.t_start + (curve.t_end - curve.t_start) * fraction;
                     let point = curve.geometry.point_at(t);
-                    let Some((u, v)) = project_point_to_uv(&surface.geometry, &point) else {
+                    let cold = project_point_to_uv(&surface.geometry, &point);
+                    let seeded = prev_uv.and_then(|(pu, pv)| {
+                        crate::geometry::uv_projection::project_point_to_uv_near(
+                            &surface.geometry,
+                            &point,
+                            pu,
+                            pv,
+                        )
+                    });
+                    let best = [cold, seeded]
+                        .into_iter()
+                        .flatten()
+                        .map(|(u, v)| (point.distance_to(&surface.geometry.point_at(u, v)), (u, v)))
+                        .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+                    let Some((deviation, uv)) = best else {
                         // No closest-point solve for this surface
                         // kind: the pairing is unverifiable here, not
                         // failed.
                         break;
                     };
-                    let deviation = point.distance_to(&surface.geometry.point_at(u, v));
+                    prev_uv = Some(uv);
                     if deviation > tolerance {
-                        return Err(ValidationError::CurveSurfaceDeviation {
-                            edge: edge_handle,
-                            max_deviation: deviation,
-                        });
+                        // Refinement retry before failing: the
+                        // 5-fraction continuation can stall in a
+                        // local minimum a finer walk escapes
+                        // (measured 2.07e-5 reported for an edge a
+                        // 16-step walk verifies at < 1e-6). A real
+                        // defect has no witness at any step size.
+                        let mut fine_uv: Option<(f64, f64)> = None;
+                        let mut fine_dev = deviation;
+                        for k in 0..=16 {
+                            let ft = curve.t_start + (t - curve.t_start) * (k as f64) / 16.0;
+                            let fp = curve.geometry.point_at(ft);
+                            let cold_f = project_point_to_uv(&surface.geometry, &fp);
+                            let seeded_f = fine_uv.and_then(|(pu, pv)| {
+                                crate::geometry::uv_projection::project_point_to_uv_near(
+                                    &surface.geometry,
+                                    &fp,
+                                    pu,
+                                    pv,
+                                )
+                            });
+                            let best_f = [cold_f, seeded_f]
+                                .into_iter()
+                                .flatten()
+                                .map(|(u, v)| {
+                                    (fp.distance_to(&surface.geometry.point_at(u, v)), (u, v))
+                                })
+                                .min_by(|a, b| {
+                                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                                });
+                            if let Some((d, uv_f)) = best_f {
+                                fine_uv = Some(uv_f);
+                                if k == 16 {
+                                    fine_dev = d;
+                                }
+                            }
+                        }
+                        if fine_dev > tolerance {
+                            return Err(ValidationError::CurveSurfaceDeviation {
+                                edge: edge_handle,
+                                max_deviation: fine_dev,
+                            });
+                        }
+                        prev_uv = fine_uv;
                     }
                 }
             }

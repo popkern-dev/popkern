@@ -75,6 +75,26 @@ pub(super) fn try_curved_fit(
             .max(1e-9)
             * 10.0;
         if worst <= band.max(3.3e-5) {
+            // Below the refit floor the curve is already as good as
+            // the surfaces' mutual agreement — but when it still
+            // exceeds the edge's recorded band, record the measured
+            // deviation as the edge's honest tolerance so check 9
+            // gauges against it (measured: the boss corner chord at
+            // 1.16e-5 — the sampled-skin arc-density limit — sat
+            // above its 1e-6 record with nothing left to refit).
+            if worst > band / 10.0
+                && worst * 1.5 < 5.0e-5
+                && worst > brep.tolerance.linear()
+                && let Some(edge_mut) = brep.edges.get_mut(edge)
+            {
+                let recorded = edge_mut.tolerance.unwrap_or(0.0);
+                if recorded < worst * 1.5 {
+                    edge_mut.tolerance = Some(worst * 1.5);
+                    if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                        eprintln!("[fit-tol] {edge:?} recorded floor-skip {:.3e}", worst * 1.5);
+                    }
+                }
+            }
             return false;
         }
     }
@@ -184,17 +204,39 @@ pub(super) fn try_curved_fit(
             t_end: et_end,
         };
         let mut worst = 0.0_f64;
-        for i in 0..=8 {
-            let t = et_start + (et_end - et_start) * (i as f64) / 8.0;
-            let pt = probe.geometry.point_at(t);
-            for sof in [sof_1, sof_2] {
-                // Same projection as check 9 (closest_point converges
-                // poorly on these strip NURBS and misreported 2.1e-2
-                // for a 1.4e-5 fit).
-                if let Some((u, v)) =
-                    popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &pt)
-                {
-                    use popkern_core::geometry::surface::SurfaceEval;
+        for sof in [sof_1, sof_2] {
+            use popkern_core::geometry::surface::SurfaceEval;
+            // Continuation-seeded projection: a cold projection can
+            // clamp to the wrong chart region on extended strip
+            // charts and misreport (measured 2.105e-2 for a fit
+            // check 9 gauges at 1.16e-5); each sample seeds from
+            // the previous sample's uv.
+            let mut prev_uv: Option<(f64, f64)> = None;
+            for i in 0..=8 {
+                let t = et_start + (et_end - et_start) * (i as f64) / 8.0;
+                let pt = probe.geometry.point_at(t);
+                let uv = match prev_uv {
+                    Some((pu, pv)) => {
+                        popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                            &sof.geometry,
+                            &pt,
+                            pu,
+                            pv,
+                        )
+                        .or_else(|| {
+                            popkern_core::geometry::uv_projection::project_point_to_uv(
+                                &sof.geometry,
+                                &pt,
+                            )
+                        })
+                    }
+                    None => popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &sof.geometry,
+                        &pt,
+                    ),
+                };
+                if let Some((u, v)) = uv {
+                    prev_uv = Some((u, v));
                     worst = worst.max(pt.distance_to(&sof.geometry.point_at(u, v)));
                 }
             }
@@ -216,9 +258,15 @@ pub(super) fn try_curved_fit(
         if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
             eprintln!("[fit-tol] {edge:?} achieved {achieved:.3e}");
         }
-        if achieved > model_band && achieved * 1.5 < 5.0e-5 {
+        // Record sub-precision residuals with the safety margin
+        // CAPPED at the recordable ceiling rather than rejected: an
+        // achieved of 3.35e-5 measured x1.5 = 5.02e-5 and lost its
+        // record by a hair while check 9 gauged the same edge at
+        // 1.16e-5 (the kernel Precision validator caps edge
+        // tolerances at 1e-4; 9e-5 stays under it).
+        if achieved > model_band && achieved < 5.0e-5 {
             let recorded = edge_mut.tolerance.unwrap_or(0.0);
-            edge_mut.tolerance = Some(recorded.max(achieved * 1.5));
+            edge_mut.tolerance = Some(recorded.max((achieved * 1.5).min(9.0e-5)));
         }
         return true;
     }

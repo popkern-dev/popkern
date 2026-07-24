@@ -397,11 +397,10 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-159: weld duplicated mid-face seams of interference-completed
-    // parallel fillets BEFORE the terminal settle (exact seam anchors).
+    // PK-159: weld duplicated mid-face parallel-fillet seams BEFORE
+    // the terminal settle (exact seam anchors).
     construct::parallel_seam_weld::weld_parallel_seams(brep, &mut apply_result.brep, &tolerance);
-    // PK-148: settle stale chain-end corners once every pcurve
-    // author has run.
+    // PK-148: settle stale chain-end corners after all pcurve authors.
     apply_result.repair_report.terminal_arc_trim =
         construct::terminal_arc_trim::settle_terminal_arc_stubs(
             brep,
@@ -409,8 +408,7 @@ fn fillet_edges_internal(
             &tolerance,
             construct::terminal_arc_trim::PlanarStubRecognition::ChartGated,
         );
-    // PK-152: close blend×blend pair corners with the exact strip×strip
-    // seam; after terminal settlement so chain-end corners are coherent.
+    // PK-152: close blend×blend corners with the exact strip×strip seam.
     apply_result.repair_report.blend_seam_corner =
         construct::blend_seam_corner::settle_blend_seam_corners(
             brep,
@@ -442,8 +440,8 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-175 final bounded-UV clamp; then PK-141 period-branch
-    // reconcile on periodic supports (seam-crossing loops).
+    // PK-175 final bounded-UV clamp; PK-141 period-branch reconcile
+    // on periodic supports; PK-177 declared-accuracy recording.
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     let _ = construct::periodic_branch_finalize::reconcile_all_periodic_pcurve_branches(
         &mut apply_result.brep,
@@ -481,6 +479,10 @@ fn fillet_edges_internal(
         residual_scaffolding::retire_unglued_construction_residual_scaffolding(
             &mut apply_result.brep,
         );
+    // PK-177: declared-accuracy recording — the LAST author (later
+    // mutating stages would invalidate recorded residuals).
+    let _ =
+        construct::final_declared_accuracy::record_final_declared_accuracy(&mut apply_result.brep);
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
         return Err(BlendError::PartialFailure {
             failed: 1,
@@ -539,10 +541,9 @@ fn first_structural_validation_error(brep: &BRep) -> Option<String> {
 mod lib_chamfer;
 pub use lib_chamfer::chamfer_edges;
 /// Fillet the specified edges and bundle the result with post-op
-/// [`BlendQuality`] metrics (`R_min`, `patch_count`, `surface_area`,
-/// composite score). Same parameter validation and error taxonomy
-/// as [`fillet_edges`]; quality is computed from the new-face delta
-/// via [`precheck::fillet_quality`].
+/// [`BlendQuality`] metrics. Same parameter validation and error
+/// taxonomy as [`fillet_edges`]; quality comes from the new-face
+/// delta via [`precheck::fillet_quality`].
 #[path = "lib_convenience.rs"]
 mod lib_convenience;
 pub use face_blend::{FaceBlendAttach, FaceBlendResult, FaceBlendSpec, face_blend};

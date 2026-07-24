@@ -30,6 +30,7 @@ mod exact_boundary_cap_trim_fit;
 mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
 mod exact_boundary_export_repair;
+pub(crate) mod final_declared_accuracy;
 mod gregory_pcurve_clamp;
 pub(crate) mod junction_corner_solve;
 pub(crate) mod junction_remnant_absorb;

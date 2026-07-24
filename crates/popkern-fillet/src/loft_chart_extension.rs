@@ -25,11 +25,17 @@ pub(crate) fn extend_loft_rows(
 ) {
     use popkern_core::geometry::SurfaceEval;
     let n = loft.num_u;
-    if n < 3 || loft.num_v != 3 || loft.control_points.len() != n * 3 {
+    let m = loft.num_v;
+    if n < 3 || m < 3 || loft.control_points.len() != n * m {
         return;
     }
-    let row =
-        |cps: &[Point3], i: usize| -> [Point3; 3] { [cps[i * 3], cps[i * 3 + 1], cps[i * 3 + 2]] };
+    // Two supported layouts: the exact rational 3-row loft (mid CP
+    // weighted cos(θ/2)) and the sampled-skin fallback (m unit-
+    // weight arc samples per station).
+    let rational3 = m == 3 && loft.weights.iter().any(|w| (w - 1.0).abs() > 1e-12);
+    let row = |cps: &[Point3], i: usize| -> [Point3; 3] {
+        [cps[i * m], cps[i * m + m / 2], cps[i * m + m - 1]]
+    };
     let project = |sg: &SurfaceGeometry, p: Point3| -> Option<Point3> {
         let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(sg, &p)?;
         Some(sg.point_at(u, v))
@@ -79,39 +85,82 @@ pub(crate) fn extend_loft_rows(
     let step = |a: Point3, b: Point3| -> Point3 {
         Point3::new(2.0 * a.x - b.x, 2.0 * a.y - b.y, 2.0 * a.z - b.z)
     };
-    // ONE exact extrapolated row per end. Deeper extension was
-    // measured and REGRESSED: 3-4 rows per end moved the boss
-    // corner-chord gauge from 3.5e-3 to 3.7e-2 (the wider chart
-    // shifts later refit/region choices), and the residual it
-    // targeted is not a U-coverage gap — the corner vertex sits off
-    // the AS-BUILT twin strip laterally (see corner_chord_settle).
-    let mut head_rows: Vec<([Point3; 3], f64)> = Vec::new();
-    let mut tail_rows: Vec<([Point3; 3], f64)> = Vec::new();
+    // Extend each end until the chart reaches PAST the corner-ball
+    // station: cumulative added rail arc >= 1.2 r per end (measured:
+    // one row ≈ 0.5 r left the corner contact W OUTSIDE both charts,
+    // clamped at 2.4e-2/3.7e-2; the earlier one-sided multi-row
+    // experiment regressed because the sampled-skin twin could not
+    // extend at all — both layouts extend now). Cap 4 rows per end.
+    let target = radius * 1.2;
+    let expand_row = |contacts: &([Point3; 3], f64)| -> (Vec<Point3>, Vec<f64>) {
+        let ([f0, mid, f2], w) = contacts;
+        if rational3 {
+            (vec![*f0, *mid, *f2], vec![1.0, *w, 1.0])
+        } else {
+            // Sampled-skin layout: re-sample the exact station arc
+            // at the row's arc density. The station centre is
+            // recoverable from the exact contacts and mid.
+            let centre_dir = ((*f0 - *mid) + (*f2 - *mid)).normalized();
+            let centre = match centre_dir {
+                Some(d) => {
+                    // mid = centre + bis * (r/w) with bis unit: walk
+                    // back from mid toward the chord's centre side.
+                    let bis_len = radius / *w;
+                    *mid + d * (bis_len - radius).max(0.0) + d * radius
+                }
+                None => return (Vec::new(), Vec::new()),
+            };
+            let pts = crate::fillet_surface::sample_arc(&centre, f0, f2, radius, m);
+            if pts.len() != m {
+                return (Vec::new(), Vec::new());
+            }
+            (pts, vec![1.0; m])
+        }
+    };
+    let mut head_rows: Vec<(Vec<Point3>, Vec<f64>)> = Vec::new();
+    let mut tail_rows: Vec<(Vec<Point3>, Vec<f64>)> = Vec::new();
     for (rows, edge_index, inner_index) in [
         (&mut head_rows, 0usize, 1usize),
         (&mut tail_rows, n - 1, n - 2),
     ] {
-        let outer = row(&loft.control_points, edge_index);
-        let inner = row(&loft.control_points, inner_index);
-        if let Some((new_row, w)) = solve_row(step(outer[0], inner[0]), step(outer[2], inner[2])) {
-            rows.push((new_row, w));
+        let mut outer = row(&loft.control_points, edge_index);
+        let mut inner = row(&loft.control_points, inner_index);
+        let mut added = 0.0;
+        for _ in 0..4 {
+            let Some(contacts) = solve_row(step(outer[0], inner[0]), step(outer[2], inner[2]))
+            else {
+                break;
+            };
+            let (pts, ws) = expand_row(&contacts);
+            if pts.is_empty() {
+                break;
+            }
+            added += contacts.0[0]
+                .distance_to(&outer[0])
+                .max(contacts.0[2].distance_to(&outer[2]));
+            inner = outer;
+            outer = contacts.0;
+            rows.push((pts, ws));
+            if added >= target {
+                break;
+            }
         }
     }
     if head_rows.is_empty() && tail_rows.is_empty() {
         return;
     }
     let added = head_rows.len() + tail_rows.len();
-    let mut cps = Vec::with_capacity((n + added) * 3);
-    let mut ws = Vec::with_capacity((n + added) * 3);
+    let mut cps = Vec::with_capacity((n + added) * m);
+    let mut ws = Vec::with_capacity((n + added) * m);
     for (r, w) in head_rows.iter().rev() {
         cps.extend_from_slice(r);
-        ws.extend_from_slice(&[1.0, *w, 1.0]);
+        ws.extend_from_slice(w);
     }
     cps.extend_from_slice(&loft.control_points);
     ws.extend_from_slice(&loft.weights);
     for (r, w) in &tail_rows {
         cps.extend_from_slice(r);
-        ws.extend_from_slice(&[1.0, *w, 1.0]);
+        ws.extend_from_slice(w);
     }
     loft.control_points = cps;
     loft.weights = ws;
