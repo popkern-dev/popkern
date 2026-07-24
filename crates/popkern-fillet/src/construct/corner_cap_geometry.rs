@@ -39,6 +39,9 @@ pub(crate) struct CornerCapGeometry {
     /// Sampled center paths for the two strip extensions, each from
     /// the fillet's end station to the corner-ball center.
     pub extension_centers: [Vec<Point3>; 2],
+    /// The shared support (the surface both fillets roll on — the
+    /// wall of the corner). The carve projects wall trims onto it.
+    pub shared_surface: SurfaceGeometry,
 }
 
 /// Distance from `p` to the offset surface of `s` at distance `r`
@@ -160,6 +163,7 @@ pub(crate) fn solve_corner_cap(
         shared_contact,
         own_contacts,
         extension_centers,
+        shared_surface: shared.clone(),
     })
 }
 

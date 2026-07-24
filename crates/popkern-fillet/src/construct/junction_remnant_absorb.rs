@@ -140,6 +140,13 @@ pub(crate) fn absorb_junction_remnants(
                             eprintln!("[junction] {vertex:?} chord far-end settled");
                         }
                     }
+                    // PK-177 corner carve: wall trims meeting at the
+                    // snapped contact (probe stage — see module doc).
+                    if let Some(true) = super::corner_wall_carve::carve_corner_wall_trims(
+                        brep, &cap, vertex, tolerance, trace,
+                    ) {
+                        absorbed += 1;
+                    }
                 } else if trace {
                     eprintln!("[junction] {vertex:?} contact snap declined validation");
                 }
