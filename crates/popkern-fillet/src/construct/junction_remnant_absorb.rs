@@ -93,19 +93,11 @@ pub(crate) fn absorb_junction_remnants(
                     cap.shared_contact.z
                 );
             }
-            // Corner-vertex snap: the stale chain-corner vertex's
-            // honest home is the corner ball's shared contact (both
-            // strips' rails meet the shared support there). The
-            // settle's alternating projection stalls on this
-            // tangential TRIPLE (measured: a 1.6e-2 decline at the
-            // -y bottom corner shipped the strip-strip corner chord
-            // 1.28e-2 off); the analytic solve replaces the crawl.
-            // Transactional: candidate clone, validate-gated.
-            // Default ON with the chart extension landed: snap +
-            // extended charts + far-end settle measure 3.5e-3 on the
-            // corner chord vs 1.28e-2 without (the earlier 5e-2
-            // regression came from un-extended charts).
-            // PK141_CORNER_SNAP_OFF preserves the fallback.
+            // Corner-vertex snap to the corner ball's shared
+            // contact (alternating projection stalls on this
+            // tangential triple; the analytic solve replaces the
+            // crawl). Transactional. Default ON with the chart
+            // extension; PK141_CORNER_SNAP_OFF preserves fallback.
             let contact_d = v_pos.distance_to(&cap.shared_contact);
             if std::env::var_os("PK141_CORNER_SNAP_OFF").is_none()
                 && contact_d > radius * 0.05
@@ -188,19 +180,21 @@ pub(crate) fn absorb_junction_remnants(
         // its incident-surface intersection (corner snap fires only
         // for true corners; measured 2.07e-2 join-chord bulge from
         // the stale vertex). Transactional; over-determined declines.
-        // Falsified here (measured, reverted): joint loft over both
-        // pieces — LOCAL acceptance hid 2.09e-2 (PK-177 notes).
-        if ta.dot(&tb).abs() >= 0.99
-            && let Some(n) = super::corner_chord_settle::settle_vertex_on_incident_surfaces(
-                brep, vertex, tolerance,
-            )
-            && n > 0
-        {
-            absorbed += n;
-            if trace {
-                eprintln!("[junction] {vertex:?} smooth junction vertex settled");
-            }
-        }
+        absorbed += super::junction_surface_join::handle_smooth_junction(
+            brep,
+            edge_geometries,
+            super::junction_surface_join::SmoothJunctionContext {
+                vertex,
+                a,
+                b,
+                v_pos,
+                ta,
+                tb,
+                radius,
+                trace,
+            },
+            tolerance,
+        );
     }
     absorbed
 }

@@ -34,6 +34,7 @@ pub(crate) mod final_declared_accuracy;
 mod gregory_pcurve_clamp;
 pub(crate) mod junction_corner_solve;
 pub(crate) mod junction_remnant_absorb;
+mod junction_surface_join;
 mod multi_chord_anchor_transplant;
 pub(crate) mod multi_chord_region_seeding;
 pub(crate) mod periodic_branch_finalize;
