@@ -397,9 +397,8 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-159: weld the duplicated mid-face seam of interference-
-    // completed parallel fillets BEFORE the terminal settle so the
-    // corner machinery sees the exact seam anchors.
+    // PK-159: weld duplicated mid-face seams of interference-completed
+    // parallel fillets BEFORE the terminal settle (exact seam anchors).
     construct::parallel_seam_weld::weld_parallel_seams(brep, &mut apply_result.brep, &tolerance);
     // PK-148: settle stale chain-end corners once every pcurve
     // author has run.
@@ -410,9 +409,8 @@ fn fillet_edges_internal(
             &tolerance,
             construct::terminal_arc_trim::PlanarStubRecognition::ChartGated,
         );
-    // PK-152: close blend×blend pair corners with the exact
-    // strip×strip intersection seam. Runs after terminal settlement
-    // so valence-2 chain-end corners are already coherent.
+    // PK-152: close blend×blend pair corners with the exact strip×strip
+    // seam; after terminal settlement so chain-end corners are coherent.
     apply_result.repair_report.blend_seam_corner =
         construct::blend_seam_corner::settle_blend_seam_corners(
             brep,
@@ -444,9 +442,12 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-175: final bounded-UV pcurve clamp (late stages author
-    // sub-tolerance chart escapes).
+    // PK-175 final bounded-UV clamp; then PK-141 period-branch
+    // reconcile on periodic supports (seam-crossing loops).
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
+    let _ = construct::periodic_branch_finalize::reconcile_all_periodic_pcurve_branches(
+        &mut apply_result.brep,
+    );
     emit!(
         progress::FilletPhase::RepairPcurves,
         t5,

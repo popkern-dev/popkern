@@ -34,6 +34,7 @@ pub(crate) mod junction_corner_solve;
 pub(crate) mod junction_remnant_absorb;
 mod multi_chord_anchor_transplant;
 pub(crate) mod multi_chord_region_seeding;
+pub(crate) mod periodic_branch_finalize;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
 #[path = "pns_setback_candidate.rs"]
 pub(crate) mod pns_setback_candidate;

@@ -28,7 +28,7 @@ use crate::geometry::curve::CurveEval;
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::pcurve::Pcurve;
 use crate::geometry::uv_projection::project_point_to_uv;
-use crate::topology::{FaceHandle, HalfEdgeHandle};
+use crate::topology::{FaceHandle, HalfEdgeHandle, LoopHandle};
 
 use super::brep::BRep;
 
@@ -47,7 +47,27 @@ impl BRep {
         let Some(period) = surface.periodicity().0 else {
             return false;
         };
-        let Some(loop_data) = self.loops.get(face_data.outer_loop) else {
+        // Every loop reconciles independently: an INNER ring crossing
+        // the seam (boss hole on a wall cylinder) carries the same
+        // mixed-branch class as the outer loop and self-intersects
+        // the UV wire when skipped.
+        let mut loops = vec![face_data.outer_loop];
+        loops.extend(face_data.inner_loops.iter().copied());
+        let mut changed = false;
+        for loop_handle in loops {
+            changed |= self.reconcile_periodic_loop_branches(face, loop_handle, &surface, period);
+        }
+        changed
+    }
+
+    fn reconcile_periodic_loop_branches(
+        &mut self,
+        face: FaceHandle,
+        loop_handle: LoopHandle,
+        surface: &crate::geometry::surface::SurfaceGeometry,
+        period: f64,
+    ) -> bool {
+        let Some(loop_data) = self.loops.get(loop_handle) else {
             return false;
         };
         let mut sides = Vec::new();
@@ -89,6 +109,13 @@ impl BRep {
                 sides.len()
             );
         }
+        // NOTE (measured falsification): aligning same-loop twin
+        // ("bridge") pairs by whole-period shifts was tried here and
+        // REVERTED — it cannot distinguish a defective interior
+        // bridge from the legitimate SEAM pair of a periodic chart,
+        // whose two images are REQUIRED to sit one period apart
+        // (it fired on proper cylinder walls and collapsed their
+        // charts).
         if net.abs() < period / 4.0 {
             return false;
         }
@@ -100,7 +127,7 @@ impl BRep {
         // closes at net zero u-winding.
         let mut candidate: Vec<Pcurve> = Vec::with_capacity(sides.len());
         for (index, side) in sides.iter().enumerate() {
-            let Some(samples) = self.continuation_uv_samples(*side, &surface, period) else {
+            let Some(samples) = self.continuation_uv_samples(*side, surface, period) else {
                 if trace {
                     eprintln!("[pcurve-period]   side {side:?} continuation projection failed");
                 }
