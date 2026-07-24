@@ -240,10 +240,8 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         if let Some(diagnostic) = side_support_result.applied_diagnostic(cap_face) {
             diagnostics.push(diagnostic);
         }
-        // The in-place continuation (PK-167) unifies coincident
-        // duplicate vertex records; the topology plans above were
-        // authored BEFORE it applied and hold pre-merge handles.
-        // Re-resolve them through the continuation's remap.
+        // Re-resolve plan handles through the PK-167 continuation's
+        // coincident-duplicate vertex remap (plans authored pre-merge).
         let (topology_plans, subcomplex_plan) =
             if let SideSupportRegionContinuationOutcome::Applied(result) = &side_support_result {
                 (
@@ -423,9 +421,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         SideSupportRegionContinuationOutcome::Applied(_)
     );
     let side_support_bridge_loops = side_support_result.bridge_loops();
-    // Re-resolve plan vertex handles through the continuation's
-    // coincident-duplicate merge (PK-167 in-place path) — the plans
-    // were authored pre-merge.
+    // Re-resolve plan handles through the PK-167 merge remap.
     let remapped_plans: Vec<CylinderTrimRewriteTopologyPlan>;
     let remapped_subcomplex: TrimRewriteSubcomplexPlan;
     let (topology_plans, subcomplex_plan) =

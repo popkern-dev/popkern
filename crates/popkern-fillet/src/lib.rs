@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
-//! popkern-fillet: Fillets and chamfers for the popkern BRep kernel.
-//! Public entry points: [`fillet_edges`], [`chamfer_edges`], [`vertex_blend_3d`].
+//! popkern-fillet: fillets and chamfers. Entry points:
+//! [`fillet_edges`], [`chamfer_edges`], [`vertex_blend_3d`].
 pub mod analysis;
 pub mod apex_construction;
 pub mod blend;
@@ -76,6 +76,7 @@ pub mod remediation;
 pub mod residual_scaffolding;
 pub mod sensitivity;
 pub mod stale_cap;
+pub(crate) mod station_geometry;
 mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;
@@ -397,8 +398,7 @@ fn fillet_edges_internal(
             &tolerance,
         );
     }
-    // PK-159: weld duplicated mid-face parallel-fillet seams BEFORE
-    // the terminal settle (exact seam anchors).
+    // PK-159: weld duplicated mid-face parallel-fillet seams first.
     construct::parallel_seam_weld::weld_parallel_seams(brep, &mut apply_result.brep, &tolerance);
     // PK-148: settle stale chain-end corners after all pcurve authors.
     apply_result.repair_report.terminal_arc_trim =
@@ -408,7 +408,6 @@ fn fillet_edges_internal(
             &tolerance,
             construct::terminal_arc_trim::PlanarStubRecognition::ChartGated,
         );
-    // PK-152: close blend×blend corners with the exact strip×strip seam.
     apply_result.repair_report.blend_seam_corner =
         construct::blend_seam_corner::settle_blend_seam_corners(
             brep,
@@ -479,8 +478,7 @@ fn fillet_edges_internal(
         residual_scaffolding::retire_unglued_construction_residual_scaffolding(
             &mut apply_result.brep,
         );
-    // PK-177: declared-accuracy recording — the LAST author (later
-    // mutating stages would invalidate recorded residuals).
+    // PK-177 declared-accuracy recording — must be the LAST author.
     let _ =
         construct::final_declared_accuracy::record_final_declared_accuracy(&mut apply_result.brep);
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {

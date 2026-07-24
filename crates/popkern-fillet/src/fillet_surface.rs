@@ -185,6 +185,38 @@ fn build_nurbs_sweep(
     }
     let n_arc = arc_samples.max(3); // at least 3 points per arc
 
+    // Station refinement (PK-177): the walker's footprints carry
+    // ~1e-5 accuracy; re-solve each station against the actual
+    // supports with the same alternating-offset projection the
+    // chart extension uses (converges ~1e-10), so every loft row —
+    // not just the extension rows — is exact station geometry. The
+    // refined contacts feed rows AND trims consistently. Stations
+    // whose solve declines keep the walker values.
+    let refined: Option<Vec<(Point3, Point3)>> = supports.map(|(s1, s2)| {
+        (0..n_sections)
+            .map(|i| {
+                crate::station_geometry::refine_station_contacts(
+                    s1,
+                    s2,
+                    &footprint_1[i],
+                    &footprint_2[i],
+                    radius,
+                )
+                .unwrap_or((footprint_1[i], footprint_2[i]))
+            })
+            .collect()
+    });
+    let footprint_1: Vec<Point3> = match &refined {
+        Some(r) => r.iter().map(|(a, _)| *a).collect(),
+        None => footprint_1[..n_sections].to_vec(),
+    };
+    let footprint_2: Vec<Point3> = match &refined {
+        Some(r) => r.iter().map(|(_, b)| *b).collect(),
+        None => footprint_2[..n_sections].to_vec(),
+    };
+    let footprint_1 = &footprint_1;
+    let footprint_2 = &footprint_2;
+
     // Sample center curve at n_sections points.
     let (t_min, t_max) =
         popkern_core::geometry::curve::CurveEval::parameter_range(center_result_curve);
@@ -213,7 +245,7 @@ fn build_nurbs_sweep(
             }
         }
         if let Some(rows) = bi_rows.as_mut() {
-            match bi_rational_arc_row(&center, fp1, fp2) {
+            match crate::station_geometry::bi_rational_arc_row(&center, fp1, fp2) {
                 Some(row) => rows.push(row),
                 None => bi_rows = None,
             }
@@ -323,8 +355,9 @@ fn build_nurbs_sweep(
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
-    let trim_1 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_1)?;
-    let trim_2 = crate::center_curve::fit_nurbs_through_points(&center_result.footprint_2)?;
+    // Trims fit through the SAME (refined) footprints the rows use.
+    let trim_1 = crate::center_curve::fit_nurbs_through_points(footprint_1)?;
+    let trim_2 = crate::center_curve::fit_nurbs_through_points(footprint_2)?;
 
     Ok(FilletSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),
@@ -363,46 +396,6 @@ fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<([P
     let r = 0.5 * (r1 + r2);
     let mid = *center + mid_dir * (r / w_mid);
     Some(([*start, mid, *end], w_mid))
-}
-
-/// One EXACT two-segment piecewise-rational arc row from `start` to
-/// `end` about `center`: control points [start, M1, mid, M2, end]
-/// with segment-mid weights cos(θ/4) and a doubled interior knot at
-/// 0.5. Exact for sweeps the single-segment row declines
-/// (~115°..170°); `None` outside its own well-conditioned range.
-fn bi_rational_arc_row(
-    center: &Point3,
-    start: &Point3,
-    end: &Point3,
-) -> Option<([Point3; 5], f64)> {
-    let v1 = *start - *center;
-    let v2 = *end - *center;
-    let r1 = v1.length();
-    let r2 = v2.length();
-    if r1 < 1e-12 || r2 < 1e-12 {
-        return None;
-    }
-    // Row is exact for the MEAN circle; a footprint radius mismatch
-    // of ε leaves an ε/2 residual. 1e-3 relative admits walker
-    // footprints (~1e-5 class) at a sub-precision residual — still
-    // an order under the sampled skin's chordal error.
-    if (r1 - r2).abs() > 1e-3 * r1.max(r2) {
-        return None;
-    }
-    let u1 = v1 * (1.0 / r1);
-    let u2 = v2 * (1.0 / r2);
-    let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
-    if !(1e-9..=3.0).contains(&theta) {
-        return None;
-    }
-    let r = 0.5 * (r1 + r2);
-    let bis = (u1 + u2).normalized()?;
-    let mid = *center + bis * r;
-    let w = (theta * 0.25).cos();
-    let m1 = *center + (u1 + bis).normalized()? * (r / w);
-    let m2 = *center + (u2 + bis).normalized()? * (r / w);
-    Some(([*start, m1, mid, m2, *end], w))
 }
 
 /// Sample a circular arc from `start` to `end` centered at `center`.
