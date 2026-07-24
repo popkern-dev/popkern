@@ -70,14 +70,68 @@ pub(super) fn export_pcurve_for_use(
         pcurve_endpoints_match_edge_segment(brep, edge, pcurve, surface, tolerance)
             || export_pcurve_trace_matches_edge(brep, edge, half_edge, pcurve, surface, tolerance)
     };
-    let stored = brep
+    let stored_raw = brep
         .face_use_pcurve(face, half_edge)
         .or(he.pcurve.as_ref())
-        .cloned()
-        .filter(|pcurve| matches(pcurve));
-    stored
+        .cloned();
+    let stored = stored_raw.clone().filter(|pcurve| matches(pcurve));
+    let result = stored
         .or_else(|| synthesize_export_half_edge_pcurve_on_surface(brep, edge, half_edge, surface))
         .filter(|pcurve| matches(pcurve))
+        // Final fallback: the faithful UNGATED projection of the
+        // edge curve. Its residual trace distance is the edge's
+        // honest serving-geometry debt (e.g. a corner chord bowing
+        // off the wall mid-span) — sharing the edge with an
+        // approximate pcurve keeps the shell SEWABLE and lets the
+        // reader's SameParameter healing absorb the gap, where the
+        // face-local fork guarantees once-used edges (measured on
+        // the boss: 6 closed free-bound wires and an un-normalized
+        // periodic wall loop that OCC read as self-intersecting).
+        .or_else(|| {
+            crate::step::export_pcurve_synthesis::synthesize_half_edge_pcurve_ungated(
+                brep, edge, half_edge, surface,
+            )
+        });
+    if result.is_none() && std::env::var_os("PK_STEP_TRACE").is_some() {
+        use crate::step::export_pcurve_synthesis::sampled_edge_surface_disagreement;
+        let stored_dev = stored_raw.as_ref().and_then(|pc| {
+            sampled_edge_surface_disagreement(brep, edge, half_edge, surface, pc, 9)
+        });
+        eprintln!(
+            "  [step-export] no exportable pcurve for use {half_edge:?} (edge {edge:?}): \
+             stored_present={} stored_dev={stored_dev:?}, tol={tolerance:.3e}",
+            stored_raw.is_some(),
+        );
+    }
+    result
+}
+
+/// Best-effort pcurve for CHAINING only: when no candidate passes
+/// the association gate (residual serving-geometry debt — e.g. a
+/// corner chord bowing off its support mid-span), the branch
+/// normalization still needs a UV image to chain the loop through;
+/// an approximately-placed image beats abandoning the whole loop to
+/// mixed branches (measured: the boss wall exported un-normalized
+/// and OCC read a self-intersecting wire). Emission stays gated —
+/// this pcurve is never written.
+pub(super) fn chain_pcurve_for_use(
+    brep: &BRep,
+    face: FaceHandle,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+) -> Option<Pcurve> {
+    if let Some(pc) = export_pcurve_for_use(brep, face, half_edge, surface) {
+        return Some(pc);
+    }
+    let he = brep.half_edges.get(half_edge)?;
+    crate::step::export_pcurve_synthesis::synthesize_half_edge_pcurve_ungated(
+        brep, he.edge, half_edge, surface,
+    )
+    .or_else(|| {
+        brep.face_use_pcurve(face, half_edge)
+            .or(he.pcurve.as_ref())
+            .cloned()
+    })
 }
 
 /// True when the pcurve's trace runs OPPOSITE to the edge's exported
@@ -214,9 +268,15 @@ fn normalize_loop(
         let Some(he) = brep.half_edges.get(cursor_he) else {
             return;
         };
-        let Some(pc) = export_pcurve_for_use(brep, face, cursor_he, geometry) else {
+        let Some(pc) = chain_pcurve_for_use(brep, face, cursor_he, geometry) else {
             // A use without a pcurve breaks the chain; leave this
             // loop un-normalized rather than guessing across the gap.
+            if std::env::var_os("PK_STEP_TRACE").is_some() {
+                eprintln!(
+                    "  [step-export] periodic loop {lh:?} on {face:?} UN-NORMALIZED: use \
+                     {cursor_he:?} has no exportable pcurve"
+                );
+            }
             return;
         };
         let uv0 = pc.point_at(pc.t_start);
@@ -376,6 +436,13 @@ fn normalize_loop(
     let Some((score, _flips, _winding_ok, assignment)) = best else {
         return;
     };
+    if std::env::var_os("PK_STEP_TRACE").is_some() {
+        eprintln!(
+            "  [step-export] periodic loop {lh:?} on {face:?}: {} use(s), score {score:.3e}, \
+             flips {_flips}, winding_ok {_winding_ok}, want_ccw {want_ccw}",
+            uses.len()
+        );
+    }
     for (use_, ((du, dv), fwd)) in uses.iter().zip(assignment.iter()) {
         if *du != 0.0 || *dv != 0.0 {
             shifts.insert((face, use_.half_edge), (*du, *dv));

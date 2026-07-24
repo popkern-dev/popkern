@@ -62,9 +62,62 @@ pub(super) fn synthesize_export_half_edge_pcurve_on_surface(
         fit_curve(&uv_points, &params, degree, uv_points.len()).ok()?
     };
     let pcurve = Pcurve::from_nurbs(nurbs);
-    (sampled_edge_surface_disagreement(brep, edge, half_edge, surface, &pcurve, samples)?
-        <= step_export_pcurve_association_tolerance(brep))
-    .then_some(pcurve)
+    let disagreement =
+        sampled_edge_surface_disagreement(brep, edge, half_edge, surface, &pcurve, samples)?;
+    let gate = step_export_pcurve_association_tolerance(brep);
+    if disagreement > gate && std::env::var_os("PK_STEP_TRACE").is_some() {
+        eprintln!(
+            "  [step-export] synthesis declined for {half_edge:?} (edge {edge:?}): projected \
+             disagreement {disagreement:.3e} > {gate:.3e}"
+        );
+    }
+    (disagreement <= gate).then_some(pcurve)
+}
+
+/// Ungated projection synthesis for the branch-normalization CHAIN:
+/// the projected image is returned even when its trace disagreement
+/// exceeds the association gate (residual serving-geometry debt).
+/// Never used for emission.
+pub(super) fn synthesize_half_edge_pcurve_ungated(
+    brep: &BRep,
+    edge: EdgeHandle,
+    half_edge: HalfEdgeHandle,
+    surface: &SurfaceGeometry,
+) -> Option<Pcurve> {
+    let he = brep.half_edges.get(half_edge)?;
+    if he.edge != edge {
+        return None;
+    }
+    let curve = brep.edges.get(edge)?.curve.as_ref()?;
+    let forward = half_edge_curve_forward(brep, half_edge)?;
+    let samples = EXPORT_PCURVE_SYNTHESIS_SAMPLES;
+    let (period_u, period_v) = surface.periodicity();
+    let mut prev_uv: Option<(f64, f64)> = None;
+    let mut uv_points = Vec::with_capacity(samples);
+    let mut params = Vec::with_capacity(samples);
+    for index in 0..samples {
+        let fraction = index as f64 / (samples - 1) as f64;
+        let curve_fraction = if forward { fraction } else { 1.0 - fraction };
+        let curve_t = curve.t_start + (curve.t_end - curve.t_start) * curve_fraction;
+        let point = curve.geometry.point_at(curve_t);
+        let (mut u, mut v) = if let Some((prev_u, prev_v)) = prev_uv {
+            project_point_to_uv_near(surface, &point, prev_u, prev_v)?
+        } else {
+            project_point_to_uv(surface, &point)?
+        };
+        unwrap_periodic_uv(&mut u, &mut v, prev_uv, period_u, period_v);
+        prev_uv = Some((u, v));
+        uv_points.push(Point3::new(u, v, 0.0));
+        params.push(fraction);
+    }
+    let nurbs = if uv_points_are_linear(&uv_points, step_export_pcurve_association_tolerance(brep))
+    {
+        linear_nurbs(*uv_points.first()?, *uv_points.last()?)
+    } else {
+        let degree = 3.min(uv_points.len().saturating_sub(1));
+        fit_curve(&uv_points, &params, degree, uv_points.len()).ok()?
+    };
+    Some(Pcurve::from_nurbs(nurbs))
 }
 
 pub(super) fn synthesize_export_face_use_curve_and_pcurve(
@@ -219,7 +272,7 @@ fn half_edge_curve_forward(brep: &BRep, half_edge: HalfEdgeHandle) -> Option<boo
     Some(origin.distance_to(&start) <= origin.distance_to(&end))
 }
 
-fn sampled_edge_surface_disagreement(
+pub(super) fn sampled_edge_surface_disagreement(
     brep: &BRep,
     edge: EdgeHandle,
     half_edge: HalfEdgeHandle,

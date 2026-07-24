@@ -430,10 +430,10 @@ fn seam_fixtures_step_export_and_occ() {
     };
     let boss_path = out_dir.join("boss_on_wall_seam_chain_fillet.step");
     export_step_solid(&boss_fillet.brep, &boss_path).expect("boss STEP export");
+    // Hard gate since the export shares edges with faithful-projection
+    // pcurves (face-local forks retired for projectable uses) and the
+    // periodic wall loop branch-normalizes: measured OCC PASS.
     if let Some(passed) = occ_oracle_passes(&boss_path) {
-        eprintln!(
-            "[seam-matrix] boss chain OCC verdict: {}",
-            if passed { "PASS" } else { "FAIL (measured)" }
-        );
+        assert!(passed, "boss seam-crossing chain must be OCC-clean");
     }
 }

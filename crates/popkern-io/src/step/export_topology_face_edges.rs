@@ -93,6 +93,17 @@ fn pcurve_exportable_for_face_use(
             )
             .filter(|pcurve| matches(pcurve))
         })
+        // Mirror export_pcurve_for_use's final fallback: a faithful
+        // ungated projection keeps the edge SHARED (sewable) — the
+        // face-local fork guarantees a once-used edge (free bound).
+        .or_else(|| {
+            crate::step::export_pcurve_synthesis::synthesize_half_edge_pcurve_ungated(
+                brep,
+                edge_handle,
+                face_use.half_edge,
+                &surface.surface.geometry,
+            )
+        })
         .map(|_| ())
 }
 
