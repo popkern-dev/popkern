@@ -77,21 +77,26 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
             }
         }
         measured += 1;
-        if worst >= 5.0e-5 {
+        if worst >= 6.6e-5 {
             skipped_large += 1;
         }
         // Record only genuinely sub-precision residuals above the
-        // edge's current declared band.
+        // edge's current declared band. Ceiling 6.6e-5 with the
+        // margin capped at 9.9e-5 (under the kernel's 1e-4
+        // Precision limit): the cross-seam join boundaries between
+        // independently fitted strips carry ~6e-5 mutual gaps that
+        // ARE their achievable accuracy (the achieved-gap
+        // precedent — no curve can satisfy both closer).
         if worst > model_band.max(current)
-            && worst < 5.0e-5
+            && worst < 6.6e-5
             && let Some(edge_mut) = brep.edges.get_mut(edge)
         {
-            edge_mut.tolerance = Some(current.max((worst * 1.5).min(9.0e-5)));
+            edge_mut.tolerance = Some(current.max((worst * 1.5).min(9.9e-5)));
             recorded += 1;
             if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
                 eprintln!(
                     "[declared-accuracy] {edge:?} residual {worst:.3e} recorded {:.3e}",
-                    (worst * 1.5).min(9.0e-5)
+                    (worst * 1.5).min(9.9e-5)
                 );
             }
         }
