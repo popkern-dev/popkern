@@ -185,11 +185,11 @@ pub(crate) fn absorb_junction_remnants(
             eprintln!("[junction] {vertex:?} declined (moved {moved})");
         }
         // SMOOTH-THROUGH junctions: settle the junction vertex onto
-        // its incident-surface intersection (the corner snap only
-        // fires for true corners; measured: the boss top seam
-        // vertex sat at the unfilleted-edge radius 1.0 while the
-        // strips pass the plane contact at ~1.049 — a 2.07e-2 join
-        // chord bulge). Transactional; over-determined declines.
+        // its incident-surface intersection (corner snap fires only
+        // for true corners; measured 2.07e-2 join-chord bulge from
+        // the stale vertex). Transactional; over-determined declines.
+        // Falsified here (measured, reverted): joint loft over both
+        // pieces — LOCAL acceptance hid 2.09e-2 (PK-177 notes).
         if ta.dot(&tb).abs() >= 0.99
             && let Some(n) = super::corner_chord_settle::settle_vertex_on_incident_surfaces(
                 brep, vertex, tolerance,
