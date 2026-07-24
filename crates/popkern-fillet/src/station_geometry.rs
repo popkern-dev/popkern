@@ -106,3 +106,20 @@ pub(crate) fn bi_rational_arc_row(
     let m2 = *center + (u2 + bis).normalized()? * (r / w);
     Some(([*start, m1, mid, m2, *end], w))
 }
+
+/// Degree-1 polyline NURBS through the station points (clamped
+/// uniform knots) — the exact rail of a degree-1 loft through the
+/// same stations.
+pub(crate) fn station_polyline(
+    pts: &[Point3],
+) -> Result<popkern_core::geometry::NurbsCurve, String> {
+    if pts.len() < 2 {
+        return Err("polyline trim needs at least 2 stations".into());
+    }
+    Ok(popkern_core::geometry::NurbsCurve {
+        degree: 1,
+        knots: crate::fillet_surface::build_clamped_uniform_knots(pts.len(), 1),
+        control_points: pts.to_vec(),
+        weights: vec![1.0; pts.len()],
+    })
+}

@@ -185,13 +185,10 @@ fn build_nurbs_sweep(
     }
     let n_arc = arc_samples.max(3); // at least 3 points per arc
 
-    // Station refinement (PK-177): the walker's footprints carry
-    // ~1e-5 accuracy; re-solve each station against the actual
-    // supports with the same alternating-offset projection the
-    // chart extension uses (converges ~1e-10), so every loft row —
-    // not just the extension rows — is exact station geometry. The
-    // refined contacts feed rows AND trims consistently. Stations
-    // whose solve declines keep the walker values.
+    // Station refinement (PK-177): re-solve each station against
+    // the actual supports (alternating-offset projection, ~1e-10 —
+    // walker footprints carry ~1e-5), feeding rows AND trims
+    // consistently; declined solves keep the walker values.
     let refined: Option<Vec<(Point3, Point3)>> = supports.map(|(s1, s2)| {
         (0..n_sections)
             .map(|i| {
@@ -337,16 +334,12 @@ fn build_nurbs_sweep(
         )
     };
 
-    // Chart overlap (PK-141/PK-177): extend the loft by exact
-    // extrapolated station rows at each end on curved-support
-    // strips, until the chart reaches past the corner-ball station
-    // (clamped charts left the corner chord endpoint OUTSIDE both
-    // charts — measured 2.4e-2/3.7e-2 clamp distances at W). Both
-    // the rational 3-row loft and the sampled-skin fallback extend;
-    // rows are re-projected onto the supports and re-arced, so the
-    // extension is exact station geometry; trims and anchors are
-    // untouched (walk-based window extension was falsified three
-    // ways — see the ledger).
+    // Chart overlap (PK-141/PK-177): extend curved-support lofts by
+    // exact extrapolated station rows past the corner-ball station
+    // (clamped charts left the corner contact W OUTSIDE both charts,
+    // 2.4e-2/3.7e-2). All layouts extend; rows re-project onto the
+    // supports, trims/anchors untouched (walk-based window extension
+    // falsified three ways — ledger).
     let (mut nurbs, continuity_downgrade) = (nurbs, continuity_downgrade);
     if let Some((s1, s2)) = supports {
         let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
@@ -355,9 +348,21 @@ fn build_nurbs_sweep(
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
-    // Trims fit through the SAME (refined) footprints the rows use.
-    let trim_1 = crate::center_curve::fit_nurbs_through_points(footprint_1)?;
-    let trim_2 = crate::center_curve::fit_nurbs_through_points(footprint_2)?;
+    // Trims through the SAME (refined) footprints as the rows; for
+    // degree-1 lofts as degree-1 polylines, so each trim IS the
+    // surface rail exactly (a smooth trim deviates by the station
+    // sagitta s²/8R — measured ~6e-5 on the boss bottom rail).
+    let (trim_1, trim_2) = if degree_u == 1 {
+        (
+            crate::station_geometry::station_polyline(footprint_1)?,
+            crate::station_geometry::station_polyline(footprint_2)?,
+        )
+    } else {
+        (
+            crate::center_curve::fit_nurbs_through_points(footprint_1)?,
+            crate::center_curve::fit_nurbs_through_points(footprint_2)?,
+        )
+    };
 
     Ok(FilletSurfaceResult {
         surface: SurfaceGeometry::Nurbs(nurbs),

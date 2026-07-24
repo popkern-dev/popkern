@@ -71,9 +71,36 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
     for err in brep.validate_all() {
         if std::env::var_os("PK_GAUGE_TRACE").is_some() {
             if let popkern_core::error::ValidationError::CurveSurfaceDeviation { edge, .. } = &err {
+                let identity = brep.edges.get(*edge).map(|ed| {
+                    let he = &brep.half_edges[ed.half_edge];
+                    let tw = &brep.half_edges[he.twin];
+                    let face_kind = |f: popkern_core::topology::FaceHandle| {
+                        brep.faces
+                            .get(f)
+                            .and_then(|fd| fd.surface.as_ref())
+                            .map(|s| format!("{:?}", std::mem::discriminant(&s.geometry)))
+                            .unwrap_or_else(|| "none".into())
+                    };
+                    let a = brep.vertices[he.origin].position;
+                    let b = brep.vertices[tw.origin].position;
+                    format!(
+                        "faces {:?}({})/{:?}({}) span ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                        brep.loops[he.loop_].face,
+                        face_kind(brep.loops[he.loop_].face),
+                        brep.loops[tw.loop_].face,
+                        face_kind(brep.loops[tw.loop_].face),
+                        a.x,
+                        a.y,
+                        a.z,
+                        b.x,
+                        b.y,
+                        b.z
+                    )
+                });
                 eprintln!(
-                    "[gauge] {err:?} (edge tolerance {:?})",
-                    brep.edges.get(*edge).and_then(|e| e.tolerance)
+                    "[gauge] {err:?} (edge tolerance {:?}; {})",
+                    brep.edges.get(*edge).and_then(|e| e.tolerance),
+                    identity.unwrap_or_default()
                 );
             } else {
                 eprintln!("[gauge] {err:?}");
