@@ -32,7 +32,9 @@ pub(crate) fn extend_loft_rows(
     // Two supported layouts: the exact rational 3-row loft (mid CP
     // weighted cos(θ/2)) and the sampled-skin fallback (m unit-
     // weight arc samples per station).
-    let rational3 = m == 3 && loft.weights.iter().any(|w| (w - 1.0).abs() > 1e-12);
+    let nonunit = loft.weights.iter().any(|w| (w - 1.0).abs() > 1e-12);
+    let rational3 = m == 3 && nonunit;
+    let bi5 = m == 5 && nonunit;
     let row = |cps: &[Point3], i: usize| -> [Point3; 3] {
         [cps[i * m], cps[i * m + m / 2], cps[i * m + m - 1]]
     };
@@ -96,6 +98,30 @@ pub(crate) fn extend_loft_rows(
         let ([f0, mid, f2], w) = contacts;
         if rational3 {
             (vec![*f0, *mid, *f2], vec![1.0, *w, 1.0])
+        } else if bi5 {
+            // Exact two-segment rational row (see
+            // bi_rational_arc_row): recover the station centre from
+            // the solved contacts, rebuild the piecewise mids.
+            let Some(d) = ((*f0 - *mid) + (*f2 - *mid)).normalized() else {
+                return (Vec::new(), Vec::new());
+            };
+            let centre = *mid + d * (radius / *w);
+            let (Some(u1), Some(u2)) = ((*f0 - centre).normalized(), (*f2 - centre).normalized())
+            else {
+                return (Vec::new(), Vec::new());
+            };
+            let theta = u1.dot(&u2).clamp(-1.0, 1.0).acos();
+            let Some(bis) = (u1 + u2).normalized() else {
+                return (Vec::new(), Vec::new());
+            };
+            let arc_mid = centre + bis * radius;
+            let wq = (theta * 0.25).cos();
+            let (Some(m1d), Some(m2d)) = ((u1 + bis).normalized(), (u2 + bis).normalized()) else {
+                return (Vec::new(), Vec::new());
+            };
+            let m1 = centre + m1d * (radius / wq);
+            let m2 = centre + m2d * (radius / wq);
+            (vec![*f0, m1, arc_mid, m2, *f2], vec![1.0, wq, 1.0, wq, 1.0])
         } else {
             // Sampled-skin layout: re-sample the exact station arc
             // at the row's arc density. The station centre is

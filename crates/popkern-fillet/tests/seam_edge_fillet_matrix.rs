@@ -276,15 +276,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-177 frontier: chart extension now covers BOTH strip
-    // layouts (rational loft + sampled skin) out past the
-    // corner-ball station, putting the corner contact W inside
-    // every chart — the corner-chord class is GONE (was 3.5e-3).
-    // ONE residual remains (2.07e-5): the near-corner
-    // original-edge segment's true worst sits ~6e-5 between the
-    // check-9 fractions, above the declared-accuracy recording
-    // ceiling — honestly exposed; the corner carve topology is the
-    // recorded mechanism for (0,0,0).
+    // PK-177 frontier: chart extension covers ALL strip layouts
+    // (rational, bi-rational, skin) past the corner-ball station,
+    // and the two-segment EXACT rational tier replaced the sampled
+    // skin for wide arcs — the corner-chord class is GONE (was
+    // 3.5e-3) and the frontier sits at 1.25e-5, one edge, with a
+    // true worst ~6e-5 at the WALKER FOOTPRINT precision class —
+    // above the declared-accuracy ceiling, honestly exposed. The
+    // corner carve topology remains the recorded mechanism for
+    // (0,0,0).
     assert_eq!(
         (structural, open),
         (0, 0),

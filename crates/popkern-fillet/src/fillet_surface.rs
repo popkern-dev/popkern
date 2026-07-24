@@ -199,6 +199,7 @@ fn build_nurbs_sweep(
     // -segment range fall back to the legacy sampled skin, recorded
     // as a continuity downgrade.
     let mut rational_rows: Option<Vec<([Point3; 3], f64)>> = Some(Vec::with_capacity(n_sections));
+    let mut bi_rows: Option<Vec<([Point3; 5], f64)>> = Some(Vec::with_capacity(n_sections));
     let mut sampled_points = Vec::with_capacity(n_sections * n_arc);
     for i in 0..n_sections {
         let t = t_min + (t_max - t_min) * (i as f64) / ((n_sections - 1).max(1) as f64);
@@ -209,6 +210,12 @@ fn build_nurbs_sweep(
             match rational_arc_row(&center, fp1, fp2) {
                 Some(row) => rows.push(row),
                 None => rational_rows = None,
+            }
+        }
+        if let Some(rows) = bi_rows.as_mut() {
+            match bi_rational_arc_row(&center, fp1, fp2) {
+                Some(row) => rows.push(row),
+                None => bi_rows = None,
             }
         }
         let arc_pts = sample_arc(&center, fp1, fp2, radius, n_arc);
@@ -252,6 +259,32 @@ fn build_nurbs_sweep(
             weights,
         };
         (loft, None)
+    } else if let Some(rows) = bi_rows {
+        // Two-segment piecewise-rational rows: EXACT arcs for
+        // sweeps beyond the single-segment range (up to ~170° per
+        // station). The sampled polyline skin's chordal deviation
+        // (measured 8.7e-5 at r = 0.05 with 8-point arcs) was the
+        // wall x strip mutual-disagreement floor on the boss
+        // corner-adjacent rail.
+        let mut control_points = Vec::with_capacity(n_sections * 5);
+        let mut weights = Vec::with_capacity(n_sections * 5);
+        for (cps, w) in &rows {
+            control_points.extend_from_slice(cps);
+            weights.extend_from_slice(&[1.0, *w, 1.0, *w, 1.0]);
+        }
+        (
+            NurbsSurface {
+                degree_u,
+                degree_v: 2,
+                knots_u: build_clamped_uniform_knots(n_sections, degree_u),
+                knots_v: vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0],
+                control_points,
+                num_u: n_sections,
+                num_v: 5,
+                weights,
+            },
+            None,
+        )
     } else {
         let degree_v = 1.min(n_arc - 1);
         (
@@ -330,6 +363,46 @@ fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<([P
     let r = 0.5 * (r1 + r2);
     let mid = *center + mid_dir * (r / w_mid);
     Some(([*start, mid, *end], w_mid))
+}
+
+/// One EXACT two-segment piecewise-rational arc row from `start` to
+/// `end` about `center`: control points [start, M1, mid, M2, end]
+/// with segment-mid weights cos(θ/4) and a doubled interior knot at
+/// 0.5. Exact for sweeps the single-segment row declines
+/// (~115°..170°); `None` outside its own well-conditioned range.
+fn bi_rational_arc_row(
+    center: &Point3,
+    start: &Point3,
+    end: &Point3,
+) -> Option<([Point3; 5], f64)> {
+    let v1 = *start - *center;
+    let v2 = *end - *center;
+    let r1 = v1.length();
+    let r2 = v2.length();
+    if r1 < 1e-12 || r2 < 1e-12 {
+        return None;
+    }
+    // Row is exact for the MEAN circle; a footprint radius mismatch
+    // of ε leaves an ε/2 residual. 1e-3 relative admits walker
+    // footprints (~1e-5 class) at a sub-precision residual — still
+    // an order under the sampled skin's chordal error.
+    if (r1 - r2).abs() > 1e-3 * r1.max(r2) {
+        return None;
+    }
+    let u1 = v1 * (1.0 / r1);
+    let u2 = v2 * (1.0 / r2);
+    let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
+    let theta = cos_theta.acos();
+    if !(1e-9..=3.0).contains(&theta) {
+        return None;
+    }
+    let r = 0.5 * (r1 + r2);
+    let bis = (u1 + u2).normalized()?;
+    let mid = *center + bis * r;
+    let w = (theta * 0.25).cos();
+    let m1 = *center + (u1 + bis).normalized()? * (r / w);
+    let m2 = *center + (u2 + bis).normalized()? * (r / w);
+    Some(([*start, m1, mid, m2, *end], w))
 }
 
 /// Sample a circular arc from `start` to `end` centered at `center`.

@@ -153,6 +153,9 @@ pub(super) fn try_curved_fit(
             // tolerance. The achieved residual is recorded on the
             // edge below.
             if d1 > (chord_len * 1e-4).max(3.3e-5) {
+                if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                    eprintln!("[fit-decline] {edge:?} sample residual {d1:.3e} at t={t:.3}");
+                }
                 return false;
             }
         }
@@ -164,6 +167,12 @@ pub(super) fn try_curved_fit(
             p1.z + t * (p2.z - p1.z),
         );
         if p.distance_to(&chord_pt) > chord_len * 0.5 {
+            if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
+                eprintln!(
+                    "[fit-decline] {edge:?} branch drift {:.3e} at t={t:.3}",
+                    p.distance_to(&chord_pt)
+                );
+            }
             return false;
         }
         points.push(p);
