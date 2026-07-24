@@ -138,6 +138,64 @@ pub(super) fn try_curved_fit(
             prev = p;
         }
         if !converged {
+            // Tangential support-pair rescue: a fillet strip is
+            // TANGENT to its own analytic support along the rail,
+            // and the alternating projection converges only
+            // linearly there (measured stall: d2 = 0 on the strip,
+            // d1 stuck 1.09e-4 off the plane). The honest
+            // intersection is the strip RAIL — clamp the STRIP's v
+            // to each domain end and accept only a witness inside
+            // the fit gate (same-face seam pairs and NURBS x NURBS
+            // joins must NOT be dragged to rails: unconstrained,
+            // this rescue shipped a 2.5e-3 seam defect).
+            let analytic_nurbs_pair = matches!(
+                (&sof_1.geometry, &sof_2.geometry),
+                (
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                        | popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. },
+                    popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                ) | (
+                    popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_),
+                    popkern_core::geometry::surface::SurfaceGeometry::Plane { .. }
+                        | popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. },
+                )
+            ) && face_1 != face_2;
+            if analytic_nurbs_pair {
+                let gate = (chord_len * 1e-4).max(3.3e-5);
+                let strip = if matches!(
+                    &sof_1.geometry,
+                    popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
+                ) {
+                    sof_1
+                } else {
+                    sof_2
+                };
+                if let Some((u, _)) =
+                    popkern_core::geometry::uv_projection::project_point_to_uv(&strip.geometry, &p)
+                {
+                    let ((_, _), (v0, v1)) = strip.geometry.parameter_range();
+                    for v_end in [v0, v1] {
+                        if !v_end.is_finite() {
+                            continue;
+                        }
+                        let q = strip.geometry.point_at(u, v_end);
+                        let score = [sof_1, sof_2]
+                            .iter()
+                            .filter_map(|so| {
+                                popkern_core::geometry::uv_projection::project_point_to_uv(
+                                    &so.geometry,
+                                    &q,
+                                )
+                                .map(|(uu, vv)| q.distance_to(&so.geometry.point_at(uu, vv)))
+                            })
+                            .fold(0.0_f64, f64::max);
+                        if score < gate {
+                            p = q;
+                            break;
+                        }
+                    }
+                }
+            }
             // Residual acceptance: on both surfaces within the fit
             // scale even though the tangential slide has not stalled.
             let d1 = sof_1
@@ -154,7 +212,15 @@ pub(super) fn try_curved_fit(
             // edge below.
             if d1 > (chord_len * 1e-4).max(3.3e-5) {
                 if std::env::var_os("PK_RECONCILE_TRACE").is_some() {
-                    eprintln!("[fit-decline] {edge:?} sample residual {d1:.3e} at t={t:.3}");
+                    let d2 = sof_2
+                        .geometry
+                        .closest_point(&p)
+                        .map(|(u, v)| p.distance_to(&sof_2.geometry.point_at(u, v)))
+                        .unwrap_or(-1.0);
+                    eprintln!(
+                        "[fit-decline] {edge:?} sample residual d1={d1:.3e} d2={d2:.3e} at                          t={t:.3} p=({:.4},{:.4},{:.4})",
+                        p.x, p.y, p.z
+                    );
                 }
                 return false;
             }

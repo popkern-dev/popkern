@@ -83,8 +83,12 @@ fn try_reconcile_cyl_plane_edge(brep: &mut BRep, edge: EdgeHandle, tolerance: &T
         return false;
     };
     if face_1 == face_2 {
-        // Self-loop edge — pcurve repair only, skip 3D curve rewrite.
-        return false;
+        // Self-loop (seam/slit) edge: no pair intersection exists,
+        // but the curve's honest home is ON the one surface — refit
+        // by direct projection when it deviates (measured: a strip-
+        // internal slit at the boss top seam crossing sat 2.5e-3
+        // off its own strip, masked behind the first-error report).
+        return super::seam_self_fit::try_same_face_seam_fit(brep, edge);
     }
 
     let Some(sof_1) = brep.faces.get(face_1).and_then(|f| f.surface.as_ref()) else {

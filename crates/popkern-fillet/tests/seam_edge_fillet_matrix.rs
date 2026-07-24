@@ -276,15 +276,16 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-177 frontier: chart extension covers ALL strip layouts
-    // (rational, bi-rational, skin) past the corner-ball station,
-    // and the two-segment EXACT rational tier replaced the sampled
-    // skin for wide arcs — the corner-chord class is GONE (was
-    // 3.5e-3) and the frontier sits at 1.25e-5, one edge, with a
-    // true worst ~6e-5 at the WALKER FOOTPRINT precision class —
-    // above the declared-accuracy ceiling, honestly exposed. The
-    // corner carve topology remains the recorded mechanism for
-    // (0,0,0).
+    // PK-177 frontier: check 9 reports FIRST error only, so this
+    // pin is a defect STACK top. Fixed so far (each fix popped the
+    // next): corner chords (3.5e-3), tangent-stall plane x strip
+    // rails (1.25e-5 via the rail-clamp rescue), same-face seam
+    // slits (2.5e-3 via seam_self_fit). Current top: the cross-seam
+    // strip x strip join chord at 2.07e-2 — the KNOWN class whose
+    // honest mutual gap measured 1.4e-5 historically with
+    // achieved-gap tolerance recording; the witness projection
+    // fails across the join (chart coverage at the seam), so the
+    // reading is unproven. Ledger has the probe plan.
     assert_eq!(
         (structural, open),
         (0, 0),
