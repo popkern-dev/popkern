@@ -267,10 +267,15 @@ fn boss_on_wall_seam_crossing_chain_measured() {
     // PK-141 frontier: all six chain pieces serve as honest NURBS
     // strips, the seam+rim pocket is expelled to the wall, the
     // cross-strip seam chord refits with its achieved gap recorded.
-    // ONE residual remains (1.28e-2): the strip x strip CORNER chord
-    // — the corner sphere-wedge insertion (geometry fully solved in
-    // corner_cap_geometry) is the last construction; the gated
-    // corner snap (PK141_CORNER_SNAP) flips with it.
+    // ONE residual remains (1.28e-2): the strip x strip CORNER
+    // chord. Measured model (sphere wedge FALSIFIED — the third
+    // corner edge is SHARP, so the honest corner is the two strips
+    // mutually trimmed along their envelope intersection, and the
+    // chord's TOPOLOGY is already right): the remaining mechanism is
+    // strip CHART EXTENSION past the chain-corner stations so the
+    // existing NURBS x NURBS refit can land the chord on both
+    // envelopes; the gated corner snap (PK141_CORNER_SNAP, target
+    // measured exact = the rails' wall crossing) flips with it.
     assert_eq!(
         (structural, open),
         (0, 0),

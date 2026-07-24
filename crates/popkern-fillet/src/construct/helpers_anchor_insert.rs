@@ -147,6 +147,7 @@ pub(in crate::construct) fn insert_anchor_with_spur(
     face: FaceHandle,
     tolerance: &Tolerance,
 ) -> Result<VertexHandle, String> {
+    let gate_multiplier = 100.0;
     // The position must actually lie on the face's surface.
     let sof = brep
         .faces
@@ -165,7 +166,7 @@ pub(in crate::construct) fn insert_anchor_with_spur(
         popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &position)
             .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(&position))
             .unwrap_or(f64::INFINITY);
-    let gate = tolerance.linear().max(1e-9) * 100.0;
+    let gate = tolerance.linear().max(1e-9) * gate_multiplier;
     if on_surface > gate {
         return Err(format!(
             "anchor {position:?} is {on_surface:.3e} off face {face:?} — not an interior anchor"
