@@ -127,7 +127,8 @@ pub(super) fn try_in_place_support_rewrites(
     }
     Some(
         SideSupportRegionContinuationResult::from_face_family_bridge_payload(faces, loops)
-            .with_vertex_remap(merged),
+            .with_vertex_remap(merged)
+            .with_current_winding_preserved(),
     )
 }
 

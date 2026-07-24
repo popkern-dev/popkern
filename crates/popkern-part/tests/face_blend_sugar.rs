@@ -38,15 +38,25 @@ fn face_blend_selectors_resolve_notch_walls() {
         move |f| f.filter(move |i| i.normal.map(|n| tilted(1.0)(&n)).unwrap_or(false)),
         move |f| f.filter(move |i| i.normal.map(|n| tilted(-1.0)(&n)).unwrap_or(false)),
     );
-    // The through-notch TrimBoth attach is a recorded decline today
-    // (open-ended pocket; the material-adding attach is PK-163). The
-    // sugar must surface that structured decline verbatim — not
-    // panic, not silently no-op.
-    let err = result.expect_err("through-notch TrimBoth declines pending PK-163");
-    let msg = format!("{err}");
+    // The through-notch TrimBoth attach SERVES since the PK-167
+    // constructive V-free path became primary (it was a recorded
+    // decline pending PK-163's material-adding attach). Hard gate:
+    // watertight, structurally valid, measured census.
+    let part = result.expect("through-notch TrimBoth face blend must serve");
+    let errors = part.brep().validate_all();
     assert!(
-        msg.contains("end-arc support") || msg.contains("face_blend"),
-        "decline must carry the kernel diagnostic: {msg}"
+        errors.is_empty(),
+        "served notch blend must validate: {errors:?}"
+    );
+    assert_eq!(
+        part.open_edge_count().expect("open-edge census"),
+        0,
+        "served notch blend must be watertight"
+    );
+    assert_eq!(
+        part.brep().faces.len(),
+        10,
+        "measured face census for the served notch blend"
     );
 }
 

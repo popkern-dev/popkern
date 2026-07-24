@@ -158,33 +158,18 @@ pub fn compute_unfillet_plan(
         // a corner CAP has no planar end face to intersect — the
         // corner's radii are coupled and the group must re-dispatch
         // together. Name the record path so callers route there.
-        let cap_neighbour = crate::identify::blend_neighbours(brep, blend_face)
-            .into_iter()
-            .any(|f| {
-                matches!(
-                    brep.faces
-                        .get(f)
-                        .and_then(|fd| fd.surface.as_ref())
-                        .map(|s| &s.geometry),
-                    Some(
-                        popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
-                            | popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)
-                            | popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)
-                    )
-                )
-            });
-        let route = if cap_neighbour {
-            " — the strip ends at a corner cap (coupled radii); unfillet/modify the group via \
-             the operation record (unfillet_via_record / modify_fillet_radius_via_record); the \
-             recordless corner-group restore is the recorded follow-up"
-        } else {
-            ""
-        };
+        // A failed endpoint derivation means the recordless restore
+        // cannot serve this strip's class (corner caps, setback
+        // sectors, constructively-reorganized neighborhoods) — the
+        // operation record is the route, so name it unconditionally.
         return Err(BlendError::InvalidParameter {
             parameter: "blend_face".to_string(),
             value: format!("{blend_face:?}"),
             reason: format!(
-                "found {} valid restored-edge endpoints; need exactly 2{route}",
+                "found {} valid restored-edge endpoints; need exactly 2 — the recordless \
+                 restore cannot derive this class; unfillet/modify via the operation record \
+                 (unfillet_via_record / modify_fillet_radius_via_record; coupled corner \
+                 groups share one record)",
                 endpoints.len()
             ),
         });

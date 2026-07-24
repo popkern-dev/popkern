@@ -44,18 +44,23 @@ fn capped_corner(radii: [f64; 3]) -> (BRep, popkern_core::topology::FaceHandle) 
         .collect();
     let r = fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None)
         .expect("capped-corner fillet");
+    // Pick a cylinder face that IDENTIFIES as a blend: the serving
+    // body can also carry non-blend cylinder fragments (support
+    // subdivision cells under the PK-167 in-place path), which the
+    // identify layer correctly rejects.
     let strip = r
         .brep
         .faces
         .iter()
-        .find(|(_, f)| {
+        .filter(|(_, f)| {
             matches!(
                 f.surface.as_ref().map(|s| &s.geometry),
                 Some(SurfaceGeometry::Cylinder { .. })
             )
         })
         .map(|(fh, _)| fh)
-        .expect("strip face");
+        .find(|&fh| popkern_fillet::identify_blend(&r.brep, fh).is_some())
+        .expect("identifiable strip face");
     (r.brep, strip)
 }
 

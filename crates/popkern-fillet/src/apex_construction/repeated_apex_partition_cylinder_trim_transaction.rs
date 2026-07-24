@@ -115,19 +115,39 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
         // spans keep the default Reauthored path. Probe the
         // decision on a clone: the continuation's apply path is
         // its own readiness authority.
-        let probe_bridge_spans: Vec<(VertexHandle, VertexHandle)> = {
+        let (probe_bridge_spans, probe_preserves_current_winding): (
+            Vec<(VertexHandle, VertexHandle)>,
+            bool,
+        ) = {
             let mut probe = brep.clone();
             match apply_selected_side_support_continuation(&mut probe, &subcomplex_plan) {
-                Ok(outcome) => twinless_boundary_spans_of_loops(&probe, outcome.bridge_loops()),
-                Err(_) => Vec::new(),
+                Ok(outcome) => (
+                    twinless_boundary_spans_of_loops(&probe, outcome.bridge_loops()),
+                    matches!(
+                        &outcome,
+                        SideSupportRegionContinuationOutcome::Applied(result)
+                            if result.preserves_current_winding()
+                    ),
+                ),
+                Err(_) => (Vec::new(), false),
             }
         };
+        // The PK-167 in-place continuation preserves the CURRENT
+        // shell winding by construction (face identity kept, no
+        // reserved twinless spans exist to signal it) — every fillet
+        // end must plan with the current winding, or the Reauthored
+        // reauthor steals the cap sides and hands each FilletEnd
+        // seam twin to the retired apex-cell residual (measured:
+        // cube_extreme cap x unsurfaced-residual seams, V-free
+        // acceptance declined with 3 missing support pcurves).
         let prefer_current_winding: Vec<bool> = rebuild_plans
             .iter()
             .map(|plan| {
-                plan.current_winding_generator_spans()
-                    .iter()
-                    .any(|(start, end)| probe_bridge_spans.contains(&(*end, *start)))
+                probe_preserves_current_winding
+                    || plan
+                        .current_winding_generator_spans()
+                        .iter()
+                        .any(|(start, end)| probe_bridge_spans.contains(&(*end, *start)))
             })
             .collect();
         // The default (Reauthored-winding) preflight is advisory when a

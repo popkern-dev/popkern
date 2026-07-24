@@ -167,17 +167,17 @@ pub(super) fn apply_topology_operator(
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
     bridge_operator_trace::trace_cycle_structure(primitive, &candidate);
-    // PK-167 stage 1b substrate (opt-in): in-place support-loop
-    // rewrites — the Fix-A weld executed constructively (no mirror
-    // bridge face, no flap; measured on the V-free mixed cube:
-    // 3 rewrites + 3 welds, ZERO boundary edges at operator exit,
-    // consolidation repair legitimately empty). NOT yet the default:
-    // the exact-boundary consumers (support-face subdivision, cap
-    // materialization) walk the bridge face and the dead sides
-    // (measured: 8 direct-apex matrix gates fail constructively);
-    // porting them is the recorded step-2/3 work. All-or-nothing; a
-    // region whose chain doesn't close falls back to the bridge.
-    if std::env::var_os("PK167_INPLACE").is_some() {
+    // PK-167 stage 1b: in-place support-loop rewrites — the Fix-A
+    // weld executed constructively (no mirror bridge face, no flap;
+    // measured on the V-free mixed cube: 3 rewrites + 3 welds, ZERO
+    // boundary edges at operator exit, consolidation repair
+    // legitimately empty). DEFAULT ON since the consumer ports
+    // landed (preferred-survivor weld/merge + plan vertex remap +
+    // pcurve heal + current-winding marker; direct-apex matrix 20/0
+    // constructively). PK167_INPLACE_OFF preserves the aggregate
+    // path. All-or-nothing; a region whose chain doesn't close
+    // falls back to the aggregate bridge.
+    if std::env::var_os("PK167_INPLACE_OFF").is_none() {
         // Pre-existing records are the survivorship-preferred set for
         // the weld/merge: topology plans authored before this
         // continuation (cylinder trim rewrite) hold these handles and

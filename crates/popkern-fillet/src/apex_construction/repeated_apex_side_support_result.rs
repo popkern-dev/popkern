@@ -14,6 +14,11 @@ pub(super) struct SideSupportRegionContinuationResult {
     /// the continuation must re-resolve their vertex handles through
     /// this map before consuming them.
     vertex_remap: BTreeMap<VertexHandle, VertexHandle>,
+    /// True when the continuation preserved the CURRENT shell
+    /// winding by construction (the PK-167 in-place rewrite keeps
+    /// face identity and old-shell winding; no reserved twinless
+    /// connector spans exist to signal the winding to later stages).
+    current_winding_preserved: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -65,7 +70,19 @@ impl SideSupportRegionContinuationResult {
             bridge_faces,
             bridge_loops,
             vertex_remap: BTreeMap::new(),
+            current_winding_preserved: false,
         }
+    }
+
+    pub(super) fn with_current_winding_preserved(mut self) -> Self {
+        self.current_winding_preserved = true;
+        self
+    }
+
+    /// True when the continuation preserved the current shell
+    /// winding by construction (see `current_winding_preserved`).
+    pub(super) fn preserves_current_winding(&self) -> bool {
+        self.current_winding_preserved
     }
 
     pub(super) fn with_vertex_remap(
@@ -90,11 +107,14 @@ impl SideSupportRegionContinuationResult {
         bridge_loops.extend(other.bridge_loops);
         let mut vertex_remap = self.vertex_remap;
         vertex_remap.extend(other.vertex_remap);
+        let current_winding_preserved =
+            self.current_winding_preserved || other.current_winding_preserved;
         Self {
             primitive: SideSupportContinuationPrimitive::MixedBridgeAndCylinderMediated,
             bridge_faces,
             bridge_loops,
             vertex_remap,
+            current_winding_preserved,
         }
     }
 
