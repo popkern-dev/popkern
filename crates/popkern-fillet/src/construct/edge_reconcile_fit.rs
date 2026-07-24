@@ -438,8 +438,14 @@ pub(crate) fn snap_vertex_and_adjacent_chords(
                 } else {
                     n2.control_points.last_mut()
                 };
+                // The CP belongs to this endpoint when it sits much
+                // closer to the old vertex than the move distance
+                // (exact-match 1e-6 silently left junction-adjacent
+                // curve starts 2e-2 behind a 5e-2 settle move —
+                // measured on the boss smooth-junction settles).
+                let move_len = old_pos.distance_to(&target);
                 if let Some(cp) = moved
-                    && cp.distance_to(&old_pos) < 1e-6
+                    && cp.distance_to(&old_pos) < (move_len * 0.5).max(1e-6)
                 {
                     *cp = target;
                     if let Some(e) = brep.edges.get_mut(eh) {

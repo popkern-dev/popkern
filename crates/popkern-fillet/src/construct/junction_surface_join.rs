@@ -79,8 +79,9 @@ fn face_edges(brep: &BRep, face: FaceHandle) -> Vec<EdgeHandle> {
 }
 
 /// Worst witness-measured curve-to-adjacent-surface deviation over
-/// the given edges.
-fn global_deviation(brep: &BRep, edges: &[EdgeHandle]) -> f64 {
+/// the given edges. `label` names the phase in the gated trace.
+fn global_deviation(brep: &BRep, edges: &[EdgeHandle], label: &str) -> f64 {
+    let trace = std::env::var_os("PK_RECONCILE_TRACE").is_some();
     use popkern_core::geometry::curve::CurveEval;
     let mut worst = 0.0_f64;
     for &edge in edges {
@@ -127,7 +128,14 @@ fn global_deviation(brep: &BRep, edges: &[EdgeHandle]) -> f64 {
                     .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal))
                 {
                     prev = Some(uv);
-                    worst = worst.max(d);
+                    if d > worst {
+                        worst = d;
+                    }
+                    if trace && d > 1.0e-4 {
+                        eprintln!(
+                            "[junction-join]   {label} {edge:?} on {face:?}: d={d:.3e} at i={i}"
+                        );
+                    }
                 }
             }
         }
@@ -245,14 +253,49 @@ pub(crate) fn join_smooth_junction_strips(brep: &mut BRep, join: SmoothJunctionJ
         num_v: 5,
         weights,
     });
-    // GLOBAL acceptance scope: every edge bounding either face.
+    // GLOBAL acceptance scope: every edge bounding either face,
+    // EXCLUDING edges that touch a corner-class vertex (3+ distinct
+    // incident surfaces): their endpoint deviations are the
+    // recorded carve-pending debt no junction join can improve —
+    // with them in scope the before-measure saturates at 2.07e-2
+    // and drowns the join's signal (measured).
+    let corner_class = |v: popkern_core::topology::VertexHandle| -> bool {
+        let mut sigs: Vec<String> = Vec::new();
+        for (_, he) in brep.half_edges.iter() {
+            if he.origin != v {
+                continue;
+            }
+            if let Some(l) = brep.loops.get(he.loop_)
+                && let Some(fd) = brep.faces.get(l.face)
+                && let Some(sof) = fd.surface.as_ref()
+            {
+                let sig = format!("{:?}", sof.geometry);
+                if !sigs.contains(&sig) {
+                    sigs.push(sig);
+                }
+            }
+        }
+        sigs.len() >= 3
+    };
     let mut scope = face_edges(brep, face_a);
     for e in face_edges(brep, face_b) {
         if !scope.contains(&e) {
             scope.push(e);
         }
     }
-    let before = global_deviation(brep, &scope);
+    scope.retain(|&e| {
+        brep.edges.get(e).is_some_and(|ed| {
+            brep.half_edges.get(ed.half_edge).is_some_and(|he| {
+                brep.half_edges
+                    .get(he.twin)
+                    .is_some_and(|tw| !corner_class(he.origin) && !corner_class(tw.origin))
+            })
+        })
+    });
+    if scope.is_empty() {
+        return false;
+    }
+    let before = global_deviation(brep, &scope, "before");
     let mut cand = brep.clone();
     for face in [face_a, face_b] {
         if let Some(fd) = cand.faces.get_mut(face) {
@@ -270,7 +313,7 @@ pub(crate) fn join_smooth_junction_strips(brep: &mut BRep, join: SmoothJunctionJ
         let _ = super::seam_self_fit::try_same_face_seam_fit(&mut cand, edge);
     }
     cand.fix_stale_pcurves();
-    let after = global_deviation(&cand, &scope);
+    let after = global_deviation(&cand, &scope, "after");
     if trace {
         eprintln!(
             "[junction-join] {n} joint station(s), {} scoped edge(s); global deviation \
