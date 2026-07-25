@@ -123,7 +123,7 @@ fn try_pns_dispatch_succeeds_at_higher_valences() {
             VertexBlendClassification::SameSideConvex,
             Vec::new(),
         )
-        .unwrap_or_else(|| panic!("N={n_fillets}: PnS dispatch should succeed"));
+        .unwrap_or_else(|e| panic!("N={n_fillets}: PnS dispatch should succeed, got {e}"));
 
         assert_eq!(patches.len(), n_fillets);
         for (k, patch) in patches.iter().enumerate() {

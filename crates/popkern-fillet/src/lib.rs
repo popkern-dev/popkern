@@ -8,6 +8,7 @@ pub mod blend_diagnostics;
 pub(crate) mod blend_warnings;
 pub mod cancellation;
 pub mod cap;
+pub mod cap_seam_continuity;
 pub mod center_curve;
 pub mod center_curve_helpers;
 mod center_curve_station;

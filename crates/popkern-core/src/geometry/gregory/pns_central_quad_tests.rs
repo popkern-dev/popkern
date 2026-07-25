@@ -26,7 +26,7 @@ fn zero_a_gives_zero_bb_coefs() {
         a_xy: zero,
         a_yy: zero,
     };
-    let sigma = sigma_center_jet_default(6);
+    let sigma = sigma_center_jet_default(6).expect("paper defaults yield a finite σ jet");
     let bb = central_bb_from_a_and_sigma(&a, &sigma);
     for p in [bb.p00, bb.p10, bb.p01, bb.p20, bb.p11, bb.p02] {
         assert!(approx_pt(p, zero, 1e-12));
@@ -46,7 +46,7 @@ fn constant_a_pins_all_central_coefs_to_pole() {
         a_xy: zero,
         a_yy: zero,
     };
-    let sigma = sigma_center_jet_default(7);
+    let sigma = sigma_center_jet_default(7).expect("paper defaults yield a finite σ jet");
     let bb = central_bb_from_a_and_sigma(&a, &sigma);
     for p in [bb.p00, bb.p10, bb.p01, bb.p20, bb.p11, bb.p02] {
         assert!(approx_pt(p, pole, 1e-12), "got {p:?}");
@@ -66,7 +66,7 @@ fn p00_is_always_pole() {
         a_yy: pt(0.0, 0.0, 5.0),
     };
     for n in [5_usize, 6, 7, 8] {
-        let sigma = sigma_center_jet_default(n);
+        let sigma = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let bb = central_bb_from_a_and_sigma(&a, &sigma);
         assert!(approx_pt(bb.p00, pole, 1e-12), "n={n}");
     }
@@ -79,7 +79,7 @@ fn p00_is_always_pole() {
 /// a direct computation with rotated sigma jet.
 #[test]
 fn rotate_sigma_jet_preserves_structure() {
-    let sigma = sigma_center_jet_default(6);
+    let sigma = sigma_center_jet_default(6).expect("paper defaults yield a finite σ jet");
     // Rotate by 0 → identity.
     let rotated_0 = rotate_sigma_jet(&sigma, 0.0);
     assert!(approx_jet(&sigma, &rotated_0, 1e-12));
@@ -125,7 +125,7 @@ fn paraboloid_a_gives_rotationally_symmetric_cap() {
         a_xy: zero,
         a_yy: pt(0.0, 0.0, 2.0),
     };
-    let sigma = sigma_center_jet_default(6);
+    let sigma = sigma_center_jet_default(6).expect("paper defaults yield a finite σ jet");
     let all = central_bb_all_sectors(&a, &sigma, 6);
     // All 6 sectors' p_{00} = pole.
     for bb in &all {
@@ -158,7 +158,7 @@ fn central_bb_all_sectors_count_and_finite() {
         a_yy: pt(0.0, 0.0, 0.4),
     };
     for n in [5_usize, 6, 7, 8] {
-        let sigma = sigma_center_jet_default(n);
+        let sigma = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let all = central_bb_all_sectors(&a, &sigma, n);
         assert_eq!(all.len(), n);
         for bb in &all {

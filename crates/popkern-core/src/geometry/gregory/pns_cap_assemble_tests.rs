@@ -8,18 +8,18 @@ use super::super::pns_sigma::sigma_center_jet_default;
 use super::*;
 use crate::geometry::Point3;
 
-fn pt(x: f64, y: f64, z: f64) -> Point3 {
+pub(super) fn pt(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
 }
 
-fn approx_pt(a: Point3, b: Point3, eps: f64) -> bool {
+pub(super) fn approx_pt(a: Point3, b: Point3, eps: f64) -> bool {
     (a.x - b.x).abs() < eps && (a.y - b.y).abs() < eps && (a.z - b.z).abs() < eps
 }
 
 /// Build a trivial boundary ring where every sector's strip is
 /// a planar horizontal curve (z = 0) — useful as a first-cut
 /// smoke test for the scaffolding.
-fn planar_ring(n: usize, radius: f64) -> Bi2TensorBorderRing {
+pub(super) fn planar_ring(n: usize, radius: f64) -> Bi2TensorBorderRing {
     let mut sectors = Vec::with_capacity(n);
     for k in 0..n {
         let a0 = 2.0 * std::f64::consts::PI * (k as f64) / (n as f64);
@@ -44,7 +44,7 @@ fn even_valence_assembles_successfully() {
         let input = CapAssembleInput {
             boundary: planar_ring(n, 1.0),
             beta: BetaReparam::bi4(n),
-            sigma: sigma_center_jet_default(n),
+            sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
             pole: pt(0.0, 0.0, 0.5),
             kappa: 3,
         };
@@ -88,86 +88,13 @@ fn pole_from_boundary_feeds_assembly() {
     let input = CapAssembleInput {
         boundary: ring,
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa: 3,
     };
     let result = assemble_pns_bi4_cap(&input).expect("auto-pole assembly should succeed");
     for k in 0..n {
         assert!(approx_pt(result.patches[k][0][0], pole, 1e-12));
-    }
-}
-
-#[test]
-fn n4_rejected_with_informative_error() {
-    let input = CapAssembleInput {
-        boundary: planar_ring(4, 1.0),
-        beta: BetaReparam::bi4(4),
-        sigma: sigma_center_jet_default(4),
-        pole: pt(0.0, 0.0, 0.5),
-        kappa: 3,
-    };
-    let result = assemble_pns_bi4_cap(&input);
-    assert!(
-        matches!(result, Err(CapAssembleError::N4NotSupported)),
-        "n=4 should return N4NotSupported, got {:?}",
-        result.err()
-    );
-}
-
-#[test]
-fn eq2_g1_holds_for_even_n() {
-    // Verify all 5 eq (2) outputs hold to floating-point precision
-    // for even n ∈ {6, 8} (n=4 is singular; other even n work).
-    use super::super::pns_g1_constraints::bi4_g1_row_from_row1;
-    for n in [6_usize, 8] {
-        let input = CapAssembleInput {
-            boundary: planar_ring(n, 1.3),
-            beta: BetaReparam::bi4(n),
-            sigma: sigma_center_jet_default(n),
-            pole: pt(0.0, 0.0, 0.2),
-            kappa: 3,
-        };
-        let result = assemble_pns_bi4_cap(&input).expect("even n should succeed");
-        let tol = 1e-10;
-        for k in 0..n {
-            let nxt = (k + 1) % n;
-            let cur_row1 = [
-                result.patches[k][1][0],
-                result.patches[k][1][1],
-                result.patches[k][1][2],
-                result.patches[k][1][3],
-                result.patches[k][1][4],
-            ];
-            let nxt_row1 = [
-                result.patches[nxt][0][1],
-                result.patches[nxt][1][1],
-                result.patches[nxt][2][1],
-                result.patches[nxt][3][1],
-                result.patches[nxt][4][1],
-            ];
-            let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
-            assert!(
-                approx_pt(g1.cur10, result.patches[k][0][1], tol),
-                "n={n} sector {k} cur_{{10}} mismatch"
-            );
-            assert!(
-                approx_pt(g1.cur20, result.patches[k][0][2], tol),
-                "n={n} sector {k} cur_{{20}} mismatch"
-            );
-            assert!(
-                approx_pt(g1.cur30, result.patches[k][0][3], tol),
-                "n={n} sector {k} cur_{{30}} mismatch"
-            );
-            assert!(
-                approx_pt(g1.cur40, result.patches[k][0][4], tol),
-                "n={n} sector {k} cur_{{40}} mismatch"
-            );
-            assert!(
-                approx_pt(g1.nxt21, result.patches[nxt][2][1], tol),
-                "n={n} sector {k} nxt_{{21}} mismatch"
-            );
-        }
     }
 }
 
@@ -180,7 +107,7 @@ fn scaffold_invalid_valence_errors() {
             // Use 5 sectors but tell the function to expect these.
             boundary: planar_ring(n.max(3), 1.0),
             beta: BetaReparam::bi4(n.max(3)),
-            sigma: sigma_center_jet_default(n.max(3)),
+            sigma: sigma_center_jet_default(n.max(3)).expect("paper defaults yield a finite σ jet"),
             pole: pt(0.0, 0.0, 0.5),
             kappa: 3,
         };
@@ -208,7 +135,7 @@ fn scaffold_pole_pinned_at_all_sector_origins() {
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa: 3,
     };
@@ -235,7 +162,7 @@ fn canonical_v4_edge_matches_b_o_beta_row0() {
     let input = CapAssembleInput {
         boundary: boundary.clone(),
         beta,
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa: 3,
     };
@@ -260,7 +187,7 @@ fn scaffold_returns_n_patches() {
         let input = CapAssembleInput {
             boundary: planar_ring(n, 1.0),
             beta: BetaReparam::bi4(n),
-            sigma: sigma_center_jet_default(n),
+            sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
             pole: pt(0.0, 0.0, 0.0),
             kappa: 3,
         };
@@ -278,7 +205,7 @@ fn cur_nxt_seam_sharing_holds() {
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole: pt(0.0, 0.0, 0.0),
         kappa: 3,
     };
@@ -303,7 +230,7 @@ fn a_0_pinned_to_pole() {
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.0),
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa: 3,
     };
@@ -332,7 +259,7 @@ fn eq2_g1_all_outputs_hold_after_solve() {
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.5),
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole: pt(0.0, 0.0, 0.3),
         kappa: 3,
     };
@@ -356,7 +283,8 @@ fn eq2_g1_all_outputs_hold_after_solve() {
             result.patches[nxt][3][1],
             result.patches[nxt][4][1],
         ];
-        let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n);
+        let g1 = bi4_g1_row_from_row1(result.patches[k][0][0], cur_row1, nxt_row1, n)
+            .expect("determined valence must solve");
         // Check all 5 eq (2) outputs against the assembled cap's
         // canonical values (with paper→canonical swap on cur side).
         let expected_cur10 = result.patches[k][0][1]; // paper (1, 0) = canonical (0, 1)
@@ -410,7 +338,7 @@ fn f_kappa_reduced_relative_to_zero_fill() {
     let input = CapAssembleInput {
         boundary: planar_ring(n, 1.5),
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa,
     };

@@ -132,12 +132,19 @@ pub enum CapAssembleError {
     /// Valence is out of the supported range `[3, 12]`.
     #[error("PnS cap assemble: n must be in [3, 12], got {0}")]
     InvalidValence(usize),
-    /// Valence `n = 4` is not supported — σ has a `1/c` singularity
-    /// with `c = cos(π/2) = 0`.
-    #[error(
-        "PnS cap assemble: n=4 is not supported by the bi-4 construction (σ_{{20,x}} has a 1/c singularity with c=cos(π/2)=0). Use the bi-3 variant or a different cap."
-    )]
-    N4NotSupported,
+    /// The supplied σ center jet contains a non-finite coefficient.
+    ///
+    /// Assembly consumes a jet it did not build, so this is the
+    /// backstop against a caller passing a divergent σ — most
+    /// plausibly a hand-rolled `n = 4` jet whose `1/c` pole did not
+    /// cancel. Callers building σ through
+    /// [`super::pns_sigma::sigma_center_jet`] get a typed
+    /// `SigmaJetError` at construction instead and never reach here.
+    #[error("PnS cap assemble: σ center jet has a non-finite {coefficient} coefficient")]
+    NonFiniteSigmaJet {
+        /// Which jet coefficient was non-finite.
+        coefficient: &'static str,
+    },
     /// `κ` is out of the supported range `1..=4`.
     #[error("PnS cap assemble: kappa must be 1..=4, got {0}")]
     InvalidKappa(usize),
@@ -193,6 +200,31 @@ pub fn pole_from_boundary(boundary: &Bi2TensorBorderRing) -> Point3 {
     central_point(&d1, &d24_half, e)
 }
 
+/// Reject a σ center jet carrying a non-finite coefficient before it
+/// can poison the whole cap.
+///
+/// Assembly receives σ as data rather than building it, so a caller
+/// that hand-rolls a divergent jet (classically an `n = 4` jet whose
+/// `1/c` pole did not cancel) would otherwise propagate NaN silently
+/// into every patch. Jets built via
+/// [`super::pns_sigma::sigma_center_jet`] are already checked at
+/// construction and always pass here.
+fn check_sigma_jet_finite(sigma: &SigmaCenterJet) -> Result<(), CapAssembleError> {
+    for (coefficient, value) in [
+        ("σ(0,0)", sigma.s00),
+        ("∂_u σ", sigma.ds_u),
+        ("∂_v σ", sigma.ds_v),
+        ("∂²_u σ", sigma.ds_uu),
+        ("∂²_v σ", sigma.ds_vv),
+        ("∂²_uv σ", sigma.ds_uv),
+    ] {
+        if !value[0].is_finite() || !value[1].is_finite() {
+            return Err(CapAssembleError::NonFiniteSigmaJet { coefficient });
+        }
+    }
+    Ok(())
+}
+
 /// Assemble a PnS bi-4 cap from boundary + pole + σ jet.
 pub fn assemble_pns_bi4_cap(
     input: &CapAssembleInput,
@@ -201,13 +233,14 @@ pub fn assemble_pns_bi4_cap(
     if !(3..=12).contains(&n) {
         return Err(CapAssembleError::InvalidValence(n));
     }
-    // n=4 is numerically singular: c = cos(2π/4) = 0 appears in
-    // σ_{20,x}'s `1/(3c)` factor. The paper's bi-4 construction
-    // doesn't apply to n=4; callers should use the bi-3 variant
-    // (`pns_bi3_twists`) or a different cap entirely.
-    if n == 4 {
-        return Err(CapAssembleError::N4NotSupported);
-    }
+    // n=4 was long rejected here on the grounds that c = cos(2π/4) = 0
+    // makes σ_{20,x}'s `1/(3c)` factor singular. That reading was
+    // wrong: regrouped as `d₁ + (4/(3c))·(cos(α/2)·d₂ − d₁)`, the
+    // residue vanishes bit-exactly at n=4 under the paper's Appendix B
+    // scalings, so the pole is removable and the jet is finite. σ now
+    // carries that limit itself, and reports an irremovable pole as a
+    // typed error for non-default scalings — see `pns_sigma`. Nothing
+    // else in this assembly divides by c, so n=4 needs no other guard.
     // Other even n (6, 8, 10, 12) work fine — my asymmetric
     // closed-form treatment (treating canonical (1, 2) as the
     // free DOF and (2, 1), (3, 1), (4, 1) as one-way derivations
@@ -216,6 +249,7 @@ pub fn assemble_pns_bi4_cap(
     if !(1..=4).contains(&input.kappa) {
         return Err(CapAssembleError::InvalidKappa(input.kappa));
     }
+    check_sigma_jet_finite(&input.sigma)?;
 
     // Precompute per-sector σ^k and boundary (row0, row1).
     //
@@ -253,3 +287,7 @@ pub fn assemble_pns_bi4_cap(
 #[cfg(test)]
 #[path = "pns_cap_assemble_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "pns_cap_assemble_n4_tests.rs"]
+mod n4_tests;

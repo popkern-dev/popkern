@@ -160,7 +160,7 @@ pub fn try_pns_setback_candidate(
 
     // ---- paper-faithful assembly ----------------------------------------
     let pole = pole_from_boundary(&ring);
-    let sigma = sigma_center_jet_default(n);
+    let sigma = sigma_center_jet_default(n).map_err(|e| format!("PnS σ jet: {e}"))?;
     let beta = BetaReparam::bi4(n);
     let cap = assemble_pns_bi4_cap(&CapAssembleInput {
         boundary: ring,

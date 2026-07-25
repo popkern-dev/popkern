@@ -93,6 +93,40 @@ pub fn d2_def(n: usize) -> f64 {
     (0.44 * n_f - 0.75) / ((n_f - 4.0) + 2.02 * std::f64::consts::SQRT_2)
 }
 
+/// Dimensionless bound on the σ pole residue `cos(α/2)·d₂ − d₁` below
+/// which the `1/c` term at `n = 4` is treated as exactly cancelled.
+///
+/// This is a **numerical-conditioning threshold on an algebraic
+/// residue**, not a geometric tolerance — it carries no length units
+/// and never reaches the geometry layer, so it is a named constant
+/// rather than a caller-supplied parameter. The paper's Appendix B
+/// defaults produce a residue of exactly `0.0` at `n = 4` (verified
+/// bit-exactly in `pns_sigma_tests`), so any caller relying on the
+/// removable pole clears this bound by an infinite margin; the bound
+/// exists only to reject *other* `(d₁, d₂)` pairs, whose σ genuinely
+/// diverges.
+const SIGMA_POLE_RESIDUE_BOUND: f64 = 1e-12;
+
+/// Failure modes of the σ center-jet construction.
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
+pub enum SigmaJetError {
+    /// The PnS sector construction needs at least a triangle.
+    #[error("PnS σ: valence must be ≥ 3, got {0}")]
+    ValenceTooSmall(usize),
+    /// `n = 4` makes `c = cos(2π/n)` vanish, putting a `1/c` pole in
+    /// `σ_{20,x}`. The pole cancels iff `cos(α/2)·d₂ = d₁`; these
+    /// scalings do not satisfy that, so no finite jet exists.
+    #[error(
+        "PnS σ: n=4 puts a 1/cos(2π/n) pole in σ_{{20,x}}; it cancels only when cos(α/2)·d₂ = d₁, but the supplied scalings leave residue {residue:.6e} (bound {bound:.1e})"
+    )]
+    IrremovablePole {
+        /// The measured residue `cos(α/2)·d₂ − d₁`.
+        residue: f64,
+        /// The bound it had to clear.
+        bound: f64,
+    },
+}
+
 /// Build the order-≤2 jet of σ at `(0, 0)` from explicit scaling
 /// parameters `d_1`, `d_2` for valence `n`. See [`sigma_center_jet_default`]
 /// for the paper defaults.
@@ -109,6 +143,37 @@ pub fn d2_def(n: usize) -> f64 {
 ///   σ_{20} = ((1 − 4c/3) d_1
 ///            + (4 cos(α/2) / (3c)) d_2, 0) — on the lower edge
 /// ```
+///
+/// # The `n = 4` pole is removable
+///
+/// Regrouping `σ_{20,x}` around the singular factor:
+/// ```text
+///   σ_{20,x} = (1 − 4/(3c))·d₁ + (4·cos(α/2)/(3c))·d₂
+///            = d₁ + (4/(3c))·( cos(α/2)·d₂ − d₁ )
+///            = d₁ + (4/(3c))·r,     r := cos(α/2)·d₂ − d₁
+/// ```
+/// For integer `n ≥ 3`, `c = cos(2π/n)` vanishes at `n = 4` and
+/// nowhere else, so `r` is the only thing standing between `n = 4`
+/// and a finite jet. Under the Appendix B defaults it vanishes
+/// *exactly* there:
+/// ```text
+///   d₁(4)      = 0.21/0.84            = 1/4
+///   d₂(4)      = 1.01/(2.02·√2)       = 1/(2√2)
+///   cos(α/2)   = cos(π/4)             = 1/√2
+///   cos(α/2)·d₂ = 1/4 = d₁     ⟹    r = 0   (bit-exactly in f64)
+/// ```
+/// This is not a coincidence of rounding: `1.01 = 2.02/2` and
+/// `0.84 = 4·0.21` make both defaults exact rationals at `n = 4`.
+/// The paper's scalings are built so the pole cancels.
+///
+/// So `n = 4` is a **removable coordinate singularity**, and the jet
+/// there is `σ_{20,x} = d₁`. Earlier revisions of this kernel treated
+/// it as structural and rejected `n = 4` outright, which cost the
+/// bi-4 cap every four-valent corner (pyramid apexes, cross
+/// junctions). We detect the pole on `n == 4` exactly rather than by
+/// thresholding `c` — `cos(π/2)` is `6.12e-17` in f64, not zero, so a
+/// threshold on `c` would be an arbitrary epsilon where an exact
+/// integer test will do.
 ///
 /// The remaining two order-≤2 coefs follow from flip-symmetry of the
 /// sector about its diagonal (which in image space is reflection
@@ -132,8 +197,10 @@ pub fn d2_def(n: usize) -> f64 {
 ///   ∂²_{uv} σ(0, 0) = 16·(σ_{11} − σ_{10} − σ_{01} + σ_{00})
 ///                   = 16·(σ_{11} − σ_{10} − σ_{01})
 /// ```
-pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> SigmaCenterJet {
-    assert!(n >= 3, "PnS σ: n must be ≥ 3, got {n}");
+pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> Result<SigmaCenterJet, SigmaJetError> {
+    if n < 3 {
+        return Err(SigmaJetError::ValenceTooSmall(n));
+    }
     let alpha = 2.0 * std::f64::consts::PI / (n as f64);
     let c = alpha.cos();
     let (ha_sin, ha_cos) = (alpha * 0.5).sin_cos();
@@ -143,13 +210,29 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> SigmaCenterJet {
     // σ_{11} = (d_2 · cos(α/2), d_2 · sin(α/2))
     let s11 = [d2 * ha_cos, d2 * ha_sin];
     // σ_{20,x} = (1 − 4/(3c)) d_1 + (4 cos(α/2) / (3c)) d_2
+    //          = d_1 + (4/(3c))·r,   r := cos(α/2)·d_2 − d_1
     //
     // NOTE: our original transcription had (1 − 4c/3)·d_1 here;
     // derived algebraically (2026-04-24) that eq (2) cur_{20}
     // auto-holds iff the d_1 coef is (1 − 4/(3c)). With this form,
     // eq (2) residuals drop to ~1e-16 across all 5 outputs. The
     // typo likely arose from a LaTeX ambiguity `4c/3` vs `4/(3c)`.
-    let s20_x = (1.0 - 4.0 / (3.0 * c)) * d1 + (4.0 * ha_cos / (3.0 * c)) * d2;
+    //
+    // The residue form is what makes n=4 tractable — see the
+    // "removable pole" section of this function's docs.
+    let residue = ha_cos * d2 - d1;
+    let s20_x = if n == 4 {
+        if residue.abs() > SIGMA_POLE_RESIDUE_BOUND {
+            return Err(SigmaJetError::IrremovablePole {
+                residue,
+                bound: SIGMA_POLE_RESIDUE_BOUND,
+            });
+        }
+        // Pole cancelled: the 1/c term is absent, leaving σ_{20,x} = d₁.
+        d1
+    } else {
+        d1 + (4.0 / (3.0 * c)) * residue
+    };
     let s20 = [s20_x, 0.0];
     let alpha_sin = alpha.sin();
     let s01 = [d1 * c, d1 * alpha_sin];
@@ -172,20 +255,24 @@ pub fn sigma_center_jet(n: usize, d1: f64, d2: f64) -> SigmaCenterJet {
         16.0 * (s11[1] - s10[1] - s01[1]),
     ];
 
-    SigmaCenterJet {
+    Ok(SigmaCenterJet {
         s00,
         ds_u,
         ds_v,
         ds_uu,
         ds_vv,
         ds_uv,
-    }
+    })
 }
 
 /// Build the σ center jet using paper-default scaling parameters
 /// [`d1_def`], [`d2_def`]. This is the entry point for the bi-4
 /// cap's G² construction at the pole.
-pub fn sigma_center_jet_default(n: usize) -> SigmaCenterJet {
+///
+/// Succeeds for every valence `n ≥ 3`, including `n = 4` — the
+/// Appendix B defaults cancel the `n = 4` pole exactly. The only
+/// error this can return is [`SigmaJetError::ValenceTooSmall`].
+pub fn sigma_center_jet_default(n: usize) -> Result<SigmaCenterJet, SigmaJetError> {
     sigma_center_jet(n, d1_def(n), d2_def(n))
 }
 

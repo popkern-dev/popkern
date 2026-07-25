@@ -91,6 +91,9 @@ fn cylinder_plane_gap_sheet_blend_g1() {
             face_a: wall,
             face_b: rod,
             radius,
+            // Constant law: PK-162's linear radius law is exercised by
+            // the fillet crate's own variable-radius gates.
+            radius_end: None,
             attach: FaceBlendAttach::SheetOnly,
         },
         tol(),

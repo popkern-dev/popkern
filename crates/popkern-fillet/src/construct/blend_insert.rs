@@ -31,7 +31,8 @@ use crate::types::{
 };
 use crate::vertex_classifier::VertexBlendClassification;
 use blend_insert_diagnostics::{
-    rational_gregory_dispatch_declined_diagnostic, rational_gregory_dispatch_precondition_reason,
+    pns_dispatch_declined_diagnostic, rational_gregory_dispatch_declined_diagnostic,
+    rational_gregory_dispatch_precondition_reason,
 };
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
 use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
@@ -336,8 +337,33 @@ pub(crate) fn insert_vertex_blend(
     };
     let mut diagnostics = Vec::new();
 
+    // Record WHY the PnS route was not entered. Until this existed, a
+    // corner that failed the boundary preconditions was
+    // indistinguishable from one where PnS was never enabled — both
+    // produced zero diagnostics — which is precisely what hid the
+    // n=3 / n=4 dispatch gap.
     if crate::blend::pns_promote::pns_env_enabled()
-        && n_sides >= 5
+        && n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE
+    {
+        let segments = n_gon_boundary.as_ref().map(|b| b.segments.len());
+        let precondition_failure = match segments {
+            None => Some("no_n_gon_boundary".to_string()),
+            Some(len) if len != 2 * n_sides => {
+                Some(format!("segment_count={len}, expected={}", 2 * n_sides))
+            }
+            Some(_) => None,
+        };
+        if let Some(detail) = precondition_failure {
+            diagnostics.push(pns_dispatch_declined_diagnostic(
+                n_sides,
+                "precondition_failed",
+                Some(detail),
+            ));
+        }
+    }
+
+    if crate::blend::pns_promote::pns_env_enabled()
+        && n_sides >= crate::blend::pns_promote::PNS_MIN_VALENCE
         && let Some(boundary) = n_gon_boundary.as_ref()
         && boundary.segments.len() == 2 * n_sides
         && let Some(patches) = blend_insert_pns_acceptance::try_pns_dispatch_with_acceptance(

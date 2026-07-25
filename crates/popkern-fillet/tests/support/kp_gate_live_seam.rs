@@ -34,6 +34,53 @@ pub struct LiveSeamMetrics {
 }
 
 /// Measure every edge whose two faces are both in `faces`.
+/// Cross-seam normal alignment sampled at explicit fractions along
+/// the shared curve, for localising a bad seam.
+///
+/// `measure_live_cap_seams` reports only the worst value over its
+/// sampling window (`f in [0.05, 0.95]`). When that worst value is
+/// bad, the next question is always *where*: a misalignment that
+/// climbs steadily toward one end is a degenerate-pole artifact,
+/// while one that is bad mid-seam is a real crease. This returns the
+/// `(f, |cos|)` profile so the two can be told apart.
+#[allow(dead_code)]
+pub fn seam_cos_profile(
+    brep: &BRep,
+    face_a: FaceHandle,
+    face_b: FaceHandle,
+    fractions: &[f64],
+) -> Option<Vec<(f64, f64)>> {
+    for (_eh, edge) in brep.edges.iter() {
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let Some(twin_he) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin_he.loop_)) else {
+            continue;
+        };
+        let (fa, fb) = (la.face, lb.face);
+        if !((fa == face_a && fb == face_b) || (fa == face_b && fb == face_a)) {
+            continue;
+        }
+        let curve = edge.curve.as_ref()?;
+        let side_a = seam_side(brep, edge.half_edge, curve)?;
+        let side_b = seam_side(brep, he.twin, curve)?;
+        let mut out = Vec::new();
+        for &f in fractions {
+            let (uv_a, _) = side_a.eval_fraction(f);
+            let (uv_b, _) = side_b.eval_fraction(f);
+            let (Some(n_a), Some(n_b)) = (side_a.normal(uv_a), side_b.normal(uv_b)) else {
+                continue;
+            };
+            out.push((f, n_a.dot(&n_b).abs()));
+        }
+        return Some(out);
+    }
+    None
+}
+
 pub fn measure_live_cap_seams(
     brep: &BRep,
     faces: &[FaceHandle],
@@ -58,8 +105,19 @@ pub fn measure_live_cap_seams(
             continue;
         };
         let twin = he_data.twin;
-        let f_a = brep.loops[he_data.loop_].face;
-        let f_b = brep.loops[brep.half_edges[twin].loop_].face;
+        // Index defensively: a mid-pipeline BRep can carry a stale
+        // `loop_` on a twin half-edge (the PK-074 phantom-seam class).
+        // A measurement helper must report that as "no measurable
+        // seam here", never abort the whole gate with a SlotMap panic.
+        let (Some(loop_a), Some(twin_he)) =
+            (brep.loops.get(he_data.loop_), brep.half_edges.get(twin))
+        else {
+            continue;
+        };
+        let Some(loop_b) = brep.loops.get(twin_he.loop_) else {
+            continue;
+        };
+        let (f_a, f_b) = (loop_a.face, loop_b.face);
         if f_a == f_b || !cap.contains(&f_a) || !cap.contains(&f_b) {
             continue;
         }

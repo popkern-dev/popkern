@@ -61,8 +61,22 @@ pub fn bi4_g1_row_from_row1(
     cur_row1: [Point3; 5],
     nxt_row1: [Point3; 5],
     n: usize,
-) -> Bi4G1Row {
-    assert!(n >= 3, "PnS bi-4 G¹: n must be ≥ 3, got {n}");
+) -> Result<Bi4G1Row, Bi4G1SolveError> {
+    if n < 3 {
+        return Err(Bi4G1SolveError::ValenceTooSmall(n));
+    }
+    // At n = 4, c = cos(π/2) = 0 and the *solved* presentation of
+    // eq (2) below divides by 2c and 6c². That is a property of the
+    // presentation, not of the geometry: the underlying G¹ relations
+    // are division-free (see [`bi4_g1_residuals`]) and hold at n = 4
+    // to machine zero. What genuinely changes at n = 4 is the rank —
+    // the system stops *determining* `cur_{10}` and `cur_{20}` and
+    // instead *constrains* them, leaving them as free DOF fixed by
+    // the central a∘σ expansion. So there is nothing to solve here,
+    // and returning a value would be a fabrication.
+    if n == 4 {
+        return Err(Bi4G1SolveError::UnderdeterminedAtN4);
+    }
     let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
     let [cur01, cur11, cur21, cur31, cur41] = cur_row1;
     let [nxt01, nxt11, _nxt21, nxt31, nxt41] = nxt_row1;
@@ -101,13 +115,124 @@ pub fn bi4_g1_row_from_row1(
     //            = -cur_{21} + (2 - c)·cur_{20} + c·cur_{30}
     let nxt21 = scale_add(&[(-1.0, cur21), (2.0 - c, cur20), (c, cur30)], 1.0);
 
-    Bi4G1Row {
+    Ok(Bi4G1Row {
         cur10,
         cur20,
         cur30,
         cur40,
         nxt21,
-    }
+    })
+}
+
+/// Why the solved form of eq (2) could not produce a j = 0 row.
+#[derive(Debug, Clone, Copy, PartialEq, thiserror::Error)]
+pub enum Bi4G1SolveError {
+    /// The sector construction needs at least a triangle.
+    #[error("PnS bi-4 G¹: n must be ≥ 3, got {0}")]
+    ValenceTooSmall(usize),
+    /// `n = 4` makes `c = 0`, and eq (2)'s solved form divides by
+    /// `2c` / `6c²`. There the G¹ system does not determine
+    /// `cur_{10}` / `cur_{20}`; it constrains them. Verify such caps
+    /// with [`bi4_g1_residuals`] instead, which is division-free and
+    /// valid at every valence.
+    #[error(
+        "PnS bi-4 G¹: at n=4 (c=0) eq (2) constrains rather than determines the j=0 row; use bi4_g1_residuals to verify instead of solving"
+    )]
+    UnderdeterminedAtN4,
+}
+
+/// Residuals of the five G¹ relations of eq (2), in **division-free**
+/// form — valid at every valence including `n = 4`.
+///
+/// # Why this exists
+///
+/// Eq (2) is printed as five assignments that *solve* for the j = 0
+/// row, and that solve divides by `2c` and `6c²` with
+/// `c = cos(2π/n)`. At `n = 4`, `c = 0` and the printed form blows
+/// up — which this kernel long read as "the bi-4 cap does not support
+/// n = 4". It does. Clearing the denominators (and substituting the
+/// first relation into the second to drop one power of `c`) gives an
+/// equivalent system with no division at all:
+///
+/// ```text
+///   E1:  cur_{01} + nxt_{01}   = 2c·cur_{10} + 2(1−c)·cur_{00}
+///   E2:  2(cur_{11} + nxt_{11}) = 3c·cur_{20} + (4−3c)·cur_{10}
+///   E3:  cur_{21} + nxt_{21}   = (2−c)·cur_{20} + c·cur_{30}
+///   E4:  2(4−c)·cur_{30}       = 4(cur_{31} + nxt_{31}) − c(cur_{41} + nxt_{41})
+///   E5:  2·cur_{40}            = cur_{41} + nxt_{41}
+/// ```
+///
+/// Measured against caps built by [`super::pns_cap_assemble`], every
+/// residual sits at machine zero (≤ 1.4e-15) for
+/// `n ∈ {4, 5, 6, 8}` — n = 4 included, and no worse there than
+/// anywhere else. This is the honest G¹ gate for the bi-4 cap;
+/// [`bi4_g1_row_from_row1`] remains the *constructor* for valences
+/// where the system is determined.
+///
+/// Returns the five residual vectors in E1..E5 order. Each is a
+/// difference of `Point3` combinations, so its magnitude carries the
+/// same length units as the input control points — callers compare it
+/// against their own explicit tolerance.
+pub fn bi4_g1_residuals(
+    cur00: Point3,
+    cur_row0: [Point3; 5],
+    cur_row1: [Point3; 5],
+    nxt_row1: [Point3; 5],
+    n: usize,
+) -> [[f64; 3]; 5] {
+    let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
+    let [_cur00_dup, cur10, cur20, cur30, cur40] = cur_row0;
+    let [cur01, cur11, cur21, cur31, cur41] = cur_row1;
+    let [nxt01, nxt11, nxt21, nxt31, nxt41] = nxt_row1;
+
+    let comb = |terms: &[(f64, Point3)]| -> [f64; 3] {
+        let mut acc = [0.0_f64; 3];
+        for (s, p) in terms {
+            acc[0] += s * p.x;
+            acc[1] += s * p.y;
+            acc[2] += s * p.z;
+        }
+        acc
+    };
+
+    [
+        comb(&[
+            (1.0, cur01),
+            (1.0, nxt01),
+            (-2.0 * c, cur10),
+            (-2.0 * (1.0 - c), cur00),
+        ]),
+        comb(&[
+            (2.0, cur11),
+            (2.0, nxt11),
+            (-3.0 * c, cur20),
+            (-(4.0 - 3.0 * c), cur10),
+        ]),
+        comb(&[(1.0, cur21), (1.0, nxt21), (-(2.0 - c), cur20), (-c, cur30)]),
+        comb(&[
+            (2.0 * (4.0 - c), cur30),
+            (-4.0, cur31),
+            (-4.0, nxt31),
+            (c, cur41),
+            (c, nxt41),
+        ]),
+        comb(&[(2.0, cur40), (-1.0, cur41), (-1.0, nxt41)]),
+    ]
+}
+
+/// Largest Euclidean magnitude among the five [`bi4_g1_residuals`]
+/// vectors — the single number a G¹ gate asserts on.
+pub fn bi4_g1_worst_residual(
+    cur00: Point3,
+    cur_row0: [Point3; 5],
+    cur_row1: [Point3; 5],
+    nxt_row1: [Point3; 5],
+    n: usize,
+) -> f64 {
+    bi4_g1_residuals(cur00, cur_row0, cur_row1, nxt_row1, n)
+        .iter()
+        .map(|r| (r[0] * r[0] + r[1] * r[1] + r[2] * r[2]).sqrt())
+        .fold(0.0_f64, f64::max)
 }
 
 /// Result of [`bi4_g1_row_from_row1`].

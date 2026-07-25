@@ -11,6 +11,18 @@ use thiserror::Error;
 /// human-readable message per the UI-forward rules.
 #[derive(Debug, Error)]
 pub enum PartError {
+    /// Building a smooth body from a control mesh failed.
+    ///
+    /// Carries the pipeline stage that declined so the caller can
+    /// tell a bad cage from a weld that could not close.
+    #[error("smooth mesh failed at {stage}: {detail}")]
+    SmoothMesh {
+        /// Which stage declined ("obj parse", "spline construction",
+        /// "boundary weld", "closure").
+        stage: &'static str,
+        /// The underlying reason.
+        detail: String,
+    },
     /// Profile extrusion / sweeping failed in the sweep kernel.
     #[error("sweep failed while building '{feature}': {source}")]
     Sweep {

@@ -238,7 +238,7 @@ fn blend_boundary_to_ring_feeds_pns_cap_assembly() {
     let input = CapAssembleInput {
         boundary: ring,
         beta: BetaReparam::bi4(n),
-        sigma: sigma_center_jet_default(n),
+        sigma: sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet"),
         pole,
         kappa: 3,
     };

@@ -43,6 +43,9 @@ pub enum PnsPromoteError {
     /// Cap assembly step failed (bad valence, singular F_κ, etc).
     #[error("PnS promote: cap assembly failed: {0}")]
     Assembly(#[from] popkern_core::geometry::gregory::CapAssembleError),
+    /// The σ center jet could not be built for this valence.
+    #[error("PnS promote: σ center jet failed: {0}")]
+    SigmaJet(#[from] popkern_core::geometry::gregory::SigmaJetError),
     /// BRep topology op (poke) failed.
     #[error("PnS promote: BRep operation failed: {0}")]
     Brep(#[from] CoreError),
@@ -72,6 +75,28 @@ pub struct PnsInsertResult {
 /// configurable if needed.
 const DEFAULT_KAPPA: usize = 3;
 
+/// Lowest corner valence the PnS cap is dispatched for.
+///
+/// Held at 5 for most of this cap's life, for two reasons that have
+/// both since been retired:
+///
+/// - `n = 4` was believed structurally impossible (σ's `1/cos(2π/n)`
+///   pole). It is not — the pole is removable and cancels exactly
+///   under the paper's Appendix B scalings. See
+///   `popkern_core::geometry::gregory::pns_sigma`.
+/// - `n = 3` was simply never wired up, even though the adapter has
+///   always supported it.
+///
+/// Both are now measured through the same live-seam gates as the
+/// higher valences (`pns_low_valence_gates`), so the floor sits at
+/// the construction's true lower bound: a triangle.
+///
+/// This matters disproportionately because valence tracks corner
+/// frequency in reverse — `n = 3` is the cube corner and `n = 4` the
+/// pyramid apex, i.e. the two commonest corners in mechanical parts,
+/// while `n ≥ 5` is comparatively rare.
+pub const PNS_MIN_VALENCE: usize = 3;
+
 /// Produce one `SurfaceGeometry::Nurbs` per `BlendBoundary`
 /// segment, ready for assignment to a corresponding sub-face.
 ///
@@ -84,7 +109,7 @@ pub fn promote_blend_boundary_to_pns_surfaces(
     let ring = blend_boundary_to_pns_ring_with_surfaces(boundary, fillet_surfaces, brep)?;
     let n = ring.n();
     let pole = pole_from_boundary(&ring);
-    let sigma = sigma_center_jet_default(n);
+    let sigma = sigma_center_jet_default(n)?;
     let beta = BetaReparam::bi4(n);
     let input = CapAssembleInput {
         boundary: ring,
@@ -268,35 +293,17 @@ pub fn try_pns_dispatch(
     vertex: VertexHandle,
     classification: crate::vertex_classifier::VertexBlendClassification,
     bridge_fallbacks: Vec<&'static str>,
-) -> Option<Vec<crate::types::CornerPatchInfo>> {
+) -> Result<Vec<crate::types::CornerPatchInfo>, PnsPromoteError> {
     use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 
-    let trace = std::env::var("POPKERN_PNS_TRACE").is_ok();
-    if trace {
-        eprintln!(
-            "try_pns_dispatch: entering (n_segments={}, vertex={:?})",
-            boundary.segments.len(),
-            vertex
-        );
-    }
-
-    let result = match insert_pns_cap_into_blend_face(brep, blend_face, boundary, fillet_surfaces) {
-        Ok(r) => {
-            if trace {
-                eprintln!(
-                    "try_pns_dispatch: SUCCESS — {} sub-faces",
-                    r.sub_faces.len()
-                );
-            }
-            r
-        }
-        Err(e) => {
-            if trace {
-                eprintln!("try_pns_dispatch: insert failed: {e}");
-            }
-            return None;
-        }
-    };
+    // This step used to swallow its failure reason: it returned
+    // `Option` and printed the cause behind a `POPKERN_PNS_TRACE`
+    // env var, so in any normal run a PnS decline was invisible and
+    // the corner silently fell through to the next rung. The reason
+    // is now typed and returned, and the caller turns it into a
+    // structured `pns.dispatch.declined` diagnostic — which is how
+    // the n=3 / n=4 dispatch gaps were finally located.
+    let result = insert_pns_cap_into_blend_face(brep, blend_face, boundary, fillet_surfaces)?;
 
     let n_sides = result.sub_faces.len();
     let patches = result
@@ -318,5 +325,5 @@ pub fn try_pns_dispatch(
             exact_boundary_cap: false,
         })
         .collect();
-    Some(patches)
+    Ok(patches)
 }

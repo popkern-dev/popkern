@@ -37,6 +37,7 @@ pub mod poly;
 mod profile;
 mod select;
 mod shaping;
+pub mod smooth_mesh;
 #[cfg(feature = "text")]
 pub mod text;
 
@@ -56,6 +57,9 @@ pub use feature::{Feature, FeatureLog};
 pub use part::Part;
 pub use profile::{Plane, Profile};
 pub use select::{Dir, EdgeInfo, EdgeQuery, FaceInfo, FaceQuery, SurfaceKind};
+pub use smooth_mesh::{
+    SmoothMeshOptions, SmoothMeshReport, smooth_solid_from_control_net, smooth_solid_from_obj,
+};
 
 /// Everything a modeling script usually needs.
 pub mod prelude {

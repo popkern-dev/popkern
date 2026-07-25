@@ -34,7 +34,7 @@ pub use kp_gate_shared_trims::measure_shared_gregory_trims_with_sources;
 #[path = "support/kp_gate_live_seam.rs"]
 mod kp_gate_live_seam;
 #[allow(unused_imports)]
-pub use kp_gate_live_seam::{LiveSeamMetrics, measure_live_cap_seams};
+pub use kp_gate_live_seam::{LiveSeamMetrics, measure_live_cap_seams, seam_cos_profile};
 
 /// Commercial-grade gate thresholds. Discussion in
 /// `kp_binonic_commercial_gates.rs` module header.

@@ -29,7 +29,7 @@ fn d1_d2_paper_formulas() {
 #[test]
 fn sigma_00_is_origin() {
     for &n in &[5_usize, 6, 7, 8, 10] {
-        let jet = sigma_center_jet_default(n);
+        let jet = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         assert!(approx(jet.s00[0], 0.0, EPS));
         assert!(approx(jet.s00[1], 0.0, EPS));
     }
@@ -39,7 +39,7 @@ fn sigma_00_is_origin() {
 fn sigma_10_x_is_4_times_d1() {
     // ∂_u σ(0, 0) = 4·σ_{10} = 4·(d_1, 0).
     for &n in &[5_usize, 6, 7, 8, 10] {
-        let jet = sigma_center_jet_default(n);
+        let jet = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let d1 = d1_def(n);
         assert!(
             approx(jet.ds_u[0], 4.0 * d1, EPS),
@@ -55,7 +55,7 @@ fn sigma_10_x_is_4_times_d1() {
 fn sigma_01_is_d1_rotated_by_alpha() {
     // σ_{01} = (d_1 cos α, d_1 sin α), and ∂_v σ(0, 0) = 4·σ_{01}.
     for &n in &[5_usize, 6, 7, 8, 10] {
-        let jet = sigma_center_jet_default(n);
+        let jet = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let d1 = d1_def(n);
         let alpha = 2.0 * std::f64::consts::PI / (n as f64);
         let expected_x = 4.0 * d1 * alpha.cos();
@@ -73,7 +73,7 @@ fn sigma_jet_has_rotational_symmetry_in_u_v() {
     //   |ds_uu| = |ds_vv|
     //   angle(ds_v) − angle(ds_u) = α  (ds_v = ds_u rotated by α)
     for &n in &[5_usize, 6, 7, 8, 10] {
-        let jet = sigma_center_jet_default(n);
+        let jet = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let mag_u = (jet.ds_u[0].powi(2) + jet.ds_u[1].powi(2)).sqrt();
         let mag_v = (jet.ds_v[0].powi(2) + jet.ds_v[1].powi(2)).sqrt();
         assert!(
@@ -98,7 +98,7 @@ fn sigma_uv_lies_on_bisector_for_symmetric_construction() {
     // the bisector. And σ_{11} is on the bisector. So the
     // difference is also on the bisector (angle α/2).
     for &n in &[5_usize, 6, 7, 8, 10] {
-        let jet = sigma_center_jet_default(n);
+        let jet = sigma_center_jet_default(n).expect("paper defaults yield a finite σ jet");
         let alpha = 2.0 * std::f64::consts::PI / (n as f64);
         let bisector_angle = alpha * 0.5;
         let mixed_angle = jet.ds_uv[1].atan2(jet.ds_uv[0]);
@@ -120,7 +120,7 @@ fn explicit_n6_numerics() {
     //   d_1 = (0.24·6 − 0.75)/(6 − 3.16) = (1.44 − 0.75)/2.84 = 0.69/2.84 ≈ 0.24296
     //   d_2 = (0.44·6 − 0.75)/((6 − 4) + 2.02·√2) = (2.64 − 0.75)/(2 + 2.857)
     //       ≈ 1.89 / 4.857 ≈ 0.3892
-    let jet = sigma_center_jet_default(6);
+    let jet = sigma_center_jet_default(6).expect("paper defaults yield a finite σ jet");
     let d1 = 0.69 / 2.84;
     let d2 = 1.89 / (2.0 + 2.02 * std::f64::consts::SQRT_2);
     assert!(approx(d1_def(6), d1, 1e-8));

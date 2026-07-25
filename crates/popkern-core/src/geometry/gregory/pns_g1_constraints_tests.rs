@@ -18,7 +18,7 @@ fn bi4_zero_inputs_give_zero_outputs() {
     let zero = p(0.0, 0.0, 0.0);
     let row1 = [zero; 5];
     for n in [5_usize, 6, 7, 8] {
-        let r = bi4_g1_row_from_row1(zero, row1, row1, n);
+        let r = bi4_g1_row_from_row1(zero, row1, row1, n).expect("determined valence must solve");
         assert!(approx_pt(r.cur10, zero, 1e-12), "n={n}");
         assert!(approx_pt(r.cur20, zero, 1e-12), "n={n}");
         assert!(approx_pt(r.cur30, zero, 1e-12), "n={n}");
@@ -49,7 +49,8 @@ fn bi4_n6_matches_hand_calculation() {
         p(0.0, 2.0, 0.0),
         p(2.0, 0.0, 0.0),
     ];
-    let r = bi4_g1_row_from_row1(cur00, cur_row1, nxt_row1, 6);
+    let r =
+        bi4_g1_row_from_row1(cur00, cur_row1, nxt_row1, 6).expect("determined valence must solve");
 
     // cur10 = (2(c-1)·cur00 + cur01 + nxt01) / (2c)
     //       = (-1·(1,2,3) + (1,0,0) + (0,0,1)) / 1
@@ -117,7 +118,8 @@ fn bi4_g1_polynomial_identity_holds() {
     // sectors coincide). The test inputs satisfy this.
 
     for n in [5_usize, 6, 7, 8] {
-        let r = bi4_g1_row_from_row1(cur00, cur_row1, nxt_row1, n);
+        let r = bi4_g1_row_from_row1(cur00, cur_row1, nxt_row1, n)
+            .expect("determined valence must solve");
         let c = (2.0 * std::f64::consts::PI / (n as f64)).cos();
 
         // Assemble cur j=0 row:

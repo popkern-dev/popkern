@@ -35,7 +35,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         diagnostics,
     } = input;
     let pns_snapshot = brep.clone();
-    let patches = crate::blend::pns_promote::try_pns_dispatch(
+    let patches = match crate::blend::pns_promote::try_pns_dispatch(
         brep,
         blend_face,
         boundary,
@@ -43,7 +43,22 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         vertex,
         classification,
         boundary.bridge_fallbacks.clone(),
-    )?;
+    ) {
+        Ok(patches) => patches,
+        Err(error) => {
+            // Restore before returning: a partially-inserted cap must
+            // not survive a decline. Then record WHY — this path used
+            // to return None silently, so every construction failure
+            // looked identical to "PnS was never tried".
+            *brep = pns_snapshot;
+            diagnostics.push(pns_dispatch_declined_diagnostic(
+                n_sides,
+                "construction_failed",
+                Some(error.to_string()),
+            ));
+            return None;
+        }
+    };
 
     let cap_faces = patches.iter().map(|patch| patch.face).collect::<Vec<_>>();
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(

@@ -50,3 +50,14 @@ docs/requirements/old/
 docs/images/input/
 __pycache__/
 core.*
+
+# Local Telegram notifier and its credentials.
+#
+# `notify.sh` holds no secret itself, but `.env` holds the bot token and
+# chat id. Both were previously ignored only via `.git/info/exclude`,
+# which is local and uncommitted — a fresh clone would not inherit it and
+# could commit the token. Keep these rules here, in the committed file.
+/notify.sh
+.env
+.env.*
+!.env.example

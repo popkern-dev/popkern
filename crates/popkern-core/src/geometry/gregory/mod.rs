@@ -340,7 +340,7 @@ pub use pns_cap_assemble::{
     CapAssembleError, CapAssembleInput, CapAssembleResult, assemble_pns_bi4_cap, pole_from_boundary,
 };
 pub use pns_central_quad::QuadMapJet;
-pub use pns_sigma::{SigmaCenterJet, sigma_center_jet, sigma_center_jet_default};
+pub use pns_sigma::{SigmaCenterJet, SigmaJetError, sigma_center_jet, sigma_center_jet_default};
 pub use rectangular::RectangularGregory;
 pub use rectangular_binonic::RectangularGregoryBiNonic;
 pub use rectangular_binonic_dual_twist::RectangularGregoryBiNonicDualTwist;
