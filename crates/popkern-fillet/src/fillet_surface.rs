@@ -185,9 +185,8 @@ fn build_nurbs_sweep(
     }
     let n_arc = arc_samples.max(3); // at least 3 points per arc
 
-    // Station refinement (PK-177): re-solve each station against
-    // the supports (~1e-10; walker carries ~1e-5); declined solves
-    // keep walker values.
+    // Station refinement (PK-177): re-solve stations against the
+    // supports (~1e-10; walker ~1e-5); declines keep walker values.
     let refined: Option<Vec<(Point3, Point3)>> = supports.map(|(s1, s2)| {
         (0..n_sections)
             .map(|i| {
@@ -327,9 +326,8 @@ fn build_nurbs_sweep(
         )
     };
 
-    // Chart overlap (PK-141/PK-177): extend curved-support lofts by
-    // exact rows past the corner-ball station (all layouts; rows
-    // re-project onto supports; trims/anchors untouched).
+    // Chart overlap: extend curved-support lofts by exact rows past
+    // the corner-ball station (all layouts; trims untouched).
     let (mut nurbs, continuity_downgrade) = (nurbs, continuity_downgrade);
     if let Some((s1, s2)) = supports {
         let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
@@ -338,11 +336,15 @@ fn build_nurbs_sweep(
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
-    // Trims through the refined footprints; degree-1 polylines for
-    // degree-1 lofts (each trim IS the surface rail exactly).
-    // PK-177 interpolating smooth loft (opt-in gate): chords
-    // vanish; trims = exact extracted surface rails.
-    if std::env::var_os("PK177_SMOOTH_LOFT").is_some()
+    // Trims through refined footprints; degree-1 polylines match
+    // degree-1 lofts (trim IS the rail).
+    // PK-177 interpolating smooth loft, DEFAULT ON for constant
+    // radius (gate-forced battery green; boss 1.17e-5 -> 1.01e-5);
+    // PK177_SMOOTH_LOFT_OFF restores degree-1. Variable radius
+    // keeps legacy (apply anchors need its trim parameterization —
+    // 52 open edges measured on the waist otherwise).
+    if std::env::var_os("PK177_SMOOTH_LOFT_OFF").is_none()
+        && supports.is_some()
         && nurbs.degree_u == 1
         && let Some((smooth, t1, t2)) = crate::station_geometry::smooth_reloft_with_rails(&nurbs)
     {
