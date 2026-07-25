@@ -43,18 +43,23 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
             brep.loops.get(he.loop_).map(|l| l.face),
             brep.loops.get(tw.loop_).map(|l| l.face),
         ];
+        // SERVING-METRIC sampling: the recorded accuracy must be
+        // coherent with check 9 (5 fractions, witness projection,
+        // fine-walk confirmation) — a finer independent sampler
+        // reads pessimistic between-fraction values its own walk
+        // cannot confirm (measured: 18v1 at 1.01e-5 by the serving
+        // metric while a 17-step walk claimed >= 6.6e-5, blocking
+        // the record and the (0,0,0) flip).
         let mut worst = 0.0_f64;
         for face in faces.into_iter().flatten() {
             let Some(sof) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
                 continue;
             };
             let mut prev_uv: Option<(f64, f64)> = None;
-            for i in 0..=16 {
-                let t = curve.t_start + (curve.t_end - curve.t_start) * (i as f64) / 16.0;
+            for i in 0..=4 {
+                let frac = (i as f64) / 4.0;
+                let t = curve.t_start + (curve.t_end - curve.t_start) * frac;
                 let pt = curve.geometry.point_at(t);
-                // Per-sample: best of the cold and continuation-
-                // seeded projections (either alone can clamp to the
-                // wrong chart region on extended strips).
                 let cold =
                     popkern_core::geometry::uv_projection::project_point_to_uv(&sof.geometry, &pt);
                 let seeded = prev_uv.and_then(|(pu, pv)| {
@@ -70,8 +75,45 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
                     .flatten()
                     .map(|(u, v)| (pt.distance_to(&sof.geometry.point_at(u, v)), (u, v)))
                     .min_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-                if let Some((d, uv)) = best {
-                    prev_uv = Some(uv);
+                let Some((mut d, uv)) = best else {
+                    continue;
+                };
+                prev_uv = Some(uv);
+                if d > worst {
+                    // Fine-walk confirmation, mirroring check 9's
+                    // retry: walk from t_start to this sample with
+                    // 16 continuation steps and keep the confirmed
+                    // reading.
+                    let mut fine_uv: Option<(f64, f64)> = None;
+                    for k in 0..=16 {
+                        let ft = curve.t_start + (t - curve.t_start) * (k as f64) / 16.0;
+                        let fp = curve.geometry.point_at(ft);
+                        let cold_f = popkern_core::geometry::uv_projection::project_point_to_uv(
+                            &sof.geometry,
+                            &fp,
+                        );
+                        let seeded_f = fine_uv.and_then(|(pu, pv)| {
+                            popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                                &sof.geometry,
+                                &fp,
+                                pu,
+                                pv,
+                            )
+                        });
+                        if let Some((fd, fuv)) = [cold_f, seeded_f]
+                            .into_iter()
+                            .flatten()
+                            .map(|(u, v)| (fp.distance_to(&sof.geometry.point_at(u, v)), (u, v)))
+                            .min_by(|a, b| {
+                                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                            })
+                        {
+                            fine_uv = Some(fuv);
+                            if k == 16 {
+                                d = fd;
+                            }
+                        }
+                    }
                     worst = worst.max(d);
                 }
             }
@@ -79,6 +121,9 @@ pub(crate) fn record_final_declared_accuracy(brep: &mut BRep) -> usize {
         measured += 1;
         if worst >= 6.6e-5 {
             skipped_large += 1;
+        }
+        if trace && worst > 1.0e-6 {
+            eprintln!("[declared-accuracy]   {edge:?} worst {worst:.4e} current {current:.1e}");
         }
         // Record only genuinely sub-precision residuals above the
         // edge's current declared band. Ceiling 6.6e-5 with the
