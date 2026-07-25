@@ -186,9 +186,8 @@ fn build_nurbs_sweep(
     let n_arc = arc_samples.max(3); // at least 3 points per arc
 
     // Station refinement (PK-177): re-solve each station against
-    // the actual supports (alternating-offset projection, ~1e-10 —
-    // walker footprints carry ~1e-5), feeding rows AND trims
-    // consistently; declined solves keep the walker values.
+    // the supports (~1e-10; walker carries ~1e-5); declined solves
+    // keep walker values.
     let refined: Option<Vec<(Point3, Point3)>> = supports.map(|(s1, s2)| {
         (0..n_sections)
             .map(|i| {
@@ -218,15 +217,9 @@ fn build_nurbs_sweep(
     let (t_min, t_max) =
         popkern_core::geometry::curve::CurveEval::parameter_range(center_result_curve);
 
-    // Section-exact skinning: each cross-section is a circular arc,
-    // exactly representable as ONE rational quadratic row (weight
-    // cos(θ/2)) for sweeps up to ~115°. A degree-1 loft of exact
-    // rows makes every STATION iso the true circle — the polyline
-    // skin's chord sagitta (measured 4.3e-4 at r=0.10 with the
-    // default sampling) was the floor for terminal settlement and
-    // seam conformity on variable strips. Sections beyond the single
-    // -segment range fall back to the legacy sampled skin, recorded
-    // as a continuity downgrade.
+    // Section-exact skinning: one rational quadratic row per
+    // station (<=~115°); two-segment bi-rational beyond; sampled
+    // skin as the last resort (continuity downgrade recorded).
     let mut rational_rows: Option<Vec<([Point3; 3], f64)>> = Some(Vec::with_capacity(n_sections));
     let mut bi_rows: Option<Vec<([Point3; 5], f64)>> = Some(Vec::with_capacity(n_sections));
     let mut sampled_points = Vec::with_capacity(n_sections * n_arc);
@@ -335,11 +328,8 @@ fn build_nurbs_sweep(
     };
 
     // Chart overlap (PK-141/PK-177): extend curved-support lofts by
-    // exact extrapolated station rows past the corner-ball station
-    // (clamped charts left the corner contact W OUTSIDE both charts,
-    // 2.4e-2/3.7e-2). All layouts extend; rows re-project onto the
-    // supports, trims/anchors untouched (walk-based window extension
-    // falsified three ways — ledger).
+    // exact rows past the corner-ball station (all layouts; rows
+    // re-project onto supports; trims/anchors untouched).
     let (mut nurbs, continuity_downgrade) = (nurbs, continuity_downgrade);
     if let Some((s1, s2)) = supports {
         let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
@@ -348,10 +338,21 @@ fn build_nurbs_sweep(
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
-    // Trims through the SAME (refined) footprints as the rows; for
-    // degree-1 lofts as degree-1 polylines, so each trim IS the
-    // surface rail exactly (a smooth trim deviates by the station
-    // sagitta s²/8R — measured ~6e-5 on the boss bottom rail).
+    // Trims through the refined footprints; degree-1 polylines for
+    // degree-1 lofts (each trim IS the surface rail exactly).
+    // PK-177 interpolating smooth loft (opt-in gate): chords
+    // vanish; trims = exact extracted surface rails.
+    if std::env::var_os("PK177_SMOOTH_LOFT").is_some()
+        && nurbs.degree_u == 1
+        && let Some((smooth, t1, t2)) = crate::station_geometry::smooth_reloft_with_rails(&nurbs)
+    {
+        return Ok(FilletSurfaceResult {
+            surface: SurfaceGeometry::Nurbs(smooth),
+            trim_curve_1: t1,
+            trim_curve_2: t2,
+            continuity_downgrade,
+        });
+    }
     let (trim_1, trim_2) = if degree_u == 1 {
         (
             crate::station_geometry::station_polyline(footprint_1)?,

@@ -123,3 +123,199 @@ pub(crate) fn station_polyline(
         weights: vec![1.0; pts.len()],
     })
 }
+
+/// Degree-2 B-spline basis functions at `t` for clamped knots `u`
+/// (n control points): returns the (at most 3) nonzero values as
+/// (first_index, [n0, n1, n2]).
+fn basis2(u: &[f64], n: usize, t: f64) -> (usize, [f64; 3]) {
+    // Find knot span k with u[k] <= t < u[k+1], within [2, n-1].
+    let mut k = 2;
+    while k + 1 < n && t >= u[k + 1] {
+        k += 1;
+    }
+    let mut left = [0.0_f64; 3];
+    let mut right = [0.0_f64; 3];
+    let mut vals = [1.0_f64, 0.0, 0.0];
+    for j in 1..=2 {
+        left[j] = t - u[k + 1 - j];
+        right[j] = u[k + j] - t;
+        let mut saved = 0.0;
+        for r in 0..j {
+            let denom = right[r + 1] + left[j - r];
+            let temp = if denom.abs() > 1e-300 {
+                vals[r] / denom
+            } else {
+                0.0
+            };
+            vals[r] = saved + right[r + 1] * temp;
+            saved = left[j - r] * temp;
+        }
+        vals[j] = saved;
+    }
+    (k - 2, vals)
+}
+
+/// Interpolating degree-2 loft through exact station rows: solves,
+/// per v-column in HOMOGENEOUS space, for control points whose
+/// degree-2 B-spline passes through every row (a plain degree-2
+/// B-spline does not interpolate its control points — using rows as
+/// CPs would lose G0 at the stations). Rows must share one arc
+/// layout (m points, m weights per row).
+pub(crate) fn interpolating_loft(
+    rows: &[Vec<Point3>],
+    row_weights: &[Vec<f64>],
+) -> Option<popkern_core::geometry::NurbsSurface> {
+    let n = rows.len();
+    if n < 3 || rows.len() != row_weights.len() {
+        return None;
+    }
+    let m = rows[0].len();
+    if m < 3 || rows.iter().any(|r| r.len() != m) || row_weights.iter().any(|w| w.len() != m) {
+        return None;
+    }
+    // Uniform interpolation parameters + averaged clamped knots.
+    let params: Vec<f64> = (0..n).map(|i| (i as f64) / ((n - 1) as f64)).collect();
+    let mut knots = vec![0.0; n + 3];
+    for j in 1..(n - 2) {
+        knots[j + 2] = 0.5 * (params[j] + params[j + 1]);
+    }
+    for k in knots.iter_mut().skip(n) {
+        *k = 1.0;
+    }
+    // Dense n x n basis matrix (n is tens at most).
+    let mut a = vec![0.0_f64; n * n];
+    for (i, &t) in params.iter().enumerate() {
+        let (first, vals) = basis2(&knots, n, t.min(1.0 - 1e-12));
+        for (o, v) in vals.iter().enumerate() {
+            if first + o < n {
+                a[i * n + first + o] = *v;
+            }
+        }
+    }
+    // Homogeneous RHS per column: (wx, wy, wz, w).
+    let mut rhs = vec![[0.0_f64; 4]; n * m];
+    for i in 0..n {
+        for j in 0..m {
+            let w = row_weights[i][j];
+            let p = rows[i][j];
+            rhs[i * m + j] = [p.x * w, p.y * w, p.z * w, w];
+        }
+    }
+    // Gaussian elimination with partial pivoting on the shared
+    // matrix, applied to all m columns x 4 components.
+    let mut perm: Vec<usize> = (0..n).collect();
+    for col in 0..n {
+        let (piv, _) = (col..n)
+            .map(|r| (r, a[perm[r] * n + col].abs()))
+            .max_by(|x, y| x.1.partial_cmp(&y.1).unwrap_or(std::cmp::Ordering::Equal))?;
+        perm.swap(col, piv);
+        let p_row = perm[col];
+        let diag = a[p_row * n + col];
+        if diag.abs() < 1e-14 {
+            return None;
+        }
+        for &row in perm.iter().skip(col + 1) {
+            let f = a[row * n + col] / diag;
+            if f == 0.0 {
+                continue;
+            }
+            for c in col..n {
+                a[row * n + c] -= f * a[p_row * n + c];
+            }
+            for j in 0..m {
+                let pivot_vals = rhs[p_row * m + j];
+                let target = &mut rhs[row * m + j];
+                for (t, pv) in target.iter_mut().zip(pivot_vals.iter()) {
+                    *t -= f * pv;
+                }
+            }
+        }
+    }
+    let mut solution = vec![[0.0_f64; 4]; n * m];
+    for col in (0..n).rev() {
+        let p_row = perm[col];
+        for j in 0..m {
+            let mut acc = rhs[p_row * m + j];
+            for c in (col + 1)..n {
+                let sol = solution[c * m + j];
+                for (av, sv) in acc.iter_mut().zip(sol.iter()) {
+                    *av -= a[p_row * n + c] * sv;
+                }
+            }
+            let diag = a[p_row * n + col];
+            for comp in acc.iter_mut() {
+                *comp /= diag;
+            }
+            solution[col * m + j] = acc;
+        }
+    }
+    // Dehomogenize.
+    let mut control_points = Vec::with_capacity(n * m);
+    let mut weights = Vec::with_capacity(n * m);
+    for h in &solution {
+        let w = h[3];
+        if !(w.is_finite() && w > 1e-9) {
+            return None;
+        }
+        control_points.push(Point3::new(h[0] / w, h[1] / w, h[2] / w));
+        weights.push(w);
+    }
+    Some(popkern_core::geometry::NurbsSurface {
+        degree_u: 2,
+        degree_v: if m == 5 { 2 } else { 2.min(m - 1) },
+        knots_u: knots,
+        knots_v: if m == 5 {
+            vec![0.0, 0.0, 0.0, 0.5, 0.5, 1.0, 1.0, 1.0]
+        } else if m == 3 {
+            vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0]
+        } else {
+            crate::fillet_surface::build_clamped_uniform_knots(m, 2.min(m - 1))
+        },
+        control_points,
+        num_u: n,
+        num_v: m,
+        weights,
+    })
+}
+
+/// Extract the degree-1 loft's exact station rows and re-loft them
+/// through the interpolating degree-2 solve.
+pub(crate) fn smooth_reloft_with_rails(
+    loft: &popkern_core::geometry::NurbsSurface,
+) -> Option<(
+    popkern_core::geometry::NurbsSurface,
+    popkern_core::geometry::NurbsCurve,
+    popkern_core::geometry::NurbsCurve,
+)> {
+    let smooth = smooth_reloft(loft)?;
+    let rail = |col: usize| -> popkern_core::geometry::NurbsCurve {
+        let n = smooth.num_u;
+        let m = smooth.num_v;
+        popkern_core::geometry::NurbsCurve {
+            degree: 2,
+            knots: smooth.knots_u.clone(),
+            control_points: (0..n).map(|i| smooth.control_points[i * m + col]).collect(),
+            weights: (0..n).map(|i| smooth.weights[i * m + col]).collect(),
+        }
+    };
+    let t1 = rail(0);
+    let t2 = rail(smooth.num_v - 1);
+    Some((smooth, t1, t2))
+}
+
+fn smooth_reloft(
+    loft: &popkern_core::geometry::NurbsSurface,
+) -> Option<popkern_core::geometry::NurbsSurface> {
+    let n = loft.num_u;
+    let m = loft.num_v;
+    if n < 3 || loft.control_points.len() != n * m {
+        return None;
+    }
+    let rows: Vec<Vec<Point3>> = (0..n)
+        .map(|i| loft.control_points[i * m..(i + 1) * m].to_vec())
+        .collect();
+    let row_weights: Vec<Vec<f64>> = (0..n)
+        .map(|i| loft.weights[i * m..(i + 1) * m].to_vec())
+        .collect();
+    crate::station_geometry::interpolating_loft(&rows, &row_weights)
+}
