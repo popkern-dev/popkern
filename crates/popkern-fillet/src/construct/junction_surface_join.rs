@@ -375,6 +375,56 @@ pub(crate) fn handle_smooth_junction(
             eprintln!("[junction] {vertex:?} smooth junction vertex settled");
         }
     }
+    // Neighbor stale-vertex settle (mirrors the corner pass):
+    // two-surface vertices within a few loop hops of the junction
+    // can sit at stale original-boundary positions — measured: the
+    // cross-seam chord's far endpoint at the original wall position,
+    // 2.07e-2 off BOTH mega strips, at the boss top junction.
+    let mut neighbors: Vec<popkern_core::topology::VertexHandle> = Vec::new();
+    for (_, he) in brep.half_edges.iter() {
+        if he.origin != vertex {
+            continue;
+        }
+        let mut cur = he.next;
+        for _ in 0..3 {
+            let Some(d) = brep.half_edges.get(cur) else {
+                break;
+            };
+            if d.origin != vertex && !neighbors.contains(&d.origin) {
+                neighbors.push(d.origin);
+            }
+            cur = d.next;
+        }
+    }
+    for v in neighbors {
+        let mut sigs: Vec<String> = Vec::new();
+        for (_, he) in brep.half_edges.iter() {
+            if he.origin != v {
+                continue;
+            }
+            if let Some(l) = brep.loops.get(he.loop_)
+                && let Some(fd) = brep.faces.get(l.face)
+                && let Some(sof) = fd.surface.as_ref()
+            {
+                let sig = format!("{:?}", sof.geometry);
+                if !sigs.contains(&sig) {
+                    sigs.push(sig);
+                }
+            }
+        }
+        if sigs.len() != 2 {
+            continue;
+        }
+        if let Some(n) =
+            super::corner_chord_settle::settle_vertex_on_incident_surfaces(brep, v, tolerance)
+            && n > 0
+        {
+            absorbed += n;
+            if trace {
+                eprintln!("[junction] {vertex:?}: stale neighbor {v:?} settled");
+            }
+        }
+    }
     if std::env::var_os("PK177_JOIN").is_some()
         && join_smooth_junction_strips(
             brep,

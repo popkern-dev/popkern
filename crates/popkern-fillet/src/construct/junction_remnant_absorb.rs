@@ -132,12 +132,19 @@ pub(crate) fn absorb_junction_remnants(
                             eprintln!("[junction] {vertex:?} chord far-end settled");
                         }
                     }
-                    // PK-177 corner carve: wall trims meeting at the
-                    // snapped contact (probe stage — see module doc).
+                    // PK-177 settle + carve (module docs).
                     if let Some(true) = super::corner_wall_carve::carve_corner_wall_trims(
                         brep, &cap, vertex, tolerance, trace,
                     ) {
                         absorbed += 1;
+                    }
+                    if let Some(true) = super::corner_wall_carve::carve_corner_wall_topology(
+                        brep, &cap, vertex, trace,
+                    ) {
+                        absorbed += 1;
+                        if trace {
+                            eprintln!("[junction] {vertex:?} corner wall carved");
+                        }
                     }
                 } else if trace {
                     eprintln!("[junction] {vertex:?} contact snap declined validation");
@@ -176,10 +183,8 @@ pub(crate) fn absorb_junction_remnants(
         } else if trace {
             eprintln!("[junction] {vertex:?} declined (moved {moved})");
         }
-        // SMOOTH-THROUGH junctions: settle the junction vertex onto
-        // its incident-surface intersection (corner snap fires only
-        // for true corners; measured 2.07e-2 join-chord bulge from
-        // the stale vertex). Transactional; over-determined declines.
+        // SMOOTH-THROUGH junction tail: vertex + neighbor settles
+        // and the gated joint loft (see junction_surface_join).
         absorbed += super::junction_surface_join::handle_smooth_junction(
             brep,
             edge_geometries,

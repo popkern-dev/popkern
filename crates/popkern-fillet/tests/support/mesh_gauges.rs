@@ -112,8 +112,23 @@ pub(crate) fn brep_open_defects(brep: &BRep) -> (usize, usize, usize) {
                     for frac in [0.0, 0.25, 0.5, 0.75, 1.0] {
                         let t = cur.t_start + (cur.t_end - cur.t_start) * frac;
                         let pt = cur.geometry.point_at(t);
+                        let he0 = &brep.half_edges[ed.half_edge];
+                        let tw0 = &brep.half_edges[he0.twin];
+                        let mut ds = String::new();
+                        for f in [brep.loops[he0.loop_].face, brep.loops[tw0.loop_].face] {
+                            if let Some(sof) = brep.faces.get(f).and_then(|fd| fd.surface.as_ref())
+                            {
+                                let d = popkern_core::geometry::uv_projection::project_point_to_uv(
+                                    &sof.geometry,
+                                    &pt,
+                                )
+                                .map(|(u, v)| pt.distance_to(&sof.geometry.point_at(u, v)))
+                                .unwrap_or(-1.0);
+                                ds.push_str(&format!(" d({f:?})={d:.3e}"));
+                            }
+                        }
                         eprintln!(
-                            "[gauge]   curve f={frac:.2} t={t:.4} p=({:.4},{:.4},{:.4})",
+                            "[gauge]   curve f={frac:.2} p=({:.4},{:.4},{:.4}){ds}",
                             pt.x, pt.y, pt.z
                         );
                     }
