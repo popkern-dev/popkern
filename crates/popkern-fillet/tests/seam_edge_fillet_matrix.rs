@@ -276,24 +276,16 @@ fn boss_on_wall_seam_crossing_chain_measured() {
         Ok(r) => r,
     };
     let (structural, open, other) = mesh_gauges::brep_open_defects(&r.brep);
-    // PK-177 frontier: check 9 reports FIRST error only, so this
-    // pin is a defect STACK top. Fixed so far (each fix popped the
-    // next): corner chords (3.5e-3), tangent-stall plane x strip
-    // rails (1.25e-5 via the rail-clamp rescue), same-face seam
-    // slits (2.5e-3 via seam_self_fit). Current top: the cross-seam
-    // strip x strip join chord at 2.07e-2 — the KNOWN class whose
-    // honest mutual gap measured 1.4e-5 historically with
-    // achieved-gap tolerance recording; the witness projection
-    // fails across the join (chart coverage at the seam), so the
-    // reading is unproven. Ledger has the probe plan.
+    // PK-177 COMPLETION GATE: the full defect stack cleared —
+    // corner chords, tangent-stall rails, same-face slits, the
+    // cross-seam join chord, stale junction endpoints (vertex +
+    // neighbor + junction-triple settles), with the interpolating
+    // smooth loft and the corner carve underneath. The boss serves
+    // with ZERO validation defects.
     assert_eq!(
-        (structural, open),
-        (0, 0),
-        "boss chain fillet body must be structurally clean"
-    );
-    assert!(
-        other <= 1,
-        "boss chain residual count regressed past the pinned frontier: {other}"
+        (structural, open, other),
+        (0, 0, 0),
+        "boss chain fillet body must validate clean"
     );
     let mut census: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
     for (_, f) in r.brep.faces.iter() {

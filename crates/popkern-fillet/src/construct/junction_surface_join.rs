@@ -398,21 +398,50 @@ pub(crate) fn handle_smooth_junction(
     }
     for v in neighbors {
         let mut sigs: Vec<String> = Vec::new();
+        let mut nurbs = 0usize;
+        let mut cap_like = false;
         for (_, he) in brep.half_edges.iter() {
             if he.origin != v {
                 continue;
             }
-            if let Some(l) = brep.loops.get(he.loop_)
-                && let Some(fd) = brep.faces.get(l.face)
-                && let Some(sof) = fd.surface.as_ref()
+            // Both sides of every incident edge: a cap on the TWIN
+            // side evades an origin-only scan, and moving a
+            // cap-boundary vertex broke the cube-uniform cap G1
+            // gate to 1.0 (measured).
+            for l in [
+                brep.loops.get(he.loop_),
+                brep.half_edges
+                    .get(he.twin)
+                    .and_then(|tw| brep.loops.get(tw.loop_)),
+            ]
+            .into_iter()
+            .flatten()
             {
+                let Some(sof) = brep.faces.get(l.face).and_then(|fd| fd.surface.as_ref()) else {
+                    continue;
+                };
                 let sig = format!("{:?}", sof.geometry);
                 if !sigs.contains(&sig) {
+                    match &sof.geometry {
+                        SurfaceGeometry::Nurbs(_) => nurbs += 1,
+                        SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_) => {
+                            cap_like = true;
+                        }
+                        _ => {}
+                    }
                     sigs.push(sig);
                 }
             }
         }
-        if sigs.len() != 2 {
+        // 2 = stale boundary vertex; 3 = the junction TRIPLE with
+        // the exact signature 2 strips + 1 analytic support
+        // (measured: a 2-surface settle put the shared rail
+        // endpoint on ONE strip's intersection, 1.9e-2 off the
+        // other; the unconstrained 3-surface settle regressed the
+        // cube-uniform cap G1 gate). Cap-adjacent vertices and
+        // 4+-surface hole corners never settle here.
+        let triple = sigs.len() == 3 && nurbs == 2 && !cap_like;
+        if !(sigs.len() == 2 && !cap_like || triple) {
             continue;
         }
         if let Some(n) =
