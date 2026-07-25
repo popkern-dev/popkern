@@ -478,7 +478,7 @@ fn fillet_edges_internal(
         residual_scaffolding::retire_unglued_construction_residual_scaffolding(
             &mut apply_result.brep,
         );
-    // PK-177 declared-accuracy recording — must be the LAST author.
+    construct::edge_reconcile::reconcile_edge_curves(&mut apply_result.brep);
     let _ =
         construct::final_declared_accuracy::record_final_declared_accuracy(&mut apply_result.brep);
     if let Some(reason) = first_structural_validation_error(&apply_result.brep) {
