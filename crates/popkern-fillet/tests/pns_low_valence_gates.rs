@@ -331,42 +331,61 @@ fn pns_low_valence_route_comparison() {
     }
 }
 
-/// Regression anchor for PK-197: the incumbent low-valence route is
-/// G0-only across its own cap seams while reporting G1.
+/// PK-197 / PK-201: where the cross-spoke G1 correction reaches, and
+/// where it does not.
 ///
-/// This gate does not assert the defect is acceptable — it pins the
-/// measurement so the repair is visible when it lands, and so the
-/// claim cannot quietly change without a test moving. It asserts
-/// three things that are true today and must stay coupled: the cap
-/// commits measurable internal seams, those seams are positionally
-/// exact, and the normal misalignment is large. If a fix lands, this
-/// test fails and should be replaced by the real continuity gate.
+/// The exact-boundary wedges were only ever constrained against their
+/// OUTER boundaries, so nothing held the inner spokes — the seams a
+/// sector shares with its neighbours — and every measured cap was
+/// creased there. `cross_spoke_g1` adds that constraint, and this
+/// gate pins the measured outcome on both sides:
+///
+/// - **n = 4 is fixed.** `cos_min` went 0.006755 -> 0.996283 and the
+///   whole mid-span reads 1.0000; the residual sits at the pole end
+///   (f = 0.95), which is the ill-conditioned chart corner.
+/// - **n = 3 is not.** It measures exactly as before, so the
+///   correction is not reaching that cap's seams at all.
+///
+/// Both halves are asserted. Pinning only the win would let the n = 3
+/// residual disappear from view, which is how the original defect
+/// survived: nothing measured it.
 #[test]
-fn incumbent_low_valence_cap_is_g0_only_across_its_own_seams() {
-    for (n, radii) in [
-        (3_usize, vec![0.04, 0.06, 0.05]),
-        (4, vec![0.04, 0.06, 0.05, 0.055]),
-    ] {
-        let o = run_pyramid_apex_outcome(n, &radii);
-        assert!(
-            o.metrics.seam_count > 0,
-            "n={n} mixed must commit measurable internal cap seams"
-        );
-        assert!(
-            o.metrics.worst_g0_gap < G0_GATE,
-            "n={n} cap seams must stay positionally exact (got {:.3e})",
-            o.metrics.worst_g0_gap
-        );
-        assert!(
-            o.metrics.worst_g1_normal > 0.5,
-            "n={n} PK-197 anchor: incumbent cap was G0-only (worst normal {:.3e}); if this is now small the defect is FIXED and this anchor should be replaced by a real G1 gate",
-            o.metrics.worst_g1_normal
-        );
-        assert!(
-            o.achieved.contains(&ContinuityLevel::G1),
-            "n={n} PK-197 anchor: route still claims G1 while measuring G0-only"
-        );
-    }
+fn cross_spoke_correction_fixes_n4_and_not_yet_n3() {
+    let n4 = run_pyramid_apex_outcome(4, &[0.04, 0.06, 0.05, 0.055]);
+    assert!(
+        n4.metrics.seam_count > 0,
+        "n=4 must commit measurable internal cap seams"
+    );
+    assert!(
+        n4.metrics.cos_min > 0.99,
+        "n=4 cap seams must be near-tangent after the cross-spoke correction, \
+         measured cos_min {:.6} (was 0.006755 before it)",
+        n4.metrics.cos_min
+    );
+    assert!(
+        n4.metrics.worst_g0_gap < G0_GATE,
+        "n=4 seams must stay positionally exact, got {:.3e}",
+        n4.metrics.worst_g0_gap
+    );
+
+    let n3 = run_pyramid_apex_outcome(3, &[0.04, 0.06, 0.05]);
+    assert!(
+        n3.metrics.seam_count > 0,
+        "n=3 must commit measurable internal cap seams"
+    );
+    assert!(
+        n3.metrics.worst_g0_gap < G0_GATE,
+        "n=3 seams must stay positionally exact, got {:.3e}",
+        n3.metrics.worst_g0_gap
+    );
+    assert!(
+        n3.metrics.cos_min < 0.5,
+        "PK-201 residual: n=3 was still creased (cos_min 0.00214) because the \
+         cross-spoke pairing does not reach its seams. Measured {:.6} — if this \
+         is now near 1.0 the residual is FIXED and this half of the gate should \
+         become a G1 assertion like n=4's.",
+        n3.metrics.cos_min
+    );
 }
 
 /// PK-192 verdict: the PnS cap's internal seams against the shipped

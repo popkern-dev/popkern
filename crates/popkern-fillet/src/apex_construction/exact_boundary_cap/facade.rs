@@ -25,6 +25,7 @@ use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::cap_quality_postcondition::worst_mid_seam_misalignment;
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::cross_spoke_g1::{cross_spoke_g1_enabled, enforce_cross_spoke_g1};
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
 use super::performance::{
@@ -269,6 +270,17 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         );
         informational.push(pns_substitution_note(candidate_sectors.len(), &outcome));
     }
+    // PK-201 construction half: make adjacent sectors G1 across their
+    // shared spokes. The wedges were only ever constrained against
+    // their OUTER boundaries, so nothing held the inner spokes and
+    // every measured cap was creased there. Default on, measured —
+    // see `cross_spoke_g1`.
+    if cross_spoke_g1_enabled()
+        && let Some(solved) = solved_surfaces.as_mut()
+    {
+        let corrected = enforce_cross_spoke_g1(solved, brep.tolerance.linear());
+        informational.push(cross_spoke_note(candidate_sectors.len(), corrected));
+    }
     performance.solved_surface_count = solved_surfaces
         .as_ref()
         .map(|solved| solved.validated_surface_count())
@@ -482,4 +494,27 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         report,
         diagnostics,
     })
+}
+
+/// Informational record of the cross-spoke correction.
+fn cross_spoke_note(
+    n_sectors: usize,
+    corrected: usize,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "exact_boundary_cap.cross_spoke_g1".to_string(),
+            code: "exact_boundary_cap.cross_spoke_g1".to_string(),
+            detail_code: Some(format!("corrected_control_points={corrected}")),
+            sector_name: format!("n{n_sectors}_corner_cap"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
 }

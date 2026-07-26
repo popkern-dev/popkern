@@ -6,6 +6,7 @@ pub(crate) mod cap_spoke_commit;
 pub(crate) mod commit;
 pub(crate) mod commit_diagnostics;
 pub(crate) mod corner;
+mod cross_spoke_g1;
 pub(crate) mod facade;
 pub(crate) mod facts;
 #[cfg(test)]
