@@ -378,6 +378,24 @@ impl Default for ExactBoundaryToleranceEvidence {
     }
 }
 
+/// Diagnostic codes that are OBSERVABILITY, not failure evidence.
+///
+/// PK-201: acceptance and tests that mean "no failure evidence" must
+/// not read the mere presence of one of these as a defect — they are
+/// the non-blocking channel a route uses to explain itself. Add a
+/// code here when (and only when) its emitter records outcomes that
+/// do not bear on whether the candidate met its postconditions.
+pub const INFORMATIONAL_DIAGNOSTIC_CODES: &[&str] = &[
+    "exact_boundary_cap.pns_substitution",
+    "exact_boundary_cap.cross_spoke_g1",
+];
+
+/// Whether a diagnostic code names an informational (non-blocking)
+/// record. See [`INFORMATIONAL_DIAGNOSTIC_CODES`].
+pub fn diagnostic_code_is_informational(code: &str) -> bool {
+    INFORMATIONAL_DIAGNOSTIC_CODES.contains(&code)
+}
+
 /// JSON-ready diagnostic row for exact-boundary reports.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ExactBoundaryReportDiagnostic {

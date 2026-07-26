@@ -27,7 +27,8 @@ pub use types_exact_boundary::{
     ExactBoundaryCapReport, ExactBoundaryReportDiagnostic, ExactBoundaryReportProvenance,
     ExactBoundaryReportSector, ExactBoundaryReportTransactionStatus,
     ExactBoundaryRouteDecisionOutcome, ExactBoundaryRouteDecisionStep,
-    ExactBoundaryToleranceEvidence,
+    ExactBoundaryToleranceEvidence, INFORMATIONAL_DIAGNOSTIC_CODES,
+    diagnostic_code_is_informational,
 };
 pub use types_repair::{
     ApexConstructionDiagnostic, ApexConstructionRoute, ApexConstructionRouteDecision,

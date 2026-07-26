@@ -401,6 +401,10 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         }
     }
 
+    // The accept decision is taken BEFORE informational records join,
+    // so a route can explain itself without changing what it does
+    // (PK-201). Without this ordering, the merge below would re-couple
+    // observability to selection.
     let accepted = committed && diagnostics.is_empty() && performance.pcurve_pair_count > 0;
     if !accepted {
         if crate::direct_apex_trace::enabled() {
@@ -417,6 +421,12 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     }
     attach_shared_repair_fact_ids(brep, &mut diagnostics);
     finalize_performance_report(&mut performance, started, &diagnostics);
+    // Informational records join AFTER the decision AND after the
+    // performance finalize (which derives skip codes from failure
+    // evidence) — on every exit path, or the channel silently drops
+    // what routes recorded (this main path lost them until
+    // 2026-07-26).
+    diagnostics.extend(informational);
     let status = if accepted {
         ExactBoundaryCapCandidateStatus::Accepted
     } else {

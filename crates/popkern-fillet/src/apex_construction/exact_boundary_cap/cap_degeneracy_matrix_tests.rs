@@ -106,7 +106,14 @@ fn candidate_pcurve_adversaries_are_repaired_and_committed() {
             ExactBoundaryCandidateOutcome::Accepted
         );
         assert!(result.performance.deterministic_skip_code.is_none());
-        assert!(result.report.diagnostics.is_empty(), "{adversary:?}");
+        assert!(
+            result
+                .report
+                .diagnostics
+                .iter()
+                .all(|d| crate::types::diagnostic_code_is_informational(&d.code)),
+            "{adversary:?}"
+        );
         assert!(
             result
                 .report

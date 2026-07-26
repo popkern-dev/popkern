@@ -166,8 +166,9 @@ fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
             .diagnostics
             .iter()
             .all(|diagnostic| {
-                (diagnostic.stage == "exact_boundary_cap.support_scope"
-                    && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
+                popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+                    || (diagnostic.stage == "exact_boundary_cap.support_scope"
+                        && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
                     || (diagnostic.stage == "exact_boundary_cap.cap_outer"
                         && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded")
             }),
