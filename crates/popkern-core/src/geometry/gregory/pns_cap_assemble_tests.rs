@@ -32,6 +32,7 @@ pub(super) fn planar_ring(n: usize, radius: f64) -> Bi2TensorBorderRing {
                 pt(radius * a2.cos(), radius * a2.sin(), 0.0),
             ],
             deriv: [pt(0.0, 0.0, -1.0); 3], // inward-pointing (toward pole)
+            pos4: None,
         });
     }
     Bi2TensorBorderRing { sectors }

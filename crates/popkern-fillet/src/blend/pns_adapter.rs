@@ -194,7 +194,11 @@ fn pair_to_strip_placeholder(
         inward_deriv(pos_bb[1], vertex, mag),
         inward_deriv(pos_bb[2], vertex, mag),
     ];
-    Bi2BorderStrip { pos: pos_bb, deriv }
+    Bi2BorderStrip {
+        pos: pos_bb,
+        deriv,
+        pos4: None,
+    }
 }
 
 fn pair_to_strip_surface_aware(
@@ -278,7 +282,19 @@ fn pair_to_strip_surface_aware(
             sign * unit_perp.z * mag,
         );
     }
-    Ok(Bi2BorderStrip { pos: pos_bb, deriv })
+    // PK-192: the composed patch boundary is degree 4 either way, but
+    // deriving it by elevating this bi-2 row discards that freedom. On
+    // a corner rim (arc joined to a line) the elevated row deviates
+    // 1.119e-2 where a directly fitted degree-4 row reaches 1.998e-3,
+    // against a 5.000e-3 acceptance bar. Off by default: it departs
+    // from the paper's bi-2 construction, so the eq (2) G1 relations
+    // must be re-verified against it (see `bi4_g1_residuals`).
+    let pos4 = fitted_degree4_row(curve_a, curve_b, pos_bb);
+    Ok(Bi2BorderStrip {
+        pos: pos_bb,
+        deriv,
+        pos4,
+    })
 }
 
 fn lookup_surface<'a>(
@@ -339,4 +355,100 @@ fn inward_deriv(p: Point3, vertex: Point3, mag: f64) -> Point3 {
     }
     let s = mag / len;
     Point3::new(dx * s, dy * s, dz * s)
+}
+
+/// Whether the boundary row is fitted at degree 4 rather than
+/// elevated from the bi-2 row.
+fn fitted_border_enabled() -> bool {
+    std::env::var("POPKERN_PNS_BI4_BORDER")
+        .map(|v| v != "0")
+        .unwrap_or(false)
+}
+
+/// Least-squares degree-4 boundary row over the sector's rim, ends
+/// interpolated.
+///
+/// Returns `None` when disabled, so the paper's construction is what
+/// ships until the G1 residuals say otherwise.
+fn fitted_degree4_row(
+    curve_a: &popkern_core::geometry::NurbsCurve,
+    curve_b: &popkern_core::geometry::NurbsCurve,
+    pos_bb: [Point3; 3],
+) -> Option<[Point3; 5]> {
+    if !fitted_border_enabled() {
+        return None;
+    }
+    let (a_min, a_max) = curve_a.parameter_range();
+    let (b_min, b_max) = curve_b.parameter_range();
+    let p0 = curve_a.point_at(a_min);
+    let p4 = curve_b.point_at(b_max);
+    let basis = |t: f64| {
+        let s = 1.0 - t;
+        [
+            s * s * s * s,
+            4.0 * t * s * s * s,
+            6.0 * t * t * s * s,
+            4.0 * t * t * t * s,
+            t * t * t * t,
+        ]
+    };
+    let mut ata = [[0.0_f64; 3]; 3];
+    let mut atb = [[0.0_f64; 3]; 3];
+    let mut accumulate = |t: f64, p: Point3| {
+        let b = basis(t);
+        let r = [
+            p.x - b[0] * p0.x - b[4] * p4.x,
+            p.y - b[0] * p0.y - b[4] * p4.y,
+            p.z - b[0] * p0.z - b[4] * p4.z,
+        ];
+        for row in 0..3 {
+            for col in 0..3 {
+                ata[row][col] += b[row + 1] * b[col + 1];
+            }
+            for axis in 0..3 {
+                atb[row][axis] += b[row + 1] * r[axis];
+            }
+        }
+    };
+    const HALF_SAMPLES: usize = 12;
+    for k in 0..=HALF_SAMPLES {
+        let f = k as f64 / HALF_SAMPLES as f64;
+        accumulate(0.5 * f, curve_a.point_at(a_min + f * (a_max - a_min)));
+        accumulate(0.5 + 0.5 * f, curve_b.point_at(b_min + f * (b_max - b_min)));
+    }
+    let mut m = ata;
+    let mut rhs = atb;
+    for col in 0..3 {
+        let pivot = (col..3).max_by(|x, y| {
+            m[*x][col]
+                .abs()
+                .partial_cmp(&m[*y][col].abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
+        m.swap(col, pivot);
+        rhs.swap(col, pivot);
+        if m[col][col].abs() < 1e-18 {
+            return None;
+        }
+        for row in 0..3 {
+            if row == col {
+                continue;
+            }
+            let factor = m[row][col] / m[col][col];
+            let (pivot_row, pivot_rhs) = (m[col], rhs[col]);
+            for (target, source) in m[row].iter_mut().zip(pivot_row.iter()) {
+                *target -= factor * source;
+            }
+            for (target, source) in rhs[row].iter_mut().zip(pivot_rhs.iter()) {
+                *target -= factor * source;
+            }
+        }
+    }
+    let mut interior = [Point3::new(0.0, 0.0, 0.0); 3];
+    for row in 0..3 {
+        let d = m[row][row];
+        interior[row] = Point3::new(rhs[row][0] / d, rhs[row][1] / d, rhs[row][2] / d);
+    }
+    let _ = pos_bb;
+    Some([p0, interior[0], interior[1], interior[2], p4])
 }
