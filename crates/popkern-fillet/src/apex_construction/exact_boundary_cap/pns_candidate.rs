@@ -383,3 +383,34 @@ pub(crate) fn pns_cap_substitution_enabled() -> bool {
         .map(|v| v != "0")
         .unwrap_or(false)
 }
+
+/// An informational record of what the PnS substitution did.
+///
+/// Goes to the facade's non-blocking channel, never to the failure
+/// evidence that `accepted` keys on — reporting must not change which
+/// route serves a corner.
+pub(crate) fn pns_substitution_note(
+    n_sectors: usize,
+    outcome: &Result<usize, PnsCandidateError>,
+) -> crate::types::ApexConstructionDiagnostic {
+    let (stage, detail) = match outcome {
+        Ok(count) => ("substituted", format!("sectors={count}")),
+        Err(error) => ("declined", error.to_string()),
+    };
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: format!("exact_boundary_cap.pns.{stage}"),
+            code: "exact_boundary_cap.pns_substitution".to_string(),
+            detail_code: Some(detail),
+            sector_name: format!("n{n_sectors}_corner_cap"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}

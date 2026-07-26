@@ -31,7 +31,9 @@ use super::performance::{
     finalize_performance_report, record_pcurve_report, record_support_family_counts,
     record_validation_report, support_sample_count, surface_control_point_count,
 };
-use super::pns_candidate::{pns_cap_substitution_enabled, substitute_pns_sector_surfaces};
+use super::pns_candidate::{
+    pns_cap_substitution_enabled, pns_substitution_note, substitute_pns_sector_surfaces,
+};
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::{ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors};
 use super::solve::{
@@ -125,6 +127,14 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         ..Default::default()
     };
     let mut diagnostics = Vec::new();
+    // PK-201: diagnostics above are FAILURE EVIDENCE — `accepted`
+    // below requires the vector to be empty, so anything pushed there
+    // vetoes the route. `informational` is the channel for everything
+    // a route wants to SAY without changing what it DOES. Without the
+    // split, explaining yourself costs you the corner, which is how a
+    // silent folded cap came to beat a fallback that measures 80x
+    // better on the same rim.
+    let mut informational: Vec<crate::types::ApexConstructionDiagnostic> = Vec::new();
     let boundary_curves = match prepare_exact_boundary_curves(
         brep,
         &candidate_sectors,
@@ -134,6 +144,10 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         Err(diagnostic) => {
             diagnostics.push(diagnostic.into_apex_diagnostic());
             *brep = snapshot;
+            // Informational records join the report AFTER the accept decision,
+            // so they can never change which route serves a corner.
+            let mut diagnostics = diagnostics;
+            diagnostics.extend(informational);
             attach_shared_repair_fact_ids(brep, &mut diagnostics);
             finalize_performance_report(&mut performance, started, &diagnostics);
             let report = build_exact_boundary_report(
@@ -253,9 +267,7 @@ pub(crate) fn run_exact_boundary_cap_candidate(
             solved,
             brep.tolerance.linear(),
         );
-        if std::env::var_os("POPKERN_PNS_CAP_REPORT").is_some() {
-            eprintln!("[pns-subst] {outcome:?}");
-        }
+        informational.push(pns_substitution_note(candidate_sectors.len(), &outcome));
     }
     performance.solved_surface_count = solved_surfaces
         .as_ref()

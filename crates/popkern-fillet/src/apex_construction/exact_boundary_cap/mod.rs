@@ -8,6 +8,9 @@ pub(crate) mod commit_diagnostics;
 pub(crate) mod corner;
 pub(crate) mod facade;
 pub(crate) mod facts;
+#[cfg(test)]
+#[path = "informational_channel_tests.rs"]
+mod informational_channel_tests;
 pub(crate) mod multipatch;
 pub(crate) mod pcurves;
 pub(crate) mod performance;
