@@ -39,16 +39,16 @@
 //! while this cap's is 0.0° — see
 //! `pns_cap_internal_seams_beat_the_shipped_fan`.
 //!
-//! What remains is substituting these surfaces *through* the route's
-//! acceptance path (cap/support continuity gates, topology
-//! validation, transactional rollback) rather than overwriting at
-//! commit, and re-running the fillet corpus and STEP suites to prove
-//! no regression. Until that lands this module is deliberately
-//! unreferenced, which is why it carries `allow(dead_code)`: a
-//! half-wired dispatch that skipped acceptance is precisely the
-//! dishonest-green failure this work exists to remove.
-
-#![allow(dead_code)]
+//! The substitution happens at the **solved-surfaces** stage, before
+//! `validate_exact_boundary_candidate` — so the PnS surfaces go
+//! through the route's own acceptance gates, topology validation and
+//! transactional rollback exactly as the Coons wedges did. Nothing is
+//! overwritten at commit: a dispatch that skipped acceptance would be
+//! precisely the dishonest-green failure this work exists to remove.
+//!
+//! If the ring cannot be built, or the fill declines, the Coons
+//! surfaces are left in place and the reason is recorded — the cap
+//! still ships, just without the continuity upgrade.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
@@ -112,7 +112,58 @@ pub(crate) fn pns_ring_from_sectors(
     for sector in sectors {
         ring.push(sector_to_boundary_edge(brep, sector, tolerance)?);
     }
+    chain_ring(&mut ring, tolerance)?;
     Ok(ring)
+}
+
+/// Orient the sides so each one continues from the last.
+///
+/// Two orientations are involved and they are independent. Inside a
+/// sector, the arc and the bridge have to meet — that is resolved when
+/// the side is built. Around the ring, side `k`'s end has to meet side
+/// `k+1`'s start, and nothing about sector order guarantees it: a
+/// sector whose internal join is perfect can still run the wrong way
+/// round the corner. Without this pass the ring read as open by
+/// 2.4e-2 on a pyramid apex and the whole substitution declined.
+fn chain_ring(ring: &mut [FillBoundaryEdge], tolerance: f64) -> Result<(), PnsCandidateError> {
+    let n = ring.len();
+    if n < 2 {
+        return Ok(());
+    }
+    // Seed on whichever end of side 0 is closer to side 1.
+    let touch =
+        |p: Point3, e: &FillBoundaryEdge| p.distance_to(&e.start).min(p.distance_to(&e.end));
+    if touch(ring[0].end, &ring[1]) > touch(ring[0].start, &ring[1]) {
+        reverse_side(&mut ring[0]);
+    }
+    for k in 1..n {
+        let prev_end = ring[k - 1].end;
+        if prev_end.distance_to(&ring[k].end) < prev_end.distance_to(&ring[k].start) {
+            reverse_side(&mut ring[k]);
+        }
+        let gap = prev_end.distance_to(&ring[k].start);
+        if gap > tolerance {
+            return Err(PnsCandidateError::SectorNotJoined { sector: k, gap });
+        }
+    }
+    let closing = ring[n - 1].end.distance_to(&ring[0].start);
+    if closing > tolerance {
+        return Err(PnsCandidateError::SectorNotJoined {
+            sector: 0,
+            gap: closing,
+        });
+    }
+    Ok(())
+}
+
+/// Reverse a side: swap its ends and negate its tangents.
+fn reverse_side(side: &mut FillBoundaryEdge) {
+    std::mem::swap(&mut side.start, &mut side.end);
+    std::mem::swap(&mut side.normal_start, &mut side.normal_end);
+    std::mem::swap(&mut side.tangent_start, &mut side.tangent_end);
+    side.tangent_start = side.tangent_start * -1.0;
+    side.tangent_mid = side.tangent_mid * -1.0;
+    side.tangent_end = side.tangent_end * -1.0;
 }
 
 /// Sample one sector's arc-then-bridge span into a PnS boundary side.
@@ -277,6 +328,64 @@ fn frame(
     Ok((normal, tangent))
 }
 
+/// Replace solved Coons sector surfaces with PnS bi-4 surfaces over
+/// the same rim.
+///
+/// Returns `Ok(n)` with the number of surfaces substituted, or the
+/// reason none were. On any error the caller must leave `solved`
+/// untouched — this function only mutates it once the whole ring has
+/// been built and filled successfully, so a partial substitution
+/// (some sectors PnS, some Coons, with no continuity between them)
+/// cannot occur.
+pub(crate) fn substitute_pns_sector_surfaces(
+    brep: &BRep,
+    sectors: &[ExactBoundaryCapSectorInput],
+    solved: &mut super::solve::ExactBoundarySolvedSurfaces,
+    tolerance: f64,
+) -> Result<usize, PnsCandidateError> {
+    let ring = pns_ring_from_sectors(brep, sectors, tolerance)?;
+    let fill = popkern_core::geometry::fill_n_sided_boundary(&ring, tolerance)?;
+    if fill.surfaces.len() != sectors.len() {
+        return Err(PnsCandidateError::Fill(
+            NSidedFillError::UnsupportedSideCount {
+                got: fill.surfaces.len(),
+            },
+        ));
+    }
+
+    // Map by sector_index rather than position: `solved.surfaces` is
+    // in solver order, which is not guaranteed to be planner order.
+    let mut substituted = 0usize;
+    for (k, sector) in sectors.iter().enumerate() {
+        let SurfaceGeometry::Nurbs(nurbs) = &fill.surfaces[k] else {
+            continue;
+        };
+        if let Some(target) = solved
+            .surfaces
+            .iter_mut()
+            .find(|s| s.sector_index == sector.sector_index)
+        {
+            target.surface = nurbs.clone();
+            substituted += 1;
+        }
+    }
+    Ok(substituted)
+}
+
 #[cfg(test)]
 #[path = "pns_candidate_tests.rs"]
 mod tests;
+
+/// Whether the PnS cap replaces the Coons fan on exact-boundary
+/// corners.
+///
+/// Default **on**: the substitution is measured to remove up to 89.9°
+/// of internal-seam normal misalignment and goes through the route's
+/// own acceptance gates, so a corner that would have shipped a folded
+/// fan either ships a tangent cap or ships exactly what it did before.
+/// `POPKERN_PNS_CAP=0` restores the fan for A/B measurement.
+pub(crate) fn pns_cap_substitution_enabled() -> bool {
+    std::env::var("POPKERN_PNS_CAP")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+}

@@ -30,6 +30,7 @@ use super::performance::{
     finalize_performance_report, record_pcurve_report, record_support_family_counts,
     record_validation_report, support_sample_count, surface_control_point_count,
 };
+use super::pns_candidate::{pns_cap_substitution_enabled, substitute_pns_sector_surfaces};
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::{ExactBoundaryCapSectorInput, extract_exact_boundary_cap_sectors};
 use super::solve::{
@@ -229,6 +230,29 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         }
         _ => None,
     };
+    // PK-192: substitute PnS bi-4 surfaces over the same rim before
+    // validation, so they face the identical acceptance gates the
+    // Coons wedges did. The fan is G0 across its own internal seams
+    // (measured 89.9 deg worst at n=3, 89.6 at n=4) while the PnS cap
+    // is G1 there by construction (0.0 deg). On failure the Coons
+    // surfaces stay and behaviour is byte-identical to before.
+    //
+    // Deliberately silent: `accepted` at the end of this function is
+    // `committed && diagnostics.is_empty() && ...`, so ANY recorded
+    // diagnostic — even a purely informational one — vetoes the whole
+    // exact-boundary route and drops the corner to its fallback. That
+    // coupling is tracked as PK-201; until it is fixed, reporting here
+    // would silently change which route serves every corner.
+    if pns_cap_substitution_enabled()
+        && let Some(solved) = solved_surfaces.as_mut()
+    {
+        let _ = substitute_pns_sector_surfaces(
+            brep,
+            &candidate_sectors,
+            solved,
+            brep.tolerance.linear(),
+        );
+    }
     performance.solved_surface_count = solved_surfaces
         .as_ref()
         .map(|solved| solved.validated_surface_count())
