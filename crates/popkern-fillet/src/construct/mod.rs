@@ -294,8 +294,16 @@ pub fn apply_blend_geometry(
                     let pre = precomputed.get(vertex).copied().unwrap_or(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );
-                    let use_direct_apex_for_this_apex =
-                        use_direct_apex_construction || promoted_apexes.contains(vertex);
+                    // PK-192: N=3 corners are claimed by the direct-apex
+                    // route (PK-099 promotion), so they never reach
+                    // `insert_vertex_blend` where the PnS cap
+                    // dispatches. Releasing them lets PnS bid first and
+                    // direct-apex still catch anything PnS declines,
+                    // since a failed vertex blend falls through.
+                    let released_for_pns = crate::blend::pns_promote::pns_first_at_low_valence()
+                        && edge_indices.len() == 3;
+                    let use_direct_apex_for_this_apex = !released_for_pns
+                        && (use_direct_apex_construction || promoted_apexes.contains(vertex));
                     let direct_apex_outcome = if use_direct_apex_for_this_apex {
                         Some(direct_apex_dispatch::try_direct_apex_construction(
                             &mut result,

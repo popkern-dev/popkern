@@ -235,6 +235,7 @@ fn sector_to_boundary_edge(
         tangent_start: tan_start,
         tangent_mid: tan_mid,
         tangent_end: tan_end,
+        extra_samples: Vec::new(),
     })
 }
 

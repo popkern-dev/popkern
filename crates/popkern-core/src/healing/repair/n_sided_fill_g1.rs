@@ -156,10 +156,21 @@ fn frame_for_edge(
             .ok_or(G1HoleFillError::ProjectionFailed { index, sample })?;
     }
 
+    // Sample the boundary curve densely so the position row can be
+    // fitted rather than pinned to its midpoint — a corner rim is an
+    // arc joined to a line, which no quadratic passes through.
+    let extra_samples: Vec<(f64, Point3)> = (1..8)
+        .map(|k| {
+            let f = f64::from(k) / 8.0;
+            (f, eval(t0 + f * (t1 - t0)))
+        })
+        .collect();
+
     Ok(FillBoundaryEdge {
         start,
         mid,
         end,
+        extra_samples,
         normal_start: normals[0],
         normal_mid: normals[1],
         normal_end: normals[2],

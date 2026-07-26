@@ -37,6 +37,7 @@ fn planar_opening(n: usize, radius: f64) -> Vec<FillBoundaryEdge> {
             tangent_start: t,
             tangent_mid: t,
             tangent_end: t,
+            extra_samples: Vec::new(),
         });
     }
     edges
@@ -169,6 +170,7 @@ fn non_planar_opening_fills_and_interpolates() {
             tangent_start: t,
             tangent_mid: t,
             tangent_end: t,
+            extra_samples: Vec::new(),
         });
     }
     let fill = fill_n_sided_boundary(&edges, 1e-9).expect("tilted rim must fill");

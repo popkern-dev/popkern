@@ -327,3 +327,17 @@ pub fn try_pns_dispatch(
         .collect();
     Ok(patches)
 }
+
+/// Whether N=3 corners are released from direct-apex promotion so the
+/// PnS cap can bid for them first.
+///
+/// Default **off**. This moves a whole valence class onto a different
+/// construction route, which is the largest behavioural change in the
+/// corner pipeline, so it stays opt-in until the corpus, the polar
+/// gates and the direct-apex matrix have all been measured against it.
+/// `POPKERN_PNS_FIRST_N3=1` enables it.
+pub fn pns_first_at_low_valence() -> bool {
+    std::env::var("POPKERN_PNS_FIRST_N3")
+        .map(|v| v != "0")
+        .unwrap_or(false)
+}

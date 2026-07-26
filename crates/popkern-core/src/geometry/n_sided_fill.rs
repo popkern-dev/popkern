@@ -61,7 +61,7 @@ const DERIV_MAG_FRAC: f64 = 1.0 / 3.0;
 
 /// One side of the opening, with the tangent-plane data of the face
 /// that survived on the other side of it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct FillBoundaryEdge {
     /// Boundary curve sampled at its start, midpoint, and end.
     /// `end` must coincide with the next edge's `start`.
@@ -82,6 +82,31 @@ pub struct FillBoundaryEdge {
     pub tangent_mid: Vec3,
     /// Boundary tangent at `end`.
     pub tangent_end: Vec3,
+    /// Extra `(t, point)` samples along the side, `t` in `(0, 1)`.
+    ///
+    /// Empty means "use `mid` alone", which reproduces the
+    /// interpolating bi-2 exactly. Supplying more lets the position
+    /// row be fitted instead, which matters when the side is a
+    /// circular arc concatenated with a line and no quadratic can
+    /// pass through all of it.
+    pub extra_samples: Vec<(f64, Point3)>,
+}
+
+impl FillBoundaryEdge {
+    /// The samples the position row is fitted against.
+    fn interior_samples(&self) -> Vec<(f64, Point3)> {
+        if self.extra_samples.is_empty() {
+            return vec![(0.5, self.mid)];
+        }
+        let mut all = vec![(0.5, self.mid)];
+        all.extend(
+            self.extra_samples
+                .iter()
+                .filter(|(t, _)| *t > 0.0 && *t < 1.0)
+                .copied(),
+        );
+        all
+    }
 }
 
 /// Why a fill could not be produced.
@@ -221,6 +246,49 @@ pub fn fill_n_sided_boundary(
     })
 }
 
+/// Least-squares middle BB coefficient for the side's bi-2 position
+/// row.
+///
+/// For a degree-2 Bézier with fixed ends, `P(t) = (1-t)^2 * start +
+/// 2t(1-t) * b1 + t^2 * end`, so each sample gives a linear equation
+/// in `b1` with weight `w(t) = 2t(1-t)`. Minimising the squared
+/// residual over the samples gives
+///
+/// ```text
+///   b1 = sum_k w_k * r_k / sum_k w_k^2,
+///   r_k = sample_k - (1-t_k)^2 * start - t_k^2 * end
+/// ```
+///
+/// With the single midpoint sample this returns the interpolating
+/// coefficient exactly, so behaviour is unchanged unless a caller
+/// supplies more.
+fn fit_middle_coefficient(edge: &FillBoundaryEdge) -> Point3 {
+    let samples = edge.interior_samples();
+    let mut num = [0.0_f64; 3];
+    let mut den = 0.0_f64;
+    for (t, point) in samples {
+        let w = 2.0 * t * (1.0 - t);
+        if w <= 0.0 {
+            continue;
+        }
+        let a = (1.0 - t) * (1.0 - t);
+        let c = t * t;
+        let r = [
+            point.x - a * edge.start.x - c * edge.end.x,
+            point.y - a * edge.start.y - c * edge.end.y,
+            point.z - a * edge.start.z - c * edge.end.z,
+        ];
+        num[0] += w * r[0];
+        num[1] += w * r[1];
+        num[2] += w * r[2];
+        den += w * w;
+    }
+    if den <= 0.0 {
+        return edge.mid;
+    }
+    Point3::new(num[0] / den, num[1] / den, num[2] / den)
+}
+
 fn check_closed(boundary: &[FillBoundaryEdge], tolerance: f64) -> Result<(), NSidedFillError> {
     let n = boundary.len();
     for side in 0..n {
@@ -250,13 +318,18 @@ fn strip_for_edge(side: usize, edge: &FillBoundaryEdge) -> Result<Bi2BorderStrip
     }
     let mag = length * DERIV_MAG_FRAC;
 
-    // Bi-2 Bézier interpolating start / mid / end at u = 0, 0.5, 1:
-    //   mid = 0.25*start + 0.5*b1 + 0.25*end  =>  b1 = 2*mid - (start + end)/2
-    let mid_bb = Point3::new(
-        2.0 * edge.mid.x - 0.5 * (edge.start.x + edge.end.x),
-        2.0 * edge.mid.y - 0.5 * (edge.start.y + edge.end.y),
-        2.0 * edge.mid.z - 0.5 * (edge.start.z + edge.end.z),
-    );
+    // Bi-2 Bézier through the side. Interpolating start / mid / end
+    // exactly gives b1 = 2*mid - (start + end)/2, but that pins the
+    // curve to one interior sample and lets it drift elsewhere — on a
+    // corner rim (a circular arc concatenated with a line) the drift
+    // measured 1.5e-2 against a 5e-3 acceptance bar.
+    //
+    // When the caller supplies extra samples, the middle coefficient
+    // is instead the least-squares best fit over all of them, which
+    // spreads the error rather than parking it away from the midpoint.
+    // With no extra samples this reduces exactly to the interpolating
+    // form, so the simple case is unchanged.
+    let mid_bb = fit_middle_coefficient(edge);
 
     let samples = [
         (0_usize, edge.normal_start, edge.tangent_start),

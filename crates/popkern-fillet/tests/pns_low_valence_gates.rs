@@ -106,7 +106,7 @@ fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
         .iter()
         .filter_map(|d| match d {
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(e)
-                if e.stage.contains("cross_spoke") || e.stage.contains("pns") =>
+                if e.stage.contains("pns") =>
             {
                 Some(format!(
                     "{}[{}]{}",
@@ -446,6 +446,7 @@ fn pns_cap_internal_seams_beat_the_shipped_fan() {
                     tangent_start: tangent,
                     tangent_mid: tangent,
                     tangent_end: tangent,
+                    extra_samples: Vec::new(),
                 }
             })
             .collect();

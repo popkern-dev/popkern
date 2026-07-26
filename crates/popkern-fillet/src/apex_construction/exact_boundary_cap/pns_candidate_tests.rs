@@ -32,6 +32,7 @@ fn synthetic_ring(n: usize) -> Vec<FillBoundaryEdge> {
             tangent_start: tangent,
             tangent_mid: tangent,
             tangent_end: tangent,
+            extra_samples: Vec::new(),
         });
     }
     ring
