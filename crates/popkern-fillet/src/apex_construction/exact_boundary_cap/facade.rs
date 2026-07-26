@@ -22,6 +22,7 @@ mod multipatch_route;
 mod report;
 
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
+use super::cap_quality_postcondition::worst_mid_seam_misalignment;
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
 use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
 use super::facts::attach_shared_repair_fact_ids;
@@ -315,6 +316,23 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());
                         } else {
+                            // PK-201 measurement (behaviour-neutral):
+                            // report how continuous the committed cap
+                            // actually is across its own seams. Making
+                            // this a *gate* at the crate's 5e-2 G1 bar
+                            // was tried and rejected 20+ exact-boundary
+                            // acceptances across the direct-apex matrix
+                            // — see the ticket. Recording the number is
+                            // what lets that scope be sized honestly.
+                            if std::env::var_os("POPKERN_CAP_SEAM_REPORT").is_some()
+                                && let Some(worst) =
+                                    worst_mid_seam_misalignment(brep, &committed_faces)
+                            {
+                                eprintln!(
+                                    "[cap-seam] faces={} worst_mid_seam_normal={worst:.3e}",
+                                    committed_faces.len()
+                                );
+                            }
                             committed = true;
                         }
                     }

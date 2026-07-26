@@ -1,6 +1,7 @@
 //! Exact-boundary apex cap primitives.
 
 pub(crate) mod boundary;
+mod cap_quality_postcondition;
 pub(crate) mod cap_spoke_commit;
 pub(crate) mod commit;
 pub(crate) mod commit_diagnostics;
