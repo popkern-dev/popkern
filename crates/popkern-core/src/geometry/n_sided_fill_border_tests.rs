@@ -150,3 +150,126 @@ fn the_arc_fixture_is_genuinely_curved() {
     );
     let _ = Vec3::new(0.0, 0.0, 0.0);
 }
+
+/// Max deviation from a degree-4 Bezier least-squares fitted to
+/// `pts`, ends interpolated.
+///
+/// The cap's boundary row is ALREADY degree 4 — it is just derived by
+/// elevating a degree-2 row, which throws away the freedom the
+/// degree-4 form has. This measures what that freedom is worth,
+/// because if it does not clear the acceptance bar then raising the
+/// border's representational power is not the answer either.
+fn bi4_fit_deviation(pts: &[Point3]) -> f64 {
+    let (p0, p4) = (pts[0], pts[pts.len() - 1]);
+    // Bernstein degree 4; solve for the three interior coefficients by
+    // normal equations on each axis independently.
+    let basis = |t: f64| {
+        let s = 1.0 - t;
+        [
+            s * s * s * s,
+            4.0 * t * s * s * s,
+            6.0 * t * t * s * s,
+            4.0 * t * t * t * s,
+            t * t * t * t,
+        ]
+    };
+    let mut ata = [[0.0_f64; 3]; 3];
+    let mut atb = [[0.0_f64; 3]; 3]; // [coef][axis]
+    for (i, p) in pts.iter().enumerate() {
+        let t = i as f64 / (pts.len() - 1) as f64;
+        let b = basis(t);
+        let residual = [
+            p.x - b[0] * p0.x - b[4] * p4.x,
+            p.y - b[0] * p0.y - b[4] * p4.y,
+            p.z - b[0] * p0.z - b[4] * p4.z,
+        ];
+        for r in 0..3 {
+            for c in 0..3 {
+                ata[r][c] += b[r + 1] * b[c + 1];
+            }
+            for axis in 0..3 {
+                atb[r][axis] += b[r + 1] * residual[axis];
+            }
+        }
+    }
+    // Gaussian elimination on the 3x3, three right-hand sides.
+    let mut m = ata;
+    let mut rhs = atb;
+    for col in 0..3 {
+        let pivot = (col..3)
+            .max_by(|a, b| m[*a][col].abs().partial_cmp(&m[*b][col].abs()).unwrap())
+            .expect("pivot exists");
+        m.swap(col, pivot);
+        rhs.swap(col, pivot);
+        let d = m[col][col];
+        if d.abs() < 1e-18 {
+            return f64::INFINITY;
+        }
+        for r in 0..3 {
+            if r == col {
+                continue;
+            }
+            let f = m[r][col] / d;
+            for c in 0..3 {
+                m[r][c] -= f * m[col][c];
+            }
+            for axis in 0..3 {
+                rhs[r][axis] -= f * rhs[col][axis];
+            }
+        }
+    }
+    let mut interior = [[0.0_f64; 3]; 3];
+    for r in 0..3 {
+        for axis in 0..3 {
+            interior[r][axis] = rhs[r][axis] / m[r][r];
+        }
+    }
+    let cps = [
+        [p0.x, p0.y, p0.z],
+        interior[0],
+        interior[1],
+        interior[2],
+        [p4.x, p4.y, p4.z],
+    ];
+    let mut worst = 0.0_f64;
+    for (i, p) in pts.iter().enumerate() {
+        let t = i as f64 / (pts.len() - 1) as f64;
+        let b = basis(t);
+        let mut q = [0.0_f64; 3];
+        for k in 0..5 {
+            for axis in 0..3 {
+                q[axis] += b[k] * cps[k][axis];
+            }
+        }
+        worst = worst.max(Point3::new(q[0], q[1], q[2]).distance_to(p));
+    }
+    worst
+}
+
+/// Is raising the border's degree enough to clear the acceptance bar?
+///
+/// The cap boundary is already degree 4; today it is an ELEVATED
+/// degree-2 row, which wastes that. If fitting degree 4 directly
+/// clears 5.000e-3 then the fix is contained — no new topology, no
+/// rational forms, just stop throwing the freedom away.
+#[test]
+fn fitting_the_border_at_its_true_degree_clears_the_acceptance_bar() {
+    let paired = arc_then_line(0.05, 0.05, 48);
+    let elevated = bi2_deviation(&paired);
+    let fitted = bi4_fit_deviation(&paired);
+    println!(
+        "[pk192-degree] bi2-elevated={elevated:.4e}  bi4-fitted={fitted:.4e}  \
+         improvement={:.0}x",
+        elevated / fitted.max(f64::MIN_POSITIVE)
+    );
+    assert!(
+        fitted < elevated,
+        "degree-4 fitting must beat the elevated degree-2 row"
+    );
+    assert!(
+        fitted < 5.0e-3,
+        "MEASURED VERDICT: degree-4 fitting reaches {fitted:.4e} against the \
+         5.000e-3 acceptance bar. If this fails, raising the border degree is \
+         NOT sufficient either and the next idea must come from elsewhere."
+    );
+}
