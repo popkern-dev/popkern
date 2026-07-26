@@ -100,8 +100,15 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     //
     // Complete them first, so the gate measures geometry rather than
     // timing.
+    // Verified: this succeeds on every audited face, including the one
+    // the acceptance gate then reports against — so a silent recompute
+    // failure is NOT the explanation for the two measurements
+    // disagreeing (see the open inconsistency on PK-192).
+    let mut recompute_failures = 0usize;
     for &face in &audited {
-        let _ = brep.recompute_face_pcurves(face);
+        if brep.recompute_face_pcurves(face).is_err() {
+            recompute_failures += 1;
+        }
     }
     let fidelity = crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &audited);
     // A bi-4 patch has domain [0,1]^2 and EXTRAPOLATES violently
@@ -142,8 +149,8 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         n_sides,
         "pcurve_fidelity_audit",
         Some(format!(
-            "{fidelity:?};cap_uv_extent=({:.4},{:.4})..({:.4},{:.4})",
-            uv_min.0, uv_min.1, uv_max.0, uv_max.1
+            "{fidelity:?};cap_uv_extent=({:.4},{:.4})..({:.4},{:.4});recompute_failures={}",
+            uv_min.0, uv_min.1, uv_max.0, uv_max.1, recompute_failures
         )),
     ));
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
