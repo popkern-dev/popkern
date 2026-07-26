@@ -363,3 +363,7 @@ fn strip_for_edge(side: usize, edge: &FillBoundaryEdge) -> Result<Bi2BorderStrip
 #[cfg(test)]
 #[path = "n_sided_fill_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "n_sided_fill_border_tests.rs"]
+mod border_tests;
