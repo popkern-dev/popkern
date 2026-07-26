@@ -388,6 +388,7 @@ impl Default for ExactBoundaryToleranceEvidence {
 pub const INFORMATIONAL_DIAGNOSTIC_CODES: &[&str] = &[
     "exact_boundary_cap.pns_substitution",
     "exact_boundary_cap.cross_spoke_g1",
+    "exact_boundary_cap.mid_seam_normal",
 ];
 
 /// Whether a diagnostic code names an informational (non-blocking)

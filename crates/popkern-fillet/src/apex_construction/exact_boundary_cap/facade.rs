@@ -290,22 +290,18 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());
                         } else {
-                            // PK-201 measurement (behaviour-neutral):
-                            // report how continuous the committed cap
-                            // actually is across its own seams. Making
-                            // this a *gate* at the crate's 5e-2 G1 bar
-                            // was tried and rejected 20+ exact-boundary
-                            // acceptances across the direct-apex matrix
-                            // — see the ticket. Recording the number is
-                            // what lets that scope be sized honestly.
-                            if std::env::var_os("POPKERN_CAP_SEAM_REPORT").is_some()
-                                && let Some(worst) =
-                                    worst_mid_seam_misalignment(brep, &committed_faces)
+                            // PK-197/PK-201 criterion: acceptance
+                            // MEASURES cap-cap seams on every commit —
+                            // recorded through the informational
+                            // channel so the crease class cannot recur
+                            // silently. Hard-gating at the crate's
+                            // 5e-2 bar was tried pre-fix and killed
+                            // 20+ matrix acceptances; with the number
+                            // now in every report, that scope can be
+                            // sized from data rather than re-guessed.
+                            if let Some(worst) = worst_mid_seam_misalignment(brep, &committed_faces)
                             {
-                                eprintln!(
-                                    "[cap-seam] faces={} worst_mid_seam_normal={worst:.3e}",
-                                    committed_faces.len()
-                                );
+                                informational.push(mid_seam_note(committed_faces.len(), worst));
                             }
                             committed = true;
                         }
@@ -457,6 +453,27 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 }
 
 /// Informational record of the cross-spoke correction.
+/// Informational record of the committed cap's own internal-seam
+/// normal misalignment (PK-197 criterion: measured on every commit).
+fn mid_seam_note(n_faces: usize, worst: f64) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "exact_boundary_cap.mid_seam_normal".to_string(),
+            code: "exact_boundary_cap.mid_seam_normal".to_string(),
+            detail_code: Some(format!("faces={n_faces};worst_mid_seam_normal={worst:.3e}")),
+            sector_name: format!("n{n_faces}_corner_cap"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: Some(worst),
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
 fn cross_spoke_note(
     n_sectors: usize,
     outcome: &super::cross_spoke_g1::CrossSpokeOutcome,

@@ -162,26 +162,27 @@ fn pns_low_valence_route_comparison() {
     }
 }
 
-/// PK-197 / PK-201: where the cross-spoke G1 correction reaches, and
-/// where it does not.
+/// PK-197 / PK-201: the cross-spoke G1 correction reaches BOTH low
+/// valences.
 ///
 /// The exact-boundary wedges were only ever constrained against their
 /// OUTER boundaries, so nothing held the inner spokes — the seams a
 /// sector shares with its neighbours — and every measured cap was
-/// creased there. `cross_spoke_g1` adds that constraint, and this
-/// gate pins the measured outcome on both sides:
+/// creased there. `cross_spoke_g1` adds that constraint:
 ///
-/// - **n = 4 is fixed.** `cos_min` went 0.006755 -> 0.996283 and the
-///   whole mid-span reads 1.0000; the residual sits at the pole end
-///   (f = 0.95), which is the ill-conditioned chart corner.
-/// - **n = 3 is not.** It measures exactly as before, so the
-///   correction is not reaching that cap's seams at all.
+/// - **n = 4**: `cos_min` 0.006755 -> 0.996283; the residual sits at
+///   the pole end (f = 0.95), the ill-conditioned chart corner.
+/// - **n = 3**: `cos_min` 0.00214 -> 0.999994 once
+///   `harmonize_mismatched_spoke_nets` gave its non-square nets
+///   ((49, 41) / (56, 48)) a common spoke knot vector — the
+///   correction itself was always sufficient; index-wise pairing
+///   simply could not see those seams.
 ///
-/// Both halves are asserted. Pinning only the win would let the n = 3
-/// residual disappear from view, which is how the original defect
-/// survived: nothing measured it.
+/// Both halves are asserted as G1 now. The n = 3 half spent months as
+/// an inverted assertion (cos_min < 0.5) pinning the residual so it
+/// could not disappear from view; it flipped 2026-07-26.
 #[test]
-fn cross_spoke_correction_fixes_n4_and_not_yet_n3() {
+fn cross_spoke_correction_fixes_both_low_valences() {
     let n4 = run_pyramid_apex_outcome(4, &[0.04, 0.06, 0.05, 0.055]);
     assert!(
         n4.metrics.seam_count > 0,
@@ -210,11 +211,10 @@ fn cross_spoke_correction_fixes_n4_and_not_yet_n3() {
         n3.metrics.worst_g0_gap
     );
     assert!(
-        n3.metrics.cos_min < 0.5,
-        "PK-201 residual: n=3 was still creased (cos_min 0.00214) because the \
-         cross-spoke pairing does not reach its seams. Measured {:.6} — if this \
-         is now near 1.0 the residual is FIXED and this half of the gate should \
-         become a G1 assertion like n=4's.",
+        n3.metrics.cos_min > 0.99,
+        "n=3 cap seams must be near-tangent after knot harmonization + the \
+         cross-spoke correction, measured cos_min {:.6} (was 0.00214 before \
+         harmonization reached its non-square nets)",
         n3.metrics.cos_min
     );
 }

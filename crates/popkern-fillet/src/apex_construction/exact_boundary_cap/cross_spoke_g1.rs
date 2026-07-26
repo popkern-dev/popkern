@@ -60,8 +60,11 @@
 //! ```
 //!
 //! Two caps go from ~53° of mid-seam misalignment to machine zero.
-//! The third improves but stays creased — the correction is not
-//! universal, and that residual is real rather than noise (PK-201).
+//! The third stayed creased until 2026-07-26: its sectors solve to
+//! non-square nets that index-wise pairing cannot see, which
+//! `harmonize_mismatched_spoke_nets` now repairs by exact knot
+//! insertion before pairing (n=3 mixed apex: cos_min 0.00214 ->
+//! 0.999994, pinned by `cross_spoke_correction_fixes_both_low_valences`).
 //!
 //! Enabled against the suites that could falsify it: direct-apex
 //! matrix 20/20, polar commercial gates 11/11, fillet corpus 18/22
@@ -101,10 +104,11 @@ pub(crate) struct CrossSpokeOutcome {
     /// nets have incompatible sizes, so no index-wise correspondence
     /// exists to correct through.
     ///
-    /// This is the n = 3 residual: its sectors solve to non-square
-    /// nets — measured `(49, 41)` and `(56, 48)` — so a 41-point
-    /// column cannot be matched against a 49-point row, while n = 4
-    /// solves square `(45, 45)` and pairs cleanly. Counted rather
+    /// Non-square nets — the n = 3 class, measured `(49, 41)` and
+    /// `(56, 48)` — are first harmonized by exact knot insertion
+    /// (`harmonize_mismatched_spoke_nets`); anything still counted
+    /// here is genuinely incompatible (degree mismatch, or refined
+    /// nets that do not coincide along the spoke). Counted rather
     /// than skipped, because a silent skip is what let the original
     /// crease survive unmeasured.
     pub dimension_mismatched: usize,
@@ -115,6 +119,7 @@ pub(crate) fn enforce_cross_spoke_g1(
     solved: &mut ExactBoundarySolvedSurfaces,
     tolerance: f64,
 ) -> CrossSpokeOutcome {
+    harmonize_mismatched_spoke_nets(solved, tolerance);
     let (spokes, dimension_mismatched) = find_shared_spokes(solved, tolerance);
     let spoke_count = spokes.len();
     let mut corrected = 0;
@@ -126,6 +131,165 @@ pub(crate) fn enforce_cross_spoke_g1(
         spokes: spoke_count,
         dimension_mismatched,
     }
+}
+
+/// Bring dimension-mismatched neighbouring nets to a common spoke
+/// knot vector so the index-wise correction can serve them.
+///
+/// This is the n = 3 residual's mechanism: its sectors solve to
+/// non-square nets — measured `(49, 41)` and `(56, 48)` — so a
+/// 41-point column cannot be index-matched against a 49-point row
+/// and the crease survived the correction. Knot insertion is exact
+/// (the refined surface is the same surface), so harmonizing the two
+/// spoke-direction knot vectors to their union creates the missing
+/// index correspondence without moving any geometry. Pairs that
+/// still cannot harmonize — degree mismatch, incompatible parameter
+/// ranges, or refined nets that still do not coincide along the
+/// spoke — are left for `find_shared_spokes` to count in
+/// `dimension_mismatched`, never silently skipped.
+fn harmonize_mismatched_spoke_nets(solved: &mut ExactBoundarySolvedSurfaces, tolerance: f64) {
+    let n = solved.surfaces.len();
+    for a in 0..n {
+        for b in 0..n {
+            if a == b {
+                continue;
+            }
+            let sa = &solved.surfaces[a].surface;
+            let sb = &solved.surfaces[b].surface;
+            if sa.num_v == sb.num_u || sa.num_v < 3 || sb.num_u < 3 {
+                continue;
+            }
+            if sa.degree_v != sb.degree_u {
+                continue;
+            }
+            if !spoke_endpoints_touch(&solved.surfaces[a], &solved.surfaces[b], tolerance) {
+                continue;
+            }
+            // Column side runs along v; row side along u. Establish
+            // orientation from the endpoints before mapping knots.
+            let (Some(a0), Some(a1)) = (
+                column_cp(sa, 0, 0),
+                column_cp(sa, 0, sa.num_v.saturating_sub(1)),
+            ) else {
+                continue;
+            };
+            let (Some(b0), _) = (row_cp(sb, 0, 0), ()) else {
+                continue;
+            };
+            let reversed = !(a0.distance_to(&b0) <= tolerance);
+            let _ = a1;
+            let (va0, va1) = knot_range(&sa.knots_v);
+            let (ub0, ub1) = knot_range(&sb.knots_u);
+            if (va1 - va0).abs() < 1e-12 || (ub1 - ub0).abs() < 1e-12 {
+                continue;
+            }
+            // Interior knot multiset of each side, mapped into the
+            // other side's parameter range (mirrored when reversed).
+            let map_b_to_a = |t: f64| {
+                let f = (t - ub0) / (ub1 - ub0);
+                let f = if reversed { 1.0 - f } else { f };
+                va0 + f * (va1 - va0)
+            };
+            let map_a_to_b = |t: f64| {
+                let f = (t - va0) / (va1 - va0);
+                let f = if reversed { 1.0 - f } else { f };
+                ub0 + f * (ub1 - ub0)
+            };
+            let missing_in_a =
+                missing_interior_knots(&sa.knots_v, sa.degree_v, &sb.knots_u, sb.degree_u, |t| {
+                    map_b_to_a(t)
+                });
+            let missing_in_b =
+                missing_interior_knots(&sb.knots_u, sb.degree_u, &sa.knots_v, sa.degree_v, |t| {
+                    map_a_to_b(t)
+                });
+            let refined_a = if missing_in_a.is_empty() {
+                sa.clone()
+            } else {
+                match sa.insert_knots_v(&missing_in_a) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                }
+            };
+            let refined_b = if missing_in_b.is_empty() {
+                sb.clone()
+            } else {
+                match sb.insert_knots_u(&missing_in_b) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                }
+            };
+            if refined_a.num_v != refined_b.num_u {
+                continue;
+            }
+            // Only commit when the refined nets actually coincide
+            // along the spoke — otherwise the pair is genuinely
+            // incompatible and must keep counting as mismatched.
+            let column: Vec<Point3> = (0..refined_a.num_v)
+                .filter_map(|j| column_cp(&refined_a, 0, j))
+                .collect();
+            let row: Vec<Point3> = (0..refined_b.num_u)
+                .filter_map(|i| row_cp(&refined_b, 0, i))
+                .collect();
+            let forward = column
+                .iter()
+                .zip(row.iter())
+                .all(|(p, q)| p.distance_to(q) <= tolerance);
+            let backward = column
+                .iter()
+                .zip(row.iter().rev())
+                .all(|(p, q)| p.distance_to(q) <= tolerance);
+            if forward || backward {
+                solved.surfaces[a].surface = refined_a;
+                solved.surfaces[b].surface = refined_b;
+            }
+        }
+    }
+}
+
+/// First/last knot value (the parameter range of a clamped vector).
+fn knot_range(knots: &[f64]) -> (f64, f64) {
+    (
+        knots.first().copied().unwrap_or(0.0),
+        knots.last().copied().unwrap_or(1.0),
+    )
+}
+
+/// Interior knots of `other` (mapped into `own`'s range) that `own`
+/// is missing, respecting multiplicity up to the other's count.
+fn missing_interior_knots(
+    own: &[f64],
+    own_degree: usize,
+    other: &[f64],
+    other_degree: usize,
+    map: impl Fn(f64) -> f64,
+) -> Vec<f64> {
+    const KNOT_EPS: f64 = 1e-9;
+    let interior = |knots: &[f64], degree: usize| -> Vec<f64> {
+        let end = knots.len().saturating_sub(degree + 1);
+        knots
+            .get(degree + 1..end.max(degree + 1))
+            .map(|s| s.to_vec())
+            .unwrap_or_default()
+    };
+    let own_interior = interior(own, own_degree);
+    let mut missing = Vec::new();
+    for &t in &interior(other, other_degree) {
+        let mapped = map(t);
+        let mult_other = 1 + missing
+            .iter()
+            .filter(|&&m: &&f64| (m - mapped).abs() <= KNOT_EPS)
+            .count();
+        let mult_own = own_interior
+            .iter()
+            .filter(|&&k| (k - mapped).abs() <= KNOT_EPS)
+            .count();
+        if mult_own < mult_other {
+            missing.push(mapped);
+        }
+    }
+    missing.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+    missing
 }
 
 fn column_cp(
