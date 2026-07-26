@@ -757,3 +757,92 @@ fn probe_support_face_fidelity_at_pipeline_end() {
         println!("[pk192-timing] n={n} FINAL worst_curve_off_surface={worst_off:.3e}");
     }
 }
+
+/// Rim versus spoke pcurve deviation on the SHIPPED cap.
+///
+/// Note what this does and does not measure. It runs on the final
+/// body, where PnS never committed — so these are the *incumbent*
+/// cap's numbers at pipeline end, not the PnS cap's mid-pipeline
+/// ones. It was written to split PnS's 0.0796 into rim and spoke and
+/// cannot do that; separating those requires instrumenting inside the
+/// dispatch, before the rollback.
+///
+/// What it does establish is that the shipped cap's own pcurves are
+/// far under the 5.000e-3 bar on both rim and spoke at pipeline end —
+/// another instance of the pattern this ticket keeps meeting: the
+/// geometry is fine by the time the pipeline finishes, and the PnS
+/// gate judges it long before that.
+#[test]
+#[ignore = "PK-192 attribution: run with --ignored --nocapture"]
+fn probe_cap_rim_versus_spoke_deviation() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    for (n, radii) in [
+        (3_usize, vec![0.04, 0.06, 0.05]),
+        (4, vec![0.04, 0.06, 0.05, 0.055]),
+    ] {
+        let o = run_pyramid_apex_outcome(n, &radii);
+        let brep = &o.brep;
+        let caps: std::collections::BTreeSet<_> = o.cap_face_handles.iter().copied().collect();
+        let (mut rim, mut spoke) = (0.0_f64, 0.0_f64);
+        for &face in &o.cap_face_handles {
+            let Some(fd) = brep.faces.get(face) else {
+                continue;
+            };
+            let Some(sf) = fd.surface.as_ref() else {
+                continue;
+            };
+            let Some(ld) = brep.loops.get(fd.outer_loop) else {
+                continue;
+            };
+            let start = ld.half_edge;
+            let mut he = start;
+            for _ in 0..32 {
+                let Some(hd) = brep.half_edges.get(he) else {
+                    break;
+                };
+                let neighbour_is_cap = brep
+                    .half_edges
+                    .get(hd.twin)
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .map(|l| caps.contains(&l.face))
+                    .unwrap_or(false);
+                if let (Some(pc), Some(curve)) = (
+                    hd.pcurve.as_ref(),
+                    brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()),
+                ) {
+                    let img = |t: f64| {
+                        let uv = pc.point_at(t);
+                        sf.geometry.point_at(uv.x, uv.y)
+                    };
+                    let c = |t: f64| (&curve.geometry as &dyn CurveEval).point_at(t);
+                    let (lo, hi) = (c(curve.t_start), c(curve.t_end));
+                    let fwd = lo.distance_to(&img(pc.t_start)) + hi.distance_to(&img(pc.t_end))
+                        <= lo.distance_to(&img(pc.t_end)) + hi.distance_to(&img(pc.t_start));
+                    let mut worst = 0.0_f64;
+                    for k in 0..=20 {
+                        let f = 0.05 + 0.90 * f64::from(k) / 20.0;
+                        let s = if fwd { f } else { 1.0 - f };
+                        worst = worst.max(
+                            img(pc.t_start + s * (pc.t_end - pc.t_start))
+                                .distance_to(&c(curve.t_start + f * (curve.t_end - curve.t_start))),
+                        );
+                    }
+                    if neighbour_is_cap {
+                        spoke = spoke.max(worst);
+                    } else {
+                        rim = rim.max(worst);
+                    }
+                }
+                he = hd.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        println!(
+            "[pk192-split] FINAL/incumbent n={n} cap_rim={rim:.4e} cap_spoke={spoke:.4e} bar=5.000e-3"
+        );
+    }
+}
