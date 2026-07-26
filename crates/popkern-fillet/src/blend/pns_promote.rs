@@ -390,216 +390,341 @@ fn author_pns_cap_edge_geometry(
     use popkern_core::geometry::{CurveGeometry, Point3, fitting};
 
     let mut spoke_curve_authored: Vec<popkern_core::topology::EdgeHandle> = Vec::new();
-    for &face in sub_faces {
-        let Some(surface) = brep
-            .faces
-            .get(face)
-            .and_then(|f| f.surface.as_ref())
-            .map(|s| s.geometry.clone())
-        else {
-            continue;
-        };
-        let Some(ld) = brep
-            .faces
-            .get(face)
-            .and_then(|f| brep.loops.get(f.outer_loop))
-        else {
-            continue;
-        };
-        let start = ld.half_edge;
-        let mut he = start;
-        for _ in 0..8 {
-            let Some((he_next, he_twin, he_origin, he_edge)) = brep
-                .half_edges
-                .get(he)
-                .map(|hd| (hd.next, hd.twin, hd.origin, hd.edge))
+    // Two phases: rim edges and boundary-side spokes author curves
+    // first, so interior-side spoke fits see the true seam curve
+    // rather than the poke's placeholder Line.
+    for phase in 0..2 {
+        for &face in sub_faces {
+            let Some(surface) = brep
+                .faces
+                .get(face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| s.geometry.clone())
             else {
-                break;
+                continue;
             };
-            let next = he_next;
-            let dest = brep.half_edges.get(he_twin).map(|t| t.origin);
-            let is_spoke = he_origin == central_vertex || dest == Some(central_vertex);
-            if is_spoke {
-                // Spoke edge/pcurve authoring is DISABLED pending the
-                // true patch tiling: the assembled patches' pole-side
-                // boundaries measurably do not coincide with the
-                // poke's spoke edges at n=3 (chart corners land on
-                // ALL THREE spoke feet), and authoring isos from the
-                // wrong contract produced a 5.9e-2 shell gap. The
-                // poke's placeholder Lines stay until the tiling is
-                // read out of `assemble_pns_bi4_cap` (PK-192 spoke
-                // mechanism, in progress).
-                let spoke_authoring_enabled = false;
-                if !spoke_authoring_enabled {
-                    he = next;
-                    if he == start {
-                        break;
+            let Some(ld) = brep
+                .faces
+                .get(face)
+                .and_then(|f| brep.loops.get(f.outer_loop))
+            else {
+                continue;
+            };
+            let start = ld.half_edge;
+            let mut he = start;
+            for _ in 0..8 {
+                let Some((he_next, he_twin, he_origin, he_edge)) = brep
+                    .half_edges
+                    .get(he)
+                    .map(|hd| (hd.next, hd.twin, hd.origin, hd.edge))
+                else {
+                    break;
+                };
+                let next = he_next;
+                let dest = brep.half_edges.get(he_twin).map(|t| t.origin);
+                let is_spoke = he_origin == central_vertex || dest == Some(central_vertex);
+                if is_spoke {
+                    // Tiling contract, read from `pns_cap_assemble`
+                    // (`cur[0][v_c] = nxt[v_c][0]`): the seam curve
+                    // pole -> rim-start(A) is the u = 0 BOUNDARY of the
+                    // patch whose rim starts at A, and an INTERIOR curve
+                    // of the other adjacent patch. So the spoke edge
+                    // takes the boundary patch's u = 0 iso as its 3-D
+                    // curve; the boundary-side face gets the exact
+                    // Linear u = 0 pcurve, and the interior-side face
+                    // gets a fitted preimage seeded along the chart
+                    // diagonal (its endpoints are (0,0) and (1,1) by the
+                    // sharing relations). Authoring plain isos on both
+                    // sides was tried first and produced a 5.9e-2 shell
+                    // gap — that guessed contract is falsified.
+                    let origin_pos = brep.vertices[he_origin].position;
+                    let dest_pos = dest
+                        .map(|d| brep.vertices[d].position)
+                        .unwrap_or(origin_pos);
+                    let rim_junction = if he_origin == central_vertex {
+                        dest_pos
+                    } else {
+                        origin_pos
+                    };
+                    // Boundary side iff THIS face's chart has its rim
+                    // start (S(0,1)) at the junction.
+                    let rim_start = surface.point_at(0.0, 1.0);
+                    let is_boundary_side = rim_start.distance_to(&rim_junction) < 1.0e-6;
+                    if (phase == 0) == !is_boundary_side {
+                        he = next;
+                        if he == start {
+                            break;
+                        }
+                        continue;
                     }
-                    continue;
-                }
-                // Spoke chart paths: the pole sits at (0, 0) and the
-                // two spokes are the u = 0 iso (pole -> rim start) and
-                // the v = 0 iso (pole -> rim-end junction); u = 1 is
-                // the degenerate corner (measured: S(1, v) collapses
-                // onto the junction). Pick the candidate whose ends
-                // match this edge's endpoints.
-                let origin_pos = brep.vertices[he_origin].position;
-                let dest_pos = dest
-                    .map(|d| brep.vertices[d].position)
-                    .unwrap_or(origin_pos);
-                // Candidate paths as (uv_at_pole, uv_at_rim).
-                let candidates = [((0.0, 0.0), (0.0, 1.0)), ((0.0, 0.0), (1.0, 0.0))];
-                let mut best = candidates[0];
-                let mut best_d = f64::MAX;
-                for cand in candidates {
-                    let pole_end = surface.point_at(cand.0.0, cand.0.1);
-                    let rim_end = surface.point_at(cand.1.0, cand.1.1);
-                    let d = (origin_pos.distance_to(&pole_end) + dest_pos.distance_to(&rim_end))
-                        .min(origin_pos.distance_to(&rim_end) + dest_pos.distance_to(&pole_end));
-                    if d < best_d {
-                        best_d = d;
-                        best = cand;
-                    }
-                }
-                let (uv_pole, uv_rim) = best;
-                // Author the shared spoke edge curve once: the patch
-                // iso-curve, oriented from the canonical origin. A
-                // degree-4 least-squares fit reproduces the (degree-4
-                // polynomial) iso to machine precision.
-                if !spoke_curve_authored.contains(&he_edge) {
-                    let canonical = brep.edges.get(he_edge).map(|e| e.half_edge);
-                    let canonical_origin = canonical
-                        .and_then(|c| brep.half_edges.get(c))
+                    let Some((t_start, t_end)) = brep
+                        .edges
+                        .get(he_edge)
+                        .and_then(|e| e.curve.as_ref())
+                        .map(|c| (c.t_start, c.t_end))
+                    else {
+                        he = next;
+                        if he == start {
+                            break;
+                        }
+                        continue;
+                    };
+                    let canonical_origin = brep
+                        .edges
+                        .get(he_edge)
+                        .and_then(|e| brep.half_edges.get(e.half_edge))
                         .map(|c| c.origin);
                     let canonical_starts_at_pole = canonical_origin == Some(central_vertex);
-                    let samples: Vec<Point3> = (0..=12)
-                        .map(|j| {
-                            let s = f64::from(j) / 12.0;
-                            let f = if canonical_starts_at_pole { s } else { 1.0 - s };
-                            let u = uv_pole.0 + f * (uv_rim.0 - uv_pole.0);
-                            let v = uv_pole.1 + f * (uv_rim.1 - uv_pole.1);
-                            surface.point_at(u, v)
-                        })
-                        .collect();
-                    let params: Vec<f64> = (0..=12).map(|j| f64::from(j) / 12.0).collect();
-                    if let Ok(iso) = fitting::fit_curve(&samples, &params, 4, 6) {
-                        let (t0, t1) = iso.parameter_range();
-                        if let Some(edge_data) = brep.edges.get_mut(he_edge) {
-                            edge_data.curve = Some(CurveOnEdge {
-                                geometry: CurveGeometry::Nurbs(iso),
-                                t_start: t0,
-                                t_end: t1,
-                            });
-                            spoke_curve_authored.push(he_edge);
+                    if is_boundary_side {
+                        // Author the shared edge curve from this patch's
+                        // u = 0 iso (degree-4 LSQ reproduces the
+                        // polynomial iso to machine precision), oriented
+                        // from the canonical origin.
+                        if !spoke_curve_authored.contains(&he_edge) {
+                            let samples: Vec<Point3> = (0..=12)
+                                .map(|j| {
+                                    let s = f64::from(j) / 12.0;
+                                    let v = if canonical_starts_at_pole { s } else { 1.0 - s };
+                                    surface.point_at(0.0, v)
+                                })
+                                .collect();
+                            let params: Vec<f64> = (0..=12).map(|j| f64::from(j) / 12.0).collect();
+                            if let Ok(iso) = fitting::fit_curve(&samples, &params, 4, 6) {
+                                let (t0, t1) = iso.parameter_range();
+                                if let Some(edge_data) = brep.edges.get_mut(he_edge) {
+                                    edge_data.curve = Some(CurveOnEdge {
+                                        geometry: CurveGeometry::Nurbs(iso),
+                                        t_start: t0,
+                                        t_end: t1,
+                                    });
+                                    spoke_curve_authored.push(he_edge);
+                                }
+                            }
                         }
-                    }
-                }
-                // Cap-side pcurve on this half-edge: the iso line in
-                // this face's own chart, rate-matched by construction.
-                // Written in the EDGE curve's own direction — the
-                // measurement convention resolves pcurve orientation
-                // from endpoints, so a pcurve opposing the loop is
-                // valid (pinned by `a_reversed_pcurve_is_not_a_defect`).
-                let Some((t_start, t_end)) = brep
-                    .edges
-                    .get(he_edge)
-                    .and_then(|e| e.curve.as_ref())
-                    .map(|c| (c.t_start, c.t_end))
-                else {
-                    he = next;
-                    if he == start {
-                        break;
-                    }
-                    continue;
-                };
-                let canonical_origin = brep
-                    .edges
-                    .get(he_edge)
-                    .and_then(|e| brep.half_edges.get(e.half_edge))
-                    .map(|c| c.origin);
-                let canonical_starts_at_pole = canonical_origin == Some(central_vertex);
-                let (uv_from, uv_to) = if canonical_starts_at_pole {
-                    (uv_pole, uv_rim)
-                } else {
-                    (uv_rim, uv_pole)
-                };
-                brep.half_edges[he].pcurve = Some(Pcurve::linear(uv_from, uv_to, t_start, t_end));
-            } else {
-                // Rim half-edge: 1-D solve along the v = 1 row, then a
-                // degree-3 fit through the recovered (u, 1) samples —
-                // rate-matched to the edge curve by sampling at edge
-                // parameters.
-                let Some(curve) = brep
-                    .edges
-                    .get(he_edge)
-                    .and_then(|e| e.curve.as_ref())
-                    .cloned()
-                else {
-                    he = next;
-                    if he == start {
-                        break;
-                    }
-                    continue;
-                };
-                // Fit over an INCREASING parameter interval — the
-                // NURBS pcurve form evaluates at `t` directly, so the
-                // fit's parameters must be the declared t range.
-                let (t_from, t_to) = (
-                    curve.t_start.min(curve.t_end),
-                    curve.t_start.max(curve.t_end),
-                );
-                let solve_u = |p: &Point3| -> f64 {
-                    let mut best = (0.0_f64, f64::MAX);
-                    for j in 0..=64 {
-                        let u = f64::from(j) / 64.0;
-                        let d = surface.point_at(u, 1.0).distance_to(p);
-                        if d < best.1 {
-                            best = (u, d);
-                        }
-                    }
-                    // Golden-section refinement around the dense winner.
-                    let (mut lo, mut hi) = (
-                        (best.0 - 1.0 / 64.0).max(0.0),
-                        (best.0 + 1.0 / 64.0).min(1.0),
-                    );
-                    for _ in 0..24 {
-                        let m1 = lo + 0.382 * (hi - lo);
-                        let m2 = lo + 0.618 * (hi - lo);
-                        if surface.point_at(m1, 1.0).distance_to(p)
-                            <= surface.point_at(m2, 1.0).distance_to(p)
-                        {
-                            hi = m2;
+                        let (v_from, v_to) = if canonical_starts_at_pole {
+                            (0.0, 1.0)
                         } else {
-                            lo = m1;
+                            (1.0, 0.0)
+                        };
+                        // Re-read the (possibly re-authored) t range.
+                        let (t_start, t_end) = brep
+                            .edges
+                            .get(he_edge)
+                            .and_then(|e| e.curve.as_ref())
+                            .map(|c| (c.t_start, c.t_end))
+                            .unwrap_or((t_start, t_end));
+                        brep.half_edges[he].pcurve =
+                            Some(Pcurve::linear((0.0, v_from), (0.0, v_to), t_start, t_end));
+                    } else {
+                        // Interior side: fit the seam curve's preimage in
+                        // THIS chart, seeded along the diagonal (pole at
+                        // (0,0), far corner at (1,1)). Local coordinate
+                        // descent per sample keeps the projection out of
+                        // the interior minima that defeat the generic
+                        // 2-D projector on these patches.
+                        let Some(curve) = brep
+                            .edges
+                            .get(he_edge)
+                            .and_then(|e| e.curve.as_ref())
+                            .cloned()
+                        else {
+                            he = next;
+                            if he == start {
+                                break;
+                            }
+                            continue;
+                        };
+                        let refine_axis =
+                            |fix: f64, lo0: f64, hi0: f64, p: &Point3, along_u: bool| {
+                                let (mut lo, mut hi) = (lo0, hi0);
+                                for _ in 0..20 {
+                                    let m1 = lo + 0.382 * (hi - lo);
+                                    let m2 = lo + 0.618 * (hi - lo);
+                                    let d1 = if along_u {
+                                        surface.point_at(m1, fix).distance_to(p)
+                                    } else {
+                                        surface.point_at(fix, m1).distance_to(p)
+                                    };
+                                    let d2 = if along_u {
+                                        surface.point_at(m2, fix).distance_to(p)
+                                    } else {
+                                        surface.point_at(fix, m2).distance_to(p)
+                                    };
+                                    if d1 <= d2 {
+                                        hi = m2;
+                                    } else {
+                                        lo = m1;
+                                    }
+                                }
+                                0.5 * (lo + hi)
+                            };
+                        let n_samples = 12usize;
+                        let (ct0, ct1) = (curve.t_start, curve.t_end);
+                        // Sample in canonical curve direction; seed s from
+                        // pole (0,0) to far corner (1,1) matching whether
+                        // the canonical direction starts at the pole.
+                        let mut uv_points = Vec::with_capacity(n_samples + 1);
+                        let mut params = Vec::with_capacity(n_samples + 1);
+                        let (lo_t, hi_t) = (ct0.min(ct1), ct0.max(ct1));
+                        for j in 0..=n_samples {
+                            let s = j as f64 / n_samples as f64;
+                            let t = lo_t + s * (hi_t - lo_t);
+                            let p = {
+                                let g = &curve.geometry;
+                                (g as &dyn CurveEval).point_at(t)
+                            };
+                            // Which end of the seed diagonal is this t?
+                            let curve_start_is_pole = {
+                                let g = &curve.geometry;
+                                (g as &dyn CurveEval)
+                                    .point_at(lo_t)
+                                    .distance_to(&brep.vertices[central_vertex].position)
+                                    < 1.0e-6
+                            };
+                            let seed = if curve_start_is_pole { s } else { 1.0 - s };
+                            let (mut u, mut v) = (seed, seed);
+                            for _ in 0..4 {
+                                u = refine_axis(
+                                    v,
+                                    (u - 0.25).max(0.0),
+                                    (u + 0.25).min(1.0),
+                                    &p,
+                                    true,
+                                );
+                                v = refine_axis(
+                                    u,
+                                    (v - 0.25).max(0.0),
+                                    (v + 0.25).min(1.0),
+                                    &p,
+                                    false,
+                                );
+                            }
+                            uv_points.push(Point3::new(u, v, 0.0));
+                            params.push(t);
+                        }
+                        if std::env::var("POPKERN_PNS_WIRE_TRACE").is_ok_and(|v| v == "1") {
+                            // Attribution: is the residual the fit, or
+                            // a genuine inter-patch gap? Dense 2-D
+                            // scan against the worst seam sample.
+                            let mut worst_fit = 0.0_f64;
+                            let mut worst_p = origin_pos;
+                            for (q, t) in uv_points.iter().zip(&params) {
+                                let img = surface.point_at(q.x, q.y);
+                                let p = {
+                                    let g = &curve.geometry;
+                                    (g as &dyn CurveEval).point_at(*t)
+                                };
+                                let d = img.distance_to(&p);
+                                if d > worst_fit {
+                                    worst_fit = d;
+                                    worst_p = p;
+                                }
+                            }
+                            let mut dense_min = f64::MAX;
+                            for iu in 0..=48 {
+                                for iv in 0..=48 {
+                                    let d = surface
+                                        .point_at(f64::from(iu) / 48.0, f64::from(iv) / 48.0)
+                                        .distance_to(&worst_p);
+                                    dense_min = dense_min.min(d);
+                                }
+                            }
+                            eprintln!(
+                                "[pns-diag-seam] face={face:?} edge={he_edge:?} worst_fit={worst_fit:.4e} dense_min_at_worst={dense_min:.4e}"
+                            );
+                        }
+                        if let Ok(fit) = fitting::fit_curve(&uv_points, &params, 3, 6) {
+                            brep.half_edges[he].pcurve = Some(Pcurve {
+                                geometry: PcurveGeometry::Nurbs(fit),
+                                t_start: lo_t,
+                                t_end: hi_t,
+                            });
                         }
                     }
-                    0.5 * (lo + hi)
-                };
-                let n_samples = 24usize;
-                let mut uv_points = Vec::with_capacity(n_samples + 1);
-                let mut params = Vec::with_capacity(n_samples + 1);
-                for j in 0..=n_samples {
-                    let s = j as f64 / n_samples as f64;
-                    let t = t_from + s * (t_to - t_from);
-                    let p = {
-                        let g = &curve.geometry;
-                        (g as &dyn CurveEval).point_at(t)
+                } else {
+                    if phase == 1 {
+                        he = next;
+                        if he == start {
+                            break;
+                        }
+                        continue;
+                    }
+                    // Rim half-edge: 1-D solve along the v = 1 row, then a
+                    // degree-3 fit through the recovered (u, 1) samples —
+                    // rate-matched to the edge curve by sampling at edge
+                    // parameters.
+                    let Some(curve) = brep
+                        .edges
+                        .get(he_edge)
+                        .and_then(|e| e.curve.as_ref())
+                        .cloned()
+                    else {
+                        he = next;
+                        if he == start {
+                            break;
+                        }
+                        continue;
                     };
-                    uv_points.push(Point3::new(solve_u(&p), 1.0, 0.0));
-                    params.push(t);
+                    // Fit over an INCREASING parameter interval — the
+                    // NURBS pcurve form evaluates at `t` directly, so the
+                    // fit's parameters must be the declared t range.
+                    let (t_from, t_to) = (
+                        curve.t_start.min(curve.t_end),
+                        curve.t_start.max(curve.t_end),
+                    );
+                    let solve_u = |p: &Point3| -> f64 {
+                        let mut best = (0.0_f64, f64::MAX);
+                        for j in 0..=64 {
+                            let u = f64::from(j) / 64.0;
+                            let d = surface.point_at(u, 1.0).distance_to(p);
+                            if d < best.1 {
+                                best = (u, d);
+                            }
+                        }
+                        // Golden-section refinement around the dense winner.
+                        let (mut lo, mut hi) = (
+                            (best.0 - 1.0 / 64.0).max(0.0),
+                            (best.0 + 1.0 / 64.0).min(1.0),
+                        );
+                        for _ in 0..24 {
+                            let m1 = lo + 0.382 * (hi - lo);
+                            let m2 = lo + 0.618 * (hi - lo);
+                            if surface.point_at(m1, 1.0).distance_to(p)
+                                <= surface.point_at(m2, 1.0).distance_to(p)
+                            {
+                                hi = m2;
+                            } else {
+                                lo = m1;
+                            }
+                        }
+                        0.5 * (lo + hi)
+                    };
+                    let n_samples = 24usize;
+                    let mut uv_points = Vec::with_capacity(n_samples + 1);
+                    let mut params = Vec::with_capacity(n_samples + 1);
+                    for j in 0..=n_samples {
+                        let s = j as f64 / n_samples as f64;
+                        let t = t_from + s * (t_to - t_from);
+                        let p = {
+                            let g = &curve.geometry;
+                            (g as &dyn CurveEval).point_at(t)
+                        };
+                        uv_points.push(Point3::new(solve_u(&p), 1.0, 0.0));
+                        params.push(t);
+                    }
+                    let fit = fitting::fit_curve(&uv_points, &params, 3, 5);
+                    if let Ok(fit) = fit {
+                        brep.half_edges[he].pcurve = Some(Pcurve {
+                            geometry: PcurveGeometry::Nurbs(fit),
+                            t_start: t_from,
+                            t_end: t_to,
+                        });
+                    }
                 }
-                let fit = fitting::fit_curve(&uv_points, &params, 3, 5);
-                if let Ok(fit) = fit {
-                    brep.half_edges[he].pcurve = Some(Pcurve {
-                        geometry: PcurveGeometry::Nurbs(fit),
-                        t_start: t_from,
-                        t_end: t_to,
-                    });
+                he = next;
+                if he == start {
+                    break;
                 }
-            }
-            he = next;
-            if he == start {
-                break;
             }
         }
     }
