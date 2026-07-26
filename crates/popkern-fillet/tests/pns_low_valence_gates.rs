@@ -672,3 +672,47 @@ fn probe_incumbent_pcurve_same_fraction_deviation() {
         );
     }
 }
+
+/// PK-192: is the mid-pipeline support-face reading a genuine defect,
+/// or an unfinished state that later passes repair?
+///
+/// PnS dispatch runs before the pcurve-completion passes and measures
+/// 3.277 of pcurve deviation on a neighbouring cylinder. If the same
+/// faces read clean at pipeline END, the acceptance gate is being
+/// applied too early rather than the geometry being wrong — a
+/// different fix entirely.
+#[test]
+#[ignore = "PK-192 timing probe: run with --ignored --nocapture"]
+fn probe_support_face_fidelity_at_pipeline_end() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    use popkern_fillet::pcurve_fidelity::measure_pcurve_fidelity;
+
+    for (n, radii) in [
+        (3_usize, vec![0.04, 0.06, 0.05]),
+        (4, vec![0.04, 0.06, 0.05, 0.055]),
+    ] {
+        let o = run_pyramid_apex_outcome(n, &radii);
+        let brep = &o.brep;
+        let cylinders: Vec<_> = brep
+            .faces
+            .iter()
+            .filter(|(_, d)| {
+                matches!(
+                    d.surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Cylinder { .. })
+                )
+            })
+            .map(|(f, _)| f)
+            .collect();
+        let all: Vec<_> = brep.faces.iter().map(|(f, _)| f).collect();
+        println!(
+            "[pk192-timing] n={n} cylinders={} cyl_fidelity={:?}",
+            cylinders.len(),
+            measure_pcurve_fidelity(brep, &cylinders).map(|f| f.worst)
+        );
+        println!(
+            "[pk192-timing] n={n} all_faces_fidelity={:?}",
+            measure_pcurve_fidelity(brep, &all).map(|f| f.worst)
+        );
+    }
+}

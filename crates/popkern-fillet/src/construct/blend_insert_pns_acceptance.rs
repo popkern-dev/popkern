@@ -91,6 +91,18 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             }
         }
     }
+    // PK-192: the acceptance gate below judges the cap against its
+    // neighbours, but PnS dispatch runs BEFORE the pipeline's
+    // pcurve-completion passes — so those neighbours are unfinished at
+    // this moment. Measured on the same class of face: 3.277 here
+    // against 4.140e-7 at pipeline end, a factor of eight million. The
+    // cap was being refused for its neighbours' unfinished state.
+    //
+    // Complete them first, so the gate measures geometry rather than
+    // timing.
+    for &face in &audited {
+        let _ = brep.recompute_face_pcurves(face);
+    }
     let fidelity = crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &audited);
     // A bi-4 patch has domain [0,1]^2 and EXTRAPOLATES violently
     // outside it, so a large fidelity reading on a cap face is
