@@ -142,3 +142,57 @@ fn nothing_measurable_returns_none() {
     let brep = cube();
     assert!(measure_pcurve_fidelity(&brep, &[]).is_none());
 }
+
+/// A pcurve that traces the right curve at a different RATE must show
+/// a large same-fraction error and a small nearest-point one.
+///
+/// Without this distinction the two failure modes are indistinguishable,
+/// and they call for opposite repairs: re-derive the pcurve, versus
+/// re-parameterise it (or compare by nearest point). Squaring the
+/// parameterisation of a good pcurve is the cleanest way to produce
+/// one without producing the other.
+#[test]
+fn a_reparameterised_pcurve_separates_the_two_measures() {
+    use popkern_core::geometry::pcurve::{Pcurve, PcurveGeometry};
+    let mut brep = cube();
+    let half_edge = brep
+        .faces
+        .iter()
+        .find_map(|(_, d)| Some(brep.loops.get(d.outer_loop)?.half_edge))
+        .expect("cube has a face with a loop");
+    let squashed = {
+        let pc = brep.half_edges[half_edge]
+            .pcurve
+            .as_ref()
+            .expect("pcurve present")
+            .clone();
+        let a = pc.point_at(pc.t_start);
+        let b = pc.point_at(pc.t_end);
+        // Same segment, but only the first half of it is traversed
+        // over the full parameter range: the image still lies ON the
+        // edge curve, just at the wrong rate.
+        Pcurve {
+            geometry: PcurveGeometry::Linear {
+                start: (a.x, a.y),
+                end: (0.5 * (a.x + b.x), 0.5 * (a.y + b.y)),
+            },
+            t_start: pc.t_start,
+            t_end: pc.t_end,
+        }
+    };
+    brep.half_edges[half_edge].pcurve = Some(squashed);
+
+    let f = measure_pcurve_fidelity(&brep, &all_faces(&brep)).expect("measurable");
+    assert!(
+        f.worst > 1e-3,
+        "a rate mismatch must show up in the same-fraction measure, got {:.3e}",
+        f.worst
+    );
+    assert!(
+        f.worst_nearest_point < f.worst * 0.5,
+        "…and must NOT show up nearly as strongly in nearest-point: \
+         same_fraction={:.3e} nearest={:.3e}",
+        f.worst,
+        f.worst_nearest_point
+    );
+}

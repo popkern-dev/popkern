@@ -53,6 +53,16 @@ pub struct PcurveFidelity {
     pub worst_fraction: f64,
     /// Half-edges actually measured.
     pub measured: usize,
+    /// Worst deviation measured as NEAREST POINT on the edge curve
+    /// rather than at matched fractions.
+    ///
+    /// The difference between this and [`Self::worst`] is diagnostic:
+    /// a pcurve that traces the right curve at a different *rate* has
+    /// a small nearest-point error and a large same-fraction one. That
+    /// is a parameterisation mismatch, not a wrong pcurve, and the two
+    /// call for completely different repairs — so they are reported
+    /// separately rather than collapsed into one number.
+    pub worst_nearest_point: f64,
 }
 
 /// Measure pcurve fidelity over `faces`.
@@ -63,6 +73,7 @@ pub struct PcurveFidelity {
 pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<PcurveFidelity> {
     let mut best: Option<PcurveFidelity> = None;
     let mut measured = 0usize;
+    let mut worst_nearest = 0.0_f64;
     for &face in faces {
         let Some(face_data) = brep.faces.get(face) else {
             continue;
@@ -94,12 +105,23 @@ pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<Pcur
                     + c_hi.distance_to(&img_at(pc.t_end))
                     <= c_lo.distance_to(&img_at(pc.t_end)) + c_hi.distance_to(&img_at(pc.t_start));
                 measured += 1;
+                // Dense reference samples for the nearest-point arm.
+                let reference: Vec<_> = (0..=64)
+                    .map(|r| {
+                        c_at(curve.t_start + f64::from(r) / 64.0 * (curve.t_end - curve.t_start))
+                    })
+                    .collect();
                 for k in 0..SAMPLES {
                     let f = END_MARGIN + (1.0 - 2.0 * END_MARGIN) * k as f64 / (SAMPLES - 1) as f64;
                     let s = if forward { f } else { 1.0 - f };
                     let img = img_at(pc.t_start + s * (pc.t_end - pc.t_start));
                     let cp = c_at(curve.t_start + f * (curve.t_end - curve.t_start));
                     let d = img.distance_to(&cp);
+                    let nearest = reference
+                        .iter()
+                        .map(|r| img.distance_to(r))
+                        .fold(f64::MAX, f64::min);
+                    worst_nearest = worst_nearest.max(nearest);
                     if best.is_none_or(|b| d > b.worst) {
                         best = Some(PcurveFidelity {
                             worst: d,
@@ -107,6 +129,7 @@ pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<Pcur
                             worst_face: face,
                             worst_fraction: f,
                             measured,
+                            worst_nearest_point: nearest,
                         });
                     }
                 }
@@ -117,7 +140,11 @@ pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<Pcur
             }
         }
     }
-    best.map(|b| PcurveFidelity { measured, ..b })
+    best.map(|b| PcurveFidelity {
+        measured,
+        worst_nearest_point: worst_nearest,
+        ..b
+    })
 }
 
 #[cfg(test)]
