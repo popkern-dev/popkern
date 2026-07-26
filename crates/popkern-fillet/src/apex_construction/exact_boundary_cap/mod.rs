@@ -10,6 +10,7 @@ pub(crate) mod facts;
 pub(crate) mod multipatch;
 pub(crate) mod pcurves;
 pub(crate) mod performance;
+mod pns_candidate;
 pub(crate) mod ribbon;
 pub(crate) mod ribbon_projection;
 pub(crate) mod sector;

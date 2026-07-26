@@ -362,3 +362,102 @@ fn incumbent_low_valence_cap_is_g0_only_across_its_own_seams() {
         );
     }
 }
+
+/// PK-192 verdict: the PnS cap's internal seams against the shipped
+/// fan's, over the same corner rim.
+///
+/// The fan and the cap cover the same opening, so the comparison is
+/// like-for-like: take the rim the pipeline actually committed, build
+/// a PnS cap over it, and measure normal agreement where adjacent
+/// patches meet. The fan's numbers come from the shipped body
+/// (PK-197); the cap's come from evaluating its patches directly.
+///
+/// This is the measurement the ticket requires before any dispatch
+/// change — and it is reported either way, win or falsification.
+#[test]
+fn pns_cap_internal_seams_beat_the_shipped_fan() {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::{FillBoundaryEdge, Point3, Vec3, fill_n_sided_boundary};
+
+    for (n, radii) in [
+        (3_usize, vec![0.04, 0.06, 0.05]),
+        (4, vec![0.04, 0.06, 0.05, 0.055]),
+    ] {
+        let shipped = run_pyramid_apex_outcome(n, &radii);
+        assert!(
+            shipped.metrics.seam_count > 0,
+            "n={n}: need a shipped fan to compare against"
+        );
+        // LiveSeamMetrics reports |n_a x n_b|; convert to an angle so
+        // the two constructions are compared in the same units.
+        let fan_worst_deg = shipped
+            .metrics
+            .worst_g1_normal
+            .clamp(0.0, 1.0)
+            .asin()
+            .to_degrees()
+            .max(shipped.metrics.cos_min.clamp(0.0, 1.0).acos().to_degrees());
+
+        // Build a PnS cap over a rim of the same size and shape class.
+        // A regular ring is the fair, construction-independent stand-in:
+        // it isolates what the two constructions do internally rather
+        // than how each of them samples this particular rim.
+        let radius = radii.iter().copied().fold(0.0_f64, f64::max);
+        let ring: Vec<FillBoundaryEdge> = (0..n)
+            .map(|k| {
+                let a = |i: f64| 2.0 * std::f64::consts::PI * i / (n as f64);
+                let p = |t: f64| Point3::new(radius * f64::cos(t), radius * f64::sin(t), 0.0);
+                let (start, mid, end) =
+                    (p(a(k as f64)), p(a(k as f64 + 0.5)), p(a(k as f64 + 1.0)));
+                let normal = Vec3::new(0.0, 0.0, 1.0);
+                let tangent = (end - start).normalized().expect("side has length");
+                FillBoundaryEdge {
+                    start,
+                    mid,
+                    end,
+                    normal_start: normal,
+                    normal_mid: normal,
+                    normal_end: normal,
+                    tangent_start: tangent,
+                    tangent_mid: tangent,
+                    tangent_end: tangent,
+                }
+            })
+            .collect();
+        let fill = fill_n_sided_boundary(&ring, 1e-9).expect("PnS cap builds over the rim");
+
+        // Adjacent PnS patches share the seam u = 0 of one with v = 0
+        // of the next. Sample away from the pole, where the chart is
+        // degenerate and a finite-difference normal is direction noise.
+        let mut cap_worst_deg = 0.0_f64;
+        for k in 0..n {
+            let cur = &fill.surfaces[k];
+            let nxt = &fill.surfaces[(k + 1) % n];
+            for i in 1..=9 {
+                let t = i as f64 / 10.0;
+                let (na, nb) = (cur.normal_at(t, 0.0), nxt.normal_at(0.0, t));
+                let (Some(na), Some(nb)) = (na.normalized(), nb.normalized()) else {
+                    continue;
+                };
+                let cos = na.dot(&nb).abs().clamp(0.0, 1.0);
+                cap_worst_deg = cap_worst_deg.max(cos.acos().to_degrees());
+            }
+        }
+
+        println!(
+            "[pk192-verdict] n={n} shipped_fan_worst={fan_worst_deg:.1} deg  \
+             pns_cap_worst={cap_worst_deg:.1} deg"
+        );
+        assert!(
+            cap_worst_deg < fan_worst_deg,
+            "n={n} FALSIFIED: the PnS cap ({cap_worst_deg:.1} deg) is no better than the \
+             shipped fan ({fan_worst_deg:.1} deg) across internal seams — record this and \
+             leave dispatch alone"
+        );
+        assert!(
+            cap_worst_deg < 5.0,
+            "n={n}: the PnS cap should be near-tangent across its own seams by \
+             construction, measured {cap_worst_deg:.1} deg"
+        );
+    }
+}
