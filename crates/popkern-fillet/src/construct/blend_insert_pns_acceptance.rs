@@ -105,9 +105,47 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     // failure is NOT the explanation for the two measurements
     // disagreeing (see the open inconsistency on PK-192).
     let mut recompute_failures = 0usize;
+    // Snapshot each audited face's half-edge pcurve images so we can
+    // say whether the recompute actually CHANGED anything, rather than
+    // succeeding while reproducing what was already there.
+    let before: Vec<(
+        popkern_core::topology::HalfEdgeHandle,
+        popkern_core::geometry::Point3,
+    )> = audited
+        .iter()
+        .filter_map(|&f| brep.faces.get(f))
+        .filter_map(|fd| brep.loops.get(fd.outer_loop))
+        .flat_map(|ld| {
+            let mut out = Vec::new();
+            let start = ld.half_edge;
+            let mut he = start;
+            for _ in 0..32 {
+                let Some(hd) = brep.half_edges.get(he) else {
+                    break;
+                };
+                if let Some(pc) = hd.pcurve.as_ref() {
+                    out.push((he, pc.point_at(0.5 * (pc.t_start + pc.t_end))));
+                }
+                he = hd.next;
+                if he == start {
+                    break;
+                }
+            }
+            out
+        })
+        .collect();
     for &face in &audited {
         if brep.recompute_face_pcurves(face).is_err() {
             recompute_failures += 1;
+        }
+    }
+    let mut changed = 0usize;
+    for (he, mid) in &before {
+        if let Some(pc) = brep.half_edges.get(*he).and_then(|h| h.pcurve.as_ref()) {
+            let now = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+            if (now.x - mid.x).abs() > 1e-12 || (now.y - mid.y).abs() > 1e-12 {
+                changed += 1;
+            }
         }
     }
     let fidelity = crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &audited);
@@ -149,8 +187,14 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         n_sides,
         "pcurve_fidelity_audit",
         Some(format!(
-            "{fidelity:?};cap_uv_extent=({:.4},{:.4})..({:.4},{:.4});recompute_failures={}",
-            uv_min.0, uv_min.1, uv_max.0, uv_max.1, recompute_failures
+            "{fidelity:?};cap_uv_extent=({:.4},{:.4})..({:.4},{:.4});recompute_failures={};pcurves_changed={}/{}",
+            uv_min.0,
+            uv_min.1,
+            uv_max.0,
+            uv_max.1,
+            recompute_failures,
+            changed,
+            before.len()
         )),
     ));
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
