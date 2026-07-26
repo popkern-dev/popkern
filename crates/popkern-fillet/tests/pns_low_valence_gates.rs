@@ -606,18 +606,64 @@ fn probe_incumbent_pcurve_same_fraction_deviation() {
                     continue;
                 };
                 measured += 1;
+                // A half-edge pcurve runs along its LOOP, which for one
+                // of the two half-edges is opposite to the edge curve's
+                // own direction. Sampling both forward reads a REVERSED
+                // pcurve as a deviation of about 0.9 * chord, which is
+                // exactly the signature the first cut of this probe
+                // produced. Resolve orientation from the endpoints, as
+                // `cap_outer_acceptance_measure` does, before measuring.
+                let img_at = |t: f64| {
+                    let uv = pc.point_at(t);
+                    surface.geometry.point_at(uv.x, uv.y)
+                };
+                let c_lo = (&curve.geometry as &dyn CurveEval).point_at(curve.t_start);
+                let c_hi = (&curve.geometry as &dyn CurveEval).point_at(curve.t_end);
+                let forward = c_lo.distance_to(&img_at(pc.t_start))
+                    + c_hi.distance_to(&img_at(pc.t_end))
+                    <= c_lo.distance_to(&img_at(pc.t_end)) + c_hi.distance_to(&img_at(pc.t_start));
                 let mut local = 0.0_f64;
                 for k in 0..=20 {
-                    let s = 0.05 + 0.90 * f64::from(k) / 20.0;
+                    let s_raw = 0.05 + 0.90 * f64::from(k) / 20.0;
+                    let s = if forward { s_raw } else { 1.0 - s_raw };
                     let uv = pc.point_at(pc.t_start + s * (pc.t_end - pc.t_start));
                     let img = surface.geometry.point_at(uv.x, uv.y);
                     let cp = (&curve.geometry as &dyn CurveEval)
-                        .point_at(curve.t_start + s * (curve.t_end - curve.t_start));
+                        .point_at(curve.t_start + s_raw * (curve.t_end - curve.t_start));
                     local = local.max(img.distance_to(&cp));
                 }
                 worst = worst.max(local);
                 if local > 5.0e-3 {
                     over_bar += 1;
+                    let kind = match &surface.geometry {
+                        popkern_core::geometry::surface::SurfaceGeometry::Plane { .. } => "Plane",
+                        popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. } => {
+                            "Cylinder"
+                        }
+                        popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. } => "Sphere",
+                        popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
+                        popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
+                        popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
+                        popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
+                        popkern_core::geometry::surface::SurfaceGeometry::PolyhedralSpline(_) => {
+                            "PnS"
+                        }
+                    };
+                    let cd = pc.point_at(pc.t_start);
+                    let cd2 = pc.point_at(pc.t_end);
+                    println!(
+                        "[pk192-attrib]   OVER: face_kind={kind} dev={local:.3e} \
+                         pcurve_uv_span=({:.4},{:.4})->({:.4},{:.4}) chord={:.3e}",
+                        cd.x,
+                        cd.y,
+                        cd2.x,
+                        cd2.y,
+                        (&curve.geometry as &dyn CurveEval)
+                            .point_at(curve.t_start)
+                            .distance_to(
+                                &(&curve.geometry as &dyn CurveEval).point_at(curve.t_end)
+                            )
+                    );
                 }
             }
         }
