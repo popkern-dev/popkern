@@ -91,19 +91,41 @@ struct SharedSpoke {
     len: usize,
 }
 
+/// What the correction managed on one corner.
+pub(crate) struct CrossSpokeOutcome {
+    /// Control-point pairs corrected.
+    pub corrected: usize,
+    /// Shared spokes matched and corrected.
+    pub spokes: usize,
+    /// Neighbours that ARE geometrically adjacent but whose control
+    /// nets have incompatible sizes, so no index-wise correspondence
+    /// exists to correct through.
+    ///
+    /// This is the n = 3 residual: its sectors solve to non-square
+    /// nets — measured `(49, 41)` and `(56, 48)` — so a 41-point
+    /// column cannot be matched against a 49-point row, while n = 4
+    /// solves square `(45, 45)` and pairs cleanly. Counted rather
+    /// than skipped, because a silent skip is what let the original
+    /// crease survive unmeasured.
+    pub dimension_mismatched: usize,
+}
+
 /// Enforce cross-spoke G¹ across every shared spoke.
-///
-/// Returns the number of control-point pairs corrected.
 pub(crate) fn enforce_cross_spoke_g1(
     solved: &mut ExactBoundarySolvedSurfaces,
     tolerance: f64,
-) -> usize {
-    let spokes = find_shared_spokes(solved, tolerance);
+) -> CrossSpokeOutcome {
+    let (spokes, dimension_mismatched) = find_shared_spokes(solved, tolerance);
+    let spoke_count = spokes.len();
     let mut corrected = 0;
     for spoke in spokes {
         corrected += correct_spoke(solved, &spoke);
     }
-    corrected
+    CrossSpokeOutcome {
+        corrected,
+        spokes: spoke_count,
+        dimension_mismatched,
+    }
 }
 
 fn column_cp(
@@ -125,15 +147,28 @@ fn row_cp(
 }
 
 /// Pair sectors whose right column and top row trace the same spoke.
-fn find_shared_spokes(solved: &ExactBoundarySolvedSurfaces, tolerance: f64) -> Vec<SharedSpoke> {
+fn find_shared_spokes(
+    solved: &ExactBoundarySolvedSurfaces,
+    tolerance: f64,
+) -> (Vec<SharedSpoke>, usize) {
     let mut spokes = Vec::new();
+    let mut dimension_mismatched = 0;
     for (a, sa) in solved.surfaces.iter().enumerate() {
         for (b, sb) in solved.surfaces.iter().enumerate() {
             if a == b {
                 continue;
             }
             let (na, nb) = (sa.surface.num_v, sb.surface.num_u);
-            if na < 3 || na != nb {
+            if na < 3 || nb < 3 {
+                continue;
+            }
+            if na != nb {
+                // Geometrically adjacent sectors can still have
+                // incompatible net sizes; count it so the gap is
+                // visible rather than silently unserved.
+                if spoke_endpoints_touch(sa, sb, tolerance) {
+                    dimension_mismatched += 1;
+                }
                 continue;
             }
             let column: Vec<Point3> = (0..na)
@@ -161,7 +196,30 @@ fn find_shared_spokes(solved: &ExactBoundarySolvedSurfaces, tolerance: f64) -> V
             }
         }
     }
-    spokes
+    (spokes, dimension_mismatched)
+}
+
+/// Whether two sectors' spoke ends coincide, i.e. they really are
+/// neighbours even when their nets cannot be index-matched.
+fn spoke_endpoints_touch(
+    a: &super::solve::ExactBoundarySectorSurface,
+    b: &super::solve::ExactBoundarySectorSurface,
+    tolerance: f64,
+) -> bool {
+    let (Some(a0), Some(a1)) = (
+        column_cp(&a.surface, 0, 0),
+        column_cp(&a.surface, 0, a.surface.num_v.saturating_sub(1)),
+    ) else {
+        return false;
+    };
+    let (Some(b0), Some(b1)) = (
+        row_cp(&b.surface, 0, 0),
+        row_cp(&b.surface, 0, b.surface.num_u.saturating_sub(1)),
+    ) else {
+        return false;
+    };
+    (a0.distance_to(&b0) <= tolerance && a1.distance_to(&b1) <= tolerance)
+        || (a0.distance_to(&b1) <= tolerance && a1.distance_to(&b0) <= tolerance)
 }
 
 /// Apply the midpoint correction along one shared spoke.

@@ -278,8 +278,8 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     if cross_spoke_g1_enabled()
         && let Some(solved) = solved_surfaces.as_mut()
     {
-        let corrected = enforce_cross_spoke_g1(solved, brep.tolerance.linear());
-        informational.push(cross_spoke_note(candidate_sectors.len(), corrected));
+        let outcome = enforce_cross_spoke_g1(solved, brep.tolerance.linear());
+        informational.push(cross_spoke_note(candidate_sectors.len(), &outcome));
     }
     performance.solved_surface_count = solved_surfaces
         .as_ref()
@@ -499,13 +499,16 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 /// Informational record of the cross-spoke correction.
 fn cross_spoke_note(
     n_sectors: usize,
-    corrected: usize,
+    outcome: &super::cross_spoke_g1::CrossSpokeOutcome,
 ) -> crate::types::ApexConstructionDiagnostic {
     crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
         crate::types::ExactBoundaryCapDiagnostic {
             stage: "exact_boundary_cap.cross_spoke_g1".to_string(),
             code: "exact_boundary_cap.cross_spoke_g1".to_string(),
-            detail_code: Some(format!("corrected_control_points={corrected}")),
+            detail_code: Some(format!(
+                "spokes={};corrected_control_points={};dimension_mismatched_neighbours={}",
+                outcome.spokes, outcome.corrected, outcome.dimension_mismatched
+            )),
             sector_name: format!("n{n_sectors}_corner_cap"),
             edge: None,
             support_half_edge: None,

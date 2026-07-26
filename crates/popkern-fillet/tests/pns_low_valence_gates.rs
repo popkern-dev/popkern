@@ -106,7 +106,7 @@ fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
         .iter()
         .filter_map(|d| match d {
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(e)
-                if e.stage.contains("pns") || e.stage.contains("pcurve") =>
+                if e.stage.contains("cross_spoke") || e.stage.contains("pns") =>
             {
                 Some(format!(
                     "{}[{}]{}",
