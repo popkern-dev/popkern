@@ -246,12 +246,15 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     if pns_cap_substitution_enabled()
         && let Some(solved) = solved_surfaces.as_mut()
     {
-        let _ = substitute_pns_sector_surfaces(
+        let outcome = substitute_pns_sector_surfaces(
             brep,
             &candidate_sectors,
             solved,
             brep.tolerance.linear(),
         );
+        if std::env::var_os("POPKERN_PNS_CAP_REPORT").is_some() {
+            eprintln!("[pns-subst] {outcome:?}");
+        }
     }
     performance.solved_surface_count = solved_surfaces
         .as_ref()

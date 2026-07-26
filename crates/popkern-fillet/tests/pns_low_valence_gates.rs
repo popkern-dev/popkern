@@ -36,6 +36,10 @@ struct ApexOutcome {
     /// Distinct achieved continuity levels across those patches.
     achieved: Vec<ContinuityLevel>,
     cap_faces: usize,
+    /// The committed cap faces themselves, for anatomy probes.
+    cap_face_handles: Vec<popkern_core::topology::FaceHandle>,
+    /// The BRep the corner shipped in.
+    brep: BRep,
     valid: bool,
     /// Structured `pns.*` diagnostics the pipeline recorded for this
     /// corner — the record of why PnS did or did not serve it.
@@ -102,7 +106,7 @@ fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
         .iter()
         .filter_map(|d| match d {
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(e)
-                if e.stage.contains("pns") =>
+                if e.stage.contains("pns") || e.stage.contains("pcurve") =>
             {
                 Some(format!(
                     "{}[{}]{}",
@@ -123,6 +127,8 @@ fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
         methods,
         achieved,
         cap_faces: faces.len(),
+        cap_face_handles: faces.clone(),
+        brep: result.brep.clone(),
         valid,
         pns_diagnostics,
         seam_detail,
@@ -459,5 +465,81 @@ fn pns_cap_internal_seams_beat_the_shipped_fan() {
             "n={n}: the PnS cap should be near-tangent across its own seams by \
              construction, measured {cap_worst_deg:.1} deg"
         );
+    }
+}
+
+/// PK-192 diagnosis: what actually bounds a committed cap face?
+///
+/// The PnS ring is built from each sector's (fillet-end arc + face
+/// bridge) pair on the assumption that those two edges span the
+/// sector's share of the rim. They do not — the ring failed to close
+/// by about half a fillet radius. This walks the committed cap faces'
+/// own loops and names every bounding edge by the face on its far
+/// side, which says what occupies the gap.
+#[test]
+#[ignore = "PK-192 diagnosis: run with --ignored --nocapture"]
+fn probe_cap_face_loop_anatomy() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    for (n, radii) in [
+        (3_usize, vec![0.04, 0.06, 0.05]),
+        (4, vec![0.04, 0.06, 0.05, 0.055]),
+    ] {
+        let o = run_pyramid_apex_outcome(n, &radii);
+        let brep = &o.brep;
+        println!("--- n={n} cap faces={} ---", o.cap_face_handles.len());
+        for (i, &face) in o.cap_face_handles.iter().enumerate() {
+            let Some(face_data) = brep.faces.get(face) else {
+                continue;
+            };
+            let start = brep.loops[face_data.outer_loop].half_edge;
+            let mut he = start;
+            let mut idx = 0;
+            loop {
+                let d = &brep.half_edges[he];
+                let other = brep
+                    .half_edges
+                    .get(d.twin)
+                    .and_then(|t| brep.loops.get(t.loop_))
+                    .map(|l| l.face);
+                let kind = other
+                    .and_then(|f| brep.faces.get(f))
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| match &s.geometry {
+                        SurfaceGeometry::Plane { .. } => "Plane",
+                        SurfaceGeometry::Cylinder { .. } => "Cylinder",
+                        SurfaceGeometry::Sphere { .. } => "Sphere",
+                        SurfaceGeometry::Torus { .. } => "Torus",
+                        SurfaceGeometry::Cone { .. } => "Cone",
+                        SurfaceGeometry::Nurbs(_) => "Nurbs",
+                        SurfaceGeometry::Gregory(_) => "Gregory",
+                        SurfaceGeometry::PolyhedralSpline(_) => "PnS",
+                    })
+                    .unwrap_or("<none>");
+                let is_cap = other
+                    .map(|f| o.cap_face_handles.contains(&f))
+                    .unwrap_or(false);
+                let len = brep
+                    .edges
+                    .get(d.edge)
+                    .and_then(|e| e.curve.as_ref())
+                    .map(|c| {
+                        let a = (&c.geometry as &dyn CurveEval).point_at(c.t_start);
+                        let b = (&c.geometry as &dyn CurveEval).point_at(c.t_end);
+                        a.distance_to(&b)
+                    })
+                    .unwrap_or(f64::NAN);
+                println!(
+                    "  cap[{i}] he{idx}: across={kind}{} chord={len:.5e}",
+                    if is_cap { " (CAP-CAP seam)" } else { "" }
+                );
+                he = d.next;
+                idx += 1;
+                if he == start || idx > 12 {
+                    break;
+                }
+            }
+        }
     }
 }

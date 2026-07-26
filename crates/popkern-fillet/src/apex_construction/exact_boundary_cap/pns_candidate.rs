@@ -188,60 +188,38 @@ fn sector_to_boundary_edge(
         },
     )?;
 
-    // Orient the pair so the arc's end meets the bridge's start. Edge
-    // direction is stored per edge and says nothing about loop order,
-    // so either or both may run backwards.
-    let (arc_start, join_a, arc_end_t) = (arc.start, arc.end, arc.t_end);
+    // Pick the span deterministically: find which arc endpoint is the
+    // join (the one that meets the bridge), start from the other, and
+    // end at the bridge endpoint FARTHER from that join.
+    //
+    // The first cut scored candidate arrangements by their midpoint,
+    // which cannot discriminate between the two bridge endpoints — so
+    // when the join sat at the bridge's stored end, `end` was chosen
+    // equal to `mid` and the span collapsed onto the arc alone. The
+    // ring then failed to close by exactly the bridge's chord length
+    // (measured 2.361e-2 at n=3 and 6.364e-2 at n=4, matching the
+    // Plane-side chords of the committed cap faces).
     let (b_start, b_end) = (bridge.start, bridge.end);
-    let candidates = [
-        (
-            arc_start,
-            join_a,
-            b_end,
-            arc.t_start,
-            arc_end_t,
-            bridge.t_end,
-        ),
-        (
-            arc_start,
-            join_a,
-            b_start,
-            arc.t_start,
-            arc_end_t,
-            bridge.t_start,
-        ),
-        (
-            join_a,
-            arc_start,
-            b_end,
-            arc.t_end,
-            arc.t_start,
-            bridge.t_end,
-        ),
-        (
-            join_a,
-            arc_start,
-            b_start,
-            arc.t_end,
-            arc.t_start,
-            bridge.t_start,
-        ),
-    ];
-    let (start, mid, end, t_start, t_mid, t_end) = candidates
-        .into_iter()
-        .min_by(|a, b| {
-            let ga = a.1.distance_to(&nearest_bridge_end(a.1, b_start, b_end));
-            let gb = b.1.distance_to(&nearest_bridge_end(b.1, b_start, b_end));
-            ga.partial_cmp(&gb).unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .unwrap_or(candidates[0]);
-    let join_gap = mid.distance_to(&nearest_bridge_end(mid, b_start, b_end));
+    let join_dist = |p: Point3| p.distance_to(&b_start).min(p.distance_to(&b_end));
+    let arc_start_is_join = join_dist(arc.start) < join_dist(arc.end);
+    let (start, mid, t_start, t_mid) = if arc_start_is_join {
+        (arc.end, arc.start, arc.t_end, arc.t_start)
+    } else {
+        (arc.start, arc.end, arc.t_start, arc.t_end)
+    };
+    let join_gap = join_dist(mid);
     if join_gap > tolerance {
         return Err(PnsCandidateError::SectorNotJoined {
             sector: idx,
             gap: join_gap,
         });
     }
+    // The far bridge endpoint is the one the sector actually reaches.
+    let (end, t_end) = if mid.distance_to(&b_start) <= mid.distance_to(&b_end) {
+        (b_end, bridge.t_end)
+    } else {
+        (b_start, bridge.t_start)
+    };
 
     let (n_start, tan_start) = frame(&arc, arc_support, t_start, idx, "fillet_end")?;
     let (n_mid, tan_mid) = frame(&arc, arc_support, t_mid, idx, "fillet_end")?;
@@ -258,14 +236,6 @@ fn sector_to_boundary_edge(
         tangent_mid: tan_mid,
         tangent_end: tan_end,
     })
-}
-
-fn nearest_bridge_end(p: Point3, a: Point3, b: Point3) -> Point3 {
-    if p.distance_to(&a) <= p.distance_to(&b) {
-        a
-    } else {
-        b
-    }
 }
 
 /// A boundary edge's endpoints and parameter range.
@@ -379,13 +349,37 @@ mod tests;
 /// Whether the PnS cap replaces the Coons fan on exact-boundary
 /// corners.
 ///
-/// Default **on**: the substitution is measured to remove up to 89.9°
-/// of internal-seam normal misalignment and goes through the route's
-/// own acceptance gates, so a corner that would have shipped a folded
-/// fan either ships a tangent cap or ships exactly what it did before.
-/// `POPKERN_PNS_CAP=0` restores the fan for A/B measurement.
+/// Default **off**, and the reason is structural rather than a
+/// tuning shortfall.
+///
+/// The ring now builds and every sector substitutes (`Ok(3)`,
+/// `Ok(4)` on the pyramid apexes). Acceptance then rejects the cap
+/// with `exact_boundary_cap.pcurve.cap_residual_exceeded`, because
+/// that route measures each cap pcurve's image against the **locked
+/// edge curve** — its contract is that the cap surface *contains* the
+/// exact rim.
+///
+/// A PnS bi-2 tensor border cannot satisfy that. Each side is a
+/// degree-2 polynomial Bézier through three sampled points, while the
+/// rim it must contain is a circular arc concatenated with a line. A
+/// polynomial quadratic cannot represent a circular arc at all (that
+/// needs a rational quadratic), and no single quadratic represents an
+/// arc-then-line concatenation. So the substitution is not near
+/// passing — it is the wrong representation for this route's
+/// contract, and no tolerance change makes it right.
+///
+/// Leaving it on would be worse than useless: the failure drops the
+/// corner to its Gregory fallback, which measures far better than the
+/// Coons fan (9.8° vs 89.9° worst internal seam at n=3). Shipping
+/// that would look like a PnS win while actually being a route change
+/// caused by a rejected cap — exactly the dishonest green this work
+/// exists to remove. The legitimate route to that improvement is
+/// PK-201: select on measured quality instead of on diagnostic
+/// silence.
+///
+/// `POPKERN_PNS_CAP=1` enables it for measurement.
 pub(crate) fn pns_cap_substitution_enabled() -> bool {
     std::env::var("POPKERN_PNS_CAP")
         .map(|v| v != "0")
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
