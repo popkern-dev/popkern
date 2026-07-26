@@ -563,3 +563,66 @@ fn probe_cap_face_loop_anatomy() {
         }
     }
 }
+
+/// PK-192: is the support-side pcurve deviation caused by the PnS
+/// split, or already in the shipped body?
+///
+/// The PnS dispatch is refused at `cap_outer_g0` 5.545e-2, whose
+/// dominant evidence term is a 4.618e-2 support-curve gap. That is
+/// only PnS's fault if the shipped body's own pcurves are tighter.
+/// This walks every half-edge of the INCUMBENT result and measures the
+/// same quantity: the pcurve image against the edge curve at matched
+/// fractions.
+#[test]
+#[ignore = "PK-192 attribution probe: run with --ignored --nocapture"]
+fn probe_incumbent_pcurve_same_fraction_deviation() {
+    use popkern_core::geometry::curve::CurveEval;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    for (n, radii) in [
+        (3_usize, vec![0.04, 0.06, 0.05]),
+        (4, vec![0.04, 0.06, 0.05, 0.055]),
+    ] {
+        let o = run_pyramid_apex_outcome(n, &radii);
+        let brep = &o.brep;
+        let mut worst = 0.0_f64;
+        let mut over_bar = 0usize;
+        let mut measured = 0usize;
+        for (_eh, edge) in brep.edges.iter() {
+            let Some(curve) = edge.curve.as_ref() else {
+                continue;
+            };
+            for he in [edge.half_edge] {
+                let Some(hd) = brep.half_edges.get(he) else {
+                    continue;
+                };
+                let Some(pc) = hd.pcurve.as_ref() else {
+                    continue;
+                };
+                let Some(face) = brep.loops.get(hd.loop_).map(|l| l.face) else {
+                    continue;
+                };
+                let Some(surface) = brep.faces.get(face).and_then(|f| f.surface.as_ref()) else {
+                    continue;
+                };
+                measured += 1;
+                let mut local = 0.0_f64;
+                for k in 0..=20 {
+                    let s = 0.05 + 0.90 * f64::from(k) / 20.0;
+                    let uv = pc.point_at(pc.t_start + s * (pc.t_end - pc.t_start));
+                    let img = surface.geometry.point_at(uv.x, uv.y);
+                    let cp = (&curve.geometry as &dyn CurveEval)
+                        .point_at(curve.t_start + s * (curve.t_end - curve.t_start));
+                    local = local.max(img.distance_to(&cp));
+                }
+                worst = worst.max(local);
+                if local > 5.0e-3 {
+                    over_bar += 1;
+                }
+            }
+        }
+        println!(
+            "[pk192-attrib] n={n} pcurves_measured={measured} worst_same_fraction_dev={worst:.3e} over_5e-3={over_bar}"
+        );
+    }
+}
