@@ -148,6 +148,49 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             }
         }
     }
+    // Direct check, no pcurve in between: does each edge's own 3D
+    // curve actually LIE on the surface of the face beside it? If the
+    // best pcurve the kernel can compute still sits 4.6e-2 off, the
+    // curve and the surface may simply disagree — which would be a G0
+    // defect underneath, not a trim-curve problem.
+    let mut worst_curve_off_surface = 0.0_f64;
+    for &face in &audited {
+        let Some(fd) = brep.faces.get(face) else {
+            continue;
+        };
+        let Some(sf) = fd.surface.as_ref() else {
+            continue;
+        };
+        let Some(ld) = brep.loops.get(fd.outer_loop) else {
+            continue;
+        };
+        let start = ld.half_edge;
+        let mut he = start;
+        for _ in 0..32 {
+            let Some(hd) = brep.half_edges.get(he) else {
+                break;
+            };
+            if let Some(curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
+                for k in 0..=20 {
+                    let f = 0.05 + 0.90 * f64::from(k) / 20.0;
+                    let p = {
+                        use popkern_core::geometry::curve::CurveEval;
+                        (&curve.geometry as &dyn CurveEval)
+                            .point_at(curve.t_start + f * (curve.t_end - curve.t_start))
+                    };
+                    use popkern_core::geometry::surface::SurfaceEval;
+                    if let Some((u, v)) = sf.geometry.closest_point(&p) {
+                        worst_curve_off_surface =
+                            worst_curve_off_surface.max(sf.geometry.point_at(u, v).distance_to(&p));
+                    }
+                }
+            }
+            he = hd.next;
+            if he == start {
+                break;
+            }
+        }
+    }
     let fidelity = crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &audited);
     // A bi-4 patch has domain [0,1]^2 and EXTRAPOLATES violently
     // outside it, so a large fidelity reading on a cap face is
@@ -195,6 +238,7 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             recompute_failures,
             changed,
             before.len()
+        ) + &format!(";worst_curve_off_surface={worst_curve_off_surface:.3e}"
         )),
     ));
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
