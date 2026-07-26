@@ -135,6 +135,16 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         })
         .collect();
     for &face in &audited {
+        // At the low valences the cap faces carry analytically-
+        // authored, rate-matched pcurves (see
+        // `author_pns_cap_edge_geometry`); the generic 2-D projection
+        // recompute lands interior preimages on bi-4 patches and must
+        // not overwrite them. Neighbours still need completing — that
+        // is the timing defect this pass exists for. The n >= 5 route
+        // keeps its long-standing recompute.
+        if n_sides <= 4 && cap_faces.contains(&face) {
+            continue;
+        }
         if brep.recompute_face_pcurves(face).is_err() {
             recompute_failures += 1;
         }
@@ -154,6 +164,10 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     // curve and the surface may simply disagree — which would be a G0
     // defect underneath, not a trim-curve problem.
     let mut worst_curve_off_surface = 0.0_f64;
+    // Identity of the worst curve/surface disagreement — the scalar
+    // alone cannot say WHOSE edge is off WHICH surface, which is the
+    // whole PK-203 question.
+    let mut worst_off_detail = String::from("none");
     for &face in &audited {
         let Some(fd) = brep.faces.get(face) else {
             continue;
@@ -180,8 +194,20 @@ pub(super) fn try_pns_dispatch_with_acceptance(
                     };
                     use popkern_core::geometry::surface::SurfaceEval;
                     if let Some((u, v)) = sf.geometry.closest_point(&p) {
-                        worst_curve_off_surface =
-                            worst_curve_off_surface.max(sf.geometry.point_at(u, v).distance_to(&p));
+                        let d = sf.geometry.point_at(u, v).distance_to(&p);
+                        if d > worst_curve_off_surface {
+                            worst_curve_off_surface = d;
+                            let is_cap = cap_faces.contains(&face);
+                            worst_off_detail = format!(
+                                "edge={:?} face={face:?}(cap={is_cap},{}) curve={} f={f:.2} at=({:.4},{:.4},{:.4})",
+                                hd.edge,
+                                surface_kind_name(&sf.geometry),
+                                curve_kind_name(&curve.geometry),
+                                p.x,
+                                p.y,
+                                p.z,
+                            );
+                        }
                     }
                 }
             }
@@ -238,7 +264,8 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             recompute_failures,
             changed,
             before.len()
-        ) + &format!(";worst_curve_off_surface={worst_curve_off_surface:.3e}"
+        ) + &format!(
+            ";worst_curve_off_surface={worst_curve_off_surface:.3e}[{worst_off_detail}]"
         )),
     ));
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
@@ -246,6 +273,14 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         &patches,
         diagnostics,
     );
+    // The completion pass "repairs" cap-boundary pcurves with 2-D
+    // projection, which is measurably worse than the analytic
+    // authoring on bi-4 patches (3.1e-2 vs 6.5e-3). Its support-side
+    // work is wanted; its cap-side work is re-authored. Low-valence
+    // only — the n >= 5 route never had analytic cap pcurves.
+    if n_sides <= 4 {
+        crate::blend::pns_promote::reauthor_pns_cap_edge_geometry(brep, &cap_faces);
+    }
     // PK-192: rim/spoke split of the CAP FACES ONLY, measured at the
     // same pipeline moment the acceptance gate below judges them —
     // after pcurve recompute and support completion, before rollback.
@@ -331,6 +366,35 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     ));
     *brep = pns_snapshot;
     None
+}
+
+/// Short curve-kind label for the audit's worst-sample identity.
+fn curve_kind_name(curve: &popkern_core::geometry::CurveGeometry) -> &'static str {
+    use popkern_core::geometry::CurveGeometry;
+    match curve {
+        CurveGeometry::Line { .. } => "Line",
+        CurveGeometry::Arc { .. } => "Arc",
+        CurveGeometry::Circle { .. } => "Circle",
+        CurveGeometry::Ellipse { .. } => "Ellipse",
+        CurveGeometry::Parabola { .. } => "Parabola",
+        CurveGeometry::Hyperbola { .. } => "Hyperbola",
+        CurveGeometry::Nurbs(_) => "Nurbs",
+    }
+}
+
+/// Short surface-kind label for the audit's worst-sample identity.
+fn surface_kind_name(surface: &popkern_core::geometry::SurfaceGeometry) -> &'static str {
+    use popkern_core::geometry::SurfaceGeometry;
+    match surface {
+        SurfaceGeometry::Plane { .. } => "Plane",
+        SurfaceGeometry::Cylinder { .. } => "Cylinder",
+        SurfaceGeometry::Sphere { .. } => "Sphere",
+        SurfaceGeometry::Cone { .. } => "Cone",
+        SurfaceGeometry::Torus { .. } => "Torus",
+        SurfaceGeometry::Nurbs(_) => "Nurbs",
+        SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
+    }
 }
 
 /// PK-203 diagnostic-probe switch: `POPKERN_PNS_FORCE_ACCEPT=1`
