@@ -68,6 +68,7 @@ pub(crate) mod naming;
 pub mod offset;
 pub mod overlap;
 mod overlap_strip_interference;
+pub mod pcurve_fidelity;
 pub mod precheck;
 pub mod preview;
 pub mod progress;
