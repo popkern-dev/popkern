@@ -714,5 +714,46 @@ fn probe_support_face_fidelity_at_pipeline_end() {
             "[pk192-timing] n={n} all_faces_fidelity={:?}",
             measure_pcurve_fidelity(brep, &all).map(|f| f.worst)
         );
+        // PK-203: the same quantity the acceptance gate refuses on,
+        // measured with NO pcurve in between — does each edge's curve
+        // lie on its neighbouring face's surface? Mid-pipeline this
+        // reads 4.632e-2. If it is small here, that state is transient
+        // and the gate is simply running too early.
+        use popkern_core::geometry::curve::CurveEval;
+        use popkern_core::geometry::surface::SurfaceEval;
+        let mut worst_off = 0.0_f64;
+        for &face in &all {
+            let Some(fd) = brep.faces.get(face) else {
+                continue;
+            };
+            let Some(sf) = fd.surface.as_ref() else {
+                continue;
+            };
+            let Some(ld) = brep.loops.get(fd.outer_loop) else {
+                continue;
+            };
+            let start = ld.half_edge;
+            let mut he = start;
+            for _ in 0..32 {
+                let Some(hd) = brep.half_edges.get(he) else {
+                    break;
+                };
+                if let Some(curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
+                    for k in 0..=20 {
+                        let t = curve.t_start
+                            + (0.05 + 0.90 * f64::from(k) / 20.0) * (curve.t_end - curve.t_start);
+                        let p = (&curve.geometry as &dyn CurveEval).point_at(t);
+                        if let Some((u, v)) = sf.geometry.closest_point(&p) {
+                            worst_off = worst_off.max(sf.geometry.point_at(u, v).distance_to(&p));
+                        }
+                    }
+                }
+                he = hd.next;
+                if he == start {
+                    break;
+                }
+            }
+        }
+        println!("[pk192-timing] n={n} FINAL worst_curve_off_surface={worst_off:.3e}");
     }
 }
