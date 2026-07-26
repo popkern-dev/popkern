@@ -177,6 +177,17 @@ pub fn insert_pns_cap_into_blend_face(
         });
     }
 
+    // The sub-faces inherited their boundary pcurves from the pre-poke
+    // blend face, whose surface had an entirely different
+    // parameterization. Against the bi-4 patches just assigned, those
+    // pcurves reach u = 2.70 and v = 1.64 — far outside the patch
+    // domain of [0, 1]^2, where a Bezier extrapolates violently
+    // (measured 19.287 of pcurve deviation on a unit-scale model).
+    // Re-derive them in the new charts.
+    for sub_face in &poke.sub_faces {
+        let _ = brep.recompute_face_pcurves(*sub_face);
+    }
+
     Ok(PnsInsertResult {
         sub_faces: poke.sub_faces,
         central_vertex: poke.central_vertex,

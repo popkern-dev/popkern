@@ -61,6 +61,79 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     };
 
     let cap_faces = patches.iter().map(|patch| patch.face).collect::<Vec<_>>();
+    // Measure pcurve fidelity on the cap faces and their neighbours —
+    // the faces the acceptance gate judges — with the validated
+    // instrument. Read-only; reported through the non-blocking
+    // channel so it cannot change which route serves the corner.
+    let mut audited: Vec<popkern_core::topology::FaceHandle> = cap_faces.clone();
+    for &cap in &cap_faces {
+        let Some(face_data) = brep.faces.get(cap) else {
+            continue;
+        };
+        let Some(loop_data) = brep.loops.get(face_data.outer_loop) else {
+            continue;
+        };
+        let start = loop_data.half_edge;
+        let mut he = start;
+        for _ in 0..32 {
+            let Some(hd) = brep.half_edges.get(he) else {
+                break;
+            };
+            if let Some(twin) = brep.half_edges.get(hd.twin)
+                && let Some(l) = brep.loops.get(twin.loop_)
+                && !audited.contains(&l.face)
+            {
+                audited.push(l.face);
+            }
+            he = hd.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    let fidelity = crate::pcurve_fidelity::measure_pcurve_fidelity(brep, &audited);
+    // A bi-4 patch has domain [0,1]^2 and EXTRAPOLATES violently
+    // outside it, so a large fidelity reading on a cap face is
+    // ambiguous until the domain is checked: a pcurve straying out of
+    // domain is a real defect, an instrument sampling out of domain is
+    // not. Report the UV extent so the two are distinguishable.
+    let mut uv_min = (f64::MAX, f64::MAX);
+    let mut uv_max = (f64::MIN, f64::MIN);
+    for &cap in &cap_faces {
+        let Some(fd) = brep.faces.get(cap) else {
+            continue;
+        };
+        let Some(ld) = brep.loops.get(fd.outer_loop) else {
+            continue;
+        };
+        let start = ld.half_edge;
+        let mut he = start;
+        for _ in 0..32 {
+            let Some(hd) = brep.half_edges.get(he) else {
+                break;
+            };
+            if let Some(pc) = hd.pcurve.as_ref() {
+                for k in 0..=10 {
+                    let t = pc.t_start + f64::from(k) / 10.0 * (pc.t_end - pc.t_start);
+                    let uv = pc.point_at(t);
+                    uv_min = (uv_min.0.min(uv.x), uv_min.1.min(uv.y));
+                    uv_max = (uv_max.0.max(uv.x), uv_max.1.max(uv.y));
+                }
+            }
+            he = hd.next;
+            if he == start {
+                break;
+            }
+        }
+    }
+    diagnostics.push(pns_dispatch_declined_diagnostic(
+        n_sides,
+        "pcurve_fidelity_audit",
+        Some(format!(
+            "{fidelity:?};cap_uv_extent=({:.4},{:.4})..({:.4},{:.4})",
+            uv_min.0, uv_min.1, uv_max.0, uv_max.1
+        )),
+    ));
     crate::construct::corner_patch_support_completion::complete_external_cap_support_pcurves(
         brep,
         &patches,
