@@ -147,7 +147,7 @@ fn extend_trim_adjacent(
         | SurfaceGeometry::Torus { .. } => Ok(()),
         // Rational Gregory patches are bounded to the unit square /
         // simplex by construction — no extension needed for draft.
-        SurfaceGeometry::Gregory(_) => Ok(()),
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => Ok(()),
         // For NURBS, verify edge endpoints are reachable.
         SurfaceGeometry::Nurbs(nurbs) => {
             let edge = &brep.edges[edge_h];

@@ -15,6 +15,7 @@ pub fn surface_color(surface: &SurfaceGeometry) -> [f32; 4] {
         SurfaceGeometry::Torus { .. } => [0.7, 0.3, 0.8, 1.0], // purple
         SurfaceGeometry::Nurbs(_) => [0.9, 0.9, 0.9, 1.0],     // white
         SurfaceGeometry::Gregory(_) => [0.9, 0.4, 0.6, 1.0], // magenta — distinguishes §5.3 corners
+        SurfaceGeometry::PolyhedralSpline(_) => [0.6, 0.4, 0.9, 1.0], // violet — PnS cap sectors
     }
 }
 

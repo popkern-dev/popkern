@@ -147,6 +147,7 @@ fn describe_cap_seams(
                 SurfaceGeometry::Torus { .. } => "Torus",
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
                 SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             }
             .to_string(),
             None => "none".to_string(),

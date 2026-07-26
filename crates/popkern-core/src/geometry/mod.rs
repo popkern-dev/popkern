@@ -15,12 +15,14 @@ pub mod edge_triple;
 pub mod fitting;
 pub mod gregory;
 pub mod intersection;
+pub mod n_sided_fill;
 pub mod nurbs_curve;
 pub mod nurbs_ops;
 pub mod nurbs_surface;
 pub mod pcurve;
 pub mod point;
 pub mod polyhedral_spline;
+pub mod polyhedral_spline_patch;
 pub mod revolution;
 pub mod surface;
 pub mod surface_helpers;
@@ -41,3 +43,5 @@ pub use vector::Vec3;
 #[cfg(test)]
 #[path = "surface_deriv2_tests.rs"]
 mod surface_deriv2_tests;
+pub use n_sided_fill::{FillBoundaryEdge, NSidedFill, NSidedFillError, fill_n_sided_boundary};
+pub use polyhedral_spline_patch::{PolyhedralSplinePatch, PolyhedralSplineProvenance};

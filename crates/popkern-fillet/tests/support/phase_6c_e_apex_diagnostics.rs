@@ -279,6 +279,7 @@ fn phase_6c_a1_apex_region_detection() {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
         }
     };

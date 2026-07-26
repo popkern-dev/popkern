@@ -138,6 +138,7 @@ fn cap_loop_vs_cap_outer_edge_coverage() {
                     SurfaceGeometry::Cylinder { .. } => "Cyl",
                     SurfaceGeometry::Sphere { .. } => "Sphere",
                     SurfaceGeometry::Gregory(_) => "Gregory",
+                    SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
                     SurfaceGeometry::Nurbs(_) => "Nurbs",
                     _ => "Other",
                 })
@@ -232,6 +233,7 @@ fn cap_outer_per_edge_breakdown_pyramid4_mixed() {
                 SurfaceGeometry::Torus { .. } => "Torus",
                 SurfaceGeometry::Cone { .. } => "Cone",
                 SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
             }
         };

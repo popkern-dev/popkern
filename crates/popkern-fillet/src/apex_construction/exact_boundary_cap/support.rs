@@ -29,8 +29,8 @@ pub(crate) fn support_surface_family(
         SurfaceGeometry::Cone { .. } => ExactBoundarySupportSurfaceFamily::Cone,
         SurfaceGeometry::Sphere { .. } => ExactBoundarySupportSurfaceFamily::Sphere,
         SurfaceGeometry::Nurbs(_) => ExactBoundarySupportSurfaceFamily::Nurbs,
-        SurfaceGeometry::Torus { .. } | SurfaceGeometry::Gregory(_) => {
-            ExactBoundarySupportSurfaceFamily::Unsupported
-        }
+        SurfaceGeometry::Torus { .. }
+        | SurfaceGeometry::Gregory(_)
+        | SurfaceGeometry::PolyhedralSpline(_) => ExactBoundarySupportSurfaceFamily::Unsupported,
     }
 }

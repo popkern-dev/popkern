@@ -167,6 +167,7 @@ pub(super) fn try_direct_apex_construction(
                     SurfaceGeometry::Cone { .. } => "Cone".to_string(),
                     SurfaceGeometry::Nurbs(_) => "Nurbs".to_string(),
                     SurfaceGeometry::Gregory(_) => "Gregory".to_string(),
+                    SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline".to_string(),
                 })
                 .unwrap_or_else(|| "None".to_string());
             eprintln!("[direct-apex-trace]   {fh:?}: {kind}");

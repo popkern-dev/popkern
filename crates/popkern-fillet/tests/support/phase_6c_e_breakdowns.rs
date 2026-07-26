@@ -14,6 +14,7 @@ fn breakdown(brep: &popkern_core::topology::BRep, faces: &[popkern_core::topolog
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
         }
     };

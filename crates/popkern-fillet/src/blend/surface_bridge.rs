@@ -50,6 +50,7 @@ pub(crate) fn surface_kind_name(surface: &SurfaceGeometry) -> &'static str {
         SurfaceGeometry::Torus { .. } => "Torus",
         SurfaceGeometry::Nurbs(_) => "NURBS",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }
 

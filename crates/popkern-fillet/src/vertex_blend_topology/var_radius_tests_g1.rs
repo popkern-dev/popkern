@@ -120,6 +120,7 @@ fn dump_per_edge_g1_cube_mixed() {
                 Some(SurfaceGeometry::Cone { .. }) => "Cone",
                 Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
                 Some(SurfaceGeometry::Gregory(_)) => "Greg",
+                Some(SurfaceGeometry::PolyhedralSpline(_)) => "Greg",
                 None => "?",
             }
         };

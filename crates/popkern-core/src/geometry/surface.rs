@@ -134,6 +134,20 @@ pub enum SurfaceGeometry {
     /// Chiyokura-Kimura rectangular form and the Longhi triangular
     /// form.
     Gregory(GregoryPatch),
+    /// A polyhedral-net spline patch (Karčiauskas–Peters bi-4 cap
+    /// sector).
+    ///
+    /// Geometrically this is a bi-quartic Bézier surface and could be
+    /// stored as [`SurfaceGeometry::Nurbs`] with no loss whatsoever.
+    /// It is a variant so that a committed cap face keeps its
+    /// *identity* — which cap, which sector — through topology edits,
+    /// persistence, and export. See
+    /// [`crate::geometry::polyhedral_spline_patch`] for why that, and
+    /// not analytics, is the justification.
+    /// Boxed: the 5x5 control net is ~600 bytes and would otherwise
+    /// dominate the size of every `SurfaceGeometry` in the kernel,
+    /// including the analytic variants that are a handful of words.
+    PolyhedralSpline(Box<crate::geometry::polyhedral_spline_patch::PolyhedralSplinePatch>),
 }
 
 /// Binding between a face and its geometric surface.
@@ -162,7 +176,7 @@ impl SurfaceGeometry {
             SurfaceGeometry::Nurbs(_) => (false, false),
             // Gregory patches are bounded (unit square / simplex)
             // with no parameter wrap-around in either direction.
-            SurfaceGeometry::Gregory(_) => (false, false),
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => (false, false),
         }
     }
 
@@ -181,7 +195,7 @@ impl SurfaceGeometry {
             SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
             SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
             SurfaceGeometry::Nurbs(_) => (None, None),
-            SurfaceGeometry::Gregory(_) => (None, None),
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => (None, None),
         }
     }
 

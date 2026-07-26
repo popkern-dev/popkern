@@ -19,6 +19,7 @@ fn surface_type_name(s: &SurfaceGeometry) -> &'static str {
         SurfaceGeometry::Torus { .. } => "Torus",
         SurfaceGeometry::Nurbs(_) => "Nurbs",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }
 

@@ -93,6 +93,9 @@ pub fn offset_analytic(
         SurfaceGeometry::Gregory(_) => {
             Err("analytic offset not supported for Gregory patches".to_string())
         }
+        SurfaceGeometry::PolyhedralSpline(_) => {
+            Err("analytic offset not supported for polyhedral-net spline patches".to_string())
+        }
     }
 }
 

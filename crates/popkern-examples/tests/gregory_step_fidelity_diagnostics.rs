@@ -351,6 +351,7 @@ fn face_surface_kind(brep: &BRep, face: popkern_core::topology::FaceHandle) -> &
         Some(SurfaceGeometry::Torus { .. }) => "torus",
         Some(SurfaceGeometry::Nurbs(_)) => "nurbs",
         Some(SurfaceGeometry::Gregory(_)) => "gregory",
+        Some(SurfaceGeometry::PolyhedralSpline(_)) => "polyhedral_spline",
         None => "missing",
     }
 }

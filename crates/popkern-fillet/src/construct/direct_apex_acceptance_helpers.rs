@@ -158,6 +158,7 @@ pub(super) fn trace_native_gregory_cap_seam_g0(
                 SurfaceGeometry::Torus { .. } => "Torus",
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
                 SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             })
             .unwrap_or("<none>")
     };
@@ -489,6 +490,7 @@ pub(super) fn trace_shell_gap_edge(brep: &BRep, edge: popkern_core::topology::Ed
                     SurfaceGeometry::Cylinder { .. } => "Cylinder",
                     SurfaceGeometry::Nurbs(_) => "Nurbs",
                     SurfaceGeometry::Gregory(_) => "Gregory",
+                    SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
                     _ => "Other",
                 })
                 .unwrap_or("None"),

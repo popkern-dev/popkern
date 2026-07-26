@@ -318,11 +318,18 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
             let _ = perp_count;
             None
         }
-        SurfaceGeometry::Gregory(_) => {
-            // A Gregory patch at a face implies a §5.3 N-sided
-            // vertex blend — the corner patch constructed when
-            // multiple fillets meet. High confidence because the
-            // Gregory surface type itself is the signal.
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+            // A Gregory or polyhedral-net-spline patch at a face
+            // implies a §5.3 N-sided vertex blend — the corner patch
+            // constructed when multiple fillets meet. High confidence
+            // because the cap surface type itself is the signal.
+            //
+            // This is exactly what the PnS variant was added for: as
+            // anonymous NURBS a committed cap sector was invisible
+            // here, so `identify_blend` could not see the corner it
+            // was looking at. The patch also carries its valence and
+            // sector index, so a caller can tell which piece of which
+            // cap a face is rather than inferring it from adjacency.
             Some(BlendInfo {
                 face,
                 kind: BlendKind::VertexBlend,

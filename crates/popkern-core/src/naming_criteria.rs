@@ -128,6 +128,10 @@ pub fn capture_face(brep: &BRep, face: FaceHandle) -> Option<FaceCriteria> {
         SurfaceGeometry::Torus { .. } => SurfaceType::Torus,
         SurfaceGeometry::Nurbs(_) => SurfaceType::Nurbs,
         SurfaceGeometry::Gregory(_) => SurfaceType::Gregory,
+        // Named with Gregory: both are free-form cap patches, and the
+        // naming criteria key on surface behaviour, not on which
+        // construction produced the patch.
+        SurfaceGeometry::PolyhedralSpline(_) => SurfaceType::Gregory,
     };
 
     // Boundary vertex positions.

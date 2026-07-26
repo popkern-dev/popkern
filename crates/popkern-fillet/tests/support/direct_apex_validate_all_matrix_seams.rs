@@ -81,6 +81,9 @@ fn direct_apex_native_cap_support_seam_ownership_inventory() {
                     popkern_core::geometry::surface::SurfaceGeometry::Torus { .. } => "Torus",
                     popkern_core::geometry::surface::SurfaceGeometry::Cone { .. } => "Cone",
                     popkern_core::geometry::surface::SurfaceGeometry::Gregory(_) => "Gregory",
+                    popkern_core::geometry::surface::SurfaceGeometry::PolyhedralSpline(_) => {
+                        "PolyhedralSpline"
+                    }
                     popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_) => "Nurbs",
                 })
                 .unwrap_or("None");

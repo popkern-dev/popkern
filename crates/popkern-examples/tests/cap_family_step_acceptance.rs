@@ -276,6 +276,7 @@ fn surface_kind(surface: &popkern_core::geometry::SurfaceGeometry) -> &'static s
         popkern_core::geometry::SurfaceGeometry::Torus { .. } => "torus",
         popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "nurbs",
         popkern_core::geometry::SurfaceGeometry::Gregory(_) => "gregory",
+        popkern_core::geometry::SurfaceGeometry::PolyhedralSpline(_) => "polyhedral_spline",
     }
 }
 

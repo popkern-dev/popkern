@@ -205,6 +205,7 @@ fn surfaces_at_vertex(brep: &BRep, v: VertexHandle) -> Vec<(FaceHandle, &'static
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
         };
         // Per-surface distance: just call geometry's closest-point
         // and measure.  For analytic surfaces this is exact.

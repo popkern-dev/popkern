@@ -158,6 +158,7 @@ fn surface_kind_label(geometry: &SurfaceGeometry) -> &'static str {
             GregoryPatch::RectangularBiNonicDualTwist(_) => "Gregory:RectangularBiNonicDualTwist",
             _ => "Gregory:other",
         },
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }
 

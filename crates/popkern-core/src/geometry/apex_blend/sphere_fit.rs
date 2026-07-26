@@ -127,6 +127,9 @@ pub fn sphere_fit_termination(
         SurfaceGeometry::Gregory(_) => Err(SphereFitError::UnsupportedFilletVariant {
             variant: "Gregory (cap-of-cap not in sphere-fit scope)",
         }),
+        SurfaceGeometry::PolyhedralSpline(_) => Err(SphereFitError::UnsupportedFilletVariant {
+            variant: "PolyhedralSpline (cap-of-cap not in sphere-fit scope)",
+        }),
     }
 }
 

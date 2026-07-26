@@ -40,6 +40,7 @@ pub mod import_repair;
 pub mod merge_faces;
 /// N-sided hole filling by decomposition into 4-sided patches.
 pub mod n_sided_fill;
+pub mod n_sided_fill_g1;
 /// Multi-step repair pipeline with transactional rollback.
 pub mod pipeline;
 /// Preview proposed repairs before applying.
@@ -78,6 +79,7 @@ pub use import_repair::{
 };
 pub use merge_faces::FaceMergeResult;
 pub use n_sided_fill::fill_n_sided_hole;
+pub use n_sided_fill_g1::{G1HoleFillError, fill_n_sided_hole_g1};
 pub use pipeline::{ConvergenceStatus, HealResult};
 pub use preview::RepairPreview;
 pub use progressive::{HealingCheckpoint, ProgressiveHealResult, heal_progressive};

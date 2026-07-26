@@ -79,6 +79,22 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
             })
         }
         SurfaceGeometry::Gregory(g) => SurfaceGeometry::Gregory(transform_gregory(g, t)),
+        SurfaceGeometry::PolyhedralSpline(p) => {
+            // Transform every control point and keep the provenance:
+            // a moved cap sector is still that cap's sector.
+            let mut net = p.net;
+            for row in net.iter_mut() {
+                for cp in row.iter_mut() {
+                    *cp = t.apply_point(cp);
+                }
+            }
+            SurfaceGeometry::PolyhedralSpline(Box::new(
+                crate::geometry::polyhedral_spline_patch::PolyhedralSplinePatch::new(
+                    net,
+                    p.provenance,
+                ),
+            ))
+        }
     }
 }
 

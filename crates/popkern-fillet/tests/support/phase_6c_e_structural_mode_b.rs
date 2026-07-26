@@ -26,6 +26,7 @@ fn phase_6c_x_structural_dump() {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
         }
     };
@@ -235,6 +236,7 @@ fn phase_6c_e_cube_mixed_cap_loop_walk() {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
         }
     };

@@ -50,6 +50,7 @@ pub(super) fn dump_cylinder_face(brep: &BRep, fh: FaceHandle) {
                 SurfaceGeometry::Torus { .. } => "Torus",
                 SurfaceGeometry::Nurbs(_) => "Nurbs",
                 SurfaceGeometry::Gregory(_) => "Gregory",
+                SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             })
             .unwrap_or("?");
         let off = off_cyl_distance(&p, *origin, *axis, *radius);

@@ -240,6 +240,15 @@ impl ExportContext {
                 let nurbs = surface.geometry.to_nurbs();
                 self.export_nurbs_surface(&nurbs)
             }
+            // A polyhedral-net spline patch IS a bi-quartic Bezier
+            // surface, so unlike the Gregory case this export is
+            // exact, not an approximation. What STEP cannot carry is
+            // the provenance (which cap, which sector) — that is a
+            // known interchange loss, not a geometric one.
+            SurfaceGeometry::PolyhedralSpline(patch) => {
+                let nurbs = patch.to_nurbs();
+                self.export_nurbs_surface(&nurbs)
+            }
         }
     }
 }

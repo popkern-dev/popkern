@@ -226,7 +226,7 @@ pub(super) fn project_to_uv_clamped(surf: &SurfaceGeometry, p: Point3) -> (f64, 
         }
         // Out of scope for stage 2 — the classifier rejects these
         // before reaching this function.
-        Torus { .. } | Nurbs(_) | Gregory(_) => (p.x, p.y),
+        Torus { .. } | Nurbs(_) | Gregory(_) | PolyhedralSpline(_) => (p.x, p.y),
     };
     let ((u_lo, u_hi), (v_lo, v_hi)) = surf.parameter_range();
     let clamp = |x: f64, lo: f64, hi: f64| {

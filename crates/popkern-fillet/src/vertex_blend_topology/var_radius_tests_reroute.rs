@@ -164,6 +164,7 @@ fn dump_per_edge_g1_cube_mixed_gregory_rung_off() {
         .iter()
         .filter_map(|(fh, f)| match f.surface.as_ref().map(|s| &s.geometry) {
             Some(SurfaceGeometry::Gregory(_)) => Some(fh),
+            Some(SurfaceGeometry::PolyhedralSpline(_)) => Some(fh),
             _ => None,
         })
         .collect();
@@ -189,6 +190,7 @@ fn dump_per_edge_g1_cube_mixed_gregory_rung_off() {
             Some(SurfaceGeometry::Cone { .. }) => "Cone",
             Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
             Some(SurfaceGeometry::Gregory(_)) => "Greg",
+            Some(SurfaceGeometry::PolyhedralSpline(_)) => "Greg",
             None => "?",
         }
     };

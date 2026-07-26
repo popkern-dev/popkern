@@ -40,6 +40,7 @@ fn direct_apex_cube_mixed_cap_outer_per_edge_breakdown() {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Cone { .. } => "Cone",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
         }
     };

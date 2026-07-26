@@ -36,6 +36,7 @@ mod part_polyhedron;
 pub mod poly;
 mod profile;
 mod select;
+mod select_surface_kind;
 mod shaping;
 pub mod smooth_mesh;
 #[cfg(feature = "text")]

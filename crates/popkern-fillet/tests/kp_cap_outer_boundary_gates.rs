@@ -361,6 +361,7 @@ fn dump_cap_loop_structure() {
                 Some(SurfaceGeometry::Cylinder { .. }) => "Cylinder",
                 Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
                 Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+                Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline",
                 _ => "?",
             };
             eprintln!(
@@ -420,6 +421,7 @@ fn dump_cap_surface_types() {
                         _ => "Gregory:?",
                     }
                 }
+                Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline",
                 None => "<none>",
             };
             eprintln!("  {name:14} cap[{i}]: surface={kind} n_verts={n_verts}");

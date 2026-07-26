@@ -449,6 +449,9 @@ fn direct_apex_does_not_store_semantic_lines_as_nurbs() {
                         Some(popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)) => {
                             "Gregory"
                         }
+                        Some(
+                            popkern_core::geometry::surface::SurfaceGeometry::PolyhedralSpline(_),
+                        ) => "PolyhedralSpline",
                         Some(popkern_core::geometry::surface::SurfaceGeometry::Nurbs(_)) => "Nurbs",
                         None => "None",
                     }

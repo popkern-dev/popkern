@@ -223,6 +223,7 @@ fn probe_cube_uniform_cap_surface_kind() {
         SurfaceGeometry::Torus { .. } => "Torus",
         SurfaceGeometry::Nurbs(_) => "Nurbs",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     };
     assert_eq!(kind, "Sphere", "cube_uniform cap should be a Sphere");
     if let SurfaceGeometry::Sphere { center, radius } = &surf {

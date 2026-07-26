@@ -155,6 +155,7 @@ fn dump_cap_loops_rung_compare() {
                 Some(SurfaceGeometry::Cylinder { .. }) => "Cyl",
                 Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
                 Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+                Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline",
                 Some(SurfaceGeometry::Torus { .. }) => "Torus",
                 Some(SurfaceGeometry::Cone { .. }) => "Cone",
                 Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
@@ -188,6 +189,7 @@ fn dump_cap_loops_rung_compare() {
                     center.x, center.y, center.z, radius
                 ),
                 Some(SurfaceGeometry::Gregory(_)) => "Gregory".to_string(),
+                Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline".to_string(),
                 Some(other) => format!("{other:?}"),
                 None => "<no surface>".to_string(),
             };
@@ -232,6 +234,7 @@ fn dump_cap_loops_rung_compare() {
                     Some(SurfaceGeometry::Cylinder { .. }) => "Cyl",
                     Some(SurfaceGeometry::Sphere { .. }) => "Sphere",
                     Some(SurfaceGeometry::Gregory(_)) => "Greg",
+                    Some(SurfaceGeometry::PolyhedralSpline(_)) => "Greg",
                     _ => "?",
                 };
                 eprintln!(

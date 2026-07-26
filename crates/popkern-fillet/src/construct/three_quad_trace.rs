@@ -18,6 +18,7 @@ pub(super) fn trace_cap_subface_neighbors(brep: &BRep, label: &str, faces: &[Fac
             Some(SurfaceGeometry::Torus { .. }) => "Torus",
             Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
             Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+            Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline",
             None => "None",
         }
     };

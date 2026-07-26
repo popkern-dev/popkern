@@ -321,6 +321,7 @@ fn surface_kinds(brep: &BRep, faces: &[FaceHandle]) -> Vec<&'static str> {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
         })
         .collect()
 }

@@ -244,6 +244,7 @@ fn surface_kind_label(surface: &popkern_core::geometry::surface::SurfaceGeometry
         SurfaceGeometry::Cone { .. } => "Cone",
         SurfaceGeometry::Nurbs(_) => "Nurbs",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }
 

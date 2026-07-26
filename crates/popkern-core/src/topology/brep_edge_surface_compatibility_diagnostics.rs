@@ -184,6 +184,9 @@ pub fn surface_kind(surface: &SurfaceGeometry) -> BrepEdgeSurfaceKind {
         SurfaceGeometry::Torus { .. } => BrepEdgeSurfaceKind::Torus,
         SurfaceGeometry::Nurbs(_) => BrepEdgeSurfaceKind::Nurbs,
         SurfaceGeometry::Gregory(_) => BrepEdgeSurfaceKind::Gregory,
+        // Classified with Gregory: both are free-form cap patches with a
+        // unit-square domain and no analytic edge form.
+        SurfaceGeometry::PolyhedralSpline(_) => BrepEdgeSurfaceKind::Gregory,
     }
 }
 

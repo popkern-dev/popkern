@@ -94,6 +94,7 @@ impl SurfaceEval for SurfaceGeometry {
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.point_at(u, v),
             SurfaceGeometry::Gregory(g) => g.point_at(u, v),
+            SurfaceGeometry::PolyhedralSpline(p) => p.point_at(u, v),
         }
     }
 
@@ -129,6 +130,7 @@ impl SurfaceEval for SurfaceGeometry {
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_u(u, v),
             SurfaceGeometry::Gregory(g) => g.partial_u(u, v),
+            SurfaceGeometry::PolyhedralSpline(p) => p.partial_u(u, v),
         }
     }
 
@@ -162,6 +164,7 @@ impl SurfaceEval for SurfaceGeometry {
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.partial_v(u, v),
             SurfaceGeometry::Gregory(g) => g.partial_v(u, v),
+            SurfaceGeometry::PolyhedralSpline(p) => p.partial_v(u, v),
         }
     }
 
@@ -184,7 +187,7 @@ impl SurfaceEval for SurfaceGeometry {
             SurfaceGeometry::Sphere { .. } => (Some(TAU), None),
             SurfaceGeometry::Torus { .. } => (Some(TAU), Some(TAU)),
             SurfaceGeometry::Nurbs(_) => (None, None),
-            SurfaceGeometry::Gregory(_) => (None, None),
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => (None, None),
         }
     }
 
@@ -206,7 +209,9 @@ impl SurfaceEval for SurfaceGeometry {
             // directly. The bounding box in parameter space is
             // the full unit square for uniformity with tensor-
             // product surfaces.
-            SurfaceGeometry::Gregory(_) => ((0.0, 1.0), (0.0, 1.0)),
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+                ((0.0, 1.0), (0.0, 1.0))
+            }
         }
     }
 
@@ -250,7 +255,7 @@ impl SurfaceEval for SurfaceGeometry {
             // a later commit; FD here is already 1e-7-accurate
             // on unit-scale patches and matches the trait's
             // default implementation exactly.
-            SurfaceGeometry::Gregory(_) => {
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
                 let h = 1e-7;
                 let fwd = self.partial_u(u + h, v);
                 let bwd = self.partial_u(u - h, v);
@@ -280,7 +285,7 @@ impl SurfaceEval for SurfaceGeometry {
                 (perp1 * (-u.sin()) + perp2 * u.cos()) * (-minor_radius * v.sin())
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_uv(u, v),
-            SurfaceGeometry::Gregory(_) => {
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
                 let h = 1e-7;
                 let fwd = self.partial_u(u, v + h);
                 let bwd = self.partial_u(u, v - h);
@@ -308,7 +313,7 @@ impl SurfaceEval for SurfaceGeometry {
                 d2_radial + d2_axial
             }
             SurfaceGeometry::Nurbs(nurbs) => nurbs.second_partial_vv(u, v),
-            SurfaceGeometry::Gregory(_) => {
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
                 let h = 1e-7;
                 let fwd = self.partial_v(u, v + h);
                 let bwd = self.partial_v(u, v - h);

@@ -152,7 +152,7 @@ fn model_info_section(ui: &mut Ui, scene: &VizServer) {
                 SurfaceGeometry::Cone { .. } => cones += 1,
                 SurfaceGeometry::Torus { .. } => tori += 1,
                 SurfaceGeometry::Nurbs(_) => nurbs += 1,
-                SurfaceGeometry::Gregory(_) => gregory += 1,
+                SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => gregory += 1,
             },
             None => none_count += 1,
         }
@@ -241,6 +241,7 @@ fn surface_type_name(surface: &SurfaceGeometry) -> &'static str {
         SurfaceGeometry::Torus { .. } => "Torus",
         SurfaceGeometry::Nurbs(_) => "NURBS",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }
 

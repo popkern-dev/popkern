@@ -134,7 +134,9 @@ pub fn validate_fillet_surface(
         // Gregory patches route through the same grid-sampling
         // self-intersection check as NURBS — the generic
         // `SurfaceEval` path walks via point_at.
-        SurfaceGeometry::Gregory(_) => check_nurbs_surface(surface, u_range, v_range, tolerance),
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+            check_nurbs_surface(surface, u_range, v_range, tolerance)
+        }
     }
 }
 

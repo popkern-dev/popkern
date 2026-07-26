@@ -112,6 +112,7 @@ pub(super) fn three_face_tangency_support_missing_primitive(
         SurfaceGeometry::Torus { .. } => "three-face-tangency-torus-support",
         SurfaceGeometry::Nurbs(_) => "three-face-tangency-nurbs-support",
         SurfaceGeometry::Gregory(_) => "three-face-tangency-gregory-support",
+        SurfaceGeometry::PolyhedralSpline(_) => "three-face-tangency-polyhedral-spline-support",
     }
 }
 

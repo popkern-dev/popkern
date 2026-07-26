@@ -76,6 +76,9 @@ pub(crate) fn cap_support_acceptance_error(
                         popkern_core::geometry::SurfaceGeometry::Torus { .. } => "Torus",
                         popkern_core::geometry::SurfaceGeometry::Nurbs(_) => "Nurbs",
                         popkern_core::geometry::SurfaceGeometry::Gregory(_) => "Gregory",
+                        popkern_core::geometry::SurfaceGeometry::PolyhedralSpline(_) => {
+                            "PolyhedralSpline"
+                        }
                     })
                     .unwrap_or("None")
             };

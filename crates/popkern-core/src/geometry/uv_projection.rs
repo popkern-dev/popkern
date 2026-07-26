@@ -113,7 +113,9 @@ pub fn project_point_to_uv(surface: &SurfaceGeometry, point: &Point3) -> Option<
         // [`SurfaceEval::closest_point`] dispatches via
         // `closest_point_gauss_newton` for any surface variant
         // without a closed-form inverse.
-        SurfaceGeometry::Gregory(_) => surface.closest_point(point),
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+            surface.closest_point(point)
+        }
     }
 }
 
@@ -144,14 +146,19 @@ pub fn project_point_to_uv_near(
         // 2.5e-2 off-surface images while an in-domain preimage at
         // 1e-5 exists). Hint-seeded, domain-clamped Gauss-Newton
         // honours the continuation contract.
-        SurfaceGeometry::Gregory(_) => uv_projection_clamped::gauss_newton_single_clamped(
-            surface,
-            point,
-            u_hint,
-            v_hint,
-            (0.0, 1.0),
-            (0.0, 1.0),
-        ),
+        // The PnS patch shares the Gregory situation exactly: no
+        // analytic inverse, unit-square domain, and a degenerate pole
+        // corner the global multistart can escape from.
+        SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+            uv_projection_clamped::gauss_newton_single_clamped(
+                surface,
+                point,
+                u_hint,
+                v_hint,
+                (0.0, 1.0),
+                (0.0, 1.0),
+            )
+        }
         _ => project_point_to_uv(surface, point),
     }
 }

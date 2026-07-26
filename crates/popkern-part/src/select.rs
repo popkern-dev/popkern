@@ -22,42 +22,10 @@
 //! [`EdgeQuery::allow_empty`].
 
 use popkern_core::geometry::curve::{CurveEval, CurveGeometry};
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle};
 
-/// The analytic family of a face's surface, for adjacency selection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SurfaceKind {
-    /// Analytic plane.
-    Plane,
-    /// Analytic cylinder.
-    Cylinder,
-    /// Analytic sphere.
-    Sphere,
-    /// Analytic cone.
-    Cone,
-    /// Analytic torus.
-    Torus,
-    /// Freeform NURBS surface.
-    Nurbs,
-    /// Gregory blend patch.
-    Gregory,
-}
-
-impl SurfaceKind {
-    fn of(geometry: &SurfaceGeometry) -> SurfaceKind {
-        match geometry {
-            SurfaceGeometry::Plane { .. } => SurfaceKind::Plane,
-            SurfaceGeometry::Cylinder { .. } => SurfaceKind::Cylinder,
-            SurfaceGeometry::Sphere { .. } => SurfaceKind::Sphere,
-            SurfaceGeometry::Cone { .. } => SurfaceKind::Cone,
-            SurfaceGeometry::Torus { .. } => SurfaceKind::Torus,
-            SurfaceGeometry::Nurbs(_) => SurfaceKind::Nurbs,
-            SurfaceGeometry::Gregory(_) => SurfaceKind::Gregory,
-        }
-    }
-}
+pub use crate::select_surface_kind::SurfaceKind;
 
 /// Cardinal directions for direction predicates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

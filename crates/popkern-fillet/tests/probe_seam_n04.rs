@@ -419,5 +419,6 @@ fn variant(g: &SurfaceGeometry) -> &'static str {
         SurfaceGeometry::Cone { .. } => "Cone",
         SurfaceGeometry::Nurbs(_) => "Nurbs",
         SurfaceGeometry::Gregory(_) => "Gregory",
+        SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
     }
 }

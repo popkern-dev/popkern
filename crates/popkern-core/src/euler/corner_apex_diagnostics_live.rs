@@ -248,7 +248,9 @@ fn surface_representation(brep: &BRep, faces: &[FaceHandle]) -> SurfaceRepresent
             SurfaceGeometry::Sphere { .. } => SurfaceRepresentation::Sphere,
             SurfaceGeometry::Torus { .. } => SurfaceRepresentation::Torus,
             SurfaceGeometry::Nurbs(_) => SurfaceRepresentation::Spline,
-            SurfaceGeometry::Gregory(_) => SurfaceRepresentation::ExistingBlend,
+            SurfaceGeometry::Gregory(_) | SurfaceGeometry::PolyhedralSpline(_) => {
+                SurfaceRepresentation::ExistingBlend
+            }
         };
         if representation.is_some_and(|previous| previous != current) {
             return SurfaceRepresentation::SweptOrRevolved;

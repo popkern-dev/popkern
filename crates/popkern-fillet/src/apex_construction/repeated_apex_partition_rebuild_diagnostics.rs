@@ -96,6 +96,7 @@ pub(super) fn face_surface_kind(brep: &BRep, face: FaceHandle) -> &'static str {
         Some(SurfaceGeometry::Torus { .. }) => "Torus",
         Some(SurfaceGeometry::Nurbs(_)) => "Nurbs",
         Some(SurfaceGeometry::Gregory(_)) => "Gregory",
+        Some(SurfaceGeometry::PolyhedralSpline(_)) => "PolyhedralSpline",
         None => "None",
     }
 }

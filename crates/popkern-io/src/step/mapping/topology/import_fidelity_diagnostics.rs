@@ -182,6 +182,7 @@ fn face_surface_kind(brep: &BRep, face: FaceHandle) -> &'static str {
         Some(SurfaceGeometry::Torus { .. }) => "torus",
         Some(SurfaceGeometry::Nurbs(_)) => "nurbs",
         Some(SurfaceGeometry::Gregory(_)) => "gregory",
+        Some(SurfaceGeometry::PolyhedralSpline(_)) => "polyhedral_spline",
         None => "missing",
     }
 }

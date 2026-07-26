@@ -125,6 +125,7 @@ pub fn report_non_manifold(brep: &BRep) {
             SurfaceGeometry::Torus { .. } => "Torus",
             SurfaceGeometry::Nurbs(_) => "Nurbs",
             SurfaceGeometry::Gregory(_) => "Gregory",
+            SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline",
         }
     };
     let pair_label = |r: &popkern_core::validation::NonManifoldEdgeReport| -> String {
