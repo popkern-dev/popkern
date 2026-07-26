@@ -301,6 +301,26 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     {
         diagnostics.push(diagnostic);
     }
+    // PK-203 timing probe: every quantity this gate refuses on has
+    // been measured to improve by orders of magnitude between this
+    // moment and pipeline end (support 110,000x; the cap rim 3x from
+    // one completion pass alone) — but the refused cap never reaches
+    // those passes, so nobody has ever measured a FINISHED PnS cap.
+    // With the probe flag set, a continuity refusal is overridden
+    // (recorded, not silenced) and the cap ships so the final body can
+    // be measured. A topology refusal is NEVER overridden: broken
+    // cycles poison every downstream pass and the measurement with
+    // them. Probe-only — acceptance must eventually select the right
+    // cap on measured quality, so this cannot be the shipped
+    // mechanism.
+    if topology_error.is_none() && pns_force_accept_probe() {
+        diagnostics.push(pns_dispatch_declined_diagnostic(
+            n_sides,
+            "force_accept_probe_override",
+            continuity_error,
+        ));
+        return Some(patches);
+    }
     let detail_code = topology_error
         .map(|error| format!("topology_validation_failed={error}"))
         .or(continuity_error);
@@ -311,4 +331,14 @@ pub(super) fn try_pns_dispatch_with_acceptance(
     ));
     *brep = pns_snapshot;
     None
+}
+
+/// PK-203 diagnostic-probe switch: `POPKERN_PNS_FORCE_ACCEPT=1`
+/// overrides a *continuity* refusal of the PnS cap (topology refusals
+/// still decline) so the finished body can be measured. Default off;
+/// never a production route.
+fn pns_force_accept_probe() -> bool {
+    std::env::var("POPKERN_PNS_FORCE_ACCEPT")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
