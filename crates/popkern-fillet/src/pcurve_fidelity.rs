@@ -32,7 +32,7 @@
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::surface::SurfaceEval;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
 
 /// Samples per half-edge, inset from both ends.
 const SAMPLES: usize = 21;
@@ -65,12 +65,70 @@ pub struct PcurveFidelity {
     pub worst_nearest_point: f64,
 }
 
+/// Rim/spoke partition of a cap's boundary fidelity.
+///
+/// Each half-edge on a cap face's outer loop is classified by the face
+/// on the far side of its edge: another cap face makes it a **spoke**
+/// (an internal cap–cap seam), anything else makes it **rim** (the
+/// boundary the cap shares with its supports). The two families answer
+/// different questions — rim error is the cap's border construction
+/// against the geometry it was asked to interpolate; spoke error is
+/// the cap's internal seam wiring — so they are reported separately
+/// rather than collapsed into one number that cannot attribute.
+#[derive(Debug, Clone, Copy)]
+pub struct CapBoundaryFidelitySplit {
+    /// Fidelity over rim half-edges (cap-vs-support seams).
+    /// `None` when no rim half-edge was measurable.
+    pub rim: Option<PcurveFidelity>,
+    /// Fidelity over spoke half-edges (cap-vs-cap seams).
+    /// `None` when no spoke half-edge was measurable.
+    pub spoke: Option<PcurveFidelity>,
+}
+
+/// Measure the rim/spoke split over `cap_faces`.
+///
+/// The partition is exhaustive over the measurable half-edges of the
+/// cap faces' outer loops: every half-edge `measure_pcurve_fidelity`
+/// would count lands in exactly one of the two families.
+pub fn measure_cap_boundary_fidelity_split(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+) -> CapBoundaryFidelitySplit {
+    let cap_set: std::collections::BTreeSet<FaceHandle> = cap_faces.iter().copied().collect();
+    let neighbour_is_cap = |he: HalfEdgeHandle| -> bool {
+        brep.half_edges
+            .get(he)
+            .and_then(|hd| brep.half_edges.get(hd.twin))
+            .and_then(|twin| brep.loops.get(twin.loop_))
+            .map(|l| cap_set.contains(&l.face))
+            .unwrap_or(false)
+    };
+    CapBoundaryFidelitySplit {
+        rim: measure_pcurve_fidelity_filtered(brep, cap_faces, &|he| !neighbour_is_cap(he)),
+        spoke: measure_pcurve_fidelity_filtered(brep, cap_faces, &neighbour_is_cap),
+    }
+}
+
 /// Measure pcurve fidelity over `faces`.
 ///
 /// Returns `None` when nothing was measurable — never a zero, which
 /// would read as a perfect score and is precisely how an unmeasured
 /// thing comes to look like a passing one.
 pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<PcurveFidelity> {
+    measure_pcurve_fidelity_filtered(brep, faces, &|_| true)
+}
+
+/// Shared measuring core: identical to [`measure_pcurve_fidelity`]
+/// but restricted to half-edges accepted by `keep`. The filter exists
+/// so partitioned measurements (e.g. rim/spoke) reuse this exact loop
+/// instead of re-implementing it — three ad-hoc copies of this
+/// measurement were written during the PnS campaign and two were
+/// wrong.
+fn measure_pcurve_fidelity_filtered(
+    brep: &BRep,
+    faces: &[FaceHandle],
+    keep: &dyn Fn(HalfEdgeHandle) -> bool,
+) -> Option<PcurveFidelity> {
     let mut best: Option<PcurveFidelity> = None;
     let mut measured = 0usize;
     let mut worst_nearest = 0.0_f64;
@@ -90,7 +148,8 @@ pub fn measure_pcurve_fidelity(brep: &BRep, faces: &[FaceHandle]) -> Option<Pcur
             let Some(hd) = brep.half_edges.get(he) else {
                 break;
             };
-            if let Some(pc) = hd.pcurve.as_ref()
+            if keep(he)
+                && let Some(pc) = hd.pcurve.as_ref()
                 && let Some(curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref())
             {
                 let img_at = |t: f64| {

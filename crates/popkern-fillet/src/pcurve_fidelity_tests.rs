@@ -143,6 +143,55 @@ fn nothing_measurable_returns_none() {
     assert!(measure_pcurve_fidelity(&brep, &[]).is_none());
 }
 
+/// The rim/spoke split must partition exactly what the unfiltered
+/// instrument measures: same half-edge count, same worst reading, and
+/// the shared edge between two "cap" faces classified as spoke on both
+/// sides. A split that dropped or double-counted half-edges could
+/// attribute a deviation to the wrong family — which is the exact
+/// failure this instrument exists to prevent.
+#[test]
+fn rim_spoke_split_partitions_the_unfiltered_measurement() {
+    let brep = cube();
+    // Two adjacent cube faces stand in for a two-sector cap: their
+    // shared edge is the "spoke", every other loop edge is "rim".
+    let (face_a, face_b) = brep
+        .edges
+        .iter()
+        .find_map(|(_, e)| {
+            let ha = brep.half_edges.get(e.half_edge)?;
+            let hb = brep.half_edges.get(ha.twin)?;
+            let fa = brep.loops.get(ha.loop_)?.face;
+            let fb = brep.loops.get(hb.loop_)?.face;
+            (fa != fb).then_some((fa, fb))
+        })
+        .expect("cube has an edge between two distinct faces");
+    let caps = [face_a, face_b];
+
+    let whole = measure_pcurve_fidelity(&brep, &caps).expect("two cube faces measure");
+    let split = measure_cap_boundary_fidelity_split(&brep, &caps);
+    let rim = split.rim.expect("two adjacent faces have rim edges");
+    let spoke = split.spoke.expect("two adjacent faces share a spoke edge");
+
+    assert_eq!(
+        rim.measured + spoke.measured,
+        whole.measured,
+        "the split must partition the unfiltered measurement, not resample it"
+    );
+    assert_eq!(
+        spoke.measured, 2,
+        "exactly the two half-edges of the shared edge are spokes"
+    );
+    let split_worst = rim.worst.max(spoke.worst);
+    assert!(
+        (split_worst - whole.worst).abs() < 1e-15,
+        "the families' worst must reproduce the unfiltered worst: \
+         rim={:.3e} spoke={:.3e} whole={:.3e}",
+        rim.worst,
+        spoke.worst,
+        whole.worst
+    );
+}
+
 /// A pcurve that traces the right curve at a different RATE must show
 /// a large same-fraction error and a small nearest-point one.
 ///

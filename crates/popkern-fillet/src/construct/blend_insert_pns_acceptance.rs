@@ -246,6 +246,39 @@ pub(super) fn try_pns_dispatch_with_acceptance(
         &patches,
         diagnostics,
     );
+    // PK-192: rim/spoke split of the CAP FACES ONLY, measured at the
+    // same pipeline moment the acceptance gate below judges them —
+    // after pcurve recompute and support completion, before rollback.
+    // The all-half-edge audit above spans cap AND neighbour faces, so
+    // its worst reading cannot attribute a deviation to the cap's own
+    // border (rim) versus its internal seams (spokes); this one can.
+    // Measured on the final body instead, these numbers describe the
+    // incumbent cap, not PnS — that mistake is why this exists.
+    let rim_spoke = crate::pcurve_fidelity::measure_cap_boundary_fidelity_split(brep, &cap_faces);
+    let describe = |family: Option<crate::pcurve_fidelity::PcurveFidelity>| {
+        family
+            .map(|f| {
+                format!(
+                    "worst={:.4e} nearest={:.4e} edge={:?} face={:?} fraction={:.2} measured={}",
+                    f.worst,
+                    f.worst_nearest_point,
+                    f.worst_edge,
+                    f.worst_face,
+                    f.worst_fraction,
+                    f.measured
+                )
+            })
+            .unwrap_or_else(|| "unmeasured".to_string())
+    };
+    diagnostics.push(pns_dispatch_declined_diagnostic(
+        n_sides,
+        "cap_rim_spoke_split",
+        Some(format!(
+            "rim[{}];spoke[{}]",
+            describe(rim_spoke.rim),
+            describe(rim_spoke.spoke)
+        )),
+    ));
     let topology_error = brep.validate_collect_fast().into_iter().find(|error| {
         matches!(
             error,
