@@ -20,10 +20,12 @@ pub mod pns_adapter;
 #[cfg(test)]
 #[path = "pns_adapter_tests.rs"]
 mod pns_adapter_tests;
+pub(crate) mod pns_cap_authoring;
 pub mod pns_promote;
 #[cfg(test)]
 #[path = "pns_promote_tests.rs"]
 mod pns_promote_tests;
+pub(crate) mod pns_rim_materialize;
 pub mod runout;
 pub(crate) mod sphere_fit_boundary;
 pub(crate) mod sphere_fit_centre;

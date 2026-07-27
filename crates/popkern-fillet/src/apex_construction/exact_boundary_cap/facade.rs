@@ -11,6 +11,8 @@ use crate::types::{ExactBoundaryCandidatePerformanceReport, ExactBoundaryRouteDe
 
 #[path = "facade_multipatch_candidate_continuity.rs"]
 mod candidate_continuity;
+#[path = "facade_notes.rs"]
+mod facade_notes;
 #[path = "facade_multipatch_commit.rs"]
 mod multipatch_commit;
 #[path = "facade_multipatch_route.rs"]
@@ -43,6 +45,7 @@ use super::validation::{
     ExactBoundaryValidationBudget, ExactBoundaryValidationInputs,
     collect_constrained_strip_band_diagnostics, validate_exact_boundary_candidate,
 };
+use facade_notes::{cross_spoke_note, mid_seam_note};
 use multipatch_commit::{
     ExactBoundaryMultipatchCommitOutcome, commit_multipatch_routes_transactionally,
 };
@@ -460,51 +463,4 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         report,
         diagnostics,
     })
-}
-
-/// Informational record of the cross-spoke correction.
-/// Informational record of the committed cap's own internal-seam
-/// normal misalignment (PK-197 criterion: measured on every commit).
-fn mid_seam_note(n_faces: usize, worst: f64) -> crate::types::ApexConstructionDiagnostic {
-    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
-        crate::types::ExactBoundaryCapDiagnostic {
-            stage: "exact_boundary_cap.mid_seam_normal".to_string(),
-            code: "exact_boundary_cap.mid_seam_normal".to_string(),
-            detail_code: Some(format!("faces={n_faces};worst_mid_seam_normal={worst:.3e}")),
-            sector_name: format!("n{n_faces}_corner_cap"),
-            edge: None,
-            support_half_edge: None,
-            support_face: None,
-            residual: Some(worst),
-            outer_side: None,
-            sample_parameter: None,
-            tolerance: None,
-            shared_fact_ids: Vec::new(),
-        },
-    )
-}
-
-fn cross_spoke_note(
-    n_sectors: usize,
-    outcome: &super::cross_spoke_g1::CrossSpokeOutcome,
-) -> crate::types::ApexConstructionDiagnostic {
-    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
-        crate::types::ExactBoundaryCapDiagnostic {
-            stage: "exact_boundary_cap.cross_spoke_g1".to_string(),
-            code: "exact_boundary_cap.cross_spoke_g1".to_string(),
-            detail_code: Some(format!(
-                "spokes={};corrected_control_points={};dimension_mismatched_neighbours={}",
-                outcome.spokes, outcome.corrected, outcome.dimension_mismatched
-            )),
-            sector_name: format!("n{n_sectors}_corner_cap"),
-            edge: None,
-            support_half_edge: None,
-            support_face: None,
-            residual: None,
-            outer_side: None,
-            sample_parameter: None,
-            tolerance: None,
-            shared_fact_ids: Vec::new(),
-        },
-    )
 }
