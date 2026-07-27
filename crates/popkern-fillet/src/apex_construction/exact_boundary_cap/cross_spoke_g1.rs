@@ -176,7 +176,7 @@ fn harmonize_mismatched_spoke_nets(solved: &mut ExactBoundarySolvedSurfaces, tol
             let (Some(b0), _) = (row_cp(sb, 0, 0), ()) else {
                 continue;
             };
-            let reversed = !(a0.distance_to(&b0) <= tolerance);
+            let reversed = a0.distance_to(&b0) > tolerance;
             let _ = a1;
             let (va0, va1) = knot_range(&sa.knots_v);
             let (ub0, ub1) = knot_range(&sb.knots_u);

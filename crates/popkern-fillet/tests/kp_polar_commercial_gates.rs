@@ -137,58 +137,107 @@ fn pentagon5_blunt_ships_valid_commercial_cap() {
         );
     }
 }
-/// Blunt-apex G2-request contract (PK-122): the same 18°-half-angle
-/// pentagon requesting G2. The wide flat fan's seam curvature jump
-/// (measured 7.0e-2 on the G1-request control) exceeds the 5e-2 G2
-/// gate, so the setback surgery's G2 postcondition must DECLINE the
-/// fan rather than report an achieved G2 the geometry does not have;
-/// the corner then ships through a fallback path. Whatever shipped,
-/// any patch claiming achieved G2 must measure within the gate on its
-/// live seams, and the output stays valid.
-#[test]
-fn pentagon5_blunt_g2_request_is_honest() {
+/// Blunt-apex G2-request acceptance (PK-122 → PK-187): an
+/// 18°-half-angle N-gonal pyramid requesting G2 must ACCEPT — commit
+/// a fan claiming achieved G2 that measures within the commercial
+/// gates on its live seams, including the TRANSVERSE curvature
+/// residual (the honest G2 metric; the along-seam residual is
+/// near-vacuous once G0+G1 hold — Meusnier). History this pins:
+/// PK-122 recorded a "7.0e-2 G2 jump" that was actually the
+/// along-seam echo of the then-large G1 error (2.5e-2); once the fan
+/// rails were fixed the request committed — but the honest transverse
+/// measurement then exposed a REAL 5.3e-1 curvature crease authored
+/// by the rim solve's independently-fitted G2-row deltas, fixed by
+/// pinning the k=2/k=7 columns to the shared corner translation
+/// (setback_rim_reconcile). A regression to the decline path OR to a
+/// dishonest claim fails this test.
+///
+/// Watertightness: `require_watertight` pins the hexagon fully. The
+/// PENTAGON blunt fan has a pre-existing tessellation crack class
+/// independent of the continuity request (measured 236 welded open
+/// edges on the G1 control at the pre-PK-187 baseline: the assembly-
+/// enforcement-vs-strip rim mismatch of ~2e-3 trips the boundary-
+/// first mesher's 1e-3 off-surface gate and the legacy fallback
+/// cracks) — tracked in its own ticket; here the criterion
+/// "curvature continuity is not bought with a G0 regression" is
+/// pinned as G2-request opens ≤ G1-request opens.
+fn blunt_g2_request_accepts(n: usize, fixture: &str, require_watertight: bool) {
+    let radii = vec![0.05; n];
     let result = fillet_n_gonal_pyramid_result_with_continuity(
-        5,
+        n,
         1.0,
         3.0,
-        &[0.05; 5],
+        &radii,
         popkern_fillet::ContinuityLevel::G2,
     );
     result
         .brep
         .validate()
-        .expect("pentagon5_blunt under a G2 request must leave a valid BRep");
+        .unwrap_or_else(|e| panic!("[{fixture}] G2 request must leave a valid BRep: {e:?}"));
     let g2_claimed: Vec<_> = result
         .corner_patches
         .iter()
-        .filter(|p| p.n_sides == 5 && p.achieved_continuity == popkern_fillet::ContinuityLevel::G2)
+        .filter(|p| p.n_sides == n && p.achieved_continuity == popkern_fillet::ContinuityLevel::G2)
         .map(|p| p.face)
         .collect();
-    if g2_claimed.is_empty() {
-        println!(
-            "pentagon5_blunt G2 request: no patch claims achieved G2 (honest decline; {} apex patches shipped)",
-            result
-                .corner_patches
-                .iter()
-                .filter(|p| p.n_sides == 5)
-                .count()
-        );
-        return;
-    }
+    assert!(
+        !g2_claimed.is_empty(),
+        "[{fixture}] the blunt fan must ACCEPT a G2 request (PK-187); it declined \
+         ({} apex patches shipped, none claiming G2)",
+        result
+            .corner_patches
+            .iter()
+            .filter(|p| p.n_sides == n)
+            .count()
+    );
     let m = measure_live_cap_seams(&result.brep, &g2_claimed, N_SAMPLES);
     println!(
-        "live-seam pentagon5_blunt(G2 request): seams={} g0={:.3e} g1={:.3e} g2={:.3e}",
-        m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+        "live-seam {fixture}(G2 request): seams={} g0={:.3e} g1={:.3e} g2={:.3e} g2t={:.3e}",
+        m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual, m.worst_g2_transverse
     );
-    if m.seam_count > 0 {
+    assert!(m.seam_count > 0, "[{fixture}] fan seams must measure");
+    helpers::assert_commercial_gates_live(fixture, &m);
+    let opens_g2 = welded_opens(&result.brep, fixture);
+    if require_watertight {
+        assert_eq!(
+            opens_g2, 0,
+            "[{fixture}] accepted G2 fan must stay watertight; {opens_g2} open mesh edges"
+        );
+    } else {
+        let g1_control = fillet_n_gonal_pyramid_result_with_continuity(
+            n,
+            1.0,
+            3.0,
+            &radii,
+            popkern_fillet::ContinuityLevel::G1,
+        );
+        let opens_g1 = welded_opens(&g1_control.brep, fixture);
+        println!("[{fixture}] welded opens: G2 request {opens_g2}, G1 control {opens_g1}");
         assert!(
-            m.worst_g2_residual < helpers::G2_GATE,
-            "[pentagon5_blunt/G2] a patch claiming achieved G2 must measure within the \
-             {:.1e} live-seam G2 gate; got {:.3e}",
-            helpers::G2_GATE,
-            m.worst_g2_residual,
+            opens_g2 <= opens_g1,
+            "[{fixture}] the G2 request must not buy curvature continuity with a G0 \
+             regression: {opens_g2} open mesh edges vs {opens_g1} on the G1 control"
         );
     }
+}
+
+fn welded_opens(brep: &popkern_core::topology::BRep, fixture: &str) -> usize {
+    let mesh = popkern_mesh::tessellate(brep, &popkern_mesh::TessellationOptions::default())
+        .unwrap_or_else(|e| panic!("[{fixture}] fan must tessellate: {e:?}"));
+    helpers::welded_open_edge_count(&mesh)
+}
+
+#[test]
+fn pentagon5_blunt_g2_request_is_honest() {
+    blunt_g2_request_accepts(5, "pentagon5_blunt", false);
+}
+
+/// Second blunt apex family (PK-187 acceptance 263: the improvement
+/// must hold beyond the fixture it was developed against), pinned
+/// fully watertight.
+#[test]
+fn hexagon6_blunt_g2_request_is_honest() {
+    blunt_g2_request_accepts(6, "hexagon6_blunt", true);
 }
 
 #[test]
@@ -318,4 +367,69 @@ fn polar_flag_flip_does_not_crash_pipeline_at_n5() {
     let edges = incident_edges(&pyr, vertex);
     let (_brep, _faces) =
         fillet_corner_full(&pyr, &edges, &[0.04, 0.06, 0.05, 0.07, 0.05], true, true);
+}
+
+/// PK-187 acceptance 265 — Class-A inspection evidence across the
+/// accepted blunt G2 fans' seams, in the measurable stripe-phase form
+/// of the zebra render: a G2-continuous seam transitions stripes
+/// smoothly (mismatch ratio near 0), a crease reads a large jump.
+/// Same instrument and 0.25 bar as the PK-197 low-valence zebra gate.
+#[test]
+fn blunt_g2_fans_are_zebra_continuous_across_seams() {
+    use popkern_core::geometry::Vec3;
+    for (n, fixture) in [(5usize, "pentagon5_blunt"), (6, "hexagon6_blunt")] {
+        let radii = vec![0.05; n];
+        let result = fillet_n_gonal_pyramid_result_with_continuity(
+            n,
+            1.0,
+            3.0,
+            &radii,
+            popkern_fillet::ContinuityLevel::G2,
+        );
+        let caps: std::collections::BTreeSet<_> = result
+            .corner_patches
+            .iter()
+            .filter(|p| p.n_sides == n)
+            .map(|p| p.face)
+            .collect();
+        let brep = &result.brep;
+        let mut measured = 0usize;
+        let mut worst = 0.0_f64;
+        for (_eh, edge) in brep.edges.iter() {
+            let Some(he) = brep.half_edges.get(edge.half_edge) else {
+                continue;
+            };
+            let Some(twin) = brep.half_edges.get(he.twin) else {
+                continue;
+            };
+            let (Some(la), Some(lb)) = (brep.loops.get(he.loop_), brep.loops.get(twin.loop_))
+            else {
+                continue;
+            };
+            let (fa, fb) = (la.face, lb.face);
+            if fa == fb || !caps.contains(&fa) || !caps.contains(&fb) {
+                continue;
+            }
+            if let Some(kink) = popkern_fillet::zebra::zebra_boundary_kink(
+                brep,
+                fa,
+                fb,
+                Vec3::new(0.0, 0.0, 1.0),
+                Vec3::new(1.0, 0.0, 0.0),
+                0.02,
+                24,
+                1e-6,
+            ) {
+                measured += 1;
+                worst = worst.max(kink);
+            }
+        }
+        println!("[{fixture}] zebra: seams_measured={measured} worst_stripe_mismatch={worst:.4}");
+        assert!(measured > 0, "[{fixture}] zebra measured no fan seams");
+        assert!(
+            worst < 0.25,
+            "[{fixture}] accepted G2 fan shows a zebra stripe mismatch of {worst:.4} \
+             across a seam — not Class-A continuous"
+        );
+    }
 }

@@ -109,34 +109,57 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
             // (matches the live-seam acceptance metric).
             let dt = 1e-4 * (curve.t_end - curve.t_start).abs().max(1e-12);
             let seam_dir = (ce.point_at(t + dt) - c).normalized();
-            let mut normals = Vec::with_capacity(2);
-            let mut curvatures = Vec::with_capacity(2);
+            let mut sides = Vec::with_capacity(2);
             for (surf, pc, rev) in [sa, sb] {
                 let g = if rev { 1.0 - f } else { f };
                 let uv = pc.point_at(pc.t_start + g * (pc.t_end - pc.t_start));
                 let s = surf.point_at(uv.x, uv.y);
                 worst_g0 = worst_g0.max(s.distance_to(&c));
-                let normal = normal_at(surf, uv.x, uv.y);
-                if let (Some(normal), Some(dir)) = (normal, seam_dir) {
-                    curvatures.push(normal_curvature_at(surf, uv.x, uv.y, normal, dir));
-                } else {
-                    curvatures.push(None);
-                }
-                normals.push(normal);
+                sides.push((surf, uv, normal_at(surf, uv.x, uv.y)));
             }
-            if let (Some(Some(na)), Some(Some(nb))) = (normals.first(), normals.get(1)) {
-                let g1 = na.cross(nb).length();
-                if g1 > worst_g1 && std::env::var_os("PK_SETBACK_PROBE").is_some() && g1 > 5.0e-2 {
-                    eprintln!(
-                        "  [seam-worst] edge {:?} faces {:?}/{:?} f={f:.3} g1={g1:.3e} at ({:.4},{:.4},{:.4})",
-                        edge.half_edge, loop_a.face, loop_b.face, c.x, c.y, c.z
-                    );
-                }
-                worst_g1 = worst_g1.max(g1);
+            let ((surf_a, uv_a, Some(na)), (surf_b, uv_b, Some(nb))) = (sides[0], sides[1]) else {
+                continue;
+            };
+            let g1 = na.cross(&nb).length();
+            if g1 > worst_g1 && std::env::var_os("PK_SETBACK_PROBE").is_some() && g1 > 5.0e-2 {
+                eprintln!(
+                    "  [seam-worst] edge {:?} faces {:?}/{:?} f={f:.3} g1={g1:.3e} at ({:.4},{:.4},{:.4})",
+                    edge.half_edge, loop_a.face, loop_b.face, c.x, c.y, c.z
+                );
             }
-            if let (Some(Some(ka)), Some(Some(kb))) = (curvatures.first(), curvatures.get(1)) {
-                let kmax = ka.abs().max(kb.abs());
-                worst_g2 = worst_g2.max((ka - kb).abs() / (1.0 + kmax));
+            worst_g1 = worst_g1.max(g1);
+            let Some(dir) = seam_dir else {
+                continue;
+            };
+            // Hemisphere-align side B's normal so signed curvatures
+            // compare across arbitrary chart orientations, then gate
+            // curvature agreement along the seam AND across the
+            // transverse/diagonal in-tangent-plane directions. The
+            // along-seam term alone is near-vacuous once G0+G1 hold
+            // (Meusnier: κ_n along a shared direction is c″·n, shared
+            // curve + shared normal ⇒ shared κ_n) — the PK-122
+            // "7.0e-2 G2 jump" this gate was built on was that echo
+            // of the then-large G1 error, while the real transverse
+            // discontinuity (rim-solve G2-row damage, 5.3e-1) went
+            // unmeasured until PK-187.
+            let nb_aligned = if na.dot(&nb) < 0.0 { nb * -1.0 } else { nb };
+            let mut jump = |d: popkern_core::geometry::Vec3| {
+                if let (Some(ka), Some(kb)) = (
+                    normal_curvature_at(surf_a, uv_a.x, uv_a.y, na, d),
+                    normal_curvature_at(surf_b, uv_b.x, uv_b.y, nb_aligned, d),
+                ) {
+                    let kmax = ka.abs().max(kb.abs());
+                    worst_g2 = worst_g2.max((ka - kb).abs() / (1.0 + kmax));
+                }
+            };
+            jump(dir);
+            if let Some(n_avg) = ((na + nb_aligned) * 0.5).normalized()
+                && let Some(t_perp) = n_avg.cross(&dir).normalized()
+            {
+                jump(t_perp);
+                if let Some(diag) = (dir + t_perp).normalized() {
+                    jump(diag);
+                }
             }
         }
     }
@@ -147,12 +170,36 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
 /// `dir` (κ_n = S''·n / |S'|², matching the live-seam acceptance
 /// metric): solve `dir ≈ a·Su + b·Sv` in the tangent plane, then take
 /// a second difference along `(a, b)` in UV.
+/// Convergence-guarded normal curvature (κ_n = S''·n / |S'|²): the
+/// two-step estimates must agree within 10% of `1 + |κ|`, or the
+/// sample is skipped — near a degenerate polar chart the single-step
+/// FD truncation error scales quadratically with the step (measured
+/// 1.7 → 0.16 → 1.9e-3 across steps 1e-3/1e-4/1e-5 on the same
+/// pentagon fan seam), and an unguarded estimate reads that chart
+/// noise as a curvature crease. Agreeing estimates are Richardson-
+/// extrapolated.
 fn normal_curvature_at(
     surf: &popkern_core::geometry::SurfaceGeometry,
     u: f64,
     v: f64,
     normal: popkern_core::geometry::Vec3,
     dir: popkern_core::geometry::Vec3,
+) -> Option<f64> {
+    let k_h = normal_curvature_at_step(surf, u, v, normal, dir, 1e-4)?;
+    let k_h2 = normal_curvature_at_step(surf, u, v, normal, dir, 5e-5)?;
+    if (k_h - k_h2).abs() > 0.1 * (1.0 + k_h2.abs()) {
+        return None;
+    }
+    Some((4.0 * k_h2 - k_h) / 3.0)
+}
+
+fn normal_curvature_at_step(
+    surf: &popkern_core::geometry::SurfaceGeometry,
+    u: f64,
+    v: f64,
+    normal: popkern_core::geometry::Vec3,
+    dir: popkern_core::geometry::Vec3,
+    step: f64,
 ) -> Option<f64> {
     use popkern_core::geometry::surface::SurfaceEval;
     let h = 1e-6;
@@ -166,7 +213,6 @@ fn normal_curvature_at(
     }
     let a = (r1 * g - r2 * f_) / det;
     let b = (r2 * e - r1 * f_) / det;
-    let step = 1e-4;
     let p0 = surf.point_at(u, v);
     let p1 = surf.point_at(u + a * step, v + b * step);
     let p2 = surf.point_at(u - a * step, v - b * step);

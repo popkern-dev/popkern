@@ -34,7 +34,10 @@ pub use kp_gate_shared_trims::measure_shared_gregory_trims_with_sources;
 #[path = "support/kp_gate_live_seam.rs"]
 mod kp_gate_live_seam;
 #[allow(unused_imports)]
-pub use kp_gate_live_seam::{LiveSeamMetrics, measure_live_cap_seams, seam_cos_profile};
+pub use kp_gate_live_seam::{
+    LiveSeamMetrics, measure_live_cap_seams, seam_cos_profile, seam_g2t_profile,
+    welded_open_edge_count,
+};
 
 /// Commercial-grade gate thresholds. Discussion in
 /// `kp_binonic_commercial_gates.rs` module header.
@@ -390,8 +393,14 @@ pub fn assert_commercial_gates(fixture: &str, m: &RingMetrics) {
 /// product norm, G2 the normal-curvature jump along the seam.
 pub fn assert_commercial_gates_live(fixture: &str, m: &LiveSeamMetrics) {
     println!(
-        "live-seam {fixture}: seams={} g0={:.3e} g1={:.3e} g2={:.3e}",
-        m.seam_count, m.worst_g0_gap, m.worst_g1_normal, m.worst_g2_residual
+        "live-seam {fixture}: seams={} g0={:.3e} g1={:.3e} g2={:.3e} g2t={:.3e}@f={:.2} ({:?})",
+        m.seam_count,
+        m.worst_g0_gap,
+        m.worst_g1_normal,
+        m.worst_g2_residual,
+        m.worst_g2_transverse,
+        m.worst_g2t_fraction,
+        m.worst_g2t_edge
     );
     assert!(
         m.seam_count > 0,
@@ -414,6 +423,20 @@ pub fn assert_commercial_gates_live(fixture: &str, m: &LiveSeamMetrics) {
         "[{fixture}] live-seam G2 residual {:.3e} exceeds {:.1e} gate (commercial)",
         m.worst_g2_residual,
         G2_GATE
+    );
+    // The transverse term is the honest curvature-continuity gate —
+    // the along-seam residual above is near-vacuous once G0+G1 hold
+    // (Meusnier; see LiveSeamMetrics docs). Before the PK-187
+    // rim-solve G2-row pinning this measured 4.3e-1..1.7e0 on every
+    // polar fixture while the along-seam gate read 1e-5 "commercial".
+    assert!(
+        m.worst_g2_transverse < G2_GATE,
+        "[{fixture}] live-seam TRANSVERSE G2 residual {:.3e} exceeds {:.1e} gate \
+         (commercial) at f={:.2} on {:?}",
+        m.worst_g2_transverse,
+        G2_GATE,
+        m.worst_g2t_fraction,
+        m.worst_g2t_edge
     );
 }
 

@@ -41,6 +41,8 @@ mod setback_arc_binding;
 /// Kill-switch: POPKERN_SETBACK_VERTEX_BLEND=0.
 #[path = "setback_arc_crossings.rs"]
 mod setback_arc_crossings;
+#[path = "setback_boundary_tolerance.rs"]
+mod setback_boundary_tolerance;
 #[path = "setback_fan_seam_refresh.rs"]
 mod setback_fan_seam_refresh;
 #[path = "setback_rim_reconcile.rs"]
@@ -492,6 +494,13 @@ fn surgery_inner(
         ));
     }
 
+    // Record the fit residual the rim reconciliation legitimately
+    // left as per-edge tolerances so the serving curve-surface
+    // validation (check 9) can accept the fan — see
+    // `record_boundary_tolerances` for the contract and for why this
+    // must never feed the tessellator.
+    setback_boundary_tolerance::record_boundary_tolerances(brep, &cap_faces);
+
     Ok(SetbackTopologyOutcome {
         blend_face,
         arc_edges,
@@ -819,13 +828,18 @@ fn build_cap_face_fan(
     // one seam). Spoke seams stay excluded by orders of magnitude —
     // their off-loop distance is half the loop diameter.
     let rim_off_loop_allowance = 2.0e-3_f64.max(2.0 * report.max_strip_movement);
-    setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
-        &mut patches,
-        fillet_surfaces,
-        &lateral_planes,
-        &border_loop,
-        rim_off_loop_allowance,
-    );
+    // Diagnostic bifurcation probe (PK-187): skip the rim solve to
+    // attribute live-seam curvature residuals between the assembly
+    // and the rim repair. Probe-only; never set in production.
+    if std::env::var_os("PK_SETBACK_SKIP_RIM_RECONCILE").is_none() {
+        setback_rim_reconcile::reconcile_cap_rim_to_sweeps(
+            &mut patches,
+            fillet_surfaces,
+            &lateral_planes,
+            &border_loop,
+            rim_off_loop_allowance,
+        );
+    }
     let rim_tear =
         setback_shared_net_unify::reunify_shared_boundary_cps(&mut patches, &shared_groups);
     if std::env::var_os("PK_SETBACK_PROBE").is_some() {

@@ -37,16 +37,14 @@
 //! wants to know whether a bad number is a pole artifact should use
 //! [`seam_normal_profile`] and look at where along the seam it sits.
 
-use popkern_core::geometry::curve::{CurveEval, CurveOnEdge};
-use popkern_core::geometry::pcurve::Pcurve;
-use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
-use popkern_core::geometry::{Point3, Vec3};
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+
+use crate::cap_seam_measure::{edge_seam_faces, measure_edge_seam, resolve_edge_seam};
 
 /// Fraction of the seam skipped at each end. Adjacent cap sectors
 /// meet at a degenerate pole; samples taken there describe the chart,
 /// not the surface.
-const SEAM_END_MARGIN: f64 = 0.05;
+pub(crate) const SEAM_END_MARGIN: f64 = 0.05;
 
 /// Worst-case continuity across the internal seams of a cap.
 ///
@@ -117,46 +115,26 @@ pub fn measure_cap_seam_continuity(
         return out;
     }
     for (edge_handle, edge) in brep.edges.iter() {
-        let Some((side_a, side_b, curve)) = seam_sides(brep, edge_handle, edge, &set) else {
+        let Some(adjacency) = edge_seam_faces(brep, edge) else {
+            continue;
+        };
+        if !set.contains(&adjacency.face_a) || !set.contains(&adjacency.face_b) {
+            continue;
+        }
+        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency) else {
             continue;
         };
         out.seam_count += 1;
-        for k in 0..samples_per_seam {
-            let f = SEAM_END_MARGIN
-                + (1.0 - 2.0 * SEAM_END_MARGIN) * k as f64 / (samples_per_seam - 1) as f64;
-            let t = curve.t_start + f * (curve.t_end - curve.t_start);
-            let p_ref = (&curve.geometry as &dyn CurveEval).point_at(t);
-            let (uv_a, p_a) = side_a.eval_fraction(f);
-            let (uv_b, p_b) = side_b.eval_fraction(f);
-            out.worst_g0_gap = out
-                .worst_g0_gap
-                .max(p_a.distance_to(&p_ref).max(p_b.distance_to(&p_ref)));
-
-            let (Some(n_a), Some(n_b)) = (side_a.normal(uv_a), side_b.normal(uv_b)) else {
-                continue;
-            };
-            out.sample_count += 1;
-            let g1 = n_a.cross(&n_b).length();
-            if g1 > out.worst_g1_normal {
-                out.worst_g1_normal = g1;
-                out.worst_g1_edge = Some(edge_handle);
-                out.worst_g1_fraction = Some(f);
-            }
-            let cos = n_a.dot(&n_b).abs().clamp(0.0, 1.0);
-            out.worst_normal_angle_deg = out.worst_normal_angle_deg.max(cos.acos().to_degrees());
-
-            let dt = 1e-4 * (curve.t_end - curve.t_start).abs().max(1e-12);
-            let p_fwd = (&curve.geometry as &dyn CurveEval).point_at(t + dt);
-            let Some(seam_dir) = (p_fwd - p_ref).normalized() else {
-                continue;
-            };
-            if let (Some(k_a), Some(k_b)) = (
-                side_a.normal_curvature(uv_a, seam_dir),
-                side_b.normal_curvature(uv_b, seam_dir),
-            ) {
-                out.worst_g2_residual = out.worst_g2_residual.max((k_a - k_b).abs());
-            }
+        let worst = measure_edge_seam(&seam, samples_per_seam);
+        out.sample_count += worst.samples;
+        out.worst_g0_gap = out.worst_g0_gap.max(worst.g0);
+        if worst.g1 > out.worst_g1_normal {
+            out.worst_g1_normal = worst.g1;
+            out.worst_g1_edge = Some(edge_handle);
+            out.worst_g1_fraction = worst.g1_fraction;
         }
+        out.worst_normal_angle_deg = out.worst_normal_angle_deg.max(worst.angle_deg);
+        out.worst_g2_residual = out.worst_g2_residual.max(worst.g2);
     }
     out
 }
@@ -176,15 +154,22 @@ pub fn seam_normal_profile(
     fractions: &[f64],
 ) -> Option<Vec<(f64, f64)>> {
     let set: std::collections::BTreeSet<FaceHandle> = [face_a, face_b].into_iter().collect();
-    for (edge_handle, edge) in brep.edges.iter() {
-        let Some((side_a, side_b, _curve)) = seam_sides(brep, edge_handle, edge, &set) else {
+    for (_edge_handle, edge) in brep.edges.iter() {
+        let Some(adjacency) = edge_seam_faces(brep, edge) else {
+            continue;
+        };
+        if !set.contains(&adjacency.face_a) || !set.contains(&adjacency.face_b) {
+            continue;
+        }
+        let Some(seam) = resolve_edge_seam(brep, edge, &adjacency) else {
             continue;
         };
         let mut out = Vec::with_capacity(fractions.len());
         for &f in fractions {
-            let (uv_a, _) = side_a.eval_fraction(f);
-            let (uv_b, _) = side_b.eval_fraction(f);
-            let (Some(n_a), Some(n_b)) = (side_a.normal(uv_a), side_b.normal(uv_b)) else {
+            let (uv_a, _) = seam.side_a.eval_fraction(f);
+            let (uv_b, _) = seam.side_b.eval_fraction(f);
+            let (Some(n_a), Some(n_b)) = (seam.side_a.normal(uv_a), seam.side_b.normal(uv_b))
+            else {
                 continue;
             };
             let cos = n_a.dot(&n_b).abs().clamp(0.0, 1.0);
@@ -193,113 +178,4 @@ pub fn seam_normal_profile(
         return Some(out);
     }
     None
-}
-
-/// Resolve both sides of an edge, if it is a seam between two
-/// distinct faces of `set` and both sides carry the pcurve and
-/// surface the measurement needs.
-#[allow(clippy::type_complexity)]
-fn seam_sides<'a>(
-    brep: &'a BRep,
-    _edge_handle: EdgeHandle,
-    edge: &'a popkern_core::topology::Edge,
-    set: &std::collections::BTreeSet<FaceHandle>,
-) -> Option<(SeamSide<'a>, SeamSide<'a>, &'a CurveOnEdge)> {
-    let he = edge.half_edge;
-    let he_data = brep.half_edges.get(he)?;
-    let twin = he_data.twin;
-    // Index defensively: a mid-pipeline BRep can carry a stale `loop_`
-    // on a twin half-edge. A measurement must report "nothing to see
-    // here", never abort on a SlotMap panic.
-    let twin_data = brep.half_edges.get(twin)?;
-    let f_a = brep.loops.get(he_data.loop_)?.face;
-    let f_b = brep.loops.get(twin_data.loop_)?.face;
-    if f_a == f_b || !set.contains(&f_a) || !set.contains(&f_b) {
-        return None;
-    }
-    let curve = edge.curve.as_ref()?;
-    let side_a = seam_side(brep, he, curve)?;
-    let side_b = seam_side(brep, twin, curve)?;
-    Some((side_a, side_b, curve))
-}
-
-struct SeamSide<'a> {
-    surface: &'a SurfaceGeometry,
-    pcurve: &'a Pcurve,
-    /// Pcurve runs opposite to the edge curve (twin half-edges trace
-    /// the loop direction, not the curve direction) — resolved once
-    /// per side by matching pcurve-endpoint surface images to the
-    /// curve endpoints.
-    reversed: bool,
-}
-
-fn seam_side<'a>(brep: &'a BRep, he: HalfEdgeHandle, curve: &CurveOnEdge) -> Option<SeamSide<'a>> {
-    let he_data = brep.half_edges.get(he)?;
-    let pcurve = he_data.pcurve.as_ref()?;
-    let face = brep.loops.get(he_data.loop_)?.face;
-    let surface = &brep.faces.get(face)?.surface.as_ref()?.geometry;
-    let curve_start = (&curve.geometry as &dyn CurveEval).point_at(curve.t_start);
-    let uv0 = pcurve.point_at(pcurve.t_start);
-    let uv1 = pcurve.point_at(pcurve.t_end);
-    let s0 = surface.point_at(uv0.x, uv0.y);
-    let s1 = surface.point_at(uv1.x, uv1.y);
-    let reversed = s1.distance_to(&curve_start) < s0.distance_to(&curve_start);
-    Some(SeamSide {
-        surface,
-        pcurve,
-        reversed,
-    })
-}
-
-impl SeamSide<'_> {
-    /// Evaluate at fraction `f` of the seam in CURVE direction.
-    fn eval_fraction(&self, f: f64) -> ((f64, f64), Point3) {
-        let g = if self.reversed { 1.0 - f } else { f };
-        let uv = self
-            .pcurve
-            .point_at(self.pcurve.t_start + g * (self.pcurve.t_end - self.pcurve.t_start));
-        ((uv.x, uv.y), self.surface.point_at(uv.x, uv.y))
-    }
-
-    /// Finite-difference unit normal, or `None` where the chart is
-    /// too degenerate to trust (see module docs).
-    fn normal(&self, uv: (f64, f64)) -> Option<Vec3> {
-        let h = 1e-6;
-        let du = self.surface.point_at(uv.0 + h, uv.1) - self.surface.point_at(uv.0 - h, uv.1);
-        let dv = self.surface.point_at(uv.0, uv.1 + h) - self.surface.point_at(uv.0, uv.1 - h);
-        let (lu, lv) = (du.length(), dv.length());
-        if lu.min(lv) < 1e-3 * lu.max(lv) {
-            return None;
-        }
-        du.cross(&dv).normalized()
-    }
-
-    /// Normal curvature along `dir` by second differences of the
-    /// surface's deviation from the tangent plane.
-    fn normal_curvature(&self, uv: (f64, f64), dir: Vec3) -> Option<f64> {
-        let normal = self.normal(uv)?;
-        let h = 1e-6;
-        let du = self.surface.point_at(uv.0 + h, uv.1) - self.surface.point_at(uv.0 - h, uv.1);
-        let dv = self.surface.point_at(uv.0, uv.1 + h) - self.surface.point_at(uv.0, uv.1 - h);
-        let su = du * (0.5 / h);
-        let sv = dv * (0.5 / h);
-        let (e, f_, g) = (su.dot(&su), su.dot(&sv), sv.dot(&sv));
-        let (r1, r2) = (dir.dot(&su), dir.dot(&sv));
-        let det = e * g - f_ * f_;
-        if det.abs() < 1e-30 {
-            return None;
-        }
-        let a = (r1 * g - r2 * f_) / det;
-        let b = (r2 * e - r1 * f_) / det;
-        let step = 1e-4;
-        let p0 = self.surface.point_at(uv.0, uv.1);
-        let p1 = self.surface.point_at(uv.0 + a * step, uv.1 + b * step);
-        let p2 = self.surface.point_at(uv.0 - a * step, uv.1 - b * step);
-        let second = (p1 - p0) + (p2 - p0);
-        let first_len = (p1 - p2).length() * 0.5;
-        if first_len < 1e-30 {
-            return None;
-        }
-        Some(second.dot(&normal) / (first_len * first_len))
-    }
 }

@@ -4,11 +4,13 @@
 pub mod analysis;
 pub mod apex_construction;
 pub mod blend;
+pub mod blend_continuity_evidence;
 pub mod blend_diagnostics;
 pub(crate) mod blend_warnings;
 pub mod cancellation;
 pub mod cap;
 pub mod cap_seam_continuity;
+pub(crate) mod cap_seam_measure;
 pub mod center_curve;
 pub mod center_curve_helpers;
 mod center_curve_station;
@@ -100,6 +102,10 @@ pub mod vertex_classifier;
 pub mod walker;
 pub(crate) mod walker_adaptive;
 pub mod zebra;
+pub use blend_continuity_evidence::{
+    BlendContinuityEvidence, BlendSeamKind, ContinuityGates, SeamContinuityRecord,
+    measure_blend_continuity_evidence,
+};
 pub use cancellation::CancellationToken;
 pub use chamfer_2d::{chamfer_corner_2d, chamfer_corner_2d_by_angle, chamfer_corners_2d};
 pub use edges_2d::*;

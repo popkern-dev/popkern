@@ -53,6 +53,31 @@ pub(crate) fn fillet_edges_internal(
             }
         };
     }
+    // §7 request-implies-capability: a G2 request dispatches the
+    // G2-capable construction ladder (rational Gregory rungs + the
+    // KP setback/polar cap, whose commit postcondition now gates the
+    // honest transverse curvature residual — PK-187). Without this a
+    // caller asking for G2 through the default options silently got
+    // the flag-gated ladder skipped: the strips upgraded to the G2
+    // sweep but every N ≥ 5 corner shipped a G1-at-best cap. The
+    // ladder flags stay opt-in under G1 requests, where the analytic
+    // paths are the commercial default.
+    let g2_ladder_options;
+    let options: &FilletOptions = if options.continuity == crate::types::ContinuityLevel::G2 {
+        g2_ladder_options = FilletOptions {
+            use_rational_gregory: true,
+            use_deg5_gregory: true,
+            use_biquintic_full_gregory: true,
+            use_biseptic_gregory: true,
+            use_two_stripe_gregory: true,
+            use_kp_binonic_gregory: true,
+            use_kp_polar_gregory: true,
+            ..options.clone()
+        };
+        &g2_ladder_options
+    } else {
+        options
+    };
     // PHASE 0: Validate.
     let t0 = Instant::now();
     validate::validate_fillet_specs(brep, specs)?;

@@ -25,7 +25,26 @@ pub struct LiveSeamMetrics {
     pub seam_count: usize,
     pub worst_g0_gap: f64,
     pub worst_g1_normal: f64,
+    /// Normal-curvature jump ALONG the seam direction, normalized by
+    /// `1 + κ_max`.
+    ///
+    /// **Near-vacuous once G0+G1 hold** (Meusnier: κ_n along a shared
+    /// direction is `c″·n`, and both sides share the curve and — at
+    /// G1 — the normal), so this number is a second-order echo of
+    /// `worst_g1_normal`, kept because historical gates pinned it.
+    /// Honest curvature evidence is [`Self::worst_g2_transverse`].
     pub worst_g2_residual: f64,
+    /// Normal-curvature jump across the TRANSVERSE and diagonal
+    /// in-tangent-plane directions (same `1 + κ_max` normalization) —
+    /// the directions that actually distinguish G2 from G1 across a
+    /// seam.
+    pub worst_g2_transverse: f64,
+    /// Fraction along its seam where the worst transverse jump sat
+    /// (`0.05..0.95`): climbing toward an end is a pole artifact,
+    /// mid-seam is a real curvature crease.
+    pub worst_g2t_fraction: f64,
+    /// The seam edge carrying the worst transverse jump.
+    pub worst_g2t_edge: Option<EdgeHandle>,
     pub worst_g0_edge: Option<EdgeHandle>,
     pub cos_samples: usize,
     pub cos_min: f64,
@@ -81,6 +100,61 @@ pub fn seam_cos_profile(
     None
 }
 
+/// `(f, normalized transverse jump)` profile along the single seam
+/// carried by `edge` — the localization tool for a bad
+/// [`LiveSeamMetrics::worst_g2_transverse`]: a jump that climbs
+/// toward an end is a degenerate-chart artifact, one that is bad
+/// mid-seam is a real curvature crease.
+#[allow(dead_code)]
+pub fn seam_g2t_profile(brep: &BRep, edge: EdgeHandle, fractions: &[f64]) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    let Some(edge_data) = brep.edges.get(edge) else {
+        return out;
+    };
+    let Some(he_data) = brep.half_edges.get(edge_data.half_edge) else {
+        return out;
+    };
+    let Some(curve) = edge_data.curve.as_ref() else {
+        return out;
+    };
+    let (Some(side_a), Some(side_b)) = (
+        seam_side(brep, edge_data.half_edge, curve),
+        seam_side(brep, he_data.twin, curve),
+    ) else {
+        return out;
+    };
+    for &f in fractions {
+        let t = curve.t_start + f * (curve.t_end - curve.t_start);
+        let p_ref = (&curve.geometry as &dyn CurveEval).point_at(t);
+        let (uv_a, _) = side_a.eval_fraction(f);
+        let (uv_b, _) = side_b.eval_fraction(f);
+        let (Some(n_a), Some(n_b)) = (side_a.normal(uv_a), side_b.normal(uv_b)) else {
+            continue;
+        };
+        let dt = 1e-4 * (curve.t_end - curve.t_start).abs().max(1e-12);
+        let p_fwd = (&curve.geometry as &dyn CurveEval).point_at(t + dt);
+        let Some(seam_dir) = (p_fwd - p_ref).normalized() else {
+            continue;
+        };
+        let n_b_aligned = if n_a.dot(&n_b) < 0.0 { n_b * -1.0 } else { n_b };
+        let Some(n_avg) = ((n_a + n_b_aligned) * 0.5).normalized() else {
+            continue;
+        };
+        let Some(t_perp) = n_avg.cross(&seam_dir).normalized() else {
+            continue;
+        };
+        let (Some(k_a), Some(k_b)) = (
+            side_a.normal_curvature_signed(uv_a, t_perp, n_a),
+            side_b.normal_curvature_signed(uv_b, t_perp, n_b_aligned),
+        ) else {
+            continue;
+        };
+        let kmax = k_a.abs().max(k_b.abs());
+        out.push((f, (k_a - k_b).abs() / (1.0 + kmax)));
+    }
+    out
+}
+
 pub fn measure_live_cap_seams(
     brep: &BRep,
     faces: &[FaceHandle],
@@ -92,6 +166,9 @@ pub fn measure_live_cap_seams(
         worst_g0_gap: 0.0,
         worst_g1_normal: 0.0,
         worst_g2_residual: 0.0,
+        worst_g2_transverse: 0.0,
+        worst_g2t_fraction: 0.0,
+        worst_g2t_edge: None,
         worst_g0_edge: None,
         cos_samples: 0,
         cos_min: 1.0,
@@ -177,15 +254,37 @@ pub fn measure_live_cap_seams(
             let Some(seam_dir) = (p_fwd - p_ref).normalized() else {
                 continue;
             };
-            let (Some(k_a), Some(k_b)) = (
-                side_a.normal_curvature(uv_a, seam_dir),
-                side_b.normal_curvature(uv_b, seam_dir),
-            ) else {
-                continue;
+            // Chart orientations are arbitrary: align side B's normal
+            // to side A's hemisphere so signed curvatures compare.
+            let n_b_aligned = if n_a.dot(&n_b) < 0.0 { n_b * -1.0 } else { n_b };
+            let jump = |dir: Vec3| -> Option<f64> {
+                let k_a = side_a.normal_curvature_signed(uv_a, dir, n_a)?;
+                let k_b = side_b.normal_curvature_signed(uv_b, dir, n_b_aligned)?;
+                let kmax = k_a.abs().max(k_b.abs());
+                Some((k_a - k_b).abs() / (1.0 + kmax))
             };
-            let kmax = k_a.abs().max(k_b.abs());
-            let g2 = (k_a - k_b).abs() / (1.0 + kmax);
-            metrics.worst_g2_residual = metrics.worst_g2_residual.max(g2);
+            if let Some(g2) = jump(seam_dir) {
+                metrics.worst_g2_residual = metrics.worst_g2_residual.max(g2);
+            }
+            if let Some(n_avg) = ((n_a + n_b_aligned) * 0.5).normalized()
+                && let Some(t_perp) = n_avg.cross(&seam_dir).normalized()
+            {
+                let mut record = |g2t: f64| {
+                    if g2t > metrics.worst_g2_transverse {
+                        metrics.worst_g2_transverse = g2t;
+                        metrics.worst_g2t_fraction = f;
+                        metrics.worst_g2t_edge = Some(eh);
+                    }
+                };
+                if let Some(g2t) = jump(t_perp) {
+                    record(g2t);
+                }
+                if let Some(diag) = (seam_dir + t_perp).normalized()
+                    && let Some(g2t) = jump(diag)
+                {
+                    record(g2t);
+                }
+            }
         }
         if std::env::var_os("POPKERN_LIVE_SEAM_TRACE").is_some() {
             let mid =
@@ -283,10 +382,36 @@ impl SeamSide<'_> {
         du.cross(&dv).normalized()
     }
 
-    /// Normal curvature along `dir` by second differences of the
-    /// surface's deviation from the tangent plane.
-    fn normal_curvature(&self, uv: (f64, f64), dir: Vec3) -> Option<f64> {
-        let normal = self.normal(uv)?;
+    /// Normal curvature along `dir`, signed against the caller's
+    /// hemisphere-aligned `normal` (a chart-orientation flip must not
+    /// read a perfect seam as a `2κ` jump), with a two-step
+    /// convergence guard: near a degenerate polar chart the FD
+    /// truncation error scales quadratically with the step (measured
+    /// 1.7 → 0.16 → 1.9e-3 across steps 1e-3/1e-4/1e-5 on the SAME
+    /// pentagon fan seam), so a single-step estimate reads chart
+    /// noise as a curvature crease. Samples whose two-step estimates
+    /// disagree are skipped, and agreeing ones are Richardson-
+    /// extrapolated.
+    fn normal_curvature_signed(&self, uv: (f64, f64), dir: Vec3, normal: Vec3) -> Option<f64> {
+        let base = std::env::var("PK_G2T_STEP")
+            .ok()
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1e-4);
+        let k_h = self.normal_curvature_at_step(uv, dir, normal, base)?;
+        let k_h2 = self.normal_curvature_at_step(uv, dir, normal, 0.5 * base)?;
+        if (k_h - k_h2).abs() > 0.1 * (1.0 + k_h2.abs()) {
+            return None;
+        }
+        Some((4.0 * k_h2 - k_h) / 3.0)
+    }
+
+    fn normal_curvature_at_step(
+        &self,
+        uv: (f64, f64),
+        dir: Vec3,
+        normal: Vec3,
+        step: f64,
+    ) -> Option<f64> {
         let h = 1e-6;
         let du = self.surface.point_at(uv.0 + h, uv.1) - self.surface.point_at(uv.0 - h, uv.1);
         let dv = self.surface.point_at(uv.0, uv.1 + h) - self.surface.point_at(uv.0, uv.1 - h);
@@ -303,7 +428,6 @@ impl SeamSide<'_> {
         let a = (r1 * g - r2 * f_) / det;
         let b = (r2 * e - r1 * f_) / det;
         // Second difference of the surface along (a, b) in UV.
-        let step = 1e-4;
         let p0 = self.surface.point_at(uv.0, uv.1);
         let p1 = self.surface.point_at(uv.0 + a * step, uv.1 + b * step);
         let p2 = self.surface.point_at(uv.0 - a * step, uv.1 - b * step);
@@ -315,4 +439,37 @@ impl SeamSide<'_> {
         // κ_n = (S'' · n) / |S'|².
         Some(second.dot(&normal) / (first_len * first_len))
     }
+}
+
+/// Welded open-edge census (the watertightness measure the example
+/// gates use): weld mesh vertices at 1e-7, count edges used by
+/// exactly one triangle.
+#[allow(dead_code)]
+pub fn welded_open_edge_count(mesh: &popkern_mesh::TriMesh) -> usize {
+    use std::collections::HashMap;
+    let mut key: HashMap<(i64, i64, i64), usize> = HashMap::new();
+    let mut id = |p: popkern_core::geometry::Point3| -> usize {
+        let k = (
+            (p.x * 1.0e7).round() as i64,
+            (p.y * 1.0e7).round() as i64,
+            (p.z * 1.0e7).round() as i64,
+        );
+        let next = key.len();
+        *key.entry(k).or_insert(next)
+    };
+    let mut counts: HashMap<(usize, usize), usize> = HashMap::new();
+    for t in &mesh.triangles {
+        let w = [
+            id(mesh.vertices[t[0]].position),
+            id(mesh.vertices[t[1]].position),
+            id(mesh.vertices[t[2]].position),
+        ];
+        if w[0] == w[1] || w[1] == w[2] || w[0] == w[2] {
+            continue;
+        }
+        for (a, b) in [(w[0], w[1]), (w[1], w[2]), (w[2], w[0])] {
+            *counts.entry((a.min(b), a.max(b))).or_insert(0) += 1;
+        }
+    }
+    counts.values().filter(|&&c| c == 1).count()
 }
