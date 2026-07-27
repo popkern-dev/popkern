@@ -52,15 +52,15 @@ fn insert_pns_cap_creates_n_subfaces_with_nurbs_surfaces() {
             .expect("sub-face should have a surface assigned")
             .geometry
             .clone();
-        match surf {
-            SurfaceGeometry::Nurbs(ns) => {
-                assert_eq!(ns.degree_u, 4);
-                assert_eq!(ns.degree_v, 4);
-                assert_eq!(ns.num_u, 5);
-                assert_eq!(ns.num_v, 5);
-            }
-            _ => panic!("expected NurbsSurface on sub-face"),
-        }
+        let ns = super::pns_nurbs(&surf);
+        assert_eq!(ns.degree_u, 4);
+        assert_eq!(ns.degree_v, 4);
+        assert_eq!(ns.num_u, 5);
+        assert_eq!(ns.num_v, 5);
+        let SurfaceGeometry::PolyhedralSpline(patch) = &surf else {
+            panic!("promote path must ship provenance-carrying caps");
+        };
+        assert_eq!(patch.provenance.valence, result.sub_faces.len());
     }
 
     let cv = brep

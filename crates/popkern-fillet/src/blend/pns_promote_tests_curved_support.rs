@@ -110,9 +110,7 @@ fn cap_boundary_g1_with_cube_corner_cylinder_supports() {
     assert_eq!(surfaces.len(), 3);
 
     for (k, surf) in surfaces.iter().enumerate() {
-        let SurfaceGeometry::Nurbs(ns) = surf else {
-            panic!("expected NurbsSurface");
-        };
+        let ns = super::pns_nurbs(surf);
         let (axis_pt, _, _) = cyl_axes[k];
         let axis_dir = cyl_axis_dir[k];
         let p = ns.point_at(0.5, 1.0);

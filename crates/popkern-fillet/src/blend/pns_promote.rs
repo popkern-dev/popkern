@@ -130,9 +130,15 @@ pub fn promote_blend_boundary_to_pns_surfaces(
         .iter()
         .enumerate()
         .map(|(sector, patch)| {
+            // The assembler stores `patch[u_c][v_c]`; the variant's
+            // net is `net[j][i]` with `i` the u index — transpose or
+            // the shipped chart swaps u and v (caught by the promote
+            // unit tests' chart-convention assertions).
+            let net: [[popkern_core::geometry::Point3; 5]; 5] =
+                core::array::from_fn(|j| core::array::from_fn(|i| patch[i][j]));
             SurfaceGeometry::PolyhedralSpline(Box::new(
                 popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplinePatch::new(
-                    *patch,
+                    net,
                     popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplineProvenance {
                         valence: n,
                         sector,

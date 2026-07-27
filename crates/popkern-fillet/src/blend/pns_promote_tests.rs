@@ -18,6 +18,16 @@ fn pt(x: f64, y: f64, z: f64) -> Point3 {
     Point3::new(x, y, z)
 }
 
+/// The promote path ships `PolyhedralSpline` (PK-200); tests evaluate
+/// through its lossless NURBS image and keep every numeric assertion.
+fn pns_nurbs(surface: &SurfaceGeometry) -> popkern_core::geometry::NurbsSurface {
+    match surface {
+        SurfaceGeometry::PolyhedralSpline(patch) => patch.to_nurbs(),
+        SurfaceGeometry::Nurbs(ns) => ns.clone(),
+        other => panic!("expected a PnS cap surface, got {other:?}"),
+    }
+}
+
 fn line_curve(p0: Point3, p1: Point3) -> NurbsCurve {
     NurbsCurve {
         degree: 1,
@@ -105,13 +115,14 @@ fn promote_produces_n_surfaces_matching_pairs() {
     assert_eq!(surfaces.len(), bb.segments.len() / 2);
     for (k, surf) in surfaces.iter().enumerate() {
         match surf {
-            SurfaceGeometry::Nurbs(ns) => {
+            _pns @ (SurfaceGeometry::PolyhedralSpline(_) | SurfaceGeometry::Nurbs(_)) => {
+                let ns = pns_nurbs(_pns);
                 assert_eq!(ns.degree_u, 4, "sector {k} degree_u");
                 assert_eq!(ns.degree_v, 4, "sector {k} degree_v");
                 assert_eq!(ns.num_u, 5);
                 assert_eq!(ns.num_v, 5);
             }
-            _ => panic!("sector {k}: expected NurbsSurface, got other variant"),
+            _ => panic!("sector {k}: expected a PnS cap surface, got other variant"),
         }
     }
 }
@@ -131,9 +142,7 @@ fn promoted_surfaces_interpolate_pole_at_canonical_origin() {
     let expected_pole = pole_from_boundary(&ring);
 
     for (k, surf) in surfaces.iter().enumerate() {
-        let SurfaceGeometry::Nurbs(ns) = surf else {
-            panic!("expected NurbsSurface");
-        };
+        let ns = pns_nurbs(surf);
         let p00 = ns.point_at(0.0, 0.0);
         let diff = (p00.x - expected_pole.x).abs()
             + (p00.y - expected_pole.y).abs()
@@ -153,9 +162,7 @@ fn promoted_surfaces_boundary_matches_paired_segment_endpoints() {
     let (bb, fillets, brep) = synth_planar_blend_for_promote(1.5);
     let surfaces = promote_blend_boundary_to_pns_surfaces(&bb, &fillets, &brep).unwrap();
     for (k, surf) in surfaces.iter().enumerate() {
-        let SurfaceGeometry::Nurbs(ns) = surf else {
-            panic!("expected NurbsSurface");
-        };
+        let ns = pns_nurbs(surf);
         let seg_arc = &bb.segments[2 * k];
         let seg_bridge = &bb.segments[2 * k + 1];
         let arc_curve = match seg_arc {
@@ -209,9 +216,7 @@ fn cap_boundary_g1_with_planar_support() {
         );
         let sample_us = [0.0_f64, 0.2, 0.4, 0.5, 0.6, 0.8, 1.0];
         for (k, surf) in surfaces.iter().enumerate() {
-            let SurfaceGeometry::Nurbs(ns) = surf else {
-                panic!("N={n_fillets} sector {k}: expected NurbsSurface");
-            };
+            let ns = pns_nurbs(surf);
             for &u in &sample_us {
                 let p = ns.point_at(u, 1.0);
                 assert!(
@@ -312,9 +317,7 @@ fn cap_boundary_g1_with_tilted_planar_support() {
 
     let sample_us = [0.1_f64, 0.3, 0.5, 0.7, 0.9];
     for (k, surf) in surfaces.iter().enumerate() {
-        let SurfaceGeometry::Nurbs(ns) = surf else {
-            panic!("expected NurbsSurface");
-        };
+        let ns = pns_nurbs(surf);
         for &u in &sample_us {
             let n = ns.normal_at(u, 1.0);
             let nl = n.length();
