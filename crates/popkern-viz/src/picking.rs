@@ -417,6 +417,7 @@ mod tests {
             triangles: vec![[0, 1, 2], [3, 4, 5]],
             face_map: vec![FaceHandle::default(), FaceHandle::default()],
             face_meshes: vec![],
+            zipped_t_junctions: 0,
         };
 
         let hit = pick_face(&camera, (0.5, 0.5), &mesh);

@@ -490,7 +490,14 @@ pub(crate) fn tessellate_brep(
     sew_boundaries_to_edge_polylines(brep, &mut face_meshes, &legacy_faces);
     deepchord_trace(brep, &face_meshes, options, "post-sew");
     orient_face_meshes_coherently(brep, &mut face_meshes);
-    Ok(TriMesh::from_face_meshes(face_meshes))
+    let mut mesh = TriMesh::from_face_meshes(face_meshes);
+    // Tolerance-scoped T-junction zippering (PK-208): differently
+    // sampled boundary chains along RECORDED-tolerance edges are
+    // subdivided to share their points, so the weld closes. Unrecorded
+    // gaps are left open — see crack_zipper for why that scoping is
+    // the whole design.
+    mesh.zipped_t_junctions = crate::crack_zipper::zip_recorded_tolerance_cracks(brep, &mut mesh);
+    Ok(mesh)
 }
 
 /// Global winding coherence: no per-face orientation witness is
@@ -915,6 +922,19 @@ fn sew_boundaries_to_edge_polylines(
                     let curve = brep.edges.get(eh)?.curve.as_ref()?;
                     use popkern_core::geometry::SurfaceEval;
                     let _ = curve;
+                    // The gate honors the edge's RECORDED tolerance: a
+                    // construction that accepted a bounded boundary
+                    // inexactness (the setback fan's fitted rim rows,
+                    // 1.5e-3..2.3e-3 — a kinked deviation field a
+                    // degree-9 row cannot represent below ~9e-4)
+                    // stamps it on the edge; excluding those edges
+                    // here left every rim boundary vertex unsewn and
+                    // the blunt-pentagon fan cracked open (236 welded
+                    // open edges). An UNRECORDED disagreement keeps
+                    // the tight gate — the sphere-seam pole chord this
+                    // gate exists for stays excluded.
+                    let recorded = brep.edges.get(eh).and_then(|e| e.tolerance).unwrap_or(0.0);
+                    let on_surface_gate = on_surface_gate.max(1.5 * recorded);
                     // Param-free agreement: the surface image of the
                     // pcurve at three params must lie ON the edge's
                     // canonical polyline (nearest-distance — pcurve

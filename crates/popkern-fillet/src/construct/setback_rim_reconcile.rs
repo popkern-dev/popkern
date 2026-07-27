@@ -165,6 +165,53 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
                 // pin them to the exact endpoint deviations so shared
                 // corners land on the sweep and adjacent solves agree.
                 let d_end = [dev[0], dev[M - 1]];
+                // DIAGNOSTIC (PK-208/209, probe-gated): the residual
+                // FLOOR of this row — what an unconstrained fit of the
+                // post-repair row against the projected field would
+                // leave. Tells whether the seam-jet pinning (6 of 10
+                // CPs) is what holds the rim above the tessellator's
+                // 1e-3 off-surface gate, or the degree-9 row simply
+                // cannot represent the field.
+                if std::env::var_os("PK_SETBACK_PROBE").is_some() && _pass == 0 {
+                    // Residual of the CURRENT row against the field is
+                    // worst_dev. The floor: interpolate the projected
+                    // points' deviation field with ALL 10 CPs free via
+                    // damped LSQ (no pinning), then measure what the
+                    // repaired row would miss.
+                    let basis: Vec<[f64; 10]> = ts.iter().map(|&t| bernstein9_all(t)).collect();
+                    let mut gram10 = [[0.0_f64; 10]; 10];
+                    let mut mom10 = [[0.0_f64; 3]; 10];
+                    for (b, r) in basis.iter().zip(&dev) {
+                        for i in 0..10 {
+                            for j in 0..10 {
+                                gram10[i][j] += b[i] * b[j];
+                            }
+                            for c in 0..3 {
+                                mom10[i][c] += b[i] * r[c];
+                            }
+                        }
+                    }
+                    for (i, row_g) in gram10.iter_mut().enumerate() {
+                        row_g[i] += 1e-10;
+                    }
+                    if let Some(free) = solve_10(&gram10, &mom10) {
+                        let mut floor = 0.0_f64;
+                        for (b, r) in basis.iter().zip(&dev) {
+                            let mut miss = 0.0_f64;
+                            for c in 0..3 {
+                                let mut fit = 0.0;
+                                for i in 0..10 {
+                                    fit += b[i] * free[i][c];
+                                }
+                                miss += (r[c] - fit) * (r[c] - fit);
+                            }
+                            floor = floor.max(miss.sqrt());
+                        }
+                        eprintln!(
+                            "  [rim-floor] patch {patch_index} side {side}: field worst                              {worst_dev:.3e}, unconstrained-fit floor {floor:.3e}"
+                        );
+                    }
+                }
                 // The THREE CPs nearest each end (k=0..2, k=7..9) are
                 // pinned to the SAME endpoint delta. These columns are
                 // the cross-seam jets of the spoke/median seams meeting
@@ -283,6 +330,46 @@ fn bernstein9_all(t: f64) -> [f64; 10] {
 // Column loops index two rows of the same matrix (pivot and target); the
 // iterator form would need split borrows and obscure the elimination math.
 #[allow(clippy::needless_range_loop)]
+fn solve_10(mat: &[[f64; 10]; 10], rhs: &[[f64; 3]; 10]) -> Option<[[f64; 3]; 10]> {
+    let mut a = *mat;
+    let mut b = *rhs;
+    for col in 0..10 {
+        let mut piv = col;
+        for r in (col + 1)..10 {
+            if a[r][col].abs() > a[piv][col].abs() {
+                piv = r;
+            }
+        }
+        if a[piv][col].abs() < 1e-14 {
+            return None;
+        }
+        a.swap(col, piv);
+        b.swap(col, piv);
+        let pivot = a[col];
+        let pivot_b = b[col];
+        for r in (col + 1)..10 {
+            let f = a[r][col] / pivot[col];
+            for (c, pv) in pivot.iter().enumerate().skip(col) {
+                a[r][c] -= f * pv;
+            }
+            for (c, pv) in pivot_b.iter().enumerate() {
+                b[r][c] -= f * pv;
+            }
+        }
+    }
+    let mut x = [[0.0_f64; 3]; 10];
+    for row in (0..10).rev() {
+        for c in 0..3 {
+            let mut acc = b[row][c];
+            for col in (row + 1)..10 {
+                acc -= a[row][col] * x[col][c];
+            }
+            x[row][c] = acc / a[row][row];
+        }
+    }
+    Some(x)
+}
+
 fn solve_4(mat: &[[f64; 4]; 4], rhs: &[[f64; 3]; 4]) -> Option<[[f64; 3]; 4]> {
     let mut a = *mat;
     let mut b = *rhs;
@@ -298,13 +385,15 @@ fn solve_4(mat: &[[f64; 4]; 4], rhs: &[[f64; 3]; 4]) -> Option<[[f64; 3]; 4]> {
         }
         a.swap(col, piv);
         b.swap(col, piv);
+        let pivot = a[col];
+        let pivot_b = b[col];
         for r in (col + 1)..4 {
-            let f = a[r][col] / a[col][col];
-            for c in col..4 {
-                a[r][c] -= f * a[col][c];
+            let f = a[r][col] / pivot[col];
+            for (c, pv) in pivot.iter().enumerate().skip(col) {
+                a[r][c] -= f * pv;
             }
-            for c in 0..3 {
-                b[r][c] -= f * b[col][c];
+            for (c, pv) in pivot_b.iter().enumerate() {
+                b[r][c] -= f * pv;
             }
         }
     }

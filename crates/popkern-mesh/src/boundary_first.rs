@@ -947,13 +947,43 @@ fn build_ring(
             {
                 (uu, vv) = (ru, rv);
             }
-            let residual = sof.geometry.point_at(uu, vv).distance_to(&target);
+            let mut residual = sof.geometry.point_at(uu, vv).distance_to(&target);
             let scale = samples
                 .points
                 .first()?
                 .distance_to(samples.points.last()?)
                 .max(1e-9);
-            if residual > 1.0e-3 * scale.max(1.0) {
+            let gate = 1.0e-3 * scale.max(1.0);
+            if residual > gate {
+                // The pcurve seed can be DISPLACED (a setback fan's
+                // stale rim pcurves sit 1.8e-3 off) and the seeded
+                // local projection then converges near the displaced
+                // location, reading 1.4e-3 where the true nearest
+                // point is 5e-5 away — the face fell back to the
+                // legacy path and the mesh cracked. Retry with a COLD
+                // global projection under the SAME gate before giving
+                // up; the ring-level periodic unwrap downstream
+                // restores branch continuity exactly as it does for
+                // analytic inversions.
+                if let Some((gu, gv)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                    &sof.geometry,
+                    &target,
+                ) {
+                    let g_res = sof.geometry.point_at(gu, gv).distance_to(&target);
+                    if g_res < residual {
+                        (uu, vv) = (gu, gv);
+                        residual = g_res;
+                    }
+                }
+            }
+            // NOTE: widening this gate by recorded entity tolerance
+            // was tried twice (with and without the cold retry above)
+            // and is FALSIFIED both times: it repartitions the
+            // boundary-first/legacy face split and the mixed
+            // boundaries crack far worse than the fallback it avoids
+            // (hexagon6_blunt 0 -> 482; pentagon5_blunt/G2
+            // 106 -> 492). Do not reintroduce it.
+            if residual > gate {
                 if std::env::var_os("PK_BF_TRACE").is_some() {
                     eprintln!("    [bf] edge {eh:?}: off-surface residual {residual:.3e}");
                 }

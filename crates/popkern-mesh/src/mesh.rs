@@ -43,6 +43,13 @@ pub struct TriMesh {
     pub face_map: Vec<FaceHandle>,
     /// The individual per-face meshes that were merged to form this combined mesh.
     pub face_meshes: Vec<FaceMesh>,
+    /// T-junction cracks closed by the tolerance-scoped zipper
+    /// (see `crack_zipper`): junctions along BRep edges carrying a
+    /// RECORDED entity tolerance, split so both boundary chains share
+    /// their subdivision points. Zero means the mesh welded closed
+    /// without repair; a consumer gating on "watertight without
+    /// repair" asserts this is zero.
+    pub zipped_t_junctions: usize,
 }
 
 impl TriMesh {
@@ -65,6 +72,7 @@ impl TriMesh {
         }
 
         TriMesh {
+            zipped_t_junctions: 0,
             vertices,
             triangles,
             face_map,

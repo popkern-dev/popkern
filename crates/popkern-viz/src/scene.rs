@@ -198,6 +198,7 @@ mod tests {
         use popkern_mesh::{MeshVertex, TriMesh};
 
         let mesh = TriMesh {
+            zipped_t_junctions: 0,
             vertices: vec![
                 MeshVertex {
                     position: P3::new(-1.0, 0.0, 2.0),
