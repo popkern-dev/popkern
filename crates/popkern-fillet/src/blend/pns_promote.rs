@@ -8,7 +8,7 @@
 //!   → Bi2TensorBorderRing   (pns_adapter)
 //!   → pole                  (pns_center eq (5))
 //!   → assemble_pns_bi4_cap  (pns_cap_assemble)
-//!   → Vec<NurbsSurface>     (pns_bi4_to_nurbs per patch)
+//!   → Vec<SurfaceGeometry::PolyhedralSpline> (net + provenance per patch)
 //!   → Vec<SurfaceGeometry>  (wrapped)
 //! ```
 //!
@@ -23,7 +23,7 @@
 
 use popkern_core::error::CoreError;
 use popkern_core::geometry::gregory::{
-    BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, pns_bi4_to_nurbs, pole_from_boundary,
+    BetaReparam, CapAssembleInput, assemble_pns_bi4_cap, pole_from_boundary,
     sigma_center_jet_default,
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
@@ -120,10 +120,26 @@ pub fn promote_blend_boundary_to_pns_surfaces(
     };
     let cap = assemble_pns_bi4_cap(&input)?;
 
+    // First-class provenance (PK-200): each sector ships as
+    // PolyhedralSpline carrying {valence, sector}, so unfillet /
+    // modify / STEP can still say WHICH piece of WHICH cap a face is.
+    // The NURBS image is available losslessly via to_nurbs() for
+    // consumers that want the generic form.
     let surfaces: Vec<SurfaceGeometry> = cap
         .patches
         .iter()
-        .map(|patch| SurfaceGeometry::Nurbs(pns_bi4_to_nurbs(patch)))
+        .enumerate()
+        .map(|(sector, patch)| {
+            SurfaceGeometry::PolyhedralSpline(Box::new(
+                popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplinePatch::new(
+                    *patch,
+                    popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplineProvenance {
+                        valence: n,
+                        sector,
+                    },
+                ),
+            ))
+        })
         .collect();
     Ok(surfaces)
 }

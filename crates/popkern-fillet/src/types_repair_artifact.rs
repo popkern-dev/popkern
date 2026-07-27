@@ -134,6 +134,12 @@ fn append_apex_diagnostic_actions(
     for diagnostic in &report.apex_diagnostics {
         match diagnostic {
             ApexConstructionDiagnostic::ExactBoundaryCap(diagnostic) => {
+                // Informational records are observability, not repair
+                // actions — counting one as a "declined" action would
+                // report a decline that never happened (PK-201).
+                if crate::types::diagnostic_code_is_informational(&diagnostic.code) {
+                    continue;
+                }
                 *apex_attempted += 1;
                 *apex_declined += 1;
                 let deviation = diagnostic.residual.unwrap_or(0.0);

@@ -119,19 +119,25 @@ fn assert_exact_boundary_ux_report(route: &popkern_fillet::ApexConstructionRoute
     // spokes resolved the last exceedance — an accepted mixed-radius
     // route now records NO residual diagnostics.
     assert!(
-        report.diagnostics.is_empty(),
+        report
+            .diagnostics
+            .iter()
+            .all(|d| popkern_fillet::types::diagnostic_code_is_informational(&d.code)),
         "the mixed-radius fixture regressed a residual exceedance: {:#?}",
         report.diagnostics
     );
     assert!(report.diagnostics.iter().all(|diagnostic| {
         diagnostic.schema_version == 1
-            && diagnostic.residual.is_some_and(|residual| residual > 0.0)
-            && ((diagnostic.stage == "exact_boundary_cap.support_scope"
-                && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded"
-                && diagnostic.tolerance == Some(1.0e-6))
-                || (diagnostic.stage == "exact_boundary_cap.cap_outer"
-                    && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
-                    && diagnostic.tolerance == Some(5.0e-3)))
+            && (popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+                || (diagnostic.residual.is_some_and(|residual| residual > 0.0)
+                    && ((diagnostic.stage == "exact_boundary_cap.support_scope"
+                        && diagnostic.code
+                            == "exact_boundary_cap.support_scope.residual_exceeded"
+                        && diagnostic.tolerance == Some(1.0e-6))
+                        || (diagnostic.stage == "exact_boundary_cap.cap_outer"
+                            && diagnostic.code
+                                == "exact_boundary_cap.cap_outer.pair_residual_exceeded"
+                            && diagnostic.tolerance == Some(5.0e-3)))))
     }));
     assert!(
         report
@@ -157,8 +163,9 @@ fn assert_exact_boundary_accepted(result: &popkern_fillet::BlendResult) {
             .diagnostics
             .iter()
             .all(|diagnostic| {
-                (diagnostic.stage == "exact_boundary_cap.support_scope"
-                    && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
+                popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+                    || (diagnostic.stage == "exact_boundary_cap.support_scope"
+                        && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
                     || (diagnostic.stage == "exact_boundary_cap.cap_outer"
                         && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded")
             })),

@@ -359,8 +359,9 @@ fn assert_gregory_boundary_evidence_or_exact_boundary_acceptance(blend: &BlendRe
     assert_eq!(exact_report.performance.pcurve_pair_count, 6);
     assert!(
         exact_report.diagnostics.iter().all(|diagnostic| {
-            (diagnostic.stage == "exact_boundary_cap.support_scope"
-                && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
+            popkern_fillet::types::diagnostic_code_is_informational(&diagnostic.code)
+                || (diagnostic.stage == "exact_boundary_cap.support_scope"
+                    && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
                 || (diagnostic.stage == "exact_boundary_cap.cap_outer"
                     && diagnostic.code == "exact_boundary_cap.cap_outer.pair_residual_exceeded")
         }),

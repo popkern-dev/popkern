@@ -352,6 +352,14 @@ pub fn try_pns_setback_candidate(
         seam_g0 = seam_g0.max(best_pair);
     }
 
+    // PK-200 remaining scope: the setback route still ships anonymous
+    // NURBS. A PolyhedralSpline switch here was briefly implicated in
+    // a strict-export crash on 2026-07-27 and REVERTED — the crash
+    // then proved pre-existing and unrelated (PK-205), so the switch
+    // was never actually falsified. Re-apply it together with the
+    // promote path's provenance pattern and measure the corpus; kept
+    // reverted for now only because it was not re-measured after the
+    // mis-attribution unwound.
     let surfaces = patches
         .iter()
         .map(|p| SurfaceGeometry::Nurbs(pns_bi4_to_nurbs(p)))

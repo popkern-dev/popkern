@@ -367,6 +367,16 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                             ) {
                                 ExactBoundaryMultipatchCommitOutcome::Accepted { faces } => {
                                     committed_faces = faces;
+                                    // Same post-commit obligation as
+                                    // the one-patch path: record the
+                                    // cap's own seam continuity
+                                    // (PK-197).
+                                    if let Some(worst) =
+                                        worst_mid_seam_misalignment(brep, &committed_faces)
+                                    {
+                                        informational
+                                            .push(mid_seam_note(committed_faces.len(), worst));
+                                    }
                                     committed = true;
                                     decision_chain.push(ExactBoundaryRouteDecisionStep::accepted(
                                         "exact_boundary.multipatch",

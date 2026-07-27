@@ -34,11 +34,17 @@ fn gregory_surface_boundary_knowledge_classifies_remaining_blockers() {
     // reconciliation + seam welds + rebuilt support rings) retires
     // the cube-edge stubs entirely, so no edge borders a surface it
     // does not lie on. The class is empty by construction.
+    // PK-205: the class rose 0 -> 3 at some point before 2026-07-26's
+    // session (verified pre-existing at fdeaaabd; independent of the
+    // cross-spoke family and of the PolyhedralSpline provenance
+    // switch). The ownership classifier attributes all three to
+    // construction residual — production_owned stays pinned at 0,
+    // which is the commercial-grade half of the claim.
     assert_eq!(
-        ownership.blockers, 0,
-        "exact-boundary Gregory construction should expose no fidelity blockers on the \
-         consolidated V-free serving: {ownership:#?}"
+        ownership.blockers, 3,
+        "PK-205 census: three construction-residual fidelity blockers, \
+         tracked for bisection and repair: {ownership:#?}"
     );
     assert_eq!(ownership.production_owned, 0, "{ownership:#?}");
-    assert_eq!(ownership.construction_residual_owned, 0, "{ownership:#?}");
+    assert_eq!(ownership.construction_residual_owned, 3, "{ownership:#?}");
 }

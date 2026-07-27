@@ -399,7 +399,9 @@ fn zebra_refutes_the_low_valence_cap_crease() {
                 worst = worst.max(kink);
             }
         }
-        println!("[pk197-zebra] n={n} seams_measured={measured} worst_stripe_phase_jump={worst:.4}");
+        println!(
+            "[pk197-zebra] n={n} seams_measured={measured} worst_stripe_phase_jump={worst:.4}"
+        );
         assert!(measured > 0, "n={n}: zebra measured no internal seams");
         assert!(
             worst < 0.25,
