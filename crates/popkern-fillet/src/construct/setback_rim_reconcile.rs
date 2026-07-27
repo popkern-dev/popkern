@@ -313,7 +313,7 @@ pub(super) fn reconcile_cap_rim_to_sweeps(
     }
 }
 
-fn bernstein9_all(t: f64) -> [f64; 10] {
+pub(super) fn bernstein9_all(t: f64) -> [f64; 10] {
     const C: [f64; 10] = [1.0, 9.0, 36.0, 84.0, 126.0, 126.0, 84.0, 36.0, 9.0, 1.0];
     let mut out = [0.0_f64; 10];
     let u = 1.0 - t;
@@ -421,7 +421,7 @@ pub(super) fn eval_cubic(cps: &[Point3; 4], t: f64) -> Point3 {
 }
 
 /// Min distance from `p` to any segment of the sampled polylines.
-fn distance_to_polylines(p: Point3, polylines: &[Vec<Point3>]) -> f64 {
+pub(super) fn distance_to_polylines(p: Point3, polylines: &[Vec<Point3>]) -> f64 {
     let mut best = f64::INFINITY;
     for polyline in polylines {
         for pair in polyline.windows(2) {
