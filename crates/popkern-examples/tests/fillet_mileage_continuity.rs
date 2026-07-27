@@ -130,11 +130,10 @@ fn run_corpus_continuity() -> Vec<PartContinuity> {
 ///   sagitta (above the 1e-5 trim gate → achieved G0, silent
 ///   downgrades); an Arc in a Plane face now gets its exact
 ///   angle-parameterized elliptical pcurve.
-/// - `offset_bracket` carries a displaced pcurve (g0 = 1.76) and a
-///   0.43 rail tangency error; `mixed_corner_block` a 1.5e-2 trim
-///   deviation. Both are pre-existing part-quality gaps this
-///   baseline makes regression-proof while they await their own
-///   tickets.
+/// - `offset_bracket` reads genuinely G1 since PK-211 (g0 2.8e-11 —
+///   its 1.76-displaced strip-end pcurves and phantom 0.43 rail
+///   error are gone); `mixed_corner_block` still carries a 1.5e-2
+///   trim deviation (its own class).
 struct PartBaseline {
     name: &'static str,
     achieved_floor: ContinuityLevel,
@@ -170,12 +169,18 @@ const BASELINE: &[PartBaseline] = &[
         expected_downgrades: 0,
     },
     PartBaseline {
+        // PK-211 closed: the strip-end ruling pcurves were fit
+        // against transitional mid-carve geometry and survived every
+        // guard (g0 read 1.76, g1 a phantom 0.43 measured at the
+        // displaced image); the end-of-pipeline displaced-pcurve
+        // backstop recomputes them on the final geometry — measured
+        // g0 2.8e-11, g1 exact zero.
         name: "offset_bracket",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 8,
-        g0_cap: 2.5,
-        g1_cap: 6.0e-1,
-        expected_downgrades: 1,
+        g0_cap: 1.0e-10,
+        g1_cap: 1.0e-9,
+        expected_downgrades: 0,
     },
     PartBaseline {
         name: "mixed_corner_block",

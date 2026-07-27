@@ -223,7 +223,43 @@ fn attach_remaining_fillet_pcurves(
             let mut cursor = start_he;
             let limit = brep.half_edges.len() + 1;
             for _ in 0..limit {
-                if brep.half_edges[cursor].pcurve.is_none() {
+                let he = &brep.half_edges[cursor];
+                let needs = match he.pcurve.as_ref() {
+                    None => true,
+                    // TRANSPLANT check (PK-211): the kef merge folds
+                    // consumed support-face slivers into the fillet
+                    // face, and their half-edges arrive carrying the
+                    // SUPPORT chart's pcurves — macroscopically off
+                    // the fillet surface (measured 1.84 on
+                    // offset_bracket's strip-end rulings; the fill-
+                    // missing-only pass skipped them because a pcurve
+                    // was present). A pcurve whose midpoint image
+                    // leaves the edge curve by more than the
+                    // transplant band is recomputed on the fillet
+                    // surface like a missing one.
+                    Some(pc) => {
+                        use popkern_core::geometry::curve::CurveEval;
+                        use popkern_core::geometry::surface::SurfaceEval;
+                        let mid_uv = pc.point_at(0.5 * (pc.t_start + pc.t_end));
+                        let img = fillet_surface.point_at(mid_uv.x, mid_uv.y);
+                        match brep.edges.get(he.edge).and_then(|e| e.curve.as_ref()) {
+                            Some(curve) => {
+                                let ce: &dyn CurveEval = &curve.geometry;
+                                let d = (0..=8)
+                                    .map(|i| {
+                                        img.distance_to(&ce.point_at(
+                                            curve.t_start
+                                                + (curve.t_end - curve.t_start) * i as f64 / 8.0,
+                                        ))
+                                    })
+                                    .fold(f64::MAX, f64::min);
+                                d > 1.0e-4
+                            }
+                            None => false,
+                        }
+                    }
+                };
+                if needs {
                     handles.push(cursor);
                 }
                 cursor = brep.half_edges[cursor].next;
@@ -255,6 +291,22 @@ fn attach_remaining_fillet_pcurves(
 /// Samples the half-edge's underlying edge curve (or linear interpolation
 /// between origin and destination vertices) at `PCURVE_SAMPLE_COUNT` points,
 /// projects each into the surface's UV space, and fits a NURBS curve.
+/// Analytic inversion for cylinder charts: generic Newton projection
+/// wanders across period branches and can converge to the far-side
+/// critical point (measured: 1.84 pcurve-image displacement on a
+/// strip-end ruling lying ON the cylinder to machine zero). Points
+/// at or near the surface invert exactly via atan2 in the cylinder's
+/// own basis — the same cure the boundary-first mesher and the
+/// projection walk use.
+fn analytic_cylinder_uv(surface: &SurfaceGeometry, p: &Point3) -> Option<(f64, f64)> {
+    let SurfaceGeometry::Cylinder { origin, axis, .. } = surface else {
+        return None;
+    };
+    let (perp1, perp2) = popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
+    let d = *p - *origin;
+    Some((d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis)))
+}
+
 fn compute_halfedge_pcurve(
     brep: &BRep,
     he: HalfEdgeHandle,
@@ -274,40 +326,68 @@ fn compute_halfedge_pcurve(
     let edge_he = edge_data.half_edge;
     let forward = edge_he == he;
 
-    let uv_points: Vec<Point3> = match &edge_data.curve {
-        Some(curve) => {
-            let n = PCURVE_SAMPLE_COUNT;
-            (0..n)
-                .map(|i| {
-                    let t_frac = i as f64 / (n - 1) as f64;
-                    let t = if forward {
-                        curve.t_start + t_frac * (curve.t_end - curve.t_start)
-                    } else {
-                        curve.t_end - t_frac * (curve.t_end - curve.t_start)
-                    };
-                    let pt = curve.geometry.point_at(t);
-                    let (u, v) = project_to_uv_clamped(surface, &pt);
-                    Point3::new(u, v, 0.0)
-                })
-                .collect()
-        }
-        None => {
-            // Linear edge: sample between origin and destination.
-            let n = PCURVE_SAMPLE_COUNT;
-            (0..n)
-                .map(|i| {
-                    let t = i as f64 / (n - 1) as f64;
-                    let pt = Point3::new(
-                        origin.x + t * (dest.x - origin.x),
-                        origin.y + t * (dest.y - origin.y),
-                        origin.z + t * (dest.z - origin.z),
-                    );
-                    let (u, v) = project_to_uv_clamped(surface, &pt);
-                    Point3::new(u, v, 0.0)
-                })
-                .collect()
+    // CONTINUATION projection with period unwrapping (PK-211): the
+    // per-sample independent global projections branch-mix on
+    // periodic charts — see compute_pcurve_on_surface.
+    let n = PCURVE_SAMPLE_COUNT;
+    let sample_at = |i: usize| -> Point3 {
+        let t_frac = i as f64 / (n - 1) as f64;
+        match &edge_data.curve {
+            Some(curve) => {
+                let t = if forward {
+                    curve.t_start + t_frac * (curve.t_end - curve.t_start)
+                } else {
+                    curve.t_end - t_frac * (curve.t_end - curve.t_start)
+                };
+                curve.geometry.point_at(t)
+            }
+            None => Point3::new(
+                origin.x + t_frac * (dest.x - origin.x),
+                origin.y + t_frac * (dest.y - origin.y),
+                origin.z + t_frac * (dest.z - origin.z),
+            ),
         }
     };
+    let (period_u, period_v) = surface.parameter_periodicity();
+    let mut prev: Option<(f64, f64)> = None;
+    let mut uv_points: Vec<Point3> = Vec::with_capacity(n);
+    for i in 0..n {
+        let pt = sample_at(i);
+        let (mut u, mut v) = match analytic_cylinder_uv(surface, &pt) {
+            Some(uv) => uv,
+            None => match prev {
+                Some((pu, pv)) => {
+                    match popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                        surface, &pt, pu, pv,
+                    ) {
+                        Some(uv) => uv,
+                        None => project_to_uv_clamped(surface, &pt),
+                    }
+                }
+                None => project_to_uv_clamped(surface, &pt),
+            },
+        };
+        if let Some((pu, pv)) = prev {
+            if let Some(per) = period_u {
+                while u - pu > per * 0.5 {
+                    u -= per;
+                }
+                while u - pu < -per * 0.5 {
+                    u += per;
+                }
+            }
+            if let Some(per) = period_v {
+                while v - pv > per * 0.5 {
+                    v -= per;
+                }
+                while v - pv < -per * 0.5 {
+                    v += per;
+                }
+            }
+        }
+        prev = Some((u, v));
+        uv_points.push(Point3::new(u, v, 0.0));
+    }
 
     if uv_points.len() < 2 {
         return None;
@@ -327,14 +407,57 @@ fn compute_pcurve_on_surface(
     let (t_start, t_end) = curve_3d.parameter_range();
     let n = PCURVE_SAMPLE_COUNT;
 
-    let uv_points: Vec<Point3> = (0..n)
-        .map(|i| {
-            let t = t_start + (t_end - t_start) * (i as f64 / (n - 1) as f64);
-            let pt = curve_3d.point_at(t);
-            let (u, v) = project_to_uv_clamped(surface, &pt);
-            Point3::new(u, v, 0.0)
-        })
-        .collect();
+    // CONTINUATION projection with period unwrapping (PK-211): each
+    // sample independently globally projected mixes period branches
+    // on a periodic chart (Newton lands wherever its internal seed
+    // falls), and the chord-length cubic fit through branch-mixed
+    // samples is garbage — measured: a strip-end ruling's pcurve
+    // image 1.84 model units off its own line on offset_bracket,
+    // which every later repair kept because the re-walk reproduced
+    // the same mixing. Seed each sample from the previous result and
+    // unwrap toward it — the same discipline as
+    // pcurve_projection_walk and the boundary-first mesher.
+    let (period_u, period_v) = surface.periodicity();
+    let mut prev: Option<(f64, f64)> = None;
+    let mut uv_points: Vec<Point3> = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = t_start + (t_end - t_start) * (i as f64 / (n - 1) as f64);
+        let pt = curve_3d.point_at(t);
+        let (mut u, mut v) = match analytic_cylinder_uv(surface, &pt) {
+            Some(uv) => uv,
+            None => match prev {
+                Some((pu, pv)) => {
+                    match popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                        surface, &pt, pu, pv,
+                    ) {
+                        Some(uv) => uv,
+                        None => project_to_uv_clamped(surface, &pt),
+                    }
+                }
+                None => project_to_uv_clamped(surface, &pt),
+            },
+        };
+        if let Some((pu, pv)) = prev {
+            if let Some(per) = period_u {
+                while u - pu > per * 0.5 {
+                    u -= per;
+                }
+                while u - pu < -per * 0.5 {
+                    u += per;
+                }
+            }
+            if let Some(per) = period_v {
+                while v - pv > per * 0.5 {
+                    v -= per;
+                }
+                while v - pv < -per * 0.5 {
+                    v += per;
+                }
+            }
+        }
+        prev = Some((u, v));
+        uv_points.push(Point3::new(u, v, 0.0));
+    }
 
     if uv_points.len() < 2 {
         return None;

@@ -91,11 +91,50 @@ fn anchored_walk(
         (u_s + (u_e - u_s) * frac, v_s + (v_e - v_s) * frac)
     };
 
+    // Analytic inversion for cylinder charts: the generic Newton
+    // projection wanders across period branches and, on rulings,
+    // converges to a wrong nearby location (measured: a strip-end
+    // ruling's 23-sample cubic image 1.84 off its own line on
+    // offset_bracket while the line lies ON the cylinder to machine
+    // zero — the walk authored it and the survival rule then kept it
+    // forever, since every re-walk reproduced the same wandering).
+    // The same cure the boundary-first mesher uses; the BRANCH comes
+    // from the endpoint seeds (which carry the face's chart window),
+    // never from the principal value — a principal-branch candidate
+    // was measured to break rotated charts and is annotated as
+    // falsified in pcurve_recompute_analytic's history.
+    let cylinder_invert = |p: &Point3| -> Option<(f64, f64)> {
+        let SurfaceGeometry::Cylinder { origin, axis, .. } = surface else {
+            return None;
+        };
+        let (perp1, perp2) = crate::geometry::analytic_surfaces::orthonormal_basis(*axis);
+        let d = *p - *origin;
+        Some((d.dot(&perp2).atan2(d.dot(&perp1)), d.dot(axis)))
+    };
+    let is_cylinder = matches!(surface, SurfaceGeometry::Cylinder { .. });
+
     let mut uv_by_index: Vec<Option<(f64, f64)>> = vec![None; n_samples];
-    let anchor = project_point_to_uv(surface, &points_3d[anchor_index]).or_else(|| {
-        let (su, sv) = seed_at(anchor_index);
-        project_point_to_uv_near(surface, &points_3d[anchor_index], su, sv)
-    });
+    let anchor = if is_cylinder {
+        cylinder_invert(&points_3d[anchor_index]).map(|(mut u, v)| {
+            // Unwrap the anchor into the branch the endpoint seeds
+            // carry (the face's chart window).
+            let (su, _sv) = seed_at(anchor_index);
+            if let (Some(pu), _) = surface.periodicity() {
+                while u - su > pu * 0.5 {
+                    u -= pu;
+                }
+                while u - su < -pu * 0.5 {
+                    u += pu;
+                }
+            }
+            (u, v)
+        })
+    } else {
+        project_point_to_uv(surface, &points_3d[anchor_index]).or_else(|| {
+            let (su, sv) = seed_at(anchor_index);
+            project_point_to_uv_near(surface, &points_3d[anchor_index], su, sv)
+        })
+    };
     let Some(anchor_uv) = anchor else {
         return uv_by_index;
     };
@@ -111,9 +150,13 @@ fn anchored_walk(
             // inverse maps; the reseed fallbacks keep sample loss from
             // collapsing the pcurve to a straight 2-point line
             // (PK-095: 5e-2 UV error on fillet strip trims).
-            let projected = project_point_to_uv_near(surface, p, prev_uv.0, prev_uv.1)
-                .or_else(|| project_point_to_uv(surface, p))
-                .or_else(|| project_point_to_uv_near(surface, p, su, sv));
+            let projected = if is_cylinder {
+                cylinder_invert(p)
+            } else {
+                project_point_to_uv_near(surface, p, prev_uv.0, prev_uv.1)
+                    .or_else(|| project_point_to_uv(surface, p))
+                    .or_else(|| project_point_to_uv_near(surface, p, su, sv))
+            };
             let Some((mut u, mut v)) = projected else {
                 continue;
             };

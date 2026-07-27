@@ -23,7 +23,33 @@ pub(crate) fn compute_pcurve_for_trim(
     pt_b: &Point3,
 ) -> NurbsCurve {
     let (u_a, v_a) = project_to_uv(surface, pt_a);
-    let (u_b, v_b) = project_to_uv(surface, pt_b);
+    let (mut u_b, mut v_b) = project_to_uv(surface, pt_b);
+    // The two endpoints are projected INDEPENDENTLY: on a periodic
+    // chart they can land whole periods apart and the straight UV
+    // chord then sweeps across the cylinder (PK-211: 16 such chords
+    // per offset_bracket build, pcurve images up to 1.84 off their
+    // own edge; the survivors resisted every later repair). Unwrap
+    // the far endpoint into the near one's branch.
+    let (period_u, period_v) = {
+        use popkern_core::geometry::surface::SurfaceEval;
+        surface.parameter_periodicity()
+    };
+    if let Some(p) = period_u {
+        while u_b - u_a > p * 0.5 {
+            u_b -= p;
+        }
+        while u_b - u_a < -p * 0.5 {
+            u_b += p;
+        }
+    }
+    if let Some(p) = period_v {
+        while v_b - v_a > p * 0.5 {
+            v_b -= p;
+        }
+        while v_b - v_a < -p * 0.5 {
+            v_b += p;
+        }
+    }
     NurbsCurve {
         degree: 1,
         knots: vec![0.0, 0.0, 1.0, 1.0],
@@ -118,12 +144,52 @@ pub fn pcurve_for_face_along(
     }
     let n = trim_3d.control_points.len().max(3);
     let mut uv_points = Vec::with_capacity(n);
+    // Continuation projection with period unwrapping — independent
+    // global projections branch-mix on periodic charts (see
+    // compute_pcurve_for_trim above).
+    let (period_u, period_v) = {
+        use popkern_core::geometry::surface::SurfaceEval;
+        surface.geometry.parameter_periodicity()
+    };
+    let mut prev: Option<(f64, f64)> = None;
     for k in 0..n {
         let t = t0 + (t1 - t0) * k as f64 / (n - 1) as f64;
         let p = trim_3d.point_at(t);
-        let (u, v) =
-            popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
-                .ok_or_else(|| format!("trim sample does not project onto face {face:?}"))?;
+        let (mut u, mut v) = match prev {
+            Some((pu, pv)) => popkern_core::geometry::uv_projection::project_point_to_uv_near(
+                &surface.geometry,
+                &p,
+                pu,
+                pv,
+            )
+            .or_else(|| {
+                popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
+            })
+            .ok_or_else(|| format!("trim sample does not project onto face {face:?}"))?,
+            None => {
+                popkern_core::geometry::uv_projection::project_point_to_uv(&surface.geometry, &p)
+                    .ok_or_else(|| format!("trim sample does not project onto face {face:?}"))?
+            }
+        };
+        if let Some((pu, pv)) = prev {
+            if let Some(per) = period_u {
+                while u - pu > per * 0.5 {
+                    u -= per;
+                }
+                while u - pu < -per * 0.5 {
+                    u += per;
+                }
+            }
+            if let Some(per) = period_v {
+                while v - pv > per * 0.5 {
+                    v -= per;
+                }
+                while v - pv < -per * 0.5 {
+                    v += per;
+                }
+            }
+        }
+        prev = Some((u, v));
         uv_points.push(Point3::new(u, v, 0.0));
     }
     let degree = 1;
