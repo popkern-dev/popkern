@@ -31,6 +31,7 @@ mod analytic_trig_cyl_cyl_perp;
 mod analytic_trig_cyl_sphere;
 mod analytic_trig_cyl_torus_axial;
 mod analytic_trig_helpers;
+pub(crate) use analytic_trig_helpers::decompose_2x2;
 mod analytic_trig_plane_cone_hyperbola;
 mod analytic_trig_plane_cone_oblique;
 mod analytic_trig_plane_cone_parabola;

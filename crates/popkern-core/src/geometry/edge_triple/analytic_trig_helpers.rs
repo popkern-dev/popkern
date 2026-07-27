@@ -30,7 +30,7 @@
 /// Robust to rank-1 / zero matrices through guarded normalisation;
 /// near-degenerate cases default to `phase = rotation = 0` and
 /// `u_r = v_r = trace/2`-style equal singular values.
-pub(super) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64, f64) {
+pub(crate) fn decompose_2x2(a: f64, b: f64, c: f64, d: f64) -> (f64, f64, f64, f64) {
     // M^T M is symmetric 2×2; its eigenvalues are the squared
     // singular values of M.
     let m11 = a * a + c * c;

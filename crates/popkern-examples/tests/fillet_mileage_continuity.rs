@@ -124,11 +124,12 @@ fn run_corpus_continuity() -> Vec<PartContinuity> {
 /// - `ribbed_plate` delivers a genuinely G1 straight-seam fillet
 ///   (g1 = 4.7e-9).
 /// - The circular-seam parts (`bossed_housing`, `turned_bushing`,
-///   `double_boss_plate`) have perfect tangency (g1 ~ 2e-10) but
-///   their ring-rail pcurves sit 2.5e-4..9.2e-4 off the shared edge
-///   curve — above the 1e-5 commercial trim gate, so achieved reads
-///   G0 and each records one requested-G1 downgrade. That is a real
-///   pcurve-fidelity gap on periodic seams, now visible corpus-wide.
+///   `double_boss_plate`) read genuinely G1 (g0 ~ 2e-11..6e-11,
+///   g1 ~ 2e-10) since PK-210: their boss-ring rail pcurves were
+///   23-sample cubic interpolations leaving 2.5e-4..9.2e-4 of
+///   sagitta (above the 1e-5 trim gate → achieved G0, silent
+///   downgrades); an Arc in a Plane face now gets its exact
+///   angle-parameterized elliptical pcurve.
 /// - `offset_bracket` carries a displaced pcurve (g0 = 1.76) and a
 ///   0.43 rail tangency error; `mixed_corner_block` a 1.5e-2 trim
 ///   deviation. Both are pre-existing part-quality gaps this
@@ -148,25 +149,25 @@ const BASELINE: &[PartBaseline] = &[
         name: "ribbed_plate",
         achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 16,
-        g0_cap: 1.0e-6,
+        g0_cap: 1.0e-10,
         g1_cap: 1.0e-8,
         expected_downgrades: 0,
     },
     PartBaseline {
         name: "bossed_housing",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 2,
-        g0_cap: 6.0e-4,
+        g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
-        expected_downgrades: 1,
+        expected_downgrades: 0,
     },
     PartBaseline {
         name: "turned_bushing",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 6,
-        g0_cap: 2.0e-3,
+        g0_cap: 2.0e-10,
         g1_cap: 1.0e-9,
-        expected_downgrades: 1,
+        expected_downgrades: 0,
     },
     PartBaseline {
         name: "offset_bracket",
@@ -202,11 +203,11 @@ const BASELINE: &[PartBaseline] = &[
     },
     PartBaseline {
         name: "double_boss_plate",
-        achieved_floor: ContinuityLevel::G0,
+        achieved_floor: ContinuityLevel::G1,
         min_gated_seams: 4,
-        g0_cap: 5.0e-4,
+        g0_cap: 1.0e-10,
         g1_cap: 1.0e-9,
-        expected_downgrades: 1,
+        expected_downgrades: 0,
     },
 ];
 

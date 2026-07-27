@@ -59,6 +59,7 @@ mod pcurve_period_branch;
 /// Pcurve recomputation for BRep faces.
 mod pcurve_projection_walk;
 mod pcurve_recompute;
+mod pcurve_recompute_analytic;
 mod pcurve_recompute_helpers;
 
 /// Identity queries and recovery operations for precision tracking.
