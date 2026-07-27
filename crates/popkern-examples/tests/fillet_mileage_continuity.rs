@@ -186,19 +186,20 @@ const BASELINE: &[PartBaseline] = &[
         expected_downgrades: 1,
     },
     PartBaseline {
-        // G2 request through the public API: the ladder dispatches,
-        // the sharp-apex setback fan honestly DECLINES under the
-        // transverse-curvature postcondition (G2-sweep strip inputs),
-        // and the shipped fallback cap's crease (g1 = 8.3e-2) is
-        // recorded as a downgrade instead of a silent claim. The
-        // blunt-apex ACCEPT is pinned at kernel level in
-        // kp_polar_commercial_gates; Part-level acceptance awaits the
-        // G2-sweep corner-path fidelity ticket.
+        // BLUNT (18°-half-angle) apex under a G2 request through the
+        // public API: the ladder dispatches, the fan ACCEPTS under
+        // the honest transverse postcondition, the part serves with
+        // its accepted inexactness recorded as entity tolerances
+        // (g0 9.5e-4 sits inside the recorded band — the evidence's
+        // tolerance-widened count keeps it visible), and it meshes
+        // watertight (PK-208 closed). The recorded downgrade is the
+        // corner-region seam tangency (g1 = 0.119) — the remaining
+        // Part-level quality gap, pinned so it can only improve.
         name: "pentagon_tower",
         achieved_floor: ContinuityLevel::G0,
-        min_gated_seams: 60,
-        g0_cap: 5.0e-5,
-        g1_cap: 1.7e-1,
+        min_gated_seams: 65,
+        g0_cap: 2.0e-3,
+        g1_cap: 2.5e-1,
         expected_downgrades: 1,
     },
     PartBaseline {

@@ -1230,10 +1230,8 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
         targets.keys().copied().filter(|&v| movable(v)).collect();
     let mut moves: std::collections::HashMap<VertexHandle, (Point3, Point3)> =
         std::collections::HashMap::new();
+    let mut moved_windowed_neighbour = false;
     for (v, list) in targets {
-        if !movable_set.contains(&v) {
-            continue;
-        }
         let old = brep.vertices[v].position;
         let mut acc = [0.0_f64; 3];
         for p in &list {
@@ -1246,6 +1244,29 @@ fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String
         if old.distance_to(&new) > 1.0e-12 {
             brep.vertices[v].position = new;
             moves.insert(v, (old, new));
+            if !movable_set.contains(&v) {
+                moved_windowed_neighbour = true;
+            }
+        }
+    }
+    // Vertices whose incident curves are WINDOWED splits used to stay
+    // put, and the rim segments were ramped onto them — deforming the
+    // exact row segment by the row-movement (~1.5e-3) right at the
+    // fan corners. That deformation was the last author of the
+    // G2-request fan's off-surface readings (PK-208: the tessellator
+    // read a TRUE 1.48e-3 curve-vs-cap deviation on the rimsplit
+    // stubs and fell back to the cracking legacy path). Move those
+    // vertices onto the rows too and let the dedicated endpoint-
+    // coherence repair make every incident curve follow — windowed
+    // curves included, which is exactly the case it exists for. The
+    // surgery's commit postcondition + validate + rollback bound the
+    // blast radius.
+    if moved_windowed_neighbour {
+        let repaired = brep.repair_edge_curve_endpoint_coherence(1.0e-8);
+        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+            eprintln!(
+                "  [rim-refit] windowed-neighbour vertices moved; {repaired} incident curves re-cohered"
+            );
         }
     }
 

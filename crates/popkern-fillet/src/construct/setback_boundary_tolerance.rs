@@ -52,6 +52,36 @@ pub(super) fn record_boundary_tolerances(brep: &mut BRep, cap_faces: &[FaceHandl
             }
         }
     }
+    // One vertex-ring out: the rim refit's endpoint-coherence repair
+    // pulls the incident arc/corner-path curves' ends onto the moved
+    // fan-corner vertices, leaving an accepted ~1e-3 deviation on
+    // edges OUTSIDE the cap loops (measured: the blunt tower's
+    // serving gate declined at 1.0040e-3 on such an edge while the
+    // fan itself was watertight). Record on those too.
+    let ring_vertices: std::collections::BTreeSet<popkern_core::topology::VertexHandle> = edges
+        .iter()
+        .filter_map(|&eh| {
+            let edge = brep.edges.get(eh)?;
+            let he = brep.half_edges.get(edge.half_edge)?;
+            let twin = brep.half_edges.get(he.twin)?;
+            Some([he.origin, twin.origin])
+        })
+        .flatten()
+        .collect();
+    for (eh, edge) in brep.edges.iter() {
+        if edges.contains(&eh) {
+            continue;
+        }
+        let Some(he) = brep.half_edges.get(edge.half_edge) else {
+            continue;
+        };
+        let Some(twin) = brep.half_edges.get(he.twin) else {
+            continue;
+        };
+        if ring_vertices.contains(&he.origin) || ring_vertices.contains(&twin.origin) {
+            edges.push(eh);
+        }
+    }
     for eh in edges {
         let Some(edge) = brep.edges.get(eh) else {
             continue;

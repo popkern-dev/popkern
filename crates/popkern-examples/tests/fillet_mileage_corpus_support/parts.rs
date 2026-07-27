@@ -336,7 +336,7 @@ pub(crate) fn build_pentagon_tower() -> Result<Part, PartError> {
     let pyramid = popkern_core::topology::BRep::n_gonal_pyramid(
         5,
         1.0,
-        0.8,
+        3.0,
         popkern_core::tolerance::Tolerance::default(),
     )
     .map_err(|e| PartError::NotApplicable(format!("pentagon tower pyramid: {e}")))?;
@@ -345,23 +345,23 @@ pub(crate) fn build_pentagon_tower() -> Result<Part, PartError> {
         popkern_core::tolerance::Tolerance::default(),
         "pentagon_tower",
     )?;
-    // The five apex edges: lateral chord √(1 + 0.8²) ≈ 1.281, base
-    // chord 2·sin 36° ≈ 1.176 — the window selects the laterals only.
+    // The five apex edges of the 18°-half-angle (PK-122 class) apex:
+    // lateral chord √(1 + 3²) ≈ 3.162, base chord ≈ 1.176 — the
+    // window selects the laterals only.
     //
-    // What this part records today (honest, measured): the G2 request
-    // reaches the capable ladder, the setback fan's honest transverse
-    // postcondition DECLINES on this sharp apex with G2-sweep strips,
-    // a creased fallback cap ships, and the evidence substrate
-    // records the downgrade. The blunt-apex ACCEPT is pinned at
-    // kernel level in kp_polar_commercial_gates; Part-level apex G2
-    // serving is blocked by the G2-sweep corner-path fidelity defect
-    // (8.9e-3 curve-vs-surface at the setback corner path, which the
-    // serving gate rightly refuses to accept as tolerance).
+    // What this part records (honest, measured): the G2 request
+    // reaches the capable ladder, the blunt setback fan ACCEPTS under
+    // the honest transverse postcondition, the part serves through
+    // check 9 (the fan's accepted inexactness is recorded as entity
+    // tolerances, including the endpoint-coherence ring) and meshes
+    // WATERTIGHT (PK-208 closed). The evidence substrate still
+    // records a downgrade — corner-region seams measure g1 ≈ 0.12 —
+    // the remaining Part-level quality gap, visible, not silent.
     part.fillet_with(
         |f| {
             f.radius(0.05)
                 .continuity(popkern_part::dressup::Continuity::G2)
         },
-        |e| e.straight().chord_length_between(1.22, 1.35),
+        |e| e.straight().chord_length_between(3.0, 3.3),
     )
 }

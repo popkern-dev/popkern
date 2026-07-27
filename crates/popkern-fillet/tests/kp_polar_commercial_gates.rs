@@ -152,16 +152,11 @@ fn pentagon5_blunt_ships_valid_commercial_cap() {
 /// (setback_rim_reconcile). A regression to the decline path OR to a
 /// dishonest claim fails this test.
 ///
-/// Watertightness: `require_watertight` pins the hexagon fully. The
-/// PENTAGON blunt fan has a pre-existing tessellation crack class
-/// independent of the continuity request (measured 236 welded open
-/// edges on the G1 control at the pre-PK-187 baseline: the assembly-
-/// enforcement-vs-strip rim mismatch of ~2e-3 trips the boundary-
-/// first mesher's 1e-3 off-surface gate and the legacy fallback
-/// cracks) — tracked in its own ticket; here the criterion
-/// "curvature continuity is not bought with a G0 regression" is
-/// pinned as G2-request opens ≤ G1-request opens.
-fn blunt_g2_request_accepts(n: usize, fixture: &str, require_watertight: bool) {
+/// Watertightness is pinned STRICT for both requests on both
+/// fixtures — the PK-208 crack family (measured 236 welded open
+/// edges on the pre-fix pentagon G1 control) is closed; see the
+/// assertion comment for the three fixed authors.
+fn blunt_g2_request_accepts(n: usize, fixture: &str) {
     let radii = vec![0.05; n];
     let result = fillet_n_gonal_pyramid_result_with_continuity(
         n,
@@ -197,46 +192,33 @@ fn blunt_g2_request_accepts(n: usize, fixture: &str, require_watertight: bool) {
     );
     assert!(m.seam_count > 0, "[{fixture}] fan seams must measure");
     helpers::assert_commercial_gates_live(fixture, &m);
+    // Watertightness, STRICT on every blunt fixture (PK-208 closed):
+    // the crack family's three authors are all fixed — displaced
+    // pcurve seeds (cold-projection retry in the boundary-first ring
+    // builder), staggered legacy sampling (topology-scoped T-junction
+    // zippering), and the rimsplit stub deformation (refit_cap_rim
+    // now moves windowed-neighbour rim vertices onto the rows and
+    // re-coheres their incident curves instead of ramping the exact
+    // row segment onto stale vertex positions — the ramp left stub
+    // curves 1.48e-3 off the cap and the tessellator rightly refused
+    // them). The G1 control is pinned watertight too.
     let opens_g2 = welded_opens(&result.brep, fixture);
-    if require_watertight {
-        assert_eq!(
-            opens_g2, 0,
-            "[{fixture}] accepted G2 fan must stay watertight; {opens_g2} open mesh edges"
-        );
-    } else {
-        let g1_control = fillet_n_gonal_pyramid_result_with_continuity(
-            n,
-            1.0,
-            3.0,
-            &radii,
-            popkern_fillet::ContinuityLevel::G1,
-        );
-        let opens_g1 = welded_opens(&g1_control.brep, fixture);
-        println!("[{fixture}] welded opens: G2 request {opens_g2}, G1 control {opens_g1}");
-        // The G1 fan family is WATERTIGHT since the cold-projection
-        // retry in the boundary-first ring builder (a displaced rim
-        // pcurve seeded the local projection into a false 1.4e-3
-        // off-surface reading where the true nearest point is 5e-5;
-        // the whole family fell back to the legacy path and cracked:
-        // pentagon 239 / hexagon 272 / octagon 296 welded opens, all
-        // now 0) plus topology-scoped T-junction zippering. Strictly
-        // pinned — this must never silently reopen.
-        assert_eq!(
-            opens_g1, 0,
-            "[{fixture}] the G1-control fan must stay watertight; {opens_g1} open mesh edges"
-        );
-        // The G2 fan's rim rows GENUINELY sit ~2.3e-3 off the sweeps
-        // (a kinked deviation field a degree-9 row cannot represent
-        // below 9e-4 — measured unconstrained-fit floor), so its
-        // faces exceed the tessellator's off-surface gate and the
-        // legacy fallback mix still cracks. Pinned at the measured
-        // level; PK-208 records the next mechanism (coupled
-        // adjacent-piece rim solves / border derivation).
-        assert!(
-            opens_g2 <= 110,
-            "[{fixture}] G2-request welded opens regressed: {opens_g2} > 110 (pinned 106)"
-        );
-    }
+    assert_eq!(
+        opens_g2, 0,
+        "[{fixture}] accepted G2 fan must stay watertight; {opens_g2} open mesh edges"
+    );
+    let g1_control = fillet_n_gonal_pyramid_result_with_continuity(
+        n,
+        1.0,
+        3.0,
+        &radii,
+        popkern_fillet::ContinuityLevel::G1,
+    );
+    let opens_g1 = welded_opens(&g1_control.brep, fixture);
+    assert_eq!(
+        opens_g1, 0,
+        "[{fixture}] the G1-control fan must stay watertight; {opens_g1} open mesh edges"
+    );
 }
 
 fn welded_opens(brep: &popkern_core::topology::BRep, fixture: &str) -> usize {
@@ -247,7 +229,7 @@ fn welded_opens(brep: &popkern_core::topology::BRep, fixture: &str) -> usize {
 
 #[test]
 fn pentagon5_blunt_g2_request_is_honest() {
-    blunt_g2_request_accepts(5, "pentagon5_blunt", false);
+    blunt_g2_request_accepts(5, "pentagon5_blunt");
 }
 
 /// Second blunt apex family (PK-187 acceptance 263: the improvement
@@ -255,7 +237,7 @@ fn pentagon5_blunt_g2_request_is_honest() {
 /// fully watertight.
 #[test]
 fn hexagon6_blunt_g2_request_is_honest() {
-    blunt_g2_request_accepts(6, "hexagon6_blunt", true);
+    blunt_g2_request_accepts(6, "hexagon6_blunt");
 }
 
 #[test]
