@@ -1,0 +1,304 @@
+//! PK-188 — corpus-wide continuity evidence with a recorded baseline.
+//!
+//! `fillet_mileage_corpus` gates watertightness; this suite gates the
+//! MEASURED continuity of every fillet operation across the same corpus
+//! parts: per-seam G0/G1/G2 residuals (transverse-aware — see
+//! `popkern_fillet::blend_continuity_evidence`), achieved level
+//! classified against the commercial gates, and requested-vs-achieved
+//! so a silent downgrade is a test failure, not a stderr line.
+//!
+//! The evidence is structured output asserted here (no print-trace):
+//! the printed table is the ledger evidence line, the assertions are
+//! the gate.
+
+use popkern_fillet::ContinuityLevel;
+use popkern_part::prelude::*;
+
+#[path = "fillet_mileage_corpus_support/parts.rs"]
+mod parts;
+use parts::*;
+
+type CorpusBuild = fn() -> Result<Part, PartError>;
+
+fn corpus() -> Vec<(&'static str, CorpusBuild)> {
+    vec![
+        ("mounting_bracket", build_mounting_bracket),
+        ("ribbed_plate", build_ribbed_plate),
+        ("bossed_housing", build_bossed_housing),
+        ("turned_bushing", build_turned_bushing),
+        ("pocketed_tray", build_pocketed_tray),
+        ("slotted_block", build_slotted_block),
+        ("countersunk_plate", build_countersunk_plate),
+        ("oblique_countersunk_plate", build_oblique_countersunk_plate),
+        ("drafted_cup", build_drafted_cup),
+        ("cross_drilled_boss", build_cross_drilled_boss),
+        ("coaxial_bushing", build_coaxial_bushing),
+        ("tilted_hole_plate", build_tilted_hole_plate),
+        ("offset_bracket", build_offset_bracket),
+        ("rim_chamfered_disc", build_rim_chamfered_disc),
+        ("star_socket_plate", build_star_socket_plate),
+        ("mixed_corner_block", build_mixed_corner_block),
+        ("chamfered_peg", build_chamfered_peg),
+        ("skewed_dress_bar", build_skewed_dress_bar),
+        ("counterbored_plate", build_counterbored_plate),
+        ("angled_rib_plate", build_angled_rib_plate),
+        ("double_boss_plate", build_double_boss_plate),
+        ("notched_flange", build_notched_flange),
+        ("pentagon_tower", build_pentagon_tower),
+    ]
+}
+
+/// Aggregated continuity record for one corpus part.
+struct PartContinuity {
+    name: &'static str,
+    /// `Err` when the part itself declined to build (the pass-rate
+    /// baseline in the sibling suite owns that story).
+    outcome: Result<PartEvidence, String>,
+}
+
+#[derive(Debug, Default)]
+struct PartEvidence {
+    /// Fillet operations that produced continuity evidence.
+    fillet_reports: usize,
+    /// Weakest achieved level across those operations.
+    min_achieved: Option<ContinuityLevel>,
+    /// Reports where achieved < requested.
+    downgrades: usize,
+    /// Total gated (intended-smooth) seams.
+    gated_seams: usize,
+    /// Total intended-sharp seams (census-pinned — a rail that
+    /// degrades past the intent bound moves between these counts).
+    sharp_seams: usize,
+    /// Seams that could not be measured (must stay 0).
+    unmeasured_seams: usize,
+    worst_g0: f64,
+    worst_g1: f64,
+    worst_g2: f64,
+}
+
+fn run_corpus_continuity() -> Vec<PartContinuity> {
+    corpus()
+        .into_iter()
+        .map(|(name, build)| {
+            let outcome = match build() {
+                Err(e) => Err(format!("{e}")),
+                Ok(part) => {
+                    let mut ev = PartEvidence::default();
+                    for report in part.blend_reports() {
+                        let Some(continuity) = report.continuity.as_ref() else {
+                            continue; // chamfer: designed crease, no claim
+                        };
+                        ev.fillet_reports += 1;
+                        ev.min_achieved = Some(match ev.min_achieved {
+                            Some(m) if m <= continuity.achieved => m,
+                            _ => continuity.achieved,
+                        });
+                        if continuity.downgraded() {
+                            ev.downgrades += 1;
+                        }
+                        ev.gated_seams += continuity.seams.iter().filter(|s| s.gated).count();
+                        ev.sharp_seams += continuity.sharp_seams;
+                        ev.unmeasured_seams += continuity.unmeasured_seams;
+                        ev.worst_g0 = ev.worst_g0.max(continuity.worst_g0_gap);
+                        ev.worst_g1 = ev.worst_g1.max(continuity.worst_g1_normal);
+                        ev.worst_g2 = ev.worst_g2.max(continuity.worst_g2_residual);
+                    }
+                    Ok(ev)
+                }
+            };
+            PartContinuity { name, outcome }
+        })
+        .collect()
+}
+
+/// Per-part baseline: weakest allowed achieved level, minimum gated-
+/// seam census, residual caps, and the expected downgrade count.
+///
+/// Pinned from the measured 2026-07-27 baseline run; caps carry ~2x
+/// headroom over the measured worst so sampling noise cannot flake,
+/// while a level regression, a census drop, or an order-of-magnitude
+/// residual regression always trips.
+///
+/// The honest state this pins (the point of PK-188 — recorded, not
+/// hidden):
+/// - `ribbed_plate` delivers a genuinely G1 straight-seam fillet
+///   (g1 = 4.7e-9).
+/// - The circular-seam parts (`bossed_housing`, `turned_bushing`,
+///   `double_boss_plate`) have perfect tangency (g1 ~ 2e-10) but
+///   their ring-rail pcurves sit 2.5e-4..9.2e-4 off the shared edge
+///   curve — above the 1e-5 commercial trim gate, so achieved reads
+///   G0 and each records one requested-G1 downgrade. That is a real
+///   pcurve-fidelity gap on periodic seams, now visible corpus-wide.
+/// - `offset_bracket` carries a displaced pcurve (g0 = 1.76) and a
+///   0.43 rail tangency error; `mixed_corner_block` a 1.5e-2 trim
+///   deviation. Both are pre-existing part-quality gaps this
+///   baseline makes regression-proof while they await their own
+///   tickets.
+struct PartBaseline {
+    name: &'static str,
+    achieved_floor: ContinuityLevel,
+    min_gated_seams: usize,
+    g0_cap: f64,
+    g1_cap: f64,
+    expected_downgrades: usize,
+}
+
+const BASELINE: &[PartBaseline] = &[
+    PartBaseline {
+        name: "ribbed_plate",
+        achieved_floor: ContinuityLevel::G1,
+        min_gated_seams: 16,
+        g0_cap: 1.0e-6,
+        g1_cap: 1.0e-8,
+        expected_downgrades: 0,
+    },
+    PartBaseline {
+        name: "bossed_housing",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 2,
+        g0_cap: 6.0e-4,
+        g1_cap: 1.0e-9,
+        expected_downgrades: 1,
+    },
+    PartBaseline {
+        name: "turned_bushing",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 6,
+        g0_cap: 2.0e-3,
+        g1_cap: 1.0e-9,
+        expected_downgrades: 1,
+    },
+    PartBaseline {
+        name: "offset_bracket",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 8,
+        g0_cap: 2.5,
+        g1_cap: 6.0e-1,
+        expected_downgrades: 1,
+    },
+    PartBaseline {
+        name: "mixed_corner_block",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 9,
+        g0_cap: 3.0e-2,
+        g1_cap: 1.0e-2,
+        expected_downgrades: 1,
+    },
+    PartBaseline {
+        // G2 request through the public API: the ladder dispatches,
+        // the sharp-apex setback fan honestly DECLINES under the
+        // transverse-curvature postcondition (G2-sweep strip inputs),
+        // and the shipped fallback cap's crease (g1 = 8.3e-2) is
+        // recorded as a downgrade instead of a silent claim. The
+        // blunt-apex ACCEPT is pinned at kernel level in
+        // kp_polar_commercial_gates; Part-level acceptance awaits the
+        // G2-sweep corner-path fidelity ticket.
+        name: "pentagon_tower",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 60,
+        g0_cap: 5.0e-5,
+        g1_cap: 1.7e-1,
+        expected_downgrades: 1,
+    },
+    PartBaseline {
+        name: "double_boss_plate",
+        achieved_floor: ContinuityLevel::G0,
+        min_gated_seams: 4,
+        g0_cap: 5.0e-4,
+        g1_cap: 1.0e-9,
+        expected_downgrades: 1,
+    },
+];
+
+#[test]
+fn corpus_continuity_evidence_holds_baseline() {
+    let records = run_corpus_continuity();
+    for r in &records {
+        match &r.outcome {
+            Ok(ev) if ev.fillet_reports == 0 => {
+                eprintln!("[continuity] {}: no fillet evidence (chamfer-only)", r.name);
+            }
+            Ok(ev) => {
+                eprintln!(
+                    "[continuity] {}: ops={} achieved={:?} downgrades={} gated={} sharp={} \
+                     unmeasured={} g0={:.3e} g1={:.3e} g2={:.3e}",
+                    r.name,
+                    ev.fillet_reports,
+                    ev.min_achieved,
+                    ev.downgrades,
+                    ev.gated_seams,
+                    ev.sharp_seams,
+                    ev.unmeasured_seams,
+                    ev.worst_g0,
+                    ev.worst_g1,
+                    ev.worst_g2,
+                );
+            }
+            Err(e) => {
+                eprintln!(
+                    "[continuity] {}: DECLINED ({})",
+                    r.name,
+                    &e[..e.len().min(120)]
+                );
+            }
+        }
+    }
+
+    for b in BASELINE {
+        let name = b.name;
+        let record = records
+            .iter()
+            .find(|r| r.name == name)
+            .unwrap_or_else(|| panic!("baseline names unknown part {name}"));
+        let ev = match &record.outcome {
+            Ok(ev) => ev,
+            Err(e) => panic!("[{name}] baselined part declined to build: {e}"),
+        };
+        let achieved = ev
+            .min_achieved
+            .unwrap_or_else(|| panic!("[{name}] baselined part produced no fillet evidence"));
+        assert!(
+            achieved >= b.achieved_floor,
+            "[{name}] achieved continuity regressed: {achieved:?} < baseline {:?}",
+            b.achieved_floor
+        );
+        assert!(
+            ev.gated_seams >= b.min_gated_seams,
+            "[{name}] gated-seam census dropped: {} < baseline {} — either a rail \
+             degraded past the smooth-intent bound or seams vanished",
+            ev.gated_seams,
+            b.min_gated_seams
+        );
+        assert!(
+            ev.worst_g0 <= b.g0_cap,
+            "[{name}] worst G0 trim deviation regressed: {:.3e} > cap {:.1e}",
+            ev.worst_g0,
+            b.g0_cap
+        );
+        assert!(
+            ev.worst_g1 <= b.g1_cap,
+            "[{name}] worst G1 residual regressed: {:.3e} > cap {:.1e}",
+            ev.worst_g1,
+            b.g1_cap
+        );
+        assert_eq!(
+            ev.unmeasured_seams, 0,
+            "[{name}] a blend seam became unmeasurable"
+        );
+        assert_eq!(
+            ev.downgrades, b.expected_downgrades,
+            "[{name}] downgrade count moved (baseline {}): a fillet either silently \
+             downgraded below its request or silently un-downgraded (re-pin with evidence)",
+            b.expected_downgrades
+        );
+    }
+    let evidencing = records
+        .iter()
+        .filter(|r| matches!(&r.outcome, Ok(ev) if ev.fillet_reports > 0))
+        .count();
+    assert!(
+        evidencing >= BASELINE.len(),
+        "parts producing fillet evidence dropped below the baselined census: {evidencing} < {}",
+        BASELINE.len()
+    );
+}

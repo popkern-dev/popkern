@@ -325,3 +325,43 @@ pub(crate) fn build_notched_flange() -> Result<Part, PartError> {
     let notched = flange.subtract(&key)?;
     notched.chamfer(1.0, |e| e.circular().at_height(8.0).allow_empty())
 }
+
+pub(crate) fn build_pentagon_tower() -> Result<Part, PartError> {
+    // Five-sided pyramid with a G2 fillet request on the apex edges —
+    // the corpus demonstration of the PK-187 apex G2 acceptance
+    // through the public API: the G2 request dispatches the
+    // G2-capable ladder (request-implies-capability), the setback fan
+    // commits under the honest transverse-curvature postcondition,
+    // and the evidence substrate measures what was delivered.
+    let pyramid = popkern_core::topology::BRep::n_gonal_pyramid(
+        5,
+        1.0,
+        0.8,
+        popkern_core::tolerance::Tolerance::default(),
+    )
+    .map_err(|e| PartError::NotApplicable(format!("pentagon tower pyramid: {e}")))?;
+    let part = Part::from_brep(
+        pyramid,
+        popkern_core::tolerance::Tolerance::default(),
+        "pentagon_tower",
+    )?;
+    // The five apex edges: lateral chord √(1 + 0.8²) ≈ 1.281, base
+    // chord 2·sin 36° ≈ 1.176 — the window selects the laterals only.
+    //
+    // What this part records today (honest, measured): the G2 request
+    // reaches the capable ladder, the setback fan's honest transverse
+    // postcondition DECLINES on this sharp apex with G2-sweep strips,
+    // a creased fallback cap ships, and the evidence substrate
+    // records the downgrade. The blunt-apex ACCEPT is pinned at
+    // kernel level in kp_polar_commercial_gates; Part-level apex G2
+    // serving is blocked by the G2-sweep corner-path fidelity defect
+    // (8.9e-3 curve-vs-surface at the setback corner path, which the
+    // serving gate rightly refuses to accept as tolerance).
+    part.fillet_with(
+        |f| {
+            f.radius(0.05)
+                .continuity(popkern_part::dressup::Continuity::G2)
+        },
+        |e| e.straight().chord_length_between(1.22, 1.35),
+    )
+}

@@ -45,6 +45,7 @@ fn corpus() -> Vec<(&'static str, CorpusBuild)> {
         ("angled_rib_plate", build_angled_rib_plate),
         ("double_boss_plate", build_double_boss_plate),
         ("notched_flange", build_notched_flange),
+        ("pentagon_tower", build_pentagon_tower),
     ]
 }
 
@@ -126,9 +127,13 @@ fn corpus_pass_rate_holds_baseline() {
     //   slotted_block — flush through-slot, 60 opens (coincident);
     //   angled_rib_plate — strip interference decline on the skewed
     //     rib junction (legitimate transactional decline; recorded).
+    // 19/23 (2026-07-27, PK-187/PK-188 — pentagon_tower added: a
+    // sharp pentagonal apex under a G2 fillet request through the
+    // public API, watertight + OCC-clean; its measured continuity
+    // story lives in fillet_mileage_continuity).
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 18;
+    const BASELINE: usize = 19;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"

@@ -114,6 +114,11 @@ impl Part {
                 )
                 .collect(),
             corner_patches: result.corner_patches.len(),
+            // A chamfer's boundary is a designed crease: nothing
+            // smooth was requested, so there is no continuity claim
+            // to measure evidence for.
+            requested_continuity: crate::dressup::Continuity::G0,
+            continuity: None,
         };
         self.rebuild_after_blend(
             result.brep,

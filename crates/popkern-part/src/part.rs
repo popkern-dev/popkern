@@ -22,7 +22,10 @@ pub struct Part {
     brep: BRep,
     tolerance: Tolerance,
     features: FeatureLog,
-    last_blend: Option<crate::dressup::BlendReport>,
+    /// Blend reports accumulated across the part's history (like the
+    /// feature log): one entry per fillet/chamfer operation, oldest
+    /// first, surviving boolean and derive operations as records.
+    blend_history: Vec<crate::dressup::BlendReport>,
 }
 
 impl Part {
@@ -68,12 +71,12 @@ impl Part {
             brep,
             tolerance,
             features,
-            last_blend: None,
+            blend_history: Vec::new(),
         })
     }
 
     /// Wrap a blended body: validates, merges the feature log, and
-    /// stores the blend report.
+    /// appends the blend report to the part's blend history.
     pub(crate) fn rebuild_after_blend(
         &self,
         brep: BRep,
@@ -84,22 +87,35 @@ impl Part {
         let mut log = self.features.clone();
         log.extend_from(&part.features);
         part.features = log;
-        part.last_blend = Some(report);
+        part.blend_history = self.blend_history.clone();
+        part.blend_history.push(report);
         Ok(part)
     }
 
     /// The report from the most recent blend that produced this
-    /// part, if any (warnings, corner patch count).
+    /// part, if any (warnings, corner patch count, measured
+    /// continuity evidence).
     pub fn last_blend_report(&self) -> Option<&crate::dressup::BlendReport> {
-        self.last_blend.as_ref()
+        self.blend_history.last()
     }
 
-    /// Prepend `parent`'s feature history to this part's (used by
-    /// every derived-part constructor).
+    /// Every blend report in this part's history, oldest first —
+    /// the PK-188 continuity-evidence record. Reports survive later
+    /// operations as records; their handles are provenance for the
+    /// body they were measured on, not live references.
+    pub fn blend_reports(&self) -> &[crate::dressup::BlendReport] {
+        &self.blend_history
+    }
+
+    /// Prepend `parent`'s feature history (and blend history) to
+    /// this part's (used by every derived-part constructor).
     pub(crate) fn merge_history_from(&mut self, parent: &Part) {
         let mut log = parent.features().clone();
         log.extend_from(&self.features);
         self.features = log;
+        let mut blends = parent.blend_history.clone();
+        blends.append(&mut self.blend_history);
+        self.blend_history = blends;
     }
 
     /// The underlying kernel body.
@@ -190,6 +206,12 @@ impl Part {
         log.extend_from(&other.features);
         log.extend_from(&part.features);
         part.features = log;
+        part.blend_history = self
+            .blend_history
+            .iter()
+            .chain(other.blend_history.iter())
+            .cloned()
+            .collect();
         Ok(part)
     }
 
@@ -250,22 +272,22 @@ impl Part {
                 radius: FilletRadius::Constant(radius),
             })
             .collect();
-        let result = fillet_edges(
-            &self.brep,
-            &specs,
-            &FilletOptions::default(),
-            self.tolerance,
-            None,
-        )
-        .map_err(|source| PartError::Blend {
-            selection: selection.clone(),
-            source,
-        })?;
+        let options = FilletOptions::default();
+        let pre_faces: std::collections::BTreeSet<_> = self.brep.faces.keys().collect();
+        let result =
+            fillet_edges(&self.brep, &specs, &options, self.tolerance, None).map_err(|source| {
+                PartError::Blend {
+                    selection: selection.clone(),
+                    source,
+                }
+            })?;
         let seam_note = if skipped_seams > 0 {
             format!(" (skipped {skipped_seams} seam edges)")
         } else {
             String::new()
         };
+        let evidence =
+            crate::dressup::measure_blend_evidence(&result.brep, &pre_faces, options.continuity);
         let report = crate::dressup::BlendReport {
             edges_blended: edges.len(),
             warnings: result
@@ -274,6 +296,8 @@ impl Part {
                 .map(|(eh, w)| format!("{eh:?}: {w:?}"))
                 .collect(),
             corner_patches: result.corner_patches.len(),
+            requested_continuity: options.continuity,
+            continuity: Some(evidence),
         };
         self.rebuild_after_blend(
             result.brep,

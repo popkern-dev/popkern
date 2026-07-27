@@ -77,9 +77,9 @@ impl FilletRecipe {
     }
 }
 
-/// Outcome data from the most recent blend on a part: the kernel's
-/// per-edge warnings, corner patch reports, and repair diagnostics,
-/// preserved instead of dropped.
+/// Outcome data from one blend operation on a part: the kernel's
+/// per-edge warnings, corner patch reports, and the measured
+/// continuity evidence, preserved instead of dropped.
 #[derive(Debug, Clone)]
 pub struct BlendReport {
     /// Number of edges blended.
@@ -88,6 +88,46 @@ pub struct BlendReport {
     pub warnings: Vec<String>,
     /// Corner patch count (vertex blends inserted).
     pub corner_patches: usize,
+    /// The continuity level the operation was asked for. Chamfers
+    /// record `G0` — their boundary is a designed crease.
+    pub requested_continuity: Continuity,
+    /// Measured continuity evidence over the operation's live seams
+    /// (PK-188): per-seam G0/G1/G2 residuals and the achieved level
+    /// classified against explicit gates, so a silent downgrade is
+    /// visible next to `requested_continuity`. `None` for chamfers
+    /// (nothing smooth was requested) — never `None` for a fillet.
+    ///
+    /// The evidence is a *record of the measurement at blend time*:
+    /// its handles are provenance, not live references, and stay
+    /// meaningful in the report even after later operations rebuild
+    /// the body.
+    pub continuity: Option<popkern_fillet::BlendContinuityEvidence>,
+}
+
+/// Seam sampling density for blend-time continuity evidence. The
+/// apex gates use 100 on a single corner; 33 keeps whole-part
+/// measurement cheap while still straddling every patch span.
+pub(crate) const EVIDENCE_SAMPLES_PER_SEAM: usize = 33;
+
+/// Measure the continuity evidence for the faces `post` gained over
+/// `pre_faces` (the blend delta), at the commercial gates.
+pub(crate) fn measure_blend_evidence(
+    post: &popkern_core::topology::BRep,
+    pre_faces: &std::collections::BTreeSet<popkern_core::topology::FaceHandle>,
+    requested: Continuity,
+) -> popkern_fillet::BlendContinuityEvidence {
+    let new_faces: Vec<_> = post
+        .faces
+        .keys()
+        .filter(|f| !pre_faces.contains(f))
+        .collect();
+    popkern_fillet::measure_blend_continuity_evidence(
+        post,
+        &new_faces,
+        requested,
+        &popkern_fillet::ContinuityGates::commercial(),
+        EVIDENCE_SAMPLES_PER_SEAM,
+    )
 }
 
 impl Part {
@@ -132,11 +172,14 @@ impl Part {
                 radius: recipe.radius.clone(),
             })
             .collect();
+        let pre_faces: std::collections::BTreeSet<_> = self.brep().faces.keys().collect();
         let result = fillet_edges(self.brep(), &specs, &recipe.options, self.tolerance(), None)
             .map_err(|source| PartError::Blend {
                 selection: selection.clone(),
                 source,
             })?;
+        let requested = recipe.options.continuity;
+        let evidence = measure_blend_evidence(&result.brep, &pre_faces, requested);
         let report = BlendReport {
             edges_blended: edges.len(),
             warnings: result
@@ -145,6 +188,8 @@ impl Part {
                 .map(|(eh, w)| format!("{eh:?}: {w:?}"))
                 .collect(),
             corner_patches: result.corner_patches.len(),
+            requested_continuity: requested,
+            continuity: Some(evidence),
         };
         self.rebuild_after_blend(
             result.brep,
