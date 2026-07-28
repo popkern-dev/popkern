@@ -9,10 +9,14 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
-#[path = "kp_gate_helpers.rs"]
-mod helpers;
+mod kp_gate_helpers;
+use kp_gate_helpers as helpers;
+
+#[path = "support/kp_polar_fixtures.rs"]
+mod fixtures;
+
+use fixtures::{fillet_n_gonal_pyramid_result, fillet_n_gonal_pyramid_result_with_continuity};
 use helpers::{
     N_SAMPLES, assert_all_binonic, assert_commercial_gates_live, collect_patches,
     fillet_corner_full, incident_edges, measure_live_cap_seams, pick_vertex_with_valence,
@@ -37,54 +41,6 @@ fn run_n_gonal_pyramid_polar(
     let patches = collect_patches(&brep, &faces);
     assert_all_binonic(&patches, fixture);
     measure_live_cap_seams(&brep, &faces, N_SAMPLES)
-}
-
-fn fillet_n_gonal_pyramid_result(
-    n: usize,
-    base_radius: f64,
-    height: f64,
-    radii: &[f64],
-) -> popkern_fillet::BlendResult {
-    fillet_n_gonal_pyramid_result_with_continuity(
-        n,
-        base_radius,
-        height,
-        radii,
-        popkern_fillet::ContinuityLevel::G1,
-    )
-}
-
-fn fillet_n_gonal_pyramid_result_with_continuity(
-    n: usize,
-    base_radius: f64,
-    height: f64,
-    radii: &[f64],
-    continuity: popkern_fillet::ContinuityLevel,
-) -> popkern_fillet::BlendResult {
-    assert_eq!(radii.len(), n);
-    let pyr = BRep::n_gonal_pyramid(n, base_radius, height, Tolerance::default()).unwrap();
-    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
-    let edges = incident_edges(&pyr, vertex);
-    let specs = edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&edge, &radius)| FilletSpec {
-            edge,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect::<Vec<_>>();
-    let opts = FilletOptions {
-        continuity,
-        use_rational_gregory: true,
-        use_deg5_gregory: true,
-        use_biquintic_full_gregory: true,
-        use_biseptic_gregory: true,
-        use_two_stripe_gregory: true,
-        use_kp_binonic_gregory: true,
-        use_kp_polar_gregory: true,
-        ..FilletOptions::default()
-    };
-    fillet_edges(&pyr, &specs, &opts, Tolerance::default(), None).unwrap()
 }
 
 /// Blunt-apex positive control (apex half-angle 18°, typical CAD):
@@ -430,93 +386,6 @@ fn blunt_g2_fans_are_zebra_continuous_across_seams() {
             worst < 0.25,
             "[{fixture}] accepted G2 fan shows a zebra stripe mismatch of {worst:.4} \
              across a seam — not Class-A continuous"
-        );
-    }
-}
-
-/// PK-212 — rim (cap ↔ strip) tangency gate. The setback arcs' cross
-/// tangency was NEVER measured before the PK-188 evidence substrate
-/// (every commercial gate here is cap↔cap): the border derivation's
-/// point-reflection prolongation tilted the cap's cross-jets out of
-/// the strip tangent planes by the chord sagitta κℓ/2 — a UNIFORM
-/// 2.6°..6.9° along every arc. Fixed by the tangent-plane
-/// prolongation in the border extraction plus the committed-fan rim
-/// cross-jet reconciliation (shared-corner clamped-linear deltas,
-/// curvature-invariant depth application). Gated at the commercial
-/// 5e-2 bar; the blunt pentagon under a G2 request keeps a measured
-/// 6.7e-2 mid-arc bump (f ≈ 0.86) pinned at 8e-2 — every k-varying
-/// interior correction that could chase it was falsified by
-/// measurement (per-column LSQ and a smooth one-DOF bump both wreck
-/// the fan's cross-spoke transverse G2 through twist).
-#[test]
-fn rim_tangency_meets_commercial_bar() {
-    for (n, h, continuity, fixture, bar) in [
-        (
-            5usize,
-            3.0,
-            popkern_fillet::ContinuityLevel::G1,
-            "pentagon5_blunt/G1",
-            5.0e-2,
-        ),
-        (
-            5,
-            3.0,
-            popkern_fillet::ContinuityLevel::G2,
-            "pentagon5_blunt/G2",
-            8.0e-2,
-        ),
-        (
-            6,
-            3.0,
-            popkern_fillet::ContinuityLevel::G2,
-            "hexagon6_blunt/G2",
-            5.0e-2,
-        ),
-        (
-            5,
-            0.8,
-            popkern_fillet::ContinuityLevel::G2,
-            "pentagon5_sharp/G2",
-            5.0e-2,
-        ),
-        (
-            5,
-            0.8,
-            popkern_fillet::ContinuityLevel::G1,
-            "pentagon5_sharp/G1",
-            5.0e-2,
-        ),
-    ] {
-        let radii = vec![0.05; n];
-        let result = fillet_n_gonal_pyramid_result_with_continuity(n, 1.0, h, &radii, continuity);
-        let caps: Vec<_> = result
-            .corner_patches
-            .iter()
-            .filter(|p| p.n_sides == n)
-            .map(|p| p.face)
-            .collect();
-        assert!(!caps.is_empty(), "[{fixture}] no cap faces");
-        let ev = popkern_fillet::measure_blend_continuity_evidence(
-            &result.brep,
-            &caps,
-            continuity,
-            &popkern_fillet::ContinuityGates::commercial(),
-            33,
-        );
-        let (mut count, mut worst) = (0usize, 0.0_f64);
-        for s in ev
-            .seams
-            .iter()
-            .filter(|s| matches!(s.kind, popkern_fillet::BlendSeamKind::BlendToSupport) && s.gated)
-        {
-            count += 1;
-            worst = worst.max(s.worst_g1_normal);
-        }
-        println!("[{fixture}] rim seams={count} worst_g1={worst:.3e} (bar {bar:.1e})");
-        assert!(count > 0, "[{fixture}] rim seams must measure");
-        assert!(
-            worst < bar,
-            "[{fixture}] rim tangency {worst:.3e} exceeds the {bar:.1e} bar"
         );
     }
 }

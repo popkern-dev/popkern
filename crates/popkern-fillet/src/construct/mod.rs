@@ -110,6 +110,7 @@ mod multi_chord_region_separators;
 mod multi_chord_span_geometry;
 pub(crate) mod parallel_seam_weld;
 pub(crate) mod pcurve_attach;
+mod pcurve_attach_compute;
 mod pcurve_measured_repair;
 mod pcurve_refit;
 mod perpendicular_splits;
@@ -295,11 +296,16 @@ pub fn apply_blend_geometry(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
                     );
                     // PK-192: N=3 corners are claimed by the direct-apex
-                    // route (PK-099 promotion), so they never reach
-                    // `insert_vertex_blend` where the PnS cap
-                    // dispatches. Releasing them lets PnS bid first and
-                    // direct-apex still catch anything PnS declines,
-                    // since a failed vertex blend falls through.
+                    // route (PK-099), so they never reach the PnS
+                    // dispatch; releasing them lets PnS bid first.
+                    // CAUTION (measured 2026-07-28): when PnS then
+                    // declines, the blend does NOT return here — it
+                    // ships a creased legacy-Gregory cap (cap-cap g0
+                    // 2.7e-2..1.9e-1, cos_min ~0.002, vs Coons ~1e-15 /
+                    // 0.9999 with the switch off). Tolerable only
+                    // because this is a recorded A/B probe switch,
+                    // never a production default — PK-192 decided
+                    // AGAINST releasing N=3 (pns_low_valence_gates.rs).
                     let released_for_pns = crate::blend::pns_promote::pns_first_at_low_valence()
                         && edge_indices.len() == 3;
                     let use_direct_apex_for_this_apex = !released_for_pns

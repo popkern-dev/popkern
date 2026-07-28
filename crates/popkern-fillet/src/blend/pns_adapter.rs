@@ -34,8 +34,20 @@
 //! into ONE PnS sector, so the PnS cap has valence `N_fillets`
 //! (not `2·N_fillets`). This matches the `N`-sub-face output of
 //! `poke_n_gon_face_into_n_quads` on a `2N`-HE blend face.
-//! Supported valences: `N_fillets ∈ {3, 5, 6, 7, 8, 9, 10, 11, 12}`
-//! (same as PnS's: `N = 4` rejected due to σ singularity).
+//!
+//! Accepted valences: `N_fillets ∈ [3, 12]`, matching the cap
+//! assembly (`n = 4`'s σ pole is removable — see
+//! `popkern_core::geometry::gregory::pns_sigma`). Acceptance here is
+//! *representational*; which valences the production dispatch
+//! actually serves is decided by measurement. PK-192's recorded
+//! route comparison keeps `n ∈ {3, 4}` on the direct-apex/Coons
+//! route: pairing arc + bridge into one sector means each border
+//! row must fit a kinked curve pair with a single degree-4 row, a
+//! structural floor of ≈ 6e-3 against the 5e-3 acceptance bar
+//! (pyramid3 6.458e-3, cube corner 5.972e-3, support exact), while
+//! the incumbent interpolates the same rim at ~1e-15. See
+//! `pns_low_valence_gates.rs` for the decision record and the
+//! reversal condition.
 
 use popkern_core::geometry::curve::CurveEval;
 use popkern_core::geometry::gregory::{Bi2BorderStrip, Bi2TensorBorderRing};
@@ -54,8 +66,8 @@ pub enum PnsAdapterError {
     /// alternating segments.
     #[error("PnS adapter: boundary has {0} segments, expected ≥ 6 (valence ≥ 3)")]
     TooFewSegments(usize),
-    /// Too many segments — PnS valence capped at 6 (12 segments).
-    #[error("PnS adapter: boundary has {0} segments, expected ≤ 12 (valence ≤ 6)")]
+    /// Too many segments — PnS valence capped at 12 (24 segments).
+    #[error("PnS adapter: boundary has {0} segments, expected ≤ 24 (valence ≤ 12)")]
     TooManySegments(usize),
     /// Segment count is odd — `BlendBoundary` should have an even
     /// count (alternating FilletEnd/FaceEdge).

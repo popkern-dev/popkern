@@ -285,74 +285,13 @@ fn probe_support_face_fidelity_at_pipeline_end() {
     }
 }
 
-/// Rim versus spoke on the PnS cap ITSELF, mid-pipeline.
-///
-/// This is the measurement `probe_cap_rim_versus_spoke_deviation`
-/// below could not make: that probe runs on the final body, where the
-/// PnS cap was rolled back, so it reads the incumbent. The split here
-/// is computed INSIDE the dispatch (`cap_rim_spoke_split` diagnostic,
-/// emitted at the same moment the acceptance gate judges the cap) and
-/// surfaces through the structured diagnostics channel.
-///
-/// Reads process-wide `POPKERN_PNS_FIRST_N3`, so it must run in its
-/// own process and is ignored by default:
-///
-/// ```text
-/// POPKERN_PNS_FIRST_N3=1 cargo test -p popkern-fillet \
-///     --test pns_low_valence_probes probe_pns_mid_pipeline_rim_spoke_split \
-///     -- --ignored --nocapture
-/// ```
-#[test]
-#[ignore = "PK-192 rim/spoke probe: reads process-wide POPKERN_PNS_FIRST_N3; see doc comment for the run command"]
-fn probe_pns_mid_pipeline_rim_spoke_split() {
-    // Same read as `pns_promote::pns_first_at_low_valence` — the test
-    // only labels its output with it; routing reads the real one.
-    let released = std::env::var("POPKERN_PNS_FIRST_N3")
-        .map(|v| v != "0")
-        .unwrap_or(false);
-    // The uniform-radius apex collapses to the mitred/bridge
-    // construction and never reaches the dispatch (zero corner
-    // patches, zero pns diagnostics) — printed for the record, not
-    // asserted. The mixed-radius apex is the fixture every PK-192
-    // number was measured on, and there the split must be recorded.
-    for (n, radii, must_record) in [
-        (3_usize, vec![0.05, 0.05, 0.05], false),
-        (3, vec![0.04, 0.06, 0.05], true),
-    ] {
-        let o = run_pyramid_apex_outcome(n, &radii);
-        println!(
-            "[pk192-mid-split] n={n} radii={radii:?} released_for_pns={released} served_by_pns={}",
-            o.served_by_pns()
-        );
-        for d in &o.pns_diagnostics {
-            println!("[pk192-mid-split]     diag: {d}");
-        }
-        if released && must_record {
-            assert!(
-                o.pns_diagnostics
-                    .iter()
-                    .any(|d| d.contains("cap_rim_spoke_split")),
-                "n={n}: with N=3 released for PnS the dispatch must record the \
-                 rim/spoke split before its verdict; diagnostics were {:?}",
-                o.pns_diagnostics
-            );
-        } else if !released {
-            println!(
-                "[pk192-mid-split] POPKERN_PNS_FIRST_N3 not set — N=3 stays on the \
-                 direct-apex route and the PnS dispatch never runs. Set the env var \
-                 per the doc comment; this run measured nothing."
-            );
-        }
-    }
-}
-
 /// PK-197 criterion: zebra evidence across the internal cap seams of
 /// the n=3 and n=4 mixed apexes — the stripe-phase form of the zebra
 /// render, measured where a render would be eyeballed. A creased seam
 /// reads a large stripe-phase jump; a G1 seam reads near zero.
 ///
 /// Asserted (not just printed): with `harmonize_mismatched_spoke_nets`
-/// + `cross_spoke_g1` the caps must stay below a phase jump of 0.25
+/// plus `cross_spoke_g1` the caps must stay below a phase jump of 0.25
 /// stripes on every internal seam. Pre-fix, the n=3 crease (89.9 deg)
 /// saturated the measure.
 #[test]
@@ -417,7 +356,8 @@ fn zebra_refutes_the_low_valence_cap_crease() {
 /// ones. It was written to split PnS's 0.0796 into rim and spoke and
 /// cannot do that; separating those requires instrumenting inside the
 /// dispatch, before the rollback — which is what
-/// `probe_pns_mid_pipeline_rim_spoke_split` above now does.
+/// `probe_pns_mid_pipeline_rim_spoke_split` (in
+/// `pns_low_valence_pipeline_probes.rs`) now does.
 ///
 /// What it does establish is that the shipped cap's own pcurves are
 /// far under the 5.000e-3 bar on both rim and spoke at pipeline end —

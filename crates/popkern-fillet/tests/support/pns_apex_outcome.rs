@@ -63,7 +63,48 @@ pub fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
     let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
         .expect("n_gonal_pyramid fixture must build");
     let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
-    let edges = incident_edges(&pyr, vertex);
+    run_corner_outcome(pyr, vertex, radii)
+}
+
+/// Fillet one corner of the unit cube — PK-192's named `n = 3`
+/// fixture class (three planes meeting at a trihedral corner) — and
+/// measure through the identical instrument as the pyramid harness,
+/// so the two fixtures' numbers are directly comparable.
+pub fn run_cube_corner_outcome(radii: &[f64]) -> ApexOutcome {
+    assert_eq!(radii.len(), 3, "a cube corner has exactly 3 edges");
+    let cube = BRep::unit_cube(Tolerance::default()).expect("unit cube fixture must build");
+    let vertex = cube.vertices.keys().next().expect("unit cube has vertices");
+    run_corner_outcome(cube, vertex, radii)
+}
+
+/// Same pyramid harness with the KP-polar ladder disabled, so the
+/// PnS dispatch inside `insert_vertex_blend` actually arbitrates at
+/// `n >= 5` (with the ladder on, the setback/KP-polar route claims
+/// those corners upstream and PnS never bids). Probe-only control for
+/// valence-scaling comparisons.
+pub fn run_pyramid_apex_outcome_no_polar(n: usize, radii: &[f64]) -> ApexOutcome {
+    assert_eq!(radii.len(), n);
+    let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
+        .expect("n_gonal_pyramid fixture must build");
+    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
+    run_corner_outcome_with(pyr, vertex, radii, false)
+}
+
+fn run_corner_outcome(
+    brep: BRep,
+    vertex: popkern_core::topology::VertexHandle,
+    radii: &[f64],
+) -> ApexOutcome {
+    run_corner_outcome_with(brep, vertex, radii, true)
+}
+
+fn run_corner_outcome_with(
+    brep: BRep,
+    vertex: popkern_core::topology::VertexHandle,
+    radii: &[f64],
+    kp_polar: bool,
+) -> ApexOutcome {
+    let edges = incident_edges(&brep, vertex);
     let specs: Vec<FilletSpec> = edges
         .iter()
         .zip(radii.iter())
@@ -79,11 +120,11 @@ pub fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
         use_biseptic_gregory: true,
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: true,
-        use_kp_polar_gregory: true,
+        use_kp_polar_gregory: kp_polar,
         ..FilletOptions::default()
     };
-    let result = fillet_edges(&pyr, &specs, &opts, Tolerance::default(), None)
-        .expect("low-valence apex fillet must not error");
+    let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
+        .expect("low-valence corner fillet must not error");
     let mut methods: Vec<CornerMethod> = Vec::new();
     let mut achieved: Vec<ContinuityLevel> = Vec::new();
     for patch in &result.corner_patches {

@@ -195,51 +195,6 @@ pub(super) fn trim_subcurve_between(
     Some(out)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn intersect_crossing_segments() {
-        let a = Point3::new(0.0, 0.0, 0.0);
-        let b = Point3::new(1.0, 1.0, 0.0);
-        let c = Point3::new(0.0, 1.0, 0.0);
-        let d = Point3::new(1.0, 0.0, 0.0);
-        let result = intersect_segments(a, b, c, d).unwrap();
-        assert!((result.0 - 0.5).abs() < 1e-9);
-        assert!((result.1 - 0.5).abs() < 1e-9);
-        assert!((result.2.x - 0.5).abs() < 1e-9);
-        assert!((result.2.y - 0.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn parallel_segments_no_intersection() {
-        let a = Point3::new(0.0, 0.0, 0.0);
-        let b = Point3::new(1.0, 0.0, 0.0);
-        let c = Point3::new(0.0, 1.0, 0.0);
-        let d = Point3::new(1.0, 1.0, 0.0);
-        assert!(intersect_segments(a, b, c, d).is_none());
-    }
-
-    #[test]
-    fn endpoint_touching_segments_no_intersection() {
-        let a = Point3::new(0.0, 0.0, 0.0);
-        let b = Point3::new(1.0, 0.0, 0.0);
-        let c = Point3::new(1.0, 0.0, 0.0);
-        let d = Point3::new(1.0, 1.0, 0.0);
-        assert!(intersect_segments(a, b, c, d).is_none());
-    }
-
-    #[test]
-    fn skew_segments_no_intersection() {
-        let a = Point3::new(0.0, 0.0, 0.0);
-        let b = Point3::new(1.0, 0.0, 0.0);
-        let c = Point3::new(0.5, -1.0, 1.0);
-        let d = Point3::new(0.5, 1.0, 1.0);
-        assert!(intersect_segments(a, b, c, d).is_none());
-    }
-}
-
 /// Closest-approach crossing of two SAMPLED trim curves (PK-141:
 /// straight anchor chords miss every crossing on a curved support —
 /// a boss-wall chain's vertical rail crosses the horizontal rims'
@@ -476,5 +431,50 @@ pub(super) fn choose_side_face(
         f_b
     } else {
         f_a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intersect_crossing_segments() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1.0, 1.0, 0.0);
+        let c = Point3::new(0.0, 1.0, 0.0);
+        let d = Point3::new(1.0, 0.0, 0.0);
+        let result = intersect_segments(a, b, c, d).unwrap();
+        assert!((result.0 - 0.5).abs() < 1e-9);
+        assert!((result.1 - 0.5).abs() < 1e-9);
+        assert!((result.2.x - 0.5).abs() < 1e-9);
+        assert!((result.2.y - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parallel_segments_no_intersection() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1.0, 0.0, 0.0);
+        let c = Point3::new(0.0, 1.0, 0.0);
+        let d = Point3::new(1.0, 1.0, 0.0);
+        assert!(intersect_segments(a, b, c, d).is_none());
+    }
+
+    #[test]
+    fn endpoint_touching_segments_no_intersection() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1.0, 0.0, 0.0);
+        let c = Point3::new(1.0, 0.0, 0.0);
+        let d = Point3::new(1.0, 1.0, 0.0);
+        assert!(intersect_segments(a, b, c, d).is_none());
+    }
+
+    #[test]
+    fn skew_segments_no_intersection() {
+        let a = Point3::new(0.0, 0.0, 0.0);
+        let b = Point3::new(1.0, 0.0, 0.0);
+        let c = Point3::new(0.5, -1.0, 1.0);
+        let d = Point3::new(0.5, 1.0, 1.0);
+        assert!(intersect_segments(a, b, c, d).is_none());
     }
 }

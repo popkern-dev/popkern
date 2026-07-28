@@ -37,7 +37,7 @@ fn run_pyramid_apex(n: usize, radii: &[f64]) -> helpers::LiveSeamMetrics {
 /// `n = 3` — the cube/tetra corner. Previously below the dispatch
 /// floor despite the adapter supporting it all along.
 #[test]
-#[ignore = "PK-192 target gate: PnS does not yet serve n=3 corners — they are built by the exact-boundary Coons route, which is G0-only across its internal seams (PK-197). Flip when PnS dispatch reaches this valence."]
+#[ignore = "PK-192 DECIDED 2026-07-28: dispatch stays with direct-apex/Coons at n=3 (now G1, cos_min 0.999994 — PK-197/201). The PnS candidate declines at rim 6.458e-3 (pyramid) / 5.972e-3 (cube) vs the 5e-3 bar — a structural floor: one degree-4 border row per sector must fit a kinked arc+bridge pair — and a force-accepted finished cap measures cap-cap g0 6.5e-2 / cos_min 0.007. Flip only if a construction that represents the kinked rim (e.g. per-rim-piece 2N partitioning at degree 4) beats those incumbent numbers."]
 fn pns_serves_valence_3_apex_within_gates() {
     let m = run_pyramid_apex(3, &[0.05; 3]);
     assert!(
@@ -62,7 +62,7 @@ fn pns_serves_valence_3_apex_within_gates() {
 /// valence the kernel refused outright until the σ pole was shown
 /// removable.
 #[test]
-#[ignore = "PK-192 target gate: PnS does not yet serve n=4 corners — they are built by the exact-boundary Coons route, which is G0-only across its internal seams (PK-197). Flip when PnS dispatch reaches this valence."]
+#[ignore = "PK-192 DECIDED 2026-07-28 (n=4 recorded alongside; dispatch change was out of scope — sibling ticket): the incumbent direct-apex/Coons serves n=4 mixed at g0 4.1e-15 / cos_min 0.996283, and PnS never bids there (the POPKERN_PNS_FIRST_N3 release is n=3-only). The adapter feeds PnS the same kinked arc+bridge border-row input class at n=4, so the n=3 floor argument applies by construction, unmeasured. Flip only if a future construction beats those incumbent numbers."]
 fn pns_serves_valence_4_apex_within_gates() {
     let m = run_pyramid_apex(4, &[0.05; 4]);
     assert!(
@@ -87,7 +87,7 @@ fn pns_serves_valence_4_apex_within_gates() {
 /// distinguishes a genuine cap construction from one that only works
 /// on a symmetric fixture.
 #[test]
-#[ignore = "PK-192 target gate: PnS does not yet serve low-valence mixed-radius corners — they are built by the exact-boundary Coons route, which is G0-only across its internal seams (PK-197). Flip when PnS dispatch reaches this valence."]
+#[ignore = "PK-192 DECIDED 2026-07-28: dispatch stays with direct-apex/Coons at the low valences — it serves the mixed-radius fixtures at g0 ~1e-15 with cross-spoke G1 (PK-197/201), while the PnS candidate's border-row floor (~6e-3) fails its own 5e-3 acceptance bar. See pns_serves_valence_3_apex_within_gates for the full decision record and reversal condition."]
 fn pns_serves_low_valence_mixed_radii() {
     for (n, radii) in [
         (3_usize, vec![0.04, 0.06, 0.05]),
@@ -132,16 +132,38 @@ fn pns_low_valence_route_comparison() {
     } else {
         "incumbent"
     };
-    for (n, radii) in [
-        (3_usize, vec![0.05, 0.05, 0.05]),
-        (3, vec![0.04, 0.06, 0.05]),
-        (4, vec![0.05, 0.05, 0.05, 0.05]),
-        (4, vec![0.04, 0.06, 0.05, 0.055]),
-    ] {
-        let o = run_pyramid_apex_outcome(n, &radii);
+    let cases: Vec<(String, pns_apex_outcome::ApexOutcome)> = vec![
+        (
+            "pyramid n=3 [0.05, 0.05, 0.05]".to_string(),
+            run_pyramid_apex_outcome(3, &[0.05, 0.05, 0.05]),
+        ),
+        (
+            "pyramid n=3 [0.04, 0.06, 0.05]".to_string(),
+            run_pyramid_apex_outcome(3, &[0.04, 0.06, 0.05]),
+        ),
+        (
+            "pyramid n=4 [0.05, 0.05, 0.05, 0.05]".to_string(),
+            run_pyramid_apex_outcome(4, &[0.05, 0.05, 0.05, 0.05]),
+        ),
+        (
+            "pyramid n=4 [0.04, 0.06, 0.05, 0.055]".to_string(),
+            run_pyramid_apex_outcome(4, &[0.04, 0.06, 0.05, 0.055]),
+        ),
+        // PK-192's named fixture class: the cube corner (n = 3,
+        // three orthogonal planes), uniform and mixed radii.
+        (
+            "cube corner [0.05, 0.05, 0.05]".to_string(),
+            pns_apex_outcome::run_cube_corner_outcome(&[0.05, 0.05, 0.05]),
+        ),
+        (
+            "cube corner [0.04, 0.06, 0.05]".to_string(),
+            pns_apex_outcome::run_cube_corner_outcome(&[0.04, 0.06, 0.05]),
+        ),
+    ];
+    for (fixture, o) in cases {
         let m = &o.metrics;
         println!(
-            "[low-valence-ab] switch={route} n={n} radii={radii:?} served_by_pns={} methods={:?} achieved={:?} cap_faces={} valid={} seams={} g0={:.3e} g1={:.3e} g2={:.3e} cos_min={:.6}",
+            "[low-valence-ab] switch={route} fixture={fixture} served_by_pns={} methods={:?} achieved={:?} cap_faces={} valid={} seams={} g0={:.3e} g1={:.3e} g2={:.3e} cos_min={:.6}",
             o.served_by_pns(),
             o.methods,
             o.achieved,
@@ -219,6 +241,52 @@ fn cross_spoke_correction_fixes_both_low_valences() {
     );
 }
 
+/// PK-192 decision record, pinned on the ticket's named fixture: a
+/// unit-cube corner with mixed radii, filleted through the DEFAULT
+/// dispatch (no env switches), must be served by the incumbent route
+/// within the live-seam bars.
+///
+/// The recorded route comparison this pins (2026-07-28, both routes
+/// through the identical `run_cube_corner_outcome` instrument):
+///
+/// - incumbent (this default): Coons, G1, cap-cap g0 9.795e-17,
+///   g1 4.632e-3, cos_min 0.999989, valid
+/// - PnS candidate (POPKERN_PNS_FIRST_N3=1 POPKERN_PNS_BI4_BORDER=1):
+///   acceptance declines at cap_outer_g0 5.972e-3 vs the 5.000e-3
+///   bar, support exact at 1.4e-16 — the border-row floor
+/// - PnS forced through (+POPKERN_PNS_FORCE_ACCEPT=1): finished cap
+///   measures cap-cap g0 1.106e-1, cos_min 0.002276
+///
+/// Per the ticket's pre-wired rule the dispatch therefore stays. If
+/// this gate ever fails, the incumbent regressed on the commonest
+/// corner in mechanical parts — that is a defect, not a license to
+/// revisit the route decision.
+#[test]
+fn cube_corner_default_route_meets_bars() {
+    let o = pns_apex_outcome::run_cube_corner_outcome(&[0.04, 0.06, 0.05]);
+    assert!(o.valid, "cube corner fillet must leave a valid BRep");
+    assert!(
+        !o.served_by_pns(),
+        "default dispatch must not route the cube corner to PnS — the PK-192 route \
+         comparison decided against it (see this test's doc)"
+    );
+    let m = &o.metrics;
+    assert!(
+        m.seam_count > 0,
+        "cube corner cap must commit measurable internal seams"
+    );
+    assert!(
+        m.worst_g0_gap < G0_GATE,
+        "cube corner cap-cap seams must stay positionally exact, got {:.3e}",
+        m.worst_g0_gap
+    );
+    assert!(
+        m.worst_g1_normal < G1_GATE,
+        "cube corner cap-cap seams must stay tangent-continuous, got {:.3e}",
+        m.worst_g1_normal
+    );
+}
+
 /// PK-192 verdict: the PnS cap's internal seams against the shipped
 /// fan's, over the same corner rim.
 ///
@@ -230,6 +298,18 @@ fn cross_spoke_correction_fixes_both_low_valences() {
 ///
 /// This is the measurement the ticket requires before any dispatch
 /// change — and it is reported either way, win or falsification.
+///
+/// Context for the final PK-192 decision: this synthetic win (PnS
+/// 0.0° across internal seams on a clean regular rim) is exactly why
+/// the route was worth probing, and it still holds. The dispatch
+/// decision nevertheless went to the incumbent, because the *real*
+/// corner rim is a kinked arc+bridge pair per sector, which is
+/// outside the construction's border-row input class: in situ the
+/// candidate declines at rim ≈ 6e-3 (bar 5e-3) and a force-accepted
+/// finished cap measures cap-cap g0 6.5e-2 / cos_min 0.007. Potential
+/// on clean input and delivery on real input are different claims;
+/// this gate pins the first, the route comparison decided on the
+/// second.
 #[test]
 fn pns_cap_internal_seams_beat_the_shipped_fan() {
     use popkern_core::geometry::surface::SurfaceEval;

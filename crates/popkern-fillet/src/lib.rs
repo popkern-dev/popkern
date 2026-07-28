@@ -148,6 +148,7 @@ pub fn fillet_edges(
     fillet_edges_internal(brep, specs, options, tolerance, tracking, None, None)
 }
 mod fillet_pipeline;
+mod fillet_pipeline_pcurve_backstop;
 pub(crate) use fillet_pipeline::fillet_edges_internal;
 #[path = "lib_chamfer.rs"]
 mod lib_chamfer;

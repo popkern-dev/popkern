@@ -320,6 +320,7 @@ mod tests {
             triangles: vec![[0, 1, 2]],
             face_map: vec![FaceHandle::default()],
             face_meshes: vec![],
+            zipped_t_junctions: 0,
         };
 
         // Click center of viewport
@@ -367,6 +368,7 @@ mod tests {
             triangles: vec![[0, 1, 2]],
             face_map: vec![FaceHandle::default()],
             face_meshes: vec![],
+            zipped_t_junctions: 0,
         };
 
         // Click far corner — should miss the tiny triangle
