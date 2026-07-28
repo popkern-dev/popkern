@@ -45,6 +45,8 @@ mod setback_arc_crossings;
 mod setback_boundary_tolerance;
 #[path = "setback_fan_seam_refresh.rs"]
 mod setback_fan_seam_refresh;
+#[path = "setback_rim_jet.rs"]
+mod setback_rim_jet;
 #[path = "setback_rim_reconcile.rs"]
 mod setback_rim_reconcile;
 #[path = "setback_shared_net_unify.rs"]
@@ -836,6 +838,22 @@ fn build_cap_face_fan(
             &mut patches,
             fillet_surfaces,
             &lateral_planes,
+            &border_loop,
+            rim_off_loop_allowance,
+        );
+    }
+    // Rim cross-jet reconciliation (PK-212): meet the strips G1 at
+    // the landed border — see setback_rim_jet.
+    {
+        let candidates: Vec<popkern_core::geometry::SurfaceGeometry> = fillet_surfaces
+            .iter()
+            .map(|f| f.surface.clone())
+            .chain(lateral_planes.iter().cloned())
+            .collect();
+        setback_rim_jet::reconcile_rim_jets(
+            &mut patches,
+            &candidates,
+            fillet_surfaces.len(),
             &border_loop,
             rim_off_loop_allowance,
         );

@@ -535,14 +535,43 @@ impl OrientedSegment {
             let blend = index as f64 / 3.0;
             let v = start_vec * (1.0 - blend) + end_vec * blend;
             let (q1, q2) = self.ring_march_vector(q0, v, first_order_marches);
-            // Cap-side C² prolongation (WP1b convention):
-            // r1 = 2 q0 − q1, r2 = 4 q0 − 4 q1 + q2.
-            rows[1][index] = Point3::new(2.0 * q0.x - q1.x, 2.0 * q0.y - q1.y, 2.0 * q0.z - q1.z);
-            rows[2][index] = Point3::new(
-                4.0 * q0.x - 4.0 * q1.x + q2.x,
-                4.0 * q0.y - 4.0 * q1.y + q2.y,
-                4.0 * q0.z - 4.0 * q1.z + q2.z,
+            // Cap-side C² prolongation. The WP1b point reflection
+            // r1 = 2q0 − q1 mirrors a SURFACE CHORD through q0: the
+            // chord leaves the strip's tangent plane by ~κℓ²/2, so
+            // the cap's cross-jet tilted out of the surface by
+            // ~κℓ/2 radians — measured as a UNIFORM 2.6°–6.9° rim
+            // tangency error along every setback arc (PK-212; worst
+            // on blunt apexes and G2 sweeps, whose legs are longest;
+            // never gated because the commercial gates measure
+            // cap↔cap seams only). G1 across the rim requires the
+            // jet IN the tangent plane: project the chord's normal
+            // component out before reflecting. The second-difference
+            // (curvature) prolongation keeps its invariant
+            // r2 − 2r1 + q0 = q0 − 2q1 + q2, so the G2 content is
+            // unchanged.
+            let chord = q1 - q0;
+            let old_prolong = std::env::var_os("PK212_OLD_PROLONG").is_some();
+            let n_hat = self
+                .surface_normal(q0)
+                .and_then(|n| n.normalized())
+                .unwrap_or(Vec3::new(0.0, 0.0, 0.0));
+            let out_of_plane = if old_prolong {
+                Vec3::new(0.0, 0.0, 0.0)
+            } else {
+                n_hat * chord.dot(&n_hat)
+            };
+            let r1 = Point3::new(
+                2.0 * q0.x - q1.x + out_of_plane.x,
+                2.0 * q0.y - q1.y + out_of_plane.y,
+                2.0 * q0.z - q1.z + out_of_plane.z,
             );
+            let r2 = Point3::new(
+                2.0 * r1.x - 2.0 * q1.x + q2.x,
+                2.0 * r1.y - 2.0 * q1.y + q2.y,
+                2.0 * r1.z - 2.0 * q1.z + q2.z,
+            );
+            rows[1][index] = r1;
+            rows[2][index] = r2;
         }
         rows
     }

@@ -198,13 +198,15 @@ const BASELINE: &[PartBaseline] = &[
         // (g0 9.5e-4 sits inside the recorded band — the evidence's
         // tolerance-widened count keeps it visible), and it meshes
         // watertight (PK-208 closed). The recorded downgrade is the
-        // corner-region seam tangency (g1 = 0.119) — the remaining
-        // Part-level quality gap, pinned so it can only improve.
+        // rim-arc tangency (PK-212: 0.119 → 6.7e-2 via the tangent-
+        // plane border prolongation + rim cross-jet reconciliation;
+        // the residual is the pinned mid-arc bump, gated kernel-side
+        // in kp_polar_commercial_gates::rim_tangency).
         name: "pentagon_tower",
         achieved_floor: ContinuityLevel::G0,
         min_gated_seams: 65,
         g0_cap: 2.0e-3,
-        g1_cap: 2.5e-1,
+        g1_cap: 1.0e-1,
         expected_downgrades: 1,
     },
     PartBaseline {
