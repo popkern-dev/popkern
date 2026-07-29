@@ -380,11 +380,12 @@ fn build_nurbs_sweep(
 /// mid weight cos(θ/2). Returns `None` when the section is outside
 /// the well-conditioned single-segment range (θ > ~115°, radii
 /// mismatched, or degenerate).
-fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<([Point3; 3], f64)> {
+type ArcRow = ([Point3; 3], f64);
+
+pub(crate) fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<ArcRow> {
     let v1 = *start - *center;
     let v2 = *end - *center;
-    let r1 = v1.length();
-    let r2 = v2.length();
+    let (r1, r2) = (v1.length(), v2.length());
     if r1 < 1e-12 || r2 < 1e-12 {
         return None;
     }
@@ -474,16 +475,13 @@ pub(crate) fn sample_arc(
 
 /// Build clamped uniform knot vector for `n` control points at given degree.
 pub(crate) fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
-    let n_knots = n + degree + 1;
     let n_interior = n.saturating_sub(degree);
-    let mut knots = Vec::with_capacity(n_knots);
-
+    let mut knots = Vec::with_capacity(n + degree + 1);
     knots.extend(std::iter::repeat_n(0.0, degree + 1));
     for i in 1..n_interior {
         knots.push(i as f64 / n_interior as f64);
     }
     knots.extend(std::iter::repeat_n(1.0, degree + 1));
-
     knots
 }
 

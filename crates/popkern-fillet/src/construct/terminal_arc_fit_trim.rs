@@ -54,6 +54,12 @@ pub(super) fn repair_corner_swept(
     };
     let cap_face = twin_face(c.he_in).ok_or(TerminalArcTrimDeclineReason::NoCommonPlanarCap)?;
     if twin_face(c.he_out) != Some(cap_face) {
+        if trace {
+            eprintln!(
+                "[tat]   swept stub twins bound different faces: in->{cap_face:?} out->{:?}",
+                twin_face(c.he_out)
+            );
+        }
         return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap);
     }
     let cap = match brep
@@ -73,28 +79,75 @@ pub(super) fn repair_corner_swept(
             u_axis: *u_axis,
             v_axis: *v_axis,
         },
-        _ => return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap),
+        other => {
+            if trace {
+                eprintln!(
+                    "[tat]   swept cap face {cap_face:?} is not a Plane: {:?}",
+                    other.map(std::mem::discriminant)
+                );
+            }
+            return Err(TerminalArcTrimDeclineReason::NoCommonPlanarCap);
+        }
     };
     if incident_edge_count(brep, c.corner) != 2 {
         return Err(TerminalArcTrimDeclineReason::VertexNotIsolated);
     }
 
+    // Anchors (trusted vertex positions) — extracted first because
+    // they also pin the terminal iso below.
+    let anchor_of = |he: HalfEdgeHandle, at_origin: bool| -> Option<Point3> {
+        let data = brep.half_edges.get(he)?;
+        let vertex = if at_origin {
+            data.origin
+        } else {
+            brep.half_edges.get(data.next)?.origin
+        };
+        Some(brep.vertices.get(vertex)?.position)
+    };
+    let anchor_in =
+        anchor_of(c.he_in, true).ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
+    let anchor_out =
+        anchor_of(c.he_out, false).ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
+
     // Sample the strip surface along the TRUE terminal iso — the
     // sweep chart is the authority for the terminal section, but the
     // stale corner's chart shadow bends the stub pcurves slightly off
-    // the iso (measured 1.4e-3 in u), so the iso coordinate is pinned
-    // from the two ANCHOR-side endpoints (authored from the rails,
-    // trusted) and only the free coordinate walks each span.
+    // the iso (measured 1.4e-3 in u), so the pcurve spans only seed
+    // the iso choice. The iso COORDINATE itself is refined from the
+    // trusted anchors' converged chart projections: after an in-place
+    // surface swap the spans are re-authored by generic projection
+    // and carry enough jitter to pull the sampled section off the
+    // terminal circle (measured residual 6.4e-4 on an exact-section
+    // sweep, PK-179).
     let (a_start, a_end) = strip_pcurve_span(brep, c.strip_face, c.he_in)
         .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
     let (_, b_end) = strip_pcurve_span(brep, c.strip_face, c.he_out)
         .ok_or(TerminalArcTrimDeclineReason::ArcBranchUnresolved)?;
     let iso_is_u = (a_start.0 - b_end.0).abs() <= (a_start.1 - b_end.1).abs();
-    let fixed = if iso_is_u {
+    let mut fixed = if iso_is_u {
         0.5 * (a_start.0 + b_end.0)
     } else {
         0.5 * (a_start.1 + b_end.1)
     };
+    let span_extent = if iso_is_u {
+        (a_start.1 - b_end.1).abs()
+    } else {
+        (a_start.0 - b_end.0).abs()
+    };
+    if let (Some(pi), Some(po)) = (
+        strip_surface.closest_point(&anchor_in),
+        strip_surface.closest_point(&anchor_out),
+    ) {
+        let (fi, fo) = if iso_is_u { (pi.0, po.0) } else { (pi.1, po.1) };
+        // Accept the refinement only when both projections agree on
+        // one iso near the seeded value — a wrong-branch Gauss-Newton
+        // landing must not hijack the section.
+        if (fi - fo).abs() <= 0.05 * span_extent.max(1e-12)
+            && (0.5 * (fi + fo) - fixed).abs() <= 0.25 * span_extent.max(1e-12)
+        {
+            fixed = 0.5 * (fi + fo);
+        }
+    }
     let free_of = |uv: (f64, f64)| if iso_is_u { uv.1 } else { uv.0 };
     let at_iso = |free: f64| -> Point3 {
         if iso_is_u {

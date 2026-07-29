@@ -6,6 +6,8 @@ use popkern_core::geometry::nurbs_surface::NurbsSurface;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 
+use crate::fillet_surface::{build_clamped_uniform_knots, rational_arc_row};
+
 /// Inputs for [`build_variable_plane_plane_sweep`].
 pub(crate) struct VariableSweepInputs {
     pub p_start: Point3,
@@ -24,8 +26,12 @@ pub(crate) struct VariableSweepInputs {
 /// plane-plane fillet. Samples `n_sections` cross-section arcs
 /// along the sharp edge from `(p_start, r_start)` to
 /// `(p_end, r_end)`, each at the locally interpolated radius
-/// (linear interpolation), and skins them into a tensor-product
-/// NurbsSurface (degree 1 × 1).
+/// (linear interpolation), and skins them into the same
+/// section-exact rational loft class as the fresh-blend pipeline
+/// (degree 1 × 2 rational rows — each cross-section an EXACT
+/// circular arc; PK-179: the earlier degree-1×1 sampled grid's
+/// faceted sections put a 2-6e-4 floor under terminal settlement
+/// and the modify/recreate equivalence).
 ///
 /// Used by Round 5i to produce a geometrically exact variable-
 /// radius fillet surface in place. For arbitrary radius profiles
@@ -83,6 +89,7 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
     );
 
     let mut control_points: Vec<Point3> = Vec::with_capacity(n_sec * n_arc);
+    let mut rational_rows: Option<Vec<([Point3; 3], f64)>> = Some(Vec::with_capacity(n_sec));
 
     for i in 0..n_sec {
         let t = i as f64 / (n_sec - 1) as f64;
@@ -133,6 +140,7 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
         );
         let w_len = w_raw.length();
         if w_len < 1e-15 {
+            rational_rows = None;
             // Degenerate cross-section — emit a linear ramp.
             for j in 0..n_arc {
                 let s = j as f64 / (n_arc - 1) as f64;
@@ -143,6 +151,12 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
                 ));
             }
             continue;
+        }
+        if let Some(rows) = rational_rows.as_mut() {
+            match rational_arc_row(&center_i, &footprint_a, &footprint_b) {
+                Some(row) => rows.push(row),
+                None => rational_rows = None,
+            }
         }
         let w_basis = Vec3::new(w_raw.x / w_len, w_raw.y / w_len, w_raw.z / w_len);
         let cos_alpha = dot / r1;
@@ -161,8 +175,33 @@ pub(crate) fn build_parametric_plane_plane_sweep<F: Fn(f64) -> f64>(
         }
     }
 
-    // Tensor-product NurbsSurface: u = along edge (n_sec), v = along arc (n_arc).
+    // Section-exact rational loft (same class as the fresh-blend
+    // pipeline's sweep): u = along edge (n_sec stations), v = one
+    // rational-quadratic row per station — every cross-section is
+    // an EXACT circular arc. Falls back to the sampled degree-1
+    // grid only when a station cannot form a single-segment
+    // rational row (degenerate or >~115 degree section).
     let degree_u = 1usize.min(n_sec - 1);
+    if let Some(rows) = rational_rows
+        && rows.len() == n_sec
+    {
+        let mut cps = Vec::with_capacity(n_sec * 3);
+        let mut weights = Vec::with_capacity(n_sec * 3);
+        for (row, w_mid) in &rows {
+            cps.extend_from_slice(row);
+            weights.extend_from_slice(&[1.0, *w_mid, 1.0]);
+        }
+        return SurfaceGeometry::Nurbs(NurbsSurface {
+            degree_u,
+            degree_v: 2,
+            knots_u: build_clamped_uniform_knots(n_sec, degree_u),
+            knots_v: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+            control_points: cps,
+            num_u: n_sec,
+            num_v: 3,
+            weights,
+        });
+    }
     let degree_v = 1usize.min(n_arc - 1);
     let knots_u = clamped_uniform_knots(n_sec, degree_u);
     let knots_v = clamped_uniform_knots(n_arc, degree_v);

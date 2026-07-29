@@ -414,6 +414,11 @@ fn modify_open_in_place_general(
         orientation: true,
     });
 
+    // The swap retires the old strip chart — re-author the face's
+    // pcurves against the NEW surface before any settlement reads
+    // them (PK-179; see `modify_inplace_chart`).
+    crate::modify_inplace_chart::reauthor_strip_chart_pcurves(&mut out, fillet_face)?;
+
     // PK-148: the chain-end mid-arc corner vertices (settled onto
     // the OLD terminal arc by the construction pipeline) must land
     // on the NEW radius' arc, with stub curves and cap pcurves

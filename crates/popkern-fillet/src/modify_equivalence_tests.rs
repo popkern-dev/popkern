@@ -363,16 +363,18 @@ fn open_in_place_matches_remove_recreate_geometry() {
 // Round 5j: variable-radius equivalence (open plane-plane)
 // ---------------------------------------------------------------------------
 
-/// Variable-radius in-place vs remove+recreate equivalence test.
+/// Variable-radius in-place vs remove+recreate equivalence test
+/// (PK-179 closure).
 ///
-/// In-place uses the Round 5i NURBS sweep surface; remove+recreate
-/// goes through `fillet_edges` with a `Variable` spec, which today
-/// hits `try_plane_plane_analytic`'s averaged-Torus path. The two
-/// surfaces therefore differ in *type* (Nurbs vs Torus) — but the
-/// corner *positions* must match exactly, because both compute
-/// them from the same analytic perpendicular-offset formula.
+/// Both legs build section-exact rational NURBS sweeps (the
+/// in-place path shares the fresh pipeline's loft class since
+/// PK-179) and both settle their terminal corners through the
+/// swept fitted trim. History of the divergence this pins:
+/// 4.1e-2 (unsettled corners, pre-PK-148) -> 2.07e-2 (in-place
+/// settlement declined: stale chart after the surface swap, then
+/// faceted degree-1x1 sections failing the circularity gate) ->
+/// 6.1e-9 after the chart re-authoring + exact-section loft.
 #[test]
-#[ignore = "PK-139 stage 2: neither the in-place NURBS sweep nor the recreated variable fillet settles terminal corners (PK-148 terminal-arc trim is exact only for cylinder strips), so the legs diverge by the initial fillet's settled corners (measured 4.1e-2 = (sqrt2-1)*0.1). Flip when the variable sweep's terminal treatment lands"]
 fn open_in_place_variable_matches_remove_recreate_geometry() {
     use popkern_core::geometry::surface::SurfaceGeometry;
 
@@ -479,13 +481,17 @@ fn open_in_place_variable_matches_remove_recreate_geometry() {
         .expect("in-place result should expose a NURBS sweep fillet face");
     let _ = in_place_blend;
 
-    // After Round 5k (geometry pipeline + construct phase honour
-    // per-end radii), the in-place and remove+recreate paths
-    // produce byte-identical vertex sets for variable plane-plane
-    // fillets. Hausdorff should be exactly zero.
+    // The two legs are INDEPENDENT constructions that agree by
+    // geometry, not by shared code: each fits its terminal circle
+    // from its own chart projections, so the equivalence floor is
+    // the Gauss-Newton projection convergence (~1e-9 class;
+    // measured 6.1e-9 on radii 0.05-0.15 = 1e-7 relative). The bar
+    // is 1e-8 absolute — far below any serving tolerance and tight
+    // enough that a reappearing (sqrt2-1)*r corner class (1e-2)
+    // cannot hide.
     let h = report_vertex_hausdorff(&in_place, &removed_recreated, "variable");
     assert!(
-        h < 1e-9,
-        "variable vertex Hausdorff {h} should be ~0 after Round 5k"
+        h < 1e-8,
+        "variable vertex Hausdorff {h} exceeds the 1e-8 independent-construction floor"
     );
 }
