@@ -232,6 +232,27 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // face-pair comparison is unrelated to this fix and still risky.
     // fix_zero_thickness_sheets(result, tolerance);
 
+    // Post-processing: dissolve redundant collinear valence-2
+    // vertices (flush-weld residue). Segment semantics leak into
+    // dress-up selection otherwise — a chord-length filter sees half
+    // of a physical corner line (the L-union fillet class). Each
+    // dissolution is a transactional kve; pcurves cleared by the pass
+    // are re-derived immediately below.
+    if result.validate().is_ok() {
+        let dissolved = crate::postprocess::collinear_vertex::dissolve_collinear_valence2_vertices(
+            result, tolerance,
+        );
+        if dissolved > 0 {
+            let _ = result.recompute_all_pcurves();
+            if std::env::var_os("PK_BOOL_TRACE").is_some() || cfg!(debug_assertions) {
+                eprintln!(
+                    "[boolean] post-processing: dissolved {dissolved} collinear valence-2 vertex(es)"
+                );
+            }
+        }
+    }
+    trace_face_census("post-collinear-vertex", result);
+
     // Post-processing: collapse micro-edges (position merge).
     let micro_edges = crate::imprint::micro_edge::find_micro_edges(result, tolerance.linear());
     if !micro_edges.is_empty() {

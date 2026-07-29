@@ -131,9 +131,25 @@ fn corpus_pass_rate_holds_baseline() {
     // sharp pentagonal apex under a G2 fillet request through the
     // public API, watertight + OCC-clean; its measured continuity
     // story lives in fillet_mileage_continuity).
+    // 21/23 (2026-07-29, PK-184 — the surviving coincident/flush
+    // class closed at three roots: boundary-substitute direction
+    // resolution in the chart substrate (a Shared pair lying ON the
+    // face's ORIGINAL outer boundary keeps exactly the direction
+    // agreeing with the original loop traversal; the old balance
+    // search was ambiguous and its candidate seeding never reached
+    // surplus twin rings), one shell/solid per disconnected
+    // component in cellular assembly (a flush through-slot splits
+    // the block in two; single-shell filing failed Euler and dumped
+    // the correct population to graph-merge), and collinear
+    // valence-2 vertex dissolution in the boolean postprocess
+    // (flush-weld residue split physical corner lines and
+    // chord-length fillet selectors caught the fragments).
+    // mounting_bracket and slotted_block serve watertight+OCC.
+    // Remaining declines: pocketed_tray (PK-186), angled_rib_plate
+    // (PK-185) — both fillet-stage, recorded.
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 19;
+    const BASELINE: usize = 21;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
@@ -201,8 +217,11 @@ fn corpus_occ_oracle_leg() {
     // directions over the assumed chart winding, closing the
     // SelfIntersectingWire + UnorientableShape class on every
     // curved-seam Torus face). No recorded failing classes.
+    // 21/21 (2026-07-29, PK-184 — mounting_bracket + slotted_block
+    // serve; the multi-shell slotted result exports two closed
+    // shells OCC accepts). No recorded failing classes.
     // Raise when classes close; NEVER lower.
-    const OCC_BASELINE: usize = 18;
+    const OCC_BASELINE: usize = 21;
     for f in &failures {
         eprintln!("[corpus-occ] recorded: {}", &f[..f.len().min(200)]);
     }

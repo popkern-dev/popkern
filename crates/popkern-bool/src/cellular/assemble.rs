@@ -561,5 +561,11 @@ pub(crate) fn cellular_assemble(
     // Cleanup: remove unwired half-edges, dangling edges, orphan vertices.
     cleanup_unwired(&mut builder);
 
+    // A disconnecting boolean needs one shell/solid per component or
+    // the Euler gate rejects the whole (correct) assembly. Declines
+    // (nested-AABB ambiguity) keep the single-shell result and route
+    // through the recorded graph-merge fallback as before.
+    let _ = super::assemble_cleanup::partition_shells(&mut builder, tolerance.linear());
+
     Ok(builder.build_unchecked())
 }

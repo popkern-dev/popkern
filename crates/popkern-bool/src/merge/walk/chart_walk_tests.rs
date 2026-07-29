@@ -13,6 +13,7 @@ use super::chart_walk::{canonical_loops, compare_walks, walk_chart_orbits};
 use crate::merge::graph::{EdgeSource, FaceRef, IntersectionGraph, NodeSource, Operand};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::topology::BRep;
 
 fn xy_plane() -> SurfaceGeometry {
     SurfaceGeometry::Plane {
@@ -70,7 +71,15 @@ fn square_with_transversal_trim() -> (IntersectionGraph, FaceRef, Vec<usize>) {
 #[test]
 fn transversal_trim_yields_two_four_loops() {
     let (g, face, hes) = square_with_transversal_trim();
-    let sub = build_face_subdivision(&g, &face, &hes, &xy_plane(), true, &[]);
+    let sub = build_face_subdivision(
+        &g,
+        &face,
+        &hes,
+        &xy_plane(),
+        true,
+        &[],
+        &BRep::new(popkern_core::tolerance::Tolerance::default()),
+    );
     assert!(
         sub.complete(),
         "substrate must pass I1–I5: {:?}",
@@ -95,7 +104,15 @@ fn transversal_trim_yields_two_four_loops() {
 #[test]
 fn walk_turns_onto_trim_at_boundary_t() {
     let (g, face, hes) = square_with_transversal_trim();
-    let sub = build_face_subdivision(&g, &face, &hes, &xy_plane(), true, &[]);
+    let sub = build_face_subdivision(
+        &g,
+        &face,
+        &hes,
+        &xy_plane(),
+        true,
+        &[],
+        &BRep::new(popkern_core::tolerance::Tolerance::default()),
+    );
     let orbits = walk_chart_orbits(&sub, &g).expect("orbits");
     // hes[0] = bottom-left (SW→T), hes[6] = trim up (T→top).
     let west = orbits
@@ -118,8 +135,24 @@ fn walk_turns_onto_trim_at_boundary_t() {
 #[test]
 fn orientation_false_mirrors_the_partition() {
     let (g, face, hes) = square_with_transversal_trim();
-    let sub_t = build_face_subdivision(&g, &face, &hes, &xy_plane(), true, &[]);
-    let sub_f = build_face_subdivision(&g, &face, &hes, &xy_plane(), false, &[]);
+    let sub_t = build_face_subdivision(
+        &g,
+        &face,
+        &hes,
+        &xy_plane(),
+        true,
+        &[],
+        &BRep::new(popkern_core::tolerance::Tolerance::default()),
+    );
+    let sub_f = build_face_subdivision(
+        &g,
+        &face,
+        &hes,
+        &xy_plane(),
+        false,
+        &[],
+        &BRep::new(popkern_core::tolerance::Tolerance::default()),
+    );
     // σ self-calibrates from the stored boundary winding, so BOTH
     // orientations resolve to the same (correct) handedness — the
     // flag is only the fallback when no boundary exists.

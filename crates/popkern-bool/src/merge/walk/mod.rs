@@ -5,6 +5,7 @@
 //! zero or more inner loops (CW holes).
 
 mod boundary_predicates;
+pub(crate) mod chart_boundary_substitute;
 pub(crate) mod chart_branches;
 pub(crate) mod chart_embedding;
 pub(crate) mod chart_subdivision;
@@ -152,6 +153,10 @@ pub(crate) fn walk_all_fragments_ext(
                 surface,
                 orientation,
                 overlap_pairs,
+                match face_ref.operand {
+                    super::graph::Operand::A => brep_a,
+                    super::graph::Operand::B => brep_b,
+                },
             );
             if sub.complete() {
                 if let Some(orbits) = chart_walk::walk_chart_orbits(&sub, graph) {

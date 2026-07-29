@@ -119,6 +119,12 @@ pub(crate) enum FilteredRecord {
     /// The kept direction is the boundary substitute; the dropped one
     /// pointed material off-face and unbalanced the gap endpoints.
     GapSubstituteDirection { dropped: usize, kept: usize },
+    /// One direction of a Shared pair lying ON the face's ORIGINAL
+    /// outer boundary, resolved by flow continuation around the
+    /// boundary cycle (see `chart_boundary_substitute`): the kept
+    /// direction continues the registered boundary flow; the dropped
+    /// one bounded the coplanar neighbour's region, not this face's.
+    BoundarySubstituteDirection { dropped: usize, kept: usize },
     /// An interior graze: a record pair dead-ending at a node with no
     /// other registered half-edge on this face. Both sides of the
     /// trace bound the same region there — the legacy walk's
@@ -180,6 +186,10 @@ impl FaceChartSubdivision {
 /// detection; records authored by exactly these pairs get the
 /// partial-cover dedup (their traces along existing boundary edges
 /// bound nothing).
+///
+/// `original_brep`: the operand BRep this face belongs to — the
+/// boundary-substitute resolution reads the face's ORIGINAL outer
+/// loop from it (the graph registration can carry weld gaps).
 pub(crate) fn build_face_subdivision(
     graph: &IntersectionGraph,
     face: &FaceRef,
@@ -190,9 +200,17 @@ pub(crate) fn build_face_subdivision(
         popkern_core::topology::FaceHandle,
         popkern_core::topology::FaceHandle,
     )],
+    original_brep: &popkern_core::topology::BRep,
 ) -> FaceChartSubdivision {
-    let sub =
-        build_face_subdivision_inner(graph, face, he_indices, surface, orientation, overlap_pairs);
+    let sub = build_face_subdivision_inner(
+        graph,
+        face,
+        he_indices,
+        surface,
+        orientation,
+        overlap_pairs,
+        original_brep,
+    );
     if std::env::var_os("PK_CHART_DUMP").is_some() {
         eprintln!(
             "  [chart] {face:?} sigma={} poles={:?} issues={:?} filtered={:?}",
@@ -239,6 +257,7 @@ fn build_face_subdivision_inner(
         popkern_core::topology::FaceHandle,
         popkern_core::topology::FaceHandle,
     )],
+    original_brep: &popkern_core::topology::BRep,
 ) -> FaceChartSubdivision {
     let mut sub = FaceChartSubdivision {
         sigma: if orientation { 1.0 } else { -1.0 },
@@ -488,6 +507,23 @@ fn build_face_subdivision_inner(
         }
     }
 
+    // BOUNDARY-SUBSTITUTE resolution (coincident booleans, non-
+    // periodic charts): Shared pairs lying ON the face's ORIGINAL
+    // outer boundary replace welded-away boundary pieces; exactly one
+    // direction bounds this face, decided by agreement with the
+    // original loop traversal. Runs BEFORE the balance search below,
+    // which cannot decide this class — the full story and measured
+    // failures live in `chart_boundary_substitute`.
+    if !overlap_pairs.is_empty() && u_period.is_none() {
+        super::chart_boundary_substitute::resolve_boundary_substitutes(
+            graph,
+            face,
+            &mut sub,
+            surface,
+            original_brep,
+        );
+    }
+
     // GAP-SUBSTITUTE completion (non-periodic charts): the coincident
     // weld path can leave a face's boundary registration with a GAP
     // (a split middle piece missing) that an overlap-pair record
@@ -658,6 +694,7 @@ fn build_face_subdivision_inner(
                 FilteredRecord::InteriorGraze(h) => (*h, false),
                 FilteredRecord::DuplicateCover { dropped, .. } => (*dropped, false),
                 FilteredRecord::GapSubstituteDirection { dropped, .. } => (*dropped, false),
+                FilteredRecord::BoundarySubstituteDirection { dropped, .. } => (*dropped, false),
             })
             .collect();
         for (h, zero_extent) in dropped {
