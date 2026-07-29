@@ -36,6 +36,7 @@ pub use coherence::{
     CoherenceReport, CoherenceValidationScope, L2Disagreement, PendingCoherenceMarker,
 };
 mod brep_face_use_trim_storage;
+mod brep_loop_sampling;
 mod validate_coherence;
 pub use brep_face_use_trim_storage::FaceUseTrimKey;
 mod surface_boundary_audit;

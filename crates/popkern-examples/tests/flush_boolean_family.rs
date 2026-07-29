@@ -104,6 +104,97 @@ fn flush_l_union_fillet_selects_only_full_corners() {
     );
 }
 
+/// Moat cut (PK-217 floating-piece leg): subtracting a full-height
+/// square tube (walls only) leaves an outer ring AND a floating core
+/// whose AABB nests inside the ring's. The shell partition must
+/// classify the core by parity against the ring's face subset —
+/// even crossings ⇒ not enclosed ⇒ its OWN solid, not a cavity.
+#[test]
+fn moat_cut_serves_floating_core_as_own_solid() {
+    let block = Profile::on(Plane::XY)
+        .rect(40.0, 40.0)
+        .extrude(10.0)
+        .expect("block");
+    let tube_outer = Profile::on(Plane::XY)
+        .rect(20.0, 20.0)
+        .extrude(10.0)
+        .expect("tube outer");
+    let tube_inner = Profile::on(Plane::XY)
+        .rect(12.0, 12.0)
+        .extrude(10.0)
+        .expect("tube inner");
+    let tube = tube_outer.subtract(&tube_inner).expect("tube");
+    let result = block.subtract(&tube).expect("moat cut");
+    assert_eq!(result.open_edge_count().expect("opens"), 0);
+    assert_eq!(result.brep().shells.len(), 2, "ring + core shells");
+    assert_eq!(result.brep().solids.len(), 2, "core is a separate solid");
+    assert!(
+        result.brep().validate().is_ok(),
+        "{:?}",
+        result.brep().validate()
+    );
+    let volume = popkern_measure::body_volume(
+        result.brep(),
+        &popkern_core::tolerance::Tolerance::default(),
+    )
+    .expect("volume");
+    // Ring (40² − 20²)·10 + core 12²·10 = 12000 + 1440.
+    assert!(
+        (volume - 13440.0).abs() < 1e-6,
+        "moat volume {volume} != 13440"
+    );
+}
+
+/// Cavity union (PK-217 cavity leg): two blocks with facing blind
+/// pockets, unioned so the pockets close into a fully-enclosed void.
+/// The void's shell reads Inside the outer component's parity ⇒ a
+/// CAVITY shell of the SAME solid, and the measured volume excludes
+/// the void.
+#[test]
+fn cavity_union_serves_void_as_inner_shell_of_one_solid() {
+    let lower = Profile::on(Plane::XY)
+        .rect(20.0, 20.0)
+        .extrude(10.0)
+        .expect("lower block")
+        .subtract(
+            &Profile::on(Plane::xy_at(4.0))
+                .rect(12.0, 12.0)
+                .extrude(6.0)
+                .expect("lower pocket"),
+        )
+        .expect("lower U");
+    let upper = Profile::on(Plane::xy_at(6.0))
+        .rect(20.0, 20.0)
+        .extrude(10.0)
+        .expect("upper block")
+        .subtract(
+            &Profile::on(Plane::xy_at(6.0))
+                .rect(12.0, 12.0)
+                .extrude(6.0)
+                .expect("upper pocket"),
+        )
+        .expect("upper U");
+    let result = lower.union(&upper).expect("cavity union");
+    assert_eq!(result.open_edge_count().expect("opens"), 0);
+    assert_eq!(result.brep().shells.len(), 2, "outer + cavity shells");
+    assert_eq!(result.brep().solids.len(), 1, "one solid with a void");
+    assert!(
+        result.brep().validate().is_ok(),
+        "{:?}",
+        result.brep().validate()
+    );
+    let volume = popkern_measure::body_volume(
+        result.brep(),
+        &popkern_core::tolerance::Tolerance::default(),
+    )
+    .expect("volume");
+    // Outer 20·20·16 minus the enclosed void 12·12·8.
+    assert!(
+        (volume - 5248.0).abs() < 1e-6,
+        "cavity volume {volume} != 5248"
+    );
+}
+
 #[test]
 fn disconnecting_flush_slot_serves_two_closed_shells() {
     let block = Profile::on(Plane::XY)

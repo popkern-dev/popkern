@@ -91,15 +91,25 @@ pub(super) fn cleanup_unwired(builder: &mut BRepBuilder) {
 /// the slotted-block corpus part: correct 12-face fragment population
 /// discarded, graph-merge served 48 open edges).
 ///
-/// Components here are mutually EXTERIOR pieces: each becomes its own
-/// solid. A component whose AABB nests strictly inside another's is
-/// ambiguous between a cavity shell (same solid) and a floating piece
-/// in a through-hole (own solid) — deciding needs a containment
-/// oracle, and misfiling changes measured mass properties. That
-/// configuration DECLINES the partition (returns false, single-shell
-/// result stands, the Euler gate routes it to graph-merge exactly as
-/// before) with the reason observable under PK_BOOL_TRACE.
-pub(super) fn partition_shells(builder: &mut BRepBuilder, tolerance_linear: f64) -> bool {
+/// Mutually exterior components each become their own solid. A
+/// component whose AABB nests inside another's is classified by ray
+/// parity against the CONTAINING component's face subset (PK-217):
+/// an interior point of the nested component's enclosed region that
+/// reads Inside the container is a CAVITY (an inner shell of the
+/// container's solid — a moat's void, a closed hollow); one that
+/// reads Outside is a FLOATING PIECE in a through-opening (its own
+/// solid). Parity runs on `point_in_solid_final` with the face-AABB
+/// slice filtered to the container — the slice IS the face filter.
+/// Any ambiguity (no interior point found, OnBoundary parity, ray
+/// failure, cavity whose encloser is itself a cavity) DECLINES the
+/// partition (returns false, single-shell result stands, the Euler
+/// gate routes it to graph-merge exactly as before) with the reason
+/// observable under PK_BOOL_TRACE.
+pub(super) fn partition_shells(
+    builder: &mut BRepBuilder,
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> bool {
+    let tolerance_linear = tolerance.linear();
     let brep = builder.brep_mut();
     let faces: Vec<_> = brep.faces.keys().collect();
     if faces.len() < 2 {
@@ -175,12 +185,104 @@ pub(super) fn partition_shells(builder: &mut BRepBuilder, tolerance_linear: f64)
     let nested = |a: &([f64; 3], [f64; 3]), b: &([f64; 3], [f64; 3])| -> bool {
         (0..3).all(|k| a.0[k] > b.0[k] - tol && a.1[k] < b.1[k] + tol)
     };
-    for i in 0..roots.len() {
-        for j in 0..roots.len() {
-            if i != j && nested(&aabbs[i], &aabbs[j]) {
+    let face_component: Vec<(popkern_core::topology::FaceHandle, usize)> = faces
+        .iter()
+        .enumerate()
+        .map(|(i, &f)| (f, component_of[&find(&mut parent, i)]))
+        .collect();
+
+    // Enclosure classification (PK-217), needed only when AABBs nest.
+    // `encloser[c]` = the component whose solid a cavity shell joins.
+    let any_nesting =
+        (0..roots.len()).any(|i| (0..roots.len()).any(|j| i != j && nested(&aabbs[i], &aabbs[j])));
+    let mut encloser: Vec<Option<usize>> = vec![None; roots.len()];
+    if any_nesting {
+        use crate::classify::point_in_solid_final;
+        use crate::error::PointClassification;
+        let all_aabbs = crate::intersect::compute_face_aabbs(brep);
+        let comp_of_face: HashMap<popkern_core::topology::FaceHandle, usize> =
+            face_component.iter().copied().collect();
+        let comp_aabbs = |c: usize| -> Vec<_> {
+            all_aabbs
+                .iter()
+                .filter(|(f, _)| comp_of_face.get(f) == Some(&c))
+                .cloned()
+                .collect()
+        };
+        // Interior point of each nested component's ENCLOSED region:
+        // the AABB center when its parity against the component's own
+        // faces reads Inside (compact pieces and voids); no candidate
+        // → decline (a nested ring-shaped component is out of scope,
+        // recorded).
+        let interior_point = |c: usize| -> Option<popkern_core::geometry::Point3> {
+            let (lo, hi) = &aabbs[c];
+            let center = popkern_core::geometry::Point3::new(
+                0.5 * (lo[0] + hi[0]),
+                0.5 * (lo[1] + hi[1]),
+                0.5 * (lo[2] + hi[2]),
+            );
+            let own = comp_aabbs(c);
+            match point_in_solid_final(&center, brep, &own, tolerance) {
+                Ok(PointClassification::Inside) => Some(center),
+                _ => None,
+            }
+        };
+        // Enclosure depth by parity against each AABB-containing
+        // component's face subset; immediate encloser = the smallest
+        // containing component by AABB volume.
+        let volume = |c: usize| -> f64 {
+            let (lo, hi) = &aabbs[c];
+            (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2])
+        };
+        let mut depth = vec![0usize; roots.len()];
+        for i in 0..roots.len() {
+            let containers: Vec<usize> = (0..roots.len())
+                .filter(|&j| j != i && nested(&aabbs[i], &aabbs[j]))
+                .collect();
+            if containers.is_empty() {
+                continue;
+            }
+            let Some(q) = interior_point(i) else {
                 if std::env::var_os("PK_BOOL_TRACE").is_some() {
                     eprintln!(
-                        "  [assemble] shell partition DECLINED: component {i} AABB nests in {j} (cavity vs floating piece needs containment)"
+                        "  [assemble] shell partition DECLINED: no interior point for nested component {i}"
+                    );
+                }
+                return false;
+            };
+            let mut inside: Vec<usize> = Vec::new();
+            for j in containers {
+                match point_in_solid_final(&q, brep, &comp_aabbs(j), tolerance) {
+                    Ok(PointClassification::Inside) => inside.push(j),
+                    Ok(PointClassification::Outside) => {}
+                    _ => {
+                        if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                            eprintln!(
+                                "  [assemble] shell partition DECLINED: ambiguous parity of component {i} vs {j}"
+                            );
+                        }
+                        return false;
+                    }
+                }
+            }
+            depth[i] = inside.len();
+            if depth[i] % 2 == 1 {
+                encloser[i] = inside.into_iter().min_by(|&a, &b| {
+                    volume(a)
+                        .partial_cmp(&volume(b))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            }
+        }
+        // A cavity's encloser must itself be a solid-owning component
+        // (even depth) — alternation anomalies decline.
+        for (i, enc) in encloser.iter().enumerate() {
+            if let Some(e) = *enc
+                && depth[e] % 2 == 1
+            {
+                if std::env::var_os("PK_BOOL_TRACE").is_some() {
+                    eprintln!(
+                        "  [assemble] shell partition DECLINED: cavity {i} enclosed by cavity {e}"
                     );
                 }
                 return false;
@@ -188,34 +290,65 @@ pub(super) fn partition_shells(builder: &mut BRepBuilder, tolerance_linear: f64)
         }
     }
 
-    // Reassign: component 0 keeps the existing shell; each further
-    // component gets a fresh solid + shell.
-    let face_component: Vec<(popkern_core::topology::FaceHandle, usize)> = faces
-        .iter()
-        .enumerate()
-        .map(|(i, &f)| (f, component_of[&find(&mut parent, i)]))
-        .collect();
+    // Wire shells: every component gets a shell; solid-owning
+    // components (even enclosure depth) get their own solid, cavity
+    // components join their encloser's solid. The first solid-owning
+    // component reuses the existing shell/solid.
+    let first_own = (0..roots.len()).find(|&c| encloser[c].is_none());
+    let Some(first_own) = first_own else {
+        return false; // every component claims to be a cavity — lie
+    };
     let existing_shell = brep.faces[faces[0]].shell;
-    let mut shells: Vec<popkern_core::topology::ShellHandle> = vec![existing_shell];
-    for _ in 1..roots.len() {
+    let existing_solid = brep.shells[existing_shell].solid;
+    let mut shells: Vec<Option<popkern_core::topology::ShellHandle>> = vec![None; roots.len()];
+    let mut solids: Vec<Option<popkern_core::topology::SolidHandle>> = vec![None; roots.len()];
+    shells[first_own] = Some(existing_shell);
+    solids[first_own] = Some(existing_solid);
+    for c in 0..roots.len() {
+        if c == first_own || encloser[c].is_some() {
+            continue;
+        }
         let solid = builder.add_solid();
-        shells.push(builder.add_shell(solid));
+        solids[c] = Some(solid);
+        shells[c] = Some(builder.add_shell(solid));
     }
+    let mut cavity_count = 0usize;
+    for c in 0..roots.len() {
+        if let Some(e) = encloser[c] {
+            let Some(owner_solid) = solids[e] else {
+                return false;
+            };
+            shells[c] = Some(builder.add_shell(owner_solid));
+            cavity_count += 1;
+        }
+    }
+    // `add_shell` re-points its solid's primary shell at the newest
+    // one; cavity shells must not usurp the outer shell's slot.
     let brep = builder.brep_mut();
+    for c in 0..roots.len() {
+        if encloser[c].is_none()
+            && let (Some(sh), Some(so)) = (shells[c], solids[c])
+        {
+            brep.solids[so].shell = sh;
+        }
+    }
     // Re-anchor every shell's representative face (component 0's may
     // have pointed at a face now moved to another shell).
-    let mut anchored = vec![false; shells.len()];
+    let mut anchored = vec![false; roots.len()];
     for (f, c) in face_component {
-        brep.faces[f].shell = shells[c];
+        let Some(sh) = shells[c] else { return false };
+        brep.faces[f].shell = sh;
         if !anchored[c] {
-            brep.shells[shells[c]].face = f;
+            brep.shells[sh].face = f;
             anchored[c] = true;
         }
     }
     if std::env::var_os("PK_BOOL_TRACE").is_some() {
         eprintln!(
-            "  [assemble] shell partition: {} disconnected component(s) → one shell/solid each",
-            shells.len()
+            "  [assemble] shell partition: {} component(s) → {} solid(s), {} cavity shell(s)",
+            roots.len(),
+            roots.len() - cavity_count,
+            cavity_count
         );
     }
     true

@@ -21,6 +21,7 @@ popkern-draft = { path = "../popkern-draft" }
 popkern-io = { path = "../popkern-io" }
 popkern-part = { path = "../popkern-part", features = ["text"] }
 popkern-mesh = { path = "../popkern-mesh" }
+popkern-measure = { path = "../popkern-measure" }
 popkern-viz = { path = "../popkern-viz" }
 glam = "0.29"
 serde_json = "1"

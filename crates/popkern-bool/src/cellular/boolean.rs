@@ -479,7 +479,16 @@ fn classify_fragments_cellular(
                 fragment_interior_sample(graph, fragment, surf, *ori, true)
             });
             let hazard = point_near_any_edge(other_for_edges, &shortcut, eps_probe * 10.0);
-            let ordered = if hazard {
+            // HOLED fragments must sample interior-aware regardless
+            // of hazard: an all-shared ring fragment's shortcut falls
+            // through to the loop-vertex CENTROID, which for an
+            // annular region lands in the hole — a point decisively
+            // calibratable against the own body yet not ON the
+            // fragment at all (measured: a moat cut's tube-material
+            // ring on the flush block bottom sampled the tube's void,
+            // classified Outside, and the subtract kept the ring as a
+            // duplicate skin).
+            let ordered = if hazard || !fragment.inner_loops.is_empty() {
                 [interior, Some(shortcut)]
             } else {
                 [Some(shortcut), interior]

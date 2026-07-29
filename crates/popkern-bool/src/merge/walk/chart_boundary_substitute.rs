@@ -36,11 +36,11 @@
 //!      anchor-free, and exact even when every boundary edge of the
 //!      face was welded away (the through-slot tool wall).
 //!
-//! Scope: outer loops of non-periodic charts in coincident booleans.
-//! Records lying on INNER-loop boundaries are not classified here —
-//! they keep both directions and fall through to the balance search
-//! and legacy walk exactly as before (recorded limitation; the flush
-//! corpus class is outer-loop).
+//! Scope: non-periodic charts in coincident booleans; outer AND
+//! inner original loops (a flush cavity union welds the pocket-hole
+//! rings of annulus faces — inner-loop substitutes whose surplus
+//! direction walked as a garbage hole-ring fragment sampled in the
+//! void).
 
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -80,18 +80,42 @@ pub(super) fn resolve_boundary_substitutes(
         return;
     }
 
-    // The face's ORIGINAL outer boundary as a closed UV polygon, in
-    // stored traversal order (material-left by the winding census).
-    let poly: Vec<(f64, f64)> = original_brep
-        .face_outer_loop_sample_positions(face.face, POLY_SAMPLES_PER_EDGE)
-        .iter()
-        .filter_map(|p| project_point_to_uv(surface, p))
+    // The face's ORIGINAL boundary loops as closed UV polygons, in
+    // stored traversal order (material-left by the winding census —
+    // inner loops wind opposite the outer, which is exactly the
+    // traversal a substitute along a HOLE boundary must agree with;
+    // the pocket-hole rings of a flush cavity union live here).
+    let Some(original_face) = original_brep.faces.get(face.face) else {
+        return;
+    };
+    let loops: Vec<popkern_core::topology::LoopHandle> = std::iter::once(original_face.outer_loop)
+        .chain(original_face.inner_loops.iter().copied())
         .collect();
-    if poly.len() < 3 {
+    let polys: Vec<Vec<(f64, f64)>> = loops
+        .iter()
+        .map(|&lh| {
+            original_brep
+                .loop_sample_positions(lh, POLY_SAMPLES_PER_EDGE)
+                .iter()
+                .filter_map(|p| project_point_to_uv(surface, p))
+                .collect::<Vec<_>>()
+        })
+        .filter(|poly| poly.len() >= 3)
+        .collect();
+    if polys.is_empty() {
         return;
     }
+    if std::env::var_os("PK_BSUB_TRACE").is_some() {
+        for (i, poly) in polys.iter().enumerate() {
+            eprintln!(
+                "      [bsub] {face:?} poly {i}: {} pts {:?}…",
+                poly.len(),
+                &poly[..poly.len().min(6)]
+            );
+        }
+    }
     let (mut lo, mut hi) = ((f64::MAX, f64::MAX), (f64::MIN, f64::MIN));
-    for &(u, v) in &poly {
+    for &(u, v) in polys.iter().flatten() {
         lo = (lo.0.min(u), lo.1.min(v));
         hi = (hi.0.max(u), hi.1.max(v));
     }
@@ -103,13 +127,17 @@ pub(super) fn resolve_boundary_substitutes(
         let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / l2).clamp(0.0, 1.0);
         (p.0 - a.0 - dx * t).powi(2) + (p.1 - a.1 - dy * t).powi(2)
     };
-    // Nearest polygon segment (closed): distance² and segment index.
-    let nearest_seg = |p: (f64, f64)| -> (f64, usize) {
-        let mut best = (f64::MAX, 0usize);
-        for i in 0..poly.len() {
-            let d2 = seg_dist2(p, poly[i], poly[(i + 1) % poly.len()]);
-            if d2 < best.0 {
-                best = (d2, i);
+    // Nearest boundary segment across all loops (each closed):
+    // distance² and the segment's directed endpoints.
+    let nearest_seg = |p: (f64, f64)| -> (f64, (f64, f64), (f64, f64)) {
+        let mut best = (f64::MAX, (0.0, 0.0), (0.0, 0.0));
+        for poly in &polys {
+            for i in 0..poly.len() {
+                let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
+                let d2 = seg_dist2(p, a, b);
+                if d2 < best.0 {
+                    best = (d2, a, b);
+                }
             }
         }
         best
@@ -137,25 +165,39 @@ pub(super) fn resolve_boundary_substitutes(
         // registered edges by construction; a record spanning a
         // polygon corner votes per-window, majority wins).
         let uv = &sub.embeddings[&h].uv;
+        let trace = std::env::var_os("PK_BSUB_TRACE").is_some();
         if uv.len() < 3 {
+            if trace {
+                eprintln!(
+                    "      [bsub] {face:?} pair ({h},{tw}): run too short ({})",
+                    uv.len()
+                );
+            }
             continue;
         }
         let interior = &uv[1..uv.len() - 1];
-        if !interior.iter().all(|&p| nearest_seg(p).0 < tol * tol)
-            || interior.iter().all(|&p| on_registered(p))
-        {
+        let on_poly = interior.iter().all(|&p| nearest_seg(p).0 < tol * tol);
+        let covered = interior.iter().all(|&p| on_registered(p));
+        if !on_poly || covered {
+            if trace {
+                eprintln!(
+                    "      [bsub] {face:?} pair ({h},{tw}): on_poly={on_poly} covered={covered} — kept as cut"
+                );
+            }
             continue; // interior cut, or the I5 partial-cover class
         }
         let mut agree = 0i64;
         for w in uv.windows(2) {
             let mid = (0.5 * (w[0].0 + w[1].0), 0.5 * (w[0].1 + w[1].1));
-            let (d2, i) = nearest_seg(mid);
+            let (d2, a, b) = nearest_seg(mid);
             if d2 >= tol * tol {
                 continue;
             }
-            let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
             let dot = (w[1].0 - w[0].0) * (b.0 - a.0) + (w[1].1 - w[0].1) * (b.1 - a.1);
             agree += dot.signum() as i64;
+        }
+        if trace {
+            eprintln!("      [bsub] {face:?} pair ({h},{tw}): substitute, agree={agree}");
         }
         match agree.cmp(&0) {
             std::cmp::Ordering::Greater => resolved.push((h, tw)),

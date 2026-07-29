@@ -565,7 +565,7 @@ pub(crate) fn cellular_assemble(
     // the Euler gate rejects the whole (correct) assembly. Declines
     // (nested-AABB ambiguity) keep the single-shell result and route
     // through the recorded graph-merge fallback as before.
-    let _ = super::assemble_cleanup::partition_shells(&mut builder, tolerance.linear());
+    let _ = super::assemble_cleanup::partition_shells(&mut builder, &tolerance);
 
     Ok(builder.build_unchecked())
 }
