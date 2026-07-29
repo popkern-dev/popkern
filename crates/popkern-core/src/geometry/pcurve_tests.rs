@@ -187,6 +187,45 @@ fn analytic_to_nurbs_preserves_nonunit_parameter_endpoints() {
 }
 
 #[test]
+fn elliptical_to_nurbs_faithful_on_descending_parameter_domain() {
+    // PK-215: a quarter-arc plane trim whose trim domain runs
+    // DESCENDING (t: pi/2 -> 0) must convert to a faithful NURBS.
+    // The descending domain used to feed interpolate_curve a
+    // descending knot vector, the solve failed, and the silent
+    // fallback shipped the endpoint chord — a 2.9e-2 sagitta error
+    // at r=0.1 that surfaced as the single STEP roundtrip blocker
+    // on the mixed-radius Gregory cube.
+    let p = Pcurve::elliptical(
+        (0.9, 0.9),
+        0.1,
+        0.1,
+        0.0,
+        0.0,
+        std::f64::consts::FRAC_PI_2,
+        std::f64::consts::FRAC_PI_2,
+        2.2e-16,
+    );
+    let n = p.to_nurbs();
+    use crate::geometry::curve::CurveEval;
+    let (k0, k1) = n.parameter_range();
+    assert!(k1 > k0, "exported knot domain must ascend: [{k0}, {k1}]");
+    for i in 0..=32 {
+        let f = i as f64 / 32.0;
+        let expected = p.point_at(p.t_start + f * (p.t_end - p.t_start));
+        let got = n.point_at(k0 + f * (k1 - k0));
+        // Bar = the STEP export pcurve association gate (1e-6): the
+        // conversion must stay well inside what the exporter accepts
+        // as a shared-edge pcurve. Cubic interpolation through 17
+        // samples of an r=0.1 quarter arc lands ~2e-7 between nodes.
+        assert!(
+            got.distance_to(&expected) < 1e-6,
+            "sample {i}: nurbs {got:?} vs pcurve {expected:?} (gap {:.3e})",
+            got.distance_to(&expected)
+        );
+    }
+}
+
+#[test]
 fn is_analytic_distinguishes_variants() {
     let lin = Pcurve::linear((0.0, 0.0), (1.0, 1.0), 0.0, 1.0);
     assert!(lin.is_analytic());

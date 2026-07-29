@@ -51,14 +51,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "STEP import diagnostics contain errors: {:?}",
         imported.diagnostics.entries()
     );
-    // Re-pinned 2026-07-29 (PK-215): the PK-205 crash fix made
-    // this roundtrip reachable again; it imports exactly ONE latent
-    // blocker — a plane-face edge whose FILE pairs an arc 3D curve
-    // with a chord pcurve (2.929e-2 = r=0.10 quarter-arc sagitta,
-    // worst at f=0.5). Weld mispairing, stale face-use authorities,
-    // and pcurve synthesis falsified as authors; PK-215 owns the
-    // export-side selection audit. Exact pin: any second blocker or
-    // magnitude drift fails loudly.
+    // Re-pinned 2026-07-29 (PK-215 CLOSED): the single chord-vs-arc
+    // blocker this roundtrip used to import was authored by
+    // `Pcurve::to_nurbs` — an Elliptical quarter-arc plane trim with
+    // a DESCENDING trim domain fed interpolate_curve a descending
+    // knot vector, the solve failed, and the silent fallback shipped
+    // the endpoint chord (2.929e-2 = r=0.10 quarter-arc sagitta).
+    // The conversion now fits through the domain-swapped clone, so
+    // the roundtrip must import with ZERO pcurve fidelity blockers.
     let pcurve_blockers: Vec<_> = imported
         .diagnostics
         .entries()
@@ -69,17 +69,13 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
                 .contains("STEP import pcurve fidelity blocker")
         })
         .collect();
-    assert_eq!(
-        pcurve_blockers.len(),
-        1,
-        "Gregory STEP roundtrip must expose exactly the PK-215 chord-vs-arc blocker: {:?}",
-        imported.diagnostics.entries()
-    );
     assert!(
-        pcurve_blockers[0].message.contains("surface_kind=plane")
-            && pcurve_blockers[0].message.contains("2.929e-2"),
-        "PK-215 blocker signature drifted (plane-face chord-vs-arc at 2.929e-2): {}",
-        pcurve_blockers[0].message
+        pcurve_blockers.is_empty(),
+        "Gregory STEP roundtrip must import with no pcurve fidelity blockers (PK-215 repaired the descending-domain chord conversion): {:?}",
+        pcurve_blockers
+            .iter()
+            .map(|entry| &entry.message)
+            .collect::<Vec<_>>()
     );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
 
@@ -166,11 +162,11 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         }),
         "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
-    // Pinned 0 with PK-125; 1 since PK-215 (the chord-vs-arc
-    // blocker above — see its exact-signature pin).
+    // Pinned 0 with PK-125; briefly 1 while PK-215 was open; back
+    // to 0 with the descending-domain to_nurbs repair.
     assert_eq!(
-        imported_state.pcurve_blockers, 1,
-        "STEP import pcurve blocker census must stay at the single PK-215 blocker: {states:#?}"
+        imported_state.pcurve_blockers, 0,
+        "STEP import pcurve blocker census must stay empty (PK-215 closed): {states:#?}"
     );
 
     let classification =
@@ -181,14 +177,11 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     // edge/surface pairing (imported edge_surface_blockers 0; only the
     // residual imported pcurve class remained — "validator_gap").
     // PK-153's consolidated V-free serving empties every class at
-    // construction, export, and import. PK-215: construction and
-    // export measure clean while ONE imported pcurve blocker
-    // remains — the classifier calls that shape
-    // step_import_mapping_issue (the file/import pairing sees what
-    // body-side measurement does not), pinned until the PK-215
-    // export-side selection audit lands.
+    // construction, export, and import. PK-215 closed the last
+    // import-side residue (descending-domain Elliptical pcurves
+    // exported as chords), so every census is empty end-to-end.
     assert_eq!(
-        classification, "step_import_mapping_issue",
+        classification, "no_fidelity_blocker",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }
