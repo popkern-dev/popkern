@@ -480,5 +480,5 @@ pub fn unfillet_via_record(record: &FilletOperationRecord) -> &BRep {
 mod tests;
 
 #[cfg(test)]
-#[path = "unfillet_probe_tests.rs"]
-mod probe_tests;
+#[path = "unfillet_plan_contract_tests.rs"]
+mod plan_contract_tests;

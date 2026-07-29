@@ -217,12 +217,18 @@ fn vertex_blend_3d_sphere_centre_at_rolling_ball_position() {
 /// A square pyramid's apex has 4 incident edges (one per
 /// slant), so vertex-blending it exercises the N-gon path in
 /// `insert_vertex_blend` that didn't get covered by the cube
-/// tests (all 3-valence). Expect 4 fillet strips plus per-fillet
-/// sphere patches at the apex (Phase 6c-E: per-fillet rolling-ball
-/// dispatcher places one sphere centred on each cylinder axis).
+/// tests (all 3-valence) — the only N≥4 exercise of the public
+/// `vertex_blend_3d` entry point.
+///
+/// Cap KIND is deliberately not pinned to Sphere: the pre-PK-099
+/// exterior-mirror ball placement that produced per-fillet sphere
+/// caps here was a measured defect, and on real inscribed strips
+/// higher-valence apexes legitimately land on Gregory/partition
+/// caps (see `direct_apex_validation_matrix`). The contract is:
+/// 4 fillet strips, at least one non-strip cap face committed at
+/// the apex, and a valid body.
 #[test]
-#[ignore = "mirror-era baseline: pre-PK-099 ball placement put pyramid strips on the exterior mirror; the apex Direct/Setback/Gregory rungs were derived against that geometry and need re-derivation on real inscribed strips (PK-101, root cause of the PK-092 direct_apex 8/8 baseline)"]
-fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
+fn vertex_blend_3d_on_pyramid_apex_commits_an_apex_cap() {
     let pyramid = BRep::square_pyramid(2.0, 1.5, tol()).unwrap();
     let apex = pyramid
         .vertices
@@ -234,14 +240,15 @@ fn vertex_blend_3d_on_pyramid_apex_produces_sphere_patch() {
     let result = vertex_blend_3d(&pyramid, apex, 0.1, &FilletOptions::default(), tol(), None)
         .expect("vertex blend on pyramid apex (4-valence) should succeed");
 
-    let (_planes, tori, spheres, _others) = count_face_types(&result.brep);
+    let (_planes, tori, spheres, others) = count_face_types(&result.brep);
     assert_eq!(
         tori, 4,
         "expected 4 fillet strips (one per slant edge), got {tori}"
     );
     assert!(
-        spheres >= 1,
-        "expected at least one sphere patch at the apex, got {spheres}"
+        spheres + others >= 1,
+        "expected at least one committed apex cap face of any kind \
+         (Sphere/Gregory/PnS/Nurbs), got spheres={spheres} others={others}"
     );
     result.brep.validate().unwrap();
 }

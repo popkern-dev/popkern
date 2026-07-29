@@ -332,7 +332,7 @@ fn render_to_png_auto_fallback_works() {
 /// Requires a wgpu-compatible GPU adapter. Will fail in CI without a GPU.
 #[cfg(feature = "gpu")]
 #[test]
-#[ignore = "requires GPU adapter for wgpu headless rendering"]
+#[ignore = "env: requires a physical GPU adapter — this test deliberately bypasses the CPU fallback to prove the wgpu path; the fallback and software renderer are live-gated by render_to_png_auto_fallback_works and software_render_* in this file"]
 fn headless_render_unit_cube_to_png() {
     let brep = BRep::unit_cube(Tolerance::default()).expect("cube builds");
     let camera = popkern_viz::camera::Camera::default_iso();

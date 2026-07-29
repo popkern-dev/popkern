@@ -505,5 +505,5 @@ mod diagnostic_trim;
 mod setback_blend_export;
 #[path = "sphere_union_gap_tests.rs"]
 mod sphere_union_gap;
-#[path = "whole_object_closure_tests.rs"]
-mod whole_object_closure;
+// whole_object_closure_tests.rs (13 ignored PK-095 print-only
+// diagnostics) was retired with PK-183; findings in the ledger.

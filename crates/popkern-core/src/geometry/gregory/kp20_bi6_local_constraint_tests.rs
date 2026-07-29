@@ -993,7 +993,7 @@ fn kp20_tau_map_apex_derivatives_match_across_sectors() {
 /// measurement so a bad result is classified before it is interpreted as a
 /// geometry failure.
 #[test]
-#[ignore = "live frontier gate (WP2 landed): n=5 rotational-paper-regular-source enters assembly with worst_eq8=1.78e-5 pre-assembly (gate requires roundoff); post-assembly worst_eq8=4.5e-5, worst_eq9=1.7e-4, folds=0"]
+#[ignore = "known gap: PK-213 — n=5 rotational-paper-regular-source enters assembly with worst_eq8=1.78e-5 pre-assembly (gate requires 1e-12 roundoff); post-assembly worst_eq8=4.5e-5, worst_eq9=1.7e-4, folds=0. Re-measured 2026-07-28, unchanged"]
 fn kp20_sampler_ab_report_classifies_domain_before_residuals() {
     use super::super::kp20_bi6_tau_solve_assemble::{
         Kp20PlanarTauPaperRowFamily, Kp20PlanarTauPaperSolveInput,
@@ -2258,7 +2258,7 @@ fn projected_pr08_q1_q3_candidates_rank_closed_tau_domain_before_full_sampler() 
 }
 
 #[test]
-#[ignore = "live frontier gate (WP2 landed): NearOriginLeft[0,6] is pinned by 3 eq(14)/Fig.8 vector rows (gate requires 0); escape projection itself converges (excess=0, delta=5.5e-1, residual=2.6e-14 across reg 1e-10..1e-4)"]
+#[ignore = "known gap: PK-213 — NearOriginLeft[0,6] is pinned by 3 eq(14)/Fig.8 vector rows on the real CC-ring border (gate requires 0); escape projection itself converges (excess=0, delta=5.5e-1, residual=2.6e-14 across reg 1e-10..1e-4). Re-measured 2026-07-28, unchanged"]
 fn projected_section42_former_escape_coefficients_are_not_bound_by_accepted_rows() {
     use super::super::kp20_bi6_tau_f3_solve::Kp20PlanarTauCoeff;
     use super::super::kp20_bi6_tau_solve_assemble::{
@@ -3340,17 +3340,11 @@ fn lsq_guide_apex_directional_derivatives_match_across_spokes() {
 
 // --- Phase D probe: planar guide should satisfy Lemma 4 ---------
 
-/// A planar guide `g(x, y) = (x, y, 0)` sampled into a tri6 sector
-/// barycentrically. THIS GUIDE DOES NOT SATISFY KP18 (3)-(5)
-/// pairwise C^k joins — those joins use specific weights
-/// `(w0, w1, w2) = (-1, 2c, 2(1-c))` that the naive barycentric
-/// lifting does not respect for n ≠ 4.
-///
-/// Empirically this probe fails (order 1 ~1.3, order 3 ~75), which
-/// confirms the test below: Lemma 4 is NOT a consequence of g
-/// being C^∞; it requires the KP18 join structure.
+/// Negative control (active): barycentric tri6 lifting does NOT
+/// satisfy the KP18 (3)-(5) joins (weights `(-1, 2c, 2(1-c))`), so
+/// Lemma 4 fails on it (order-1 ~1.3; ADR 2026-06-23-kp20-bi6-
+/// paper-grade-guide-from-kp18.md). Roundoff pass = re-audit.
 #[test]
-#[ignore = "negative-control: naive barycentric planar lifting does NOT satisfy KP18 (3)–(5) for n != 4, so Lemma 4 also fails. Documented finding from ADR 2026-06-23-kp20-bi6-paper-grade-guide-from-kp18.md."]
 fn lemma4_fails_on_naive_barycentric_planar_guide() {
     use crate::geometry::Point3;
     use crate::geometry::gregory::bernstein_tri6::{TRI6_CP_COUNT, flat_index};
@@ -3413,12 +3407,18 @@ fn lemma4_fails_on_naive_barycentric_planar_guide() {
             o2 = worst_per_order[2],
             o3 = worst_per_order[3],
         );
-        for (i, &w) in worst_per_order.iter().enumerate() {
-            assert!(
-                w < 1e-10,
-                "PLANAR guide Lemma 4 defect at order {i} = {w:e} (should be ≤ 1e-10)",
-            );
-        }
+        // Order 0 holds; order 1 must be visibly broken (~1.3).
+        assert!(
+            worst_per_order[0] < 1e-10,
+            "PLANAR guide n={n}: order-0 join should hold at roundoff, got {:e}",
+            worst_per_order[0],
+        );
+        assert!(
+            worst_per_order[1] > 1e-2,
+            "PLANAR guide n={n}: order-1 KP18 join unexpectedly satisfied \
+             (defect {:e} ≤ 1e-2) — Lemma 4 no longer discriminates; re-audit",
+            worst_per_order[1],
+        );
     }
 }
 

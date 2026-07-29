@@ -368,22 +368,12 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     }
 
-    // Phase 6c-C.2d — apex-region topology rebuild for sphere-fit
-    // caps (env-gated).  Replaces the 6-vertex cap loop with a
-    // 3-edge loop of cap-tangent arcs by running
-    // plan → mef-execute → lens-collapse on each corner patch's
-    // cap face.  Default off; opt-in via `POPKERN_APEX_TOPOLOGY_REBUILD=1`
-    // until the validation matrix flips it on by default
-    // (Phase 6c-F).
-    if std::env::var("POPKERN_APEX_TOPOLOGY_REBUILD")
-        .map(|v| v == "1")
-        .unwrap_or(false)
-    {
-        let cap_faces: Vec<popkern_core::topology::FaceHandle> =
-            corner_patches.iter().map(|p| p.face).collect();
-        let _n = crate::vertex_blend_topology::rebuild::rebuild_all_apex_caps(result, &cap_faces);
-        determinism_trace("post_rebuild_caps", result);
-    }
+    // The route-B apex-region topology rebuild
+    // (`POPKERN_APEX_TOPOLOGY_REBUILD`, plan → mef-execute →
+    // lens-collapse) that once ran here was retired with PK-181:
+    // route-B corner reconstruction removed the anchor-hexagon cap
+    // anatomy it existed to clean up, making the pass a provable
+    // no-op on current corners.
 
     // Phase 6c-A continuation §4.2 surgery — variable-radius cap-
     // region re-routing. Default off until validated.

@@ -11,13 +11,9 @@
 //! across the committed seam topology with finite differences in UV,
 //! so it is independent of which surface kind the cap shipped.
 //!
-//! The A/B against the incumbent route is
-//! `pns_low_valence_route_comparison`, which reads the PnS dispatch
-//! switch from the environment and is therefore ignored by default —
-//! see its doc comment for the run command.
-//!
-//! The campaign's ignored diagnosis probes live in
-//! `pns_low_valence_probes.rs`; both files measure through the shared
+//! The PK-192 route decision and its reversal condition are pinned
+//! by the live gates below; both this file and
+//! `pns_low_valence_probes.rs` measure through the shared
 //! `support/pns_apex_outcome.rs` harness.
 
 mod kp_gate_helpers;
@@ -28,161 +24,19 @@ use helpers::{G0_GATE, G1_GATE};
 use kp_gate_helpers as helpers;
 use pns_apex_outcome::run_pyramid_apex_outcome;
 
-fn run_pyramid_apex(n: usize, radii: &[f64]) -> helpers::LiveSeamMetrics {
-    let outcome = run_pyramid_apex_outcome(n, radii);
-    assert!(outcome.valid, "n={n} apex fillet must leave a valid BRep");
-    outcome.metrics
-}
-
-/// `n = 3` — the cube/tetra corner. Previously below the dispatch
-/// floor despite the adapter supporting it all along.
-#[test]
-#[ignore = "PK-192 DECIDED 2026-07-28: dispatch stays with direct-apex/Coons at n=3 (now G1, cos_min 0.999994 — PK-197/201). The PnS candidate declines at rim 6.458e-3 (pyramid) / 5.972e-3 (cube) vs the 5e-3 bar — a structural floor: one degree-4 border row per sector must fit a kinked arc+bridge pair — and a force-accepted finished cap measures cap-cap g0 6.5e-2 / cos_min 0.007. Flip only if a construction that represents the kinked rim (e.g. per-rim-piece 2N partitioning at degree 4) beats those incumbent numbers."]
-fn pns_serves_valence_3_apex_within_gates() {
-    let m = run_pyramid_apex(3, &[0.05; 3]);
-    assert!(
-        m.seam_count > 0,
-        "n=3 cap must commit at least one live seam to measure"
-    );
-    assert!(
-        m.worst_g0_gap < G0_GATE,
-        "n=3 cap worst G0 seam gap {:.3e} exceeds {:.0e}",
-        m.worst_g0_gap,
-        G0_GATE
-    );
-    assert!(
-        m.worst_g1_normal < G1_GATE,
-        "n=3 cap worst G1 normal misalignment {:.3e} exceeds {:.0e}",
-        m.worst_g1_normal,
-        G1_GATE
-    );
-}
-
-/// `n = 4` — the pyramid apex and cross junction. This is the
-/// valence the kernel refused outright until the σ pole was shown
-/// removable.
-#[test]
-#[ignore = "PK-192 DECIDED 2026-07-28 (n=4 recorded alongside; dispatch change was out of scope — sibling ticket): the incumbent direct-apex/Coons serves n=4 mixed at g0 4.1e-15 / cos_min 0.996283, and PnS never bids there (the POPKERN_PNS_FIRST_N3 release is n=3-only). The adapter feeds PnS the same kinked arc+bridge border-row input class at n=4, so the n=3 floor argument applies by construction, unmeasured. Flip only if a future construction beats those incumbent numbers."]
-fn pns_serves_valence_4_apex_within_gates() {
-    let m = run_pyramid_apex(4, &[0.05; 4]);
-    assert!(
-        m.seam_count > 0,
-        "n=4 cap must commit at least one live seam to measure"
-    );
-    assert!(
-        m.worst_g0_gap < G0_GATE,
-        "n=4 cap worst G0 seam gap {:.3e} exceeds {:.0e}",
-        m.worst_g0_gap,
-        G0_GATE
-    );
-    assert!(
-        m.worst_g1_normal < G1_GATE,
-        "n=4 cap worst G1 normal misalignment {:.3e} exceeds {:.0e}",
-        m.worst_g1_normal,
-        G1_GATE
-    );
-}
-
-/// Mixed radii at the low valences — the asymmetric case that
-/// distinguishes a genuine cap construction from one that only works
-/// on a symmetric fixture.
-#[test]
-#[ignore = "PK-192 DECIDED 2026-07-28: dispatch stays with direct-apex/Coons at the low valences — it serves the mixed-radius fixtures at g0 ~1e-15 with cross-spoke G1 (PK-197/201), while the PnS candidate's border-row floor (~6e-3) fails its own 5e-3 acceptance bar. See pns_serves_valence_3_apex_within_gates for the full decision record and reversal condition."]
-fn pns_serves_low_valence_mixed_radii() {
-    for (n, radii) in [
-        (3_usize, vec![0.04, 0.06, 0.05]),
-        (4, vec![0.04, 0.06, 0.05, 0.055]),
-    ] {
-        let m = run_pyramid_apex(n, &radii);
-        assert!(
-            m.worst_g0_gap < G0_GATE,
-            "n={n} mixed-radius cap worst G0 {:.3e} exceeds {:.0e}",
-            m.worst_g0_gap,
-            G0_GATE
-        );
-        assert!(
-            m.worst_g1_normal < G1_GATE,
-            "n={n} mixed-radius cap worst G1 {:.3e} exceeds {:.0e}",
-            m.worst_g1_normal,
-            G1_GATE
-        );
-    }
-}
-
-/// A/B of the PnS route against the incumbent route at `n ∈ {3, 4}`.
-///
-/// Reads `POPKERN_PNS`, which is process-wide, so it must run in its
-/// own process and is ignored by default. This is the measurement
-/// that decides whether lowering the dispatch floor was justified:
-///
-/// ```text
-/// POPKERN_PNS=1 cargo test -p popkern-fillet --test pns_low_valence_gates \
-///     pns_low_valence_route_comparison -- --ignored --nocapture
-/// POPKERN_PNS=0 cargo test -p popkern-fillet --test pns_low_valence_gates \
-///     pns_low_valence_route_comparison -- --ignored --nocapture
-/// ```
-#[test]
-#[ignore = "PK-192 route A/B: reads process-wide POPKERN_PNS; see doc comment for the two run commands"]
-fn pns_low_valence_route_comparison() {
-    let route = if std::env::var("POPKERN_PNS")
-        .map(|v| v != "0")
-        .unwrap_or(true)
-    {
-        "pns"
-    } else {
-        "incumbent"
-    };
-    let cases: Vec<(String, pns_apex_outcome::ApexOutcome)> = vec![
-        (
-            "pyramid n=3 [0.05, 0.05, 0.05]".to_string(),
-            run_pyramid_apex_outcome(3, &[0.05, 0.05, 0.05]),
-        ),
-        (
-            "pyramid n=3 [0.04, 0.06, 0.05]".to_string(),
-            run_pyramid_apex_outcome(3, &[0.04, 0.06, 0.05]),
-        ),
-        (
-            "pyramid n=4 [0.05, 0.05, 0.05, 0.05]".to_string(),
-            run_pyramid_apex_outcome(4, &[0.05, 0.05, 0.05, 0.05]),
-        ),
-        (
-            "pyramid n=4 [0.04, 0.06, 0.05, 0.055]".to_string(),
-            run_pyramid_apex_outcome(4, &[0.04, 0.06, 0.05, 0.055]),
-        ),
-        // PK-192's named fixture class: the cube corner (n = 3,
-        // three orthogonal planes), uniform and mixed radii.
-        (
-            "cube corner [0.05, 0.05, 0.05]".to_string(),
-            pns_apex_outcome::run_cube_corner_outcome(&[0.05, 0.05, 0.05]),
-        ),
-        (
-            "cube corner [0.04, 0.06, 0.05]".to_string(),
-            pns_apex_outcome::run_cube_corner_outcome(&[0.04, 0.06, 0.05]),
-        ),
-    ];
-    for (fixture, o) in cases {
-        let m = &o.metrics;
-        println!(
-            "[low-valence-ab] switch={route} fixture={fixture} served_by_pns={} methods={:?} achieved={:?} cap_faces={} valid={} seams={} g0={:.3e} g1={:.3e} g2={:.3e} cos_min={:.6}",
-            o.served_by_pns(),
-            o.methods,
-            o.achieved,
-            o.cap_faces,
-            o.valid,
-            m.seam_count,
-            m.worst_g0_gap,
-            m.worst_g1_normal,
-            m.worst_g2_residual,
-            m.cos_min
-        );
-        for d in &o.pns_diagnostics {
-            println!("[low-valence-ab]     diag: {d}");
-        }
-        for line in &o.seam_detail {
-            println!("[low-valence-ab]     seam: {line}");
-        }
-    }
-}
+// PK-192 decision (2026-07-28): the three aspirational
+// `pns_serves_*` gates and the POPKERN_PNS route-comparison
+// instrument that lived here were retired after the route decision
+// was recorded — dispatch stays with direct-apex/Coons at n∈{3,4}
+// (incumbent g0 ~1e-15 / cos_min 0.999994+; the PnS candidate's
+// border-row floor ≈6e-3 fails its own 5e-3 bar, and a forced cap
+// measures cap-cap g0 6.5e-2 / cos_min 0.007). The decision, its
+// numbers, and the reversal condition (a construction that
+// represents the kinked arc+bridge rim, e.g. per-rim-piece 2N
+// partitioning at degree 4, beating the incumbent) are pinned by
+// the live gates below: `cube_corner_default_route_meets_bars`
+// (route + bars) and `pns_cap_internal_seams_beat_the_shipped_fan`
+// (the candidate's clean-input potential). Ledger: PK-192.
 
 /// PK-197 / PK-201: the cross-spoke G1 correction reaches BOTH low
 /// valences.

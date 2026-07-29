@@ -4,16 +4,38 @@
 //! seams are true twin pairs (one cap side, one cylinder side), and the
 //! production seam-ownership inventory is zero (no production side may
 //! twin residual scaffolding or dangle unpaired).
+//!
+//! Own test binary by design: every test sets the process-wide
+//! `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1` (disable the
+//! promoted-default fallback retry so a V-free decline fails loudly
+//! instead of silently retrying the apex-retaining path). Cargo runs
+//! each integration-test binary in its own process, and all tests
+//! here set the same value, so the env cannot leak into the
+//! default-with-fallback expectations of the main validation matrix.
 
-use crate::direct_apex_validate_helpers::{
-    EnvGuard, build_under_direct_apex, direct_apex_fallback_reasons,
-};
+#[allow(dead_code)] // shared helper module; this binary uses a subset
+#[path = "support/direct_apex_validate_helpers.rs"]
+mod direct_apex_validate_helpers;
+#[path = "kp_gate_helpers.rs"]
+mod helpers;
+
+use direct_apex_validate_helpers::{build_under_direct_apex, direct_apex_fallback_reasons};
 use popkern_core::topology::TopologyRole;
 
+/// Set the strict flag for the whole process, no restore: tests in
+/// this binary run as parallel threads of one process, and a
+/// per-test RAII restore would unset the flag under a still-running
+/// sibling. Every test here wants the same value, so a plain
+/// idempotent set is the race-free form.
+fn require_strict_v_free() {
+    unsafe {
+        std::env::set_var("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    }
+}
+
 #[test]
-#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
 fn direct_apex_stage_d_v_free_topology_acceptance() {
-    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    require_strict_v_free();
     let result = build_under_direct_apex(true, &[0.04, 0.06, 0.05, 0.07]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -99,9 +121,8 @@ fn direct_apex_stage_d_v_free_topology_acceptance() {
 }
 
 #[test]
-#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
 fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
-    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    require_strict_v_free();
     let result = build_under_direct_apex(true, &[0.04, 0.06, 0.05, 0.07]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -125,9 +146,8 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
 /// (measured: plan error -> legacy g1 ~1.0 before; native
 /// g0 2.2e-4 / g1 3.9e-4 after).
 #[test]
-#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
 fn direct_apex_strict_v_free_pyramid3_uniform_succeeds_without_fallback() {
-    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    require_strict_v_free();
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(
@@ -142,9 +162,8 @@ fn direct_apex_strict_v_free_pyramid3_uniform_succeeds_without_fallback() {
 /// materialization, so cap/strip/residual assemblies see no split
 /// junctions.
 #[test]
-#[ignore = "diagnostic gate: uses process-wide strict direct-apex env and must run in isolation"]
 fn direct_apex_strict_v_free_cube_mixed_succeeds_without_fallback() {
-    let _guard = EnvGuard::set("POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX", "1");
+    require_strict_v_free();
     let result = build_under_direct_apex(false, &[0.08, 0.10, 0.12]);
     let reasons = direct_apex_fallback_reasons(&result);
     assert!(

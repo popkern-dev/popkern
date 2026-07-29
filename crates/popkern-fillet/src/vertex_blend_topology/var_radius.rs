@@ -1,8 +1,9 @@
 //! Phase 6c-A continuation §4.2 — variable-radius apex-region
 //! topology rebuild.
 //!
-//! The uniform-radius rebuild in `super::{detect,plan,execute,collapse,rebuild}`
-//! produces a single-Sphere cap face with a 3-edge canonical
+//! The retired uniform-radius route-B rebuild (PK-181; `super::detect`
+//! remains as the anatomy pin) produced a single-Sphere cap face
+//! with a 3-edge canonical
 //! cap-tangent-arc loop.  Variable-radius corners cannot share
 //! one sphere across the whole apex (per-fillet spheres are
 //! nested, not coincident), so the canonical form is N
@@ -43,8 +44,6 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle, Verte
 mod var_radius_classify;
 #[path = "var_radius_geometry.rs"]
 mod var_radius_geometry;
-#[path = "var_radius_legacy.rs"]
-mod var_radius_legacy;
 #[path = "var_radius_path_b.rs"]
 mod var_radius_path_b;
 #[path = "var_radius_path_b_vertex_move.rs"]
@@ -53,8 +52,6 @@ mod var_radius_path_b_vertex_move;
 mod var_radius_vertex_split;
 
 pub(crate) use var_radius_classify::{TwinKind, classify_cap_loops};
-#[cfg(test)]
-pub(crate) use var_radius_legacy::dump_neighcyl_connectivity;
 use var_radius_path_b::{apply_path_b_plan, plan_path_b};
 pub(crate) use var_radius_vertex_split::split_apex_footprint_vertex;
 
@@ -224,15 +221,6 @@ mod tests_basic;
 #[cfg(test)]
 #[path = "var_radius_tests_classify.rs"]
 mod tests_classify;
-#[cfg(test)]
-#[path = "var_radius_tests_diagnostics.rs"]
-mod tests_diagnostics;
-#[cfg(test)]
-#[path = "var_radius_tests_g1.rs"]
-mod tests_g1;
-#[cfg(test)]
-#[path = "var_radius_tests_reroute.rs"]
-mod tests_reroute;
 #[cfg(test)]
 #[path = "var_radius_tests_support.rs"]
 mod var_radius_tests_support;

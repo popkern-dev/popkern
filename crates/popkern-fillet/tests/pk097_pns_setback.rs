@@ -4,7 +4,6 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
 #[test]
-#[ignore = "PK-097 Phase A: measurement + gate for the G1 setback candidate"]
 fn pns_setback_candidate_on_pentagon_g1() {
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");

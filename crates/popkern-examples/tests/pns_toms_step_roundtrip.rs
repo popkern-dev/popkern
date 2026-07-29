@@ -24,9 +24,6 @@ const SMOKE_FIXTURES: &[Fixture] = &[
         stem: "cube",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cube.obj"),
     },
-];
-
-const HEAVY_FIXTURES: &[Fixture] = &[
     Fixture {
         stem: "t1",
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T1.obj"),
@@ -52,14 +49,17 @@ const HEAVY_FIXTURES: &[Fixture] = &[
         obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/T012.obj"),
     },
     Fixture {
+        stem: "cylinder_partial",
+        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj"),
+    },
+];
+
+const HEAVY_FIXTURES: &[Fixture] = &[
+    Fixture {
         stem: "suzanne_all_configurations",
         obj: include_str!(
             "../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/suzanne_all_configurations.obj"
         ),
-    },
-    Fixture {
-        stem: "cylinder_partial",
-        obj: include_str!("../../../docs/code/ACM-ToMS-PnS-1032/1032/Src/testfile/cylinder.obj"),
     },
     Fixture {
         stem: "hand_partial",
@@ -77,7 +77,7 @@ fn pns_toms_step_outputs_round_trip_through_generic_import() {
 }
 
 #[test]
-#[ignore = "heavy PnS full-fixture STEP roundtrip; run explicitly for nightly/performance validation"]
+#[ignore = "heavy: 3 large PnS meshes (suzanne 1075 / hand 817 / airplane 1800 OBJ lines); nightly tier, PK-190 owns the CI wiring — the 10 smaller fixtures run by default above"]
 fn pns_toms_heavy_step_outputs_round_trip_through_generic_import() {
     run_roundtrip_fixtures(HEAVY_FIXTURES);
 }

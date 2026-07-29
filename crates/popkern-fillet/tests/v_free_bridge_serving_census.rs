@@ -44,96 +44,6 @@ fn mixed_radius_cube() -> BRep {
     .brep
 }
 
-/// Census used by the PK-153 widening work: dump the face layout of
-/// the V-free serving output. Run with
-/// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1 ... -- --ignored --nocapture`.
-#[test]
-#[ignore = "diagnostic census; run explicitly under the V-free env"]
-fn v_free_face_census_dump() {
-    let brep = mixed_radius_cube();
-    for (fh, f) in brep.faces.iter() {
-        let desc = match f.surface.as_ref().map(|s| &s.geometry) {
-            Some(SurfaceGeometry::Plane { normal, .. }) => {
-                format!("Plane n=({:.2},{:.2},{:.2})", normal.x, normal.y, normal.z)
-            }
-            Some(SurfaceGeometry::Cylinder { radius, .. }) => format!("Cylinder r={radius}"),
-            Some(SurfaceGeometry::Sphere { radius, .. }) => format!("Sphere r={radius}"),
-            Some(SurfaceGeometry::Gregory(_)) => "Gregory".to_string(),
-            Some(_) => "Other".to_string(),
-            None => "NoSurface".to_string(),
-        };
-        let verts: Vec<String> = brep
-            .face_outer_loop_positions(fh)
-            .iter()
-            .map(|p| format!("({:.2},{:.2},{:.2})", p.x, p.y, p.z))
-            .collect();
-        // Winding normal (Newell over the outer ring) vs stored surface
-        // normal + orientation flag: discriminates mirror-wound faces.
-        let ring = brep.face_outer_loop_positions(fh);
-        let mut newell = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
-        for i in 0..ring.len() {
-            let p = ring[i];
-            let q = ring[(i + 1) % ring.len()];
-            newell.x += (p.y - q.y) * (p.z + q.z);
-            newell.y += (p.z - q.z) * (p.x + q.x);
-            newell.z += (p.x - q.x) * (p.y + q.y);
-        }
-        let flag = f
-            .surface
-            .as_ref()
-            .map(|s| format!("orient_flag={}", s.orientation))
-            .unwrap_or_else(|| "orient_flag=?".into());
-        let winding_vs_surface = match f.surface.as_ref().map(|s| &s.geometry) {
-            Some(SurfaceGeometry::Plane { normal, .. }) => {
-                format!("winding_dot_surface={:+.3}", newell.dot(normal))
-            }
-            _ => format!(
-                "winding_newell=({:+.2},{:+.2},{:+.2})",
-                newell.x, newell.y, newell.z
-            ),
-        };
-        eprintln!(
-            "FACE {fh:?} [{:?}] {desc} {flag} {winding_vs_surface} ring={verts:?}",
-            f.role
-        );
-        // Half-edge sides: edge handle + twin's owning face.
-        let Some(loop_data) = brep.loops.get(f.outer_loop) else {
-            continue;
-        };
-        let start = loop_data.half_edge;
-        let mut he = start;
-        for _ in 0..brep.half_edges.len() {
-            let Some(data) = brep.half_edges.get(he) else {
-                break;
-            };
-            let origin = brep
-                .vertices
-                .get(data.origin)
-                .map(|v| {
-                    format!(
-                        "({:.2},{:.2},{:.2})",
-                        v.position.x, v.position.y, v.position.z
-                    )
-                })
-                .unwrap_or_else(|| "?".into());
-            let twin_face = brep
-                .half_edges
-                .get(data.twin)
-                .and_then(|t| brep.loops.get(t.loop_))
-                .map(|l| format!("{:?}", l.face))
-                .unwrap_or_else(|| "DEAD".into());
-            eprintln!(
-                "    side {:?} edge={:?} from={origin} twin-face={twin_face}",
-                he, data.edge
-            );
-            he = data.next;
-            if he == start {
-                break;
-            }
-        }
-    }
-}
-
 /// Production planes must not duplicate: two Production faces on the
 /// SAME plane whose regions share interior points indicate the
 /// face-family bridge double-cover (bridge face cloned the support
@@ -242,22 +152,15 @@ fn no_duplicate_production_plane_coverage() {
     }
 }
 
-/// PK-167 stage 1b acceptance runner: under the V-free env AND
-/// `PK167_INPLACE=1`, the constructive in-place rewrite path must
-/// serve the mixed cube with a closed shell (validated body, no
-/// boundary edges anywhere in the pipeline output) and the same
+/// PK-167 stage 1b acceptance: the constructive in-place rewrite
+/// is the DEFAULT serving path (`PK167_INPLACE` retired; the
+/// operator reads the inverted `PK167_INPLACE_OFF` opt-out, and
+/// V-free repeated-apex construction is DefaultOn for n >= 3 since
+/// PK-153/PK-167). The mixed cube must serve a closed shell —
+/// validated body, no boundary edges — with the same
 /// duplicate-coverage cleanliness as the bridge+repair path.
-/// Ignored because it reads process-wide env; run explicitly:
-/// `POPKERN_DIRECT_APEX_REQUIRE_V_FREE_REPEATED_APEX=1 PK167_INPLACE=1 \
-///  cargo test -p popkern-fillet --test v_free_bridge_serving_census \
-///  constructive_rewrite -- --ignored`
 #[test]
-#[ignore = "env-gated acceptance; see doc comment for the run command"]
 fn constructive_rewrite_serves_closed_shell() {
-    assert!(
-        std::env::var_os("PK167_INPLACE").is_some(),
-        "run with PK167_INPLACE=1 (and the V-free env)"
-    );
     let brep = mixed_radius_cube();
     assert!(
         brep.boundary_edges.is_empty(),

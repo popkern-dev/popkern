@@ -47,8 +47,6 @@ pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
-#[cfg(test)]
-mod apex_termination_spike;
 pub(crate) mod helpers;
 mod helpers_pcurve;
 mod kp13_bi5_promote;

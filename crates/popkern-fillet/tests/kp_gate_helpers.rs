@@ -24,9 +24,7 @@ use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fille
 #[path = "support/kp_gate_cap_outer.rs"]
 mod kp_gate_cap_outer;
 #[allow(unused_imports)]
-pub use kp_gate_cap_outer::{
-    CapOuterMetrics, measure_cap_outer_boundary, measure_cap_outer_boundary_including_pcurve_only,
-};
+pub use kp_gate_cap_outer::{CapOuterMetrics, measure_cap_outer_boundary};
 #[path = "support/kp_gate_shared_trims.rs"]
 mod kp_gate_shared_trims;
 #[allow(unused_imports)]
@@ -146,7 +144,11 @@ pub fn fillet_corner_full(
     (result.brep, faces)
 }
 
-fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
+/// Cap faces in construction-report order (corner patches, then
+/// exact-boundary committed faces), deduplicated without sorting.
+/// Ring-continuity metrics are order-sensitive, so callers that
+/// need adjacency must use this order, not SlotMap handle order.
+pub fn cap_faces_from_result(result: &BlendResult) -> Vec<FaceHandle> {
     let mut faces = Vec::new();
     // Ring continuity metrics are order-sensitive. Preserve the
     // construction report order and deduplicate without sorting by

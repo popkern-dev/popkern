@@ -4,7 +4,7 @@
 //! at valences ∈ {5, 6, 7, 8, 10, 12} and verifies the full
 //! pipeline lands N bi-9 CP grids with finite values.
 
-use super::{try_kp_polar_bi6_cap, try_kp_polar_bi6_cap_via_table};
+use super::try_kp_polar_bi6_cap;
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::{
@@ -149,108 +149,11 @@ fn bi9_grid_corners_match_bi6_endpoints() {
     }
 }
 
-#[test]
-fn via_table_pentagon_produces_finite_bi9_grids() {
-    // Phase E.3 production-side wiring: same regular-pentagon
-    // fixture, the via-table path produces N=5 valid bi-9 grids
-    // and all sectors' (0, 0) corners agree on a shared star.
-    let polar = regular_polar(5);
-    let patches = try_kp_polar_bi6_cap_via_table(&polar, 5, 0.0).unwrap();
-    assert_eq!(patches.len(), 5);
-    let star = patches[0][0][0];
-    for patch in &patches {
-        for row in patch {
-            for cp in row {
-                assert!(cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite());
-            }
-        }
-        let c = patch[0][0];
-        let d = ((c.x - star.x).powi(2) + (c.y - star.y).powi(2) + (c.z - star.z).powi(2)).sqrt();
-        assert!(d < 1e-10, "via-table star drift: {c:?} vs {star:?}");
-    }
-}
-
-#[test]
-fn via_table_succeeds_across_valences_5_to_10() {
-    // Smoke test across a broader valence band.
-    for n in [5usize, 6, 7, 8, 10] {
-        let polar = regular_polar(n);
-        let patches = try_kp_polar_bi6_cap_via_table(&polar, 5, 0.0)
-            .unwrap_or_else(|e| panic!("n={n} via-table failed: {e}"));
-        assert_eq!(patches.len(), n, "n={n}: patch count");
-        for patch in &patches {
-            for row in patch {
-                for cp in row {
-                    assert!(
-                        cp.x.is_finite() && cp.y.is_finite() && cp.z.is_finite(),
-                        "n={n}: non-finite CP {cp:?}"
-                    );
-                }
-            }
-        }
-    }
-}
-
-/// WP5 fold diagnostic (2026-07-02 verification): the via-table cap
-/// FAILS the recovery plan's fold-free gate on the planar-spoke
-/// fixture — every patch self-intersects at every valence (worst
-/// jacobian normal-cos −1.0), with control points spanning ~[−25, 33]
-/// on a unit-radius input at n = 3, 5, 7, 9. Root cause is the
-/// polar→cap bridge, not the phase A–E table machinery (whose
-/// eq (2)/(3) gates close at machine zero on circulant-sector
-/// inputs): see `assembly_eq2_residual_diagnostic` — the bridge does
-/// not (S1)-propagate sector 0's near-star CPs and does not
-/// paper-strictly identify the cross-sector row (eq (2) residual
-/// ≈ 11 end-to-end). Not a pass/fail gate until the bridge is
-/// completed.
-#[test]
-#[ignore = "WP5 open: polar→cap bridge incomplete — via-table cap folds on the planar spoke fixture (see doc comment)"]
-fn via_table_cap_fold_probe() {
-    use popkern_core::geometry::gregory::{GregoryPatch, RectangularGregoryBiNonic};
-    for n in [3usize, 5, 6, 7, 8, 9, 10] {
-        let polar = regular_polar(n);
-        let patches = match super::try_kp_polar_bi6_cap_via_table(&polar, 5, 1.0e-3) {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("PROBE n={n}: via-table cap failed: {e}");
-                continue;
-            }
-        };
-        let mut intersecting = 0_usize;
-        let mut worst_cos = f64::INFINITY;
-        for grid in &patches {
-            let gp = GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic {
-                grid: *grid,
-            }));
-            let report = gp.self_intersection_report(1.0e-9);
-            if report.intersects() {
-                intersecting += 1;
-            }
-            worst_cos = worst_cos.min(report.min_jacobian_normal_cos);
-        }
-        let mut min = [f64::INFINITY; 3];
-        let mut max = [f64::NEG_INFINITY; 3];
-        for grid in &patches {
-            for row in grid.iter() {
-                for cp in row.iter() {
-                    min[0] = min[0].min(cp.x);
-                    min[1] = min[1].min(cp.y);
-                    min[2] = min[2].min(cp.z);
-                    max[0] = max[0].max(cp.x);
-                    max[1] = max[1].max(cp.y);
-                    max[2] = max[2].max(cp.z);
-                }
-            }
-        }
-        eprintln!(
-            "PROBE n={n}: patches={} intersecting={intersecting} worst_jacobian_normal_cos={worst_cos:.3e} bbox=[{:.2},{:.2}]x[{:.2},{:.2}]x[{:.2},{:.2}]",
-            patches.len(),
-            min[0],
-            max[0],
-            min[1],
-            max[1],
-            min[2],
-            max[2],
-        );
-    }
-}
+// The via-table polar->cap bridge (try_kp_polar_bi6_cap_via_table)
+// and its finiteness smoke tests were retired with PK-181: the
+// bridge had no production caller (KP20 paper cap is the polar
+// production path; the KP15 TBdata backstop assembles via
+// assemble_bi6_polar_cap_from_net) and carried a recorded fold
+// defect (every patch self-intersects on the planar-spoke fixture;
+// see docs/decisions/2026-06-22-kp15-bi6-deep-interior-without-maple.md,
+// 2026-07-02 verification correction).

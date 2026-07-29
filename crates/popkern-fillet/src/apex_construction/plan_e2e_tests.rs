@@ -19,10 +19,8 @@
 //! [`super::plan_e2e_extras_tests`].  Shared helpers live in
 //! [`super::plan_e2e_test_helpers`].
 
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, EdgeHandle, VertexHandle};
 
-use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{FilletRadius, FilletSpec};
 
 use super::cap_kind::CapKind;
@@ -36,38 +34,6 @@ use super::telemetry::ConstructionRung;
 // ---------------------------------------------------------------
 // Issue 2 — Direct rung end-to-end
 // ---------------------------------------------------------------
-
-#[test]
-#[ignore = "diagnostic dump for select_per_fillet_centre"]
-fn diagnostic_dump_cube_fillet_cylinders() {
-    let cube = BRep::unit_cube(test_tolerance()).expect("cube builds");
-    let (apex, edges) = pick_apex_and_incident_edges(&cube);
-    let apex_pos = cube.vertices.get(apex).unwrap().position;
-    eprintln!("apex_pos = {apex_pos:?}");
-    let radius = 0.1;
-    let surfaces: Vec<FilletSurfaceResult> = build_fillet_surfaces(&cube, &edges, radius);
-    for (i, fs) in surfaces.iter().enumerate() {
-        if let SurfaceGeometry::Cylinder {
-            origin,
-            axis,
-            radius: r,
-        } = &fs.surface
-        {
-            eprintln!("fillet {i}: cylinder origin={origin:?} axis={axis:?} r={r}");
-            let apex_to_origin = (
-                origin.x - apex_pos.x,
-                origin.y - apex_pos.y,
-                origin.z - apex_pos.z,
-            );
-            eprintln!("  apex_to_origin = {apex_to_origin:?}");
-            use popkern_core::geometry::curve::CurveEval;
-            let (t0, t1) = fs.trim_curve_1.parameter_range();
-            let trim1_start = fs.trim_curve_1.point_at(t0);
-            let trim1_end = fs.trim_curve_1.point_at(t1);
-            eprintln!("  trim_curve_1 endpoints: start={trim1_start:?} end={trim1_end:?}",);
-        }
-    }
-}
 
 #[test]
 fn direct_rung_succeeds_on_uniform_cube() {
@@ -130,8 +96,10 @@ fn direct_rung_succeeds_on_uniform_cube() {
     );
 }
 
+/// Re-pointed with PK-181: the "mirror-era baseline" ignore was
+/// stale — the strict Direct pass succeeds on real inscribed
+/// strips at N=4 (measured 2026-07-28).
 #[test]
-#[ignore = "mirror-era baseline: pre-PK-099 ball placement put pyramid strips on the exterior mirror; the apex Direct/Setback/Gregory rungs were derived against that geometry and need re-derivation on real inscribed strips (PK-101, root cause of the PK-092 direct_apex 8/8 baseline)"]
 fn direct_rung_succeeds_on_uniform_pyramid() {
     let pyramid = BRep::square_pyramid(1.0, 0.8, test_tolerance()).expect("square pyramid builds");
     // Pyramid apex is the highest vertex; pick the one with
@@ -189,10 +157,19 @@ fn direct_rung_succeeds_on_uniform_pyramid() {
 // Issue 3 — Setback and Open rung end-to-end
 // ---------------------------------------------------------------
 
+/// Re-pointed with PK-181 to a hexagonal pyramid — the only
+/// end-to-end Setback-rung coverage in the repo. Measured on real
+/// inscribed strips (2026-07-28): forcing one fillet to an
+/// unsupported Plane also fails sphere-fit for its two RING
+/// NEIGHBOURS (the forced surface corrupts the trim curves
+/// bracketing their boundary segments → NoIntersection), so a
+/// forced apex loses 3 terminations, not 1. N=4/5 therefore
+/// bottom out at Open (< 3 survivors); N=6 leaves exactly the 3
+/// survivors `plan_setback_rung` requires.
 #[test]
-#[ignore = "mirror-era baseline: pre-PK-099 ball placement put pyramid strips on the exterior mirror; the apex Direct/Setback/Gregory rungs were derived against that geometry and need re-derivation on real inscribed strips (PK-101, root cause of the PK-092 direct_apex 8/8 baseline)"]
 fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
-    let pyramid = BRep::square_pyramid(1.0, 0.8, test_tolerance()).expect("square pyramid builds");
+    let pyramid =
+        BRep::n_gonal_pyramid(6, 1.0, 0.8, test_tolerance()).expect("hexagon pyramid builds");
     let (apex, edges) = {
         let mut best: Option<(VertexHandle, Vec<EdgeHandle>)> = None;
         for v in pyramid.vertices.keys() {
@@ -202,18 +179,19 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
                     es.insert(he.edge);
                 }
             }
-            if es.len() == 4 {
+            if es.len() == 6 {
                 best = Some((v, es.into_iter().collect()));
                 break;
             }
         }
-        best.expect("pyramid has a 4-valence apex")
+        best.expect("pyramid has a 6-valence apex")
     };
     let radius = 0.05;
     let mut surfaces = build_fillet_surfaces(&pyramid, &edges, radius);
-    // Force the first fillet to be Plane (unsupported) — strict
-    // pass fails, lenient pass skips, leaving 3 successful
-    // fillets → Setback rung succeeds.
+    // Force one fillet to be Plane (unsupported) — strict pass
+    // fails; the lenient pass skips it AND loses its two ring
+    // neighbours to the corrupted boundary brackets, leaving 3
+    // successful fillets → Setback rung succeeds at its minimum.
     force_unsupported_kind(&mut surfaces, 1);
     let specs: Vec<FilletSpec> = edges
         .iter()
@@ -224,13 +202,14 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
         .collect();
 
     let plan = plan_apex_resolution(&pyramid, apex, &specs, &surfaces, &test_tolerance(), None)
-        .expect("Setback rung should succeed with 3 of 4 fillets");
+        .expect("Setback rung should succeed with 3 surviving fillets of 6");
 
     assert_eq!(plan.apex_vertex, apex);
     assert!(
         matches!(plan.telemetry.rung, ConstructionRung::Setback { .. }),
-        "expected Setback rung, got {:?}",
+        "expected Setback rung, got {:?}; telemetry: {:?}",
         plan.telemetry.rung,
+        plan.telemetry,
     );
     assert!(
         plan.telemetry.fallback_reason.is_some(),
@@ -244,11 +223,13 @@ fn setback_rung_succeeds_when_one_pyramid_fillet_unsupported() {
             .contains("Direct rung failed"),
         "fallback_reason should mention Direct's failure",
     );
-    // Setback has only the 3 successful fillets in the cap.
+    // Setback keeps only the 3 surviving fillets in the cap (the
+    // forced fillet plus its two boundary-corrupted neighbours are
+    // omitted — see the doc comment).
     assert_eq!(
         plan.n_fillets(),
         3,
-        "Setback omits the 1 unsupported fillet",
+        "Setback must omit the unsupported fillet and its two affected neighbours",
     );
 }
 

@@ -37,7 +37,7 @@
 //! | cube_extreme     | 3       | [0.02, 0.10, 0.20]  (1:10 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_20  | 3       | [0.01, 0.10, 0.20]  (1:20 ratio)     | binonic commercial gates pass |
 //! | cube_extreme_30  | 3       | [0.0067, 0.10, 0.20]  (1:30 ratio)   | binonic commercial gates pass |
-//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | binonic commercial gates pass |
+//! | pyramid4_mixed   | 4       | [0.04, 0.06, 0.05, 0.07]             | direct-apex partition (gated in direct_apex_validation_matrix) |
 //! | cube_extreme_40  | 3       | [0.005, 0.10, 0.20]  (1:40 ratio)    | legacy route, no K-P ring |
 //! | cube_extreme_50  | 3       | [0.004, 0.10, 0.20]  (1:50 ratio)    | legacy route, no K-P ring |
 //! | cube_extreme_100 | 3       | [0.002, 0.10, 0.20]  (1:100 ratio)   | legacy route, no K-P ring |
@@ -51,9 +51,9 @@
 //!   binonic surfaces through direct exact-boundary spoke-row
 //!   optimization. cube_extreme_40+ and cube_tiny_radii route
 //!   through legacy construction instead of the K-P rung.
-//! * pyramid4_mixed now ships rectangular binonic surfaces that
-//!   satisfy the same commercial G0/G1/G2 ring gates as the cube
-//!   fixtures.
+//! * pyramid4_mixed promotes to the direct-apex partition
+//!   (PK-099) and is gated in `direct_apex_validation_matrix`;
+//!   this file carries no binonic gate for it (PK-182).
 //! * N >= 5 dispatches PnS-first (KP20 paper cap behind the polar
 //!   flag); the K-P binonic ring was written for N in {3,4} and is
 //!   not the high-valence route. The N >= 5 rows gate the PK-089
@@ -65,10 +65,12 @@
 //! satisfied. Those are a different code-path; testing them
 //! belongs in a sphere-shortcut suite.
 //!
-//! The active acceptance in this file covers the selected construction
-//! family for each fixture. Wider asymmetry and unsupported-valence
-//! continuity tests remain ignored until they produce measurable
-//! rectangular binonic rings.
+//! Every gate in this file asserts the serving construction route
+//! (read from the recorded dispatch decision) before measuring
+//! quality, so a gate can never blind-green by measuring a route
+//! that did not run (PK-182). Fixtures whose selected route is
+//! legacy or direct-apex are gated on those routes instead of
+//! carrying an ignored binonic gate here.
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -82,28 +84,41 @@ mod helpers;
 #[path = "support/kp_production_route.rs"]
 mod kp_production_route;
 use helpers::{
-    N_SAMPLES, assert_all_binonic, assert_commercial_gates, assert_no_regression, collect_patches,
-    fillet_corner, incident_edges, measure_ring, pick_vertex_with_valence,
+    N_SAMPLES, assert_all_binonic, assert_commercial_gates, cap_faces_from_result, collect_patches,
+    incident_edges, measure_ring,
 };
 use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
 
-fn run_cube(radii: &[f64], use_kp_binonic: bool) -> helpers::RingMetrics {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let edges = incident_edges(&cube, vertex);
-    assert_eq!(edges.len(), 3);
-    let (brep, faces) = fillet_corner(&cube, &edges, radii, use_kp_binonic);
-    let patches = collect_patches(&brep, &faces);
-    assert_eq!(patches.len(), 3, "expected 3 Gregory sub-patches on cube");
-    measure_ring(&patches, N_SAMPLES)
-}
-
+/// Route-selection precondition (PK-182): a binonic continuity
+/// gate is only meaningful if the K-P promotion actually served
+/// the fixture. Reads the recorded dispatch decision instead of
+/// re-deriving selection in test code, then verifies the
+/// committed patches are the binonic variant
+/// (`assert_all_binonic` also rejects an empty patch set, so the
+/// gate can never pass while measuring zero committed binonic
+/// patches).
 fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let edges = incident_edges(&cube, vertex);
-    let (brep, faces) = fillet_corner(&cube, &edges, radii, true);
-    let patches = collect_patches(&brep, &faces);
+    let result = fillet_cube_result(radii, true);
+    // The K-P binonic ring is a promotion inside the legacy
+    // `insert_vertex_blend` path, so the recorded apex route for
+    // these fixtures is `Legacy` — same record as fixtures where
+    // the ring never fires. The discriminating dispatch evidence
+    // is the committed corner patches themselves: a route record
+    // must exist, and every committed patch must be the
+    // `RectangularBiNonic` variant with at least one present
+    // (`assert_all_binonic`), so the gate can never measure a ring
+    // that did not ship.
+    let route =
+        result.repair_report.apex_routes.first().unwrap_or_else(|| {
+            panic!("[{fixture}] dispatch must record an apex construction route")
+        });
+    assert!(
+        route.fallback_reason.is_none(),
+        "[{fixture}] binonic gate precondition failed: apex route recorded a fallback: {:?}",
+        route.fallback_reason
+    );
+    let faces = cap_faces_from_result(&result);
+    let patches = collect_patches(&result.brep, &faces);
     assert_all_binonic(&patches, fixture);
     measure_ring(&patches, N_SAMPLES)
 }
@@ -176,16 +191,6 @@ fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
     );
 }
 
-fn run_square_pyramid_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
-    let pyr = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
-    let vertex = pick_vertex_with_valence(&pyr, 4).expect("square_pyramid apex");
-    let edges = incident_edges(&pyr, vertex);
-    let (brep, faces) = fillet_corner(&pyr, &edges, radii, true);
-    let patches = collect_patches(&brep, &faces);
-    assert_all_binonic(&patches, fixture);
-    measure_ring(&patches, N_SAMPLES)
-}
-
 // ── Commercial-gate tests ────────────────────────────────────
 
 #[test]
@@ -236,18 +241,23 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
     assert_commercial_gates("cube_extreme", &m);
 }
 
-#[test]
-#[ignore = "K-P/binonic route not selected: pyramid4_mixed promotes to the direct-apex partition (PK-099's orientation-honest convexity reclassified the apex SameSideConcave -> SameSideConvex, exposing that the legacy convex-quad path never reaches three-quad dispatch — its overlap-split loop is 12-he, not 2n — and shipped an unmeasured g0=1.34 fallback cap; the partition cap closes at 1.5e-14 and is gated by direct_apex_validation_matrix + reflection_zebra). Reactivate if a 2n-dispatch-ready convex-quad loop lands."]
-fn binonic_passes_commercial_gates_on_pyramid4_mixed() {
-    let m = run_square_pyramid_binonic(&[0.04, 0.06, 0.05, 0.07], "pyramid4_mixed");
-    assert_commercial_gates("pyramid4_mixed", &m);
-}
+// pyramid4_mixed: no binonic gate. PK-099's orientation-honest
+// convexity promoted the fixture to the direct-apex partition
+// (the legacy convex-quad path never reaches three-quad dispatch:
+// its overlap-split loop is 12-he, not 2n, and shipped an
+// unmeasured g0=1.34 fallback cap; the partition cap closes at
+// 1.5e-14). The serving route is gated by
+// `direct_apex_native_pyramid4_mixed_partition_no_fallback` in
+// direct_apex_validation_matrix.rs plus reflection_zebra. A
+// binonic gate here would measure a route that never fires
+// (PK-182). Reintroduce only alongside a 2n-dispatch-ready
+// convex-quad loop.
 
 // ── K-P/binonic dispatch stress fixtures ─────────────────────
 //
-// Wider-asymmetry tests remain ignored where the current helper does
-// not expose committed rectangular binonic rings. They become
-// continuity gates after the upstream dispatch blocker is closed.
+// Wider-asymmetry fixtures are gated on whichever route dispatch
+// actually selects: binonic continuity gates where the K-P ring
+// ships (≤ 1:30), legacy-route ownership tests beyond that.
 
 /// 1:20 radius asymmetry — twice as asymmetric as cube_extreme.
 #[test]
@@ -346,47 +356,16 @@ fn assert_extreme_cube_accepts_legacy_route_instead_of_kp_ring(radii: &[f64], fi
     );
 }
 
-/// **Documented non-applicable binonic gate — 1:40 asymmetry.**
-/// This fixture is covered by legacy construction before a
-/// measurable K-P/Gregory ring exists. The active route test above
-/// guards that selected construction; this continuity gate remains
-/// ignored because it intentionally asks for the non-selected family.
-#[ignore = "K-P/binonic route not selected: cube_extreme_40 is accepted by legacy construction"]
-#[test]
-fn binonic_passes_commercial_gates_on_cube_extreme_40() {
-    let m = run_cube_binonic(&[0.005, 0.10, 0.20], "cube_extreme_40");
-    assert_commercial_gates("cube_extreme_40", &m);
-}
-
-/// **Documented non-applicable binonic gate — 1:50 asymmetry.**
-/// This fixture is covered by legacy construction before a
-/// measurable K-P/Gregory ring exists.
-#[ignore = "K-P/binonic route not selected: cube_extreme_50 is accepted by legacy construction"]
-#[test]
-fn binonic_passes_commercial_gates_on_cube_extreme_50() {
-    let m = run_cube_binonic(&[0.004, 0.10, 0.20], "cube_extreme_50");
-    assert_commercial_gates("cube_extreme_50", &m);
-}
-
-/// **Documented non-applicable binonic gate — 1:100 asymmetry.**
-/// This fixture is covered by legacy construction before a
-/// measurable K-P/Gregory ring exists.
-#[ignore = "K-P/binonic route not selected: cube_extreme_100 is accepted by legacy construction"]
-#[test]
-fn binonic_passes_commercial_gates_on_cube_extreme_100() {
-    let m = run_cube_binonic(&[0.002, 0.10, 0.20], "cube_extreme_100");
-    assert_commercial_gates("cube_extreme_100", &m);
-}
-
-/// **Documented non-applicable binonic gate — tiny absolute
-/// radii.** The selected construction is valid legacy topology
-/// before a measurable K-P/Gregory ring exists.
-#[ignore = "K-P/binonic route not selected: cube_tiny_radii is accepted by legacy construction"]
-#[test]
-fn binonic_passes_commercial_gates_on_cube_tiny_radii() {
-    let m = run_cube_binonic(&[0.001, 0.002, 0.003], "cube_tiny_radii");
-    assert_commercial_gates("cube_tiny_radii", &m);
-}
+// cube_extreme_40/50/100 and cube_tiny_radii carry no binonic
+// continuity gates: those fixtures are served by legacy
+// construction (no measurable K-P ring exists), and a binonic
+// gate would measure a route that never fires (PK-182). The
+// serving route is pinned by the active
+// `cube_extreme_*_accepts_legacy_route_instead_of_kp_ring` tests
+// above (route == Legacy read from the dispatch record) and by
+// `cube_tiny_radii_declines_transactionally_on_perp_split_gap`.
+// Reintroduce a binonic gate for a fixture only when dispatch
+// actually selects the K-P rung for it.
 
 /// N >= 5 production-route gate (PK-075). The K-P binonic ring this
 /// file's other rows measure was written for N ∈ {3, 4} and is not
@@ -427,13 +406,14 @@ fn exact_boundary_route_matches_with_binonic_flag_on_cube_mixed() {
     assert_cube_mixed_exact_boundary_route(&binonic_result);
 }
 
-#[test]
-#[ignore = "comparison gate: non-binonic cube_extreme route currently produces no measurable Gregory patches"]
-fn binonic_matches_or_beats_two_stripe_on_cube_extreme() {
-    let mt = run_cube(&[0.02, 0.10, 0.20], false);
-    let mb = run_cube(&[0.02, 0.10, 0.20], true);
-    assert_no_regression("cube_extreme", &mt, &mb);
-}
+// No binonic-vs-two-stripe comparison gate: with the binonic
+// flag off, cube_extreme produces no measurable Gregory patches
+// at all, so there is no two-stripe baseline to compare against
+// (PK-182). The binonic output is held to the *absolute*
+// commercial G0/G1/G2 gates above, which is a stronger contract
+// than a relative no-regression bar, and
+// `cube_extreme_ships_binonic_no_warning` pins that the binonic
+// variant (not a lower rung) is what ships.
 
 #[test]
 fn cube_extreme_ships_binonic_no_warning() {

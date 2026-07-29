@@ -39,8 +39,6 @@ use popkern_core::topology::BRep;
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
-#[path = "support/phase_6c_a6_validation_probes.rs"]
-mod phase_6c_a6_validation_probes;
 use helpers::{fillet_corner, incident_edges, pick_vertex_with_valence};
 
 struct EnvGuard {
@@ -75,36 +73,11 @@ fn build_with_path_a(
     is_pyramid: bool,
     radii: &[f64],
 ) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
-    build_with_flags(is_pyramid, radii, /* topology_rebuild */ false)
-}
-
-/// Variant that also enables `POPKERN_APEX_TOPOLOGY_REBUILD=1`
-/// (Phase 6c-C 6→3 collapse for Sphere caps).  Used by the
-/// auto-trigger probe to measure whether the rebuild closes the
-/// path_a_relevant gaps apex relocation can't reach on collapsed-bridge
-/// fixtures.
-fn build_with_path_a_and_rebuild(
-    is_pyramid: bool,
-    radii: &[f64],
-) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
-    build_with_flags(is_pyramid, radii, /* topology_rebuild */ true)
-}
-
-fn build_with_flags(
-    is_pyramid: bool,
-    radii: &[f64],
-    topology_rebuild: bool,
-) -> (BRep, Vec<popkern_core::topology::FaceHandle>) {
     // POPKERN_STAGE4_WIDE_WIRE_TOL, POPKERN_APEX_FACE_LIFT, and
     // POPKERN_APEX_PATH_A are all default-on since #207 cleanup.
     // POPKERN_SPHERE_FIT_BOUNDARY remains opt-in (production
     // divergence on variable-radius corners).
     let _g1 = EnvGuard::set("POPKERN_SPHERE_FIT_BOUNDARY", "1");
-    let _g5 = if topology_rebuild {
-        Some(EnvGuard::set("POPKERN_APEX_TOPOLOGY_REBUILD", "1"))
-    } else {
-        None
-    };
 
     if is_pyramid {
         let pyr = BRep::n_gonal_pyramid(radii.len(), 1.0, 0.8, Tolerance::default()).unwrap();
@@ -165,81 +138,6 @@ pub(crate) fn breakdown(errors: &[ValidationError]) -> MetricBreakdown {
         }
     }
     out
-}
-
-/// A.6 baseline: dump per-bucket validate_all decomposition.
-/// Ignored — run with `--ignored --nocapture` for inspection.
-#[ignore]
-#[test]
-fn phase_6c_a6_validate_all_baseline() {
-    struct Case {
-        name: &'static str,
-        radii: &'static [f64],
-        is_pyramid: bool,
-    }
-    let cases: &[Case] = &[
-        Case {
-            name: "cube_uniform",
-            radii: &[0.10, 0.10, 0.10],
-            is_pyramid: false,
-        },
-        Case {
-            name: "cube_mixed",
-            radii: &[0.08, 0.10, 0.12],
-            is_pyramid: false,
-        },
-        Case {
-            name: "cube_extreme",
-            radii: &[0.02, 0.10, 0.20],
-            is_pyramid: false,
-        },
-        Case {
-            name: "pyramid3_uniform",
-            radii: &[0.10, 0.10, 0.10],
-            is_pyramid: true,
-        },
-        Case {
-            name: "pyramid4_uniform",
-            radii: &[0.05, 0.05, 0.05, 0.05],
-            is_pyramid: true,
-        },
-        Case {
-            name: "pyramid4_mixed",
-            radii: &[0.04, 0.06, 0.05, 0.07],
-            is_pyramid: true,
-        },
-    ];
-
-    eprintln!("\n=== A.6 validate_all categorised baseline (POPKERN_APEX_PATH_A=1) ===");
-    eprintln!("tolerance.linear() = {:.3e}", Tolerance::default().linear());
-    eprintln!(
-        "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
-        "fixture", "struct", "pathA", "other", "worst gap"
-    );
-    eprintln!("{:-<48}", "");
-    for case in cases {
-        let (brep, _faces) = build_with_path_a(case.is_pyramid, case.radii);
-        let errors = brep.validate_all();
-        let m = breakdown(&errors);
-        eprintln!(
-            "{:<18}  {:>5}  {:>5}  {:>5}  {:>10}",
-            case.name,
-            m.structural,
-            m.path_a_relevant,
-            m.other_geometric,
-            if m.worst_path_a_gap > 0.0 {
-                format!("{:.3e}", m.worst_path_a_gap)
-            } else {
-                "—".to_string()
-            },
-        );
-        for (i, err) in errors.iter().enumerate().take(5) {
-            eprintln!("    [{i}] {err:?}");
-        }
-        if errors.len() > 5 {
-            eprintln!("    ... ({} more)", errors.len() - 5);
-        }
-    }
 }
 
 /// A.6 cap-kind dispatch lock-in: every uniform-radius fixture must

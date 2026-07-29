@@ -1,21 +1,58 @@
-//! §5.3 Phase-10a Issue B determinism regression gate.
+//! §5.3 Phase-10a Issue B determinism regression gate (PK-178).
 //!
-//! Runs the validation sweep's key scoring logic TWICE in the
-//! same process and asserts the resulting metric vectors are
-//! bit-identical. Any HashMap/HashSet iteration-order leak into
-//! the output causes this test to fail, which is the definition
-//! of non-deterministic behaviour we must eliminate.
+//! Runs the fillet pipeline TWICE in the same process and asserts
+//! the outputs are bit-identical. Any HashMap/HashSet
+//! iteration-order leak into the output causes this test to fail,
+//! which is the definition of non-deterministic behaviour we must
+//! eliminate.
 //!
-//! Uses a compact per-fixture metric: `(min_cos, mean_cos,
-//! max_cos, max_position_gap)` for each variant rung. Compared
-//! bit-for-bit (`f64::to_bits`) — tolerates nothing, because
-//! genuine determinism means identical floating-point output.
+//! Two layers of comparison, both tolerating nothing:
+//! - a compact Gregory corner-patch metric `(min_cos, mean_cos,
+//!   max_cos, max_position_gap)` compared via `f64::to_bits`, and
+//! - a whole-body fingerprint hashing the serialized output
+//!   `BRep` — topology arenas, handles, and every geometry f64 —
+//!   so routes that commit no `corner_patches` records (e.g. the
+//!   direct-apex partition, PK-099) are still fully pinned.
+//!
+//! Fixtures cover two apex families through two dispatch routes:
+//! cube N=3 (biseptic Gregory rungs) and square-pyramid N=4 mixed
+//! (default commercial options → direct-apex partition), so
+//! determinism is not asserted on a single incidentally-stable
+//! fixture.
 
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::BRep;
+use popkern_core::topology::{BRep, VertexHandle};
 use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
+
+/// FNV-1a over the serde_json serialization of the output body.
+///
+/// serde_json prints f64 via shortest-roundtrip (ryu), which is
+/// injective on finite values, so two bodies hash equal only if
+/// every coordinate, control point, and handle matches exactly.
+fn body_fingerprint(brep: &BRep) -> u64 {
+    let bytes = serde_json::to_vec(brep).expect("output BRep must serialize");
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        hash ^= u64::from(b);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Deterministically ordered incident edges at `vertex` (BTreeSet
+/// dedup — a HashSet here would inject fixture-level variance that
+/// confounds pipeline-level determinism checks).
+fn incident_edges(brep: &BRep, vertex: VertexHandle) -> Vec<popkern_core::topology::EdgeHandle> {
+    brep.half_edges
+        .values()
+        .filter(|he| he.origin == vertex)
+        .map(|he| he.edge)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RawMetrics {
@@ -24,25 +61,15 @@ struct RawMetrics {
     max_cos_bits: u64,
     max_gap_bits: u64,
     patch_count: usize,
+    body_hash: u64,
 }
 
 fn fillet_cube_mixed_biseptic() -> RawMetrics {
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
-    // Use BTreeSet for de-dup (edge appears via 2 half-edges) to
-    // keep the incident-edges Vec stable across runs. A plain
-    // HashSet here causes test-fixture non-determinism that
-    // confounds pipeline-level determinism checks.
-    let incident_edges: Vec<_> = cube
-        .half_edges
-        .values()
-        .filter(|he| he.origin == vertex)
-        .map(|he| he.edge)
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .collect();
+    let edges = incident_edges(&cube, vertex);
     let radii = [0.08_f64, 0.10, 0.12];
-    let specs: Vec<FilletSpec> = incident_edges
+    let specs: Vec<FilletSpec> = edges
         .iter()
         .zip(radii.iter())
         .map(|(&e, &r)| FilletSpec {
@@ -119,7 +146,41 @@ fn fillet_cube_mixed_biseptic() -> RawMetrics {
         max_cos_bits: max_cos.to_bits(),
         max_gap_bits: max_gap.to_bits(),
         patch_count: patches.len(),
+        body_hash: body_fingerprint(&result.brep),
     }
+}
+
+/// Square-pyramid N=4 apex, mixed radii, default commercial
+/// options — dispatches through the direct-apex partition
+/// (PK-099), a different route from the cube's biseptic Gregory
+/// rungs. Partition caps commit no `corner_patches` records, so
+/// this fixture is pinned by the whole-body fingerprint.
+fn fillet_pyramid4_mixed_default() -> u64 {
+    let pyramid = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let apex = pyramid
+        .vertices
+        .keys()
+        .find(|&v| incident_edges(&pyramid, v).len() == 4)
+        .expect("square_pyramid has a valence-4 apex");
+    let edges = incident_edges(&pyramid, apex);
+    let radii = [0.06_f64, 0.08, 0.10, 0.08];
+    let specs: Vec<FilletSpec> = edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let opts = FilletOptions::default();
+    let result = fillet_edges(&pyramid, &specs, &opts, Tolerance::default(), None).unwrap();
+    assert!(
+        result.brep.faces.len() > pyramid.faces.len(),
+        "pyramid fillet must actually commit blend faces (got {} vs input {})",
+        result.brep.faces.len(),
+        pyramid.faces.len()
+    );
+    body_fingerprint(&result.brep)
 }
 
 /// Runs `fillet_cube_mixed_biseptic` twice, compares bit-for-bit.
@@ -129,9 +190,9 @@ fn fillet_cube_mixed_biseptic() -> RawMetrics {
 /// same input produce identical output — the foundation for
 /// reliable regression testing everywhere else.
 ///
-/// Currently EXPECTED TO FAIL until the HashMap → BTreeMap
-/// audit completes. When it passes, pin it to `#[test]` (not
-/// `#[ignore]`) and the regression is locked down.
+/// Pinned as a default `#[test]` since PK-178: the HashMap →
+/// BTreeMap audit landed and the gate passes; it now locks the
+/// regression down.
 #[test]
 fn bit_identical_output_on_repeat_run() {
     let a = fillet_cube_mixed_biseptic();
@@ -167,5 +228,24 @@ fn bit_identical_output_on_repeat_run() {
         "determinism failure: max_gap differs ({:.17} vs {:.17})",
         f64::from_bits(a.max_gap_bits),
         f64::from_bits(b.max_gap_bits)
+    );
+    assert_eq!(
+        a.body_hash, b.body_hash,
+        "determinism failure: serialized output body differs (hash {:#x} vs {:#x})",
+        a.body_hash, b.body_hash
+    );
+}
+
+/// Same bar on the square-pyramid N=4 mixed fixture through the
+/// default commercial route (direct-apex partition), so pipeline
+/// determinism is not asserted on a single incidentally-stable
+/// fixture or route (PK-178 acceptance).
+#[test]
+fn bit_identical_output_on_repeat_run_pyramid4_mixed() {
+    let a = fillet_pyramid4_mixed_default();
+    let b = fillet_pyramid4_mixed_default();
+    assert_eq!(
+        a, b,
+        "determinism failure: pyramid4_mixed serialized output body differs (hash {a:#x} vs {b:#x})"
     );
 }

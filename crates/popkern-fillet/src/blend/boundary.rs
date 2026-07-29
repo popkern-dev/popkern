@@ -143,10 +143,9 @@ pub enum BoundarySegment {
 /// gate.  Used by §6c-X.A.7's auto-dispatch: at uniform-radius
 /// apices the sphere-fit substitution produces degenerate cap-loop
 /// edges that Path A's vertex relocation can't resolve cleanly
-/// (see ADR / journal entries, 2026-05-01).  The caller suppresses
-/// substitution and the post-loop `POPKERN_APEX_TOPOLOGY_REBUILD`
-/// pass collapses the rolling-ball 6-vertex loop to 3-vertex
-/// directly.
+/// (see ADR / journal entries, 2026-05-01), so the caller
+/// suppresses substitution and lets the original rolling-ball
+/// topology stand.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct BlendBoundaryOptions {
     /// Force-disable sphere-fit substitution for this call,

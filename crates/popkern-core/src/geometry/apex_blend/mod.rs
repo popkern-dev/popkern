@@ -33,6 +33,7 @@ pub mod sphere_fit;
 
 // kp_binonic_term submodule lives in popkern-fillet (Stage 6c-B
 // requires the cap construction's pub(crate) machinery, which is
-// only accessible from inside that crate). The spike test for the
-// symmetric cube corner is in
-// `crates/popkern-fillet/src/blend/apex_termination_spike.rs`.
+// only accessible from inside that crate). The decisive-negative
+// apex-termination measurement that motivated this split is
+// recorded in docs/decisions/2026-04-27-apex-blend-topology-rebuild.md
+// §15.1/§16.2 (the probe module itself was retired with PK-181).

@@ -210,33 +210,3 @@ fn thin_wall_radius_declines_or_completes() {
         }],
     );
 }
-
-/// Diagnostic sweep (not a gate): where does single-edge completion
-/// actually break on the unit cube?
-#[test]
-#[ignore = "diagnostic sweep"]
-fn single_edge_radius_envelope_sweep() {
-    for r in [0.3, 0.4, 0.45, 0.475, 0.5, 0.55, 0.6, 0.7, 0.85, 0.95] {
-        let brep = BRep::unit_cube(default_tol()).unwrap();
-        let edge = brep.edges.keys().next().unwrap();
-        let result = fillet_edges(
-            &brep,
-            &[FilletSpec {
-                edge,
-                radius: FilletRadius::Constant(r),
-            }],
-            &FilletOptions::default(),
-            default_tol(),
-            None,
-        );
-        match result {
-            Ok(BlendResult { brep: out, .. }) => {
-                eprintln!(
-                    "[envelope] r={r}: completed, opens={}",
-                    welded_open_edges(&out)
-                );
-            }
-            Err(_) => eprintln!("[envelope] r={r}: declined"),
-        }
-    }
-}

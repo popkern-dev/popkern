@@ -2317,31 +2317,3 @@ fn comparison_four_variants_on_asymmetric_hexagon6_variable() {
         eprintln!("  {label} F_5 = {f:.4e}, eq(2) = {e2:.2e}, eq(3) = {e3:.2e}");
     }
 }
-
-#[test]
-#[ignore = "Phase B diagnostic — measure end-to-end residual"]
-fn assembly_eq2_residual_diagnostic() {
-    // Diagnostic: report eq (2) residual on the current pipeline
-    // output. NOT a pass/fail gate — the current bridge does not
-    // (S1)-propagate sector 0's near-star CPs through the rest
-    // and does not paper-strictly identify the cross-sector row
-    // (per `apply_free_params` line 149-153 in
-    // `kp15_bi6_cap_f5_solve.rs`). The residual reported here is
-    // the *quantitative* size of those gaps and the deep-interior
-    // closure gap the rest of this Phase B / C plan is closing.
-    for n in [5usize, 6] {
-        let per_edge = eq2_per_edge_residual(n);
-        let (edge, bb_idx, worst) = worst_residual(&per_edge);
-        eprintln!("n={n}: worst eq (2) residual = {worst:.3e} at edge {edge}, BB index {bb_idx}");
-        for (k, edge_mags) in per_edge.iter().enumerate() {
-            eprintln!(
-                "  edge {k:2} BB residuals: {}",
-                edge_mags
-                    .iter()
-                    .map(|m| format!("{m:.2e}"))
-                    .collect::<Vec<_>>()
-                    .join("  ")
-            );
-        }
-    }
-}

@@ -241,7 +241,6 @@ fn sweep_with_scaling() {
 }
 
 #[test]
-#[ignore] // Boolean on curved/planar intersections is slow in debug builds.
 fn sweep_cut_through_cube() {
     let cube = BRep::unit_cube(default_tol());
     let cube = match cube {
@@ -276,7 +275,6 @@ fn sweep_cut_through_cube() {
 }
 
 #[test]
-#[ignore] // Boolean on curved/planar intersections is slow in debug builds.
 fn sweep_add_to_cube() {
     let cube = BRep::unit_cube(default_tol());
     let cube = match cube {
@@ -304,7 +302,6 @@ fn sweep_add_to_cube() {
 }
 
 #[test]
-#[ignore] // Boolean on curved/planar intersections is slow in debug builds.
 fn pipe_add_to_cube() {
     let cube = BRep::unit_cube(default_tol());
     let cube = match cube {

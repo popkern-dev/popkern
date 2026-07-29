@@ -71,7 +71,6 @@ fn wire_offset(profile: &SweepProfile) -> NurbsCurve {
 // ---- sweep_add ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn sweep_add_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -93,7 +92,6 @@ fn sweep_add_produces_brep() {
 // ---- sweep_cut ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn sweep_cut_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -115,7 +113,6 @@ fn sweep_cut_produces_brep() {
 // ---- sweep_intersect ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn sweep_intersect_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -137,7 +134,6 @@ fn sweep_intersect_produces_brep() {
 // ---- loft_add ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn loft_add_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -167,7 +163,6 @@ fn loft_add_produces_brep() {
 // ---- loft_cut ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn loft_cut_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -197,7 +192,6 @@ fn loft_cut_produces_brep() {
 // ---- pipe_add ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn pipe_add_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -218,7 +212,6 @@ fn pipe_add_produces_brep() {
 // ---- pipe_cut ----
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn pipe_cut_produces_brep() {
     let tol = Tolerance::default();
     let cube = BRep::unit_cube(tol).expect("unit_cube");
@@ -336,7 +329,6 @@ fn pipe_cut_with_negative_radius_fails() {
 }
 
 #[test]
-#[ignore] // Boolean on curved/planar geometry is slow in debug builds.
 fn sweep_cut_preserves_warnings() {
     // Use allow_self_intersection to test that warnings pass through.
     let tol = Tolerance::default();

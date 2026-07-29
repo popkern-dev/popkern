@@ -91,7 +91,7 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
 }
 
 #[test]
-#[ignore = "heavy PnS full-fixture matrix; run explicitly for nightly/performance validation"]
+#[ignore = "heavy: suzanne/hand/airplane full PnS matrix (1719 candidate splines, 2421 patches) + weld/sew analysis; nightly tier, PK-190 owns the CI wiring — the SMOKE matrix covers the same code paths by default"]
 fn pns_toms_heavy_fixture_matrix_matches_expected_coverage() {
     assert_fixture_matrix(HEAVY_FIXTURES);
 }

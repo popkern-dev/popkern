@@ -34,10 +34,6 @@
 
 #[path = "support/direct_apex_cap_outer_limitations.rs"]
 mod direct_apex_cap_outer_limitations;
-#[path = "support/direct_apex_stage_d_acceptance.rs"]
-mod direct_apex_stage_d_acceptance;
-#[path = "support/direct_apex_validate_all_matrix_diagnostics.rs"]
-mod direct_apex_validate_all_matrix_diagnostics;
 #[path = "support/direct_apex_validate_all_matrix_native.rs"]
 mod direct_apex_validate_all_matrix_native;
 #[path = "support/direct_apex_validate_all_matrix_seams.rs"]
@@ -50,9 +46,9 @@ mod direct_apex_validate_helpers;
 mod helpers;
 
 use direct_apex_validate_helpers::{
-    assert_native_cap_has_cylinder_seams, assert_native_gregory_case,
-    assert_native_gregory_cube_case, breakdown, build_under_direct_apex,
-    count_direct_apex_fallbacks, direct_apex_fallback_reasons, native_cap_faces,
+    assert_native_gregory_case, assert_native_gregory_cube_case, breakdown,
+    build_under_direct_apex, count_direct_apex_fallbacks, direct_apex_fallback_reasons,
+    native_cap_faces,
 };
 use helpers::measure_cap_outer_boundary;
 use popkern_core::geometry::CurveGeometry;

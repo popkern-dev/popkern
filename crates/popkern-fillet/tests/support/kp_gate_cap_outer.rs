@@ -20,27 +20,17 @@ pub struct CapOuterMetrics {
 
 /// Measure G0/G1 at every edge between a Gregory cap face and a
 /// non-cap neighbour.
+///
+/// Edges without a 3D curve are skipped: the curve-less
+/// cap/support seam class this metric once had a permissive mode
+/// for (Stage 4.7e's `include_pcurve_only_edges`, retired with
+/// PK-181) is now a hard failure in
+/// `direct_apex_native_cap_support_seam_ownership_inventory` and
+/// L1 of `validate_coherence`.
 pub fn measure_cap_outer_boundary(
     brep: &BRep,
     cap_faces: &[FaceHandle],
     n_samples: usize,
-) -> CapOuterMetrics {
-    measure_cap_outer_boundary_inner(brep, cap_faces, n_samples, false)
-}
-
-pub fn measure_cap_outer_boundary_including_pcurve_only(
-    brep: &BRep,
-    cap_faces: &[FaceHandle],
-    n_samples: usize,
-) -> CapOuterMetrics {
-    measure_cap_outer_boundary_inner(brep, cap_faces, n_samples, true)
-}
-
-fn measure_cap_outer_boundary_inner(
-    brep: &BRep,
-    cap_faces: &[FaceHandle],
-    n_samples: usize,
-    include_pcurve_only_edges: bool,
 ) -> CapOuterMetrics {
     use popkern_core::geometry::curve::CurveEval;
     use popkern_core::geometry::surface::SurfaceEval;
@@ -114,14 +104,6 @@ fn measure_cap_outer_boundary_inner(
                     <= p3_lo.distance_to(&pa_at(pa_hi)) + p3_hi.distance_to(&pa_at(pa_lo)),
                 p3_lo.distance_to(&pb_at(pb_lo)) + p3_hi.distance_to(&pb_at(pb_hi))
                     <= p3_lo.distance_to(&pb_at(pb_hi)) + p3_hi.distance_to(&pb_at(pb_lo)),
-            )
-        } else if include_pcurve_only_edges {
-            let a_lo = pa_at(pa_lo);
-            let a_hi = pa_at(pa_hi);
-            (
-                true,
-                a_lo.distance_to(&pb_at(pb_lo)) + a_hi.distance_to(&pb_at(pb_hi))
-                    <= a_lo.distance_to(&pb_at(pb_hi)) + a_hi.distance_to(&pb_at(pb_lo)),
             )
         } else {
             continue;

@@ -101,24 +101,17 @@ fn handles_hex_and_septagon_rings() {
 
 #[test]
 fn dispatch_gated_on_env_var() {
+    // Read-only: this test must NOT mutate POPKERN_KP13_BI5 — the
+    // lib suite runs in one process and a set/remove window here
+    // races every concurrently-running fixture test that consults
+    // the flag (measured: one intermittent lib failure under full
+    // parallel load, 2026-07-29). The enabled path is covered in
+    // its own process by tests/kp13_bi5_dispatch_integration.rs.
+    assert!(
+        std::env::var_os("POPKERN_KP13_BI5").is_none(),
+        "lib test process must not carry POPKERN_KP13_BI5 — some test leaked it"
+    );
     let ring = synthetic_ring(5);
-    // Safety: mutating env is fine in unit tests as long as we
-    // leave it clean.
-    // SAFETY: Unix / Rust stable require this unsafe gate.
-    unsafe {
-        std::env::remove_var("POPKERN_KP13_BI5");
-    }
     let out = try_kp13_bi5_dispatch(&ring, &[]);
     assert!(out.is_none(), "dispatch must be None when env var unset");
-
-    // SAFETY: see above.
-    unsafe {
-        std::env::set_var("POPKERN_KP13_BI5", "1");
-    }
-    let _ = try_kp13_bi5_dispatch(&ring, &[]);
-    // Clean up so other tests see a pristine environment.
-    // SAFETY: see above.
-    unsafe {
-        std::env::remove_var("POPKERN_KP13_BI5");
-    }
 }
