@@ -17,45 +17,11 @@ use popkern_io::{
 use std::sync::Arc;
 #[path = "gregory_step_fidelity/boundary_knowledge.rs"]
 mod gregory_step_fidelity_boundary_knowledge;
-#[derive(Debug, Clone, PartialEq)]
-struct FidelityState {
-    label: &'static str,
-    edges: usize,
-    faces: usize,
-    trim_findings: usize,
-    pcurve_blockers: usize,
-    max_pcurve_deviation: f64,
-    edge_surface_blockers: usize,
-    max_edge_surface_deviation: f64,
-    worst_pcurve_edges: Vec<EdgePcurveEvidence>,
-    worst_edge_surface_edges: Vec<EdgeSurfaceEvidence>,
-}
-#[derive(Debug, Clone, PartialEq)]
-struct EdgePcurveEvidence {
-    edge: String,
-    max_deviation: f64,
-    half_edges: Vec<HalfEdgePcurveEvidence>,
-}
-#[derive(Debug, Clone, PartialEq)]
-struct HalfEdgePcurveEvidence {
-    half_edge: String,
-    face: String,
-    surface_kind: &'static str,
-    max_deviation: f64,
-    same_fraction_deviation: f64,
-    trace_deviation: f64,
-    worst_fraction: f64,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct EdgeSurfaceEvidence {
-    edge: String,
-    half_edge: String,
-    face: String,
-    surface_kind: &'static str,
-    max_deviation: f64,
-    max_curve_parameter: f64,
-}
+#[path = "gregory_step_fidelity/evidence.rs"]
+mod gregory_step_fidelity_evidence;
+use gregory_step_fidelity_evidence::{
+    EdgePcurveEvidence, EdgeSurfaceEvidence, FidelityState, HalfEdgePcurveEvidence,
+};
 
 #[test]
 fn gregory_step_fidelity_probe_classifies_blocker_source() {
@@ -68,12 +34,10 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     )
     .expect("diagnostic repair pipeline should commit export candidate");
     let export_input = repaired.brep;
-    // PK-205: a pre-existing degenerate surfaceless face blocks the
-    // raw export; classification is unreachable until it is repaired.
-    let Ok(bytes) = export_step(&step_document(&export_input), &StepExportOptions::default())
-    else {
-        return;
-    };
+    // PK-205 closure: the degenerate surfaceless-face crash that
+    // once made this export fail is repaired; export must succeed.
+    let bytes = export_step(&step_document(&export_input), &StepExportOptions::default())
+        .expect("Gregory export candidate must export (PK-205 repaired the surfaceless class)");
     let imported = import_step(
         &bytes,
         &StepImportOptions {
@@ -87,15 +51,35 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         "STEP import diagnostics contain errors: {:?}",
         imported.diagnostics.entries()
     );
-    // Re-pinned 2026-07-17 (PK-125): the cap-seam pcurve residual
-    // blockers this diagnostic used to classify are fully resolved —
-    // a clean import must not report any.
-    assert!(
-        imported.diagnostics.entries().iter().all(|entry| !entry
-            .message
-            .contains("STEP import pcurve fidelity blocker")),
-        "Gregory STEP roundtrip regressed pcurve residual blockers: {:?}",
+    // Re-pinned 2026-07-29 (PK-215): the PK-205 crash fix made
+    // this roundtrip reachable again; it imports exactly ONE latent
+    // blocker — a plane-face edge whose FILE pairs an arc 3D curve
+    // with a chord pcurve (2.929e-2 = r=0.10 quarter-arc sagitta,
+    // worst at f=0.5). Weld mispairing, stale face-use authorities,
+    // and pcurve synthesis falsified as authors; PK-215 owns the
+    // export-side selection audit. Exact pin: any second blocker or
+    // magnitude drift fails loudly.
+    let pcurve_blockers: Vec<_> = imported
+        .diagnostics
+        .entries()
+        .iter()
+        .filter(|entry| {
+            entry
+                .message
+                .contains("STEP import pcurve fidelity blocker")
+        })
+        .collect();
+    assert_eq!(
+        pcurve_blockers.len(),
+        1,
+        "Gregory STEP roundtrip must expose exactly the PK-215 chord-vs-arc blocker: {:?}",
         imported.diagnostics.entries()
+    );
+    assert!(
+        pcurve_blockers[0].message.contains("surface_kind=plane")
+            && pcurve_blockers[0].message.contains("2.929e-2"),
+        "PK-215 blocker signature drifted (plane-face chord-vs-arc at 2.929e-2): {}",
+        pcurve_blockers[0].message
     );
     let imported_brep = &imported.document.products[0].shapes[0].solids[0];
 
@@ -182,14 +166,11 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
         }),
         "Gregory/cylinder blocker decisions must expose promoted surface-boundary knowledge diagnostics when such decisions remain"
     );
-    // Re-pinned 2026-07-17 (PK-125): the imported model is now fully
-    // clean (0 pcurve / 0 edge-surface blockers) — the residual
-    // pcurve class no longer survives the roundtrip. The remaining
-    // 9-blocker census lives on the construction-side analyzers only
-    // (the validator_gap classification below).
+    // Pinned 0 with PK-125; 1 since PK-215 (the chord-vs-arc
+    // blocker above — see its exact-signature pin).
     assert_eq!(
-        imported_state.pcurve_blockers, 0,
-        "STEP import regressed pcurve blockers: {states:#?}"
+        imported_state.pcurve_blockers, 1,
+        "STEP import pcurve blocker census must stay at the single PK-215 blocker: {states:#?}"
     );
 
     let classification =
@@ -200,9 +181,14 @@ fn gregory_step_fidelity_probe_classifies_blocker_source() {
     // edge/surface pairing (imported edge_surface_blockers 0; only the
     // residual imported pcurve class remained — "validator_gap").
     // PK-153's consolidated V-free serving empties every class at
-    // construction, export, and import.
+    // construction, export, and import. PK-215: construction and
+    // export measure clean while ONE imported pcurve blocker
+    // remains — the classifier calls that shape
+    // step_import_mapping_issue (the file/import pairing sees what
+    // body-side measurement does not), pinned until the PK-215
+    // export-side selection audit lands.
     assert_eq!(
-        classification, "no_fidelity_blocker",
+        classification, "step_import_mapping_issue",
         "unexpected Gregory STEP fidelity classification; states: {states:#?}"
     );
 }

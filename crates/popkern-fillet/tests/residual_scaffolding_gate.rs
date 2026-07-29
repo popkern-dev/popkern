@@ -84,5 +84,30 @@ fn mixed_radius_cube_ships_no_unglued_scaffolding() {
              (use_rational_gregory={use_rational_gregory})"
         );
         assert_no_unglued_scaffolding(&result.brep, &format!("gregory={use_rational_gregory}"));
+
+        // PK-205/PK-206 serving-shape pins — the class dca764a4
+        // shipped for two days without any gate noticing:
+        // surfaceless residual membranes have no geometric
+        // definition (STEP raw export crashes synthesizing a plane
+        // for their loops; measure silently mis-integrates), and
+        // dead boundary sides are an open-sheet rim. Both must be
+        // zero on every served blend.
+        let surfaceless_residuals = result
+            .brep
+            .faces
+            .iter()
+            .filter(|(_, f)| f.surface.is_none())
+            .count();
+        assert_eq!(
+            surfaceless_residuals, 0,
+            "served body must carry no surfaceless faces \
+             (use_rational_gregory={use_rational_gregory})"
+        );
+        assert!(
+            result.brep.boundary_edges.is_empty(),
+            "served body must have no dead boundary sides, got {} \
+             (use_rational_gregory={use_rational_gregory})",
+            result.brep.boundary_edges.len()
+        );
     }
 }

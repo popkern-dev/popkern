@@ -118,18 +118,34 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
     // support regions. The structured diagnostic must record that
     // application — a missing or declined record means the rewrite
     // silently changed shape.
-    // PK-167 step 3: the constructive path preserves winding by
-    // construction — the consolidation's winding reconciliation is a
-    // validator backstop and must NOT fire on the served build.
+    // PK-167 step 3: the constructive in-place path preserves
+    // winding by construction — the consolidation's winding
+    // reconciliation is a validator backstop and must NOT fire on
+    // an in-place served build. EXCEPTION (PK-205/PK-206): when
+    // the serving-shape gate found the in-place handover
+    // incomplete (dead sides / surfaceless membranes) and kept the
+    // AGGREGATE redo instead, the aggregate shell is mirror-wound
+    // by construction and its winding reconciliation firing is the
+    // designed mechanism, recorded alongside the
+    // aggregate_fallback diagnostic.
+    let aggregate_fallback_recorded = result.repair_report.apex_diagnostics.iter().any(|d| {
+        matches!(
+            d,
+            ApexConstructionDiagnostic::ExactBoundaryCap(d)
+                if d.code == "constructive_serving_shape.aggregate_fallback"
+        )
+    });
     assert!(
-        !result.repair_report.apex_diagnostics.iter().any(|d| {
-            matches!(
-                d,
-                ApexConstructionDiagnostic::ExactBoundaryCap(d)
-                    if d.code == "v_free_consolidation.winding_backstop_fired"
-            )
-        }),
-        "winding reconciliation backstop fired on the constructive default build"
+        aggregate_fallback_recorded
+            || !result.repair_report.apex_diagnostics.iter().any(|d| {
+                matches!(
+                    d,
+                    ApexConstructionDiagnostic::ExactBoundaryCap(d)
+                        if d.code == "v_free_consolidation.winding_backstop_fired"
+                )
+            }),
+        "winding reconciliation backstop fired on an in-place constructive build \
+         (no aggregate serving-shape fallback recorded)"
     );
     let side_support = result
         .repair_report

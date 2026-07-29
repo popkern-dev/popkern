@@ -41,6 +41,8 @@ use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, TopologyRole, VertexHandle};
 
+#[path = "v_free_shell_authority.rs"]
+mod shell_authority;
 #[path = "v_free_shell_orientation.rs"]
 mod shell_orientation;
 #[path = "v_free_shell_weld.rs"]
@@ -77,18 +79,33 @@ impl VestigialShellConsolidationReport {
         !self.rolled_back
             && (self.flap_faces > 0
                 || self.sliver_faces > 0
+                || self.scaffolding_faces > 0
                 || self.welded_side_pairs > 0
-                || self.reversed_faces > 0)
+                || self.reversed_faces > 0
+                || self.merged_vertices > 0)
     }
 }
 
-/// Run the consolidation. No-op unless the flap signature is present.
+/// Run the consolidation. Self-guarding on a DEFECT signature,
+/// not only the aggregate path's flap signature: the PK-167
+/// in-place rewrite authors no duplicate face (`dF = 0`, flaps
+/// empty by construction) yet still mints dead sides and glued
+/// surfaceless membranes that only retire + weld can clear —
+/// flap-gating everything made those stages unreachable on the
+/// served path (PK-205/PK-206: 12 membranes, 18 dead sides,
+/// half-covered support planes from dca764a4 until this guard).
+/// Flap/sliver deletion itself stays flap-gated.
 pub(crate) fn consolidate_vestigial_support_shell(
     brep: &mut BRep,
 ) -> VestigialShellConsolidationReport {
     let mut report = VestigialShellConsolidationReport::default();
     let flaps = detect_flaps(brep);
-    if flaps.is_empty() {
+    let has_dead_sides = !brep.boundary_edges.is_empty();
+    let has_glued_surfaceless_residual = brep
+        .faces
+        .iter()
+        .any(|(_, f)| f.role == TopologyRole::ConstructionResidual && f.surface.is_none());
+    if flaps.is_empty() && !has_dead_sides && !has_glued_surfaceless_residual {
         return report;
     }
     let rollback = brep.clone();
@@ -97,22 +114,35 @@ pub(crate) fn consolidate_vestigial_support_shell(
         remove_face(brep, *face);
         report.flap_faces += 1;
     }
-    for face in detect_slivers(brep) {
-        remove_face(brep, face);
-        report.sliver_faces += 1;
+    if !flaps.is_empty() {
+        for face in detect_slivers(brep) {
+            remove_face(brep, face);
+            report.sliver_faces += 1;
+        }
     }
     let scaffolding =
         crate::residual_scaffolding::retire_unglued_construction_residual_scaffolding(brep);
     report.scaffolding_faces = scaffolding.retired_faces;
 
-    let winding = shell_orientation::reconcile_shell_winding(brep);
-    report.reversed_faces = winding.reversed_faces;
-    report.rebuilt_rings = winding.rebuilt_rings;
+    // Winding reconciliation is specific to the aggregate path's
+    // mirror-wound shell (its 2-coloring assumes the old↔new
+    // parallel-seam anatomy). The in-place rewrite preserves the
+    // old shell's winding by construction; running the
+    // reconciliation there reverses legitimate faces (measured:
+    // pyramid4_uniform cap_outer_g0 5e-10 → 7.4e-2 when it fired
+    // under the widened defect guard), so it stays flap-gated.
+    let mut seam_vertices_from_winding = Vec::new();
+    if !flaps.is_empty() {
+        let winding = shell_orientation::reconcile_shell_winding(brep);
+        report.reversed_faces = winding.reversed_faces;
+        report.rebuilt_rings = winding.rebuilt_rings;
+        seam_vertices_from_winding = winding.seam_vertices;
+    }
 
     let (welded, mut seam_vertices) =
         weld_dead_coincident_sides(brep, &std::collections::BTreeSet::new());
     report.welded_side_pairs = welded;
-    seam_vertices.extend(winding.seam_vertices);
+    seam_vertices.extend(seam_vertices_from_winding);
     report.merged_vertices =
         merge_coincident_seam_vertices(brep, &seam_vertices, &std::collections::BTreeSet::new())
             .len();
@@ -130,6 +160,7 @@ pub(crate) fn consolidate_vestigial_support_shell(
     for face in &faces {
         brep.reconcile_periodic_pcurve_branches(*face);
     }
+    shell_authority::retire_stale_face_use_pcurve_authorities(brep);
 
     if let Err(err) = brep.validate() {
         if crate::direct_apex_trace::enabled() {

@@ -1,5 +1,7 @@
 //! Execution preflight for face-family bridge topology operators.
 
+use std::collections::BTreeSet;
+
 use popkern_core::euler::{
     FaceFamilyBridgeCycleRequest, FaceFamilyBridgeResult, TwoLoopBridgeRequest,
 };
@@ -20,6 +22,11 @@ mod bridge_operator_rewrite;
 mod bridge_operator_trace;
 
 use bridge_operator_exposure::{expose_aggregate_bridge_boundaries, expose_bridge_boundaries};
+
+#[path = "repeated_apex_side_support_bridge_operator_in_place_switch.rs"]
+mod bridge_operator_in_place_switch;
+pub(crate) use bridge_operator_in_place_switch::InPlaceRewriteDisabledGuard;
+use bridge_operator_in_place_switch::in_place_rewrite_disabled;
 
 #[derive(Clone, Debug)]
 pub(super) struct FaceFamilyBridgeTopologyOperatorReport {
@@ -167,17 +174,14 @@ pub(super) fn apply_topology_operator(
     let mut candidate = brep.clone();
     expose_aggregate_bridge_boundaries(primitive, &mut candidate)?;
     bridge_operator_trace::trace_cycle_structure(primitive, &candidate);
-    // PK-167 stage 1b: in-place support-loop rewrites (the Fix-A weld
-    // executed constructively). DEFAULT ON since the consumer ports
-    // landed (matrix 20/0); PK167_INPLACE_OFF keeps the aggregate
-    // path. All-or-nothing; unclosed chains fall back to the bridge.
-    if std::env::var_os("PK167_INPLACE_OFF").is_none() {
+    // PK-167 stage 1b in-place rewrites, DEFAULT ON (matrix 20/0);
+    // PK167_INPLACE_OFF or the serving-shape gate's thread-local
+    // switch (PK-205/PK-206) keeps the aggregate path.
+    if std::env::var_os("PK167_INPLACE_OFF").is_none() && !in_place_rewrite_disabled() {
         // Pre-existing records win weld/merge survivorship: earlier-
         // authored plans hold these handles and consume them later.
-        let plan_edges: std::collections::BTreeSet<popkern_core::topology::EdgeHandle> =
-            brep.edges.keys().collect();
-        let plan_vertices: std::collections::BTreeSet<popkern_core::topology::VertexHandle> =
-            brep.vertices.keys().collect();
+        let plan_edges: BTreeSet<_> = brep.edges.keys().collect();
+        let plan_vertices: BTreeSet<_> = brep.vertices.keys().collect();
         let mut rewrite_candidate = brep.clone();
         expose_aggregate_bridge_boundaries(primitive, &mut rewrite_candidate)?;
         if let Some(result) = bridge_operator_rewrite::try_in_place_support_rewrites(
@@ -311,11 +315,7 @@ impl FaceFamilyBridgeTopologyOperatorReport {
 
 impl FaceFamilyBridgeTopologyOperatorStatus {
     fn is_ready(&self) -> bool {
-        match self {
-            FaceFamilyBridgeTopologyOperatorStatus::Ready => true,
-            FaceFamilyBridgeTopologyOperatorStatus::Refused(_) => false,
-            FaceFamilyBridgeTopologyOperatorStatus::RefusedWithDetail(_, _) => false,
-        }
+        matches!(self, FaceFamilyBridgeTopologyOperatorStatus::Ready)
     }
 
     fn diagnostic_label(&self) -> String {

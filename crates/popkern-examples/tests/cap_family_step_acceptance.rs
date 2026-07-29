@@ -48,21 +48,23 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
     // consolidates the vestigial support shell (winding
     // reconciliation, seam welds, periodic branch repair) — the raw
     // pcurve blocker class is empty on this fixture.
-    // Rose 0 -> 3 at some point before 2026-07-26's session (measured
-    // 3 at fdeaaabd, before any of that session's changes; also 3
-    // with POPKERN_CAP_SPOKE_G1=0, ruling out the cross-spoke family
-    // entirely). Max deviation 5.3033e-4 against this census's strict
-    // 1e-6 bar; the pipeline's own 5e-3 bar holds and matrix / polar /
-    // fillet sweeps are green. PK-205 tracks the bisection and repair;
-    // the strict Declined branch additionally exposes a latent raw-
-    // export crash ("Cannot synthesize plane: loop has fewer than 3
-    // vertices"), recorded there too.
+    // Rose 0 -> 3 in the dca764a4 window (PK-167 constructive
+    // in-place DefaultOn): the in-place support-rewrite handover
+    // left glued surfaceless membranes and dead sides in the served
+    // body, and their neighbouring seam pcurves measured 5.3e-4
+    // against this census's strict 1e-6 bar. Back to 0 with the
+    // PK-205/PK-206 repair (defect-signature consolidation guard,
+    // absorb/consolidate fixpoint, and the constructive
+    // serving-shape gate that redoes incomplete in-place handovers
+    // through the aggregate bridge path). The same repair removed
+    // the latent raw-export crash ("Cannot synthesize plane") that
+    // the surfaceless membranes caused on the strict Declined arm.
     // Note the two counters use different granularity by design:
     // pcurve_blockers counts EDGES, edge_surface_blockers counts
     // incompatible HALF-EDGES (unchanged by the pcurve repair).
     assert_eq!(
         pre_export.pcurve_blockers,
-        3,
+        0,
         "raw exact-boundary cap-family export should expose the current structured pcurve blocker class: route={:#?} blocker_roles={:#?} pre_export={pre_export:#?}",
         route.exact_boundary_report,
         blocker_roles(&blend.brep, pre_export)
@@ -104,15 +106,7 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                 .as_ref()
                 .expect("declined strict STEP report should explain the gate");
             assert!(
-                reason.contains("export-quality blocked")
-                    || reason.contains("STEP import")
-                    // PK-205: with the census honestly at 3, the
-                    // strict path declines and its raw-export arm
-                    // exposes a latent degenerate-loop crash that the
-                    // always-Accepted era never exercised. Pinned so
-                    // the defect stays visible; the ticket tracks
-                    // both the 3 blockers and this crash.
-                    || reason.contains("Cannot synthesize plane"),
+                reason.contains("export-quality blocked") || reason.contains("STEP import"),
                 "strict STEP decline should identify the failed shared gate: {reason}"
             );
             if reason.contains("export-quality blocked") {
@@ -142,12 +136,6 @@ fn direct_apex_gregory_cap_runs_shared_strict_step_acceptance() {
                     failure.imported_validation.is_none(),
                     "line endpoint repair should move the old shell-gap failure out of import validation"
                 );
-            } else if reason.contains("Cannot synthesize plane") {
-                // PK-205: a hard raw-export crash carries no
-                // structured export-quality or import evidence — the
-                // export never completed. The reason string above is
-                // the pinned evidence until the degenerate
-                // surfaceless face is repaired.
             } else {
                 let failure = report
                     .failure

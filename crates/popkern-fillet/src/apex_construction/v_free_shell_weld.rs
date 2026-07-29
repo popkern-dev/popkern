@@ -51,6 +51,38 @@ pub(in crate::apex_construction) fn weld_dead_coincident_sides(
             if a_start.distance_to(&b_end) > tol || a_end.distance_to(&b_start) > tol {
                 continue;
             }
+            // Endpoint coincidence is not curve identity: a fillet
+            // arc and its chord share endpoints but differ by the
+            // sagitta at midpoint (measured 2.93e-2 for an r=0.10
+            // quarter arc — welding that pair put the arc's 3D
+            // curve on an edge whose plane-side pcurves draw the
+            // chord, a body-level lie STEP import flags at exactly
+            // that number). Both sides must also agree at their
+            // curve midpoints before pairing; a curve-less side
+            // contributes its chord midpoint.
+            let midpoint_of = |side: HalfEdgeHandle, start: Point3, end: Point3| -> Point3 {
+                brep.half_edges
+                    .get(side)
+                    .and_then(|he| brep.edges.get(he.edge))
+                    .and_then(|edge| edge.curve.as_ref())
+                    .map(|coe| {
+                        use popkern_core::geometry::curve::CurveEval;
+                        coe.geometry.point_at(0.5 * (coe.t_start + coe.t_end))
+                    })
+                    .unwrap_or_else(|| {
+                        Point3::new(
+                            0.5 * (start.x + end.x),
+                            0.5 * (start.y + end.y),
+                            0.5 * (start.z + end.z),
+                        )
+                    })
+            };
+            if midpoint_of(dead[i], a_start, a_end)
+                .distance_to(&midpoint_of(dead[j], b_start, b_end))
+                > tol
+            {
+                continue;
+            }
             let (side_a, side_b) = (dead[i], dead[j]);
             let edge_a = brep.half_edges[side_a].edge;
             let edge_b = brep.half_edges[side_b].edge;

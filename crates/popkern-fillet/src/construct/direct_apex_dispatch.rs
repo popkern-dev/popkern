@@ -137,82 +137,7 @@ pub(super) fn try_direct_apex_construction(
         })
         .collect();
 
-    if crate::direct_apex_trace::enabled() {
-        eprintln!(
-            "[direct-apex-trace] try_direct_apex_construction: vertex={vertex:?}; \
-             pre-call BRep has {} faces, {} edges, {} vertices",
-            brep.faces.len(),
-            brep.edges.len(),
-            brep.vertices.len(),
-        );
-        for (fh, face) in &brep.faces {
-            use popkern_core::geometry::surface::SurfaceGeometry;
-            let kind = face
-                .surface
-                .as_ref()
-                .map(|s| match &s.geometry {
-                    SurfaceGeometry::Plane { origin, normal, .. } => {
-                        format!("Plane(origin={origin:?}, normal={normal:?})")
-                    }
-                    SurfaceGeometry::Cylinder {
-                        origin,
-                        axis,
-                        radius,
-                        ..
-                    } => format!("Cylinder(origin={origin:?}, axis={axis:?}, r={radius:.3e})"),
-                    SurfaceGeometry::Sphere { center, radius } => {
-                        format!("Sphere(center={center:?}, r={radius:.3e})")
-                    }
-                    SurfaceGeometry::Torus { .. } => "Torus".to_string(),
-                    SurfaceGeometry::Cone { .. } => "Cone".to_string(),
-                    SurfaceGeometry::Nurbs(_) => "Nurbs".to_string(),
-                    SurfaceGeometry::Gregory(_) => "Gregory".to_string(),
-                    SurfaceGeometry::PolyhedralSpline(_) => "PolyhedralSpline".to_string(),
-                })
-                .unwrap_or_else(|| "None".to_string());
-            eprintln!("[direct-apex-trace]   {fh:?}: {kind}");
-        }
-        // Dump every cylinder face's outer-loop walk so we can
-        // see which edges bound which cylinder, and whether two
-        // cylinder face handles share a seam edge.
-        for (fh, face) in &brep.faces {
-            let is_cyl = face.surface.as_ref().is_some_and(|s| {
-                matches!(
-                    s.geometry,
-                    popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
-                )
-            });
-            if !is_cyl {
-                continue;
-            }
-            let outer_loop = face.outer_loop;
-            let Some(loop_data) = brep.loops.get(outer_loop) else {
-                continue;
-            };
-            let start = loop_data.half_edge;
-            let mut cursor = start;
-            let mut chain: Vec<String> = Vec::new();
-            for _ in 0..(brep.half_edges.len() + 1) {
-                let Some(he) = brep.half_edges.get(cursor) else {
-                    break;
-                };
-                let origin_pos = brep.vertices[he.origin].position;
-                chain.push(format!(
-                    "v={:?}@({:.3},{:.3},{:.3})",
-                    he.origin, origin_pos.x, origin_pos.y, origin_pos.z
-                ));
-                cursor = he.next;
-                if cursor == start {
-                    break;
-                }
-            }
-            eprintln!(
-                "[direct-apex-trace]   {fh:?} outer loop ({} half-edges): {}",
-                chain.len(),
-                chain.join(" -> ")
-            );
-        }
-    }
+    direct_apex_serving_shape::trace_pre_call_state(brep, vertex);
     let plan = plan_apex_resolution_lenient(brep, vertex, &specs, &surfaces, tolerance, None)
         .map_err(|plan_err| {
             DirectApexDispatchError::new(format!("plan_apex_resolution: {plan_err}"))
@@ -466,16 +391,34 @@ fn try_constructive_with_legacy_fallthrough(
             // take back coplanar scaffold fragments once every surface is
             // solved (the partition-time pass sees surface-less faces and
             // skips them). Self-guarding; untouched fixtures see no merges.
-            let absorbed = crate::apex_construction::absorb_coplanar_residual_scaffold_late(brep);
-            if absorbed > 0 && crate::direct_apex_trace::enabled() {
-                eprintln!(
-                    "[direct-apex-trace] late carrier absorption merged {absorbed} scaffold \
-                     fragment(s)"
-                );
-            }
-            if let Some(diagnostic) = vfree_fallback::consolidate_served_shell(brep) {
-                result.diagnostics.push(diagnostic);
-            }
+            //
+            // Absorption and consolidation feed each other: the global
+            // weld is what makes ghost fragments unglued/absorbable, and
+            // an absorption exposes new dead sides for the weld — so the
+            // pair iterates to a bounded fixpoint instead of one shot
+            // (PK-205/PK-206: one shot left 12 glued surfaceless
+            // membranes and 18 boundary edges on the served body).
+            run_absorb_consolidate_fixpoint(brep, &mut result);
+
+            // Serving-shape gate (PK-205/PK-206): the constructive
+            // in-place support rewrite must hand over a
+            // production-closed shell. When glued surfaceless
+            // membranes or dead boundary sides survive the
+            // absorb/consolidate fixpoint (measured: the
+            // rational-Gregory cap family ships 12 membranes, 18
+            // dead sides, half-covered support planes), redo the
+            // whole build through the AGGREGATE bridge path — an
+            // explicit, recorded fallback boundary; the aggregate
+            // shell double-covers by construction and the
+            // consolidation is proven to clean it.
+            direct_apex_serving_shape::apply_serving_shape_gate(
+                brep,
+                &snapshot,
+                plan,
+                surfaces,
+                tolerance,
+                &mut result,
+            );
             Ok(result)
         }
         Err(constructive_err) => {
@@ -495,3 +438,7 @@ fn try_constructive_with_legacy_fallthrough(
         }
     }
 }
+
+#[path = "direct_apex_serving_shape.rs"]
+mod direct_apex_serving_shape;
+use direct_apex_serving_shape::run_absorb_consolidate_fixpoint;
