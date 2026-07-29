@@ -43,6 +43,9 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle, TopologyRole, Ver
 
 #[path = "v_free_shell_authority.rs"]
 mod shell_authority;
+#[path = "v_free_shell_flap_detection.rs"]
+mod shell_flap_detection;
+use shell_flap_detection::{detect_flaps, detect_slivers};
 #[path = "v_free_shell_orientation.rs"]
 mod shell_orientation;
 #[path = "v_free_shell_weld.rs"]
@@ -98,6 +101,29 @@ impl VestigialShellConsolidationReport {
 pub(crate) fn consolidate_vestigial_support_shell(
     brep: &mut BRep,
 ) -> VestigialShellConsolidationReport {
+    consolidate_vestigial_support_shell_impl(brep, false)
+}
+
+/// PK-214 handover-completion entry: the same consolidation with the
+/// winding reconciliation forced past its flap gate. The in-place
+/// rewrite on the rational-Gregory route serves a body whose new
+/// shell (caps, strips, rewritten support quads) is mirror-wound
+/// against the untouched far faces — the exact parallel-dead-pair
+/// class the reconciliation exists for — but authors no flap, so the
+/// flap gate starves it. Callers are transactional (clone + accept
+/// only on a strictly better serving-shape census), which is what
+/// protects the fixtures the unconditional defect-signature firing
+/// used to regress (pyramid4_uniform cap_outer 5e-10 → 7.4e-2).
+pub(crate) fn consolidate_vestigial_support_shell_forcing_winding(
+    brep: &mut BRep,
+) -> VestigialShellConsolidationReport {
+    consolidate_vestigial_support_shell_impl(brep, true)
+}
+
+fn consolidate_vestigial_support_shell_impl(
+    brep: &mut BRep,
+    force_winding: bool,
+) -> VestigialShellConsolidationReport {
     let mut report = VestigialShellConsolidationReport::default();
     let flaps = detect_flaps(brep);
     let has_dead_sides = !brep.boundary_edges.is_empty();
@@ -132,7 +158,7 @@ pub(crate) fn consolidate_vestigial_support_shell(
     // pyramid4_uniform cap_outer_g0 5e-10 → 7.4e-2 when it fired
     // under the widened defect guard), so it stays flap-gated.
     let mut seam_vertices_from_winding = Vec::new();
-    if !flaps.is_empty() {
+    if !flaps.is_empty() || force_winding {
         let winding = shell_orientation::reconcile_shell_winding(brep);
         report.reversed_faces = winding.reversed_faces;
         report.rebuilt_rings = winding.rebuilt_rings;
@@ -173,6 +199,31 @@ pub(crate) fn consolidate_vestigial_support_shell(
         };
     }
     report
+}
+
+/// PK-214 handover-completion stage 3: sever partnerless dead chord
+/// sides and close the affected rings by boundary completion, then
+/// weld, merge seam vertices, and heal pcurves. Returns the number
+/// of rebuilt rings. Callers are transactional.
+pub(crate) fn complete_partnerless_chord_rings(brep: &mut BRep) -> usize {
+    let (rebuilt, mut seam_vertices) = shell_orientation::rebuild_partnerless_chord_rings(brep);
+    if rebuilt == 0 {
+        return 0;
+    }
+    let (_welded, more) = weld_dead_coincident_sides(brep, &std::collections::BTreeSet::new());
+    seam_vertices.extend(more);
+    merge_coincident_seam_vertices(brep, &seam_vertices, &std::collections::BTreeSet::new());
+    repair_vertex_outgoing(brep);
+    let faces: Vec<_> = brep.faces.keys().collect();
+    for face in &faces {
+        let _ = brep.recompute_face_pcurves(*face);
+    }
+    brep.fix_stale_pcurves();
+    for face in &faces {
+        brep.reconcile_periodic_pcurve_branches(*face);
+    }
+    shell_authority::retire_stale_face_use_pcurve_authorities(brep);
+    rebuilt
 }
 
 fn face_sides(brep: &BRep, face: FaceHandle) -> Vec<HalfEdgeHandle> {
@@ -223,195 +274,6 @@ fn plane_key(brep: &BRep, face: FaceHandle) -> Option<(i64, i64, i64, i64)> {
     };
     let q = |v: f64| (v * 1.0e7).round() as i64;
     Some((q(n.x), q(n.y), q(n.z), q(d)))
-}
-
-/// A flap: Production face whose plane hosts an interior-overlapping
-/// Production partner and whose sides all twin that partner or
-/// ConstructionResidual faces.
-fn detect_flaps(brep: &BRep) -> Vec<FaceHandle> {
-    let mut by_plane: BTreeMap<(i64, i64, i64, i64), Vec<FaceHandle>> = BTreeMap::new();
-    for (face, data) in &brep.faces {
-        if data.role != TopologyRole::Production {
-            continue;
-        }
-        if let Some(key) = plane_key(brep, face) {
-            by_plane.entry(key).or_default().push(face);
-        }
-    }
-    let mut flaps = Vec::new();
-    for faces in by_plane.values() {
-        if faces.len() < 2 {
-            continue;
-        }
-        for &candidate in faces {
-            let sides = face_sides(brep, candidate);
-            if sides.is_empty() {
-                continue;
-            }
-            // Partner: the single Production face this candidate twins.
-            let mut partner = None;
-            let mut qualifies = true;
-            for side in &sides {
-                match twin_face(brep, *side) {
-                    Some(f) if f == candidate => {}
-                    Some(f)
-                        if brep
-                            .faces
-                            .get(f)
-                            .is_some_and(|d| d.role == TopologyRole::ConstructionResidual) => {}
-                    Some(f) => match partner {
-                        None => partner = Some(f),
-                        Some(p) if p == f => {}
-                        Some(_) => {
-                            qualifies = false;
-                            break;
-                        }
-                    },
-                    None => {
-                        qualifies = false;
-                        break;
-                    }
-                }
-            }
-            let Some(partner) = partner else {
-                continue;
-            };
-            if !qualifies
-                || plane_key(brep, partner) != plane_key(brep, candidate)
-                || !faces_share_plane_interior(brep, candidate, partner)
-            {
-                continue;
-            }
-            flaps.push(candidate);
-        }
-    }
-    flaps
-}
-
-/// Interior-overlap test on the common plane (grid sampling, strict
-/// interior with edge clearance) — the same instrument as the
-/// duplicate-coverage serving gate.
-fn faces_share_plane_interior(brep: &BRep, a: FaceHandle, b: FaceHandle) -> bool {
-    let Some(sof) = brep.faces.get(a).and_then(|d| d.surface.as_ref()) else {
-        return false;
-    };
-    let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry else {
-        return false;
-    };
-    let Some(n) = normal.normalized() else {
-        return false;
-    };
-    let e1 = if n.x.abs() < 0.9 {
-        popkern_core::geometry::Vec3::new(1.0, 0.0, 0.0)
-    } else {
-        popkern_core::geometry::Vec3::new(0.0, 1.0, 0.0)
-    };
-    let Some(e1) = (e1 - n * e1.dot(&n)).normalized() else {
-        return false;
-    };
-    let e2 = n.cross(&e1);
-    let ring = |face: FaceHandle| -> Vec<(f64, f64)> {
-        brep.face_outer_loop_positions(face)
-            .iter()
-            .map(|p| {
-                let r = *p - *origin;
-                (r.dot(&e1), r.dot(&e2))
-            })
-            .collect()
-    };
-    let ra = ring(a);
-    let rb = ring(b);
-    if ra.len() < 3 || rb.len() < 3 {
-        return false;
-    }
-    let inside = |poly: &[(f64, f64)], p: (f64, f64)| -> bool {
-        let mut winding = false;
-        let mut min_edge = f64::MAX;
-        for i in 0..poly.len() {
-            let (x0, y0) = poly[i];
-            let (x1, y1) = poly[(i + 1) % poly.len()];
-            if ((y0 > p.1) != (y1 > p.1)) && (p.0 < (x1 - x0) * (p.1 - y0) / (y1 - y0) + x0) {
-                winding = !winding;
-            }
-            let (dx, dy) = (x1 - x0, y1 - y0);
-            let len2 = dx * dx + dy * dy;
-            let t = if len2 > 0.0 {
-                (((p.0 - x0) * dx + (p.1 - y0) * dy) / len2).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let (cx, cy) = (x0 + t * dx, y0 + t * dy);
-            min_edge = min_edge.min(((p.0 - cx).powi(2) + (p.1 - cy).powi(2)).sqrt());
-        }
-        winding && min_edge > 1.0e-6
-    };
-    let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    for &(x, y) in &ra {
-        x0 = x0.min(x);
-        y0 = y0.min(y);
-        x1 = x1.max(x);
-        y1 = y1.max(y);
-    }
-    for gx in 1..24 {
-        for gy in 1..24 {
-            let p = (
-                x0 + (x1 - x0) * f64::from(gx) / 24.0,
-                y0 + (y1 - y0) * f64::from(gy) / 24.0,
-            );
-            if inside(&ra, p) && inside(&rb, p) {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-/// A sliver: Production PLANE face with >=2 residual-twinned sides
-/// whose remaining twins are all non-plane Production faces (the
-/// strip far-end removed-material patch).
-fn detect_slivers(brep: &BRep) -> Vec<FaceHandle> {
-    let mut slivers = Vec::new();
-    for (face, data) in &brep.faces {
-        if data.role != TopologyRole::Production {
-            continue;
-        }
-        if plane_key(brep, face).is_none() {
-            continue;
-        }
-        let sides = face_sides(brep, face);
-        if sides.is_empty() {
-            continue;
-        }
-        let mut residual_sides = 0usize;
-        let mut qualifies = true;
-        for side in &sides {
-            match twin_face(brep, *side) {
-                Some(f)
-                    if brep
-                        .faces
-                        .get(f)
-                        .is_some_and(|d| d.role == TopologyRole::ConstructionResidual) =>
-                {
-                    residual_sides += 1;
-                }
-                Some(f)
-                    if brep.faces.get(f).is_some_and(|d| {
-                        d.role == TopologyRole::Production
-                            && d.surface.as_ref().is_some_and(|s| {
-                                !matches!(s.geometry, SurfaceGeometry::Plane { .. })
-                            })
-                    }) => {}
-                _ => {
-                    qualifies = false;
-                    break;
-                }
-            }
-        }
-        if qualifies && residual_sides >= 2 && residual_sides < sides.len() {
-            slivers.push(face);
-        }
-    }
-    slivers
 }
 
 /// Remove a face, its loops, and its half-edges; surviving twin sides

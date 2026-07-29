@@ -389,6 +389,12 @@ pub const INFORMATIONAL_DIAGNOSTIC_CODES: &[&str] = &[
     "exact_boundary_cap.pns_substitution",
     "exact_boundary_cap.cross_spoke_g1",
     "exact_boundary_cap.mid_seam_normal",
+    // PK-214: the serving gate completed the in-place handover
+    // (ghost retirement + winding reconciliation + chord-ring
+    // completion) and serves the repaired in-place body. A success
+    // record — the containment records (aggregate_fallback,
+    // residual_defect_retained) stay non-informational.
+    "constructive_serving_shape.handover_completed",
 ];
 
 /// Whether a diagnostic code names an informational (non-blocking)

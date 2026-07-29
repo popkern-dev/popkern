@@ -157,3 +157,86 @@ fn span_on_face_surface(
     let dist = |p: &Point3| ((*p - *origin).dot(&n)).abs();
     dist(start) <= tol && dist(end) <= tol
 }
+
+/// Chord-ring completion (PK-214): after the ghost complex retires
+/// and the mirror class reverses, the rewritten support quads still
+/// carry PARTNERLESS dead diagonal chords (the shortcut sides the
+/// contorted interface authored) while their true far paths lie as
+/// dead sides on the neighbor faces. For each planar face whose dead
+/// sides include a partnerless chord, sever the chords and close the
+/// ring by boundary completion against the coincident dead sides on
+/// its own carrier. Returns (rebuilt_rings, seam_vertices).
+pub(in super::super) fn rebuild_partnerless_chord_rings(
+    brep: &mut BRep,
+) -> (usize, Vec<VertexHandle>) {
+    let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
+    let has_coincident_counterpart = |brep: &BRep, side: HalfEdgeHandle| -> bool {
+        let Some((a, b)) = side_span(brep, side) else {
+            return false;
+        };
+        brep.half_edges.iter().any(|(other, data)| {
+            if other == side || brep.half_edges.contains_key(data.twin) {
+                return false;
+            }
+            let Some((c, d)) = side_span(brep, other) else {
+                return false;
+            };
+            (a.distance_to(&c) <= tol && b.distance_to(&d) <= tol)
+                || (a.distance_to(&d) <= tol && b.distance_to(&c) <= tol)
+        })
+    };
+    let mut rebuilt = 0usize;
+    let mut seam_vertices = Vec::new();
+    let faces: Vec<FaceHandle> = brep.faces.keys().collect();
+    for face in faces {
+        let sides = super::face_sides(brep, face);
+        if sides.is_empty() {
+            continue;
+        }
+        let chords: Vec<HalfEdgeHandle> = sides
+            .iter()
+            .copied()
+            .filter(|side| {
+                brep.half_edges
+                    .get(*side)
+                    .is_some_and(|data| !brep.half_edges.contains_key(data.twin))
+                    && !has_coincident_counterpart(brep, *side)
+            })
+            .collect();
+        if chords.is_empty() {
+            continue;
+        }
+        let trusted: Vec<HalfEdgeHandle> = sides
+            .iter()
+            .copied()
+            .filter(|side| {
+                brep.half_edges
+                    .get(*side)
+                    .is_some_and(|data| brep.half_edges.contains_key(data.twin))
+            })
+            .collect();
+        if trusted.is_empty() {
+            trace(&format!(
+                "chord-ring completion declined for {face:?}: no trusted live sides"
+            ));
+            continue;
+        }
+        let snapshot = brep.clone();
+        for chord in &chords {
+            super::remove_side(brep, *chord);
+        }
+        match rebuild_face_ring(brep, face, &trusted) {
+            Some(mut seam) => {
+                rebuilt += 1;
+                seam_vertices.append(&mut seam);
+            }
+            None => {
+                trace(&format!(
+                    "chord-ring completion: ring rebuild declined for {face:?}, rolled back"
+                ));
+                *brep = snapshot;
+            }
+        }
+    }
+    (rebuilt, seam_vertices)
+}

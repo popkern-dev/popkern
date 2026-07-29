@@ -49,6 +49,7 @@ mod reversal;
 mod ring_rebuild;
 use reversal::reverse_class_loops;
 use ring_rebuild::rebuild_face_ring;
+pub(super) use ring_rebuild::rebuild_partnerless_chord_rings;
 
 /// Structured counts for the winding reconciliation stage.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

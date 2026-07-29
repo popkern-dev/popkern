@@ -52,7 +52,8 @@ fn direct_apex_5_cap_outer_cube_mixed_records_accepted_exact_boundary_route() {
                     || (diagnostic.stage == "exact_boundary_cap.support_scope"
                         && diagnostic.code == "exact_boundary_cap.support_scope.residual_exceeded")
             }),
-        "accepted cube_mixed exact-boundary route should not carry stale cap-outer residual diagnostics"
+        "accepted cube_mixed exact-boundary route should not carry stale cap-outer residual diagnostics: {:#?}",
+        route.exact_boundary_report.diagnostics
     );
     assert!(
         route

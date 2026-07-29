@@ -92,6 +92,113 @@ pub(super) fn apply_serving_shape_gate(
     let Some(in_place_defect) = served_shape_defect(brep) else {
         return;
     };
+    // Rung 1 (PK-214): complete the in-place handover on a clone —
+    // retire the glued mirror-ghost complex, run the consolidation
+    // with the winding reconciliation forced past its flap gate,
+    // then close the partnerless chord rings by boundary
+    // completion. Accepted only on a DEFECT-FREE census plus a clean
+    // validate; anything partial falls through to the aggregate
+    // redo unchanged, so the rung can only improve the served body.
+    {
+        let mut completed = brep.clone();
+        let mut completed_result = result.clone();
+        let retired =
+            crate::apex_construction::v_free_inplace_handover::retire_mirror_ghost_complex(
+                &mut completed,
+            );
+        if retired > 0 {
+            let consolidation = crate::apex_construction::v_free_shell_consolidation::
+                consolidate_vestigial_support_shell_forcing_winding(&mut completed);
+            run_absorb_consolidate_fixpoint(&mut completed, &mut completed_result);
+            let rebuilt = crate::apex_construction::v_free_shell_consolidation::
+                complete_partnerless_chord_rings(&mut completed);
+            run_absorb_consolidate_fixpoint(&mut completed, &mut completed_result);
+            let records_remap = {
+                let mut sectors = std::mem::take(&mut completed_result.exact_boundary_sectors);
+                let ok = crate::apex_construction::v_free_inplace_handover::
+                    remap_exact_boundary_sector_records(
+                        &completed,
+                        &mut sectors,
+                        &mut completed_result.exact_boundary_report.sectors,
+                    );
+                completed_result.exact_boundary_sectors = sectors;
+                ok
+            };
+            if records_remap
+                && served_shape_defect(&completed).is_none()
+                && completed.validate().is_ok()
+            {
+                if crate::direct_apex_trace::enabled() {
+                    eprintln!(
+                        "[direct-apex-trace] in-place serving-shape gate: handover completed \
+                         in place (ghosts {retired}, reversed {}, rebuilt rings {rebuilt}); \
+                         was {in_place_defect:?}",
+                        consolidation.reversed_faces
+                    );
+                }
+                completed_result.diagnostics.push(
+                    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+                        crate::types::ExactBoundaryCapDiagnostic {
+                            stage: "constructive_serving_shape".to_string(),
+                            code: "constructive_serving_shape.handover_completed".to_string(),
+                            detail_code: Some(format!(
+                                "was {}; ghosts {retired}, reversed {}, rebuilt rings {rebuilt}",
+                                in_place_defect.describe(),
+                                consolidation.reversed_faces
+                            )),
+                            sector_name: "direct_apex".to_string(),
+                            edge: None,
+                            support_half_edge: None,
+                            support_face: None,
+                            residual: None,
+                            outer_side: None,
+                            sample_parameter: None,
+                            tolerance: None,
+                            shared_fact_ids: Vec::new(),
+                        },
+                    ),
+                );
+                *brep = completed;
+                *result = completed_result;
+                return;
+            }
+            if crate::direct_apex_trace::enabled() {
+                eprintln!(
+                    "[direct-apex-trace] in-place handover completion incomplete \
+                     (defect {:?}); falling through to aggregate redo",
+                    served_shape_defect(&completed)
+                );
+                for edge in &completed.boundary_edges {
+                    let owner = completed
+                        .half_edges
+                        .iter()
+                        .find(|(_, he)| he.edge == *edge)
+                        .map(|(h, he)| {
+                            let face = completed.loops.get(he.loop_).map(|l| l.face);
+                            let a = completed
+                                .vertices
+                                .get(he.origin)
+                                .map(|v| v.position)
+                                .unwrap_or(popkern_core::geometry::Point3::new(9.9, 9.9, 9.9));
+                            let b = completed
+                                .half_edges
+                                .get(he.next)
+                                .and_then(|n| completed.vertices.get(n.origin))
+                                .map(|v| v.position)
+                                .unwrap_or(popkern_core::geometry::Point3::new(9.9, 9.9, 9.9));
+                            format!(
+                                "{h:?} face={face:?} span=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                                a.x, a.y, a.z, b.x, b.y, b.z
+                            )
+                        })
+                        .unwrap_or_else(|| "unowned".to_string());
+                    eprintln!(
+                        "[direct-apex-trace]   completion residue: dead edge {edge:?} {owner}"
+                    );
+                }
+            }
+        }
+    }
     {
         if crate::direct_apex_trace::enabled() {
             eprintln!(
