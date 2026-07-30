@@ -5,7 +5,7 @@ use super::*;
 pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     brep: &mut BRep,
     cap_face: FaceHandle,
-    face_edges: &[FaceEdgeOwnership],
+    corner_arcs: &[CornerArcOwnership],
     fillet_ends: &[FilletEndOwnership],
     cylinder_loop_replacements: &[PendingCylinderLoopReplacement],
     reuse_shared_cap_cylinder_seam: bool,
@@ -20,7 +20,7 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     let mut cap_cycle = Vec::with_capacity(2 * fillet_ends.len());
     let mut fillet_end_cap_sides = std::collections::BTreeMap::new();
     let mut strip_side_overrides = std::collections::BTreeMap::new();
-    for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
+    for (sector_index, fillet_end) in fillet_ends.iter().enumerate() {
         let (cap_side, opposite_side) = match replacements_by_fillet.get(&fillet_end.fillet_index) {
             Some(replacement)
                 if reuse_shared_cap_cylinder_seam
@@ -49,14 +49,17 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
                 None,
             ),
         };
-        let face_edge_cap_side = live_cap_side_for_edge(
-            brep,
-            cap_face,
-            face_edge.edge,
-            face_edge.face_edge_cap_half_edge,
-        )?;
         cap_cycle.push(cap_side);
-        cap_cycle.push(face_edge_cap_side);
+        // Welded shared corners (PK-219) contribute no bridge side.
+        if let Some(CornerArcOwnership::Bridged(face_edge)) = corner_arcs.get(sector_index) {
+            let face_edge_cap_side = live_cap_side_for_edge(
+                brep,
+                cap_face,
+                face_edge.edge,
+                face_edge.face_edge_cap_half_edge,
+            )?;
+            cap_cycle.push(face_edge_cap_side);
+        }
         fillet_end_cap_sides.insert(fillet_end.fillet_index, cap_side);
         if let Some(opposite_side) = opposite_side {
             strip_side_overrides.insert(fillet_end.fillet_index, opposite_side);

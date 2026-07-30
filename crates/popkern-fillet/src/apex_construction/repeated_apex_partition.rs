@@ -181,6 +181,7 @@ use partition_ownership::{
     FaceEdgeOwnership, FilletEndOwnership, RetiredApexCell, validate_partition_ownership_records,
     validate_target_cylinder_loop_ownership_ready,
 };
+use partition_plan::CornerArcOwnership;
 pub(super) use partition_plan::RepeatedApexPartitionExecutionOptions;
 use partition_plan::RetiredApexSpan;
 use partition_plan_curve_refresh::refresh_fillet_end_curves_after_endpoint_adoption;

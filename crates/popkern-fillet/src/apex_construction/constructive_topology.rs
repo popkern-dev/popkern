@@ -169,10 +169,17 @@ pub(super) fn assert_normalized_cap_boundary(
         }
     })?;
 
+    // Welded shared corners (PK-219) alias T_b[k] and T_a[k+1] to one
+    // handle; the cap loop visits the welded vertex ONCE, so collapse
+    // cyclically-consecutive duplicates in the expected sequence.
     let mut expected = Vec::with_capacity(2 * n_fillets);
     for k in 0..n_fillets {
         expected.push(apex_vertex_handles[2 * k]);
         expected.push(apex_vertex_handles[2 * k + 1]);
+    }
+    expected.dedup();
+    if expected.len() > 1 && expected.first() == expected.last() {
+        expected.pop();
     }
 
     if vertices.len() == expected.len()

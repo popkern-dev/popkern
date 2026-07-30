@@ -7,7 +7,8 @@ use popkern_core::topology::TopologyRole;
 mod boundary_records;
 #[path = "repeated_apex_partition_execution_options.rs"]
 mod execution_options;
-pub(super) use boundary_records::{PartitionBoundaryEdge, RetiredApexSpan};
+use boundary_records::SharedCornerOwnership;
+pub(super) use boundary_records::{CornerArcOwnership, PartitionBoundaryEdge, RetiredApexSpan};
 pub(crate) use execution_options::RepeatedApexPartitionExecutionOptions;
 
 pub(super) struct RepeatedApexPartitionPlan {
@@ -45,8 +46,7 @@ impl RepeatedApexPartitionPlan {
                 t_b,
             });
 
-            // Welded shared corners (PK-219) have no bridge; the two
-            // sectors meet at the welded vertex directly.
+            // Welded shared corners (PK-219) have no bridge.
             if welded.get(k).copied().unwrap_or(false) {
                 if face_edge_handles[k].is_some() {
                     return Err(ApexBuildError::PlanMismatch {
@@ -191,7 +191,7 @@ impl RepeatedApexPartitionPlan {
         ApexBuildError,
     > {
         let mut diagnostics = Vec::new();
-        let mut face_edge_arcs: Vec<Option<FaceEdgeOwnership>> = vec![None; n_fillets];
+        let mut corner_arcs: Vec<Option<CornerArcOwnership>> = vec![None; n_fillets];
         let mut base_span: Option<&RetiredApexSpan> = None;
         for span in &self.retired_spans {
             match span.kind {
@@ -203,17 +203,12 @@ impl RepeatedApexPartitionPlan {
                         fillet_index,
                         n_fillets,
                     )?;
-                    face_edge_arcs[fillet_index] = Some(ownership);
+                    corner_arcs[fillet_index] = Some(CornerArcOwnership::Bridged(ownership));
                 }
-                // Backstop: build() declines welded plans (PK-219).
                 RepeatedApexArcKind::SharedCorner { corner_index } => {
-                    return Err(ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "planned repeated-apex partition cannot yet apply welded \
-                             SharedCorner[{corner_index}] arc[{}] (PK-219)",
-                            span.arc_index
-                        ),
-                    });
+                    let ownership =
+                        SharedCornerOwnership::from_retired_span(brep, span, corner_index)?;
+                    corner_arcs[corner_index] = Some(CornerArcOwnership::Welded(ownership));
                 }
                 RepeatedApexArcKind::Base => {
                     base_span = Some(span);
@@ -229,17 +224,23 @@ impl RepeatedApexPartitionPlan {
             }
         }
 
-        let face_edge_arcs = face_edge_arcs
+        let corner_arcs = corner_arcs
             .into_iter()
             .enumerate()
             .map(|(k, arc)| {
                 arc.ok_or_else(|| ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "planned repeated-apex partition missing FaceEdge arc for fillet {k}"
-                    ),
+                    reason: format!("planned repeated-apex partition missing corner arc {k}"),
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
+        // Bridged-only subset for bridge-specific downstream passes.
+        let face_edge_arcs: Vec<FaceEdgeOwnership> = corner_arcs
+            .iter()
+            .filter_map(|arc| match arc {
+                CornerArcOwnership::Bridged(ownership) => Some(ownership.clone()),
+                CornerArcOwnership::Welded(_) => None,
+            })
+            .collect();
 
         let base_residual_plan = base_span
             .map(|span| plan_retired_base_residual_loop(brep, span))
@@ -271,16 +272,23 @@ impl RepeatedApexPartitionPlan {
                 retired_apex_cell: RetiredApexCell {
                     previous_face_edge_index: previous,
                     next_face_edge_index: k,
-                    t_a_to_apex: face_edge_arcs[previous].t_a_next_to_apex,
-                    apex_to_t_b: face_edge_arcs[k].apex_to_t_b,
+                    t_a_to_apex: corner_arcs[previous].t_a_next_to_apex(),
+                    apex_to_t_b: corner_arcs[k].apex_to_t_b(),
                 },
             });
             cap_cycle.push(cap_half_edge);
-            cap_cycle.push(face_edge_arcs[k].face_edge_cap_half_edge);
+            if let Some(bridge_half_edge) = corner_arcs[k].cap_cycle_half_edge() {
+                cap_cycle.push(bridge_half_edge);
+            }
             fillet_end_edges.push(edge);
         }
 
-        validate_partition_ownership_records(brep, &face_edge_arcs, &fillet_end_ownership)?;
+        validate_partition_ownership_records(
+            brep,
+            &face_edge_arcs,
+            &fillet_end_ownership,
+            n_fillets,
+        )?;
         let mut boundary_outcome =
             PartitionBoundaryOutcome::from_current_cap_cycle(cap_cycle.clone());
         if !execution_options.apply_cylinder_trim_rewrite {
@@ -296,6 +304,7 @@ impl RepeatedApexPartitionPlan {
                 brep,
                 self.cap_face,
                 self.cap_loop,
+                &corner_arcs,
                 &face_edge_arcs,
                 &fillet_end_ownership,
                 execution_options.require_v_free_repeated_apex,

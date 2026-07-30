@@ -134,12 +134,13 @@ pub(super) fn validate_partition_ownership_records(
     brep: &BRep,
     face_edges: &[FaceEdgeOwnership],
     fillet_ends: &[FilletEndOwnership],
+    n_corners: usize,
 ) -> Result<(), ApexBuildError> {
     for face_edge in face_edges {
         validate_face_edge_ownership_record(brep, face_edge)?;
     }
     for fillet_end in fillet_ends {
-        validate_fillet_end_ownership_record(brep, face_edges, fillet_end)?;
+        validate_fillet_end_ownership_record(brep, fillet_end, n_corners)?;
     }
     Ok(())
 }
@@ -213,8 +214,8 @@ fn validate_face_edge_ownership_record(
 
 fn validate_fillet_end_ownership_record(
     brep: &BRep,
-    face_edges: &[FaceEdgeOwnership],
     fillet_end: &FilletEndOwnership,
+    n_corners: usize,
 ) -> Result<(), ApexBuildError> {
     let cap_start = brep
         .half_edges
@@ -312,17 +313,18 @@ fn validate_fillet_end_ownership_record(
         });
     }
     validate_retired_apex_cell_shape(brep, fillet_end, cap_start, cap_end)?;
-    if fillet_end.retired_apex_cell.previous_face_edge_index >= face_edges.len()
-        || fillet_end.retired_apex_cell.next_face_edge_index >= face_edges.len()
+    // Cell indices are CORNER indices (welded corners have no
+    // FaceEdge but are still corners — PK-219).
+    if fillet_end.retired_apex_cell.previous_face_edge_index >= n_corners
+        || fillet_end.retired_apex_cell.next_face_edge_index >= n_corners
     {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition FilletEnd[{}] has invalid retired apex \
-                 cell indices {} and {} for {} FaceEdges",
+                 cell corner indices {} and {} for {n_corners} corners",
                 fillet_end.fillet_index,
                 fillet_end.retired_apex_cell.previous_face_edge_index,
                 fillet_end.retired_apex_cell.next_face_edge_index,
-                face_edges.len()
             ),
         });
     }

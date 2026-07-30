@@ -55,6 +55,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
     brep: &mut BRep,
     cap_face: FaceHandle,
     cap_loop: LoopHandle,
+    corner_arcs: &[CornerArcOwnership],
     face_edges: &[FaceEdgeOwnership],
     fillet_ends: &[FilletEndOwnership],
     require_v_free_repeated_apex: bool,
@@ -286,7 +287,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
             materialized_cap_boundary_from_target_cylinder_replacements(
                 brep,
                 cap_face,
-                face_edges,
+                corner_arcs,
                 fillet_ends,
                 &cylinder_loop_replacements,
                 require_v_free_repeated_apex,
@@ -317,7 +318,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                         materialized_cap_boundary_from_target_cylinder_replacements(
                             brep,
                             cap_face,
-                            face_edges,
+                            corner_arcs,
                             fillet_ends,
                             &cylinder_loop_replacements,
                             require_v_free_repeated_apex,
