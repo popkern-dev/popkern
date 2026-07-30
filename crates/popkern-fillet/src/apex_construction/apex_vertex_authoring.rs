@@ -275,6 +275,43 @@ pub(super) fn author_gregory_apex_vertices(
         });
     }
 
+    // Shared-corner (coincident sector corner) class: on a UNIFORM
+    // repeated apex the two contact curves on each support face
+    // intersect at ONE point, so adjacent sector corner targets
+    // T_b[k] and T_a[k+1] coincide and every FaceEdge span collapses
+    // to zero length. The partition/serial substrate downstream has
+    // no shared-corner contract: authoring distinct coincident
+    // T-vertices produced zero-length FaceEdges whose support-split
+    // cycles pass preflight DEGENERATELY, and the accepted body
+    // served a glued duplicate apex octagon membrane plus a
+    // mis-scaled sector pillow (PK-216, pyramid3/4_uniform).
+    // Decline the constructive Gregory route here with the class
+    // named — the dispatch records the fallback and the legacy apex
+    // path serves a clean watertight cap instead. Removing this gate
+    // requires the shared-corner partition substrate (single welded
+    // corner vertex, collapsed FaceEdge arcs) — see the ledger task
+    // filed from PK-216.
+    {
+        let corner_gate = tolerance.linear().max(1.0e-9) * 10.0;
+        for k in 0..n {
+            let t_b = plan.target_topology.apex_vertices[2 * k + 1];
+            let t_a_next = plan.target_topology.apex_vertices[2 * ((k + 1) % n)];
+            let separation = t_b.distance_to(&t_a_next);
+            if separation <= corner_gate {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "author_gregory_apex_vertices: shared-corner repeated apex — sector \
+                         corner targets T_b[{k}] and T_a[{}] coincide (separation {separation:.3e} \
+                         <= gate {corner_gate:.3e}); the FaceEdge span between them is \
+                         degenerate and the partition substrate has no shared-corner contract \
+                         (uniform radii on a repeated apex collapse every support sliver)",
+                        (k + 1) % n
+                    ),
+                });
+            }
+        }
+    }
+
     let boundary = compute_apex_boundary(brep, plan.apex_vertex, fillet_surfaces, tolerance)
         .map_err(|e| ApexBuildError::PlanMismatch {
             reason: format!("author_gregory_apex_vertices: compute_apex_boundary: {e}"),

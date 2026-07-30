@@ -146,14 +146,29 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
 /// (measured: plan error -> legacy g1 ~1.0 before; native
 /// g0 2.2e-4 / g1 3.9e-4 after).
 #[test]
-fn direct_apex_strict_v_free_pyramid3_uniform_succeeds_without_fallback() {
+fn direct_apex_strict_v_free_pyramid3_uniform_declines_shared_corner_class() {
+    // PK-216 honest re-pin: uniform radii on a repeated apex collapse
+    // every sector corner to a shared point, and the constructive
+    // route (strict V-free included) declines with the class named
+    // rather than accepting the degenerate zero-span partition. The
+    // pre-PK-216 "succeeds without fallback" green shipped a body
+    // with dead boundary sides and glued surfaceless residuals under
+    // strict mode (measured: 20 dead / 9 membranes on pyramid4).
+    // Native strict V-free for the uniform class returns with the
+    // shared-corner substrate (PK-219).
     require_strict_v_free();
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05]);
     let reasons = direct_apex_fallback_reasons(&result);
-    assert!(
-        reasons.is_empty(),
-        "strict V-free pyramid3_uniform must complete without fallback; got:\n{}",
+    assert_eq!(
+        reasons.len(),
+        1,
+        "strict V-free pyramid3_uniform must record exactly the shared-corner fallback; got:\n{}",
         reasons.join("\n"),
+    );
+    assert!(
+        reasons[0].contains("shared-corner repeated apex"),
+        "fallback must name the shared-corner class: {}",
+        reasons[0],
     );
 }
 

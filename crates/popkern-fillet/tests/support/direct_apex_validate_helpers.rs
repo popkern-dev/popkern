@@ -143,6 +143,54 @@ pub(crate) fn assert_native_gregory_cube_case(name: &str, radii: &[f64]) {
     assert_native_gregory_case(name, false, radii, 3);
 }
 
+/// PK-216 shared-corner containment pin: a UNIFORM repeated apex
+/// (coincident sector corners) must decline the constructive Gregory
+/// route with the class NAMED and serve the recorded legacy fallback
+/// as a clean body — no glued surfaceless residuals, no dead sides.
+/// History: the pre-PK-216 "native, 0 fallbacks" greens on these
+/// fixtures were vacuous — the accepted partition body glued a
+/// surfaceless duplicate apex octagon membrane over the strip ends
+/// (mesh hole) plus a mis-scaled sector pillow, and none of the
+/// gates censused it. Bisect-verified as old as the constructive
+/// path (PK-125 already served it). Native quality returns with the
+/// shared-corner substrate (PK-219).
+pub(crate) fn assert_shared_corner_legacy_fallback(name: &str, result: &BlendResult) {
+    let reasons = direct_apex_fallback_reasons(result);
+    assert_eq!(
+        reasons.len(),
+        1,
+        "{name} must record exactly the shared-corner fallback; got {}:\n{}",
+        reasons.len(),
+        reasons.join("\n"),
+    );
+    assert!(
+        reasons[0].contains("shared-corner repeated apex"),
+        "{name} fallback must name the shared-corner class: {}",
+        reasons[0],
+    );
+    let surfaceless = result
+        .brep
+        .faces
+        .iter()
+        .filter(|(_, f)| f.surface.is_none())
+        .count();
+    assert_eq!(
+        surfaceless, 0,
+        "{name} must not serve glued surfaceless residuals (the PK-216 membrane class)"
+    );
+    assert!(
+        result.brep.boundary_edges.is_empty(),
+        "{name} must serve without dead boundary sides"
+    );
+    let errors = result.brep.validate_all();
+    let m = breakdown(&errors);
+    assert_eq!(m.structural, 0, "{name} structural errors: {errors:#?}");
+    assert_eq!(
+        m.path_a_relevant, 0,
+        "{name} open-loop/shell-gap errors: {errors:#?}"
+    );
+}
+
 pub(crate) fn assert_native_gregory_case(
     name: &str,
     is_pyramid: bool,

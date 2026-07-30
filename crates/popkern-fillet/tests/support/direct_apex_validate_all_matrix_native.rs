@@ -333,8 +333,12 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
     // ribbon cross-derivative field stopped flipping sign mid-seam
     // (PK-125); the constrained-strip decline that used to route it
     // through multipatch recovery no longer fires.
+    // pyramid3_uniform left this matrix with PK-216: uniform radii
+    // are the shared-corner class (coincident sector corners) and
+    // serve via the recorded legacy fallback until the PK-219
+    // substrate lands. Its serve is pinned by
+    // direct_apex_pyramid3_uniform_shared_corner_fallback_serves_clean.
     for (fixture, radii, expect_multipatch_recovery) in [
-        ("pyramid3_uniform", [0.10, 0.10, 0.10], false),
         ("pyramid3_mixed", [0.08, 0.10, 0.12], false),
         ("pyramid3_extreme", [0.02, 0.10, 0.20], false),
     ] {
@@ -348,10 +352,10 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
 
 #[test]
 fn pyramid4_exact_boundary_acceptance_matrix() {
-    for (fixture, radii, expect_multipatch_recovery) in [
-        ("pyramid4_uniform", [0.05, 0.05, 0.05, 0.05], false),
-        ("pyramid4_mixed", [0.04, 0.06, 0.05, 0.07], false),
-    ] {
+    // pyramid4_uniform: shared-corner class, see the pyramid3 note.
+    for (fixture, radii, expect_multipatch_recovery) in
+        [("pyramid4_mixed", [0.04, 0.06, 0.05, 0.07], false)]
+    {
         assert_pyramid_exact_boundary_passes_commercial_cap_quality(
             fixture,
             &radii,

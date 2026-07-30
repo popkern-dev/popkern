@@ -348,18 +348,22 @@ fn missing_support_split_spans(
         *starts.entry(start).or_default() += 1;
         *ends.entry(end).or_default() += 1;
     }
+    // `then(|| …)`, NOT `then_some(…)`: then_some evaluates its
+    // argument eagerly, and `count - end_count` underflows (debug
+    // panic) whenever the guard is false (measured: nearly-uniform
+    // pyramid4 radii panicked the whole fillet op here).
     let mut open_starts = starts
         .iter()
         .filter_map(|(vertex, count)| {
             let end_count = ends.get(vertex).copied().unwrap_or_default();
-            (count > &end_count).then_some((*vertex, count - end_count))
+            (count > &end_count).then(|| (*vertex, count - end_count))
         })
         .collect::<Vec<_>>();
     let mut open_ends = ends
         .iter()
         .filter_map(|(vertex, count)| {
             let start_count = starts.get(vertex).copied().unwrap_or_default();
-            (count > &start_count).then_some((*vertex, count - start_count))
+            (count > &start_count).then(|| (*vertex, count - start_count))
         })
         .collect::<Vec<_>>();
     let mut spans = Vec::new();

@@ -87,16 +87,23 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             expected_fallbacks: 0,
         },
         Case {
+            // PK-216: uniform radii collapse every sector corner to a
+            // shared point; the constructive route declines with the
+            // class named and the recorded legacy fallback serves a
+            // clean body (the old "native, 0 fallbacks" green shipped
+            // a glued surfaceless membrane). Native returns with the
+            // shared-corner substrate (PK-219).
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
-            expected_fallbacks: 0,
+            expected_fallbacks: 1,
         },
         Case {
+            // PK-216 shared-corner class — see pyramid3_uniform above.
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
-            expected_fallbacks: 0,
+            expected_fallbacks: 1,
         },
         Case {
             name: "pyramid4_mixed",
@@ -217,11 +224,11 @@ fn direct_apex_5_cap_outer_g0_gregory_under_direct_apex() {
             radii: &[0.02, 0.10, 0.20],
             is_pyramid: false,
         },
-        Case {
-            name: "pyramid3_uniform",
-            radii: &[0.10, 0.10, 0.10],
-            is_pyramid: true,
-        },
+        // pyramid3_uniform left this set with PK-216: the uniform
+        // (shared-corner) class serves via the recorded legacy
+        // fallback, not a native Gregory cap — its serve is pinned by
+        // the shared-corner containment gates below and returns here
+        // with PK-219.
     ];
     for case in cases {
         let result = build_under_direct_apex(case.is_pyramid, case.radii);
@@ -311,60 +318,47 @@ fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
 }
 
 #[test]
-fn direct_apex_native_pyramid4_uniform_no_fallback_structural() {
+fn direct_apex_pyramid4_uniform_shared_corner_fallback_serves_clean() {
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
-    let reasons = direct_apex_fallback_reasons(&result);
-    assert!(
-        reasons.is_empty(),
-        "pyramid4_uniform must complete through native direct-apex; got {} fallback(s):\n{}",
-        reasons.len(),
-        reasons
-            .iter()
-            .map(|r| format!("  - {r}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    );
-
-    let errors = result.brep.validate_all();
-    let m = breakdown(&errors);
-    assert_eq!(
-        m.structural, 0,
-        "native pyramid4_uniform structural errors: {errors:#?}"
-    );
-    assert_eq!(
-        m.path_a_relevant, 0,
-        "native pyramid4_uniform open-loop/shell-gap errors: {errors:#?}"
-    );
+    direct_apex_validate_helpers::assert_shared_corner_legacy_fallback("pyramid4_uniform", &result);
 }
 
 #[test]
-fn direct_apex_native_pyramid4_uniform_cap_outer_quality_gate() {
+fn direct_apex_pyramid4_uniform_cap_outer_containment_ceiling() {
+    // PK-216 honest re-pin. The old 5e-3/5e-2 "commercial gate" green
+    // was VACUOUS: it measured the mis-scaled sector pillow's own
+    // seams while the served boundary was a surfaceless octagon
+    // membrane (a literal mesh hole). The shared-corner fallback now
+    // serves the legacy sphere cap — geometrically inexact on a
+    // pyramid by construction (no per-fillet sphere centre lies on a
+    // neighbour's axis), measured g0 7.37e-2 / g1 ~1.0 at the sphere
+    // rim. This pins the containment CEILING so further regression
+    // still fails; the commercial gate returns with PK-219.
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
-        "[direct-apex validation cap_outer] pyramid4_uniform: g0={:.3e} g1={:.3e} edges={}",
+        "[direct-apex validation cap_outer] pyramid4_uniform (containment): g0={:.3e} g1={:.3e} edges={}",
         cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
     );
     assert!(
         cap_outer.edges_measured >= 1,
-        "native pyramid4_uniform exposes no measurable cap-to-neighbor seams",
+        "pyramid4_uniform exposes no measurable cap-to-neighbor seams",
     );
     assert!(
-        cap_outer.worst_g0_gap <= 5.0e-3,
-        "native pyramid4_uniform cap_outer_g0 {:.3e} exceeds 5.0e-3 commercial gate",
+        cap_outer.worst_g0_gap <= 1.5e-1,
+        "pyramid4_uniform cap_outer_g0 {:.3e} exceeds the recorded containment ceiling 1.5e-1",
         cap_outer.worst_g0_gap,
-    );
-    assert!(
-        cap_outer.worst_g1_coplanarity <= 5.0e-2,
-        "native pyramid4_uniform cap_outer_g1 {:.3e} exceeds 5.0e-2 commercial gate",
-        cap_outer.worst_g1_coplanarity,
     );
 }
 
 #[test]
-fn direct_apex_native_pyramid3_uniform_uses_gregory_no_fallback() {
-    assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
+fn direct_apex_pyramid3_uniform_shared_corner_fallback_serves_clean() {
+    // PK-216: at HEAD before the shared-corner gate this fixture
+    // served 38 faces with THREE dead boundary sides and 18 residual
+    // faces behind a "native, no fallback" green.
+    let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
+    direct_apex_validate_helpers::assert_shared_corner_legacy_fallback("pyramid3_uniform", &result);
 }
 
 /// direct-apex edge-curve semantic storage gate.  Straight 3D edge curves
