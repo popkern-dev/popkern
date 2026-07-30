@@ -264,10 +264,12 @@ fn vertex_for_spoke_anchor(
         .get(index)
         .and_then(|sector| sector_outer_half_edges(brep, sector))
     {
-        let end = half_edge_destination_vertex(brep, outer[1]);
-        let start = brep
-            .half_edges
-            .get(outer[0])
+        let end = outer
+            .last()
+            .and_then(|last| half_edge_destination_vertex(brep, *last));
+        let start = outer
+            .first()
+            .and_then(|first| brep.half_edges.get(*first))
             .map(|half_edge| half_edge.origin);
         for candidate in [end, start].into_iter().flatten() {
             if on_anchor(candidate) {
@@ -292,20 +294,27 @@ fn vertex_for_spoke_anchor(
         })
 }
 
-/// The sector's two cap-side outer half-edges in loop order, or `None`
+/// The sector's cap-side outer half-edges in loop order (one for a
+/// welded shared-corner sector, two for a bridged one), or `None`
 /// when they are stale or not consecutive.
 fn sector_outer_half_edges(
     brep: &BRep,
     sector: &ExactBoundaryCapSectorInput,
-) -> Option<[HalfEdgeHandle; 2]> {
+) -> Option<Vec<HalfEdgeHandle>> {
     let fillet = sector.fillet_seam.cap_half_edge;
-    let face = sector.bridge_seam.as_ref()?.cap_half_edge;
+    brep.half_edges.get(fillet)?;
+    let Some(bridge_seam) = sector.bridge_seam.as_ref() else {
+        // Welded shared corner (PK-219): the fillet seam is the
+        // sector's entire outer boundary.
+        return Some(vec![fillet]);
+    };
+    let face = bridge_seam.cap_half_edge;
     let fillet_data = brep.half_edges.get(fillet)?;
     let face_data = brep.half_edges.get(face)?;
     if fillet_data.next == face {
-        Some([fillet, face])
+        Some(vec![fillet, face])
     } else if face_data.next == fillet {
-        Some([face, fillet])
+        Some(vec![face, fillet])
     } else {
         None
     }
@@ -324,7 +333,7 @@ fn sector_cycle(
             None,
         )
     })?;
-    sector_cycle_from_endpoints(brep, outer_half_edges, previous_spoke, current_spoke).ok_or_else(
+    sector_cycle_from_endpoints(brep, &outer_half_edges, previous_spoke, current_spoke).ok_or_else(
         || {
             ExactBoundaryTopologyDiagnostic::new(
                 ExactBoundaryTopologyDeclineReason::SpokeEdgeMissing,
@@ -337,7 +346,7 @@ fn sector_cycle(
 
 fn sector_cycle_from_endpoints(
     brep: &BRep,
-    outer_half_edges: [HalfEdgeHandle; 2],
+    outer_half_edges: &[HalfEdgeHandle],
     previous_spoke: (HalfEdgeHandle, HalfEdgeHandle),
     current_spoke: (HalfEdgeHandle, HalfEdgeHandle),
 ) -> Option<Vec<HalfEdgeHandle>> {
@@ -352,12 +361,9 @@ fn sector_cycle_from_endpoints(
             if first_spoke == second_spoke {
                 continue;
             }
-            let candidate = vec![
-                outer_half_edges[0],
-                outer_half_edges[1],
-                first_spoke,
-                second_spoke,
-            ];
+            let mut candidate = outer_half_edges.to_vec();
+            candidate.push(first_spoke);
+            candidate.push(second_spoke);
             if cycle_is_contiguous(brep, &candidate) {
                 return Some(candidate);
             }
