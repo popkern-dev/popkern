@@ -31,6 +31,8 @@ use crate::mesh::{FaceMesh, MeshVertex};
 mod boundary_first_delaunay;
 #[path = "boundary_first_edge_samples.rs"]
 mod boundary_first_edge_samples;
+#[path = "boundary_first_ruled_strip.rs"]
+mod boundary_first_ruled_strip;
 use boundary_first_delaunay::bowyer_watson;
 pub(crate) use boundary_first_edge_samples::{EdgeSamples, sample_all_edges};
 
@@ -250,6 +252,20 @@ pub(crate) fn tessellate_face_boundary_first(
             }
         }
     }
+    // Four-sided ruled charts (fillet/chamfer strips) take the
+    // structured tensor path: exact boundary conformity, interior on
+    // the cross-station lattice, chord error = the edge sampling's
+    // own tolerance. Declines (PK_BF_TRACE reason) continue below.
+    if let Some(fm) = boundary_first_ruled_strip::try_tessellate(
+        face_handle,
+        surface,
+        orientation,
+        &rings,
+        options,
+    ) {
+        return Some(fm);
+    }
+
     // Collinear boundary runs (straight edges sampled at several
     // stations) sit exactly on one line in UV; Bowyer–Watson then
     // connects the run's endpoints directly and the interior
@@ -373,7 +389,28 @@ pub(crate) fn tessellate_face_boundary_first(
             n *= 2;
         }
     }
-    let cell = ((u1 - u0) / n as f64).max((v1 - v0) / n as f64).max(1e-12);
+    // Chart metric scale (mm per parameter unit at the chart
+    // centre). The chart mixes units (radians × millimetres on a
+    // cylinder), and every proximity quantity below — cell size,
+    // clearance band, protecting disks, segment refinement — must be
+    // measured in the surface metric, not raw UV: the raw clearance
+    // on a long thin strip (v in mm, u in radians) exceeded the
+    // whole chart's u half-span and evacuated the ENTIRE interior
+    // lattice (measured: plate-rim strips meshed boundary-only,
+    // every triangle a rail-to-rail chord, volume 0.5% low — PK-218).
+    // The same scale feeds the Delaunay incircle predicate below.
+    let (su, sv) = {
+        let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
+        let p = surface.point_at(um, vm);
+        let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
+        let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
+        let du = surface.point_at(um + eps_u, vm).distance_to(&p) / eps_u;
+        let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
+        (du.max(1e-9), dv.max(1e-9))
+    };
+    let cell = ((su * (u1 - u0)) / n as f64)
+        .max((sv * (v1 - v0)) / n as f64)
+        .max(1e-12);
     let clearance = cell / 3.0;
     // LONG boundary segments on CURVED charts must be refined before
     // the grid: the diametral-disk exclusion below evacuates every
@@ -400,7 +437,7 @@ pub(crate) fn tessellate_face_boundary_first(
             for k in 0..m {
                 let a = ring.uv[k];
                 let b = ring.uv[(k + 1) % m];
-                let len2 = (b.0 - a.0).powi(2) + (b.1 - a.1).powi(2);
+                let len2 = (su * (b.0 - a.0)).powi(2) + (sv * (b.1 - a.1)).powi(2);
                 if len2 > (1.5 * cell) * (1.5 * cell) {
                     let (eh, f_lo, f_hi) = ring.sources[k];
                     split_requests.push((eh, 0.5 * (f_lo + f_hi)));
@@ -416,15 +453,16 @@ pub(crate) fn tessellate_face_boundary_first(
     // whole face (measured on a plate face with a circular hole
     // ring).
     let in_any_diametral_disk = |u: f64, v: f64| -> bool {
+        let (x, y) = (u * su, v * sv);
         for ring in &rings {
             let m = ring.uv.len();
             for k in 0..m {
-                let a = ring.uv[k];
-                let b = ring.uv[(k + 1) % m];
+                let a = (ring.uv[k].0 * su, ring.uv[k].1 * sv);
+                let b = (ring.uv[(k + 1) % m].0 * su, ring.uv[(k + 1) % m].1 * sv);
                 let cx = 0.5 * (a.0 + b.0);
                 let cy = 0.5 * (a.1 + b.1);
                 let r2 = 0.25 * ((b.0 - a.0).powi(2) + (b.1 - a.1).powi(2));
-                if (u - cx).powi(2) + (v - cy).powi(2) < r2 * 1.0201 {
+                if (x - cx).powi(2) + (y - cy).powi(2) < r2 * 1.0201 {
                     return true;
                 }
             }
@@ -536,14 +574,14 @@ pub(crate) fn tessellate_face_boundary_first(
                     if detail {
                         eprintln!("    [bf-seam] ({u:.3},{v:.3}) KILLED region");
                     }
-                } else if dist_to_rings((u, v), &rings) <= clearance {
+                } else if dist_to_rings((u, v), &rings, su, sv) <= clearance {
                     if seam_trace && in_band {
                         kill[1] += 1;
                     }
                     if detail {
                         eprintln!(
                             "    [bf-seam] ({u:.3},{v:.3}) KILLED clearance d={:.4}",
-                            dist_to_rings((u, v), &rings)
+                            dist_to_rings((u, v), &rings, su, sv)
                         );
                     }
                 } else if in_any_diametral_disk(u, v) {
@@ -581,7 +619,7 @@ pub(crate) fn tessellate_face_boundary_first(
                 let u = u0 + (u1 - u0) * i as f64 / n as f64;
                 let v = v0 + (v1 - v0) * j as f64 / n as f64;
                 if point_in_region((u, v), &rings)
-                    && dist_to_rings((u, v), &rings) > clearance
+                    && dist_to_rings((u, v), &rings, su, sv) > clearance
                     && !in_any_diametral_disk(u, v)
                 {
                     uv_pts.push((u, v));
@@ -606,18 +644,8 @@ pub(crate) fn tessellate_face_boundary_first(
     // a sane mesh, ~312 lost 30% of the wedge volume, ~1250 went
     // NEGATIVE — inside-out junk). Scaling u,v by |∂S/∂u|,|∂S/∂v| at
     // the chart centre makes the triangulation topology follow the
-    // true surface metric; only the point-insertion order and
-    // incircle tests see scaled coordinates — every filter, disk,
-    // and vertex below stays in raw UV.
-    let (su, sv) = {
-        let (um, vm) = (0.5 * (u0 + u1), 0.5 * (v0 + v1));
-        let p = surface.point_at(um, vm);
-        let eps_u = ((u1 - u0).abs() * 1e-4).max(1e-9);
-        let eps_v = ((v1 - v0).abs() * 1e-4).max(1e-9);
-        let du = surface.point_at(um + eps_u, vm).distance_to(&p) / eps_u;
-        let dv = surface.point_at(um, vm + eps_v).distance_to(&p) / eps_v;
-        (du.max(1e-9), dv.max(1e-9))
-    };
+    // true surface metric; (su, sv) is the same scale the protection
+    // filters above use. Stored vertices stay in raw UV.
     let bw_pts: Vec<(f64, f64)> = uv_pts.iter().map(|&(u, v)| (u * su, v * sv)).collect();
     let tris = bowyer_watson(&bw_pts)?;
     boundary_first_edge_samples::delaunay_audit(face_handle, &bw_pts, &tris);
@@ -1024,13 +1052,17 @@ fn point_in_region(p: (f64, f64), rings: &[BoundaryRing]) -> bool {
     inside
 }
 
-fn dist_to_rings(p: (f64, f64), rings: &[BoundaryRing]) -> f64 {
+/// Metric distance from a raw-UV point to the nearest ring segment:
+/// both are scaled by (su, sv) so the clearance comparison is in
+/// millimetres regardless of the chart's parameter units.
+fn dist_to_rings(p: (f64, f64), rings: &[BoundaryRing], su: f64, sv: f64) -> f64 {
+    let p = (p.0 * su, p.1 * sv);
     let mut best = f64::INFINITY;
     for ring in rings {
         let n = ring.uv.len();
         for i in 0..n {
-            let a = ring.uv[i];
-            let b = ring.uv[(i + 1) % n];
+            let a = (ring.uv[i].0 * su, ring.uv[i].1 * sv);
+            let b = (ring.uv[(i + 1) % n].0 * su, ring.uv[(i + 1) % n].1 * sv);
             let (dx, dy) = (b.0 - a.0, b.1 - a.1);
             let l2 = dx * dx + dy * dy;
             let t = if l2 < 1e-300 {

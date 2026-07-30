@@ -10,6 +10,14 @@ license = "AGPL-3.0-only"
 # ~32×32 QP solves, dense G1/G2 sampling) run 10-12× faster at
 # opt-level=2 than debug (measured on `validation_sweep`: 291s → 25s).
 # `debug-assertions = true` preserves `debug_assert!` coverage.
+# `debug = "line-tables-only"` keeps file:line in backtraces while
+# shrinking the ~185 test binaries 5-10× (full-debuginfo deps grew to
+# 100 GiB and filled the disk, 2026-07-30). For a full-debuginfo run:
+# CARGO_PROFILE_TEST_DEBUG=2 cargo test …
 [profile.test]
 opt-level = 2
 debug-assertions = true
+debug = "line-tables-only"
+
+[profile.dev]
+debug = "line-tables-only"

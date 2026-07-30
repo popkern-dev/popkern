@@ -69,10 +69,8 @@ fn blend_pair(brep: &BRep) -> (FaceHandle, FaceHandle) {
                     wall = Some(fh);
                 }
             }
-            SurfaceGeometry::Cylinder { radius, .. } => {
-                if (radius - 1.5).abs() < 1e-9 {
-                    rod = Some(fh);
-                }
+            SurfaceGeometry::Cylinder { radius, .. } if (radius - 1.5).abs() < 1e-9 => {
+                rod = Some(fh);
             }
             _ => {}
         }

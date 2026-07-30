@@ -58,9 +58,15 @@ fn pocket_rim_and_floor_fillets_serve_watertight() {
         popkern_measure::body_volume(part.brep(), &popkern_core::tolerance::Tolerance::default())
             .expect("volume");
     // Mesh-integral volume: the ±quarter-prism cancellation leaves
-    // only tessellation-chord residue (measured 6.3e-5).
+    // only tessellation-chord residue. The pre-PK-218 gate of 1e-3
+    // was an ACCIDENT: every strip was rail-chorded (each ~19 off)
+    // and the convex/concave pairs cancelled bit-exactly. With the
+    // structured ruled-strip mesh each strip carries only its own
+    // arc-chord residue (~3e-3 total here, chord_height 0.001) and
+    // the cancellation is approximate — the honest bound is the
+    // per-strip chord budget, not the lucky zero.
     assert!(
-        (volume - expected).abs() < 1e-3,
+        (volume - expected).abs() < 0.01,
         "pocketed_tray volume {volume} != {expected}"
     );
 }
