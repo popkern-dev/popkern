@@ -3,8 +3,11 @@
 use super::*;
 use popkern_core::topology::TopologyRole;
 
+#[path = "repeated_apex_partition_boundary_records.rs"]
+mod boundary_records;
 #[path = "repeated_apex_partition_execution_options.rs"]
 mod execution_options;
+pub(super) use boundary_records::{PartitionBoundaryEdge, RetiredApexSpan};
 pub(crate) use execution_options::RepeatedApexPartitionExecutionOptions;
 
 pub(super) struct RepeatedApexPartitionPlan {
@@ -203,6 +206,16 @@ impl RepeatedApexPartitionPlan {
                         n_fillets,
                     )?;
                     face_edge_arcs[fillet_index] = Some(ownership);
+                }
+                // Backstop: build() declines welded plans (PK-219).
+                RepeatedApexArcKind::SharedCorner { corner_index } => {
+                    return Err(ApexBuildError::PlanMismatch {
+                        reason: format!(
+                            "planned repeated-apex partition cannot yet apply welded \
+                             SharedCorner[{corner_index}] arc[{}] (PK-219)",
+                            span.arc_index
+                        ),
+                    });
                 }
                 RepeatedApexArcKind::Base => {
                     base_span = Some(span);
@@ -477,24 +490,4 @@ impl RepeatedApexPartitionPlan {
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
         Ok((self.cap_face, fillet_end_edges, diagnostics))
     }
-}
-
-enum PartitionBoundaryEdge {
-    FilletEnd {
-        fillet_index: usize,
-        t_a: VertexHandle,
-        t_b: VertexHandle,
-    },
-    FaceEdge {
-        fillet_index: usize,
-        edge: EdgeHandle,
-        cap_half_edge: HalfEdgeHandle,
-        neighbor_half_edge: HalfEdgeHandle,
-    },
-}
-
-pub(super) struct RetiredApexSpan {
-    pub(super) arc_index: usize,
-    pub(super) kind: RepeatedApexArcKind,
-    pub(super) half_edges: Vec<HalfEdgeHandle>,
 }

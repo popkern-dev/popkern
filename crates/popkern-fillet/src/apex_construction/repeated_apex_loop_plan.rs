@@ -51,6 +51,12 @@ pub(super) fn plan_repeated_apex_loop_normalization(
         });
     }
 
+    // Welded corners are encoded by HANDLE IDENTITY: the authoring
+    // layer aliases T_b[k] and T_a[k+1] to one vertex (PK-219).
+    let welded_corners: Vec<bool> = (0..n_fillets)
+        .map(|k| apex_vertex_handles[2 * k + 1] == apex_vertex_handles[2 * ((k + 1) % n_fillets)])
+        .collect();
+
     let mut replacement_spans = Vec::with_capacity(n_fillets);
     for k in 0..n_fillets {
         let t_a = apex_vertex_handles[2 * k];
@@ -71,6 +77,7 @@ pub(super) fn plan_repeated_apex_loop_normalization(
         Some(plan_normalized_cap_boundary(
             &arcs,
             &replacement_spans,
+            &welded_corners,
             n_fillets,
         )?)
     } else {
@@ -85,6 +92,7 @@ pub(super) fn plan_repeated_apex_loop_normalization(
         apex_positions,
         arcs,
         replacement_spans,
+        welded_corners,
         normalized_boundary,
     })
 }
@@ -97,6 +105,9 @@ pub(super) struct RepeatedApexLoopPlan {
     pub(super) apex_positions: Vec<usize>,
     pub(super) arcs: Vec<RepeatedApexArc>,
     pub(super) replacement_spans: Vec<FilletEndReplacementSpan>,
+    /// `welded_corners[k]`: corner between fillet k and k+1 is a
+    /// welded shared corner (aliased T handles, PK-219).
+    pub(super) welded_corners: Vec<bool>,
     pub(super) normalized_boundary: Option<Vec<NormalizedCapBoundaryEdge>>,
 }
 
@@ -111,6 +122,15 @@ impl RepeatedApexLoopPlan {
                 RepeatedApexArcKind::FaceEdge { fillet_index } => {
                     face_edge_arcs.push(format!(
                         "FaceEdge[{fillet_index}] arc[{}] V@{}->V@{}: {}",
+                        arc.index,
+                        arc.start_pos,
+                        arc.end_pos,
+                        format_vertices(&arc.interior)
+                    ));
+                }
+                RepeatedApexArcKind::SharedCorner { corner_index } => {
+                    face_edge_arcs.push(format!(
+                        "SharedCorner[{corner_index}] arc[{}] V@{}->V@{}: {}",
                         arc.index,
                         arc.start_pos,
                         arc.end_pos,
@@ -186,13 +206,20 @@ impl RepeatedApexLoopPlan {
     }
 
     pub(super) fn is_commercial_grade_candidate(&self, n_fillets: usize) -> bool {
+        let welded = self.welded_corners.iter().filter(|w| **w).count();
         self.apex_positions.len() == n_fillets + 1
             && self
                 .arcs
                 .iter()
                 .filter(|arc| matches!(arc.kind, RepeatedApexArcKind::FaceEdge { .. }))
                 .count()
-                == n_fillets
+                == n_fillets - welded
+            && self
+                .arcs
+                .iter()
+                .filter(|arc| matches!(arc.kind, RepeatedApexArcKind::SharedCorner { .. }))
+                .count()
+                == welded
             && self
                 .arcs
                 .iter()
@@ -207,10 +234,9 @@ impl RepeatedApexLoopPlan {
                 .replacement_spans
                 .iter()
                 .all(|span| span.t_a_positions.len() == 1 && span.t_b_positions.len() == 1)
-            && self
-                .normalized_boundary
-                .as_ref()
-                .is_some_and(|boundary| boundary.len() == 2 * n_fillets)
+            && self.normalized_boundary.as_ref().is_some_and(|boundary| {
+                boundary.len() == 2 * n_fillets - self.welded_corners.iter().filter(|w| **w).count()
+            })
     }
 }
 
@@ -237,7 +263,15 @@ pub(super) enum NormalizedCapBoundaryEdge {
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum RepeatedApexArcKind {
-    FaceEdge { fillet_index: usize },
+    FaceEdge {
+        fillet_index: usize,
+    },
+    /// Welded shared corner (PK-219): the arc's single interior
+    /// vertex is simultaneously T_b[corner_index] and
+    /// T_a[corner_index + 1].
+    SharedCorner {
+        corner_index: usize,
+    },
     Base,
     Unresolved,
 }
@@ -245,29 +279,47 @@ pub(super) enum RepeatedApexArcKind {
 fn plan_normalized_cap_boundary(
     arcs: &[RepeatedApexArc],
     replacement_spans: &[FilletEndReplacementSpan],
+    welded_corners: &[bool],
     n_fillets: usize,
 ) -> Option<Vec<NormalizedCapBoundaryEdge>> {
     if replacement_spans.len() != n_fillets {
         return None;
     }
+    // Each BRIDGED corner needs exactly one FaceEdge arc; each welded
+    // corner exactly one SharedCorner arc.
     let mut face_edge_seen = vec![false; n_fillets];
+    let mut shared_corner_seen = vec![false; n_fillets];
     for arc in arcs {
-        if let RepeatedApexArcKind::FaceEdge { fillet_index } = arc.kind {
-            let seen = face_edge_seen.get_mut(fillet_index)?;
-            if *seen {
-                return None;
+        match arc.kind {
+            RepeatedApexArcKind::FaceEdge { fillet_index } => {
+                let seen = face_edge_seen.get_mut(fillet_index)?;
+                if *seen || welded_corners[fillet_index] {
+                    return None;
+                }
+                *seen = true;
             }
-            *seen = true;
+            RepeatedApexArcKind::SharedCorner { corner_index } => {
+                let seen = shared_corner_seen.get_mut(corner_index)?;
+                if *seen || !welded_corners[corner_index] {
+                    return None;
+                }
+                *seen = true;
+            }
+            RepeatedApexArcKind::Base | RepeatedApexArcKind::Unresolved => {}
         }
     }
-    if face_edge_seen.iter().any(|seen| !seen) {
-        return None;
+    for k in 0..n_fillets {
+        if welded_corners[k] != shared_corner_seen[k] || welded_corners[k] == face_edge_seen[k] {
+            return None;
+        }
     }
 
     let mut boundary = Vec::with_capacity(2 * n_fillets);
-    for k in 0..n_fillets {
+    for (k, welded) in welded_corners.iter().enumerate().take(n_fillets) {
         boundary.push(NormalizedCapBoundaryEdge::FilletEnd { fillet_index: k });
-        boundary.push(NormalizedCapBoundaryEdge::FaceEdge { fillet_index: k });
+        if !welded {
+            boundary.push(NormalizedCapBoundaryEdge::FaceEdge { fillet_index: k });
+        }
     }
     Some(boundary)
 }
@@ -277,39 +329,53 @@ fn classify_apex_arc(
     apex_vertex_handles: &[VertexHandle],
     n_fillets: usize,
 ) -> RepeatedApexArcKind {
-    let planned: Vec<(usize, bool)> = interior
+    let planned: Vec<Vec<(usize, bool)>> = interior
         .iter()
-        .filter_map(|&vertex| planned_apex_vertex_role(vertex, apex_vertex_handles, n_fillets))
+        .map(|&vertex| planned_apex_vertex_roles(vertex, apex_vertex_handles, n_fillets))
+        .filter(|roles| !roles.is_empty())
         .collect();
     if planned.is_empty() {
         return RepeatedApexArcKind::Base;
     }
-    if planned.len() == 2 {
-        let (first_k, first_is_a) = planned[0];
-        let (second_k, second_is_a) = planned[1];
-        if !first_is_a && second_is_a && second_k == (first_k + 1) % n_fillets {
-            return RepeatedApexArcKind::FaceEdge {
-                fillet_index: first_k,
-            };
+    if let [roles] = planned.as_slice() {
+        // One planned interior vertex: a welded shared corner iff the
+        // SAME handle holds both T_b[k] and T_a[k+1] roles (PK-219).
+        for &(k, is_a) in roles {
+            if !is_a && roles.contains(&((k + 1) % n_fillets, true)) {
+                return RepeatedApexArcKind::SharedCorner { corner_index: k };
+            }
+        }
+    }
+    if let [first_roles, second_roles] = planned.as_slice() {
+        for &(first_k, first_is_a) in first_roles {
+            let wanted = ((first_k + 1) % n_fillets, true);
+            if !first_is_a && second_roles.contains(&wanted) {
+                return RepeatedApexArcKind::FaceEdge {
+                    fillet_index: first_k,
+                };
+            }
         }
     }
     RepeatedApexArcKind::Unresolved
 }
 
-fn planned_apex_vertex_role(
+/// ALL planned roles a loop vertex matches — a welded corner handle
+/// occupies both its T_b slot and the next sector's T_a slot.
+fn planned_apex_vertex_roles(
     vertex: VertexHandle,
     apex_vertex_handles: &[VertexHandle],
     n_fillets: usize,
-) -> Option<(usize, bool)> {
+) -> Vec<(usize, bool)> {
+    let mut roles = Vec::new();
     for k in 0..n_fillets {
         if apex_vertex_handles[2 * k] == vertex {
-            return Some((k, true));
+            roles.push((k, true));
         }
         if apex_vertex_handles[2 * k + 1] == vertex {
-            return Some((k, false));
+            roles.push((k, false));
         }
     }
-    None
+    roles
 }
 
 fn arc_vertices_between(
