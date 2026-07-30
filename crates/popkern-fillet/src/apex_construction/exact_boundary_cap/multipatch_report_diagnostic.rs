@@ -33,10 +33,7 @@ impl ExactBoundaryMultiPatchDiagnostic {
             sector.sector_index,
             sector.sector_name.clone(),
         )
-        .with_edge(sector.face_edge)
-        .with_cap_half_edge(sector.cap_half_edges[1])
-        .with_support_half_edge(sector.support_half_edges[1])
-        .with_support_face(sector.bridge_support_face)
+        .with_bridge_side_of(sector)
     }
 
     pub(crate) fn pcurve_parameterization_invalid(
@@ -448,6 +445,15 @@ impl ExactBoundaryMultiPatchDiagnostic {
 
     fn with_edge(mut self, edge: EdgeHandle) -> Self {
         self.edge = Some(edge);
+        self
+    }
+
+    /// Bridge-side handles (all `None` for a welded sector).
+    fn with_bridge_side_of(mut self, sector: &ExactBoundaryCapSectorInput) -> Self {
+        self.edge = sector.face_edge;
+        self.cap_half_edge = sector.bridge_seam.as_ref().map(|s| s.cap_half_edge);
+        self.support_half_edge = sector.bridge_seam.as_ref().map(|s| s.support_half_edge);
+        self.support_face = sector.bridge_support_face;
         self
     }
 

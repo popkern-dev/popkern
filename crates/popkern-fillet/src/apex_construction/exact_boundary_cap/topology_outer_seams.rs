@@ -18,33 +18,39 @@ pub(super) fn refresh_sector_outer_seams(
         sector.fillet_end_edge,
         sector.fillet_support_face,
     )?;
-    let face = live_outer_seam(brep, sector, sector.face_edge, sector.bridge_support_face)?;
     sector.fillet_support_face = fillet.1;
-    sector.bridge_support_face = face.1;
-    sector.cap_half_edges = [fillet.0, face.0];
-    sector.support_half_edges = [fillet.2, face.2];
-    sector.outer_seams[0].cap_half_edge = fillet.0;
-    sector.outer_seams[0].support_face = fillet.1;
-    sector.outer_seams[0].support_half_edge = fillet.2;
-    sector.outer_seams[0].cap_pcurve_present = brep
+    sector.fillet_seam.cap_half_edge = fillet.0;
+    sector.fillet_seam.support_face = fillet.1;
+    sector.fillet_seam.support_half_edge = fillet.2;
+    sector.fillet_seam.cap_pcurve_present = brep
         .half_edges
         .get(fillet.0)
         .is_some_and(|half_edge| half_edge.pcurve.is_some());
-    sector.outer_seams[0].support_pcurve_present = brep
+    sector.fillet_seam.support_pcurve_present = brep
         .half_edges
         .get(fillet.2)
         .is_some_and(|half_edge| half_edge.pcurve.is_some());
-    sector.outer_seams[1].cap_half_edge = face.0;
-    sector.outer_seams[1].support_face = face.1;
-    sector.outer_seams[1].support_half_edge = face.2;
-    sector.outer_seams[1].cap_pcurve_present = brep
-        .half_edges
-        .get(face.0)
-        .is_some_and(|half_edge| half_edge.pcurve.is_some());
-    sector.outer_seams[1].support_pcurve_present = brep
-        .half_edges
-        .get(face.2)
-        .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    // Welded sectors (shared-corner contract) have no bridge seam.
+    let (Some(face_edge), Some(bridge_support_face)) =
+        (sector.face_edge, sector.bridge_support_face)
+    else {
+        return Ok(());
+    };
+    let face = live_outer_seam(brep, sector, face_edge, bridge_support_face)?;
+    sector.bridge_support_face = Some(face.1);
+    if let Some(bridge_seam) = sector.bridge_seam.as_mut() {
+        bridge_seam.cap_half_edge = face.0;
+        bridge_seam.support_face = face.1;
+        bridge_seam.support_half_edge = face.2;
+        bridge_seam.cap_pcurve_present = brep
+            .half_edges
+            .get(face.0)
+            .is_some_and(|half_edge| half_edge.pcurve.is_some());
+        bridge_seam.support_pcurve_present = brep
+            .half_edges
+            .get(face.2)
+            .is_some_and(|half_edge| half_edge.pcurve.is_some());
+    }
     Ok(())
 }
 

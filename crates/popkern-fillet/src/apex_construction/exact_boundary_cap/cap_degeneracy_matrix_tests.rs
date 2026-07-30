@@ -79,7 +79,7 @@ fn candidate_pcurve_adversaries_are_repaired_and_committed() {
         let sectors = n_sector_inventory(&edges, 3);
         let exact_sectors =
             extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap();
-        let support_half_edge = exact_sectors[0].support_half_edges[0];
+        let support_half_edge = exact_sectors[0].fillet_seam.support_half_edge;
         match adversary {
             CandidateAdversary::MissingSupportPcurve => {
                 brep.half_edges[support_half_edge].pcurve = None;
@@ -241,7 +241,7 @@ fn n_sector_inventory(edges: &[EdgeHandle], sector_count: usize) -> Vec<GregoryC
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -255,6 +255,7 @@ fn n_sector_plan(brep: &BRep, edges: &[EdgeHandle], sector_count: usize) -> Apex
                 sector_count
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); sector_count],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

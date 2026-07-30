@@ -174,19 +174,30 @@ fn record_exact_boundary_cap_outer_declines(
         }
         for sector in route.exact_boundary_report.sectors.clone() {
             for (side_index, edge, outer_side) in [
-                (0usize, sector.fillet_end_edge, "FilletEnd"),
+                (0usize, Some(sector.fillet_end_edge), "FilletEnd"),
                 (1usize, sector.face_edge, "FaceEdge"),
             ] {
-                let (cap_half_edge, support_half_edge) = resolve_sector_outer_sides(
-                    result,
-                    edge,
+                // Welded shared corners have no bridge side.
+                let Some(edge) = edge else {
+                    continue;
+                };
+                let (Some(recorded_cap), Some(recorded_support), Some(side_support_face)) = (
                     sector.cap_half_edges[side_index],
                     sector.support_half_edges[side_index],
                     if side_index == 0 {
-                        sector.fillet_support_face
+                        Some(sector.fillet_support_face)
                     } else {
                         sector.bridge_support_face
                     },
+                ) else {
+                    continue;
+                };
+                let (cap_half_edge, support_half_edge) = resolve_sector_outer_sides(
+                    result,
+                    edge,
+                    recorded_cap,
+                    recorded_support,
+                    side_support_face,
                 );
                 let (code, residual, sample_parameter) = exact_boundary_cap_outer_decline(
                     result,
@@ -204,11 +215,7 @@ fn record_exact_boundary_cap_outer_declines(
                     sector_name: sector.sector_name.clone(),
                     edge: Some(edge),
                     support_half_edge: Some(support_half_edge),
-                    support_face: Some(if side_index == 0 {
-                        sector.fillet_support_face
-                    } else {
-                        sector.bridge_support_face
-                    }),
+                    support_face: Some(side_support_face),
                     residual,
                     outer_side: Some(outer_side.to_string()),
                     sample_parameter,
@@ -322,9 +329,9 @@ fn record_exact_boundary_support_scope_declines(
         for sector in route.exact_boundary_report.sectors.clone() {
             for (edge, support_half_edge, support_face) in [
                 (
-                    sector.fillet_end_edge,
+                    Some(sector.fillet_end_edge),
                     sector.support_half_edges[0],
-                    sector.fillet_support_face,
+                    Some(sector.fillet_support_face),
                 ),
                 (
                     sector.face_edge,
@@ -332,6 +339,12 @@ fn record_exact_boundary_support_scope_declines(
                     sector.bridge_support_face,
                 ),
             ] {
+                // Welded shared corners have no bridge side.
+                let (Some(edge), Some(support_half_edge), Some(support_face)) =
+                    (edge, support_half_edge, support_face)
+                else {
+                    continue;
+                };
                 let (_, support_half_edge) = resolve_sector_outer_sides(
                     result,
                     edge,

@@ -127,12 +127,12 @@ impl ExactBoundaryCommitDiagnostic {
             code: ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing.code(),
             sector_name: Some(sector.sector_name.clone()),
             face: support_face.or(Some(sector.cap_face)),
-            edge: Some(sector.outer_seams[side_index].edge),
+            edge: sector.seam_at(side_index).map(|seam| seam.edge),
             cap_half_edge: Some(cap_half_edge),
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual: None,
-            outer_side: Some(sector.outer_seams[side_index].side),
+            outer_side: sector.seam_at(side_index).map(|seam| seam.side),
             sample_parameter: None,
             tolerance: None,
         }
@@ -151,12 +151,12 @@ impl ExactBoundaryCommitDiagnostic {
             code: ExactBoundaryCommitDeclineReason::SupportSurfaceMissing.code(),
             sector_name: Some(sector.sector_name.clone()),
             face: Some(support_face),
-            edge: Some(sector.outer_seams[side_index].edge),
+            edge: sector.seam_at(side_index).map(|seam| seam.edge),
             cap_half_edge: Some(cap_half_edge),
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual,
-            outer_side: Some(sector.outer_seams[side_index].side),
+            outer_side: sector.seam_at(side_index).map(|seam| seam.side),
             sample_parameter: None,
             tolerance: None,
         }
@@ -175,12 +175,12 @@ impl ExactBoundaryCommitDiagnostic {
             code: ExactBoundaryCommitDeclineReason::SupportFaceSubdivisionRequired.code(),
             sector_name: Some(sector.sector_name.clone()),
             face: Some(support_face),
-            edge: Some(sector.outer_seams[side_index].edge),
+            edge: sector.seam_at(side_index).map(|seam| seam.edge),
             cap_half_edge: Some(cap_half_edge),
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual: Some(residual),
-            outer_side: Some(sector.outer_seams[side_index].side),
+            outer_side: sector.seam_at(side_index).map(|seam| seam.side),
             sample_parameter: None,
             tolerance: None,
         }
@@ -196,9 +196,11 @@ impl ExactBoundaryCommitDiagnostic {
             code: ExactBoundaryCommitDeclineReason::SharedTrimValidationFailed.code(),
             sector_name: Some(sector.sector_name.clone()),
             face: Some(sector.cap_face),
-            edge: Some(sector.outer_seams[side_index].edge),
-            cap_half_edge: Some(sector.cap_half_edges[side_index]),
-            support_half_edge: Some(sector.support_half_edges[side_index]),
+            edge: sector.seam_at(side_index).map(|seam| seam.edge),
+            cap_half_edge: sector.seam_at(side_index).map(|seam| seam.cap_half_edge),
+            support_half_edge: sector
+                .seam_at(side_index)
+                .map(|seam| seam.support_half_edge),
             shared_trim_failure: Some(failure.reason),
             residual: Some(
                 failure
@@ -207,7 +209,7 @@ impl ExactBoundaryCommitDiagnostic {
                     .max(failure.validation.max_side_agreement_deviation)
                     .max(failure.validation.max_endpoint_gap),
             ),
-            outer_side: Some(sector.outer_seams[side_index].side),
+            outer_side: sector.seam_at(side_index).map(|seam| seam.side),
             sample_parameter: None,
             tolerance: None,
         }
@@ -227,12 +229,12 @@ impl ExactBoundaryCommitDiagnostic {
             code: ExactBoundaryCommitDeclineReason::LivePcurvePairResidualExceeded.code(),
             sector_name: Some(sector.sector_name.clone()),
             face: Some(sector.cap_face),
-            edge: Some(sector.outer_seams[side_index].edge),
+            edge: sector.seam_at(side_index).map(|seam| seam.edge),
             cap_half_edge: Some(cap_half_edge),
             support_half_edge: Some(support_half_edge),
             shared_trim_failure: None,
             residual: Some(residual),
-            outer_side: Some(sector.outer_seams[side_index].side),
+            outer_side: sector.seam_at(side_index).map(|seam| seam.side),
             sample_parameter: Some(sample_parameter),
             tolerance: Some(tolerance),
         }

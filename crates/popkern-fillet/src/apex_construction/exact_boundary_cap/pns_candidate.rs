@@ -174,19 +174,29 @@ fn sector_to_boundary_edge(
 ) -> Result<FillBoundaryEdge, PnsCandidateError> {
     let idx = sector.sector_index;
     let arc = edge_span(brep, sector.fillet_end_edge, idx, "fillet_end")?;
-    let bridge = edge_span(brep, sector.face_edge, idx, "face")?;
+    // Welded shared corners (PK-219) have no bridge span; the PnS
+    // boundary side sampler needs one, so the candidate declines
+    // structurally for welded sectors.
+    let Some(face_edge) = sector.face_edge else {
+        return Err(PnsCandidateError::MissingCurve {
+            sector: idx,
+            which: "face (welded shared corner has no bridge span)",
+        });
+    };
+    let bridge = edge_span(brep, face_edge, idx, "face")?;
     let arc_support = support_surface(brep, sector.fillet_support_face).ok_or(
         PnsCandidateError::MissingSupport {
             sector: idx,
             which: "fillet_end",
         },
     )?;
-    let bridge_support = support_surface(brep, sector.bridge_support_face).ok_or(
-        PnsCandidateError::MissingSupport {
+    let bridge_support = sector
+        .bridge_support_face
+        .and_then(|face| support_surface(brep, face))
+        .ok_or(PnsCandidateError::MissingSupport {
             sector: idx,
             which: "face",
-        },
-    )?;
+        })?;
 
     // Pick the span deterministically: find which arc endpoint is the
     // join (the one that meets the bridge), start from the other, and

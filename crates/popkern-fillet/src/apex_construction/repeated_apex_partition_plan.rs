@@ -20,17 +20,27 @@ impl RepeatedApexPartitionPlan {
         cap_face: FaceHandle,
         loop_plan: &RepeatedApexLoopPlan,
         apex_vertex_handles: &[VertexHandle],
-        face_edge_handles: &[EdgeHandle],
+        face_edge_handles: &[Option<EdgeHandle>],
         n_fillets: usize,
     ) -> Result<Self, ApexBuildError> {
         if face_edge_handles.len() != n_fillets {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
-                    "planned repeated-apex partition needs {n_fillets} FaceEdges, got {}",
+                    "planned repeated-apex partition needs {n_fillets} FaceEdge slots, got {}",
                     face_edge_handles.len()
                 ),
             });
         }
+        // Welded corners have no FaceEdge (PK-219 frontier).
+        if face_edge_handles.iter().any(Option::is_none) {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: "planned repeated-apex partition: shared-corner repeated apex — \
+                         welded partition contract under construction (PK-219)"
+                    .into(),
+            });
+        }
+        let face_edge_handles: Vec<EdgeHandle> =
+            face_edge_handles.iter().copied().flatten().collect();
 
         let mut cap_boundary = Vec::with_capacity(2 * n_fillets);
         for k in 0..n_fillets {
@@ -42,9 +52,8 @@ impl RepeatedApexPartitionPlan {
                 t_b,
             });
 
-            let next_k = (k + 1) % n_fillets;
             let expected_start = apex_vertex_handles[2 * k + 1];
-            let expected_end = apex_vertex_handles[2 * next_k];
+            let expected_end = apex_vertex_handles[2 * ((k + 1) % n_fillets)];
             let face_edge = face_edge_handles[k];
             let (cap_half_edge, neighbor_half_edge) = oriented_edge_half_edges_on_face(
                 brep,
@@ -235,7 +244,8 @@ impl RepeatedApexPartitionPlan {
             let (edge, cap_half_edge, cylinder_candidate_half_edge) =
                 insert_unwired_edge_pair(brep, t_a, t_b);
             let fillet_index = planned_fillet_index_for_sector(plan, k)?;
-            let curve = &plan.target_topology.apex_edges[2 * k].curve;
+            let curve =
+                crate::apex_construction::constructive_geometry::planned_fillet_end_curve(plan, k)?;
             attach_fillet_end_curve_to_edge(brep, edge, curve, fillet_index, fillet_surfaces)?;
             let target_cylinder_face =
                 target_cylinder_face_for_fillet(brep, fillet_index, fillet_surfaces)?;
@@ -422,20 +432,18 @@ impl RepeatedApexPartitionPlan {
             );
         }
 
-        // Carrier absorption (Stage-D seam-ownership inventory): planar
-        // production faces take back the coplanar scaffold fragments
-        // that separate them from their true seam partners.
+        // Carrier absorption (Stage-D seam-ownership inventory):
+        // planar production faces take back coplanar scaffold
+        // fragments separating them from their seam partners.
         absorb_coplanar_residual_scaffold(brep);
-        // Retired-subcomplex role coherence (see helper docs): must
-        // run after every residual face demotion above.
+        // Retired-subcomplex role coherence: after all demotions.
         demote_residual_interior_edges(brep);
-        // Handover completion: park genuinely orphaned loop claimers in
-        // closed residual homes (must be the LAST loop-structure pass —
-        // mid-transaction displaced claims are deliberate hand-offs, and
-        // the default cube path's PK-074 pocket completion consumes
-        // displaced claims even later, at dispatch: gate to the strict
-        // V-free contract, whose scaffold this pass makes
-        // loop-partitionable so the carrier-absorption welds can apply).
+        // Handover completion: park genuinely orphaned loop claimers
+        // in closed residual homes. Must be the LAST loop-structure
+        // pass — mid-transaction displaced claims are deliberate
+        // hand-offs (PK-074 pocket completion consumes them at
+        // dispatch); gated to the strict V-free contract whose
+        // scaffold this makes loop-partitionable for carrier welds.
         if execution_options.require_v_free_repeated_apex {
             rehome_all_displaced_claimers(brep)?;
         }

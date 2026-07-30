@@ -164,7 +164,31 @@ pub(crate) fn decide_cap_kind(
         };
         telemetry.cap_kind_reason = reason;
         let _ = fillet_specs; // currently unused; reserved for variable-radius variants
-        Ok(gregory_cap_kind(terminations))
+        let cap_kind = gregory_cap_kind(terminations, tolerance);
+        let welded = cap_kind.welded_corner_count();
+        telemetry.set_value("welded_corner_count", welded as f64);
+        if welded > 0 {
+            telemetry.cap_kind_reason = format!(
+                "{} — {welded}/{n_fil} corners welded (shared-corner class: adjacent \
+                 terminations within {bridge_tol:.3e})",
+                telemetry.cap_kind_reason
+            );
+        }
+        Ok(cap_kind)
+    }
+}
+
+/// Snap a clamped NURBS curve's first/last control points to the
+/// given endpoints so the curve agrees bitwise with the (possibly
+/// welded) corner vertices. The displacement is bounded by the weld
+/// gate (≤ 10·tol / 2 per endpoint) — below every downstream
+/// endpoint-match gate; the arc interior is unchanged.
+fn snap_clamped_curve_endpoints(curve: &mut NurbsCurve, start: &Point3, end: &Point3) {
+    if let Some(first) = curve.control_points.first_mut() {
+        *first = *start;
+    }
+    if let Some(last) = curve.control_points.last_mut() {
+        *last = *end;
     }
 }
 
@@ -206,11 +230,50 @@ fn push_unique_normal(
     normals.push(unit);
 }
 
-pub(crate) fn gregory_cap_kind(terminations: &[PerFilletTermination]) -> CapKind {
-    let per_fillet_terminations: Vec<[Point3; 2]> = terminations
+/// Build the Gregory [`CapKind`], classifying each corner between
+/// adjacent terminations as Bridged or Welded (shared-corner class,
+/// PK-219).
+///
+/// A corner welds when the gap between fillet `k`'s T_b and fillet
+/// `k+1`'s T_a is within `tolerance.linear().max(1e-9) * 10` — the
+/// same gate as [`decide_cap_kind`]'s bridge-collapse criterion, so
+/// the welded contract takes over exactly the set the Sphere
+/// dispatch measures as collapsed. The weld point is the midpoint
+/// of the two terminations (exact for planar supports: both
+/// endpoints lie on the shared support plane, so their convex
+/// combination does too), and both adjacent termination entries are
+/// SNAPPED to it bitwise so the cap boundary closes exactly at the
+/// corner. The snap displacement is ≤ half the gate — below every
+/// downstream endpoint gate.
+pub(crate) fn gregory_cap_kind(
+    terminations: &[PerFilletTermination],
+    tolerance: &popkern_core::tolerance::Tolerance,
+) -> CapKind {
+    let n_fil = terminations.len();
+    let weld_gate = tolerance.linear().max(1.0e-9) * 10.0;
+    let mut per_fillet_terminations: Vec<[Point3; 2]> = terminations
         .iter()
         .map(|t| [t.endpoint_a, t.endpoint_b])
         .collect();
+    let mut corner_kinds: Vec<super::cap_kind::ApexCornerKind> = Vec::with_capacity(n_fil.max(1));
+    for k in 0..n_fil {
+        let next_k = (k + 1) % n_fil;
+        let t_b = per_fillet_terminations[k][1];
+        let t_a_next = per_fillet_terminations[next_k][0];
+        let gap = t_b.distance_to(&t_a_next);
+        if gap <= weld_gate && n_fil >= 2 {
+            let point = Point3::new(
+                0.5 * (t_b.x + t_a_next.x),
+                0.5 * (t_b.y + t_a_next.y),
+                0.5 * (t_b.z + t_a_next.z),
+            );
+            per_fillet_terminations[k][1] = point;
+            per_fillet_terminations[next_k][0] = point;
+            corner_kinds.push(super::cap_kind::ApexCornerKind::Welded { point });
+        } else {
+            corner_kinds.push(super::cap_kind::ApexCornerKind::Bridged);
+        }
+    }
     let per_fillet_caps: Vec<(Point3, f64)> = terminations
         .iter()
         .map(|t| (t.cap_centre, t.cap_radius))
@@ -218,6 +281,7 @@ pub(crate) fn gregory_cap_kind(terminations: &[PerFilletTermination]) -> CapKind
     CapKind::Gregory {
         per_fillet_terminations,
         per_fillet_caps,
+        corner_kinds,
     }
 }
 
@@ -282,7 +346,11 @@ pub(crate) fn build_target_topology(
             "build_target_topology is never called with CapKind::Open — \
              plan_open_rung constructs the (empty) topology directly",
         ),
-        CapKind::Gregory { .. } => {
+        CapKind::Gregory {
+            per_fillet_terminations,
+            corner_kinds,
+            ..
+        } => {
             // 2N apex vertices: vertex layout chosen to make the
             // cap loop walk visit them in alternating order:
             //   index 2k   = T_a[k]    (FilletEnd[k] start)
@@ -290,10 +358,21 @@ pub(crate) fn build_target_topology(
             //
             // Cap-loop walk: T_a[0] → FilletEnd[0] → T_b[0] →
             //                FaceEdge[0] → T_a[1] → FilletEnd[1] → ...
+            //
+            // Corner points come from the CapKind's terminations,
+            // which [`gregory_cap_kind`] has already SNAPPED at
+            // welded corners: for a welded corner k, slots 2k+1 and
+            // 2(k+1) hold the same (bitwise-equal) weld point and NO
+            // FaceEdge is emitted — the shared-corner contract
+            // (PK-219). The historical claim that Gregory bridge
+            // endpoints are always non-degenerate was false for
+            // uniform pyramids (Sphere dispatch also requires
+            // trihedral + orthogonal normals), which is exactly how
+            // the PK-216 zero-length-edge corruption entered.
             let mut apex_vertices: Vec<Point3> = Vec::with_capacity(2 * n_fil);
-            for t in terminations {
-                apex_vertices.push(t.endpoint_a);
-                apex_vertices.push(t.endpoint_b);
+            for t in per_fillet_terminations {
+                apex_vertices.push(t[0]);
+                apex_vertices.push(t[1]);
             }
             let mut apex_edges: Vec<TargetEdge> = Vec::with_capacity(2 * n_fil);
             let mut outer_loop_edge_indices: Vec<usize> = Vec::with_capacity(2 * n_fil);
@@ -302,31 +381,42 @@ pub(crate) fn build_target_topology(
                 let v_ta_k = 2 * k;
                 let v_tb_k = 2 * k + 1;
                 let v_ta_next = 2 * next_k;
-                // FilletEnd[k] — CapVsCyl edge from T_a[k] to T_b[k].
+                // FilletEnd[k] — CapVsCyl edge from T_a[k] to T_b[k],
+                // with endpoints snapped to the (possibly welded)
+                // corner points so curve and vertex agree bitwise.
+                let mut curve = term.curve_3d.clone();
+                snap_clamped_curve_endpoints(
+                    &mut curve,
+                    &apex_vertices[v_ta_k],
+                    &apex_vertices[v_tb_k],
+                );
                 apex_edges.push(TargetEdge {
                     origin_vertex_idx: v_ta_k,
                     dest_vertex_idx: v_tb_k,
-                    curve: term.curve_3d.clone(),
+                    curve,
                     role: TargetEdgeRole::CapVsCyl {
                         fillet_idx: term.fillet_idx,
                     },
                 });
-                outer_loop_edge_indices.push(2 * k);
+                outer_loop_edge_indices.push(apex_edges.len() - 1);
+                if corner_kinds.get(k).is_some_and(|kind| kind.is_welded()) {
+                    // Welded corner: T_b[k] ≡ T_a[k+1]; no FaceEdge
+                    // exists between them.
+                    continue;
+                }
                 // FaceEdge[k] — CapVsPlane straight-line bridge from
-                // T_b[k] to T_a[(k+1) % N].
-                // Bridge between adjacent FilletEnd terminations.
-                // For Gregory caps, the two endpoints are non-degenerate
-                // (the dispatch check in decide_cap_kind would have
-                // picked Sphere if they collapsed), so the degenerate
-                // path in fit_nurbs_through_points is unreachable.
+                // T_b[k] to T_a[(k+1) % N] (bridged corners only).
+                let bridge_start = apex_vertices[v_tb_k];
+                let bridge_end = apex_vertices[v_ta_next];
                 let bridge =
-                    fit_nurbs_through_points(&[term.endpoint_b, terminations[next_k].endpoint_a])
-                        .unwrap_or_else(|_| NurbsCurve {
+                    fit_nurbs_through_points(&[bridge_start, bridge_end]).unwrap_or_else(|_| {
+                        NurbsCurve {
                             degree: 1,
                             knots: vec![0.0, 0.0, 1.0, 1.0],
-                            control_points: vec![term.endpoint_b, terminations[next_k].endpoint_a],
+                            control_points: vec![bridge_start, bridge_end],
                             weights: vec![1.0, 1.0],
-                        });
+                        }
+                    });
                 apex_edges.push(TargetEdge {
                     origin_vertex_idx: v_tb_k,
                     dest_vertex_idx: v_ta_next,
@@ -338,7 +428,7 @@ pub(crate) fn build_target_topology(
                         shared_face_idx: k,
                     },
                 });
-                outer_loop_edge_indices.push(2 * k + 1);
+                outer_loop_edge_indices.push(apex_edges.len() - 1);
             }
             let cap_face = TargetCapFace::Gregory {
                 outer_loop_edge_indices,

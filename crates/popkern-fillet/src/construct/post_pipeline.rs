@@ -536,7 +536,9 @@ fn exact_boundary_protected_support_faces(
                 .exact_boundary_report
                 .sectors
                 .iter()
-                .flat_map(|sector| [sector.fillet_support_face, sector.bridge_support_face])
+                .flat_map(|sector| {
+                    std::iter::once(sector.fillet_support_face).chain(sector.bridge_support_face)
+                })
         })
         .collect()
 }

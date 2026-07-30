@@ -8,6 +8,40 @@
 use popkern_core::geometry::Point3;
 use serde::{Deserialize, Serialize};
 
+/// Kind of the corner between adjacent fillet terminations on a
+/// repeated apex (corner `k` sits between fillet `k`'s T_b and
+/// fillet `k+1`'s T_a).
+///
+/// On a UNIFORM-radius apex the two rolling-ball contact curves on
+/// each support face intersect at one point, so adjacent
+/// terminations coincide and the FaceEdge bridge between them has
+/// no length — the corner is a single welded vertex (the
+/// shared-corner class, PK-216/PK-219). Mixed radii keep the
+/// corners apart and the bridge is a real edge.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ApexCornerKind {
+    /// Non-degenerate FaceEdge bridge between the adjacent
+    /// terminations (the historical 2N Gregory contract).
+    Bridged,
+    /// The adjacent terminations coincide within the weld gate:
+    /// the corner is ONE vertex at `point` (the settled corner
+    /// position, authoritative for both adjacent fillet-end arcs)
+    /// and no FaceEdge exists.
+    Welded {
+        /// Settled corner position. Both adjacent fillet-end arc
+        /// endpoints are snapped to this exact point so the cap
+        /// boundary closes bitwise at the corner.
+        point: Point3,
+    },
+}
+
+impl ApexCornerKind {
+    /// True for the welded (shared-corner) kind.
+    pub fn is_welded(&self) -> bool {
+        matches!(self, ApexCornerKind::Welded { .. })
+    }
+}
+
 /// Cap face construction strategy decided by [`plan_apex`](super::plan_apex).
 ///
 /// The choice between `Sphere` and `Gregory` is driven by whether
@@ -50,10 +84,20 @@ pub enum CapKind {
     Gregory {
         /// Per-fillet sphere-fit terminations [T_a, T_b], one per
         /// fillet.  T_a is on face_A side, T_b on face_B side.
+        /// For a corner `k` classified [`ApexCornerKind::Welded`],
+        /// `per_fillet_terminations[k][1]` and
+        /// `per_fillet_terminations[(k+1)%N][0]` are BOTH the weld
+        /// point (bitwise equal).
         per_fillet_terminations: Vec<[Point3; 2]>,
         /// Per-fillet (sphere centre, sphere radius).  May vary
         /// across fillets.
         per_fillet_caps: Vec<(Point3, f64)>,
+        /// Corner classification, length N: `corner_kinds[k]` is the
+        /// corner between fillet `k` and fillet `k+1` (mod N).
+        /// Empty (legacy serialized plans) means all corners
+        /// Bridged — the pre-shared-corner contract.
+        #[serde(default)]
+        corner_kinds: Vec<ApexCornerKind>,
     },
 
     /// No cap is constructed — the planner's [Open
@@ -100,6 +144,32 @@ impl CapKind {
     /// True if this cap is the N-sided Gregory kind.
     pub fn is_gregory(&self) -> bool {
         matches!(self, CapKind::Gregory { .. })
+    }
+
+    /// Corner kinds for a Gregory cap (empty slice for Sphere/Open
+    /// and for legacy plans that predate corner classification —
+    /// both mean "no welded corners").
+    pub fn corner_kinds(&self) -> &[ApexCornerKind] {
+        match self {
+            CapKind::Gregory { corner_kinds, .. } => corner_kinds,
+            _ => &[],
+        }
+    }
+
+    /// True when corner `k` (between fillet `k` and `k+1`) is
+    /// welded. Out-of-range or unclassified corners read Bridged.
+    pub fn corner_is_welded(&self, k: usize) -> bool {
+        self.corner_kinds()
+            .get(k)
+            .is_some_and(ApexCornerKind::is_welded)
+    }
+
+    /// Number of welded corners (0 for Sphere/Open/legacy plans).
+    pub fn welded_corner_count(&self) -> usize {
+        self.corner_kinds()
+            .iter()
+            .filter(|kind| kind.is_welded())
+            .count()
     }
 
     /// True if no cap is constructed (Open rung outcome).

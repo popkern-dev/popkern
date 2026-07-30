@@ -95,14 +95,16 @@ fn restore_exact_boundary_route_sides(
     let route_sides: Vec<(String, &'static str, HalfEdgeHandle, HalfEdgeHandle)> = sectors
         .iter()
         .flat_map(|sector| {
-            [(0usize, "FilletEnd"), (1usize, "FaceEdge")].map(|(side_index, outer_side)| {
-                (
-                    sector.sector_name.clone(),
-                    outer_side,
-                    sector.cap_half_edges[side_index],
-                    sector.support_half_edges[side_index],
-                )
-            })
+            [(0usize, "FilletEnd"), (1usize, "FaceEdge")]
+                .into_iter()
+                .filter_map(|(side_index, outer_side)| {
+                    let (cap, support) = match side_index {
+                        0 => (sector.cap_half_edges[0]?, sector.support_half_edges[0]?),
+                        _ => (sector.cap_half_edges[1]?, sector.support_half_edges[1]?),
+                    };
+                    Some((sector.sector_name.clone(), outer_side, cap, support))
+                })
+                .collect::<Vec<_>>()
         })
         .collect();
     let measure_all = |brep: &BRep| -> Vec<Option<CapOuterSideQuality>> {

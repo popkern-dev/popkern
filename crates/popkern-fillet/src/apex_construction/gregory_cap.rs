@@ -40,19 +40,18 @@ pub(crate) struct GregoryCapSector {
     pub sector_index: usize,
     pub fillet_index: usize,
     pub fillet_end_edge: EdgeHandle,
-    pub face_edge: EdgeHandle,
+    /// FaceEdge bridging T_b to the next sector's T_a; `None` for a
+    /// welded shared corner (PK-219, no bridge edge).
+    pub face_edge: Option<EdgeHandle>,
 }
 
 /// **DirectApex.4 Gregory cap surface assembly** — bridge from DirectApex's plan +
 /// post-stitch BRep state to legacy `three_quad_apply::
 /// apply_three_quad_decomposition_to_blend`.
 ///
-/// Builds a `BlendBoundary` from `plan.target_topology.apex_edges`
-/// (each apex_edge becomes a `BoundarySegment::FilletEnd` or
-/// `FaceEdge` based on its role + curve), then invokes the
-/// existing K-P promotion ladder.  The ladder produces N or 4N
-/// sub-quad Gregory patches whose surfaces are assigned to the
-/// poked sub-faces.
+/// Builds a `BlendBoundary` from `plan.target_topology.apex_edges`,
+/// then invokes the K-P promotion ladder (N or 4N sub-quad Gregory
+/// patches assigned to the poked sub-faces).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn assemble_gregory_cap_surface(
     brep: &mut BRep,
@@ -200,6 +199,7 @@ fn apply_planned_gregory_boundary(
     let CapKind::Gregory {
         per_fillet_terminations,
         per_fillet_caps,
+        ..
     } = &plan.cap_kind
     else {
         return Ok(false);
@@ -336,29 +336,30 @@ fn gregory_face_segment(
     sector: &GregoryCapSector,
     fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
 ) -> Result<BoundarySegment, ApexBuildError> {
-    let face = find_face_across_edge(brep, sector.face_edge, cap_face).ok_or_else(|| {
-        missing_adjacent_face_error(
-            brep,
-            cap_face,
-            sector.face_edge,
-            "FaceEdge",
-            sector.sector_index,
-        )
+    // Welded corners (PK-219) have no FaceEdge; K-P needs strict 2N.
+    let face_edge = sector
+        .face_edge
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "Gregory K-P boundary assembly needs a FaceEdge for sector {}: corner welded \
+                 — the exact-boundary candidate owns welded caps",
+                sector.sector_index
+            ),
+        })?;
+    let face = find_face_across_edge(brep, face_edge, cap_face).ok_or_else(|| {
+        missing_adjacent_face_error(brep, cap_face, face_edge, "FaceEdge", sector.sector_index)
     })?;
     Ok(BoundarySegment::FaceEdge {
         face,
         curve: gregory_cap_face_edge_boundary::oriented_support_face_edge_curve(
             brep,
             cap_face,
-            sector.face_edge,
+            face_edge,
             face,
             fillet_surfaces,
         )
         .unwrap_or(oriented_cap_edge_curve(
-            brep,
-            cap_face,
-            sector.face_edge,
-            "FaceEdge",
+            brep, cap_face, face_edge, "FaceEdge",
         )?),
     })
 }

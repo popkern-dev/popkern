@@ -19,7 +19,7 @@ use super::repeated_apex_serial::try_normalize_repeated_apex_loop;
 
 pub(super) struct RemainingFilletEndConstruction<'a> {
     apex_vertex_handles: &'a [VertexHandle],
-    face_edge_handles: &'a [EdgeHandle],
+    face_edge_handles: &'a [Option<EdgeHandle>],
     fillet_surfaces: &'a [FilletSurfaceResult],
     fillet_ends: &'a mut [Option<EdgeHandle>],
     execution_options: CapLoopConstructionOptions,
@@ -28,7 +28,7 @@ pub(super) struct RemainingFilletEndConstruction<'a> {
 impl<'a> RemainingFilletEndConstruction<'a> {
     pub(super) fn new(
         apex_vertex_handles: &'a [VertexHandle],
-        face_edge_handles: &'a [EdgeHandle],
+        face_edge_handles: &'a [Option<EdgeHandle>],
         fillet_surfaces: &'a [FilletSurfaceResult],
         fillet_ends: &'a mut [Option<EdgeHandle>],
         execution_options: CapLoopConstructionOptions,
@@ -328,7 +328,7 @@ fn create_fillet_end_edge_on_face(
             })?;
 
     let fillet_index = planned_fillet_index_for_sector(plan, k)?;
-    let curve = &plan.target_topology.apex_edges[2 * k].curve;
+    let curve = crate::apex_construction::constructive_geometry::planned_fillet_end_curve(plan, k)?;
     attach_fillet_end_curve_to_edge(brep, mef_result.edge, curve, fillet_index, fillet_surfaces)?;
     assign_fillet_strip_surface(brep, mef_result.face, fillet_index, fillet_surfaces)?;
 

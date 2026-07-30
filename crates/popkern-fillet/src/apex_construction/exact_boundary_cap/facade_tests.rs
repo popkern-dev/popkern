@@ -25,15 +25,17 @@ fn report_sector_pcurve_flags_are_read_from_live_topology() {
     let mut exact_sectors =
         extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap();
     for sector in &mut exact_sectors {
-        for seam in &mut sector.outer_seams {
-            seam.cap_pcurve_present = false;
-            seam.support_pcurve_present = false;
+        sector.fillet_seam.cap_pcurve_present = false;
+        sector.fillet_seam.support_pcurve_present = false;
+        if let Some(bridge_seam) = sector.bridge_seam.as_mut() {
+            bridge_seam.cap_pcurve_present = false;
+            bridge_seam.support_pcurve_present = false;
         }
-        for half_edge in sector
-            .cap_half_edges
-            .into_iter()
-            .chain(sector.support_half_edges)
-        {
+        let half_edges: Vec<_> = sector
+            .outer_seams()
+            .flat_map(|seam| [seam.cap_half_edge, seam.support_half_edge])
+            .collect();
+        for half_edge in half_edges {
             brep.half_edges[half_edge].pcurve =
                 Some(Pcurve::linear((0.0, 0.0), (1.0, 0.0), 0.0, 1.0));
         }
@@ -100,7 +102,7 @@ fn declined_report_records_rollback_and_versioned_diagnostics() {
         detail_code: None,
         sector_name: "direct_apex.cap_sector.0".to_string(),
         edge: Some(edges[0]),
-        support_half_edge: Some(exact_sectors[0].support_half_edges[0]),
+        support_half_edge: Some(exact_sectors[0].fillet_seam.support_half_edge),
         support_face: Some(exact_sectors[0].fillet_support_face),
         residual: Some(1.0),
         outer_side: Some("FilletEnd".to_string()),
@@ -187,7 +189,7 @@ fn trihedral_sectors(edges: &[EdgeHandle]) -> Vec<GregoryCapSector> {
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -201,6 +203,7 @@ fn trihedral_plan(brep: &BRep, edges: &[EdgeHandle]) -> ApexPlan {
                 3
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); 3],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

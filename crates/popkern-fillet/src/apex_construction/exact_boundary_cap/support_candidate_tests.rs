@@ -62,7 +62,7 @@ fn sphere_and_cone_full_candidates_report_structured_support_status() {
         let sectors = trihedral_sectors(&edges);
         let exact_sectors =
             extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap();
-        let face = exact_sectors[0].outer_seams[0].support_face;
+        let face = exact_sectors[0].fillet_seam.support_face;
         brep.faces[face].surface = Some(SurfaceOnFace {
             geometry: surface.clone(),
             orientation: true,
@@ -130,10 +130,7 @@ fn install_nurbs_plane_supports(
 ) {
     let exact_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors).unwrap();
     let mut uv_ranges: BTreeMap<FaceHandle, SupportUvBounds> = BTreeMap::new();
-    for seam in exact_sectors
-        .iter()
-        .flat_map(|sector| sector.outer_seams.iter())
-    {
+    for seam in exact_sectors.iter().flat_map(|sector| sector.outer_seams()) {
         let pcurve = brep.half_edges[seam.support_half_edge]
             .pcurve
             .as_ref()
@@ -166,10 +163,7 @@ fn install_periodic_cylinder_supports(
     sectors: &[GregoryCapSector],
 ) {
     let exact_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors).unwrap();
-    for seam in exact_sectors
-        .iter()
-        .flat_map(|sector| sector.outer_seams.iter())
-    {
+    for seam in exact_sectors.iter().flat_map(|sector| sector.outer_seams()) {
         install_periodic_cylinder_support(brep, seam);
     }
 }
@@ -264,13 +258,14 @@ fn assert_committed_exact_boundary_report_preserves_trims(
             .cap_half_edges
             .into_iter()
             .chain(sector.support_half_edges)
+            .flatten()
         {
             assert!(
                 brep.half_edges[half_edge].pcurve.is_some(),
                 "reported exact-boundary half-edge should carry a live pcurve"
             );
         }
-        for edge in [sector.fillet_end_edge, sector.face_edge] {
+        for edge in std::iter::once(sector.fillet_end_edge).chain(sector.face_edge) {
             let deviation = brep
                 .measure_edge_pcurve_deviation(edge)
                 .expect("accepted exact-boundary seam should have a 3D edge curve");
@@ -314,7 +309,7 @@ fn trihedral_sectors(edges: &[EdgeHandle]) -> Vec<GregoryCapSector> {
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -328,6 +323,7 @@ fn trihedral_plan(brep: &BRep, edges: &[EdgeHandle]) -> ApexPlan {
                 3
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); 3],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

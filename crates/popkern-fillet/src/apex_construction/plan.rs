@@ -314,7 +314,7 @@ fn plan_with_rung_ladder(
                     max_gap,
                     radius * 0.9
                 );
-                cap_kind = gregory_cap_kind(&terminations);
+                cap_kind = gregory_cap_kind(&terminations, tolerance);
                 target_topology = build_target_topology(&cap_kind, &terminations);
             }
             if std::env::var_os("PK_SPHEREFIT_TRACE").is_some() {

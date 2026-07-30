@@ -101,13 +101,28 @@ fn report_describes_two_outer_side_limit_for_gui_and_api() {
         diagnostic.validation_order,
         ExactBoundaryMultiPatchValidationOrder::OuterSideSelection
     );
-    assert_eq!(diagnostic.edge, Some(sector.face_edge));
-    assert_eq!(diagnostic.cap_half_edge, Some(sector.cap_half_edges[1]));
+    assert_eq!(diagnostic.edge, sector.face_edge);
+    assert_eq!(
+        diagnostic.cap_half_edge,
+        Some(
+            sector
+                .bridge_seam
+                .as_ref()
+                .expect("bridged fixture")
+                .cap_half_edge
+        )
+    );
     assert_eq!(
         diagnostic.support_half_edge,
-        Some(sector.support_half_edges[1])
+        Some(
+            sector
+                .bridge_seam
+                .as_ref()
+                .expect("bridged fixture")
+                .support_half_edge
+        )
     );
-    assert_eq!(diagnostic.support_face, Some(sector.bridge_support_face));
+    assert_eq!(diagnostic.support_face, sector.bridge_support_face);
 }
 
 #[test]
@@ -197,27 +212,23 @@ fn sector_input() -> ExactBoundaryCapSectorInput {
         fillet_index: 0,
         cap_face: faces[0],
         fillet_end_edge: edges[0],
-        face_edge: edges[1],
+        face_edge: Some(edges[1]),
         fillet_support_face: faces[1],
-        bridge_support_face: faces[2],
-        cap_half_edges: [half_edges[0], half_edges[2]],
-        support_half_edges: [half_edges[1], half_edges[3]],
-        outer_seams: [
-            seam(
-                ExactBoundaryOuterSide::FilletEnd,
-                edges[0],
-                half_edges[0],
-                half_edges[1],
-                faces[1],
-            ),
-            seam(
-                ExactBoundaryOuterSide::FaceEdge,
-                edges[1],
-                half_edges[2],
-                half_edges[3],
-                faces[2],
-            ),
-        ],
+        bridge_support_face: Some(faces[2]),
+        fillet_seam: seam(
+            ExactBoundaryOuterSide::FilletEnd,
+            edges[0],
+            half_edges[0],
+            half_edges[1],
+            faces[1],
+        ),
+        bridge_seam: Some(seam(
+            ExactBoundaryOuterSide::FaceEdge,
+            edges[1],
+            half_edges[2],
+            half_edges[3],
+            faces[2],
+        )),
     }
 }
 

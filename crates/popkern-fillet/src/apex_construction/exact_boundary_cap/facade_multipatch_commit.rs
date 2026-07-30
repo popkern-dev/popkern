@@ -118,11 +118,12 @@ fn bind_strip_face_support_boundary(
     }) else {
         return;
     };
-    let side_index = match candidate.strip_inventory.side {
-        super::super::sector::ExactBoundaryOuterSide::FilletEnd => 0,
-        super::super::sector::ExactBoundaryOuterSide::FaceEdge => 1,
+    let Some(cap_half_edge) = sector
+        .seam_for_side(candidate.strip_inventory.side)
+        .map(|seam| seam.cap_half_edge)
+    else {
+        return;
     };
-    let cap_half_edge = sector.cap_half_edges[side_index];
     let cap_surface = SurfaceGeometry::Nurbs(candidate.strip_candidate.surface.clone());
     brep.half_edges[cap_half_edge].pcurve = Some(orient_pcurve_to_half_edge_vertices(
         brep,
@@ -233,11 +234,13 @@ fn bind_inner_face_retained_boundaries(
         .filter(|pair| pair.sector_name == sector.sector_name)
         .filter(|pair| pair.side != candidate.strip_inventory.side)
     {
-        let side_index = match pair.side {
-            super::super::sector::ExactBoundaryOuterSide::FilletEnd => 0,
-            super::super::sector::ExactBoundaryOuterSide::FaceEdge => 1,
+        let Some(cap_half_edge) = sector
+            .seam_for_side(pair.side)
+            .map(|seam| seam.cap_half_edge)
+        else {
+            continue;
         };
-        brep.half_edges[sector.cap_half_edges[side_index]].pcurve = Some(pair.cap_pcurve.clone());
+        brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
         if brep.half_edges.contains_key(pair.support_half_edge) {
             brep.half_edges[pair.support_half_edge].pcurve = Some(pair.support_pcurve.clone());
         }

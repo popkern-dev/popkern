@@ -238,6 +238,31 @@ fn construct_apex_inner_constructive(
             // On any construction error the snapshot wrapper rolls back and
             // the caller falls through to legacy DirectApex.
 
+            // PK-219 staged frontier: the welded shared-corner
+            // contract is live through the plan and authoring layers,
+            // but the partition application and cap assembly welded
+            // forms are still under construction. Until they land,
+            // welded plans decline HERE with the class named (the
+            // recorded legacy fallback serves — same user-visible
+            // behavior as the PK-216 containment). Set
+            // PK219_WELDED_SUBSTRATE=1 to drive the in-progress
+            // welded path during development.
+            let welded_corners = plan.cap_kind.welded_corner_count();
+            if welded_corners > 0
+                && std::env::var("PK219_WELDED_SUBSTRATE")
+                    .map(|value| value != "1")
+                    .unwrap_or(true)
+            {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "shared-corner repeated apex — {welded_corners}/{} sector corners are \
+                         welded (uniform radii collapse the FaceEdge bridges); the partition \
+                         substrate's welded contract is under construction (PK-219)",
+                        plan.cap_kind.n_fillets()
+                    ),
+                });
+            }
+
             // Capture V's original cross-face incidences before anchor MEVs.
             // Cap-loop construction removes only these edges; anchor spurs
             // become cross-face later and must survive into fillet-end
@@ -309,7 +334,9 @@ fn construct_apex_inner_constructive(
                 Vec::with_capacity(2 * n);
             for k in 0..n {
                 apex_edges.push(Some(fillet_end_handles[k]));
-                apex_edges.push(Some(face_edge_handles[k]));
+                // Welded corners (shared-corner contract) have no
+                // FaceEdge — the slot stays None.
+                apex_edges.push(face_edge_handles[k]);
             }
             let mut created_faces = vec![cap_face];
             for face in &assignment.exact_boundary_committed_faces {

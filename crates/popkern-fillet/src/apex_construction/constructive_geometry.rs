@@ -12,11 +12,57 @@ use crate::fillet_surface::FilletSurfaceResult;
 use super::error::ApexBuildError;
 use super::plan::ApexPlan;
 
+/// Planned 3D curve of FilletEnd[k], resolved by role (valid under
+/// the shared-corner contract where `apex_edges` is not strictly
+/// alternating).
+pub(super) fn planned_fillet_end_curve(
+    plan: &ApexPlan,
+    sector_index: usize,
+) -> Result<&NurbsCurve, ApexBuildError> {
+    let edge_index = plan
+        .target_topology
+        .fillet_end_edge_index(sector_index)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "FilletEnd sector {sector_index} has no CapVsCyl apex_edge (plan holds {} edges)",
+                plan.target_topology.apex_edges.len()
+            ),
+        })?;
+    Ok(&plan.target_topology.apex_edges[edge_index].curve)
+}
+
+/// Planned 3D curve of the FaceEdge bridging corner `k`. Errors for
+/// welded corners — the caller must not request a bridge curve for
+/// a corner the plan declares shared.
+pub(super) fn planned_face_edge_curve(
+    plan: &ApexPlan,
+    corner_index: usize,
+) -> Result<&NurbsCurve, ApexBuildError> {
+    let edge_index = plan
+        .target_topology
+        .face_edge_edge_index(corner_index)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "corner {corner_index} has no CapVsPlane apex_edge (welded shared corner, or \
+                 plan drift)"
+            ),
+        })?;
+    Ok(&plan.target_topology.apex_edges[edge_index].curve)
+}
+
 pub(super) fn planned_fillet_index_for_sector(
     plan: &ApexPlan,
     sector_index: usize,
 ) -> Result<usize, ApexBuildError> {
-    let edge_index = 2 * sector_index;
+    let edge_index = plan
+        .target_topology
+        .fillet_end_edge_index(sector_index)
+        .ok_or_else(|| ApexBuildError::PlanMismatch {
+            reason: format!(
+                "FilletEnd sector {sector_index} has no CapVsCyl apex_edge (plan holds {} edges)",
+                plan.target_topology.apex_edges.len()
+            ),
+        })?;
     let edge = plan
         .target_topology
         .apex_edges

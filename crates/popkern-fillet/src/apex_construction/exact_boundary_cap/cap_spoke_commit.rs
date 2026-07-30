@@ -28,7 +28,7 @@ pub(super) fn commit_cap_spoke_shared_trims(
         .collect::<BTreeSet<_>>();
     let outer_edges = sectors
         .iter()
-        .flat_map(|sector| [sector.fillet_end_edge, sector.face_edge])
+        .flat_map(|sector| std::iter::once(sector.fillet_end_edge).chain(sector.face_edge))
         .collect::<BTreeSet<_>>();
     let mut committed = BTreeSet::new();
     for sector in sectors {

@@ -29,7 +29,7 @@ pub(super) fn try_normalize_repeated_apex_loop(
     plan: &ApexPlan,
     cap_face: FaceHandle,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     fillet_surfaces: &[FilletSurfaceResult],
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<OptionalRepeatedApexNormalization, ApexBuildError> {
@@ -71,7 +71,7 @@ fn normalize_repeated_apex_loop_in_place(
     plan: &ApexPlan,
     cap_face: FaceHandle,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     fillet_surfaces: &[FilletSurfaceResult],
     partition_execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<RepeatedApexNormalization, ApexBuildError> {
@@ -130,7 +130,8 @@ fn normalize_repeated_apex_loop_in_place(
                 })?;
 
         let fillet_index = planned_fillet_index_for_sector(plan, k)?;
-        let curve = &plan.target_topology.apex_edges[2 * k].curve;
+        let curve =
+            crate::apex_construction::constructive_geometry::planned_fillet_end_curve(plan, k)?;
         attach_fillet_end_curve_to_edge(
             brep,
             mef_result.edge,
@@ -335,14 +336,16 @@ fn trace_repeated_apex_partition_inputs(
     brep: &BRep,
     cap_face: FaceHandle,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     n_fillets: usize,
 ) {
     eprintln!("[direct-apex-trace §14.9/partition] cap_face={cap_face:?}");
     for k in 0..n_fillets {
-        let edge = face_edge_handles.get(k).copied();
+        let edge = face_edge_handles.get(k).copied().flatten();
         let Some(edge) = edge else {
-            eprintln!("[direct-apex-trace §14.9/partition]   FaceEdge[{k}] missing");
+            eprintln!(
+                "[direct-apex-trace §14.9/partition]   FaceEdge[{k}] absent (welded or missing)"
+            );
             continue;
         };
         let Some(edge_data) = brep.edges.get(edge) else {

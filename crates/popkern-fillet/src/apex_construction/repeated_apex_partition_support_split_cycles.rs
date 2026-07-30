@@ -5,14 +5,29 @@ pub(super) struct SupportSplitCyclePlan {
     pub(super) cycles: Vec<Vec<HalfEdgeHandle>>,
     pub(super) authored_boundary_spans: Vec<HalfEdgeHandle>,
     missing_spans: Vec<(VertexHandle, VertexHandle)>,
+    /// True when the trim set neither chained into closed cycles nor
+    /// produced authorable two-sided spans (balanced endpoint
+    /// multiplicities with degenerate or ambiguous chaining, e.g.
+    /// coincident duplicate corner vertices on a shared-corner
+    /// repeated apex). PK-216: this state used to read as complete —
+    /// `is_complete()` checked only `missing_spans` — and the
+    /// partition corrupt-accepted a half-wired shell (the glued
+    /// duplicate apex membrane).
+    degenerate_unclosed: bool,
 }
 
 impl SupportSplitCyclePlan {
     pub(super) fn is_complete(&self) -> bool {
-        self.missing_spans.is_empty()
+        self.missing_spans.is_empty() && !self.degenerate_unclosed
     }
 
     pub(super) fn diagnostic(&self) -> String {
+        if self.degenerate_unclosed {
+            return "support trim sides neither chain into closed cycles nor leave authorable \
+                    two-sided spans (balanced endpoint multiplicities with degenerate chaining \
+                    — coincident duplicate corner vertices?)"
+                .to_string();
+        }
         if self.missing_spans.is_empty() {
             return "support split cycles are closed".to_string();
         }
@@ -50,6 +65,7 @@ pub(super) fn materialize_support_split_cycles(
             cycles: vec![cycle],
             authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
+            degenerate_unclosed: false,
         });
     }
     let cycles = closed_half_edge_cycles_from_unwired_set(brep, half_edges);
@@ -59,17 +75,23 @@ pub(super) fn materialize_support_split_cycles(
             cycles,
             authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
+            degenerate_unclosed: false,
         });
     }
-    let missing_spans = missing_support_split_spans(brep, half_edges)
-        .into_iter()
-        .filter(|(start, end)| !vertices_are_coincident(brep, *start, *end))
-        .collect::<Vec<_>>();
+    // No coincidence filter here: a manufactured span between
+    // coincident-but-distinct vertices is a degeneracy the caller
+    // must refuse (the span authoring rejects it as "degenerate
+    // endpoints"), not a request to silently drop. Filtering these
+    // spans out was the PK-216 corrupt-accept: the plan read as
+    // complete with zero cycles and the partition proceeded on a
+    // half-wired shell.
+    let missing_spans = missing_support_split_spans(brep, half_edges);
     if missing_spans.is_empty() {
         return Ok(SupportSplitCyclePlan {
             cycles: Vec::new(),
             authored_boundary_spans: Vec::new(),
             missing_spans: Vec::new(),
+            degenerate_unclosed: true,
         });
     }
     let mut supplemented = half_edges.to_vec();
@@ -86,6 +108,7 @@ pub(super) fn materialize_support_split_cycles(
             cycles,
             authored_boundary_spans,
             missing_spans: Vec::new(),
+            degenerate_unclosed: false,
         });
     }
     trace_support_split_incomplete_cycles(
@@ -99,6 +122,7 @@ pub(super) fn materialize_support_split_cycles(
         cycles: Vec::new(),
         authored_boundary_spans,
         missing_spans,
+        degenerate_unclosed: false,
     })
 }
 
@@ -424,4 +448,35 @@ fn validate_support_split_span_geometry(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod support_split_cycle_plan_honesty {
+    use super::SupportSplitCyclePlan;
+
+    /// PK-216 regression pin: a plan with zero cycles and zero
+    /// missing spans (balanced-but-unchainable trim sides, the
+    /// shared-corner degenerate state) must NOT read as complete.
+    #[test]
+    fn degenerate_unclosed_plan_is_not_complete() {
+        let plan = SupportSplitCyclePlan {
+            cycles: Vec::new(),
+            authored_boundary_spans: Vec::new(),
+            missing_spans: Vec::new(),
+            degenerate_unclosed: true,
+        };
+        assert!(!plan.is_complete());
+        assert!(plan.diagnostic().contains("degenerate chaining"));
+    }
+
+    #[test]
+    fn closed_cycle_plan_is_complete() {
+        let plan = SupportSplitCyclePlan {
+            cycles: vec![Vec::new()],
+            authored_boundary_spans: Vec::new(),
+            missing_spans: Vec::new(),
+            degenerate_unclosed: false,
+        };
+        assert!(plan.is_complete());
+    }
 }

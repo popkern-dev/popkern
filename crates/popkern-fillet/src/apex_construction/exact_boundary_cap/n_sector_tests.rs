@@ -35,18 +35,35 @@ fn extracts_four_sector_cap_with_stable_names_and_ownership() {
             format!("direct_apex.cap_sector.{index}")
         );
         assert_eq!(sector.cap_face, cap_face);
-        assert_ne!(sector.fillet_end_edge, sector.face_edge);
+        assert_ne!(Some(sector.fillet_end_edge), sector.face_edge);
+        assert_eq!(sector.fillet_seam.side, ExactBoundaryOuterSide::FilletEnd);
         assert_eq!(
-            sector.outer_seams[0].side,
-            ExactBoundaryOuterSide::FilletEnd
+            sector.bridge_seam.as_ref().expect("bridged fixture").side,
+            ExactBoundaryOuterSide::FaceEdge
         );
-        assert_eq!(sector.outer_seams[1].side, ExactBoundaryOuterSide::FaceEdge);
-        assert_eq!(sector.outer_seams[0].edge, edges[2 * index]);
-        assert_eq!(sector.outer_seams[1].edge, edges[2 * index + 1]);
+        assert_eq!(sector.fillet_seam.edge, edges[2 * index]);
+        assert_eq!(
+            sector.bridge_seam.as_ref().expect("bridged fixture").edge,
+            edges[2 * index + 1]
+        );
         assert_ne!(sector.fillet_support_face, cap_face);
-        assert_ne!(sector.bridge_support_face, cap_face);
-        assert_ne!(sector.cap_half_edges[0], sector.cap_half_edges[1]);
-        assert_ne!(sector.support_half_edges[0], sector.support_half_edges[1]);
+        assert_ne!(sector.bridge_support_face, Some(cap_face));
+        assert_ne!(
+            sector.fillet_seam.cap_half_edge,
+            sector
+                .bridge_seam
+                .as_ref()
+                .expect("bridged fixture")
+                .cap_half_edge
+        );
+        assert_ne!(
+            sector.fillet_seam.support_half_edge,
+            sector
+                .bridge_seam
+                .as_ref()
+                .expect("bridged fixture")
+                .support_half_edge
+        );
     }
 }
 
@@ -187,7 +204,7 @@ fn incompatible_four_sector_inventory_declines_with_stable_diagnostic() {
     let (brep, cap_face, edges) = n_sector_cap_fixture(4, 1.0);
     let plan = n_sector_plan(&brep, &edges, 4);
     let mut sectors = n_sector_inventory(&edges, 4);
-    sectors[2].face_edge = sectors[2].fillet_end_edge;
+    sectors[2].face_edge = Some(sectors[2].fillet_end_edge);
 
     let diagnostic =
         extract_exact_boundary_cap_sectors(&brep, cap_face, &plan, &sectors).unwrap_err();
@@ -242,7 +259,7 @@ fn n_sector_inventory(edges: &[EdgeHandle], sector_count: usize) -> Vec<GregoryC
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -256,6 +273,7 @@ fn n_sector_plan(brep: &BRep, edges: &[EdgeHandle], sector_count: usize) -> Apex
                 sector_count
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); sector_count],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

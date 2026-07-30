@@ -165,7 +165,7 @@ fn sectors_and_first_support(
     let sectors =
         extract_exact_boundary_cap_sectors(brep, cap_face, &plan, &trihedral_sectors(edges))
             .unwrap();
-    let support_half_edge = sectors[0].support_half_edges[0];
+    let support_half_edge = sectors[0].fillet_seam.support_half_edge;
     (sectors, support_half_edge)
 }
 
@@ -239,7 +239,7 @@ fn trihedral_sectors(edges: &[EdgeHandle]) -> Vec<GregoryCapSector> {
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -253,6 +253,7 @@ fn trihedral_plan(brep: &BRep, edges: &[EdgeHandle]) -> ApexPlan {
                 3
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); 3],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

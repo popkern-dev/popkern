@@ -29,15 +29,21 @@ fn extracts_trihedral_sectors_in_planner_order() {
         );
         assert_eq!(sector.fillet_index, index);
         assert_eq!(sector.fillet_end_edge, edges[2 * index]);
-        assert_eq!(sector.face_edge, edges[2 * index + 1]);
+        assert_eq!(sector.face_edge, Some(edges[2 * index + 1]));
+        assert_eq!(sector.fillet_seam.side, ExactBoundaryOuterSide::FilletEnd);
         assert_eq!(
-            sector.outer_seams[0].side,
-            ExactBoundaryOuterSide::FilletEnd
+            sector.bridge_seam.as_ref().expect("bridged fixture").side,
+            ExactBoundaryOuterSide::FaceEdge
         );
-        assert_eq!(sector.outer_seams[1].side, ExactBoundaryOuterSide::FaceEdge);
-        assert_ne!(sector.outer_seams[0].edge, sector.outer_seams[1].edge);
+        assert_ne!(
+            sector.fillet_seam.edge,
+            sector.bridge_seam.as_ref().expect("bridged fixture").edge
+        );
         assert!(brep.faces.contains_key(sector.fillet_support_face));
-        assert!(brep.faces.contains_key(sector.bridge_support_face));
+        assert!(
+            brep.faces
+                .contains_key(sector.bridge_support_face.expect("bridged fixture"))
+        );
     }
 }
 
@@ -101,7 +107,7 @@ fn trihedral_sectors(edges: &[EdgeHandle]) -> Vec<GregoryCapSector> {
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -115,6 +121,7 @@ fn trihedral_plan(brep: &BRep, edges: &[EdgeHandle]) -> ApexPlan {
                 3
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); 3],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

@@ -70,7 +70,7 @@ pub(super) fn assign_gregory_cap_surface(
     plan: &ApexPlan,
     apex_position: Point3,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     fillet_end_handles: &[EdgeHandle],
     sectors: &[GregoryCapSector],
     fillet_surfaces: &[FilletSurfaceResult],
@@ -92,7 +92,8 @@ pub(super) fn assign_gregory_cap_surface(
     let mut apex_edge_handles: Vec<Option<EdgeHandle>> = Vec::with_capacity(2 * n);
     for k in 0..n {
         apex_edge_handles.push(Some(fillet_end_handles[k]));
-        apex_edge_handles.push(Some(face_edge_handles[k]));
+        // None at welded shared corners — no FaceEdge exists there.
+        apex_edge_handles.push(face_edge_handles[k]);
     }
     let face_edge_support_surfaces =
         face_edge_support_surfaces(brep, cap_face, face_edge_handles, tolerance.linear());
@@ -209,11 +210,12 @@ fn exact_boundary_corner_patches(
 fn face_edge_support_surfaces(
     brep: &BRep,
     cap_face: FaceHandle,
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     tolerance: f64,
 ) -> Vec<(FaceHandle, SurfaceOnFace)> {
     face_edge_handles
         .iter()
+        .flatten()
         .filter_map(|edge| {
             let support_face = face_across_edge(brep, *edge, cap_face)?;
             let surface = brep.faces.get(support_face)?.surface.as_ref()?.clone();
@@ -307,9 +309,9 @@ fn edge_curve_fits_surface(
 
 pub(super) fn author_plane_side_face_edge_pcurves(
     brep: &mut BRep,
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
 ) {
-    for &edge in face_edge_handles {
+    for &edge in face_edge_handles.iter().flatten() {
         let Some(edge_data) = brep.edges.get(edge).cloned() else {
             continue;
         };
@@ -372,7 +374,7 @@ fn projected_curve_pcurve(
 pub(super) fn gregory_sectors_from_handles(
     plan: &ApexPlan,
     fillet_end_handles: &[EdgeHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
 ) -> Result<Vec<GregoryCapSector>, ApexBuildError> {
     if fillet_end_handles.len() != face_edge_handles.len() {
         return Err(ApexBuildError::PlanMismatch {
@@ -388,6 +390,14 @@ pub(super) fn gregory_sectors_from_handles(
         .zip(face_edge_handles)
         .enumerate()
         .map(|(sector_index, (&fillet_end_edge, &face_edge))| {
+            if face_edge.is_none() && !plan.cap_kind.corner_is_welded(sector_index) {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "Gregory sector {sector_index} has no FaceEdge but its corner is not \
+                         declared welded"
+                    ),
+                });
+            }
             Ok(GregoryCapSector {
                 sector_index,
                 fillet_index: planned_fillet_index_for_sector(plan, sector_index)?,
@@ -457,9 +467,11 @@ fn validate_gregory_sectors(
                 ),
             });
         }
-        if !face_edges_seen.insert(sector.face_edge) {
+        if let Some(face_edge) = sector.face_edge
+            && !face_edges_seen.insert(face_edge)
+        {
             return Err(ApexBuildError::PlanMismatch {
-                reason: format!("Gregory cap sectors repeat FaceEdge {:?}", sector.face_edge),
+                reason: format!("Gregory cap sectors repeat FaceEdge {face_edge:?}"),
             });
         }
     }

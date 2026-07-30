@@ -136,8 +136,12 @@ pub(crate) fn remap_exact_boundary_sector_records(
         for side_index in 0..2 {
             let edge = if side_index == 0 {
                 sector.fillet_end_edge
+            } else if let Some(face_edge) = sector.face_edge {
+                face_edge
             } else {
-                sector.face_edge
+                // Welded shared corner (PK-219): no bridge side to
+                // remap for this sector.
+                continue;
             };
             let Some(edge_data) = brep.edges.get(edge) else {
                 return false;
@@ -164,14 +168,16 @@ pub(crate) fn remap_exact_boundary_sector_records(
             } else {
                 return false;
             };
-            sector.cap_half_edges[side_index] = cap_side;
-            sector.support_half_edges[side_index] = support_side;
-            if side_index == 0 {
+            let seam = if side_index == 0 {
                 sector.fillet_support_face = support_face;
+                &mut sector.fillet_seam
             } else {
-                sector.bridge_support_face = support_face;
-            }
-            let seam = &mut sector.outer_seams[side_index];
+                sector.bridge_support_face = Some(support_face);
+                let Some(bridge_seam) = sector.bridge_seam.as_mut() else {
+                    return false;
+                };
+                bridge_seam
+            };
             seam.cap_half_edge = cap_side;
             seam.support_half_edge = support_side;
             seam.support_face = support_face;
@@ -192,15 +198,30 @@ pub(crate) fn remap_exact_boundary_sector_records(
         {
             report_sector.fillet_support_face = sector.fillet_support_face;
             report_sector.bridge_support_face = sector.bridge_support_face;
-            report_sector.cap_half_edges = sector.cap_half_edges;
-            report_sector.support_half_edges = sector.support_half_edges;
+            report_sector.cap_half_edges = [
+                Some(sector.fillet_seam.cap_half_edge),
+                sector.bridge_seam.as_ref().map(|seam| seam.cap_half_edge),
+            ];
+            report_sector.support_half_edges = [
+                Some(sector.fillet_seam.support_half_edge),
+                sector
+                    .bridge_seam
+                    .as_ref()
+                    .map(|seam| seam.support_half_edge),
+            ];
             report_sector.cap_pcurves_present = [
-                sector.outer_seams[0].cap_pcurve_present,
-                sector.outer_seams[1].cap_pcurve_present,
+                sector.fillet_seam.cap_pcurve_present,
+                sector
+                    .bridge_seam
+                    .as_ref()
+                    .is_some_and(|seam| seam.cap_pcurve_present),
             ];
             report_sector.support_pcurves_present = [
-                sector.outer_seams[0].support_pcurve_present,
-                sector.outer_seams[1].support_pcurve_present,
+                sector.fillet_seam.support_pcurve_present,
+                sector
+                    .bridge_seam
+                    .as_ref()
+                    .is_some_and(|seam| seam.support_pcurve_present),
             ];
         }
     }

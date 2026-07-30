@@ -18,6 +18,10 @@ use crate::apex_construction::exact_boundary_cap::sector::{
     ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBoundaryOuterSide,
 };
 
+fn bridged(sector: &ExactBoundaryCapSectorInput) -> &ExactBoundaryOuterSeam {
+    sector.bridge_seam.as_ref().expect("bridged fixture")
+}
+
 #[test]
 fn commit_preflight_reports_candidate_topology_delta_without_mutation() {
     let sector = sector_input();
@@ -123,7 +127,9 @@ fn transactional_commit_materializes_split_faces_and_validates_brep() {
     let initial_face_count = brep.faces.len();
     let initial_edge_count = brep.edges.len();
     let initial_vertex_count = brep.vertices.len();
-    let support_pcurve_before = brep.half_edges[sector.support_half_edges[1]].pcurve.clone();
+    let support_pcurve_before = brep.half_edges[bridged(&sector).support_half_edge]
+        .pcurve
+        .clone();
     let candidate = commit_eligible_candidate_from_boundary(&sector, &boundary, &samples, pole);
 
     let report = commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
@@ -139,9 +145,13 @@ fn transactional_commit_materializes_split_faces_and_validates_brep() {
     assert_eq!(brep.vertices.len(), initial_vertex_count + 2);
     assert!(brep.faces[report.strip_face].surface.is_some());
     assert!(brep.faces[report.inner_face].surface.is_some());
-    assert!(brep.half_edges[sector.cap_half_edges[1]].pcurve.is_some());
+    assert!(
+        brep.half_edges[bridged(&sector).cap_half_edge]
+            .pcurve
+            .is_some()
+    );
     assert_eq!(
-        brep.half_edges[sector.support_half_edges[1]]
+        brep.half_edges[bridged(&sector).support_half_edge]
             .pcurve
             .is_some(),
         support_pcurve_before.is_some()
@@ -160,7 +170,7 @@ fn transactional_commit_authors_support_authority_edge_curve() {
     commit_multipatch_candidate_transactionally(&mut brep, &sector, &candidate)
         .expect("validated candidate should commit transactionally");
 
-    let edge_curve = brep.edges[sector.face_edge]
+    let edge_curve = brep.edges[sector.face_edge.unwrap()]
         .curve
         .as_ref()
         .expect("selected edge must keep 3-D curve authority");
@@ -297,27 +307,23 @@ fn live_sector_fixture() -> (
         fillet_index: 0,
         cap_face,
         fillet_end_edge: companion_edge,
-        face_edge: selected_edge,
+        face_edge: Some(selected_edge),
         fillet_support_face: companion_support_face,
-        bridge_support_face: selected_support_face,
-        cap_half_edges: [companion, selected],
-        support_half_edges: [companion_twin, selected_twin],
-        outer_seams: [
-            seam(
-                ExactBoundaryOuterSide::FilletEnd,
-                companion_edge,
-                companion,
-                companion_twin,
-                companion_support_face,
-            ),
-            seam(
-                ExactBoundaryOuterSide::FaceEdge,
-                selected_edge,
-                selected,
-                selected_twin,
-                selected_support_face,
-            ),
-        ],
+        bridge_support_face: Some(selected_support_face),
+        fillet_seam: seam(
+            ExactBoundaryOuterSide::FilletEnd,
+            companion_edge,
+            companion,
+            companion_twin,
+            companion_support_face,
+        ),
+        bridge_seam: Some(seam(
+            ExactBoundaryOuterSide::FaceEdge,
+            selected_edge,
+            selected,
+            selected_twin,
+            selected_support_face,
+        )),
     };
     (brep, sector, boundary, samples, pole)
 }
@@ -407,27 +413,23 @@ fn sector_input() -> ExactBoundaryCapSectorInput {
         fillet_index: 0,
         cap_face: faces[0],
         fillet_end_edge: edges[0],
-        face_edge: edges[1],
+        face_edge: Some(edges[1]),
         fillet_support_face: faces[1],
-        bridge_support_face: faces[2],
-        cap_half_edges: [half_edges[0], half_edges[2]],
-        support_half_edges: [half_edges[1], half_edges[3]],
-        outer_seams: [
-            seam(
-                ExactBoundaryOuterSide::FilletEnd,
-                edges[0],
-                half_edges[0],
-                half_edges[1],
-                faces[1],
-            ),
-            seam(
-                ExactBoundaryOuterSide::FaceEdge,
-                edges[1],
-                half_edges[2],
-                half_edges[3],
-                faces[2],
-            ),
-        ],
+        bridge_support_face: Some(faces[2]),
+        fillet_seam: seam(
+            ExactBoundaryOuterSide::FilletEnd,
+            edges[0],
+            half_edges[0],
+            half_edges[1],
+            faces[1],
+        ),
+        bridge_seam: Some(seam(
+            ExactBoundaryOuterSide::FaceEdge,
+            edges[1],
+            half_edges[2],
+            half_edges[3],
+            faces[2],
+        )),
     }
 }
 

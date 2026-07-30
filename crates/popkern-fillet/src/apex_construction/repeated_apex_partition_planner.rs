@@ -10,7 +10,7 @@ pub(super) fn try_plan_repeated_apex_partition(
     cap_face: FaceHandle,
     apex_vertex: VertexHandle,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     n_fillets: usize,
 ) -> Result<Option<RepeatedApexPartitionPlan>, ApexBuildError> {
     let Some(loop_plan) = plan_repeated_apex_loop_normalization(

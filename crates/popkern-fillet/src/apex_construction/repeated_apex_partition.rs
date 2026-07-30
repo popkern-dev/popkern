@@ -247,7 +247,7 @@ pub(super) fn try_build_planned_repeated_apex_partition(
     plan: &ApexPlan,
     cap_face: FaceHandle,
     apex_vertex_handles: &[VertexHandle],
-    face_edge_handles: &[EdgeHandle],
+    face_edge_handles: &[Option<EdgeHandle>],
     fillet_surfaces: &[FilletSurfaceResult],
     execution_options: RepeatedApexPartitionExecutionOptions,
 ) -> Result<OptionalRepeatedApexNormalization, ApexBuildError> {

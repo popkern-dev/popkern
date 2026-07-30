@@ -91,7 +91,7 @@ fn trihedral_sectors(edges: &[EdgeHandle]) -> Vec<GregoryCapSector> {
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -105,6 +105,7 @@ fn trihedral_plan(brep: &BRep, edges: &[EdgeHandle]) -> ApexPlan {
                 3
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); 3],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

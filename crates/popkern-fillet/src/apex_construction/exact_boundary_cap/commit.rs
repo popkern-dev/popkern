@@ -97,8 +97,16 @@ fn commit_validated_inputs(
                 ExactBoundaryOuterSide::FilletEnd => 0,
                 ExactBoundaryOuterSide::FaceEdge => 1,
             };
-            let cap_half_edge = sector.cap_half_edges[side_index];
-            let support_half_edge = sector.support_half_edges[side_index];
+            let Some(seam) = sector.seam_for_side(pair.side) else {
+                return Err(ExactBoundaryCommitDiagnostic::new(
+                    ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,
+                    Some(sector.sector_name.clone()),
+                    Some(sector.cap_face),
+                ));
+            };
+            let cap_half_edge = seam.cap_half_edge;
+            let support_half_edge = seam.support_half_edge;
+            let seam_support_face = seam.support_face;
             normalize_semantic_line_edge_curve(brep, pair.edge);
             brep.half_edges[cap_half_edge].pcurve = Some(pair.cap_pcurve.clone());
             let cap_surface = brep.faces[sector.cap_face]
@@ -118,7 +126,7 @@ fn commit_validated_inputs(
                 sector.cap_face,
                 cap_half_edge,
                 support_half_edge,
-                sector.outer_seams[side_index].support_face,
+                seam_support_face,
                 &pair.support_surface,
             )
             .ok_or_else(|| {

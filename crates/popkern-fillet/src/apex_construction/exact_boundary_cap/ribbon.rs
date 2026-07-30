@@ -252,7 +252,7 @@ pub(crate) fn prepare_exact_boundary_ribbons(
 ) -> Result<PreparedExactBoundaryRibbons, ExactBoundaryRibbonDiagnostic> {
     let mut ribbons = Vec::with_capacity(sectors.len() * 2);
     for sector in sectors {
-        for seam in &sector.outer_seams {
+        for seam in sector.outer_seams() {
             let context = RibbonContext {
                 sector,
                 side: seam.side,

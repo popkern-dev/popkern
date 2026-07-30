@@ -19,11 +19,15 @@ pub(super) fn construct_sphere_cap_face_from_v_incident_edges(
     })
 }
 
+/// Create the FaceEdge bridges between adjacent sector corners, one
+/// `mef` per BRIDGED corner. Welded corners (shared-corner contract,
+/// PK-219) have no bridge — their slot holds `None`, and the two
+/// sectors share the corner vertex directly.
 pub(super) fn create_gregory_face_edges(
     brep: &mut BRep,
     plan: &ApexPlan,
     apex_vertex_handles: &[VertexHandle],
-) -> Result<Vec<EdgeHandle>, ApexBuildError> {
+) -> Result<Vec<Option<EdgeHandle>>, ApexBuildError> {
     let n = plan.cap_kind.n_fillets();
     if apex_vertex_handles.len() != 2 * n {
         return Err(ApexBuildError::PlanMismatch {
@@ -36,12 +40,29 @@ pub(super) fn create_gregory_face_edges(
     }
 
     let trace = crate::direct_apex_trace::enabled();
-    let mut face_edges: Vec<EdgeHandle> = Vec::with_capacity(n);
+    let mut face_edges: Vec<Option<EdgeHandle>> = Vec::with_capacity(n);
 
     for k in 0..n {
         let next_k = (k + 1) % n;
         let t_b_k = apex_vertex_handles[2 * k + 1];
         let t_a_next = apex_vertex_handles[2 * next_k];
+        if plan.cap_kind.corner_is_welded(k) {
+            if t_b_k != t_a_next {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "create_gregory_face_edges: corner {k} is declared welded but slots \
+                         hold distinct vertices {t_b_k:?}/{t_a_next:?}"
+                    ),
+                });
+            }
+            if trace {
+                eprintln!(
+                    "[direct-apex-trace §14.7/B] corner {k} welded at {t_b_k:?} — no FaceEdge"
+                );
+            }
+            face_edges.push(None);
+            continue;
+        }
 
         let he_origin =
             find_outgoing_half_edge(brep, t_b_k).ok_or_else(|| ApexBuildError::PlanMismatch {
@@ -77,7 +98,8 @@ pub(super) fn create_gregory_face_edges(
                     cause: format!("FaceEdge[{k}]: {e}"),
                 })?;
 
-        let curve = &plan.target_topology.apex_edges[2 * k + 1].curve;
+        let curve =
+            crate::apex_construction::constructive_geometry::planned_face_edge_curve(plan, k)?;
         attach_curve_to_edge_aligned(brep, mef_result.edge, curve)?;
 
         if trace {
@@ -91,7 +113,7 @@ pub(super) fn create_gregory_face_edges(
                 mef_result.edge, mef_result.face, c0.x, c0.y, c0.z, c1.x, c1.y, c1.z
             );
         }
-        face_edges.push(mef_result.edge);
+        face_edges.push(Some(mef_result.edge));
     }
 
     Ok(face_edges)

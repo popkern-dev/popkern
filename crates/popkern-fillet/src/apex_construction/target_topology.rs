@@ -34,6 +34,38 @@ pub struct TargetTopology {
     pub face_boundary_updates: Vec<FaceBoundaryUpdate>,
 }
 
+impl TargetTopology {
+    /// Edge index of FilletEnd[k] (the k-th [`TargetEdgeRole::CapVsCyl`]
+    /// entry, in cap-loop order). Layout-independent: with the
+    /// shared-corner contract (PK-219) welded corners emit no
+    /// FaceEdge, so `apex_edges` is no longer strictly alternating
+    /// and raw `2k`/`2k+1` indexing is invalid.
+    pub fn fillet_end_edge_index(&self, k: usize) -> Option<usize> {
+        self.apex_edges
+            .iter()
+            .enumerate()
+            .filter(|(_, edge)| matches!(edge.role, TargetEdgeRole::CapVsCyl { .. }))
+            .nth(k)
+            .map(|(index, _)| index)
+    }
+
+    /// Edge index of the FaceEdge bridging corner `k` (between
+    /// fillet `k` and `k+1`). `None` when the corner is welded
+    /// (shared-corner contract — no bridge edge exists).
+    pub fn face_edge_edge_index(&self, k: usize) -> Option<usize> {
+        self.apex_edges
+            .iter()
+            .enumerate()
+            .find_map(|(index, edge)| {
+                matches!(
+                    edge.role,
+                    TargetEdgeRole::CapVsPlane { shared_face_idx } if shared_face_idx == k
+                )
+                .then_some(index)
+            })
+    }
+}
+
 /// One target edge in the final apex topology.
 ///
 /// Specifies the edge's endpoints and the curve3d that should be

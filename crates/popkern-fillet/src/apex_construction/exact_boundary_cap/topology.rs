@@ -298,8 +298,8 @@ fn sector_outer_half_edges(
     brep: &BRep,
     sector: &ExactBoundaryCapSectorInput,
 ) -> Option<[HalfEdgeHandle; 2]> {
-    let fillet = sector.cap_half_edges[0];
-    let face = sector.cap_half_edges[1];
+    let fillet = sector.fillet_seam.cap_half_edge;
+    let face = sector.bridge_seam.as_ref()?.cap_half_edge;
     let fillet_data = brep.half_edges.get(fillet)?;
     let face_data = brep.half_edges.get(face)?;
     if fillet_data.next == face {

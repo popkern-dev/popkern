@@ -275,40 +275,44 @@ pub(super) fn author_gregory_apex_vertices(
         });
     }
 
-    // Shared-corner (coincident sector corner) class: on a UNIFORM
-    // repeated apex the two contact curves on each support face
-    // intersect at ONE point, so adjacent sector corner targets
-    // T_b[k] and T_a[k+1] coincide and every FaceEdge span collapses
-    // to zero length. The partition/serial substrate downstream has
-    // no shared-corner contract: authoring distinct coincident
-    // T-vertices produced zero-length FaceEdges whose support-split
-    // cycles pass preflight DEGENERATELY, and the accepted body
-    // served a glued duplicate apex octagon membrane plus a
-    // mis-scaled sector pillow (PK-216, pyramid3/4_uniform).
-    // Decline the constructive Gregory route here with the class
-    // named — the dispatch records the fallback and the legacy apex
-    // path serves a clean watertight cap instead. Removing this gate
-    // requires the shared-corner partition substrate (single welded
-    // corner vertex, collapsed FaceEdge arcs) — see the ledger task
-    // filed from PK-216.
-    {
-        let corner_gate = tolerance.linear().max(1.0e-9) * 10.0;
-        for k in 0..n {
-            let t_b = plan.target_topology.apex_vertices[2 * k + 1];
-            let t_a_next = plan.target_topology.apex_vertices[2 * ((k + 1) % n)];
-            let separation = t_b.distance_to(&t_a_next);
-            if separation <= corner_gate {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "author_gregory_apex_vertices: shared-corner repeated apex — sector \
-                         corner targets T_b[{k}] and T_a[{}] coincide (separation {separation:.3e} \
-                         <= gate {corner_gate:.3e}); the FaceEdge span between them is \
-                         degenerate and the partition substrate has no shared-corner contract \
-                         (uniform radii on a repeated apex collapse every support sliver)",
-                        (k + 1) % n
-                    ),
-                });
-            }
+    // Shared-corner (coincident sector corner) class, PK-216/PK-219:
+    // on a UNIFORM repeated apex the two contact curves on each
+    // support face intersect at ONE point, so adjacent sector corner
+    // targets T_b[k] and T_a[k+1] coincide. The plan layer measures
+    // this and declares such corners [`ApexCornerKind::Welded`] with
+    // both target slots snapped to one point; authoring then creates
+    // ONE vertex per welded corner (aliased into both slots) so no
+    // zero-length FaceEdge can ever exist. Coincident targets on a
+    // corner the plan did NOT declare welded are plan drift — the
+    // measurement that classified the corner disagrees with the
+    // targets being authored — and still decline with the class
+    // named (the recorded legacy fallback serves).
+    let corner_gate = tolerance.linear().max(1.0e-9) * 10.0;
+    for k in 0..n {
+        let t_b = plan.target_topology.apex_vertices[2 * k + 1];
+        let t_a_next = plan.target_topology.apex_vertices[2 * ((k + 1) % n)];
+        let separation = t_b.distance_to(&t_a_next);
+        let declared_welded = plan.cap_kind.corner_is_welded(k);
+        if declared_welded && separation > 0.0 {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "author_gregory_apex_vertices: corner {k} is declared welded but targets \
+                     T_b[{k}] and T_a[{}] are {separation:.3e} apart (plan drift — welded \
+                     corner slots must hold the snapped weld point bitwise)",
+                    (k + 1) % n
+                ),
+            });
+        }
+        if !declared_welded && separation <= corner_gate {
+            return Err(ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "author_gregory_apex_vertices: shared-corner repeated apex — sector \
+                     corner targets T_b[{k}] and T_a[{}] coincide (separation {separation:.3e} \
+                     <= gate {corner_gate:.3e}) but the plan did not declare the corner welded \
+                     (plan drift between corner classification and target topology)",
+                    (k + 1) % n
+                ),
+            });
         }
     }
 
@@ -348,12 +352,24 @@ pub(super) fn author_gregory_apex_vertices(
     let trace = crate::direct_apex_trace::enabled();
     let mut out: Vec<Option<VertexHandle>> = vec![None; n_targets];
     let mut t_vertices: std::collections::HashSet<VertexHandle> = std::collections::HashSet::new();
+    // Slot aliasing for welded corners: T_b[k] and T_a[k+1] are ONE
+    // vertex, authored once at the weld point on the shared host
+    // face and aliased into both slots after the schedule runs.
+    // `alias_of[i] = Some(j)` means slot i takes slot j's vertex.
+    let mut alias_of: Vec<Option<usize>> = vec![None; n_targets];
+    for k in 0..n {
+        if plan.cap_kind.corner_is_welded(k) {
+            alias_of[2 * ((k + 1) % n)] = Some(2 * k + 1);
+        }
+    }
     let mut schedule: Vec<(usize, FaceHandle)> = Vec::with_capacity(n_targets);
     for (k, &fb) in face_b.iter().enumerate() {
         schedule.push((2 * k + 1, fb));
     }
     for (k, &fa) in face_a.iter().enumerate() {
-        schedule.push((2 * k, fa));
+        if alias_of[2 * k].is_none() {
+            schedule.push((2 * k, fa));
+        }
     }
     for (sched_idx, &(i, host_face)) in schedule.iter().enumerate() {
         let target = plan.target_topology.apex_vertices[i];
@@ -383,6 +399,18 @@ pub(super) fn author_gregory_apex_vertices(
         }
         t_vertices.insert(mev.vertex);
         out[i] = Some(mev.vertex);
+    }
+    for i in 0..n_targets {
+        if let Some(source) = alias_of[i] {
+            out[i] = out[source];
+            if trace {
+                eprintln!(
+                    "[direct-apex-trace §14.8/A] slot {i} aliases welded-corner vertex of slot \
+                     {source}: {:?}",
+                    out[source]
+                );
+            }
+        }
     }
     let out: Vec<VertexHandle> = out
         .into_iter()

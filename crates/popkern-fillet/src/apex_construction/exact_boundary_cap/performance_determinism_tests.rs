@@ -132,7 +132,7 @@ fn n_sector_inventory(edges: &[EdgeHandle], sector_count: usize) -> Vec<GregoryC
             sector_index,
             fillet_index: sector_index,
             fillet_end_edge: edges[2 * sector_index],
-            face_edge: edges[2 * sector_index + 1],
+            face_edge: Some(edges[2 * sector_index + 1]),
         })
         .collect()
 }
@@ -146,6 +146,7 @@ fn n_sector_plan(brep: &BRep, edges: &[EdgeHandle], sector_count: usize) -> Apex
                 sector_count
             ],
             per_fillet_caps: vec![(Point3::new(0.0, 0.0, 0.0), 1.0); sector_count],
+            corner_kinds: Vec::new(),
         },
         target_topology: TargetTopology {
             apex_vertices: Vec::new(),

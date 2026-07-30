@@ -175,7 +175,7 @@ pub(crate) fn prepare_exact_boundary_curves(
 ) -> Result<PreparedExactBoundaryCurves, ExactBoundaryCurveDiagnostic> {
     let mut curves = Vec::with_capacity(sectors.len() * 2);
     for sector in sectors {
-        for seam in &sector.outer_seams {
+        for seam in sector.outer_seams() {
             let source = oriented_source_curve(brep, sector, seam)?;
             let prepared = elevate_to_target(source, budget)?;
             curves.push(prepared);

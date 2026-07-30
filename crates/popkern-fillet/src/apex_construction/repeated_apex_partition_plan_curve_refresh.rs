@@ -29,8 +29,10 @@ pub(super) fn refresh_fillet_end_curves_after_endpoint_adoption(
                     ownership.fillet_index
                 ),
             })?;
-        let target_edge_index = 2 * sector_index;
-        let curve = &plan.target_topology.apex_edges[target_edge_index].curve;
+        let curve = crate::apex_construction::constructive_geometry::planned_fillet_end_curve(
+            plan,
+            sector_index,
+        )?;
         attach_fillet_end_curve_to_edge(
             brep,
             ownership.edge,

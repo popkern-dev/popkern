@@ -27,9 +27,7 @@ pub(super) fn validate_physical_sector_handles(
         let face_slot = fillet_slot + 1;
         let expected_fillet = apex_edge_handles.get(fillet_slot).copied().flatten();
         let expected_face = apex_edge_handles.get(face_slot).copied().flatten();
-        if expected_fillet != Some(sector.fillet_end_edge)
-            || expected_face != Some(sector.face_edge)
-        {
+        if expected_fillet != Some(sector.fillet_end_edge) || expected_face != sector.face_edge {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "Gregory sector {} does not match physical apex-edge handles: \
@@ -293,7 +291,8 @@ pub(super) fn gregory_sectors_from_plan_and_apex_edge_handles(
             });
         }
     };
-    let n = outer_indices.len() / 2;
+    let _ = outer_indices;
+    let n = plan.cap_kind.n_fillets();
     if apex_edge_handles.len() < 2 * n {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
@@ -308,7 +307,13 @@ pub(super) fn gregory_sectors_from_plan_and_apex_edge_handles(
     for sector_index in 0..n {
         let fillet_slot = 2 * sector_index;
         let face_slot = fillet_slot + 1;
-        let fillet_index = gregory_loop_fillet_index(plan, outer_indices[fillet_slot], n)?;
+        let fillet_plan_index = plan
+            .target_topology
+            .fillet_end_edge_index(sector_index)
+            .ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!("Gregory sector {sector_index} has no planned CapVsCyl apex_edge"),
+            })?;
+        let fillet_index = gregory_loop_fillet_index(plan, fillet_plan_index, n)?;
         let fillet_end_edge = apex_edge_handles
             .get(fillet_slot)
             .copied()
@@ -319,16 +324,15 @@ pub(super) fn gregory_sectors_from_plan_and_apex_edge_handles(
                          at apex-edge slot {fillet_slot}"
                 ),
             })?;
-        let face_edge = apex_edge_handles
-            .get(face_slot)
-            .copied()
-            .flatten()
-            .ok_or_else(|| ApexBuildError::PlanMismatch {
+        let face_edge = apex_edge_handles.get(face_slot).copied().flatten();
+        if face_edge.is_none() && !plan.cap_kind.corner_is_welded(sector_index) {
+            return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "Gregory sector {sector_index} missing physical FaceEdge edge \
-                         at apex-edge slot {face_slot}"
+                         at apex-edge slot {face_slot} (corner not declared welded)"
                 ),
-            })?;
+            });
+        }
         sectors.push(GregoryCapSector {
             sector_index,
             fillet_index,

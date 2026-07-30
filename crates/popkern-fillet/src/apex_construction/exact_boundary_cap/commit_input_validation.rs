@@ -67,7 +67,7 @@ pub(super) fn validate_commit_inputs(
                 Some(sector.cap_face),
             ));
         }
-        for half_edge in sector.cap_half_edges {
+        for half_edge in sector.outer_seams().map(|seam| seam.cap_half_edge) {
             if !brep.half_edges.contains_key(half_edge) {
                 return Err(ExactBoundaryCommitDiagnostic::new(
                     ExactBoundaryCommitDeclineReason::CapHalfEdgeMissing,
@@ -76,7 +76,7 @@ pub(super) fn validate_commit_inputs(
                 ));
             }
         }
-        for half_edge in sector.support_half_edges {
+        for half_edge in sector.outer_seams().map(|seam| seam.support_half_edge) {
             if !brep.half_edges.contains_key(half_edge) {
                 return Err(ExactBoundaryCommitDiagnostic::new(
                     ExactBoundaryCommitDeclineReason::SupportHalfEdgeMissing,

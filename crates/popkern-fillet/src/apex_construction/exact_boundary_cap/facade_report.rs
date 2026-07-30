@@ -82,15 +82,30 @@ fn exact_boundary_report_sector(
         face_edge: sector.face_edge,
         fillet_support_face: sector.fillet_support_face,
         bridge_support_face: sector.bridge_support_face,
-        cap_half_edges: sector.cap_half_edges,
-        support_half_edges: sector.support_half_edges,
+        cap_half_edges: [
+            Some(sector.fillet_seam.cap_half_edge),
+            sector.bridge_seam.as_ref().map(|seam| seam.cap_half_edge),
+        ],
+        support_half_edges: [
+            Some(sector.fillet_seam.support_half_edge),
+            sector
+                .bridge_seam
+                .as_ref()
+                .map(|seam| seam.support_half_edge),
+        ],
         cap_pcurves_present: [
-            half_edge_has_pcurve(brep, sector.cap_half_edges[0]),
-            half_edge_has_pcurve(brep, sector.cap_half_edges[1]),
+            half_edge_has_pcurve(brep, sector.fillet_seam.cap_half_edge),
+            sector
+                .bridge_seam
+                .as_ref()
+                .is_some_and(|seam| half_edge_has_pcurve(brep, seam.cap_half_edge)),
         ],
         support_pcurves_present: [
-            half_edge_has_pcurve(brep, sector.support_half_edges[0]),
-            half_edge_has_pcurve(brep, sector.support_half_edges[1]),
+            half_edge_has_pcurve(brep, sector.fillet_seam.support_half_edge),
+            sector
+                .bridge_seam
+                .as_ref()
+                .is_some_and(|seam| half_edge_has_pcurve(brep, seam.support_half_edge)),
         ],
     }
 }

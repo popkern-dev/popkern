@@ -387,25 +387,21 @@ fn sector_input(
         fillet_index: sector_index,
         cap_face,
         fillet_end_edge: edges[0],
-        face_edge: edges[1],
+        face_edge: Some(edges[1]),
         fillet_support_face: FaceHandle::default(),
-        bridge_support_face: FaceHandle::default(),
-        cap_half_edges,
-        support_half_edges,
-        outer_seams: [
-            outer_seam(
-                ExactBoundaryOuterSide::FilletEnd,
-                edges[0],
-                cap_half_edges[0],
-                support_half_edges[0],
-            ),
-            outer_seam(
-                ExactBoundaryOuterSide::FaceEdge,
-                edges[1],
-                cap_half_edges[1],
-                support_half_edges[1],
-            ),
-        ],
+        bridge_support_face: Some(FaceHandle::default()),
+        fillet_seam: outer_seam(
+            ExactBoundaryOuterSide::FilletEnd,
+            edges[0],
+            cap_half_edges[0],
+            support_half_edges[0],
+        ),
+        bridge_seam: Some(outer_seam(
+            ExactBoundaryOuterSide::FaceEdge,
+            edges[1],
+            cap_half_edges[1],
+            support_half_edges[1],
+        )),
     }
 }
 

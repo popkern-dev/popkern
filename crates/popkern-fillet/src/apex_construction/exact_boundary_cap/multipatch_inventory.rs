@@ -36,7 +36,7 @@ impl ExactBoundaryMultiPatchInventory {
         sector: &ExactBoundaryCapSectorInput,
         side: ExactBoundaryOuterSide,
     ) -> Self {
-        let seam = outer_seam(sector, side);
+        let seam = outer_seam(sector, side).unwrap_or(&sector.fillet_seam);
         let strip = ExactBoundaryOuterStripPatchInventory::from_seam(sector, seam);
         let inner_patch = ExactBoundaryInnerPolePatchInventory::new(sector);
         let interface = ExactBoundaryPatchInterfaceInventory::new(
@@ -94,7 +94,13 @@ impl ExactBoundaryMultiPatchInventory {
             ));
         }
         for strip in &self.outer_strips {
-            let seam = outer_seam(sector, strip.side);
+            let Some(seam) = outer_seam(sector, strip.side) else {
+                return Err(self.diagnostic(
+                    ExactBoundaryMultiPatchInventoryDeclineReason::MismatchedSupportOwnership,
+                    Some(strip.patch_name.clone()),
+                    Some(strip.side),
+                ));
+            };
             if strip.edge != seam.edge
                 || strip.cap_half_edge != seam.cap_half_edge
                 || strip.support_half_edge != seam.support_half_edge
@@ -276,11 +282,8 @@ pub(crate) struct ExactBoundaryMultiPatchInventoryDiagnostic {
 fn outer_seam(
     sector: &ExactBoundaryCapSectorInput,
     side: ExactBoundaryOuterSide,
-) -> &ExactBoundaryOuterSeam {
-    match side {
-        ExactBoundaryOuterSide::FilletEnd => &sector.outer_seams[0],
-        ExactBoundaryOuterSide::FaceEdge => &sector.outer_seams[1],
-    }
+) -> Option<&ExactBoundaryOuterSeam> {
+    sector.seam_for_side(side)
 }
 
 fn duplicate_name(inventory: &ExactBoundaryMultiPatchInventory) -> Option<String> {

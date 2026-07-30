@@ -277,7 +277,7 @@ fn validate_live_edge_surface_residuals(
             )
         })?;
         let cap_surface = SurfaceGeometry::Nurbs(solved_surface.surface.clone());
-        for seam in &sector.outer_seams {
+        for seam in sector.outer_seams() {
             let Some(curve) = brep
                 .edges
                 .get(seam.edge)

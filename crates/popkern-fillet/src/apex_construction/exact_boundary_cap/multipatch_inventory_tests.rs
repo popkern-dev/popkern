@@ -34,13 +34,34 @@ fn inventory_from_sector_preserves_source_ownership_without_brep_mutation() {
             .map(|patch| patch.patch_name.as_str()),
         Some("direct_apex.cap_sector.0.inner_pole_patch")
     );
-    assert_eq!(strip.edge, sector.outer_seams[1].edge);
-    assert_eq!(strip.cap_half_edge, sector.outer_seams[1].cap_half_edge);
+    assert_eq!(
+        strip.edge,
+        sector.bridge_seam.as_ref().expect("bridged fixture").edge
+    );
+    assert_eq!(
+        strip.cap_half_edge,
+        sector
+            .bridge_seam
+            .as_ref()
+            .expect("bridged fixture")
+            .cap_half_edge
+    );
     assert_eq!(
         strip.support_half_edge,
-        sector.outer_seams[1].support_half_edge
+        sector
+            .bridge_seam
+            .as_ref()
+            .expect("bridged fixture")
+            .support_half_edge
     );
-    assert_eq!(strip.support_face, sector.outer_seams[1].support_face);
+    assert_eq!(
+        strip.support_face,
+        sector
+            .bridge_seam
+            .as_ref()
+            .expect("bridged fixture")
+            .support_face
+    );
 }
 
 #[test]
@@ -105,7 +126,11 @@ fn inventory_detects_duplicate_names_and_support_ownership_mismatch() {
         &sector,
         ExactBoundaryOuterSide::FilletEnd,
     );
-    inventory.outer_strips[0].support_face = sector.outer_seams[1].support_face;
+    inventory.outer_strips[0].support_face = sector
+        .bridge_seam
+        .as_ref()
+        .expect("bridged fixture")
+        .support_face;
     assert_eq!(
         inventory
             .validate_against_sector(&sector)
@@ -151,27 +176,23 @@ fn sector_input() -> ExactBoundaryCapSectorInput {
         fillet_index: 0,
         cap_face: faces[0],
         fillet_end_edge: edges[0],
-        face_edge: edges[1],
+        face_edge: Some(edges[1]),
         fillet_support_face: faces[1],
-        bridge_support_face: faces[2],
-        cap_half_edges: [half_edges[0], half_edges[2]],
-        support_half_edges: [half_edges[1], half_edges[3]],
-        outer_seams: [
-            seam(
-                ExactBoundaryOuterSide::FilletEnd,
-                edges[0],
-                half_edges[0],
-                half_edges[1],
-                faces[1],
-            ),
-            seam(
-                ExactBoundaryOuterSide::FaceEdge,
-                edges[1],
-                half_edges[2],
-                half_edges[3],
-                faces[2],
-            ),
-        ],
+        bridge_support_face: Some(faces[2]),
+        fillet_seam: seam(
+            ExactBoundaryOuterSide::FilletEnd,
+            edges[0],
+            half_edges[0],
+            half_edges[1],
+            faces[1],
+        ),
+        bridge_seam: Some(seam(
+            ExactBoundaryOuterSide::FaceEdge,
+            edges[1],
+            half_edges[2],
+            half_edges[3],
+            faces[2],
+        )),
     }
 }
 

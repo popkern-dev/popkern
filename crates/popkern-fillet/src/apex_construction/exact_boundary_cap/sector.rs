@@ -42,12 +42,12 @@ pub(crate) struct ExactBoundaryOuterSeam {
     pub support_pcurve_present: bool,
 }
 
-/// Exact-boundary sector input extracted from already-authored topology.
+/// Exact-boundary sector input from already-authored topology.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExactBoundaryCapSectorInput {
     /// Planner-order sector index.
     pub sector_index: usize,
-    /// Stable semantic name for diagnostics and future UI highlighting.
+    /// Stable semantic name for diagnostics and UI highlighting.
     pub sector_name: String,
     /// Fillet index owned by this sector.
     pub fillet_index: usize,
@@ -55,18 +55,54 @@ pub(crate) struct ExactBoundaryCapSectorInput {
     pub cap_face: FaceHandle,
     /// Fillet-end edge for this sector.
     pub fillet_end_edge: EdgeHandle,
-    /// Plane/support bridge edge for this sector.
-    pub face_edge: EdgeHandle,
+    /// Plane/support bridge edge; `None` when the trailing corner is
+    /// a welded shared corner (PK-219) — the sector's outer boundary
+    /// is the fillet seam alone.
+    pub face_edge: Option<EdgeHandle>,
     /// Support face across [`Self::fillet_end_edge`].
     pub fillet_support_face: FaceHandle,
-    /// Support face across [`Self::face_edge`].
-    pub bridge_support_face: FaceHandle,
-    /// Cap-side half-edges, `[FilletEnd, FaceEdge]`.
-    pub cap_half_edges: [HalfEdgeHandle; 2],
-    /// Support-side half-edges, `[FilletEnd, FaceEdge]`.
-    pub support_half_edges: [HalfEdgeHandle; 2],
-    /// Immutable outer seam ownership facts.
-    pub outer_seams: [ExactBoundaryOuterSeam; 2],
+    /// Support face across [`Self::face_edge`] (bridged only).
+    pub bridge_support_face: Option<FaceHandle>,
+    /// Fillet-side outer seam ownership facts.
+    pub fillet_seam: ExactBoundaryOuterSeam,
+    /// Bridge-side outer seam ownership facts (bridged sectors only).
+    pub bridge_seam: Option<ExactBoundaryOuterSeam>,
+}
+
+impl ExactBoundaryCapSectorInput {
+    /// Outer seams, `[FilletEnd, FaceEdge?]` (1 welded / 2 bridged).
+    pub fn outer_seams(&self) -> impl Iterator<Item = &ExactBoundaryOuterSeam> {
+        std::iter::once(&self.fillet_seam).chain(self.bridge_seam.as_ref())
+    }
+
+    /// Number of outer seams (1 welded, 2 bridged).
+    #[allow(dead_code)]
+    pub fn outer_seam_count(&self) -> usize {
+        1 + usize::from(self.bridge_seam.is_some())
+    }
+
+    /// True when the trailing corner is a welded shared corner.
+    #[allow(dead_code)]
+    pub fn is_welded(&self) -> bool {
+        self.bridge_seam.is_none()
+    }
+
+    /// Seam by side index (0 = FilletEnd, 1 = FaceEdge / welded None).
+    pub fn seam_at(&self, side_index: usize) -> Option<&ExactBoundaryOuterSeam> {
+        match side_index {
+            0 => Some(&self.fillet_seam),
+            1 => self.bridge_seam.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Seam for a side; FaceEdge side of a welded sector is `None`.
+    pub fn seam_for_side(&self, side: ExactBoundaryOuterSide) -> Option<&ExactBoundaryOuterSeam> {
+        match side {
+            ExactBoundaryOuterSide::FilletEnd => Some(&self.fillet_seam),
+            ExactBoundaryOuterSide::FaceEdge => self.bridge_seam.as_ref(),
+        }
+    }
 }
 
 /// Stable decline reason for sector extraction.
@@ -177,8 +213,11 @@ pub(crate) fn extract_exact_boundary_cap_sectors(
             ));
         }
     };
-    let n = outer_indices.len() / 2;
-    if outer_indices.len() < 6 || !outer_indices.len().is_multiple_of(2) || sectors.len() != n {
+    // With the shared-corner contract the outer loop holds one edge
+    // per fillet seam plus one per BRIDGED corner: 2N - #welded.
+    let n = plan.cap_kind.n_fillets();
+    let expected_outer = 2 * n - plan.cap_kind.welded_corner_count();
+    if n < 3 || outer_indices.len() != expected_outer || sectors.len() != n {
         return Err(ExactBoundarySectorDiagnostic::new(
             ExactBoundarySectorDeclineReason::SectorInventoryMismatch,
             None,
@@ -205,8 +244,8 @@ pub(crate) fn extract_exact_boundary_cap_sectors(
                     None,
                 )
             })?;
-        validate_planner_slots(plan, outer_indices, sector, &sector_name, cap_face)?;
-        if sector.fillet_end_edge == sector.face_edge {
+        validate_planner_slots(plan, sector, &sector_name, cap_face)?;
+        if sector.face_edge == Some(sector.fillet_end_edge) {
             return Err(ExactBoundarySectorDiagnostic::new(
                 ExactBoundarySectorDeclineReason::DuplicateOuterSeam,
                 Some(sector_index),
@@ -225,14 +264,19 @@ pub(crate) fn extract_exact_boundary_cap_sectors(
             ExactBoundaryOuterSide::FilletEnd,
             sector.fillet_end_edge,
         )?;
-        let bridge = extract_outer_seam(
-            brep,
-            cap_face,
-            sector,
-            &sector_name,
-            ExactBoundaryOuterSide::FaceEdge,
-            sector.face_edge,
-        )?;
+        let bridge = sector
+            .face_edge
+            .map(|face_edge| {
+                extract_outer_seam(
+                    brep,
+                    cap_face,
+                    sector,
+                    &sector_name,
+                    ExactBoundaryOuterSide::FaceEdge,
+                    face_edge,
+                )
+            })
+            .transpose()?;
 
         out.push(ExactBoundaryCapSectorInput {
             sector_index,
@@ -242,10 +286,9 @@ pub(crate) fn extract_exact_boundary_cap_sectors(
             fillet_end_edge: sector.fillet_end_edge,
             face_edge: sector.face_edge,
             fillet_support_face: fillet.support_face,
-            bridge_support_face: bridge.support_face,
-            cap_half_edges: [fillet.cap_half_edge, bridge.cap_half_edge],
-            support_half_edges: [fillet.support_half_edge, bridge.support_half_edge],
-            outer_seams: [fillet, bridge],
+            bridge_support_face: bridge.as_ref().map(|seam| seam.support_face),
+            fillet_seam: fillet,
+            bridge_seam: bridge,
         });
     }
     Ok(out)
@@ -253,28 +296,34 @@ pub(crate) fn extract_exact_boundary_cap_sectors(
 
 fn validate_planner_slots(
     plan: &ApexPlan,
-    outer_indices: &[usize],
     sector: &GregoryCapSector,
     sector_name: &str,
     cap_face: FaceHandle,
 ) -> Result<(), ExactBoundarySectorDiagnostic> {
-    let fillet_slot = 2 * sector.sector_index;
-    let face_slot = fillet_slot + 1;
+    // Resolve the plan edges by ROLE (welded plans are not strictly
+    // alternating, so raw 2k/2k+1 slot math is invalid).
     let fillet_edge = plan
         .target_topology
-        .apex_edges
-        .get(outer_indices[fillet_slot]);
-    let face_edge = plan
+        .fillet_end_edge_index(sector.sector_index)
+        .and_then(|index| plan.target_topology.apex_edges.get(index));
+    let planned_face_edge = plan
         .target_topology
-        .apex_edges
-        .get(outer_indices[face_slot]);
-    let roles_match = matches!(
+        .face_edge_edge_index(sector.sector_index)
+        .and_then(|index| plan.target_topology.apex_edges.get(index));
+    let fillet_role_matches = matches!(
         fillet_edge.map(|edge| edge.role),
         Some(TargetEdgeRole::CapVsCyl { fillet_idx }) if fillet_idx == sector.fillet_index
-    ) && matches!(
-        face_edge.map(|edge| edge.role),
-        Some(TargetEdgeRole::CapVsPlane { .. })
     );
+    // A bridged sector must have a planned CapVsPlane edge; a welded
+    // sector must have neither a planned bridge nor a live one.
+    let bridge_matches = match sector.face_edge {
+        Some(_) => matches!(
+            planned_face_edge.map(|edge| edge.role),
+            Some(TargetEdgeRole::CapVsPlane { .. })
+        ),
+        None => planned_face_edge.is_none() && plan.cap_kind.corner_is_welded(sector.sector_index),
+    };
+    let roles_match = fillet_role_matches && bridge_matches;
     if roles_match {
         Ok(())
     } else {

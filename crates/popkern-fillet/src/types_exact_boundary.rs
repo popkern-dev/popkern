@@ -335,16 +335,21 @@ pub struct ExactBoundaryReportSector {
     pub cap_face: FaceHandle,
     /// Fillet-end outer edge.
     pub fillet_end_edge: EdgeHandle,
-    /// Plane/support bridge outer edge.
-    pub face_edge: EdgeHandle,
+    /// Plane/support bridge outer edge. `None` when the sector's
+    /// trailing corner is a welded shared corner (PK-219) — no
+    /// bridge edge exists there.
+    pub face_edge: Option<EdgeHandle>,
     /// Support face across the fillet-end seam.
     pub fillet_support_face: FaceHandle,
-    /// Support face across the bridge seam.
-    pub bridge_support_face: FaceHandle,
-    /// Cap-side half-edges, `[FilletEnd, FaceEdge]`.
-    pub cap_half_edges: [HalfEdgeHandle; 2],
-    /// Support-side half-edges, `[FilletEnd, FaceEdge]`.
-    pub support_half_edges: [HalfEdgeHandle; 2],
+    /// Support face across the bridge seam (`None` for a welded
+    /// sector).
+    pub bridge_support_face: Option<FaceHandle>,
+    /// Cap-side half-edges, `[FilletEnd, FaceEdge]`; the FaceEdge
+    /// entry is `None` for a welded sector.
+    pub cap_half_edges: [Option<HalfEdgeHandle>; 2],
+    /// Support-side half-edges, `[FilletEnd, FaceEdge]`; the
+    /// FaceEdge entry is `None` for a welded sector.
+    pub support_half_edges: [Option<HalfEdgeHandle>; 2],
     /// Cap-side pcurve availability, `[FilletEnd, FaceEdge]`.
     pub cap_pcurves_present: [bool; 2],
     /// Support-side pcurve availability, `[FilletEnd, FaceEdge]`.
