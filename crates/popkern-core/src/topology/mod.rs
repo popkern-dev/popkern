@@ -94,6 +94,7 @@ pub use shared_trim_edge::{
 pub mod split;
 mod split_boundary;
 pub(crate) mod split_helpers;
+mod split_inner_loop;
 pub use split::{SplitEdgeResult, SplitFaceResult};
 
 /// Inner loop (hole) creation for face trimming.

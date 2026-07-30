@@ -100,15 +100,65 @@ pub fn detect_strip_interference(
             if pts_edge_i.is_empty() || pts_edge_j.is_empty() {
                 continue;
             }
+            let trace = std::env::var_os("PK_INTERFERENCE_TRACE").is_some();
             let hit = shared.iter().any(|(trim_a, trim_b)| {
-                let rail_a = samples(trim_a);
-                let rail_b = samples(trim_b);
+                // Rails are authored with overhang beyond the edge's
+                // swept extent (the padded offset-surface intersection
+                // spans the whole face domain). The strip only exists
+                // where its spine parameter lies within the edge span,
+                // so overhang samples must not vote — an overhanging
+                // rail crossing another fillet's band 35 mm past its
+                // own edge's end is not an interference (measured:
+                // the skewed-rib plate's junction rail extended to
+                // x = ±67 on an 80-long plate and crossed both rim
+                // strips, declining a part whose real strips are 7
+                // apart — PK-185). A sample is in-band when its
+                // nearest edge sample is interior (not an endpoint
+                // bin), i.e. its axial foot falls inside the edge.
+                let clamp_to_band =
+                    |rail: Vec<popkern_core::geometry::Point3>,
+                     edge_pts: &[popkern_core::geometry::Point3]|
+                     -> Vec<popkern_core::geometry::Point3> {
+                        if edge_pts.len() < 3 {
+                            return rail;
+                        }
+                        let in_band: Vec<popkern_core::geometry::Point3> = rail
+                            .iter()
+                            .copied()
+                            .filter(|p| {
+                                let mut best = (f64::INFINITY, 0usize);
+                                for (k, q) in edge_pts.iter().enumerate() {
+                                    let d = p.distance_to(q);
+                                    if d < best.0 {
+                                        best = (d, k);
+                                    }
+                                }
+                                best.1 != 0 && best.1 != edge_pts.len() - 1
+                            })
+                            .collect();
+                        // A fully-clamped rail (every sample nearest an
+                        // endpoint) degenerates the width measure; keep
+                        // the raw rail so the pair still measures.
+                        if in_band.is_empty() { rail } else { in_band }
+                    };
+                let rail_a = clamp_to_band(samples(trim_a), &pts_edge_i);
+                let rail_b = clamp_to_band(samples(trim_b), &pts_edge_j);
                 let width_a = min_distance(&rail_a, &pts_edge_i);
                 let width_b = min_distance(&rail_b, &pts_edge_j);
                 let b_into_a = min_distance(&rail_b, &pts_edge_i);
                 let a_into_b = min_distance(&rail_a, &pts_edge_j);
                 let slack = tolerance.linear().max(1.0e-9) * 10.0;
-                b_into_a + slack < width_a || a_into_b + slack < width_b
+                let hit = b_into_a + slack < width_a || a_into_b + slack < width_b;
+                if trace {
+                    let ei = (pts_edge_i.first(), pts_edge_i.last());
+                    let ej = (pts_edge_j.first(), pts_edge_j.last());
+                    eprintln!(
+                        "[idetect] pair ({i},{j}) hit={hit}: width_a={width_a:.4} width_b={width_b:.4} b_into_a={b_into_a:.4} a_into_b={a_into_b:.4} edge_i={ei:?} edge_j={ej:?} rail_a0={:?} rail_b0={:?}",
+                        rail_a.first(),
+                        rail_b.first()
+                    );
+                }
+                hit
             });
             if hit {
                 interferences.push(StripInterference {

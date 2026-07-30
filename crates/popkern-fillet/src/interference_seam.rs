@@ -31,20 +31,21 @@ use crate::overlap_strip_interference::StripInterference;
 
 /// Attempt to upgrade every detected interference pair to a seam
 /// completion by patching the shared-face trims in place. Returns
-/// `true` only when EVERY hit was patched (the caller declines
-/// otherwise, leaving the geometries untouched semantically — a
-/// declined operation never reaches apply).
+/// `Err` with the first decline reason when ANY hit cannot be
+/// patched (the caller declines or drops per its policy, leaving
+/// the geometries untouched semantically — a declined operation
+/// never reaches apply).
 pub(crate) fn try_complete_interference(
     edge_geometries: &mut [EdgeGeometry],
     brep: &BRep,
     hits: &[StripInterference],
     tolerance: &Tolerance,
-) -> bool {
+) -> Result<(), String> {
     let trace = std::env::var_os("PK_INTERFERENCE_TRACE").is_some();
     for hit in hits {
         let (ia, ib) = (hit.fillet_a, hit.fillet_b);
         if ia >= edge_geometries.len() || ib >= edge_geometries.len() {
-            return false;
+            return Err("interference pair index out of range".into());
         }
         let (cyl_a, cyl_b) = match (
             cylinder_of(&edge_geometries[ia]),
@@ -55,24 +56,32 @@ pub(crate) fn try_complete_interference(
                 if trace {
                     eprintln!("[iseam] pair ({ia},{ib}): non-cylinder strip — decline stands");
                 }
-                return false;
+                return Err(
+                    "non-cylinder strip — the analytic seam completion only covers \
+                     parallel-cylinder pairs"
+                        .into(),
+                );
             }
         };
         let axis = match cyl_a.1.normalized() {
             Some(a) => a,
-            None => return false,
+            None => return Err("degenerate strip axis".into()),
         };
         if axis.cross(&cyl_b.1).length() > 1e-6 * cyl_b.1.length() {
             if trace {
                 eprintln!("[iseam] pair ({ia},{ib}): axes not parallel — decline stands");
             }
-            return false;
+            return Err(
+                "strip axes not parallel — the analytic seam completion only covers \
+                 parallel-cylinder pairs"
+                    .into(),
+            );
         }
         // Shared support face and which trim side each fillet has on it.
         let Some((shared, side_a, side_b)) =
             shared_face_sides(&edge_geometries[ia], &edge_geometries[ib])
         else {
-            return false;
+            return Err("no shared support face resolved for the pair".into());
         };
         let Some(face_surface) = brep
             .faces
@@ -80,7 +89,7 @@ pub(crate) fn try_complete_interference(
             .and_then(|f| f.surface.as_ref())
             .map(|s| s.geometry.clone())
         else {
-            return false;
+            return Err("shared support face has no surface".into());
         };
         // Cross-section circle intersection.
         let (c_a, _, r_a) = cyl_a;
@@ -95,11 +104,13 @@ pub(crate) fn try_complete_interference(
                     "[iseam] pair ({ia},{ib}): degenerate circle pair d={d:.4} r=({r_a:.4},{r_b:.4}) — decline stands"
                 );
             }
-            return false;
+            return Err(format!(
+                "degenerate cross-section circle pair (d = {d:.4}, r = ({r_a:.4}, {r_b:.4}))"
+            ));
         }
         let w_hat = match w.normalized() {
             Some(v) => v,
-            None => return false,
+            None => return Err("degenerate axis separation".into()),
         };
         let u_hat = axis.cross(&w_hat);
         let alpha = (d * d + r_a * r_a - r_b * r_b) / (2.0 * d);
@@ -126,7 +137,7 @@ pub(crate) fn try_complete_interference(
             if trace {
                 eprintln!("[iseam] pair ({ia},{ib}): shared face not planar — decline stands");
             }
-            return false;
+            return Err("shared support face is not planar".into());
         }
         if trace {
             eprintln!(
@@ -147,11 +158,11 @@ pub(crate) fn try_complete_interference(
                 axis,
                 &face_surface,
             ) {
-                return false;
+                return Err("seam trim patch failed (UV projection)".into());
             }
         }
     }
-    true
+    Ok(())
 }
 
 /// The strip cylinder of one computed fillet geometry.
@@ -231,12 +242,16 @@ fn line_nurbs(a: Point3, b: Point3) -> NurbsCurve {
 }
 
 /// Detect interference, upgrade the analytic parallel class to a
-/// seam completion (recorded as an overlap warning), and decline the
-/// rest with the structured `FilletInterference` error.
+/// seam completion (recorded as an overlap warning), and resolve
+/// the rest per the caller's [`InterferencePolicy`]: decline with
+/// the structured `FilletInterference` error (default), or drop
+/// both members of every interfering pair and serve the rest,
+/// reporting each drop (PK-185).
 pub(crate) fn complete_or_decline_interference(
-    edge_geometries: &mut [EdgeGeometry],
+    edge_geometries: &mut Vec<EdgeGeometry>,
     brep: &BRep,
     tolerance: &Tolerance,
+    policy: crate::types::InterferencePolicy,
     overlap_warnings: &mut Vec<crate::error::BlendWarning>,
 ) -> Result<(), crate::error::BlendError> {
     let hits = crate::overlap_strip_interference::detect_strip_interference(
@@ -247,18 +262,46 @@ pub(crate) fn complete_or_decline_interference(
     if hits.is_empty() {
         return Ok(());
     }
-    if try_complete_interference(edge_geometries, brep, &hits, tolerance) {
-        for hit in &hits {
-            overlap_warnings.push(crate::error::BlendWarning::FilletOverlap {
-                fillet_a: hit.fillet_a,
-                fillet_b: hit.fillet_b,
-            });
+    match try_complete_interference(edge_geometries, brep, &hits, tolerance) {
+        Ok(()) => {
+            for hit in &hits {
+                overlap_warnings.push(crate::error::BlendWarning::FilletOverlap {
+                    fillet_a: hit.fillet_a,
+                    fillet_b: hit.fillet_b,
+                });
+            }
+            Ok(())
         }
-        Ok(())
-    } else {
-        Err(crate::error::BlendError::FilletInterference {
-            fillet_a: hits[0].fillet_a,
-            fillet_b: hits[0].fillet_b,
-        })
+        Err(reason) => match policy {
+            crate::types::InterferencePolicy::Decline => {
+                Err(crate::error::BlendError::FilletInterference {
+                    fillet_a: hits[0].fillet_a,
+                    fillet_b: hits[0].fillet_b,
+                })
+            }
+            crate::types::InterferencePolicy::ServeNonInterfering => {
+                // Drop BOTH members of every hit pair; indices in
+                // the warnings refer to the ORIGINAL spec order
+                // (edge_geometries is 1:1 with specs here — the
+                // transactional compute gate ran first).
+                let mut dropped = std::collections::BTreeSet::new();
+                for hit in &hits {
+                    dropped.insert(hit.fillet_a);
+                    dropped.insert(hit.fillet_b);
+                    overlap_warnings.push(crate::error::BlendWarning::FilletPairDropped {
+                        fillet_a: hit.fillet_a,
+                        fillet_b: hit.fillet_b,
+                        reason: reason.clone(),
+                    });
+                }
+                let mut idx = 0usize;
+                edge_geometries.retain(|_| {
+                    let keep = !dropped.contains(&idx);
+                    idx += 1;
+                    keep
+                });
+                Ok(())
+            }
+        },
     }
 }

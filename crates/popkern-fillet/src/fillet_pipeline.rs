@@ -174,12 +174,14 @@ pub(crate) fn fillet_edges_internal(
         });
     }
     // Strip interference: complete parallel-cylinder collisions by
-    // seam trimming (PK-159); every other configuration keeps the
-    // transactional decline (PK-140).
+    // seam trimming (PK-159); every other configuration follows the
+    // caller's interference policy — transactional decline (PK-140,
+    // default) or drop-the-pair partial service (PK-185).
     interference_seam::complete_or_decline_interference(
         &mut edge_geometries,
         brep,
         &tolerance,
+        options.interference_policy,
         &mut overlap_warnings,
     )?;
     emit!(

@@ -11,11 +11,15 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 #[path = "perp_anchor_positions.rs"]
 mod perp_anchor_positions;
+#[path = "perp_anchor_rail_proximity.rs"]
+mod perp_anchor_rail_proximity;
 use perp_anchor_positions::compute_perp_anchor_positions_for_face;
 
 #[path = "helpers_anchor_insert.rs"]
 pub(in crate::construct) mod helpers_anchor_insert;
-use helpers_anchor_insert::{insert_anchor_at_position, insert_anchor_with_spur};
+pub use helpers_anchor_insert::ReflexEndAnchor;
+pub(crate) use helpers_anchor_insert::find_edge_and_param_at;
+use helpers_anchor_insert::land_anchor;
 
 pub use super::helpers_pcurve::pcurve_for_face_along;
 #[cfg(test)]
@@ -83,6 +87,7 @@ pub fn split_perpendicular_edges_by_radius(
         radius_at_end,
         tolerance,
         None,
+        &std::collections::HashSet::new(),
     )
 }
 
@@ -130,6 +135,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
     radius_at_end: f64,
     tolerance: &Tolerance,
     override_: Option<&PerpAnchorOverride>,
+    blend_edges: &std::collections::HashSet<EdgeHandle>,
 ) -> Result<SplitInfo, String> {
     let edge_data = brep_snapshot
         .edges
@@ -168,6 +174,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         anchor_on_trim,
         bevel_plane,
         tolerance,
+        blend_edges,
     )?;
     let perp_pos_2 = compute_perp_anchor_positions_for_face(
         brep_snapshot,
@@ -181,6 +188,7 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         anchor_on_trim,
         bevel_plane,
         tolerance,
+        blend_edges,
     )?;
 
     // PK-141 curved-support anchors: on a NON-PLANAR support the
@@ -258,47 +266,110 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
             pick(pos.1, near_end, "v_end"),
         )
     };
-    let perp_pos_1 = curved_correct(face_1, trim_3d_face_1, perp_pos_1);
-    let perp_pos_2 = curved_correct(face_2, trim_3d_face_2, perp_pos_2);
+    // Interior-rail (reflex hole-corner) placements keep the rail
+    // end verbatim — the curved-support endpoint preference and the
+    // planner overrides are both anchored on the walk convention.
+    let corrected_1 = curved_correct(
+        face_1,
+        trim_3d_face_1,
+        (perp_pos_1.0.position, perp_pos_1.1.position),
+    );
+    let corrected_2 = curved_correct(
+        face_2,
+        trim_3d_face_2,
+        (perp_pos_2.0.position, perp_pos_2.1.position),
+    );
 
     // §28.H Session 2 — apply planner overrides per anchor slot.
     // Each `Some` override replaces the perp-walk-math position;
     // `None` keeps the perp-walk-math default.  Caller passes
     // overrides keyed by V_start vs V_end and face_1 vs face_2.
-    let pos_1: (Point3, Point3) = match override_ {
-        Some(o) => (
-            o.v_start_face_1.unwrap_or(perp_pos_1.0),
-            o.v_end_face_1.unwrap_or(perp_pos_1.1),
-        ),
-        None => perp_pos_1,
+    let apply_override = |ov: Option<Point3>, corrected: Point3, interior: bool| -> Point3 {
+        if interior {
+            corrected
+        } else {
+            ov.unwrap_or(corrected)
+        }
     };
-    let pos_2: (Point3, Point3) = match override_ {
-        Some(o) => (
-            o.v_start_face_2.unwrap_or(perp_pos_2.0),
-            o.v_end_face_2.unwrap_or(perp_pos_2.1),
+    let pos_1 = (
+        apply_override(
+            override_.and_then(|o| o.v_start_face_1),
+            corrected_1.0,
+            perp_pos_1.0.interior_rail,
         ),
-        None => perp_pos_2,
-    };
+        apply_override(
+            override_.and_then(|o| o.v_end_face_1),
+            corrected_1.1,
+            perp_pos_1.1.interior_rail,
+        ),
+    );
+    let pos_2 = (
+        apply_override(
+            override_.and_then(|o| o.v_start_face_2),
+            corrected_2.0,
+            perp_pos_2.0.interior_rail,
+        ),
+        apply_override(
+            override_.and_then(|o| o.v_end_face_2),
+            corrected_2.1,
+            perp_pos_2.1.interior_rail,
+        ),
+    );
 
     let mut edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)> = Vec::new();
+    let mut reflex_ends: Vec<ReflexEndAnchor> = Vec::new();
     // §28.H Session 2 — when override-provided position lands
     // outside any existing edge (interior to a face),
     // `insert_anchor_at_position` returns Err.  Fall back to the
     // perp-walk-math position so legacy/uniform fixtures stay
-    // unbroken.  Session 3 will introduce the topology surgery
-    // (mev/mef) needed to land genuine interior anchors.
-    let v1_start = insert_anchor_at_position(brep, pos_1.0, &mut edge_splits)
-        .or_else(|_| insert_anchor_with_spur(brep, pos_1.0, face_1, tolerance))
-        .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.0, &mut edge_splits))?;
-    let v1_end = insert_anchor_at_position(brep, pos_1.1, &mut edge_splits)
-        .or_else(|_| insert_anchor_with_spur(brep, pos_1.1, face_1, tolerance))
-        .or_else(|_| insert_anchor_at_position(brep, perp_pos_1.1, &mut edge_splits))?;
-    let v2_start = insert_anchor_at_position(brep, pos_2.0, &mut edge_splits)
-        .or_else(|_| insert_anchor_with_spur(brep, pos_2.0, face_2, tolerance))
-        .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.0, &mut edge_splits))?;
-    let v2_end = insert_anchor_at_position(brep, pos_2.1, &mut edge_splits)
-        .or_else(|_| insert_anchor_with_spur(brep, pos_2.1, face_2, tolerance))
-        .or_else(|_| insert_anchor_at_position(brep, perp_pos_2.1, &mut edge_splits))?;
+    // unbroken.  Interior-rail (reflex hole-corner) placements land
+    // a targeted mev spur at the recorded corner vertex instead —
+    // falling back to the wrong-side walk would recreate the
+    // PK-185/PK-186 disease.
+    let v1_start = land_anchor(
+        brep,
+        pos_1.0,
+        perp_pos_1.0,
+        face_1,
+        v_start,
+        true,
+        tolerance,
+        &mut edge_splits,
+        &mut reflex_ends,
+    )?;
+    let v1_end = land_anchor(
+        brep,
+        pos_1.1,
+        perp_pos_1.1,
+        face_1,
+        v_end,
+        false,
+        tolerance,
+        &mut edge_splits,
+        &mut reflex_ends,
+    )?;
+    let v2_start = land_anchor(
+        brep,
+        pos_2.0,
+        perp_pos_2.0,
+        face_2,
+        v_start,
+        true,
+        tolerance,
+        &mut edge_splits,
+        &mut reflex_ends,
+    )?;
+    let v2_end = land_anchor(
+        brep,
+        pos_2.1,
+        perp_pos_2.1,
+        face_2,
+        v_end,
+        false,
+        tolerance,
+        &mut edge_splits,
+        &mut reflex_ends,
+    )?;
 
     let p1_a = brep.vertices[v1_start].position;
     let p1_b = brep.vertices[v1_end].position;
@@ -314,58 +385,8 @@ pub fn split_perpendicular_edges_by_radius_with_overrides(
         face_1_anchors: (v1_start, v1_end),
         face_2_anchors: (v2_start, v2_end),
         edge_splits,
+        reflex_ends,
     })
-}
-
-/// Scan all edges in `brep` and find the one whose 3D line segment
-/// contains `point` within a small tolerance, returning the edge
-/// handle and parameter along the edge in `(0.001, 0.999)`.
-///
-/// `pub(crate)` for §6c-DirectApex.2.b — the apex builder calls this from
-/// `resolve_apex_vertices`'s create branch when no existing BRep
-/// vertex matches the planner's target position; the edge passing
-/// through the target is then split via [`BRep::split_edge`] to
-/// insert a new vertex on it.  Production-grade callers in this
-/// crate (Phase A, multi_chord) already exercise this path on
-/// cube fixtures.
-pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
-    for (eh, edata) in brep.edges.iter() {
-        let he_h = edata.half_edge;
-        let Some(he) = brep.half_edges.get(he_h) else {
-            continue;
-        };
-        // The second vertex is the twin's origin on manifold
-        // edges, or the next half-edge's origin for boundary
-        // edges (whose twin is the null sentinel).
-        let v1_pos = if let Some(twin) = brep.half_edges.get(he.twin) {
-            brep.vertices[twin.origin].position
-        } else if let Some(next_he) = brep.half_edges.get(he.next) {
-            brep.vertices[next_he.origin].position
-        } else {
-            continue;
-        };
-        let v0 = brep.vertices[he.origin].position;
-        let v1 = v1_pos;
-        let dx = v1.x - v0.x;
-        let dy = v1.y - v0.y;
-        let dz = v1.z - v0.z;
-        let len_sq = dx * dx + dy * dy + dz * dz;
-        if len_sq < 1e-18 {
-            continue;
-        }
-        let t = ((point.x - v0.x) * dx + (point.y - v0.y) * dy + (point.z - v0.z) * dz) / len_sq;
-        if !(0.001..=0.999).contains(&t) {
-            continue;
-        }
-        let px = v0.x + t * dx;
-        let py = v0.y + t * dy;
-        let pz = v0.z + t * dz;
-        let dist_sq = (point.x - px).powi(2) + (point.y - py).powi(2) + (point.z - pz).powi(2);
-        if dist_sq < 1e-10 {
-            return Some((eh, t));
-        }
-    }
-    None
 }
 
 /// Information returned by perpendicular edge splitting.
@@ -384,6 +405,9 @@ pub struct SplitInfo {
     /// Edge splits performed: `(old_edge, edge_a, edge_b)`.
     #[allow(dead_code)]
     pub edge_splits: Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
+    /// Reflex hole-corner ends landed with interior-rail spurs
+    /// (PK-185/PK-186) — consumed by the terminal-disc stage.
+    pub reflex_ends: Vec<ReflexEndAnchor>,
 }
 
 /// Extract the fillet radius from the edge geometry analysis.

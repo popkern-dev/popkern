@@ -9,8 +9,6 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use popkern_core::geometry::curve::CurveEval;
 
-use super::find_edge_and_param_at;
-
 /// Insert a new vertex at `position` in the mutable BRep by finding
 /// the descendant sub-edge currently containing it and splitting it.
 /// Appends `(old_edge, edge_a, edge_b)` to `edge_splits` so the
@@ -226,4 +224,183 @@ pub(in crate::construct) fn insert_anchor_with_spur(
         );
     }
     Ok(mev.vertex)
+}
+
+/// Splice an interior-rail spur at a KNOWN corner vertex
+/// (PK-185/PK-186 reflex hole-corner ends). Unlike
+/// [`insert_anchor_with_spur`] this is not scoped to curved
+/// supports and does not search for the nearest boundary vertex:
+/// the reflex classification already identified the exact corner
+/// (the fillet edge's own vertex), and the spur must attach there —
+/// it becomes the strip's end boundary through that corner. The
+/// nearest-vertex search could attach to an unrelated feature
+/// vertex, and the planar scope exists to protect direct-apex
+/// planner targets, which never classify as interior-rail (their
+/// edges run with `anchor_on_trim = false`).
+pub(in crate::construct) fn insert_interior_rail_spur(
+    brep: &mut BRep,
+    face: FaceHandle,
+    corner: VertexHandle,
+    position: Point3,
+    tolerance: &Tolerance,
+) -> Result<VertexHandle, String> {
+    let fd = brep
+        .faces
+        .get(face)
+        .ok_or_else(|| format!("interior-rail spur target face {face:?} not found"))?;
+    let mut loops = vec![fd.outer_loop];
+    loops.extend(fd.inner_loops.iter().copied());
+    let mut he_at_corner = None;
+    'outer: for lh in loops {
+        let Some(l) = brep.loops.get(lh) else {
+            continue;
+        };
+        let start = l.half_edge;
+        let mut cur = start;
+        for _ in 0..brep.half_edges.len() + 1 {
+            let Some(he) = brep.half_edges.get(cur) else {
+                break;
+            };
+            if he.origin == corner {
+                he_at_corner = Some(cur);
+                break 'outer;
+            }
+            cur = he.next;
+            if cur == start {
+                break;
+            }
+        }
+    }
+    let he = he_at_corner.ok_or_else(|| {
+        format!("interior-rail spur: corner {corner:?} not on any loop of face {face:?}")
+    })?;
+    let corner_pos = brep
+        .vertices
+        .get(corner)
+        .map(|v| v.position)
+        .ok_or_else(|| "interior-rail spur corner vanished".to_string())?;
+    let mev = brep
+        .mev(he, position)
+        .map_err(|e| format!("interior-rail spur mev failed: {e}"))?;
+    if let Some(e) = brep.edges.get_mut(mev.edge) {
+        e.curve = popkern_core::geometry::CurveOnEdge::line_segment(
+            corner_pos,
+            position,
+            tolerance.linear(),
+        );
+    }
+    if std::env::var_os("POPKERN_ANCHOR_TRACE").is_some() {
+        eprintln!(
+            "[anchor] interior-rail spur on {face:?}: corner {corner:?} {corner_pos:?} -> {position:?} (vertex {:?})",
+            mev.vertex
+        );
+    }
+    Ok(mev.vertex)
+}
+
+/// Land one Phase A anchor. Non-reflex slots keep the historical
+/// cascade (on-edge split → curved-support spur → perp-walk
+/// fallback). Interior-rail slots first try an exact on-boundary
+/// landing (when the rail end coincides with existing topology the
+/// end is NOT reflex — the band reaches the boundary), then splice a
+/// targeted spur at the recorded corner and register the reflex end
+/// for the terminal-disc stage.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::construct) fn land_anchor(
+    brep: &mut BRep,
+    requested: Point3,
+    placement: super::perp_anchor_positions::AnchorPlacement,
+    face: FaceHandle,
+    corner: VertexHandle,
+    at_start: bool,
+    tolerance: &Tolerance,
+    edge_splits: &mut Vec<(EdgeHandle, EdgeHandle, EdgeHandle)>,
+    reflex_ends: &mut Vec<ReflexEndAnchor>,
+) -> Result<VertexHandle, String> {
+    if placement.interior_rail {
+        if let Ok(v) = insert_anchor_at_position(brep, requested, edge_splits) {
+            return Ok(v);
+        }
+        let v = insert_interior_rail_spur(brep, face, corner, requested, tolerance)?;
+        reflex_ends.push(ReflexEndAnchor {
+            face,
+            at_start,
+            corner,
+            spur_tip: v,
+        });
+        return Ok(v);
+    }
+    insert_anchor_at_position(brep, requested, edge_splits)
+        .or_else(|_| insert_anchor_with_spur(brep, requested, face, tolerance))
+        .or_else(|_| insert_anchor_at_position(brep, placement.position, edge_splits))
+}
+
+/// A reflex hole-corner end landed with an interior-rail spur
+/// (PK-185/PK-186). Consumed by the hole-rim terminal-disc stage
+/// after Phase C: the strip's end boundary currently runs
+/// spur → corner → stub through the ORIGINAL sharp corner, and the
+/// disc stage replaces the strip's share of that path with the
+/// exact terminal cross-section arc, authoring the flat end face in
+/// the transversal plane.
+#[derive(Debug, Clone, Copy)]
+pub struct ReflexEndAnchor {
+    /// The support face that received the spur.
+    pub face: FaceHandle,
+    /// Whether this is the fillet edge's start vertex end.
+    pub at_start: bool,
+    /// The original sharp hole corner (the fillet edge's own vertex).
+    pub corner: VertexHandle,
+    /// The spur tip minted at the rail end (interior to `face`).
+    pub spur_tip: VertexHandle,
+}
+
+/// Scan all edges in `brep` and find the one whose 3D line segment
+/// contains `point` within a small tolerance, returning the edge
+/// handle and parameter along the edge in `(0.001, 0.999)`.
+///
+/// `pub(crate)` for §6c-DirectApex.2.b — the apex builder calls this from
+/// `resolve_apex_vertices`'s create branch when no existing BRep
+/// vertex matches the planner's target position; the edge passing
+/// through the target is then split via [`BRep::split_edge`] to
+/// insert a new vertex on it.  Production-grade callers in this
+/// crate (Phase A, multi_chord) already exercise this path on
+/// cube fixtures.
+pub(crate) fn find_edge_and_param_at(brep: &BRep, point: Point3) -> Option<(EdgeHandle, f64)> {
+    for (eh, edata) in brep.edges.iter() {
+        let he_h = edata.half_edge;
+        let Some(he) = brep.half_edges.get(he_h) else {
+            continue;
+        };
+        // The second vertex is the twin's origin on manifold
+        // edges, or the next half-edge's origin for boundary
+        // edges (whose twin is the null sentinel).
+        let v1_pos = if let Some(twin) = brep.half_edges.get(he.twin) {
+            brep.vertices[twin.origin].position
+        } else if let Some(next_he) = brep.half_edges.get(he.next) {
+            brep.vertices[next_he.origin].position
+        } else {
+            continue;
+        };
+        let v0 = brep.vertices[he.origin].position;
+        let v1 = v1_pos;
+        let dx = v1.x - v0.x;
+        let dy = v1.y - v0.y;
+        let dz = v1.z - v0.z;
+        let len_sq = dx * dx + dy * dy + dz * dz;
+        if len_sq < 1e-18 {
+            continue;
+        }
+        let t = ((point.x - v0.x) * dx + (point.y - v0.y) * dy + (point.z - v0.z) * dz) / len_sq;
+        if !(0.001..=0.999).contains(&t) {
+            continue;
+        }
+        let px = v0.x + t * dx;
+        let py = v0.y + t * dy;
+        let pz = v0.z + t * dz;
+        let dist_sq = (point.x - px).powi(2) + (point.y - py).powi(2) + (point.z - pz).powi(2);
+        if dist_sq < 1e-10 {
+            return Some((eh, t));
+        }
+    }
+    None
 }

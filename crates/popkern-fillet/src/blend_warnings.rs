@@ -38,6 +38,20 @@ pub enum BlendWarning {
         /// Index of the second fillet edge in the specs list.
         fillet_b: usize,
     },
+    /// PK-185 — a non-completable mid-face strip interference was
+    /// resolved by DROPPING both members of the pair under
+    /// [`crate::types::InterferencePolicy::ServeNonInterfering`].
+    /// The remaining fillets served; the two indexed specs produced
+    /// no blend.
+    FilletPairDropped {
+        /// Index of the first dropped fillet in the specs list.
+        fillet_a: usize,
+        /// Index of the second dropped fillet in the specs list.
+        fillet_b: usize,
+        /// Why the pair could not be seam-completed (from the
+        /// PK-159 analytic completion's decline).
+        reason: String,
+    },
     /// The blend output surface may have self-intersection risk at
     /// the requested radius — the caller should consider reducing
     /// the radius or running a post-operation validation.

@@ -31,7 +31,7 @@
 
 use super::helpers;
 use super::multi_chord_span_geometry::{
-    find_sub_edge_containing_point, intersect_segments, remap_split, trim_subcurve_between,
+    find_sub_edge_containing_point, remap_split, trim_subcurve_between,
 };
 use super::phase_split::{FaceTrim, TrimSplitResult, find_face_containing_vertices};
 use crate::error::BlendFailure;
@@ -83,41 +83,10 @@ pub(super) fn apply_multi_chord_for_face(
             region_resolved: Vec::new(),
         };
     }
-    // Precompute pairwise chord intersections.
-    let segments: Vec<(Point3, Point3)> = trims
-        .iter()
-        .map(|t| {
-            (
-                brep.vertices[t.anchors.0].position,
-                brep.vertices[t.anchors.1].position,
-            )
-        })
-        .collect();
-    let mut intersections: Vec<Vec<(f64, Point3, usize)>> = vec![Vec::new(); n];
-    let cross_gate = tolerance.linear().max(1e-9) * 1.0e4;
-    for i in 0..n {
-        for j in (i + 1)..n {
-            let (a, b) = segments[i];
-            let (c, d) = segments[j];
-            if let Some((s, t, pt)) = intersect_segments(a, b, c, d) {
-                intersections[i].push((s, pt, j));
-                intersections[j].push((t, pt, i));
-            } else if let Some((s, t, pt)) = super::multi_chord_span_geometry::intersect_trim_curves(
-                &trims[i].trim_3d,
-                &trims[j].trim_3d,
-                cross_gate,
-            ) {
-                // Curved-support crossings: the anchor chords pass
-                // inside the surface and never intersect; the sampled
-                // trim curves carry the true crossing (PK-141).
-                intersections[i].push((s, pt, j));
-                intersections[j].push((t, pt, i));
-            }
-        }
-    }
-    for list in intersections.iter_mut() {
-        list.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    }
+    // Precompute pairwise chord crossings (span-gated against trim
+    // overhang — see `multi_chord_crossings`).
+    let intersections =
+        super::multi_chord_crossings::precompute_chord_crossings(brep, trims, tolerance);
     let mut per_trim_sub_edges: Vec<Vec<EdgeHandle>> = vec![Vec::new(); n];
     let mut sub_faces: Vec<FaceHandle> = vec![original_face];
     let mut deferred: Vec<super::multi_chord_region::DeferredTrim> = Vec::new();
@@ -372,6 +341,29 @@ pub(super) fn apply_multi_chord_for_face(
                     break;
                 }
             };
+            if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
+                use popkern_core::geometry::CurveEval;
+                let (tt0, tt1) = t3d.parameter_range();
+                let e0 = t3d.point_at(tt0);
+                let e1 = t3d.point_at(tt1);
+                eprintln!(
+                    "[mc-split] eg{} side{} sub {k}: target {target:?} anchors ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3}) t3d ({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                    trim.edge_idx,
+                    trim.side,
+                    p_a.x,
+                    p_a.y,
+                    p_a.z,
+                    p_b.x,
+                    p_b.y,
+                    p_b.z,
+                    e0.x,
+                    e0.y,
+                    e0.z,
+                    e1.x,
+                    e1.y,
+                    e1.z
+                );
+            }
             let split = match brep.split_face(target, &pc, &t3d, tolerance) {
                 Ok(s) => s,
                 Err(e) => {

@@ -26,6 +26,7 @@ pub(crate) mod cyl_plane_intersect;
 mod direct_apex_dispatch;
 pub(crate) mod edge_reconcile;
 mod end_runoff;
+mod end_runoff_report;
 mod exact_boundary_cap_trim_fit;
 mod exact_boundary_cap_trim_restore;
 mod exact_boundary_cap_trim_surface;
@@ -49,6 +50,7 @@ pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurv
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
 pub(crate) mod helpers;
 mod helpers_pcurve;
+mod hole_rim_terminal_disc;
 mod kp13_bi5_promote;
 pub mod kp20_paper_border_extract;
 mod kp20_polar_bi6_split;
@@ -103,6 +105,7 @@ mod kp_twist_optimizer;
 pub(crate) mod merge;
 mod mixed_radius_direct_apex;
 mod multi_chord;
+mod multi_chord_crossings;
 mod multi_chord_region;
 mod multi_chord_region_separators;
 mod multi_chord_span_geometry;
@@ -228,7 +231,7 @@ pub fn apply_blend_geometry(
     pipeline_timing.perpendicular_split_ms = ms;
     direct_apex_built_faces.extend(split_state.closed_fillet_protected.iter().copied());
     post_pipeline::determinism_trace("post_perp_splits", &result);
-    let (region_resolved_trims, ms) = pipeline_timing::timed(|| {
+    let (trim_outcome, ms) = pipeline_timing::timed(|| {
         phase_split::apply_face_trim_pipeline(
             brep,
             &mut result,
@@ -239,9 +242,21 @@ pub fn apply_blend_geometry(
             &mut failures,
         )
     });
-    repair_report.region_resolved_trims = region_resolved_trims;
+    repair_report.region_resolved_trims = trim_outcome.region_or_curved_trims;
     pipeline_timing.face_trim_ms = ms;
     post_pipeline::determinism_trace("post_face_trim", &result);
+
+    // Hole-rim reflex terminal discs (PK-185/PK-186); the authored
+    // discs join the sliver-protected set. See the module doc.
+    direct_apex_built_faces.extend(hole_rim_terminal_disc::author_reflex_end_discs(
+        &mut result,
+        edge_geometries,
+        &split_state.perp_data,
+        &trim_outcome.fillet_faces,
+        tolerance,
+        &mut failures,
+    ));
+    post_pipeline::determinism_trace("post_reflex_discs", &result);
 
     // Transactional: ANY apply-phase failure fails the whole
     // operation. The prior all-failed-only gate let partial applies
@@ -505,31 +520,7 @@ pub fn apply_blend_geometry(
     // overshoot and cut the end faces' sharp corners back to the
     // runoff curve (see end_runoff module docs).
     let setback_blend_present = corner_patches.iter().any(|cp| cp.setback_cap);
-    let runoff_outcomes = end_runoff::apply_fillet_end_runoff(&mut result, setback_blend_present);
-    for o in &runoff_outcomes {
-        repair_report.apex_diagnostics.push(
-            crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
-                crate::types::ExactBoundaryCapDiagnostic {
-                    stage: "end_runoff".into(),
-                    code: if o.error.is_none() {
-                        "fillet_end_runoff_applied".into()
-                    } else {
-                        "fillet_end_runoff_declined".into()
-                    },
-                    detail_code: o.error.clone(),
-                    sector_name: format!("{:?}->{:?}", o.strip_face, o.end_face),
-                    edge: None,
-                    support_half_edge: None,
-                    support_face: Some(o.end_face),
-                    residual: Some(o.overshoot),
-                    outer_side: None,
-                    sample_parameter: None,
-                    tolerance: None,
-                    shared_fact_ids: Vec::new(),
-                },
-            ),
-        );
-    }
+    end_runoff_report::apply_and_report(&mut result, setback_blend_present, &mut repair_report);
     post_pipeline::determinism_trace("post_vertex_blend", &result);
     post_pipeline::determinism_face_trace("post_vertex_blend", &result);
     let (_, ms) = pipeline_timing::timed(|| {

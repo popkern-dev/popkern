@@ -67,6 +67,18 @@ impl FilletRecipe {
         self
     }
 
+    /// PK-185 partial service for non-completable mid-face strip
+    /// interference: instead of declining the whole operation, drop
+    /// both members of every interfering pair and serve the
+    /// remaining fillets. Each dropped pair is reported through a
+    /// `FilletPairDropped` warning carrying the reason the pair
+    /// could not be seam-completed. Default off (transactional
+    /// decline).
+    pub fn serve_non_interfering(mut self) -> FilletRecipe {
+        self.options.interference_policy = popkern_fillet::InterferencePolicy::ServeNonInterfering;
+        self
+    }
+
     fn describe(&self) -> String {
         let radius = match self.radius {
             FilletRadius::Constant(r) => format!("radius {r}"),

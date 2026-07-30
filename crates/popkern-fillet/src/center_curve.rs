@@ -136,6 +136,24 @@ pub fn constant_radius_center_curve(
     // 4. Extract the curve nearest to the edge midpoint.
     let center_curve =
         crate::center_curve_station::select_nearest_curve(&result.intersections, edge_midpoint)?;
+    if std::env::var_os("PK_CONVEXITY_TRACE").is_some() {
+        let (ta, tb) = center_curve.parameter_range();
+        let pa = center_curve.point_at(ta);
+        let pb = center_curve.point_at(tb);
+        eprintln!(
+            "    [offset-const] {} intersection branch(es); center ({:.3},{:.3},{:.3})..({:.3},{:.3},{:.3}) mid_ref ({:.3},{:.3},{:.3})",
+            result.intersections.len(),
+            pa.x,
+            pa.y,
+            pa.z,
+            pb.x,
+            pb.y,
+            pb.z,
+            edge_midpoint.x,
+            edge_midpoint.y,
+            edge_midpoint.z
+        );
+    }
 
     let sweep_span = crate::center_curve_sweep_channel::gross_overhang_sweep_span(
         &center_curve,

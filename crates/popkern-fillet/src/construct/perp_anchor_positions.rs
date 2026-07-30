@@ -3,6 +3,24 @@
 use super::*;
 use popkern_core::topology::LoopHandle;
 
+/// One resolved anchor position with its placement class.
+///
+/// `interior_rail = true` marks a REFLEX hole-corner end
+/// (PK-185/PK-186): the fillet edge lies on a loop whose corner at
+/// this vertex is reflex (a rectangular hole corner), so every
+/// boundary edge incident to the vertex walks AWAY from the trim
+/// rail — the perp-walk anchor lands on the void side (measured:
+/// the pocket-rim walk placed y = −8.5 where the rail runs at
+/// y = −11.5, and the rib-junction walk landed inside the rib
+/// footprint). The position carried here is the rail's own end
+/// (closest trim point to the corner), which is INTERIOR to the
+/// face and must be landed with an mev spur, not an edge split.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::construct) struct AnchorPlacement {
+    pub(in crate::construct) position: Point3,
+    pub(in crate::construct) interior_rail: bool,
+}
+
 /// Compute the 3D positions of the two perpendicular anchors for
 /// a single face. Read-only — this function never mutates `brep`.
 /// Called on the Phase A snapshot (un-fragmented BRep), so anchor
@@ -45,7 +63,8 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     anchor_on_trim: bool,
     bevel_plane: Option<(Point3, popkern_core::geometry::Vec3)>,
     _tolerance: &Tolerance,
-) -> Result<(Point3, Point3), String> {
+    blend_edges: &std::collections::HashSet<EdgeHandle>,
+) -> Result<(AnchorPlacement, AnchorPlacement), String> {
     let face_data = brep
         .faces
         .get(face)
@@ -222,6 +241,74 @@ pub(super) fn compute_perp_anchor_positions_for_face(
                             ends.map(|(a, b)| ((a.x, a.y, a.z), (b.x, b.y, b.z))),
                         );
                     }
+                    // Reflex hole-corner gate (PK-185/PK-186): when
+                    // the trim is trusted and this edge's perp-walk
+                    // candidate sits off the WHOLE trim by more than
+                    // half a radius, the edge runs on the WRONG side
+                    // of the fillet — a reflex hole corner, where the
+                    // boundary turns along the hole while the rail
+                    // lies interior to the face (measured: the pocket
+                    // rim's walk landed at y = −8.5 against a rail at
+                    // y = −11.5; the rib junction's walk landed inside
+                    // the rib footprint at perp +1.5 against a rail at
+                    // +4.5). Never place a walk anchor there: record
+                    // the rail's own end (closest trim point to the
+                    // corner vertex) as a quality-0 interior-rail
+                    // placement, landed downstream by an mev spur. A
+                    // later incident edge that produces a genuine
+                    // crossing or a right-side walk overwrites it.
+                    // The discriminator is the WALK DIRECTION, not
+                    // the landing distance: the rail offset from the
+                    // corner is perpendicular to the fillet edge on
+                    // the face-interior side, so the walk direction
+                    // opposes it exactly when the face's interior
+                    // angle at the corner exceeds 180°. A
+                    // distance-only gate also caught the PK-171
+                    // obstructed-end class (short-rim anchors
+                    // deliberately clamped off-trim and repaired
+                    // post-carve — measured: offset_bracket 43
+                    // opens), whose walk still heads TOWARD the
+                    // rail.
+                    // Never divert when the walked edge is ITSELF
+                    // being filleted: chain continuations and
+                    // vertex-blend corners legitimately walk along
+                    // the neighbouring fillet edge, and the rail end
+                    // nearest the shared corner lies on the trim's
+                    // OVERHANG past the corner (measured: the
+                    // boss-on-wall seam chain diverted to a spur at
+                    // x = 1.05 outside the unit body).
+                    if anchor_on_trim
+                        && !blend_edges.contains(&he.edge)
+                        && let Some(curve) = analytic_curve
+                    {
+                        let vertex_pos = if forward { p0 } else { p1 };
+                        let rail_end = closest_point_on_curve(curve, &vertex_pos);
+                        let rail_vec = rail_end - vertex_pos;
+                        let walk_vec = if forward { p1 - p0 } else { p0 - p1 };
+                        let candidate = along(t_perp);
+                        // Proportional margin, not a bare sign test:
+                        // a PERPENDICULAR walk (a blend-on-blend end
+                        // arc's rim neighbour) measures dot ≈ −1e-10
+                        // from roundoff and a bare `< 0` misread it
+                        // as reflex (measured: the §12.3 torus-plane
+                        // pin declined as "non-cylinder reflex end").
+                        // True reflex corners measure cos ≈ −1.
+                        let wrong_side = rail_vec.length() > 1e-12
+                            && rail_vec.dot(&walk_vec)
+                                < -0.1 * rail_vec.length() * walk_vec.length()
+                            && distance_to_curve(curve, &candidate) > radius * 0.5;
+                        if wrong_side {
+                            if slot.is_none() {
+                                *slot = Some((rail_end, 0));
+                                if trace {
+                                    eprintln!(
+                                        "[anchor] face={face:?} wrong-side walk (reflex corner) — interior rail end recorded"
+                                    );
+                                }
+                            }
+                            return;
+                        }
+                    }
                     if slot_quality >= 1 {
                         return;
                     }
@@ -362,10 +449,18 @@ pub(super) fn compute_perp_anchor_positions_for_face(
     }
 
     let start_pos = perp_start
-        .map(|(p, _)| p)
+        .map(|(position, quality)| AnchorPlacement {
+            position,
+            interior_rail: quality == 0,
+        })
         .ok_or_else(|| format!("no perpendicular edge found at v_start on face {face:?}"))?;
     let end_pos = perp_end
-        .map(|(p, _)| p)
+        .map(|(position, quality)| AnchorPlacement {
+            position,
+            interior_rail: quality == 0,
+        })
         .ok_or_else(|| format!("no perpendicular edge found at v_end on face {face:?}"))?;
     Ok((start_pos, end_pos))
 }
+
+use super::perp_anchor_rail_proximity::{closest_point_on_curve, distance_to_curve};

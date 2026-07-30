@@ -6,6 +6,10 @@ use std::collections::HashMap;
 pub(super) struct PerpSplitData {
     pub(super) face_1_anchors: (VertexHandle, VertexHandle),
     pub(super) face_2_anchors: (VertexHandle, VertexHandle),
+    /// Reflex hole-corner ends landed with interior-rail spurs
+    /// (PK-185/PK-186) — consumed by the terminal-disc stage after
+    /// Phase C.
+    pub(super) reflex_ends: Vec<helpers::ReflexEndAnchor>,
 }
 
 pub(super) struct PerpendicularSplitState {
@@ -67,6 +71,11 @@ pub(super) fn run_perpendicular_splits(
     } else {
         std::collections::HashMap::new()
     };
+    // All edges being blended this operation — the reflex-corner
+    // anchor gate must never divert a walk along a fellow fillet
+    // edge (chain/vertex-blend territory).
+    let blend_edges: std::collections::HashSet<EdgeHandle> =
+        edge_geometries.iter().map(|eg| eg.analysis.edge).collect();
     // Per-original-edge descendants after Phase A, for Phase C consumed-face lookup.
     let mut descendants: HashMap<EdgeHandle, Vec<EdgeHandle>> = HashMap::new();
     for eg in edge_geometries {
@@ -217,6 +226,7 @@ pub(super) fn run_perpendicular_splits(
             eg.radius_at_end,
             tolerance,
             override_.as_ref(),
+            &blend_edges,
         ) {
             Ok(info) => {
                 // Propagate every split that happened in this
@@ -234,6 +244,7 @@ pub(super) fn run_perpendicular_splits(
                 perp_data.push(Some(PerpSplitData {
                     face_1_anchors: info.face_1_anchors,
                     face_2_anchors: info.face_2_anchors,
+                    reflex_ends: info.reflex_ends,
                 }))
             }
             Err(e) => {

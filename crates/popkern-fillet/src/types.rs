@@ -322,6 +322,30 @@ pub struct FilletOptions {
     /// (added in direct-apex dispatch.c).  Never causes a hard failure; the worst
     /// case is "behaves like legacy."
     pub use_direct_apex_construction: bool,
+    /// PK-185 — resolution for mid-face strip interference that is
+    /// not seam-completable (the PK-159 analytic completion only
+    /// covers parallel-cylinder pairs). Default
+    /// [`InterferencePolicy::Decline`] (transactional
+    /// `FilletInterference`); see [`InterferencePolicy`] for the
+    /// partial-service alternative.
+    pub interference_policy: InterferencePolicy,
+}
+
+/// PK-185 — resolution policy for non-completable mid-face strip
+/// interference. See [`FilletOptions::interference_policy`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum InterferencePolicy {
+    /// Decline the whole operation transactionally (default — the
+    /// historical behaviour).
+    #[default]
+    Decline,
+    /// Drop both members of each interfering pair and serve the
+    /// remaining fillets; every dropped pair is reported with a
+    /// [`BlendWarning::FilletPairDropped`](crate::error::BlendWarning::FilletPairDropped)
+    /// carrying the reason. When nothing remains after dropping,
+    /// the operation still declines (there is no partial result to
+    /// serve).
+    ServeNonInterfering,
 }
 
 impl Default for FilletOptions {
@@ -344,6 +368,7 @@ impl Default for FilletOptions {
             use_kp_binonic_gregory: false,
             use_kp_polar_gregory: false,
             use_direct_apex_construction: false,
+            interference_policy: InterferencePolicy::default(),
         }
     }
 }

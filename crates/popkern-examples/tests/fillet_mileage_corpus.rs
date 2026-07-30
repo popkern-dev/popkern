@@ -145,11 +145,27 @@ fn corpus_pass_rate_holds_baseline() {
     // (flush-weld residue split physical corner lines and
     // chord-length fillet selectors caught the fragments).
     // mounting_bracket and slotted_block serve watertight+OCC.
-    // Remaining declines: pocketed_tray (PK-186), angled_rib_plate
-    // (PK-185) — both fillet-stage, recorded.
+    // 23/23 (2026-07-30, PK-185/PK-186 — the reflex hole-rim class
+    // closed: fillets on inner-loop (hole-rim) edges whose ends are
+    // reflex hole corners. Roots: (a) the strip-interference
+    // detector voted with trim-rail OVERHANG beyond the edge's
+    // swept span (the skewed rib's rail crossed the rim strips 35mm
+    // past the rib end — phantom decline; rails now clamp to the
+    // swept band); (b) at a reflex corner every walkable boundary
+    // edge runs along the hole, away from the rail, so Phase A
+    // landed void-side anchors — interior-rail spur anchors +
+    // inner-loop band split (winding-disambiguated in core
+    // split_face) + exact terminal-arc discs in the transversal
+    // plane now serve the class; (c) the multi-chord crossing
+    // precompute intersected full overhanging trims (phantom
+    // intermediate vertices) and the spur transplant/rehome passes
+    // kev'd anchors before knowing the re-insert would land
+    // (dangling handles) — span-gated and made transactional.
+    // The corpus is fully green; the family pins live in
+    // hole_rim_fillet_family.rs.
     // Raise when campaigns close classes; NEVER lower — a drop is a
     // regression.
-    const BASELINE: usize = 21;
+    const BASELINE: usize = 23;
     assert!(
         passed >= BASELINE,
         "corpus pass rate {passed}/{total} fell below the recorded baseline {BASELINE}/{total}"
@@ -221,7 +237,9 @@ fn corpus_occ_oracle_leg() {
     // serve; the multi-shell slotted result exports two closed
     // shells OCC accepts). No recorded failing classes.
     // Raise when classes close; NEVER lower.
-    const OCC_BASELINE: usize = 21;
+    // 23 since PK-185/PK-186 (2026-07-30): the reflex hole-rim class
+    // serves and the whole corpus is OCC-clean.
+    const OCC_BASELINE: usize = 23;
     for f in &failures {
         eprintln!("[corpus-occ] recorded: {}", &f[..f.len().min(200)]);
     }

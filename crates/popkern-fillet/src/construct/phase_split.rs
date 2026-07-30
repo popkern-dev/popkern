@@ -102,6 +102,18 @@ use crate::error::BlendFailure;
 use popkern_core::tolerance::Tolerance;
 use std::collections::HashMap;
 
+/// Outcome of the Phase B/C face-trim pipeline.
+pub(super) struct TrimPipelineOutcome {
+    /// Count of region-resolved plus curved-support trims (gates the
+    /// curved-body repair passes downstream).
+    pub region_or_curved_trims: usize,
+    /// Per-edge-geometry-index fillet strip face after the Phase C
+    /// merge. Consumed by the hole-rim terminal-disc stage
+    /// (PK-185/PK-186), which carves the exact terminal arc out of
+    /// the strip's end boundary.
+    pub fillet_faces: HashMap<usize, FaceHandle>,
+}
+
 pub(super) fn apply_face_trim_pipeline(
     brep: &BRep,
     result: &mut BRep,
@@ -110,7 +122,7 @@ pub(super) fn apply_face_trim_pipeline(
     perp_data: &[Option<super::perpendicular_splits::PerpSplitData>],
     descendants: &mut HashMap<EdgeHandle, Vec<EdgeHandle>>,
     failures: &mut Vec<(EdgeHandle, BlendFailure)>,
-) -> usize {
+) -> TrimPipelineOutcome {
     // Collect trim data from Phase A results (BTreeMap for deterministic iteration).
     let mut face_trims: std::collections::BTreeMap<FaceHandle, Vec<FaceTrim>> =
         std::collections::BTreeMap::new();
@@ -299,6 +311,7 @@ pub(super) fn apply_face_trim_pipeline(
     }
     let mut merged_consumed: std::collections::HashSet<FaceHandle> =
         std::collections::HashSet::new();
+    let mut fillet_faces: HashMap<usize, FaceHandle> = HashMap::new();
 
     for (idx, trims) in &edge_trims {
         let eg = &edge_geometries[*idx];
@@ -327,6 +340,7 @@ pub(super) fn apply_face_trim_pipeline(
                     orientation: true,
                 });
             merged_consumed.insert(s1.consumed);
+            fillet_faces.insert(*idx, s1.consumed);
             let params = pcurve_attach::FilletPcurveParams {
                 fillet_face: s1.consumed,
                 fillet_surface: &eg.surface,
@@ -350,6 +364,7 @@ pub(super) fn apply_face_trim_pipeline(
             Ok(fillet_face) => {
                 merged_consumed.insert(s1.consumed);
                 merged_consumed.insert(s2.consumed);
+                fillet_faces.insert(*idx, fillet_face);
 
                 // Use pcurves computed during Phase B (before kef).
                 let params = pcurve_attach::FilletPcurveParams {
@@ -410,5 +425,8 @@ pub(super) fn apply_face_trim_pipeline(
             let _ = result.kef(he);
         }
     }
-    region_resolved.len() + curved_support_trims
+    TrimPipelineOutcome {
+        region_or_curved_trims: region_resolved.len() + curved_support_trims,
+        fillet_faces,
+    }
 }

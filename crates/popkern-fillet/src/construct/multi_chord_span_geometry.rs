@@ -332,11 +332,18 @@ pub(super) fn rehome_spur_tip(
         .get(root_he)
         .and_then(|h| brep.vertices.get(h.origin))
         .map(|v| v.position)?;
-    brep.kev(spur_out).ok()?;
-    let mev = brep.mev(root_he, pos).ok()?;
-    if let Some(e) = brep.edges.get_mut(mev.edge) {
+    // Transactional: kev-then-mev on a candidate clone, committed
+    // only when both succeed — a failed mev after an in-place kev
+    // destroyed the spur anchor and left the caller with a dangling
+    // vertex handle (the same disease as the anchor transplant;
+    // measured as a SlotMap panic on the skewed-rib junction trim).
+    let mut candidate = brep.clone();
+    candidate.kev(spur_out).ok()?;
+    let mev = candidate.mev(root_he, pos).ok()?;
+    if let Some(e) = candidate.edges.get_mut(mev.edge) {
         e.curve = popkern_core::geometry::CurveOnEdge::line_segment(root_pos, pos, 1e-9);
     }
+    *brep = candidate;
     if std::env::var_os("PK_MULTICHORD_TRACE").is_some() {
         eprintln!(
             "[mc] re-homed spur tip {tip:?} -> {:?} into {host:?} at {pos:?}",
