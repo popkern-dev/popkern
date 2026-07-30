@@ -262,6 +262,7 @@ fn flat_cap_kind_populates_edge_geometry_caps() {
         &Tolerance::default(),
         crate::types::ContinuityLevel::G1,
         CapKind::Flat,
+        crate::types::BlendProfile::Circular,
     )
     .expect("fillet should compute");
 
@@ -298,6 +299,7 @@ fn rounded_cap_kind_populates_edge_geometry_caps() {
         &Tolerance::default(),
         crate::types::ContinuityLevel::G1,
         CapKind::Rounded,
+        crate::types::BlendProfile::Circular,
     )
     .expect("fillet should compute");
 
@@ -335,6 +337,7 @@ fn tangent_match_cap_kind_populates_edge_geometry_caps() {
         &Tolerance::default(),
         crate::types::ContinuityLevel::G1,
         CapKind::TangentMatch,
+        crate::types::BlendProfile::Circular,
     )
     .expect("fillet should compute");
 
@@ -370,6 +373,7 @@ fn user_defined_cap_kind_falls_back_to_none() {
         &Tolerance::default(),
         crate::types::ContinuityLevel::G1,
         CapKind::UserDefined,
+        crate::types::BlendProfile::Circular,
     )
     .expect("fillet should compute");
 

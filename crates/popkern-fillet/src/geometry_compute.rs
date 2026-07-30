@@ -30,6 +30,7 @@ pub(crate) type FaceTrimMap =
     std::collections::HashMap<usize, Vec<popkern_core::geometry::NurbsCurve>>;
 
 /// Compute fillet geometry (center curve, fillet surface, trim curves) for one edge.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn compute_fillet_geometry(
     analysis: &analysis::EdgeAnalysis,
     radius: &FilletRadius,
@@ -37,6 +38,7 @@ pub(crate) fn compute_fillet_geometry(
     tolerance: &Tolerance,
     continuity: ContinuityLevel,
     cap_kind: CapKind,
+    profile: crate::types::BlendProfile,
 ) -> Result<EdgeGeometry, BlendFailure> {
     let wants_g2 = continuity == ContinuityLevel::G2;
     let edge_midpoint = get_edge_midpoint(brep, analysis)?;
@@ -159,12 +161,10 @@ pub(crate) fn compute_fillet_geometry(
         }
     };
 
-    // Round 5k: a Variable or ByPoints spec must NOT be collapsed
-    // to an analytic torus, because the torus has a single minor
-    // radius and would silently average the per-sample radii. The
-    // `is_constant_radius` flag forces `build_fillet_surface` to
-    // build a true NURBS sweep that follows the per-sample
-    // footprints from `variable_radius_center_curve`.
+    // A Variable/ByPoints spec must NOT collapse to an analytic
+    // torus (single minor radius would average the per-sample
+    // radii); the flag forces the true NURBS sweep through the
+    // per-sample footprints.
     let is_constant_radius = matches!(radius, FilletRadius::Constant(_));
 
     let fillet_result = fillet_surface::build_fillet_surface(
@@ -172,16 +172,15 @@ pub(crate) fn compute_fillet_geometry(
         &analysis.surface_2,
         &center_result,
         effective_radius,
-        // Arc samples: 8. Densifying to 17 was measured and
-        // REGRESSED the boss corner chord 1.16e-5 -> 3.5e-3 (the
-        // downstream merge/settle chain is sensitive to the skin CP
-        // layout); the skin's ~1e-5 chordal residual is recorded as
-        // honest edge tolerance instead.
+        // Arc samples: 8 — densifying to 17 REGRESSED the boss
+        // corner chord 1.16e-5 -> 3.5e-3 (settle chain is sensitive
+        // to skin CP layout); ~1e-5 residual recorded as tolerance.
         8,
         is_constant_radius,
         continuity,
         analysis.orientation_1,
         analysis.orientation_2,
+        profile,
     )
     .map_err(|e| BlendFailure::IntersectionFailed {
         reason: e,

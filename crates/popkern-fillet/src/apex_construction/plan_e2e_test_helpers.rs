@@ -63,6 +63,7 @@ pub(super) fn build_fillet_surfaces(
             &tol,
             ContinuityLevel::G1,
             LegacyCapKind::Open,
+            crate::types::BlendProfile::Circular,
         )
         .expect("compute_fillet_geometry should succeed on cube/pyramid corner");
         surfaces.push(FilletSurfaceResult {
@@ -102,6 +103,7 @@ pub(super) fn build_fillet_surfaces_per_edge(
             &tol,
             ContinuityLevel::G1,
             LegacyCapKind::Open,
+            crate::types::BlendProfile::Circular,
         )
         .expect("compute_fillet_geometry should succeed on variable-radius corner");
         surfaces.push(FilletSurfaceResult {

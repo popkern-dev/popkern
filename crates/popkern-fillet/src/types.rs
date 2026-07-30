@@ -53,6 +53,8 @@ use popkern_core::topology::EdgeHandle;
 
 use crate::error::BlendWarning;
 
+pub use crate::types_blend_options::{BlendProfile, InterferencePolicy};
+
 /// Result of a successful blend operation.
 #[derive(Debug, Clone)]
 pub struct BlendResult {
@@ -329,23 +331,12 @@ pub struct FilletOptions {
     /// `FilletInterference`); see [`InterferencePolicy`] for the
     /// partial-service alternative.
     pub interference_policy: InterferencePolicy,
-}
 
-/// PK-185 — resolution policy for non-completable mid-face strip
-/// interference. See [`FilletOptions::interference_policy`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum InterferencePolicy {
-    /// Decline the whole operation transactionally (default — the
-    /// historical behaviour).
-    #[default]
-    Decline,
-    /// Drop both members of each interfering pair and serve the
-    /// remaining fillets; every dropped pair is reported with a
-    /// [`BlendWarning::FilletPairDropped`](crate::error::BlendWarning::FilletPairDropped)
-    /// carrying the reason. When nothing remains after dropping,
-    /// the operation still declines (there is no partial result to
-    /// serve).
-    ServeNonInterfering,
+    /// Cross-section profile (PK-189): circular rolling-ball arc
+    /// (default), conic-by-rho, or the curvature-continuous G2
+    /// section. See [`BlendProfile`] for the rho semantics and the
+    /// circular-subsumption contract.
+    pub profile: BlendProfile,
 }
 
 impl Default for FilletOptions {
@@ -369,6 +360,7 @@ impl Default for FilletOptions {
             use_kp_polar_gregory: false,
             use_direct_apex_construction: false,
             interference_policy: InterferencePolicy::default(),
+            profile: BlendProfile::default(),
         }
     }
 }

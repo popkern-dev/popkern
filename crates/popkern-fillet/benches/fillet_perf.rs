@@ -91,6 +91,7 @@ fn bench_plane_plane_analytic_vs_nurbs(c: &mut Criterion) {
                 popkern_fillet::ContinuityLevel::G1,
                 false,
                 false,
+                popkern_fillet::BlendProfile::Circular,
             )
             .unwrap()
         })
@@ -107,6 +108,7 @@ fn bench_plane_plane_analytic_vs_nurbs(c: &mut Criterion) {
                 popkern_fillet::ContinuityLevel::G1,
                 false,
                 false,
+                popkern_fillet::BlendProfile::Circular,
             )
             .unwrap()
         })

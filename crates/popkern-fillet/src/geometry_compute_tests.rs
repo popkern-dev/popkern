@@ -119,6 +119,7 @@ fn compute_fillet_geometry_g2_on_cube_edge_produces_nurbs_sweep() {
         &tol(),
         crate::types::ContinuityLevel::G2,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     )
     .expect("g2 cube fillet geometry should compute");
     assert!(
@@ -145,6 +146,7 @@ fn compute_fillet_geometry_legacy_constant_on_cube_produces_torus() {
         &tol(),
         crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     )
     .expect("legacy cube fillet geometry should compute");
     assert!(
@@ -170,6 +172,7 @@ fn compute_fillet_geometry_variable_radius() {
         &tol(),
         crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     );
     assert!(
         result.is_ok(),
@@ -193,6 +196,7 @@ fn compute_fillet_geometry_by_points_two_points_exercises_path() {
         &tol(),
         crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     );
 }
 
@@ -208,6 +212,7 @@ fn compute_fillet_geometry_by_points_single_point_exercises_path() {
         &tol(),
         crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     );
 }
 
@@ -222,6 +227,7 @@ fn compute_fillet_geometry_by_points_empty_fails() {
         &tol(),
         crate::types::ContinuityLevel::G1,
         crate::types::CapKind::Open,
+        crate::types::BlendProfile::Circular,
     );
     assert!(result.is_err(), "empty ByPoints should fail");
 }

@@ -122,11 +122,20 @@ pub(crate) fn extract_plane(brep: &BRep, face: FaceHandle) -> Result<PlaneData, 
                 normal: oriented_normal,
             })
         }
-        _ => Err(BlendError::InvalidParameter {
+        other => Err(BlendError::InvalidParameter {
             parameter: "support_face.surface".to_string(),
-            value: "non-Plane".to_string(),
-            reason: "Round 5b unfillet plan supports plane-plane fillets only \
-                     (curved supports require Round 5c)"
+            value: match other {
+                SurfaceGeometry::Cylinder { .. } => "Cylinder".to_string(),
+                SurfaceGeometry::Sphere { .. } => "Sphere".to_string(),
+                SurfaceGeometry::Torus { .. } => "Torus".to_string(),
+                SurfaceGeometry::Cone { .. } => "Cone".to_string(),
+                SurfaceGeometry::Nurbs(_) => "Nurbs".to_string(),
+                _ => "non-Plane".to_string(),
+            },
+            reason: "open-blend unfillet plan supports planar supports only; closed \
+                     plane-cylinder rims plan through the annulus route, and open \
+                     curved-support strips restore via the operation record \
+                     (unfillet_via_record / modify_fillet_radius_via_record)"
                 .to_string(),
         }),
     }

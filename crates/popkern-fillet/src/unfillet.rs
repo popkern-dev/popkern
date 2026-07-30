@@ -31,14 +31,10 @@
 //!    today with a clear remediation hint pointing at the two
 //!    working alternatives.
 //!
-//! ## Why no in-place modification yet
-//!
-//! In-place radius modification (§14.7) is the natural follow-up
-//! to algorithmic unfillet: change the radius by unfillet → fillet
-//! at the new radius. Until [`unfillet_face`] works for a general
-//! BRep, in-place modification is a thin wrapper around
-//! "unfillet_via_record + new fillet" and that path already exists
-//! through [`crate::FilletOperationRecord::re_execute`].
+//! In-place radius modification (§14.7) composes on top: until
+//! [`unfillet_face`] covers a general BRep it remains a wrapper
+//! around "unfillet_via_record + new fillet"
+//! ([`crate::FilletOperationRecord::re_execute`]).
 
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, HalfEdgeHandle};
@@ -69,12 +65,16 @@ pub struct UnfilletPlan {
     pub support_a: FaceHandle,
     /// Second support face.
     pub support_b: FaceHandle,
-    /// The 3D start position of the restored sharp edge.
+    /// Restored-edge start; for a closed rim, the seam point on the
+    /// restored circle (start == end).
     pub restored_edge_start: Point3,
     /// The 3D end position of the restored sharp edge.
     pub restored_edge_end: Point3,
-    /// Direction vector of the restored sharp edge (unit length).
+    /// Unit direction; for a closed rim, the tangent at the seam.
     pub restored_edge_direction: Vec3,
+    /// Typed restored-edge geometry (PK-180): `Line` for open
+    /// plane-plane blends, `Circle` for closed plane-cylinder rims.
+    pub restored_edge: crate::unfillet_plan_closed::RestoredEdgeGeometry,
     /// The two long G1-tangent boundary half-edges of the blend
     /// face. These are the contact-curve edges that the surgery
     /// would dissolve via `kef`.
@@ -88,20 +88,30 @@ pub struct UnfilletPlan {
 
 /// Compute an unfillet plan without modifying the input BRep.
 ///
-/// Pure function. Plane-plane fillets only — returns
-/// `Err(BlendError::InvalidParameter)` for blends on curved support
-/// surfaces, which require Round 5c.
+/// Pure function. Open plane-plane blends plan a restored
+/// [`RestoredEdgeGeometry::Line`]; closed plane-cylinder rims
+/// (annulus or seamed band) plan the restored intersection
+/// [`RestoredEdgeGeometry::Circle`]. Open blends on curved supports
+/// decline with the configuration named — the operation record
+/// (`unfillet_via_record`) is the route for those.
 ///
 /// # Errors
 ///
 /// - [`BlendError::InvalidParameter`] when `blend_face` is not
 ///   recognised as a blend, when its kind is not
-///   [`BlendKind::Fillet`], or when one of its supports is not a
-///   plane.
+///   [`BlendKind::Fillet`], or when the support configuration has
+///   no implemented plan class.
 pub fn compute_unfillet_plan(
     brep: &BRep,
     blend_face: FaceHandle,
 ) -> Result<UnfilletPlan, BlendError> {
+    // Closed rims first (same dispatch `unfillet_face` uses): their
+    // plane+cylinder supports would misread as open-blend declines.
+    if is_closed_fillet_annulus(brep, blend_face)
+        || crate::unfillet_closed::seamed_band_bridge(brep, blend_face).is_some()
+    {
+        return crate::unfillet_plan_closed::compute_closed_rim_plan(brep, blend_face);
+    }
     let info = identify_blend(brep, blend_face).ok_or_else(|| BlendError::InvalidParameter {
         parameter: "blend_face".to_string(),
         value: format!("{blend_face:?}"),
@@ -194,6 +204,11 @@ pub fn compute_unfillet_plan(
         restored_edge_start: p_start,
         restored_edge_end: p_end,
         restored_edge_direction: line_direction,
+        restored_edge: crate::unfillet_plan_closed::RestoredEdgeGeometry::Line {
+            start: p_start,
+            end: p_end,
+            direction: line_direction,
+        },
         long_he_to_a,
         long_he_to_b,
         edges_to_remove,

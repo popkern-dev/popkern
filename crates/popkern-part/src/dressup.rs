@@ -79,6 +79,17 @@ impl FilletRecipe {
         self
     }
 
+    /// PK-189 conic cross-section: blend with a conic (rational
+    /// quadratic) profile instead of the circular rolling-ball arc.
+    /// `rho` is the shoulder fullness in (0, 1) — 0.5 is parabolic,
+    /// smaller is flatter, larger is fuller; the circular value is
+    /// `cos(θ/2)/(1+cos(θ/2))` for section opening angle θ, and
+    /// supplying it reproduces the circular blend to roundoff.
+    pub fn conic(mut self, rho: f64) -> FilletRecipe {
+        self.options.profile = popkern_fillet::BlendProfile::Conic { rho };
+        self
+    }
+
     fn describe(&self) -> String {
         let radius = match self.radius {
             FilletRadius::Constant(r) => format!("radius {r}"),

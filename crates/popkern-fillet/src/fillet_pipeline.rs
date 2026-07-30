@@ -62,9 +62,41 @@ pub(crate) fn fillet_edges_internal(
     // sweep but every N ≥ 5 corner shipped a G1-at-best cap. The
     // ladder flags stay opt-in under G1 requests, where the analytic
     // paths are the commercial default.
+    // PK-189 profile validation and resolution. Conic rho is a
+    // strict open-interval parameter; conic sections are tangent-
+    // continuous by construction, so a simultaneous G2 request is a
+    // contradiction the caller must resolve, not a silent downgrade.
+    // BlendProfile::CurvatureContinuous is the G2 sweep spelled as a
+    // profile — it implies a G2 continuity request below.
+    if let crate::types::BlendProfile::Conic { rho } = options.profile {
+        if !(rho.is_finite() && 0.0 < rho && rho < 1.0) {
+            return Err(BlendError::InvalidParameter {
+                parameter: "options.profile.rho".to_string(),
+                value: format!("{rho}"),
+                reason: "conic shoulder factor must lie strictly between 0 and 1 \
+                         (0.5 = parabolic; the circular value is \
+                         cos(θ/2)/(1+cos(θ/2)) for section opening angle θ)"
+                    .to_string(),
+            });
+        }
+        if options.continuity == crate::types::ContinuityLevel::G2 {
+            return Err(BlendError::InvalidParameter {
+                parameter: "options.profile".to_string(),
+                value: format!("Conic {{ rho: {rho} }}"),
+                reason: "conic profiles are tangent-continuous (G1) by construction; \
+                         curvature-continuous blends use \
+                         BlendProfile::CurvatureContinuous or ContinuityLevel::G2 \
+                         with the circular profile"
+                    .to_string(),
+            });
+        }
+    }
     let g2_ladder_options;
-    let options: &FilletOptions = if options.continuity == crate::types::ContinuityLevel::G2 {
+    let wants_g2_construction = options.continuity == crate::types::ContinuityLevel::G2
+        || options.profile == crate::types::BlendProfile::CurvatureContinuous;
+    let options: &FilletOptions = if wants_g2_construction {
         g2_ladder_options = FilletOptions {
+            continuity: crate::types::ContinuityLevel::G2,
             use_rational_gregory: true,
             use_deg5_gregory: true,
             use_biquintic_full_gregory: true,
@@ -127,6 +159,7 @@ pub(crate) fn fillet_edges_internal(
             &tolerance,
             options.continuity,
             options.cap_kind,
+            options.profile,
         );
         if let Some(r) = reporter.as_deref_mut() {
             let (succeeded, newton_iterations, step_rejections) = match &compute_result {

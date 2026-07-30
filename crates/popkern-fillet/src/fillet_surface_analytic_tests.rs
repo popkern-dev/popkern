@@ -111,9 +111,19 @@ fn fillet_surface_plane_sphere_produces_analytic_torus() {
 
     let r = 0.5;
     for (s1, s2) in [(&sphere, &plane), (&plane, &sphere)] {
-        let result =
-            build_fillet_surface(s1, s2, &cr, r, 5, true, ContinuityLevel::G1, false, false)
-                .expect("plane-sphere fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            ContinuityLevel::G1,
+            false,
+            false,
+            crate::types::BlendProfile::Circular,
+        )
+        .expect("plane-sphere fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis,
@@ -214,9 +224,19 @@ fn fillet_surface_plane_cylinder_perpendicular_produces_analytic_torus() {
     };
 
     for (s1, s2) in [(&cyl, &plane), (&plane, &cyl)] {
-        let result =
-            build_fillet_surface(s1, s2, &cr, r, 5, true, ContinuityLevel::G1, false, false)
-                .expect("plane-cylinder (perp) fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            ContinuityLevel::G1,
+            false,
+            false,
+            crate::types::BlendProfile::Circular,
+        )
+        .expect("plane-cylinder (perp) fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -309,9 +329,19 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
 
     let r = 0.1;
     for (s1, s2) in [(&cone, &plane), (&plane, &cone)] {
-        let result =
-            build_fillet_surface(s1, s2, &cr, r, 5, true, ContinuityLevel::G1, false, false)
-                .expect("plane-cone (perp) fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            ContinuityLevel::G1,
+            false,
+            false,
+            crate::types::BlendProfile::Circular,
+        )
+        .expect("plane-cone (perp) fillet should build");
         match result.surface {
             SurfaceGeometry::Torus {
                 axis, minor_radius, ..
@@ -366,6 +396,7 @@ fn fillet_surface_plane_cone_oblique_skips_analytic_torus() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     )
     .expect("oblique plane-cone fillet should still build (NURBS sweep)");
     assert!(

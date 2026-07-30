@@ -106,6 +106,78 @@ pub(super) fn reorient_arcs_for_hex_closure(
     successor_walk_ordering(fillet_arcs, fillet_endpoints, face_supports, tol_linear)
 }
 
+/// Exact chart-boundary iso between two surface points (PK-189).
+///
+/// A swept strip's terminal section is the loft's boundary row —
+/// exact for BOTH circular and conic profiles — while the Hermite
+/// cubic fit below is an approximation that misses a conic section
+/// by the shoulder gap (measured 1.1e-2 on the rho = 0.35 cube
+/// corner). When the two projected end points ARE the endpoints of
+/// one of the four chart-boundary isos of a NURBS surface, return
+/// that iso verbatim (oriented start → end); anything else falls
+/// through to the Hermite fit.
+pub(super) fn exact_boundary_iso_between(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    start: &Point3,
+    end: &Point3,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::CurveEval as _;
+    let popkern_core::geometry::SurfaceGeometry::Nurbs(n) = surface else {
+        return None;
+    };
+    let strided = |offset: usize, stride: usize, count: usize, degree: usize, knots: &[f64]| {
+        let mut control_points = Vec::with_capacity(count);
+        let mut weights = Vec::with_capacity(count);
+        for i in 0..count {
+            let idx = offset + i * stride;
+            if idx >= n.control_points.len() {
+                return None;
+            }
+            control_points.push(n.control_points[idx]);
+            weights.push(n.weights[idx]);
+        }
+        Some(NurbsCurve {
+            degree,
+            knots: knots.to_vec(),
+            control_points,
+            weights,
+        })
+    };
+    // Control-point layout: index = u * num_v + v.
+    let candidates = [
+        // v = first / last (rows across u)
+        strided(0, n.num_v, n.num_u, n.degree_u, &n.knots_u),
+        strided(n.num_v - 1, n.num_v, n.num_u, n.degree_u, &n.knots_u),
+        // u = first / last (columns across v)
+        strided(0, 1, n.num_v, n.degree_v, &n.knots_v),
+        strided((n.num_u - 1) * n.num_v, 1, n.num_v, n.degree_v, &n.knots_v),
+    ];
+    let scale = start.distance_to(end).max(1e-9);
+    let gate = scale * 1.0e-6;
+    for candidate in candidates.into_iter().flatten() {
+        let (t0, t1) = candidate.parameter_range();
+        let (c0, c1) = (candidate.point_at(t0), candidate.point_at(t1));
+        if c0.distance_to(start) <= gate && c1.distance_to(end) <= gate {
+            return Some(candidate);
+        }
+        if c0.distance_to(end) <= gate && c1.distance_to(start) <= gate {
+            return Some(NurbsCurve {
+                degree: candidate.degree,
+                knots: reversed_clamped_knots(&candidate.knots),
+                control_points: candidate.control_points.iter().rev().copied().collect(),
+                weights: candidate.weights.iter().rev().copied().collect(),
+            });
+        }
+    }
+    None
+}
+
+/// Reverse a clamped knot vector onto the same parameter range.
+fn reversed_clamped_knots(knots: &[f64]) -> Vec<f64> {
+    let (lo, hi) = (knots[0], knots[knots.len() - 1]);
+    knots.iter().rev().map(|k| lo + hi - k).collect()
+}
+
 /// §5.3 C4b.2c — fit a Hermite cubic Bezier arc on a parametric
 /// surface between two UV points, using the surface's own
 /// tangent vectors at the endpoints + a classical-circular-arc

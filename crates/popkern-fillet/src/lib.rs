@@ -86,6 +86,7 @@ mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;
 pub mod types;
+pub(crate) mod types_blend_options;
 #[cfg(test)]
 #[path = "types_tests.rs"]
 mod types_tests;
@@ -95,6 +96,7 @@ pub(crate) mod unfillet_closed_helpers;
 pub(crate) mod unfillet_corner_group;
 pub(crate) mod unfillet_corner_group_geometry;
 pub(crate) mod unfillet_helpers;
+pub mod unfillet_plan_closed;
 pub(crate) mod unfillet_surgery;
 pub mod validate;
 pub mod vertex_blend;
@@ -137,6 +139,7 @@ pub use progress::*;
 pub use stale_cap::{StaleCap, detect_stale_caps};
 pub use types::*;
 pub use unfillet::{UnfilletPlan, compute_unfillet_plan, unfillet_face, unfillet_via_record};
+pub use unfillet_plan_closed::RestoredEdgeGeometry;
 pub use vertex_blend::{vertex_blend_3d, vertex_blend_3d_variable};
 /// Fillet the specified edges of a BRep solid. See [`BlendError`] for failure modes.
 pub fn fillet_edges(
@@ -167,6 +170,9 @@ pub use lib_convenience::{
     fillet_edges_with_quality,
 };
 use naming::assign_fillet_names;
+#[cfg(test)]
+#[path = "conic_profile_tests.rs"]
+mod conic_profile_tests;
 #[cfg(test)]
 #[path = "corner_warning_tests.rs"]
 mod corner_warning_tests;

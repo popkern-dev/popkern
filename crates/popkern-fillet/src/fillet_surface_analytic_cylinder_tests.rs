@@ -84,9 +84,19 @@ fn fillet_surface_parallel_cylinder_cylinder_produces_analytic_cylinder() {
     };
 
     for (s1, s2) in [(&cyl_a, &cyl_b), (&cyl_b, &cyl_a)] {
-        let result =
-            build_fillet_surface(s1, s2, &cr, r, 5, true, ContinuityLevel::G1, false, false)
-                .expect("parallel cylinder-cylinder fillet should build");
+        let result = build_fillet_surface(
+            s1,
+            s2,
+            &cr,
+            r,
+            5,
+            true,
+            ContinuityLevel::G1,
+            false,
+            false,
+            crate::types::BlendProfile::Circular,
+        )
+        .expect("parallel cylinder-cylinder fillet should build");
         match result.surface {
             SurfaceGeometry::Cylinder {
                 axis,
@@ -143,6 +153,7 @@ fn fillet_surface_non_parallel_cylinder_cylinder_skips_analytic_path() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     )
     .expect("non-parallel cylinder-cylinder fillet should still build (NURBS sweep)");
     assert!(
@@ -183,6 +194,7 @@ fn fillet_surface_plane_cylinder_oblique_skips_analytic_torus() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     )
     .expect("oblique plane-cylinder fillet should still build (NURBS sweep)");
     assert!(

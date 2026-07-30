@@ -138,6 +138,7 @@ mod terminal_arc_fit_trim;
 pub(crate) mod terminal_arc_trim;
 mod terminal_chord_trim;
 mod terminal_cone_trim;
+mod terminal_conic_fit_trim;
 mod terminal_corner_recognition;
 mod terminal_obstructed_crossing;
 mod terminal_obstructed_end;

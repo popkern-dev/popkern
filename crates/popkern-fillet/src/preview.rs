@@ -132,6 +132,7 @@ pub fn preview_fillet_with_continuity(
             &tolerance,
             continuity,
             crate::types::CapKind::Open,
+            crate::types::BlendProfile::Circular,
         ) {
             Ok(geom) => per_edge.push(edge_geometry_to_preview(spec.edge, geom)),
             Err(f) => failed.push((i, f)),
@@ -266,6 +267,7 @@ pub fn preview_corner_patches(
             &tolerance,
             ContinuityLevel::G1,
             crate::types::CapKind::Open,
+            crate::types::BlendProfile::Circular,
         ) {
             edge_geometries.push(geom);
         }

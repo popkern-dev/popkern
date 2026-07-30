@@ -56,6 +56,7 @@ fn diagnostic_polar_nurbs_vs_rational_gregory_on_mixed_radius_cube() {
             &tol,
             ContinuityLevel::G1,
             CapKind::Open,
+            crate::types::BlendProfile::Circular,
         )
         .expect("edge geometry should build");
         edge_geoms.push(geom);

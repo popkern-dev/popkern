@@ -192,8 +192,8 @@ pub(crate) fn correct_face_surfaces(
             let sd = max_fit_score(&sphere_sof.geometry, &positions);
             // SCALE-RELATIVE acceptance: the pre-repair cap loop
             // contains the stale cube-corner outlier at distance
-            // exactly r(√2−1) from the true sphere (the Path-A
-            // relocation repairs it AFTER surface assignment), so
+            // exactly r(√2−1) from the true sphere (the apex vertex
+            // relocation repair runs AFTER surface assignment), so
             // the fit score grows linearly with the fillet radius
             // and a 0.5-absolute gate silently stops promoting the
             // exact sphere above r ≈ 1.2 (measured: uniform r=3
@@ -349,6 +349,18 @@ fn try_sphere_for_corner(
     // Gregory patch (or analogous N-sided construction) is the
     // right answer. Bail out on mixed radii so `build_smooth_blend`
     // keeps whatever N-sided NURBS it produced.
+    // A swept NURBS strip is not a constant circular section — it is
+    // a variable-radius or conic-profile blend (PK-189), and the
+    // rolling ball that would justify a corner sphere does not exist
+    // for it. Promoting anyway shipped a Sphere cap whose boundary
+    // arcs lay the conic shoulder gap off the strips (measured
+    // 2.7e-3 CurveSurfaceDeviation on the rho=0.35 cube corner).
+    if fillet_surfaces
+        .iter()
+        .any(|s| matches!(s, SurfaceGeometry::Nurbs(_)))
+    {
+        return None;
+    }
     let radii: Vec<f64> = fillet_surfaces
         .iter()
         .filter_map(|s| match s {

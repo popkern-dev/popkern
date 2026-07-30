@@ -142,7 +142,7 @@ pub enum BoundarySegment {
 /// caller override the global `POPKERN_SPHERE_FIT_BOUNDARY` env-var
 /// gate.  Used by §6c-X.A.7's auto-dispatch: at uniform-radius
 /// apices the sphere-fit substitution produces degenerate cap-loop
-/// edges that Path A's vertex relocation can't resolve cleanly
+/// edges that the apex vertex-relocation repair can't resolve cleanly
 /// (see ADR / journal entries, 2026-05-01), so the caller
 /// suppresses substitution and lets the original rolling-ball
 /// topology stand.
@@ -428,6 +428,13 @@ fn extract_fillet_end_near_vertex(
         du -= period * du.signum();
     }
 
+    // Exact chart-boundary iso first (swept strips' terminal
+    // sections — exact for circular AND conic profiles); the Hermite
+    // cubic stays the general-surface fallback.
+    if let Some(exact) = super::boundary_hex::exact_boundary_iso_between(&fillet.surface, &p1, &p2)
+    {
+        return Ok(exact);
+    }
     super::boundary_hex::fit_hermite_cubic_arc_on_surface(&fillet.surface, u1, v1, u2, v2, du)
 }
 

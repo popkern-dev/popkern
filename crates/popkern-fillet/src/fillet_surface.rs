@@ -5,7 +5,7 @@
 //! otherwise a NURBS swept surface is constructed by skinning cross-section arcs.
 
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3, Vec3};
+use popkern_core::geometry::{NurbsCurve, NurbsSurface, Point3};
 
 use crate::center_curve::CenterCurveResult;
 use crate::fillet_surface_analytic::{
@@ -57,7 +57,31 @@ pub fn build_fillet_surface(
     continuity: ContinuityLevel,
     _orientation_1: bool,
     _orientation_2: bool,
+    profile: crate::types::BlendProfile,
 ) -> Result<FilletSurfaceResult, String> {
+    // PK-189 conic-by-rho profile: same contacts and end tangents as
+    // the rolling-ball arc (the tangent triangle is profile-
+    // independent), but the section interior follows the requested
+    // shoulder factor. The analytic torus/cylinder fast paths and
+    // the G2 sweep represent CIRCULAR/G2 sections only, so a conic
+    // request routes straight to the exact rational section sweep
+    // with the conic middle weight; a station outside the single-
+    // segment rational range is a structured error, never a silent
+    // circular downgrade (rho at the circular value must reproduce
+    // the arc to roundoff, so the conic path subsumes the arc).
+    let conic_rho = match profile {
+        crate::types::BlendProfile::Conic { rho } => Some(rho),
+        _ => None,
+    };
+    if let Some(rho) = conic_rho {
+        return build_nurbs_sweep(
+            center_result,
+            radius,
+            arc_samples,
+            is_constant_radius.then_some((surface1, surface2)),
+            Some(rho),
+        );
+    }
     // G2 path: route through the degree-5 Bezier sweep when the
     // caller asked for it AND the center-curve producer (the spine
     // walker) gave us per-sample contact solutions. If the G2
@@ -133,6 +157,7 @@ pub fn build_fillet_surface(
         radius,
         arc_samples,
         is_constant_radius.then_some((surface1, surface2)),
+        None,
     )?;
     if g2_fallback_reason.is_some() {
         result.continuity_downgrade = g2_fallback_reason;
@@ -150,6 +175,7 @@ fn build_nurbs_sweep(
     radius: f64,
     arc_samples: usize,
     supports: Option<(&SurfaceGeometry, &SurfaceGeometry)>,
+    conic_rho: Option<f64>,
 ) -> Result<FilletSurfaceResult, String> {
     // Prefer the edge-span sweep channel when the producer trimmed a
     // grossly overhanging carrier (see CenterCurveResult docs): the
@@ -229,7 +255,21 @@ fn build_nurbs_sweep(
         let fp2 = &footprint_2[i];
         if let Some(rows) = rational_rows.as_mut() {
             match rational_arc_row(&center, fp1, fp2) {
-                Some(row) => rows.push(row),
+                Some((cps, w_circular)) => {
+                    // Conic profile: identical tangent-triangle
+                    // control points, shoulder weight rho/(1-rho)
+                    // instead of cos(theta/2).
+                    let w = match conic_rho {
+                        Some(rho) => crate::types::BlendProfile::conic_weight(rho),
+                        None => w_circular,
+                    };
+                    rows.push((cps, w));
+                }
+                None if conic_rho.is_some() => {
+                    return Err(format!(
+                        "conic profile station {i}/{n_sections} is outside the                          single-segment rational section range (opening angle too                          wide or degenerate contacts); conic sections do not                          downgrade silently"
+                    ));
+                }
                 None => rational_rows = None,
             }
         }
@@ -332,7 +372,10 @@ fn build_nurbs_sweep(
     if let Some((s1, s2)) = supports {
         let curved = !matches!(s1, SurfaceGeometry::Plane { .. })
             || !matches!(s2, SurfaceGeometry::Plane { .. });
-        if curved && nurbs.num_u >= 3 {
+        // Conic sections skip the overhang extension: its rows are
+        // derived from the circular contact construction and would
+        // kink a conic loft at the edge-span boundary.
+        if curved && nurbs.num_u >= 3 && conic_rho.is_none() {
             crate::loft_chart_extension::extend_loft_rows(&mut nurbs, s1, s2, radius);
         }
     }
@@ -375,115 +418,9 @@ fn build_nurbs_sweep(
     })
 }
 
-/// One EXACT rational-quadratic arc row from `start` to `end` about
-/// `center`: control points [start, tangent-intersection, end] with
-/// mid weight cos(θ/2). Returns `None` when the section is outside
-/// the well-conditioned single-segment range (θ > ~115°, radii
-/// mismatched, or degenerate).
-type ArcRow = ([Point3; 3], f64);
-
-pub(crate) fn rational_arc_row(center: &Point3, start: &Point3, end: &Point3) -> Option<ArcRow> {
-    let v1 = *start - *center;
-    let v2 = *end - *center;
-    let (r1, r2) = (v1.length(), v2.length());
-    if r1 < 1e-12 || r2 < 1e-12 {
-        return None;
-    }
-    if (r1 - r2).abs() > 1e-6 * r1.max(r2) {
-        return None;
-    }
-    let u1 = v1 * (1.0 / r1);
-    let u2 = v2 * (1.0 / r2);
-    let cos_theta = u1.dot(&u2).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
-    if !(1e-9..=2.0).contains(&theta) {
-        return None;
-    }
-    let half = 0.5 * theta;
-    let w_mid = half.cos();
-    let mid_dir = (u1 + u2).normalized()?;
-    let r = 0.5 * (r1 + r2);
-    let mid = *center + mid_dir * (r / w_mid);
-    Some(([*start, mid, *end], w_mid))
-}
-
-/// Sample a circular arc from `start` to `end` centered at `center`.
-///
-/// The arc lies in the plane defined by the three points. If `start` and
-/// `end` are equidistant from `center` at approximately `radius`, the arc
-/// sweeps the shorter angle between them.
-pub(crate) fn sample_arc(
-    center: &Point3,
-    start: &Point3,
-    end: &Point3,
-    _radius: f64,
-    n: usize,
-) -> Vec<Point3> {
-    let v1 = *start - *center;
-    let v2 = *end - *center;
-    let r1 = v1.length();
-    let r2 = v2.length();
-
-    // Handle degenerate cases.
-    if r1 < 1e-15 || r2 < 1e-15 || n < 2 {
-        return vec![*start; n];
-    }
-
-    // Normalize to unit vectors.
-    let u = Vec3::new(v1.x / r1, v1.y / r1, v1.z / r1);
-    let w_raw = v2 - u * v2.dot(&u);
-    let w_len = w_raw.length();
-
-    if w_len < 1e-15 {
-        // start and end are nearly coincident or antipodal — just linearly interpolate.
-        let mut pts = Vec::with_capacity(n);
-        for i in 0..n {
-            let t = i as f64 / (n - 1).max(1) as f64;
-            pts.push(Point3::new(
-                start.x + (end.x - start.x) * t,
-                start.y + (end.y - start.y) * t,
-                start.z + (end.z - start.z) * t,
-            ));
-        }
-        return pts;
-    }
-
-    let v = Vec3::new(w_raw.x / w_len, w_raw.y / w_len, w_raw.z / w_len);
-
-    // Compute sweep angle.
-    let cos_theta = (v1.dot(&v2) / (r1 * r2)).clamp(-1.0, 1.0);
-    let theta = cos_theta.acos();
-
-    // Use average radius for the arc.
-    let r = (r1 + r2) * 0.5;
-
-    let mut pts = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = i as f64 / (n - 1).max(1) as f64;
-        let angle = theta * t;
-        let x = r * angle.cos();
-        let y = r * angle.sin();
-        pts.push(Point3::new(
-            center.x + u.x * x + v.x * y,
-            center.y + u.y * x + v.y * y,
-            center.z + u.z * x + v.z * y,
-        ));
-    }
-
-    pts
-}
-
-/// Build clamped uniform knot vector for `n` control points at given degree.
-pub(crate) fn build_clamped_uniform_knots(n: usize, degree: usize) -> Vec<f64> {
-    let n_interior = n.saturating_sub(degree);
-    let mut knots = Vec::with_capacity(n + degree + 1);
-    knots.extend(std::iter::repeat_n(0.0, degree + 1));
-    for i in 1..n_interior {
-        knots.push(i as f64 / n_interior as f64);
-    }
-    knots.extend(std::iter::repeat_n(1.0, degree + 1));
-    knots
-}
+#[path = "fillet_surface_rows.rs"]
+mod fillet_surface_rows;
+pub(crate) use fillet_surface_rows::{build_clamped_uniform_knots, rational_arc_row, sample_arc};
 
 #[cfg(test)]
 #[path = "fillet_surface_tests.rs"]

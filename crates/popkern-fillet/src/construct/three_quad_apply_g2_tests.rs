@@ -61,6 +61,7 @@ fn r8_c8b_boundary_normal_curvature_deviation_gregory_wins() {
                 &tol,
                 ContinuityLevel::G1,
                 CapKind::Open,
+                crate::types::BlendProfile::Circular,
             )
             .unwrap(),
         );
@@ -269,6 +270,7 @@ fn measure_scorecard(radii: &[f64; 3]) -> (f64, f64) {
             &tol,
             ContinuityLevel::G1,
             CapKind::Open,
+            crate::types::BlendProfile::Circular,
         ) else {
             return (0.0, 0.0);
         };

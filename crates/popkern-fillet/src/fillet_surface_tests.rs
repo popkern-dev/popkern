@@ -49,6 +49,7 @@ fn fillet_surface_plane_plane() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
@@ -89,6 +90,7 @@ fn fillet_surface_plane_plane_variable_uses_nurbs_sweep() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();
@@ -128,6 +130,7 @@ fn fillet_surface_general() {
         ContinuityLevel::G1,
         false,
         false,
+        crate::types::BlendProfile::Circular,
     );
     assert!(result.is_ok(), "fillet surface failed: {:?}", result.err());
     let fs = result.unwrap();

@@ -98,6 +98,7 @@ fn time_builds(
             popkern_fillet::ContinuityLevel::G1,
             false,
             false,
+            popkern_fillet::types::BlendProfile::Circular,
         );
         let fs = result.expect("build_fillet_surface should succeed");
         // Read the surface discriminant to prevent the optimizer
@@ -141,6 +142,7 @@ fn analytic_plane_plane_is_at_least_5x_faster_than_nurbs_sweep() {
         popkern_fillet::ContinuityLevel::G1,
         false,
         false,
+        popkern_fillet::types::BlendProfile::Circular,
     )
     .unwrap();
     assert!(
@@ -161,6 +163,7 @@ fn analytic_plane_plane_is_at_least_5x_faster_than_nurbs_sweep() {
         popkern_fillet::ContinuityLevel::G1,
         false,
         false,
+        popkern_fillet::types::BlendProfile::Circular,
     )
     .unwrap();
     assert!(

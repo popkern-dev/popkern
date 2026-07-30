@@ -221,6 +221,42 @@ pub(super) fn repair_corner_swept(
         residual = residual.max((((u - cu).powi(2) + (v - cv).powi(2)).sqrt() - radius).abs());
     }
     if residual > (pos_tol * 10.0).max(radius * 1.0e-3) {
+        // PK-189: a non-circular terminal section is the conic-profile
+        // strip class. Fit the terminal conic (the stale corner IS the
+        // tangent-triangle apex on plane supports), settle the corner
+        // onto its shoulder, and author the stubs as exact rational
+        // halves. A failed fit keeps the honest decline.
+        if let Some(conic) = super::terminal_conic_fit_trim::fit_terminal_conic(
+            brep, c.corner, anchor_in, anchor_out, &samples, tolerance,
+        ) {
+            let staged = [
+                super::terminal_conic_fit_trim::compute_swept_stub_conic(
+                    brep, c.he_in, &conic, true, &cap, tolerance,
+                )?,
+                super::terminal_conic_fit_trim::compute_swept_stub_conic(
+                    brep, c.he_out, &conic, false, &cap, tolerance,
+                )?,
+            ];
+            if trace {
+                eprintln!(
+                    "[tat]   swept terminal section is a conic (circular residual {residual:.3e}); settling on the fitted shoulder"
+                );
+            }
+            let shoulder = conic.shoulder;
+            if let Some(v) = brep.vertices.get_mut(c.corner) {
+                v.position = shoulder;
+            }
+            for stub in staged {
+                if let Some(e) = brep.edges.get_mut(stub.edge) {
+                    e.curve = Some(stub.curve);
+                }
+                if let Some(tw) = brep.half_edges.get_mut(stub.cap_half_edge) {
+                    tw.pcurve = Some(stub.cap_pcurve.clone());
+                }
+                brep.set_face_use_pcurve(cap_face, stub.cap_half_edge, stub.cap_pcurve);
+            }
+            return Ok(());
+        }
         if trace {
             eprintln!("[tat]   swept terminal section not circular: residual {residual:.3e}");
         }

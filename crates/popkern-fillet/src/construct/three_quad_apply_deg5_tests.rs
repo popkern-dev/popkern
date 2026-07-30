@@ -72,6 +72,7 @@ fn measure_deg3_vs_deg5(radii: &[f64; 3]) -> (f64, f64) {
             &tol,
             ContinuityLevel::G1,
             CapKind::Open,
+            crate::types::BlendProfile::Circular,
         ) else {
             return (0.0, 0.0);
         };
