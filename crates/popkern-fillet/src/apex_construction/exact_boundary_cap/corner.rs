@@ -175,43 +175,23 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
                 None,
             )
         })?;
+        // Welded sectors (PK-219) carry a SYNTHESIZED point-contact
+        // face boundary from curve preparation; the normal
+        // classification handles it (shared point, far point, and
+        // spoke anchor all resolve to the weld).
         let face = boundary_for(
             boundaries,
             sector.sector_index,
             ExactBoundaryOuterSide::FaceEdge,
-        );
-        let (corner, synthesized_face) = match face {
-            Some(face) => (classify_outer_corner(fillet, face), None),
-            // Welded shared corner (PK-219): the trailing corner is
-            // the shared endpoint with the NEXT sector's fillet arc
-            // (snapped bitwise at plan level, cross-sector gap ~0).
-            // Synthesize a POINT-CONTACT face boundary at the weld so
-            // the existing degenerate-outer-side machinery (PK-125
-            // polar wedge) drives the sector solve; commit skips the
-            // edge-less side via the welded seam records.
-            None => {
-                if !sector.is_welded() {
-                    return Err(ExactBoundaryInnerSpokeDiagnostic::new(
-                        ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
-                        Some(sector),
-                        None,
-                    ));
-                }
-                let next_index = (sector.sector_index + 1) % sectors.len();
-                let next_fillet =
-                    boundary_for(boundaries, next_index, ExactBoundaryOuterSide::FilletEnd)
-                        .ok_or_else(|| {
-                            ExactBoundaryInnerSpokeDiagnostic::new(
-                                ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
-                                Some(sector),
-                                None,
-                            )
-                        })?;
-                let corner = classify_outer_corner(fillet, next_fillet);
-                let face = degenerate_point_boundary_like(fillet, corner.shared_point);
-                (corner, Some(face))
-            }
-        };
+        )
+        .ok_or_else(|| {
+            ExactBoundaryInnerSpokeDiagnostic::new(
+                ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
+                Some(sector),
+                None,
+            )
+        })?;
+        let corner = classify_outer_corner(fillet, face);
         // Corner acceptance runs at the ANCHOR RECONCILIATION scale,
         // not the post-reconciliation spoke gate: `shared_point` is
         // already the midpoint of the two curve ends, built exactly
@@ -230,18 +210,7 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
             ));
         }
         shared_corners.push(corner.shared_point);
-        let face = match (synthesized_face, face) {
-            (Some(face), _) => face,
-            (None, Some(face)) => face.clone(),
-            (None, None) => {
-                return Err(ExactBoundaryInnerSpokeDiagnostic::new(
-                    ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
-                    Some(sector),
-                    None,
-                ));
-            }
-        };
-        sector_inputs.push((sector, fillet.clone(), face, corner));
+        sector_inputs.push((sector, fillet.clone(), face.clone(), corner));
     }
 
     let pole = centroid(&shared_corners).ok_or_else(|| {
@@ -436,29 +405,6 @@ fn nearest_fillet_anchor_index(
 fn reset_generated_spoke_anchor(spoke: &mut GeneratedInnerSpoke, anchor: Point3) {
     spoke.anchor = anchor;
     spoke.curve.control_points = vec![anchor, spoke.pole];
-}
-
-/// A point-contact prepared boundary at `point`, dimensioned like
-/// `like` so compatibility checks pass (welded shared corner, PK-219
-/// — reuses the PK-125 degenerate-outer-side polar-wedge solve).
-fn degenerate_point_boundary_like(
-    like: &PreparedExactBoundaryCurve,
-    point: Point3,
-) -> PreparedExactBoundaryCurve {
-    let mut curve = like.curve.clone();
-    for control_point in &mut curve.control_points {
-        *control_point = point;
-    }
-    for weight in &mut curve.weights {
-        *weight = 1.0;
-    }
-    PreparedExactBoundaryCurve {
-        sector_index: like.sector_index,
-        sector_name: like.sector_name.clone(),
-        side: ExactBoundaryOuterSide::FaceEdge,
-        edge: like.edge,
-        curve,
-    }
 }
 
 fn boundary_for(

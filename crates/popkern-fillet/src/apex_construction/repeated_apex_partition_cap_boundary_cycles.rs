@@ -50,13 +50,19 @@ pub(super) fn collect_loop_half_edges(
 }
 
 pub(super) fn intended_cap_boundary_cycle(
-    face_edges: &[FaceEdgeOwnership],
+    corner_arcs: &[CornerArcOwnership],
     fillet_ends: &[FilletEndOwnership],
 ) -> Vec<HalfEdgeHandle> {
     let mut cycle = Vec::with_capacity(2 * fillet_ends.len());
-    for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
+    for (sector_index, fillet_end) in fillet_ends.iter().enumerate() {
         cycle.push(fillet_end.cap_half_edge);
-        cycle.push(face_edge.face_edge_cap_half_edge);
+        // Welded shared corners (PK-219) contribute no bridge side.
+        if let Some(bridge) = corner_arcs
+            .get(sector_index)
+            .and_then(CornerArcOwnership::cap_cycle_half_edge)
+        {
+            cycle.push(bridge);
+        }
     }
     cycle
 }
@@ -64,10 +70,10 @@ pub(super) fn intended_cap_boundary_cycle(
 pub(super) fn refreshed_intended_cap_boundary_cycle(
     brep: &BRep,
     cap_loop: popkern_core::topology::LoopHandle,
-    face_edges: &[FaceEdgeOwnership],
+    corner_arcs: &[CornerArcOwnership],
     fillet_ends: &[FilletEndOwnership],
 ) -> Option<Vec<HalfEdgeHandle>> {
-    let expected_edges = intended_cap_boundary_edges(face_edges, fillet_ends);
+    let expected_edges = intended_cap_boundary_edges(corner_arcs, fillet_ends);
     let actual_cycle = collect_loop_half_edges(brep, cap_loop).ok()?;
     if actual_cycle.len() != expected_edges.len() {
         return None;
@@ -93,13 +99,18 @@ pub(super) fn refreshed_intended_cap_boundary_cycle(
 }
 
 fn intended_cap_boundary_edges(
-    face_edges: &[FaceEdgeOwnership],
+    corner_arcs: &[CornerArcOwnership],
     fillet_ends: &[FilletEndOwnership],
 ) -> Vec<EdgeHandle> {
     let mut edges = Vec::with_capacity(2 * fillet_ends.len());
-    for (fillet_end, face_edge) in fillet_ends.iter().zip(face_edges) {
+    for (sector_index, fillet_end) in fillet_ends.iter().enumerate() {
         edges.push(fillet_end.edge);
-        edges.push(face_edge.edge);
+        if let Some(bridge_edge) = corner_arcs
+            .get(sector_index)
+            .and_then(CornerArcOwnership::bridge_edge)
+        {
+            edges.push(bridge_edge);
+        }
     }
     edges
 }

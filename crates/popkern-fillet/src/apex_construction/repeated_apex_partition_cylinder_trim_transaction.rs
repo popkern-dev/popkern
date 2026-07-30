@@ -301,7 +301,7 @@ pub(super) fn apply_cylinder_trim_rewrites_transactionally(
                 brep,
                 cap_face,
                 cap_loop,
-                face_edges,
+                corner_arcs,
                 fillet_ends,
                 &topology_plans,
             );
@@ -422,7 +422,7 @@ fn validate_cylinder_trim_rewrite_topology_preflight(
         SideSupportRegionContinuationOutcome::Applied(_)
     );
     let side_support_bridge_loops = side_support_result.bridge_loops();
-    // Re-resolve plan handles through the PK-167 merge remap.
+    // PK-167 merge remap re-resolution.
     let remapped_plans: Vec<CylinderTrimRewriteTopologyPlan>;
     let remapped_subcomplex: TrimRewriteSubcomplexPlan;
     let (topology_plans, subcomplex_plan) =

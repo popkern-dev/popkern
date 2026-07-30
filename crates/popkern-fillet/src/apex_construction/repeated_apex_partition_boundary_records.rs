@@ -143,4 +143,58 @@ impl CornerArcOwnership {
             CornerArcOwnership::Welded(_) => None,
         }
     }
+
+    /// Bridge edge owned by this corner (bridged only).
+    pub(in crate::apex_construction) fn bridge_edge(&self) -> Option<EdgeHandle> {
+        match self {
+            CornerArcOwnership::Bridged(ownership) => Some(ownership.edge),
+            CornerArcOwnership::Welded(_) => None,
+        }
+    }
+}
+
+/// Validate a partition cap boundary against the corner kinds:
+/// FilletEnd per sector, FaceEdge only at bridged corners.
+pub(in crate::apex_construction) fn validate_partition_cap_boundary(
+    cap_boundary: &[PartitionBoundaryEdge],
+    welded: &[bool],
+    n_fillets: usize,
+) -> Result<(), ApexBuildError> {
+    let welded_count = welded.iter().filter(|w| **w).count();
+    if cap_boundary.len() != 2 * n_fillets - welded_count {
+        return Err(ApexBuildError::PlanMismatch {
+            reason: format!(
+                "planned repeated-apex partition produced {} cap boundary entries; expected {}",
+                cap_boundary.len(),
+                2 * n_fillets - welded_count
+            ),
+        });
+    }
+    let mut cursor = cap_boundary.iter();
+    for k in 0..n_fillets {
+        match cursor.next() {
+            Some(PartitionBoundaryEdge::FilletEnd { fillet_index, .. }) if *fillet_index == k => {}
+            _ => {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition cap boundary is missing FilletEnd[{k}]"
+                    ),
+                });
+            }
+        }
+        if welded.get(k).copied().unwrap_or(false) {
+            continue;
+        }
+        match cursor.next() {
+            Some(PartitionBoundaryEdge::FaceEdge { fillet_index, .. }) if *fillet_index == k => {}
+            _ => {
+                return Err(ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "planned repeated-apex partition cap boundary is missing FaceEdge[{k}]"
+                    ),
+                });
+            }
+        }
+    }
+    Ok(())
 }

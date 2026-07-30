@@ -386,7 +386,8 @@ fn validate_pcurve_inventory(
     sectors: &[ExactBoundaryCapSectorInput],
     pcurves: &PreparedExactBoundaryPcurves,
 ) -> Result<(), ExactBoundaryValidationDiagnostic> {
-    if pcurves.validated_pair_count() != sectors.len() * 2 {
+    let expected_pairs: usize = sectors.iter().map(|s| s.outer_seam_count()).sum();
+    if pcurves.validated_pair_count() != expected_pairs {
         return Err(ExactBoundaryValidationDiagnostic::new(
             ExactBoundaryValidationDeclineReason::PcurveInventoryMismatch,
             None,
@@ -394,13 +395,12 @@ fn validate_pcurve_inventory(
         ));
     }
     for sector in sectors {
-        if pcurves
+        let sector_pairs = pcurves
             .pairs
             .iter()
             .filter(|pair| pair.sector_index == sector.sector_index)
-            .count()
-            != 2
-        {
+            .count();
+        if sector_pairs != sector.outer_seam_count() {
             return Err(ExactBoundaryValidationDiagnostic::new(
                 ExactBoundaryValidationDeclineReason::PcurveInventoryMismatch,
                 Some(sector.sector_name.clone()),

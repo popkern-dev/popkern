@@ -156,6 +156,7 @@ impl ExactBoundaryCurveDiagnostic {
     }
 }
 
+#[derive(Clone)]
 struct PreparedSourceCurve {
     sector_index: usize,
     sector_name: String,
@@ -181,6 +182,77 @@ pub(crate) fn prepare_exact_boundary_curves(
             curves.push(prepared);
         }
     }
+    // Welded shared-corner sectors (PK-219) have no bridge seam;
+    // synthesize a POINT-CONTACT FaceEdge prepared curve at the weld
+    // (the endpoint this sector's fillet arc shares with the next
+    // sector's) so downstream consumers see the uniform two-sided
+    // inventory and the PK-125 degenerate-outer-side polar wedge
+    // drives the sector solve. Topology and commit stay welded — the
+    // synthesized side owns no BRep edge (it reuses the fillet seam's
+    // handle purely as provenance; commit pairs derive from live
+    // seams, of which a welded sector has exactly one).
+    for (index, sector) in sectors.iter().enumerate() {
+        if sector.bridge_seam.is_some() {
+            continue;
+        }
+        let next_index = (index + 1) % sectors.len();
+        let fillet = curves
+            .iter()
+            .find(|curve| {
+                curve.sector_index == sector.sector_index
+                    && curve.side == ExactBoundaryOuterSide::FilletEnd
+            })
+            .cloned();
+        let next_fillet = curves
+            .iter()
+            .find(|curve| {
+                sectors
+                    .get(next_index)
+                    .is_some_and(|next_sector| curve.sector_index == next_sector.sector_index)
+                    && curve.side == ExactBoundaryOuterSide::FilletEnd
+            })
+            .cloned();
+        let (Some(fillet), Some(next_fillet)) = (fillet.clone(), next_fillet) else {
+            // Unreachable by construction: the seam loop above pushed
+            // every sector's FilletEnd prepared curve. Decline with
+            // the sector's own curve context when it somehow isn't.
+            let context =
+                fillet
+                    .as_ref()
+                    .or(curves.first())
+                    .ok_or_else(|| ExactBoundaryCurveDiagnostic {
+                        reason: ExactBoundaryCurveDeclineReason::BoundaryMissingCurve,
+                        code: ExactBoundaryCurveDeclineReason::BoundaryMissingCurve.code(),
+                        sector_index: sector.sector_index,
+                        sector_name: sector.sector_name.clone(),
+                        side: ExactBoundaryOuterSide::FaceEdge,
+                        edge: sector.fillet_end_edge,
+                        residual: None,
+                    })?;
+            return Err(ExactBoundaryCurveDiagnostic::new(
+                ExactBoundaryCurveDeclineReason::BoundaryMissingCurve,
+                context,
+                None,
+            ));
+        };
+        let weld = shared_endpoint(&fillet.prepared, &next_fillet.prepared);
+        let mut prepared = fillet.prepared.clone();
+        for control_point in &mut prepared.control_points {
+            *control_point = weld;
+        }
+        for weight in &mut prepared.weights {
+            *weight = 1.0;
+        }
+        curves.push(PreparedSourceCurve {
+            sector_index: sector.sector_index,
+            sector_name: sector.sector_name.clone(),
+            side: ExactBoundaryOuterSide::FaceEdge,
+            edge: sector.fillet_end_edge,
+            source: prepared.clone(),
+            source_range: (0.0, 1.0),
+            prepared,
+        });
+    }
 
     let union_knots = compatible_interior_knots(&curves);
     for curve in &mut curves {
@@ -201,6 +273,25 @@ pub(crate) fn prepare_exact_boundary_curves(
             })
             .collect(),
     })
+}
+
+/// The endpoint the two prepared arcs share (min-gap pairing of
+/// their four endpoint combinations) — the welded corner point.
+fn shared_endpoint(a: &NurbsCurve, b: &NurbsCurve) -> popkern_core::geometry::Point3 {
+    let a_ends = [a.point_at(0.0), a.point_at(1.0)];
+    let b_ends = [b.point_at(0.0), b.point_at(1.0)];
+    let mut best = a_ends[0];
+    let mut best_gap = f64::INFINITY;
+    for a_end in a_ends {
+        for b_end in b_ends {
+            let gap = a_end.distance_to(&b_end);
+            if gap < best_gap {
+                best_gap = gap;
+                best = a_end;
+            }
+        }
+    }
+    best
 }
 
 fn oriented_source_curve(

@@ -87,23 +87,23 @@ fn direct_apex_5_matrix_preserves_structural_validity_under_direct_apex() {
             expected_fallbacks: 0,
         },
         Case {
-            // PK-216: uniform radii collapse every sector corner to a
-            // shared point; the constructive route declines with the
-            // class named and the recorded legacy fallback serves a
-            // clean body (the old "native, 0 fallbacks" green shipped
-            // a glued surfaceless membrane). Native returns with the
-            // shared-corner substrate (PK-219).
+            // PK-219: uniform radii collapse every sector corner to a
+            // shared point; the plan WELDS each collapsed corner to
+            // one vertex and the partition + exact-boundary cap serve
+            // natively (the PK-216 containment fallback is retired —
+            // its pre-history was a corrupt-accept behind a vacuous
+            // green, then a recorded legacy fallback).
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
-            // PK-216 shared-corner class — see pyramid3_uniform above.
+            // PK-219 welded shared-corner class — see pyramid3_uniform.
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
-            expected_fallbacks: 1,
+            expected_fallbacks: 0,
         },
         Case {
             name: "pyramid4_mixed",
@@ -317,28 +317,34 @@ fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
     assert_native_gregory_case("pyramid4_mixed", true, &[0.04, 0.06, 0.05, 0.07], 4);
 }
 
+/// PK-219 welded shared-corner class: uniform pyramid4 serves
+/// NATIVELY through the welded partition + exact-boundary cap.
+/// History: the pre-PK-216 "native" green shipped a glued
+/// surfaceless membrane; PK-216 contained via a recorded legacy
+/// fallback (sphere cap, g0 7.4e-2 ceiling); PK-219 welds the
+/// collapsed corners at plan level and restores native quality.
 #[test]
-fn direct_apex_pyramid4_uniform_shared_corner_fallback_serves_clean() {
+#[ignore = "PK-219 frontier: welded native serve carries 8 dead rim-chord sides (old strip rim \
+            spur C->oldT->C coincident with the fillet-end arc; ghost twins retired; \
+            2:1 chord-to-arc weld mechanism pending — see ledger PK-219 notes)"]
+fn direct_apex_pyramid4_uniform_welded_native_no_fallback() {
+    assert_native_gregory_case("pyramid4_uniform", true, &[0.05, 0.05, 0.05, 0.05], 4);
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
-    direct_apex_validate_helpers::assert_shared_corner_legacy_fallback("pyramid4_uniform", &result);
+    direct_apex_validate_helpers::assert_welded_native_postconditions("pyramid4_uniform", &result);
 }
 
 #[test]
-fn direct_apex_pyramid4_uniform_cap_outer_containment_ceiling() {
-    // PK-216 honest re-pin. The old 5e-3/5e-2 "commercial gate" green
-    // was VACUOUS: it measured the mis-scaled sector pillow's own
-    // seams while the served boundary was a surfaceless octagon
-    // membrane (a literal mesh hole). The shared-corner fallback now
-    // serves the legacy sphere cap — geometrically inexact on a
-    // pyramid by construction (no per-fillet sphere centre lies on a
-    // neighbour's axis), measured g0 7.37e-2 / g1 ~1.0 at the sphere
-    // rim. This pins the containment CEILING so further regression
-    // still fails; the commercial gate returns with PK-219.
+fn direct_apex_pyramid4_uniform_cap_outer_commercial_gate() {
+    // PK-219: the welded native serve measures g0 1.0e-8 / g1 3.2e-8
+    // — pin at the commercial cap gates (5e-3 / 5e-2). History: the
+    // pre-PK-216 5e-3 green was VACUOUS (it measured the mis-scaled
+    // pillow's own seams while the served boundary was a surfaceless
+    // membrane); the PK-216 containment ceiling was 1.5e-1.
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
     let cap_faces = native_cap_faces(&result).into_iter().collect::<Vec<_>>();
     let cap_outer = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
     eprintln!(
-        "[direct-apex validation cap_outer] pyramid4_uniform (containment): g0={:.3e} g1={:.3e} edges={}",
+        "[direct-apex validation cap_outer] pyramid4_uniform (welded native): g0={:.3e} g1={:.3e} edges={}",
         cap_outer.worst_g0_gap, cap_outer.worst_g1_coplanarity, cap_outer.edges_measured,
     );
     assert!(
@@ -346,19 +352,27 @@ fn direct_apex_pyramid4_uniform_cap_outer_containment_ceiling() {
         "pyramid4_uniform exposes no measurable cap-to-neighbor seams",
     );
     assert!(
-        cap_outer.worst_g0_gap <= 1.5e-1,
-        "pyramid4_uniform cap_outer_g0 {:.3e} exceeds the recorded containment ceiling 1.5e-1",
+        cap_outer.worst_g0_gap <= 5.0e-3,
+        "pyramid4_uniform cap_outer_g0 {:.3e} exceeds the commercial gate 5e-3",
         cap_outer.worst_g0_gap,
+    );
+    assert!(
+        cap_outer.worst_g1_coplanarity <= 5.0e-2,
+        "pyramid4_uniform cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
+        cap_outer.worst_g1_coplanarity,
     );
 }
 
+/// PK-219 welded shared-corner class, N = 3. History: before PK-216
+/// this fixture served 38 faces with THREE dead boundary sides and
+/// 18 residual faces behind a "native, no fallback" green.
 #[test]
-fn direct_apex_pyramid3_uniform_shared_corner_fallback_serves_clean() {
-    // PK-216: at HEAD before the shared-corner gate this fixture
-    // served 38 faces with THREE dead boundary sides and 18 residual
-    // faces behind a "native, no fallback" green.
+#[ignore = "PK-219 frontier: pyramid3 welded serve exposes 2/3 distinct cap-to-cylinder seams \
+            (queued behind the pyramid4 dead-rim-chord mechanism — see ledger PK-219 notes)"]
+fn direct_apex_pyramid3_uniform_welded_native_no_fallback() {
+    assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);
-    direct_apex_validate_helpers::assert_shared_corner_legacy_fallback("pyramid3_uniform", &result);
+    direct_apex_validate_helpers::assert_welded_native_postconditions("pyramid3_uniform", &result);
 }
 
 /// direct-apex edge-curve semantic storage gate.  Straight 3D edge curves

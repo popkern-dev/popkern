@@ -19,7 +19,9 @@ mod direct_apex_validate_helpers;
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 
-use direct_apex_validate_helpers::{build_under_direct_apex, direct_apex_fallback_reasons};
+use direct_apex_validate_helpers::{
+    breakdown, build_under_direct_apex, direct_apex_fallback_reasons,
+};
 use popkern_core::topology::TopologyRole;
 
 /// Set the strict flag for the whole process, no restore: tests in
@@ -146,30 +148,28 @@ fn direct_apex_strict_v_free_repeated_apex_succeeds_without_fallback() {
 /// (measured: plan error -> legacy g1 ~1.0 before; native
 /// g0 2.2e-4 / g1 3.9e-4 after).
 #[test]
-fn direct_apex_strict_v_free_pyramid3_uniform_declines_shared_corner_class() {
-    // PK-216 honest re-pin: uniform radii on a repeated apex collapse
-    // every sector corner to a shared point, and the constructive
-    // route (strict V-free included) declines with the class named
-    // rather than accepting the degenerate zero-span partition. The
-    // pre-PK-216 "succeeds without fallback" green shipped a body
-    // with dead boundary sides and glued surfaceless residuals under
-    // strict mode (measured: 20 dead / 9 membranes on pyramid4).
-    // Native strict V-free for the uniform class returns with the
-    // shared-corner substrate (PK-219).
+fn direct_apex_strict_v_free_pyramid3_uniform_welds_shared_corners_natively() {
+    // PK-219: uniform radii collapse every sector corner to a shared
+    // point; the plan WELDS each collapsed corner and the strict
+    // V-free construction completes natively — no fallback, no
+    // structural errors. History: the pre-PK-216 "succeeds" green
+    // shipped dead sides + surfaceless membranes; PK-216 declined
+    // the class with a recorded fallback; PK-219 restored native
+    // construction. The strict body's retired-scaffold parking is
+    // the remaining PK-219 frontier (tracked with the ignored
+    // welded-native matrix pins), so this pin asserts construction
+    // honesty, not yet the serve-clean census.
     require_strict_v_free();
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05]);
     let reasons = direct_apex_fallback_reasons(&result);
-    assert_eq!(
-        reasons.len(),
-        1,
-        "strict V-free pyramid3_uniform must record exactly the shared-corner fallback; got:\n{}",
+    assert!(
+        reasons.is_empty(),
+        "strict V-free pyramid3_uniform must weld shared corners and complete natively; got:\n{}",
         reasons.join("\n"),
     );
-    assert!(
-        reasons[0].contains("shared-corner repeated apex"),
-        "fallback must name the shared-corner class: {}",
-        reasons[0],
-    );
+    let errors = result.brep.validate_all();
+    let m = breakdown(&errors);
+    assert_eq!(m.structural, 0, "structural errors: {errors:#?}");
 }
 
 /// PK-129 acceptance: cube_mixed under strict V-free completes

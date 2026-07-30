@@ -5,6 +5,9 @@ use popkern_core::topology::BRep;
 
 use crate::apex_construction::constructive_builder::construct_apex_constructively;
 
+#[path = "direct_apex_serving_shape_redo.rs"]
+mod serving_shape_redo;
+
 use super::vfree_fallback;
 
 /// One absorb → consolidate round-trip, iterated to a bounded
@@ -298,6 +301,9 @@ pub(super) fn apply_serving_shape_gate(
             }
         }
     }
+    serving_shape_redo::apply_apex_retaining_redo_rung(
+        brep, snapshot, plan, surfaces, tolerance, result,
+    );
 }
 
 /// Pre-call dispatch trace: face-kind census and cylinder loop

@@ -29,7 +29,8 @@ pub(super) fn validate_commit_inputs(
             Some(cap_face),
         ));
     }
-    if pcurves.validated_pair_count() != sectors.len() * 2 {
+    let expected_pairs: usize = sectors.iter().map(|s| s.outer_seam_count()).sum();
+    if pcurves.validated_pair_count() != expected_pairs {
         return Err(ExactBoundaryCommitDiagnostic::new(
             ExactBoundaryCommitDeclineReason::PcurveInventoryMismatch,
             None,
@@ -118,12 +119,13 @@ fn has_required_pcurve_pairs_for_sector(
     pcurves: &PreparedExactBoundaryPcurves,
     sector: &ExactBoundaryCapSectorInput,
 ) -> bool {
-    [
-        ExactBoundaryOuterSide::FilletEnd,
-        ExactBoundaryOuterSide::FaceEdge,
-    ]
-    .into_iter()
-    .all(|side| {
+    // A welded sector (PK-219) has no FaceEdge seam and needs no
+    // pair on that side.
+    let mut required = vec![ExactBoundaryOuterSide::FilletEnd];
+    if sector.bridge_seam.is_some() {
+        required.push(ExactBoundaryOuterSide::FaceEdge);
+    }
+    required.into_iter().all(|side| {
         pcurves
             .pairs
             .iter()

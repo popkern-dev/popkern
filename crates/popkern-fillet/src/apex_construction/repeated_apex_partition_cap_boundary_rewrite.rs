@@ -21,7 +21,7 @@ pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
     brep: &BRep,
     cap_face: FaceHandle,
     cap_loop: popkern_core::topology::LoopHandle,
-    face_edges: &[FaceEdgeOwnership],
+    corner_arcs: &[CornerArcOwnership],
     fillet_ends: &[FilletEndOwnership],
     topology_plans: &[CylinderTrimRewriteTopologyPlan],
 ) -> Result<CapBoundaryRewritePlan, ApexBuildError> {
@@ -31,28 +31,23 @@ pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
             FilletEndSeamRewrite::ReauthorCapBoundaryAndCylinderSide { .. }
         )
     });
-    if cap_boundary_rewrite_required && face_edges.len() != topology_plans.len() {
-        return Err(ApexBuildError::PlanMismatch {
-            reason: format!(
-                "planned repeated-apex partition target-cylinder trim rewrite needs a whole cap \
-                 boundary rewrite, but has {} FaceEdge ownership record(s) for {} FilletEnd \
-                 topology plan(s)",
-                face_edges.len(),
-                topology_plans.len()
-            ),
-        });
-    }
-    if face_edges.len() != fillet_ends.len() {
+    // Every corner needs an ownership record; welded shared corners
+    // (PK-219) legitimately carry no FaceEdge.
+    if corner_arcs.len() != fillet_ends.len() {
         return Err(ApexBuildError::PlanMismatch {
             reason: format!(
                 "planned repeated-apex partition target-cylinder trim rewrite cannot plan cap \
-                 boundary: {} FaceEdge ownership record(s) for {} FilletEnd ownership record(s)",
-                face_edges.len(),
+                 boundary: {} corner ownership record(s) for {} FilletEnd ownership record(s)",
+                corner_arcs.len(),
                 fillet_ends.len()
             ),
         });
     }
-    let recorded_cap_cycle = intended_cap_boundary_cycle(face_edges, fillet_ends);
+    let face_edge_count = corner_arcs
+        .iter()
+        .filter(|arc| arc.cap_cycle_half_edge().is_some())
+        .count();
+    let recorded_cap_cycle = intended_cap_boundary_cycle(corner_arcs, fillet_ends);
     let current_cap_cycle =
         match validate_half_edge_cycle(
             brep,
@@ -62,7 +57,7 @@ pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
         ) {
             Ok(()) => recorded_cap_cycle,
             Err(recorded_error) => {
-                refreshed_intended_cap_boundary_cycle(brep, cap_loop, face_edges, fillet_ends)
+                refreshed_intended_cap_boundary_cycle(brep, cap_loop, corner_arcs, fillet_ends)
                     .map_or(Err(recorded_error), |refreshed| {
                         validate_half_edge_cycle(
                             brep,
@@ -91,7 +86,7 @@ pub(super) fn plan_cap_boundary_rewrite_for_cylinder_trim(
         cap_loop,
         required: cap_boundary_rewrite_required,
         fillet_end_count: topology_plans.len(),
-        face_edge_count: face_edges.len(),
+        face_edge_count,
         current_cap_cycle,
         reauthored_cap_cycle,
         adjacent_loop_rewrites,

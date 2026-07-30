@@ -154,19 +154,16 @@ pub(crate) fn assert_native_gregory_cube_case(name: &str, radii: &[f64]) {
 /// gates censused it. Bisect-verified as old as the constructive
 /// path (PK-125 already served it). Native quality returns with the
 /// shared-corner substrate (PK-219).
-pub(crate) fn assert_shared_corner_legacy_fallback(name: &str, result: &BlendResult) {
+/// Permanent postconditions on the welded native serve (PK-219):
+/// the PK-216 membrane class (surfaceless residuals, dead boundary
+/// sides) must never reach serving again.
+pub(crate) fn assert_welded_native_postconditions(name: &str, result: &BlendResult) {
     let reasons = direct_apex_fallback_reasons(result);
-    assert_eq!(
-        reasons.len(),
-        1,
-        "{name} must record exactly the shared-corner fallback; got {}:\n{}",
+    assert!(
+        reasons.is_empty(),
+        "{name} must serve natively through the welded shared-corner substrate; got {}:\n{}",
         reasons.len(),
         reasons.join("\n"),
-    );
-    assert!(
-        reasons[0].contains("shared-corner repeated apex"),
-        "{name} fallback must name the shared-corner class: {}",
-        reasons[0],
     );
     let surfaceless = result
         .brep

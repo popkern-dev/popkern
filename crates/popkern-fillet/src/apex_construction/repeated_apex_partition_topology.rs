@@ -13,6 +13,7 @@ mod census_trace;
 #[path = "repeated_apex_partition_junction_settlement.rs"]
 mod junction_settlement;
 use census_trace::trace_cap_loop_walk;
+pub(in crate::apex_construction) use census_trace::trace_face_census;
 pub(super) use junction_settlement::half_edge_destination_vertex;
 pub(crate) use junction_settlement::settle_planned_loop_junction_gaps;
 

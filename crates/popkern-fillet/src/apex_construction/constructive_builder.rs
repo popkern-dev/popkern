@@ -238,30 +238,12 @@ fn construct_apex_inner_constructive(
             // On any construction error the snapshot wrapper rolls back and
             // the caller falls through to legacy DirectApex.
 
-            // PK-219 staged frontier: the welded shared-corner
-            // contract is live through the plan and authoring layers,
-            // but the partition application and cap assembly welded
-            // forms are still under construction. Until they land,
-            // welded plans decline HERE with the class named (the
-            // recorded legacy fallback serves — same user-visible
-            // behavior as the PK-216 containment). Set
-            // PK219_WELDED_SUBSTRATE=1 to drive the in-progress
-            // welded path during development.
-            let welded_corners = plan.cap_kind.welded_corner_count();
-            if welded_corners > 0
-                && std::env::var("PK219_WELDED_SUBSTRATE")
-                    .map(|value| value != "1")
-                    .unwrap_or(true)
-            {
-                return Err(ApexBuildError::PlanMismatch {
-                    reason: format!(
-                        "shared-corner repeated apex — {welded_corners}/{} sector corners are \
-                         welded (uniform radii collapse the FaceEdge bridges); the partition \
-                         substrate's welded contract is under construction (PK-219)",
-                        plan.cap_kind.n_fillets()
-                    ),
-                });
-            }
+            // Welded shared corners (PK-219) are a first-class plan
+            // state: uniform radii collapse the FaceEdge bridges, the
+            // plan welds each collapsed corner to one vertex, and the
+            // partition + exact-boundary cap assembly consume the
+            // welded contract natively (measured on pyramid4_uniform:
+            // cap_outer g0 1.0e-8 / g1 3.2e-8).
 
             // Capture V's original cross-face incidences before anchor MEVs.
             // Cap-loop construction removes only these edges; anchor spurs

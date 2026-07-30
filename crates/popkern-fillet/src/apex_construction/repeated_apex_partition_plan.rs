@@ -7,6 +7,7 @@ use popkern_core::topology::TopologyRole;
 mod boundary_records;
 #[path = "repeated_apex_partition_execution_options.rs"]
 mod execution_options;
+use crate::apex_construction::repeated_apex_partition_topology::trace_face_census;
 use boundary_records::SharedCornerOwnership;
 pub(super) use boundary_records::{CornerArcOwnership, PartitionBoundaryEdge, RetiredApexSpan};
 pub(crate) use execution_options::RepeatedApexPartitionExecutionOptions;
@@ -102,50 +103,12 @@ impl RepeatedApexPartitionPlan {
             cap_boundary,
             retired_spans,
         };
-        partition.validate(welded, n_fillets)?;
+        boundary_records::validate_partition_cap_boundary(
+            &partition.cap_boundary,
+            welded,
+            n_fillets,
+        )?;
         Ok(partition)
-    }
-
-    fn validate(&self, welded: &[bool], n_fillets: usize) -> Result<(), ApexBuildError> {
-        let welded_count = welded.iter().filter(|w| **w).count();
-        if self.cap_boundary.len() != 2 * n_fillets - welded_count {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: format!(
-                    "planned repeated-apex partition produced {} cap boundary entries; expected {}",
-                    self.cap_boundary.len(),
-                    2 * n_fillets - welded_count
-                ),
-            });
-        }
-        let mut cursor = self.cap_boundary.iter();
-        for k in 0..n_fillets {
-            match cursor.next() {
-                Some(PartitionBoundaryEdge::FilletEnd { fillet_index, .. })
-                    if *fillet_index == k => {}
-                _ => {
-                    return Err(ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "planned repeated-apex partition cap boundary is missing FilletEnd[{k}]"
-                        ),
-                    });
-                }
-            }
-            if welded.get(k).copied().unwrap_or(false) {
-                continue;
-            }
-            match cursor.next() {
-                Some(PartitionBoundaryEdge::FaceEdge { fillet_index, .. })
-                    if *fillet_index == k => {}
-                _ => {
-                    return Err(ApexBuildError::PlanMismatch {
-                        reason: format!(
-                            "planned repeated-apex partition cap boundary is missing FaceEdge[{k}]"
-                        ),
-                    });
-                }
-            }
-        }
-        Ok(())
     }
 
     pub(super) fn diagnostic_summary(&self) -> String {
@@ -333,6 +296,7 @@ impl RepeatedApexPartitionPlan {
             &boundary_outcome.cap_cycle,
         )?;
 
+        trace_face_census(brep, "pre-strip-retire");
         let existing_target_cylinders_own_all_strips =
             fillet_end_ownership.iter().all(|ownership| {
                 boundary_outcome.uses_existing_target_cylinder_strip(ownership.fillet_index)
@@ -442,6 +406,7 @@ impl RepeatedApexPartitionPlan {
             }
         }
 
+        trace_face_census(brep, "pre-demote");
         if existing_target_cylinders_own_all_strips {
             demote_retired_apex_residual_faces(
                 brep,
@@ -451,13 +416,16 @@ impl RepeatedApexPartitionPlan {
                 &fillet_end_ownership,
             );
         }
+        trace_face_census(brep, "post-demote");
 
         // Carrier absorption (Stage-D seam-ownership inventory):
         // planar production faces take back coplanar scaffold
         // fragments separating them from their seam partners.
         absorb_coplanar_residual_scaffold(brep);
+        trace_face_census(brep, "post-carrier-absorb");
         // Retired-subcomplex role coherence: after all demotions.
         demote_residual_interior_edges(brep);
+        trace_face_census(brep, "post-role-coherence");
         // Handover completion: park genuinely orphaned loop claimers
         // in closed residual homes. Must be the LAST loop-structure
         // pass — mid-transaction displaced claims are deliberate
@@ -467,6 +435,7 @@ impl RepeatedApexPartitionPlan {
         if execution_options.require_v_free_repeated_apex {
             rehome_all_displaced_claimers(brep)?;
         }
+        trace_face_census(brep, "post-rehome");
         brep.normalize_edge_representatives();
         repair_stale_shell_anchors(brep)?;
         boundary_outcome.refresh_from_current_cap_loop(brep, self.cap_face)?;
@@ -493,6 +462,7 @@ impl RepeatedApexPartitionPlan {
             }
         }
         materialize_unowned_half_edge_residual_faces(brep, self.cap_face)?;
+        trace_face_census(brep, "post-unowned-materialize");
         validate_repeated_apex_normalization_structure(brep)?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
         Ok((self.cap_face, fillet_end_edges, diagnostics))

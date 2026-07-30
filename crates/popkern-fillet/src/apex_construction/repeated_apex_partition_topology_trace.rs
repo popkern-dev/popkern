@@ -70,3 +70,20 @@ fn trace_face_loop_walk(brep: &BRep, face: FaceHandle, ring: usize) -> Vec<FaceH
     neighbors.dedup();
     neighbors
 }
+
+/// Trace-gated face census for partition-stage observability: total
+/// faces and surfaceless faces after each late apply pass.
+pub(in crate::apex_construction) fn trace_face_census(brep: &BRep, stage: &str) {
+    if !crate::direct_apex_trace::enabled() {
+        return;
+    }
+    let surfaceless = brep
+        .faces
+        .iter()
+        .filter(|(_, face)| face.surface.is_none())
+        .count();
+    eprintln!(
+        "[direct-apex-trace §14.9/face-census] {stage}: faces={} surfaceless={surfaceless}",
+        brep.faces.len()
+    );
+}

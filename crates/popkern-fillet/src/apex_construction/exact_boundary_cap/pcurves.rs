@@ -214,6 +214,23 @@ pub(crate) fn prepare_exact_boundary_pcurves(
             ExactBoundaryOuterSide::FilletEnd,
             budget,
         )?);
+        // A welded sector (PK-219) has no bridge seam: no FaceEdge
+        // ribbon, no live edge, no pair. A missing ribbon on a
+        // NON-degenerate face side still declines in prepare_side_pair.
+        let face_chord = sector
+            .face_boundary
+            .curve
+            .point_at(0.0)
+            .distance_to(&sector.face_boundary.curve.point_at(1.0));
+        let face_ribbon_absent = ribbon_for(
+            ribbons,
+            sector.sector_index,
+            ExactBoundaryOuterSide::FaceEdge,
+        )
+        .is_none();
+        if face_chord <= super::solve::DEGENERATE_OUTER_SIDE_TOLERANCE && face_ribbon_absent {
+            continue;
+        }
         pairs.push(prepare_side_pair(
             sector,
             surface,

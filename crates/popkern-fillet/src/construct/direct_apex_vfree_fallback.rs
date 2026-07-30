@@ -119,7 +119,13 @@ pub(super) fn retry_apex_retaining_after_v_free_decline(
     let mut retry_result =
         match construct_apex_constructively(brep, plan, surfaces, tolerance, None, retry_options) {
             Ok(result) => result,
-            Err(_) => {
+            Err(err) => {
+                if crate::direct_apex_trace::enabled() {
+                    eprintln!(
+                        "[direct-apex-trace] apex-retaining retry after V-free decline \
+                         errored: {err}"
+                    );
+                }
                 *brep = snapshot.clone();
                 return None;
             }
