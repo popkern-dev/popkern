@@ -34,17 +34,7 @@ impl RepeatedApexPartitionPlan {
                 ),
             });
         }
-        // Welded corners have no FaceEdge (PK-219 frontier).
-        if face_edge_handles.iter().any(Option::is_none) {
-            return Err(ApexBuildError::PlanMismatch {
-                reason: "planned repeated-apex partition: shared-corner repeated apex — \
-                         welded partition contract under construction (PK-219)"
-                    .into(),
-            });
-        }
-        let face_edge_handles: Vec<EdgeHandle> =
-            face_edge_handles.iter().copied().flatten().collect();
-
+        let welded = &loop_plan.welded_corners;
         let mut cap_boundary = Vec::with_capacity(2 * n_fillets);
         for k in 0..n_fillets {
             let t_a = apex_vertex_handles[2 * k];
@@ -55,9 +45,26 @@ impl RepeatedApexPartitionPlan {
                 t_b,
             });
 
+            // Welded shared corners (PK-219) have no bridge; the two
+            // sectors meet at the welded vertex directly.
+            if welded.get(k).copied().unwrap_or(false) {
+                if face_edge_handles[k].is_some() {
+                    return Err(ApexBuildError::PlanMismatch {
+                        reason: format!(
+                            "planned repeated-apex partition: corner {k} is welded but a \
+                             FaceEdge handle exists (plan drift)"
+                        ),
+                    });
+                }
+                continue;
+            }
             let expected_start = apex_vertex_handles[2 * k + 1];
             let expected_end = apex_vertex_handles[2 * ((k + 1) % n_fillets)];
-            let face_edge = face_edge_handles[k];
+            let face_edge = face_edge_handles[k].ok_or_else(|| ApexBuildError::PlanMismatch {
+                reason: format!(
+                    "planned repeated-apex partition: bridged corner {k} has no FaceEdge handle"
+                ),
+            })?;
             let (cap_half_edge, neighbor_half_edge) = oriented_edge_half_edges_on_face(
                 brep,
                 cap_face,
@@ -95,39 +102,44 @@ impl RepeatedApexPartitionPlan {
             cap_boundary,
             retired_spans,
         };
-        partition.validate(n_fillets)?;
+        partition.validate(welded, n_fillets)?;
         Ok(partition)
     }
 
-    fn validate(&self, n_fillets: usize) -> Result<(), ApexBuildError> {
-        if self.cap_boundary.len() != 2 * n_fillets {
+    fn validate(&self, welded: &[bool], n_fillets: usize) -> Result<(), ApexBuildError> {
+        let welded_count = welded.iter().filter(|w| **w).count();
+        if self.cap_boundary.len() != 2 * n_fillets - welded_count {
             return Err(ApexBuildError::PlanMismatch {
                 reason: format!(
                     "planned repeated-apex partition produced {} cap boundary entries; expected {}",
                     self.cap_boundary.len(),
-                    2 * n_fillets
+                    2 * n_fillets - welded_count
                 ),
             });
         }
+        let mut cursor = self.cap_boundary.iter();
         for k in 0..n_fillets {
-            match self.cap_boundary[2 * k] {
-                PartitionBoundaryEdge::FilletEnd { fillet_index, .. } if fillet_index == k => {}
+            match cursor.next() {
+                Some(PartitionBoundaryEdge::FilletEnd { fillet_index, .. })
+                    if *fillet_index == k => {}
                 _ => {
                     return Err(ApexBuildError::PlanMismatch {
                         reason: format!(
-                            "planned repeated-apex partition cap boundary slot {} is not FilletEnd[{k}]",
-                            2 * k
+                            "planned repeated-apex partition cap boundary is missing FilletEnd[{k}]"
                         ),
                     });
                 }
             }
-            match self.cap_boundary[2 * k + 1] {
-                PartitionBoundaryEdge::FaceEdge { fillet_index, .. } if fillet_index == k => {}
+            if welded.get(k).copied().unwrap_or(false) {
+                continue;
+            }
+            match cursor.next() {
+                Some(PartitionBoundaryEdge::FaceEdge { fillet_index, .. })
+                    if *fillet_index == k => {}
                 _ => {
                     return Err(ApexBuildError::PlanMismatch {
                         reason: format!(
-                            "planned repeated-apex partition cap boundary slot {} is not FaceEdge[{k}]",
-                            2 * k + 1
+                            "planned repeated-apex partition cap boundary is missing FaceEdge[{k}]"
                         ),
                     });
                 }
@@ -140,21 +152,7 @@ impl RepeatedApexPartitionPlan {
         let boundary = self
             .cap_boundary
             .iter()
-            .map(|edge| match edge {
-                PartitionBoundaryEdge::FilletEnd {
-                    fillet_index,
-                    t_a,
-                    t_b,
-                } => format!("FilletEnd[{fillet_index}]({t_a:?}->{t_b:?})"),
-                PartitionBoundaryEdge::FaceEdge {
-                    fillet_index,
-                    edge,
-                    cap_half_edge,
-                    neighbor_half_edge,
-                } => format!(
-                    "FaceEdge[{fillet_index}]({edge:?}, cap={cap_half_edge:?}, neighbor={neighbor_half_edge:?})"
-                ),
-            })
+            .map(PartitionBoundaryEdge::summary)
             .collect::<Vec<_>>()
             .join(" -> ");
         let retired = self

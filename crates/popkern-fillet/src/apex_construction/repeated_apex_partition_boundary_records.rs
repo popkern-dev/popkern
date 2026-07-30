@@ -37,3 +37,25 @@ pub(in crate::apex_construction) struct RetiredApexSpan {
     /// The arc's half-edges in walk order.
     pub(in crate::apex_construction) half_edges: Vec<HalfEdgeHandle>,
 }
+
+impl PartitionBoundaryEdge {
+    /// One-line diagnostic form for partition trace summaries.
+    pub(in crate::apex_construction) fn summary(&self) -> String {
+        match self {
+            PartitionBoundaryEdge::FilletEnd {
+                fillet_index,
+                t_a,
+                t_b,
+            } => format!("FilletEnd[{fillet_index}]({t_a:?}->{t_b:?})"),
+            PartitionBoundaryEdge::FaceEdge {
+                fillet_index,
+                edge,
+                cap_half_edge,
+                neighbor_half_edge,
+            } => format!(
+                "FaceEdge[{fillet_index}]({edge:?}, cap={cap_half_edge:?}, \
+                 neighbor={neighbor_half_edge:?})"
+            ),
+        }
+    }
+}
