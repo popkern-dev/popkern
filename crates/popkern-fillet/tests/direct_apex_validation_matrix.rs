@@ -364,10 +364,6 @@ fn direct_apex_pyramid4_uniform_cap_outer_commercial_gate() {
 /// this fixture served 38 faces with THREE dead boundary sides and
 /// 18 residual faces behind a "native, no fallback" green.
 #[test]
-#[ignore = "PK-219 frontier: the N=3 welded partition apply mints a null-loop half-edge (Euler \
-            -9, attempt rolls back) and the accepted later attempt's committed Coons sectors \
-            are mangled post-commit (2 of 3 sector faces deleted, cap face re-planed) — \
-            serve exposes 2/3 cylinder seams; evidence + trace recipe in ledger PK-219"]
 fn direct_apex_pyramid3_uniform_welded_native_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);

@@ -77,25 +77,44 @@ pub(super) fn resolve_promoted_v_free_decline(
         &decline_reason,
         acceptance_error,
     );
-    if let (Some(retry_result), Some(strict_state)) = (retry.as_ref(), strict_state) {
-        let retry_also_fails_g1 =
-            super::direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
-                brep,
-                retry_result,
-                5.0e-3,
-                5.0e-2,
-            )
-            .is_some();
-        if retry_also_fails_g1 {
+    match (retry.as_ref(), strict_state) {
+        (Some(retry_result), Some(strict_state)) => {
+            let retry_also_fails_g1 =
+                super::direct_apex_acceptance::native_gregory_cap_outer_g1_diagnostic(
+                    brep,
+                    retry_result,
+                    5.0e-3,
+                    5.0e-2,
+                )
+                .is_some();
+            if retry_also_fails_g1 {
+                if crate::direct_apex_trace::enabled() {
+                    eprintln!(
+                        "[direct-apex-trace] apex-retaining retry also fails the cap-outer G1 \
+                         gate; keeping the strict V-free result"
+                    );
+                }
+                *brep = strict_state;
+                return None;
+            }
+        }
+        (None, Some(strict_state)) => {
+            // The retry declined or ERRORED with `brep` restored to
+            // the pre-construction snapshot; the caller keeps the
+            // strict RESULT, so the strict BODY must be restored too
+            // — leaking the snapshot here served a carve-era body
+            // with a committed-cap report (measured pyramid3_uniform:
+            // 10 faces, plane cap, 2/3 seams behind Accepted/Coons).
             if crate::direct_apex_trace::enabled() {
                 eprintln!(
-                    "[direct-apex-trace] apex-retaining retry also fails the cap-outer G1 \
-                     gate; keeping the strict V-free result"
+                    "[direct-apex-trace] apex-retaining retry unavailable; keeping the \
+                     strict V-free result (G1 diagnostic recorded)"
                 );
             }
             *brep = strict_state;
             return None;
         }
+        _ => {}
     }
     retry
 }
