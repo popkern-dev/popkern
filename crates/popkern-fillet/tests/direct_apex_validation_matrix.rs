@@ -42,6 +42,8 @@ mod direct_apex_validate_all_matrix_seams;
 mod direct_apex_validate_all_matrix_zoo;
 #[path = "support/direct_apex_validate_helpers.rs"]
 mod direct_apex_validate_helpers;
+#[path = "support/direct_apex_welded_quality.rs"]
+mod direct_apex_welded_quality;
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
 

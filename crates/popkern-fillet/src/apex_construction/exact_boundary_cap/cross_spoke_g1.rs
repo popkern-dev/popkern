@@ -86,12 +86,29 @@ pub(crate) fn cross_spoke_g1_enabled() -> bool {
 struct SharedSpoke {
     /// Index of the sector contributing its right column.
     column_sector: usize,
-    /// Index of the sector contributing its top row.
+    /// Index of the sector contributing its top row (bridged) or
+    /// left column (welded).
     row_sector: usize,
-    /// Whether the row runs opposite to the column.
+    /// Whether the neighbour line runs opposite to the column.
     reversed: bool,
     /// Number of control points along the spoke.
     len: usize,
+    /// How the neighbour holds the shared spoke: its top ROW
+    /// (bridged 2N chart) or its u=0 COLUMN (welded polar-wedge
+    /// chart, PK-219 — the face side collapses to the corner, so
+    /// both spoke lines are columns).
+    pairing: SpokePairing,
+}
+
+#[path = "cross_spoke_g1_welded_pairing.rs"]
+mod welded_pairing;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SpokePairing {
+    /// A's right column == B's top row (bridged sectors).
+    ColumnToRow,
+    /// A's u=0 column == B's right column (welded sectors).
+    LeftColumnToColumn,
 }
 
 /// What the correction managed on one corner.
@@ -356,10 +373,12 @@ fn find_shared_spokes(
                     row_sector: b,
                     reversed: !forward,
                     len: na,
+                    pairing: SpokePairing::ColumnToRow,
                 });
             }
         }
     }
+    welded_pairing::find_welded_shared_spokes(solved, tolerance, &mut spokes);
     (spokes, dimension_mismatched)
 }
 
@@ -386,7 +405,6 @@ fn spoke_endpoints_touch(
         || (a0.distance_to(&b1) <= tolerance && a1.distance_to(&b0) <= tolerance)
 }
 
-/// Apply the midpoint correction along one shared spoke.
 fn correct_spoke(solved: &mut ExactBoundarySolvedSurfaces, spoke: &SharedSpoke) -> usize {
     let mut corrected = 0;
     // Strictly interior only: k = 0 is on the outer rim and the far
@@ -396,7 +414,17 @@ fn correct_spoke(solved: &mut ExactBoundarySolvedSurfaces, spoke: &SharedSpoke) 
         let (Some(shared), Some(a_int), Some(b_int)) = (
             column_cp(&solved.surfaces[spoke.column_sector].surface, 0, k),
             column_cp(&solved.surfaces[spoke.column_sector].surface, 1, k),
-            row_cp(&solved.surfaces[spoke.row_sector].surface, 1, k_row),
+            match spoke.pairing {
+                SpokePairing::ColumnToRow => {
+                    row_cp(&solved.surfaces[spoke.row_sector].surface, 1, k_row)
+                }
+                SpokePairing::LeftColumnToColumn => {
+                    // The row_sector holds the spoke as its u=0
+                    // column; its interior line is the u=1 column.
+                    let surface = &solved.surfaces[spoke.row_sector].surface;
+                    surface.control_points.get(surface.num_v + k_row).copied()
+                }
+            },
         ) else {
             continue;
         };
@@ -412,12 +440,21 @@ fn correct_spoke(solved: &mut ExactBoundarySolvedSurfaces, spoke: &SharedSpoke) 
             k,
             a_int + offset,
         );
-        set_row_cp(
-            &mut solved.surfaces[spoke.row_sector].surface,
-            1,
-            k_row,
-            b_int + offset,
-        );
+        match spoke.pairing {
+            SpokePairing::ColumnToRow => set_row_cp(
+                &mut solved.surfaces[spoke.row_sector].surface,
+                1,
+                k_row,
+                b_int + offset,
+            ),
+            SpokePairing::LeftColumnToColumn => {
+                let surface = &mut solved.surfaces[spoke.row_sector].surface;
+                let idx = surface.num_v + k_row;
+                if let Some(slot) = surface.control_points.get_mut(idx) {
+                    *slot = b_int + offset;
+                }
+            }
+        }
         corrected += 1;
     }
     corrected

@@ -19,6 +19,10 @@ use super::plan_terminations::PerFilletTermination;
 use super::target_topology::{TargetCapFace, TargetEdge, TargetEdgeRole, TargetTopology};
 use super::telemetry::PlanTelemetry;
 
+#[path = "plan_topology_weld.rs"]
+mod plan_topology_weld;
+use plan_topology_weld::{contact_line_weld_point, snap_clamped_curve_endpoints};
+
 /// Decide whether the apex needs a Sphere cap (uniform/symmetric)
 /// or an N-sided Gregory cap (variable radii / distinct
 /// terminations).  Per ADR §4.1: the decision is tolerance-aware.
@@ -178,20 +182,6 @@ pub(crate) fn decide_cap_kind(
     }
 }
 
-/// Snap a clamped NURBS curve's first/last control points to the
-/// given endpoints so the curve agrees bitwise with the (possibly
-/// welded) corner vertices. The displacement is bounded by the weld
-/// gate (≤ 10·tol / 2 per endpoint) — below every downstream
-/// endpoint-match gate; the arc interior is unchanged.
-fn snap_clamped_curve_endpoints(curve: &mut NurbsCurve, start: &Point3, end: &Point3) {
-    if let Some(first) = curve.control_points.first_mut() {
-        *first = *start;
-    }
-    if let Some(last) = curve.control_points.last_mut() {
-        *last = *end;
-    }
-}
-
 fn max_unique_face_normal_dot(terminations: &[PerFilletTermination]) -> f64 {
     let mut normals = Vec::new();
     for termination in terminations {
@@ -249,8 +239,13 @@ pub(crate) fn gregory_cap_kind(
     terminations: &[PerFilletTermination],
     tolerance: &popkern_core::tolerance::Tolerance,
 ) -> CapKind {
+    /// A bridge shorter than this fraction of the smaller adjacent
+    /// radius is below the stable-edge floor: the corner welds at
+    /// the contact-line intersection (PK-219 stage B, acceptance
+    /// band 10·tol .. 2%·r_min).
+    const SHORT_BRIDGE_FRACTION: f64 = 0.02;
     let n_fil = terminations.len();
-    let weld_gate = tolerance.linear().max(1.0e-9) * 10.0;
+    let snap_gate = tolerance.linear().max(1.0e-9) * 10.0;
     let mut per_fillet_terminations: Vec<[Point3; 2]> = terminations
         .iter()
         .map(|t| [t.endpoint_a, t.endpoint_b])
@@ -261,12 +256,45 @@ pub(crate) fn gregory_cap_kind(
         let t_b = per_fillet_terminations[k][1];
         let t_a_next = per_fillet_terminations[next_k][0];
         let gap = t_b.distance_to(&t_a_next);
-        if gap <= weld_gate && n_fil >= 2 {
-            let point = Point3::new(
+        let r_min = terminations[k]
+            .cap_radius
+            .min(terminations[next_k].cap_radius);
+        let band = snap_gate.max(SHORT_BRIDGE_FRACTION * r_min);
+        let point = if gap <= snap_gate && n_fil >= 2 {
+            // Exact-coincidence class: solver noise only; the
+            // midpoint is within every downstream endpoint gate.
+            Some(Point3::new(
                 0.5 * (t_b.x + t_a_next.x),
                 0.5 * (t_b.y + t_a_next.y),
                 0.5 * (t_b.z + t_a_next.z),
+            ))
+        } else if gap <= band && n_fil >= 2 {
+            // Nearly-uniform short-bridge class: weld at the closest
+            // approach of the two contact tangent lines — a point on
+            // BOTH cylinders to second order (off-surface error
+            // O(gap²/r), e.g. 2e-7 at gap 1e-4, r 0.05), so the
+            // re-terminated arcs stay inside the 1e-6 seam gates.
+            contact_line_weld_point(
+                t_b,
+                terminations[k].contact_dir_b,
+                t_a_next,
+                terminations[next_k].contact_dir_a,
+                gap,
+                band,
+            )
+        } else {
+            None
+        };
+        if crate::direct_apex_trace::enabled() {
+            eprintln!(
+                "[direct-apex-trace weld] corner {k}: gap={gap:.3e} snap_gate={snap_gate:.3e} \
+                 band={band:.3e} dirs=({},{}) welded={}",
+                terminations[k].contact_dir_b.is_some(),
+                terminations[next_k].contact_dir_a.is_some(),
+                point.is_some()
             );
+        }
+        if let Some(point) = point {
             per_fillet_terminations[k][1] = point;
             per_fillet_terminations[next_k][0] = point;
             corner_kinds.push(super::cap_kind::ApexCornerKind::Welded { point });

@@ -55,6 +55,60 @@ pub(crate) struct PerFilletTermination {
     pub face_a: FaceHandle,
     /// Face_B handle (CCW-next face shared with fillet k+1).
     pub face_b: FaceHandle,
+    /// Unit tangent of the fillet's face_A trim (contact) curve at
+    /// T_a (PK-219 stage-B weld: the nearly-uniform weld point is
+    /// the closest approach of adjacent contact tangent lines,
+    /// which lies on BOTH cylinders to second order).
+    pub contact_dir_a: Option<Vec3>,
+    /// Unit tangent of the face_B trim (contact) curve at T_b.
+    pub contact_dir_b: Option<Vec3>,
+}
+
+/// Unit tangent of `curve` at its point nearest `point` (sampled
+/// nearest-parameter search + finite difference — the sphere-fit
+/// terminations sit near, not exactly on, fitted NURBS trim curves,
+/// so containment-gated inversion is the wrong tool here).
+fn contact_tangent_at(
+    curve: &NurbsCurve,
+    point: Point3,
+    _tolerance: &popkern_core::tolerance::Tolerance,
+) -> Option<Vec3> {
+    use popkern_core::geometry::curve::CurveEval;
+    let (t0, t1) = curve.parameter_range();
+    let span = t1 - t0;
+    if !span.is_finite() || span.abs() <= 0.0 {
+        return None;
+    }
+    const COARSE: usize = 64;
+    let mut best_t = t0;
+    let mut best_d = f64::INFINITY;
+    for i in 0..=COARSE {
+        let t = t0 + span * (i as f64 / COARSE as f64);
+        let d = curve.point_at(t).distance_to(&point);
+        if d < best_d {
+            best_d = d;
+            best_t = t;
+        }
+    }
+    // Two refinement rounds around the best coarse sample.
+    let mut window = span.abs() / COARSE as f64;
+    for _ in 0..2 {
+        let lo = (best_t - window).max(t0.min(t1));
+        let hi = (best_t + window).min(t0.max(t1));
+        for i in 0..=16 {
+            let t = lo + (hi - lo) * (i as f64 / 16.0);
+            let d = curve.point_at(t).distance_to(&point);
+            if d < best_d {
+                best_d = d;
+                best_t = t;
+            }
+        }
+        window /= 8.0;
+    }
+    let h = span.abs().max(1.0e-9) * 1.0e-4;
+    let a = curve.point_at((best_t - h).max(t0.min(t1)));
+    let b = curve.point_at((best_t + h).min(t0.max(t1)));
+    (b - a).normalized()
 }
 
 /// Compute the apex blend boundary using the existing
@@ -311,6 +365,8 @@ fn compute_per_fillet_terminations_inner(
             face_b_normal: face_b_normals[k],
             face_a: face_a_handles[k],
             face_b: face_b_handles[k],
+            contact_dir_a: contact_tangent_at(&fillet.trim_curve_1, result.endpoint_a, tolerance),
+            contact_dir_b: contact_tangent_at(&fillet.trim_curve_2, result.endpoint_b, tolerance),
         });
     }
     Ok(out)

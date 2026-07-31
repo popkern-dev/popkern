@@ -40,6 +40,8 @@ fn term(
         face_b_normal: Vec3::new(0.0, 1.0, 0.0),
         face_a: FaceHandle::default(),
         face_b: FaceHandle::default(),
+        contact_dir_a: None,
+        contact_dir_b: None,
     }
 }
 
