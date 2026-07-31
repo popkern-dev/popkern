@@ -148,7 +148,7 @@ fn poke_n_gon_face_into_n_quads_with_expected(
     let n = if let Some(expected) = expected_n {
         if initial_count == 2 * expected {
             expected
-        } else if initial_count == expected && (4..=16).contains(&expected) {
+        } else if initial_count == expected && (3..=16).contains(&expected) {
             normalize_n_he_loop_to_2n(brep, outer_loop, &mut loop_hes, initial_count)?;
             expected
         } else {
@@ -334,6 +334,24 @@ pub(crate) fn face_has_2n_outer_half_edges_with(
     n_sides: usize,
     accept_n4_he: bool,
 ) -> bool {
+    face_has_2n_outer_half_edges_with_n3(brep, face, n_sides, accept_n4_he, false)
+}
+
+/// As [`face_has_2n_outer_half_edges_with`], additionally accepting
+/// the pure N-half-edge loop at `N == 3` when the caller opts in
+/// (PK-222). Conic / variable-profile cube corners collapse their
+/// arc+bridge pairs during Phase 2a exactly like the N >= 4 classes,
+/// so the physical loop carries 3 half-edges and the 2N demand is
+/// unsatisfiable — `split_edge` normalises to 2N internally, and the
+/// downstream three-quad acceptance gate remains the transactional
+/// arbiter of whether the dispatch result ships.
+pub(crate) fn face_has_2n_outer_half_edges_with_n3(
+    brep: &BRep,
+    face: FaceHandle,
+    n_sides: usize,
+    accept_n4_he: bool,
+    accept_n3_he: bool,
+) -> bool {
     let Some(face_data) = brep.faces.get(face) else {
         return false;
     };
@@ -355,7 +373,9 @@ pub(crate) fn face_has_2n_outer_half_edges_with(
             // Without `accept_n4_he`, N=4 stays on the legacy 2N-only
             // path so pyramid4 validation-sweep fixtures keep their
             // pre-Phase-6c-E behavior.
-            let accepts_n_he = (n_sides >= 5 || (n_sides == 4 && accept_n4_he)) && n == n_sides;
+            let accepts_n_he =
+                (n_sides >= 5 || (n_sides == 4 && accept_n4_he) || (n_sides == 3 && accept_n3_he))
+                    && n == n_sides;
             return n == 2 * n_sides || accepts_n_he;
         }
     }

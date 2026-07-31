@@ -166,12 +166,26 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
     };
     pp_census("pre-sliver-absorb", result);
+    // Legacy vertex-blend caps (neither setback- nor exact-boundary-
+    // built, and not otherwise protected) absorb their corner
+    // fragments regardless of cap surface kind: conic/variable
+    // profile corners assign a plain fitted NURBS cap (PK-222), and
+    // the downstream welded-corner reconstruction needs the
+    // fragments' contact vertices in the cap loop.
+    let legacy_caps: Vec<popkern_core::topology::FaceHandle> = corner_patches
+        .iter()
+        .filter(|cp| {
+            !cp.setback_cap && !cp.exact_boundary_cap && !protected_caps.contains(&cp.face)
+        })
+        .map(|cp| cp.face)
+        .collect();
     if !inputs.setback_blend_present {
         sliver_absorb::run_and_route_warnings_with_protected(
             result,
             tolerance,
             edge_geometries,
             &protected_caps,
+            &legacy_caps,
             warnings,
         );
     }

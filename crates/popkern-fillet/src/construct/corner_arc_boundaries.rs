@@ -184,16 +184,60 @@ pub(super) fn collapse_corner_anchor_chords(
 ) -> usize {
     let mut contracted_total = 0;
     for cp in corner_patches {
+        // Setback- and exact-boundary-built caps own their apex
+        // topology; the legacy contraction never applies to them.
+        if cp.setback_cap || cp.exact_boundary_cap {
+            continue;
+        }
         let Some(face) = brep.faces.get(cp.face) else {
             continue;
         };
         let Some(sof) = face.surface.as_ref() else {
             continue;
         };
-        let SurfaceGeometry::Sphere { center, radius } = sof.geometry else {
-            continue;
+        // Cap membership and the anchor-distance bound. The sphere
+        // arm keeps its closed forms; every other cap surface kind
+        // (fitted NURBS for conic/variable profiles, Gregory) tests
+        // membership by projection and bounds anchors by the cap
+        // loop's own extent (PK-222 — the contract is topological,
+        // not sphere-specific).
+        type PointPredicate = Box<dyn Fn(Point3) -> bool>;
+        let (on_cap, anchor_in_range): (PointPredicate, PointPredicate) = match sof.geometry {
+            SurfaceGeometry::Sphere { center, radius } => (
+                Box::new(move |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3),
+                Box::new(move |p: Point3| p.distance_to(&center) < 2.0 * radius),
+            ),
+            _ => {
+                use popkern_core::geometry::surface::SurfaceEval;
+                let geometry = sof.geometry.clone();
+                let loop_points = brep.face_outer_loop_positions(cp.face);
+                if loop_points.len() < 3 {
+                    continue;
+                }
+                let inv = 1.0 / loop_points.len() as f64;
+                let centroid = loop_points
+                    .iter()
+                    .fold(Point3::new(0.0, 0.0, 0.0), |acc, p| {
+                        Point3::new(acc.x + p.x * inv, acc.y + p.y * inv, acc.z + p.z * inv)
+                    });
+                let extent = loop_points
+                    .iter()
+                    .map(|p| p.distance_to(&centroid))
+                    .fold(0.0_f64, f64::max);
+                if extent <= 0.0 {
+                    continue;
+                }
+                (
+                    Box::new(move |p: Point3| {
+                        geometry
+                            .closest_point(&p)
+                            .map(|(u, v)| geometry.point_at(u, v).distance_to(&p) < 1.0e-3)
+                            .unwrap_or(false)
+                    }),
+                    Box::new(move |p: Point3| p.distance_to(&centroid) < 2.0 * extent),
+                )
+            }
         };
-        let on_sphere = |p: Point3| (p.distance_to(&center) - radius).abs() < 1.0e-3;
         if std::env::var_os("PK_CARVE_TRACE").is_some() {
             let start_he = brep.loops[face.outer_loop].half_edge;
             let mut he = start_he;
@@ -201,14 +245,14 @@ pub(super) fn collapse_corner_anchor_chords(
             for _ in 0..brep.half_edges.len() + 1 {
                 let d = &brep.half_edges[he];
                 let pp = brep.vertices[d.origin].position;
-                desc.push(format!("{:.4}", pp.distance_to(&center)));
+                desc.push(format!("{}", on_cap(pp) as u8));
                 he = d.next;
                 if he == start_he {
                     break;
                 }
             }
             eprintln!(
-                "  [contact-collapse] cap {:?} loop |v-C|: {desc:?}",
+                "  [contact-collapse] cap {:?} loop on-cap flags: {desc:?}",
                 cp.face
             );
         }
@@ -239,14 +283,11 @@ pub(super) fn collapse_corner_anchor_chords(
                         _ => false,
                     })
                     .unwrap_or(false);
-                // Contract only chords from an on-sphere contact to
-                // a near-corner anchor (bounded by 2r — fragment
-                // chains reach farther and are left alone).
-                if is_chord
-                    && on_sphere(p_o)
-                    && !on_sphere(p_d)
-                    && p_d.distance_to(&center) < 2.0 * radius
-                {
+                // Contract only chords from an on-cap contact to
+                // a near-corner anchor (bounded by the cap's own
+                // scale — fragment chains reach farther and are
+                // left alone).
+                if is_chord && on_cap(p_o) && !on_cap(p_d) && anchor_in_range(p_d) {
                     target = Some(he);
                     break;
                 }

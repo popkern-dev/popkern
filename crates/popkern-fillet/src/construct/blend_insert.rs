@@ -402,12 +402,25 @@ pub(crate) fn insert_vertex_blend(
         ));
     }
 
+    // PK-222: N = 3 corners whose Phase 2a collapsed the arc+bridge
+    // pairs carry the physical N-half-edge loop, exactly like the
+    // N >= 4 classes — demanding the 2N form starved the whole
+    // rational dispatch for conic / variable-profile cube corners
+    // (they shipped the polar-NURBS heuristic at g0 ~ 0.2). The
+    // three-quad acceptance gate stays the transactional arbiter.
+    let accept_n3_he = n_sides == 3;
+    // The N-form arm at N = 3 is new dispatch reach with no fixture
+    // history: its commits must pass the same cap/support continuity
+    // acceptance the N >= 5 routes answer to. The 2N form keeps its
+    // historical unconditional acceptance.
+    let n3_n_form_route = accept_n3_he && !face_has_2n_outer_half_edges(brep, blend_face, n_sides);
     let rational_dispatch_preconditions_met = dispatch_boundary.segments.len() == 2 * n_sides
-        && crate::construct::poke_hex::face_has_2n_outer_half_edges_with(
+        && crate::construct::poke_hex::face_has_2n_outer_half_edges_with_n3(
             brep,
             blend_face,
             n_sides,
             dispatch_boundary.sphere_fit_substituted,
+            accept_n3_he,
         );
     // Record WHY dispatch didn't apply for ANY rational route (was
     // polar-gated: pyramid4_mixed binonic bailed with zero diagnostics
@@ -421,6 +434,7 @@ pub(crate) fn insert_vertex_blend(
                 blend_face,
                 n_sides,
                 dispatch_boundary,
+                accept_n3_he,
             )),
         ));
     }
@@ -445,7 +459,10 @@ pub(crate) fn insert_vertex_blend(
         ) {
             Ok(result) => {
                 match blend_insert_three_quad_acceptance::accept_three_quad_result(
-                    brep, result, n_sides,
+                    brep,
+                    result,
+                    n_sides,
+                    n3_n_form_route,
                 ) {
                     blend_insert_three_quad_acceptance::ThreeQuadAcceptance::Accepted(result) => {
                         diagnostics.extend(result.diagnostics);

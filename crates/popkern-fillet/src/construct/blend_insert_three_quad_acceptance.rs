@@ -21,6 +21,7 @@ pub(super) fn accept_three_quad_result(
     brep: &mut BRep,
     mut result: ThreeQuadApplyResult,
     n_sides: usize,
+    require_cap_support_acceptance: bool,
 ) -> ThreeQuadAcceptance {
     if !corner_patch_count_is_acceptable(&result.patches, n_sides) {
         let mut diagnostics = std::mem::take(&mut result.diagnostics);
@@ -41,7 +42,18 @@ pub(super) fn accept_three_quad_result(
         ));
         return ThreeQuadAcceptance::Declined(diagnostics);
     }
-    if n_sides < 5 || support_cell_patch_count_is_acceptable(&result.patches, n_sides) {
+    // PK-222: the N = 3 N-form route opts in to the full cap/support
+    // acceptance below; historical low-valence 2N commits keep their
+    // unconditional acceptance.
+    if !require_cap_support_acceptance
+        && (n_sides < 5 || support_cell_patch_count_is_acceptable(&result.patches, n_sides))
+    {
+        return ThreeQuadAcceptance::Accepted(result);
+    }
+    if require_cap_support_acceptance
+        && n_sides >= 5
+        && support_cell_patch_count_is_acceptable(&result.patches, n_sides)
+    {
         return ThreeQuadAcceptance::Accepted(result);
     }
 

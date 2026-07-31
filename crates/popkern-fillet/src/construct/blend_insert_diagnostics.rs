@@ -52,6 +52,7 @@ pub(super) fn rational_gregory_dispatch_precondition_reason(
     blend_face: FaceHandle,
     n_sides: usize,
     boundary: &BlendBoundary,
+    accept_n3_he: bool,
 ) -> String {
     if boundary.segments.len() != 2 * n_sides {
         return format!(
@@ -60,11 +61,12 @@ pub(super) fn rational_gregory_dispatch_precondition_reason(
             2 * n_sides
         );
     }
-    if !crate::construct::poke_hex::face_has_2n_outer_half_edges_with(
+    if !crate::construct::poke_hex::face_has_2n_outer_half_edges_with_n3(
         brep,
         blend_face,
         n_sides,
         boundary.sphere_fit_substituted,
+        accept_n3_he,
     ) {
         return format!(
             "blend face outer loop is not dispatch-ready for N-sector Gregory/polar construction \

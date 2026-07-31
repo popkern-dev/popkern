@@ -69,7 +69,7 @@ pub(crate) fn run_and_route_warnings(
         crate::error::BlendWarning,
     )>,
 ) {
-    run_and_route_warnings_with_protected(brep, tolerance, edge_geometries, &[], warnings)
+    run_and_route_warnings_with_protected(brep, tolerance, edge_geometries, &[], &[], warnings)
 }
 
 /// As [`run_and_route_warnings`], plus an opt-in set of cap faces
@@ -89,13 +89,17 @@ pub(crate) fn run_and_route_warnings_with_protected(
     tolerance: &Tolerance,
     edge_geometries: &[crate::construct::EdgeGeometry],
     protected: &[FaceHandle],
+    legacy_caps: &[FaceHandle],
     warnings: &mut Vec<(
         popkern_core::topology::EdgeHandle,
         crate::error::BlendWarning,
     )>,
 ) {
     let protected_set: std::collections::BTreeSet<FaceHandle> = protected.iter().copied().collect();
-    let sliver_warnings = absorb_slivers_with_protected(brep, tolerance, &protected_set);
+    let legacy_cap_set: std::collections::BTreeSet<FaceHandle> =
+        legacy_caps.iter().copied().collect();
+    let sliver_warnings =
+        absorb_slivers_with_protected(brep, tolerance, &protected_set, &legacy_cap_set);
     let fallback = edge_geometries
         .first()
         .map(|eg| eg.analysis.edge)
@@ -187,7 +191,12 @@ impl SliverKind {
 /// pass moves on rather than spinning.
 #[allow(dead_code)]
 pub(crate) fn absorb_slivers(brep: &mut BRep, tolerance: &Tolerance) -> Vec<SliverAbsorbWarning> {
-    absorb_slivers_with_protected(brep, tolerance, &std::collections::BTreeSet::new())
+    absorb_slivers_with_protected(
+        brep,
+        tolerance,
+        &std::collections::BTreeSet::new(),
+        &std::collections::BTreeSet::new(),
+    )
 }
 
 /// Variant of [`absorb_slivers`] that refuses any kef whose surviving
@@ -198,6 +207,7 @@ fn absorb_slivers_with_protected(
     brep: &mut BRep,
     tolerance: &Tolerance,
     protected: &std::collections::BTreeSet<FaceHandle>,
+    legacy_caps: &std::collections::BTreeSet<FaceHandle>,
 ) -> Vec<SliverAbsorbWarning> {
     let mut warnings: Vec<SliverAbsorbWarning> = Vec::new();
     let cap = brep.faces.len() * 2 + 16;
@@ -209,7 +219,7 @@ fn absorb_slivers_with_protected(
         // 117 → 229 opens on the flagship chain). The absorbed wall
         // chords D leaves in cap loops are the recorded follow-up
         // (wall reunification AFTER contact harvest).
-        let candidate = find_corner_fragment_target(brep, &retained)
+        let candidate = find_corner_fragment_target(brep, &retained, legacy_caps)
             .inspect(|c| {
                 if std::env::var_os("PK_CARVE_TRACE").is_some() {
                     eprintln!("  [absorb] Class D corner-fragment: {c:?}");
@@ -254,6 +264,29 @@ fn absorb_slivers_with_protected(
         if brep.kef(he).is_err() {
             warnings.push(SliverAbsorbWarning::Retained { face, kind });
             retained.insert(face);
+        } else if matches!(kind, SliverKind::CornerFragment { .. })
+            && let Some(sf) = surviving_face
+            && legacy_caps.contains(&sf)
+            && !matches!(
+                brep.faces
+                    .get(sf)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|sof| &sof.geometry),
+                Some(popkern_core::geometry::SurfaceGeometry::Sphere { .. })
+            )
+        {
+            // PK-222: sector-complex caps (Gregory sub-faces from the
+            // N-quad dispatch) own their boundary through pcurves —
+            // the absorbed fragment's doubled wall chord is a pure
+            // slit there, and no sphere-path contact harvest will
+            // ever consume it. The SPHERE cap keeps its chords for
+            // `collapse_corner_anchor_chords`.
+            let dissolved = super::strip_end_surface::remove_spur_slits(brep, sf);
+            if dissolved > 0 && std::env::var_os("PK_CARVE_TRACE").is_some() {
+                eprintln!(
+                    "  [absorb] {sf:?}: {dissolved} corner-fragment slit(s) dissolved after merge"
+                );
+            }
         } else if matches!(kind, SliverKind::RedundantEdge)
             && let Some(sf) = surviving_face
         {
