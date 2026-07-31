@@ -324,9 +324,6 @@ fn direct_apex_native_pyramid4_mixed_partition_no_fallback() {
 /// fallback (sphere cap, g0 7.4e-2 ceiling); PK-219 welds the
 /// collapsed corners at plan level and restores native quality.
 #[test]
-#[ignore = "PK-219 frontier: welded native serve carries 8 dead rim-chord sides (old strip rim \
-            spur C->oldT->C coincident with the fillet-end arc; ghost twins retired; \
-            2:1 chord-to-arc weld mechanism pending — see ledger PK-219 notes)"]
 fn direct_apex_pyramid4_uniform_welded_native_no_fallback() {
     assert_native_gregory_case("pyramid4_uniform", true, &[0.05, 0.05, 0.05, 0.05], 4);
     let result = build_under_direct_apex(true, &[0.05, 0.05, 0.05, 0.05]);
@@ -367,8 +364,10 @@ fn direct_apex_pyramid4_uniform_cap_outer_commercial_gate() {
 /// this fixture served 38 faces with THREE dead boundary sides and
 /// 18 residual faces behind a "native, no fallback" green.
 #[test]
-#[ignore = "PK-219 frontier: pyramid3 welded serve exposes 2/3 distinct cap-to-cylinder seams \
-            (queued behind the pyramid4 dead-rim-chord mechanism — see ledger PK-219 notes)"]
+#[ignore = "PK-219 frontier: the N=3 welded partition apply mints a null-loop half-edge (Euler \
+            -9, attempt rolls back) and the accepted later attempt's committed Coons sectors \
+            are mangled post-commit (2 of 3 sector faces deleted, cap face re-planed) — \
+            serve exposes 2/3 cylinder seams; evidence + trace recipe in ledger PK-219"]
 fn direct_apex_pyramid3_uniform_welded_native_no_fallback() {
     assert_native_gregory_case("pyramid3_uniform", true, &[0.10, 0.10, 0.10], 3);
     let result = build_under_direct_apex(true, &[0.10, 0.10, 0.10]);

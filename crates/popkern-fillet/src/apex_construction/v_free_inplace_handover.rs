@@ -35,6 +35,21 @@ use super::v_free_shell_consolidation::remove_face;
 /// D-segment while the plane's true arc side lies dead). Returns the
 /// number of faces removed.
 pub(crate) fn retire_mirror_ghost_complex(brep: &mut BRep) -> usize {
+    retire_mirror_ghost_complex_inner(brep, true)
+}
+
+/// Seeds-only variant (PK-219): retire exactly the surfaceless /
+/// degenerate ConstructionResidual faces without growing the
+/// complex. The welded shared-corner class parks its retired
+/// scaffold as CLOSED residual faces whose one-sided spans die with
+/// the face (measured pyramid4_uniform strict: 9 residual faces
+/// carry all 20 dead sides); the growth rule there admits live
+/// production slivers and breaks the census instead.
+pub(crate) fn retire_mirror_ghost_seeds_only(brep: &mut BRep) -> usize {
+    retire_mirror_ghost_complex_inner(brep, false)
+}
+
+fn retire_mirror_ghost_complex_inner(brep: &mut BRep, grow: bool) -> usize {
     let mut complex: BTreeSet<FaceHandle> = brep
         .faces
         .iter()
@@ -47,11 +62,13 @@ pub(crate) fn retire_mirror_ghost_complex(brep: &mut BRep) -> usize {
     if complex.is_empty() {
         return 0;
     }
-    // Grow by the strict admission rule until stable. The rule is
-    // deliberately conservative: a face with ANY live twin lacking a
-    // dead coincident counterpart stays (production planes twin the
-    // ghosts too, but always carry live production seams as well).
-    loop {
+    // Grow by the strict admission rule until stable (skipped by the
+    // seeds-only variant). The rule is deliberately conservative: a
+    // face with ANY live twin lacking a dead coincident counterpart
+    // stays (production planes twin the ghosts too, but always carry
+    // live production seams as well).
+    let mut keep_growing = grow;
+    while keep_growing {
         let mut grew = false;
         for (candidate, _) in brep.faces.iter().collect::<Vec<_>>() {
             if complex.contains(&candidate) {
@@ -84,9 +101,7 @@ pub(crate) fn retire_mirror_ghost_complex(brep: &mut BRep) -> usize {
                 grew = true;
             }
         }
-        if !grew {
-            break;
-        }
+        keep_growing = grew;
     }
     let removed = complex.len();
     for face in &complex {

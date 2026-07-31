@@ -102,13 +102,23 @@ pub(super) fn apply_serving_shape_gate(
     // completion. Accepted only on a DEFECT-FREE census plus a clean
     // validate; anything partial falls through to the aggregate
     // redo unchanged, so the rung can only improve the served body.
-    {
+    // Two retirement modes: the grown complex first (bridged class),
+    // then seeds-only (PK-219 welded class: the retired scaffold is
+    // parked as CLOSED residual faces whose one-sided spans die with
+    // the face; the growth rule there wrongly admits live production
+    // slivers and breaks the census).
+    for seeds_only in [false, true] {
         let mut completed = brep.clone();
         let mut completed_result = result.clone();
-        let retired =
+        let retired = if seeds_only {
+            crate::apex_construction::v_free_inplace_handover::retire_mirror_ghost_seeds_only(
+                &mut completed,
+            )
+        } else {
             crate::apex_construction::v_free_inplace_handover::retire_mirror_ghost_complex(
                 &mut completed,
-            );
+            )
+        };
         if retired > 0 {
             let consolidation = crate::apex_construction::v_free_shell_consolidation::
                 consolidate_vestigial_support_shell_forcing_winding(&mut completed);
@@ -168,7 +178,7 @@ pub(super) fn apply_serving_shape_gate(
             if crate::direct_apex_trace::enabled() {
                 eprintln!(
                     "[direct-apex-trace] in-place handover completion incomplete \
-                     (defect {:?}); falling through to aggregate redo",
+                     (seeds_only={seeds_only}, defect {:?}); next rung",
                     served_shape_defect(&completed)
                 );
                 for edge in &completed.boundary_edges {
