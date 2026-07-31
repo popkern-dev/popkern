@@ -96,6 +96,10 @@ pub(crate) fn correct_face_surfaces(
         // larger than the 1cm gate above. The cube-corner-inscribed-
         // sphere fallback in `try_sphere_for_corner` would clobber
         // both with the wrong cube-style centre.
+        // NURBS caps are deliberately NOT trusted here: a cube-style
+        // corner's NURBS blend is legitimately replaced by the exact
+        // rolling-ball sphere; try_sphere_for_corner's orthogonality
+        // guard (PK-221) protects non-orthogonal polar caps instead.
         let current_is_cap_surface = brep.faces[fh].surface.as_ref().is_some_and(|s| {
             matches!(
                 s.geometry,
@@ -378,6 +382,39 @@ fn try_sphere_for_corner(
         }
     }
     let avg_radius = radii.first().copied().unwrap_or(0.1);
+
+    // Orthogonality guard (PK-221): the centre construction below
+    // offsets PER GLOBAL AXIS from the corner, which is only
+    // meaningful for a cube-style corner — mutually orthogonal,
+    // axis-aligned fillet axes. A pyramid apex (non-orthogonal
+    // supports) satisfied every other gate and shipped a sphere with
+    // g1 ~1.0 at its rim. Decline so the constructed N-sided cap
+    // stands.
+    let axes: Vec<popkern_core::geometry::Vec3> = fillet_surfaces
+        .iter()
+        .filter_map(|s| match s {
+            SurfaceGeometry::Torus { axis, .. } | SurfaceGeometry::Cylinder { axis, .. } => {
+                axis.normalized()
+            }
+            _ => None,
+        })
+        .collect();
+    const AXIS_ALIGNMENT_TOLERANCE: f64 = 1.0e-6;
+    for axis in &axes {
+        let max_component = axis.x.abs().max(axis.y.abs()).max(axis.z.abs());
+        if max_component < 1.0 - AXIS_ALIGNMENT_TOLERANCE {
+            return None;
+        }
+    }
+    for (i, a) in axes.iter().enumerate() {
+        for b in axes.iter().skip(i + 1) {
+            if a.dot(b).abs() > AXIS_ALIGNMENT_TOLERANCE
+                && a.dot(b).abs() < 1.0 - AXIS_ALIGNMENT_TOLERANCE
+            {
+                return None;
+            }
+        }
+    }
 
     // Use the per-coordinate **median** position rather than the
     // mean centroid. The boundary of a multi-fillet vertex blend
