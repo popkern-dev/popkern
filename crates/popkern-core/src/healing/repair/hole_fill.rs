@@ -1,11 +1,11 @@
 //! Wound healing: fill holes in shell boundaries.
 //!
 //! When faces are deleted or imports are incomplete, holes remain as
-//! loops of free boundary edges. This module provides strategies for
-//! detecting and reporting holes to restore shell closure. Currently
-//! supports detection and Extension-based fill analysis; actual surface
-//! construction is deferred to a future iteration that implements
-//! Coons-patch or energy-minimizing fill surfaces.
+//! loops of free boundary edges. This module detects and reports them
+//! and offers Extension-based fill analysis. The path that actually
+//! CLOSES a body is [`super::hole_heal::heal_holes`] (PK-199), which
+//! commits filler geometry through the `cap_boundary_ring_fan` Euler
+//! operator; the APIs here stay analysis-only for diagnostics.
 
 use std::collections::{HashMap, HashSet};
 
