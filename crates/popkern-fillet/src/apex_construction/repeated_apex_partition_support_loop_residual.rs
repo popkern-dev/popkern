@@ -126,6 +126,33 @@ fn materialize_support_boundary_residual_cycles_candidate(
             let residual_face = insert_face_with_outer_loop(brep, template_face, &cycle)?;
             brep.faces[residual_face].role = TopologyRole::ConstructionResidual;
             brep.faces[residual_face].surface = None;
+            // Connector-closed cycles carry twins that close no loop of
+            // their own. Referential integrity has no role exemption,
+            // so home each unwired twin on the residual loop and keep
+            // its connector edge retired — wire_existing_loop stamped
+            // the cycle's edges from the face role BEFORE the residual
+            // demotion above, which would otherwise leave a Production
+            // edge with a null-loop side that breaks every downstream
+            // repair gated on validation (same contract as
+            // materialize_unowned_half_edge_residual_face).
+            let residual_loop = brep.faces[residual_face].outer_loop;
+            for half_edge in &cycle {
+                let Some(data) = brep.half_edges.get(*half_edge) else {
+                    continue;
+                };
+                let (twin, edge) = (data.twin, data.edge);
+                let twin_unwired = brep
+                    .half_edges
+                    .get(twin)
+                    .is_some_and(|twin_data| twin_data.loop_ == LoopHandle::default());
+                if !twin_unwired {
+                    continue;
+                }
+                brep.half_edges[twin].loop_ = residual_loop;
+                if let Some(edge_data) = brep.edges.get_mut(edge) {
+                    edge_data.role = TopologyRole::ConstructionResidual;
+                }
+            }
         }
         Ok(())
     })();

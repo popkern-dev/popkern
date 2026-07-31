@@ -189,6 +189,13 @@ fn bigon_weld_operands(brep: &BRep, production_side: HalfEdgeHandle) -> Option<B
     }
     // Never adopt an unwired boundary record as a production twin.
     brep.loops.get(far_twin_data.loop_)?;
+    // A connector twin homed on the fragment's own loop (referential
+    // integrity for connector-closed residual cycles) has no loop of
+    // its own to serve from: the fragment is a legitimately closed
+    // residual home, not a weldable duplicate-span sliver.
+    if far_twin_data.loop_ == fragment_loop {
+        return None;
+    }
     // A twin must traverse opposite to the production side: it starts
     // where the production side ends — the near side's origin.
     (far_twin_data.origin == near.origin).then_some(())?;

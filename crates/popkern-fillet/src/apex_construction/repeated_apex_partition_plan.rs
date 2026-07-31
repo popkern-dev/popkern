@@ -463,7 +463,33 @@ impl RepeatedApexPartitionPlan {
         }
         materialize_unowned_half_edge_residual_faces(brep, self.cap_face)?;
         trace_face_census(brep, "post-unowned-materialize");
-        validate_repeated_apex_normalization_structure(brep)?;
+        validate_repeated_apex_normalization_structure(brep).map_err(|error| {
+            // PK-223: the welded shared-corner partition is Euler-balanced
+            // only under the V-free repeated-apex contract. On the
+            // apex-retaining contract the per-fillet far-side trim
+            // machinery parks unpairable scaffold (measured on the welded
+            // trihedral base corner: every far-side trim converges on one
+            // shared support face and the retired complex carries
+            // unrepayable Euler debt), so classify the decline instead of
+            // reporting a bare postcondition crash.
+            let welded = self
+                .retired_spans
+                .iter()
+                .any(|span| matches!(span.kind, RepeatedApexArcKind::SharedCorner { .. }));
+            if welded && !execution_options.require_v_free_repeated_apex {
+                ApexBuildError::PlanMismatch {
+                    reason: format!(
+                        "welded shared-corner repeated-apex partition declined on the \
+                         apex-retaining contract: the far-side trim machinery cannot \
+                         Euler-balance the shared-support scaffold this class retires \
+                         (serve routes through the V-free welded substrate or the legacy \
+                         rung); postcondition: {error}"
+                    ),
+                }
+            } else {
+                error
+            }
+        })?;
         validate_partition_cap_to_cylinder_seams(brep, self.cap_face, n_fillets)?;
         Ok((self.cap_face, fillet_end_edges, diagnostics))
     }
