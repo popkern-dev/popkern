@@ -84,8 +84,14 @@ fn find_free_edges(brep: &BRep) -> HashSet<EdgeHandle> {
 fn edge_endpoints(brep: &BRep, edge: EdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
     let edge_data = brep.edges.get(edge)?;
     let he = brep.half_edges.get(edge_data.half_edge)?;
-    let twin = brep.half_edges.get(he.twin)?;
-    Some((he.origin, twin.origin))
+    if let Some(twin) = brep.half_edges.get(he.twin) {
+        return Some((he.origin, twin.origin));
+    }
+    // Null-sentinel twin: a genuine free boundary edge. The surviving
+    // half-edge still lives in a face loop, so its end vertex is the
+    // next half-edge's origin.
+    let next = brep.half_edges.get(he.next)?;
+    Some((he.origin, next.origin))
 }
 
 /// Build adjacency: map each vertex to the free edges incident on it.

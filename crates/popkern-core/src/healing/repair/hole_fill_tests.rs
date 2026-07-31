@@ -280,3 +280,21 @@ fn fill_holes_energy_minimizing_on_defective_brep() {
     assert!(result.holes_detected > 0);
     assert_eq!(result.holes_filled, 0);
 }
+
+#[test]
+fn detect_holes_finds_the_open_box_opening() {
+    // PK-199 regression: edge_endpoints used to resolve the end vertex
+    // through the twin, which is the null sentinel on genuine free
+    // boundary edges — detect_holes returned nothing on the kernel's
+    // own open-shell constructor.
+    let brep = BRep::open_box(Tolerance::default()).unwrap();
+    let holes = detect_holes(&brep);
+    assert_eq!(holes.len(), 1, "open box has exactly one hole");
+    assert_eq!(holes[0].num_sides, 4);
+    for edge in &holes[0].boundary_edges {
+        assert!(
+            brep.boundary_edges.contains(edge),
+            "detected hole edges must be registered boundary edges"
+        );
+    }
+}

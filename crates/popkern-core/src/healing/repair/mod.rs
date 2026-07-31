@@ -32,8 +32,16 @@ pub mod detect_analytical;
 pub mod g1_coons_patch;
 /// Gap repair strategies and execution.
 pub mod gap_repair;
+/// Commit filled hole caps into topology via the Euler fan operator.
+pub mod hole_commit;
+/// Normalization of filler output into committable cap geometry.
+pub mod hole_commit_geometry;
 /// Hole filling (wound healing) for shell boundaries.
 pub mod hole_fill;
+/// End-to-end hole healing: detect, fill, commit.
+pub mod hole_heal;
+/// Ruled fan cap: the always-constructible G0 hole filler.
+pub mod hole_ruled_fan;
 /// Import repair pipeline for models from external formats.
 pub mod import_repair;
 /// Coplanar face merging.
@@ -72,7 +80,11 @@ pub use degeneracy::{
 };
 pub use g1_coons_patch::{CrossDerivatives, SecondDerivatives};
 pub use gap_repair::{GapRepairResult, GapRepairStrategy};
+pub use hole_commit::{HoleCapCommit, HoleCommitError, commit_hole_cap};
+pub use hole_commit_geometry::{HoleCapChart, HoleCapGeometry, HoleCapSectorGeometry};
 pub use hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy, fill_by_extension};
+pub use hole_heal::{HoleFillerKind, HoleHealAttempt, HoleHealReport, heal_holes};
+pub use hole_ruled_fan::ruled_fan_cap;
 pub use import_repair::{
     CustomRepairOp, ImportFormat, ImportRepairConfig, ImportRepairOp, ImportRepairReport,
     RepairOperation, StepLabel,
