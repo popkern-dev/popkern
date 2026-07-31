@@ -115,14 +115,24 @@ fn promote_produces_n_surfaces_matching_pairs() {
     assert_eq!(surfaces.len(), bb.segments.len() / 2);
     for (k, surf) in surfaces.iter().enumerate() {
         match surf {
-            _pns @ (SurfaceGeometry::PolyhedralSpline(_) | SurfaceGeometry::Nurbs(_)) => {
-                let ns = pns_nurbs(_pns);
+            // PK-200: the promote path ships FIRST-CLASS provenance;
+            // anonymous NURBS here would be a regression.
+            SurfaceGeometry::PolyhedralSpline(patch) => {
+                assert_eq!(
+                    patch.provenance.valence,
+                    surfaces.len(),
+                    "sector {k} valence"
+                );
+                assert_eq!(patch.provenance.sector, k, "sector {k} index");
+                let ns = patch.to_nurbs();
                 assert_eq!(ns.degree_u, 4, "sector {k} degree_u");
                 assert_eq!(ns.degree_v, 4, "sector {k} degree_v");
                 assert_eq!(ns.num_u, 5);
                 assert_eq!(ns.num_v, 5);
             }
-            _ => panic!("sector {k}: expected a PnS cap surface, got other variant"),
+            other => panic!(
+                "sector {k}: expected a first-class PolyhedralSpline cap sector, got {other:?}"
+            ),
         }
     }
 }

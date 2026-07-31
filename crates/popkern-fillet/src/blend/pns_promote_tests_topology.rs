@@ -186,3 +186,41 @@ fn flat_boundary_and_fillets_vec(
     };
     (boundary, fillets)
 }
+
+/// PK-200 acceptance: a SHIPPED cap — committed into the BRep through
+/// the real insertion path, not a synthetic patch — identifies as a
+/// vertex blend and reports which cap (valence) and which sector each
+/// face is, read from the face's own surface.
+#[test]
+fn shipped_cap_faces_identify_with_provenance() {
+    use super::super::pns_promote::insert_pns_cap_into_blend_face;
+    use crate::BlendKind;
+    use crate::identify::identify_blend;
+
+    let (mut brep, hex_face, hex_points) = build_flat_hex();
+    let (boundary, fillets) = flat_boundary_and_fillets(&hex_points, 3);
+    let result = insert_pns_cap_into_blend_face(&mut brep, hex_face, &boundary, &fillets)
+        .expect("insert should succeed");
+
+    let n = result.sub_faces.len();
+    let mut sectors_seen = std::collections::BTreeSet::new();
+    for &sub_face in &result.sub_faces {
+        let info = identify_blend(&brep, sub_face)
+            .expect("a committed cap sector must identify as a blend");
+        assert_eq!(info.kind, BlendKind::VertexBlend, "face {sub_face:?}");
+        let provenance = info.cap_provenance.unwrap_or_else(|| {
+            panic!("face {sub_face:?} must report its cap provenance, got None")
+        });
+        assert_eq!(provenance.valence, n, "face {sub_face:?} valence");
+        assert!(
+            sectors_seen.insert(provenance.sector),
+            "sector {} reported twice",
+            provenance.sector
+        );
+    }
+    assert_eq!(
+        sectors_seen,
+        (0..n).collect::<std::collections::BTreeSet<_>>(),
+        "the shipped sectors must cover the cap exactly once each"
+    );
+}

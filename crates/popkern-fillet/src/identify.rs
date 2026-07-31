@@ -102,6 +102,11 @@ pub struct BlendInfo {
     /// identifications; curvature-analysis identifications range
     /// from 0.5 (weak) to 0.95 (strong analytic surface match).
     pub confidence: f64,
+    /// Cap provenance when the face ships as a first-class
+    /// polyhedral-net spline sector (PK-200): which cap (valence)
+    /// and which sector of it this face is. `None` for every other
+    /// blend kind and for caps that shipped as anonymous surfaces.
+    pub cap_provenance: Option<popkern_core::geometry::PolyhedralSplineProvenance>,
 }
 
 /// Identify a blend on the given face.
@@ -188,6 +193,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                 support_faces,
                 source: IdentificationSource::CurvatureAnalysis,
                 confidence: 0.9,
+                cap_provenance: None,
             })
         }
         SurfaceGeometry::Sphere { radius, .. } => {
@@ -213,6 +219,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     .or_else(|| chamfer_support_pair(&boundary, &distinct_neighbours)),
                 source: IdentificationSource::CurvatureAnalysis,
                 confidence,
+                cap_provenance: None,
             })
         }
         SurfaceGeometry::Cylinder { radius, .. } => {
@@ -244,6 +251,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     support_faces: tangent_support_pair(&boundary, tangent_tol),
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.75,
+                    cap_provenance: None,
                 })
             } else if all_neighbours_are_planes(brep, &boundary) {
                 let support_faces = chamfer_support_pair(&boundary, &distinct_neighbours);
@@ -254,6 +262,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     support_faces,
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.75,
+                    cap_provenance: None,
                 })
             } else {
                 None
@@ -276,6 +285,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     support_faces,
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.7,
+                    cap_provenance: None,
                 })
             } else {
                 None
@@ -295,6 +305,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     support_faces: tangent_support_pair(&boundary, tangent_tol),
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.5,
+                    cap_provenance: None,
                 })
             } else if tangent_count == 0 && mixed_count >= 1 {
                 let support_faces = chamfer_support_pair(&boundary, &distinct_neighbours);
@@ -306,6 +317,7 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     support_faces,
                     source: IdentificationSource::CurvatureAnalysis,
                     confidence: 0.6,
+                    cap_provenance: None,
                 })
             } else {
                 None
@@ -338,6 +350,10 @@ pub fn identify_blend(brep: &BRep, face: FaceHandle) -> Option<BlendInfo> {
                     .or_else(|| chamfer_support_pair(&boundary, &distinct_neighbours)),
                 source: IdentificationSource::CurvatureAnalysis,
                 confidence: 0.95,
+                cap_provenance: match &surface_on_face.geometry {
+                    SurfaceGeometry::PolyhedralSpline(patch) => Some(patch.provenance),
+                    _ => None,
+                },
             })
         }
     }

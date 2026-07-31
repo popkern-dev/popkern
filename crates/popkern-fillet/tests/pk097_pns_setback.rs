@@ -191,3 +191,69 @@ fn pns_setback_candidate_on_pentagon_g1() {
         report.g1_angle_after
     );
 }
+
+/// PK-200 acceptance: the setback candidate emits first-class
+/// PolyhedralSpline sectors with the cap's true valence (2n — this
+/// ring splits every arc at its midpoint) and dense sector indices.
+#[test]
+fn pns_setback_candidate_emits_provenance() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let tol = Tolerance::default();
+    let pyramid = BRep::n_gonal_pyramid(5, 1.0, 1.2, tol).expect("pyramid");
+    let apex = pyramid
+        .vertices
+        .iter()
+        .max_by(|a, b| a.1.position.z.partial_cmp(&b.1.position.z).unwrap())
+        .map(|(h, v)| (h, v.position))
+        .expect("apex");
+    let apex_edges: Vec<_> = pyramid
+        .edges
+        .iter()
+        .filter_map(|(eh, _)| {
+            let he = pyramid.edges[eh].half_edge;
+            let o = pyramid.half_edges[he].origin;
+            let t = pyramid.half_edges[pyramid.half_edges[he].twin].origin;
+            (o == apex.0 || t == apex.0).then_some(eh)
+        })
+        .collect();
+    let specs: Vec<popkern_fillet::FilletSpec> = apex_edges
+        .iter()
+        .map(|&edge| popkern_fillet::FilletSpec {
+            edge,
+            radius: popkern_fillet::FilletRadius::Constant(0.16),
+        })
+        .collect();
+    let preview = popkern_fillet::preview_fillet_with_continuity(
+        &pyramid,
+        &specs,
+        tol,
+        popkern_fillet::ContinuityLevel::G1,
+    )
+    .expect("G1 preview");
+    let fillet_surfaces: Vec<popkern_fillet::fillet_surface::FilletSurfaceResult> = preview
+        .per_edge
+        .iter()
+        .map(|eg| popkern_fillet::fillet_surface::FilletSurfaceResult {
+            surface: eg.blend_surface.clone(),
+            trim_curve_1: eg.trim_curve_1.clone(),
+            trim_curve_2: eg.trim_curve_2.clone(),
+            continuity_downgrade: None,
+        })
+        .collect();
+    let full =
+        popkern_fillet::construct_test_hooks::pns_setback_candidate_full(&fillet_surfaces, apex.1)
+            .expect("candidate");
+    let count = full.surfaces.len();
+    assert_eq!(count, full.patches.len());
+    assert_eq!(count, 2 * 5, "split ring: two sectors per arc");
+    for (k, surface) in full.surfaces.iter().enumerate() {
+        match surface {
+            SurfaceGeometry::PolyhedralSpline(patch) => {
+                assert_eq!(patch.provenance.valence, count, "sector {k} valence");
+                assert_eq!(patch.provenance.sector, k, "sector {k} index");
+            }
+            other => panic!("sector {k}: expected PolyhedralSpline, got {other:?}"),
+        }
+    }
+}

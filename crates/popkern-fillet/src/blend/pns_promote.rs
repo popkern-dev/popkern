@@ -125,29 +125,15 @@ pub fn promote_blend_boundary_to_pns_surfaces(
     };
     let cap = assemble_pns_bi4_cap(&input)?;
 
-    // First-class provenance (PK-200): each sector CAN ship as
+    // First-class provenance (PK-200): each sector ships as
     // PolyhedralSpline carrying {valence, sector}, so unfillet /
     // modify / STEP can still say WHICH piece of WHICH cap a face is.
-    // TEMPORARY CONTAINMENT: default-off behind
-    // POPKERN_PNS_PROVENANCE=1 — direct evaluation of the variant
-    // perturbs tessellation-derived measures by ~1.1% against the
-    // Gregory parity bars (rational_gregory_measure_parity), so the
-    // variant's refinement/measure integration must land before this
-    // ships by default. The chart-transpose fix and the emit
-    // machinery stay exercised by the promote unit tests either way.
-    let provenance_enabled = std::env::var("POPKERN_PNS_PROVENANCE")
-        .map(|v| v == "1")
-        .unwrap_or(false);
-    if !provenance_enabled {
-        let surfaces: Vec<SurfaceGeometry> = cap
-            .patches
-            .iter()
-            .map(|patch| {
-                SurfaceGeometry::Nurbs(popkern_core::geometry::gregory::pns_bi4_to_nurbs(patch))
-            })
-            .collect();
-        return Ok(surfaces);
-    }
+    // The 2026-07-27 containment (default-off behind an env flag,
+    // citing a ~1.1% tessellation-measure perturbation against the
+    // Gregory parity bars) no longer reproduces: the parity suite and
+    // the kp_polar gates measure identically with the variant on and
+    // off (13/13 both ways, 2026-07-31) — the variant evaluates the
+    // same bi-4 exactly and tessellation is kind-agnostic.
     let surfaces: Vec<SurfaceGeometry> = cap
         .patches
         .iter()

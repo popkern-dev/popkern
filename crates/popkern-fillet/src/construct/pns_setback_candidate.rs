@@ -23,7 +23,7 @@
 
 use popkern_core::geometry::gregory::{
     BetaReparam, Bi2BorderStrip, Bi2TensorBorderRing, CapAssembleInput, assemble_pns_bi4_cap,
-    pns_bi4_to_nurbs, pole_from_boundary, sigma_center_jet_default,
+    pole_from_boundary, sigma_center_jet_default,
 };
 use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use popkern_core::geometry::uv_projection::project_point_to_uv;
@@ -352,17 +352,32 @@ pub fn try_pns_setback_candidate(
         seam_g0 = seam_g0.max(best_pair);
     }
 
-    // PK-200 remaining scope: the setback route still ships anonymous
-    // NURBS. A PolyhedralSpline switch here was briefly implicated in
-    // a strict-export crash on 2026-07-27 and REVERTED — the crash
-    // then proved pre-existing and unrelated (PK-205), so the switch
-    // was never actually falsified. Re-apply it together with the
-    // promote path's provenance pattern and measure the corpus; kept
-    // reverted for now only because it was not re-measured after the
-    // mis-attribution unwound.
+    // First-class provenance (PK-200), same pattern as the promote
+    // path. The 2026-07-27 revert here was a mis-attribution — the
+    // strict-export crash proved pre-existing and unrelated (PK-205)
+    // — so the switch was never falsified; it ships now, measured
+    // against the cap gates and the corpus. The assembler stores
+    // `patch[u_c][v_c]`; the variant's net is `net[j][i]` with `i`
+    // the u index — transpose or the shipped chart swaps u and v.
+    // Valence is the number of sectors meeting at the pole — this
+    // ring splits every arc at its midpoint, so that is 2n, not n.
+    let cap_valence = patches.len();
     let surfaces = patches
         .iter()
-        .map(|p| SurfaceGeometry::Nurbs(pns_bi4_to_nurbs(p)))
+        .enumerate()
+        .map(|(sector, patch)| {
+            let net: [[Point3; 5]; 5] =
+                core::array::from_fn(|j| core::array::from_fn(|i| patch[i][j]));
+            SurfaceGeometry::PolyhedralSpline(Box::new(
+                popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplinePatch::new(
+                    net,
+                    popkern_core::geometry::polyhedral_spline_patch::PolyhedralSplineProvenance {
+                        valence: cap_valence,
+                        sector,
+                    },
+                ),
+            ))
+        })
         .collect();
     Ok(PnsSetbackCandidate {
         patches,
