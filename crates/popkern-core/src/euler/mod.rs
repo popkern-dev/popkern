@@ -6,6 +6,8 @@ mod boundary_side_separator_bridge;
 mod boundary_side_separator_bridge_apply;
 mod boundary_side_separator_bridge_apply_types;
 mod bridge_diagnostics;
+mod cap_boundary_ring;
+mod cap_boundary_ring_fan;
 mod construction_residual_retire;
 mod contract;
 mod corner_apex_diagnostics;
@@ -53,6 +55,8 @@ pub use bridge_diagnostics::{
     ResourceConflictStatus, TopologyDiagnosticGraph, TopologyGraphFingerprint, ValidityRepairFact,
     ValidityRepairReadiness, ValidityRepairStatus,
 };
+pub use cap_boundary_ring::BoundaryRingCapResult;
+pub use cap_boundary_ring_fan::BoundaryRingFanResult;
 pub use construction_residual_retire::ConstructionResidualRetireResult;
 pub use corner_apex_diagnostics::{
     ApexFeasibilityScoreFact, ApexFeasibilityScoreIngredient, ApexFeasibilityScoreMissing,
