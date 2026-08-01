@@ -106,27 +106,27 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
-    // PK-094 stage-2 WIP arm: setback boundary surgery (gated; see
-    // setback_vertex_topology module docs). On success the blend face
-    // is the setback n-gon; the cap face fan is the recorded
-    // follow-up, so for now the outcome is only exercised by
-    // integration tests and the arm falls through on any error.
-    // PK-225: N = 3 setback is PRODUCTION for corners the sphere does
-    // not own (conic / variable profiles — their strips are NURBS).
-    // Three root fixes made the surgery land there: the crossings
-    // graze-merge (tangent-terminated arcs), the rim-refit
-    // corner-identity row pick (fan seams 2.3e-2 -> 4e-13), and
-    // tangent-coherent corner-pair selection (assembly g2
-    // 4.4e-2 -> 2.7e-12, folds cleared). Measured: uniform conic cube
-    // corner serves at cap_outer g0 2.9e-5 / g1 9.7e-6, validate_all
-    // clean; unsuitable corners (variable radii — the assembly border
-    // sits ~3e-2 off the committed arcs) decline transactionally with
-    // the reason recorded and the legacy path serves as before.
-    // Sphere-owned corners (uniform radii, analytic strips) keep the
-    // exact rolling-ball serve. POPKERN_SETBACK_N3 stays as the
-    // diagnostic force-on for every N=3 corner.
+    // Setback boundary surgery rung (see setback_vertex_topology
+    // module docs). PK-225: N = 3 setback is PRODUCTION for corners
+    // the sphere does not own; three root fixes landed it (crossings
+    // graze-merge, rim-refit corner-identity row pick, tangent-
+    // coherent corner pairs) — uniform conic cube corner serves at
+    // cap_outer g0 2.9e-5 / g1 9.7e-6, validate_all clean. PK-226:
+    // variable/mixed-radius corners serve too — the historic decline
+    // was a false UV crossing (off-surface legacy axis chords
+    // projected across the strip crown snapped the arc midpoint onto
+    // the raw cube edge); the crossing detector's 3-D margin gate
+    // closed it. Unsuitable geometry still declines transactionally
+    // with the reason recorded; the legacy path serves as before.
+    // Sphere-owned corners keep the exact rolling-ball serve.
+    // POPKERN_SETBACK_N3 = diagnostic force-on for every N=3 corner;
+    // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
+    // pin the legacy fallback dispatch, which no clean cube fixture
+    // reaches anymore (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
-    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_N3").is_some()
+    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
+        usize::MAX
+    } else if std::env::var_os("POPKERN_SETBACK_N3").is_some()
         || !sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre)
     {
         3

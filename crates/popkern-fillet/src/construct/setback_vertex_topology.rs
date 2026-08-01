@@ -322,6 +322,22 @@ fn surgery_inner(
         };
         let v1 = split_or_reuse(brep, e1, p1, "crossing 1")?;
         let v2 = split_or_reuse(brep, e2, p2, "crossing 2")?;
+        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+            let pv1 = brep.vertices[v1].position;
+            let pv2 = brep.vertices[v2].position;
+            eprintln!(
+                "  [crossings] arc {k} face {:?} t1={t1:.4} t2={t2:.4} p1=({:+.3},{:+.3},{:+.3}) p2=({:+.3},{:+.3},{:+.3}) v1-snap {:.2e} v2-snap {:.2e}",
+                fillet_faces[k],
+                p1.x,
+                p1.y,
+                p1.z,
+                p2.x,
+                p2.y,
+                p2.z,
+                pv1.distance_to(&p1),
+                pv2.distance_to(&p2),
+            );
+        }
         let (mut seg_pre, mut seg_mid, mut seg_post) = split_cubic_three(&arcs[k].cubic, t1, t2);
         // Snap segment endpoints to the topology vertices (the split
         // point is the edge's own foot, ~4e-4 from the raw arc).
@@ -714,6 +730,108 @@ fn build_cap_face_fan(
                     pt.z,
                     dist_to_loop(pt)
                 );
+            }
+        }
+        // [rim] probe: per sector, sample the four landed rim legs and
+        // measure (a) distance to the committed topology ring, (b)
+        // distance to the nearest fillet strip surface, (c) distance
+        // to the INPUT border rim (the arc cubics). Discriminates
+        // "conditioner slid the rim along the strip" (benign — ring
+        // can follow) from "conditioner left the strip" (G0 wall).
+        {
+            use popkern_core::geometry::gregory::Kp20PieceId as Pid;
+            let bez7 = |cps: &[Point3; 7], t: f64| -> Point3 {
+                let mut p = *cps;
+                for level in (1..7).rev() {
+                    for i in 0..level {
+                        p[i] = Point3::new(
+                            p[i].x + (p[i + 1].x - p[i].x) * t,
+                            p[i].y + (p[i + 1].y - p[i].y) * t,
+                            p[i].z + (p[i + 1].z - p[i].z) * t,
+                        );
+                    }
+                }
+                p[0]
+            };
+            let bez4 = |cps: &[Point3; 4], t: f64| -> Point3 {
+                let mut p = *cps;
+                for level in (1..4).rev() {
+                    for i in 0..level {
+                        p[i] = Point3::new(
+                            p[i].x + (p[i + 1].x - p[i].x) * t,
+                            p[i].y + (p[i + 1].y - p[i].y) * t,
+                            p[i].z + (p[i + 1].z - p[i].z) * t,
+                        );
+                    }
+                }
+                p[0]
+            };
+            let strip_dist = |p: Point3| -> f64 {
+                let mut best = f64::INFINITY;
+                for fillet in fillet_surfaces {
+                    if let Some((u, v)) = popkern_core::geometry::uv_projection::project_point_to_uv(
+                        &fillet.surface,
+                        &p,
+                    ) {
+                        best = best.min(fillet.surface.point_at(u, v).distance_to(&p));
+                    }
+                }
+                best
+            };
+            let input_rim_dist = |p: Point3| -> f64 {
+                let mut best = f64::INFINITY;
+                for sector in &border.sectors {
+                    for piece in sector {
+                        for i in 0..=128 {
+                            let t = i as f64 / 128.0;
+                            best = best.min(bez4(&piece.rows[0], t).distance_to(&p));
+                        }
+                    }
+                }
+                best
+            };
+            for (s, sec) in sectors.iter().enumerate() {
+                for (label, cps) in [
+                    ("A1 P4j6", piece_col(sec.piece(Pid::NearMidpointLeft), 6)),
+                    ("A2 P3j6", piece_col(sec.piece(Pid::NearMidpointRight), 6)),
+                    ("B1 P3i6", piece_row(sec.piece(Pid::NearMidpointRight), 6)),
+                    ("B2 P2i6", piece_row(sec.piece(Pid::NearOriginRight), 6)),
+                ] {
+                    let mut worst = (0.0_f64, 0.0_f64);
+                    for i in 0..=8 {
+                        let t = i as f64 / 8.0;
+                        let d = dist_to_loop(bez7(&cps, t));
+                        if d > worst.0 {
+                            worst = (d, t);
+                        }
+                    }
+                    let pw = bez7(&cps, worst.1);
+                    eprintln!(
+                        "  [rim] s{s} {label}: worst-loop {:.2e} @t={:.2} strip {:.2e} input-rim {:.2e}",
+                        worst.0,
+                        worst.1,
+                        strip_dist(pw),
+                        input_rim_dist(pw),
+                    );
+                    // For badly-off rim points, dump the per-edge ring
+                    // distances to localize the missing image span.
+                    if worst.0 > 5.0e-3
+                        && let Ok(hes) = face_loop_half_edges(brep, blend_face)
+                    {
+                        for he in hes {
+                            let edge = brep.half_edges[he].edge;
+                            let v0 = brep.half_edges[he].origin;
+                            let p0 = brep.vertices[v0].position;
+                            let d = brep.edges[edge].curve.as_ref().map_or(f64::INFINITY, |c| {
+                                curve_distance(&c.geometry, c.t_start, c.t_end, pw)
+                            });
+                            eprintln!(
+                                "    [ring-edge] {edge:?} from ({:+.3},{:+.3},{:+.3}) dist {d:.2e}",
+                                p0.x, p0.y, p0.z
+                            );
+                        }
+                    }
+                }
             }
         }
     }

@@ -49,8 +49,17 @@ impl BRep {
                 return true;
             }
 
+            // Same two-tier semantics as `sampled_points_overlap_faces`
+            // below: any interior overlap flags immediately; contact
+            // where BOTH trims classify Boundary is served-boundary
+            // contact, legitimate at a shared topological vertex
+            // (measured: variable-radius N=3 corner — the two strips'
+            // internally tangent sections touch at the shared setback
+            // corner; 1 terminal sample Boundary∧Boundary, all others
+            // Outside) and a defect only with spatial extent.
             const SAMPLE_COUNT: usize = 9;
-            return (0..SAMPLE_COUNT).any(|i| {
+            let mut boundary_contacts: Vec<Point3> = Vec::new();
+            for i in 0..SAMPLE_COUNT {
                 let alpha = i as f64 / (SAMPLE_COUNT - 1) as f64;
                 let uv_a = curve.curve_uv1.point_at(uv1_t0 + (uv1_t1 - uv1_t0) * alpha);
                 let uv_b = curve.curve_uv2.point_at(uv2_t0 + (uv2_t1 - uv2_t0) * alpha);
@@ -90,7 +99,22 @@ impl BRep {
                         },
                     },
                 );
-                trim_classes_overlap(trim_a_contains, trim_b_contains)
+                match (trim_a_contains, trim_b_contains) {
+                    (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => {}
+                    (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
+                        let point = surface_a.point_at(uv_a.x, uv_a.y);
+                        if !self.faces_share_vertex_at_point(face_a, face_b, &point, linear_tol) {
+                            boundary_contacts.push(point);
+                        }
+                    }
+                    _ => return true,
+                }
+            }
+            return boundary_contacts.iter().enumerate().any(|(i, a)| {
+                boundary_contacts
+                    .iter()
+                    .skip(i + 1)
+                    .any(|b| a.distance_to(b) > linear_tol * 10.0)
             });
         }
 
@@ -143,25 +167,6 @@ impl BRep {
                 .skip(i + 1)
                 .any(|b| a.distance_to(b) > linear_tol * 10.0)
         })
-    }
-
-    #[allow(dead_code)]
-    fn trim_classes_overlap_at_point(
-        &self,
-        face_a: FaceHandle,
-        face_b: FaceHandle,
-        a: Option<TrimContainment>,
-        b: Option<TrimContainment>,
-        point: &Point3,
-        linear_tol: f64,
-    ) -> bool {
-        match (a, b) {
-            (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => false,
-            (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
-                !self.faces_share_vertex_at_point(face_a, face_b, point, linear_tol)
-            }
-            _ => true,
-        }
     }
 
     fn faces_share_vertex_at_point(
@@ -320,13 +325,6 @@ impl BRep {
             None
         }
     }
-}
-
-fn trim_classes_overlap(a: Option<TrimContainment>, b: Option<TrimContainment>) -> bool {
-    !matches!(
-        (a, b),
-        (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside))
-    )
 }
 
 fn intersection_sample_points(

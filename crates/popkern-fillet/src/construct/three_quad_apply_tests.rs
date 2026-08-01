@@ -1,15 +1,18 @@
 //! Integration tests for the three-quad apply pipeline:
 //! * R8 C6 regression guard — mixed-radius cube corner lands as a
-//!   manifold hex (6 HE, 6 distinct vertices, NURBS surface).
-//! * R8 C7 dispatch — when `use_rational_gregory` is on, the
-//!   mixed-radius corner's blend face is poked into three
-//!   rectangular-Gregory sub-patches.
+//!   manifold hex (6 HE, 6 distinct vertices, NURBS surface),
+//!   exercised via the flat-rho conic class since PK-226 (circular
+//!   mixed-radius corners serve the setback fan and never reach the
+//!   legacy hex merge).
+//! * The R8 C7 pin (fallback dispatch commit) moved to
+//!   tests/corner_fallback_dispatch.rs under the
+//!   POPKERN_SETBACK_DISABLE seam; measuring there showed the
+//!   "three-quad poke" contract was vestigial — the committed
+//!   fallback is the direct-apex Coons partition (PK-192).
 
 use crate::types::{FilletOptions, FilletRadius, FilletSpec};
 use crate::{CornerMethod, fillet_edges};
 
-use popkern_core::geometry::gregory::GregoryPatch;
-use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 
@@ -24,6 +27,11 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
     // Fixture: mixed-radius cube corner with 3 fillets. The R8 C6
     // fix (per-face trim anchors + kev-for-bridge) must produce a
     // 6-half-edge blend face with 6 distinct boundary vertices.
+    // Flat-rho conic profile: since PK-226 mixed-radius CIRCULAR
+    // corners serve the KP20 setback fan (cap fan topology, no hex),
+    // so the legacy hex machinery this test pins is reached via the
+    // flat-section class, which declines the setback commit
+    // analytically (rho 0.35 < the 0.4142 circular equivalent).
     let cube = BRep::unit_cube(Tolerance::default()).unwrap();
     let vertex = cube.vertices.keys().next().unwrap();
     let incident_edges: Vec<_> = cube
@@ -50,6 +58,7 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
     // instead.
     let opts = FilletOptions {
         use_rational_gregory: false,
+        profile: crate::types::BlendProfile::Conic { rho: 0.35 },
         ..FilletOptions::default()
     };
     let result = fillet_edges(&cube, &specs, &opts, tol, None).unwrap();
@@ -114,125 +123,6 @@ fn r8_c6_mixed_radius_cube_corner_lands_manifold_hex() {
          got {} unique from {verts:?}",
         unique.len()
     );
-}
-
-/// R8 C7 dispatch test: with `use_rational_gregory` enabled, the
-/// mixed-radius cube corner's hex blend face is poked into three
-/// rectangular Gregory sub-patches — +1 central vertex, +3 spoke
-/// edges, +2 sub-faces (Euler invariant `ΔV - ΔE + ΔF = 0`).
-#[test]
-fn r8_c7_dispatch_produces_three_rectangular_gregory_subpatches() {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let incident_edges: Vec<_> = cube
-        .half_edges
-        .values()
-        .filter(|he| he.origin == vertex)
-        .map(|he| he.edge)
-        .collect();
-    assert_eq!(incident_edges.len(), 3);
-
-    let radii = [0.08, 0.10, 0.12];
-    let specs: Vec<FilletSpec> = incident_edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&e, &r)| FilletSpec {
-            edge: e,
-            radius: FilletRadius::Constant(r),
-        })
-        .collect();
-
-    // Baseline (dispatch explicitly off, overriding R8 C9's
-    // default-on): single corner patch, NURBS surface.
-    let baseline_opts = FilletOptions {
-        use_rational_gregory: false,
-        ..FilletOptions::default()
-    };
-    let baseline = fillet_edges(&cube, &specs, &baseline_opts, Tolerance::default(), None).unwrap();
-    let baseline_corners: Vec<_> = baseline
-        .corner_patches
-        .iter()
-        .filter(|p| p.vertex == vertex)
-        .collect();
-    assert_eq!(
-        baseline_corners.len(),
-        1,
-        "baseline: a single corner patch per vertex"
-    );
-
-    // Rational-Gregory dispatch on.
-    let opts = FilletOptions {
-        use_rational_gregory: true,
-        ..FilletOptions::default()
-    };
-    let result = fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap();
-
-    let gregory_corners = gregory_corners_for_vertex(&result, vertex);
-    let rectangular_faces = rectangular_gregory_corner_faces(&result, vertex);
-    if rectangular_faces.len() != 3 {
-        assert_logical_gregory_corner(&result, vertex, 3, "R8 C7 current routed path");
-        result
-            .brep
-            .validate()
-            .expect("R8 C8: logical Gregory routed output must pass BRep validate()");
-        return;
-    }
-
-    for patch in &gregory_corners {
-        assert_eq!(
-            patch.method,
-            CornerMethod::Gregory,
-            "R8 C7: sub-patches report Gregory as their method"
-        );
-        let sof = result.brep.faces[patch.face]
-            .surface
-            .as_ref()
-            .expect("R8 C7: sub-face must have a surface");
-        match &sof.geometry {
-            SurfaceGeometry::Gregory(
-                GregoryPatch::Rectangular(_) | GregoryPatch::RectangularDeg5(_),
-            ) => {}
-            other => panic!(
-                "R8 C7: sub-face surface must be a rectangular Gregory \
-                 (cubic or deg5); got {other:?}"
-            ),
-        }
-    }
-
-    // Euler-invariant delta vs baseline (polar-NURBS): the
-    // three-quad poke contributes +1V, +3E, +2F; the
-    // `sliver_absorb` Class D pass (matching both Sphere and
-    // Gregory cap twins) removes 3 Plane sliver fragments adjacent
-    // to the Gregory caps via `kef`, contributing 0V, -3E, -3F.
-    // Net: +1V, 0E, -1F. ΔV - ΔE + ΔF = 0 (Euler-consistent).
-    assert_eq!(
-        result.brep.vertices.len(),
-        baseline.brep.vertices.len() + 1,
-        "R8 C7: central vertex added"
-    );
-    assert_eq!(
-        result.brep.edges.len(),
-        baseline.brep.edges.len(),
-        "R8 C7: three poke spokes added, three sliver edges absorbed"
-    );
-    assert_eq!(
-        result.brep.faces.len() + 1,
-        baseline.brep.faces.len(),
-        "R8 C7: hex splits into three sub-faces (+2), three sliver \
-         Plane fragments absorbed (-3); net -1 face vs baseline"
-    );
-
-    // R8 C8 — the post-dispatch BRep must pass `validate()`.
-    // This is the cheapest downstream-parity check: fails if the
-    // three-quad poke leaves half-edge pointers / loop linkage /
-    // face-vertex invariants in an inconsistent state. `validate_all`
-    // (which adds self-intersection) is deferred to the mesh /
-    // bool scorecard tests since Gregory routes through the
-    // `to_nurbs` sample-fit today.
-    result
-        .brep
-        .validate()
-        .expect("R8 C8: three-quad dispatch output must pass BRep validate()");
 }
 
 /// R8 C8 — `fillet_quality` scoring parity. Polar-NURBS silently

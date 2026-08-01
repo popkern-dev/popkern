@@ -104,6 +104,33 @@ pub(super) fn arc_boundary_crossings(
         );
     }
     hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // 3-D margin gate: a UV intersection is a trim event only when
+    // the paired arc/edge points actually meet in space. The legacy
+    // apex carve leaves scaffold chords up to ~5e-2 OFF the strip
+    // surface (they detour through the raw cube-edge axis points);
+    // closest-point projection folds them onto the strip crown where
+    // they spuriously cross the arc's UV path mid-strip. Measured on
+    // the variable-radius N=3 corner (radii interleave the setback
+    // corners with the pre-carve anchors): artifact margins 4.9e-2 =
+    // 0.26·chord next to genuine contacts at 1e-17..3e-3 ≤
+    // 0.016·chord. Every genuine event in the setback model pairs
+    // on-surface points within the extraction/corner-wobble class,
+    // so the gate sits a factor ~5 under the artifact class and ~3
+    // over the genuine one, chord-relative for scale freedom.
+    {
+        let chord = arc_eval.point_at(0.0).distance_to(&arc_eval.point_at(1.0));
+        let margin_gate = (5.0e-2 * chord).max(1.0e-9);
+        hits.retain(|h| {
+            let keep = h.3 <= margin_gate;
+            if !keep && trace {
+                eprintln!(
+                    "    [crossings] rejected UV hit at arc t {:.3}: margin {:.3e} > gate {margin_gate:.3e} (off-surface scaffold projection)",
+                    h.0, h.3
+                );
+            }
+            keep
+        });
+    }
     // Same-edge graze merge FIRST (before the shared-vertex dedup can
     // erase the edge association): an arc that TERMINATES on a rail
     // approaches it near-tangentially, and the sampled polyline reads

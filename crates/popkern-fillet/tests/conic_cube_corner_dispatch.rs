@@ -113,10 +113,10 @@ fn conic_cube_corner_dispatch_is_measured_not_starved() {
 }
 
 /// Serve contract for the conic / variable classes: structurally
-/// sound, and the known geometric ceiling is pinned so silent
-/// regressions fail. The ceiling is the recorded mitred-ring class
-/// defect (strip-crossing chord off the heuristic cap), NOT an
-/// accepted quality bar — the follow-on substrate work replaces it.
+/// sound, and the geometric ceiling is pinned so silent regressions
+/// fail. Since PK-225/PK-226 these classes serve the KP20 setback fan
+/// (validate-clean, deviation ~0); the 6e-2 ceiling remains as the
+/// regression backstop for the legacy-fallback class.
 #[test]
 fn conic_and_variable_cube_corners_serve_structurally_sound() {
     for (name, profile, radius_fn) in [

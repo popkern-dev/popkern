@@ -25,6 +25,12 @@
 //! circular-equivalent rho at small radii genuinely interpenetrate
 //! near the shared contact corner once the strips extend to the
 //! setback arcs).
+//!
+//! PK-226 added the fourth root fix: a 3-D margin gate in
+//! `arc_boundary_crossings` (the legacy carve's off-surface axis
+//! chords projected across the strip crown and the detector snapped
+//! the arc midpoint onto the raw cube edge), which flips the
+//! variable-radius class from decline to serve for both profiles.
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
@@ -131,34 +137,47 @@ fn circular_uniform_corner_keeps_sphere_serve() {
     assert!(result.brep.validate_all().is_empty());
 }
 
-/// Variable-radius corners decline today (the assembly border sits
-/// ~3e-2 off the committed arcs — rim split stage) with the reason
-/// recorded; the serve keeps the legacy class. This is the recorded
-/// frontier for the class, not an accepted quality bar.
+/// Variable-radius corners serve the setback fan at the commercial
+/// bars (PK-226). The historical decline was a false UV crossing:
+/// closest-point projection folded the legacy carve's off-surface
+/// axis chords onto the strip crown, and the detector snapped the
+/// arc MIDPOINT onto the raw cube edge (margin 4.9e-2 accepted
+/// silently). The 3-D margin gate in `arc_boundary_crossings`
+/// rejects the artifact and the existing endpoint completion
+/// restores the true t=1 contact.
 #[test]
-fn variable_radius_corner_declines_setback_with_recorded_class() {
-    let result = cube_corner(BlendProfile::Conic { rho: 0.5 }, |k| {
-        FilletRadius::Variable {
+fn variable_radius_corner_serves_setback_fan_commercially() {
+    for profile in [BlendProfile::Conic { rho: 0.5 }, BlendProfile::Circular] {
+        let result = cube_corner(profile, |k| FilletRadius::Variable {
             start: 0.10 + 0.02 * k as f64,
             end: 0.16 - 0.02 * k as f64,
-        }
-    });
-    assert!(
-        result.corner_patches.iter().all(|cp| !cp.setback_cap),
-        "variable corner is expected to decline the setback fan today"
-    );
-    use popkern_core::error::ValidationError;
-    let mut worst = 0.0f64;
-    for error in result.brep.validate_all() {
-        match error {
-            ValidationError::CurveSurfaceDeviation { max_deviation, .. } => {
-                worst = worst.max(max_deviation)
-            }
-            other => panic!("variable corner must stay structurally clean, got {other:?}"),
-        }
+        });
+        assert!(
+            !result.corner_patches.is_empty()
+                && result.corner_patches.iter().all(|cp| cp.setback_cap),
+            "variable {profile:?} corner must serve setback caps, got {:?}",
+            result
+                .corner_patches
+                .iter()
+                .map(|cp| (cp.method, cp.setback_cap))
+                .collect::<Vec<_>>()
+        );
+        let errors = result.brep.validate_all();
+        assert!(
+            errors.is_empty(),
+            "variable {profile:?} serve must validate clean, got {errors:?}"
+        );
+        let cap_faces: Vec<_> = result.corner_patches.iter().map(|cp| cp.face).collect();
+        let metrics = measure_cap_outer_boundary(&result.brep, &cap_faces, 100);
+        assert!(
+            metrics.worst_g0_gap <= 5.0e-3,
+            "variable {profile:?} cap_outer_g0 {:.3e} exceeds the commercial gate 5e-3",
+            metrics.worst_g0_gap
+        );
+        assert!(
+            metrics.worst_g1_coplanarity <= 5.0e-2,
+            "variable {profile:?} cap_outer_g1 {:.3e} exceeds the commercial gate 5e-2",
+            metrics.worst_g1_coplanarity
+        );
     }
-    assert!(
-        worst <= 6.0e-2,
-        "variable corner deviation {worst:.3e} exceeds the recorded class ceiling 6e-2"
-    );
 }
