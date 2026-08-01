@@ -103,9 +103,44 @@ pub(super) fn arc_boundary_crossings(
             hits.len()
         );
     }
+    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    // Same-edge graze merge FIRST (before the shared-vertex dedup can
+    // erase the edge association): an arc that TERMINATES on a rail
+    // approaches it near-tangentially, and the sampled polyline reads
+    // the tangent wiggle as an extra transversal crossing a few
+    // samples in (measured on the N=3 cube corner: exact endpoint
+    // contacts at 1e-17 next to same-edge grazes at t≈0.03/0.97 with
+    // 2.1e-6 margins). Parameter-adjacent hits on the SAME edge
+    // within the graze band are one contact event — keep the more
+    // exact hit. A genuine poke-out-and-back double crossing of one
+    // edge is far apart in parameter and stays two hits (the honest
+    // decline below).
+    {
+        let chord = arc_eval.point_at(0.0).distance_to(&arc_eval.point_at(1.0));
+        let graze_margin = (1.0e-3 * chord).max(1.0e-9);
+        loop {
+            let mut drop_index = None;
+            'search: for i in 0..hits.len() {
+                for j in (i + 1)..hits.len() {
+                    if hits[i].1 == hits[j].1
+                        && (hits[i].0 - hits[j].0).abs() <= 0.1
+                        && hits[i].3.min(hits[j].3) <= graze_margin
+                    {
+                        drop_index = Some(if hits[i].3 > hits[j].3 { i } else { j });
+                        break 'search;
+                    }
+                }
+            }
+            match drop_index {
+                Some(index) => {
+                    hits.remove(index);
+                }
+                None => break,
+            }
+        }
+    }
     // Dedup near-identical arc parameters (a crossing at a shared
     // vertex between consecutive edges registers on both).
-    hits.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     hits.dedup_by(|a, b| (a.0 - b.0).abs() < 1.0e-3);
     // Exact-corner endpoint contact: with uniform radii the trim
     // intersections are exact (measured 4e-8 corner gaps on

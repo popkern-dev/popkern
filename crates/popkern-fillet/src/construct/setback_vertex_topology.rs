@@ -39,6 +39,9 @@ mod setback_arc_binding;
 /// the legacy path for anything out of its class, and the cap gates
 /// must close at relative 1e-6 before any topology commits.
 /// Kill-switch: POPKERN_SETBACK_VERTEX_BLEND=0.
+#[path = "setback_rim_refit.rs"]
+mod setback_rim_refit;
+use setback_rim_refit::refit_cap_rim;
 #[path = "setback_arc_crossings.rs"]
 mod setback_arc_crossings;
 #[path = "setback_bezier9.rs"]
@@ -473,8 +476,12 @@ fn surgery_inner(
     // declining lets the legacy sphere-fit path serve the gentle
     // corner instead. Sharp-apex fixtures measure g0 ≤ 2e-10 and
     // g1 ≤ 2e-3 here — orders under the gates.
+    let stage_timer = std::time::Instant::now();
     let (seam_g0, seam_g1, seam_g2) =
         setback_fan_seam_refresh::worst_fan_seam_quality(brep, &cap_faces);
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!("  [stage-timing] seam quality: {:?}", stage_timer.elapsed());
+    }
     if std::env::var_os("PK_SETBACK_PROBE").is_some() {
         eprintln!("  [seam-postcondition] g0={seam_g0:.3e} g1={seam_g1:.3e} g2={seam_g2:.3e}");
     }
@@ -483,6 +490,46 @@ fn surgery_inner(
             "fan seam postcondition failed: g0={seam_g0:.3e} (gate 1e-5) \
              g1={seam_g1:.3e} (gate 5e-2)"
         ));
+    }
+    // Fold postcondition: the fast structural validate() the commit
+    // runs excludes self-intersection, so a fan whose pieces FOLD
+    // would serve and only die later at the Part serving gate
+    // (measured on the N=3 cube corner: 3 near-pole pieces fold with
+    // interior normal reversals to dot -1.0 while the assembly's
+    // unsigned min-regularity 8.7e-5 slid past a gate inflated by the
+    // creased-border corner mismatch). Decline HERE with the class
+    // named; the legacy path serves the corner instead.
+    let fold_timer = std::time::Instant::now();
+    for &fh in &cap_faces {
+        let folded = brep
+            .faces
+            .get(fh)
+            .and_then(|f| f.surface.as_ref())
+            .is_some_and(|sof| match &sof.geometry {
+                popkern_core::geometry::SurfaceGeometry::Gregory(patch) => {
+                    patch.self_intersects_with_tolerance(brep.tolerance.linear().max(1e-6))
+                }
+                _ => false,
+            });
+        if folded {
+            return Err(format!(
+                "fan fold postcondition failed: cap piece {fh:?} self-intersects \
+                 (assembly-born fold — creased-border wide-sector class)"
+            ));
+        }
+    }
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!("  [stage-timing] fold gate: {:?}", fold_timer.elapsed());
+    }
+    // Strip-conflict postcondition (PK-225): the setback extends the
+    // strips to the arcs, and flat conic sections at small radii
+    // genuinely interpenetrate near the shared contact corner. The
+    // committed arcs are the strips' new corner-side boundaries —
+    // a mid-arc contact with a NEIGHBOUR strip means the kept
+    // domains overlap (see setback_commit_gate module docs for the
+    // falsified alternatives).
+    if let Some(conflict) = super::setback_commit_gate::flat_section_class(fillet_surfaces) {
+        return Err(format!("strip-conflict postcondition failed: {conflict}"));
     }
     // A G2 REQUEST additionally gates the seam's normal-curvature
     // residual (PK-122): a blunt apex (18° half-angle, pentagon5_blunt)
@@ -597,6 +644,18 @@ fn build_cap_face_fan(
     let sectors = &report.sectors;
     if sectors.len() != n {
         return Err(format!("cap has {} sectors for {n} arcs", sectors.len()));
+    }
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        eprintln!(
+            "  [assembly] min_reg={:.3e} g1={:.3e} g2={:.3e} c0={:.3e} border={:.3e} strip_move={:.3e} input_corner={:.3e}",
+            report.min_regularity,
+            report.max_g1_residual,
+            report.max_g2_residual,
+            report.max_c0_residual,
+            report.max_border_residual,
+            report.max_strip_movement,
+            report.input_corner_mismatch,
+        );
     }
 
     const P1: Kp20PieceId = Kp20PieceId::NearOriginLeft;
@@ -920,6 +979,29 @@ fn build_cap_face_fan(
         }
     }
     pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    if std::env::var_os("PK_SETBACK_PROBE").is_some() {
+        let mut by_face: std::collections::BTreeMap<usize, Vec<(f64, usize)>> =
+            std::collections::BTreeMap::new();
+        for &(score, face_idx, patch_idx) in &pairs {
+            by_face
+                .entry(face_idx)
+                .or_default()
+                .push((score, patch_idx));
+        }
+        for (face_idx, mut entries) in by_face {
+            entries.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            let head: Vec<String> = entries
+                .iter()
+                .take(3)
+                .map(|(s, p)| format!("patch{p}@{s:.3e}"))
+                .collect();
+            eprintln!(
+                "  [assign] face {:?}: {}",
+                face_handles[face_idx],
+                head.join(" ")
+            );
+        }
+    }
     let mut face_taken = vec![false; face_handles.len()];
     let mut patch_taken = vec![false; patches.len()];
     for (_, face_idx, patch_idx) in pairs {
@@ -1026,6 +1108,75 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                     .map(|l| l.face);
                 twin_face.is_some_and(|f| cap_faces.contains(&f) && f != fh)
             };
+            // Cap-internal seams between committed pieces are CHART
+            // EDGES of the face's own patch: after the seam refresh
+            // the edge curve IS the patch's boundary-row Bezier, whose
+            // parameter equals the chart parameter, so the exact
+            // pcurve is the analytic Linear along that chart edge —
+            // no point inversion. Projection was measured diverging
+            // off-domain on the wide N=3 sectors (uv u=1.409 while the
+            // endpoints sit on grid corners to 1e-15), and the seam
+            // postcondition read the wrong-basin plateau as
+            // g0 2.3e-2 / g1 1.0.
+            if cap_internal
+                && let Some(popkern_core::geometry::SurfaceGeometry::Gregory(
+                    popkern_core::geometry::gregory::GregoryPatch::RectangularBiNonic(bp),
+                )) = brep
+                    .faces
+                    .get(fh)
+                    .and_then(|f| f.surface.as_ref())
+                    .map(|s| &s.geometry)
+            {
+                let corners = [
+                    ((0.0, 0.0), bp.grid[0][0]),
+                    ((0.0, 1.0), bp.grid[0][9]),
+                    ((1.0, 0.0), bp.grid[9][0]),
+                    ((1.0, 1.0), bp.grid[9][9]),
+                ];
+                let match_corner = |p: popkern_core::geometry::Point3| {
+                    corners
+                        .iter()
+                        .map(|(uv, c)| (*uv, p.distance_to(c)))
+                        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+                        .filter(|(_, d)| *d <= 1.0e-3)
+                        .map(|(uv, _)| uv)
+                };
+                let he_data = &brep.half_edges[he];
+                let origin_v = he_data.origin;
+                let dest_v = brep.half_edges[he_data.twin].origin;
+                let (Some(origin_p), Some(dest_p)) = (
+                    brep.vertices.get(origin_v).map(|v| v.position),
+                    brep.vertices.get(dest_v).map(|v| v.position),
+                ) else {
+                    continue;
+                };
+                let matched = (match_corner(origin_p), match_corner(dest_p));
+                if std::env::var_os("PK_SETBACK_PROBE").is_some()
+                    && (matched.0.is_none() || matched.1.is_none())
+                {
+                    eprintln!(
+                        "  [iso-pcurve] face {fh:?} he {he:?} off-corner: origin d {:.2e}, dest d {:.2e}",
+                        corners
+                            .iter()
+                            .map(|(_, c)| origin_p.distance_to(c))
+                            .fold(f64::INFINITY, f64::min),
+                        corners
+                            .iter()
+                            .map(|(_, c)| dest_p.distance_to(c))
+                            .fold(f64::INFINITY, f64::min),
+                    );
+                }
+                if let (Some(uv_o), Some(uv_d)) = matched
+                    && uv_o != uv_d
+                    // Shared chart edge: exactly one coordinate differs.
+                    && ((uv_o.0 == uv_d.0) != (uv_o.1 == uv_d.1))
+                {
+                    if let Some(he_mut) = brep.half_edges.get_mut(he) {
+                        he_mut.pcurve = Some(Pcurve::linear(uv_o, uv_d, 0.0, 1.0));
+                    }
+                    continue;
+                }
+            }
             if is_sweep || cap_internal {
                 let window = brep.half_edges[he].edge;
                 let Some(curve) = brep.edges.get(window).and_then(|e| e.curve.clone()) else {
@@ -1100,296 +1251,6 @@ fn author_setback_pcurves(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(
                     t_start: 0.0,
                     t_end: 1.0,
                 });
-            }
-        }
-    }
-    Ok(())
-}
-
-/// Move rim vertices onto the cap boundary rows and assign each rim
-/// edge (cap piece ↔ non-cap face) the exact degree-9 Bezier segment
-/// of the piece's boundary row between its (re-projected) endpoints.
-/// Non-rim curves that end at a moved vertex have their nearest
-/// endpoint control point translated to match.
-fn refit_cap_rim(brep: &mut BRep, cap_faces: &[FaceHandle]) -> Result<(), String> {
-    use popkern_core::geometry::gregory::GregoryPatch;
-    // Collect (rim half-edge on cap side, row, ..) jobs first.
-    struct RimJob {
-        edge: EdgeHandle,
-        /// Cap-side half-edge (the loop side on the cap face).
-        cap_he: popkern_core::topology::HalfEdgeHandle,
-        /// Which grid side of the piece (0: u=0, 1: u=9-row, 2: v=0
-        /// col, 3: v=9 col) — determines the pcurve's iso line.
-        side: usize,
-        row: [Point3; 10],
-        va: VertexHandle,
-        vb: VertexHandle,
-    }
-    let mut jobs: Vec<RimJob> = Vec::new();
-    for &fh in cap_faces {
-        let Some(popkern_core::geometry::SurfaceGeometry::Gregory(
-            GregoryPatch::RectangularBiNonic(patch),
-        )) = brep
-            .faces
-            .get(fh)
-            .and_then(|f| f.surface.as_ref())
-            .map(|s| &s.geometry)
-        else {
-            continue;
-        };
-        let grid = patch.grid;
-        let rows: [[Point3; 10]; 4] = [
-            core::array::from_fn(|j| grid[0][j]),
-            core::array::from_fn(|j| grid[9][j]),
-            core::array::from_fn(|i| grid[i][0]),
-            core::array::from_fn(|i| grid[i][9]),
-        ];
-        for he in face_loop_half_edges(brep, fh)? {
-            let data = &brep.half_edges[he];
-            let twin_face = brep.loops[brep.half_edges[data.twin].loop_].face;
-            let twin_is_cap = cap_faces.contains(&twin_face);
-            if twin_is_cap && fh > twin_face {
-                // Interior cap↔cap edges are refit once (from the
-                // lower-handle side); both grids agree on the shared
-                // row after sweep reconciliation.
-                continue;
-            }
-            let va = data.origin;
-            let vb = brep.half_edges[data.next].origin;
-            let pa = brep.vertices[va].position;
-            let pb = brep.vertices[vb].position;
-            // Pick the row by the edge's MIDPOINT (endpoints sit at
-            // patch corners where two rows tie; the midpoint is
-            // interior to exactly one side).
-            let mid = match brep.edges[data.edge].curve.as_ref() {
-                Some(c) => {
-                    let eval: &dyn CurveEval = &c.geometry;
-                    eval.point_at(0.5 * (c.t_start + c.t_end))
-                }
-                None => Point3::new(
-                    0.5 * (pa.x + pb.x),
-                    0.5 * (pa.y + pb.y),
-                    0.5 * (pa.z + pb.z),
-                ),
-            };
-            let mut best: Option<(f64, usize)> = None;
-            for (ri, row) in rows.iter().enumerate() {
-                let d = bezier9_nearest(row, mid).1;
-                if best.map(|(bd, _)| d < bd).unwrap_or(true) {
-                    best = Some((d, ri));
-                }
-            }
-            let (_, ri) = best.ok_or("no rim row")?;
-            jobs.push(RimJob {
-                edge: data.edge,
-                cap_he: he,
-                side: ri,
-                row: rows[ri],
-                va,
-                vb,
-            });
-        }
-    }
-
-    // Move rim vertices onto their rows (average when a vertex is
-    // claimed by multiple rows — e.g. c between two sectors; the rows
-    // agree at corners to extraction accuracy).
-    let mut targets: std::collections::HashMap<VertexHandle, Vec<Point3>> =
-        std::collections::HashMap::new();
-    for job in &jobs {
-        for v in [job.va, job.vb] {
-            let p = brep.vertices[v].position;
-            let (t, _) = bezier9_nearest(&job.row, p);
-            targets
-                .entry(v)
-                .or_default()
-                .push(bezier9_eval(&job.row, t));
-        }
-    }
-    // A vertex may move ONLY if every incident non-rim curve can
-    // follow it: full-window NURBS whose end control point sits at
-    // the vertex. Split trims carry WINDOWED curves (their endpoint
-    // is curve(t_start), not a control point) — translating a CP
-    // would deform the wrong span, and skipping it breaks loop
-    // closure (measured 4.7e-4 gaps), so those vertices stay put and
-    // the rim segments snap to them instead.
-    let rim_edge_set: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
-    let movable = |v: VertexHandle| -> bool {
-        let old = brep.vertices[v].position;
-        for (eh, edge) in brep.edges.iter() {
-            let he = edge.half_edge;
-            let va = brep.half_edges[he].origin;
-            let vb = brep.half_edges[brep.half_edges[he].twin].origin;
-            if va != v && vb != v {
-                continue;
-            }
-            if rim_edge_set.contains(&eh) {
-                continue;
-            }
-            let Some(curve) = edge.curve.as_ref() else {
-                return false;
-            };
-            let popkern_core::geometry::CurveGeometry::Nurbs(n) = &curve.geometry else {
-                return false;
-            };
-            let cp_end_at_v = n
-                .control_points
-                .first()
-                .map(|p| p.distance_to(&old) < 1.0e-6)
-                .unwrap_or(false)
-                || n.control_points
-                    .last()
-                    .map(|p| p.distance_to(&old) < 1.0e-6)
-                    .unwrap_or(false);
-            if !cp_end_at_v {
-                return false;
-            }
-        }
-        true
-    };
-    let movable_set: std::collections::HashSet<VertexHandle> =
-        targets.keys().copied().filter(|&v| movable(v)).collect();
-    let mut moves: std::collections::HashMap<VertexHandle, (Point3, Point3)> =
-        std::collections::HashMap::new();
-    let mut moved_windowed_neighbour = false;
-    for (v, list) in targets {
-        let old = brep.vertices[v].position;
-        let mut acc = [0.0_f64; 3];
-        for p in &list {
-            acc[0] += p.x;
-            acc[1] += p.y;
-            acc[2] += p.z;
-        }
-        let n = list.len() as f64;
-        let new = Point3::new(acc[0] / n, acc[1] / n, acc[2] / n);
-        if old.distance_to(&new) > 1.0e-12 {
-            brep.vertices[v].position = new;
-            moves.insert(v, (old, new));
-            if !movable_set.contains(&v) {
-                moved_windowed_neighbour = true;
-            }
-        }
-    }
-    // Vertices whose incident curves are WINDOWED splits used to stay
-    // put, and the rim segments were ramped onto them — deforming the
-    // exact row segment by the row-movement (~1.5e-3) right at the
-    // fan corners. That deformation was the last author of the
-    // G2-request fan's off-surface readings (PK-208: the tessellator
-    // read a TRUE 1.48e-3 curve-vs-cap deviation on the rimsplit
-    // stubs and fell back to the cracking legacy path). Move those
-    // vertices onto the rows too and let the dedicated endpoint-
-    // coherence repair make every incident curve follow — windowed
-    // curves included, which is exactly the case it exists for. The
-    // surgery's commit postcondition + validate + rollback bound the
-    // blast radius.
-    if moved_windowed_neighbour {
-        let repaired = brep.repair_edge_curve_endpoint_coherence(1.0e-8);
-        if std::env::var_os("PK_SETBACK_PROBE").is_some() {
-            eprintln!(
-                "  [rim-refit] windowed-neighbour vertices moved; {repaired} incident curves re-cohered"
-            );
-        }
-    }
-
-    // Assign exact row segments to the rim edges.
-    let rim_edges: std::collections::HashSet<EdgeHandle> = jobs.iter().map(|j| j.edge).collect();
-    for job in &jobs {
-        let pa = brep.vertices[job.va].position;
-        let pb = brep.vertices[job.vb].position;
-        let (ta, _) = bezier9_nearest(&job.row, pa);
-        let (tb, _) = bezier9_nearest(&job.row, pb);
-        // The row's parameterization may run against the half-edge:
-        // extract the ordered span and reverse the control points.
-        let mut seg = if ta <= tb {
-            bezier9_extract(&job.row, ta, tb)
-        } else {
-            let mut rev = bezier9_extract(&job.row, tb, ta);
-            rev.reverse();
-            rev
-        };
-        // Endpoints exactly at the vertices, with the deltas ramped
-        // linearly across all control points (a degree-1 correction
-        // in Bernstein form) so the segment stays smooth.
-        let da = pa - bezier9_eval(&seg, 0.0);
-        let db = pb - bezier9_eval(&seg, 1.0);
-        for (i, cp) in seg.iter_mut().enumerate() {
-            let f = i as f64 / 9.0;
-            *cp = Point3::new(
-                cp.x + da.x * (1.0 - f) + db.x * f,
-                cp.y + da.y * (1.0 - f) + db.y * f,
-                cp.z + da.z * (1.0 - f) + db.z * f,
-            );
-        }
-        let mut knots = Vec::with_capacity(20);
-        knots.extend(std::iter::repeat_n(0.0, 10));
-        knots.extend(std::iter::repeat_n(1.0, 10));
-        if let Some(edge) = brep.edges.get_mut(job.edge) {
-            edge.curve = Some(popkern_core::geometry::CurveOnEdge {
-                geometry: popkern_core::geometry::CurveGeometry::Nurbs(NurbsCurve {
-                    degree: 9,
-                    knots,
-                    control_points: seg.to_vec(),
-                    weights: vec![1.0; 10],
-                }),
-                t_start: 0.0,
-                t_end: 1.0,
-            });
-        }
-        // Cap-side pcurve: the row segment IS the iso line of the
-        // piece domain between ta and tb, and de Casteljau extraction
-        // parameterizes it linearly — so an exact, parameter-
-        // synchronized pcurve is the straight domain segment. (The
-        // STEP exporter demands trace synchronization; asynchronous
-        // pcurves force face-local edges and an OPEN_SHELL export.)
-        // grid[i][j] evaluates with B_i(u)·B_j(v): sides 0/1 are u
-        // iso lines parameterized by v, sides 2/3 v iso lines by u.
-        let (uv_a, uv_b) = match job.side {
-            0 => ((0.0, ta), (0.0, tb)),
-            1 => ((1.0, ta), (1.0, tb)),
-            2 => ((ta, 0.0), (tb, 0.0)),
-            _ => ((ta, 1.0), (tb, 1.0)),
-        };
-        if let Some(he_mut) = brep.half_edges.get_mut(job.cap_he) {
-            he_mut.pcurve = Some(popkern_core::geometry::pcurve::Pcurve {
-                geometry: popkern_core::geometry::pcurve::PcurveGeometry::Linear {
-                    start: uv_a,
-                    end: uv_b,
-                },
-                t_start: 0.0,
-                t_end: 1.0,
-            });
-        }
-    }
-
-    // Repair endpoint coherence for NON-rim curves at moved vertices:
-    // translate whichever curve end is nearest the old position.
-    let edge_keys: Vec<EdgeHandle> = brep.edges.keys().collect();
-    for eh in edge_keys {
-        if rim_edges.contains(&eh) {
-            continue;
-        }
-        let he = brep.edges[eh].half_edge;
-        let va = brep.half_edges[he].origin;
-        let vb = brep.half_edges[brep.half_edges[he].twin].origin;
-        for v in [va, vb] {
-            let Some(&(old, new)) = moves.get(&v) else {
-                continue;
-            };
-            let Some(curve) = brep.edges.get_mut(eh).and_then(|e| e.curve.as_mut()) else {
-                continue;
-            };
-            if let popkern_core::geometry::CurveGeometry::Nurbs(n) = &mut curve.geometry {
-                let front = n.control_points.first().map(|p| p.distance_to(&old));
-                let back = n.control_points.last().map(|p| p.distance_to(&old));
-                match (front, back) {
-                    (Some(f), Some(b)) if f <= b && f < 1.0e-6 => {
-                        *n.control_points.first_mut().ok_or("empty curve")? = new;
-                    }
-                    (Some(_), Some(b)) if b < 1.0e-6 => {
-                        *n.control_points.last_mut().ok_or("empty curve")? = new;
-                    }
-                    _ => {}
-                }
             }
         }
     }

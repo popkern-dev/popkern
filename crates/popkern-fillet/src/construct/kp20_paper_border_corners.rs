@@ -82,13 +82,37 @@ pub(super) fn setback_corners(
     for k in 0..n {
         let fa = &fillet_surfaces[order[k]];
         let fb = &fillet_surfaces[order[(k + 1) % n]];
-        let mut best_coplanar: Option<(f64, Point3)> = None;
+        // Among coplanar candidates, TANGENT COHERENCE breaks ties:
+        // the corner must be where the two strips meet on their
+        // SHARED support (surface normals agree there — the vertex-
+        // enclosure data the cap assembly consumes is coherent). On
+        // a trihedral cube corner every rail pair is coplanar
+        // (straight lines) and two pairs intersect EXACTLY: the
+        // shared-support contact corner (normals agree) and an
+        // on-edge rail crossing whose strips meet at the full 90°
+        // dihedral. Gap and coplanarity score both 1e-16 — only the
+        // normal test separates them (measured: the creased pick fed
+        // the assembly a 3.6e-2 corner band mismatch, min regularity
+        // 8.7e-5, and three folded near-pole pieces).
+        let mut best_coplanar: Option<(f64, Point3, bool)> = None;
         let mut best_any: Option<(f64, Point3)> = None;
         for ca in [&fa.trim_curve_1, &fa.trim_curve_2] {
             for cb in [&fb.trim_curve_1, &fb.trim_curve_2] {
                 let candidate = closest_between_refined(ca, cb, &material_side);
-                if pair_is_coplanar(ca, cb) && best_coplanar.is_none_or(|(d, _)| candidate.0 < d) {
-                    best_coplanar = Some(candidate);
+                if pair_is_coplanar(ca, cb) {
+                    let coherent = strips_normal_disagreement(fa, fb, candidate.1)
+                        .is_some_and(|sin_angle| sin_angle < 1.0e-3);
+                    let better = match best_coplanar {
+                        None => true,
+                        Some((d, _, best_coherent)) => match (coherent, best_coherent) {
+                            (true, false) => true,
+                            (false, true) => false,
+                            _ => candidate.0 < d,
+                        },
+                    };
+                    if better {
+                        best_coplanar = Some((candidate.0, candidate.1, coherent));
+                    }
                 }
                 if best_any.is_none_or(|(d, _)| candidate.0 < d) {
                     best_any = Some(candidate);
@@ -96,12 +120,14 @@ pub(super) fn setback_corners(
             }
         }
         let chosen = best_coplanar
+            .map(|(d, p, _)| (d, p))
             .or(best_any)
             .unwrap_or((f64::INFINITY, Point3::new(0.0, 0.0, 0.0)));
         if std::env::var_os("PK_SETBACK_PROBE").is_some() {
             eprintln!(
-                "  [corner-select] k={k} coplanar={:?} any={:?} chosen=({:.4},{:.4},{:.4}) gap={:.3e}",
-                best_coplanar.map(|(d, _)| d),
+                "  [corner-select] k={k} coplanar={:?} coherent={:?} any={:?} chosen=({:.4},{:.4},{:.4}) gap={:.3e}",
+                best_coplanar.map(|(d, _, _)| d),
+                best_coplanar.map(|(_, _, c)| c),
                 best_any.map(|(d, _)| d),
                 chosen.1.x,
                 chosen.1.y,
@@ -112,6 +138,29 @@ pub(super) fn setback_corners(
         corners.push(chosen);
     }
     corners
+}
+
+/// `sin` of the angle between the two strips' surface normals at
+/// `p` — the tangent-coherence measure for corner-pair selection.
+/// `None` when either projection fails (the caller treats that as
+/// incoherent).
+fn strips_normal_disagreement(
+    fa: &FilletSurfaceResult,
+    fb: &FilletSurfaceResult,
+    p: Point3,
+) -> Option<f64> {
+    use popkern_core::geometry::surface::SurfaceEval;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let mut normals = Vec::with_capacity(2);
+    for fillet in [fa, fb] {
+        let (u, v) = project_point_to_uv(&fillet.surface, &p)?;
+        let on_surface = fillet.surface.point_at(u, v);
+        if on_surface.distance_to(&p) > 1.0e-3 {
+            return None;
+        }
+        normals.push(fillet.surface.normal_at(u, v).normalized()?);
+    }
+    Some(normals[0].cross(&normals[1]).length())
 }
 
 /// Both curves lie in one plane (the shared planar support face).

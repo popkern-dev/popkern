@@ -122,9 +122,21 @@ pub(super) fn worst_fan_seam_quality(brep: &BRep, cap_faces: &[FaceHandle]) -> (
             };
             let g1 = na.cross(&nb).length();
             if g1 > worst_g1 && std::env::var_os("PK_SETBACK_PROBE").is_some() && g1 > 5.0e-2 {
+                let da = surf_a.point_at(uv_a.x, uv_a.y).distance_to(&c);
+                let db = surf_b.point_at(uv_b.x, uv_b.y).distance_to(&c);
                 eprintln!(
-                    "  [seam-worst] edge {:?} faces {:?}/{:?} f={f:.3} g1={g1:.3e} at ({:.4},{:.4},{:.4})",
-                    edge.half_edge, loop_a.face, loop_b.face, c.x, c.y, c.z
+                    "  [seam-worst] edge {:?} faces {:?}/{:?} f={f:.3} g1={g1:.3e} at ({:.4},{:.4},{:.4}) \
+                     uv_a=({:.3},{:.3}) d_a={da:.3e} uv_b=({:.3},{:.3}) d_b={db:.3e}",
+                    edge.half_edge,
+                    loop_a.face,
+                    loop_b.face,
+                    c.x,
+                    c.y,
+                    c.z,
+                    uv_a.x,
+                    uv_a.y,
+                    uv_b.x,
+                    uv_b.y
                 );
             }
             worst_g1 = worst_g1.max(g1);

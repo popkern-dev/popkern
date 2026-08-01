@@ -75,13 +75,17 @@ fn exact_boundary_details<'a>(
 
 /// The filed defect: the rational dispatch must never again decline a
 /// conic cube corner as "not dispatch-ready" for carrying the
-/// physical N = 3 loop. Today it runs, measures, and either ships a
-/// complex that beats the commercial bars or declines with the
-/// measured cap/support fact.
+/// physical N = 3 loop. The fixture is the flat-rho small-radius
+/// corner, which declines the (now-production, PK-225) setback rung
+/// upstream and genuinely reaches the rational dispatch; there the
+/// dispatch runs, measures, and either ships a complex that beats
+/// the commercial bars or declines with the measured cap/support
+/// fact. (The uniform rho=0.5 corner serves the setback fan before
+/// the dispatch — pinned in setback_n3_corner_serve.rs.)
 #[test]
 fn conic_cube_corner_dispatch_is_measured_not_starved() {
-    let result = cube_corner_result(BlendProfile::Conic { rho: 0.5 }, |_| {
-        FilletRadius::Constant(0.15)
+    let result = cube_corner_result(BlendProfile::Conic { rho: 0.35 }, |_| {
+        FilletRadius::Constant(0.1)
     });
 
     let starved = exact_boundary_details(&result).any(|(stage, detail)| {
@@ -95,10 +99,11 @@ fn conic_cube_corner_dispatch_is_measured_not_starved() {
 
     let measured_or_shipped = exact_boundary_details(&result)
         .any(|(stage, _)| stage == "rational_gregory.dispatch.cap_support_acceptance")
+        || result.corner_patches.len() == 3
         || result
             .corner_patches
             .iter()
-            .any(|cp| cp.sub_patch_provenance.is_some() || result.corner_patches.len() == 3);
+            .any(|cp| cp.sub_patch_provenance.is_some());
     assert!(
         measured_or_shipped,
         "the dispatch must either ship the sector complex or record the measured \

@@ -18,6 +18,8 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 mod blend_insert_diagnostics;
 #[path = "blend_insert_pns_acceptance.rs"]
 mod blend_insert_pns_acceptance;
+#[path = "blend_insert_setback_rung.rs"]
+mod blend_insert_setback_rung;
 #[path = "blend_insert_support_cell_acceptance.rs"]
 mod blend_insert_support_cell_acceptance;
 #[path = "blend_insert_surface.rs"]
@@ -109,98 +111,39 @@ pub(crate) fn insert_vertex_blend(
     // is the setback n-gon; the cap face fan is the recorded
     // follow-up, so for now the outcome is only exercised by
     // integration tests and the arm falls through on any error.
-    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_N3").is_some() {
+    // PK-225: N = 3 setback is PRODUCTION for corners the sphere does
+    // not own (conic / variable profiles — their strips are NURBS).
+    // Three root fixes made the surgery land there: the crossings
+    // graze-merge (tangent-terminated arcs), the rim-refit
+    // corner-identity row pick (fan seams 2.3e-2 -> 4e-13), and
+    // tangent-coherent corner-pair selection (assembly g2
+    // 4.4e-2 -> 2.7e-12, folds cleared). Measured: uniform conic cube
+    // corner serves at cap_outer g0 2.9e-5 / g1 9.7e-6, validate_all
+    // clean; unsuitable corners (variable radii — the assembly border
+    // sits ~3e-2 off the committed arcs) decline transactionally with
+    // the reason recorded and the legacy path serves as before.
+    // Sphere-owned corners (uniform radii, analytic strips) keep the
+    // exact rolling-ball serve. POPKERN_SETBACK_N3 stays as the
+    // diagnostic force-on for every N=3 corner.
+    let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
+    let setback_min_n = if std::env::var_os("POPKERN_SETBACK_N3").is_some()
+        || !sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre)
+    {
         3
     } else {
         5
     };
-    if super::setback_vertex_topology::setback_topology_commit_enabled()
-        && edge_indices.len() >= setback_min_n
-    {
-        // PK-094 commit mode: the setback vertex blend replaces the
-        // legacy corner machinery entirely for eligible apexes. On
-        // any surgery error the snapshot restore inside the surgery
-        // has already run; fall through to the legacy path with a
-        // recorded reason.
-        let commit_snapshot = brep.clone();
-        // The KP20 cap is the default for BOTH continuity levels: it
-        // is the proven watertight tiling and a G2 cap satisfies G1.
-        // The PnS bi-4 family stays reachable as a diagnostic /
-        // comparison path (POPKERN_G1_PNS_CAP=1); it integrates at
-        // the legacy PnS quality class (5e-2 seams — its patches
-        // overlap by construction, see PK-097).
-        let family = match requested_continuity {
-            ContinuityLevel::G2 => super::setback_vertex_topology::CapFamily::Kp20G2,
-            _ if std::env::var_os("POPKERN_G1_PNS_CAP").is_some() => {
-                super::setback_vertex_topology::CapFamily::PnsG1
-            }
-            _ => super::setback_vertex_topology::CapFamily::Kp20G2,
-        };
-        match super::setback_vertex_topology::try_setback_boundary_surgery(
-            brep,
-            vertex,
-            &fillet_surfaces_pre,
-            tolerance,
-            family,
-            requested_continuity == ContinuityLevel::G2,
-        ) {
-            Ok(outcome) => {
-                if let Err(e) = brep.validate() {
-                    *brep = commit_snapshot;
-                    *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner()) =
-                        Some(format!("setback commit failed validation: {e}"));
-                    return Err(format!("setback vertex blend failed validation: {e}"));
-                }
-                let infos: Vec<CornerPatchInfo> = outcome
-                    .cap_faces
-                    .iter()
-                    .map(|&face| CornerPatchInfo {
-                        vertex,
-                        n_sides: edge_indices.len(),
-                        method: match family {
-                            super::setback_vertex_topology::CapFamily::Kp20G2 => {
-                                CornerMethod::Gregory
-                            }
-                            super::setback_vertex_topology::CapFamily::PnsG1 => {
-                                CornerMethod::PolyhedralNetSpline
-                            }
-                        },
-                        // The blend's continuity is capped by the
-                        // strips: a KP20 (G2-interior) cap on G1
-                        // sweeps yields a G1 blend and must say so.
-                        achieved_continuity: match (family, requested_continuity) {
-                            (
-                                super::setback_vertex_topology::CapFamily::Kp20G2,
-                                ContinuityLevel::G2,
-                            ) => crate::types::ContinuityLevel::G2,
-                            _ => crate::types::ContinuityLevel::G1,
-                        },
-                        classification,
-                        face,
-                        bridge_fallbacks: Vec::new(),
-                        overlap_remediated: false,
-                        relaxed_continuity_coplanarity: None,
-                        cap_sphere: None,
-                        sub_patch_provenance: None,
-                        setback_cap: true,
-                        exact_boundary_cap: false,
-                    })
-                    .collect();
-                return Ok((infos, None, Vec::new()));
-            }
-            Err(e) => {
-                // Fall through to the legacy path.
-                *super::setback_vertex_topology::SETBACK_TOPOLOGY_LAST
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner()) =
-                    Some(format!("setback commit declined: {e}"));
-                if std::env::var_os("PK_CARVE_TRACE").is_some() {
-                    eprintln!("  [setback] declined at {vertex:?}: {e}");
-                }
-            }
-        }
+    if let Some(outcome) = blend_insert_setback_rung::try_setback_rung(
+        brep,
+        vertex,
+        edge_indices,
+        &fillet_surfaces_pre,
+        tolerance,
+        requested_continuity,
+        classification,
+        setback_min_n,
+    ) {
+        return outcome;
     }
 
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
@@ -253,6 +196,63 @@ pub(crate) fn insert_vertex_blend(
         None
     };
 
+    // PK-225 probe (REMOVE): dump the pre-carve corner topology.
+    if std::env::var_os("PK225_TRACE").is_some() {
+        eprintln!(
+            "[pk225] vertex {vertex:?} at {:?}",
+            brep.vertices.get(vertex).map(|v| v.position)
+        );
+        for (face, _) in &face_info {
+            let surf = brep
+                .faces
+                .get(*face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| {
+                    let d = format!("{:?}", s.geometry);
+                    d.chars().take(20).collect::<String>()
+                });
+            let mut walk = Vec::new();
+            if let Some(f) = brep.faces.get(*face) {
+                let start = brep.loops[f.outer_loop].half_edge;
+                let mut he = start;
+                for _ in 0..brep.half_edges.len() {
+                    let d = &brep.half_edges[he];
+                    let p = brep.vertices[d.origin].position;
+                    walk.push(format!("{:?}({:.3},{:.3},{:.3})", d.origin, p.x, p.y, p.z));
+                    he = d.next;
+                    if he == start {
+                        break;
+                    }
+                }
+            }
+            eprintln!(
+                "[pk225] face {face:?} surf={surf:?} loop=[{}]",
+                walk.join(" ")
+            );
+        }
+        if let Some(b) = n_gon_boundary.as_ref() {
+            use popkern_core::geometry::curve::CurveEval;
+            for (k, seg) in b.segments.iter().enumerate() {
+                let (label, c) = match seg {
+                    crate::blend::BoundarySegment::FilletEnd {
+                        curve,
+                        fillet_index,
+                    } => (format!("arc[f{fillet_index}]"), curve),
+                    crate::blend::BoundarySegment::FaceEdge { curve, face } => {
+                        (format!("bridge[{face:?}]"), curve)
+                    }
+                };
+                let (t0, t1) = c.parameter_range();
+                let ce: &dyn CurveEval = c;
+                let p0 = ce.point_at(t0);
+                let p1 = ce.point_at(t1);
+                eprintln!(
+                    "[pk225] seg[{k}] {label} ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
+                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z
+                );
+            }
+        }
+    }
     // Phase 1: For each face, cut a chord between the face's two
     // fillet-trim-endpoint anchors. The V-containing sub-face is
     // the "corner region" (may be a triangle, quad, or pentagon

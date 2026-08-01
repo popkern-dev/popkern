@@ -8,7 +8,7 @@ use crate::geometry::intersection::intersect_surfaces_with_handler;
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
-use crate::topology::BRep;
+use crate::topology::{BRep, FaceHandle};
 use crate::validation::bvh::Bvh;
 use self_intersection_helpers::{
     TraceSurfacePatch, cylinder_cylinder_near_samples, trace_self_intersection_candidate,
@@ -33,6 +33,29 @@ impl BRep {
     ///    Any intersections found are reported as a `SelfIntersection` error.
     pub fn validate_self_intersection(&self) -> Result<(), ValidationError> {
         let face_keys: Vec<_> = self.faces.keys().collect();
+        self.validate_self_intersection_among(&face_keys)
+    }
+
+    /// As [`Self::validate_self_intersection`], restricted to pairs
+    /// drawn from `face_keys` (the same adjacency exemption, AABB/BVH
+    /// pruning, and pair budget). Operators that mutate a bounded
+    /// neighbourhood use this as a commit postcondition: checking the
+    /// touched faces alone keeps the gate O(neighbourhood²) instead
+    /// of O(model²) — the full-model form was measured at 250 s on a
+    /// single N=3 conic corner (NURBS strip pairs dominate).
+    /// Unknown or dead handles are ignored.
+    pub fn validate_self_intersection_among(
+        &self,
+        face_keys: &[FaceHandle],
+    ) -> Result<(), ValidationError> {
+        let face_keys: Vec<FaceHandle> = {
+            let mut seen = std::collections::BTreeSet::new();
+            face_keys
+                .iter()
+                .copied()
+                .filter(|fh| self.faces.contains_key(*fh) && seen.insert(*fh))
+                .collect()
+        };
         let n = face_keys.len();
         if n < 2 {
             return Ok(());
