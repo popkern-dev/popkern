@@ -94,12 +94,13 @@ fn mixed_radius_trihedral_corner_produces_gregory() {
     assert_eq!(route.exact_boundary_sector_count, 3);
 }
 
-/// §5.3 C5 — at G2 request every trihedral cube corner downgrades
-/// to G1 (edge strips are NURBS → target-radius uniformity can't
-/// be verified → Gregory reports G1). The engine emits one
-/// `CornerContinuityDowngraded` warning per corner.
+/// §5.3 C5, updated by PK-225 — at G2 request every trihedral cube
+/// corner serves the KP20 G2 setback fan (the N=3 setback rung is
+/// production for corners the sphere does not own; G2 strips are
+/// NURBS). The historical per-corner G1 downgrade warnings are gone:
+/// the engine delivers the requested continuity.
 #[test]
-fn g2_cube_request_emits_eight_corner_downgrade_warnings() {
+fn g2_cube_request_serves_g2_corners_without_downgrade_warnings() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let specs = cube_fillet_specs(&cube, 0.1);
     let opts = FilletOptions {
@@ -112,7 +113,13 @@ fn g2_cube_request_emits_eight_corner_downgrade_warnings() {
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::CornerContinuityDowngraded { .. }))
         .count();
-    assert_eq!(count, 8);
+    assert_eq!(count, 0, "all corners serve achieved-G2 setback fans");
+    assert!(
+        r.corner_patches
+            .iter()
+            .all(|cp| cp.setback_cap && cp.achieved_continuity == ContinuityLevel::G2),
+        "every corner patch must be a setback cap at achieved G2"
+    );
 }
 
 /// §5.3 C7 — `preview_corner_patches` predicts the same corner

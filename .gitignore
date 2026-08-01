@@ -61,3 +61,4 @@ core.*
 .env
 .env.*
 !.env.example
+target-wt/

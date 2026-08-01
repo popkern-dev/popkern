@@ -62,11 +62,13 @@ fn full_cube_corner_patches_classify_as_same_side_convex() {
     }
 }
 
-/// At G2 request every trihedral cube corner promotes to
-/// RollingBallSphere (G1) post-surface-fix. That's a genuine
-/// G1 < G2 downgrade, so we expect one warning per corner (8).
+/// At G2 request every trihedral cube corner now serves the KP20 G2
+/// setback fan (PK-225 — the N=3 setback rung is production for
+/// corners the sphere does not own; G2 strips are NURBS). The
+/// historical G1 downgrade class is gone for this fixture: achieved
+/// continuity is G2 and NO downgrade warnings fire.
 #[test]
-fn full_cube_g2_request_emits_corner_continuity_downgraded_per_corner() {
+fn full_cube_g2_request_serves_setback_g2_corners_without_downgrade() {
     let cube = BRep::unit_cube(tol()).unwrap();
     let specs: Vec<FilletSpec> = cube
         .edges
@@ -81,27 +83,24 @@ fn full_cube_g2_request_emits_corner_continuity_downgraded_per_corner() {
         ..FilletOptions::default()
     };
     let r = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
-    let corner_warns: Vec<_> = r
+    let corner_warns = r
         .edge_warnings
         .iter()
         .filter(|(_, w)| matches!(w, BlendWarning::CornerContinuityDowngraded { .. }))
-        .collect();
+        .count();
     assert_eq!(
-        corner_warns.len(),
-        8,
-        "cube has 8 corners; each is G1<G2 and should warn",
+        corner_warns, 0,
+        "all 8 corners serve achieved-G2 setback fans; no downgrade may fire",
     );
-    for (_, w) in &corner_warns {
-        if let BlendWarning::CornerContinuityDowngraded {
-            n_sides,
-            requested,
-            achieved,
-            ..
-        } = w
-        {
-            assert_eq!(*n_sides, 3);
-            assert_eq!(*requested, crate::ContinuityLevel::G2);
-            assert_eq!(*achieved, crate::ContinuityLevel::G1);
-        }
-    }
+    let setback_g2 = r
+        .corner_patches
+        .iter()
+        .filter(|cp| cp.setback_cap && cp.achieved_continuity == crate::ContinuityLevel::G2)
+        .count();
+    assert!(
+        setback_g2 > 0 && setback_g2 == r.corner_patches.len(),
+        "every corner patch must be a setback cap at achieved G2, got {}/{}",
+        setback_g2,
+        r.corner_patches.len(),
+    );
 }
