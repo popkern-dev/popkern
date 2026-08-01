@@ -116,6 +116,23 @@ set_status() {
     sql "UPDATE tasks SET status=$(sql_quote "$status"), updated_at=datetime('now'), $close_sql WHERE id=$(sql_quote "$task");"
     event "$task" "status:$status" "$note"
     echo "$task -> $status"
+    if [[ "$status" == "done" || "$status" == "abandoned" || "$status" == "superseded" ]]; then
+        echo ""
+        echo "FOLLOW-UP POLICY: notes on a closed task are invisible to future"
+        echo "sessions. Any remaining frontier, discovered defect, or named next"
+        echo "mechanism MUST be filed as its own task (tools/task new) before you"
+        echo "report this one closed. If everything is truly finished, say so in"
+        echo "the evidence; do not park work in notes."
+        local followup_hits
+        followup_hits=$(sql "SELECT count(*) FROM events WHERE task_id=$(sql_quote "$task") AND kind='note' AND (body LIKE '%frontier%' OR body LIKE '%follow-up%' OR body LIKE '%follow on%' OR body LIKE '%next mechanism%' OR body LIKE '%remaining%' OR body LIKE '%TODO%');")
+        if [[ "${followup_hits:-0}" -gt 0 ]]; then
+            echo ""
+            echo "WARNING: $followup_hits note(s) on this task mention frontier/remaining/"
+            echo "next-mechanism language. Verify each is either finished or filed as a"
+            echo "new task:"
+            sql "SELECT '  - ' || substr(replace(body, char(10), ' '), 1, 110) FROM events WHERE task_id=$(sql_quote "$task") AND kind='note' AND (body LIKE '%frontier%' OR body LIKE '%follow-up%' OR body LIKE '%follow on%' OR body LIKE '%next mechanism%' OR body LIKE '%remaining%' OR body LIKE '%TODO%') ORDER BY created_at DESC LIMIT 5;"
+        fi
+    fi
 }
 
 plan_title() {
