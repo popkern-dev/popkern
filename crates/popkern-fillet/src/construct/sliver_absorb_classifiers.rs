@@ -30,7 +30,6 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 pub(super) fn find_corner_fragment_target(
     brep: &BRep,
     retained: &std::collections::HashSet<FaceHandle>,
-    legacy_caps: &std::collections::BTreeSet<FaceHandle>,
 ) -> Option<(FaceHandle, HalfEdgeHandle)> {
     for fh in brep.faces.keys() {
         if retained.contains(&fh) {
@@ -66,19 +65,13 @@ pub(super) fn find_corner_fragment_target(
             // topology can carry a stale loop→face reference after a
             // blend surgery (measured: a chamfer on a slotted plate
             // panicked here on an invalid SlotMap key).
-            // A declared legacy vertex-blend cap absorbs its corner
-            // fragments regardless of surface kind: conic/variable
-            // profile caps assign a plain fitted NURBS (PK-222), and
-            // gating on the surface enum starved the whole downstream
-            // welded-corner reconstruction for every non-sphere,
-            // non-Gregory cap.
             if twin_face != fh
                 && let Some(twin_face_data) = brep.faces.get(twin_face)
                 && let Some(twin_sof) = twin_face_data.surface.as_ref()
-                && (matches!(
+                && matches!(
                     twin_sof.geometry,
                     SurfaceGeometry::Sphere { .. } | SurfaceGeometry::Gregory(_)
-                ) || legacy_caps.contains(&twin_face))
+                )
             {
                 // A corner FRAGMENT is commensurate with the cap it
                 // merges into; without a size gate this class ate

@@ -35,7 +35,7 @@ use blend_insert_diagnostics::{
     rational_gregory_dispatch_precondition_reason,
 };
 pub(crate) use blend_insert_surface::reclassify_corner_methods;
-use blend_insert_surface::{assign_blend_surface, corner_radii_uniform};
+use blend_insert_surface::{assign_blend_surface, corner_radii_uniform, sphere_owns_corner};
 use blend_insert_three_quad_acceptance::record_fallback_cap_support_continuity;
 pub(crate) use blend_insert_topology::{kev_v_bridge, remove_orphaned_vertex};
 use blend_insert_topology::{normalize_underresolved_face_loop_to_n, split_corner_triangles};
@@ -403,16 +403,13 @@ pub(crate) fn insert_vertex_blend(
     }
 
     // PK-222: N = 3 corners whose Phase 2a collapsed the arc+bridge
-    // pairs carry the physical N-half-edge loop, exactly like the
-    // N >= 4 classes — demanding the 2N form starved the whole
-    // rational dispatch for conic / variable-profile cube corners
-    // (they shipped the polar-NURBS heuristic at g0 ~ 0.2). The
-    // three-quad acceptance gate stays the transactional arbiter.
-    let accept_n3_he = n_sides == 3;
-    // The N-form arm at N = 3 is new dispatch reach with no fixture
-    // history: its commits must pass the same cap/support continuity
-    // acceptance the N >= 5 routes answer to. The 2N form keeps its
-    // historical unconditional acceptance.
+    // pairs carry the physical N-half-edge loop — demanding the 2N
+    // form starved the rational dispatch (polar-NURBS heuristic at
+    // g0 ~ 0.2). The N-form arm is new dispatch reach with no fixture
+    // history, so its commits must pass the same cap/support
+    // acceptance the N >= 5 routes answer to; 2N keeps its historical
+    // unconditional acceptance.
+    let accept_n3_he = n_sides == 3 && !sphere_owns_corner(radii_uniform, &fillet_surfaces_pre);
     let n3_n_form_route = accept_n3_he && !face_has_2n_outer_half_edges(brep, blend_face, n_sides);
     let rational_dispatch_preconditions_met = dispatch_boundary.segments.len() == 2 * n_sides
         && crate::construct::poke_hex::face_has_2n_outer_half_edges_with_n3(

@@ -74,6 +74,25 @@ pub(super) fn corner_radii_uniform(
     anchor.is_some()
 }
 
+/// Sphere-owned corner pre-screen (PK-222): uniform radii with
+/// all-analytic strips always serve through the rolling-ball sphere,
+/// so the N=3 N-form dispatch skips its attempt there outright — the
+/// attempted-then-declined sector complex cost a 12x allocation
+/// regression on the 12-edge cube (§18 profile).
+pub(super) fn sphere_owns_corner(
+    radii_uniform: bool,
+    fillet_surfaces: &[crate::fillet_surface::FilletSurfaceResult],
+) -> bool {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+    radii_uniform
+        && fillet_surfaces.iter().all(|fs| {
+            matches!(
+                fs.surface,
+                SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Torus { .. }
+            )
+        })
+}
+
 /// Reclassify `CornerPatchInfo::method` from each patch's final
 /// face surface type, because `surface_fix::correct_face_surfaces`
 /// can override `build_blend_surface`'s initial choice (e.g.

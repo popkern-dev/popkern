@@ -31,93 +31,10 @@ pub(super) fn snap_vertex_with_retrim(
         .iter()
         .filter_map(|(h, he)| (he.origin == v).then_some(h))
         .collect();
-    // PK-222: straight support-face chords cannot be re-trimmed onto
-    // a junction they never passed through — their endpoint genuinely
-    // moves with the ring vertex. When both carrier faces are planes
-    // that contain the target, rebuild the chord between the target
-    // and its far endpoint (the post-contraction rebuild contract);
-    // curved carriers still take the residual-gated re-trim below.
-    let mut rebuilt: Vec<EdgeHandle> = Vec::new();
-    for &he_h in &halves {
-        let edge_h = brep.half_edges[he_h].edge;
-        if seam_edges.contains(&edge_h) || rebuilt.contains(&edge_h) {
-            continue;
-        }
-        let Some(edge_data) = brep.edges.get(edge_h) else {
-            continue;
-        };
-        let Some(coe) = edge_data.curve.as_ref() else {
-            continue;
-        };
-        if !matches!(coe.geometry, CurveGeometry::Line { .. }) {
-            continue;
-        }
-        let residual_ok = coe
-            .geometry
-            .closest_point(&target)
-            .map(|t| coe.geometry.point_at(t).distance_to(&target) <= tolerance)
-            .unwrap_or(false);
-        if residual_ok {
-            continue;
-        }
-        if !edge_side_faces_contain_target(brep, edge_h, &target, tolerance) {
-            continue;
-        }
-        let he0 = edge_data.half_edge;
-        let Some(primary) = brep.half_edges.get(he0) else {
-            continue;
-        };
-        let Some(twin) = brep.half_edges.get(primary.twin) else {
-            continue;
-        };
-        let (origin_v, dest_v) = (primary.origin, twin.origin);
-        let other = if origin_v == v { dest_v } else { origin_v };
-        let Some(other_pos) = brep.vertices.get(other).map(|vd| vd.position) else {
-            continue;
-        };
-        let (a, b) = if origin_v == v {
-            (target, other_pos)
-        } else {
-            (other_pos, target)
-        };
-        let d = b - a;
-        let len = d.length();
-        let Some(dir) = (len > 1e-12).then(|| d.normalized()).flatten() else {
-            continue;
-        };
-        let (he0, twin_h) = (he0, primary.twin);
-        if let Some(edge_data) = brep.edges.get_mut(edge_h) {
-            edge_data.curve = Some(CurveOnEdge {
-                geometry: CurveGeometry::Line {
-                    origin: a,
-                    direction: dir,
-                },
-                t_start: 0.0,
-                t_end: len,
-            });
-        }
-        // Stale pcurves would resurrect the old chord; downstream
-        // reprojection re-authors from the rebuilt line.
-        if let Some(he) = brep.half_edges.get_mut(he0) {
-            he.pcurve = None;
-        }
-        if let Some(he) = brep.half_edges.get_mut(twin_h) {
-            he.pcurve = None;
-        }
-        rebuilt.push(edge_h);
-    }
     for he_h in halves {
         let edge_h = brep.half_edges[he_h].edge;
-        if rebuilt.contains(&edge_h) {
-            continue;
-        }
         let is_primary = brep.edges.get(edge_h).map(|e| e.half_edge) == Some(he_h);
         let is_seam = seam_edges.contains(&edge_h);
-        let side_kinds = if crate::direct_apex_trace::cap_g0_enabled() {
-            edge_side_face_kinds(brep, edge_h)
-        } else {
-            String::new()
-        };
         let Some(coe) = brep.edges.get_mut(edge_h).and_then(|e| e.curve.as_mut()) else {
             continue;
         };
@@ -144,8 +61,8 @@ pub(super) fn snap_vertex_with_retrim(
                     if crate::direct_apex_trace::cap_g0_enabled() {
                         eprintln!(
                             "[direct-apex-trace cap-g0] reanchor retrim off-curve: edge={edge_h:?} \
-                             kind={} residual={residual:.3e} tol={tolerance:.3e} v={v:?} sides={side_kinds}",
-                            curve_kind_name(&coe.geometry),
+                             kind={} residual={residual:.3e} tol={tolerance:.3e} v={v:?}",
+                            curve_kind_name(&coe.geometry)
                         );
                         off_curve_probe = Some(edge_h);
                         continue;
@@ -225,60 +142,6 @@ pub(super) fn rewire_seam_edge(
     Ok(())
 }
 
-/// True when both side faces of `edge` carry surfaces that contain
-/// `target` (the straight-chord rebuild precondition — a rebuilt
-/// chord's endpoints must stay on both carriers). Planes are gated
-/// at the authoring tolerance; fitted carriers (strips, caps) at the
-/// carve-chord class (1e-3) — the rebuilt chord is exactly as
-/// approximate against them as the carve chord it replaces.
-fn edge_side_faces_contain_target(
-    brep: &BRep,
-    edge: EdgeHandle,
-    target: &Point3,
-    gate: f64,
-) -> bool {
-    use popkern_core::geometry::surface::SurfaceEval;
-    let Some(edge_data) = brep.edges.get(edge) else {
-        return false;
-    };
-    let Some(primary) = brep.half_edges.get(edge_data.half_edge) else {
-        return false;
-    };
-    for he in [edge_data.half_edge, primary.twin] {
-        let contains = brep
-            .half_edges
-            .get(he)
-            .and_then(|h| brep.loops.get(h.loop_))
-            .and_then(|l| brep.faces.get(l.face))
-            .and_then(|f| f.surface.as_ref())
-            .is_some_and(|sof| {
-                let side_gate = if matches!(sof.geometry, SurfaceGeometry::Plane { .. }) {
-                    gate
-                } else {
-                    gate.max(1.0e-3)
-                };
-                let distance = sof
-                    .geometry
-                    .closest_point(target)
-                    .map(|(u, v)| sof.geometry.point_at(u, v).distance_to(target));
-                if crate::direct_apex_trace::cap_g0_enabled()
-                    && distance.is_none_or(|d| d > side_gate)
-                {
-                    eprintln!(
-                        "[direct-apex-trace cap-g0] chord-rebuild gate: edge={edge:?} side {} \
-                         off target by {distance:?} (gate {side_gate:.1e})",
-                        surface_kind_name(&sof.geometry)
-                    );
-                }
-                distance.is_some_and(|d| d <= side_gate)
-            });
-        if !contains {
-            return false;
-        }
-    }
-    true
-}
-
 /// Analytic Linear pcurve on planes (exact), otherwise a sampled
 /// degree-3 fit through UV projections.
 fn support_pcurve_for_curve(
@@ -340,45 +203,6 @@ fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
         knots,
         control_points,
         weights,
-    }
-}
-
-fn edge_side_face_kinds(brep: &BRep, edge: EdgeHandle) -> String {
-    let Some(edge_data) = brep.edges.get(edge) else {
-        return "?".into();
-    };
-    let Some(primary) = brep.half_edges.get(edge_data.half_edge) else {
-        return "?".into();
-    };
-    [edge_data.half_edge, primary.twin]
-        .into_iter()
-        .map(|he| {
-            brep.half_edges
-                .get(he)
-                .and_then(|h| brep.loops.get(h.loop_))
-                .and_then(|l| brep.faces.get(l.face))
-                .map(|f| {
-                    let kind = f
-                        .surface
-                        .as_ref()
-                        .map(|sof| surface_kind_name(&sof.geometry))
-                        .unwrap_or("none");
-                    kind.to_string()
-                })
-                .unwrap_or_else(|| "dead".into())
-        })
-        .collect::<Vec<_>>()
-        .join("|")
-}
-
-fn surface_kind_name(geometry: &SurfaceGeometry) -> &'static str {
-    match geometry {
-        SurfaceGeometry::Plane { .. } => "Plane",
-        SurfaceGeometry::Cylinder { .. } => "Cylinder",
-        SurfaceGeometry::Sphere { .. } => "Sphere",
-        SurfaceGeometry::Nurbs(_) => "Nurbs",
-        SurfaceGeometry::Gregory(_) => "Gregory",
-        _ => "Other",
     }
 }
 

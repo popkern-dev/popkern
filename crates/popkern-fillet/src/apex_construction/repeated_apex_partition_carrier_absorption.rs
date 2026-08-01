@@ -177,9 +177,8 @@ fn bigon_weld_operands(brep: &BRep, production_side: HalfEdgeHandle) -> Option<B
     let far_side = cycle.into_iter().find(|he| *he != near_side)?;
     let far = brep.half_edges.get(far_side)?;
     let far_twin = far.twin;
-    // Scaffolding carries non-mutual twin pointers (measured: the far
-    // side pointing back into the bigon). Only a mutual partner outside
-    // the fragment can become the production twin.
+    // Only a mutual partner outside the fragment can become the
+    // production twin (scaffold twin pointers are non-mutual).
     if far_twin == near_side || far_twin == far_side || far_twin == production_side {
         return None;
     }
@@ -187,23 +186,18 @@ fn bigon_weld_operands(brep: &BRep, production_side: HalfEdgeHandle) -> Option<B
     if far_twin_data.twin != far_side {
         return None;
     }
-    // Never adopt an unwired boundary record as a production twin.
-    brep.loops.get(far_twin_data.loop_)?;
-    // A connector twin homed on the fragment's own loop (referential
-    // integrity for connector-closed residual cycles) has no loop of
-    // its own to serve from: the fragment is a legitimately closed
-    // residual home, not a weldable duplicate-span sliver.
+    brep.loops.get(far_twin_data.loop_)?; // never adopt an unwired boundary record
+    // A fragment-loop-homed connector twin is a closed residual
+    // home, not a weldable duplicate-span sliver (PK-223).
     if far_twin_data.loop_ == fragment_loop {
         return None;
     }
     // A twin must traverse opposite to the production side: it starts
     // where the production side ends — the near side's origin.
     (far_twin_data.origin == near.origin).then_some(())?;
-    // Displaced-membership guard: scaffold chains from OTHER loops may
-    // route through the bigon's half-edges (loop_ pointers and
-    // next-cycles disagree on retired records). Removing the pair would
-    // break those chains, so decline until the deeper handover retires
-    // them.
+    // Displaced-membership guard: scaffold chains from OTHER loops
+    // may route through the bigon's half-edges; removing the pair
+    // would break them, so decline until the handover retires them.
     let removed = [near_side, far_side];
     for (other, other_data) in &brep.half_edges {
         if removed.contains(&other) {
