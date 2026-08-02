@@ -196,63 +196,6 @@ pub(crate) fn insert_vertex_blend(
         None
     };
 
-    // PK-225 probe (REMOVE): dump the pre-carve corner topology.
-    if std::env::var_os("PK225_TRACE").is_some() {
-        eprintln!(
-            "[pk225] vertex {vertex:?} at {:?}",
-            brep.vertices.get(vertex).map(|v| v.position)
-        );
-        for (face, _) in &face_info {
-            let surf = brep
-                .faces
-                .get(*face)
-                .and_then(|f| f.surface.as_ref())
-                .map(|s| {
-                    let d = format!("{:?}", s.geometry);
-                    d.chars().take(20).collect::<String>()
-                });
-            let mut walk = Vec::new();
-            if let Some(f) = brep.faces.get(*face) {
-                let start = brep.loops[f.outer_loop].half_edge;
-                let mut he = start;
-                for _ in 0..brep.half_edges.len() {
-                    let d = &brep.half_edges[he];
-                    let p = brep.vertices[d.origin].position;
-                    walk.push(format!("{:?}({:.3},{:.3},{:.3})", d.origin, p.x, p.y, p.z));
-                    he = d.next;
-                    if he == start {
-                        break;
-                    }
-                }
-            }
-            eprintln!(
-                "[pk225] face {face:?} surf={surf:?} loop=[{}]",
-                walk.join(" ")
-            );
-        }
-        if let Some(b) = n_gon_boundary.as_ref() {
-            use popkern_core::geometry::curve::CurveEval;
-            for (k, seg) in b.segments.iter().enumerate() {
-                let (label, c) = match seg {
-                    crate::blend::BoundarySegment::FilletEnd {
-                        curve,
-                        fillet_index,
-                    } => (format!("arc[f{fillet_index}]"), curve),
-                    crate::blend::BoundarySegment::FaceEdge { curve, face } => {
-                        (format!("bridge[{face:?}]"), curve)
-                    }
-                };
-                let (t0, t1) = c.parameter_range();
-                let ce: &dyn CurveEval = c;
-                let p0 = ce.point_at(t0);
-                let p1 = ce.point_at(t1);
-                eprintln!(
-                    "[pk225] seg[{k}] {label} ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
-                    p0.x, p0.y, p0.z, p1.x, p1.y, p1.z
-                );
-            }
-        }
-    }
     // Phase 1: For each face, cut a chord between the face's two
     // fillet-trim-endpoint anchors. The V-containing sub-face is
     // the "corner region" (may be a triangle, quad, or pentagon
