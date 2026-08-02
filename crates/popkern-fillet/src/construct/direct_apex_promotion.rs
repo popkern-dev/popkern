@@ -1,7 +1,7 @@
 //! Direct-apex dispatch promotion policy.
 //!
 //! Decides, per apex, whether the direct-apex construction runs by
-//! default (as if `use_direct_apex_construction` were set). Two
+//! default (as if `use_direct_apex_construction` were set). Three
 //! promoted classes:
 //!
 //! * **Mixed-radius apexes at N ∈ {3, 4}** (PK-099/PK-127): the
@@ -19,8 +19,17 @@
 //!   same apex at g0 = 3.7e-8 under pure defaults (measured on the
 //!   PK-228 pin fixture). Restricted to all-`Cylinder` strips so
 //!   conic-profile (NURBS-strip) corners keep their current serve.
+//! * **Uniform-radius cylindrical OBLIQUE N = 3 apexes** (PK-232):
+//!   before the kef `outgoing` repair the class shipped NO smooth
+//!   cap at all (anchor collection walked from stale handles and
+//!   the blend fell to Mitred); post-repair the legacy poke serves
+//!   g0 = 7.2e-2 with recorded declines, while direct-apex serves
+//!   the same apex at g0 = 4.9e-8 under pure defaults. Gated on the
+//!   axis-obliqueness discriminator: mutually-orthogonal
+//!   (cube-class) corners stay legacy for their exact rolling-ball
+//!   sphere serve.
 //!
-//! Both classes rely on the direct-apex entry-snapshot rollback: any
+//! All classes rely on the direct-apex entry-snapshot rollback: any
 //! construction failure restores the corner and the legacy dispatch
 //! serves exactly as before (`DirectApexFallbackToLegacy` recorded).
 
@@ -88,6 +97,47 @@ pub(super) fn promoted_apexes_for_mode(
         .collect()
 }
 
+/// True when every pair of the corner's cylinder-strip axes is
+/// orthogonal — the cube-corner (prismatic trihedral) signature. The
+/// oblique pyramid apex measures pairwise |cos| = 8.5e-2 on the
+/// flattest ledger fixture (n_gonal_pyramid(3, 1.0, 0.8)), four
+/// orders above the 1e-4 band, so the discriminator has no
+/// borderline class among known fixtures. Non-cylinder strips never
+/// reach this test (the uniform arm requires all-Cylinder first).
+fn cylinder_axes_mutually_orthogonal(
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+) -> bool {
+    let axes: Vec<popkern_core::geometry::Vec3> = edge_indices
+        .iter()
+        .filter_map(|&index| {
+            let g = edge_geometries.get(index)?;
+            match g.surface {
+                popkern_core::geometry::surface::SurfaceGeometry::Cylinder { axis, .. } => {
+                    axis.normalized()
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    if axes.len() != edge_indices.len() {
+        // Missing/degenerate axis: treat as the protected class so
+        // the corner keeps its current serve.
+        return true;
+    }
+    axes_mutually_orthogonal(&axes)
+}
+
+/// Pairwise |cos| ≤ 1e-4 for every axis pair. The band is angular
+/// and scale-free (axes are unit), sized to absorb constructor
+/// round-off on genuinely orthogonal corners while sitting four
+/// orders below the flattest known oblique fixture (8.5e-2).
+fn axes_mutually_orthogonal(axes: &[popkern_core::geometry::Vec3]) -> bool {
+    axes.iter()
+        .enumerate()
+        .all(|(i, a)| axes[i + 1..].iter().all(|b| a.dot(b).abs() <= 1.0e-4))
+}
+
 pub(super) fn should_promote_direct_apex(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
@@ -120,26 +170,37 @@ pub(super) fn should_promote_direct_apex(
     };
     let uniform_effective = rest.iter().all(|radius| (*radius - first).abs() <= 1.0e-9);
     if uniform_effective {
-        // PK-229 uniform arm: constant-radius cylindrical N = 4
-        // apexes (pyramid apex slant blends). N = 3 uniform corners
-        // stay legacy: cube-class corners serve the exact
-        // rolling-ball sphere there, and the oblique
-        // (non-orthogonal) trihedral apex class needs its own
-        // geometric discriminator before it can promote — see the
-        // PK-229 ledger follow-ups. Variable-radius edges (start ≠
-        // end) and non-cylindrical (conic-profile NURBS) strips are
-        // not the measured class and keep their current serve.
-        return edge_indices.len() == 4
-            && !flags.explicit_legacy_surface_family
-            && edge_indices.iter().all(|&index| {
-                edge_geometries.get(index).is_some_and(|g| {
-                    (g.radius_at_start - g.radius_at_end).abs() <= 1.0e-9
-                        && matches!(
-                            g.surface,
-                            popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
-                        )
-                })
-            });
+        // Uniform arm: constant-radius cylindrical apexes.
+        // Variable-radius edges (start ≠ end) and non-cylindrical
+        // (conic-profile NURBS) strips are not the measured class
+        // and keep their current serve; explicit legacy family
+        // requests keep the legacy ladder measurable on its
+        // reaching fixture.
+        let cylindrical_constant = edge_indices.iter().all(|&index| {
+            edge_geometries.get(index).is_some_and(|g| {
+                (g.radius_at_start - g.radius_at_end).abs() <= 1.0e-9
+                    && matches!(
+                        g.surface,
+                        popkern_core::geometry::surface::SurfaceGeometry::Cylinder { .. }
+                    )
+            })
+        });
+        if flags.explicit_legacy_surface_family || !cylindrical_constant {
+            return false;
+        }
+        // N = 4 (PK-229): pyramid apex slant blends, measured
+        // g0 2.18e-1 legacy poke -> 3.7e-8 direct-apex.
+        if edge_indices.len() == 4 {
+            return true;
+        }
+        // N = 3 (PK-232): only the OBLIQUE trihedral class promotes
+        // (measured g0 7.2e-2 legacy poke -> 4.9e-8 direct-apex on
+        // n_gonal_pyramid(3, 1.0, 0.8) r=0.08 under pure defaults).
+        // Mutually-orthogonal (cube-class) corners stay legacy:
+        // their carve produces the arc+bridge boundary ring that
+        // serves the EXACT rolling-ball sphere via surface-fix
+        // promotion, which no fitted cap can beat.
+        return !cylinder_axes_mutually_orthogonal(edge_indices, edge_geometries);
     }
     if flags.use_kp_binonic_gregory {
         let min_radius = radii.iter().copied().fold(f64::INFINITY, f64::min);
@@ -154,4 +215,59 @@ pub(super) fn should_promote_direct_apex(
         return max_radius / min_radius <= 2.0;
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use popkern_core::geometry::Vec3;
+
+    use super::axes_mutually_orthogonal;
+
+    #[test]
+    fn cube_corner_axes_are_orthogonal() {
+        let axes = [
+            Vec3::new(1.0, 0.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+            Vec3::new(0.0, 0.0, 1.0),
+        ];
+        assert!(axes_mutually_orthogonal(&axes));
+    }
+
+    #[test]
+    fn oblique_pyramid_axes_are_not_orthogonal() {
+        // Slant-edge directions of n_gonal_pyramid(3, 1.0, 0.8):
+        // pairwise cos = (cos 120° + h²) / (1 + h²) ≈ 8.54e-2 — the
+        // flattest ledger fixture, four orders above the band.
+        let h = 0.8_f64;
+        let axes: Vec<Vec3> = (0..3)
+            .map(|i| {
+                let theta = 2.0 * std::f64::consts::PI * f64::from(i) / 3.0;
+                Vec3::new(theta.cos(), theta.sin(), -h)
+                    .normalized()
+                    .expect("slant direction is non-degenerate")
+            })
+            .collect();
+        assert!(!axes_mutually_orthogonal(&axes));
+        let worst = (0..3)
+            .flat_map(|i| ((i + 1)..3).map(move |j| (i, j)))
+            .map(|(i, j)| axes[i].dot(&axes[j]).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            (worst - 8.54e-2).abs() < 1e-3,
+            "expected the documented 8.5e-2 signature, got {worst:.3e}"
+        );
+    }
+
+    #[test]
+    fn round_off_orthogonal_axes_stay_in_band() {
+        // A numerically-constructed cube corner: 1e-7-level cross
+        // terms must still classify as the protected orthogonal
+        // class.
+        let axes = [
+            Vec3::new(1.0, 1.0e-7, -3.0e-8),
+            Vec3::new(-2.0e-8, 1.0, 5.0e-8),
+            Vec3::new(4.0e-8, -1.0e-7, 1.0),
+        ];
+        assert!(axes_mutually_orthogonal(&axes));
+    }
 }

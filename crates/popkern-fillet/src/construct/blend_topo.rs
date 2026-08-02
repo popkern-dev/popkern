@@ -195,38 +195,74 @@ pub(crate) fn find_face_trim_anchors(
             .copied()
             .filter(|r| r.is_finite() && *r > 0.0)
             .fold(0.0, f64::max);
+        let trace = crate::direct_apex_trace::enabled();
         let touches_band = |vh: VertexHandle| -> bool {
             let Some(v) = brep.vertices.get(vh) else {
                 return false;
             };
             let mut cursor = v.outgoing;
             if !brep.half_edges.contains_key(cursor) {
+                if trace {
+                    eprintln!("[direct-apex-trace]     t2 {vh:?}: STALE outgoing {cursor:?}");
+                }
                 return false;
             }
             let fan_start = cursor;
+            let mut star: Vec<String> = Vec::new();
             for _ in 0..brep.half_edges.len() + 1 {
                 let Some(he) = brep.half_edges.get(cursor) else {
+                    star.push("BROKEN-he".into());
                     break;
                 };
                 if let Some(loop_) = brep.loops.get(he.loop_)
                     && let Some(f) = brep.faces.get(loop_.face)
-                    && let Some(sof) = f.surface.as_ref()
-                    && let popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
-                        radius, ..
-                    } = sof.geometry
-                    && radii
-                        .iter()
-                        .any(|&r| (radius - r).abs() <= r.max(1e-12) * 1e-3)
                 {
-                    return true;
+                    if trace {
+                        star.push(format!(
+                            "{:?}:{}",
+                            loop_.face,
+                            f.surface
+                                .as_ref()
+                                .map(|s| {
+                                    match &s.geometry {
+                                    popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                                        radius,
+                                        ..
+                                    } => format!("Cyl(r={radius:.4})"),
+                                    g => format!("{:?}", std::mem::discriminant(g)),
+                                }
+                                })
+                                .unwrap_or_else(|| "None".into())
+                        ));
+                    }
+                    if let Some(sof) = f.surface.as_ref()
+                        && let popkern_core::geometry::surface::SurfaceGeometry::Cylinder {
+                            radius,
+                            ..
+                        } = sof.geometry
+                        && radii
+                            .iter()
+                            .any(|&r| (radius - r).abs() <= r.max(1e-12) * 1e-3)
+                    {
+                        if trace {
+                            eprintln!(
+                                "[direct-apex-trace]     t2 {vh:?}: band HIT, star so far {star:?}"
+                            );
+                        }
+                        return true;
+                    }
                 }
                 let Some(twin) = brep.half_edges.get(he.twin) else {
+                    star.push("BROKEN-twin".into());
                     break;
                 };
                 cursor = twin.next;
                 if cursor == fan_start {
                     break;
                 }
+            }
+            if trace {
+                eprintln!("[direct-apex-trace]     t2 {vh:?}: no band, star {star:?}");
             }
             false
         };

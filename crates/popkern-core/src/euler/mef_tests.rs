@@ -104,3 +104,38 @@ fn kef_invalid_handle_fails() {
 
     assert!(brep.kef(Default::default()).is_err());
 }
+
+/// PK-232: kef keeps both endpoint vertices alive, so it must
+/// re-point any `outgoing` that referenced one of the removed
+/// half-edges. Left stale, every downstream vertex-star walk that
+/// starts at `outgoing` silently reports nothing (the oblique-apex
+/// anchor collection returned false before inspecting a single
+/// face and the whole smooth blend fell to Mitred).
+#[test]
+fn kef_repairs_stale_outgoing_on_both_endpoints() {
+    let (mut brep, _mvfs, mev1, _mev2, mev3) = square_wire();
+    let mef_r = brep.mef(mev3.half_edge_twin, mev1.half_edge).unwrap();
+
+    // Force both endpoint vertices to use the diagonal's half-edges
+    // as their outgoing handles.
+    let he = mef_r.half_edge;
+    let twin = mef_r.half_edge_twin;
+    let he_origin = brep.half_edges[he].origin;
+    let twin_origin = brep.half_edges[twin].origin;
+    brep.vertices[he_origin].outgoing = he;
+    brep.vertices[twin_origin].outgoing = twin;
+
+    brep.kef(he).unwrap();
+
+    for vertex in [he_origin, twin_origin] {
+        let outgoing = brep.vertices[vertex].outgoing;
+        let live = brep
+            .half_edges
+            .get(outgoing)
+            .expect("outgoing must reference a live half-edge after kef");
+        assert_eq!(
+            live.origin, vertex,
+            "repaired outgoing must originate at its vertex"
+        );
+    }
+}

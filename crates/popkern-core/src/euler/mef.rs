@@ -221,6 +221,7 @@ impl BRep {
         let edge_handle = he_data.edge;
         let he_prev = he_data.prev;
         let he_loop = he_data.loop_;
+        let he_origin = he_data.origin;
 
         let twin_data = self
             .half_edges
@@ -230,6 +231,7 @@ impl BRep {
         let twin_prev = twin_data.prev;
         let twin_next = twin_data.next;
         let twin_loop = twin_data.loop_;
+        let twin_origin = twin_data.origin;
         let he_next_via_twin = twin_next;
 
         // Precondition: they must be in different loops (different faces).
@@ -268,6 +270,26 @@ impl BRep {
 
         // Update surviving loop's half_edge (in case it pointed to a removed one).
         self.loops[surviving_loop].half_edge = he_next_via_twin;
+
+        // Both endpoint vertices survive kef; re-point any `outgoing`
+        // that referenced a removed half-edge. `twin_next` originates
+        // at `half_edge`'s origin and `he_next` at the twin's origin,
+        // and both survive the unsplice (the different-loops
+        // precondition rules out either being one of the removed
+        // pair). Leaving these stale silently disables every
+        // downstream vertex-star walk that starts at `outgoing`
+        // (PK-232: tier-2 anchor collection returned false before
+        // inspecting a single face).
+        if let Some(v) = self.vertices.get_mut(he_origin)
+            && (v.outgoing == half_edge || v.outgoing == he_twin_handle)
+        {
+            v.outgoing = he_next_via_twin;
+        }
+        if let Some(v) = self.vertices.get_mut(twin_origin)
+            && (v.outgoing == half_edge || v.outgoing == he_twin_handle)
+        {
+            v.outgoing = he_next;
+        }
 
         // Remove entities.
         self.half_edges.remove(half_edge);
