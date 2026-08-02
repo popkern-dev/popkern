@@ -49,6 +49,7 @@ pub(crate) mod rim_chain_chamfer;
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
+mod direct_apex_promotion;
 pub(crate) mod helpers;
 mod helpers_pcurve;
 mod hole_rim_terminal_disc;
@@ -104,7 +105,6 @@ mod kp_polar_lm_optimizer;
 mod kp_polar_weighted_f5;
 mod kp_twist_optimizer;
 pub(crate) mod merge;
-mod mixed_radius_direct_apex;
 mod multi_chord;
 mod multi_chord_crossings;
 mod multi_chord_region;
@@ -213,11 +213,18 @@ pub fn apply_blend_geometry(
 
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
     // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
-    let promoted_apexes = mixed_radius_direct_apex::promoted_mixed_radius_apexes_for_mode(
+    let promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
         vertex_mode,
         edge_geometries,
-        use_rational_gregory,
-        use_kp_binonic_gregory,
+        direct_apex_promotion::PromotionFlags {
+            use_rational_gregory,
+            use_kp_binonic_gregory,
+            explicit_legacy_surface_family: use_biquintic_full_gregory
+                || use_biseptic_gregory
+                || use_two_stripe_gregory
+                || use_kp_binonic_gregory
+                || use_kp_polar_gregory,
+        },
     );
     let (mut split_state, ms) = pipeline_timing::timed(|| {
         perpendicular_splits::run_perpendicular_splits(

@@ -20,7 +20,7 @@ use popkern_core::topology::BRep;
 // item4_pyramid_gregory_boundary_kappa_leq_polar) were retired
 // with PK-181: they forced the Gregory N-quad dispatch with mixed
 // radii, but mixed-radius N∈{3,4} apexes are deliberately promoted
-// to the direct-apex partition (mixed_radius_direct_apex.rs,
+// to the direct-apex partition (direct_apex_promotion.rs,
 // PK-099), so the route they measured never fires on this fixture.
 // The fixture's current route is hard-gated by
 // direct_apex_native_pyramid4_mixed_partition_no_fallback in

@@ -64,6 +64,14 @@ pub(super) fn try_spherical_blend(
     }
 
     // Solve 3x3 system by Gaussian elimination with partial pivoting.
+    //
+    // KNOWN LIMIT (PK-229 probe, 2026-08-02): `rows` holds the first
+    // 3 valid differences, i.e. adjacent samples of the FIRST
+    // boundary arc — co-circular points make this system singular,
+    // so exact rolling-ball spheres at oblique apexes (regular
+    // pyramid slant blends) are never found here. The least-squares
+    // rewrite over all samples is filed as its own task; the
+    // deviation gate below already certifies any accepted center.
     let (cx, cy, cz) = solve_circumcenter_3x3(&rows)?;
     let center = Point3::new(cx, cy, cz);
 

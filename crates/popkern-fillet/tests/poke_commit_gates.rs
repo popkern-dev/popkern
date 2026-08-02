@@ -1,26 +1,39 @@
-//! PK-228 — reachability pins for the standard N-quad Gregory poke
-//! commit (`apply_three_quad_decomposition_to_blend`).
+//! PK-228/PK-229 — reachability and serving pins for the standard
+//! N-quad Gregory poke commit (`apply_three_quad_decomposition_to_blend`).
 //!
-//! A PK_POKE_PROBE sweep over the full workspace (2026-08-02)
+//! A PK_POKE_PROBE sweep over the full workspace (2026-08-02, PK-228)
 //! measured exactly which production classes still commit the
 //! standard poke after PK-222 (exact-boundary), PK-225/PK-226
 //! (setback fan), and the sphere/PnS rungs claimed the historical
-//! cube-corner fixtures:
+//! cube-corner fixtures. PK-229 then closed the last default-options
+//! serving class:
 //!
-//! * **Legacy route** (`blend_insert` rational dispatch, which
-//!   accepts n < 5 commits unconditionally): uniform-radius pyramid
-//!   apex slant-edge blends — the ONLY class whose poke commit
-//!   reaches SERVING output under default options. Uniform radii
-//!   never promote to direct apex, the pyramid apex is not
-//!   sphere-owned (strip axes converge above the apex), and the
-//!   setback/PnS rungs decline — the poke serves, sub-commercially
-//!   (PK-229).
+//! * **Uniform-radius cylindrical N = 4 apexes** (pyramid apex
+//!   slant-edge blends) were the ONLY class whose poke commit reached
+//!   serving output under default options, at sub-commercial quality
+//!   (cap_outer g0 = 2.18e-1 — the apex is sphere-owned by the
+//!   syntactic pre-screen, so the setback rung is SKIPPED at N = 4
+//!   (min_n = 5), yet `try_spherical_blend` never finds the exact
+//!   rolling-ball sphere that exists at regular pyramid apexes: its
+//!   circumcenter solve goes singular on co-circular samples of one
+//!   boundary arc, the corner falls to Gregory, and the n < 5 poke
+//!   acceptance ships it unmeasured). PK-229 promotes this class to
+//!   the direct-apex route by default (`direct_apex_promotion.rs`
+//!   uniform arm); the exact-boundary Coons partition serves at
+//!   cap_outer g0 = 3.7e-8 / g1 = 4.3e-8 — pinned below at the
+//!   commercial bars.
+//! * **Explicit legacy surface-family flags** (biquintic-full,
+//!   biseptic, two-stripe, K-P binonic, K-P polar) carve the uniform
+//!   arm out so the legacy promotion ladder keeps its reaching
+//!   fixture — the poke still commits and serves there, pinned below
+//!   at its measured class (PK-230 tracks migrating the flag-family
+//!   dispatch pins onto this fixture).
 //! * **Apex-bridge route** (direct-apex `CapKind::Gregory` plan →
 //!   `assemble_gregory_cap_surface`): commits during construction on
-//!   auto-promoted mixed-radius apexes, but every measured serving
-//!   output is claimed by the exact-boundary Coons partition (mixed
-//!   pyramid) or discarded with a declining transaction (unfillet
-//!   restore trials). Construction-transient, never measured serving.
+//!   promoted apexes, but every measured serving output is claimed by
+//!   the exact-boundary Coons partition (pyramid pins below) or
+//!   discarded with a declining transaction (unfillet restore
+//!   trials). Construction-transient, never measured serving.
 //! * **Non-default flag stacks**: cube_extreme [0.02, 0.10, 0.20]
 //!   commits via the legacy route only when `use_kp_binonic_gregory`
 //!   opts high-asymmetry trihedra out of direct-apex promotion —
@@ -43,21 +56,12 @@ use popkern_fillet::{FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 mod helpers;
 use helpers::{incident_edges, measure_cap_outer_boundary, pick_vertex_with_valence};
 
-/// Uniform-radius square-pyramid apex blend (4 slant edges only):
-/// the legacy dispatch commits a 4-quad Gregory poke under default
-/// options — the ONLY serving poke-commit class measured by the
-/// PK-228 sweep. Uniform radii never auto-promote to direct apex,
-/// the pyramid apex is not sphere-owned, and setback/PnS decline.
-///
-/// The unconditional n < 5 acceptance ships this cap UNMEASURED at
-/// dispatch time; the measured class is SUB-COMMERCIAL (cap_outer
-/// g0 = 2.18e-1, g1 coplanarity = 9.82e-1; validation_sweep spoke
-/// min-cos 0.142 at the default rung vs 0.996 under the two-stripe
-/// flag on the same fixture). The bounds below pin the measured
-/// class against silent further collapse — the commercial-grade
-/// serve is PK-229's scope.
-#[test]
-fn uniform_pyramid_apex_commits_legacy_n_quad_gregory_poke() {
+fn uniform_pyramid_apex_blend(
+    options: &FilletOptions,
+) -> (
+    popkern_fillet::types::BlendResult,
+    popkern_core::topology::VertexHandle,
+) {
     let pyramid = BRep::square_pyramid(2.0, 1.5, Tolerance::default()).unwrap();
     let apex = pick_vertex_with_valence(&pyramid, 4).expect("pyramid apex");
     let edges = incident_edges(&pyramid, apex);
@@ -69,17 +73,103 @@ fn uniform_pyramid_apex_commits_legacy_n_quad_gregory_poke() {
             radius: FilletRadius::Constant(0.1),
         })
         .collect();
-    let result = fillet_edges(
-        &pyramid,
-        &specs,
-        &FilletOptions::default(),
-        Tolerance::default(),
-        None,
-    )
-    .expect("uniform pyramid apex blend");
+    let result = fillet_edges(&pyramid, &specs, options, Tolerance::default(), None)
+        .expect("uniform pyramid apex blend");
+    (result, apex)
+}
 
-    // Route provenance: uniform radii never auto-promote, so the
-    // apex must be served by the legacy dispatch.
+/// PK-229 serve pin: uniform-radius square-pyramid apex blend
+/// (4 slant edges only) under PURE DEFAULT options auto-promotes to
+/// the direct-apex route (`direct_apex_promotion.rs` uniform arm) and
+/// serves 4 exact-boundary Coons sector caps at commercial quality
+/// (measured 2026-08-02: cap_outer g0 = 3.671e-8, g1 = 4.270e-8).
+///
+/// Before PK-229 this class was the ONLY default-options serving
+/// consumer of the legacy N-quad poke, at sub-commercial quality
+/// (g0 = 2.18e-1) — see the module doc for the root-cause chain.
+#[test]
+fn uniform_pyramid_apex_serves_direct_apex_exact_boundary_by_default() {
+    let (result, apex) = uniform_pyramid_apex_blend(&FilletOptions::default());
+
+    let route = result
+        .repair_report
+        .apex_routes
+        .iter()
+        .find(|r| r.vertex == apex)
+        .expect("apex route recorded");
+    assert_eq!(
+        route.route,
+        ApexConstructionRoute::DirectApex,
+        "uniform cylindrical N=4 pyramid apex must auto-promote to direct apex"
+    );
+
+    let caps: Vec<_> = result
+        .corner_patches
+        .iter()
+        .filter(|p| p.vertex == apex)
+        .collect();
+    assert_eq!(caps.len(), 4, "one sector cap per slant fillet");
+    for patch in &caps {
+        assert_eq!(
+            patch.method,
+            CornerMethod::Coons,
+            "serving cap must be the exact-boundary Coons partition"
+        );
+        assert_eq!(patch.n_sides, 4);
+        assert!(patch.exact_boundary_cap && !patch.setback_cap);
+        let face = result.brep.faces.get(patch.face).expect("cap face");
+        assert!(
+            matches!(
+                face.surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Nurbs(_))
+            ),
+            "exact-boundary sector cap must carry a NURBS surface"
+        );
+    }
+    assert_eq!(route.exact_boundary_report.committed_faces.len(), 4);
+    result.brep.validate().expect("valid BRep");
+
+    let faces: Vec<_> = caps.iter().map(|p| p.face).collect();
+    let metrics = measure_cap_outer_boundary(&result.brep, &faces, 100);
+    eprintln!(
+        "[poke-commit] uniform pyramid apex (default direct-apex serve): \
+         cap_outer g0={:.3e} g1={:.3e} edges={}",
+        metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
+    );
+    assert!(metrics.edges_measured >= 4);
+    assert!(
+        metrics.worst_g0_gap < 5.0e-3,
+        "uniform pyramid serving cap left the commercial G0 bar \
+         (measured 3.671e-8): {:.3e}",
+        metrics.worst_g0_gap
+    );
+    assert!(
+        metrics.worst_g1_coplanarity < 5.0e-2,
+        "uniform pyramid serving cap left the commercial G1 bar \
+         (measured 4.270e-8): {:.3e}",
+        metrics.worst_g1_coplanarity
+    );
+}
+
+/// PK-229 carve-out pin: an explicit legacy surface-family flag
+/// (two-stripe here) keeps the uniform pyramid apex on the LEGACY
+/// route, where the 4-quad Gregory poke still commits and serves —
+/// this is the flag-family dispatch ladder's reaching fixture
+/// (PK-230). Pinned at its measured class (2026-08-02: cap_outer
+/// g0 = 2.182e-1, g1 = 9.820e-1; bounds sit ~1.4x above so a silent
+/// further collapse fails while the recorded class keeps serving).
+/// The cap-outer displacement is surface-family-independent — it is
+/// authored by the legacy boundary anchors, not the patch family —
+/// so the two-stripe rung's spoke-tangency win (min-cos 0.996 vs
+/// 0.142) does not move this metric.
+#[test]
+fn uniform_pyramid_apex_legacy_family_flag_keeps_poke_commit_reachable() {
+    let options = FilletOptions {
+        use_two_stripe_gregory: true,
+        ..FilletOptions::default()
+    };
+    let (result, apex) = uniform_pyramid_apex_blend(&options);
+
     let route = result
         .repair_report
         .apex_routes
@@ -89,7 +179,8 @@ fn uniform_pyramid_apex_commits_legacy_n_quad_gregory_poke() {
     assert_eq!(
         route.route,
         ApexConstructionRoute::Legacy,
-        "uniform pyramid apex must be served by the legacy dispatch"
+        "explicit legacy surface-family flags must keep the legacy \
+         dispatch (and its promotion ladder) reachable"
     );
 
     let caps: Vec<_> = result
@@ -106,37 +197,26 @@ fn uniform_pyramid_apex_commits_legacy_n_quad_gregory_poke() {
         assert_eq!(patch.method, CornerMethod::Gregory);
         assert_eq!(patch.n_sides, 4);
         assert!(!patch.setback_cap && !patch.exact_boundary_cap);
-        let face = result.brep.faces.get(patch.face).expect("cap face");
-        assert!(
-            matches!(
-                face.surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Gregory(_))
-            ),
-            "poke sub-face must carry a Gregory surface"
-        );
     }
     result.brep.validate().expect("valid BRep");
 
     let faces: Vec<_> = caps.iter().map(|p| p.face).collect();
     let metrics = measure_cap_outer_boundary(&result.brep, &faces, 100);
     eprintln!(
-        "[poke-commit] uniform pyramid apex (legacy 4-quad): cap_outer g0={:.3e} g1={:.3e} edges={}",
+        "[poke-commit] uniform pyramid apex (two-stripe carve-out, legacy 4-quad): \
+         cap_outer g0={:.3e} g1={:.3e} edges={}",
         metrics.worst_g0_gap, metrics.worst_g1_coplanarity, metrics.edges_measured
     );
     assert!(metrics.edges_measured >= 4);
-    // Measured class 2026-08-02: g0 = 2.182e-1, g1 = 9.820e-1
-    // (sub-commercial; see module doc and PK-229). Guard bounds sit
-    // ~1.4x above the measured worst so a silent further collapse
-    // fails while the recorded class keeps serving.
     assert!(
         metrics.worst_g0_gap < 3.0e-1,
-        "uniform pyramid poke commit collapsed past its measured G0 class \
+        "carve-out poke commit collapsed past its measured G0 class \
          (measured 2.182e-1): {:.3e}",
         metrics.worst_g0_gap
     );
     assert!(
         metrics.worst_g1_coplanarity < 1.4,
-        "uniform pyramid poke commit collapsed past its measured G1 class \
+        "carve-out poke commit collapsed past its measured G1 class \
          (measured 9.820e-1): {:.3e}",
         metrics.worst_g1_coplanarity
     );
