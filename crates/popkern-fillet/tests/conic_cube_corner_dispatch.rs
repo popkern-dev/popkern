@@ -184,6 +184,33 @@ fn circular_uniform_cube_corner_keeps_sphere_serve() {
             .any(|cp| cp.method == popkern_fillet::types::CornerMethod::RollingBallSphere),
         "uniform circular corner must keep the rolling-ball sphere method"
     );
+    // PK-233: pin the serving sphere to the TRUE rolling-ball
+    // geometry (radius = strip radius). The boundary-ring impostor
+    // (r = 1.48·strip radius, G0 fit 1.4e-4) passed the boundary
+    // gate and shipped a 6.2e-2 rim deviation before the tangency
+    // certification in `try_spherical_blend` rejected it.
+    let sphere_radius = result
+        .corner_patches
+        .iter()
+        .find_map(|cp| {
+            match result
+                .brep
+                .faces
+                .get(cp.face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry)
+            {
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Sphere {
+                    radius, ..
+                }) => Some(*radius),
+                _ => None,
+            }
+        })
+        .expect("rolling-ball corner must serve a Sphere face");
+    assert!(
+        (sphere_radius - 0.15).abs() < 1e-6,
+        "serving sphere radius {sphere_radius} must equal the strip radius 0.15"
+    );
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),

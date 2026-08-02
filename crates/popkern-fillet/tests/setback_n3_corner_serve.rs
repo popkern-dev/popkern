@@ -134,6 +134,33 @@ fn circular_uniform_corner_keeps_sphere_serve() {
             .any(|cp| cp.method == popkern_fillet::types::CornerMethod::RollingBallSphere),
         "uniform circular corner must keep the rolling-ball sphere"
     );
+    // PK-233: the serving sphere must be the TRUE rolling-ball
+    // sphere (radius = strip radius), not a boundary-ring fit. The
+    // measured impostor — the arc+bridge hexagon fits a sphere of
+    // radius 1.48r at 1.4e-4 — passed the G0 gate and shipped a rim
+    // edge 6.2e-2 off the cap before the tangency certification.
+    let sphere_radius = result
+        .corner_patches
+        .iter()
+        .find_map(|cp| {
+            match result
+                .brep
+                .faces
+                .get(cp.face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|s| &s.geometry)
+            {
+                Some(popkern_core::geometry::surface::SurfaceGeometry::Sphere {
+                    radius, ..
+                }) => Some(*radius),
+                _ => None,
+            }
+        })
+        .expect("rolling-ball corner must serve a Sphere face");
+    assert!(
+        (sphere_radius - 0.15).abs() < 1e-6,
+        "serving sphere radius {sphere_radius} must equal the strip radius 0.15"
+    );
     assert!(result.brep.validate_all().is_empty());
 }
 
