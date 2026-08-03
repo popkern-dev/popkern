@@ -105,20 +105,38 @@ fn item5_notched_cube_boundary_vertex_is_opposite_side() {
     );
 }
 
-/// §5.3 item #5 — fillet the 3 edges incident to an `OppositeSide`
-/// saddle vertex on a notched cube. With saddle-specific
-/// central-point + normal computation + saddle-aware bridge
-/// builder all landed, the saddle configuration now produces 3
-/// Gregory sub-patches end-to-end. The test also accepts ≤ 1
-/// corner patches (polar-NURBS fallback) as a safety net for
-/// pipeline regressions unrelated to the saddle path — a count
-/// of 2 still indicates a partial-dispatch regression.
+/// §5.3 item #5 / PK-231 — the `OppositeSide` saddle vertex SERVES:
+/// exactly 3 Gregory sub-patches, no Mitred fallback, no direct-apex
+/// capture, structurally clean.
+///
+/// This pin was an either-way pin ("3 sub-patches OR ≤ 1 fallback")
+/// from its landing until PK-231, and the escape hatch absorbed a
+/// three-era regression stack silently:
+///
+/// 1. `BRep::transform` scaled plane normals (the notch transform
+///    left |n| = 0.6), displacing every fillet offset — the "serving"
+///    era-1 patches were built on mis-tangent strips and genuinely
+///    folded, so the item #10 self-intersection screen CORRECTLY
+///    remediated them away (the screen was never the defect).
+/// 2. Under trim-crossing anchors the poisoned trims collapsed both
+///    side-2 strips onto one consumed face and Phase C failed
+///    outright (`PartialFailure` — which this test used to skip).
+/// 3. The mixed-radius direct-apex promotion arm then captured the
+///    saddle (it never consulted the classifier), planned the Open
+///    rung ("only 2 fillets" — the concave strip is invisible to the
+///    convex footprint search), and recorded a vacuous
+///    `route=DirectApex` success with ZERO faces, skipping the
+///    legacy saddle machinery entirely.
+///
+/// All three are fixed at root (similarity-gated `BRep::transform`
+/// with unit direction fields, `SameSideConvex`-only promotion, the
+/// auto-promoted-Open decline backstop), so the serve is asserted
+/// EXACTLY — any regression fails instead of draining into a
+/// fallback arm.
 #[test]
-fn item5_saddle_fillet_dispatches_through_gregory_or_polar() {
-    let Some((brep, vertex)) = build_notched_cube() else {
-        eprintln!("item #5 end-to-end: boolean subtraction failed — skipping");
-        return;
-    };
+fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
+    let (brep, vertex) = build_notched_cube()
+        .expect("notched-cube boolean fixture must build (PK-231: no more silent skips)");
 
     let incident_edges: Vec<_> = brep
         .half_edges
@@ -155,100 +173,114 @@ fn item5_saddle_fillet_dispatches_through_gregory_or_polar() {
         use_rational_gregory: true,
         ..FilletOptions::default()
     };
-    let result = match crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None) {
-        Ok(r) => r,
-        Err(e) => {
-            // Saddle filleting can trip the rolling-ball solver for
-            // reasons independent of the saddle-Gregory path we're
-            // validating. Skip (not fail) on pipeline abort.
-            eprintln!("item #5 pipeline did not complete: {e:?} — skipping");
-            return;
-        }
-    };
+    let result = crate::fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)
+        .expect("saddle fillet pipeline must complete (PK-231: Phase C carve restored)");
+
+    // No Mitred fallback and no direct-apex capture: the saddle is
+    // legacy-owned (promotion is gated to SameSideConvex).
+    assert!(
+        !result
+            .edge_warnings
+            .iter()
+            .any(|(_, w)| matches!(w, crate::error::BlendWarning::VertexModeFallback { .. })),
+        "saddle blend must not fall back to Mitred; warnings: {:?}",
+        result.edge_warnings
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_routes
+            .iter()
+            .filter(|r| r.vertex == vertex)
+            .all(|r| {
+                r.route == crate::types::ApexConstructionRoute::Legacy && r.built_faces.is_empty()
+            }),
+        "OppositeSide saddle must stay on the legacy route (promotion is \
+         SameSideConvex-only); routes: {:?}",
+        result
+            .repair_report
+            .apex_routes
+            .iter()
+            .map(|r| (r.vertex, r.route))
+            .collect::<Vec<_>>()
+    );
 
     let saddle_corners: Vec<_> = result
         .corner_patches
         .iter()
         .filter(|p| p.vertex == vertex)
         .collect();
-    eprintln!(
-        "item #5 saddle corner patches at the saddle vertex: {} ({:?})",
+    assert_eq!(
+        saddle_corners.len(),
+        3,
+        "saddle dispatch must serve exactly 3 Gregory sub-patches; got {} ({:?})",
         saddle_corners.len(),
         saddle_corners
             .iter()
             .map(|p| (p.method, p.n_sides))
             .collect::<Vec<_>>()
     );
+
+    // Sub-patch geometry: Gregory surfaces, non-degenerate, and the
+    // whole result structurally clean. Geometric residual: the poke
+    // writes placeholder straight-line spoke curves that nothing
+    // re-authors after the Gregory surfaces bond, so one spoke chord
+    // sits 4.7e-4 off its sub-patch at pin time (PK-234 owns the
+    // cap-derived spoke curve authoring); ceiling pinned at 1e-3 so
+    // the class serve stays measured without licensing regression.
+    use popkern_core::error::ValidationError;
+    use popkern_core::geometry::surface::SurfaceEval;
+
+    let validation_errors = result.brep.validate_all();
+    let mut worst_deviation = 0.0_f64;
+    for error in &validation_errors {
+        match error {
+            ValidationError::CurveSurfaceDeviation { max_deviation, .. } => {
+                worst_deviation = worst_deviation.max(*max_deviation);
+            }
+            other => panic!("saddle serve must be structurally clean, got {other:?}"),
+        }
+    }
     assert!(
-        saddle_corners.len() == 3 || saddle_corners.len() <= 1,
-        "saddle dispatch must yield either 3 Gregory sub-patches (item #5 \
-         landing) or ≤ 1 polar-NURBS patches (safe fallback); got {}",
-        saddle_corners.len()
+        worst_deviation <= 1.0e-3,
+        "spoke-chord residual {worst_deviation:.3e} exceeds the recorded 1e-3 ceiling \
+         (PK-234 spoke curve authoring)"
     );
 
-    // When the Gregory path fires, assert the sub-patches are
-    // geometrically valid: (a) the resulting BRep passes
-    // structural validation (no broken cycles / twins /
-    // non-manifold edges), (b) each sub-patch face carries a
-    // Gregory surface, (c) each Gregory sub-patch has non-trivial
-    // UV-bounding-box area (a proxy for positive surface area —
-    // avoids pulling in popkern-measure as a fillet-side dep).
-    if saddle_corners.len() == 3 {
-        use popkern_core::error::ValidationError;
-        use popkern_core::geometry::surface::SurfaceEval;
-
-        let validation_errors = result.brep.validate_all();
-        let structural: Vec<_> = validation_errors
-            .iter()
-            .filter(|e| {
-                matches!(
-                    e,
-                    ValidationError::BrokenCycle { .. }
-                        | ValidationError::BrokenTwin { .. }
-                        | ValidationError::NonManifoldEdge { .. }
-                )
-            })
-            .collect();
+    for patch in &saddle_corners {
+        let face = result
+            .brep
+            .faces
+            .get(patch.face)
+            .expect("sub-patch face must exist in result");
+        let sof = face
+            .surface
+            .as_ref()
+            .expect("sub-patch face must have a surface assigned");
         assert!(
-            structural.is_empty(),
-            "saddle Gregory result must have no structural errors; got {structural:?}"
+            matches!(
+                sof.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)
+            ),
+            "sub-patch face must carry a Gregory surface; got {:?}",
+            std::mem::discriminant(&sof.geometry)
         );
-
-        for patch in &saddle_corners {
-            let face = result
-                .brep
-                .faces
-                .get(patch.face)
-                .expect("sub-patch face must exist in result");
-            let sof = face
-                .surface
-                .as_ref()
-                .expect("sub-patch face must have a surface assigned");
-            assert!(
-                matches!(
-                    sof.geometry,
-                    popkern_core::geometry::surface::SurfaceGeometry::Gregory(_)
-                ),
-                "sub-patch face must carry a Gregory surface; got {:?}",
-                std::mem::discriminant(&sof.geometry)
-            );
-            // Positive-area proxy: sample at the 4 UV corners
-            // and require max pairwise distance > 1e-6 (the
-            // patch isn't degenerate to a point).
-            let pts = [
-                sof.geometry.point_at(0.0, 0.0),
-                sof.geometry.point_at(1.0, 0.0),
-                sof.geometry.point_at(0.0, 1.0),
-                sof.geometry.point_at(1.0, 1.0),
-            ];
-            let max_dist = (0..4)
-                .flat_map(|i| (i + 1..4).map(move |j| pts[i].distance_to(&pts[j])))
-                .fold(0.0_f64, f64::max);
-            assert!(
-                max_dist > 1e-6,
-                "Gregory sub-patch must be non-degenerate; max corner-pair distance = {max_dist}"
-            );
-        }
+        // Positive-area proxy: sample at the 4 UV corners
+        // and require max pairwise distance > 1e-6 (the
+        // patch isn't degenerate to a point).
+        let pts = [
+            sof.geometry.point_at(0.0, 0.0),
+            sof.geometry.point_at(1.0, 0.0),
+            sof.geometry.point_at(0.0, 1.0),
+            sof.geometry.point_at(1.0, 1.0),
+        ];
+        let max_dist = (0..4)
+            .flat_map(|i| (i + 1..4).map(move |j| pts[i].distance_to(&pts[j])))
+            .fold(0.0_f64, f64::max);
+        assert!(
+            max_dist > 1e-6,
+            "Gregory sub-patch must be non-degenerate; max corner-pair distance = {max_dist}"
+        );
     }
 }
 

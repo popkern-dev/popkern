@@ -214,6 +214,7 @@ pub fn apply_blend_geometry(
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
     // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
     let promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
+        brep,
         vertex_mode,
         edge_geometries,
         direct_apex_promotion::PromotionFlags {
@@ -225,6 +226,7 @@ pub fn apply_blend_geometry(
                 || use_kp_binonic_gregory
                 || use_kp_polar_gregory,
         },
+        tolerance,
     );
     let (mut split_state, ms) = pipeline_timing::timed(|| {
         perpendicular_splits::run_perpendicular_splits(
@@ -340,6 +342,7 @@ pub fn apply_blend_geometry(
                             edge_geometries,
                             &split_state.descendants,
                             tolerance,
+                            !use_direct_apex_construction,
                         ))
                     } else {
                         None

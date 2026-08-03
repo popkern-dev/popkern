@@ -6,16 +6,48 @@
 
 use crate::geometry::Transform3;
 use crate::geometry::curve::CurveGeometry;
-use crate::geometry::gregory::{
-    GregoryPatch, RectangularGregory, RectangularGregoryBiNonic,
-    RectangularGregoryBiNonicDualTwist, RectangularGregoryBiquinticFull,
-    RectangularGregoryBiseptic, RectangularGregoryDeg5, RectangularGregoryTwoStripe,
-    TriangularGregory,
-};
 use crate::geometry::surface::SurfaceGeometry;
 
-/// Transform a `SurfaceGeometry` by a rigid transform.
-pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> SurfaceGeometry {
+#[path = "brep_transform_gregory.rs"]
+mod brep_transform_gregory;
+use brep_transform_gregory::transform_gregory;
+
+/// Normalize a transformed direction field. The caller has already
+/// verified `t` is a similarity (non-singular linear part), so a
+/// transformed non-degenerate direction cannot vanish; the scaled
+/// image is kept as a defensive fallback rather than panicking.
+///
+/// Rigid transforms keep the image length within ~1e-16 of unit; the
+/// division is SKIPPED there so translate/rotate stays bit-identical
+/// to the pre-similarity-contract behavior (an ULP of direction
+/// noise on every transform is enough to flip marginal welds — the
+/// Bishop-frame seed lesson).
+fn unit_direction(t: &Transform3, v: &crate::geometry::Vec3) -> crate::geometry::Vec3 {
+    let image = t.apply_direction(v);
+    let len = image.length();
+    if (len - 1.0).abs() <= 1.0e-9 {
+        return image;
+    }
+    image.normalized().unwrap_or(image)
+}
+
+/// Transform a `SurfaceGeometry` by a similarity transform with
+/// uniform scale factor `scale` (as returned by
+/// [`Transform3::similarity_scale`]).
+///
+/// Direction fields (plane normal and UV axes, cylinder/cone/torus
+/// axes) stay UNIT LENGTH — downstream offset math multiplies them
+/// by radii and distances, and a scaled normal displaces every such
+/// offset by the scale factor (PK-231: the notch cube's 0.6-scaled
+/// floor normal put a fillet cylinder 0.048 off its tangent plane
+/// instead of 0.08). Metric fields (radii) carry the scale instead.
+/// Chart consequences of axis normalization (cylinder/cone V is arc
+/// length) are handled by the caller via [`Pcurve::scale_v`].
+pub(super) fn transform_surface(
+    surface: &SurfaceGeometry,
+    t: &Transform3,
+    scale: f64,
+) -> SurfaceGeometry {
     match surface {
         SurfaceGeometry::Plane {
             origin,
@@ -24,9 +56,9 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
             v_axis,
         } => SurfaceGeometry::Plane {
             origin: t.apply_point(origin),
-            normal: t.apply_direction(normal),
-            u_axis: t.apply_direction(u_axis),
-            v_axis: t.apply_direction(v_axis),
+            normal: unit_direction(t, normal),
+            u_axis: unit_direction(t, u_axis),
+            v_axis: unit_direction(t, v_axis),
         },
         SurfaceGeometry::Cylinder {
             origin,
@@ -34,8 +66,8 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
             radius,
         } => SurfaceGeometry::Cylinder {
             origin: t.apply_point(origin),
-            axis: t.apply_direction(axis),
-            radius: *radius,
+            axis: unit_direction(t, axis),
+            radius: *radius * scale,
         },
         SurfaceGeometry::Cone {
             apex,
@@ -43,12 +75,12 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
             half_angle,
         } => SurfaceGeometry::Cone {
             apex: t.apply_point(apex),
-            axis: t.apply_direction(axis),
+            axis: unit_direction(t, axis),
             half_angle: *half_angle,
         },
         SurfaceGeometry::Sphere { center, radius } => SurfaceGeometry::Sphere {
             center: t.apply_point(center),
-            radius: *radius,
+            radius: *radius * scale,
         },
         SurfaceGeometry::Torus {
             center,
@@ -57,9 +89,9 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
             minor_radius,
         } => SurfaceGeometry::Torus {
             center: t.apply_point(center),
-            axis: t.apply_direction(axis),
-            major_radius: *major_radius,
-            minor_radius: *minor_radius,
+            axis: unit_direction(t, axis),
+            major_radius: *major_radius * scale,
+            minor_radius: *minor_radius * scale,
         },
         SurfaceGeometry::Nurbs(nurbs) => {
             let control_points = nurbs
@@ -98,113 +130,6 @@ pub(super) fn transform_surface(surface: &SurfaceGeometry, t: &Transform3) -> Su
     }
 }
 
-/// Apply a rigid transform to a Gregory patch by transforming every
-/// control point (boundary + inner candidates).
-fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
-    match g {
-        GregoryPatch::Rectangular(r) => {
-            let mut boundary = r.boundary_cps;
-            for row in boundary.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            let inner_cps = r
-                .inner_cps
-                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
-            GregoryPatch::Rectangular(Box::new(RectangularGregory {
-                boundary_cps: boundary,
-                inner_cps,
-            }))
-        }
-        GregoryPatch::RectangularDeg5(r) => {
-            let mut boundary = r.boundary_cps;
-            for row in boundary.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            let inner_cps = r
-                .inner_cps
-                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
-            GregoryPatch::RectangularDeg5(Box::new(RectangularGregoryDeg5 {
-                boundary_cps: boundary,
-                inner_cps,
-            }))
-        }
-        GregoryPatch::RectangularBiquinticFull(r) => {
-            let mut grid = r.grid;
-            for row in grid.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            let corner_inner_cps = r
-                .corner_inner_cps
-                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
-            GregoryPatch::RectangularBiquinticFull(Box::new(RectangularGregoryBiquinticFull {
-                grid,
-                corner_inner_cps,
-            }))
-        }
-        GregoryPatch::RectangularBiseptic(r) => {
-            let mut grid = r.grid;
-            for row in grid.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            let corner_inner_cps = r
-                .corner_inner_cps
-                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
-            GregoryPatch::RectangularBiseptic(Box::new(RectangularGregoryBiseptic {
-                grid,
-                corner_inner_cps,
-            }))
-        }
-        GregoryPatch::RectangularTwoStripe(r) => {
-            let mut grid = r.grid;
-            for row in grid.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            GregoryPatch::RectangularTwoStripe(Box::new(RectangularGregoryTwoStripe { grid }))
-        }
-        GregoryPatch::RectangularBiNonic(r) => {
-            let mut grid = r.grid;
-            for row in grid.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            GregoryPatch::RectangularBiNonic(Box::new(RectangularGregoryBiNonic { grid }))
-        }
-        GregoryPatch::RectangularBiNonicDualTwist(r) => {
-            let mut grid = r.grid;
-            for row in grid.iter_mut() {
-                for cell in row.iter_mut() {
-                    *cell = t.apply_point(cell);
-                }
-            }
-            let inner_cps = r
-                .inner_cps
-                .map(|(p_u, p_v)| (t.apply_point(&p_u), t.apply_point(&p_v)));
-            GregoryPatch::RectangularBiNonicDualTwist(Box::new(
-                RectangularGregoryBiNonicDualTwist { grid, inner_cps },
-            ))
-        }
-        GregoryPatch::Triangular(tr) => {
-            let boundary_cps = tr.boundary_cps.map(|p| t.apply_point(&p));
-            let inner_cps = tr.inner_cps.map(|p| t.apply_point(&p));
-            GregoryPatch::Triangular(Box::new(TriangularGregory {
-                boundary_cps,
-                inner_cps,
-            }))
-        }
-    }
-}
-
 /// Transform an edge's curve COHERENTLY with its trim parameters.
 ///
 /// `Circle` and `Arc` parameterize angle against a basis DERIVED
@@ -221,13 +146,14 @@ fn transform_gregory(g: &GregoryPatch, t: &Transform3) -> GregoryPatch {
 pub(super) fn transform_curve_on_edge(
     curve: &mut crate::geometry::curve::CurveOnEdge,
     t: &Transform3,
+    scale: f64,
 ) {
     use crate::geometry::analytic_curves::circle_basis;
     let old_normal = match &curve.geometry {
         CurveGeometry::Circle { normal, .. } | CurveGeometry::Arc { normal, .. } => Some(*normal),
         _ => None,
     };
-    curve.geometry = transform_curve(&curve.geometry, t);
+    curve.geometry = transform_curve(&curve.geometry, t, scale);
     let Some(old_normal) = old_normal else {
         return;
     };
@@ -264,8 +190,16 @@ pub(super) fn transform_curve_on_edge(
     }
 }
 
-/// Transform a `CurveGeometry` by a rigid transform.
-pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeometry {
+/// Transform a `CurveGeometry` by a similarity transform with
+/// uniform scale factor `scale`.
+///
+/// Circle/Arc radii carry the scale and their normals stay unit
+/// (angle parameters are scale-invariant). Parameterization-covariant
+/// fields (line direction, ellipse bases, parabola/hyperbola
+/// coefficient vectors, NURBS control points) take the scaled image
+/// directly — their parameter ranges remain valid because evaluation
+/// multiplies the stored vectors by the parameter.
+pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3, scale: f64) -> CurveGeometry {
     match curve {
         CurveGeometry::Line { origin, direction } => CurveGeometry::Line {
             origin: t.apply_point(origin),
@@ -277,8 +211,8 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
             radius,
         } => CurveGeometry::Circle {
             center: t.apply_point(center),
-            normal: t.apply_direction(normal),
-            radius: *radius,
+            normal: unit_direction(t, normal),
+            radius: *radius * scale,
         },
         CurveGeometry::Arc {
             center,
@@ -288,8 +222,8 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
             end_angle,
         } => CurveGeometry::Arc {
             center: t.apply_point(center),
-            normal: t.apply_direction(normal),
-            radius: *radius,
+            normal: unit_direction(t, normal),
+            radius: *radius * scale,
             start_angle: *start_angle,
             end_angle: *end_angle,
         },
@@ -349,17 +283,42 @@ pub(super) fn transform_curve(curve: &CurveGeometry, t: &Transform3) -> CurveGeo
 }
 
 impl crate::topology::BRep {
-    /// Apply a rigid transformation to the entire BRep, returning a new copy.
+    /// Apply a similarity transformation (rigid motion, optional
+    /// mirror, uniform scale) to the entire BRep, returning a new copy.
     ///
     /// Transforms vertex positions, surface geometry on every face, edge
     /// curve geometry, and NURBS control points on pcurves (for non-planar
     /// faces; pcurves on planar faces live in UV space and are
     /// parameterization-invariant for rigid transforms that keep the plane
     /// canonical form, so they are regenerated via `attach_planar_pcurves`).
+    ///
+    /// Under a uniform scale `s ≠ 1`, direction fields stay unit,
+    /// radii scale by `s`, cylinder/cone pcurve V (arc length along
+    /// the unit axis) scales by `s`, and planar inner-loop pcurves
+    /// scale isotropically. Vertex/model tolerances are NOT scaled —
+    /// callers scaling far from 1 should re-derive their tolerance
+    /// from the new model size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::error::CoreError::PreconditionFailed`] when
+    /// `t` is not a similarity (non-uniform scale or shear): analytic
+    /// surfaces do not stay analytic under such maps (a cylinder
+    /// becomes an elliptic cylinder `SurfaceGeometry` cannot
+    /// represent), and the previous behavior silently corrupted
+    /// direction lengths and radii instead (PK-231).
     pub fn transform(
         &self,
         t: &crate::geometry::transform::Transform3,
     ) -> Result<crate::topology::BRep, crate::error::CoreError> {
+        let scale = t.similarity_scale().ok_or_else(|| {
+            crate::error::CoreError::PreconditionFailed(
+                "BRep::transform requires a similarity transform (rigid motion, optional \
+                 mirror, uniform scale); non-uniform scale and shear do not preserve \
+                 analytic surface forms"
+                    .to_string(),
+            )
+        })?;
         let mut result = self.clone();
         for (_, vertex) in &mut result.vertices {
             vertex.position = t.apply_point(&vertex.position);
@@ -421,12 +380,69 @@ impl crate::topology::BRep {
         }
         for (_, face) in &mut result.faces {
             if let Some(ref mut sof) = face.surface {
-                sof.geometry = transform_surface(&sof.geometry, t);
+                sof.geometry = transform_surface(&sof.geometry, t, scale);
             }
         }
         for (_, edge) in &mut result.edges {
             if let Some(ref mut curve_on_edge) = edge.curve {
-                transform_curve_on_edge(curve_on_edge, t);
+                transform_curve_on_edge(curve_on_edge, t, scale);
+            }
+        }
+        // Chart metric follow-up for uniform scale: cylinder/cone V is
+        // arc length along the (unit) axis and plane UV is length
+        // along unit axes, so both stretch by `scale`; sphere/torus
+        // charts are all-angular and NURBS/Gregory charts live in
+        // knot space, all scale-invariant.
+        if (scale - 1.0).abs() > 1.0e-12 {
+            let face_handles: Vec<crate::topology::FaceHandle> = result.faces.keys().collect();
+            for fh in face_handles {
+                let Some(sof) = result.faces[fh].surface.as_ref() else {
+                    continue;
+                };
+                enum ChartScale {
+                    V,
+                    Uv,
+                }
+                let chart = match &sof.geometry {
+                    SurfaceGeometry::Cylinder { .. } | SurfaceGeometry::Cone { .. } => {
+                        ChartScale::V
+                    }
+                    SurfaceGeometry::Plane { .. } => ChartScale::Uv,
+                    _ => continue,
+                };
+                let face = &result.faces[fh];
+                let mut loops = vec![face.outer_loop];
+                loops.extend(face.inner_loops.iter().copied());
+                let mut hes = Vec::new();
+                for lh in loops {
+                    let start = result.loops[lh].half_edge;
+                    if !result.half_edges.contains_key(start) {
+                        continue;
+                    }
+                    let mut he = start;
+                    loop {
+                        hes.push(he);
+                        he = result.half_edges[he].next;
+                        if he == start {
+                            break;
+                        }
+                    }
+                }
+                for he in hes {
+                    if let Some(pc) = result.half_edges[he].pcurve.as_mut() {
+                        let exact = match chart {
+                            ChartScale::V => pc.scale_v(scale),
+                            ChartScale::Uv => pc.scale_uv(scale),
+                        };
+                        if !exact {
+                            return Err(crate::error::CoreError::PreconditionFailed(format!(
+                                "BRep::transform: pcurve on face {fh:?} cannot be scaled \
+                                 exactly in its stored form (uniform scale {scale}); \
+                                 re-author the pcurve before scaling"
+                            )));
+                        }
+                    }
+                }
             }
         }
         result.attach_planar_pcurves()?;

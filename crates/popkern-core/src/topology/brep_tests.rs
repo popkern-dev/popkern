@@ -41,6 +41,81 @@ fn brep_transform_translates_vertices() {
 }
 
 #[test]
+fn brep_transform_uniform_scale_keeps_unit_normals_and_scales_radii() {
+    use crate::geometry::surface::SurfaceGeometry;
+    use crate::geometry::transform::Transform3;
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let t = Transform3::translation(0.6, 0.6, 0.6).compose(&Transform3::scale_uniform(0.6));
+    let scaled = brep.transform(&t).unwrap();
+    for (_, face) in &scaled.faces {
+        let Some(sof) = face.surface.as_ref() else {
+            continue;
+        };
+        if let SurfaceGeometry::Plane {
+            normal,
+            u_axis,
+            v_axis,
+            ..
+        } = &sof.geometry
+        {
+            assert!(
+                (normal.length() - 1.0).abs() < 1e-12,
+                "scaled plane normal must stay unit, got |n| = {} (PK-231: the 0.6 \
+                 notch normal displaced every fillet offset)",
+                normal.length()
+            );
+            assert!((u_axis.length() - 1.0).abs() < 1e-12);
+            assert!((v_axis.length() - 1.0).abs() < 1e-12);
+        }
+    }
+    // Cylinder radius carries the scale; axis stays unit.
+    let cyl = SurfaceGeometry::Cylinder {
+        origin: crate::geometry::Point3::new(0.0, 0.0, 0.0),
+        axis: crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.08,
+    };
+    let scaled_cyl = super::brep_transforms::transform_surface(&cyl, &t, 0.6);
+    match scaled_cyl {
+        SurfaceGeometry::Cylinder { axis, radius, .. } => {
+            assert!((axis.length() - 1.0).abs() < 1e-12);
+            assert!((radius - 0.048).abs() < 1e-12);
+        }
+        other => panic!("cylinder must stay a cylinder, got {other:?}"),
+    }
+}
+
+#[test]
+fn brep_transform_declines_non_uniform_scale() {
+    use crate::geometry::transform::Transform3;
+    let brep = BRep::unit_cube(Tolerance::default()).unwrap();
+    let err = brep.transform(&Transform3::scale(1.0, 2.0, 1.0));
+    assert!(
+        matches!(err, Err(crate::error::CoreError::PreconditionFailed(_))),
+        "non-uniform scale must decline with a typed error, got {err:?}"
+    );
+}
+
+#[test]
+fn similarity_scale_classifies_transforms() {
+    use crate::geometry::transform::Transform3;
+    let rigid = Transform3::rotation_z(0.7).compose(&Transform3::translation(1.0, 2.0, 3.0));
+    assert!((rigid.similarity_scale().unwrap() - 1.0).abs() < 1e-12);
+    let scaled = Transform3::scale_uniform(0.6).compose(&Transform3::rotation_x(0.3));
+    assert!((scaled.similarity_scale().unwrap() - 0.6).abs() < 1e-12);
+    assert!(
+        Transform3::scale(1.0, 2.0, 1.0)
+            .similarity_scale()
+            .is_none()
+    );
+    let mirror = Transform3::reflection(
+        crate::geometry::Point3::new(0.0, 0.0, 0.0),
+        crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+    )
+    .unwrap();
+    assert!((mirror.similarity_scale().unwrap() - 1.0).abs() < 1e-12);
+}
+
+#[test]
 fn face_outer_loop_positions_unit_cube() {
     let brep = BRep::unit_cube(Tolerance::default()).unwrap();
     let face_handle = brep.faces.keys().next().unwrap();

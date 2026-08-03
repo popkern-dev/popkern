@@ -32,8 +32,15 @@
 //! All classes rely on the direct-apex entry-snapshot rollback: any
 //! construction failure restores the corner and the legacy dispatch
 //! serves exactly as before (`DirectApexFallbackToLegacy` recorded).
+//!
+//! Every class is additionally gated on the vertex classifier:
+//! only `SameSideConvex` apexes promote (PK-231 — the machinery's
+//! measured domain is all-convex; an OppositeSide saddle promoted
+//! through the mixed arm planned the Open rung and its vacuous
+//! no-op "success" deleted the legacy saddle cap entirely).
 
-use popkern_core::topology::VertexHandle;
+use popkern_core::tolerance::Tolerance;
+use popkern_core::topology::{BRep, VertexHandle};
 
 use super::EdgeGeometry;
 
@@ -66,9 +73,11 @@ pub(super) struct PromotionFlags {
 /// convention (perp-walk positions + planner-prepass overrides),
 /// exactly as if `use_direct_apex_construction` were set.
 pub(super) fn promoted_apexes_for_mode(
+    brep: &BRep,
     vertex_mode: &super::VertexMode,
     edge_geometries: &[EdgeGeometry],
     flags: PromotionFlags,
+    tolerance: &Tolerance,
 ) -> std::collections::BTreeSet<VertexHandle> {
     // Vertex blends dispatch only in Smooth mode with 2+ fillets —
     // the same gate the dispatch loop applies.
@@ -89,12 +98,40 @@ pub(super) fn promoted_apexes_for_mode(
     }
     vertex_edges
         .into_iter()
-        .filter(|(_, edge_indices)| {
+        .filter(|(vertex, edge_indices)| {
             edge_indices.len() >= 2
                 && should_promote_direct_apex(edge_indices, edge_geometries, flags)
+                && apex_is_same_side_convex(brep, *vertex, edge_indices, edge_geometries, tolerance)
         })
         .map(|(vertex, _)| vertex)
         .collect()
+}
+
+/// Every promoted class was measured on all-convex apexes (pyramid
+/// slant blends, cube corners) — the direct-apex planner models the
+/// rolling ball on ONE side of every support, so a concave strip is
+/// invisible to its footprint search (PK-231: the OppositeSide
+/// notched-cube saddle planned "only 2 fillets" out of 3, landed the
+/// Open rung, and the vacuous no-op success swallowed the legacy
+/// saddle machinery entirely). Only `SameSideConvex` promotes;
+/// saddle/concave/tangent/mixed apexes keep their legacy dispatch,
+/// which owns the class-specific construction strategies.
+fn apex_is_same_side_convex(
+    brep: &BRep,
+    vertex: VertexHandle,
+    edge_indices: &[usize],
+    edge_geometries: &[EdgeGeometry],
+    tolerance: &Tolerance,
+) -> bool {
+    let edges: Vec<_> = edge_indices
+        .iter()
+        .filter_map(|&index| edge_geometries.get(index).map(|g| g.analysis.edge))
+        .collect();
+    let report = crate::vertex_classifier::classify_vertex_blend(brep, vertex, &edges, tolerance);
+    matches!(
+        report.classification,
+        crate::vertex_classifier::VertexBlendClassification::SameSideConvex
+    )
 }
 
 /// True when every pair of the corner's cylinder-strip axes is

@@ -123,6 +123,65 @@ impl Transform3 {
         Self::scale(s, s, s)
     }
 
+    /// The uniform scale factor of this transform, when it is a
+    /// similarity (rigid motion × uniform scale, mirror allowed):
+    /// `Some(s)` with `s > 0` iff the linear part `L` satisfies
+    /// `LᵀL = s²·I` within a relative band of `1e-9`.
+    ///
+    /// Analytic surface fields (plane normals, cylinder/cone/torus
+    /// axes, radii) only stay analytic under similarities — a
+    /// non-uniform scale or shear turns a cylinder into an elliptic
+    /// cylinder that `SurfaceGeometry` cannot represent, so
+    /// [`crate::topology::BRep::transform`] uses this to decline
+    /// such transforms with a typed error instead of silently
+    /// corrupting radii and direction lengths (PK-231: a
+    /// `scale_uniform(0.6)` notch cube shipped plane normals of
+    /// length 0.6, displacing every downstream fillet offset by
+    /// 0.6×).
+    pub fn similarity_scale(&self) -> Option<f64> {
+        let m = &self.matrix;
+        // Columns of the linear part.
+        let cols = [
+            Vec3::new(m[0][0], m[1][0], m[2][0]),
+            Vec3::new(m[0][1], m[1][1], m[2][1]),
+            Vec3::new(m[0][2], m[1][2], m[2][2]),
+        ];
+        let s_sq = cols[0].dot(&cols[0]);
+        if s_sq <= f64::EPSILON {
+            return None;
+        }
+        let band = 1.0e-9 * s_sq;
+        for i in 0..3 {
+            for j in i..3 {
+                let expected = if i == j { s_sq } else { 0.0 };
+                if (cols[i].dot(&cols[j]) - expected).abs() > band {
+                    return None;
+                }
+            }
+        }
+        // A projective bottom row would make apply_point non-affine
+        // (and apply_direction ignores w, so points and directions
+        // would disagree).
+        if m[3][0].abs() > 1.0e-12
+            || m[3][1].abs() > 1.0e-12
+            || m[3][2].abs() > 1.0e-12
+            || (m[3][3] - 1.0).abs() > 1.0e-12
+        {
+            return None;
+        }
+        let s = s_sq.sqrt();
+        // Snap rigid transforms to EXACTLY 1.0: composed rotations
+        // carry ~1e-16 column-norm noise, and `radius * 1.0000…02`
+        // would perturb every radius by an ULP on every translate/
+        // rotate — enough to flip marginal welds (the Bishop-frame
+        // seed lesson). Bit-exactness at s = 1 is part of the
+        // contract.
+        if (s - 1.0).abs() <= 1.0e-12 {
+            return Some(1.0);
+        }
+        Some(s)
+    }
+
     /// Compose two transforms: `self` applied after `other`.
     ///
     /// `self.compose(&other).apply_point(p)` == `self.apply_point(&other.apply_point(p))`

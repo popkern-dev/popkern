@@ -92,6 +92,7 @@ pub(super) fn try_direct_apex_construction(
     edge_geometries: &[EdgeGeometry],
     _descendants: &HashMap<EdgeHandle, Vec<EdgeHandle>>,
     tolerance: &Tolerance,
+    auto_promoted: bool,
 ) -> Result<DirectApexDispatchOutcome, DirectApexDispatchError> {
     // Edge handles in `edge_geometries` are the ORIGINAL pre-
     // pipeline handles.  Phase C kef's the fillet edges so
@@ -193,6 +194,24 @@ pub(super) fn try_direct_apex_construction(
     let build_result = match plan.cap_kind {
         CapKind::Sphere { .. } | CapKind::Gregory { .. } => {
             try_constructive_with_legacy_fallthrough(brep, &plan, &surfaces, tolerance)?
+        }
+        CapKind::Open { .. } if auto_promoted => {
+            // PK-231 honesty backstop: an AUTO-promoted apex whose plan
+            // lands the Open rung would "succeed" as a no-op, be recorded
+            // route=DirectApex, and skip the legacy vertex blend — the
+            // promotion arm promised the apex is in a measured serving
+            // class, so a plan that builds nothing is a promotion
+            // misjudgment and must decline to legacy loudly (recorded as
+            // DirectApexFallbackToLegacy with the planner's reason), not
+            // silently delete the class's cap. Explicitly-requested
+            // direct-apex keeps the historical Open no-op contract.
+            return Err(DirectApexDispatchError::new(format!(
+                "auto-promoted apex planned Open (no cap construction): {}",
+                plan.telemetry
+                    .fallback_reason
+                    .as_deref()
+                    .unwrap_or("planner recorded no fallback reason")
+            )));
         }
         CapKind::Open { .. } => {
             construct_apex_with_surfaces(brep, &plan, &surfaces, tolerance, None).map_err(
