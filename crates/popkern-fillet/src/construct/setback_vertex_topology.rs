@@ -53,10 +53,13 @@ mod setback_fan_seam_refresh;
 #[path = "setback_rim_jet.rs"]
 mod setback_rim_jet;
 pub(crate) use setback_bezier9::{bezier9_eval, bezier9_extract, bezier9_nearest};
+#[path = "saddle_boundary_ring.rs"]
+mod saddle_boundary_ring;
 #[path = "setback_rim_reconcile.rs"]
 mod setback_rim_reconcile;
 #[path = "setback_shared_net_unify.rs"]
 mod setback_shared_net_unify;
+pub(crate) use saddle_boundary_ring::try_saddle_boundary_ring;
 use setback_arc_crossings::arc_boundary_crossings;
 
 /// Env-gated (PK_FAN_QUALITY_PROBE) pipeline-stage observability for

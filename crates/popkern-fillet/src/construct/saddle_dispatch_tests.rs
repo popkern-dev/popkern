@@ -253,6 +253,9 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
             other => panic!("saddle serve must be structurally clean, got {other:?}"),
         }
     }
+    eprintln!(
+        "item5 saddle serve inventory: {failing_edges} check-9 edges, worst {worst_deviation:.3e}"
+    );
     assert!(
         worst_deviation <= 1.5e-1,
         "mitred-ring residual {worst_deviation:.3e} exceeds the measured 1.5e-1 class ceiling \

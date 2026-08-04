@@ -12,6 +12,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::boundary_hex::{build_face_edge_bridge_between, reorient_arcs_for_hex_closure};
+use super::boundary_saddle_stations::apply_saddle_station_pushback;
 use crate::fillet_surface::FilletSurfaceResult;
 
 // Re-export sampling types/functions so existing call sites that use
@@ -152,6 +153,20 @@ pub struct BlendBoundaryOptions {
     /// regardless of the `POPKERN_SPHERE_FIT_BOUNDARY` env var.
     /// `None` honours the env var (today's default behaviour).
     pub disable_sphere_fit_substitution: Option<bool>,
+    /// PK-234: saddle (`OppositeSide`) station pushback. The default
+    /// closest-to-vertex arc stations are only valid when every
+    /// bridge region exists beyond the strips' tangency rails — true
+    /// at convex corners, FALSE at a saddle's rail-crossing
+    /// junctions, where each neighbor strip consumes the shared
+    /// support band up to the rails' crossing (measured on the
+    /// notched-cube saddle: the default station x=0.9875 sits past
+    /// the carved rail end at x=0.9, and the emitted bridge runs
+    /// through the neighbor strip's band, 3.3e-2 off the surface
+    /// that actually owns the region). With this flag the arc
+    /// stations are pushed back past every in-strip rail crossing
+    /// with a setback margin, so all junctions land on real rails
+    /// and all bridges cross real face regions.
+    pub saddle_station_pushback: bool,
 }
 
 /// Compute the blend boundary at a vertex where multiple fillets meet.
@@ -217,6 +232,23 @@ pub fn compute_blend_boundary_with_options(
         let ep = [end_curve.point_at(t0), end_curve.point_at(t1)];
         fillet_arcs.push(end_curve);
         fillet_endpoints.push(ep);
+    }
+
+    // Soft-fail: an unpushable station keeps the default boundary
+    // (today's behavior — the saddle ring carve then declines with
+    // the junction mismatch recorded) instead of killing the whole
+    // vertex blend into a Mitred fallback.
+    if options.saddle_station_pushback
+        && let Err(reason) = apply_saddle_station_pushback(
+            fillet_indices,
+            fillet_surfaces,
+            &vertex_pos,
+            &mut fillet_arcs,
+            &mut fillet_endpoints,
+        )
+        && std::env::var_os("PK_CARVE_TRACE").is_some()
+    {
+        eprintln!("  [saddle-stations] pushback declined: {reason}");
     }
 
     // Collect the supporting surface of every face incident to the

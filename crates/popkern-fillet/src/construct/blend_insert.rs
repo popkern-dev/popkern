@@ -18,6 +18,8 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 mod blend_insert_diagnostics;
 #[path = "blend_insert_pns_acceptance.rs"]
 mod blend_insert_pns_acceptance;
+#[path = "blend_insert_saddle_rung.rs"]
+mod blend_insert_saddle_rung;
 #[path = "blend_insert_setback_rung.rs"]
 mod blend_insert_setback_rung;
 #[path = "blend_insert_support_cell_acceptance.rs"]
@@ -166,6 +168,12 @@ pub(crate) fn insert_vertex_blend(
         } else {
             None
         },
+        // PK-234: at a saddle the default closest-to-vertex stations
+        // yield a boundary whose bridges run through consumed support
+        // bands; push the stations back past the rail crossings so
+        // the ring carve (and the decomposition) get a boundary that
+        // exists on the carved topology.
+        saddle_station_pushback: matches!(classification, VertexBlendClassification::OppositeSide),
     };
     let rational_gregory_compatible = matches!(
         classification,
@@ -196,31 +204,65 @@ pub(crate) fn insert_vertex_blend(
         None
     };
 
-    // Phase 1: For each face, cut a chord between the face's two
-    // fillet-trim-endpoint anchors. The V-containing sub-face is
-    // the "corner region" (may be a triangle, quad, or pentagon
-    // depending on how many intermediate cube-sub-split vertices
-    // sit between V and the anchors).
-    let _corner_faces =
-        split_corner_triangles(brep, vertex, &face_info, edge_geometries, tolerance)?;
+    // PK-234: saddle (`OppositeSide`) corners get the boundary-driven
+    // ring carve INSTEAD of the mitred chord construction. The mitred
+    // ring sits on the sharp model edges up to 1.3e-1 from the
+    // boundary the downstream Gregory decomposition interpolates, the
+    // seam re-anchor declines on it (`incident_retrim_off_curve`),
+    // and the corner-point setback surgery has no valid ring model at
+    // the reflex junction (its corner lies outside both strips). The
+    // carve is transactional: any decline restores the entry state
+    // and the mitred phases below run exactly as before.
+    let (saddle_ring_face, saddle_ring_decline) = blend_insert_saddle_rung::try_saddle_ring_rung(
+        brep,
+        vertex,
+        classification,
+        use_rational_gregory,
+        n_gon_boundary.as_ref(),
+        &fillet_surfaces_pre,
+        tolerance,
+    );
 
-    // Phase 2a: kef every V-edge separating two distinct faces;
-    // last V-edge may become a same-face "bridge" handled by
-    // Phase 2b's `kev` after surface assignment.
-    let blend_face = kef_cross_face_v_edges(brep, vertex)?;
+    let blend_face = match saddle_ring_face {
+        Some(face) => face,
+        None => {
+            // Phase 1: For each face, cut a chord between the face's two
+            // fillet-trim-endpoint anchors. The V-containing sub-face is
+            // the "corner region" (may be a triangle, quad, or pentagon
+            // depending on how many intermediate cube-sub-split vertices
+            // sit between V and the anchors).
+            let _corner_faces =
+                split_corner_triangles(brep, vertex, &face_info, edge_geometries, tolerance)?;
 
-    // Phase 3: Compute the blend boundary + assign the surface.
+            // Phase 2a: kef every V-edge separating two distinct faces;
+            // last V-edge may become a same-face "bridge" handled by
+            // Phase 2b's `kev` after surface assignment.
+            kef_cross_face_v_edges(brep, vertex)?
+        }
+    };
+
+    // Phase 3: Compute the blend boundary + assign the surface. The
+    // ring carve consumed the vertex (its region merge removed it),
+    // so that path reuses the pre-carve boundary it was built from —
+    // recomputation is impossible AND unnecessary (the ring IS the
+    // boundary by construction).
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    let blend_boundary = blend::compute_blend_boundary_with_options(
-        vertex,
-        &local_indices,
-        &fillet_surfaces,
-        brep,
-        tolerance,
-        boundary_options,
-    )
-    .map_err(|e| format!("blend boundary computation failed: {e}"))?;
+    let blend_boundary = if saddle_ring_face.is_some() {
+        n_gon_boundary
+            .clone()
+            .ok_or_else(|| "saddle ring path requires the n-gon boundary".to_string())?
+    } else {
+        blend::compute_blend_boundary_with_options(
+            vertex,
+            &local_indices,
+            &fillet_surfaces,
+            brep,
+            tolerance,
+            boundary_options,
+        )
+        .map_err(|e| format!("blend boundary computation failed: {e}"))?
+    };
     let (method, achieved_continuity) = assign_blend_surface(
         brep,
         blend_face,
@@ -235,10 +277,12 @@ pub(crate) fn insert_vertex_blend(
     // loop into a manifold polygon. This is R8 C6's crucial
     // topology fix — the old code left the bridge as an internal
     // dangling edge because its `kef` guard rejected same-loop
-    // half-edge pairs.
-    kev_v_bridge(brep, vertex)?;
-
-    remove_orphaned_vertex(brep, vertex);
+    // half-edge pairs. The saddle ring carve already consumed the
+    // vertex in its region merge, so that path skips both steps.
+    if saddle_ring_face.is_none() {
+        kev_v_bridge(brep, vertex)?;
+        remove_orphaned_vertex(brep, vertex);
+    }
 
     // Phase 6c-D (N-path arm): when sphere-fit substitution
     // succeeded for `n_gon_boundary` and we're about to take the
@@ -279,6 +323,17 @@ pub(crate) fn insert_vertex_blend(
         exact_boundary_cap: false,
     };
     let mut diagnostics = Vec::new();
+
+    // PK-234: the saddle ring carve records its outcome either way —
+    // a decline here means the mitred fallback ring is serving and
+    // the class's known deviation set (PK-236) is present.
+    diagnostics.extend(blend_insert_saddle_rung::saddle_ring_diagnostic(
+        classification,
+        use_rational_gregory,
+        n_sides,
+        saddle_ring_face,
+        saddle_ring_decline.as_ref(),
+    ));
 
     // Record WHY the PnS route was not entered. Until this existed, a
     // corner that failed the boundary preconditions was
