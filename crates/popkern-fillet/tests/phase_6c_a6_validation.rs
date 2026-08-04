@@ -153,22 +153,36 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
         name: &'static str,
         radii: &'static [f64],
         is_pyramid: bool,
+        // PK-235 re-pin: measured other_geometric ceiling under
+        // collect-all check 9. The old blanket "≤ 1" was a
+        // first-failure artifact: pyramid3_uniform's rolling-ball
+        // corner ships 11 curve-surface deviations (worst 1.06e-1,
+        // sharp-edge chords off the strip cylinders — the same
+        // mitred-ring class PK-234 measured on the saddle). The
+        // fixture always looked like "≤ 1 mild defect" because
+        // check 9 stopped at the first failing edge.
+        max_other_geometric: usize,
     }
     let cases: &[Case] = &[
         Case {
             name: "cube_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: false,
+            max_other_geometric: 1,
         },
         Case {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
+            max_other_geometric: 12,
         },
         Case {
+            // Same hidden-set class as pyramid3_uniform, milder:
+            // 12 curve-surface deviations, worst 1.5e-2.
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
+            max_other_geometric: 14,
         },
     ];
     for case in cases {
@@ -202,10 +216,11 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
                 .join("\n"),
         );
         assert!(
-            m.other_geometric <= 1,
-            "{}: other_geometric regression {} (was ≤1):\n{}",
+            m.other_geometric <= case.max_other_geometric,
+            "{}: other_geometric regression {} (measured ceiling {}):\n{}",
             case.name,
             m.other_geometric,
+            case.max_other_geometric,
             errors
                 .iter()
                 .map(|e| format!("  - {e:?}"))
