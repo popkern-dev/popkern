@@ -275,3 +275,81 @@ mod tests {
         assert_eq!(report.max_sampled_disagreement, 0.02);
     }
 }
+
+/// PK-234 idempotence gate for the post-assignment support-seam
+/// relocation: `true` when `sub_face`'s outer ring already carries an
+/// edge lying ON the boundary segment's curve within the
+/// boundary-authoring tolerance (2e-4 — the seam re-anchor's band).
+/// True by construction after the saddle boundary-ring carve; the
+/// mitred classes the relocation serves sit ~4e-2 off and still
+/// author.
+pub(super) fn segment_already_authored(
+    brep: &popkern_core::topology::BRep,
+    sub_face: popkern_core::topology::FaceHandle,
+    segment: &crate::blend::boundary::BoundarySegment,
+) -> bool {
+    use popkern_core::geometry::curve::CurveEval;
+    let curve = match segment {
+        crate::blend::boundary::BoundarySegment::FaceEdge { curve, .. }
+        | crate::blend::boundary::BoundarySegment::FilletEnd { curve, .. } => curve,
+    };
+    let (t0, t1) = curve.parameter_range();
+    let Some(face) = brep.faces.get(sub_face) else {
+        return false;
+    };
+    let Some(loop_data) = brep.loops.get(face.outer_loop) else {
+        return false;
+    };
+    let start = loop_data.half_edge;
+    let mut cursor = start;
+    for _ in 0..64 {
+        let Some(hd) = brep.half_edges.get(cursor) else {
+            return false;
+        };
+        if let Some(edge_curve) = brep.edges.get(hd.edge).and_then(|e| e.curve.as_ref()) {
+            let eval: &dyn CurveEval = &edge_curve.geometry;
+            let (e0, e1) = (edge_curve.t_start, edge_curve.t_end);
+            // Worst distance from 9 segment samples to the edge
+            // curve (65-sample scan + windowed refinement).
+            let mut worst = 0.0_f64;
+            for i in 0..=8 {
+                let p = curve.point_at(t0 + (t1 - t0) * i as f64 / 8.0);
+                let mut d_min = f64::INFINITY;
+                let mut t_min = e0;
+                for j in 0..=64 {
+                    let t = e0 + (e1 - e0) * j as f64 / 64.0;
+                    let d = eval.point_at(t).distance_to(&p);
+                    if d < d_min {
+                        d_min = d;
+                        t_min = t;
+                    }
+                }
+                let mut window = (e1 - e0).abs() / 64.0;
+                for _ in 0..16 {
+                    let (lo, hi) = (
+                        (t_min - window).max(e0.min(e1)),
+                        (t_min + window).min(e0.max(e1)),
+                    );
+                    for j in 0..=8 {
+                        let t = lo + (hi - lo) * j as f64 / 8.0;
+                        let d = eval.point_at(t).distance_to(&p);
+                        if d < d_min {
+                            d_min = d;
+                            t_min = t;
+                        }
+                    }
+                    window *= 0.4;
+                }
+                worst = worst.max(d_min);
+            }
+            if worst <= 2.0e-4 {
+                return true;
+            }
+        }
+        cursor = hd.next;
+        if cursor == start {
+            break;
+        }
+    }
+    false
+}

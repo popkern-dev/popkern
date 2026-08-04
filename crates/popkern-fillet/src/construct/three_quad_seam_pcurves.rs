@@ -332,6 +332,26 @@ pub(super) fn author_post_assignment_support_face_boundary_seams(
 ) -> SupportSeamRelocationReport {
     let before = brep.clone();
     let mut report = SupportSeamRelocationReport::default();
+    // Already-authored no-op (PK-234): when EVERY bridge segment is
+    // already carried by some sub-face's ring — true by construction
+    // after the saddle boundary-ring carve — relocation can only drag
+    // exact junction vertices onto mis-mapped targets (measured: the
+    // per-sub-face semantic mapping lands rotated on the carved ring
+    // and all six ring vertices moved 0.066–0.222 toward neighboring
+    // junctions). The mitred classes this pass serves sit ~4e-2 off
+    // their segments and still author.
+    let all_bridges_carried = boundary
+        .segments
+        .iter()
+        .filter(|s| matches!(s, BoundarySegment::FaceEdge { .. }))
+        .all(|segment| {
+            sub_faces.iter().any(|sub_face| {
+                three_quad_support_seams::segment_already_authored(brep, *sub_face, segment)
+            })
+        });
+    if all_bridges_carried {
+        return report;
+    }
     let required_hints = gregory_cap_cylinder_boundary_hint_count(brep);
     let required_neighbors = three_quad_support_seams::gregory_cap_cylinder_neighbor_count(brep);
     for (subface_index, sub_face) in sub_faces.iter().enumerate() {
