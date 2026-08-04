@@ -306,9 +306,10 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
     // returned only the FIRST failing edge — both numbers were
     // first-failure artifacts, so the conic-vs-circular comparison is
     // void. Under collect-all check 9 the conic corner's true worst
-    // edge measures 7.35e-2 (mitred swept-corner class, PK-139/152
-    // frontier — not conic-specific: the conic terminal settlement
-    // still lands its OWN section curves on the strips). Ceiling
+    // edge measures 7.35e-2: the corner declines the setback rung by
+    // the RECORDED flat-rho gate (rho 0.3501 < 0.4142 — PK-226's
+    // deliberate analytic gate) and serves the mitred legacy ring.
+    // Owned by PK-239 (boundary-driven ring generalization). Ceiling
     // records the measured class state without licensing regression.
     assert!(
         worst_deviation <= 8.0e-2,

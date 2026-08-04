@@ -92,15 +92,13 @@ fn blend_on_blend_fillet_torus_plane_edge() {
     match fillet_edges(&blend1.brep, &specs, &FilletOptions::default(), tol(), None) {
         Ok(res) => {
             // Armed check 9 (PK-165) exposed a pre-existing §12.3
-            // gap: the secondary blend serves edges whose curves sit
-            // ~9.7e-3 off an adjacent surface (a real trim-curve lie
-            // the stub validator never saw). The pre-PK-235 pin said
-            // "ONE edge at 6.25e-2" because check 9 returned only the
-            // FIRST failing edge; the collect-all form shows the same
-            // defect on THREE symmetric edges at 9.72e-3 each. Pinned
-            // as exactly that class; the fix belongs to the
-            // blend-on-blend completion leg (PK-159). Everything else
-            // must stay clean.
+            // gap; the collect-all form (PK-235) showed its true
+            // shape: THREE symmetric edges at 9.72e-3 — the
+            // SECONDARY strip's far-end termination at the cube face
+            // y=1 (end chords through runout overshoot points at
+            // y=1.02 plus the strip-plane end arc). Strip
+            // end-termination class, owned by PK-238. Everything
+            // else must stay clean.
             let errors = res.brep.validate_all();
             assert!(
                 errors.iter().all(|e| matches!(

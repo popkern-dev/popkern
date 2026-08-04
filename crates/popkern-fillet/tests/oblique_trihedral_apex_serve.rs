@@ -159,9 +159,10 @@ fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
     // PK-235 re-pin: the 6e-2 ceiling was measured while check 9
     // reported only the FIRST failing edge; the collect-all form
     // finds the legacy oblique serve's true worst edge at 7.75e-2
-    // (same mitred-corner deviation class the flag deliberately
-    // opts into — the flag's contract is "legacy family, smooth cap",
-    // not "modern ring quality").
+    // (the mitred-corner deviation class the flag deliberately opts
+    // into — the flag's contract is "legacy family, smooth cap",
+    // not "modern ring quality"). The class ceiling is owned by
+    // PK-239 (boundary-driven ring generalization).
     assert!(
         worst_deviation <= 9.0e-2,
         "legacy serve worst deviation {worst_deviation:.3e} exceeds the measured class \
