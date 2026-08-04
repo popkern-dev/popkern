@@ -222,57 +222,27 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
     );
 
     // Sub-patch geometry: Gregory surfaces, non-degenerate, and the
-    // whole result structurally clean (all non-curve-surface checks
-    // pass). Geometric residual — the HONEST class state under
-    // PK-235's collect-all check 9 (PK-234 measured inventory):
-    // the saddle corner ships a MITRED ring — its rim edges are
-    // straight Lines along the sharp model edges / mitre chords,
-    // each claiming a fillet cylinder side face it does not lie on
-    // (the constant 4.142e-2 on the r=0.1 pair is exactly
-    // sqrt(2)·r − r, analytic) — while the three-quad decomposition
-    // patches interpolate the CORRECT blend boundary 1.287e-1 away
-    // (reanchor declines `incident_retrim_off_curve` and the bond
-    // proceeds). ~14 edges fail check 9, worst ~1.3e-1. The pre-
-    // PK-235 pin recorded "worst 4.685e-4" because check 9 returned
-    // only the FIRST failing edge. PK-234 owns the substrate fix
-    // (boundary-driven ring: strip-end arcs + support-face bridges);
-    // this ceiling records the measured mitred-ring class without
-    // licensing regression beyond it.
-    use popkern_core::error::ValidationError;
+    // serve VALIDATE-CLEAN under collect-all check 9 (PK-234): the
+    // boundary-driven ring carve (station pushback + rail-spur recut
+    // through the mitre complex + arc-normalized blend loop) bonds
+    // the decomposition onto a machine-exact ring (4.7e-12), the
+    // support-seam relocation no-ops on it, and the boundary-owned
+    // seam authoring lands every cap edge inside the validation
+    // band. Zero CurveSurfaceDeviation errors — the mitred fallback
+    // era carried 14 at worst 1.016e-1 (history in the PK-234
+    // ledger; PK-235 exposed the true counts).
     use popkern_core::geometry::surface::SurfaceEval;
 
     let validation_errors = result.brep.validate_all();
-    let mut worst_deviation = 0.0_f64;
-    let mut failing_edges = 0_usize;
-    for error in &validation_errors {
-        match error {
-            ValidationError::CurveSurfaceDeviation { max_deviation, .. } => {
-                worst_deviation = worst_deviation.max(*max_deviation);
-                failing_edges += 1;
-            }
-            other => panic!("saddle serve must be structurally clean, got {other:?}"),
-        }
-    }
-    eprintln!(
-        "item5 saddle serve inventory: {failing_edges} check-9 edges, worst {worst_deviation:.3e}"
-    );
     assert!(
-        worst_deviation <= 1.5e-1,
-        "mitred-ring residual {worst_deviation:.3e} exceeds the measured 1.5e-1 class ceiling \
-         (PK-234 boundary-driven ring substrate)"
-    );
-    assert!(
-        failing_edges <= 20,
-        "check-9 failing-edge count {failing_edges} exceeds the measured mitred-ring class \
-         (~14 edges; PK-234)"
+        validation_errors.is_empty(),
+        "saddle ring serve must be validate_all CLEAN; got {validation_errors:?}"
     );
 
-    // PK-234 stage 3/4: the boundary-driven ring carve is wired as
-    // recorded temporary containment (POPKERN_SADDLE_RING=1 opt-in —
-    // the ring itself carves at 4.7e-12 but the downstream repair
-    // passes misfire on the new substrate). The rung must RECORD that
-    // containment on every default saddle run; a silent disappearance
-    // of the fact means the rung was unwired.
+    // The ring rung must record that it applied — a silent fallback
+    // to the mitred construction would keep this green only until
+    // the deviation asserts above caught it, so pin the route fact
+    // directly.
     let saddle_ring_facts: Vec<&str> = result
         .repair_report
         .apex_diagnostics
@@ -289,8 +259,8 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
     assert!(
         saddle_ring_facts
             .iter()
-            .any(|s| s.starts_with("saddle_boundary_ring.declined: containment")),
-        "the saddle ring rung must record its containment decline; facts: {saddle_ring_facts:?}"
+            .any(|s| *s == "saddle_boundary_ring.applied"),
+        "the saddle ring rung must record an applied fact; facts: {saddle_ring_facts:?}"
     );
 
     for patch in &saddle_corners {

@@ -125,6 +125,7 @@ fn carve_ring(
     // ---- arcs: one exact strip-end curve per fillet -----------------
     let mut arc_vertices: Vec<[VertexHandle; 2]> = Vec::with_capacity(n);
     let mut strip_faces: Vec<FaceHandle> = Vec::with_capacity(n);
+    let mut arc_edges: std::collections::BTreeSet<EdgeHandle> = Default::default();
     let mut ring_edges: std::collections::BTreeSet<EdgeHandle> = Default::default();
     let mut slivers: Vec<FaceHandle> = Vec::new();
     for k in 0..n {
@@ -233,6 +234,7 @@ fn carve_ring(
             }
         }
         ring_edges.insert(mef.edge);
+        arc_edges.insert(mef.edge);
         arc_vertices.push([v_start, v_end]);
         strip_faces.push(strip_face);
         if trace {
@@ -324,6 +326,32 @@ fn carve_ring(
         return Err(format!(
             "ring edge sits {worst:.3e} off an adjacent surface (band {RING_ON_SURFACE_BAND:.0e})"
         ));
+    }
+
+    // Loop-start normalization: the poke pairs sub-face k with
+    // [loop_hes[2k], loop_hes[2k+1]] = [arc_k, bridge_k], and the
+    // decomposition builds sub-patch k over the same pairing — but
+    // the merge leaves the loop's half-edge pointer ARBITRARY.
+    // Starting on a bridge shifts the alternation by one and every
+    // sub-face covers arc_k + bridge_{k-1} while carrying sub-patch
+    // k (measured: each ring bridge fits a NEIGHBORING sub-patch at
+    // 1e-14..1e-11 while its own face's patch misses by up to
+    // 1.2e-1, arcs clean on both). Point the loop at an arc.
+    {
+        let face_data = brep
+            .faces
+            .get(blend_face)
+            .ok_or_else(|| "blend face vanished after merge".to_string())?;
+        let outer = face_data.outer_loop;
+        let hes = face_loop_half_edges(brep, blend_face)?;
+        let arc_start = hes
+            .iter()
+            .copied()
+            .find(|he| arc_edges.contains(&brep.half_edges[*he].edge))
+            .ok_or_else(|| "blend ring lost its arc edges".to_string())?;
+        if let Some(loop_data) = brep.loops.get_mut(outer) {
+            loop_data.half_edge = arc_start;
+        }
     }
     if trace {
         eprintln!(

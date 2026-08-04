@@ -25,18 +25,20 @@ pub(super) fn try_saddle_ring_rung(
     if !matches!(classification, VertexBlendClassification::OppositeSide) || !use_rational_gregory {
         return (None, None);
     }
-    // Temporary containment (PK-234 stage 3): the ring itself carves
-    // machine-exact (worst on-surface deviation 4.7e-12), but the
-    // downstream post-apply repair passes assume the mitred-era
-    // topology and misfire on the new ring (measured: rail-edge
-    // curves rewritten to span to the cap's central vertex, support
-    // planes refit to NURBS — worst check-9 deviation 8.8e-1 vs the
-    // mitred fallback's 1.016e-1). Opt-in until those passes are
-    // adapted; the mitred fallback keeps today's serve.
-    if std::env::var_os("POPKERN_SADDLE_RING").is_none_or(|v| v != "1") {
+    // Default ON (PK-234 stage 4): the ring carves machine-exact
+    // (4.7e-12), the support-seam relocation no-ops on it, and with
+    // the blend loop normalized to start on an arc the sub-patches
+    // bond exactly — the saddle fixture serves validate_all CLEAN
+    // (zero check-9 edges) where the mitred fallback carries 14
+    // failing edges at worst 1.016e-1. POPKERN_SADDLE_RING=0 is the
+    // diagnostic kill-switch pinning the mitred fallback dispatch.
+    if std::env::var_os("POPKERN_SADDLE_RING").is_some_and(|v| v == "0") {
         return (
             None,
-            Some("containment: POPKERN_SADDLE_RING not set (downstream repair passes misfire on the ring substrate)".to_string()),
+            Some(
+                "diagnostic kill-switch: POPKERN_SADDLE_RING=0 pins the mitred fallback"
+                    .to_string(),
+            ),
         );
     }
     let Some(boundary) = n_gon_boundary else {
