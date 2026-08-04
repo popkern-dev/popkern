@@ -34,6 +34,9 @@
 //! caller falls through to the mitred legacy construction with the
 //! decline recorded (today's behavior, no regression).
 
+use super::saddle_boundary_ring_geom::{
+    junction_vertex, select_bridge_support, worst_ring_on_surface_deviation, write_ring_curve,
+};
 use super::*;
 
 /// Junction acceptance: a boundary junction must land on a strip
@@ -42,13 +45,13 @@ use super::*;
 /// are the same carve output the boundary read, so genuine landings
 /// measure ~1e-9; a 1e-4 gate rejects a boundary/topology mismatch
 /// class without admitting mis-splits.
-const JUNCTION_ON_EDGE_BAND: f64 = 1.0e-4;
+pub(super) const JUNCTION_ON_EDGE_BAND: f64 = 1.0e-4;
 
 /// Ring postcondition: every ring edge curve sample must sit on both
 /// adjacent surfaces within this band (the arcs are exact chart isos
 /// and the bridges live on their support faces, so genuine rings
 /// measure ≤ 1e-9; check 9's default band is 1e-5).
-const RING_ON_SURFACE_BAND: f64 = 1.0e-5;
+pub(super) const RING_ON_SURFACE_BAND: f64 = 1.0e-5;
 
 /// Carve the boundary ring at a saddle vertex and merge the interior
 /// into one `2n`-gon blend face. Returns the blend face; on any
@@ -121,6 +124,7 @@ fn carve_ring(
 
     // ---- arcs: one exact strip-end curve per fillet -----------------
     let mut arc_vertices: Vec<[VertexHandle; 2]> = Vec::with_capacity(n);
+    let mut strip_faces: Vec<FaceHandle> = Vec::with_capacity(n);
     let mut ring_edges: std::collections::BTreeSet<EdgeHandle> = Default::default();
     let mut slivers: Vec<FaceHandle> = Vec::new();
     for k in 0..n {
@@ -147,9 +151,34 @@ fn carve_ring(
         ];
         let strip_face =
             setback_arc_binding::find_fillet_face(brep, fillet, &pseudo_cubic, vertex_position)?;
-        let v_start = junction_vertex(brep, strip_face, p_start, tolerance)
+        // Per endpoint: split the rail where it exists; where the
+        // mitre complex replaced the rail with an off-surface chord
+        // (junction interior to the chord-bounded trim), restore the
+        // rail via the spur recut. The chord `kef` runs AFTER the arc
+        // `mef` (the corner sliver must exist as a face first).
+        let mut pending_chord_kefs: Vec<EdgeHandle> = Vec::new();
+        let resolve = |brep: &mut BRep,
+                       point: Point3,
+                       pending: &mut Vec<EdgeHandle>|
+         -> Result<VertexHandle, String> {
+            match junction_vertex(brep, strip_face, point, tolerance)? {
+                Some(v) => Ok(v),
+                None => {
+                    let recut = super::saddle_boundary_ring_recut::rail_spur_recut(
+                        brep,
+                        strip_face,
+                        &fillet.surface,
+                        point,
+                    )
+                    .map_err(|e| format!("rail-spur recut: {e}"))?;
+                    pending.push(recut.chord_edge);
+                    Ok(recut.vertex)
+                }
+            }
+        };
+        let v_start = resolve(brep, p_start, &mut pending_chord_kefs)
             .map_err(|e| format!("arc {k} start junction: {e}"))?;
-        let v_end = junction_vertex(brep, strip_face, p_end, tolerance)
+        let v_end = resolve(brep, p_end, &mut pending_chord_kefs)
             .map_err(|e| format!("arc {k} end junction: {e}"))?;
         if v_start == v_end {
             return Err(format!("arc {k} junctions collapse to one vertex"));
@@ -160,11 +189,52 @@ fn carve_ring(
             .mef(he_start, he_end)
             .map_err(|e| format!("mef arc {k} across strip: {e}"))?;
         write_ring_curve(brep, mef.edge, curve, v_start, v_end);
-        let d_old = face_centroid(brep, strip_face)?.distance_to(&vertex_position);
-        let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
-        slivers.push(if d_new < d_old { mef.face } else { strip_face });
+        if pending_chord_kefs.is_empty() {
+            let d_old = face_centroid(brep, strip_face)?.distance_to(&vertex_position);
+            let d_new = face_centroid(brep, mef.face)?.distance_to(&vertex_position);
+            slivers.push(if d_new < d_old { mef.face } else { strip_face });
+        } else {
+            // Recut class: return the corner sliver (overreach band +
+            // between-station piece) to the support face by killing
+            // the off-surface chord. The region merge's vertex-seeded
+            // flood covers the interior afterwards.
+            for chord in pending_chord_kefs.drain(..) {
+                let he = brep
+                    .edges
+                    .get(chord)
+                    .map(|e| e.half_edge)
+                    .ok_or_else(|| format!("chord {chord:?} vanished before kef"))?;
+                // The merged face's geometry must be the SUPPORT's
+                // (the far side): the merge returns the overreach
+                // sliver to the support plane. Keeping the sliver's
+                // strip surface instead poisoned the whole support
+                // face (measured: the entire cube face x=1 inherited
+                // the sliver surface and every far cube edge failed
+                // check 9 at 8.8e-1). The chord borders sliver (the
+                // strip-split corner side, which owns the chord after
+                // the arc mef) and support; identify the support as
+                // the side that is NOT the arc-mef sliver — the face
+                // NOT equal to either arc-split product.
+                let f_a = brep.loops[brep.half_edges[he].loop_].face;
+                let f_b = brep.loops[brep.half_edges[brep.half_edges[he].twin].loop_].face;
+                let support_side = if f_a == strip_face || f_a == mef.face {
+                    f_b
+                } else {
+                    f_a
+                };
+                let support_surface = brep.faces.get(support_side).and_then(|f| f.surface.clone());
+                let kef = brep
+                    .kef(he)
+                    .map_err(|e| format!("kef mitre chord on arc {k}: {e}"))?;
+                let survivor = brep.loops[kef.surviving_loop].face;
+                if let Some(face_data) = brep.faces.get_mut(survivor) {
+                    face_data.surface = support_surface;
+                }
+            }
+        }
         ring_edges.insert(mef.edge);
         arc_vertices.push([v_start, v_end]);
+        strip_faces.push(strip_face);
         if trace {
             eprintln!(
                 "  [saddle-ring] arc {k} strip {strip_face:?} \
@@ -190,10 +260,14 @@ fn carve_ring(
             // exercises this class.
             return Err(format!("bridge {k} is degenerate (shared junction vertex)"));
         }
-        // The support face recorded by the boundary must still carry
-        // both junction vertices on its loop (the arc mefs only split
-        // rail edges, which bound this face).
-        let support = *face;
+        // Support face: the boundary's handle cannot discriminate
+        // coplanar splits of one support plane (measured: it named a
+        // mitre-wedge piece), and chord kefs move junction ownership.
+        // Select topologically: the non-strip face carrying BOTH
+        // junction vertices whose surface contains the bridge.
+        let _ = face;
+        let support = select_bridge_support(brep, v_a, v_b, &strip_faces, curve)
+            .map_err(|e| format!("bridge {k}: {e}"))?;
         let (t0, t1) = curve.parameter_range();
         let b_start = curve.point_at(t0);
         let b_end = curve.point_at(t1);
@@ -245,7 +319,7 @@ fn carve_ring(
             2 * n
         ));
     }
-    let worst = worst_ring_on_surface_deviation(brep, &ring_edges)?;
+    let worst = worst_ring_on_surface_deviation(brep, &ring_edges, blend_face)?;
     if worst > RING_ON_SURFACE_BAND {
         return Err(format!(
             "ring edge sits {worst:.3e} off an adjacent surface (band {RING_ON_SURFACE_BAND:.0e})"
@@ -259,225 +333,4 @@ fn carve_ring(
     }
     let _ = tolerance;
     Ok(blend_face)
-}
-
-/// Find or create the junction vertex where `point` lands on `face`'s
-/// outer-loop boundary: reuse a loop vertex within the junction band,
-/// else split the containing edge at the point.
-fn junction_vertex(
-    brep: &mut BRep,
-    face: FaceHandle,
-    point: Point3,
-    tolerance: &Tolerance,
-) -> Result<VertexHandle, String> {
-    // Reuse: nearest existing loop vertex.
-    let mut nearest_vertex: Option<(f64, VertexHandle)> = None;
-    for he in face_loop_half_edges(brep, face)? {
-        let v = brep.half_edges[he].origin;
-        if let Some(data) = brep.vertices.get(v) {
-            let d = data.position.distance_to(&point);
-            if nearest_vertex.map(|(bd, _)| d < bd).unwrap_or(true) {
-                nearest_vertex = Some((d, v));
-            }
-        }
-    }
-    if let Some((d, v)) = nearest_vertex
-        && d <= JUNCTION_ON_EDGE_BAND
-    {
-        return Ok(v);
-    }
-    // Split: the loop edge whose curve passes nearest the point.
-    // Coarse sample, then windowed parametric refinement — the
-    // coarse minimum alone overstates the distance by up to half a
-    // sample step (measured 1.56e-3 on a 0.3-long rail whose true
-    // point-to-line distance is ~0).
-    let mut best: Option<(f64, f64, EdgeHandle)> = None;
-    for he in face_loop_half_edges(brep, face)? {
-        let edge = brep.half_edges[he].edge;
-        let Some(curve) = brep.edges[edge].curve.as_ref() else {
-            continue;
-        };
-        let (e0, e1) = (curve.t_start, curve.t_end);
-        if !(e0.is_finite() && e1.is_finite()) {
-            continue;
-        }
-        let eval: &dyn CurveEval = &curve.geometry;
-        let mut d_min = f64::INFINITY;
-        let mut t_min = e0;
-        for i in 0..=64 {
-            let t = e0 + (e1 - e0) * i as f64 / 64.0;
-            let d = eval.point_at(t).distance_to(&point);
-            if d < d_min {
-                d_min = d;
-                t_min = t;
-            }
-        }
-        let mut window = (e1 - e0).abs() / 64.0;
-        for _ in 0..24 {
-            let (lo, hi) = (
-                (t_min - window).max(e0.min(e1)),
-                (t_min + window).min(e0.max(e1)),
-            );
-            for i in 0..=16 {
-                let t = lo + (hi - lo) * i as f64 / 16.0;
-                let d = eval.point_at(t).distance_to(&point);
-                if d < d_min {
-                    d_min = d;
-                    t_min = t;
-                }
-            }
-            window *= 0.4;
-        }
-        if best.map(|(bd, _, _)| d_min < bd).unwrap_or(true) {
-            best = Some((d_min, t_min, edge));
-        }
-    }
-    let (d, t_foot, edge) = best.ok_or_else(|| "no curved boundary edge to split".to_string())?;
-    if d > JUNCTION_ON_EDGE_BAND {
-        if std::env::var_os("PK_CARVE_TRACE").is_some() {
-            for he in face_loop_half_edges(brep, face)? {
-                let hd = &brep.half_edges[he];
-                let p = brep.vertices[hd.origin].position;
-                let other = brep.loops[brep.half_edges[hd.twin].loop_].face;
-                let mid = brep.edges[hd.edge].curve.as_ref().map(|c| {
-                    let eval: &dyn CurveEval = &c.geometry;
-                    eval.point_at(0.5 * (c.t_start + c.t_end))
-                });
-                eprintln!(
-                    "    [saddle-ring] {face:?} loop v ({:.4},{:.4},{:.4}) e {:?} mid {:?} | other {other:?}",
-                    p.x,
-                    p.y,
-                    p.z,
-                    hd.edge,
-                    mid.map(|m| (
-                        (m.x * 1e4).round() / 1e4,
-                        (m.y * 1e4).round() / 1e4,
-                        (m.z * 1e4).round() / 1e4
-                    ))
-                );
-            }
-        }
-        return Err(format!(
-            "junction ({:.4},{:.4},{:.4}) is {d:.3e} off face {face:?}'s boundary \
-             (band {JUNCTION_ON_EDGE_BAND:.0e})",
-            point.x, point.y, point.z
-        ));
-    }
-    // Split at the FOOT on the edge curve (the junction target may
-    // sit a hair off the carved edge; the vertex must be on it).
-    let foot = {
-        let curve = brep.edges[edge]
-            .curve
-            .as_ref()
-            .ok_or_else(|| "split edge lost its curve".to_string())?;
-        let eval: &dyn CurveEval = &curve.geometry;
-        eval.point_at(t_foot)
-    };
-    brep.split_edge_at_point(edge, foot, tolerance)
-        .map(|r| r.vertex)
-        .map_err(|e| format!("split at junction: {e}"))
-}
-
-/// Write a boundary segment curve onto a freshly-mef'd ring edge,
-/// oriented `v_from → v_to` (the mef argument order) with endpoint
-/// control points snapped to the topology vertices.
-fn write_ring_curve(
-    brep: &mut BRep,
-    edge: EdgeHandle,
-    curve: &NurbsCurve,
-    v_from: VertexHandle,
-    v_to: VertexHandle,
-) {
-    let (t0, t1) = curve.parameter_range();
-    let p_from = brep.vertices[v_from].position;
-    let mut oriented = curve.clone();
-    if oriented.point_at(t1).distance_to(&p_from) < oriented.point_at(t0).distance_to(&p_from) {
-        oriented = reverse_nurbs(&oriented);
-    }
-    if let (Some(first), Some(_)) = (
-        oriented.control_points.first().copied(),
-        oriented.control_points.last().copied(),
-    ) {
-        let _ = first;
-        let len = oriented.control_points.len();
-        oriented.control_points[0] = p_from;
-        oriented.control_points[len - 1] = brep.vertices[v_to].position;
-    }
-    let (t0, t1) = oriented.parameter_range();
-    if let Some(edge_data) = brep.edges.get_mut(edge) {
-        edge_data.curve = Some(popkern_core::geometry::CurveOnEdge {
-            geometry: popkern_core::geometry::CurveGeometry::Nurbs(oriented),
-            t_start: t0,
-            t_end: t1,
-        });
-    }
-}
-
-/// Reverse a clamped NURBS curve (control points, weights, mirrored
-/// knots) so `point_at(t0)` and `point_at(t1)` swap.
-fn reverse_nurbs(curve: &NurbsCurve) -> NurbsCurve {
-    let (lo, hi) = curve.parameter_range();
-    let mut control_points = curve.control_points.clone();
-    control_points.reverse();
-    let mut weights = curve.weights.clone();
-    weights.reverse();
-    let mut knots: Vec<f64> = curve.knots.iter().map(|k| lo + hi - k).collect();
-    knots.reverse();
-    NurbsCurve {
-        degree: curve.degree,
-        control_points,
-        weights,
-        knots,
-    }
-}
-
-/// Worst sampled distance from any ring edge curve to either adjacent
-/// face surface (9 samples per edge, cold projection — the adjacent
-/// surfaces are analytic strips and support planes).
-fn worst_ring_on_surface_deviation(
-    brep: &BRep,
-    ring_edges: &std::collections::BTreeSet<EdgeHandle>,
-) -> Result<f64, String> {
-    let mut worst = 0.0_f64;
-    for &eh in ring_edges {
-        let edge = brep
-            .edges
-            .get(eh)
-            .ok_or_else(|| format!("ring edge {eh:?} vanished during merge"))?;
-        let curve = edge
-            .curve
-            .as_ref()
-            .ok_or_else(|| format!("ring edge {eh:?} lost its curve during merge"))?;
-        let he = edge.half_edge;
-        let he_data = brep
-            .half_edges
-            .get(he)
-            .ok_or_else(|| format!("ring edge {eh:?} has no half-edge"))?;
-        for h in [he, he_data.twin] {
-            let Some(hd) = brep.half_edges.get(h) else {
-                continue;
-            };
-            let face = brep.loops[hd.loop_].face;
-            let Some(surface) = brep.faces[face].surface.as_ref() else {
-                continue;
-            };
-            let eval: &dyn CurveEval = &curve.geometry;
-            for i in 0..=8 {
-                let t = curve.t_start + (curve.t_end - curve.t_start) * i as f64 / 8.0;
-                let p = eval.point_at(t);
-                let d = popkern_core::geometry::uv_projection::project_point_to_uv(
-                    &surface.geometry,
-                    &p,
-                )
-                .map(|(u, v)| {
-                    (&surface.geometry as &dyn SurfaceEval)
-                        .point_at(u, v)
-                        .distance_to(&p)
-                })
-                .unwrap_or(f64::INFINITY);
-                worst = worst.max(d);
-            }
-        }
-    }
-    Ok(worst)
 }

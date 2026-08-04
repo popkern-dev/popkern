@@ -55,6 +55,10 @@ mod setback_rim_jet;
 pub(crate) use setback_bezier9::{bezier9_eval, bezier9_extract, bezier9_nearest};
 #[path = "saddle_boundary_ring.rs"]
 mod saddle_boundary_ring;
+#[path = "saddle_boundary_ring_geom.rs"]
+mod saddle_boundary_ring_geom;
+#[path = "saddle_boundary_ring_recut.rs"]
+mod saddle_boundary_ring_recut;
 #[path = "setback_rim_reconcile.rs"]
 mod setback_rim_reconcile;
 #[path = "setback_shared_net_unify.rs"]

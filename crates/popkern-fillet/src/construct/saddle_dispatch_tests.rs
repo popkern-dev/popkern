@@ -267,6 +267,32 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
          (~14 edges; PK-234)"
     );
 
+    // PK-234 stage 3/4: the boundary-driven ring carve is wired as
+    // recorded temporary containment (POPKERN_SADDLE_RING=1 opt-in —
+    // the ring itself carves at 4.7e-12 but the downstream repair
+    // passes misfire on the new substrate). The rung must RECORD that
+    // containment on every default saddle run; a silent disappearance
+    // of the fact means the rung was unwired.
+    let saddle_ring_facts: Vec<&str> = result
+        .repair_report
+        .apex_diagnostics
+        .iter()
+        .filter_map(|d| match d {
+            crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(fact)
+                if fact.code == "saddle_boundary_ring.fact" =>
+            {
+                Some(fact.stage.as_str())
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(
+        saddle_ring_facts
+            .iter()
+            .any(|s| s.starts_with("saddle_boundary_ring.declined: containment")),
+        "the saddle ring rung must record its containment decline; facts: {saddle_ring_facts:?}"
+    );
+
     for patch in &saddle_corners {
         let face = result
             .brep
