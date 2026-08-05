@@ -441,3 +441,6 @@ fn item5_saddle_central_point_is_arc_mid_average() {
 
     let _ = tol; // silence unused if all branches skip.
 }
+
+#[path = "boundary_ring_class_tests.rs"]
+mod boundary_ring_class_tests;
