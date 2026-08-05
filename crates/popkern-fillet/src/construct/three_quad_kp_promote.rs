@@ -105,6 +105,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
         }
     };
     let mut binonic = guide_binonic.clone();
+    let mut candidate_provenance = "guide";
     if let Some(boundaries) = boundary_relock.as_deref() {
         let exact_candidate = (n < 6)
             .then(|| optimize_kp_binonic_candidate(&input, &options, outer_fillets.as_deref()))
@@ -118,6 +119,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             });
         if let Some(exact) = exact_candidate {
             binonic = exact;
+            candidate_provenance = "exact";
         } else if let Some(relocked) =
             super::three_quad_kp_boundary_relock::accepted_boundary_relock(
                 &guide_binonic,
@@ -126,6 +128,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             )
         {
             binonic = relocked;
+            candidate_provenance = "relocked";
         }
     }
 
@@ -137,10 +140,14 @@ pub(super) fn promote_decomp_to_kp_binonic(
         .collect();
     for (i, gp) in binonic_gp.iter().enumerate() {
         if gp.self_intersects_with_tolerance(1e-6) {
+            // PK-240: the candidate provenance discriminates the fold
+            // classes — "guide" means every optimizer arm's product
+            // folds (the extreme-asymmetry flat-sector class), while
+            // "exact"/"relocked" would implicate the boundary stages.
             return declined(
                 "self_intersection",
                 n,
-                Some(format!("sub-patch {i}")),
+                Some(format!("sub-patch {i}; candidate={candidate_provenance}")),
                 None,
                 Some(1e-6),
             );
