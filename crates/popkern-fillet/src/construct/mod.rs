@@ -130,6 +130,7 @@ mod sphere_fit_edge_wire_cap_identity;
 pub(crate) mod stale_vertex_settle;
 mod strip_end_arcs;
 pub(crate) mod strip_end_surface;
+mod strip_orientation;
 pub(crate) mod strip_pocket_expel;
 pub(crate) mod strip_rail_coparameterization;
 mod surface_driven_edge_repair;
@@ -152,6 +153,7 @@ mod three_quad_kp_diagnostics;
 pub(crate) mod three_quad_promotions;
 mod three_quad_support_pcurve_completion;
 pub(crate) mod topology_repair;
+mod torus_end_section_caps;
 use crate::blend_warnings::trace_smooth_blend_mitred_fallback as trace_mitred;
 use crate::error::{BlendFailure, BlendWarning};
 use crate::types::VertexMode;
@@ -196,9 +198,8 @@ pub fn apply_blend_geometry(
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
     let mut repair_report = crate::types::BlendRepairReport::default();
-    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for
-    // a post-`sliver_absorb` wire pass. Populated by
-    // `insert_vertex_blend` when sphere-fit substitution fired.
+    // Phase 6c-D Stage 4.4: per-vertex (boundary, sub_faces) for a
+    // post-`sliver_absorb` wire pass (sphere-fit substitution only).
     let mut late_wire_jobs: Vec<(
         crate::blend::BlendBoundary,
         Vec<popkern_core::topology::FaceHandle>,
@@ -257,8 +258,7 @@ pub fn apply_blend_geometry(
     pipeline_timing.face_trim_ms = ms;
     post_pipeline::determinism_trace("post_face_trim", &result);
 
-    // Hole-rim reflex terminal discs (PK-185/PK-186); the authored
-    // discs join the sliver-protected set. See the module doc.
+    // Hole-rim terminal discs (PK-185/186) join the protected set.
     direct_apex_built_faces.extend(hole_rim_terminal_disc::author_reflex_end_discs(
         &mut result,
         edge_geometries,

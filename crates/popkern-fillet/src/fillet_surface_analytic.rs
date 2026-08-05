@@ -204,9 +204,8 @@ pub(crate) fn try_circular_center_torus(
     let (t0, t1) = center_result.center_curve.parameter_range();
     // Closed spines are fitted as OPEN curves; the fit wiggles
     // radially near its end conditions (measured 5.3e-2 on an exact
-    // circle whose interior sits at 1e-8). Judge circularity on the
-    // interior 90 %; the torus parameters below come from the exact
-    // spine, not from these samples.
+    // circle whose interior sits at 1e-8). Judge on the interior
+    // 90 %; the torus parameters below are derived, not sampled.
     let closed_spine = center_result
         .center_curve
         .point_at(t0)
@@ -217,97 +216,170 @@ pub(crate) fn try_circular_center_torus(
     } else {
         (t0, t1)
     };
-    let mut samples: Vec<Point3> = Vec::with_capacity(n);
-    for i in 0..n {
-        let t = s0 + (s1 - s0) * (i as f64) / ((n - 1).max(1) as f64);
-        samples.push(center_result.center_curve.point_at(t));
-    }
-    if samples.len() < 3 {
-        return None;
-    }
-    let cx = samples.iter().map(|p| p.x).sum::<f64>() / samples.len() as f64;
-    let cy = samples.iter().map(|p| p.y).sum::<f64>() / samples.len() as f64;
-    let cz = samples.iter().map(|p| p.z).sum::<f64>() / samples.len() as f64;
-    let center = Point3::new(cx, cy, cz);
-
-    let radii: Vec<f64> = samples.iter().map(|p| (*p - center).length()).collect();
-    let major_radius = radii.iter().sum::<f64>() / radii.len() as f64;
-    if !major_radius.is_finite() || major_radius <= 0.0 {
+    // Selection samples: the fitted spine (cheap, wobbles up to
+    // ~1e-3-relative between interpolation points — good enough to
+    // pick the sign branch, not to accept it).
+    let selection_samples: Vec<Point3> = (0..n)
+        .map(|i| {
+            let t = s0 + (s1 - s0) * (i as f64) / ((n - 1).max(1) as f64);
+            center_result.center_curve.point_at(t)
+        })
+        .collect();
+    if selection_samples.len() < 3 {
         return None;
     }
 
-    // The center curve must be a CIRCLE — not just any 3D curve
-    // that happens to average to a point. Enforce two conditions:
-    //   1. planarity — max out-of-plane residual < 0.1 % of the
-    //      major radius.
-    //   2. uniform radius — max − min radial distance < 10 % of the
-    //      major radius. The second check is what catches a linear
-    //      center curve, which has min = 0 (centroid lies on the
-    //      line) and max > 0.
+    // The torus is fully determined by the support pair + fillet
+    // radius up to two branch signs (which side of the plane the
+    // ball sits on × which side of the curved surface). Derive all
+    // sign candidates EXACTLY and let the sampled spine select the
+    // branch it actually lies on. This replaces the former
+    // centroid-based circularity judgment, which structurally
+    // rejected OPEN arc spines (a quarter arc's radial spread about
+    // its sample centroid is ~60 % of its radius even when the arc
+    // is exact — the §12.3 blend-on-blend decline class, PK-238),
+    // and the lifted-footprint refit, whose 1e-6 relative
+    // acceptance rejected fitted-spine wobble.
     let plane_normal_n = plane_normal.normalized()?;
-    let max_planar_residual = samples
-        .iter()
-        .map(|p| (*p - center).dot(&plane_normal_n).abs())
-        .fold(0.0_f64, f64::max);
-    if max_planar_residual > major_radius * 1e-3 {
-        return None;
+    let plane_origin = match (surface1, surface2) {
+        (SurfaceGeometry::Plane { origin, .. }, _) => *origin,
+        (_, SurfaceGeometry::Plane { origin, .. }) => *origin,
+        _ => return None,
+    };
+    let curved = if matches!(surface1, SurfaceGeometry::Plane { .. }) {
+        surface2
+    } else {
+        surface1
+    };
+    // Candidate center circles `(center, major_radius)`; the circle
+    // plane offsets the support plane by ±radius (ball tangent to
+    // the plane), the major radius offsets the curved support by
+    // ±radius along its own normal field.
+    let mut candidates: Vec<(Point3, f64, f64)> = Vec::with_capacity(4);
+    for s_plane in [1.0_f64, -1.0] {
+        let q = plane_origin + plane_normal_n * (s_plane * radius);
+        let on_circle_plane =
+            |p: Point3| -> Point3 { p - plane_normal_n * (p - q).dot(&plane_normal_n) };
+        for s_curved in [1.0_f64, -1.0] {
+            match curved {
+                SurfaceGeometry::Cylinder {
+                    origin,
+                    radius: r_cyl,
+                    ..
+                } => {
+                    let major = r_cyl + s_curved * radius;
+                    if major > 0.0 {
+                        candidates.push((on_circle_plane(*origin), major, s_plane));
+                    }
+                }
+                SurfaceGeometry::Sphere {
+                    center: sphere_center,
+                    radius: r_sphere,
+                } => {
+                    let h = (*sphere_center - q).dot(&plane_normal_n);
+                    let rr = r_sphere + s_curved * radius;
+                    let major_sq = rr * rr - h * h;
+                    if major_sq > 0.0 {
+                        candidates.push((
+                            on_circle_plane(*sphere_center),
+                            major_sq.sqrt(),
+                            s_plane,
+                        ));
+                    }
+                }
+                SurfaceGeometry::Cone {
+                    apex,
+                    axis,
+                    half_angle,
+                } => {
+                    let a = axis.normalized()?;
+                    let denom = a.dot(&plane_normal_n);
+                    if denom.abs() < 1e-9 {
+                        continue;
+                    }
+                    let t_axis = (q - *apex).dot(&plane_normal_n) / denom;
+                    if t_axis <= 0.0 {
+                        // Circle plane on the empty side of the apex.
+                        continue;
+                    }
+                    let rho = t_axis * half_angle.tan();
+                    let major = rho + s_curved * radius / half_angle.cos();
+                    if major > 0.0 {
+                        candidates.push((*apex + a * t_axis, major, s_plane));
+                    }
+                }
+                _ => return None,
+            }
+        }
     }
-    let radial_min = radii.iter().cloned().fold(f64::INFINITY, f64::min);
-    let radial_max = radii.iter().cloned().fold(0.0_f64, f64::max);
-    if (radial_max - radial_min) > major_radius * 0.1 {
+
+    // Branch selection on the fitted spine (nearest candidate),
+    // then ACCEPTANCE on exact data: rolling-ball centers from the
+    // walker's contact solutions when recorded, else the support
+    // plane's raw footprint points lifted ±radius along the plane
+    // normal (both are ball centers, exact to the solver residual —
+    // free of the spine fit's interpolation wobble). Anything that
+    // fails the verified candidate — an oblique section arc, a
+    // wobbling footprint, a straight spine — declines to the
+    // generic NURBS sweep.
+    let deviation = |points: &[Point3], center: &Point3, major: f64| -> f64 {
+        points
+            .iter()
+            .map(|p| {
+                let w = *p - *center;
+                let axial = w.dot(&plane_normal_n);
+                let radial = (w - plane_normal_n * axial).length();
+                ((radial - major).powi(2) + axial * axial).sqrt()
+            })
+            .fold(0.0_f64, f64::max)
+    };
+    let (center, major_radius, s_plane) = candidates
+        .into_iter()
+        .map(|(c, major, s_plane)| {
+            let dev = deviation(&selection_samples, &c, major);
+            (c, major, s_plane, dev)
+        })
+        .min_by(|a, b| a.3.total_cmp(&b.3))
+        .map(|(c, major, s_plane, _)| (c, major, s_plane))?;
+    let verify_samples: Vec<Point3> = match center_result.contact_solutions.as_deref() {
+        Some(solutions) if solutions.len() >= 3 => solutions.iter().map(|s| s.center).collect(),
+        _ => {
+            // Plane-side footprint: the one lying ON the plane.
+            // (Planarity alone cannot discriminate — a sphere's
+            // contact ring is planar by symmetry too.)
+            let dist_to_plane = |fp: &[Point3]| -> f64 {
+                fp.iter()
+                    .map(|p| (*p - plane_origin).dot(&plane_normal_n).abs())
+                    .fold(0.0_f64, f64::max)
+            };
+            let plane_fp = if dist_to_plane(&center_result.footprint_1)
+                <= dist_to_plane(&center_result.footprint_2)
+            {
+                &center_result.footprint_1
+            } else {
+                &center_result.footprint_2
+            };
+            if plane_fp.len() < 3 {
+                return None;
+            }
+            plane_fp
+                .iter()
+                .map(|p| *p + plane_normal_n * (s_plane * radius))
+                .collect()
+        }
+    };
+    let spine_deviation = deviation(&verify_samples, &center, major_radius);
+    let spine_gate = (major_radius + radius) * 1.0e-4;
+    if std::env::var_os("PK_ANALYTIC_TRACE").is_some() {
+        eprintln!(
+            "    [torus-arm] best candidate center ({:.4},{:.4},{:.4}) major {major_radius:.4} dev {spine_deviation:.3e} gate {spine_gate:.3e}",
+            center.x, center.y, center.z
+        );
+    }
+    if spine_deviation > spine_gate {
         return None;
     }
 
-    // Torus parameters from the EXACT spine when a planar-support
-    // footprint is available: the fitted center curve's wobble puts
-    // the sampled center/major-radius ~1e-2 off the true surface.
-    // The true ball-center circle is the planar-support footprint
-    // lifted by the minor radius along the plane normal (sign toward
-    // the other footprint) — exact to the contact-solver residual.
-    let (center, major_radius) = {
-        // The PLANE-side footprint is the one lying ON the plane
-        // surface. (Selecting by surface order picked the sphere's
-        // contact ring on plane–sphere fixtures; selecting by
-        // planarity alone cannot discriminate — a sphere's contact
-        // ring is also planar by symmetry.)
-        let plane_origin = match (surface1, surface2) {
-            (SurfaceGeometry::Plane { origin, .. }, _) => *origin,
-            (_, SurfaceGeometry::Plane { origin, .. }) => *origin,
-            _ => return None,
-        };
-        let dist_to_plane = |fp: &[Point3]| -> f64 {
-            fp.iter()
-                .map(|p| (*p - plane_origin).dot(&plane_normal_n).abs())
-                .fold(0.0_f64, f64::max)
-        };
-        let planar_first =
-            dist_to_plane(&center_result.footprint_1) <= dist_to_plane(&center_result.footprint_2);
-        let (plane_fp, other_fp) = if planar_first {
-            (&center_result.footprint_1, &center_result.footprint_2)
-        } else {
-            (&center_result.footprint_2, &center_result.footprint_1)
-        };
-        let lifted = if plane_fp.len() >= 4 && !other_fp.is_empty() {
-            // Lift sign: toward the sampled spine centroid (always
-            // available and approximately right — the refit only
-            // sharpens center/radius). The other footprint's side is
-            // ambiguous when the contacts are near-coplanar.
-            let lift = if (center - plane_fp[0]).dot(&plane_normal_n) >= 0.0 {
-                radius
-            } else {
-                -radius
-            };
-            let _ = &other_fp;
-            let spine: Vec<Point3> = plane_fp
-                .iter()
-                .map(|p| *p + plane_normal_n * lift)
-                .collect();
-            fit_exact_circle_center(&spine)
-        } else {
-            None
-        };
-        lifted.unwrap_or((center, major_radius))
-    };
     let surface = SurfaceGeometry::Torus {
         center,
         axis: plane_normal_n,

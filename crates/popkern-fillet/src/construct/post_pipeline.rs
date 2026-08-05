@@ -231,6 +231,14 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         }
         determinism_trace("post_strip_end_arcs", result);
     }
+    // Torus-strip mid-chain terminations (PK-238): section caps at
+    // the exact axial-section stations. Signature-gated per strip,
+    // transactional per strip (see module docs) — a no-op on exact
+    // boundaries, so it runs unconditionally.
+    let torus_caps = torus_end_section_caps::author_torus_end_section_caps(result, tolerance);
+    if torus_caps > 0 {
+        determinism_trace("post_torus_end_caps", result);
+    }
     if std::env::var_os("PK_CARVE_TRACE").is_some()
         && let Err(e) = result.validate_loop_closure()
     {

@@ -289,11 +289,21 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
         u_axis: Vec3::new(1.0, 0.0, 0.0),
         v_axis: Vec3::new(0.0, 1.0, 0.0),
     };
-    // Approximate center curve: horizontal circle at ρ ≈ 0.9,
-    // z ≈ 0.1. Real values don't matter for the surface-type
-    // assertion; the detector just needs to see a circle.
-    let rho = 0.9;
-    let z = 0.1;
+    // EXACT rolling-ball geometry for the base fillet of a solid
+    // cone standing on the plane (concave groove, ball in the
+    // void): ball centers sit at z = r and at radial distance
+    // ρ_cone(z=r) + r/cos α from the axis, where ρ_cone(z) =
+    // (2 − z)·tan α is the cone's section radius. The exact-torus
+    // detector derives this circle from the surface pair and
+    // verifies the spine/footprints actually lie on it, so
+    // hand-plausible-but-inconsistent values now (correctly)
+    // decline to the NURBS sweep.
+    let r = 0.1;
+    let z = r;
+    let cos_a = half_angle.cos();
+    let sin_a = half_angle.sin();
+    let rho_cone_at_z = (2.0 - z) * half_angle.tan();
+    let rho = rho_cone_at_z + r / cos_a;
     let n = 60usize;
     let center_pts: Vec<Point3> = (0..n)
         .map(|i| {
@@ -302,19 +312,20 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
         })
         .collect();
     let center_curve = crate::center_curve::fit_nurbs_through_points(&center_pts).unwrap();
-    // Footprints: on the cone's slant surface at radial 1, z = 0
-    // and on the plane at radial 0.9, z = 0. Plausible offsets from
-    // the rolling-ball center.
+    // Exact contacts: on the cone, r along the inward surface
+    // normal (cos α radial, sin α axial) from the ball center; on
+    // the plane, directly below the center.
     let fp1: Vec<Point3> = (0..n)
         .map(|i| {
             let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
-            Point3::new(theta.cos(), theta.sin(), 0.0)
+            let rc = rho - r * cos_a;
+            Point3::new(rc * theta.cos(), rc * theta.sin(), z - r * sin_a)
         })
         .collect();
     let fp2: Vec<Point3> = (0..n)
         .map(|i| {
             let theta = 2.0 * std::f64::consts::PI * (i as f64) / (n as f64);
-            Point3::new(0.85 * theta.cos(), 0.85 * theta.sin(), 0.0)
+            Point3::new(rho * theta.cos(), rho * theta.sin(), 0.0)
         })
         .collect();
     let cr = CenterCurveResult {
@@ -327,7 +338,6 @@ fn fillet_surface_plane_cone_perpendicular_produces_analytic_torus() {
         contact_solutions: None,
     };
 
-    let r = 0.1;
     for (s1, s2) in [(&cone, &plane), (&plane, &cone)] {
         let result = build_fillet_surface(
             s1,

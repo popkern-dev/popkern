@@ -352,6 +352,13 @@ pub(super) fn apply_face_trim_pipeline(
                 trim_3d_2: &s2.trim_3d,
             };
             pcurve_attach::attach_fillet_pcurves(result, &params);
+            let trims: Vec<EdgeHandle> = s1
+                .trim_edges
+                .iter()
+                .chain(s2.trim_edges.iter())
+                .copied()
+                .collect();
+            super::strip_orientation::reconcile_strip_orientation(result, s1.consumed, &trims);
             continue;
         }
         match helpers::merge_consumed_faces_any(
@@ -378,6 +385,13 @@ pub(super) fn apply_face_trim_pipeline(
                     trim_3d_2: &s2.trim_3d,
                 };
                 pcurve_attach::attach_fillet_pcurves(result, &params);
+                let trims: Vec<EdgeHandle> = s1
+                    .trim_edges
+                    .iter()
+                    .chain(s2.trim_edges.iter())
+                    .copied()
+                    .collect();
+                super::strip_orientation::reconcile_strip_orientation(result, fillet_face, &trims);
             }
             Err(e) => {
                 let loc = crate::geometry_compute::edge_midpoint_by_handle(brep, fillet_edge);

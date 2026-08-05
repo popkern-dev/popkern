@@ -91,29 +91,34 @@ fn blend_on_blend_fillet_torus_plane_edge() {
     }];
     match fillet_edges(&blend1.brep, &specs, &FilletOptions::default(), tol(), None) {
         Ok(res) => {
-            // Armed check 9 (PK-165) exposed a pre-existing §12.3
-            // gap; the collect-all form (PK-235) showed its true
-            // shape, and PK-238's localization named the mechanism:
-            // all THREE edges (9.717e-3 each) border the SECONDARY
-            // strip, whose two ends terminate against faces z=0/x=0
-            // through overshoot points at y=1.0196. The spine (the
-            // first strip's runout arc in the y=1 plane) meets those
-            // faces with an OBLIQUE section plane (section ⊥ spine
-            // tangent = ±x at the feet), so the exact termination is
-            // the strip ∩ end-plane INTERSECTION curve — not a
-            // section arc — and the cylinder-only strip-end pass
-            // (strip_end_arcs, blend-context gated) never reaches a
-            // NURBS strip. Owned by PK-238 (oblique NURBS strip-end
-            // termination). Everything else must stay clean.
+            // PK-238 closed this class at the root, in three layers:
+            // (1) strip faces commit with SHELL-HONEST orientation
+            // flags (construct/strip_orientation.rs), so the edge
+            // classifies Convex and the contact chain solves the
+            // MATERIAL branch (ball centers y=0.98/R=0.08 — the old
+            // pin's 3 × 9.7e-3 edges came from the mirror branch at
+            // y=1.02); (2) the exact-torus promotion derives the
+            // surface from the support pair by construction
+            // (fillet_surface_analytic.rs), so the secondary strip
+            // ships as an analytic Torus at ~1e-17; (3) the
+            // mid-chain strip ends terminate on exact axial-section
+            // arcs with planar section caps
+            // (construct/torus_end_section_caps.rs). The result must
+            // be fully validation-clean.
             let errors = res.brep.validate_all();
             assert!(
-                errors.iter().all(|e| matches!(
-                    e,
-                    popkern_core::error::ValidationError::CurveSurfaceDeviation { max_deviation, .. }
-                        if *max_deviation <= 1.5e-2
-                )) && errors.len() <= 3,
-                "§12.3 blend-on-blend: only the pinned trim-curve gap class may remain \
-                 (≤ 3 edges, each ≤ 1.5e-2): {errors:?}"
+                errors.is_empty(),
+                "§12.3 blend-on-blend must be validation-clean: {errors:?}"
+            );
+            let has_torus = res.brep.faces.iter().any(|(_, f)| {
+                matches!(
+                    f.surface.as_ref().map(|s| &s.geometry),
+                    Some(SurfaceGeometry::Torus { .. })
+                )
+            });
+            assert!(
+                has_torus,
+                "§12.3 blend-on-blend secondary strip must serve as an analytic Torus"
             );
         }
         Err(BlendError::PartialFailure { failures, .. }) => assert!(
