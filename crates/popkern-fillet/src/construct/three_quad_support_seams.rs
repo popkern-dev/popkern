@@ -235,47 +235,6 @@ fn trace_decline(half_edge: HalfEdgeHandle, reason: &str) {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn support_seam_report_merges_counts_and_extrema() {
-        let mut report = SupportSeamRelocationReport::default();
-        report.push(SupportSeamDecision {
-            half_edge: HalfEdgeHandle::default(),
-            cap_face: FaceHandle::default(),
-            support_face: None,
-            boundary_side: None,
-            accepted: false,
-            reason: Some(SupportSeamDeclineReason::NotPlanarSupportCandidate),
-            max_endpoint_motion: 0.01,
-            max_sampled_disagreement: 0.02,
-        });
-
-        let mut other = SupportSeamRelocationReport::default();
-        other.push(SupportSeamDecision {
-            half_edge: HalfEdgeHandle::default(),
-            cap_face: FaceHandle::default(),
-            support_face: Some(FaceHandle::default()),
-            boundary_side: Some(BoundarySide::VMax),
-            accepted: true,
-            reason: None,
-            max_endpoint_motion: 0.03,
-            max_sampled_disagreement: 0.004,
-        });
-
-        report.merge(other);
-
-        assert_eq!(report.authored, 1);
-        assert_eq!(report.declined, 1);
-        assert_eq!(report.candidates, 2);
-        assert_eq!(report.decisions.len(), 2);
-        assert_eq!(report.max_endpoint_motion, 0.03);
-        assert_eq!(report.max_sampled_disagreement, 0.02);
-    }
-}
-
 /// PK-234 idempotence gate for the post-assignment support-seam
 /// relocation: `true` when `sub_face`'s outer ring already carries an
 /// edge lying ON the boundary segment's curve within the
@@ -352,4 +311,45 @@ pub(super) fn segment_already_authored(
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn support_seam_report_merges_counts_and_extrema() {
+        let mut report = SupportSeamRelocationReport::default();
+        report.push(SupportSeamDecision {
+            half_edge: HalfEdgeHandle::default(),
+            cap_face: FaceHandle::default(),
+            support_face: None,
+            boundary_side: None,
+            accepted: false,
+            reason: Some(SupportSeamDeclineReason::NotPlanarSupportCandidate),
+            max_endpoint_motion: 0.01,
+            max_sampled_disagreement: 0.02,
+        });
+
+        let mut other = SupportSeamRelocationReport::default();
+        other.push(SupportSeamDecision {
+            half_edge: HalfEdgeHandle::default(),
+            cap_face: FaceHandle::default(),
+            support_face: Some(FaceHandle::default()),
+            boundary_side: Some(BoundarySide::VMax),
+            accepted: true,
+            reason: None,
+            max_endpoint_motion: 0.03,
+            max_sampled_disagreement: 0.004,
+        });
+
+        report.merge(other);
+
+        assert_eq!(report.authored, 1);
+        assert_eq!(report.declined, 1);
+        assert_eq!(report.candidates, 2);
+        assert_eq!(report.decisions.len(), 2);
+        assert_eq!(report.max_endpoint_motion, 0.03);
+        assert_eq!(report.max_sampled_disagreement, 0.02);
+    }
 }

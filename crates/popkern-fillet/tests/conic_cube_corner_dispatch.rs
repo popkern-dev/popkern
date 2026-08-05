@@ -58,9 +58,9 @@ fn cube_corner_result(
     fillet_edges(&brep, &specs, &options, tol, None).expect("cube corner fillet succeeds")
 }
 
-fn exact_boundary_details<'a>(
-    result: &'a popkern_fillet::BlendResult,
-) -> impl Iterator<Item = (&'a str, &'a str)> {
+fn exact_boundary_details(
+    result: &popkern_fillet::BlendResult,
+) -> impl Iterator<Item = (&str, &str)> {
     result
         .repair_report
         .apex_diagnostics

@@ -41,12 +41,13 @@ fn tp_xy() -> TangentPlane {
 /// dome (a non-degenerate, non-planar, geometrically honest input).
 /// `apex_z` sets the central rise; `radii` set per-spoke fillet radius.
 fn dome_polar_input(n: usize, apex_z: f64, radii: &[f64]) -> PolarBoundaryInput {
+    assert_eq!(radii.len(), n, "one radius per spoke");
     let center = pt(0.0, 0.0, apex_z);
     let mut spokes = Vec::with_capacity(n);
     let mut outer_corners = Vec::with_capacity(n);
     let mut face_tangent_planes = Vec::with_capacity(n);
     let mut per_spoke_radii = Vec::with_capacity(n);
-    for k in 0..n {
+    for (k, &r) in radii.iter().enumerate() {
         let theta = std::f64::consts::TAU * (k as f64) / (n as f64);
         let v = pt(theta.cos(), theta.sin(), 0.0);
         // Degree-7 spoke: interpolate centre → corner, with a gentle
@@ -57,7 +58,6 @@ fn dome_polar_input(n: usize, apex_z: f64, radii: &[f64]) -> PolarBoundaryInput 
             let z = apex_z * (1.0 - t) * (1.0 + t); // apex_z at t=0, 0 at t=1
             *cp = pt(t * v.x, t * v.y, z);
         }
-        let r = radii[k];
         spokes.push(SpokeBoundaryData {
             boundary_cps,
             xtan_a_at_c: Vec3::new(0.0, 1.0, 0.0),

@@ -12,6 +12,7 @@
 //!      tier that runs it named.
 //!    - `known gap: PK-nnn <what>` — a real kernel gap with the
 //!      owning ledger task id.
+//!
 //!    Diagnostic probes are NOT an acceptable class: per the
 //!    project's no-print-trace rule they are removed or promoted to
 //!    structured diagnostics before commit.

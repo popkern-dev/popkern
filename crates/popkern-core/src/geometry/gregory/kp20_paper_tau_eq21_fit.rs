@@ -102,8 +102,8 @@ fn compose(s: &Jet2, psi_a: &[f64; 10], psi_b: &[f64; 10]) -> Jet2 {
             if c == 0.0 {
                 continue;
             }
-            for t in 0..10 {
-                out.m[t][axis] += c * basis[t];
+            for (out_row, &bt) in out.m.iter_mut().zip(basis.iter()) {
+                out_row[axis] += c * bt;
             }
         }
     }
@@ -170,11 +170,11 @@ fn solved_jet(report: &Kp20PaperTauReport, swap: bool) -> Jet2 {
     let fact = |k: usize| -> f64 { (1..=k).map(|v| v as f64).product::<f64>().max(1.0) };
     for (k, &(i, j)) in MONOMIALS.iter().enumerate() {
         let (pi, pj) = if swap { (j, i) } else { (i, j) };
-        for axis in 0..2 {
-            // Piece P1 spans [0,½]²: sector-scale derivative =
-            // piece derivative × 2^(order).
-            out.m[k][axis] =
-                partials[pi][pj][axis] * 2.0_f64.powi((i + j) as i32) / (fact(i) * fact(j));
+        // Piece P1 spans [0,½]²: sector-scale derivative =
+        // piece derivative × 2^(order).
+        let scale = 2.0_f64.powi((i + j) as i32) / (fact(i) * fact(j));
+        for (o, &p) in out.m[k].iter_mut().zip(partials[pi][pj].iter()) {
+            *o = p * scale;
         }
     }
     out
@@ -320,8 +320,9 @@ fn solve_9(mut a: [[f64; 9]; 9], mut b: [f64; 9]) -> Option<[f64; 9]> {
         b.swap(col, piv);
         for row in (col + 1)..9 {
             let f = a[row][col] / a[col][col];
-            for k in col..9 {
-                a[row][k] -= f * a[col][k];
+            let pivot_row = a[col];
+            for (target, &pv) in a[row][col..].iter_mut().zip(&pivot_row[col..]) {
+                *target -= f * pv;
             }
             b[row] -= f * b[col];
         }

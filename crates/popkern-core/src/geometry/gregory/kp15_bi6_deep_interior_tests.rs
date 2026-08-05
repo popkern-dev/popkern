@@ -132,10 +132,10 @@ fn fixture_reproduces_all_deep_block_cps() {
     }
     // Sanity: y/z channels stayed zero (linearity of the port).
     for grid in grids.sectors.iter() {
-        for i in 3..7 {
-            for j in 3..7 {
-                assert_eq!(grid[i][j].y, 0.0);
-                assert_eq!(grid[i][j].z, 0.0);
+        for row in &grid[3..7] {
+            for cp in &row[3..7] {
+                assert_eq!(cp.y, 0.0);
+                assert_eq!(cp.z, 0.0);
             }
         }
     }
@@ -161,10 +161,10 @@ fn cap_output_entry_point_flips_indices_and_elevates() {
     for (s, grid) in out.patches_bi6.iter().enumerate() {
         // Extraordinary point (script [6][6]) lands at kernel [0][0].
         assert_eq!(grid[0][0].x, free.p00.x);
-        for i in 0..7 {
-            for j in 0..7 {
+        for (i, row) in grid.iter().enumerate() {
+            for (j, cp) in row.iter().enumerate() {
                 assert_eq!(
-                    grid[i][j].x,
+                    cp.x,
                     script.sectors[s][6 - i][6 - j].x,
                     "sector {s} kernel [{i}][{j}] must be script [{}][{}]",
                     6 - i,

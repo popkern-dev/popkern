@@ -12,8 +12,8 @@ fn printed_mu0_table_is_the_eq21_normalized_solved_tau() {
     for n in [3_usize, 5, 6, 7, 8, 9, 10] {
         let fit = kp20_paper_tau_eq21_mu_fit(n).expect("fit");
         eprintln!(
-            "n={n}: residual={:.3e} mu={:?} swapped={}",
-            fit.residual_inf, fit.mu, fit.swapped,
+            "n={}: residual={:.3e} mu={:?} swapped={}",
+            fit.n, fit.residual_inf, fit.mu, fit.swapped,
         );
         assert!(
             fit.residual_inf < 1.0e-6,

@@ -120,7 +120,8 @@ mod parts;
 #[test]
 fn mileage_corpus_serves_winding_honest_flags() {
     use popkern_part::prelude::*;
-    let corpus: Vec<(&str, fn() -> Result<Part, PartError>)> = vec![
+    type PartRecipe = (&'static str, fn() -> Result<Part, PartError>);
+    let corpus: Vec<PartRecipe> = vec![
         ("mounting_bracket", parts::build_mounting_bracket),
         ("ribbed_plate", parts::build_ribbed_plate),
         ("bossed_housing", parts::build_bossed_housing),

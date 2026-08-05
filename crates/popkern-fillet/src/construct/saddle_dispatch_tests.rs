@@ -257,9 +257,7 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
         })
         .collect();
     assert!(
-        boundary_ring_facts
-            .iter()
-            .any(|s| *s == "boundary_ring.applied"),
+        boundary_ring_facts.contains(&"boundary_ring.applied"),
         "the saddle ring rung must record an applied fact; facts: {boundary_ring_facts:?}"
     );
 

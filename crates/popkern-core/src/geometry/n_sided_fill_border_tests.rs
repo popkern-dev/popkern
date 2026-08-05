@@ -210,11 +210,13 @@ fn bi4_fit_deviation(pts: &[Point3]) -> f64 {
                 continue;
             }
             let f = m[r][col] / d;
-            for c in 0..3 {
-                m[r][c] -= f * m[col][c];
+            let pivot_row = m[col];
+            for (target, &pv) in m[r].iter_mut().zip(&pivot_row) {
+                *target -= f * pv;
             }
-            for axis in 0..3 {
-                rhs[r][axis] -= f * rhs[col][axis];
+            let pivot_rhs = rhs[col];
+            for (target, &pv) in rhs[r].iter_mut().zip(&pivot_rhs) {
+                *target -= f * pv;
             }
         }
     }

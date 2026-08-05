@@ -201,8 +201,7 @@ f 4 1 5 8
 fn malformed_obj_declines_at_the_parse_stage() {
     let bad = "v 0 0\nf 1 2 3\n";
     let err = smooth_solid_from_obj(bad, Tolerance::default(), SmoothMeshOptions::default())
-        .err()
-        .expect("a malformed cage must not produce a body");
+        .expect_err("a malformed cage must not produce a body");
     let message = err.to_string();
     assert!(
         message.contains("obj parse"),
