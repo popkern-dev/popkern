@@ -24,14 +24,12 @@
 //!    new position on the curved support's contact circle.
 //! 4. Update the seam edge's curve geometry (if any) to the new
 //!    shorter span.
-//! 5. Create a new vertex on the planar support's contact circle.
-//! 6. Create two new edges (one per contact circle) and four new
-//!    half-edges (two per edge, one for each side).
-//! 7. Splice the new half-edges into the support face loops in
-//!    place of the old rim half-edges.
-//! 8. Create the fillet face as an annulus with two boundary
-//!    loops, one per new contact circle.
-//! 9. Delete the old rim edge and its half-edges.
+//! 5. Create a new vertex on the planar support's contact circle,
+//!    two new edges (one per contact circle) with four half-edges,
+//!    and splice them into the support face loops in place of the
+//!    old rim half-edges.
+//! 6. Create the fillet face as an annulus with two boundary
+//!    loops, one per new contact circle; delete the old rim edge.
 //!
 //! Round 5c-3 scope: handles plane-cylinder closed fillets where
 //! one side is a single-half-edge inner loop and the other side
@@ -602,6 +600,8 @@ pub(crate) fn apply_closed_fillet(
         }
     }
 
+    // PK-241: reconcile the provisional annulus flag (loops now wired).
+    super::strip_orientation::reconcile_strip_orientation_boundary(brep, fillet_face);
     Ok(fillet_face)
 }
 

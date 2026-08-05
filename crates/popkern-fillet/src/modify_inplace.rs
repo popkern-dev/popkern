@@ -132,6 +132,10 @@ pub fn modify_closed_in_place(
         geometry: torus,
         orientation: true,
     });
+    crate::construct::strip_orientation::reconcile_strip_orientation_boundary(
+        &mut out,
+        fillet_face,
+    );
 
     Ok(out)
 }
@@ -413,6 +417,10 @@ fn modify_open_in_place_general(
         geometry: new_surface,
         orientation: true,
     });
+    crate::construct::strip_orientation::reconcile_strip_orientation_boundary(
+        &mut out,
+        fillet_face,
+    );
 
     // The swap retires the old strip chart — re-author the face's
     // pcurves against the NEW surface before any settlement reads

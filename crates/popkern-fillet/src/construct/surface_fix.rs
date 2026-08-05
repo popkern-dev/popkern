@@ -251,6 +251,7 @@ pub(crate) fn correct_face_surfaces(
                     .fold(1.0_f64, f64::max);
             if dist < assign_gate {
                 brep.faces[fh].surface = Some(sof);
+                super::strip_orientation::reconcile_if_fillet_strip(brep, fh, fillet_surfaces);
                 continue;
             }
         }

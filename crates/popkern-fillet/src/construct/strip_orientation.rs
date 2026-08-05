@@ -33,6 +33,59 @@ use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
 /// transverse end-cap and bridge edges measure ~0.
 const TANGENCY_WITNESS_FLOOR: f64 = 0.9;
 
+/// Boundary-wide variant for strip authors that carry no support
+/// trim list (in-place modify surface swaps, the closed-annulus
+/// constructor, `surface_fix`'s candidate-pool assignment): every
+/// outer-loop edge is offered as a witness. Caller contract: the
+/// strip's only TANGENT neighbours are its support faces (transverse
+/// end faces fall below the witness floor), so the max-|cos| witness
+/// is always a support — do not use this on corner-cap complexes
+/// where tangent strip-strip junctions could relay a stale flag.
+pub(crate) fn reconcile_strip_orientation_boundary(
+    brep: &mut BRep,
+    strip_face: FaceHandle,
+) -> Option<bool> {
+    let outer_loop = brep.faces.get(strip_face)?.outer_loop;
+    let start = brep.loops.get(outer_loop)?.half_edge;
+    let mut edges = Vec::new();
+    let mut cur = start;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let he = brep.half_edges.get(cur)?;
+        edges.push(he.edge);
+        cur = he.next;
+        if cur == start {
+            break;
+        }
+    }
+    reconcile_strip_orientation(brep, strip_face, &edges)
+}
+
+/// `surface_fix` hook: reconcile only when the just-assigned surface
+/// is one of the operation's own fillet strips — original-face
+/// candidates keep their stored (already shell-honest) flags.
+pub(crate) fn reconcile_if_fillet_strip(
+    brep: &mut BRep,
+    face: FaceHandle,
+    fillet_surfaces: &[popkern_core::geometry::surface::SurfaceGeometry],
+) {
+    let is_strip = brep
+        .faces
+        .get(face)
+        .and_then(|f| f.surface.as_ref())
+        .is_some_and(|s| {
+            fillet_surfaces.iter().any(|fs| {
+                super::sliver_absorb_classifiers::surfaces_equal(
+                    &s.geometry,
+                    fs,
+                    &popkern_core::tolerance::Tolerance::default(),
+                )
+            })
+        });
+    if is_strip {
+        reconcile_strip_orientation_boundary(brep, face);
+    }
+}
+
 /// Set `strip_face`'s orientation flag so its oriented normal agrees
 /// with its support faces across the given tangency trim edges.
 /// Returns the applied flag, or `None` when no edge produced a

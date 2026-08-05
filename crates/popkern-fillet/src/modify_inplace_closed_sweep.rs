@@ -124,6 +124,10 @@ pub fn modify_closed_in_place_bypoints(
         geometry: sweep.surface,
         orientation: true,
     });
+    crate::construct::strip_orientation::reconcile_strip_orientation_boundary(
+        &mut out,
+        fillet_face,
+    );
 
     Ok(out)
 }

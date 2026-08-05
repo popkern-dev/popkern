@@ -123,6 +123,11 @@ fn modify_closed_in_place_preserves_topology_and_changes_radius() {
             "original surface should not have already been mutated"
         );
     }
+
+    // PK-241: the closed-annulus surface swap must leave the strip
+    // flag shell-honest (its rewrite stamps a provisional flag,
+    // then reconciles against the support tangency).
+    assert_strip_flag_shell_honest(&modified, annulus);
 }
 
 #[test]
@@ -384,4 +389,101 @@ fn modify_open_in_place_is_at_least_2x_faster_than_remove_recreate() {
         "in-place open should be ≥2× faster than remove+recreate; got {ratio:.2}× \
          (in-place: {t_inplace:?}, baseline: {t_baseline:?})"
     );
+}
+
+// ---------------------------------------------------------------------------
+// PK-241: shell-honest strip orientation flags survive in-place modify
+// ---------------------------------------------------------------------------
+
+/// Assert `strip`'s flag-folded natural normal AGREES with a
+/// tangent support face's flag-folded natural at a shared boundary
+/// sample — the manifold-shell honesty invariant the strip authors
+/// must preserve (PK-238/PK-241). Fails when any strip author
+/// stamps a provisional flag without reconciling.
+fn assert_strip_flag_shell_honest(brep: &BRep, strip: popkern_core::topology::FaceHandle) {
+    use popkern_core::geometry::surface::SurfaceEval;
+    let strip_sof = brep.faces[strip].surface.as_ref().expect("strip surface");
+    let outer = brep.faces[strip].outer_loop;
+    let start = brep.loops[outer].half_edge;
+    let mut best: Option<f64> = None;
+    let mut cur = start;
+    for _ in 0..brep.half_edges.len() + 1 {
+        let hd = &brep.half_edges[cur];
+        let td = &brep.half_edges[hd.twin];
+        let other = brep.loops[td.loop_].face;
+        if other != strip
+            && let Some(sof) = brep.faces[other].surface.as_ref()
+        {
+            let p0 = brep.vertices[hd.origin].position;
+            let p1 = brep.vertices[td.origin].position;
+            let mid = popkern_core::geometry::Point3::new(
+                (p0.x + p1.x) * 0.5,
+                (p0.y + p1.y) * 0.5,
+                (p0.z + p1.z) * 0.5,
+            );
+            let folded = |s: &popkern_core::geometry::surface::SurfaceOnFace| {
+                let eval = &s.geometry as &dyn SurfaceEval;
+                let (u, v) = eval.closest_point(&mid)?;
+                let n = eval.normal_at(u, v).normalized()?;
+                Some(n * if s.orientation { 1.0 } else { -1.0 })
+            };
+            if let (Some(ns), Some(no)) = (folded(strip_sof), folded(sof)) {
+                let d = ns.dot(&no);
+                if best.is_none_or(|b: f64| d.abs() > b.abs()) {
+                    best = Some(d);
+                }
+            }
+        }
+        cur = hd.next;
+        if cur == start {
+            break;
+        }
+    }
+    let witness = best.expect("strip should have a surfaced neighbour");
+    assert!(
+        witness.abs() > 0.9,
+        "no tangency witness on the strip boundary (best |cos| {:.3})",
+        witness.abs()
+    );
+    assert!(
+        witness > 0.0,
+        "strip orientation flag disagrees with its tangent support (cos {witness:.3}) — \
+         a strip author stamped a provisional flag without reconciling (PK-241)"
+    );
+}
+
+#[test]
+fn modify_open_in_place_keeps_strip_flag_shell_honest() {
+    use popkern_core::geometry::surface::SurfaceGeometry;
+
+    let brep = cube();
+    let edge = brep.edges.keys().next().unwrap();
+    let opts = FilletOptions {
+        propagate_tangent: false,
+        vertex_mode: crate::types::VertexMode::Mitred,
+        ..FilletOptions::default()
+    };
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.1),
+    }];
+    let r1 = crate::fillet_edges(&brep, &specs, &opts, tol(), None).unwrap();
+    let blend = r1
+        .brep
+        .faces
+        .keys()
+        .find(|fh| {
+            matches!(
+                r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
+                Some(SurfaceGeometry::Cylinder { .. })
+            )
+        })
+        .expect("post-fillet brep should contain a Cylinder face");
+    // Fresh commit is honest (PK-238's primary-author reconcile)…
+    assert_strip_flag_shell_honest(&r1.brep, blend);
+    // …and the in-place radius swap must preserve it (its surface
+    // rewrite stamps a provisional flag, then reconciles).
+    let modified = crate::modify_inplace::modify_open_in_place(&r1.brep, blend, 0.2)
+        .expect("in-place open modify should succeed");
+    assert_strip_flag_shell_honest(&modified, blend);
 }

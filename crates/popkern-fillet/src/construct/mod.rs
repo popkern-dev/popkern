@@ -130,7 +130,7 @@ mod sphere_fit_edge_wire_cap_identity;
 pub(crate) mod stale_vertex_settle;
 mod strip_end_arcs;
 pub(crate) mod strip_end_surface;
-mod strip_orientation;
+pub(crate) mod strip_orientation;
 pub(crate) mod strip_pocket_expel;
 pub(crate) mod strip_rail_coparameterization;
 mod surface_driven_edge_repair;
