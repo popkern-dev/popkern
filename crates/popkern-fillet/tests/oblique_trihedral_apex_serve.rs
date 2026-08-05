@@ -113,6 +113,40 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
         metrics.worst_g1_coplanarity
     );
 
+    // PK-220: the cap's INTERNAL seams meet the same 5e-2 G1 bar on
+    // the served body. The commit-time diagnostic recorded 5.885e-1
+    // here — a premature-measurement artifact (mid-pipeline pcurves
+    // mis-resolve the pole half of each spoke; identical control
+    // points measure 3.4e-3 served). The serving-boundary refresh
+    // stamps `served_mid_seam_normal`; a missing stamp is a failure.
+    let mut served_pinned = false;
+    for route in &result.repair_report.apex_routes {
+        for diagnostic in &route.exact_boundary_report.diagnostics {
+            if diagnostic.code != "exact_boundary_cap.mid_seam_normal" {
+                continue;
+            }
+            let detail = diagnostic.detail_code.as_deref().unwrap_or_default();
+            let served: f64 = detail
+                .split(';')
+                .find_map(|part| {
+                    part.strip_prefix("served_mid_seam_normal")?
+                        .strip_prefix('=')?
+                        .parse()
+                        .ok()
+                })
+                .unwrap_or(f64::NAN);
+            assert!(
+                served.is_finite() && served <= 5.0e-2,
+                "served_mid_seam_normal {served:.3e} exceeds the crate G1 bar 5e-2 ({detail})"
+            );
+            served_pinned = true;
+        }
+    }
+    assert!(
+        served_pinned,
+        "the served oblique cap must record a served mid-seam measurement"
+    );
+
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),

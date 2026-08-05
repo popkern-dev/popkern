@@ -35,6 +35,23 @@
 //! user sees; the Gregory fallback is ~0° mid-seam and only degrades
 //! at the very ends.
 
+//!
+//! # Commit-time vs serving-time (PK-220)
+//!
+//! The commit-time number is measured MID-PIPELINE, through pcurves
+//! that are not yet final (the fillet pipeline recomputes every
+//! pcurve at its tail). Measured on the welded pyramid fixtures, the
+//! commit-time seam resolution mis-parameterizes the pole half of
+//! each spoke: the profile reads clean for fractions < 0.5, exactly
+//! zero at 0.5, and climbs to tens of degrees above 0.5 — while the
+//! served body, with identical control points (checksum-equal), is
+//! clean along the whole seam. The recorded 2.8e-1 (pyramid3),
+//! 2.9e-1 (pyramid4) and 5.9e-1 (oblique N=3) were all exactly the
+//! 0.6-fraction artifact, not geometry. The serving-boundary refresh
+//! below re-measures on the final body and appends
+//! `served_mid_seam_normal` to the diagnostic; gates pin the served
+//! value.
+
 use popkern_core::topology::{BRep, FaceHandle};
 
 use crate::cap_seam_continuity::seam_normal_profile;
@@ -63,6 +80,73 @@ pub(crate) fn worst_mid_seam_misalignment(brep: &BRep, cap_faces: &[FaceHandle])
         }
     }
     worst
+}
+
+/// Serving-boundary mid-seam refresh (PK-220): re-measure every
+/// committed multi-sector cap on the FINAL body and append the
+/// served value to the commit-time diagnostic (both the route report
+/// row and the top-level apex diagnostic copy). Runs at the fillet
+/// pipeline tail, after every pcurve author, because the commit-time
+/// number is measured through not-yet-final pcurves and over-reads
+/// the pole half of each spoke (see module doc). Caps whose faces
+/// did not survive to serving (absorbed or re-partitioned) keep the
+/// commit-time value — a missing re-measurement must stay visible,
+/// not silently pass. Returns the number of diagnostics refreshed.
+pub(crate) fn refresh_served_mid_seam_diagnostics(
+    brep: &BRep,
+    repair_report: &mut crate::types::BlendRepairReport,
+) -> usize {
+    const CODE: &str = "exact_boundary_cap.mid_seam_normal";
+    let mut refreshed = 0;
+    for route in &mut repair_report.apex_routes {
+        let faces = &route.exact_boundary_report.committed_faces;
+        if faces.len() < 2 {
+            continue;
+        }
+        let Some(served) = worst_mid_seam_misalignment(brep, faces) else {
+            continue;
+        };
+        let served_field = format!("served_mid_seam_normal={served:.3e}");
+        // The route-report row is the authoritative surface; capture
+        // its commit-time detail so the top-level apex-diagnostic
+        // copy can be matched EXACTLY (several routes can commit the
+        // same face count).
+        let mut commit_details: Vec<String> = Vec::new();
+        for diagnostic in &mut route.exact_boundary_report.diagnostics {
+            if diagnostic.code != CODE || diagnostic.stage != CODE {
+                continue;
+            }
+            match diagnostic.detail_code.as_mut() {
+                Some(detail) if !detail.contains("served_mid_seam_normal=") => {
+                    commit_details.push(detail.clone());
+                    detail.push(';');
+                    detail.push_str(&served_field);
+                }
+                Some(_) => {}
+                None => diagnostic.detail_code = Some(served_field.clone()),
+            }
+            diagnostic.residual = Some(served);
+            refreshed += 1;
+        }
+        for diagnostic in &mut repair_report.apex_diagnostics {
+            let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(d) = diagnostic else {
+                continue;
+            };
+            if d.code != CODE {
+                continue;
+            }
+            let matched = d
+                .detail_code
+                .as_deref()
+                .is_some_and(|detail| commit_details.iter().any(|c| c == detail));
+            if matched && let Some(detail) = d.detail_code.as_mut() {
+                detail.push(';');
+                detail.push_str(&served_field);
+                d.residual = Some(served);
+            }
+        }
+    }
+    refreshed
 }
 
 #[cfg(test)]

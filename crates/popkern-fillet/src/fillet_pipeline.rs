@@ -451,6 +451,12 @@ pub(crate) fn fillet_edges_internal(
     // clean model whose Gregory-cap pcurves did not yet exist.
     apply_result.repair_report.orientation_flag_reconciliations +=
         apply_result.brep.reconcile_orientation_flags();
+    // PK-220 serving-boundary mid-seam refresh: the commit-time cap
+    // seam measurement runs through not-yet-final pcurves and
+    // over-reads the pole half of each spoke; re-measure on the final
+    // body and stamp `served_mid_seam_normal` so gates pin the truth.
+    let _ = crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
+        refresh_served_mid_seam_diagnostics(&apply_result.brep, &mut apply_result.repair_report);
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: all_warnings,

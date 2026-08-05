@@ -33,28 +33,32 @@ fn direct_apex_pyramid3_uniform_cap_outer_commercial_gate() {
     );
 }
 
-/// First mid-seam assertions in the suite (PK-219): the mid-seam
-/// normal profile is measured between adjacent committed cap faces
-/// (transverse continuity the along-seam metric cannot see). It has
-/// been informational since the facade landed; these pins make it a
-/// gated number per class. Bridged multi-sector caps (pyramid4_mixed)
-/// meet the crate's 5e-2 G1 bar outright. WELDED multi-sector caps
-/// are polar wedges whose inner spokes meet at a shared pole: the
-/// welded LeftColumnToColumn cross-spoke pairing (this task) cut the
-/// crease 8.4e-1 -> 2.8e-1, and the remainder is the pole
-/// vertex-enclosure class — pairwise midpoint offsets around a pole
-/// cannot satisfy all sectors simultaneously (the PK-192/PnS shared-
-/// spoke frontier; follow-on filed from PK-219). Pinned at the
-/// measured class ceiling so regressions still fail. A missing
-/// measurement on a multi-face commit is an assertion failure, never
-/// a pass.
+/// Mid-seam G1 pins per class (PK-219, tightened by PK-220). Two
+/// numbers are recorded per committed multi-sector cap:
+///
+/// - `worst_mid_seam_normal` — measured AT COMMIT, mid-pipeline,
+///   through pcurves that are not yet final. On welded polar wedges
+///   this over-reads the pole half of each spoke (profile clean
+///   below fraction 0.5, tens of degrees above it) — the historic
+///   2.8e-1 "pole vertex-enclosure class" was exactly this artifact.
+///   Pinned at the recorded ceiling as a construction-regression
+///   canary only.
+/// - `served_mid_seam_normal` — re-measured at the pipeline tail on
+///   the final body (PK-220). This is the truth a user sees, and
+///   every class meets the crate's 5e-2 G1 bar: measured pyramid3
+///   3.8e-2 (pole-end sample; mid-seam 0.0), pyramid4 2.1e-3,
+///   mixed 1.5e-8.
+///
+/// A missing measurement on a multi-face commit is an assertion
+/// failure, never a pass — for BOTH numbers.
 #[test]
 fn direct_apex_pyramid_mid_seam_normals_pinned() {
-    for (name, radii, gate) in [
+    for (name, radii, commit_ceiling) in [
         ("pyramid3_uniform", &[0.10, 0.10, 0.10][..], 3.5e-1),
         ("pyramid4_uniform", &[0.05, 0.05, 0.05, 0.05][..], 3.5e-1),
         ("pyramid4_mixed", &[0.04, 0.06, 0.05, 0.07][..], 5.0e-2),
     ] {
+        const SERVED_GATE: f64 = 5.0e-2;
         let result = build_under_direct_apex(true, radii);
         let mut measured = false;
         for route in &result.repair_report.apex_routes {
@@ -64,16 +68,29 @@ fn direct_apex_pyramid_mid_seam_normals_pinned() {
                     continue;
                 }
                 let detail = diagnostic.detail_code.as_deref().unwrap_or_default();
-                let worst: f64 = detail
-                    .split("worst_mid_seam_normal=")
-                    .nth(1)
-                    .and_then(|value| value.parse().ok())
-                    .unwrap_or(f64::NAN);
+                let field = |key: &str| -> f64 {
+                    detail
+                        .split(';')
+                        .find_map(|part| part.strip_prefix(key)?.strip_prefix('=')?.parse().ok())
+                        .unwrap_or(f64::NAN)
+                };
+                let commit_worst = field("worst_mid_seam_normal");
+                let served = field("served_mid_seam_normal");
                 eprintln!("[direct-apex validation mid_seam] {name}: {detail}");
                 assert!(
-                    worst.is_finite() && worst <= gate,
-                    "{name} worst_mid_seam_normal {worst:.3e} exceeds its pinned gate \
-                     {gate:.1e} ({detail})"
+                    commit_worst.is_finite() && commit_worst <= commit_ceiling,
+                    "{name} commit-time worst_mid_seam_normal {commit_worst:.3e} exceeds \
+                     its recorded ceiling {commit_ceiling:.1e} ({detail})"
+                );
+                assert!(
+                    served.is_finite(),
+                    "{name} recorded no served_mid_seam_normal — the serving-boundary \
+                     refresh must measure every surviving committed cap ({detail})"
+                );
+                assert!(
+                    served <= SERVED_GATE,
+                    "{name} served_mid_seam_normal {served:.3e} exceeds the crate G1 \
+                     bar {SERVED_GATE:.1e} ({detail})"
                 );
                 measured = true;
             }
