@@ -93,12 +93,18 @@ fn blend_on_blend_fillet_torus_plane_edge() {
         Ok(res) => {
             // Armed check 9 (PK-165) exposed a pre-existing §12.3
             // gap; the collect-all form (PK-235) showed its true
-            // shape: THREE symmetric edges at 9.72e-3 — the
-            // SECONDARY strip's far-end termination at the cube face
-            // y=1 (end chords through runout overshoot points at
-            // y=1.02 plus the strip-plane end arc). Strip
-            // end-termination class, owned by PK-238. Everything
-            // else must stay clean.
+            // shape, and PK-238's localization named the mechanism:
+            // all THREE edges (9.717e-3 each) border the SECONDARY
+            // strip, whose two ends terminate against faces z=0/x=0
+            // through overshoot points at y=1.0196. The spine (the
+            // first strip's runout arc in the y=1 plane) meets those
+            // faces with an OBLIQUE section plane (section ⊥ spine
+            // tangent = ±x at the feet), so the exact termination is
+            // the strip ∩ end-plane INTERSECTION curve — not a
+            // section arc — and the cylinder-only strip-end pass
+            // (strip_end_arcs, blend-context gated) never reaches a
+            // NURBS strip. Owned by PK-238 (oblique NURBS strip-end
+            // termination). Everything else must stay clean.
             let errors = res.brep.validate_all();
             assert!(
                 errors.iter().all(|e| matches!(
