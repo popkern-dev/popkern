@@ -12,6 +12,9 @@ mod orientation;
 mod precision;
 mod self_intersection;
 mod self_intersection_trim;
+mod winding_honesty;
+
+pub use winding_honesty::FaceWindingHonesty;
 
 use crate::error::ValidationError;
 use crate::topology::BRep;
