@@ -263,4 +263,14 @@ pub(crate) fn run_output_postprocess(result: &mut BRep, tolerance: &Tolerance) {
     // Intersection-created vertices/edges may have larger tolerance than
     // original entities due to numerical approximation.
     propagate_output_tolerances(result, tolerance);
+
+    // PK-244 serving-boundary orientation-flag reconcile: the flag is
+    // derived state (loop winding × surface geometry), and boolean
+    // merge authors stamped tool-body faces (bore walls, countersink
+    // cones, slot planes) with constant flags that the corpus audit
+    // measured dishonest. Runs last, after every pcurve author above.
+    let flips = result.reconcile_orientation_flags();
+    if flips > 0 && std::env::var_os("PK_BOOL_TRACE").is_some() {
+        eprintln!("[boolean] post-processing: reconciled {flips} orientation flag(s)");
+    }
 }
