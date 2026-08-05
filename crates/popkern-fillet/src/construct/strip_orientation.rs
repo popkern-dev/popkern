@@ -60,20 +60,28 @@ pub(crate) fn reconcile_strip_orientation_boundary(
     reconcile_strip_orientation(brep, strip_face, &edges)
 }
 
-/// `surface_fix` hook: reconcile only when the just-assigned surface
-/// is one of the operation's own fillet strips — original-face
-/// candidates keep their stored (already shell-honest) flags.
-pub(crate) fn reconcile_if_fillet_strip(
+/// `surface_fix` hook: reconcile when the just-assigned surface is
+/// one of the operation's own fillet strips, or a Sphere (the
+/// synthesized rolling-ball corner cap — stamped `true` it shipped
+/// folded away from material on inward shells; PK-244 audit, cube
+/// corner + vertex-blend fixtures). Other original-pool candidates
+/// keep their stored (already shell-honest) flags; a pool sphere
+/// reassigned to a displaced face is cap-class and reconciles too,
+/// declining as usual without a confident tangency witness.
+pub(crate) fn reconcile_if_reauthored_blend_surface(
     brep: &mut BRep,
     face: FaceHandle,
     fillet_surfaces: &[popkern_core::geometry::surface::SurfaceGeometry],
 ) {
-    let is_strip = brep
+    let reauthored = brep
         .faces
         .get(face)
         .and_then(|f| f.surface.as_ref())
         .is_some_and(|s| {
-            fillet_surfaces.iter().any(|fs| {
+            matches!(
+                s.geometry,
+                popkern_core::geometry::surface::SurfaceGeometry::Sphere { .. }
+            ) || fillet_surfaces.iter().any(|fs| {
                 super::sliver_absorb_classifiers::surfaces_equal(
                     &s.geometry,
                     fs,
@@ -81,7 +89,7 @@ pub(crate) fn reconcile_if_fillet_strip(
                 )
             })
         });
-    if is_strip {
+    if reauthored {
         reconcile_strip_orientation_boundary(brep, face);
     }
 }
@@ -125,16 +133,31 @@ pub(crate) fn reconcile_strip_orientation(
         let Some(support_sof) = brep.faces.get(support).and_then(|f| f.surface.as_ref()) else {
             continue;
         };
-        let p0 = brep.vertices.get(he_a_data.origin).map(|v| v.position);
-        let p1 = brep.vertices.get(he_b_data.origin).map(|v| v.position);
-        let (Some(p0), Some(p1)) = (p0, p1) else {
-            continue;
+        // Witness sample ON the trim curve, not the vertex chord
+        // midpoint: on a quarter-arc trim of a small-tube torus the
+        // chord sags past the tube's inner equator and closest_point
+        // projects to the WRONG SIDE of the tube, inverting the
+        // witness normal (measured: blend-on-blend secondary torus
+        // strip, chord midpoint (0.15,0.15,0.98) → inner-equator
+        // normal, witness +1 where the true rail witness is −1).
+        let sample = match edge_data.curve.as_ref() {
+            Some(curve) => {
+                use popkern_core::geometry::CurveEval;
+                curve.geometry.point_at((curve.t_start + curve.t_end) * 0.5)
+            }
+            None => {
+                let p0 = brep.vertices.get(he_a_data.origin).map(|v| v.position);
+                let p1 = brep.vertices.get(he_b_data.origin).map(|v| v.position);
+                let (Some(p0), Some(p1)) = (p0, p1) else {
+                    continue;
+                };
+                popkern_core::geometry::Point3::new(
+                    (p0.x + p1.x) * 0.5,
+                    (p0.y + p1.y) * 0.5,
+                    (p0.z + p1.z) * 0.5,
+                )
+            }
         };
-        let sample = popkern_core::geometry::Point3::new(
-            (p0.x + p1.x) * 0.5,
-            (p0.y + p1.y) * 0.5,
-            (p0.z + p1.z) * 0.5,
-        );
         let normal_at = |geometry: &popkern_core::geometry::surface::SurfaceGeometry,
                          p: &popkern_core::geometry::Point3| {
             let eval = geometry as &dyn SurfaceEval;

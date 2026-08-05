@@ -36,6 +36,11 @@ pub struct BlendRepairReport {
     /// (apex cells, displaced fragments, holding faces with no
     /// production-twinned side) before the result is returned.
     pub residual_scaffolding: crate::residual_scaffolding::ResidualScaffoldingRetirementReport,
+    /// PK-244 serving-boundary orientation-flag reconciliation: faces
+    /// whose stored flag contradicted their measured loop winding
+    /// (or, for pole-degenerate charts, the tangency witness) and
+    /// were flipped to the honest value.
+    pub orientation_flag_reconciliations: usize,
 }
 
 /// Construction route used for one smooth multi-fillet apex.

@@ -70,6 +70,9 @@ pub fn chamfer_edges(
             None => {
                 result.fix_stale_pcurves();
                 result.recompute_all_pcurves_lenient();
+                // PK-244 serving-boundary flag reconcile (see
+                // fillet_pipeline): flags are derived state.
+                let _ = result.reconcile_orientation_flags();
                 let structural = result.validate();
                 if structural.is_ok() {
                     if let Some(ctx) = tracking {
@@ -210,6 +213,9 @@ pub fn chamfer_edges(
     if let Some(ctx) = tracking {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
     }
+    // PK-244 serving-boundary flag reconcile: flags are derived state.
+    apply_result.repair_report.orientation_flag_reconciliations +=
+        apply_result.brep.reconcile_orientation_flags();
 
     Ok(BlendResult {
         brep: apply_result.brep,

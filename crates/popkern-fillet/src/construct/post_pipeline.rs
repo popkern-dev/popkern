@@ -514,6 +514,9 @@ pub(super) fn run_post_blend_pipeline(inputs: PostBlendPipelineInputs<'_>) {
         eprintln!("  [closure@post_completion] {e:?}");
     }
     determinism_face_trace("post_completion", result);
+    // PK-244: the serving-boundary orientation-flag reconcile runs at
+    // the END of `fillet_pipeline` (not here) — pcurve authors after
+    // this function would invalidate a verdict taken now.
 }
 
 fn support_seam_relocation_enabled() -> bool {

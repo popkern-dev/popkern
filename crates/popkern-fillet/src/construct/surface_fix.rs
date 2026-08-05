@@ -3,6 +3,8 @@
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, FaceHandle, TopologyRole};
 
+use super::strip_orientation::reconcile_if_reauthored_blend_surface;
+
 /// Compute the *max* distance from a list of boundary positions to
 /// a candidate surface. Used as the "is this surface acceptable at
 /// all" gate, before falling through to candidate replacement.
@@ -110,14 +112,11 @@ pub(crate) fn correct_face_surfaces(
             continue;
         }
 
-        // Trust CONSTRUCTED FILLET STRIP surfaces the same way: a
-        // strip whose current surface is one of this operation's own
-        // fillet surfaces was assigned with intent. Its outer loop
-        // can include corner ANCHOR vertices ~r·(√2−1) off the strip
-        // (pre-route-B corner topology), which fails the 1cm gate
-        // and had the refit swap real vertical strips for wall
-        // planes — the corner passes own those vertices, not this
-        // face's surface.
+        // Trust CONSTRUCTED FILLET STRIP surfaces the same way:
+        // assigned with intent; corner ANCHOR vertices ~r·(√2−1) off
+        // the strip (pre-route-B corner topology) fail the 1cm gate,
+        // and the refit swapped real vertical strips for wall planes
+        // — the corner passes own those vertices, not this surface.
         let current_is_fillet_surface = brep.faces[fh].surface.as_ref().is_some_and(|s| {
             fillet_surfaces.iter().any(|fs| {
                 super::sliver_absorb_classifiers::surfaces_equal(
@@ -251,7 +250,7 @@ pub(crate) fn correct_face_surfaces(
                     .fold(1.0_f64, f64::max);
             if dist < assign_gate {
                 brep.faces[fh].surface = Some(sof);
-                super::strip_orientation::reconcile_if_fillet_strip(brep, fh, fillet_surfaces);
+                reconcile_if_reauthored_blend_surface(brep, fh, fillet_surfaces);
                 continue;
             }
         }

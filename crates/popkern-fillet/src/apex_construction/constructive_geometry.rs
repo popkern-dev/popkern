@@ -294,6 +294,9 @@ pub(super) fn assign_fillet_strip_surface(
         geometry: surface.clone(),
         orientation: true,
     });
+    // PK-244: shell-honest flag at commit (tangency witness against
+    // support neighbours; no-op when no confident witness exists yet).
+    crate::construct::strip_orientation::reconcile_strip_orientation_boundary(brep, strip_face);
 
     let Some(face) = brep.faces.get(strip_face) else {
         return Ok(());

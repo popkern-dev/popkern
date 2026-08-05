@@ -443,6 +443,14 @@ pub(crate) fn fillet_edges_internal(
     // Displaced-pcurve backstop (PK-211): see
     // `fillet_pipeline_pcurve_backstop` for the defect class.
     crate::fillet_pipeline_pcurve_backstop::recompute_displaced_pcurves(&mut apply_result.brep);
+    // PK-244 serving-boundary flag reconcile: the orientation flag is
+    // derived state (loop winding × surface geometry), so once every
+    // pcurve author above has run, each measurable face's flag is set
+    // to its honest value. This must be the LAST pass that runs after
+    // pcurve finalization — an earlier run (post_pipeline) measured a
+    // clean model whose Gregory-cap pcurves did not yet exist.
+    apply_result.repair_report.orientation_flag_reconciliations +=
+        apply_result.brep.reconcile_orientation_flags();
     Ok(BlendResult {
         brep: apply_result.brep,
         edge_warnings: all_warnings,
