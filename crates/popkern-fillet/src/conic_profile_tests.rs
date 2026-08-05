@@ -280,40 +280,32 @@ fn conic_composes_with_variable_radius_and_corner_caps() {
         corner_result.brep.boundary_edges.is_empty(),
         "conic corner must serve without dead sides"
     );
-    // Corner quality: conic strips route through the SWEPT-STRIP
-    // corner class (NURBS strips → mitred/swept dispatch, no
-    // analytic corner patch). That class's measured baseline at HEAD
-    // is CurveSurfaceDeviation 5.04e-2 on the all-CIRCULAR
-    // variable-radius cube corner — a pre-existing frontier of the
-    // mitred contract (PK-139/PK-152), not a conic gap. The conic
-    // corner measures 1.1e-2 (BETTER than the class baseline, since
-    // the exact conic terminal settlement and exact-iso boundary
-    // curves land its section curves on the strips). Gate at half
-    // the class baseline so a conic-specific regression still
-    // fails; structural classes must stay clean.
+    // Corner quality (PK-239): the corner declines the setback rung
+    // by the RECORDED flat-rho gate (rho 0.3501 < circular 0.4142 —
+    // PK-226's deliberate analytic gate), which now makes it
+    // eligible for the boundary-driven ring carve: pushed stations
+    // clear the mitre complex, the exact interior-iso section arcs
+    // land on the conic strips by identity, and the carve replaces
+    // the mitred chords (whose measured class ceiling was 7.35e-2
+    // under collect-all check 9). The serve must be validate_all
+    // CLEAN and must record the ring route fact — a silent fall
+    // back to the mitred chords would resurface the deviation set.
     let errors = corner_result.brep.validate_all();
-    let mut worst_deviation = 0.0_f64;
-    for err in &errors {
-        match err {
-            popkern_core::error::ValidationError::CurveSurfaceDeviation {
-                max_deviation, ..
-            } => worst_deviation = worst_deviation.max(*max_deviation),
-            other => panic!("conic corner must stay structurally clean, got {other:?}"),
-        }
-    }
-    // PK-235 re-pin: the "1.1e-2, better than half the 5.04e-2
-    // circular baseline" comparison above was measured while check 9
-    // returned only the FIRST failing edge — both numbers were
-    // first-failure artifacts, so the conic-vs-circular comparison is
-    // void. Under collect-all check 9 the conic corner's true worst
-    // edge measures 7.35e-2: the corner declines the setback rung by
-    // the RECORDED flat-rho gate (rho 0.3501 < 0.4142 — PK-226's
-    // deliberate analytic gate) and serves the mitred legacy ring.
-    // Owned by PK-239 (boundary-driven ring generalization). Ceiling
-    // records the measured class state without licensing regression.
     assert!(
-        worst_deviation <= 8.0e-2,
-        "conic corner deviation {worst_deviation:.3e} exceeds the measured 8e-2 mitred \
-         swept-corner class ceiling (collect-all check 9, PK-235)"
+        errors.is_empty(),
+        "conic corner ring serve must validate clean, got {errors:?}"
+    );
+    assert!(
+        corner_result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|d| matches!(
+                d,
+                crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(fact)
+                    if fact.code == "boundary_ring.fact"
+                        && fact.stage == "boundary_ring.applied"
+            )),
+        "conic corner must serve through the boundary ring carve (PK-239)"
     );
 }

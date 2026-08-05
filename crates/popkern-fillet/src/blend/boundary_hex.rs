@@ -173,7 +173,7 @@ pub(super) fn exact_boundary_iso_between(
 }
 
 /// Reverse a clamped knot vector onto the same parameter range.
-fn reversed_clamped_knots(knots: &[f64]) -> Vec<f64> {
+pub(super) fn reversed_clamped_knots(knots: &[f64]) -> Vec<f64> {
     let (lo, hi) = (knots[0], knots[knots.len() - 1]);
     knots.iter().rev().map(|k| lo + hi - k).collect()
 }

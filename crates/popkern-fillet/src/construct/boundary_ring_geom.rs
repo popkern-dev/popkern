@@ -1,9 +1,9 @@
 //! Geometric helpers for the saddle boundary-ring carve (PK-234):
 //! junction location/splitting, ring-curve authoring, bridge support
 //! selection, and the on-surface postcondition. Split from
-//! `saddle_boundary_ring.rs` for the structural file budget.
+//! `boundary_ring.rs` for the structural file budget.
 
-use super::saddle_boundary_ring::JUNCTION_ON_EDGE_BAND;
+use super::boundary_ring::JUNCTION_ON_EDGE_BAND;
 use super::*;
 
 /// Find or create the junction vertex where `point` lands on `face`'s
@@ -89,7 +89,7 @@ pub(super) fn junction_vertex(
                     eval.point_at(0.5 * (c.t_start + c.t_end))
                 });
                 eprintln!(
-                    "    [saddle-ring] {face:?} loop v ({:.4},{:.4},{:.4}) e {:?} mid {:?} | other {other:?}",
+                    "    [boundary-ring] {face:?} loop v ({:.4},{:.4},{:.4}) e {:?} mid {:?} | other {other:?}",
                     p.x,
                     p.y,
                     p.z,
@@ -106,7 +106,7 @@ pub(super) fn junction_vertex(
         // The caller decides whether the rail-spur recut applies.
         if std::env::var_os("PK_CARVE_TRACE").is_some() {
             eprintln!(
-                "    [saddle-ring] junction ({:.4},{:.4},{:.4}) off {face:?} boundary by {d:.3e} — recut candidate",
+                "    [boundary-ring] junction ({:.4},{:.4},{:.4}) off {face:?} boundary by {d:.3e} — recut candidate",
                 point.x, point.y, point.z
             );
         }

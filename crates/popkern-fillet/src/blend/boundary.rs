@@ -12,7 +12,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
 
 use super::boundary_hex::{build_face_edge_bridge_between, reorient_arcs_for_hex_closure};
-use super::boundary_saddle_stations::apply_saddle_station_pushback;
+use super::boundary_ring_stations::apply_ring_station_pushback;
 use crate::fillet_surface::FilletSurfaceResult;
 
 // Re-export sampling types/functions so existing call sites that use
@@ -166,7 +166,7 @@ pub struct BlendBoundaryOptions {
     /// stations are pushed back past every in-strip rail crossing
     /// with a setback margin, so all junctions land on real rails
     /// and all bridges cross real face regions.
-    pub saddle_station_pushback: bool,
+    pub ring_station_pushback: bool,
 }
 
 /// Compute the blend boundary at a vertex where multiple fillets meet.
@@ -238,8 +238,8 @@ pub fn compute_blend_boundary_with_options(
     // (today's behavior — the saddle ring carve then declines with
     // the junction mismatch recorded) instead of killing the whole
     // vertex blend into a Mitred fallback.
-    if options.saddle_station_pushback
-        && let Err(reason) = apply_saddle_station_pushback(
+    if options.ring_station_pushback
+        && let Err(reason) = apply_ring_station_pushback(
             fillet_indices,
             fillet_surfaces,
             &vertex_pos,
@@ -248,7 +248,7 @@ pub fn compute_blend_boundary_with_options(
         )
         && std::env::var_os("PK_CARVE_TRACE").is_some()
     {
-        eprintln!("  [saddle-stations] pushback declined: {reason}");
+        eprintln!("  [ring-stations] pushback declined: {reason}");
     }
 
     // Collect the supporting surface of every face incident to the

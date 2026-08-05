@@ -153,17 +153,15 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
         name: &'static str,
         radii: &'static [f64],
         is_pyramid: bool,
-        // PK-235 re-pin: measured other_geometric ceiling under
-        // collect-all check 9 (the old blanket "≤ 1" was a
-        // first-failure artifact). PK-236 classified the sets:
-        // pyramid3_uniform = 9 strip end-termination chords at its
-        // BASE corners (worst 1.063e-1, owned by PK-238) + 2
-        // mitred-apex chords (3.2e-2..5.2e-2, owned by PK-239);
-        // pyramid4_uniform = 12 substituted-boundary cap edges
-        // (spoke placeholders + arc chords, worst 1.5e-2, owned by
-        // PK-239 — reanchor declines at ring-to-boundary gap
-        // 3.075e-2 under this fixture's opt-in
-        // POPKERN_SPHERE_FIT_BOUNDARY=1).
+        // PK-239: zero. The PK-236 inventory these ceilings carried
+        // (pyramid3_uniform = 9 base-corner end-termination chords
+        // worst 1.063e-1 + 2 mitred-apex chords; pyramid4_uniform =
+        // 12 substituted-boundary cap edges worst 1.5e-2) is closed
+        // by the boundary-ring carve: the pyramid apexes and base
+        // corners ride the false-sphere-claim gate arm (uniform
+        // cylinder strips on mutually oblique axes) and carve exact
+        // rings (measured on-surface deviation ≤ 3.8e-14), so every
+        // fixture serves validate_all with zero geometric errors.
         max_other_geometric: usize,
     }
     let cases: &[Case] = &[
@@ -171,19 +169,19 @@ fn phase_6c_a6_uniform_fixtures_path_a_clean() {
             name: "cube_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: false,
-            max_other_geometric: 1,
+            max_other_geometric: 0,
         },
         Case {
             name: "pyramid3_uniform",
             radii: &[0.10, 0.10, 0.10],
             is_pyramid: true,
-            max_other_geometric: 12,
+            max_other_geometric: 0,
         },
         Case {
             name: "pyramid4_uniform",
             radii: &[0.05, 0.05, 0.05, 0.05],
             is_pyramid: true,
-            max_other_geometric: 14,
+            max_other_geometric: 0,
         },
     ];
     for case in cases {

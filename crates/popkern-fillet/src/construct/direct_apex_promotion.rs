@@ -141,7 +141,7 @@ fn apex_is_same_side_convex(
 /// orders above the 1e-4 band, so the discriminator has no
 /// borderline class among known fixtures. Non-cylinder strips never
 /// reach this test (the uniform arm requires all-Cylinder first).
-fn cylinder_axes_mutually_orthogonal(
+pub(super) fn cylinder_axes_mutually_orthogonal(
     edge_indices: &[usize],
     edge_geometries: &[EdgeGeometry],
 ) -> bool {

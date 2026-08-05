@@ -18,8 +18,8 @@ use crate::construct::three_quad_apply::apply_three_quad_decomposition_to_blend;
 mod blend_insert_diagnostics;
 #[path = "blend_insert_pns_acceptance.rs"]
 mod blend_insert_pns_acceptance;
-#[path = "blend_insert_saddle_rung.rs"]
-mod blend_insert_saddle_rung;
+#[path = "blend_insert_ring_rung.rs"]
+mod blend_insert_ring_rung;
 #[path = "blend_insert_setback_rung.rs"]
 mod blend_insert_setback_rung;
 #[path = "blend_insert_support_cell_acceptance.rs"]
@@ -108,23 +108,14 @@ pub(crate) fn insert_vertex_blend(
     // §5.3 item #5 — `OppositeSide` flows through Gregory with a
     // saddle-specific central point. `Mixed` stays on polar-NURBS.
     let fillet_surfaces_pre = build_fillet_surface_list(edge_indices, edge_geometries);
-    // Setback boundary surgery rung (see setback_vertex_topology
-    // module docs). PK-225: N = 3 setback is PRODUCTION for corners
-    // the sphere does not own; three root fixes landed it (crossings
-    // graze-merge, rim-refit corner-identity row pick, tangent-
-    // coherent corner pairs) — uniform conic cube corner serves at
-    // cap_outer g0 2.9e-5 / g1 9.7e-6, validate_all clean. PK-226:
-    // variable/mixed-radius corners serve too — the historic decline
-    // was a false UV crossing (off-surface legacy axis chords
-    // projected across the strip crown snapped the arc midpoint onto
-    // the raw cube edge); the crossing detector's 3-D margin gate
-    // closed it. Unsuitable geometry still declines transactionally
-    // with the reason recorded; the legacy path serves as before.
-    // Sphere-owned corners keep the exact rolling-ball serve.
+    // Setback boundary surgery rung (history and root fixes in the
+    // setback_vertex_topology module docs — PK-225 made N = 3
+    // setback production for corners the sphere does not own,
+    // PK-226 extended it to variable/mixed radii). Unsuitable
+    // geometry declines transactionally with the reason recorded.
     // POPKERN_SETBACK_N3 = diagnostic force-on for every N=3 corner;
     // POPKERN_SETBACK_DISABLE = diagnostic force-off so tests can
-    // pin the legacy fallback dispatch, which no clean cube fixture
-    // reaches anymore (corner_fallback_dispatch.rs).
+    // pin the legacy fallback dispatch (corner_fallback_dispatch.rs).
     let radii_uniform_pre = corner_radii_uniform(edge_indices, edge_geometries, tolerance);
     let setback_min_n = if std::env::var_os("POPKERN_SETBACK_DISABLE").is_some() {
         usize::MAX
@@ -135,6 +126,9 @@ pub(crate) fn insert_vertex_blend(
     } else {
         5
     };
+    let setback_attempted =
+        crate::construct::setback_vertex_topology::setback_topology_commit_enabled()
+            && edge_indices.len() >= setback_min_n;
     if let Some(outcome) = blend_insert_setback_rung::try_setback_rung(
         brep,
         vertex,
@@ -147,6 +141,10 @@ pub(crate) fn insert_vertex_blend(
     ) {
         return outcome;
     }
+    // Reaching here with `setback_attempted` set means the surgery
+    // ran and declined transactionally (a served setback returned
+    // above) — the fact the boundary-ring gate consumes.
+    let setback_declined = setback_attempted;
 
     let local_indices_pre: Vec<usize> = (0..fillet_surfaces_pre.len()).collect();
     let n_sides = edge_indices.len();
@@ -168,12 +166,10 @@ pub(crate) fn insert_vertex_blend(
         } else {
             None
         },
-        // PK-234: at a saddle the default closest-to-vertex stations
-        // yield a boundary whose bridges run through consumed support
-        // bands; push the stations back past the rail crossings so
-        // the ring carve (and the decomposition) get a boundary that
-        // exists on the carved topology.
-        saddle_station_pushback: matches!(classification, VertexBlendClassification::OppositeSide),
+        // PK-234: saddle bridges run through consumed support bands
+        // without the rail-crossing station pushback (convex ring
+        // corners get their pushed boundary inside the ring rung).
+        ring_station_pushback: matches!(classification, VertexBlendClassification::OppositeSide),
     };
     let rational_gregory_compatible = matches!(
         classification,
@@ -185,7 +181,7 @@ pub(crate) fn insert_vertex_blend(
     // Gregory dispatch OR the env-gated PnS path is enabled — both
     // consume the same boundary structure downstream.
     let pns_wants_boundary = crate::blend::pns_promote::pns_env_enabled();
-    let n_gon_boundary: Option<BlendBoundary> = if (use_rational_gregory || pns_wants_boundary)
+    let mut n_gon_boundary: Option<BlendBoundary> = if (use_rational_gregory || pns_wants_boundary)
         && n_sides >= 3
         && rational_gregory_compatible
     {
@@ -204,26 +200,34 @@ pub(crate) fn insert_vertex_blend(
         None
     };
 
-    // PK-234: saddle (`OppositeSide`) corners get the boundary-driven
-    // ring carve INSTEAD of the mitred chord construction. The mitred
-    // ring sits on the sharp model edges up to 1.3e-1 from the
-    // boundary the downstream Gregory decomposition interpolates, the
-    // seam re-anchor declines on it (`incident_retrim_off_curve`),
-    // and the corner-point setback surgery has no valid ring model at
-    // the reflex junction (its corner lies outside both strips). The
-    // carve is transactional: any decline restores the entry state
-    // and the mitred phases below run exactly as before.
-    let (saddle_ring_face, saddle_ring_decline) = blend_insert_saddle_rung::try_saddle_ring_rung(
-        brep,
-        vertex,
-        classification,
-        use_rational_gregory,
-        n_gon_boundary.as_ref(),
-        &fillet_surfaces_pre,
-        tolerance,
-    );
+    // Boundary-ring rung (PK-234 saddles, PK-239 convex extension) —
+    // gate semantics, the convex pushed-boundary contract, and the
+    // transactional carve live in `blend_insert_ring_rung`. On a
+    // served ring `n_gon_boundary` is substituted with the carved
+    // (pushed) boundary; on a decline dispatch below is bit-identical
+    // to the mitred path.
+    let sphere_claim_false = sphere_owns_corner(radii_uniform_pre, &fillet_surfaces_pre)
+        && !crate::construct::direct_apex_promotion::cylinder_axes_mutually_orthogonal(
+            edge_indices,
+            edge_geometries,
+        );
+    let (boundary_ring_eligible, ring_face, ring_decline) =
+        blend_insert_ring_rung::boundary_ring_rung(
+            brep,
+            vertex,
+            classification,
+            use_rational_gregory,
+            setback_declined,
+            sphere_claim_false,
+            &mut n_gon_boundary,
+            boundary_options,
+            &local_indices_pre,
+            &fillet_surfaces_pre,
+            n_sides,
+            tolerance,
+        );
 
-    let blend_face = match saddle_ring_face {
+    let blend_face = match ring_face {
         Some(face) => face,
         None => {
             // Phase 1: For each face, cut a chord between the face's two
@@ -248,7 +252,7 @@ pub(crate) fn insert_vertex_blend(
     // boundary by construction).
     let fillet_surfaces = build_fillet_surface_list(edge_indices, edge_geometries);
     let local_indices: Vec<usize> = (0..fillet_surfaces.len()).collect();
-    let blend_boundary = if saddle_ring_face.is_some() {
+    let blend_boundary = if ring_face.is_some() {
         n_gon_boundary
             .clone()
             .ok_or_else(|| "saddle ring path requires the n-gon boundary".to_string())?
@@ -279,7 +283,7 @@ pub(crate) fn insert_vertex_blend(
     // dangling edge because its `kef` guard rejected same-loop
     // half-edge pairs. The saddle ring carve already consumed the
     // vertex in its region merge, so that path skips both steps.
-    if saddle_ring_face.is_none() {
+    if ring_face.is_none() {
         kev_v_bridge(brep, vertex)?;
         remove_orphaned_vertex(brep, vertex);
     }
@@ -324,15 +328,13 @@ pub(crate) fn insert_vertex_blend(
     };
     let mut diagnostics = Vec::new();
 
-    // PK-234: the saddle ring carve records its outcome either way —
-    // a decline here means the mitred fallback ring is serving and
-    // the class's known deviation set (PK-236) is present.
-    diagnostics.extend(blend_insert_saddle_rung::saddle_ring_diagnostic(
-        classification,
-        use_rational_gregory,
+    // The ring rung records its outcome either way — a decline means
+    // the mitred fallback is serving (PK-236 deviation classes).
+    diagnostics.extend(blend_insert_ring_rung::boundary_ring_diagnostic(
+        boundary_ring_eligible,
         n_sides,
-        saddle_ring_face,
-        saddle_ring_decline.as_ref(),
+        ring_face,
+        ring_decline.as_ref(),
     ));
 
     // Record WHY the PnS route was not entered. Until this existed, a

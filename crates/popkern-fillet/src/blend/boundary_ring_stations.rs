@@ -41,7 +41,7 @@ const SETBACK_MARGIN_FRACTION: f64 = 0.25;
 /// Push each fillet's end-arc station back past every in-strip rail
 /// crossing with its neighbors and rebuild the arcs. No-op for
 /// fillets with no in-strip crossings.
-pub(super) fn apply_saddle_station_pushback(
+pub(super) fn apply_ring_station_pushback(
     fillet_indices: &[usize],
     fillet_surfaces: &[FilletSurfaceResult],
     vertex_pos: &Point3,
@@ -98,10 +98,16 @@ pub(super) fn apply_saddle_station_pushback(
         // Exact station cross-section first (analytic cylinder strips
         // — the straight-edge fillet class), then the chart-edge iso
         // (NURBS sweeps whose station lands on a chart boundary),
-        // then the Hermite on-surface fit (general strips, ~1e-3 κ
-        // class — same fallback the default extraction uses).
+        // then the interior iso (PK-239: NURBS sweep strips at a
+        // pushed interior station — the exact section, since a
+        // surface iso lies on the surface by identity), then the
+        // Hermite on-surface fit (general strips, ~1e-3 κ class —
+        // same fallback the default extraction uses; fails the ring
+        // carve's 1e-5 on-surface postcondition, so reaching it
+        // means the ring declines with the constructor named).
         let arc = exact_cylinder_station_arc(&fillet.surface, &p1, &p2)
             .or_else(|| super::boundary_hex::exact_boundary_iso_between(&fillet.surface, &p1, &p2))
+            .or_else(|| exact_interior_iso_station_arc(&fillet.surface, &p1, &p2))
             .or_else(|| hermite_station_arc(&fillet.surface, &p1, &p2))
             .ok_or_else(|| {
                 format!("saddle pushback: no station arc for fillet {k} at {s_pushed:.4}")
@@ -110,7 +116,7 @@ pub(super) fn apply_saddle_station_pushback(
         let endpoints = [arc.point_at(t0), arc.point_at(t1)];
         if std::env::var_os("PK_CARVE_TRACE").is_some() {
             eprintln!(
-                "  [saddle-stations] fillet {k} pushed to arclength {s_pushed:.4} \
+                "  [ring-stations] fillet {k} pushed to arclength {s_pushed:.4} \
                  (crossings demanded {s_needed:.4}); arc ({:.4},{:.4},{:.4})->({:.4},{:.4},{:.4})",
                 endpoints[0].x,
                 endpoints[0].y,
@@ -308,6 +314,61 @@ fn exact_cylinder_station_arc(
         control_points: vec![*p1, apex, *p2],
         weights: vec![1.0, half_cos, 1.0],
     })
+}
+
+/// Exact interior-iso station arc for NURBS sweep strips (PK-239):
+/// when the two pushed rail points project onto a common iso line of
+/// the strip chart — same u at opposite v borders, or same v at
+/// opposite u borders — the surface's exact iso curve at that
+/// station IS the cross-section, on-surface by identity. The conic
+/// fillet class needs this: its strips are rational sweeps whose
+/// stations land between chart rows, where the Hermite fit's ~1e-3
+/// curvature error fails the ring carve's 1e-5 postcondition.
+fn exact_interior_iso_station_arc(
+    surface: &popkern_core::geometry::SurfaceGeometry,
+    p1: &Point3,
+    p2: &Point3,
+) -> Option<NurbsCurve> {
+    use popkern_core::geometry::CurveEval as _;
+    use popkern_core::geometry::SurfaceEval as _;
+    use popkern_core::geometry::uv_projection::project_point_to_uv;
+    let popkern_core::geometry::SurfaceGeometry::Nurbs(n) = surface else {
+        return None;
+    };
+    let (u1, v1) = project_point_to_uv(surface, p1)?;
+    let (u2, v2) = project_point_to_uv(surface, p2)?;
+    let ((u_lo, u_hi), (v_lo, v_hi)) = n.parameter_range();
+    let u_span = (u_hi - u_lo).abs().max(1.0e-12);
+    let v_span = (v_hi - v_lo).abs().max(1.0e-12);
+    // Same-iso decision band: parametric, relative to the chart span.
+    // Loose on purpose — a wrong candidate is rejected by the
+    // endpoint identity gate below, never returned.
+    const ISO_PARAM_BAND: f64 = 1.0e-3;
+    let mut candidates: Vec<NurbsCurve> = Vec::new();
+    if (u1 - u2).abs() <= ISO_PARAM_BAND * u_span {
+        candidates.push(n.iso_curve_at_u(0.5 * (u1 + u2)));
+    }
+    if (v1 - v2).abs() <= ISO_PARAM_BAND * v_span {
+        candidates.push(n.iso_curve_at_v(0.5 * (v1 + v2)));
+    }
+    let scale = p1.distance_to(p2).max(1e-9);
+    let gate = scale * 1.0e-6;
+    for candidate in candidates {
+        let (t0, t1) = candidate.parameter_range();
+        let (c0, c1) = (candidate.point_at(t0), candidate.point_at(t1));
+        if c0.distance_to(p1) <= gate && c1.distance_to(p2) <= gate {
+            return Some(candidate);
+        }
+        if c0.distance_to(p2) <= gate && c1.distance_to(p1) <= gate {
+            return Some(NurbsCurve {
+                degree: candidate.degree,
+                knots: super::boundary_hex::reversed_clamped_knots(&candidate.knots),
+                control_points: candidate.control_points.iter().rev().copied().collect(),
+                weights: candidate.weights.iter().rev().copied().collect(),
+            });
+        }
+    }
+    None
 }
 
 /// Hermite on-surface station arc for general strips: project the

@@ -243,13 +243,13 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
     // to the mitred construction would keep this green only until
     // the deviation asserts above caught it, so pin the route fact
     // directly.
-    let saddle_ring_facts: Vec<&str> = result
+    let boundary_ring_facts: Vec<&str> = result
         .repair_report
         .apex_diagnostics
         .iter()
         .filter_map(|d| match d {
             crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(fact)
-                if fact.code == "saddle_boundary_ring.fact" =>
+                if fact.code == "boundary_ring.fact" =>
             {
                 Some(fact.stage.as_str())
             }
@@ -257,10 +257,10 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
         })
         .collect();
     assert!(
-        saddle_ring_facts
+        boundary_ring_facts
             .iter()
-            .any(|s| *s == "saddle_boundary_ring.applied"),
-        "the saddle ring rung must record an applied fact; facts: {saddle_ring_facts:?}"
+            .any(|s| *s == "boundary_ring.applied"),
+        "the saddle ring rung must record an applied fact; facts: {boundary_ring_facts:?}"
     );
 
     for patch in &saddle_corners {

@@ -122,11 +122,14 @@ fn oblique_uniform_trihedral_apex_serves_direct_apex_by_default() {
 
 /// Explicit legacy surface-family flags stand the N = 3 uniform
 /// promotion down (the legacy ladder stays measurable on its
-/// reaching fixture), and the anchor-collection repair alone keeps
-/// the class on a smooth cap: 3 Gregory patches, structurally
-/// clean, worst curve-surface deviation 2.5e-3 at pin time (ceiling
-/// pinned at the recorded legacy-poke class bound 6e-2 so silent
-/// regressions fail while the recorded-decline serve stays legal).
+/// reaching fixture) and the corner serves smooth Gregory patches.
+/// PK-239: the sphere-ownership prediction is measurably FALSE here
+/// (uniform cylinder strips on mutually oblique axes — no
+/// rolling-ball sphere exists, PK-232's recorded 4.9e-2 fit
+/// decline), so the corner rides the boundary-ring carve inside the
+/// legacy route: the mitred chord class this pin used to ceiling at
+/// 7.75e-2 (collect-all check 9, PK-235/PK-236) is replaced by an
+/// exact carved ring and the serve is validate_all CLEAN.
 #[test]
 fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
     let options = FilletOptions {
@@ -144,29 +147,23 @@ fn legacy_family_flag_stands_promotion_down_but_keeps_smooth_cap() {
         "the legacy route must still serve corner patches (kef anchor repair)"
     );
 
-    let mut structural = 0usize;
-    let mut worst_deviation = 0.0f64;
-    for error in result.brep.validate_all() {
-        use popkern_core::error::ValidationError;
-        match error {
-            ValidationError::CurveSurfaceDeviation { max_deviation, .. } => {
-                worst_deviation = worst_deviation.max(max_deviation);
-            }
-            _ => structural += 1,
-        }
-    }
-    assert_eq!(structural, 0, "legacy serve must be structurally clean");
-    // PK-235 re-pin: the 6e-2 ceiling was measured while check 9
-    // reported only the FIRST failing edge; the collect-all form
-    // finds the legacy oblique serve's true worst edge at 7.75e-2
-    // (the mitred-corner deviation class the flag deliberately opts
-    // into — the flag's contract is "legacy family, smooth cap",
-    // not "modern ring quality"). The class ceiling is owned by
-    // PK-239 (boundary-driven ring generalization).
+    let errors = result.brep.validate_all();
     assert!(
-        worst_deviation <= 9.0e-2,
-        "legacy serve worst deviation {worst_deviation:.3e} exceeds the measured class \
-         ceiling 9e-2 (collect-all check 9, PK-235)"
+        errors.is_empty(),
+        "legacy-flag ring serve must validate clean, got {errors:?}"
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_diagnostics
+            .iter()
+            .any(|d| matches!(
+                d,
+                popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(fact)
+                    if fact.code == "boundary_ring.fact"
+                        && fact.stage == "boundary_ring.applied"
+            )),
+        "the oblique legacy corner must serve through the boundary ring carve (PK-239)"
     );
 }
 

@@ -7,7 +7,7 @@
 
 pub mod boundary;
 pub(crate) mod boundary_hex;
-mod boundary_saddle_stations;
+mod boundary_ring_stations;
 pub(crate) mod boundary_sampling;
 #[cfg(test)]
 #[path = "boundary_tests.rs"]
