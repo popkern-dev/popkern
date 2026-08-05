@@ -6,6 +6,7 @@ use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 mod degree_and_split;
+mod iso_curve;
 mod knot_ops;
 
 /// A Non-Uniform Rational B-Spline surface.
@@ -192,3 +193,6 @@ impl SurfaceEval for NurbsSurface {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod iso_curve_tests;
