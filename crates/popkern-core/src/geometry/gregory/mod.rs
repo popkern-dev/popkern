@@ -186,6 +186,7 @@ mod spoke_poly_g1_ring;
 mod spoke_poly_g1_solver;
 mod triangular;
 mod triangular_to_nurbs;
+pub mod vertex_enclosure;
 pub use bernstein_bi3::{
     bernstein_bi3, bernstein_bi3_all, bernstein_bi3_deriv, bernstein_bi3_deriv_all,
     bernstein_bi3_second_deriv, bernstein_bi3_second_deriv_all, bernstein_bi3_third_deriv,
