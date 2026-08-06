@@ -2,7 +2,7 @@ use super::*;
 use crate::tolerance::Tolerance;
 
 #[test]
-fn heal_holes_closes_the_open_box_with_the_ruled_fan() {
+fn heal_holes_closes_the_open_box_with_the_single_patch_g1_cap() {
     let mut brep = BRep::open_box(Tolerance::default()).expect("open box");
     let report = heal_holes(&mut brep, Tolerance::default().linear());
 
@@ -10,19 +10,14 @@ fn heal_holes_closes_the_open_box_with_the_ruled_fan() {
     assert_eq!(report.holes_committed, 1);
     assert_eq!(report.attempts.len(), 1);
     let attempt = &report.attempts[0];
-    // The G1 PnS complex declines with its measured internal seam gap
-    // (recorded, never silent); the ruled fan closes the body.
-    assert_eq!(attempt.committed_by, Some(HoleFillerKind::RuledFan));
+    // PK-224: the 4-sided hole serves the single-patch G1 cap — no
+    // internal seams, ribbon-tangent to every wall. The PnS/Coons/
+    // ruled rungs are the recorded fallbacks and never fire here.
+    assert_eq!(attempt.committed_by, Some(HoleFillerKind::SinglePatchG1));
     assert_eq!(attempt.num_sides, 4);
-    assert!(
-        attempt
-            .pns_decline
-            .as_deref()
-            .is_some_and(|reason| reason.contains("coherence")),
-        "PnS decline must be recorded with its reason: {:?}",
-        attempt.pns_decline
-    );
-    assert!(attempt.coons_decline.is_some());
+    assert!(attempt.single_patch_decline.is_none());
+    assert!(attempt.pns_decline.is_none());
+    assert!(attempt.coons_decline.is_none());
     assert!(attempt.ruled_decline.is_none());
 
     assert!(brep.boundary_edges.is_empty());

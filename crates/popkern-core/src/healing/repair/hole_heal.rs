@@ -13,12 +13,16 @@ use super::hole_commit::commit_hole_cap;
 use super::hole_commit_geometry::HoleCapGeometry;
 use super::hole_fill::detect_holes;
 use super::hole_ruled_fan::ruled_fan_cap;
+use super::hole_single_patch::commit_single_patch_hole_cap;
 use super::n_sided_fill::fill_n_sided_hole;
 use super::n_sided_fill_g1::fill_n_sided_hole_g1;
 
 /// Which filler produced a committed cap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoleFillerKind {
+    /// The single-patch degree-5 Gregory cap (4-sided holes only —
+    /// no internal seams, ribbon-G1 to the neighbours, PK-224).
+    SinglePatchG1,
     /// The G¹ PnS bi-4 cap.
     PnsG1,
     /// The Coons fan.
@@ -34,6 +38,9 @@ pub struct HoleHealAttempt {
     pub num_sides: usize,
     /// The filler whose cap committed, if any.
     pub committed_by: Option<HoleFillerKind>,
+    /// Why the single-patch path did not commit (PK-224; `None` also
+    /// when the hole is not 4-sided).
+    pub single_patch_decline: Option<String>,
     /// Why the G¹ PnS path did not commit (fill or commit decline).
     pub pns_decline: Option<String>,
     /// Why the Coons path did not commit (fill or commit decline).
@@ -73,11 +80,26 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
         let mut attempt = HoleHealAttempt {
             num_sides: hole.num_sides,
             committed_by: None,
+            single_patch_decline: None,
             pns_decline: None,
             coons_decline: None,
             ruled_decline: None,
             worst_l2_gap: None,
         };
+
+        // Single-patch rung first (PK-224): its commit is fully
+        // self-contained (own topology op, gates, transaction), so it
+        // does not flow through the fan-shaped HoleCapGeometry path.
+        match commit_single_patch_hole_cap(brep, hole, tolerance) {
+            Ok(commit) => {
+                attempt.committed_by = Some(HoleFillerKind::SinglePatchG1);
+                attempt.worst_l2_gap = Some(commit.worst_l2_gap);
+                committed += 1;
+                attempts.push(attempt);
+                continue;
+            }
+            Err(error) => attempt.single_patch_decline = Some(error.to_string()),
+        }
 
         type CapBuilder<'a> = Box<dyn Fn(&BRep) -> Result<HoleCapGeometry, String> + 'a>;
         let stages: [(HoleFillerKind, CapBuilder); 3] = [
@@ -118,6 +140,9 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
                     break;
                 }
                 Err(reason) => match kind {
+                    // The single-patch rung never reaches this loop —
+                    // it committed or recorded its decline above.
+                    HoleFillerKind::SinglePatchG1 => {}
                     HoleFillerKind::PnsG1 => attempt.pns_decline = Some(reason),
                     HoleFillerKind::CoonsFan => attempt.coons_decline = Some(reason),
                     HoleFillerKind::RuledFan => attempt.ruled_decline = Some(reason),

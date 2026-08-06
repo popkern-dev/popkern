@@ -102,7 +102,7 @@ pub fn fill_n_sided_hole_g1(
 }
 
 /// Build the per-side frame data the cap needs from the BRep.
-fn boundary_edges_with_frames(
+pub(super) fn boundary_edges_with_frames(
     brep: &BRep,
     hole: &DetectedHole,
     tolerance: f64,

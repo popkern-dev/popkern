@@ -5,10 +5,9 @@
 //! `BRep::open_box` is exactly the fixture the acceptance names: a
 //! unit cube whose first face was removed, leaving four registered
 //! boundary edges with null-sentinel twins. `heal_holes` detects the
-//! opening, records the G¹ PnS decline (its sector complex is not
-//! fan-committable — measured, see the PK-199 resolution notes) and
-//! the Coons decline, and commits the ruled fan cap through the
-//! `cap_boundary_ring_fan` Euler operator.
+//! opening and commits the single-patch G¹ Gregory cap (PK-224 —
+//! no internal seams, ribbon-tangent to every wall) through the
+//! `cap_boundary_ring` Euler operator.
 
 use popkern_core::healing::repair::{HoleFillerKind, heal_holes};
 use popkern_core::tolerance::Tolerance;
@@ -25,10 +24,10 @@ fn healed_open_box_is_watertight_and_occ_clean() {
     assert_eq!(report.holes_detected, 1, "one opening detected");
     assert_eq!(report.holes_committed, 1, "the opening commits");
     let attempt = &report.attempts[0];
-    assert_eq!(attempt.committed_by, Some(HoleFillerKind::RuledFan));
+    assert_eq!(attempt.committed_by, Some(HoleFillerKind::SinglePatchG1));
     assert!(
-        attempt.pns_decline.is_some() && attempt.coons_decline.is_some(),
-        "G1 declines are recorded, never silent"
+        attempt.single_patch_decline.is_none(),
+        "the single-patch rung serves without a recorded decline"
     );
 
     // Strict validation re-arms once boundary_edges empties.

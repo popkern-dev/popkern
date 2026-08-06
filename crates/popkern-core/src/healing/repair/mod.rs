@@ -42,6 +42,7 @@ pub mod hole_fill;
 pub mod hole_heal;
 /// Ruled fan cap: the always-constructible G0 hole filler.
 pub mod hole_ruled_fan;
+pub mod hole_single_patch;
 /// Import repair pipeline for models from external formats.
 pub mod import_repair;
 /// Coplanar face merging.
