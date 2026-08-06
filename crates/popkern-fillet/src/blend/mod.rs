@@ -16,6 +16,7 @@ pub(crate) mod gregory;
 pub(crate) mod gregory_inner_cp_shrink;
 pub(crate) mod gregory_parallelogram;
 pub(crate) mod gregory_three_quad;
+mod gregory_three_quad_geometry;
 pub(crate) mod gregory_vertex_enclosure;
 pub mod pns_adapter;
 #[cfg(test)]
@@ -30,6 +31,7 @@ pub(crate) mod pns_rim_materialize;
 pub mod runout;
 pub(crate) mod sphere_fit_boundary;
 pub(crate) mod sphere_fit_centre;
+mod spoke_balancing;
 pub mod surface;
 pub(crate) mod surface_bridge;
 mod surface_math;

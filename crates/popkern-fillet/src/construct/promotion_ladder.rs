@@ -333,6 +333,7 @@ mod tests {
         let mut decomp = NQuadDecomposition {
             central_point: Point3::new(0.0, 0.0, 0.0),
             sub_patches: Vec::new(),
+            balanced_spokes: None,
         };
         let mut relaxed_coplanarity = None;
         let report = run_promotion_ladder(

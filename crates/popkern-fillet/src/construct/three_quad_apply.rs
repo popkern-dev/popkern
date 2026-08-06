@@ -5,7 +5,7 @@
 //! one [`CornerPatchInfo`] per sub-face.
 
 #[path = "three_quad_apply_helpers.rs"]
-mod three_quad_apply_helpers;
+pub(super) mod three_quad_apply_helpers;
 #[path = "three_quad_blend_seam_reanchor.rs"]
 mod three_quad_blend_seam_reanchor;
 #[path = "three_quad_face_matching.rs"]
@@ -32,7 +32,10 @@ use popkern_core::geometry::gregory::{
 };
 use popkern_core::geometry::surface::{SurfaceGeometry, SurfaceOnFace};
 use popkern_core::topology::{BRep, FaceHandle, VertexHandle};
-pub(crate) use three_quad_apply_helpers::ThreeQuadApplyResult;
+pub(crate) use three_quad_apply_helpers::{
+    ThreeQuadApplyResult, ThreeQuadFailure, author_cap_face_boundary_pcurves,
+    author_model_level_support_face_boundary_seams,
+};
 use three_quad_apply_helpers::{
     decomp_self_intersects, macro_family_from_promotion, max_outer_boundary_residual,
     record_support_cell_nonselection, sub_patch_provenance,
@@ -57,19 +60,10 @@ use crate::fillet_surface::FilletSurfaceResult;
 use crate::types::{ContinuityLevel, CornerMethod, CornerPatchInfo};
 use crate::vertex_classifier::VertexBlendClassification;
 
-pub(crate) use three_quad_apply_helpers::author_cap_face_boundary_pcurves;
-
-pub(crate) use three_quad_apply_helpers::ThreeQuadFailure;
-
 /// Apply a three-quad decomposition to an existing hexagonal blend
 /// face: build the decomposition, poke the face, assign Gregory
-/// surfaces, return one [`CornerPatchInfo`] per sub-face.
-///
-/// # Errors
-///
-/// Returns an error string if the boundary isn't a valid hexagon
-/// (6 alternating segments), the decomposition builder rejects
-/// the input, or the poke topology surgery fails.
+/// surfaces, return one [`CornerPatchInfo`] per sub-face. Errors on
+/// a non-2N boundary, decomposition rejection, or poke failure.
 #[allow(dead_code)] // wired into dispatch in R8 C6
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_three_quad_decomposition_to_blend(
@@ -141,6 +135,27 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         use_two_stripe,
         use_kp_binonic,
         use_kp_polar,
+        |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
+    );
+    // PK-240 fold-triggered balanced-spoke retry (see the module
+    // doc); on decline the straight result stands unchanged.
+    super::three_quad_balanced_retry::apply_fold_triggered_balanced_retry(
+        &mut decomp,
+        &mut promotion_report,
+        &mut relaxed_coplanarity,
+        &mut diagnostics,
+        boundary,
+        brep,
+        fillet_surfaces,
+        classification,
+        super::three_quad_balanced_retry::BalancedRetryLadderFlags {
+            use_deg5,
+            use_biquintic_full,
+            use_biseptic,
+            use_two_stripe,
+            use_kp_binonic,
+            use_kp_polar,
+        },
         |patches, fillets| promote_decomp_to_kp_binonic(patches, fillets, hex_boundary_data),
     );
     diagnostics.extend(std::mem::take(&mut promotion_report.diagnostics));
@@ -465,6 +480,13 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
             exact_boundary_cap: false,
         });
     }
+    // PK-240: a balanced fan curves the interior spokes; re-derive
+    // each interior seam's edge triple from the committed binonic
+    // sides (straight fans keep their placeholder seams untouched).
+    if decomp.balanced_spokes.is_some() && !sphere_cap_rung {
+        let _ = super::three_quad_spoke_seam_curves::
+            author_interior_spoke_seam_curves_from_committed_caps(brep, &sub_faces);
+    }
     if crate::direct_apex_trace::enabled() {
         trace_cap_subface_neighbors(brep, "final", &sub_faces);
     }
@@ -472,21 +494,6 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         patches,
         diagnostics,
     })
-}
-
-pub(crate) fn author_model_level_support_face_boundary_seams(
-    brep: &mut BRep,
-    sub_faces: &[FaceHandle],
-    boundary: &BlendBoundary,
-    fillet_surfaces: &[FilletSurfaceResult],
-) -> three_quad_seam_pcurves::SupportSeamRelocationReport {
-    three_quad_seam_pcurves::author_post_assignment_support_face_boundary_seams(
-        brep,
-        sub_faces,
-        boundary,
-        fillet_surfaces,
-        &semantic_cap_indices_for_subfaces(brep, boundary, sub_faces),
-    )
 }
 #[cfg(test)]
 #[path = "three_quad_apply_tests.rs"]

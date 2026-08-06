@@ -113,7 +113,7 @@ pub(super) fn decomp_self_intersects(
         .any(|patch| patch.self_intersects_with_tolerance(tolerance))
 }
 
-pub(super) fn max_outer_boundary_residual(
+pub(in crate::construct) fn max_outer_boundary_residual(
     decomp: &crate::blend::gregory_three_quad::NQuadDecomposition,
     boundary: &BlendBoundary,
 ) -> Option<f64> {
@@ -141,4 +141,21 @@ pub(super) fn max_outer_boundary_residual(
         }
     }
     Some(worst)
+}
+
+pub(crate) fn author_model_level_support_face_boundary_seams(
+    brep: &mut BRep,
+    sub_faces: &[FaceHandle],
+    boundary: &BlendBoundary,
+    fillet_surfaces: &[FilletSurfaceResult],
+) -> super::three_quad_seam_pcurves::SupportSeamRelocationReport {
+    super::three_quad_seam_pcurves::author_post_assignment_support_face_boundary_seams(
+        brep,
+        sub_faces,
+        boundary,
+        fillet_surfaces,
+        &crate::construct::sphere_fit_edge_wire_cap_identity::semantic_cap_indices_for_subfaces(
+            brep, boundary, sub_faces,
+        ),
+    )
 }

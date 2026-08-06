@@ -146,11 +146,13 @@ mod terminal_obstructed_crossing;
 mod terminal_obstructed_end;
 pub(crate) mod three_quad_apply;
 mod three_quad_apply_edge_triple;
+mod three_quad_balanced_retry;
 mod three_quad_boundary_fit;
 pub(crate) mod three_quad_boundary_pcurve_diagnostics;
 mod three_quad_expanded_kp20_apply;
 mod three_quad_kp_diagnostics;
 pub(crate) mod three_quad_promotions;
+mod three_quad_spoke_seam_curves;
 mod three_quad_support_pcurve_completion;
 pub(crate) mod topology_repair;
 mod torus_end_section_caps;
@@ -211,7 +213,6 @@ pub fn apply_blend_geometry(
     // §6c-direct-apex dispatch.d — faces authored by `try_direct_apex_construction`,
     // protected so sliver_absorb/cap_insert/late re-wiring don't re-author the cap.
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
-
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
     // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
     let promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
@@ -268,7 +269,6 @@ pub fn apply_blend_geometry(
         &mut failures,
     ));
     post_pipeline::determinism_trace("post_reflex_discs", &result);
-
     // Transactional: ANY apply-phase failure fails the whole
     // operation. The prior all-failed-only gate let partial applies
     // proceed with the failures silently discarded — measured: a

@@ -67,3 +67,58 @@ pub(super) fn support_cell_candidate_nonselection(
         None,
     )
 }
+
+/// PK-240: the balanced-spoke fan engaged — the natural sector split
+/// at the ring center was degenerate and the spoke tangents were
+/// redistributed to a regular 2π/N spacing so the fan matches the
+/// regular characteristic map the KP promotion rungs assume.
+pub(super) fn balanced_spoke_fan_engaged(
+    natural_max_span: f64,
+    balanced_max_span: f64,
+    strength: f64,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "three_quad.balanced_spoke_fan".to_string(),
+            code: "three_quad.balanced_spoke_fan".to_string(),
+            detail_code: Some(format!(
+                "natural_max_span_deg={:.1};balanced_max_span_deg={:.1};strength={strength:.2}",
+                natural_max_span.to_degrees(),
+                balanced_max_span.to_degrees()
+            )),
+            sector_name: "n_quad_ring".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: Some(natural_max_span),
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
+/// PK-240: the fold-triggered balanced-spoke retry ran and no
+/// strength served — per-strength decline reasons recorded so the
+/// class stays attributable (e.g. 1:100 declines every strength).
+pub(super) fn balanced_spoke_fan_declined(
+    reasons: &str,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "three_quad.balanced_spoke_fan.declined".to_string(),
+            code: "three_quad.balanced_spoke_fan.declined".to_string(),
+            detail_code: Some(reasons.to_string()),
+            sector_name: "n_quad_ring".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}

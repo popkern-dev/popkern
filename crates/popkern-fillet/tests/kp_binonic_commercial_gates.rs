@@ -75,18 +75,20 @@
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::{
-    ApexConstructionRoute, BlendResult, ExactBoundaryCandidateOutcome,
-    ExactBoundaryReportTransactionStatus, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
+    BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
 };
 
 #[path = "kp_gate_helpers.rs"]
 mod helpers;
+#[path = "support/kp_cube_fixture.rs"]
+mod kp_cube_fixture;
 #[path = "support/kp_production_route.rs"]
 mod kp_production_route;
 use helpers::{
     N_SAMPLES, assert_all_binonic, assert_commercial_gates, cap_faces_from_result, collect_patches,
     incident_edges, measure_ring,
 };
+use kp_cube_fixture::{fillet_cube_result, try_fillet_cube_result};
 use kp_production_route::assert_n_gonal_production_route_all_or_nothing;
 
 /// Route-selection precondition (PK-182): a binonic continuity
@@ -117,38 +119,6 @@ fn run_cube_binonic(radii: &[f64], fixture: &str) -> helpers::RingMetrics {
     let patches = collect_patches(&result.brep, &faces);
     assert_all_binonic(&patches, fixture);
     measure_ring(&patches, N_SAMPLES)
-}
-
-fn fillet_cube_result(radii: &[f64], use_kp_binonic: bool) -> BlendResult {
-    try_fillet_cube_result(radii, use_kp_binonic).unwrap()
-}
-
-fn try_fillet_cube_result(
-    radii: &[f64],
-    use_kp_binonic: bool,
-) -> Result<BlendResult, popkern_fillet::BlendError> {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let edges = incident_edges(&cube, vertex);
-    assert_eq!(edges.len(), radii.len());
-    let specs = edges
-        .iter()
-        .zip(radii.iter())
-        .map(|(&edge, &radius)| FilletSpec {
-            edge,
-            radius: FilletRadius::Constant(radius),
-        })
-        .collect::<Vec<_>>();
-    let opts = FilletOptions {
-        use_rational_gregory: true,
-        use_deg5_gregory: true,
-        use_biquintic_full_gregory: true,
-        use_biseptic_gregory: true,
-        use_two_stripe_gregory: true,
-        use_kp_binonic_gregory: use_kp_binonic,
-        ..FilletOptions::default()
-    };
-    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None)
 }
 
 fn assert_cube_mixed_exact_boundary_route(result: &BlendResult) {
@@ -249,50 +219,6 @@ fn binonic_passes_commercial_gates_on_cube_extreme() {
 // (PK-182). Reintroduce only alongside a 2n-dispatch-ready
 // convex-quad loop.
 
-// ── K-P/binonic dispatch stress fixtures ─────────────────────
-//
-// Wider-asymmetry fixtures are gated on whichever route dispatch
-// actually selects: binonic continuity gates where the K-P ring
-// ships (≤ 1:30), legacy-route ownership tests beyond that.
-
-/// 1:20 — PK-239 re-pin: the binonic serve this gate used to
-/// certify carried 12 hidden check-9 edges at worst 2.018e-1 (the
-/// KP ring-seam metrics never measured the cap's OUTER boundary).
-/// The boundary-ring carve closes that class (validate_all CLEAN);
-/// binonic self-intersects on the elongated tiny-radius sub-patch
-/// and declines, so the cap serves plain Gregory (g1 1.909e-1).
-/// PK-240 owns the binonic restore; interim ceiling recorded.
-#[test]
-fn binonic_passes_commercial_gates_on_cube_extreme_20() {
-    assert_extreme_cube_ring_serve(&[0.01, 0.10, 0.20], "cube_extreme_20", 2.5e-1);
-}
-
-/// 1:30 radius asymmetry. Same PK-239/PK-240 state as 1:20
-/// (measured ring-serve g1 1.018e-1).
-#[test]
-fn binonic_passes_commercial_gates_on_cube_extreme_30() {
-    assert_extreme_cube_ring_serve(&[0.0067, 0.10, 0.20], "cube_extreme_30", 1.5e-1);
-}
-
-/// 1:40+: previously LEGACY-owned with zero measurable patches
-/// (fallback cap, 7 check-9 edges at worst 8.284e-2). The ring now
-/// serves 3 measurable patches validate-clean (g1 7.962e-2 /
-/// 1.952e-1 / 2.249e-1 at 1:40/50/100 — binonic fold, PK-240).
-#[test]
-fn cube_extreme_40_serves_boundary_ring_instead_of_fallback_cap() {
-    assert_extreme_cube_ring_serve(&[0.005, 0.10, 0.20], "cube_extreme_40", 1.5e-1);
-}
-
-#[test]
-fn cube_extreme_50_serves_boundary_ring_instead_of_fallback_cap() {
-    assert_extreme_cube_ring_serve(&[0.004, 0.10, 0.20], "cube_extreme_50", 2.5e-1);
-}
-
-#[test]
-fn cube_extreme_100_serves_boundary_ring_instead_of_fallback_cap() {
-    assert_extreme_cube_ring_serve(&[0.002, 0.10, 0.20], "cube_extreme_100", 2.8e-1);
-}
-
 #[test]
 fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
     // Honesty re-pin (PK-140 transactional gate): the previous green
@@ -307,73 +233,6 @@ fn cube_tiny_radii_declines_transactionally_on_perp_split_gap() {
         msg.contains("no perpendicular edge found"),
         "decline must name the tiny-radius perp-split class: {}",
         &msg[..msg.len().min(240)]
-    );
-}
-
-/// PK-239 ladder contract: ring applied-fact recorded, serve
-/// validate_all CLEAN, 3 measurable patches at the machine-zero G0
-/// gate, binonic's self-intersection decline recorded, and the
-/// internal-spoke crease at or under its measured interim ceiling
-/// (PK-240 owns the binonic restore).
-fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str, g1_ceiling: f64) {
-    let result = fillet_cube_result(radii, true);
-    let route = result
-        .repair_report
-        .apex_routes
-        .first()
-        .unwrap_or_else(|| panic!("{fixture} should record an apex construction route"));
-    assert_eq!(
-        route.route,
-        ApexConstructionRoute::Legacy,
-        "{fixture} rings inside the legacy route"
-    );
-    assert_eq!(
-        route.exact_boundary_report.candidate_status,
-        ExactBoundaryCandidateOutcome::NotApplicable,
-        "{fixture} should not pretend direct-apex/exact-boundary was attempted"
-    );
-    let facts: Vec<&str> = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .filter_map(|d| match d {
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(f) => {
-                Some(f.stage.as_str())
-            }
-            _ => None,
-        })
-        .collect();
-    assert!(
-        facts.contains(&"boundary_ring.applied"),
-        "{fixture} must serve through the boundary ring carve; facts: {facts:?}"
-    );
-    assert!(
-        facts.contains(&"kp_binonic.promotion.self_intersection"),
-        "{fixture} must record the binonic fold decline (PK-240); facts: {facts:?}"
-    );
-    let errors = result.brep.validate_all();
-    assert!(
-        errors.is_empty(),
-        "{fixture} ring serve must validate clean, got {errors:?}"
-    );
-    let faces = cap_faces_from_result(&result);
-    let patches = collect_patches(&result.brep, &faces);
-    assert_eq!(
-        patches.len(),
-        3,
-        "{fixture} must ship a measurable 3-patch ring"
-    );
-    let m = measure_ring(&patches, N_SAMPLES);
-    assert!(
-        m.worst_g0_gap < helpers::G0_GATE,
-        "{fixture} ring G0 gap {:.3e} exceeds the machine-zero gate",
-        m.worst_g0_gap
-    );
-    assert!(
-        m.worst_g1_coplanarity <= g1_ceiling,
-        "{fixture} internal-spoke crease {:.3e} exceeds the measured interim ceiling \
-         {g1_ceiling:.1e} (PK-240 owns the binonic restore)",
-        m.worst_g1_coplanarity
     );
 }
 
