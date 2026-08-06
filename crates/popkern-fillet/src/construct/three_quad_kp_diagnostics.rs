@@ -76,13 +76,14 @@ pub(super) fn balanced_spoke_fan_engaged(
     natural_max_span: f64,
     balanced_max_span: f64,
     strength: f64,
+    chart_reversal_bands: usize,
 ) -> crate::types::ApexConstructionDiagnostic {
     crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
         crate::types::ExactBoundaryCapDiagnostic {
             stage: "three_quad.balanced_spoke_fan".to_string(),
             code: "three_quad.balanced_spoke_fan".to_string(),
             detail_code: Some(format!(
-                "natural_max_span_deg={:.1};balanced_max_span_deg={:.1};strength={strength:.2}",
+                "natural_max_span_deg={:.1};balanced_max_span_deg={:.1};strength={strength:.2};chart_reversal_bands={chart_reversal_bands}",
                 natural_max_span.to_degrees(),
                 balanced_max_span.to_degrees()
             )),

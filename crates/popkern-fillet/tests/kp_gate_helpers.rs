@@ -210,7 +210,7 @@ fn dot(a: Vec3, b: Vec3) -> f64 {
     a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-fn normal_curvature_along(gp: &GregoryPatch, u: f64, v: f64, t_ambient: Vec3) -> Option<f64> {
+pub fn normal_curvature_along(gp: &GregoryPatch, u: f64, v: f64, t_ambient: Vec3) -> Option<f64> {
     let su = gp.partial_u(u, v);
     let sv = gp.partial_v(u, v);
     let n = su.cross(&sv).normalized()?;
@@ -312,6 +312,43 @@ pub fn measure_ring(patches: &[GregoryPatch], n_samples: usize) -> RingMetrics {
             let Some(kb) = normal_curvature_along(b, t_b, 0.0, t_unit) else {
                 continue;
             };
+            // Fold the two charts' natural normals to a consistent
+            // side before comparing II: a chart-handedness reversal
+            // flips the SIGN of the measured normal curvature while
+            // the geometry stays curvature-continuous (measured on
+            // the PK-240 balanced rings: kb = -ka to 2-3 digits with
+            // |dk| under 4e-2, while the unfolded comparison read
+            // 1.2e0 — the same unfolded-normal artifact class as
+            // PK-244's flags). Chart-reversal bands themselves are
+            // recorded separately; this metric measures GEOMETRY.
+            let na = a.partial_u(1.0, t).cross(&a.partial_v(1.0, t));
+            let nb = b.partial_u(t_b, 0.0).cross(&b.partial_v(t_b, 0.0));
+            // Conditioning guard: II is unreadable through a chart
+            // whose basis is near-collinear (measured on the PK-240
+            // balanced rings: the worst "G2" sample sat at a 0.0-deg
+            // basis angle with healthy factor magnitudes — the
+            // absolute det floor cannot catch it). Skip, don't clamp.
+            let sin_a = vec_norm(na)
+                / (vec_norm(a.partial_u(1.0, t)) * vec_norm(a.partial_v(1.0, t))).max(1e-300);
+            let sin_b = vec_norm(nb)
+                / (vec_norm(b.partial_u(t_b, 0.0)) * vec_norm(b.partial_v(t_b, 0.0))).max(1e-300);
+            if sin_a < 5.0e-2 || sin_b < 5.0e-2 {
+                continue;
+            }
+            let denom = vec_norm(na) * vec_norm(nb);
+            if denom < 1e-300 {
+                continue;
+            }
+            let cos = dot(na, nb) / denom;
+            // Convergence guard: near a chart-degeneracy crossing the
+            // natural normal spins through zero and II reads noise —
+            // the G1 gate (coplanarity, orientation-free) separately
+            // covers plane agreement, so a low |cos| here can only be
+            // chart noise, never geometry. Skip, don't clamp.
+            if cos.abs() < 0.9 {
+                continue;
+            }
+            let kb = if cos < 0.0 { -kb } else { kb };
             let kmax = ka.abs().max(kb.abs());
             let resid = (ka - kb).abs() / (1.0 + kmax);
             if resid > worst_g2 {

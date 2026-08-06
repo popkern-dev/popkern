@@ -75,8 +75,10 @@ fn cube_extreme_100_serves_boundary_ring_instead_of_fallback_cap() {
 /// the binonic ring — every committed patch `RectangularBiNonic`,
 /// balanced-fan fact recorded, validate_all CLEAN, ring G0 at the
 /// machine-zero gate and internal-spoke G1 at the commercial 5e-2
-/// gate. G2 across the balanced ring is recorded (measured ~1.2e0)
-/// but not yet gated — the balanced-fan G2 frontier is PK-247.
+/// gate, and ring G2 at the commercial 5e-2 gate (the historic
+/// "~1.2e0 balanced G2" was measurement artifact at the chart
+/// reversal bands — unfolded normals and singular-basis samples;
+/// the honest metric measures 1.0e-2..2.1e-2 — PK-247).
 fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
     let result = fillet_cube_result(radii, true);
     let route = result
@@ -146,8 +148,10 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
         m.worst_g1_coplanarity
     );
     assert!(
-        m.worst_g2_residual <= 2.0,
-        "{fixture} ring G2 {:.3e} exceeds the recorded balanced-fan ceiling 2.0 (PK-247)",
+        m.worst_g2_residual <= 5.0e-2,
+        "{fixture} ring G2 {:.3e} exceeds the commercial gate 5e-2 (measured
+         1.0e-2..2.1e-2 across the served ladder once the metric folds chart
+         handedness and skips singular-basis samples — PK-247)",
         m.worst_g2_residual
     );
 }

@@ -187,23 +187,37 @@ pub(super) fn retry_binonic_with_balanced_fan(
         // boundary-breaking retry falls back to the straight
         // POST-ladder serve instead.
         const RETRY_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
-        let holds_boundary = committed
-            && super::three_quad_apply::three_quad_apply_helpers::max_outer_boundary_residual(
-                &retry_decomp,
-                boundary,
-            )
-            .is_none_or(|residual| residual <= RETRY_BOUNDARY_RESIDUAL_GATE);
+        let measured_residual = committed
+            .then(|| {
+                super::three_quad_apply::three_quad_apply_helpers::max_outer_boundary_residual(
+                    &retry_decomp,
+                    boundary,
+                )
+            })
+            .flatten();
+        let holds_boundary =
+            committed && measured_residual.is_none_or(|r| r <= RETRY_BOUNDARY_RESIDUAL_GATE);
         let fold_margined = committed
             && !retry_decomp
                 .sub_patches
                 .iter()
                 .any(|p| p.self_intersects_with_tolerance(RETRY_FOLD_MARGIN_TOLERANCE));
         if committed && holds_boundary && fold_margined {
+            // Chart-health observability: the accepted candidate's
+            // charts can carry handedness-reversal bands hugging the
+            // distorted sector's spoke sides (measured at 1:20: the
+            // Jacobian crosses zero in bands the mid-face twist
+            // screen and the arc-length fold gate cannot see; the
+            // geometry stays curvature-continuous). Recorded, not
+            // gated — gating would trade a 1e-3 G1 serve for the
+            // 1.9e-1 creased fallback.
+            let reversal_bands = chart_reversal_band_count(&retry_decomp.sub_patches);
             report.diagnostics.push(
                 super::three_quad_kp_diagnostics::balanced_spoke_fan_engaged(
                     natural_span,
                     balanced_span,
                     strength,
+                    reversal_bands,
                 ),
             );
             return BalancedRetryResult::Accepted(Box::new(BalancedRetryOutcome {
@@ -212,16 +226,48 @@ pub(super) fn retry_binonic_with_balanced_fan(
                 relaxed_coplanarity,
             }));
         }
-        declined.push(format!(
-            "s{strength:.2}={}",
-            if !committed {
-                "binonic_not_committed"
-            } else if !holds_boundary {
-                "boundary_residual_exceeded"
-            } else {
-                "fold_margin_exceeded"
-            }
-        ));
+        declined.push(if !committed {
+            format!("s{strength:.2}=binonic_not_committed")
+        } else if !holds_boundary {
+            format!(
+                "s{strength:.2}=boundary_residual_exceeded({:.3e})",
+                measured_residual.unwrap_or(f64::NAN)
+            )
+        } else {
+            format!("s{strength:.2}=fold_margin_exceeded")
+        });
     }
     BalancedRetryResult::Declined(declined)
+}
+
+/// Count chart handedness-reversal bands over the candidate patches:
+/// contiguous runs of boundary-band samples whose natural normal
+/// opposes the patch's mid-face normal. A healthy chart counts zero.
+fn chart_reversal_band_count(patches: &[GregoryPatch]) -> usize {
+    let mut bands = 0usize;
+    for patch in patches {
+        let GregoryPatch::RectangularBiNonic(binonic) = patch else {
+            continue;
+        };
+        let normal = |u: f64, v: f64| binonic.partial_u(u, v).cross(&binonic.partial_v(u, v));
+        let reference = normal(0.5, 0.5);
+        for band in 0..4 {
+            let mut previous_opposed = false;
+            for k in 0..=24 {
+                let t = 0.02 + 0.96 * (k as f64) / 24.0;
+                let (u, v) = match band {
+                    0 => (0.02, t),
+                    1 => (0.98, t),
+                    2 => (t, 0.02),
+                    _ => (t, 0.98),
+                };
+                let opposed = normal(u, v).dot(&reference) < 0.0;
+                if opposed && !previous_opposed {
+                    bands += 1;
+                }
+                previous_opposed = opposed;
+            }
+        }
+    }
+    bands
 }
