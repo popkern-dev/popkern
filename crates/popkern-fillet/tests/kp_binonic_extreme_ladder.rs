@@ -180,6 +180,16 @@ fn assert_extreme_cube_ring_retry_declined(radii: &[f64], fixture: &str, g1_ceil
         facts.contains(&"three_quad.balanced_spoke_fan.declined"),
         "{fixture} must record the balanced-retry decline reasons; facts: {facts:?}"
     );
+    for d in &result.repair_report.apex_diagnostics {
+        if let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(f) = d
+            && f.stage == "three_quad.balanced_spoke_fan.declined"
+        {
+            eprintln!(
+                "retry-declined {fixture} reasons: {}",
+                f.detail_code.as_deref().unwrap_or("")
+            );
+        }
+    }
     let errors = result.brep.validate_all();
     assert!(
         errors.is_empty(),
