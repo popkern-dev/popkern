@@ -42,7 +42,74 @@ impl BRep {
             .keys()
             .next()
             .ok_or_else(|| CoreError::PreconditionFailed("unit_cube has no faces".into()))?;
+        brep.remove_face_to_boundary(face_to_remove)?;
+        Ok(brep)
+    }
 
+    /// Build an open n-gonal prism — [`BRep::prism`] with one
+    /// n-gonal cap removed, leaving an `n`-sided hole. The N ≥ 5
+    /// fixture for general-N hole healing (PK-248): `open_box`
+    /// covers the 4-sided class, this covers everything above it.
+    ///
+    /// # Errors
+    ///
+    /// - [`CoreError::PreconditionFailed`] if no n-sided cap face
+    ///   exists (degenerate constructor input).
+    /// - [`CoreError::Validation`] if the opened shell fails
+    ///   validation.
+    pub fn open_prism(
+        n: usize,
+        radius: f64,
+        height: f64,
+        tolerance: Tolerance,
+    ) -> Result<Self, CoreError> {
+        let profile: Vec<crate::geometry::Point3> = (0..n)
+            .map(|k| {
+                let angle = std::f64::consts::TAU * (k as f64) / (n as f64);
+                crate::geometry::Point3::new(radius * angle.cos(), radius * angle.sin(), 0.0)
+            })
+            .collect();
+        let mut brep = Self::prism(
+            &profile,
+            crate::geometry::Vec3::new(0.0, 0.0, 1.0),
+            height,
+            tolerance,
+        )?;
+        // Remove one n-gonal cap: the face whose outer loop has n
+        // half-edges and whose vertices share one z (side walls are
+        // quads; both caps qualify — take the first).
+        let cap = brep
+            .faces
+            .keys()
+            .find(|&face| {
+                let loop_h = brep.faces[face].outer_loop;
+                let start = brep.loops[loop_h].half_edge;
+                let mut count = 0usize;
+                let mut cursor = start;
+                loop {
+                    count += 1;
+                    cursor = brep.half_edges[cursor].next;
+                    if cursor == start || count > n + 1 {
+                        break;
+                    }
+                }
+                count == n
+            })
+            .ok_or_else(|| {
+                CoreError::PreconditionFailed(format!("prism({n}) has no {n}-sided cap face"))
+            })?;
+        brep.remove_face_to_boundary(cap)?;
+        Ok(brep)
+    }
+
+    /// Remove `face_to_remove`, registering its former edges as
+    /// boundary edges (null-sentinel twins) — the shared open-shell
+    /// surgery behind [`BRep::open_box`] and [`BRep::open_prism`].
+    fn remove_face_to_boundary(
+        &mut self,
+        face_to_remove: crate::topology::FaceHandle,
+    ) -> Result<(), CoreError> {
+        let brep = self;
         // Collect the half-edges on the doomed face's outer loop.
         let loop_h = brep.faces[face_to_remove].outer_loop;
         let start_he = brep.loops[loop_h].half_edge;
@@ -105,8 +172,7 @@ impl BRep {
         }
 
         brep.validate().map_err(CoreError::Validation)?;
-
-        Ok(brep)
+        Ok(())
     }
 }
 
@@ -161,6 +227,21 @@ mod tests {
                 twin.edge, edge_h,
                 "interior edge twin should reference back"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod open_prism_tests {
+    use super::*;
+
+    #[test]
+    fn open_prism_has_n_boundary_edges_and_validates() {
+        for n in [5usize, 6] {
+            let prism = BRep::open_prism(n, 1.0, 1.0, Tolerance::default()).unwrap();
+            assert_eq!(prism.boundary_edges.len(), n, "n={n}");
+            assert_eq!(prism.faces.len(), n + 1, "n={n}: walls + one cap");
+            prism.validate().unwrap();
         }
     }
 }

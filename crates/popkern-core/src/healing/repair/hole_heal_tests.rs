@@ -35,3 +35,31 @@ fn heal_holes_on_a_closed_body_is_a_noop() {
     assert!(report.attempts.is_empty());
     assert_eq!(serde_json::to_string(&brep).expect("serializes"), before);
 }
+
+/// PK-248 baseline: the 5-sided open-prism hole heals TODAY through
+/// the recorded ladder — measure which rung serves and that every
+/// G1 decline is recorded. (The G1 serve for N >= 5 is the PK-248
+/// frontier; this pin keeps the baseline honest while it lands.)
+#[test]
+fn open_prism5_heals_with_recorded_g1_declines() {
+    let mut brep = BRep::open_prism(5, 1.0, 1.0, Tolerance::default()).expect("open prism");
+    let report = heal_holes(&mut brep, Tolerance::default().linear());
+    assert_eq!(report.holes_detected, 1);
+    assert_eq!(report.holes_committed, 1);
+    let attempt = &report.attempts[0];
+    eprintln!(
+        "[pk248] n=5 committed_by={:?} single={:?} pns={:?} coons={:?} ruled={:?} l2={:?}",
+        attempt.committed_by,
+        attempt.single_patch_decline,
+        attempt.pns_decline,
+        attempt.coons_decline,
+        attempt.ruled_decline,
+        attempt.worst_l2_gap,
+    );
+    assert!(
+        attempt.single_patch_decline.is_some(),
+        "the 4-sided-only rung must record its side-count decline"
+    );
+    assert!(brep.boundary_edges.is_empty());
+    brep.validate().expect("healed prism validates");
+}
