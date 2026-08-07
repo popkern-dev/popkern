@@ -49,7 +49,7 @@ fn capped_corner_result_with(
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    fillet_edges(&brep, &specs, &FilletOptions::default(), tol, None).expect("capped-corner fillet")
+    fillet_edges(&brep, &specs, options, tol, None).expect("capped-corner fillet")
 }
 
 fn capped_corner(radii: [f64; 3]) -> (BRep, popkern_core::topology::FaceHandle) {
