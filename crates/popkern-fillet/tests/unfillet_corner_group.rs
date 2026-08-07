@@ -201,14 +201,14 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     let (brep, _) = capped_corner([0.15, 0.1, 0.1]);
     let errors = brep.validate_all();
     eprintln!("[ucg-null] direct mixed fillet validate_all: {errors:?}");
-    // Pinned debt classes for the default serve: the known
+    // Pinned debt classes for the DEFAULT serve: the known
     // CurveSurfaceDeviation, plus (since the PK-248 domain-honest
     // projector let this corner's direct-apex candidate construct
     // where it previously failed incidentally) one strip×cap-sector
-    // SelfIntersection. The removal mechanism EXISTS and is measured
-    // — `serving_self_intersection_retry` (opt-in; its serving-time
-    // detection currently misses this pair — PK-250 carries the
-    // measured evidence) — and its default arming is PK-245.
+    // SelfIntersection. The removal mechanism is measured green
+    // opt-in (`serving_self_intersection_retry`, pinned below by
+    // `direct_mixed_15_10_10_retry_serves_clean`); default arming is
+    // the PK-245 debt-triage campaign.
     assert!(
         errors.len() <= 1
             && errors.iter().all(|e| matches!(
@@ -217,5 +217,53 @@ fn direct_mixed_15_10_10_fillet_baseline() {
                     | popkern_core::error::ValidationError::SelfIntersection { .. }
             )),
         "mixed-corner forward-fillet debt grew beyond the pinned classes: {errors:?}"
+    );
+}
+
+/// PK-250 pin: with the serving-boundary retry opted in, the mixed
+/// [0.15, 0.1, 0.1] corner's defective direct-apex candidate is
+/// detected AFTER the full pipeline (strip 9v1 Cylinder r=0.1 × cap
+/// sector Nurbs, contact 2.1e-7), the retry re-runs with the apex
+/// excluded from direct-apex promotion, the legacy dispatch serves
+/// the corner, and the served body validates clean — including the
+/// self-intersection check. The retry is recorded on the repair
+/// report with the offending face pair.
+#[test]
+fn direct_mixed_15_10_10_retry_serves_clean() {
+    let options = FilletOptions {
+        serving_self_intersection_retry: true,
+        ..FilletOptions::default()
+    };
+    let r = capped_corner_result_with([0.15, 0.1, 0.1], &options);
+    let retries = &r.repair_report.serving_self_intersection_retries;
+    assert_eq!(
+        retries.len(),
+        1,
+        "exactly one serving self-intersection retry: {retries:?}"
+    );
+    assert!(
+        retries[0].detail.contains("Self-intersection"),
+        "retry detail names the defect: {}",
+        retries[0].detail
+    );
+    let excluded = retries[0].vertex;
+    let route = r
+        .repair_report
+        .apex_routes
+        .iter()
+        .find(|route| route.vertex == excluded)
+        .expect("excluded apex has a route record");
+    assert!(
+        !matches!(
+            route.route,
+            popkern_fillet::ApexConstructionRoute::DirectApex
+        ),
+        "excluded apex must not serve direct-apex on the retry: {:?}",
+        route.route
+    );
+    let errors = r.brep.validate_all();
+    assert!(
+        errors.is_empty(),
+        "retried serve must validate clean: {errors:?}"
     );
 }
