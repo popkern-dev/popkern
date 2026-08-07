@@ -4,7 +4,7 @@ use std::f64::consts::TAU;
 
 use crate::geometry::intersection::surface_subdivision::Aabb;
 use crate::geometry::surface::{
-    SurfaceEval, SurfaceGeometry, bounding_box_by_sampling, closest_point_gauss_newton,
+    SurfaceEval, SurfaceGeometry, bounding_box_by_sampling, closest_point_gauss_newton_bounded,
 };
 use crate::geometry::{Point3, Vec3};
 
@@ -323,7 +323,10 @@ impl SurfaceEval for SurfaceGeometry {
     }
 
     fn closest_point(&self, point: &Point3) -> Option<(f64, f64)> {
-        closest_point_gauss_newton(self, point)
+        // Honor the domain: non-periodic axes must not return
+        // extrapolated parameters the surface never takes (the
+        // periodic axes keep their wrap-around freedom).
+        closest_point_gauss_newton_bounded(self, point, self.is_periodic())
     }
 
     fn bounding_box(&self, u_range: (f64, f64), v_range: (f64, f64)) -> Aabb {

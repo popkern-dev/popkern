@@ -42,10 +42,8 @@ pub(crate) mod periodic_branch_finalize;
 mod seam_self_fit;
 mod setback_commit_gate;
 pub(crate) use post_pipeline::determinism_trace_mod::trace_trim_endpoints as post_pipeline_trace_trim_endpoints;
-#[path = "pns_setback_candidate.rs"]
 pub(crate) mod pns_setback_candidate;
 pub(crate) mod rim_chain_chamfer;
-#[path = "setback_vertex_topology.rs"]
 pub(crate) mod setback_vertex_topology;
 pub(crate) use exact_boundary_cap_trim_restore::restore_exact_boundary_cap_pcurves as restore_exact_boundary_cap_pcurves_post_phase5;
 pub(crate) use gregory_pcurve_clamp::clamp_bounded_pcurves as clamp_bounded_pcurves_post_phase5;
@@ -164,7 +162,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use route_decision::{ApexRouteDecisionInput, apex_route_decision};
 
-/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign.
+/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
@@ -180,6 +178,7 @@ pub fn apply_blend_geometry(
     use_kp_polar_gregory: bool,
     use_direct_apex_construction: bool,
     requested_continuity: crate::types::ContinuityLevel,
+    excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
 ) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
     let mut result = brep.clone();
     if post_pipeline::determinism_trace_enabled() {
@@ -215,7 +214,7 @@ pub fn apply_blend_geometry(
     let mut direct_apex_built_faces: Vec<popkern_core::topology::FaceHandle> = Vec::new();
     let mut pipeline_timing = pipeline_timing::ApplyBlendPipelineTiming::default();
     // PK-127: promotion decided pre-Phase-A; anchors + dispatch share it.
-    let promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
+    let mut promoted_apexes = direct_apex_promotion::promoted_apexes_for_mode(
         brep,
         vertex_mode,
         edge_geometries,
@@ -230,6 +229,7 @@ pub fn apply_blend_geometry(
         },
         tolerance,
     );
+    promoted_apexes.retain(|vertex| !excluded_direct_apex_vertices.contains(vertex));
     let (mut split_state, ms) = pipeline_timing::timed(|| {
         perpendicular_splits::run_perpendicular_splits(
             brep,

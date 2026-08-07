@@ -41,6 +41,22 @@ pub struct BlendRepairReport {
     /// (or, for pole-degenerate charts, the tangency witness) and
     /// were flipped to the honest value.
     pub orientation_flag_reconciliations: usize,
+    /// PK-250 serving-boundary self-intersection retries: direct-apex
+    /// corners whose SERVED region measured a face-face
+    /// self-intersection, forcing a one-shot pipeline re-run with the
+    /// vertex excluded from direct-apex promotion so the legacy
+    /// dispatch serves the corner instead.
+    pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
+}
+
+/// One PK-250 serving-boundary retry record.
+#[derive(Debug, Clone)]
+pub struct ServingSelfIntersectionRetry {
+    /// Apex vertex whose served direct-apex region self-intersected.
+    pub vertex: VertexHandle,
+    /// Validator detail naming the offending face pair on the
+    /// first-pass body.
+    pub detail: String,
 }
 
 /// Construction route used for one smooth multi-fillet apex.

@@ -41,6 +41,9 @@ pub mod hole_fill;
 /// End-to-end hole healing: detect, fill, commit.
 pub mod hole_heal;
 /// Ruled fan cap: the always-constructible G0 hole filler.
+pub mod hole_polar_fan;
+mod hole_polar_fan_wedges;
+mod hole_rim_ribbon;
 pub mod hole_ruled_fan;
 pub mod hole_single_patch;
 /// Import repair pipeline for models from external formats.
@@ -85,6 +88,7 @@ pub use hole_commit::{HoleCapCommit, HoleCommitError, commit_hole_cap};
 pub use hole_commit_geometry::{HoleCapChart, HoleCapGeometry, HoleCapSectorGeometry};
 pub use hole_fill::{DetectedHole, HoleFillResult, HoleFillStrategy, fill_by_extension};
 pub use hole_heal::{HoleFillerKind, HoleHealAttempt, HoleHealReport, heal_holes};
+pub use hole_polar_fan::{PolarFanCapError, polar_fan_g1_cap};
 pub use hole_ruled_fan::ruled_fan_cap;
 pub use import_repair::{
     CustomRepairOp, ImportFormat, ImportRepairConfig, ImportRepairOp, ImportRepairReport,

@@ -8,7 +8,7 @@
 
 use popkern_core::history::TrackingContext;
 use popkern_core::tolerance::Tolerance;
-use popkern_core::topology::{BRep, EdgeHandle, FaceHandle};
+use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 
 use crate::apex_construction::repeated_apex_partition_topology::repair_stale_shell_anchors;
 use crate::construct::EdgeGeometry;
@@ -22,15 +22,19 @@ use crate::{
     validate,
 };
 
-/// Pipeline body for [`fillet_edges`] + cancellable/progress variants.
-pub(crate) fn fillet_edges_internal(
+/// One pipeline attempt with the given direct-apex promotion
+/// exclusions (empty on the first pass). The serving-boundary retry
+/// wrapper lives in [`crate::fillet_serving_retry`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn fillet_edges_attempt(
     brep: &BRep,
     specs: &[FilletSpec],
     options: &FilletOptions,
     tolerance: Tolerance,
-    tracking: Option<&mut TrackingContext>,
+    tracking: &mut Option<&mut TrackingContext>,
     cancel: Option<&cancellation::CancellationToken>,
-    mut reporter: Option<&mut dyn progress::ProgressReporter>,
+    reporter: &mut Option<&mut dyn progress::ProgressReporter>,
+    excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
 ) -> Result<BlendResult, BlendError> {
     use std::time::Instant;
     macro_rules! emit {
@@ -249,6 +253,7 @@ pub(crate) fn fillet_edges_internal(
         options.use_kp_polar_gregory,
         options.use_direct_apex_construction,
         options.continuity,
+        excluded_direct_apex_vertices,
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),
@@ -437,7 +442,7 @@ pub(crate) fn fillet_edges_internal(
         });
     }
     // Assign stable names when tracking is active.
-    if let Some(ctx) = tracking {
+    if let Some(ctx) = tracking.as_deref_mut() {
         assign_fillet_names(&mut apply_result.brep, ctx, &pre_faces);
     }
     // Displaced-pcurve backstop (PK-211): see

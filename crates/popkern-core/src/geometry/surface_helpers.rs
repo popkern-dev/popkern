@@ -19,8 +19,69 @@ use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 /// Multi-start from 5 candidates (center + 4 quadrant midpoints) within the
 /// parameter range. Returns the (u, v) that minimizes distance to `point`,
 /// or `None` if all starts fail to converge.
+///
+/// Iterates are unconstrained: a walk may leave the parameter range
+/// and converge on the surface's EXTRAPOLATION. Callers projecting
+/// onto a bounded, non-periodic surface should use
+/// [`closest_point_gauss_newton_bounded`] instead.
 pub fn closest_point_gauss_newton(surface: &dyn SurfaceEval, point: &Point3) -> Option<(f64, f64)> {
+    closest_point_gauss_newton_impl(surface, point, (true, true))
+}
+
+/// Gauss-Newton closest-point projection honoring the surface's
+/// actual domain.
+///
+/// Non-periodic axes clamp every iterate into the (finite) parameter
+/// range, because the surface does not exist outside it — an
+/// unclamped walk can converge onto the extrapolated patch and report
+/// a parameter the surface never takes (measured on PK-248's cusped
+/// polar wedges: rim projections returned v ≈ −0.12 and 1.09 at 3-D
+/// distance 1e-16 whose extrapolated normals read 8e-2 of phantom G1
+/// error). Periodic axes are left free so wrap-around walks keep
+/// working; infinite ranges clamp to nothing.
+pub fn closest_point_gauss_newton_bounded(
+    surface: &dyn SurfaceEval,
+    point: &Point3,
+    periodic: (bool, bool),
+) -> Option<(f64, f64)> {
+    closest_point_gauss_newton_impl(surface, point, periodic)
+}
+
+fn closest_point_gauss_newton_impl(
+    surface: &dyn SurfaceEval,
+    point: &Point3,
+    periodic: (bool, bool),
+) -> Option<(f64, f64)> {
     let ((u0, u1), (v0, v1)) = surface.parameter_range();
+    let clamp_axis = |value: f64, lo: f64, hi: f64, free: bool| -> f64 {
+        if free || !lo.is_finite() || !hi.is_finite() {
+            value
+        } else {
+            value.clamp(lo, hi)
+        }
+    };
+    let clamp_uv = |u: f64, v: f64| -> (f64, f64) {
+        (
+            clamp_axis(u, u0, u1, periodic.0),
+            clamp_axis(v, v0, v1, periodic.1),
+        )
+    };
+    // Per-axis step cap for clamped axes: a far-point Gauss-Newton
+    // step can overshoot by many domain spans (the linearization is
+    // tangential; measured 4–5 rad first steps on the sphere), and
+    // with clamping such a step slams the iterate onto the boundary —
+    // fatal when the chart degenerates there (sphere pole: |∂u| = 0).
+    // Half a span per iteration keeps the walk inside the basin
+    // structure; free axes keep full Newton steps.
+    let step_cap = |free: bool, lo: f64, hi: f64| -> f64 {
+        if free || !lo.is_finite() || !hi.is_finite() {
+            f64::INFINITY
+        } else {
+            0.5 * (hi - lo)
+        }
+    };
+    let du_cap = step_cap(periodic.0, u0, u1);
+    let dv_cap = step_cap(periodic.1, v0, v1);
     // Clamp infinite ranges for the search
     let u_lo = u0.max(-100.0);
     let u_hi = u1.min(100.0);
@@ -74,17 +135,42 @@ pub fn closest_point_gauss_newton(surface: &dyn SurfaceEval, point: &Point3) -> 
             let b1 = diff.dot(&sv);
 
             let det = a00 * a11 - a01 * a01;
-            if det.abs() < 1e-30 {
+            // Singular normal system (chart-degenerate point — e.g.
+            // a sphere pole where |∂u| = 0): step along the one
+            // usable direction instead of abandoning the walk, which
+            // recorded the degenerate point as a candidate minimum.
+            let (du, dv) = if det.abs() >= 1e-30 {
+                (-(a11 * b0 - a01 * b1) / det, -(a00 * b1 - a01 * b0) / det)
+            } else if a00 >= a11 && a00 > 1e-30 {
+                (-b0 / a00, 0.0)
+            } else if a11 > 1e-30 {
+                (0.0, -b1 / a11)
+            } else {
                 break;
+            };
+            let du = du.clamp(-du_cap, du_cap);
+            let dv = dv.clamp(-dv_cap, dv_cap);
+
+            // Damped acceptance: the Gauss-Newton linearization error
+            // scales with the point's distance to the surface, so far
+            // points overshoot (measured 5x angular overshoot per
+            // step on a unit sphere from |p| = 5.2, a divergent
+            // oscillation). Halve the step until the residual stops
+            // worsening; the undamped walk only ever found far-point
+            // minima by sampling luck.
+            let mut scale = 1.0_f64;
+            let mut stepped = clamp_uv(u + du, v + dv);
+            for _ in 0..8 {
+                let stepped_dist = surface.point_at(stepped.0, stepped.1).distance_to(point);
+                if stepped_dist <= dist {
+                    break;
+                }
+                scale *= 0.5;
+                stepped = clamp_uv(u + du * scale, v + dv * scale);
             }
+            (u, v) = stepped;
 
-            let du = -(a11 * b0 - a01 * b1) / det;
-            let dv = -(a00 * b1 - a01 * b0) / det;
-
-            u += du;
-            v += dv;
-
-            if du * du + dv * dv < step_tol {
+            if (du * du + dv * dv) * scale * scale < step_tol {
                 let final_p = surface.point_at(u, v);
                 let final_dist = final_p.distance_to(point);
                 match &best {

@@ -35,11 +35,11 @@ pub use types_repair::{
     BlendRepairReport, CapSupportContinuityDiagnostic, CoherenceValidationDiagnostic,
     CylinderTrimFarSideStrategy, CylinderTrimMaterializationDeclineReason,
     CylinderTrimMaterializationDiagnostic, ExactBoundaryCandidatePerformanceReport,
-    SideSupportContinuationDiagnostic, SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus,
-    SupportCellSplitDiagnostic, SupportCellSplitFallbackReason, SupportSeamDecision,
-    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
-    build_blend_repair_action_artifact, support_seam_decline_reason_label,
-    support_seam_rollback_reason_label,
+    ServingSelfIntersectionRetry, SideSupportContinuationDiagnostic,
+    SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
+    SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
+    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
+    support_seam_decline_reason_label, support_seam_rollback_reason_label,
 };
 pub use types_repair_blend_seam::{
     BlendSeamCornerDecline, BlendSeamCornerDeclineReason, BlendSeamCornerReport,
@@ -310,6 +310,14 @@ pub struct FilletOptions {
     /// vertex blends. Default `false`. See the `kp_polar_bi6_promote`
     /// module for usage, scope, diagnostics, and G1 gate plumbing.
     pub use_kp_polar_gregory: bool,
+    /// PK-250 serving-boundary self-intersection retry: after the
+    /// full pipeline, measure each served direct-apex corner region
+    /// and re-run once with offending vertices excluded (legacy
+    /// serves them; recorded on the repair report). Default `false`:
+    /// default arming is the PK-245 campaign — always-on it exposes
+    /// pre-existing hidden serving debt on 9 direct-apex fixtures
+    /// (measured 2026-08-07) whose pins accept today's serve.
+    pub serving_self_intersection_retry: bool,
     /// **Phase 6c-direct-apex dispatch** — route apex-region construction (vertices
     /// with ≥ 2 incident fillet edges in `VertexMode::Smooth`)
     /// through the direct-apex planner + builder (`plan_apex_resolution`
@@ -358,6 +366,7 @@ impl Default for FilletOptions {
             use_two_stripe_gregory: false,
             use_kp_binonic_gregory: false,
             use_kp_polar_gregory: false,
+            serving_self_intersection_retry: false,
             use_direct_apex_construction: false,
             interference_policy: InterferencePolicy::default(),
             profile: BlendProfile::default(),

@@ -158,6 +158,7 @@ pub fn chamfer_edges(
         false,
         false, // chamfers don't go through the DirectApex apex builder
         crate::types::ContinuityLevel::G1,
+        &std::collections::BTreeSet::new(),
     )
     .map_err(|edge_failures| BlendError::PartialFailure {
         failed: edge_failures.len(),

@@ -4,13 +4,12 @@
 //! the **twist compatibility problem** that arises at corners of
 //! ordinary bicubic Bezier patches: at a shared corner, the two
 //! incident boundaries each impose a different cross-tangent
-//! direction, and an ordinary tensor-product Bezier cannot
-//! satisfy both simultaneously. A rational Gregory patch stores
-//! *two* candidate inner control points at each corner and blends
-//! them rationally by a weight that vanishes on one boundary and
-//! grows on the other — giving each boundary its correct cross-
-//! tangent plane and thereby G1 continuity with arbitrary
-//! neighbours, regardless of valence.
+//! direction, and an ordinary tensor-product Bezier cannot satisfy
+//! both simultaneously. A rational Gregory patch stores *two*
+//! candidate inner control points at each corner and blends them
+//! rationally by a weight that vanishes on one boundary and grows
+//! on the other — giving each boundary its correct cross-tangent
+//! plane and thereby G1 continuity with arbitrary neighbours.
 //!
 //! # Representation
 //!

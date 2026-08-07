@@ -1,17 +1,19 @@
 //! End-to-end hole healing: detect → fill → commit (PK-199).
 //!
 //! The one entry point that actually closes a body. Per detected
-//! hole it tries the G¹ PnS cap first (tangent-continuous, valence
-//! 3–12), falls back to the Coons fan, and commits whichever fill
-//! survives through [`super::hole_commit::commit_hole_cap`]. Every
-//! attempt — committed or declined — is recorded with its reason in
-//! the returned report; there is no silent fallback.
+//! hole the ladder runs single-patch G1 (4 sides, PK-224), then the
+//! polar-wedge G1 fan (5+ sides, PK-248), then the G¹ PnS cap, the
+//! Coons fan, and finally the always-constructible ruled fan; each
+//! rung commits through its transactional operator. Every attempt —
+//! committed or declined — is recorded with its reason in the
+//! returned report; there is no silent fallback.
 
 use crate::topology::BRep;
 
 use super::hole_commit::commit_hole_cap;
 use super::hole_commit_geometry::HoleCapGeometry;
 use super::hole_fill::detect_holes;
+use super::hole_polar_fan::polar_fan_g1_cap;
 use super::hole_ruled_fan::ruled_fan_cap;
 use super::hole_single_patch::commit_single_patch_hole_cap;
 use super::n_sided_fill::fill_n_sided_hole;
@@ -23,6 +25,9 @@ pub enum HoleFillerKind {
     /// The single-patch degree-5 Gregory cap (4-sided holes only —
     /// no internal seams, ribbon-G1 to the neighbours, PK-224).
     SinglePatchG1,
+    /// The polar-wedge degree-5 Gregory G1 fan (5+ sides, measured
+    /// wall and cross-spoke G1 gates, PK-248).
+    PolarFanG1,
     /// The G¹ PnS bi-4 cap.
     PnsG1,
     /// The Coons fan.
@@ -41,6 +46,9 @@ pub struct HoleHealAttempt {
     /// Why the single-patch path did not commit (PK-224; `None` also
     /// when the hole is not 4-sided).
     pub single_patch_decline: Option<String>,
+    /// Why the polar-fan path did not commit (PK-248; build or
+    /// commit decline).
+    pub polar_fan_decline: Option<String>,
     /// Why the G¹ PnS path did not commit (fill or commit decline).
     pub pns_decline: Option<String>,
     /// Why the Coons path did not commit (fill or commit decline).
@@ -81,6 +89,7 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
             num_sides: hole.num_sides,
             committed_by: None,
             single_patch_decline: None,
+            polar_fan_decline: None,
             pns_decline: None,
             coons_decline: None,
             ruled_decline: None,
@@ -102,7 +111,13 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
         }
 
         type CapBuilder<'a> = Box<dyn Fn(&BRep) -> Result<HoleCapGeometry, String> + 'a>;
-        let stages: [(HoleFillerKind, CapBuilder); 3] = [
+        let stages: [(HoleFillerKind, CapBuilder); 4] = [
+            (
+                HoleFillerKind::PolarFanG1,
+                Box::new(|brep: &BRep| {
+                    polar_fan_g1_cap(brep, hole, tolerance).map_err(|error| error.to_string())
+                }),
+            ),
             (
                 HoleFillerKind::PnsG1,
                 Box::new(|brep: &BRep| {
@@ -143,6 +158,7 @@ pub fn heal_holes(brep: &mut BRep, tolerance: f64) -> HoleHealReport {
                     // The single-patch rung never reaches this loop —
                     // it committed or recorded its decline above.
                     HoleFillerKind::SinglePatchG1 => {}
+                    HoleFillerKind::PolarFanG1 => attempt.polar_fan_decline = Some(reason),
                     HoleFillerKind::PnsG1 => attempt.pns_decline = Some(reason),
                     HoleFillerKind::CoonsFan => attempt.coons_decline = Some(reason),
                     HoleFillerKind::RuledFan => attempt.ruled_decline = Some(reason),

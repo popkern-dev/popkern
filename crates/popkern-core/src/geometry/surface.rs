@@ -71,7 +71,9 @@ pub trait SurfaceEval {
 // [`super::surface_helpers`].  `crop_nurbs_surface_to_range` and
 // `sample_to_nurbs` are private helpers used by
 // `SurfaceGeometry::to_nurbs_in_range` below.
-pub use super::surface_helpers::{bounding_box_by_sampling, closest_point_gauss_newton};
+pub use super::surface_helpers::{
+    bounding_box_by_sampling, closest_point_gauss_newton, closest_point_gauss_newton_bounded,
+};
 use super::surface_helpers::{crop_nurbs_surface_to_range, sample_to_nurbs};
 
 /// Geometric surface types.

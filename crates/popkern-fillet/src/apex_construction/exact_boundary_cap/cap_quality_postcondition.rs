@@ -152,3 +152,51 @@ pub(crate) fn refresh_served_mid_seam_diagnostics(
 #[cfg(test)]
 #[path = "cap_quality_postcondition_tests.rs"]
 mod tests;
+
+/// PK-250 serving-boundary check: a direct-apex corner's region — the
+/// built cap faces plus every edge-adjacent neighbour — must be free
+/// of face-face self-intersection on the SERVED body. No construction
+/// gate can see one (measured on the mixed [0.15, 0.1, 0.1] cube
+/// corner: the candidate committed cleanly and served a real
+/// strip×cap-sector contact that only `validate_all` caught), and a
+/// mid-pipeline check is premature by the PK-165/PK-220 lessons —
+/// wired as an acceptance gate inside the candidate facade it flipped
+/// 20 serving fixtures whose final bodies are clean. The fillet
+/// pipeline therefore measures this AFTER its tail passes and retries
+/// with the vertex excluded from promotion when it fires. Returns the
+/// offending face pair as a display string so the retry record can
+/// name it.
+pub(crate) fn validate_candidate_region_self_intersection(
+    brep: &BRep,
+    committed_faces: &[FaceHandle],
+) -> Result<(), String> {
+    let mut region: Vec<FaceHandle> = committed_faces.to_vec();
+    for &face in committed_faces {
+        let Some(loop_start) = brep
+            .faces
+            .get(face)
+            .and_then(|f| brep.loops.get(f.outer_loop))
+            .map(|l| l.half_edge)
+        else {
+            continue;
+        };
+        let mut cursor = loop_start;
+        while let Some(half_edge) = brep.half_edges.get(cursor) {
+            if let Some(neighbour) = brep
+                .half_edges
+                .get(half_edge.twin)
+                .and_then(|twin| brep.loops.get(twin.loop_))
+                .map(|l| l.face)
+                && !region.contains(&neighbour)
+            {
+                region.push(neighbour);
+            }
+            cursor = half_edge.next;
+            if cursor == loop_start {
+                break;
+            }
+        }
+    }
+    brep.validate_self_intersection_among(&region)
+        .map_err(|error| format!("{error}"))
+}

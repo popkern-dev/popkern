@@ -347,16 +347,26 @@ fn snap_pole_pcurve_endpoints(
             (u_max, v_min),
             (u_max, v_max),
         ];
-        let (pole_uv, pole_distance) = corners
+        // A sector can have MORE than one pole-preimage corner — the
+        // polar-wedge chart collapses a whole domain edge at the pole
+        // (PK-248), so both of that edge's corners evaluate to it.
+        // Each pcurve endpoint must snap to ITS OWN nearest preimage;
+        // snapping every spoke to one global corner would drag one
+        // spoke's pcurve across the collapsed edge.
+        let pole_corners: Vec<(f64, f64)> = corners
             .iter()
-            .map(|&(u, v)| ((u, v), surface.point_at(u, v).distance_to(&pole)))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .unwrap_or(((u_min, v_min), f64::INFINITY));
-        if pole_distance > tolerance {
+            .copied()
+            .filter(|&(u, v)| surface.point_at(u, v).distance_to(&pole) <= tolerance)
+            .collect();
+        if pole_corners.is_empty() {
+            let nearest = corners
+                .iter()
+                .map(|&(u, v)| surface.point_at(u, v).distance_to(&pole))
+                .fold(f64::INFINITY, f64::min);
             return Err(HoleCommitError::EndpointMismatch {
                 sector,
                 role: "pole preimage (no domain corner evaluates to the pole)",
-                distance: pole_distance,
+                distance: nearest,
                 budget: tolerance,
             });
         }
@@ -385,7 +395,17 @@ fn snap_pole_pcurve_endpoints(
                 } else {
                     nurbs.control_points.len() - 1
                 };
-                nurbs.control_points[snap_index] = Point3::new(pole_uv.0, pole_uv.1, 0.0);
+                let current = nurbs.control_points[snap_index];
+                let nearest = pole_corners
+                    .iter()
+                    .copied()
+                    .min_by(|a, b| {
+                        let da = (a.0 - current.x).hypot(a.1 - current.y);
+                        let db = (b.0 - current.x).hypot(b.1 - current.y);
+                        da.total_cmp(&db)
+                    })
+                    .unwrap_or(pole_corners[0]);
+                nurbs.control_points[snap_index] = Point3::new(nearest.0, nearest.1, 0.0);
             }
             cursor = next;
             if cursor == start {
