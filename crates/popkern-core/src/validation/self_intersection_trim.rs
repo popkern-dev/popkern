@@ -10,10 +10,13 @@ use self_intersection_uv_containment::{
     TrimContainment, UvPoint, point_in_uv_loop_periodic, push_distinct_uv, unwrap_uv_for_query,
 };
 
+#[path = "interior_overlap_samples.rs"]
+mod interior_overlap_samples;
 #[path = "self_intersection_trim_trace.rs"]
 mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
 mod self_intersection_uv_containment;
+pub use interior_overlap_samples::InteriorOverlapSample;
 
 impl BRep {
     pub(super) fn intersection_overlaps_face_trims(
@@ -124,6 +127,59 @@ impl BRep {
         }
 
         self.sampled_points_overlap_faces(face_a, surface_a, face_b, surface_b, &points, linear_tol)
+    }
+
+    /// PK-251: verdict for cylinder × free-form near-crossing samples
+    /// — identical two-tier semantics to
+    /// [`Self::sampled_points_overlap_faces`], except the free-form
+    /// side classifies by its exact sample UV instead of iterative
+    /// projection.
+    pub(super) fn analytic_free_form_samples_overlap(
+        &self,
+        cylinder_face: FaceHandle,
+        cylinder_surface: &SurfaceGeometry,
+        free_form_face: FaceHandle,
+        free_form_surface: &SurfaceGeometry,
+        samples: &[super::self_intersection::AnalyticFreeFormSample],
+        linear_tol: f64,
+    ) -> bool {
+        let mut boundary_contacts = Vec::new();
+        for sample in samples {
+            let trim_cylinder = self.face_trim_classify_point(
+                cylinder_face,
+                cylinder_surface,
+                &sample.point,
+                linear_tol,
+            );
+            let trim_free_form = self.face_trim_classify_uv(
+                free_form_face,
+                free_form_surface,
+                UvPoint {
+                    u: sample.free_form_uv.0,
+                    v: sample.free_form_uv.1,
+                },
+            );
+            match (trim_cylinder, trim_free_form) {
+                (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => {}
+                (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
+                    if !self.faces_share_vertex_at_point(
+                        cylinder_face,
+                        free_form_face,
+                        &sample.point,
+                        linear_tol,
+                    ) {
+                        boundary_contacts.push(sample.point);
+                    }
+                }
+                _ => return true,
+            }
+        }
+        boundary_contacts.iter().enumerate().any(|(i, a)| {
+            boundary_contacts
+                .iter()
+                .skip(i + 1)
+                .any(|b| a.distance_to(b) > linear_tol * 10.0)
+        })
     }
 
     pub(super) fn sampled_points_overlap_faces(
@@ -327,7 +383,7 @@ impl BRep {
     }
 }
 
-fn intersection_sample_points(
+pub(super) fn intersection_sample_points(
     surface_a: &SurfaceGeometry,
     intersection: &SurfaceSurfaceIntersection,
 ) -> Vec<Point3> {
@@ -372,7 +428,7 @@ fn surface_u_is_periodic(surface: &SurfaceGeometry) -> bool {
     )
 }
 
-fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {
+pub(super) fn surface_uses_iterative_projection(surface: &SurfaceGeometry) -> bool {
     matches!(
         surface,
         SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)

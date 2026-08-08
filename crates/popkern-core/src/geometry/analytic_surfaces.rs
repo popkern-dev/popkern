@@ -337,3 +337,49 @@ impl SurfaceEval for SurfaceGeometry {
 #[cfg(test)]
 #[path = "analytic_surfaces_tests.rs"]
 mod tests;
+
+/// O(1) signed distance from a point to an analytic surface's
+/// implicit form: positive on the side the surface normal's
+/// parameterization treats as "outside the primitive" (outside the
+/// cylinder/sphere/torus tube, the normal side of a plane, outside
+/// the cone). `None` for free-form surfaces, which have no implicit
+/// form.
+pub fn analytic_signed_distance(surface: &SurfaceGeometry, p: &Point3) -> Option<f64> {
+    match surface {
+        SurfaceGeometry::Plane { origin, normal, .. } => Some((*p - *origin).dot(normal)),
+        SurfaceGeometry::Cylinder {
+            origin,
+            axis,
+            radius,
+        } => {
+            let d = *p - *origin;
+            let along = d.dot(axis);
+            let radial = d - *axis * along;
+            Some(radial.length() - radius)
+        }
+        SurfaceGeometry::Sphere { center, radius } => Some(p.distance_to(center) - radius),
+        SurfaceGeometry::Cone {
+            apex,
+            axis,
+            half_angle,
+        } => {
+            let d = *p - *apex;
+            let along = d.dot(axis);
+            let radial = (d - *axis * along).length();
+            Some(radial * half_angle.cos() - along * half_angle.sin())
+        }
+        SurfaceGeometry::Torus {
+            center,
+            axis,
+            major_radius,
+            minor_radius,
+        } => {
+            let d = *p - *center;
+            let along = d.dot(axis);
+            let radial = (d - *axis * along).length();
+            let in_plane = (radial - major_radius).hypot(along);
+            Some(in_plane - minor_radius)
+        }
+        _ => None,
+    }
+}

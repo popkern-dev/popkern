@@ -12,6 +12,7 @@ mod orientation;
 mod precision;
 mod self_intersection;
 mod self_intersection_trim;
+pub use self_intersection_trim::InteriorOverlapSample;
 mod winding_honesty;
 
 pub use winding_honesty::FaceWindingHonesty;

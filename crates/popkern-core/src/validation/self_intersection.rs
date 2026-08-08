@@ -10,14 +10,18 @@ use crate::geometry::surface::SurfaceEval;
 use crate::tolerance::Tolerance;
 use crate::topology::{BRep, FaceHandle};
 use crate::validation::bvh::Bvh;
+pub(super) use self_intersection_helpers::{
+    AnalyticFreeFormSample, analytic_free_form_near_samples,
+};
 use self_intersection_helpers::{
-    TraceSurfacePatch, cylinder_cylinder_near_samples, trace_self_intersection_candidate,
-    trace_surface_kind,
+    TraceSurfacePatch, trace_self_intersection_candidate, trace_surface_kind,
 };
 use std::collections::HashSet;
 
 #[path = "self_intersection_helpers.rs"]
 mod self_intersection_helpers;
+#[path = "self_intersection_pair_fast_paths.rs"]
+mod self_intersection_pair_fast_paths;
 
 impl BRep {
     /// Check #11: no face intersects another non-adjacent face.
@@ -173,6 +177,30 @@ impl BRep {
                 continue;
             }
 
+            // Canonical pair orientation: the intersection solver is
+            // measurably order-sensitive for NURBS×analytic pairs
+            // (PK-251: cylinder-first found the strip×cap crossing,
+            // NURBS-first returned nothing), so the verdict must not
+            // depend on face enumeration order. Analytic surfaces go
+            // first. Containment for the solver asymmetry itself —
+            // see the free-surface intersection follow-up task.
+            let analytic_rank = |face: crate::topology::FaceHandle| match self.faces[face]
+                .surface
+                .as_ref()
+                .map(|s| &s.geometry)
+            {
+                Some(
+                    crate::geometry::surface::SurfaceGeometry::Nurbs(_)
+                    | crate::geometry::surface::SurfaceGeometry::Gregory(_),
+                ) => 1,
+                _ => 0,
+            };
+            let (i, j) = if analytic_rank(face_keys[j]) < analytic_rank(face_keys[i]) {
+                (j, i)
+            } else {
+                (i, j)
+            };
+
             let surf_i = match self.faces[face_keys[i]].surface.as_ref() {
                 Some(s) => s,
                 None => continue,
@@ -240,6 +268,29 @@ impl BRep {
                 }
                 continue;
             }
+            // Cylinder × free-form validation fast path (PK-251): the
+            // canonical ordering above guarantees the cylinder is
+            // operand i for this class. Implicit-distance sampling
+            // localizes the crossing curve where the marching solver's
+            // adaptive step collapses on grazing fillet-seam contact
+            // (measured 25 minutes for one validate_all without it).
+            if let Some(overlaps) = self.bounded_analytic_free_form_trim_overlap(
+                face_keys[i],
+                &surf_i.geometry,
+                face_keys[j],
+                &surf_j.geometry,
+                (u0j, u1j),
+                (v0j, v1j),
+                linear_tol,
+            ) {
+                if overlaps {
+                    return Err(ValidationError::SelfIntersection {
+                        face_a: face_keys[i],
+                        face_b: face_keys[j],
+                    });
+                }
+                continue;
+            }
             let result = intersect_surfaces_with_handler(
                 &surf_i.geometry,
                 (u0i, u1i),
@@ -277,30 +328,6 @@ impl BRep {
         }
 
         Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn bounded_cylinder_cylinder_trim_overlap(
-        &self,
-        face_a: crate::topology::FaceHandle,
-        surface_a: &crate::geometry::surface::SurfaceGeometry,
-        u_range_a: (f64, f64),
-        v_range_a: (f64, f64),
-        face_b: crate::topology::FaceHandle,
-        surface_b: &crate::geometry::surface::SurfaceGeometry,
-        u_range_b: (f64, f64),
-        v_range_b: (f64, f64),
-        linear_tol: f64,
-    ) -> Option<bool> {
-        let samples = cylinder_cylinder_near_samples(
-            surface_a, u_range_a, v_range_a, surface_b, u_range_b, v_range_b, linear_tol,
-        )?;
-        if samples.is_empty() {
-            return Some(false);
-        }
-        Some(self.sampled_points_overlap_faces(
-            face_a, surface_a, face_b, surface_b, &samples, linear_tol,
-        ))
     }
 
     fn trace_self_intersection_pair(
@@ -437,3 +464,7 @@ impl BRep {
 #[cfg(test)]
 #[path = "self_intersection_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "self_intersection_order_tests.rs"]
+mod order_tests;

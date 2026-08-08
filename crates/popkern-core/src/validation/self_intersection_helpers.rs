@@ -1,4 +1,5 @@
 use crate::geometry::Point3;
+use crate::geometry::analytic_surfaces::analytic_signed_distance;
 use crate::geometry::surface::{SurfaceEval, SurfaceGeometry};
 use crate::topology::{BRep, FaceHandle};
 
@@ -200,4 +201,111 @@ fn trace_cylinder_detail(brep: &BRep, face: FaceHandle) -> Option<String> {
         )),
         _ => None,
     }
+}
+
+/// One near-crossing sample between an analytic surface and a
+/// free-form face: the 3D point plus its UV on the FREE-FORM surface
+/// (known exactly from the sampling grid — no iterative projection
+/// involved).
+pub(in crate::validation) struct AnalyticFreeFormSample {
+    pub(in crate::validation) point: Point3,
+    pub(in crate::validation) free_form_uv: (f64, f64),
+}
+
+/// PK-251 validation fast path for analytic × free-form pairs: locate
+/// the crossing curve by grid-sampling the free-form surface's signed
+/// implicit distance to the analytic surface and bisecting grid edges
+/// with a sign change — the marching solver's adaptive step collapses
+/// on grazing fillet-seam contact (measured: a single `validate_all`
+/// spent 25 minutes marching pyramid3 cap/strip and cap/plane pairs),
+/// while the implicit distance is O(1) per sample. Returns `None`
+/// when the pair is not analytic × free-form (caller falls back to
+/// the generic solver); the samples (possibly empty) otherwise, in
+/// (analytic-operand, free-form-operand) classification order.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::validation) fn analytic_free_form_near_samples(
+    analytic: &SurfaceGeometry,
+    free_form: &SurfaceGeometry,
+    free_form_u_range: (f64, f64),
+    free_form_v_range: (f64, f64),
+    linear_tol: f64,
+) -> Option<Vec<AnalyticFreeFormSample>> {
+    analytic_signed_distance(analytic, &Point3::new(0.0, 0.0, 0.0))?;
+    if !matches!(
+        free_form,
+        SurfaceGeometry::Nurbs(_) | SurfaceGeometry::Gregory(_)
+    ) {
+        return None;
+    }
+    // Out-resolve the free-form control nets this path serves
+    // (fillet cap sectors run 38..67 control points per direction).
+    const GRID: usize = 96;
+    let threshold = (linear_tol * 10.0).max(1.0e-8);
+    let signed_distance = |u: f64, v: f64| -> f64 {
+        let p = free_form.point_at(u, v);
+        analytic_signed_distance(analytic, &p).unwrap_or(f64::INFINITY)
+    };
+    let parameter = |i: usize, j: usize| -> (f64, f64) {
+        (
+            free_form_u_range.0
+                + (free_form_u_range.1 - free_form_u_range.0) * i as f64 / (GRID - 1) as f64,
+            free_form_v_range.0
+                + (free_form_v_range.1 - free_form_v_range.0) * j as f64 / (GRID - 1) as f64,
+        )
+    };
+    let mut grid = vec![0.0_f64; GRID * GRID];
+    for i in 0..GRID {
+        for j in 0..GRID {
+            let (u, v) = parameter(i, j);
+            grid[i * GRID + j] = signed_distance(u, v);
+        }
+    }
+    let mut samples = Vec::new();
+    let mut push_sample = |u: f64, v: f64| {
+        samples.push(AnalyticFreeFormSample {
+            point: free_form.point_at(u, v),
+            free_form_uv: (u, v),
+        });
+    };
+    let bisect = |mut a: (f64, f64), mut sa: f64, mut b: (f64, f64)| {
+        for _ in 0..32 {
+            let mid = ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5);
+            let sm = signed_distance(mid.0, mid.1);
+            if (sm <= 0.0) == (sa <= 0.0) {
+                a = mid;
+                sa = sm;
+            } else {
+                b = mid;
+            }
+        }
+        ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
+    };
+    for i in 0..GRID {
+        for j in 0..GRID {
+            let sd = grid[i * GRID + j];
+            let (u, v) = parameter(i, j);
+            // Grazing contact without a sign change still counts.
+            if sd.abs() <= threshold {
+                push_sample(u, v);
+                continue;
+            }
+            // Sign changes along grid edges localize the crossing
+            // curve; bisection on the implicit distance lands on it.
+            if i + 1 < GRID {
+                let sd_right = grid[(i + 1) * GRID + j];
+                if sd_right.abs() > threshold && (sd <= 0.0) != (sd_right <= 0.0) {
+                    let (bu, bv) = bisect((u, v), sd, parameter(i + 1, j));
+                    push_sample(bu, bv);
+                }
+            }
+            if j + 1 < GRID {
+                let sd_up = grid[i * GRID + j + 1];
+                if sd_up.abs() > threshold && (sd <= 0.0) != (sd_up <= 0.0) {
+                    let (bu, bv) = bisect((u, v), sd, parameter(i, j + 1));
+                    push_sample(bu, bv);
+                }
+            }
+        }
+    }
+    Some(samples)
 }
