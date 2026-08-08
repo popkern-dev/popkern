@@ -35,7 +35,7 @@ pub use types_repair::{
     BlendRepairReport, CapSupportContinuityDiagnostic, CoherenceValidationDiagnostic,
     CylinderTrimFarSideStrategy, CylinderTrimMaterializationDeclineReason,
     CylinderTrimMaterializationDiagnostic, ExactBoundaryCandidatePerformanceReport,
-    ServingSelfIntersectionRetry, SideSupportContinuationDiagnostic,
+    ServingFootprintRepair, ServingSelfIntersectionRetry, SideSupportContinuationDiagnostic,
     SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
     SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
     SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,

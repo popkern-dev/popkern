@@ -47,16 +47,13 @@ pub struct BlendRepairReport {
     /// vertex excluded from direct-apex promotion so the legacy
     /// dispatch serves the corner instead.
     pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
-}
-
-/// One PK-250 serving-boundary retry record.
-#[derive(Debug, Clone)]
-pub struct ServingSelfIntersectionRetry {
-    /// Apex vertex whose served direct-apex region self-intersected.
-    pub vertex: VertexHandle,
-    /// Validator detail naming the offending face pair on the
-    /// first-pass body.
-    pub detail: String,
+    /// PK-251 serving-boundary footprint repairs: direct-apex corners
+    /// whose served cap crossed a strip support and were repaired IN
+    /// PLACE (interior control points pushed out of the strip
+    /// cylinder at the validator's own overlap samples) so the
+    /// direct-apex serve survives. An uncleared repair falls through
+    /// to the PK-250 exclusion retry.
+    pub serving_footprint_repairs: Vec<ServingFootprintRepair>,
 }
 
 /// Construction route used for one smooth multi-fillet apex.
@@ -481,3 +478,7 @@ pub fn support_seam_rollback_reason_label(reason: SupportSeamRollbackReason) -> 
         SupportSeamRollbackReason::CapCylinderNeighborsLost => "cap_cylinder_neighbors_lost",
     }
 }
+
+#[path = "types_repair_serving.rs"]
+mod types_repair_serving;
+pub use types_repair_serving::{ServingFootprintRepair, ServingSelfIntersectionRetry};

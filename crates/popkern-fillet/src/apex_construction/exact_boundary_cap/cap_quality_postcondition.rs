@@ -170,6 +170,15 @@ pub(crate) fn validate_candidate_region_self_intersection(
     brep: &BRep,
     committed_faces: &[FaceHandle],
 ) -> Result<(), String> {
+    let region = candidate_region(brep, committed_faces);
+    brep.validate_self_intersection_among(&region)
+        .map_err(|error| format!("{error}"))
+}
+
+/// The candidate region: the built cap faces plus every edge-adjacent
+/// neighbour — the face set the PK-250 serving check and the PK-251
+/// serving repair both measure.
+pub(crate) fn candidate_region(brep: &BRep, committed_faces: &[FaceHandle]) -> Vec<FaceHandle> {
     let mut region: Vec<FaceHandle> = committed_faces.to_vec();
     for &face in committed_faces {
         let Some(loop_start) = brep
@@ -197,6 +206,5 @@ pub(crate) fn validate_candidate_region_self_intersection(
             }
         }
     }
-    brep.validate_self_intersection_among(&region)
-        .map_err(|error| format!("{error}"))
+    region
 }

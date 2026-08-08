@@ -220,11 +220,14 @@ fn direct_mixed_15_10_10_fillet_baseline() {
 /// PK-250 pin: with the serving-boundary retry opted in, the mixed
 /// [0.15, 0.1, 0.1] corner's defective direct-apex candidate is
 /// detected AFTER the full pipeline (strip 9v1 Cylinder r=0.1 × cap
-/// sector Nurbs, contact 2.1e-7), the retry re-runs with the apex
-/// excluded from direct-apex promotion, the legacy dispatch serves
-/// the corner, and the served body validates clean — including the
-/// self-intersection check. The retry is recorded on the repair
-/// report with the offending face pair.
+/// sector Nurbs, contact 2.1e-7). Since PK-251 the serving footprint
+/// repair attempts an in-place fix first — this corner is the
+/// boundary-participation class (the generated spoke itself dives
+/// through the strip), so the repair stalls, the retry re-runs with
+/// the apex excluded from direct-apex promotion, the legacy dispatch
+/// serves the corner, and the served body validates clean —
+/// including the self-intersection check. Both the repair attempt
+/// and the retry are recorded on the repair report.
 #[test]
 fn direct_mixed_15_10_10_retry_serves_clean() {
     let options = FilletOptions {

@@ -60,7 +60,11 @@ pub(crate) use candidate_result::{
     ExactBoundaryCapCandidateResult, ExactBoundaryCapCandidateStatus,
 };
 
-/// Run the exact-boundary cap candidate transactionally.
+/// Run the exact-boundary cap candidate transactionally, under the
+/// strip-footprint clearance contract (PK-251): spokes and sector
+/// surfaces are corrected out of the strip supports' live footprints
+/// during construction, and a committed cap with a residual footprint
+/// violation rolls back and declines.
 ///
 /// The function mutates `brep` only when all exact-boundary postconditions pass.
 /// Any diagnostic or incomplete pcurve inventory restores the input snapshot and
