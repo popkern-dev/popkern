@@ -49,17 +49,20 @@ pub struct BRep {
     pub boundary_edges: std::collections::BTreeSet<EdgeHandle>,
     /// Radial cycle for N>2 non-manifold edges. Empty for manifold
     /// BReps; [`BRep::radial_next`] falls back to `he.twin`.
-    #[serde(default)]
+    /// Serialized as key-sorted pairs: handle-keyed maps break JSON
+    /// (non-string keys) and unsorted dumps break fingerprint
+    /// determinism.
+    #[serde(default, with = "super::serde_handle_map")]
     pub nonmanifold_radial: std::collections::HashMap<HalfEdgeHandle, HalfEdgeHandle>,
     /// Caller-authored evidence that a half-edge is a canonical boundary of
     /// its owning face surface. This is semantic construction data, not an
     /// inferred repair result: downstream repair/export stages can consume it
     /// before falling back to lossy pcurve or endpoint inference.
-    #[serde(default)]
+    #[serde(default, with = "super::serde_handle_map")]
     pub surface_boundary_hints: std::collections::HashMap<HalfEdgeHandle, BoundarySide>,
     /// Construction-time reasons a live half-edge was inspected for canonical
     /// boundary ownership but could not be accepted as one.
-    #[serde(default)]
+    #[serde(default, with = "super::serde_handle_map")]
     pub surface_boundary_declines:
         std::collections::HashMap<HalfEdgeHandle, SurfaceBoundaryHintDecline>,
     /// Durable audit trail for surface-boundary classification and shared
