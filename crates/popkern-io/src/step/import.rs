@@ -97,11 +97,28 @@ pub fn import_step(data: &[u8], options: &StepImportOptions) -> Result<StepImpor
     let heal_log = log.clone();
     run_healing(&mut solids_only, &heal_log, options.healing, &mut log)?;
     // Put healed solids back and measure edge deviations for precision tracking
-    for (i, (_, brep)) in brep_solids.iter_mut().enumerate() {
+    for (i, (id, brep)) in brep_solids.iter_mut().enumerate() {
         if let Some(healed) = solids_only.get(i) {
             *brep = healed.clone();
         }
         measure_import_deviations(brep, &mut log);
+        // Import is a serving boundary for UNTRUSTED external data:
+        // the stored orientation flag is derived state (loop winding
+        // × surface), so a file whose `same_sense` contradicts its
+        // own loop winding (dishonest exporter or mapping defect)
+        // must not ship that lie into downstream operators. Derive
+        // the honest value and record the repair (PK-245).
+        let flipped = brep.reconcile_orientation_flags();
+        if flipped > 0 {
+            log.warn(
+                Phase::MapTopology,
+                Some(*id),
+                format!(
+                    "reconciled {flipped} orientation flag(s) contradicting loop winding \
+                     (file same_sense was dishonest)"
+                ),
+            );
+        }
     }
 
     // Phase 6: Map product structure

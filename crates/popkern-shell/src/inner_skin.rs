@@ -70,12 +70,15 @@ pub fn build_inner_skin(
     Ok((inner, skin_map))
 }
 
-/// Replace inner skin face geometry with offset surfaces and flip normals.
+/// Replace inner skin face geometry with offset surfaces.
 ///
 /// For each inner face, looks up the corresponding outer face via the
 /// reverse skin map, retrieves the offset surface, and replaces the
-/// face's surface geometry. The orientation is flipped so the inner
-/// skin normal points inward.
+/// face's surface geometry. Orientation flags are preserved: skins
+/// that must mirror their material side do so through
+/// [`BRep::reverse_body_orientation`], which flips winding and flag
+/// together — a flag-only flip ships the winding-dishonest mirror
+/// class (PK-244/PK-245).
 ///
 /// # Errors
 ///
@@ -97,8 +100,7 @@ pub fn apply_offset_geometry(
 
         if let Some(offset_surface) = offset_surfaces.get(&outer_fh) {
             let face = &mut inner.faces[inner_fh];
-            // Get the current orientation, then flip it.
-            let current_orientation = face
+            let orientation = face
                 .surface
                 .as_ref()
                 .map(|sof| sof.orientation)
@@ -106,7 +108,7 @@ pub fn apply_offset_geometry(
 
             face.surface = Some(SurfaceOnFace {
                 geometry: offset_surface.clone(),
-                orientation: !current_orientation,
+                orientation,
             });
         }
     }
@@ -183,11 +185,11 @@ mod tests {
 
         apply_offset_geometry(&mut inner, &offset_surfaces, &skin_map).unwrap();
 
-        // After applying, all inner faces should have flipped orientation.
+        // Geometry replacement preserves the authored orientation;
+        // mirroring is reverse_body_orientation's job.
         for (_, face) in &inner.faces {
             let sof = face.surface.as_ref().unwrap();
-            // Original cube has orientation=true, after flip it should be false.
-            assert!(!sof.orientation, "orientation should be flipped");
+            assert!(sof.orientation, "orientation must be preserved");
         }
     }
 
@@ -269,10 +271,11 @@ mod tests {
 
         apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map).unwrap();
 
-        // All inner faces should have offset geometry with flipped orientation.
+        // All inner faces should have offset geometry with preserved
+        // orientation (the mirror happens in reverse_body_orientation).
         for (_, face) in &inner.faces {
             let sof = face.surface.as_ref().unwrap();
-            assert!(!sof.orientation, "orientation should be flipped");
+            assert!(sof.orientation, "orientation must be preserved");
             // Geometry should be a plane (offset cube faces are still planes).
             assert!(
                 matches!(sof.geometry, SurfaceGeometry::Plane { .. }),

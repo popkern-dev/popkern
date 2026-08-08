@@ -30,9 +30,10 @@ pub fn offset_solid(
     tolerance: Tolerance,
 ) -> Result<ShellResult, ShellError> {
     // ShellDirection controls offset relative to the face normal.
-    // build_inner_skin() clones the BRep with flipped normals, so after
-    // that flip: Inward (push against the *original* normal) actually
-    // moves faces outward in world space, and Outward does the reverse.
+    // classify_faces names directions from the shell operator's
+    // inner-skin viewpoint: Inward pushes against the original
+    // normal's material side, which for a whole-body offset moves
+    // faces outward in world space, and Outward does the reverse.
     // Therefore positive distance (grow outward) maps to Inward, and
     // negative distance (shrink inward) maps to Outward.
     let direction = if distance >= 0.0 {
@@ -64,13 +65,6 @@ pub fn offset_solid(
         &stage_tol,
     )?;
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
-
-    // Restore face orientations (offset_solid doesn't flip normals).
-    for (_, face) in &mut result.faces {
-        if let Some(sof) = &mut face.surface {
-            sof.orientation = !sof.orientation;
-        }
-    }
 
     let mut warnings = offset_result.warnings;
     for face in &offset_result.auto_removed {
@@ -133,13 +127,6 @@ pub fn offset_solid_variable(
         &stage_tol,
     )?;
     apply_offset_geometry(&mut result, &offset_result.surfaces, &skin_map)?;
-
-    // Restore face orientations.
-    for (_, face) in &mut result.faces {
-        if let Some(sof) = &mut face.surface {
-            sof.orientation = !sof.orientation;
-        }
-    }
 
     let mut warnings = offset_result.warnings;
     for face in &offset_result.auto_removed {

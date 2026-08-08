@@ -60,13 +60,6 @@ pub fn thicken(
     )?;
     apply_offset_geometry(&mut outer, &offset_out.surfaces, &outer_map)?;
 
-    // Restore orientation for outer skin (outward, not flipped).
-    for (_, face) in &mut outer.faces {
-        if let Some(sof) = &mut face.surface {
-            sof.orientation = !sof.orientation;
-        }
-    }
-
     // Offset inward to create the inner skin.
     let class_in = classify_faces(brep, half, &[], ShellDirection::Inward, &[])?;
     let offset_in = compute_offset_surfaces(brep, &class_in, options.allow_partial, &stage_tol)?;
@@ -87,6 +80,11 @@ pub fn thicken(
         &stage_tol,
     )?;
     apply_offset_geometry(&mut inner, &offset_in.surfaces, &inner_map)?;
+
+    // Mirror the inner skin's material side honestly: winding and
+    // orientation flags flip together (a flag-only flip ships the
+    // PK-244 winding-dishonest mirror class).
+    inner.reverse_body_orientation();
 
     // Build a combined skin map from outer to inner.
     let combined_skin_map = build_combined_skin_map(&outer_map, &inner_map);

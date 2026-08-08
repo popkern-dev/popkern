@@ -166,6 +166,12 @@ fn shell_impl(
     )?;
     inner_skin::apply_offset_geometry(&mut inner, &offset_result.surfaces, &skin_map)?;
 
+    // Mirror the inner skin's material side honestly: winding and
+    // orientation flags flip together, so the void skin keeps the
+    // interior-left invariant (a flag-only flip ships the PK-244
+    // winding-dishonest mirror class).
+    inner.reverse_body_orientation();
+
     // Stage 5: assemble outer + inner + side walls.
     let mut result = assemble::assemble_shell(brep, &inner, &all_removed, &skin_map, tolerance)?;
 

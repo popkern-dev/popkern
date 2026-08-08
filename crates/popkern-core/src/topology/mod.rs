@@ -69,6 +69,8 @@ mod brep_precision_queries;
 mod brep_edge_representatives;
 /// Geometric deviation measurement for edges and vertices.
 mod brep_measurement;
+/// Whole-body orientation reversal (material-side mirror).
+mod brep_reverse_orientation;
 pub use brep_measurement::{EdgePcurveDeviationReport, HalfEdgePcurveDeviation};
 mod brep_face_use_trim_authority;
 mod brep_face_use_trim_authority_facts;
@@ -91,6 +93,8 @@ pub use shared_trim_edge::{
 };
 
 /// Edge and face splitting operations.
+/// Sorted-pair serde for handle-keyed maps (JSON-safe, deterministic).
+pub(crate) mod serde_handle_map;
 pub mod split;
 mod split_boundary;
 pub(crate) mod split_helpers;

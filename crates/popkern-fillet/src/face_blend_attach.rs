@@ -75,7 +75,15 @@ pub(crate) fn finish_face_blend(
             })
         }
         FaceBlendAttach::TrimBoth => {
-            let outcome = attach_trim_both(brep, spec, &chain, resolve, bulge, tolerance)?;
+            let mut outcome = attach_trim_both(brep, spec, &chain, resolve, bulge, tolerance)?;
+            // Serving-boundary flag reconcile (PK-244/PK-245): the
+            // orientation flag is derived state, and the cap-extension
+            // surgery can author a face whose flag contradicts its
+            // committed loop winding (measured: through-notch and
+            // deep-channel cap extensions each shipped one CW loop
+            // with flag true). Derive the honest value from the final
+            // winding, as the fillet/chamfer/boolean tails do.
+            outcome.body.reconcile_orientation_flags();
             let contacts_a = outcome.chain.iter().map(|s| s.contact0).collect();
             let contacts_b = outcome.chain.iter().map(|s| s.contact1).collect();
             let sheet = strip_sheet_body(&outcome.chain, spec.radius, bulge, tolerance)?;
