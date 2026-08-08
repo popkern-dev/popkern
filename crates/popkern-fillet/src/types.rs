@@ -366,7 +366,7 @@ impl Default for FilletOptions {
             use_two_stripe_gregory: false,
             use_kp_binonic_gregory: false,
             use_kp_polar_gregory: false,
-            serving_self_intersection_retry: false,
+            serving_self_intersection_retry: true,
             use_direct_apex_construction: false,
             interference_policy: InterferencePolicy::default(),
             profile: BlendProfile::default(),

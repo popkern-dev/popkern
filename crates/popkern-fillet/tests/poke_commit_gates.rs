@@ -252,14 +252,18 @@ fn mixed_pyramid_apex_serves_exact_boundary_over_apex_bridge_poke() {
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let result = fillet_edges(
-        &pyramid,
-        &specs,
-        &FilletOptions::default(),
-        Tolerance::default(),
-        None,
-    )
-    .expect("mixed pyramid apex blend");
+    // Dispatch-preference instrument: exact-boundary must beat the
+    // apex-bridge poke at the ROUTING layer. The serving retry is
+    // pinned off — with true defaults this fixture's candidate flags
+    // a strip×cap self-intersection and re-routes legacy (PK-245
+    // default-serve contract, pinned in
+    // exact_boundary_corner_patch_ownership).
+    let options = FilletOptions {
+        serving_self_intersection_retry: false,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&pyramid, &specs, &options, Tolerance::default(), None)
+        .expect("mixed pyramid apex blend");
 
     let route = result
         .repair_report

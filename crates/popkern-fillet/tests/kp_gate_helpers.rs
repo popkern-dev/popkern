@@ -107,6 +107,9 @@ pub fn fillet_corner_cap_outer_faces(
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: use_kp_binonic,
         use_kp_polar_gregory: use_kp_polar,
+        // Candidate-quality instrument: measure the constructed
+        // candidate itself, not the PK-250 serving-retry re-route.
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();
@@ -141,6 +144,9 @@ pub fn fillet_corner_full(
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: use_kp_binonic,
         use_kp_polar_gregory: use_kp_polar,
+        // Candidate-quality instrument: measure the constructed
+        // candidate itself, not the PK-250 serving-retry re-route.
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let result = fillet_edges(brep, &specs, &opts, Tolerance::default(), None).unwrap();

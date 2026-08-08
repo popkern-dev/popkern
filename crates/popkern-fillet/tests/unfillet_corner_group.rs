@@ -201,22 +201,19 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     let (brep, _) = capped_corner([0.15, 0.1, 0.1]);
     let errors = brep.validate_all();
     eprintln!("[ucg-null] direct mixed fillet validate_all: {errors:?}");
-    // Pinned debt classes for the DEFAULT serve: the known
-    // CurveSurfaceDeviation, plus (since the PK-248 domain-honest
-    // projector let this corner's direct-apex candidate construct
-    // where it previously failed incidentally) one strip×cap-sector
-    // SelfIntersection. The removal mechanism is measured green
-    // opt-in (`serving_self_intersection_retry`, pinned below by
-    // `direct_mixed_15_10_10_retry_serves_clean`); default arming is
-    // the PK-245 debt-triage campaign.
+    // Since the PK-245 default arming of the serving retry, the
+    // DEFAULT serve for this corner re-routes to legacy (its
+    // direct-apex candidate ships a strip×cap self-intersection)
+    // and validates clean or, at worst, keeps the known
+    // CurveSurfaceDeviation class. The retry contract itself is
+    // pinned by `direct_mixed_15_10_10_retry_serves_clean`.
     assert!(
         errors.len() <= 1
             && errors.iter().all(|e| matches!(
                 e,
                 popkern_core::error::ValidationError::CurveSurfaceDeviation { .. }
-                    | popkern_core::error::ValidationError::SelfIntersection { .. }
             )),
-        "mixed-corner forward-fillet debt grew beyond the pinned classes: {errors:?}"
+        "mixed-corner default-serve debt grew beyond the pinned class: {errors:?}"
     );
 }
 

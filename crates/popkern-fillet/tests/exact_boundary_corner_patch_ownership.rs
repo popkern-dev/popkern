@@ -25,9 +25,13 @@ use popkern_fillet::{
     FilletSpec, fillet_edges,
 };
 
-/// pyramid4_mixed under DEFAULT options (the PK-119 acceptance
-/// fixture): mixed radii promote the apex to the direct-apex
-/// partition route without any explicit option opt-in.
+/// pyramid4_mixed exact-boundary construction (the PK-119
+/// acceptance fixture): mixed radii promote the apex to the
+/// direct-apex partition route. The serving retry is pinned OFF
+/// here because this gate measures the CONSTRUCTION's ownership
+/// contract; the default serve for this fixture re-routes to legacy
+/// (its candidate ships a strip×cap self-intersection — see
+/// `pyramid4_mixed_default_serve_retries_to_legacy_validate_clean`).
 #[test]
 fn pyramid4_mixed_default_options_reports_exact_boundary_corner_patches() {
     let tol = Tolerance::default();
@@ -57,8 +61,12 @@ fn pyramid4_mixed_default_options_reports_exact_boundary_corner_patches() {
             radius: FilletRadius::Constant(r),
         })
         .collect();
-    let result = fillet_edges(&pyramid, &specs, &FilletOptions::default(), tol, None)
-        .expect("pyramid4_mixed fillet under default options");
+    let options = FilletOptions {
+        serving_self_intersection_retry: false,
+        ..FilletOptions::default()
+    };
+    let result = fillet_edges(&pyramid, &specs, &options, tol, None)
+        .expect("pyramid4_mixed fillet (construction instrument)");
 
     let committed: Vec<_> = result
         .repair_report
@@ -131,4 +139,70 @@ fn pyramid4_mixed_default_options_reports_exact_boundary_corner_patches() {
             );
         }
     }
+}
+
+/// PK-245 default serving contract for pyramid4_mixed: the
+/// direct-apex candidate constructs but ships a strip×cap-sector
+/// self-intersection (measured on every mixed pyramid4 radius set
+/// probed; validate_all agrees with the serving detector), so the
+/// DEFAULT serve runs the PK-250 serving-boundary retry — the apex
+/// re-routes to legacy, the retry is recorded with the face pair,
+/// and the served body validates clean.
+#[test]
+fn pyramid4_mixed_default_serve_retries_to_legacy_validate_clean() {
+    let tol = Tolerance::default();
+    let pyramid = BRep::n_gonal_pyramid(4, 1.0, 0.8, tol).expect("pyramid fixture");
+    let apex = pyramid
+        .vertices
+        .iter()
+        .find(|(_, v)| v.position.z > 0.1)
+        .map(|(h, _)| h)
+        .expect("pyramid apex");
+    let slant_edges: Vec<_> = {
+        let mut seen = std::collections::BTreeSet::new();
+        pyramid
+            .half_edges
+            .values()
+            .filter(|he| he.origin == apex)
+            .map(|he| he.edge)
+            .filter(|e| seen.insert(*e))
+            .collect()
+    };
+    let radii = [0.04_f64, 0.06, 0.05, 0.07];
+    let specs: Vec<_> = slant_edges
+        .iter()
+        .zip(radii.iter())
+        .map(|(&e, &r)| FilletSpec {
+            edge: e,
+            radius: FilletRadius::Constant(r),
+        })
+        .collect();
+    let result = fillet_edges(&pyramid, &specs, &FilletOptions::default(), tol, None)
+        .expect("pyramid4_mixed fillet under true default options");
+    let retries = &result.repair_report.serving_self_intersection_retries;
+    assert_eq!(
+        retries.len(),
+        1,
+        "default serve must record exactly one serving self-intersection retry: {retries:?}"
+    );
+    assert_eq!(retries[0].vertex, apex, "retry names the apex");
+    let route = result
+        .repair_report
+        .apex_routes
+        .iter()
+        .find(|r| r.vertex == apex)
+        .expect("apex route recorded");
+    assert!(
+        !matches!(
+            route.route,
+            popkern_fillet::ApexConstructionRoute::DirectApex
+        ),
+        "excluded apex must not serve direct-apex: {:?}",
+        route.route
+    );
+    let errors = result.brep.validate_all();
+    assert!(
+        errors.is_empty(),
+        "default serve must validate clean: {errors:?}"
+    );
 }

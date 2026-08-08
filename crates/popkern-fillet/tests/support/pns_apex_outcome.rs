@@ -121,6 +121,9 @@ fn run_corner_outcome_with(
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: true,
         use_kp_polar_gregory: kp_polar,
+        // Cap-quality instrument: measure the constructed cap
+        // complex, not the PK-250 serving-retry re-route.
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let result = fillet_edges(&brep, &specs, &opts, Tolerance::default(), None)

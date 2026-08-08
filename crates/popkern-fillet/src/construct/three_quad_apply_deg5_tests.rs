@@ -104,9 +104,12 @@ fn measure_deg3_vs_deg5(radii: &[f64; 3]) -> (f64, f64) {
         return (0.0, 0.0);
     }
 
+    // §2.4 candidate comparison: measure the constructed Gregory
+    // candidates, not the PK-250 serving-retry re-route.
     let cubic_opts = FilletOptions {
         use_rational_gregory: true,
         use_deg5_gregory: false,
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let Ok(cubic_pipeline) = crate::fillet_edges(&cube, &specs, &cubic_opts, tol, None) else {
@@ -125,6 +128,7 @@ fn measure_deg3_vs_deg5(radii: &[f64; 3]) -> (f64, f64) {
     let deg5_opts = FilletOptions {
         use_rational_gregory: true,
         use_deg5_gregory: true,
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     let Ok(deg5_pipeline) = crate::fillet_edges(&cube, &specs, &deg5_opts, tol, None) else {
