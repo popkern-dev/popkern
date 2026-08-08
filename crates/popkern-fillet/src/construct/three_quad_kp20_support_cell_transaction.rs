@@ -188,7 +188,8 @@ fn validation_error_class(error: &ValidationError) -> &'static str {
         | ValidationError::InconsistentVertex { .. }
         | ValidationError::NonManifoldEdge { .. }
         | ValidationError::LowValence { .. }
-        | ValidationError::InconsistentOrientation { .. } => "topology_invariant_mismatch",
+        | ValidationError::InconsistentOrientation { .. }
+        | ValidationError::WindingDishonest { .. } => "topology_invariant_mismatch",
         ValidationError::Precision { .. } => "precision_budget_mismatch",
     }
 }
@@ -207,6 +208,7 @@ fn validation_error_kind(error: &ValidationError) -> &'static str {
         ValidationError::CurveSurfaceDeviation { .. } => "CurveSurfaceDeviation",
         ValidationError::ShellGap { .. } => "ShellGap",
         ValidationError::SelfIntersection { .. } => "SelfIntersection",
+        ValidationError::WindingDishonest { .. } => "WindingDishonest",
         ValidationError::TwistedSurface { .. } => "TwistedSurface",
         ValidationError::Precision { .. } => "Precision",
     }

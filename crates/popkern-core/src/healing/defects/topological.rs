@@ -385,6 +385,9 @@ fn extract_entities(error: &ValidationError) -> Vec<EntityRef> {
         ValidationError::SelfIntersection { face_a, face_b } => {
             vec![EntityRef::FacePair(*face_a, *face_b)]
         }
+        ValidationError::WindingDishonest { face, .. } => {
+            vec![EntityRef::Face(*face)]
+        }
         ValidationError::TwistedSurface { face } => {
             vec![EntityRef::Face(*face)]
         }

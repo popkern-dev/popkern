@@ -165,6 +165,12 @@ impl BRep {
         if let Err(e) = self.validate_face_orientation() {
             errors.push(e);
         }
+        // Check 7's deferred half, armed at the serving boundary
+        // (PK-245): the stored orientation flag must agree with the
+        // measured outer-loop winding on every determinate face.
+        // Mid-pipeline states may carry transient dishonesty that
+        // operator tails reconcile, so this is validate_all-only.
+        errors.extend(self.validate_winding_honesty_all());
         if let Err(e) = self.validate_loop_closure() {
             errors.push(e);
         }

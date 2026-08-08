@@ -110,6 +110,26 @@ pub enum ValidationError {
         face_b: FaceHandle,
     },
 
+    /// A face's stored orientation flag contradicts its outer loop's
+    /// UV winding (interior-left invariant, the adjacent-face
+    /// consistency half of check 7). Consumers folding the flag —
+    /// edge convexity, mesher triangle winding, STEP `same_sense`,
+    /// measured volume sign — mirror against neighbours on such a
+    /// face.
+    #[error(
+        "Winding-dishonest face {face:?}: outer loop signed UV area {signed_uv_area:.3e} \
+         contradicts orientation flag {orientation}"
+    )]
+    WindingDishonest {
+        /// The face whose flag lies about its winding.
+        face: FaceHandle,
+        /// Signed UV area of the outer loop in topological order
+        /// (positive = counter-clockwise).
+        signed_uv_area: f64,
+        /// The stored orientation flag.
+        orientation: bool,
+    },
+
     /// A face's surface normal reverses direction (surface folds over itself).
     #[error("Twisted surface on face {face:?}")]
     TwistedSurface {

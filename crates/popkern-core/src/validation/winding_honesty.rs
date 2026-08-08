@@ -192,6 +192,27 @@ impl BRep {
         best
     }
 
+    /// Collecting validation form of the winding-honesty audit: one
+    /// [`ValidationError::WindingDishonest`] per face whose stored
+    /// flag contradicts its measured outer-loop winding (the armed
+    /// adjacent-face-consistency half of check 7 — PK-245).
+    /// Indeterminate verdicts (unmeasurable loops with no tangency
+    /// witness) are not errors. Serving boundaries arm this via
+    /// [`BRep::validate_all`]; mid-pipeline states may legitimately
+    /// carry transient dishonesty that operator tails reconcile, so
+    /// the fast [`BRep::validate`] path does not include it.
+    pub fn validate_winding_honesty_all(&self) -> Vec<crate::error::ValidationError> {
+        self.audit_winding_honesty()
+            .into_iter()
+            .filter(|v| v.honest == Some(false))
+            .map(|v| crate::error::ValidationError::WindingDishonest {
+                face: v.face,
+                signed_uv_area: v.signed_uv_area,
+                orientation: v.orientation,
+            })
+            .collect()
+    }
+
     /// Faces whose stored orientation flag contradicts their outer
     /// loop's UV winding. Convenience filter over
     /// [`BRep::audit_winding_honesty`].
