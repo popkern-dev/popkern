@@ -84,6 +84,9 @@ pub mod residual_scaffolding;
 pub mod sensitivity;
 pub mod stale_cap;
 pub(crate) mod station_geometry;
+#[cfg(test)]
+#[path = "steep_asymmetry_acceptance_tests.rs"]
+mod steep_asymmetry_acceptance_tests;
 mod surface_boundary_evidence;
 pub mod surface_validate;
 pub mod trim;

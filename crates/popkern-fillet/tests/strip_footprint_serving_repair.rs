@@ -25,8 +25,10 @@
 //!   measured by scanning the crossing band's UV window, not inferred
 //!   at Greville abscissae). Serves DirectApex with one cleared repair
 //!   record and no retry.
-//! - cube [0.05, 0.1, 0.2]: the construct itself falls back to legacy
-//!   for this set (pre-existing route); clean, no repair, no retry.
+//! - cube [0.05, 0.1, 0.2]: serves DirectApex clean with no repair
+//!   and no retry (PK-255: terminal-sliver knot hygiene + period-
+//!   honest acceptance sampling; quality bars pinned in-crate by
+//!   `steep_asymmetry_acceptance_tests`).
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
@@ -191,28 +193,17 @@ fn cube_interior_crossing_repairs_to_direct_serve() {
     );
 }
 
-/// The construct-level fallback set stays clean with no serving
-/// machinery engaged.
-///
-/// PK-255 (2026-08-09, still active): this set SHOULD serve DirectApex
-/// at commercial cap-outer quality — the pole-clearance A/B measured
-/// the (0,0,0)-corner variant serving at g0 1.7e-8 / g1 5.8e-6 with
-/// the crossing gone — but the mechanism regressed cube
-/// [0.15, 0.1, 0.1] at this corner (repair stall), so the fixture
-/// keeps its legacy-fan serve until the corner-dependent pole
-/// mechanism lands. See
-/// docs/journal/2026-08-09-pk255-direct-apex-default-graduation.md.
+/// PK-255 CLOSED (2026-08-09): the steep-asymmetry (1:4) fixture
+/// serves DirectApex with no serving machinery, validate-clean. The
+/// former legacy-fan fallback was a terminal-sliver knot in one
+/// fillet-end source curve (propagated by the knot union, collapsing
+/// the derivative-row lever arm) plus period-clamp measurement
+/// artifacts in the acceptance measures. The commercial quality bars
+/// (cap-outer g0 5e-3 / g1 5e-2; measured 1.7e-8 / 1.4e-5) are pinned
+/// in-crate by `steep_asymmetry_acceptance_tests` at both mirrored
+/// corners.
 #[test]
-fn construct_fallback_set_serves_clean() {
+fn steep_asymmetry_corner_serves_direct_clean() {
     let result = cube_default_result([0.05, 0.1, 0.2]);
-    assert!(
-        result.repair_report.serving_footprint_repairs.is_empty()
-            && result
-                .repair_report
-                .serving_self_intersection_retries
-                .is_empty(),
-        "no serving machinery should engage"
-    );
-    let errors = result.brep.validate_all();
-    assert!(errors.is_empty(), "must validate clean: {errors:?}");
+    assert_direct_clean_serve("cube [0.05,0.1,0.2]", &result);
 }
