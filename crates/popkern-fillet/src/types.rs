@@ -318,25 +318,19 @@ pub struct FilletOptions {
     /// pre-existing hidden serving debt on 9 direct-apex fixtures
     /// (measured 2026-08-07) whose pins accept today's serve.
     pub serving_self_intersection_retry: bool,
-    /// **Phase 6c-direct-apex dispatch** — route apex-region construction (vertices
-    /// with ≥ 2 incident fillet edges in `VertexMode::Smooth`)
-    /// through the direct-apex planner + builder (`plan_apex_resolution`
-    /// then `construct_apex` in `crate::apex_construction`) instead
-    /// of the legacy `insert_vertex_blend` path.  Default `false` as a
-    /// GLOBAL flag: a blanket flip mis-routes classes the direct-apex
-    /// machinery does not own (saddles, N ≥ 5 hubs, conic profiles,
-    /// variable radii — measured 2026-08-09, nine fixture failures).
-    /// The measured serving classes graduate per-class through
-    /// `direct_apex_promotion` instead; this flag remains the A/B
-    /// override that routes EVERY apex direct (under it the
-    /// mixed-radius cube-corner class serves at cap-outer G1 1.8e-5
-    /// vs the legacy route's 7.5e-1 crease on cube [0.05, 0.1, 0.2]).
-    ///
-    /// On direct-apex plan or build error, the dispatch falls back per-apex
-    /// to `insert_vertex_blend` and emits
-    /// [`BlendWarning::DirectApexFellBackToLegacy`](crate::error::BlendWarning::DirectApexFellBackToLegacy)
-    /// (added in direct-apex dispatch.c).  Never causes a hard failure; the worst
-    /// case is "behaves like legacy."
+    /// **Phase 6c-direct-apex dispatch** — route apex-region
+    /// construction (vertices with ≥ 2 fillet edges in Smooth mode)
+    /// through the direct-apex planner + builder instead of legacy
+    /// `insert_vertex_blend`. Default `false` as a GLOBAL flag: a
+    /// blanket flip mis-routes classes the machinery does not own
+    /// (saddles, N ≥ 5 hubs, conic profiles, variable radii —
+    /// 2026-08-09, nine fixture failures); serving classes graduate
+    /// per-class through `direct_apex_promotion`. The flag remains
+    /// the A/B override routing EVERY apex direct (PK-255
+    /// measurements: journal 2026-08-09). On plan or build error the
+    /// dispatch falls back per-apex to `insert_vertex_blend` and
+    /// emits `BlendWarning::DirectApexFellBackToLegacy` — never a
+    /// hard failure; the worst case is "behaves like legacy."
     pub use_direct_apex_construction: bool,
     /// PK-185 — resolution for mid-face strip interference that is
     /// not seam-completable (the PK-159 analytic completion only
