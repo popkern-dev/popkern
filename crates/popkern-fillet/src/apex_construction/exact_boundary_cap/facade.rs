@@ -371,25 +371,10 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
                                     .map(|candidate| (attempt, candidate))
                             })
                             .collect::<Vec<_>>();
-                        if crate::direct_apex_trace::enabled() {
-                            for repair_diagnostic in &repair_diagnostics {
-                                eprintln!(
-                                    "[direct-apex-trace] repair diagnostic: sector={:?} side={:?} code={} residual={:?}",
-                                    repair_diagnostic.sector_name,
-                                    repair_diagnostic.outer_side,
-                                    repair_diagnostic.code,
-                                    repair_diagnostic.residual,
-                                );
-                            }
-                            for attempt in &multipatch_attempts {
-                                eprintln!(
-                                    "[direct-apex-trace] multipatch attempt: sector={} candidate={} step={:?}",
-                                    attempt.sector.sector_name,
-                                    attempt.candidate.is_some(),
-                                    attempt.step,
-                                );
-                            }
-                        }
+                        multipatch_route::trace_multipatch_attempts(
+                            &repair_diagnostics,
+                            &multipatch_attempts,
+                        );
                         if !multipatch_attempts.is_empty()
                             && multipatch_candidates.len() == multipatch_attempts.len()
                         {

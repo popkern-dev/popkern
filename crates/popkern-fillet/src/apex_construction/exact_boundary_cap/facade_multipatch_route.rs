@@ -376,3 +376,33 @@ fn diagnostic_side(
         _ => None,
     }
 }
+
+/// Trace-gated observability for the multipatch repair ladder: the
+/// per-sector/side repair diagnostics and each attempt's decision
+/// step (measured 2026-08-09: this is how the (1,1,1) two-sided
+/// constrained-band class was localized).
+pub(super) fn trace_multipatch_attempts(
+    repair_diagnostics: &[crate::apex_construction::exact_boundary_cap::validation::ExactBoundaryValidationDiagnostic],
+    attempts: &[ExactBoundaryMultipatchRouteAttempt],
+) {
+    if !crate::direct_apex_trace::enabled() {
+        return;
+    }
+    for repair_diagnostic in repair_diagnostics {
+        eprintln!(
+            "[direct-apex-trace] repair diagnostic: sector={:?} side={:?} code={} residual={:?}",
+            repair_diagnostic.sector_name,
+            repair_diagnostic.outer_side,
+            repair_diagnostic.code,
+            repair_diagnostic.residual,
+        );
+    }
+    for attempt in attempts {
+        eprintln!(
+            "[direct-apex-trace] multipatch attempt: sector={} candidate={} step={:?}",
+            attempt.sector.sector_name,
+            attempt.candidate.is_some(),
+            attempt.step,
+        );
+    }
+}
