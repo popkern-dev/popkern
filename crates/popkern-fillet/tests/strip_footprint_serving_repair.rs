@@ -30,6 +30,7 @@
 
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
+
 use popkern_fillet::{
     ApexConstructionRoute, BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges,
 };
@@ -192,6 +193,15 @@ fn cube_interior_crossing_repairs_to_direct_serve() {
 
 /// The construct-level fallback set stays clean with no serving
 /// machinery engaged.
+///
+/// PK-255 (2026-08-09, still active): this set SHOULD serve DirectApex
+/// at commercial cap-outer quality — the pole-clearance A/B measured
+/// the (0,0,0)-corner variant serving at g0 1.7e-8 / g1 5.8e-6 with
+/// the crossing gone — but the mechanism regressed cube
+/// [0.15, 0.1, 0.1] at this corner (repair stall), so the fixture
+/// keeps its legacy-fan serve until the corner-dependent pole
+/// mechanism lands. See
+/// docs/journal/2026-08-09-pk255-direct-apex-default-graduation.md.
 #[test]
 fn construct_fallback_set_serves_clean() {
     let result = cube_default_result([0.05, 0.1, 0.2]);

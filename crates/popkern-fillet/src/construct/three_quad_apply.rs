@@ -37,8 +37,7 @@ pub(crate) use three_quad_apply_helpers::{
     author_model_level_support_face_boundary_seams,
 };
 use three_quad_apply_helpers::{
-    decomp_self_intersects, macro_family_from_promotion, max_outer_boundary_residual,
-    record_support_cell_nonselection, sub_patch_provenance,
+    decomp_self_intersects, macro_family_from_promotion, sub_patch_provenance,
 };
 use three_quad_face_matching::boundary_segment_to_sub_face_permutation;
 use three_quad_kp_promote::promote_decomp_to_kp_binonic;
@@ -158,31 +157,15 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     diagnostics.extend(std::mem::take(&mut promotion_report.diagnostics));
     let mut macro_family = macro_family_from_promotion(promotion_report.result);
 
-    const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
-    let promoted_boundary_residual = max_outer_boundary_residual(&decomp, boundary);
-    let unpromoted_boundary_residual =
-        max_outer_boundary_residual(&unpromoted_constrained_decomp, boundary);
-    if promoted_boundary_residual.is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
-        && unpromoted_boundary_residual
-            .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
-    {
-        diagnostics.push(
-            super::three_quad_kp_diagnostics::outer_boundary_residual_exceeded(
-                promoted_boundary_residual.unwrap_or_default(),
-                unpromoted_boundary_residual,
-                PROMOTED_BOUNDARY_RESIDUAL_GATE,
-            ),
-        );
-        decomp = unpromoted_constrained_decomp.clone();
-        record_support_cell_nonselection(
-            &mut diagnostics,
-            "promoted_boundary_residual_exceeded",
-            n_sides,
-            decomp.sub_patches.len(),
-        );
-        promotion_report.result = PromotionResult::Standard;
-        macro_family = None;
-    }
+    three_quad_apply_helpers::apply_promoted_boundary_residual_gate(
+        &mut decomp,
+        &unpromoted_constrained_decomp,
+        boundary,
+        n_sides,
+        &mut promotion_report.result,
+        &mut macro_family,
+        &mut diagnostics,
+    );
 
     let sphere_cap_available = boundary.sphere_fit_substituted
         && !boundary.per_fillet_caps.is_empty()

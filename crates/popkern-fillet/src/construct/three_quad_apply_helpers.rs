@@ -159,3 +159,42 @@ pub(crate) fn author_model_level_support_face_boundary_seams(
         ),
     )
 }
+
+/// Demote a K-P-promoted decomposition back to the unpromoted
+/// constrained result when promotion pushed the outer boundary
+/// residual over the commercial gate while the unpromoted candidate
+/// stayed under it. Records both the residual diagnostic and the
+/// support-cell nonselection.
+pub(super) fn apply_promoted_boundary_residual_gate(
+    decomp: &mut crate::blend::gregory_three_quad::NQuadDecomposition,
+    unpromoted: &crate::blend::gregory_three_quad::NQuadDecomposition,
+    boundary: &BlendBoundary,
+    n_sides: usize,
+    promotion_result: &mut PromotionResult,
+    macro_family: &mut Option<CornerSubPatchFamily>,
+    diagnostics: &mut Vec<ApexConstructionDiagnostic>,
+) {
+    const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
+    let promoted_residual = max_outer_boundary_residual(decomp, boundary);
+    let unpromoted_residual = max_outer_boundary_residual(unpromoted, boundary);
+    if promoted_residual.is_some_and(|residual| residual > PROMOTED_BOUNDARY_RESIDUAL_GATE)
+        && unpromoted_residual.is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
+    {
+        diagnostics.push(
+            crate::construct::three_quad_kp_diagnostics::outer_boundary_residual_exceeded(
+                promoted_residual.unwrap_or_default(),
+                unpromoted_residual,
+                PROMOTED_BOUNDARY_RESIDUAL_GATE,
+            ),
+        );
+        *decomp = unpromoted.clone();
+        record_support_cell_nonselection(
+            diagnostics,
+            "promoted_boundary_residual_exceeded",
+            n_sides,
+            decomp.sub_patches.len(),
+        );
+        *promotion_result = PromotionResult::Standard;
+        *macro_family = None;
+    }
+}

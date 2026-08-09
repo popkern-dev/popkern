@@ -322,9 +322,15 @@ pub struct FilletOptions {
     /// with ≥ 2 incident fillet edges in `VertexMode::Smooth`)
     /// through the direct-apex planner + builder (`plan_apex_resolution`
     /// then `construct_apex` in `crate::apex_construction`) instead
-    /// of the legacy `insert_vertex_blend` path.  Default `false`
-    /// — the legacy path runs unchanged until direct-apex default flips the
-    /// default after the validation matrix is green.
+    /// of the legacy `insert_vertex_blend` path.  Default `false` as a
+    /// GLOBAL flag: a blanket flip mis-routes classes the direct-apex
+    /// machinery does not own (saddles, N ≥ 5 hubs, conic profiles,
+    /// variable radii — measured 2026-08-09, nine fixture failures).
+    /// The measured serving classes graduate per-class through
+    /// `direct_apex_promotion` instead; this flag remains the A/B
+    /// override that routes EVERY apex direct (under it the
+    /// mixed-radius cube-corner class serves at cap-outer G1 1.8e-5
+    /// vs the legacy route's 7.5e-1 crease on cube [0.05, 0.1, 0.2]).
     ///
     /// On direct-apex plan or build error, the dispatch falls back per-apex
     /// to `insert_vertex_blend` and emits
