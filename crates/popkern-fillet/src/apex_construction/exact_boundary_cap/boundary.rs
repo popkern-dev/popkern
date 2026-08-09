@@ -12,7 +12,7 @@ mod boundary_support_source;
 use super::sector::{ExactBoundaryCapSectorInput, ExactBoundaryOuterSeam, ExactBoundaryOuterSide};
 use boundary_compatibility::{
     check_budget, compatible_interior_knots, elevate_to_target, insert_missing_knots,
-    verify_prepared_curve,
+    remove_end_sliver_knots, verify_prepared_curve,
 };
 use boundary_curve_orientation::{
     cap_half_edge_vertex_span, endpoint_orientation_gap, reverse_nurbs_curve,
@@ -165,6 +165,10 @@ struct PreparedSourceCurve {
     source: NurbsCurve,
     source_range: (f64, f64),
     prepared: NurbsCurve,
+    /// Terminal-sliver knots were repaired away (removal or trim);
+    /// verification then runs at the repair fidelity bound instead of
+    /// the exact-preparation gate.
+    sliver_repaired: bool,
 }
 
 /// Prepare exact boundary curves using only orientation normalization, degree
@@ -251,6 +255,7 @@ pub(crate) fn prepare_exact_boundary_curves(
             source: prepared.clone(),
             source_range: (0.0, 1.0),
             prepared,
+            sliver_repaired: false,
         });
     }
 
@@ -396,21 +401,24 @@ fn prepared_source_from_curve(
     let side = seam.side;
     let curve = orient_curve_to_cap_half_edge(brep, sector, seam, raw_curve)?;
     let source_range = curve.parameter_range();
-    let prepared = normalize_curve_parameter_domain(&curve).ok_or_else(|| {
-        ExactBoundaryCurveDiagnostic::new(
-            ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed,
-            &PreparedSourceCurve {
-                sector_index: sector.sector_index,
-                sector_name: sector.sector_name.clone(),
-                side,
-                edge: seam.edge,
-                source: curve.clone(),
-                source_range,
-                prepared: curve.clone(),
-            },
-            None,
-        )
-    })?;
+    let (prepared, sliver_repaired) = normalize_curve_parameter_domain(&curve)
+        .map(remove_end_sliver_knots)
+        .ok_or_else(|| {
+            ExactBoundaryCurveDiagnostic::new(
+                ExactBoundaryCurveDeclineReason::BoundaryVerificationFailed,
+                &PreparedSourceCurve {
+                    sector_index: sector.sector_index,
+                    sector_name: sector.sector_name.clone(),
+                    side,
+                    edge: seam.edge,
+                    source: curve.clone(),
+                    source_range,
+                    prepared: curve.clone(),
+                    sliver_repaired: false,
+                },
+                None,
+            )
+        })?;
     Ok(PreparedSourceCurve {
         sector_index: sector.sector_index,
         sector_name: sector.sector_name.clone(),
@@ -419,6 +427,7 @@ fn prepared_source_from_curve(
         source: curve,
         source_range,
         prepared,
+        sliver_repaired,
     })
 }
 
@@ -468,6 +477,7 @@ fn diagnostic_source_curve(
         source: curve.clone(),
         source_range,
         prepared: curve,
+        sliver_repaired: false,
     }
 }
 
