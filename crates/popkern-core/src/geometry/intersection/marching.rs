@@ -328,10 +328,35 @@ pub(crate) fn march_one_direction(
                             }
                         }
 
-                        // Near-tangent step reduction
+                        // Near-tangent stepping: the |S1-S2| < ε
+                        // convergence band localizes the curve only to
+                        // a width of ~ε/sin across, so steps BELOW that
+                        // width trace residual noise, not the curve —
+                        // the former reduction crushed the step toward
+                        // min_step here and ground 10k-step fragments
+                        // on grazing fillet contact. The band is the
+                        // honest step floor; when it exceeds the
+                        // maximum step, the intersection is not
+                        // resolvable as a curve at this tolerance and
+                        // the trace ends.
+                        // Near-tangent stepping: the |S1-S2| < ε
+                        // convergence band localizes the curve only to
+                        // a width of ~ε/sin across, so steps BELOW the
+                        // band width trace residual noise, not the
+                        // curve — the former reduction crushed the
+                        // step toward min_step exactly here, grinding
+                        // 10k-step fragments on grazing fillet
+                        // contact. The band (capped at max_step) is
+                        // the honest step FLOOR. The march never
+                        // terminates on unresolvability: intersection
+                        // curves legitimately pass THROUGH ultra-
+                        // tangent osculation stretches (measured: the
+                        // octagon8 setback pipeline needs such a
+                        // curve whole), and crossing them at max_step
+                        // bounds both the lateral noise and the cost.
                         if sin_angle < 0.01 {
-                            let factor = (sin_angle * 100.0).max(0.2);
-                            step_size = (step_size * factor).max(min_step);
+                            let band = tolerance.linear() / sin_angle.max(epsilon);
+                            step_size = step_size.max(band.min(max_step));
                         }
                     }
 

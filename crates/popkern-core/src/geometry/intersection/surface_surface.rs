@@ -1,9 +1,16 @@
 //! Surface-surface intersection types and API.
 
+#[path = "surface_surface_tangential.rs"]
+mod surface_surface_tangential;
+use surface_surface_tangential::tangential_crossing_certificate;
+
+#[path = "surface_surface_fitting.rs"]
+mod surface_surface_fitting;
+pub(crate) use surface_surface_fitting::fit_march_samples;
+
 use crate::error::CoreError;
 use crate::geometry::Point3;
 use crate::geometry::curve_on_surface::CurveOnSurface;
-use crate::geometry::fitting::fit_curve;
 use crate::geometry::intersection::coincident::{
     closest_point_distance_pub, detect_coincident_regions,
 };
@@ -157,52 +164,192 @@ pub fn intersect_surfaces_with_handler(
 
     // 2. Handle tangent starting points -> coincident region detection
     let has_tangent = starting_points.iter().any(|sp| sp.is_tangent);
-    if has_tangent {
-        let coincident = detect_coincident_regions(
+    let coincident_regions: Vec<SurfaceSurfaceIntersection> = if has_tangent {
+        detect_coincident_regions(
             surface1, u1_range, v1_range, surface2, u2_range, v2_range, tolerance,
-        );
-        results.extend(coincident);
-    }
+        )
+    } else {
+        Vec::new()
+    };
+    results.extend(coincident_regions.iter().cloned());
+
+    // A tangent-classified seed is only accounted for when a detected
+    // coincident region covers it. The tangent gate (|cos| within the
+    // angular tolerance of 1) sits far above the march's own tangency
+    // epsilon, so grazing CROSSINGS — fillet strip×cap contact — land
+    // in this band; dropping them emitted nothing for a pair with a
+    // real intersection curve (measured on the served pyramid4 body:
+    // free-form-first seeding classified its only hit tangent and the
+    // crossing vanished). An uncovered tangent seed is demoted to a
+    // march seed when the normals still measurably diverge — sin of
+    // the normal angle above the angular tolerance — because there the
+    // march direction n1×n2 is numerically meaningful and the trace
+    // advances. Seeds whose normals are angularly indistinguishable
+    // (e.g. two sub-patches of one smooth surface touching at a split
+    // corner, sin ~ 1e-9) stay dropped: their march direction is pure
+    // noise and the robust handler creeps at minimum step without an
+    // intersection curve to trace. Curvature comparison was tried and
+    // falsified as this discriminator: at two approximately-matched
+    // contact points the second-derivative readings differ above any
+    // fixed gate even for genuine touches.
+    let region_covers = |sample: &MarchSample| {
+        coincident_regions.iter().any(|region| match region {
+            SurfaceSurfaceIntersection::CoincidentRegion {
+                u1_range: ur1,
+                v1_range: vr1,
+                u2_range: ur2,
+                v2_range: vr2,
+            } => {
+                let within = |x: f64, r: &(f64, f64)| x >= r.0.min(r.1) && x <= r.0.max(r.1);
+                within(sample.u1, ur1)
+                    && within(sample.v1, vr1)
+                    && within(sample.u2, ur2)
+                    && within(sample.v2, vr2)
+            }
+            SurfaceSurfaceIntersection::Curve(_) => false,
+        })
+    };
+    let tangent_seed_marchable = |sample: &MarchSample| {
+        let n1 = surface1.normal_at(sample.u1, sample.v1);
+        let n2 = surface2.normal_at(sample.u2, sample.v2);
+        let norms = n1.length() * n2.length();
+        if norms < tolerance.numerical_floor() {
+            return false;
+        }
+        let sin_angle = n1.cross(&n2).length() / norms;
+        sin_angle > tolerance.angular()
+    };
 
     // 3. March from non-tangent, unconsumed starting points.
     //    Branch detection may add extra seeds; we process them all via a queue.
     const MAX_CURVES: usize = 20;
 
-    let mut consumed: Vec<Point3> = Vec::new();
+    // Traced polylines. Seed consumption tests distance to the polyline
+    // SEGMENTS, not to the discrete sample points: the adaptive march
+    // steps up to 1000× linear tolerance between samples while its
+    // curvature-based cap keeps each chord within ~linear tolerance of
+    // the true curve, so a converged seed landing mid-segment lies on
+    // the traced curve but far from every sample point. The former
+    // point-proximity check re-marched the identical curve once per
+    // such seed (measured: 18–20 copies of one cylinder×NURBS arc,
+    // count varying with operand order).
+    let mut consumed: Vec<Vec<Point3>> = Vec::new();
+    let consumed_radius = tolerance.linear() * 10.0;
 
-    // Seed the queue with non-tangent starting points.
-    let mut branch_queue: Vec<MarchSample> = starting_points
+    // Seed the queue with every transversal starting point — plus,
+    // ONLY when the pair produced no transversal seed at all, every
+    // tangent-classified seed that no coincident region accounts for
+    // and whose normals measurably diverge. Demoted seeds carry a
+    // marker: their traces must additionally present a signed-distance
+    // crossing certificate before emission (below). Both scopes exist
+    // because unconditional demotion flooded callers built on the
+    // tangency-silent contract — the N>=5 setback pipeline's dispatch
+    // bailed on shared-boundary tangency curves, and the Gregory
+    // subdivision self-intersection check declined every KP cap when
+    // its diagonal sub-patches' corner-touch blob fitted into a
+    // "curve" — while the grazing-only class (the sole evidence of a
+    // real crossing is a tangent-classified seed) is exactly where
+    // demotion is the difference between finding the curve and
+    // silence.
+    let no_transversal_seeds = starting_points.iter().all(|sp| sp.is_tangent);
+    let mut branch_queue: Vec<(MarchSample, bool)> = starting_points
         .iter()
-        .filter(|sp| !sp.is_tangent)
-        .map(|sp| sp.sample.clone())
+        .filter_map(|sp| {
+            if !sp.is_tangent {
+                Some((sp.sample.clone(), false))
+            } else if no_transversal_seeds
+                && !region_covers(&sp.sample)
+                && tangent_seed_marchable(&sp.sample)
+            {
+                Some((sp.sample.clone(), true))
+            } else {
+                None
+            }
+        })
         .collect();
 
-    while let Some(seed) = branch_queue.pop() {
+    // March windows: pad non-periodic ranges by 1% of extent. A seed
+    // converges from a patch midpoint and may land slightly OUTSIDE
+    // the query window; in a periodic direction the march wraps and
+    // recovers, but in a non-periodic direction the domain-exit check
+    // killed the trace at step one and the curve vanished (measured on
+    // the served pyramid4 strip×cap pair: the free-form-first seed sat
+    // 2.5e-3 outside the cap's knot window). The pad only widens march
+    // termination; seeding, coincidence detection, and reported ranges
+    // keep the caller's windows, and trim classification downstream
+    // clips curve extent.
+    let pad_window = |range: (f64, f64), periodic: bool| {
+        if periodic {
+            range
+        } else {
+            let entry_band = 0.01 * (range.1 - range.0);
+            (range.0 - entry_band, range.1 + entry_band)
+        }
+    };
+    let (periodic_u1, periodic_v1) = surface1.is_periodic();
+    let (periodic_u2, periodic_v2) = surface2.is_periodic();
+    let march_u1 = pad_window(u1_range, periodic_u1);
+    let march_v1 = pad_window(v1_range, periodic_v1);
+    let march_u2 = pad_window(u2_range, periodic_u2);
+    let march_v2 = pad_window(v2_range, periodic_v2);
+
+    while let Some((seed, demoted)) = branch_queue.pop() {
         // Cap total curves to avoid runaway branching.
         if results.len() >= MAX_CURVES {
             break;
         }
 
         // Skip if already traced through this region.
-        if consumed
-            .iter()
-            .any(|c| c.distance_to(&seed.point) < tolerance.linear() * 10.0)
-        {
+        if point_near_polylines(&seed.point, &consumed, consumed_radius) {
             continue;
         }
 
         let (samples, is_closed) = march(
-            surface1, u1_range, v1_range, surface2, u2_range, v2_range, &seed, tolerance, handler,
+            surface1, march_u1, march_v1, surface2, march_u2, march_v2, &seed, tolerance, handler,
         );
+
+        // The entry band exists so an out-of-window seed can walk into
+        // the caller's windows — it must not widen the EMITTED curve:
+        // callers key curve endpoints against their own trim windows
+        // (measured: 1% overhang declined the variable-radius setback
+        // serve). Trim leading/trailing samples that sit outside the
+        // caller's windows in a non-periodic direction.
+        let outside = |s: &MarchSample| {
+            let out = |x: f64, range: (f64, f64), periodic: bool| {
+                !periodic && (x < range.0 || x > range.1)
+            };
+            out(s.u1, u1_range, periodic_u1)
+                || out(s.v1, v1_range, periodic_v1)
+                || out(s.u2, u2_range, periodic_u2)
+                || out(s.v2, v2_range, periodic_v2)
+        };
+        let first_inside = samples.iter().position(|s| !outside(s));
+        let samples: Vec<MarchSample> = match first_inside {
+            Some(start) => {
+                let end =
+                    samples.len() - samples.iter().rev().position(|s| !outside(s)).unwrap_or(0);
+                samples[start..end].to_vec()
+            }
+            None => Vec::new(),
+        };
 
         if samples.len() < 2 {
             continue; // too few samples to fit
         }
 
-        // Mark all points on this curve as consumed.
-        for s in &samples {
-            consumed.push(s.point);
+        // A demoted-tangent trace must certify an actual CROSSING
+        // before emission: probes offset to either side of the traced
+        // curve must flip the sign of the analytic operand's implicit
+        // distance. Near-contact blobs (surfaces within tolerance
+        // around a touch, no sign change) and pairs with no analytic
+        // side to certify against stay on the tangency-silent
+        // contract.
+        if demoted && !tangential_crossing_certificate(surface1, surface2, &samples, tolerance) {
+            continue;
         }
+
+        // Mark the traced polyline as consumed.
+        consumed.push(samples.iter().map(|s| s.point).collect());
 
         // 4. Fit NURBS curves.
         match fit_march_samples(&samples, is_closed) {
@@ -221,11 +368,8 @@ pub fn intersect_surfaces_with_handler(
                 tolerance,
             );
             for branch in new_branches {
-                let already_consumed = consumed
-                    .iter()
-                    .any(|c| c.distance_to(&branch.point) < tolerance.linear() * 10.0);
-                if !already_consumed {
-                    branch_queue.push(branch);
+                if !point_near_polylines(&branch.point, &consumed, consumed_radius) {
+                    branch_queue.push((branch, demoted));
                 }
             }
         }
@@ -233,6 +377,34 @@ pub fn intersect_surfaces_with_handler(
 
     Ok(SurfaceSurfaceIntersectionResult {
         intersections: results,
+    })
+}
+
+/// True when `p` lies within `radius` of any segment of any traced
+/// polyline. The point-to-segment metric (rather than point-to-sample)
+/// is what makes consumption honest for adaptively-stepped traces —
+/// sample spacing may exceed the consumption radius by orders of
+/// magnitude while the chord stays within tolerance of the curve.
+fn point_near_polylines(p: &Point3, polylines: &[Vec<Point3>], radius: f64) -> bool {
+    let radius_sq = radius * radius;
+    polylines.iter().any(|line| {
+        if line.len() == 1 {
+            return line[0].distance_to(p) < radius;
+        }
+        line.windows(2).any(|seg| {
+            let a = seg[0];
+            let b = seg[1];
+            let ab = b - a;
+            let len_sq = ab.dot(&ab);
+            let t = if len_sq > 0.0 {
+                ((*p - a).dot(&ab) / len_sq).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let closest = a + ab * t;
+            let d = *p - closest;
+            d.dot(&d) < radius_sq
+        })
     })
 }
 
@@ -292,63 +464,6 @@ fn try_coincident_fast(
             intersections: regions,
         })
     }
-}
-
-/// Fit NURBS curves (3D + UV1 + UV2) to a sequence of march samples.
-pub(crate) fn fit_march_samples(
-    samples: &[MarchSample],
-    is_closed: bool,
-) -> Result<CurveOnSurface, CoreError> {
-    if samples.len() < 2 {
-        return Err(CoreError::PreconditionFailed(
-            "Too few samples to fit".into(),
-        ));
-    }
-
-    // Chord-length parameterization
-    let mut params = vec![0.0];
-    let mut total_length = 0.0;
-    for i in 1..samples.len() {
-        total_length += samples[i].point.distance_to(&samples[i - 1].point);
-        params.push(total_length);
-    }
-    if total_length < 1e-30 {
-        return Err(CoreError::PreconditionFailed(
-            "Degenerate curve (zero length)".into(),
-        ));
-    }
-    // Normalize to [0, 1]
-    for p in &mut params {
-        *p /= total_length;
-    }
-
-    let degree = 3.min(samples.len() - 1);
-    let n_cp = (samples.len() / 5).clamp(degree + 1, 200);
-
-    // 3D curve
-    let pts_3d: Vec<Point3> = samples.iter().map(|s| s.point).collect();
-    let curve_3d = fit_curve(&pts_3d, &params, degree, n_cp)?;
-
-    // UV1 curve (using Point3(u1, v1, 0.0) convention)
-    let pts_uv1: Vec<Point3> = samples
-        .iter()
-        .map(|s| Point3::new(s.u1, s.v1, 0.0))
-        .collect();
-    let curve_uv1 = fit_curve(&pts_uv1, &params, degree, n_cp)?;
-
-    // UV2 curve
-    let pts_uv2: Vec<Point3> = samples
-        .iter()
-        .map(|s| Point3::new(s.u2, s.v2, 0.0))
-        .collect();
-    let curve_uv2 = fit_curve(&pts_uv2, &params, degree, n_cp)?;
-
-    Ok(CurveOnSurface {
-        curve_3d,
-        curve_uv1,
-        curve_uv2,
-        is_closed,
-    })
 }
 
 #[cfg(test)]

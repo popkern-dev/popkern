@@ -1,3 +1,4 @@
+use super::marching_newton::march_project;
 #[cfg(test)]
 use super::*;
 use crate::geometry::intersection::degeneracy::{

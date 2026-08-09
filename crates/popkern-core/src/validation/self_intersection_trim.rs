@@ -55,12 +55,18 @@ impl BRep {
             // Same two-tier semantics as `sampled_points_overlap_faces`
             // below: any interior overlap flags immediately; contact
             // where BOTH trims classify Boundary is served-boundary
-            // contact, legitimate at a shared topological vertex
-            // (measured: variable-radius N=3 corner — the two strips'
-            // internally tangent sections touch at the shared setback
-            // corner; 1 terminal sample Boundary∧Boundary, all others
-            // Outside) and a defect only with spatial extent.
+            // contact. Whether EXTENDED pure-Boundary contact is a
+            // defect is a topological question, not a metric one:
+            // faces that share a vertex touch legitimately along
+            // tangential bands around it (measured: the uniform-conic
+            // N=3 corner's internally tangent strips, once the solver
+            // traces grazing contact whole — zero Interior samples at
+            // any resolution), while topologically unrelated faces
+            // meeting along a line SHOULD share that edge and are
+            // flagged with spatial extent (two isolated quads forming
+            // an L pin this).
             const SAMPLE_COUNT: usize = 9;
+            let faces_share_topology = self.faces_share_any_vertex(face_a, face_b);
             let mut boundary_contacts: Vec<Point3> = Vec::new();
             for i in 0..SAMPLE_COUNT {
                 let alpha = i as f64 / (SAMPLE_COUNT - 1) as f64;
@@ -105,9 +111,8 @@ impl BRep {
                 match (trim_a_contains, trim_b_contains) {
                     (Some(TrimContainment::Outside), _) | (_, Some(TrimContainment::Outside)) => {}
                     (Some(TrimContainment::Boundary), Some(TrimContainment::Boundary)) => {
-                        let point = surface_a.point_at(uv_a.x, uv_a.y);
-                        if !self.faces_share_vertex_at_point(face_a, face_b, &point, linear_tol) {
-                            boundary_contacts.push(point);
+                        if !faces_share_topology {
+                            boundary_contacts.push(surface_a.point_at(uv_a.x, uv_a.y));
                         }
                     }
                     _ => return true,
@@ -223,6 +228,19 @@ impl BRep {
                 .skip(i + 1)
                 .any(|b| a.distance_to(b) > linear_tol * 10.0)
         })
+    }
+
+    /// True when the two faces' outer loops share at least one
+    /// topological vertex — the licence for extended served-boundary
+    /// contact between them (see `intersection_overlaps_face_trims`).
+    fn faces_share_any_vertex(&self, face_a: FaceHandle, face_b: FaceHandle) -> bool {
+        let Some(vertices_a) = self.face_outer_loop_vertices(face_a) else {
+            return false;
+        };
+        let Some(vertices_b) = self.face_outer_loop_vertices(face_b) else {
+            return false;
+        };
+        vertices_a.iter().any(|vertex| vertices_b.contains(vertex))
     }
 
     fn faces_share_vertex_at_point(

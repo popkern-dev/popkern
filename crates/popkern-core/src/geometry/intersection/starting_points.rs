@@ -92,6 +92,13 @@ pub(crate) fn find_starting_points(
     }
 
     // Step 5: For each small overlapping pair, try Newton convergence.
+    //
+    // Newton runs unclamped and converged seeds are accepted wherever
+    // they land: clamping iterates stalls the constrained system, and
+    // rejecting out-of-window convergences loses real curves — the
+    // march itself clips to the query windows, so a seed slightly
+    // outside them still traces the in-window stretch (both measured
+    // on the served pyramid4 strip×cap pair).
     let mut raw_samples: Vec<MarchSample> = Vec::new();
 
     for (patch1, patch2) in &candidate_pairs {
@@ -101,17 +108,32 @@ pub(crate) fn find_starting_points(
         let u2_mid = (patch2.u_range.0 + patch2.u_range.1) / 2.0;
         let v2_mid = (patch2.v_range.0 + patch2.v_range.1) / 2.0;
 
-        let target = surface1.point_at(u1_mid, v1_mid);
-
         // Compute a march direction: cross-product of the two normals gives the
         // tangent direction of the intersection curve. If normals are nearly
         // parallel (tangent case), use an arbitrary non-degenerate direction.
         let n1 = surface1.normal_at(u1_mid, v1_mid);
         let n2 = surface2.normal_at(u2_mid, v2_mid);
-        let march_dir = pick_march_dir(n1, n2, surface1, u1_mid, v1_mid);
 
+        // Newton's advancing plane needs an anchor point, and the two
+        // natural choices — either patch midpoint — pose DIFFERENT
+        // constrained systems that can converge to different seeds or
+        // diverge outright. Anchoring only on operand 1 made the seed
+        // set depend on operand order (measured: adjacent strip×cap
+        // pairs found their tangential contact in one order and
+        // nothing in the other). Both anchors always run; the union is
+        // order-symmetric by construction and deduplication collapses
+        // agreeing hits.
+        let anchor_1 = surface1.point_at(u1_mid, v1_mid);
+        let dir_1 = pick_march_dir(n1, n2, surface1, u1_mid, v1_mid);
         if let Some(sample) = march_project(
-            surface1, u1_mid, v1_mid, surface2, u2_mid, v2_mid, &target, &march_dir, tolerance,
+            surface1, u1_mid, v1_mid, surface2, u2_mid, v2_mid, &anchor_1, &dir_1, tolerance,
+        ) {
+            raw_samples.push(sample);
+        }
+        let anchor_2 = surface2.point_at(u2_mid, v2_mid);
+        let dir_2 = pick_march_dir(n2, n1, surface2, u2_mid, v2_mid);
+        if let Some(sample) = march_project(
+            surface1, u1_mid, v1_mid, surface2, u2_mid, v2_mid, &anchor_2, &dir_2, tolerance,
         ) {
             raw_samples.push(sample);
         }

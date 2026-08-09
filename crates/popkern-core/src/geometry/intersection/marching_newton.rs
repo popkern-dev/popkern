@@ -26,13 +26,39 @@ pub(crate) fn march_project(
     march_dir: &Vec3,
     tolerance: &Tolerance,
 ) -> Option<MarchSample> {
+    newton_project(
+        surface1, u1, v1, surface2, u2, v2, target, march_dir, tolerance,
+    )
+    .map(|(sample, _)| sample)
+}
+
+/// Shared Newton 4×4 core.
+///
+/// Iterates run UNCLAMPED by design: convergence to interior solutions
+/// routinely swings through out-of-domain parameters, and projecting
+/// iterates onto the domain box stalls the equality-constrained system
+/// (measured on the served pyramid4 strip×cap pair: clamping lost the
+/// seed BOTH operand orders previously found). Callers that need
+/// in-domain seeds must post-validate the converged sample instead.
+#[allow(clippy::too_many_arguments)]
+fn newton_project(
+    surface1: &SurfaceGeometry,
+    u1: f64,
+    v1: f64,
+    surface2: &SurfaceGeometry,
+    u2: f64,
+    v2: f64,
+    target: &Point3,
+    march_dir: &Vec3,
+    tolerance: &Tolerance,
+) -> Option<(MarchSample, usize)> {
     let max_iter = 20;
     let mut u1 = u1;
     let mut v1 = v1;
     let mut u2 = u2;
     let mut v2 = v2;
 
-    for _ in 0..max_iter {
+    for iter in 0..max_iter {
         let p1 = surface1.point_at(u1, v1);
         let p2 = surface2.point_at(u2, v2);
 
@@ -51,13 +77,16 @@ pub(crate) fn march_project(
             (march_dir.x, march_dir.y, march_dir.z),
             tolerance.linear(),
         ) {
-            return Some(MarchSample {
-                u1,
-                v1,
-                u2,
-                v2,
-                point: p1,
-            });
+            return Some((
+                MarchSample {
+                    u1,
+                    v1,
+                    u2,
+                    v2,
+                    point: p1,
+                },
+                iter + 1,
+            ));
         }
 
         let s1u = surface1.partial_u(u1, v1);
@@ -109,61 +138,7 @@ pub(crate) fn march_project_with_iters(
     march_dir: &Vec3,
     tolerance: &Tolerance,
 ) -> Option<(MarchSample, usize)> {
-    let max_iter = 20;
-    let mut u1 = u1;
-    let mut v1 = v1;
-    let mut u2 = u2;
-    let mut v2 = v2;
-
-    for iter in 0..max_iter {
-        let p1 = surface1.point_at(u1, v1);
-        let p2 = surface2.point_at(u2, v2);
-
-        let f = p1 - p2;
-        let f4 = (p1 - *target).dot(march_dir);
-
-        if crate::adaptive_precision::adaptive_dist_sq_lt(
-            (p1.x, p1.y, p1.z),
-            (p2.x, p2.y, p2.z),
-            tolerance.linear() * tolerance.linear(),
-        ) && crate::adaptive_precision::adaptive_abs_plane_distance_lt(
-            (p1.x, p1.y, p1.z),
-            (target.x, target.y, target.z),
-            (march_dir.x, march_dir.y, march_dir.z),
-            tolerance.linear(),
-        ) {
-            return Some((
-                MarchSample {
-                    u1,
-                    v1,
-                    u2,
-                    v2,
-                    point: p1,
-                },
-                iter + 1,
-            ));
-        }
-
-        let s1u = surface1.partial_u(u1, v1);
-        let s1v = surface1.partial_v(u1, v1);
-        let s2u = surface2.partial_u(u2, v2);
-        let s2v = surface2.partial_v(u2, v2);
-
-        let j = [
-            [s1u.x, s1v.x, -s2u.x, -s2v.x],
-            [s1u.y, s1v.y, -s2u.y, -s2v.y],
-            [s1u.z, s1v.z, -s2u.z, -s2v.z],
-            [march_dir.dot(&s1u), march_dir.dot(&s1v), 0.0, 0.0],
-        ];
-        let rhs = [f.x, f.y, f.z, f4];
-
-        let delta = solve_4x4(j, rhs)?;
-
-        u1 -= delta[0];
-        v1 -= delta[1];
-        u2 -= delta[2];
-        v2 -= delta[3];
-    }
-
-    None
+    newton_project(
+        surface1, u1, v1, surface2, u2, v2, target, march_dir, tolerance,
+    )
 }
