@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
 use super::pcurves::prepare_exact_boundary_pcurves;
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::extract_exact_boundary_cap_sectors;
@@ -162,10 +162,11 @@ fn candidate_fixture(
             .unwrap();
     let boundaries =
         prepare_exact_boundary_curves(brep, &sectors, ExactBoundaryCurveBudget::default()).unwrap();
-    let spokes = prepare_exact_boundary_inner_spokes(
+    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
+        None,
     )
     .unwrap();
     let ribbons = prepare_exact_boundary_ribbons(

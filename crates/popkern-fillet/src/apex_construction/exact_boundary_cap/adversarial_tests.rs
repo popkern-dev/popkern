@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
 use super::ribbon::{ExactBoundaryRibbonBudget, prepare_exact_boundary_ribbons};
 use super::sector::extract_exact_boundary_cap_sectors;
 use crate::apex_construction::cap_kind::CapKind;
@@ -48,13 +48,14 @@ fn geometry_budget_adversarial_matrix_has_stable_declines() {
     let boundaries =
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
-    let spoke_diagnostic = prepare_exact_boundary_inner_spokes(
+    let spoke_diagnostic = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget {
             min_spoke_length: 10.0,
             ..ExactBoundaryInnerSpokeBudget::default()
         },
+        None,
     )
     .expect_err("collapsed generated spoke must decline");
     assert_eq!(

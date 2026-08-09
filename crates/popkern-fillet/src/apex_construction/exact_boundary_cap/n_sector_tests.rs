@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
 use super::facade::{ExactBoundaryCapCandidateStatus, run_exact_boundary_cap_candidate};
 use super::sector::{
     ExactBoundaryOuterSide, ExactBoundarySectorDeclineReason, extract_exact_boundary_cap_sectors,
@@ -78,10 +78,11 @@ fn four_sector_inner_spokes_and_topology_preserve_cyclic_ownership() {
         prepare_exact_boundary_curves(&brep, &exact_sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let spokes = prepare_exact_boundary_inner_spokes(
+    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
         &exact_sectors,
         &boundary_curves,
         ExactBoundaryInnerSpokeBudget::default(),
+        None,
     )
     .unwrap();
 

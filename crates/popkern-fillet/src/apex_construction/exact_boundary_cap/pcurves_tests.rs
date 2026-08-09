@@ -107,6 +107,7 @@ fn fixture_spokes() -> PreparedExactBoundaryInnerSpokes {
     let face_anchor = Point3::new(0.0, 1.0, 0.0);
     let pole = Point3::new(1.0, 1.0, 0.2);
     PreparedExactBoundaryInnerSpokes {
+        pole_search: None,
         sectors: vec![PreparedExactBoundarySectorBoundary {
             sector_index: 0,
             sector_name: "direct_apex.cap_sector.0".to_string(),

@@ -33,6 +33,13 @@ pub(crate) struct ExactBoundaryCapCandidateResult {
     pub report: ExactBoundaryCapReport,
     /// Structured diagnostics emitted during decline.
     pub diagnostics: Vec<ApexConstructionDiagnostic>,
+    /// Pole the inner spokes fanned from, plus the PK-255 search
+    /// hints (blend-ward direction, scale) when available. `None`
+    /// when spoke preparation never ran.
+    pub pole: Option<(
+        popkern_core::geometry::Point3,
+        Option<(popkern_core::geometry::Vec3, f64)>,
+    )>,
 }
 
 impl ExactBoundaryCapCandidateResult {

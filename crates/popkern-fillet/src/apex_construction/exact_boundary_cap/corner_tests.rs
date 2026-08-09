@@ -1,7 +1,7 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::corner::{
     ExactBoundaryInnerSpokeBudget, ExactBoundaryInnerSpokeDeclineReason,
-    prepare_exact_boundary_inner_spokes,
+    prepare_exact_boundary_inner_spokes_with_pole,
 };
 use super::sector::extract_exact_boundary_cap_sectors;
 use crate::apex_construction::cap_kind::CapKind;
@@ -26,10 +26,11 @@ fn generated_inner_spokes_complete_four_sided_sector_boundaries() {
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let spokes = prepare_exact_boundary_inner_spokes(
+    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
+        None,
     )
     .unwrap();
 
@@ -83,13 +84,14 @@ fn collapsed_spoke_declines_without_topology_mutation() {
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
 
-    let diagnostic = prepare_exact_boundary_inner_spokes(
+    let diagnostic = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget {
             min_spoke_length: 10.0,
             ..ExactBoundaryInnerSpokeBudget::default()
         },
+        None,
     )
     .expect_err("oversized minimum spoke length must decline");
 

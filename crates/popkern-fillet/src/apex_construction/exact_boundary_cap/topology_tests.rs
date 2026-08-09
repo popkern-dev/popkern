@@ -1,5 +1,5 @@
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
 use super::sector::extract_exact_boundary_cap_sectors;
 use super::topology::materialize_exact_boundary_sector_topology;
 use crate::apex_construction::cap_kind::CapKind;
@@ -23,10 +23,11 @@ fn materializes_sector_faces_around_shared_pole() {
     let boundaries =
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
-    let spokes = prepare_exact_boundary_inner_spokes(
+    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
+        None,
     )
     .unwrap();
     let before = (
@@ -67,10 +68,11 @@ fn topology_decline_rolls_back_on_stale_cap_face() {
     let boundaries =
         prepare_exact_boundary_curves(&brep, &sectors, ExactBoundaryCurveBudget::default())
             .unwrap();
-    let spokes = prepare_exact_boundary_inner_spokes(
+    let spokes = prepare_exact_boundary_inner_spokes_with_pole(
         &sectors,
         &boundaries,
         ExactBoundaryInnerSpokeBudget::default(),
+        None,
     )
     .unwrap();
     let before = (

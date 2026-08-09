@@ -35,6 +35,11 @@ pub(crate) struct PreparedExactBoundaryInnerSpokes {
     pub sectors: Vec<PreparedExactBoundarySectorBoundary>,
     /// Deterministic pole used by all generated spokes.
     pub pole: Point3,
+    /// Blend-ward pull direction for the PK-255 pole search (the
+    /// negated sum of the confident end-section plane normals), and
+    /// the search scale (the largest fillet-end arc chord). `None`
+    /// when no plane orientation was confident.
+    pub pole_search: Option<(popkern_core::geometry::Vec3, f64)>,
 }
 
 /// Four-sided sector boundary data before surface solve.
@@ -155,10 +160,14 @@ mod corner_spoke_shaping;
 use corner_spoke_shaping::shape_spokes_for_corner_compatibility;
 
 /// Prepare generated inner spokes and complete four-sided sector boundaries.
-pub(crate) fn prepare_exact_boundary_inner_spokes(
+/// Prepare the inner spokes; `pole_override` supplies an explicit
+/// pole (PK-255 pole-search candidates), `None` keeps the
+/// shared-corner centroid.
+pub(crate) fn prepare_exact_boundary_inner_spokes_with_pole(
     sectors: &[ExactBoundaryCapSectorInput],
     boundaries: &PreparedExactBoundaryCurves,
     budget: ExactBoundaryInnerSpokeBudget,
+    pole_override: Option<Point3>,
 ) -> Result<PreparedExactBoundaryInnerSpokes, ExactBoundaryInnerSpokeDiagnostic> {
     let mut sector_inputs = Vec::with_capacity(sectors.len());
     let mut shared_corners = Vec::with_capacity(sectors.len());
@@ -213,13 +222,22 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
         sector_inputs.push((sector, fillet.clone(), face.clone(), corner));
     }
 
-    let pole = centroid(&shared_corners).ok_or_else(|| {
-        ExactBoundaryInnerSpokeDiagnostic::new(
-            ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
-            None,
-            None,
-        )
-    })?;
+    let pole = match pole_override {
+        Some(pole) => pole,
+        None => centroid(&shared_corners).ok_or_else(|| {
+            ExactBoundaryInnerSpokeDiagnostic::new(
+                ExactBoundaryInnerSpokeDeclineReason::BoundaryMissing,
+                None,
+                None,
+            )
+        })?,
+    };
+    let pole_search = super::corner_pole_search_hints::pole_search_hints(
+        &sector_inputs
+            .iter()
+            .map(|(_, fillet, _, _)| &fillet.curve)
+            .collect::<Vec<_>>(),
+    );
 
     let mut prepared = Vec::with_capacity(sector_inputs.len());
     for (sector, fillet, face, corner) in sector_inputs {
@@ -254,6 +272,7 @@ pub(crate) fn prepare_exact_boundary_inner_spokes(
     Ok(PreparedExactBoundaryInnerSpokes {
         sectors: prepared,
         pole,
+        pole_search,
     })
 }
 

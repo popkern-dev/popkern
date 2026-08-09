@@ -23,7 +23,7 @@ mod report;
 use super::boundary::{ExactBoundaryCurveBudget, prepare_exact_boundary_curves};
 use super::cap_quality_postcondition::worst_mid_seam_misalignment;
 use super::commit::{commit_exact_boundary_sector_surfaces, post_commit_validation_diagnostic};
-use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes};
+use super::corner::{ExactBoundaryInnerSpokeBudget, prepare_exact_boundary_inner_spokes_with_pole};
 use super::cross_spoke_g1::{cross_spoke_g1_enabled, enforce_cross_spoke_g1};
 use super::facts::attach_shared_repair_fact_ids;
 use super::pcurves::{ExactBoundaryPcurveBudget, prepare_exact_boundary_pcurves};
@@ -75,6 +75,19 @@ pub(crate) fn run_exact_boundary_cap_candidate(
     plan: &ApexPlan,
     sectors: &[GregoryCapSector],
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
+    super::facade_pole_search::run_with_pole_search(brep, cap_face, plan, sectors)
+}
+
+/// One exact-boundary candidate attempt at a fixed pole (`None` =
+/// shared-corner centroid). The PK-255 pole search drives this;
+/// everything below is the historical transactional candidate.
+pub(super) fn run_exact_boundary_cap_candidate_attempt(
+    brep: &mut BRep,
+    cap_face: FaceHandle,
+    plan: &ApexPlan,
+    sectors: &[GregoryCapSector],
+    pole_override: Option<popkern_core::geometry::Point3>,
+) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let started = Instant::now();
     let snapshot = brep.clone();
     let baseline_validation_errors = snapshot.validate_collect_fast();
@@ -123,15 +136,17 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                 performance,
                 diagnostics,
                 report,
+                pole: None,
             });
         }
     };
     performance.prepared_curve_count = boundary_curves.curves.len();
 
-    let inner_spokes = match prepare_exact_boundary_inner_spokes(
+    let inner_spokes = match prepare_exact_boundary_inner_spokes_with_pole(
         &candidate_sectors,
         &boundary_curves,
         ExactBoundaryInnerSpokeBudget::default(),
+        pole_override,
     ) {
         Ok(prepared) => Some(prepared),
         Err(diagnostic) => {
@@ -356,6 +371,25 @@ pub(crate) fn run_exact_boundary_cap_candidate(
                                     .map(|candidate| (attempt, candidate))
                             })
                             .collect::<Vec<_>>();
+                        if crate::direct_apex_trace::enabled() {
+                            for repair_diagnostic in &repair_diagnostics {
+                                eprintln!(
+                                    "[direct-apex-trace] repair diagnostic: sector={:?} side={:?} code={} residual={:?}",
+                                    repair_diagnostic.sector_name,
+                                    repair_diagnostic.outer_side,
+                                    repair_diagnostic.code,
+                                    repair_diagnostic.residual,
+                                );
+                            }
+                            for attempt in &multipatch_attempts {
+                                eprintln!(
+                                    "[direct-apex-trace] multipatch attempt: sector={} candidate={} step={:?}",
+                                    attempt.sector.sector_name,
+                                    attempt.candidate.is_some(),
+                                    attempt.step,
+                                );
+                            }
+                        }
                         if !multipatch_attempts.is_empty()
                             && multipatch_candidates.len() == multipatch_attempts.len()
                         {
@@ -466,5 +500,8 @@ pub(crate) fn run_exact_boundary_cap_candidate(
         performance,
         report,
         diagnostics,
+        pole: inner_spokes
+            .as_ref()
+            .map(|spokes| (spokes.pole, spokes.pole_search)),
     })
 }

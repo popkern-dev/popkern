@@ -186,6 +186,7 @@ fn fixture_spokes(corner_conflict: bool) -> PreparedExactBoundaryInnerSpokes {
         cubic_line(face_start, face_anchor),
     );
     PreparedExactBoundaryInnerSpokes {
+        pole_search: None,
         sectors: vec![PreparedExactBoundarySectorBoundary {
             sector_index: 0,
             sector_name: "direct_apex.cap_sector.0".to_string(),

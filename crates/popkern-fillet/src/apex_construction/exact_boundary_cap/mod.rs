@@ -6,8 +6,10 @@ pub(crate) mod cap_spoke_commit;
 pub(crate) mod commit;
 pub(crate) mod commit_diagnostics;
 pub(crate) mod corner;
+mod corner_pole_search_hints;
 mod cross_spoke_g1;
 pub(crate) mod facade;
+mod facade_pole_search;
 pub(crate) mod facts;
 #[cfg(test)]
 #[path = "informational_channel_tests.rs"]
