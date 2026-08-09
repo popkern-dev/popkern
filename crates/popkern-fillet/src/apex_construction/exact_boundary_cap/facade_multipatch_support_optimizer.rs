@@ -262,15 +262,16 @@ fn interior_parameter_for_surface(
     direction: SurfaceDirection,
 ) -> f64 {
     let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    let (min, max) = match direction {
-        SurfaceDirection::U => (u_min, u_max),
-        SurfaceDirection::V => (v_min, v_max),
+    let (period_u, period_v) = surface.parameter_periodicity();
+    let (min, max, period) = match direction {
+        SurfaceDirection::U => (u_min, u_max, period_u),
+        SurfaceDirection::V => (v_min, v_max, period_v),
     };
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
-        return value;
-    }
-    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
-    value.clamp(min + margin, max - margin)
+    crate::chart_sampling::interior_parameter(
+        crate::chart_sampling::wrap_periodic(value, min, max, period),
+        min,
+        max,
+    )
 }
 
 fn support_row_point_at(surface: &NurbsSurface, parameter: f64) -> Option<Point3> {

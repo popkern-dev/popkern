@@ -66,13 +66,9 @@ pub(super) fn interior_normal_deficit_between_surfaces(
     support_u: f64,
     support_v: f64,
 ) -> Option<f64> {
-    let ((cap_u_min, cap_u_max), (cap_v_min, cap_v_max)) = cap_surface.parameter_range();
-    let ((support_u_min, support_u_max), (support_v_min, support_v_max)) =
-        support_surface.parameter_range();
-    let cap_u = interior_parameter(cap_u, cap_u_min, cap_u_max);
-    let cap_v = interior_parameter(cap_v, cap_v_min, cap_v_max);
-    let support_u = interior_parameter(support_u, support_u_min, support_u_max);
-    let support_v = interior_parameter(support_v, support_v_min, support_v_max);
+    let (cap_u, cap_v) = crate::chart_sampling::periodic_interior_uv(cap_surface, cap_u, cap_v);
+    let (support_u, support_v) =
+        crate::chart_sampling::periodic_interior_uv(support_surface, support_u, support_v);
     let cap_normal = cap_surface
         .partial_u(cap_u, cap_v)
         .cross(&cap_surface.partial_v(cap_u, cap_v));
@@ -85,14 +81,6 @@ pub(super) fn interior_normal_deficit_between_surfaces(
         return None;
     }
     Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
-}
-
-pub(super) fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
-        return value;
-    }
-    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
-    value.clamp(min + margin, max - margin)
 }
 
 pub(super) fn pcurve_endpoint_gap(

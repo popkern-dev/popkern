@@ -16,6 +16,8 @@ pub mod center_curve_helpers;
 mod center_curve_station;
 mod center_curve_sweep_channel;
 pub mod center_curve_walker;
+pub(crate) mod chart_sampling;
+
 pub mod chamfer_2d;
 pub mod chamfer_2d_by_angle;
 pub(crate) mod chamfer_2d_ray;

@@ -455,17 +455,5 @@ fn trace_seam_cap_containment(brep: &BRep, seam: &CapSupportSeamEvidence) {
 }
 
 fn interior_normal_sample_parameters(surface: &impl SurfaceEval, u: f64, v: f64) -> (f64, f64) {
-    let ((u_min, u_max), (v_min, v_max)) = surface.parameter_range();
-    (
-        interior_parameter(u, u_min, u_max),
-        interior_parameter(v, v_min, v_max),
-    )
-}
-
-fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
-        return value;
-    }
-    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
-    value.clamp(min + margin, max - margin)
+    crate::chart_sampling::periodic_interior_uv(surface, u, v)
 }

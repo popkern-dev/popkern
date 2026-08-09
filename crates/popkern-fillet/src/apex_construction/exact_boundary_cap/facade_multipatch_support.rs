@@ -228,6 +228,10 @@ pub(super) fn normal_deficit_between_surfaces(
     Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
 }
 
+/// Period-honest cap/support deficit: periodic directions WRAP into
+/// the domain (via `chart_sampling`) instead of clamping — the PK-125
+/// lesson (u = 7.78 clamped to 2π declined an e-4-tangent candidate
+/// at 0.888 here; see `crate::chart_sampling` for the class history).
 pub(super) fn interior_normal_deficit_between_surfaces(
     cap_surface: &impl SurfaceEval,
     cap_u: f64,
@@ -236,67 +240,17 @@ pub(super) fn interior_normal_deficit_between_surfaces(
     support_u: f64,
     support_v: f64,
 ) -> Option<f64> {
-    let ((cap_u_min, cap_u_max), (cap_v_min, cap_v_max)) = cap_surface.parameter_range();
-    let ((support_u_min, support_u_max), (support_v_min, support_v_max)) =
-        support_surface.parameter_range();
-    let (cap_period_u, cap_period_v) = cap_surface.parameter_periodicity();
-    let (support_period_u, support_period_v) = support_surface.parameter_periodicity();
+    let (cap_u, cap_v) = crate::chart_sampling::periodic_interior_uv(cap_surface, cap_u, cap_v);
+    let (support_u, support_v) =
+        crate::chart_sampling::periodic_interior_uv(support_surface, support_u, support_v);
     normal_deficit_between_surfaces(
         cap_surface,
-        interior_parameter(
-            wrap_periodic(cap_u, cap_u_min, cap_u_max, cap_period_u),
-            cap_u_min,
-            cap_u_max,
-        ),
-        interior_parameter(
-            wrap_periodic(cap_v, cap_v_min, cap_v_max, cap_period_v),
-            cap_v_min,
-            cap_v_max,
-        ),
+        cap_u,
+        cap_v,
         support_surface,
-        interior_parameter(
-            wrap_periodic(support_u, support_u_min, support_u_max, support_period_u),
-            support_u_min,
-            support_u_max,
-        ),
-        interior_parameter(
-            wrap_periodic(support_v, support_v_min, support_v_max, support_period_v),
-            support_v_min,
-            support_v_max,
-        ),
+        support_u,
+        support_v,
     )
-}
-
-/// Periodic directions WRAP into the domain instead of clamping. A
-/// support pcurve legally chained onto an adjacent period branch
-/// (u − 2π on a cylinder chart) evaluates exactly, but clamping such
-/// a parameter to the domain edge samples the normal up to a full
-/// period away (the PK-125 lesson, recurred here: this check clamped
-/// u = 7.78 to 2π on an r = 0.2 strip — 1.50 rad ≈ 86° off — and
-/// declined an e-4-tangent candidate at 0.888).
-fn wrap_periodic(value: f64, min: f64, max: f64, period: Option<f64>) -> f64 {
-    let Some(period) = period else {
-        return value;
-    };
-    if !(value.is_finite() && min.is_finite() && max.is_finite()) || period <= 0.0 {
-        return value;
-    }
-    let mut wrapped = value;
-    while wrapped < min {
-        wrapped += period;
-    }
-    while wrapped > max {
-        wrapped -= period;
-    }
-    wrapped
-}
-
-fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
-        return value;
-    }
-    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
-    value.clamp(min + margin, max - margin)
 }
 
 pub(super) fn pcurve_follows_boundary(

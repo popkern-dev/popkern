@@ -319,6 +319,11 @@ fn pcurve_surface_point(
     surface.point_at(uv.x, uv.y)
 }
 
+/// Period-honest cap/support normal deficit: delegates to the support
+/// module's wrapped measure (the cd866e59 fix). This file previously
+/// carried an UNWRAPPED duplicate of that function — the PK-125 clamp
+/// class — which inflated the constrained-strip-band residuals for
+/// period-branch support pcurves.
 fn interior_normal_deficit_between_surfaces(
     cap_surface: &impl SurfaceEval,
     cap_u: f64,
@@ -327,33 +332,14 @@ fn interior_normal_deficit_between_surfaces(
     support_u: f64,
     support_v: f64,
 ) -> Option<f64> {
-    let ((cap_u_min, cap_u_max), (cap_v_min, cap_v_max)) = cap_surface.parameter_range();
-    let ((support_u_min, support_u_max), (support_v_min, support_v_max)) =
-        support_surface.parameter_range();
-    let cap_u = interior_parameter(cap_u, cap_u_min, cap_u_max);
-    let cap_v = interior_parameter(cap_v, cap_v_min, cap_v_max);
-    let support_u = interior_parameter(support_u, support_u_min, support_u_max);
-    let support_v = interior_parameter(support_v, support_v_min, support_v_max);
-    let cap_normal = cap_surface
-        .partial_u(cap_u, cap_v)
-        .cross(&cap_surface.partial_v(cap_u, cap_v));
-    let support_normal = support_surface
-        .partial_u(support_u, support_v)
-        .cross(&support_surface.partial_v(support_u, support_v));
-    let cap_length = cap_normal.length();
-    let support_length = support_normal.length();
-    if cap_length <= 1.0e-300 || support_length <= 1.0e-300 {
-        return None;
-    }
-    Some(1.0 - (cap_normal.dot(&support_normal) / (cap_length * support_length)).abs())
-}
-
-fn interior_parameter(value: f64, min: f64, max: f64) -> f64 {
-    if !value.is_finite() || !min.is_finite() || !max.is_finite() || max <= min {
-        return value;
-    }
-    let margin = ((max - min).abs() * 1.0e-5).max(1.0e-5);
-    value.clamp(min + margin, max - margin)
+    support::interior_normal_deficit_between_surfaces(
+        cap_surface,
+        cap_u,
+        cap_v,
+        support_surface,
+        support_u,
+        support_v,
+    )
 }
 
 fn pcurve_pair_for_ribbon<'a>(
