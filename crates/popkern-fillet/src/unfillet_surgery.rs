@@ -300,6 +300,82 @@ pub(crate) fn remove_degenerate_self_loop_edges(brep: &mut BRep) {
     }
 }
 
+/// Remove residual zero-area slit spurs: an edge whose two
+/// half-edges sit CONSECUTIVELY in one loop (`he.next == twin` —
+/// the walk goes out and straight back along the same span, a dead
+/// end bounding no area regardless of length). The corner-group
+/// merge strands one per redundant contact edge on the merged
+/// region — the mixed-radius DirectApex corner class (PK-255 serve)
+/// carries more group contact edges than the uniform 6-ring, and
+/// the leftover slit survived the mef re-split as a spur embedded
+/// in a restored support plane's outer loop, geometrically
+/// coincident with a real restored edge (measured: restored "cube"
+/// with 13 edges). A spur built from ONE edge's own half-edge pair
+/// is always zero-area, so removal never changes face geometry; a
+/// bridge to an inner island has `he.next != twin` and is never
+/// touched. Zero-length self-loop pairs remain
+/// [`remove_degenerate_self_loop_edges`]'s job.
+pub(crate) fn remove_slit_loop_edges(brep: &mut BRep) {
+    while let Some((eh, first, second)) = brep.edges.iter().find_map(|(eh, edge)| {
+        let he = brep.half_edges.get(edge.half_edge)?;
+        let twin = brep.half_edges.get(he.twin)?;
+        if he.loop_ != twin.loop_ || he.origin == twin.origin {
+            return None;
+        }
+        if he.next == he.twin {
+            Some((eh, edge.half_edge, he.twin))
+        } else if twin.next == edge.half_edge {
+            Some((eh, he.twin, edge.half_edge))
+        } else {
+            None
+        }
+    }) {
+        let loop_handle = brep.half_edges[first].loop_;
+        let before = brep.half_edges[first].prev;
+        let after = brep.half_edges[second].next;
+        if before == second && after == first {
+            // The pair IS the whole loop: an isolated slit loop.
+            // Retire the loop record and its face registration.
+            let face = brep.loops[loop_handle].face;
+            if let Some(face_data) = brep.faces.get_mut(face) {
+                face_data
+                    .inner_loops
+                    .retain(|&candidate| candidate != loop_handle);
+            }
+            brep.loops.remove(loop_handle);
+        } else {
+            brep.half_edges[before].next = after;
+            brep.half_edges[after].prev = before;
+            if let Some(loop_data) = brep.loops.get(loop_handle)
+                && (loop_data.half_edge == first || loop_data.half_edge == second)
+            {
+                brep.loops[loop_handle].half_edge = after;
+            }
+        }
+        for handle in [first, second] {
+            let vertex = brep.half_edges[handle].origin;
+            if brep
+                .vertices
+                .get(vertex)
+                .is_some_and(|data| data.outgoing == handle)
+                && let Some(replacement) = brep
+                    .half_edges
+                    .iter()
+                    .find(|(candidate, data)| {
+                        data.origin == vertex && *candidate != first && *candidate != second
+                    })
+                    .map(|(candidate, _)| candidate)
+            {
+                brep.vertices[vertex].outgoing = replacement;
+            }
+        }
+        brep.half_edges.remove(first);
+        brep.half_edges.remove(second);
+        brep.edges.remove(eh);
+        brep.boundary_edges.remove(&eh);
+    }
+}
+
 /// Walk a face's outer loop and return the first half-edge whose
 /// `origin` is the given vertex.
 pub(crate) fn find_he_in_face_with_origin(

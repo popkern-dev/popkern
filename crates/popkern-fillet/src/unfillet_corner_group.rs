@@ -42,7 +42,9 @@ use crate::unfillet_corner_group_geometry::{
 use crate::unfillet_helpers::{
     PlaneData, collect_end_face_planes, extract_plane, intersect_line_plane, intersect_planes,
 };
-use crate::unfillet_surgery::{rebuild_curves_touching, remove_degenerate_self_loop_edges};
+use crate::unfillet_surgery::{
+    rebuild_curves_touching, remove_degenerate_self_loop_edges, remove_slit_loop_edges,
+};
 
 /// Outcome of a corner-group restore: the restored body plus the
 /// restored sharp edges with the radii their strips carried (the
@@ -394,6 +396,11 @@ pub(crate) fn restore_corner_group(
         mef_edges.push((r.edge, i));
         sector_faces.push(r.face);
     }
+    // Residual zero-area slit loops (redundant group contact edges
+    // the mefs did not re-legitimize) must go BEFORE the restored-
+    // edge mapping: `edge_between` would otherwise pick a slit
+    // coincident with a real restored edge.
+    remove_slit_loop_edges(&mut out);
     for &(edge, i) in &mef_edges {
         let (far, _) = restored[i];
         let dir = far - corner_pos;

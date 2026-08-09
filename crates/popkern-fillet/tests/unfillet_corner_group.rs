@@ -116,22 +116,21 @@ fn recordless_uniform_corner_group_restores_cube() {
     assert_restored_cube(&out);
 }
 
-/// The mixed-radius corner routes through the setback/Gregory
-/// machinery and ships spanning sector faces plus far-corner
-/// residuals — not a local corner group. The recordless restore
-/// must DECLINE structurally (naming the record path) rather than
-/// serve a partial body; `modify_fillet_radius_via_record` is the
-/// commercial path for this class (PK-143).
+/// The mixed-radius corner serves a LOCAL DirectApex corner group
+/// since PK-255 (three strips, partitioned cap sectors) and the
+/// recordless restore now succeeds — the historical setback-fan
+/// topology (spanning sector faces, far-corner residuals) that
+/// forced a decline to the record path no longer ships for this
+/// class. The restore must produce the exact cube: the group merge
+/// strands a zero-area slit loop per redundant contact edge and
+/// `remove_slit_loop_edges` must clear them (a 13-edge "cube" with a
+/// same-face twin pair was the measured failure).
 #[test]
-fn recordless_mixed_radius_setback_class_declines_structured() {
+fn recordless_mixed_radius_corner_group_restores_cube() {
     let (brep, strip) = capped_corner([0.08, 0.1, 0.12]);
-    let err = popkern_fillet::unfillet_face(&brep, strip)
-        .expect_err("setback-class corner must decline recordless restore");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("unfillet_via_record") || msg.contains("record"),
-        "decline must route to the record path: {msg}"
-    );
+    let out = popkern_fillet::unfillet_face(&brep, strip)
+        .expect("mixed-radius corner group must restore recordless");
+    assert_restored_cube(&out);
 }
 
 /// Recordless corner-group MODIFY: change one strip's radius on a
