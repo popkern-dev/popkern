@@ -133,6 +133,17 @@ pub(crate) fn repair_served_direct_apex_footprint(
             detail = format!("non-analytic counterpart: {counterpart:?}");
             break false;
         }
+        // The flag-folded normal alone does not say which side is
+        // material — a component's loops may wind either way globally
+        // (measured: every face of the served cube folds INWARD, and
+        // the repair pushed control points INTO the strip for 24
+        // rounds while the violation migrated ahead of it). The
+        // component's material sense is the same final authority the
+        // mesher uses.
+        let Some(sense) = brep.component_material_sense(counterpart) else {
+            detail = format!("indeterminate material sense at {counterpart:?}");
+            break false;
+        };
         let mut pair_rounds = 0;
         loop {
             if brep
@@ -170,6 +181,7 @@ pub(crate) fn repair_served_direct_apex_footprint(
                     &samples,
                     &counterpart_surface.0,
                     counterpart_surface.1,
+                    sense,
                 );
                 if moved == 0 {
                     break;
@@ -206,6 +218,7 @@ fn push_cap_out_of_counterpart(
     samples: &[popkern_core::validation::InteriorOverlapSample],
     counterpart_surface: &SurfaceGeometry,
     counterpart_orientation: bool,
+    sense: popkern_core::validation::MaterialSense,
 ) -> usize {
     let Some(SurfaceGeometry::Nurbs(nurbs)) = brep
         .faces
@@ -223,40 +236,78 @@ fn push_cap_out_of_counterpart(
     }
     let greville_u = greville(&surface.knots_u, surface.degree_u, num_u);
     let greville_v = greville(&surface.knots_v, surface.degree_v, num_v);
-    // Deepest penetration per interior control point, attributed by
-    // the sample's exact cap-side UV from the intersection curve —
-    // NOT by iterative 3D→UV projection, which misattributes on
-    // free-form surfaces (measured: 48 scattered-push rounds without
-    // clearing).
+    // Samples lie ON the intersection curve — depth zero by
+    // definition — and the dip to remove lives BETWEEN the crossings,
+    // not necessarily at any control point's Greville point either:
+    // attributing depth at the nearest CP's Greville measured POSITIVE
+    // once that CP had lifted its own abscissa while the sag persisted
+    // mid-span (measured on the cube corner: the crossing migrated
+    // four knot spans then wedged, floor-depth pushes forever). The
+    // dip is therefore MEASURED, not inferred: scan the cap-side UV
+    // window spanned by the crossing samples (padded by a knot span)
+    // for the deepest material-side points, and push the control
+    // points nearest those minima by their measured depths.
     let mut pushes: std::collections::BTreeMap<(usize, usize), (f64, Vec3, f64, f64)> =
         std::collections::BTreeMap::new();
+    let mut u_lo = f64::INFINITY;
+    let mut u_hi = f64::NEG_INFINITY;
+    let mut v_lo = f64::INFINITY;
+    let mut v_hi = f64::NEG_INFINITY;
     for sample in samples {
         // Caller order is (cap, counterpart): the cap's UV is `uv_a`.
         let (u, v) = sample.uv_a;
         if !u.is_finite() || !v.is_finite() {
             continue;
         }
-        let ci = nearest(&greville_u, u).clamp(1, num_u - 2);
-        let cj = nearest(&greville_v, v).clamp(1, num_v - 2);
-        // Samples lie ON the intersection curve — depth zero by
-        // definition. The dip to remove lives BETWEEN the crossings,
-        // so measure it on the cap surface at the attributed control
-        // point's Greville parameters, with a tolerance-scaled floor
-        // so grazing overlaps still make progress.
-        use popkern_core::geometry::SurfaceEval;
-        let cap_point =
-            SurfaceGeometry::Nurbs(surface.clone()).point_at(greville_u[ci], greville_v[cj]);
-        let Some((sd_out, out_direction)) =
-            counterpart_outward(counterpart_surface, counterpart_orientation, &cap_point)
-        else {
-            continue;
-        };
-        let depth = (-sd_out).max(50.0 * brep.tolerance.linear());
-        let entry = pushes
-            .entry((ci, cj))
-            .or_insert((depth, out_direction, u, v));
-        if depth > entry.0 {
-            *entry = (depth, out_direction, u, v);
+        u_lo = u_lo.min(u);
+        u_hi = u_hi.max(u);
+        v_lo = v_lo.min(v);
+        v_hi = v_hi.max(v);
+    }
+    if !u_lo.is_finite() || !v_lo.is_finite() {
+        return 0;
+    }
+    // Pad by roughly one knot span so between-Greville sags adjacent
+    // to the crossing band stay in view.
+    let span_u = (surface.knots_u.last().copied().unwrap_or(1.0)
+        - surface.knots_u.first().copied().unwrap_or(0.0))
+        / (num_u as f64);
+    let span_v = (surface.knots_v.last().copied().unwrap_or(1.0)
+        - surface.knots_v.first().copied().unwrap_or(0.0))
+        / (num_v as f64);
+    let u_lo = u_lo - span_u;
+    let u_hi = u_hi + span_u;
+    let v_lo = v_lo - span_v;
+    let v_hi = v_hi + span_v;
+    const SCAN: usize = 16;
+    let floor = 50.0 * brep.tolerance.linear();
+    use popkern_core::geometry::SurfaceEval;
+    let eval = SurfaceGeometry::Nurbs(surface.clone());
+    for i in 0..=SCAN {
+        for j in 0..=SCAN {
+            let u = u_lo + (u_hi - u_lo) * i as f64 / SCAN as f64;
+            let v = v_lo + (v_hi - v_lo) * j as f64 / SCAN as f64;
+            let cap_point = eval.point_at(u, v);
+            let Some((sd_out, out_direction)) = counterpart_outward(
+                counterpart_surface,
+                counterpart_orientation,
+                sense,
+                &cap_point,
+            ) else {
+                continue;
+            };
+            if sd_out >= floor {
+                continue;
+            }
+            let depth = (-sd_out).max(floor);
+            let ci = nearest(&greville_u, u).clamp(1, num_u - 2);
+            let cj = nearest(&greville_v, v).clamp(1, num_v - 2);
+            let entry = pushes
+                .entry((ci, cj))
+                .or_insert((depth, out_direction, u, v));
+            if depth > entry.0 {
+                *entry = (depth, out_direction, u, v);
+            }
         }
     }
     if pushes.is_empty() {
@@ -286,12 +337,16 @@ fn push_cap_out_of_counterpart(
 /// Outward-of-material signed distance and direction at `p` relative
 /// to the counterpart's analytic surface: the implicit gradient
 /// (finite differences — generic across analytic types), oriented so
-/// it points OUT of the counterpart face's material using its honest
-/// orientation flag (PK-244/PK-245). Positive `sd_out` means `p` is
-/// already outside the material.
+/// it points OUT of the counterpart face's material. The flag-folded
+/// normal only fixes the face's winding side; which winding side is
+/// MATERIAL comes from the component's material sense (measured: the
+/// served cube folds every face inward — orienting by the folded
+/// normal alone pushed control points INTO the strip). Positive
+/// `sd_out` means `p` is already outside the material.
 fn counterpart_outward(
     surface: &SurfaceGeometry,
     orientation: bool,
+    sense: popkern_core::validation::MaterialSense,
     p: &Point3,
 ) -> Option<(f64, Vec3)> {
     use popkern_core::geometry::SurfaceEval;
@@ -304,10 +359,11 @@ fn counterpart_outward(
         (analytic_signed_distance(surface, &Point3::new(p.x, p.y, p.z + H))? - sd) / H,
     );
     let gradient = gradient.normalized()?;
-    // Orient by the face's outward normal at the projection of `p`.
+    // Out-of-material = flag-folded normal × the component sense.
     let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)?;
     let normal = surface.normal_at(u, v);
-    let outward_normal = if orientation { normal } else { normal * -1.0 };
+    let folded = if orientation { normal } else { normal * -1.0 };
+    let outward_normal = folded * sense.outward_multiplier();
     let sign = if outward_normal.dot(&gradient) >= 0.0 {
         1.0
     } else {

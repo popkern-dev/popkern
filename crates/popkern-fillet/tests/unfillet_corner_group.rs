@@ -217,17 +217,15 @@ fn direct_mixed_15_10_10_fillet_baseline() {
     );
 }
 
-/// PK-250 pin: with the serving-boundary retry opted in, the mixed
-/// [0.15, 0.1, 0.1] corner's defective direct-apex candidate is
-/// detected AFTER the full pipeline (strip 9v1 Cylinder r=0.1 × cap
-/// sector Nurbs, contact 2.1e-7). Since PK-251 the serving footprint
-/// repair attempts an in-place fix first — this corner is the
-/// boundary-participation class (the generated spoke itself dives
-/// through the strip), so the repair stalls, the retry re-runs with
-/// the apex excluded from direct-apex promotion, the legacy dispatch
-/// serves the corner, and the served body validates clean —
-/// including the self-intersection check. Both the repair attempt
-/// and the retry are recorded on the repair report.
+/// PK-250/PK-253 pin: with the serving-boundary retry opted in, the
+/// mixed [0.15, 0.1, 0.1] corner's defective direct-apex candidate
+/// (strip 9v1 Cylinder r=0.1 × cap sector Nurbs — the one genuinely
+/// crossing fixture of the class) is detected AFTER the full
+/// pipeline, and the PK-251 serving footprint repair now CLEARS it
+/// in place (material-sense-oriented, scan-depth pushes — PK-253):
+/// the corner keeps its direct serve, no exclusion retry runs, and
+/// the served body validates clean including the self-intersection
+/// check. The repair record is the audit trail.
 #[test]
 fn direct_mixed_15_10_10_retry_serves_clean() {
     let options = FilletOptions {
@@ -235,35 +233,37 @@ fn direct_mixed_15_10_10_retry_serves_clean() {
         ..FilletOptions::default()
     };
     let r = capped_corner_result_with([0.15, 0.1, 0.1], &options);
-    let retries = &r.repair_report.serving_self_intersection_retries;
+    let repairs = &r.repair_report.serving_footprint_repairs;
     assert_eq!(
-        retries.len(),
+        repairs.len(),
         1,
-        "exactly one serving self-intersection retry: {retries:?}"
+        "exactly one serving footprint repair: {repairs:?}"
     );
     assert!(
-        retries[0].detail.contains("Self-intersection"),
-        "retry detail names the defect: {}",
-        retries[0].detail
+        repairs[0].cleared,
+        "the repair clears the crossing in place: {repairs:?}"
     );
-    let excluded = retries[0].vertex;
+    assert!(
+        r.repair_report.serving_self_intersection_retries.is_empty(),
+        "a cleared repair leaves nothing for the exclusion retry"
+    );
     let route = r
         .repair_report
         .apex_routes
         .iter()
-        .find(|route| route.vertex == excluded)
-        .expect("excluded apex has a route record");
+        .find(|route| route.vertex == repairs[0].vertex)
+        .expect("repaired apex has a route record");
     assert!(
-        !matches!(
+        matches!(
             route.route,
             popkern_fillet::ApexConstructionRoute::DirectApex
         ),
-        "excluded apex must not serve direct-apex on the retry: {:?}",
+        "the repaired apex keeps its direct serve: {:?}",
         route.route
     );
     let errors = r.brep.validate_all();
     assert!(
         errors.is_empty(),
-        "retried serve must validate clean: {errors:?}"
+        "repaired serve must validate clean: {errors:?}"
     );
 }

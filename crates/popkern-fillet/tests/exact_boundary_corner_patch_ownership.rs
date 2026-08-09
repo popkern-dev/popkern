@@ -29,9 +29,8 @@ use popkern_fillet::{
 /// acceptance fixture): mixed radii promote the apex to the
 /// direct-apex partition route. The serving retry is pinned OFF
 /// here because this gate measures the CONSTRUCTION's ownership
-/// contract; the default serve for this fixture records a PK-251
-/// repair attempt and re-routes to legacy (see
-/// `pyramid4_mixed_default_serve_records_repair_and_retries_to_legacy`).
+/// contract; the default serve for this fixture is direct and clean
+/// (see `pyramid4_mixed_default_serve_is_direct_and_clean`).
 #[test]
 fn pyramid4_mixed_default_options_reports_exact_boundary_corner_patches() {
     let tol = Tolerance::default();
@@ -141,14 +140,14 @@ fn pyramid4_mixed_default_options_reports_exact_boundary_corner_patches() {
     }
 }
 
-/// PK-251 default serving contract for pyramid4_mixed: under the
-/// order-honest validator the served cap crosses a neighbour support
-/// along its LOCKED bridge-boundary region (boundary participation —
-/// the constructive partition fix is PK-253), so the serving repair
-/// attempts, stalls with the evidence recorded, and the PK-250
-/// exclusion retry serves the corner legacy — validate-clean.
+/// PK-253 default serving contract for pyramid4_mixed: the historical
+/// "boundary participation" crossing was one-sided tolerance HOVER of
+/// the cap's bridge boundary over the neighbour facet plane near the
+/// shared raw-edge corner (window minimum at machine zero — no sign
+/// change anywhere). Under the sign-change-honest fast path the corner
+/// serves DIRECT with no repair machinery engaged.
 #[test]
-fn pyramid4_mixed_default_serve_records_repair_and_retries_to_legacy() {
+fn pyramid4_mixed_default_serve_is_direct_and_clean() {
     let tol = Tolerance::default();
     let pyramid = BRep::n_gonal_pyramid(4, 1.0, 0.8, tol).expect("pyramid fixture");
     let apex = pyramid
@@ -179,21 +178,16 @@ fn pyramid4_mixed_default_serve_records_repair_and_retries_to_legacy() {
     let result = fillet_edges(&pyramid, &specs, &FilletOptions::default(), tol, None)
         .expect("pyramid4_mixed fillet under true default options");
     let repairs = &result.repair_report.serving_footprint_repairs;
-    assert_eq!(
-        repairs.len(),
-        1,
-        "default serve must record exactly one serving footprint repair attempt: {repairs:?}"
-    );
-    assert_eq!(repairs[0].vertex, apex, "repair names the apex");
     assert!(
-        !repairs[0].cleared && repairs[0].detail.contains("boundary participation"),
-        "the boundary-participation class must stall the repair with evidence: {repairs:?}"
+        repairs.is_empty(),
+        "hover is not a crossing — no repair should engage: {repairs:?}"
     );
-    let retries = &result.repair_report.serving_self_intersection_retries;
-    assert_eq!(
-        retries.len(),
-        1,
-        "the exclusion retry serves the corner: {retries:?}"
+    assert!(
+        result
+            .repair_report
+            .serving_self_intersection_retries
+            .is_empty(),
+        "no retry for a clean direct serve"
     );
     let route = result
         .repair_report
@@ -202,11 +196,11 @@ fn pyramid4_mixed_default_serve_records_repair_and_retries_to_legacy() {
         .find(|r| r.vertex == apex)
         .expect("apex route recorded");
     assert!(
-        !matches!(
+        matches!(
             route.route,
             popkern_fillet::ApexConstructionRoute::DirectApex
         ),
-        "the excluded apex must not serve direct-apex: {:?}",
+        "the corner keeps its direct-apex serve: {:?}",
         route.route
     );
     let errors = result.brep.validate_all();

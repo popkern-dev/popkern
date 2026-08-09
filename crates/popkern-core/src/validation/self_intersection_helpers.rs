@@ -280,32 +280,50 @@ pub(in crate::validation) fn analytic_free_form_near_samples(
         }
         ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5)
     };
+    // An intersection is a SIGN CHANGE of the implicit distance —
+    // near-band contact alone is not one. The former "grazing contact
+    // without a sign change still counts" rule classified one-sided
+    // tolerance hover as crossing (measured: the mixed-radius pyramid
+    // cap's bridge boundary rides its own facet 6.5e-6 over the
+    // neighbour facet's plane near the shared raw-edge corner, with
+    // the window minimum at machine zero — no crossing anywhere), and
+    // that misverdict is what held the boundary-participation fixtures
+    // off their direct serves. Extensive near-band contact WITHOUT a
+    // sign change is a different animal — possible tolerance-coincident
+    // overlap — and escalates to the generic solver path, whose
+    // coincidence detection owns that question.
+    let mut band_cells = 0usize;
+    let mut sign_change = false;
     for i in 0..GRID {
         for j in 0..GRID {
             let sd = grid[i * GRID + j];
             let (u, v) = parameter(i, j);
-            // Grazing contact without a sign change still counts.
             if sd.abs() <= threshold {
-                push_sample(u, v);
-                continue;
+                band_cells += 1;
             }
             // Sign changes along grid edges localize the crossing
             // curve; bisection on the implicit distance lands on it.
             if i + 1 < GRID {
                 let sd_right = grid[(i + 1) * GRID + j];
-                if sd_right.abs() > threshold && (sd <= 0.0) != (sd_right <= 0.0) {
+                if (sd <= 0.0) != (sd_right <= 0.0) {
+                    sign_change = true;
                     let (bu, bv) = bisect((u, v), sd, parameter(i + 1, j));
                     push_sample(bu, bv);
                 }
             }
             if j + 1 < GRID {
                 let sd_up = grid[i * GRID + j + 1];
-                if sd_up.abs() > threshold && (sd <= 0.0) != (sd_up <= 0.0) {
+                if (sd <= 0.0) != (sd_up <= 0.0) {
+                    sign_change = true;
                     let (bu, bv) = bisect((u, v), sd, parameter(i, j + 1));
                     push_sample(bu, bv);
                 }
             }
         }
+    }
+    const COINCIDENCE_SUSPECT_CELLS: usize = 32;
+    if !sign_change && band_cells > COINCIDENCE_SUSPECT_CELLS {
+        return None;
     }
     Some(samples)
 }

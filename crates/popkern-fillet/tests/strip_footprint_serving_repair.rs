@@ -3,20 +3,28 @@
 //! canonicalization + the analytic × free-form implicit-distance fast
 //! path).
 //!
-//! Fixture map (measured 2026-08-08, final configuration):
+//! Fixture map (measured 2026-08-09, PK-253 closed: material-sense +
+//! scan-depth repair, sign-change-honest fast-path verdicts):
 //! - pyramid4 [0.06, 0.08, 0.10, 0.08] and cube [0.02, 0.03, 0.04]:
 //!   the served direct-apex caps measure CLEAN — the crossings the
 //!   PK-245 triage attributed to them were artifacts of the marching
 //!   solver's fitted-curve classification; the exact grid verdicts
 //!   clear them. They serve DirectApex with no repair and no retry.
-//! - pyramid4 [0.04, 0.06, 0.05, 0.07], pyramid4
-//!   [0.04, 0.06, 0.05, 0.055], cube [0.15, 0.1, 0.1]: the served cap
-//!   crosses a neighbour support along LOCKED boundary structure
-//!   (bridge-boundary region or diving spoke) — boundary
-//!   participation, which interior control-point pushes structurally
-//!   cannot move. The serving repair attempts, stalls with the
-//!   evidence recorded, and the PK-250 exclusion retry serves legacy
-//!   validate-clean. The constructive partition fix is PK-253.
+//! - pyramid4 [0.04, 0.06, 0.05, 0.07] and [0.04, 0.06, 0.05, 0.055]:
+//!   the historical "boundary participation" was one-sided tolerance
+//!   HOVER, not a crossing — the cap's bridge boundary rides its own
+//!   facet 6.5e-6 over the neighbour facet's plane near the shared
+//!   raw-edge corner, with the whole corner window's minimum at
+//!   machine zero. The sign-change-honest fast path no longer calls
+//!   hover an intersection; these corners serve DirectApex with no
+//!   repair and no retry.
+//! - cube [0.15, 0.1, 0.1]: the one genuinely crossing fixture — the
+//!   cap sector crosses the neighbour r=0.1 strip's retained footprint
+//!   (sign changes through the cylinder). The serving repair CLEARS it
+//!   (material sense orients pushes out of material; the dip is
+//!   measured by scanning the crossing band's UV window, not inferred
+//!   at Greville abscissae). Serves DirectApex with one cleared repair
+//!   record and no retry.
 //! - cube [0.05, 0.1, 0.2]: the construct itself falls back to legacy
 //!   for this set (pre-existing route); clean, no repair, no retry.
 
@@ -125,31 +133,9 @@ fn assert_direct_clean_serve(label: &str, result: &BlendResult) {
     );
 }
 
-fn assert_boundary_participation_serve(label: &str, result: &BlendResult) {
-    let repairs = &result.repair_report.serving_footprint_repairs;
-    assert_eq!(
-        repairs.len(),
-        1,
-        "{label}: repair attempt must be recorded: {repairs:?}"
-    );
-    assert!(
-        !repairs[0].cleared && repairs[0].detail.contains("boundary participation"),
-        "{label}: the boundary-participation class must stall with evidence: {repairs:?}"
-    );
-    let retries = &result.repair_report.serving_self_intersection_retries;
-    assert_eq!(
-        retries.len(),
-        1,
-        "{label}: the exclusion retry serves: {retries:?}"
-    );
-    let errors = result.brep.validate_all();
-    assert!(
-        errors.is_empty(),
-        "{label}: retried legacy serve must validate clean: {errors:?}"
-    );
-}
-
-/// Corners the order-honest validator measures clean serve DIRECT.
+/// Corners the sign-change-honest validator measures clean serve
+/// DIRECT — including the mixed-radius pyramids whose bridge-boundary
+/// hover was historically misread as a crossing.
 #[test]
 fn honest_clean_corners_serve_direct() {
     let result = pyramid_default_result([0.06, 0.08, 0.10, 0.08]);
@@ -158,16 +144,50 @@ fn honest_clean_corners_serve_direct() {
     assert_direct_clean_serve("cube [0.02,0.03,0.04]", &result);
 }
 
-/// Boundary-participation corners stall the repair (recorded), retry,
-/// and serve legacy validate-clean (PK-253 = the constructive fix).
+/// The tolerance-hover pyramids serve DIRECT with no repair machinery
+/// engaged (PK-253).
 #[test]
-fn boundary_participation_corners_record_repair_and_retry() {
+fn hover_pyramid_corners_serve_direct() {
     let result = pyramid_default_result([0.04, 0.06, 0.05, 0.07]);
-    assert_boundary_participation_serve("pyramid4 [0.04,0.06,0.05,0.07]", &result);
+    assert_direct_clean_serve("pyramid4 [0.04,0.06,0.05,0.07]", &result);
     let result = pyramid_default_result([0.04, 0.06, 0.05, 0.055]);
-    assert_boundary_participation_serve("pyramid4 [0.04,0.06,0.05,0.055]", &result);
+    assert_direct_clean_serve("pyramid4 [0.04,0.06,0.05,0.055]", &result);
+}
+
+/// The cube's interior crossing of a neighbour strip is repairable:
+/// the serving repair clears it (material-sense-oriented, scan-depth
+/// pushes) and the corner keeps its direct serve with no retry.
+#[test]
+fn cube_interior_crossing_repairs_to_direct_serve() {
     let result = cube_default_result([0.15, 0.1, 0.1]);
-    assert_boundary_participation_serve("cube [0.15,0.1,0.1]", &result);
+    let repairs = &result.repair_report.serving_footprint_repairs;
+    assert_eq!(
+        repairs.len(),
+        1,
+        "cube [0.15,0.1,0.1]: repair must be recorded: {repairs:?}"
+    );
+    assert!(
+        repairs[0].cleared && repairs[0].detail == "cleared",
+        "cube [0.15,0.1,0.1]: the repair must clear the crossing: {repairs:?}"
+    );
+    assert!(
+        result
+            .repair_report
+            .serving_self_intersection_retries
+            .is_empty(),
+        "cube [0.15,0.1,0.1]: a cleared repair must not retry"
+    );
+    let direct = result
+        .repair_report
+        .apex_routes
+        .iter()
+        .any(|route| matches!(route.route, ApexConstructionRoute::DirectApex));
+    assert!(direct, "cube [0.15,0.1,0.1]: direct serve kept");
+    let errors = result.brep.validate_all();
+    assert!(
+        errors.is_empty(),
+        "cube [0.15,0.1,0.1]: repaired direct serve must validate clean: {errors:?}"
+    );
 }
 
 /// The construct-level fallback set stays clean with no serving

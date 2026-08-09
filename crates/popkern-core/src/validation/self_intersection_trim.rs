@@ -17,6 +17,9 @@ mod self_intersection_trim_trace;
 #[path = "self_intersection_uv_containment.rs"]
 mod self_intersection_uv_containment;
 pub use interior_overlap_samples::InteriorOverlapSample;
+pub(in crate::validation) use self_intersection_uv_containment::{
+    TrimContainment as TrimContainmentForSense, UvPoint as UvPointForSense,
+};
 
 impl BRep {
     pub(super) fn intersection_overlaps_face_trims(
@@ -286,7 +289,7 @@ impl BRep {
         None
     }
 
-    fn face_trim_classify_uv(
+    pub(in crate::validation) fn face_trim_classify_uv(
         &self,
         face_handle: FaceHandle,
         surface: &SurfaceGeometry,

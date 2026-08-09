@@ -8,13 +8,13 @@
 use std::f64::consts::TAU;
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct UvPoint {
-    pub(super) u: f64,
-    pub(super) v: f64,
+pub(in crate::validation) struct UvPoint {
+    pub(in crate::validation) u: f64,
+    pub(in crate::validation) v: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum TrimContainment {
+pub(in crate::validation) enum TrimContainment {
     Outside,
     Boundary,
     Interior,
