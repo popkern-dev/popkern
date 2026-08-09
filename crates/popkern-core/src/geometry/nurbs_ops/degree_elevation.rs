@@ -114,8 +114,14 @@ pub(crate) fn elevate_degree_1d(
         }
     }
 
-    // Step 6: Build new knot vector
-    // Each knot's multiplicity increases by 1
+    // Step 6: Build new knot vector.
+    // The merged Bezier segments join at multiplicity new_p (each pair
+    // of adjacent segments shares exactly one control point — a C0
+    // representation), so every distinct interior knot carries new_p
+    // knots here regardless of its ORIGINAL multiplicity. Writing
+    // orig_mult + 1 instead (the pre-2026-08-09 defect) desynchronized
+    // the knot vector from the merged control net whenever an interior
+    // knot had multiplicity < p (i.e. whenever Step 2 had to insert).
     let mut new_knots: Vec<f64> = Vec::new();
 
     // Start knot: multiplicity was p+1, becomes p+2 = new_p+1
@@ -124,9 +130,9 @@ pub(crate) fn elevate_degree_1d(
         new_knots.push(start_knot);
     }
 
-    // Interior knots: original multiplicity + 1
-    for &(knot_val, orig_mult) in &distinct_interior {
-        for _ in 0..orig_mult + 1 {
+    // Interior knots: segment-join multiplicity (see above)
+    for &(knot_val, _) in &distinct_interior {
+        for _ in 0..new_p {
             new_knots.push(knot_val);
         }
     }
@@ -156,8 +162,46 @@ pub(crate) fn elevate_degree_1d(
         new_p
     );
 
-    (new_p, new_knots, new_pts, new_wts)
+    // Step 7: Restore the continuity-economical representation. The
+    // elevated curve should carry each interior knot at orig_mult + 1;
+    // the segment-join surplus (new_p - orig_mult - 1 knots) reverses
+    // an exact insertion, so removal is mathematically exact. Removal
+    // is tolerance-gated per knot; if numerical amplification declines
+    // it (nano knot spans), the C0-redundant representation is kept —
+    // still shape-exact, merely less economical.
+    let mut cur = (new_knots, new_pts, new_wts);
+    for &(knot_val, orig_mult) in &distinct_interior {
+        let surplus = new_p.saturating_sub(orig_mult + 1);
+        if surplus == 0 {
+            continue;
+        }
+        let Some(index) = cur
+            .0
+            .iter()
+            .position(|&knot| (knot - knot_val).abs() < 1e-15)
+        else {
+            continue;
+        };
+        let (nk, np, nw, _removed) = super::knot_removal::remove_knot_times_1d(
+            new_p,
+            &cur.0,
+            &cur.1,
+            &cur.2,
+            index,
+            surplus,
+            ELEVATION_KNOT_RESTORE_TOLERANCE,
+        );
+        cur = (nk, np, nw);
+    }
+
+    (new_p, cur.0, cur.1, cur.2)
 }
+
+/// Tolerance for reversing the exact segment-join knot insertions
+/// after degree elevation. The removal is mathematically exact; this
+/// bound only absorbs floating-point noise in the reconstruction, so
+/// it sits well below geometric tolerances.
+const ELEVATION_KNOT_RESTORE_TOLERANCE: f64 = 1.0e-10;
 
 #[cfg(test)]
 mod tests {
@@ -299,8 +343,89 @@ mod tests {
         assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
     }
 
-    // Note: multi-span knot insertion path in elevate_degree_1d (lines 39-56)
-    // has a pre-existing consistency issue (debug_assert fails). That code path
-    // is exercised via surface degree elevation, which works correctly because
-    // surfaces decompose into rows/columns first.
+    #[test]
+    fn elevate_multi_span_simple_interior_knot() {
+        // Interior knot BELOW full multiplicity (mult 1 at degree 2):
+        // Step 2 must insert to decompose, and the knot vector must
+        // stay consistent with the merged control net. This was the
+        // pre-2026-08-09 defect: orig_mult + 1 knots were written for
+        // a segment join carrying new_p, producing an invalid curve
+        // (PK-255: a partially-removed terminal sliver knot fed this
+        // path and the fillet exact-boundary preparation panicked).
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 2.0, 0.0),
+            Point3::new(2.0, 2.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+        ];
+        let wts = vec![1.0, 1.0, 1.0, 1.0];
+        let knots = vec![0.0, 0.0, 0.0, 0.4, 1.0, 1.0, 1.0];
+
+        let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
+        assert_eq!(new_deg, 3);
+        assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
+
+        let original = NurbsCurve {
+            degree: 2,
+            knots,
+            control_points: pts,
+            weights: wts,
+        };
+        let elevated = NurbsCurve {
+            degree: new_deg,
+            knots: new_knots,
+            control_points: new_pts,
+            weights: new_wts,
+        };
+        for t in [0.0, 0.1, 0.3, 0.4, 0.5, 0.7, 0.9, 1.0] {
+            let p_old = original.point_at(t);
+            let p_new = elevated.point_at(t);
+            assert!(
+                p_old.distance_to(&p_new) < 1e-10,
+                "Shape changed at t={t}: {p_old:?} vs {p_new:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn elevate_near_end_sliver_interior_knot() {
+        // The measured PK-255 shape: a simple interior knot 3e-8 from
+        // the domain end. Elevation must stay valid and shape-true;
+        // if the exact restore removal declines on the nano span, the
+        // C0-redundant representation is acceptable.
+        let sliver = 1.0 - 2.98e-8;
+        let pts = vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 1.0, 0.0),
+            Point3::new(2.0, 1.0, 0.0),
+            Point3::new(3.0, 0.0, 0.0),
+        ];
+        let wts = vec![1.0, 1.0, 1.0, 1.0];
+        let knots = vec![0.0, 0.0, 0.0, sliver, 1.0, 1.0, 1.0];
+
+        let (new_deg, new_knots, new_pts, new_wts) = elevate_degree_1d(2, &knots, &pts, &wts);
+        assert_eq!(new_deg, 3);
+        assert_eq!(new_knots.len(), new_pts.len() + new_deg + 1);
+
+        let original = NurbsCurve {
+            degree: 2,
+            knots,
+            control_points: pts,
+            weights: wts,
+        };
+        let elevated = NurbsCurve {
+            degree: new_deg,
+            knots: new_knots,
+            control_points: new_pts,
+            weights: new_wts,
+        };
+        for t in [0.0, 0.25, 0.5, 0.75, 0.9999, 1.0] {
+            let p_old = original.point_at(t);
+            let p_new = elevated.point_at(t);
+            assert!(
+                p_old.distance_to(&p_new) < 1e-9,
+                "Shape changed at t={t}: {p_old:?} vs {p_new:?}"
+            );
+        }
+    }
 }
