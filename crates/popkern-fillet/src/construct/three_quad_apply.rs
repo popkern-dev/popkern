@@ -45,10 +45,7 @@ use three_quad_kp_promote::promote_decomp_to_kp_binonic;
 pub(crate) use three_quad_kp_promote::{extract_direct_boundary_input, worst_ring_coplanarity};
 use three_quad_reproject::reproject_loop_pcurves_onto_gregory;
 use three_quad_seam_pcurves::author_boundary_owned_seam_pcurves;
-use three_quad_sphere_cap::{
-    cap_spheres_for_subfaces, severe_radius_spread,
-    sphere_cap_boundary_degeneracy_in_boundary_order, sphere_cap_boundary_seams_are_nondegenerate,
-};
+use three_quad_sphere_cap::sphere_cap_boundary_degeneracy_in_boundary_order;
 use three_quad_trace::trace_cap_subface_neighbors;
 
 use super::poke_hex::poke_n_gon_face_into_expected_n_quads;
@@ -339,146 +336,141 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
     // a postcondition-gated surface primitive.
     let support_frames_enabled = false;
 
-    // Always compute per-fillet sphere data when sphere-fit substitution
-    // succeeded, even if the sphere-cap rung is not selected.
-    let cap_sphere_per_subface: Vec<Option<(Point3, f64)>> = if boundary.sphere_fit_substituted
-        && !boundary.per_fillet_caps.is_empty()
-        && boundary.per_fillet_caps.len() == sub_faces.len()
-    {
-        let mut matched = cap_spheres_for_subfaces(brep, &sub_faces, &boundary.per_fillet_caps);
-        for (k, entry) in matched.iter_mut().enumerate() {
-            if entry.is_none() {
-                *entry = Some(boundary.per_fillet_caps[k]);
-            }
-        }
-        matched
-    } else {
-        vec![None; sub_faces.len()]
-    };
-
-    // Per-fillet sphere-cap rung: only replace Gregory sub-faces when
-    // every planned seam is non-degenerate on the sphere and neighbor.
-    let sphere_cap_requested = boundary.sphere_fit_substituted
-        && !boundary.per_fillet_caps.is_empty()
-        && boundary.per_fillet_caps.len() == sub_faces.len()
-        && (intermediate_self_intersects
-            || severe_radius_spread(&boundary.per_fillet_caps)
-            || std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1"));
-    let sphere_cap_rung = sphere_cap_requested
-        && sphere_cap_boundary_preflight
-        && sphere_cap_boundary_seams_are_nondegenerate(
-            brep,
-            boundary,
-            fillet_surfaces,
-            &cap_sphere_per_subface,
-        );
+    let three_quad_sphere_cap::SphereCapRungSelection {
+        cap_sphere_per_subface,
+        rung: mut sphere_cap_rung,
+    } = three_quad_sphere_cap::select_sphere_cap_rung(
+        brep,
+        boundary,
+        &sub_faces,
+        fillet_surfaces,
+        intermediate_self_intersects,
+        sphere_cap_boundary_preflight,
+    );
 
     let mut patches = Vec::with_capacity(decomp.sub_patches.len());
     let brep_before_surface_assignment = brep.clone();
-    for (k, sub_face) in sub_faces.iter().enumerate() {
-        let semantic_cap_index = semantic_cap_indices
-            .get(k)
-            .and_then(|cap_index| *cap_index)
-            .unwrap_or(k);
-        let Some(sub_patch) = decomp.sub_patches.get(semantic_cap_index) else {
-            *brep = brep_before_surface_assignment.clone();
-            return Err(ThreeQuadFailure::Other(format!(
-                "semantic cap index {semantic_cap_index} has no Gregory sub-patch"
-            )));
-        };
-        // Internal cap-to-cap edges may lack a 3-D curve, so keep the old
-        // surface as the reprojection fallback before replacing it.
-        let old_surface = brep
-            .faces
-            .get(*sub_face)
-            .and_then(|f| f.surface.as_ref())
-            .map(|sof| sof.geometry.clone());
-        let new_geometry = if sphere_cap_rung {
-            let chosen =
-                cap_sphere_per_subface[k].unwrap_or(boundary.per_fillet_caps[semantic_cap_index]);
-            SurfaceGeometry::Sphere {
-                center: chosen.0,
-                radius: chosen.1,
+    // The sphere-cap rung is an upgrade, not a cliff: if a planned seam
+    // fails authoring postconditions despite the preflight, restore the
+    // pre-assignment BRep and recommit with the Gregory sub-patches
+    // (recording why the analytic rung did not ship) instead of failing
+    // the whole decomposition.
+    'surface_assignment: loop {
+        for (k, sub_face) in sub_faces.iter().enumerate() {
+            let semantic_cap_index = semantic_cap_indices
+                .get(k)
+                .and_then(|cap_index| *cap_index)
+                .unwrap_or(k);
+            let Some(sub_patch) = decomp.sub_patches.get(semantic_cap_index) else {
+                *brep = brep_before_surface_assignment.clone();
+                return Err(ThreeQuadFailure::Other(format!(
+                    "semantic cap index {semantic_cap_index} has no Gregory sub-patch"
+                )));
+            };
+            // Internal cap-to-cap edges may lack a 3-D curve, so keep the old
+            // surface as the reprojection fallback before replacing it.
+            let old_surface = brep
+                .faces
+                .get(*sub_face)
+                .and_then(|f| f.surface.as_ref())
+                .map(|sof| sof.geometry.clone());
+            let new_geometry = if sphere_cap_rung {
+                let chosen = cap_sphere_per_subface[k]
+                    .unwrap_or(boundary.per_fillet_caps[semantic_cap_index]);
+                SurfaceGeometry::Sphere {
+                    center: chosen.0,
+                    radius: chosen.1,
+                }
+            } else {
+                SurfaceGeometry::Gregory(sub_patch.clone())
+            };
+            brep.faces[*sub_face].surface = Some(SurfaceOnFace {
+                geometry: new_geometry,
+                orientation: true,
+            });
+            if sphere_cap_rung
+                && let Err(err) =
+                    three_quad_planned_seam_authoring::author_planned_sphere_cap_boundary_seams(
+                        brep,
+                        *sub_face,
+                        boundary,
+                        fillet_surfaces,
+                        semantic_cap_index,
+                    )
+            {
+                diagnostics.push(
+                    three_quad_sphere_cap::sphere_cap_seam_authoring_failure_diagnostic(&err),
+                );
+                *brep = brep_before_surface_assignment.clone();
+                patches.clear();
+                sphere_cap_rung = false;
+                continue 'surface_assignment;
             }
-        } else {
-            SurfaceGeometry::Gregory(sub_patch.clone())
-        };
-        brep.faces[*sub_face].surface = Some(SurfaceOnFace {
-            geometry: new_geometry,
-            orientation: true,
-        });
-        if sphere_cap_rung
-            && let Err(err) =
-                three_quad_planned_seam_authoring::author_planned_sphere_cap_boundary_seams(
+            // Re-fit each boundary pcurve into the new surface's UV space.
+            reproject_loop_pcurves_onto_gregory(
+                brep,
+                *sub_face,
+                old_surface.as_ref(),
+                boundary.sphere_fit_substituted,
+            );
+            if !sphere_cap_rung {
+                diagnostics.extend(author_boundary_owned_seam_pcurves(
                     brep,
                     *sub_face,
                     boundary,
                     fillet_surfaces,
-                    semantic_cap_index,
-                )
-        {
-            *brep = brep_before_surface_assignment.clone();
-            return Err(ThreeQuadFailure::Other(err));
-        }
-        // Re-fit each boundary pcurve into the new surface's UV space.
-        reproject_loop_pcurves_onto_gregory(
-            brep,
-            *sub_face,
-            old_surface.as_ref(),
-            boundary.sphere_fit_substituted,
-        );
-        if !sphere_cap_rung {
-            diagnostics.extend(author_boundary_owned_seam_pcurves(
-                brep,
-                *sub_face,
-                boundary,
-                fillet_surfaces,
-                k,
-                Some(semantic_cap_index),
-            ));
-        }
-        if support_frames_enabled && !sphere_cap_rung {
-            let surface_before_support_frame = brep.faces[*sub_face].surface.clone();
-            super::boundary_support_frames::apply_face_owned_support_frames(brep, *sub_face);
-            let support_frame_rewrite_survived = matches!(
-                brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref()),
-                Some(SurfaceOnFace {
-                    geometry: SurfaceGeometry::Gregory(patch),
-                    ..
-                }) if !patch.self_intersects_with_tolerance(SELF_INT_TOL)
-            );
-            if !support_frame_rewrite_survived {
-                brep.faces[*sub_face].surface = surface_before_support_frame;
+                    k,
+                    Some(semantic_cap_index),
+                ));
             }
+            if support_frames_enabled && !sphere_cap_rung {
+                let surface_before_support_frame = brep.faces[*sub_face].surface.clone();
+                super::boundary_support_frames::apply_face_owned_support_frames(brep, *sub_face);
+                let support_frame_rewrite_survived = matches!(
+                    brep.faces.get(*sub_face).and_then(|f| f.surface.as_ref()),
+                    Some(SurfaceOnFace {
+                        geometry: SurfaceGeometry::Gregory(patch),
+                        ..
+                    }) if !patch.self_intersects_with_tolerance(SELF_INT_TOL)
+                );
+                if !support_frame_rewrite_survived {
+                    brep.faces[*sub_face].surface = surface_before_support_frame;
+                }
+            }
+            three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, *sub_face);
+            super::three_quad_support_pcurve_completion::complete_missing_cap_support_seams(
+                brep, *sub_face,
+            );
+            if let Err(err) = three_quad_reproject::verify_outer_loop_pcurves(brep, *sub_face) {
+                *brep = brep_before_surface_assignment.clone();
+                return Err(ThreeQuadFailure::Other(format!(
+                    "cap surface assignment left invalid trim pcurves: {err}"
+                )));
+            }
+            if crate::direct_apex_trace::enabled() {
+                trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
+            }
+            patches.push(CornerPatchInfo {
+                vertex,
+                n_sides,
+                method: CornerMethod::Gregory,
+                achieved_continuity: ContinuityLevel::G1,
+                classification,
+                face: *sub_face,
+                bridge_fallbacks: boundary.bridge_fallbacks.clone(),
+                overlap_remediated: false,
+                relaxed_continuity_coplanarity: relaxed_coplanarity,
+                cap_sphere: cap_sphere_per_subface[k],
+                sub_patch_provenance: sub_patch_provenance(
+                    macro_family,
+                    n_sides,
+                    semantic_cap_index,
+                ),
+                setback_cap: false,
+                exact_boundary_cap: false,
+            });
         }
-        three_quad_reproject::author_missing_outer_loop_pcurves_from_vertices(brep, *sub_face);
-        super::three_quad_support_pcurve_completion::complete_missing_cap_support_seams(
-            brep, *sub_face,
-        );
-        if let Err(err) = three_quad_reproject::verify_outer_loop_pcurves(brep, *sub_face) {
-            *brep = brep_before_surface_assignment.clone();
-            return Err(ThreeQuadFailure::Other(format!(
-                "cap surface assignment left invalid trim pcurves: {err}"
-            )));
-        }
-        if crate::direct_apex_trace::enabled() {
-            trace_cap_subface_neighbors(brep, "post-assign", &[*sub_face]);
-        }
-        patches.push(CornerPatchInfo {
-            vertex,
-            n_sides,
-            method: CornerMethod::Gregory,
-            achieved_continuity: ContinuityLevel::G1,
-            classification,
-            face: *sub_face,
-            bridge_fallbacks: boundary.bridge_fallbacks.clone(),
-            overlap_remediated: false,
-            relaxed_continuity_coplanarity: relaxed_coplanarity,
-            cap_sphere: cap_sphere_per_subface[k],
-            sub_patch_provenance: sub_patch_provenance(macro_family, n_sides, semantic_cap_index),
-            setback_cap: false,
-            exact_boundary_cap: false,
-        });
+        break;
     }
     // PK-240: a balanced fan curves the interior spokes; re-derive
     // each interior seam's edge triple from the committed binonic

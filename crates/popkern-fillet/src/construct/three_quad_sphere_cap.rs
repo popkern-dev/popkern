@@ -49,6 +49,86 @@ impl SphereCapBoundaryDegeneracy {
     }
 }
 
+/// Selected sphere-cap rung state for the surface-assignment pass.
+pub(super) struct SphereCapRungSelection {
+    /// Per-sub-face sphere data (always computed when sphere-fit
+    /// substitution succeeded, even if the rung is not selected).
+    pub cap_sphere_per_subface: Vec<Option<(Point3, f64)>>,
+    /// Whether the per-fillet sphere-cap rung replaces the Gregory
+    /// sub-patches.
+    pub rung: bool,
+}
+
+/// Decide whether the per-fillet sphere-cap rung applies: sphere-fit
+/// substitution must have succeeded, the rung must be motivated
+/// (self-intersecting Gregory intermediate, severe radius spread, or
+/// the explicit env override), and every planned seam must be
+/// non-degenerate on the sphere and its neighbour.
+pub(super) fn select_sphere_cap_rung(
+    brep: &BRep,
+    boundary: &BlendBoundary,
+    sub_faces: &[FaceHandle],
+    fillet_surfaces: &[FilletSurfaceResult],
+    intermediate_self_intersects: bool,
+    sphere_cap_boundary_preflight: bool,
+) -> SphereCapRungSelection {
+    let sphere_fit_available = boundary.sphere_fit_substituted
+        && !boundary.per_fillet_caps.is_empty()
+        && boundary.per_fillet_caps.len() == sub_faces.len();
+    let cap_sphere_per_subface: Vec<Option<(Point3, f64)>> = if sphere_fit_available {
+        let mut matched = cap_spheres_for_subfaces(brep, sub_faces, &boundary.per_fillet_caps);
+        for (k, entry) in matched.iter_mut().enumerate() {
+            if entry.is_none() {
+                *entry = Some(boundary.per_fillet_caps[k]);
+            }
+        }
+        matched
+    } else {
+        vec![None; sub_faces.len()]
+    };
+    let requested = sphere_fit_available
+        && (intermediate_self_intersects
+            || severe_radius_spread(&boundary.per_fillet_caps)
+            || std::env::var("POPKERN_SPHERE_CAP_RUNG").is_ok_and(|v| v == "1"));
+    let rung = requested
+        && sphere_cap_boundary_preflight
+        && sphere_cap_boundary_seams_are_nondegenerate(
+            brep,
+            boundary,
+            fillet_surfaces,
+            &cap_sphere_per_subface,
+        );
+    SphereCapRungSelection {
+        cap_sphere_per_subface,
+        rung,
+    }
+}
+
+/// Diagnostic for a sphere-cap seam authoring failure that the rung
+/// preflight did not predict. The decomposition recommits with the
+/// Gregory sub-patches; this record explains why the analytic rung
+/// did not ship.
+pub(super) fn sphere_cap_seam_authoring_failure_diagnostic(
+    reason: &str,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "native_gregory_sphere_cap_rung".to_string(),
+            code: "sphere_cap_seam_authoring_failed_gregory_fallback".to_string(),
+            detail_code: Some(reason.to_string()),
+            sector_name: "sphere_cap_rung".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
 pub(super) fn severe_radius_spread(per_fillet_caps: &[(Point3, f64)]) -> bool {
     let mut min_radius = f64::INFINITY;
     let mut max_radius = 0.0_f64;
@@ -198,7 +278,25 @@ fn sphere_cap_segment_degeneracy(
 ) -> Option<SphereCapBoundaryDegeneracy> {
     match segment {
         BoundarySegment::FaceEdge { face, .. } => {
-            let surface = brep.faces.get(*face)?.surface.as_ref()?;
+            // A planned support face that is missing or surfaceless is a
+            // degeneracy, not a pass: the seam authoring must evaluate the
+            // neighbour surface, so "cannot check" here means "cannot
+            // author". (Mid-partition constructive-builder states carry
+            // surfaceless support faces by design — the rung declines and
+            // the Gregory sub-patches commit instead.)
+            let Some(surface) = brep.faces.get(*face).and_then(|f| f.surface.as_ref()) else {
+                return Some(SphereCapBoundaryDegeneracy {
+                    boundary_index: 0,
+                    segment_kind: "FaceEdge",
+                    support_face: Some(*face),
+                    code: "sphere_cap_support_surface_missing",
+                    reason: format!(
+                        "planned support face {face:?} is missing or has no surface; \
+                         the sphere-plane seam cannot be authored against it"
+                    ),
+                    residual: None,
+                });
+            };
             if let SurfaceGeometry::Plane { origin, normal, .. } = &surface.geometry {
                 let normal = normal.normalized()?;
                 let plane_offset = (sphere_center - *origin).dot(&normal).abs();
