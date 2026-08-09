@@ -175,6 +175,60 @@ fn arc_to_nurbs_from_nonzero_start() {
     assert!(nurbs.degree >= 2);
 }
 
+/// PK-257 terminal-sliver guard: an out-of-principal arc whose end
+/// carries atan2-class noise (width π/2 + 2e-8) must not strand a
+/// sub-tolerance nano segment against the quarter-knot grid — the
+/// full-multiplicity break poisoned downstream knot unions (PK-255).
+/// The re-anchored grid keeps every interior knot clear of both ends
+/// while the endpoints stay exact.
+#[test]
+fn arc_to_nurbs_near_quarter_end_leaves_no_sliver_span() {
+    use std::f64::consts::FRAC_PI_2;
+    let noise = 2.107e-8;
+    let arc = CurveGeometry::Arc {
+        center: Point3::new(0.0, 0.0, 0.0),
+        normal: Vec3::new(0.0, 0.0, 1.0),
+        radius: 0.05,
+        start_angle: -(FRAC_PI_2 + noise),
+        end_angle: 0.0,
+    };
+    let nurbs = arc.to_nurbs();
+    let (t_lo, t_hi) = nurbs.parameter_range();
+    let domain = (t_hi - t_lo).abs().max(f64::EPSILON);
+    let min_span = nurbs
+        .knots
+        .windows(2)
+        .map(|pair| pair[1] - pair[0])
+        .filter(|span| *span > 0.0)
+        .fold(f64::INFINITY, f64::min);
+    assert!(
+        min_span > domain * 1.0e-3,
+        "arc conversion strands a sliver span: min_span={min_span:.3e} of domain {domain:.3e}"
+    );
+    // Knots are absolute angle: parameter equals angle AT the knots
+    // (the rational quadratic's interior parameterization skews, as
+    // it always has); the curve must lie ON the circle everywhere.
+    let mut distinct = nurbs.knots.clone();
+    distinct.dedup();
+    for &knot in &distinct {
+        let converted = nurbs.point_at(knot);
+        let exact = arc.point_at(knot);
+        assert!(
+            converted.distance_to(&exact) < 1.0e-12,
+            "knot point deviates at t={knot}: {converted:?} vs {exact:?}"
+        );
+    }
+    for index in 0..=32 {
+        let t = t_lo + (t_hi - t_lo) * index as f64 / 32.0;
+        let p = nurbs.point_at(t);
+        let r = (p.x * p.x + p.y * p.y).sqrt();
+        assert!(
+            (r - 0.05).abs() < 1.0e-12,
+            "converted point off the circle at t={t}: r={r}"
+        );
+    }
+}
+
 #[test]
 fn arc_to_nurbs_full_circle_range() {
     use std::f64::consts::TAU;
