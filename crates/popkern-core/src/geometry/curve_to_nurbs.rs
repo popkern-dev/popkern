@@ -9,6 +9,10 @@
 use crate::geometry::nurbs_curve::NurbsCurve;
 use crate::geometry::{Point3, Vec3};
 
+#[path = "curve_to_nurbs_conic_arc.rs"]
+mod conic_arc;
+use conic_arc::{quarter_grid_collides, uniform_segmented_conic_arc};
+
 /// Parameter on a circle-derived rational NURBS whose POINT sits at
 /// the requested absolute angle (measured in the `(u, v)` basis about
 /// `center`).
@@ -182,16 +186,7 @@ pub(super) fn ellipse_to_nurbs(
     start_angle: f64,
     end_angle: f64,
 ) -> NurbsCurve {
-    use std::f64::consts::TAU;
-    let quarter = TAU / 4.0;
-    let collides = (1..4).any(|index| {
-        let knot = index as f64 * quarter;
-        knot > start_angle
-            && knot < end_angle
-            && ((knot - start_angle).abs() <= QUARTER_COLLISION_WINDOW
-                || (end_angle - knot).abs() <= QUARTER_COLLISION_WINDOW)
-    });
-    if collides {
+    if quarter_grid_collides(0.0, start_angle, end_angle) {
         return uniform_segmented_conic_arc(center, u_basis, v_basis, start_angle, end_angle);
     }
     let full = ellipse_full_to_nurbs(center, u_basis, v_basis);
@@ -210,61 +205,6 @@ pub(super) fn ellipse_to_nurbs(
         }
     } else {
         right
-    }
-}
-
-/// Uniformly segmented rational-quadratic conic arc: `n = ceil(span /
-/// (π/2))` pieces of `span/n` each over exactly `[a0, a1]`, knots in
-/// absolute angle, shoulder construction per piece (exact on circles
-/// and — by affine invariance — ellipses). Sliver spans are
-/// impossible by construction: every piece has width `span/n`.
-pub(super) fn uniform_segmented_conic_arc(
-    center: Point3,
-    u_basis: Vec3,
-    v_basis: Vec3,
-    a0: f64,
-    a1: f64,
-) -> NurbsCurve {
-    use std::f64::consts::TAU;
-    let quarter = TAU / 4.0;
-    let span = a1 - a0;
-    let segments = ((span / quarter).ceil() as usize).max(1);
-    let piece = span / segments as f64;
-    let point_at_angle = |angle: f64, scale: f64| -> Point3 {
-        center + u_basis * (scale * angle.cos()) + v_basis * (scale * angle.sin())
-    };
-    let shoulder_scale = {
-        let half = 0.5 * piece;
-        if half.cos().abs() > 1.0e-300 {
-            1.0 / half.cos()
-        } else {
-            1.0
-        }
-    };
-    let weight = (0.5 * piece).cos();
-    let mut control_points = Vec::with_capacity(2 * segments + 1);
-    let mut weights = Vec::with_capacity(2 * segments + 1);
-    let mut knots = Vec::with_capacity(2 * segments + 4);
-    knots.push(a0);
-    for segment in 0..segments {
-        let seg_start = a0 + piece * segment as f64;
-        knots.push(seg_start);
-        knots.push(seg_start);
-        control_points.push(point_at_angle(seg_start, 1.0));
-        weights.push(1.0);
-        control_points.push(point_at_angle(seg_start + 0.5 * piece, shoulder_scale));
-        weights.push(weight);
-    }
-    control_points.push(point_at_angle(a1, 1.0));
-    weights.push(1.0);
-    knots.push(a1);
-    knots.push(a1);
-    knots.push(a1);
-    NurbsCurve {
-        degree: 2,
-        knots,
-        control_points,
-        weights,
     }
 }
 
@@ -417,15 +357,7 @@ pub(super) fn arc_to_nurbs(
         // parameterization is unreachable for them anyway (it IS the
         // sliver). Non-colliding arcs (every exactly-authored
         // chamfer/fillet arc) keep the historical construction.
-        let quarter = TAU / 4.0;
-        let collides = (1..4).any(|index| {
-            let knot = index as f64 * quarter;
-            knot > a0
-                && knot < a1
-                && ((knot - a0).abs() <= QUARTER_COLLISION_WINDOW
-                    || (a1 - knot).abs() <= QUARTER_COLLISION_WINDOW)
-        });
-        if !collides {
+        if !quarter_grid_collides(0.0, a0, a1) {
             use crate::geometry::analytic_curves::circle_basis;
             let (u, v) = circle_basis(normal);
             let full = circle_to_nurbs(center, normal, radius);
@@ -446,30 +378,65 @@ pub(super) fn arc_to_nurbs(
         }
     }
 
-    // Out-of-principal range: build the arc DIRECTLY as uniformly
-    // segmented rational quadratics (n = ceil(span / (π/2)) pieces of
-    // span/n each, shoulder construction per piece), with knots in
-    // absolute angle over exactly [a0, a1].
-    //
-    // Terminal-sliver guard (PK-257): the previous construction split
-    // an a0-anchored full circle down to the range, so an endpoint
-    // carrying upstream atan2 noise (~1e-8 rad off an exact quarter
-    // angle) stranded a sub-tolerance nano piece against the quarter-
-    // knot grid — a full-multiplicity break that poisoned every
-    // downstream knot union (measured PK-255: fillet-end seam arcs of
-    // width π/2 ± 2e-8 emitted [main, 2e-8] composites that collapsed
-    // the exact-boundary derivative rows). Uniform segmentation makes
-    // sliver spans impossible by construction: every piece has width
-    // span/n ∈ (π/4, π/2]. For spans that are exact multiples of π/2
-    // the segment boundaries coincide with the old quarter grid.
+    // Out-of-principal range: full circle on a basis rotated to a0,
+    // knots shifted so the parameter is still the absolute angle,
+    // then split down to a1 — unless an endpoint collides with the
+    // a0-anchored quarter grid (terminal-sliver guard, PK-257): the
+    // split would strand a sub-tolerance nano piece whose full-
+    // multiplicity break poisons every downstream knot union
+    // (measured PK-255: fillet-end seam arcs of width π/2 ± 2e-8
+    // emitted [main, 2e-8] composites that collapsed the exact-
+    // boundary derivative rows). Colliding arcs take the uniform
+    // segmentation; non-colliding arcs keep this branch's historical
+    // construction and parameterization (PnS setback consumers pair
+    // against it).
     use crate::geometry::analytic_curves::circle_basis;
     let (u, v) = circle_basis(normal);
-    uniform_segmented_conic_arc(center, u * radius, v * radius, a0, a1)
+    let q = TAU / 4.0;
+    if quarter_grid_collides(a0, a0, a1) {
+        return uniform_segmented_conic_arc(center, u * radius, v * radius, a0, a1);
+    }
+    let (cs, sn) = (a0.cos(), a0.sin());
+    let u0 = u * cs + v * sn;
+    let v0 = v * cs - u * sn;
+    let w = 1.0_f64 / 2.0_f64.sqrt();
+    let pts = [
+        center + u0 * radius,
+        center + (u0 + v0) * radius,
+        center + v0 * radius,
+        center + (v0 - u0) * radius,
+        center - u0 * radius,
+        center + (-u0 - v0) * radius,
+        center - v0 * radius,
+        center + (u0 - v0) * radius,
+        center + u0 * radius,
+    ];
+    let weights = vec![1.0, w, 1.0, w, 1.0, w, 1.0, w, 1.0];
+    let knots = vec![
+        a0,
+        a0,
+        a0,
+        a0 + q,
+        a0 + q,
+        a0 + 2.0 * q,
+        a0 + 2.0 * q,
+        a0 + 3.0 * q,
+        a0 + 3.0 * q,
+        a0 + TAU,
+        a0 + TAU,
+        a0 + TAU,
+    ];
+    let shifted_full = NurbsCurve {
+        degree: 2,
+        knots,
+        control_points: pts.to_vec(),
+        weights,
+    };
+    match param_at_angle(&shifted_full, center, u, v, a1) {
+        Some(t) => match shifted_full.split_at(t) {
+            Ok((left, _right)) => left,
+            Err(_) => shifted_full,
+        },
+        None => shifted_full,
+    }
 }
-
-/// Angular window (radians) for the quarter-grid collision tests in
-/// [`arc_to_nurbs`] and [`ellipse_to_nurbs`]. Well above the ~1e-8
-/// atan2 noise class carried by upstream angle authors, well below
-/// any legitimate arc feature; a stranded piece this size is
-/// sub-tolerance geometry for kernel-scale radii.
-const QUARTER_COLLISION_WINDOW: f64 = 1.0e-6;
