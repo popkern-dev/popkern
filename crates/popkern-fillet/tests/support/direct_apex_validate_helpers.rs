@@ -115,6 +115,12 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
         use_biseptic_gregory: true,
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: true,
+        // These matrix fixtures pin native CONSTRUCTION machinery.
+        // Their crossing-flagged serves (PK-245 triage debt) would be
+        // re-routed to legacy by the honest serving-retry exclusion
+        // (PK-258) — serving policy has its own pins; keep the retry
+        // out of the construction measurement.
+        serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };
     fillet_edges(&brep, &specs, &options, tol, None)

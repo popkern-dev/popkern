@@ -49,3 +49,32 @@ pub(super) fn apex_route_decision(
         fallback_reason: input.fallback_reason,
     }
 }
+
+/// PK-258: a completed legacy corner serve records its cap faces on
+/// the vertex's route (so the serving-retry keep-better contract can
+/// measure BOTH candidates uniformly) and, when the corner FELL BACK
+/// from direct-apex, promotes a cap/support continuity breach of the
+/// commercial bars into the shared diagnostics surface.
+pub(super) fn record_legacy_serve_on_route(
+    result: &popkern_core::topology::BRep,
+    repair_report: &mut crate::types::BlendRepairReport,
+    vertex: VertexHandle,
+    cap_faces: Vec<FaceHandle>,
+    fell_back_from_direct_apex: bool,
+) {
+    if fell_back_from_direct_apex
+        && let Some(diagnostic) = super::cap_outer_acceptance::cap_support_continuity_diagnostic(
+            result, &cap_faces, 5.0e-3, 5.0e-2,
+        )
+    {
+        repair_report.apex_diagnostics.push(diagnostic);
+    }
+    if let Some(route) = repair_report
+        .apex_routes
+        .iter_mut()
+        .rev()
+        .find(|route| route.vertex == vertex)
+    {
+        route.built_faces = cap_faces;
+    }
+}

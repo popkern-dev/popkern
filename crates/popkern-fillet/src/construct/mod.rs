@@ -332,7 +332,11 @@ pub fn apply_blend_geometry(
                     // AGAINST releasing N=3 (pns_low_valence_gates.rs).
                     let released_for_pns = crate::blend::pns_promote::pns_first_at_low_valence()
                         && edge_indices.len() == 3;
+                    // PK-258: the serving-retry exclusion binds the per-apex
+                    // flag directly — pruning promotion alone is a no-op when
+                    // the global flag is on (measured: byte-identical rerun).
                     let use_direct_apex_for_this_apex = !released_for_pns
+                        && !excluded_direct_apex_vertices.contains(vertex)
                         && (use_direct_apex_construction || promoted_apexes.contains(vertex));
                     let direct_apex_outcome = if use_direct_apex_for_this_apex {
                         Some(direct_apex_dispatch::try_direct_apex_construction(
@@ -470,17 +474,13 @@ pub fn apply_blend_geometry(
                     ) {
                         Ok((infos, boundary_opt, diagnostics)) => {
                             repair_report.apex_diagnostics.extend(diagnostics);
-                            if direct_apex_fell_back_to_legacy {
-                                let cap_faces =
-                                    infos.iter().map(|info| info.face).collect::<Vec<_>>();
-                                if let Some(diagnostic) =
-                                    cap_outer_acceptance::cap_support_continuity_diagnostic(
-                                        &result, &cap_faces, 5.0e-3, 5.0e-2,
-                                    )
-                                {
-                                    repair_report.apex_diagnostics.push(diagnostic);
-                                }
-                            }
+                            route_decision::record_legacy_serve_on_route(
+                                &result,
+                                &mut repair_report,
+                                *vertex,
+                                infos.iter().map(|info| info.face).collect(),
+                                direct_apex_fell_back_to_legacy,
+                            );
                             for emit in [
                                 bridge_warnings::emit_bridge_fallback_warnings,
                                 bridge_warnings::emit_tangent_corner_warning,

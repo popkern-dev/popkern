@@ -8,6 +8,18 @@ use popkern_core::topology::{BRep, FaceHandle};
 mod measure;
 use measure::{CapSupportSeamEvidence, measure_cap_support_continuity};
 
+/// Worst served cap/support seam continuity over `cap_faces` as
+/// `(worst_g0_gap, worst_g1_coplanarity)` — the serving-retry
+/// keep-better comparison measure (PK-258). `None` when no
+/// cap/support seam is measurable.
+pub(crate) fn worst_cap_support_continuity(
+    brep: &BRep,
+    cap_faces: &[FaceHandle],
+) -> Option<(f64, f64)> {
+    measure_cap_support_continuity(brep, cap_faces)
+        .map(|evidence| (evidence.worst_g0_gap, evidence.worst_g1_coplanarity))
+}
+
 /// Validate that a cap candidate preserves the cap/support boundary
 /// postconditions expected by commercial-grade apex construction.
 pub(crate) fn cap_support_acceptance_error(

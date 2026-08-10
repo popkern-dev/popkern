@@ -117,15 +117,49 @@ pub(crate) fn fillet_edges_internal(
         &excluded,
     ) {
         Ok(mut retried) => {
-            retried.repair_report.serving_self_intersection_retries = offending
+            // PK-258 keep-better: adopt the retried body only when it is
+            // the better SERVE. Crossing-freedom is the hard floor (a
+            // self-intersecting body cannot pass the PK-165 serving
+            // gate, so no quality number buys it back — measured: the
+            // recordless modify fixture shipped a 9v3x7v5 crossing when
+            // bars outranked validity); served cap-outer quality decides
+            // between validity-EQUAL candidates, where the blind
+            // pre-contract adoption traded a g1 0.755 legacy fan for a
+            // served direct cap without ever measuring either. Ties
+            // adopt the retry. An unmeasurable candidate (no served
+            // corner faces) fails the bars and ranks worst on quality —
+            // quality claims need evidence.
+            let first_score = serve_score(&first, &excluded, !offending.is_empty());
+            let retried_offending = served_direct_apex_self_intersections(&retried);
+            let retried_score = serve_score(&retried, &excluded, !retried_offending.is_empty());
+            let adopt_retry = retried_score >= first_score;
+            let decision_detail = format!(
+                "; keep-better: first (bars={}, crossing_free={}, g0={:.3e}, g1={:.3e}) vs \
+                 retry (bars={}, crossing_free={}, g0={:.3e}, g1={:.3e}) -> {}",
+                first_score.meets_bars,
+                first_score.crossing_free,
+                first_score.worst_g0,
+                first_score.worst_g1,
+                retried_score.meets_bars,
+                retried_score.crossing_free,
+                retried_score.worst_g0,
+                retried_score.worst_g1,
+                if adopt_retry { "retry" } else { "first" }
+            );
+            let retries: Vec<crate::types::ServingSelfIntersectionRetry> = offending
                 .into_iter()
                 .map(
                     |(vertex, detail)| crate::types::ServingSelfIntersectionRetry {
                         vertex,
-                        detail,
+                        detail: format!("{detail}{decision_detail}"),
                     },
                 )
                 .collect();
+            if !adopt_retry {
+                first.repair_report.serving_self_intersection_retries = retries;
+                return Ok(first);
+            }
+            retried.repair_report.serving_self_intersection_retries = retries;
             // Keep the failed repair attempts visible on the served
             // report — the retried pipeline run knows nothing of them.
             retried.repair_report.serving_footprint_repairs =
@@ -133,6 +167,135 @@ pub(crate) fn fillet_edges_internal(
             Ok(retried)
         }
         Err(_) => Ok(first),
+    }
+}
+
+/// Keep-better ranking for a served candidate over the retried corner
+/// set: crossing-freedom first (the hard serving-validity floor),
+/// commercial cap-outer bars second, then measured quality. Ordered
+/// so `>=` means "at least as good".
+#[derive(Clone, Copy)]
+struct ServeScore {
+    meets_bars: bool,
+    crossing_free: bool,
+    worst_g0: f64,
+    worst_g1: f64,
+}
+
+impl ServeScore {
+    const MAX_CAP_OUTER_G0: f64 = 5.0e-3;
+    const MAX_CAP_OUTER_G1: f64 = 5.0e-2;
+}
+
+impl PartialEq for ServeScore {
+    fn eq(&self, other: &Self) -> bool {
+        self.partial_cmp(other) == Some(std::cmp::Ordering::Equal)
+    }
+}
+
+impl PartialOrd for ServeScore {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        (
+            self.crossing_free,
+            self.meets_bars,
+            std::cmp::Reverse(ordered_float(self.worst_g1)),
+            std::cmp::Reverse(ordered_float(self.worst_g0)),
+        )
+            .partial_cmp(&(
+                other.crossing_free,
+                other.meets_bars,
+                std::cmp::Reverse(ordered_float(other.worst_g1)),
+                std::cmp::Reverse(ordered_float(other.worst_g0)),
+            ))
+    }
+}
+
+fn ordered_float(value: f64) -> u64 {
+    // Non-negative continuity measures order correctly through their
+    // IEEE bit patterns; NaN (unmeasured) ranks worst of all.
+    if value.is_nan() {
+        u64::MAX
+    } else {
+        value.to_bits()
+    }
+}
+
+/// Measure a candidate's serve over the retried corner set: worst
+/// served cap-outer continuity across the corners' recorded cap faces
+/// (direct AND legacy routes record them), plus crossing state. A
+/// corner with no measurable seam contributes NaN, which fails the
+/// bars and ranks worst — quality claims need evidence.
+fn serve_score(
+    result: &BlendResult,
+    corners: &std::collections::BTreeSet<popkern_core::topology::VertexHandle>,
+    has_crossings: bool,
+) -> ServeScore {
+    let mut worst_g0 = 0.0f64;
+    let mut worst_g1 = 0.0f64;
+    for route in result
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| corners.contains(&route.vertex))
+    {
+        match crate::construct::cap_outer_acceptance::worst_cap_support_continuity(
+            &result.brep,
+            &route.built_faces,
+        ) {
+            Some((g0, g1)) => {
+                worst_g0 = worst_g0.max(g0);
+                worst_g1 = worst_g1.max(g1);
+            }
+            None => {
+                worst_g0 = f64::NAN;
+                worst_g1 = f64::NAN;
+                break;
+            }
+        }
+    }
+    ServeScore {
+        meets_bars: worst_g0 <= ServeScore::MAX_CAP_OUTER_G0
+            && worst_g1 <= ServeScore::MAX_CAP_OUTER_G1,
+        crossing_free: !has_crossings,
+        worst_g0,
+        worst_g1,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ServeScore;
+
+    fn score(crossing_free: bool, worst_g0: f64, worst_g1: f64) -> ServeScore {
+        ServeScore {
+            meets_bars: worst_g0 <= ServeScore::MAX_CAP_OUTER_G0
+                && worst_g1 <= ServeScore::MAX_CAP_OUTER_G1,
+            crossing_free,
+            worst_g0,
+            worst_g1,
+        }
+    }
+
+    /// PK-258 keep-better ranking: crossing-freedom is the hard
+    /// serving-validity floor, commercial bars second, measured
+    /// quality third, and unmeasured (NaN) ranks worst of all.
+    #[test]
+    fn keep_better_ranking_orders_validity_then_bars_then_quality() {
+        // A crossing-free serve beats a crossing-flagged one no matter
+        // the quality gap (the flagged body cannot pass the serving
+        // gate) — the 0.755 legacy fan vs 1e-4 flagged direct case.
+        assert!(score(true, 1.0e-2, 0.755) > score(false, 1.0e-8, 1.0e-4));
+        // Between validity-equal candidates the commercial bars, then
+        // the measured quality, decide — the quality-blind adoption
+        // this contract replaces.
+        assert!(score(true, 1.0e-6, 1.0e-4) > score(true, 1.0e-2, 0.755));
+        assert!(score(false, 1.0e-6, 1.0e-4) > score(false, 1.0e-6, 2.0e-4));
+        // Unmeasured quality (no served corner faces) ranks worst
+        // among validity-equal candidates: quality claims need
+        // evidence.
+        assert!(score(true, 1.0e-2, 0.755) > score(true, f64::NAN, f64::NAN));
+        // Ties adopt the retry via `>=`.
+        assert!(score(true, 1.0e-6, 1.0e-4) >= score(true, 1.0e-6, 1.0e-4));
     }
 }
 

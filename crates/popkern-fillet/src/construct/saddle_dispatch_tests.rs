@@ -177,7 +177,10 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
         .expect("saddle fillet pipeline must complete (PK-231: Phase C carve restored)");
 
     // No Mitred fallback and no direct-apex capture: the saddle is
-    // legacy-owned (promotion is gated to SameSideConvex).
+    // legacy-owned (promotion is gated to SameSideConvex). Legacy
+    // routes DO record their served corner faces since PK-258 (the
+    // serving-retry keep-better measure), so the route label — not an
+    // empty built_faces list — is the ownership claim.
     assert!(
         !result
             .edge_warnings
@@ -192,9 +195,7 @@ fn item5_saddle_fillet_serves_three_gregory_sub_patches() {
             .apex_routes
             .iter()
             .filter(|r| r.vertex == vertex)
-            .all(|r| {
-                r.route == crate::types::ApexConstructionRoute::Legacy && r.built_faces.is_empty()
-            }),
+            .all(|r| r.route == crate::types::ApexConstructionRoute::Legacy),
         "OppositeSide saddle must stay on the legacy route (promotion is \
          SameSideConvex-only); routes: {:?}",
         result
