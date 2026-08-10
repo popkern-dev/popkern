@@ -116,6 +116,30 @@ fn steep_asymmetry_corner_serves_direct_at_commercial_quality() {
     }
 }
 
+/// PK-256: the mirrored (0,0,0) corner of the same fixture serves
+/// DirectApex clean with NO serving machinery. Root chain
+/// (2026-08-10): reauthored FilletEnd seams reverse the final cap
+/// winding relative to the §14.7 mef authoring parity, so the
+/// cap/support bridge sides swap owners (winding-honest bridge-side
+/// selection + chain-slot exchange), the extended-facet assembler
+/// serves the five-side coincident-old-tangent shape, and the
+/// materialized cap boundary reuses seam twins in reversed sector
+/// order.
+#[test]
+fn mirrored_corner_bridge_winding_serves_direct_clean() {
+    let result = cube_corner_result([0.15, 0.1, 0.1], [0.0, 0.0, 0.0]);
+    let label = "cube [0.15,0.1,0.1] @ (0,0,0)";
+    assert!(
+        result.repair_report.serving_footprint_repairs.is_empty()
+            && result
+                .repair_report
+                .serving_self_intersection_retries
+                .is_empty(),
+        "{label}: must serve without serving machinery"
+    );
+    assert_direct_commercial_serve(label, &result);
+}
+
 /// The [0.15, 0.1, 0.1] neighbor keeps its cleared-repair DirectApex
 /// serve AND now holds the commercial bars (its pre-PK-255 blessed
 /// serve measured worst_g1 0.959 — the family-worst crease).

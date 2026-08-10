@@ -22,20 +22,18 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
     let mut strip_side_overrides = std::collections::BTreeMap::new();
     for (sector_index, fillet_end) in fillet_ends.iter().enumerate() {
         let (cap_side, opposite_side) = match replacements_by_fillet.get(&fillet_end.fillet_index) {
-            Some(replacement)
-                if reuse_shared_cap_cylinder_seam
-                    && replacement.kind == CylinderLoopOrientationKind::CurrentSharedFilletEnd =>
-            {
-                // Strict V-free mode: the replacement loop keeps the
-                // current shared FilletEnd cylinder side, so the FilletEnd
-                // edge itself must be the cap-to-cylinder seam — the cap
-                // cycle takes that side's live twin. Cloning a parallel
-                // edge here leaves the cap and the re-trimmed cylinder on
-                // two coincident but topologically disconnected edges
-                // (Stage-D contract: exactly one cap side and one true
-                // cylinder side). Default mode keeps the clone: its
-                // opposite side is the strip side the V-spur apex cells
-                // consume via the strip-loop overrides.
+            Some(replacement) if reuse_shared_cap_cylinder_seam => {
+                // Strict V-free mode: the FilletEnd edge itself must be
+                // the cap-to-cylinder seam — the cap cycle takes the live
+                // twin of whichever side the replacement loop wired
+                // (Current keeps the current cylinder side; Reauthored
+                // took the cap's old side, freeing its twin). Cloning a
+                // parallel edge here leaves the cap and the re-trimmed
+                // cylinder on two coincident but topologically
+                // disconnected edges (Stage-D contract: exactly one cap
+                // side and one true cylinder side). Default mode keeps
+                // the clone: its opposite side is the strip side the
+                // V-spur apex cells consume via the strip-loop overrides.
                 (
                     reused_cap_side_from_shared_cylinder_seam(brep, fillet_end, replacement)?,
                     None,
@@ -64,6 +62,20 @@ pub(super) fn materialized_cap_boundary_from_target_cylinder_replacements(
         if let Some(opposite_side) = opposite_side {
             strip_side_overrides.insert(fillet_end.fillet_index, opposite_side);
         }
+    }
+    // Reauthored replacements twin the cylinder strips' retained
+    // windings, so every cap side above runs REVERSED relative to the
+    // planned T_a->T_b sector traversal — the cap cycle is the
+    // reversed-order walk of the sector list (PK-256, measured on the
+    // mirrored cube corner). Partial reauthoring keeps the forward
+    // order: a mixed-winding cycle cannot chain either way and falls
+    // through to the validator's diagnostic.
+    if replacements_by_fillet.len() == fillet_ends.len()
+        && cylinder_loop_replacements.iter().all(|replacement| {
+            replacement.kind == CylinderLoopOrientationKind::ReauthoredSharedFilletEnd
+        })
+    {
+        cap_cycle.reverse();
     }
     // Strict-mode junction bridging (PK-126, measured on cube_mixed
     // N=3): the reused FilletEnd cap side and the following face-edge

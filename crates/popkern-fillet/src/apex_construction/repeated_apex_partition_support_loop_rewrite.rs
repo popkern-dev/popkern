@@ -12,7 +12,10 @@ use support_loop_assembly::assemble_extended_facet_cycle;
 pub(super) use support_loop_routing::{
     SupportSourceLoopTransfer, repair_support_source_loops_after_cylinder_rewire,
 };
-use support_loop_routing::{face_edge_endpoints_fit_face_plane, splice_side_out_of_donor_loop};
+use support_loop_routing::{
+    exchange_bridge_side_with_cap_chain, face_edge_endpoints_fit_face_plane,
+    splice_side_out_of_donor_loop, winding_honest_bridge_side,
+};
 
 pub(super) use support_loop_residual::materialize_authored_support_boundary_residual_cycles;
 use support_loop_residual::materialize_support_boundary_residual_cycles;
@@ -238,18 +241,60 @@ fn materialize_closed_support_trim_cycles_candidate(
         if let Some(half_edges) = by_support_face.get_mut(&group_key)
             && !half_edge_is_degenerate(brep, face_edge.support_half_edge)
         {
-            if group_key != face_edge.support_face {
-                splice_side_out_of_donor_loop(brep, face_edge.support_half_edge);
-                if let Some(face) = brep.faces.get_mut(face_edge.support_face) {
-                    face.role = TopologyRole::ConstructionResidual;
-                    face.surface = None;
+            let selected =
+                winding_honest_bridge_side(brep, face_edge.support_half_edge, half_edges);
+            if selected == face_edge.support_half_edge {
+                if group_key != face_edge.support_face {
+                    splice_side_out_of_donor_loop(brep, face_edge.support_half_edge);
                 }
+            } else {
+                exchange_bridge_side_with_cap_chain(brep, selected, face_edge.support_half_edge);
             }
-            half_edges.push(face_edge.support_half_edge);
+            if group_key != face_edge.support_face
+                && let Some(face) = brep.faces.get_mut(face_edge.support_face)
+            {
+                face.role = TopologyRole::ConstructionResidual;
+                face.surface = None;
+            }
+            half_edges.push(selected);
             support_faces_with_existing_boundary.insert(group_key);
         }
     }
 
+    if crate::direct_apex_trace::enabled() {
+        let transfer_loops: std::collections::BTreeSet<LoopHandle> = source_loop_transfers
+            .iter()
+            .map(|transfer| transfer.loop_)
+            .collect();
+        for (support_face, sides) in &by_support_face {
+            for side in sides {
+                let Some(data) = brep.half_edges.get(*side) else {
+                    continue;
+                };
+                let end = brep.half_edges.get(data.twin).map(|twin| twin.origin);
+                let twin_owner = brep
+                    .half_edges
+                    .get(data.twin)
+                    .map(|twin| twin.loop_)
+                    .and_then(|loop_handle| {
+                        brep.loops.get(loop_handle).map(|loop_data| {
+                            (
+                                loop_handle,
+                                loop_data.face,
+                                brep.faces.get(loop_data.face).map(|face| face.role),
+                                transfer_loops.contains(&loop_handle),
+                            )
+                        })
+                    });
+                eprintln!(
+                    "[direct-apex-trace §14.9/group-ownership] support {support_face:?} side \
+                     {side:?} {:?}->{end:?} twin {:?} owned by {twin_owner:?} (loop, face, role, \
+                     consumed-source-transfer)",
+                    data.origin, data.twin
+                );
+            }
+        }
+    }
     let mut support_groups = by_support_face.into_iter().collect::<Vec<_>>();
     support_groups.sort_by_key(|(support_face, _)| {
         let generated_count = generated_trim_count_by_support_face

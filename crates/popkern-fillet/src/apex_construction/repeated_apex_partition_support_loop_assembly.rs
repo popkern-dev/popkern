@@ -1,7 +1,9 @@
-//! Explicit six-side extended-facet cycle assembly for the repeated-apex
+//! Explicit extended-facet cycle assembly for the repeated-apex
 //! support-loop rewrite (PK-092 finale): [genA-twin, top, genB-twin,
 //! span_b, base-contact, span_a], where corner spans are the twins of
-//! the base loop's tangent-span sides.
+//! the base loop's tangent-span sides. When both spans meet at one
+//! shared far corner (coincident old tangents, PK-256 mirrored-corner
+//! class) the facet is the five-side shape without a base-contact.
 
 use super::super::*;
 
@@ -151,6 +153,12 @@ pub(super) fn assemble_extended_facet_cycle(
         .ok_or_else(|| ApexBuildError::PlanMismatch {
             reason: "explicit facet assembly lost span A origin".to_owned(),
         })?;
+    // Coincident old tangents (both retained far sides end at one
+    // shared far corner): the facet is the five-side shape with no
+    // base-contact between them.
+    if old_tangent_b == old_tangent_a {
+        return Ok(Some(vec![gen_a, top_side, gen_b, span_b, span_a]));
+    }
     // Kept base-contact: current facet-loop side old_tangent_b -> old_tangent_a.
     let facet_loop = brep.faces.get(support_face).map(|face| face.outer_loop);
     let base_contact = facet_loop.and_then(|loop_handle| {
