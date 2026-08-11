@@ -111,6 +111,17 @@ fn run(args: &[String]) -> Result<(), String> {
             Ok(())
         }
         "screenshot" => {
+            // The input model is the first positional argument and is
+            // REQUIRED: a screenshot that silently substitutes a
+            // placeholder body is worse than an error (PK-259 — this
+            // branch rendered a hardcoded unit cube for every input,
+            // and the byte-identical output masqueraded as a real
+            // render of the requested file).
+            let input_path = args
+                .get(2)
+                .filter(|a| !a.starts_with("--"))
+                .ok_or("screenshot requires an input file: popkern-viz screenshot <file>")?
+                .clone();
             let mut output_path = "output.png".to_string();
             let mut width = 1280u32;
             let mut height = 720u32;
@@ -118,7 +129,7 @@ fn run(args: &[String]) -> Result<(), String> {
             let mut show_wireframe = true;
 
             // Parse optional CLI flags: --output, --width, --height, --camera, --no-wireframe
-            let mut i = 2;
+            let mut i = 3;
             while i < args.len() {
                 match args[i].as_str() {
                     "--output" | "-o" => {
@@ -161,12 +172,28 @@ fn run(args: &[String]) -> Result<(), String> {
                 i += 1;
             }
 
-            let brep = popkern_core::topology::BRep::unit_cube(
-                popkern_core::tolerance::Tolerance::default(),
-            )
-            .map_err(|e| format!("unit cube build failed: {e}"))?;
+            let brep = popkern_viz::loader::load_model(std::path::Path::new(&input_path))
+                .map_err(|e| format!("failed to load {input_path}: {e}"))?;
 
             let mut camera = popkern_viz::camera::Camera::default_iso();
+            // Frame the actual model: fit to its vertex bounds before
+            // applying the view preset (the preset keeps the fitted
+            // distance).
+            let mut bounds: Option<(glam::Vec3, glam::Vec3)> = None;
+            for (_, vertex) in &brep.vertices {
+                let p = glam::Vec3::new(
+                    vertex.position.x as f32,
+                    vertex.position.y as f32,
+                    vertex.position.z as f32,
+                );
+                bounds = Some(match bounds {
+                    None => (p, p),
+                    Some((lo, hi)) => (lo.min(p), hi.max(p)),
+                });
+            }
+            if let Some((lo, hi)) = bounds {
+                camera.fit_to_bounds(lo, hi);
+            }
             // Apply camera preset
             let preset = match camera_preset.as_str() {
                 "front" => Some(popkern_viz::camera::ViewPreset::Front),
