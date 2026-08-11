@@ -254,11 +254,41 @@ pub(in crate::validation) fn analytic_free_form_near_samples(
         )
     };
     let mut grid = vec![0.0_f64; GRID * GRID];
+    let mut grid_min = f64::MAX;
+    let mut grid_max = f64::MIN;
+    let mut band_cells = 0usize;
     for i in 0..GRID {
         for j in 0..GRID {
             let (u, v) = parameter(i, j);
-            grid[i * GRID + j] = signed_distance(u, v);
+            let sd = signed_distance(u, v);
+            grid[i * GRID + j] = sd;
+            if sd.is_finite() {
+                grid_min = grid_min.min(sd);
+                grid_max = grid_max.max(sd);
+            }
+            if sd.abs() <= threshold {
+                band_cells += 1;
+            }
         }
+    }
+    // PK-230: a crossing verdict needs MATERIAL two-sided evidence —
+    // grid samples deeper than the linear tolerance on BOTH sides of
+    // the analytic surface. Tangential contact at exactly zero (a cap
+    // grazing its support plane at a shared setback vertex, or a
+    // boundary-participation seam riding the support plane) produces
+    // `sd <= 0` sign flips whose negative depth never exceeds the
+    // model's own tolerance band (measured: cube_extreme's cap edge
+    // dips 5.3e-9 below the support plane — three orders under the
+    // 1e-6 linear tolerance — and was flagged as an interior
+    // crossing). Sub-tolerance contact is not interpenetration;
+    // extensive tolerance-band contact is a possible coincident
+    // overlap and escalates to the generic solver path, whose
+    // coincidence detection owns that question.
+    if grid_min > -linear_tol || grid_max < linear_tol {
+        if band_cells > COINCIDENCE_SUSPECT_CELLS {
+            return None;
+        }
+        return Some(Vec::new());
     }
     let mut samples = Vec::new();
     let mut push_sample = |u: f64, v: f64| {
@@ -292,15 +322,11 @@ pub(in crate::validation) fn analytic_free_form_near_samples(
     // sign change is a different animal — possible tolerance-coincident
     // overlap — and escalates to the generic solver path, whose
     // coincidence detection owns that question.
-    let mut band_cells = 0usize;
     let mut sign_change = false;
     for i in 0..GRID {
         for j in 0..GRID {
             let sd = grid[i * GRID + j];
             let (u, v) = parameter(i, j);
-            if sd.abs() <= threshold {
-                band_cells += 1;
-            }
             // Sign changes along grid edges localize the crossing
             // curve; bisection on the implicit distance lands on it.
             if i + 1 < GRID {

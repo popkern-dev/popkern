@@ -1,20 +1,40 @@
 //! §5.3 Phase-10a — Peters two-stripe G1 scorecard.
 //!
-//! Four-rung side-by-side when rectangular sub-patches are committed:
-//! baseline deg5, biquintic-full, biseptic, two-stripe. The last rung
-//! is expected to achieve near-machine-precision G1 across all spoke
-//! samples, closing the structural gap that biseptic plateaued at
-//! (~84° worst-case).
+//! Rung ladder side-by-side on the fixture the rectangular sub-patch
+//! ladder actually reaches: the uniform square-pyramid apex
+//! (r = 0.05), whose uniform promotion arm stands down on explicit
+//! legacy-family flags (PK-229 `explicit_legacy_surface_family`
+//! carve-out).
+//!
+//! PK-230: migrated off the mixed-radius cube corners. cube_mixed has
+//! been setback-served since PK-226 (the old scorecard passed through
+//! a macro-cap escape hatch with zero flag coverage), and cube_extreme
+//! reached the ladder only while the pre-PK-230 grazing false
+//! positive made the serving retry re-route its promoted direct-apex
+//! serve back to legacy — the honest validator retired that
+//! accident. On mixed corners the deg5-only baseline IS the default
+//! flag set, and defaults promote mixed N∈{3,4} apexes (PK-099).
+//!
+//! Measured rungs (validation sweep 2026-08-11, min/mean cos over
+//! shared-spoke samples):
+//!
+//! | rung        | min    | mean   |
+//! |-------------|--------|--------|
+//! | deg5        | (promoted direct-apex serve — no sub-patches)   |
+//! | biquintic   | 0.9424 | 0.9752 |
+//! | biseptic    | 0.9424 | 0.9752 | (coupled-ladder gate: see below)
+//! | two-stripe  | 0.9999 | 1.0000 |
+//!
+//! This pin must FAIL, not skip, if the ladder stops committing
+//! rectangular sub-patches on this fixture (PK-230 acceptance: no
+//! vacuous flag pins).
 
 use popkern_core::geometry::Vec3;
 use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
-use popkern_fillet::{
-    BlendResult, ExactBoundaryCandidateOutcome, ExactBoundaryReportTransactionStatus,
-    FilletOptions, FilletRadius, FilletSpec, fillet_edges,
-};
+use popkern_fillet::{BlendResult, FilletOptions, FilletRadius, FilletSpec, fillet_edges};
 
 enum Variant {
     Deg5,
@@ -23,22 +43,28 @@ enum Variant {
     TwoStripe,
 }
 
-fn fillet_mixed_corner(variant: Variant) -> BlendResult {
-    let cube = BRep::unit_cube(Tolerance::default()).unwrap();
-    let vertex = cube.vertices.keys().next().unwrap();
-    let incident_edges: Vec<_> = cube
-        .half_edges
-        .values()
-        .filter(|he| he.origin == vertex)
-        .map(|he| he.edge)
-        .collect();
-    let radii = [0.08, 0.10, 0.12];
-    let specs: Vec<FilletSpec> = incident_edges
+fn fillet_pyramid4_apex(variant: Variant) -> BlendResult {
+    let brep = BRep::square_pyramid(1.0, 0.8, Tolerance::default()).unwrap();
+    let incident_edges = |vertex: popkern_core::topology::VertexHandle| {
+        brep.half_edges
+            .values()
+            .filter(|he| he.origin == vertex)
+            .map(|he| he.edge)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    let vertex = brep
+        .vertices
+        .keys()
+        .find(|&v| incident_edges(v).len() == 4)
+        .expect("square_pyramid valence-4 apex");
+    let edges = incident_edges(vertex);
+    let specs: Vec<FilletSpec> = edges
         .iter()
-        .zip(radii.iter())
-        .map(|(&e, &r)| FilletSpec {
+        .map(|&e| FilletSpec {
             edge: e,
-            radius: FilletRadius::Constant(r),
+            radius: FilletRadius::Constant(0.05),
         })
         .collect();
     let (full, bsep, tsp) = match variant {
@@ -55,47 +81,23 @@ fn fillet_mixed_corner(variant: Variant) -> BlendResult {
         use_two_stripe_gregory: tsp,
         ..FilletOptions::default()
     };
-    fillet_edges(&cube, &specs, &opts, Tolerance::default(), None).unwrap()
+    fillet_edges(&brep, &specs, &opts, Tolerance::default(), None).unwrap()
 }
 
-fn corner_patch_faces(result: &BlendResult) -> Vec<popkern_core::topology::FaceHandle> {
-    result.corner_patches.iter().map(|p| p.face).collect()
-}
-
-fn assert_exact_boundary_route(result: &BlendResult, variant: &str) {
+fn corner_patches(result: &BlendResult) -> Vec<GregoryPatch> {
     result
-        .brep
-        .validate()
-        .unwrap_or_else(|_| panic!("{variant} exact-boundary route must yield a valid BRep"));
-    let route = result
-        .repair_report
-        .apex_routes
-        .first()
-        .unwrap_or_else(|| panic!("{variant} should report an apex route"));
-    assert_eq!(
-        route.exact_boundary_report.candidate_status,
-        ExactBoundaryCandidateOutcome::Accepted,
-        "{variant} should report accepted exact-boundary construction"
-    );
-    assert_eq!(
-        route.exact_boundary_report.provenance.transaction_status,
-        ExactBoundaryReportTransactionStatus::Committed,
-        "{variant} exact-boundary transaction should commit"
-    );
-    assert!(
-        !route.exact_boundary_report.committed_faces.is_empty(),
-        "{variant} should report exact-boundary committed cap faces"
-    );
-}
-
-fn patch_of(brep: &BRep, face: popkern_core::topology::FaceHandle) -> Option<GregoryPatch> {
-    brep.faces[face].surface.as_ref().and_then(|sof| {
-        if let SurfaceGeometry::Gregory(gp) = &sof.geometry {
-            Some(gp.clone())
-        } else {
-            None
-        }
-    })
+        .corner_patches
+        .iter()
+        .filter_map(|p| result.brep.faces.get(p.face))
+        .filter_map(|f| f.surface.as_ref())
+        .filter_map(|sof| {
+            if let SurfaceGeometry::Gregory(gp) = &sof.geometry {
+                Some(gp.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 fn unit_normal(gp: &GregoryPatch, u: f64, v: f64) -> Option<Vec3> {
@@ -153,113 +155,107 @@ fn summarize(label: &str, samples: &[Sample]) -> (f64, f64, f64) {
 }
 
 #[test]
-fn two_stripe_scorecard_four_rung() {
-    let result_d = fillet_mixed_corner(Variant::Deg5);
-    let result_q = fillet_mixed_corner(Variant::BiquinticFull);
-    let result_s = fillet_mixed_corner(Variant::Biseptic);
-    let result_t = fillet_mixed_corner(Variant::TwoStripe);
-    let faces_d = corner_patch_faces(&result_d);
-    let faces_q = corner_patch_faces(&result_q);
-    let faces_s = corner_patch_faces(&result_s);
-    let faces_t = corner_patch_faces(&result_t);
+fn two_stripe_scorecard_ladder_rungs() {
+    let result_d = fillet_pyramid4_apex(Variant::Deg5);
+    let result_q = fillet_pyramid4_apex(Variant::BiquinticFull);
+    let result_s = fillet_pyramid4_apex(Variant::Biseptic);
+    let result_t = fillet_pyramid4_apex(Variant::TwoStripe);
 
-    let patches_d: Vec<_> = faces_d
-        .iter()
-        .filter_map(|&f| patch_of(&result_d.brep, f))
-        .collect();
-    let patches_q: Vec<_> = faces_q
-        .iter()
-        .filter_map(|&f| patch_of(&result_q.brep, f))
-        .collect();
-    let patches_s: Vec<_> = faces_s
-        .iter()
-        .filter_map(|&f| patch_of(&result_s.brep, f))
-        .collect();
-    let patches_t: Vec<_> = faces_t
-        .iter()
-        .filter_map(|&f| patch_of(&result_t.brep, f))
-        .collect();
+    // The deg5-only set IS the default configuration: the uniform
+    // apex promotes to the direct-apex route and no rectangular
+    // sub-patches ship. This is the documented reaching condition —
+    // the LADDER rungs below are the flag-effect claims.
+    let patches_d = corner_patches(&result_d);
+    assert!(
+        patches_d.is_empty(),
+        "deg5-only (default) flag set should serve the promoted direct-apex route \
+         with no rectangular Gregory sub-patches; got {}",
+        patches_d.len()
+    );
 
-    if patches_d.len() != 3 || patches_q.len() != 3 || patches_s.len() != 3 || patches_t.len() != 3
-    {
+    let patches_q = corner_patches(&result_q);
+    let patches_s = corner_patches(&result_s);
+    let patches_t = corner_patches(&result_t);
+
+    // The explicit-family rungs must COMMIT rectangular sub-patches —
+    // an empty set means the fixture no longer reaches the ladder and
+    // the scorecard must migrate (PK-230: no vacuous flag pins).
+    assert_eq!(
+        patches_q.len(),
+        4,
+        "biquintic rung must commit 4 sub-patches"
+    );
+    assert_eq!(
+        patches_s.len(),
+        4,
+        "biseptic rung must commit 4 sub-patches"
+    );
+    assert_eq!(
+        patches_t.len(),
+        4,
+        "two-stripe rung must commit 4 sub-patches"
+    );
+
+    for (i, p) in patches_q.iter().enumerate() {
         assert!(
-            patches_d.is_empty()
-                && patches_q.is_empty()
-                && patches_s.is_empty()
-                && patches_t.is_empty(),
-            "expected either matching 3-patch rectangular decompositions or the current logical macro-cap route; got deg5={} biquintic={} biseptic={} two_stripe={}",
-            patches_d.len(),
-            patches_q.len(),
-            patches_s.len(),
-            patches_t.len(),
+            matches!(p, GregoryPatch::RectangularBiquinticFull(_)),
+            "biquintic rung patch {i} should be RectangularBiquinticFull"
         );
-        assert_exact_boundary_route(&result_d, "deg5");
-        assert_exact_boundary_route(&result_q, "biquintic");
-        assert_exact_boundary_route(&result_s, "biseptic");
-        assert_exact_boundary_route(&result_t, "two-stripe");
-        return;
     }
-
-    assert_eq!(patches_d.len(), 3);
-    assert_eq!(patches_q.len(), 3);
-    assert_eq!(patches_s.len(), 3);
-    assert_eq!(patches_t.len(), 3);
-
-    // Per conservative ladder: two-stripe rung emits
-    // RectangularTwoStripe variant only if the solver actually
-    // improved G1 over biseptic. On some geometries the
-    // iteration loop converges to a biseptic-equivalent state
-    // and the upgrade is skipped. Accept biseptic or two-stripe
-    // at this rung.
-    for (i, p) in patches_t.iter().enumerate() {
+    // Biseptic and two-stripe are a coupled ladder unit: with
+    // two-stripe off, run_promotion_ladder short-circuits at the
+    // pre-two-stripe gate ("pre_two_stripe_disabled") BEFORE biseptic
+    // promotion, so this rung ships the biquintic state by design.
+    // Biseptic-typed patches are an intermediate the two-stripe rung
+    // consumes; they surface only if the two-stripe promote declines.
+    for (i, p) in patches_s.iter().enumerate() {
         assert!(
             matches!(
                 p,
-                GregoryPatch::RectangularTwoStripe(_) | GregoryPatch::RectangularBiseptic(_)
+                GregoryPatch::RectangularBiseptic(_) | GregoryPatch::RectangularBiquinticFull(_)
             ),
-            "two-stripe rung patch {i} should be RectangularTwoStripe or RectangularBiseptic"
+            "biseptic rung patch {i} should be RectangularBiseptic or RectangularBiquinticFull"
+        );
+    }
+    // Two-stripe measurably improves on this fixture and must ship
+    // its own variant (flag effect — the PK-230 acceptance).
+    for (i, p) in patches_t.iter().enumerate() {
+        assert!(
+            matches!(p, GregoryPatch::RectangularTwoStripe(_)),
+            "two-stripe rung patch {i} should be RectangularTwoStripe"
         );
     }
 
     const N: usize = 5;
-    let sd = sample_shared_spokes(&patches_d, N);
     let sq = sample_shared_spokes(&patches_q, N);
     let ss = sample_shared_spokes(&patches_s, N);
     let st = sample_shared_spokes(&patches_t, N);
 
-    let (min_d, mean_d, ang_d) = summarize("deg5       ", &sd);
     let (min_q, mean_q, ang_q) = summarize("biquintic  ", &sq);
     let (min_s, mean_s, ang_s) = summarize("biseptic   ", &ss);
     let (min_t, mean_t, ang_t) = summarize("two-stripe ", &st);
 
-    // Non-regression between all four rungs.
+    // Non-regression between the explicit-family rungs.
     let tol = 1e-9;
-    assert!(min_q + tol >= min_d && mean_q + tol >= mean_d && ang_q <= ang_d + 1e-6);
     assert!(min_s + tol >= min_q && mean_s + tol >= mean_q && ang_s <= ang_q + 1e-6);
     assert!(min_t + tol >= min_s && mean_t + tol >= mean_s && ang_t <= ang_s + 1e-6);
 
-    // Two-stripe must significantly outperform biseptic on the
-    // interior-spoke samples. Mean cos should be above 0.95
-    // (biseptic plateaus near 0.79); max sample should reach
-    // near-machine precision (>0.99).
+    // Quality at the measured class (margins below the 2026-08-11
+    // measurements: biquintic 0.9424/0.9752, two-stripe
+    // 0.9999/1.0000).
     assert!(
-        mean_t > 0.95,
-        "two-stripe mean-cos {mean_t:.6} below 0.95 — solver under-performing"
+        mean_q > 0.9,
+        "biquintic mean-cos {mean_q:.6} below measured class (0.9752)"
     );
-    let max_cos_t = st
-        .iter()
-        .map(|s| s.cos_angle)
-        .fold(f64::NEG_INFINITY, f64::max);
     assert!(
-        max_cos_t > 0.99,
-        "two-stripe best-sample cos {max_cos_t:.6} below 0.99 — solver not reaching machine precision anywhere"
+        min_t > 0.99 && mean_t > 0.995,
+        "two-stripe min/mean-cos {min_t:.6}/{mean_t:.6} below measured class \
+         (0.9999/1.0000)"
     );
-    // Phase 10c remaining work: the MIN cos (worst-case sample)
-    // still hits ~0.73 on this fixture. Samples near the outer
-    // hex vertices `V_{2k+2}` have corner tangent-plane
-    // mismatches that are NOT explicitly constrained by the
-    // solver — only the central vertex C enforces cross-patch
-    // tangent agreement (via Shirman-Séquin). A future phase
-    // adds outer-corner G1 constraints alongside the spoke
-    // samples, at which point `min_t` should also exceed 0.99.
+    // Two-stripe must measurably outperform biquintic — the
+    // end-to-end justification for the upper ladder.
+    assert!(
+        min_t > min_q + 0.01,
+        "two-stripe min-cos {min_t:.6} not measurably above biquintic's {min_q:.6}"
+    );
 }

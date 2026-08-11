@@ -113,6 +113,27 @@ fn cube_extreme_completes_native_gregory_without_cap_outer_fallback() {
         metrics.worst_g1_coplanarity,
     );
 
+    // PK-230: the native serve is crossing-free under the material-
+    // two-sided validator rule — the historical flag was the cap edge
+    // grazing its support plane 5.3e-9 below at the shared setback
+    // vertex, a validator false positive fixed at the core root. Pin
+    // the clean census so the class cannot regress silently.
+    let crossings = result
+        .brep
+        .validate_all()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::SelfIntersection { .. }
+            )
+        })
+        .count();
+    assert_eq!(
+        crossings, 0,
+        "cube_extreme native serve must census zero SelfIntersection"
+    );
+
     // Under the V-free DefaultOn n>=3 widening (PK-153), cube_extreme's
     // default build takes the repeated-apex trim rewrite whose mixed
     // plan applies the face-family bridge continuation for its three

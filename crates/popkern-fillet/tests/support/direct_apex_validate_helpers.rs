@@ -116,10 +116,15 @@ pub(crate) fn build_under_direct_apex_with_pyramid_height(
         use_two_stripe_gregory: true,
         use_kp_binonic_gregory: true,
         // These matrix fixtures pin native CONSTRUCTION machinery.
-        // Their crossing-flagged serves (PK-245 triage debt) would be
-        // re-routed to legacy by the honest serving-retry exclusion
-        // (PK-258) — serving policy has its own pins; keep the retry
-        // out of the construction measurement.
+        // The cube-family serves census crossing-free (PK-230: the
+        // historical flag was a sub-tolerance grazing false positive,
+        // fixed at the core validator root), but the pyramid3
+        // mixed/extreme base-corner serves carry the PK-260 defect
+        // (support faces unstitched from the corner complex) and the
+        // honest serving-retry exclusion (PK-258) would re-route them
+        // to legacy — serving policy has its own pins; keep the retry
+        // out of the construction measurement until PK-260 lands,
+        // whose acceptance includes re-enabling it here.
         serving_self_intersection_retry: false,
         ..FilletOptions::default()
     };

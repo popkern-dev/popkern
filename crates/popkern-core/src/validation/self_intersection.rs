@@ -468,3 +468,7 @@ mod tests;
 #[cfg(test)]
 #[path = "self_intersection_order_tests.rs"]
 mod order_tests;
+
+#[cfg(test)]
+#[path = "self_intersection_grazing_tests.rs"]
+mod grazing_tests;

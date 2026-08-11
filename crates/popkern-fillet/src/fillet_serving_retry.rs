@@ -262,6 +262,28 @@ fn serve_score(
     }
 }
 
+/// Served direct-apex corners whose region self-intersects, with the
+/// validator's face-pair detail.
+fn served_direct_apex_self_intersections(
+    result: &BlendResult,
+) -> Vec<(popkern_core::topology::VertexHandle, String)> {
+    result
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| {
+            matches!(route.route, crate::types::ApexConstructionRoute::DirectApex)
+                && !route.built_faces.is_empty()
+        })
+        .filter_map(|route| {
+            crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
+                validate_candidate_region_self_intersection(&result.brep, &route.built_faces)
+                .err()
+                .map(|detail| (route.vertex, detail))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::ServeScore;
@@ -297,26 +319,4 @@ mod tests {
         // Ties adopt the retry via `>=`.
         assert!(score(true, 1.0e-6, 1.0e-4) >= score(true, 1.0e-6, 1.0e-4));
     }
-}
-
-/// Served direct-apex corners whose region self-intersects, with the
-/// validator's face-pair detail.
-fn served_direct_apex_self_intersections(
-    result: &BlendResult,
-) -> Vec<(popkern_core::topology::VertexHandle, String)> {
-    result
-        .repair_report
-        .apex_routes
-        .iter()
-        .filter(|route| {
-            matches!(route.route, crate::types::ApexConstructionRoute::DirectApex)
-                && !route.built_faces.is_empty()
-        })
-        .filter_map(|route| {
-            crate::apex_construction::exact_boundary_cap::cap_quality_postcondition::
-                validate_candidate_region_self_intersection(&result.brep, &route.built_faces)
-                .err()
-                .map(|detail| (route.vertex, detail))
-        })
-        .collect()
 }
