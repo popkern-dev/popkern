@@ -172,6 +172,35 @@ fn materialize_support_face_mef_trim(
                  side {:?}, support side {:?}",
                 result.half_edge, result.half_edge_twin
             );
+            // PK-260: the split-off face's shape decides whether the
+            // carrier-absorption bigon weld can later re-pair the trim
+            // (a 2-side sliver welds; anything larger strands the
+            // co-directed duplicate as dead sides).
+            let mut sides = Vec::new();
+            if let Some(loop_data) = brep
+                .faces
+                .get(result.face)
+                .and_then(|f| brep.loops.get(f.outer_loop))
+            {
+                let start_he = loop_data.half_edge;
+                let mut cursor = start_he;
+                for _ in 0..=brep.half_edges.len() {
+                    let Some(he) = brep.half_edges.get(cursor) else {
+                        break;
+                    };
+                    sides.push(format!("{cursor:?}@{:?}", he.origin));
+                    cursor = he.next;
+                    if cursor == start_he {
+                        break;
+                    }
+                }
+            }
+            eprintln!(
+                "[direct-apex-trace §14.9/trim-subcomplex]   mef split-off face {:?}: {} side(s) [{}]",
+                result.face,
+                sides.len(),
+                sides.join(" -> ")
+            );
         }
         Ok((result.half_edge, result.face, support_source))
     })();
