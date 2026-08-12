@@ -33,6 +33,13 @@ pub(super) fn rebuild_face_ring(
     chain.push(first);
     let (ring_start, mut open_end) = span_of(brep, first)?;
     let ring_start_pos = brep.vertices.get(ring_start)?.position;
+    // PK-260: surfaceless residual slivers (the demotion passes strip
+    // their inherited carrier before rung 1 runs) still have a
+    // well-defined planar carrier — their trusted sides' endpoints.
+    // Without this the plane-gated span test rejects EVERY dead
+    // continuation and sliver ring rebuilds always stall at zero
+    // candidates (measured on the oblique base-corner class).
+    let carrier = face_carrier_plane(brep, face, trusted, tol);
     let mut seam_vertices = Vec::new();
     for _ in 0..brep.half_edges.len() + trusted.len() + 8 {
         let open_pos = brep.vertices.get(open_end)?.position;
@@ -70,7 +77,7 @@ pub(super) fn rebuild_face_ring(
                     return false;
                 };
                 end.distance_to(&open_pos) <= tol
-                    && span_on_face_surface(brep, face, &start, &end, tol)
+                    && span_on_carrier_plane(carrier.as_ref(), &start, &end, tol)
             })
             .map(|(handle, _)| handle)
             .collect();
@@ -227,25 +234,69 @@ pub(super) fn rebuild_face_ring(
     Some(seam_vertices)
 }
 
-/// Both span endpoints lie on the face's surface (plane distance for
-/// planes; other geometries decline so the walk stays conservative).
-fn span_on_face_surface(
+/// The face's planar carrier: its own Plane surface when present,
+/// otherwise (surfaceless residual sliver) the plane fitted through
+/// its trusted sides' endpoints — accepted only when every endpoint
+/// actually lies on that plane, so the walk stays conservative.
+/// Non-planar surfaces yield None (dead-side completion declines).
+fn face_carrier_plane(
     brep: &BRep,
     face: FaceHandle,
+    trusted: &[HalfEdgeHandle],
+    tol: f64,
+) -> Option<(Point3, popkern_core::geometry::Vec3)> {
+    if let Some(sof) = brep.faces.get(face).and_then(|d| d.surface.as_ref()) {
+        let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry else {
+            return None;
+        };
+        return normal.normalized().map(|n| (*origin, n));
+    }
+    let mut points = Vec::new();
+    for side in trusted {
+        let Some(data) = brep.half_edges.get(*side) else {
+            continue;
+        };
+        if let Some(v) = brep.vertices.get(data.origin) {
+            points.push(v.position);
+        }
+        if let Some(twin) = brep.half_edges.get(data.twin)
+            && let Some(v) = brep.vertices.get(twin.origin)
+        {
+            points.push(v.position);
+        }
+    }
+    if points.len() < 3 {
+        return None;
+    }
+    // Newell's method over the point cloud.
+    let mut n = popkern_core::geometry::Vec3::new(0.0, 0.0, 0.0);
+    for i in 0..points.len() {
+        let a = points[i];
+        let b = points[(i + 1) % points.len()];
+        n.x += (a.y - b.y) * (a.z + b.z);
+        n.y += (a.z - b.z) * (a.x + b.x);
+        n.z += (a.x - b.x) * (a.y + b.y);
+    }
+    let n = n.normalized()?;
+    let origin = points[0];
+    let coplanar = points.iter().all(|p| ((*p - origin).dot(&n)).abs() <= tol);
+    if !coplanar {
+        return None;
+    }
+    Some((origin, n))
+}
+
+/// Both span endpoints lie on the carrier plane.
+fn span_on_carrier_plane(
+    carrier: Option<&(Point3, popkern_core::geometry::Vec3)>,
     start: &Point3,
     end: &Point3,
     tol: f64,
 ) -> bool {
-    let Some(sof) = brep.faces.get(face).and_then(|d| d.surface.as_ref()) else {
+    let Some((origin, n)) = carrier else {
         return false;
     };
-    let SurfaceGeometry::Plane { origin, normal, .. } = &sof.geometry else {
-        return false;
-    };
-    let Some(n) = normal.normalized() else {
-        return false;
-    };
-    let dist = |p: &Point3| ((*p - *origin).dot(&n)).abs();
+    let dist = |p: &Point3| ((*p - *origin).dot(n)).abs();
     dist(start) <= tol && dist(end) <= tol
 }
 
