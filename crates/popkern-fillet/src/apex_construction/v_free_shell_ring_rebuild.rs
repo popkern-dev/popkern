@@ -74,7 +74,77 @@ pub(super) fn rebuild_face_ring(
             })
             .map(|(handle, _)| handle)
             .collect();
-        let [candidate] = candidates.as_slice() else {
+        let chosen = match candidates.as_slice() {
+            [only] => Some(*only),
+            [] => None,
+            multiple => {
+                // PK-260: coincident duplicate dead sides (the
+                // far-side trim pair — the strip's stolen-trim slot
+                // and the support replacement's slot) both end at the
+                // open position. Resolve by ring-closure lookahead
+                // instead of declining: prefer the candidate whose far
+                // end closes the ring or chains onward (trusted pool
+                // first, then another dead side); tie-break to the
+                // side whose edge carries an exact curve (the authored
+                // trim) over a curve-less span. A residual tie still
+                // declines — the walk must not guess.
+                let far_pos = |side: HalfEdgeHandle| -> Option<Point3> {
+                    let origin = brep.half_edges.get(side)?.origin;
+                    brep.vertices.get(origin).map(|v| v.position)
+                };
+                let score = |side: HalfEdgeHandle| -> Option<usize> {
+                    let pos = far_pos(side)?;
+                    let closes = pos.distance_to(&ring_start_pos) <= tol;
+                    let trusted_next = pool.iter().any(|other| {
+                        span_of(brep, *other).is_some_and(|(start, _)| {
+                            brep.vertices
+                                .get(start)
+                                .is_some_and(|v| v.position.distance_to(&pos) <= tol)
+                        })
+                    });
+                    let dead_next = brep.half_edges.iter().any(|(handle, data)| {
+                        handle != side
+                            && !brep.half_edges.contains_key(data.twin)
+                            && side_span(brep, handle)
+                                .is_some_and(|(_, end)| end.distance_to(&pos) <= tol)
+                    });
+                    let curve = brep
+                        .half_edges
+                        .get(side)
+                        .and_then(|data| brep.edges.get(data.edge))
+                        .is_some_and(|edge| edge.curve.is_some());
+                    let rank = if closes {
+                        3
+                    } else if trusted_next {
+                        2
+                    } else if dead_next {
+                        1
+                    } else {
+                        0
+                    };
+                    Some(rank * 2 + usize::from(curve))
+                };
+                let mut best: Option<(usize, HalfEdgeHandle)> = None;
+                let mut tied = false;
+                for side in multiple {
+                    let Some(s) = score(*side) else { continue };
+                    match &best {
+                        Some((b, _)) if s == *b => tied = true,
+                        Some((b, _)) if s > *b => {
+                            best = Some((s, *side));
+                            tied = false;
+                        }
+                        None => best = Some((s, *side)),
+                        _ => {}
+                    }
+                }
+                match (best, tied) {
+                    (Some((_, side)), false) => Some(side),
+                    _ => None,
+                }
+            }
+        };
+        let Some(dead) = chosen else {
             trace(&format!(
                 "winding reconciliation: ring rebuild for {face:?} found {} dead \
                  continuation(s) at ({:.3},{:.3},{:.3})",
@@ -85,7 +155,6 @@ pub(super) fn rebuild_face_ring(
             ));
             return None;
         };
-        let dead = *candidate;
         let dead_data = brep.half_edges.get(dead)?;
         let dead_edge = dead_data.edge;
         let dead_origin = dead_data.origin;
