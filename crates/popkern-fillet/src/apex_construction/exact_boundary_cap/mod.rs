@@ -22,6 +22,7 @@ pub(crate) mod ribbon;
 pub(crate) mod ribbon_projection;
 pub(crate) mod sector;
 pub(crate) mod solve;
+mod spoke_strip_clearance;
 pub(crate) mod support;
 pub(crate) mod support_subdivision;
 pub(crate) mod topology;

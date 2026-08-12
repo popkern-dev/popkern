@@ -60,11 +60,11 @@ pub(crate) use candidate_result::{
     ExactBoundaryCapCandidateResult, ExactBoundaryCapCandidateStatus,
 };
 
-/// Run the exact-boundary cap candidate transactionally, under the
-/// strip-footprint clearance contract (PK-251): spokes and sector
-/// surfaces are corrected out of the strip supports' live footprints
-/// during construction, and a committed cap with a residual footprint
-/// violation rolls back and declines.
+/// Run the exact-boundary cap candidate transactionally. Inner spokes
+/// are corrected out of the strip supports' live footprints during
+/// construction (PK-261, `spoke_strip_clearance`); interior footprint
+/// violations that survive construction are the serve-time repair and
+/// retry's containment (PK-251), not a construct-time rollback.
 ///
 /// The function mutates `brep` only when all exact-boundary postconditions pass.
 /// Any diagnostic or incomplete pcurve inventory restores the input snapshot and
@@ -148,7 +148,14 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
         ExactBoundaryInnerSpokeBudget::default(),
         pole_override,
     ) {
-        Ok(prepared) => Some(prepared),
+        Ok(mut prepared) => {
+            informational.extend(super::spoke_strip_clearance::apply_spoke_strip_clearance(
+                brep,
+                &candidate_sectors,
+                &mut prepared,
+            ));
+            Some(prepared)
+        }
         Err(diagnostic) => {
             diagnostics.push(diagnostic.into_apex_diagnostic());
             None
