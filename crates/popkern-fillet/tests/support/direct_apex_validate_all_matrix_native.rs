@@ -358,65 +358,20 @@ fn pyramid3_exact_boundary_acceptance_matrix() {
     // surfaceless-sliver carrier + unique-closure search, and the
     // magnitude-gated winding calibration that unblocked the mirror
     // reversal) — the corner serves DirectApex with zero retries and
-    // a crossing-free census. pyramid3_extreme's stitching is fixed
-    // too, but its residual cap-into-strip footprint interference
-    // (the PK-250/251 family at 1:10) keeps it on the retry pin
-    // below.
+    // a crossing-free census. pyramid3_extreme (1:10) RE-ENTERED with
+    // PK-262: its "footprint interference" was a SelfIntersection
+    // FALSE POSITIVE from the strip's incoherent oblique far-end
+    // runout (a recorded strip_end_arcs decline); the exact ellipse
+    // end-section rewrite makes the trim honest and the flag
+    // disappears at the geometry root (cap-outer g0 1.62e-4 /
+    // g1 6.98e-6 pass the commercial bars).
     for (fixture, radii) in [
         ("pyramid3_uniform", [0.10, 0.10, 0.10]),
         ("pyramid3_mixed", [0.08, 0.10, 0.12]),
+        ("pyramid3_extreme", [0.02, 0.10, 0.20]),
     ] {
         assert_pyramid_exact_boundary_passes_commercial_cap_quality(fixture, &radii, false);
     }
-}
-
-/// PK-260 residual containment for pyramid3_extreme (1:10 radii): the
-/// support-side stitching root is FIXED (rung 1 completes: ghosts 15,
-/// reversed 12, rebuilt rings 1; cap-outer g0 1.62e-4 / g1 6.98e-6
-/// pass the commercial bars) but the served cap sector still crosses
-/// the middle-radius strip's footprint — the PK-250/251 interference
-/// family — so the serving retry detects the crossing and the
-/// exclusion re-run serves the legacy dispatch. This pin flips to a
-/// `pyramid3_exact_boundary_acceptance_matrix` row when the footprint
-/// interference is cleared.
-#[test]
-fn pyramid3_extreme_footprint_interference_serves_clean_legacy() {
-    let result = build_under_direct_apex(true, &[0.02, 0.10, 0.20]);
-    let retries = &result.repair_report.serving_self_intersection_retries;
-    assert!(
-        retries
-            .iter()
-            .any(|retry| retry.detail.contains("Self-intersection")),
-        "pyramid3_extreme must record the footprint-crossing retry; got {retries:?}"
-    );
-    assert!(
-        result
-            .repair_report
-            .apex_routes
-            .iter()
-            .all(|route| route.route == popkern_fillet::types::ApexConstructionRoute::Legacy),
-        "pyramid3_extreme serves the legacy dispatch while the footprint interference is open"
-    );
-    let crossings = result
-        .brep
-        .validate_all()
-        .into_iter()
-        .filter(|e| {
-            matches!(
-                e,
-                popkern_core::error::ValidationError::SelfIntersection { .. }
-            )
-        })
-        .count();
-    assert_eq!(
-        crossings, 0,
-        "pyramid3_extreme legacy serve must census zero SelfIntersection"
-    );
-    assert!(
-        result.brep.boundary_edges.is_empty(),
-        "pyramid3_extreme legacy serve must carry no dead boundary sides; got {}",
-        result.brep.boundary_edges.len()
-    );
 }
 
 #[test]

@@ -10,11 +10,14 @@
 //!
 //! * `pyramid3_mixed` serves DIRECT-APEX natively — zero retries,
 //!   zero fallbacks, crossing-free census.
-//! * `pyramid3_extreme` (1:10) still carries the residual
-//!   cap-into-strip footprint interference (the PK-250/251 family):
-//!   the serving retry detects the crossing and the exclusion re-run
-//!   serves the legacy dispatch, recorded. Its half of this pin flips
-//!   to the native contract when the footprint interference clears.
+//! * `pyramid3_extreme` (1:10) serves DIRECT-APEX natively too
+//!   (PK-262): its former "footprint interference" was a
+//!   SelfIntersection FALSE POSITIVE — the strip's oblique far-end
+//!   runout kept an incoherent complementary-side curve (a recorded
+//!   strip_end_arcs decline), and the folded trim polygon classified
+//!   off-strip contact as Interior. The exact ellipse end-section
+//!   rewrite makes the trim honest and the flag disappears at the
+//!   geometry root.
 
 use popkern_core::error::ValidationError;
 use popkern_core::tolerance::Tolerance;
@@ -82,35 +85,34 @@ fn pyramid3_mixed_default_serve_is_native_direct_apex() {
     );
 }
 
-/// The residual class: pyramid3_extreme's footprint interference is
-/// detected by the retry and the corner serves the legacy dispatch,
-/// recorded and crossing-free.
+/// The 1:10 class, native since PK-262: the honest far-end trim
+/// retires the false-positive crossing, so the steep corner serves
+/// direct-apex with no serving machinery at all.
 #[test]
-fn pyramid3_extreme_default_serve_is_clean_legacy_with_recorded_retry() {
+fn pyramid3_extreme_default_serve_is_native_direct_apex() {
     let result = default_corner_serve(&[0.02, 0.10, 0.20]);
     assert_eq!(
         crossing_count(&result),
         0,
         "pyramid3_extreme: default serve must census zero SelfIntersection"
     );
-    let retries = &result.repair_report.serving_self_intersection_retries;
     assert!(
-        retries
-            .iter()
-            .any(|retry| retry.detail.contains("Self-intersection")),
-        "pyramid3_extreme: the footprint-crossing retry must be recorded; got {retries:?}"
+        result
+            .repair_report
+            .serving_self_intersection_retries
+            .is_empty(),
+        "pyramid3_extreme: the native serve needs no retry"
     );
     assert!(
         result
             .repair_report
             .apex_routes
             .iter()
-            .all(|route| route.route == ApexConstructionRoute::Legacy),
-        "pyramid3_extreme: the corner serves the legacy dispatch while the footprint \
-         interference is open"
+            .all(|route| route.route == ApexConstructionRoute::DirectApex),
+        "pyramid3_extreme: the corner serves direct-apex natively"
     );
     assert!(
         result.brep.boundary_edges.is_empty(),
-        "pyramid3_extreme: the legacy serve carries no dead boundary sides"
+        "pyramid3_extreme: the native serve carries no dead boundary sides"
     );
 }

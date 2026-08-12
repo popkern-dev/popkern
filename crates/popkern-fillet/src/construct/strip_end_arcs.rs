@@ -44,7 +44,7 @@
 //! B's snap gate) for on/off-cylinder classification; 1e-9 for arc
 //! acceptance. Both are local to this pass.
 
-use popkern_core::geometry::curve::{CurveEval, CurveGeometry, CurveOnEdge};
+use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
@@ -53,6 +53,11 @@ use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
 /// (radially) and still count as an on-surface foot; and how far off
 /// it must be to count as a carve-artifact corner.
 const SNAP_GATE: f64 = 5.0e-3;
+
+/// Minimum |axis·n̂| for a closed end section: below this the end
+/// plane is close to parallel with the strip axis and the section
+/// degenerates toward generator lines — decline, recorded.
+const OBLIQUE_SECTION_MIN_COS: f64 = 0.1;
 
 /// Reconstruct strip end boundaries. Returns (contracted corners,
 /// arcs authored, spurs removed).
@@ -363,21 +368,22 @@ fn arcify_runout_boundaries(
             continue;
         };
         let denom = axis.dot(&n_hat);
-        // Perpendicular ends only (cylinder ∩ plane is a circle).
-        // Oblique ends (ellipse) decline here and keep their current
-        // curve — recorded fallback boundary; none exist in the
-        // covered fixtures and the ellipse authoring belongs with
-        // exact NURBS trims.
-        if denom.abs() < 1.0 - 1.0e-9 {
+        // A near-parallel end plane has no closed section (the
+        // intersection degenerates toward generator lines) — decline,
+        // recorded. Perpendicular ends author the exact circle;
+        // oblique ends the exact ellipse (PK-262 — the former
+        // recorded decline whose kept incoherent runout curve folded
+        // the strip's trim polygon).
+        if denom.abs() < OBLIQUE_SECTION_MIN_COS {
             if std::env::var_os("PK_CARVE_TRACE").is_some() {
                 eprintln!(
-                    "  [strip-end] {strip:?} edge {eh:?}: oblique end (|axis·n|={:.4}) — declined",
+                    "  [strip-end] {strip:?} edge {eh:?}: near-parallel end (|axis·n|={:.4}) — declined",
                     denom.abs()
                 );
             }
             continue;
         }
-        // Circle center: strip axis pierced through the end plane.
+        // Section center: strip axis pierced through the end plane.
         let t = (p_origin - origin).dot(&n_hat) / denom;
         let c0 = origin + axis * t;
         let he0 = brep.edges[eh].half_edge;
@@ -387,57 +393,18 @@ fn arcify_runout_boundaries(
         };
         let p1 = brep.vertices[v1].position;
         let p2 = brep.vertices[v2].position;
-        // Snap feet exactly onto the intersection circle.
-        let snap = |p: Point3| -> Option<Point3> {
-            let r_vec = (p - c0) - axis * (p - c0).dot(&axis);
-            Some(c0 + r_vec.normalized()? * radius)
+        let section = if denom.abs() >= 1.0 - 1.0e-9 {
+            super::strip_end_section_curves::verified_circle_section(
+                &origin, &axis, radius, c0, p1, p2, &p_origin, &n_hat,
+            )
+        } else {
+            super::strip_end_section_curves::verified_ellipse_section(
+                &origin, &axis, radius, c0, p1, p2, &p_origin, &n_hat, denom,
+            )
         };
-        let (Some(s1), Some(s2)) = (snap(p1), snap(p2)) else {
-            continue;
-        };
-        let a = s1 - c0;
-        let b = s2 - c0;
-        let mut accepted: Option<CurveOnEdge> = None;
-        for arc_normal in [axis, axis * -1.0] {
-            // Angles in the Arc evaluator's own frame (circle_basis)
-            // — see corner_arc_boundaries: a reflected frame silently
-            // traces the wrong sweep.
-            let (f1, f2) = popkern_core::geometry::analytic_curves::circle_basis(arc_normal);
-            let theta1 = a.dot(&f2).atan2(a.dot(&f1));
-            let mut theta2 = b.dot(&f2).atan2(b.dot(&f1));
-            while theta2 <= theta1 {
-                theta2 += std::f64::consts::TAU;
-            }
-            if theta2 - theta1 > std::f64::consts::PI + 1e-9 {
-                continue;
-            }
-            let cand = CurveOnEdge {
-                geometry: CurveGeometry::Arc {
-                    center: c0,
-                    normal: arc_normal,
-                    radius,
-                    start_angle: theta1,
-                    end_angle: theta2,
-                },
-                t_start: theta1,
-                t_end: theta2,
-            };
-            let ceval: &dyn CurveEval = &cand.geometry;
-            let q0 = ceval.point_at(theta1);
-            let q1 = ceval.point_at(theta2);
-            let qm = ceval.point_at(0.5 * (theta1 + theta2));
-            if q0.distance_to(&s1) < 1e-9
-                && q1.distance_to(&s2) < 1e-9
-                && (radial_dist(&origin, &axis, &qm) - radius).abs() < 1e-9
-                && (qm - p_origin).dot(&n_hat).abs() < 1e-9
-            {
-                accepted = Some(cand);
-                break;
-            }
-        }
-        let Some(new_curve) = accepted else {
+        let Some((new_curve, s1, s2)) = section else {
             if std::env::var_os("PK_CARVE_TRACE").is_some() {
-                eprintln!("  [strip-end] {strip:?} edge {eh:?}: no verified arc candidate");
+                eprintln!("  [strip-end] {strip:?} edge {eh:?}: no verified section candidate");
             }
             continue;
         };
