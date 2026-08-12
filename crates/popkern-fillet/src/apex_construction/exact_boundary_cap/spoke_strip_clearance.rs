@@ -46,20 +46,25 @@
 //! the legacy dispatch, which is the pinned honest contract for the
 //! class.
 //!
-//! **Armed by `POPKERN_SPOKE_CLEARANCE=1`, default OFF — gated on
-//! PK-262 (temporary containment).** The pass measures honestly, but
-//! the corpus's blessed serves were pinned under the Phase C
-//! poisoned-trim validator state (PK-262): the same folded trim
-//! polygons that fabricate pyramid3_extreme's crossing also bless
-//! REAL in-footprint spoke dips as clean (measured pyramid4_mixed:
-//! genuine 1e-3..1e-2 dips inside the arc-profile footprint, served
-//! "crossing-free" for ages). Default-on, this pass corrected those
-//! dips and five hover/repair population pins regressed — not
-//! because the bodies got worse, but because perturbing a
-//! blessed serve under an unreliable validator is unfalsifiable.
-//! When PK-262 makes trim classification honest, flip this default
-//! on (PK-262 acceptance) and the corrections become measurable
-//! against a trustworthy verdict.
+//! **Armed by `POPKERN_SPOKE_CLEARANCE=1`, default OFF — a
+//! diagnostic/A-B instrument, retired as a default pass (PK-263,
+//! measured).** The pass measures honestly, but the sub-surface
+//! spoke excursions it finds on the served corpus are the
+//! validator's deliberately-blessed tangential/hover class, not
+//! crossings: post-PK-262 (honest, branch-consistent strip trims)
+//! pyramid4_mixed still carries corner-adjacent dips of 1e-3..1e-2
+//! that validate_all, the material-two-sided crossing rule, and the
+//! OCC oracle all serve clean — and correcting them measurably
+//! degrades the serve path (a repair engages where hover-clean was
+//! pinned; a neighbouring fixture's repair stalls). Meanwhile the
+//! class this pass was built for — boundary-locked spoke dives that
+//! produce REAL crossings — has no reaching fixture: pyramid3_extreme's
+//! flag was a trim false positive (PK-262), and the pole search
+//! resolves the centroid-pole attempts' real dips. If a future
+//! fixture presents a real boundary-locked crossing with an honest
+//! trim (a serving retry stall whose violation survives PK-262-class
+//! scrutiny), re-evaluate with that fixture as the reaching case —
+//! see the decline-class registry row for this class.
 
 use popkern_core::geometry::analytic_surfaces::analytic_signed_distance;
 use popkern_core::geometry::curve::CurveEval;

@@ -153,23 +153,32 @@ pub(super) fn arc_windows(
     Some(((lo - padding, hi + padding), (v_lo, v_hi)))
 }
 
-/// Anchor the axial window's CORNER end to the end arc. The vertex
-/// bound alone over-includes pole-ward of the arc when the loop
-/// vertices are Phase C's off-surface state, and a spoke legitimately
-/// spends most of its length pole-ward of the strip's end (the pole
-/// itself sits axially outside the footprint): measured
-/// pyramid4_mixed, the vertex-only window flagged mid-spoke sections
-/// at depth 1e-3..1e-2 that the validator's honest serve never
-/// crossed, and the resulting "corrections" regressed five
-/// hover/repair population pins. The corner side is whichever end of
-/// the vertex window the arc sits nearest; that end snaps to the
-/// arc's own span.
+/// Fraction of the strip's axial extent (beyond the corner arc) the
+/// clearance zone covers. The FAR half of the strip is untrustworthy
+/// mid-candidate — its true trim is the oblique end section that
+/// `strip_end_arcs` authors only in the post-pipeline, so at spoke
+/// time the far boundary is still the Phase C incoherent state
+/// (measured pyramid4_mixed: far-side "dips" at v beyond the real far
+/// trim, blessed by the honest validator, regressed hover/repair pins
+/// when corrected). The corner band is where the class this pass
+/// exists for lives: pyramid3_extreme's real dips hug the corner arc
+/// at +0.0019 axially.
+const CORNER_BAND_FRACTION: f64 = 0.25;
+
+/// Anchor the axial window's CORNER end to the end arc and extend it
+/// only a corner-band fraction of the way toward the far end. The
+/// vertex bound alone over-includes pole-ward of the arc (off-surface
+/// loop vertices) and reaches into the untrustworthy far half; the
+/// corner side is whichever end of the vertex window the arc sits
+/// nearest, snapped to the arc's own span.
 fn corner_anchored_axial_window(arc_v: (f64, f64), vertex_v: (f64, f64)) -> (f64, f64) {
     let arc_mid = (arc_v.0 + arc_v.1) * 0.5;
     if (arc_mid - vertex_v.0).abs() <= (arc_mid - vertex_v.1).abs() {
-        (arc_v.0, vertex_v.1.max(arc_v.1))
+        let far = vertex_v.1.max(arc_v.1);
+        (arc_v.0, arc_v.1 + (far - arc_v.1) * CORNER_BAND_FRACTION)
     } else {
-        (vertex_v.0.min(arc_v.0), arc_v.1)
+        let far = vertex_v.0.min(arc_v.0);
+        (arc_v.0 - (arc_v.0 - far) * CORNER_BAND_FRACTION, arc_v.1)
     }
 }
 
