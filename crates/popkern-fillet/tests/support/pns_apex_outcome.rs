@@ -18,7 +18,7 @@
 #![allow(dead_code)]
 
 use crate::kp_gate_helpers as helpers;
-use helpers::{N_SAMPLES, incident_edges, measure_live_cap_seams, pick_vertex_with_valence};
+use helpers::{N_SAMPLES, incident_edges, measure_live_cap_seams};
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::BRep;
 use popkern_fillet::types::{CornerMethod, FilletOptions, FilletRadius, FilletSpec};
@@ -62,8 +62,28 @@ pub fn run_pyramid_apex_outcome(n: usize, radii: &[f64]) -> ApexOutcome {
     assert_eq!(radii.len(), n);
     let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
         .expect("n_gonal_pyramid fixture must build");
-    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
+    let vertex = pyramid_apex_vertex(&pyr, n);
     run_corner_outcome(pyr, vertex, radii)
+}
+
+/// The pyramid's APEX vertex — the highest valence-`n` vertex. For
+/// `n = 3` EVERY pyramid vertex has valence 3, and the old
+/// first-valence-match pick silently measured a BASE corner (the
+/// PK-260 oblique base-corner class) while this harness documented
+/// the apex; height disambiguates. `n >= 4` apexes are uniquely
+/// valence-`n`, so the pick is unchanged there.
+fn pyramid_apex_vertex(pyr: &BRep, n: usize) -> popkern_core::topology::VertexHandle {
+    pyr.vertices
+        .iter()
+        .filter(|(vertex, _)| incident_edges(pyr, *vertex).len() == n)
+        .max_by(|(_, a), (_, b)| {
+            a.position
+                .z
+                .partial_cmp(&b.position.z)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|(vertex, _)| vertex)
+        .expect("n_gonal_pyramid apex")
 }
 
 /// Fillet one corner of the unit cube — PK-192's named `n = 3`
@@ -86,7 +106,7 @@ pub fn run_pyramid_apex_outcome_no_polar(n: usize, radii: &[f64]) -> ApexOutcome
     assert_eq!(radii.len(), n);
     let pyr = BRep::n_gonal_pyramid(n, 1.0, 3.0, Tolerance::default())
         .expect("n_gonal_pyramid fixture must build");
-    let vertex = pick_vertex_with_valence(&pyr, n).expect("n_gonal_pyramid apex");
+    let vertex = pyramid_apex_vertex(&pyr, n);
     run_corner_outcome_with(pyr, vertex, radii, false)
 }
 

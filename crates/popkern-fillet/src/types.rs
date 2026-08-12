@@ -35,11 +35,12 @@ pub use types_repair::{
     BlendRepairReport, CapSupportContinuityDiagnostic, CoherenceValidationDiagnostic,
     CylinderTrimFarSideStrategy, CylinderTrimMaterializationDeclineReason,
     CylinderTrimMaterializationDiagnostic, ExactBoundaryCandidatePerformanceReport,
-    ServingFootprintRepair, ServingSelfIntersectionRetry, SideSupportContinuationDiagnostic,
-    SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus, SupportCellSplitDiagnostic,
-    SupportCellSplitFallbackReason, SupportSeamDecision, SupportSeamDeclineReason,
-    SupportSeamRelocationReport, SupportSeamRollbackReason, build_blend_repair_action_artifact,
-    support_seam_decline_reason_label, support_seam_rollback_reason_label,
+    SERVING_SHAPE_DECLINE_PREFIX, ServingFootprintRepair, ServingSelfIntersectionRetry,
+    SideSupportContinuationDiagnostic, SupportCellSplitAxisDiagnostic, SupportCellSplitAxisStatus,
+    SupportCellSplitDiagnostic, SupportCellSplitFallbackReason, SupportSeamDecision,
+    SupportSeamDeclineReason, SupportSeamRelocationReport, SupportSeamRollbackReason,
+    build_blend_repair_action_artifact, support_seam_decline_reason_label,
+    support_seam_rollback_reason_label,
 };
 pub use types_repair_blend_seam::{
     BlendSeamCornerDecline, BlendSeamCornerDeclineReason, BlendSeamCornerReport,
@@ -52,7 +53,6 @@ pub use types_repair_terminal_arc::{
 use popkern_core::topology::EdgeHandle;
 
 use crate::error::BlendWarning;
-
 pub use crate::types_blend_options::{BlendProfile, InterferencePolicy};
 
 /// Result of a successful blend operation.

@@ -3,16 +3,19 @@
 //!
 //! The direct-apex partition on this class currently leaves the big
 //! support faces unstitched from the corner complex (PK-260): the
-//! flag-matrix direct serve censuses SelfIntersection and OCC cannot
-//! read its STEP export. Under DEFAULT options the PK-250 serving
-//! retry detects the crossing and re-routes the corner to the legacy
-//! dispatch, so what USERS receive is a validate_all-clean legacy
-//! serve with the retry recorded.
+//! direct body carried dead boundary sides, a coplanar-overlapped
+//! pocket complex, and an OCC-unreadable STEP export. The
+//! serving-shape gate now DECLINES the route when a defect survives
+//! every rung, and the serving retry treats the recorded decline as
+//! a validity defect: the pipeline re-runs ONCE with the corner
+//! excluded from direct-apex promotion, so the legacy dispatch
+//! serves from clean legacy anchors (the mid-pipeline fallback body
+//! is built on direct-apex-convention anchors and measures 8.5e-2
+//! edge/surface deviations — never served).
 //!
 //! This pin locks that honest contract. When PK-260 fixes the
 //! partition's support-side reconnection, the route flips to
-//! DirectApex with zero retries — update this pin then (and re-enable
-//! the serving retry in `build_under_direct_apex`).
+//! DirectApex with zero retries — update this pin then.
 
 use popkern_core::error::ValidationError;
 use popkern_core::tolerance::Tolerance;
@@ -55,16 +58,18 @@ fn pyramid3_corner_default_serve_is_clean_with_recorded_retry() {
             "{name}: default serve must census zero SelfIntersection"
         );
 
-        // The re-route is visible, not silent: the retry is recorded
-        // on the repair report and the corner serves Legacy. PK-260
-        // flips this to DirectApex with zero retries — update both
-        // asserts then.
+        // The decline is visible, not silent: the serving retry
+        // records it (with the serving-shape reason) and the adopted
+        // body is the exclusion re-run, whose corner serves the
+        // legacy dispatch natively. PK-260 flips this to DirectApex
+        // with zero retries — update these asserts then.
+        let retries = &result.repair_report.serving_self_intersection_retries;
         assert!(
-            !result
-                .repair_report
-                .serving_self_intersection_retries
-                .is_empty(),
-            "{name}: the serving retry must be recorded while PK-260 is open"
+            retries.iter().any(|retry| retry
+                .detail
+                .contains(popkern_fillet::types::SERVING_SHAPE_DECLINE_PREFIX)),
+            "{name}: the serving-shape decline retry must be recorded while PK-260 is \
+             open; got {retries:?}"
         );
         assert!(
             result
@@ -74,6 +79,10 @@ fn pyramid3_corner_default_serve_is_clean_with_recorded_retry() {
                 .filter(|route| route.vertex == vertex)
                 .all(|route| route.route == popkern_fillet::types::ApexConstructionRoute::Legacy),
             "{name}: the corner serves the legacy dispatch while PK-260 is open"
+        );
+        assert!(
+            result.brep.boundary_edges.is_empty(),
+            "{name}: the legacy serve must carry no dead boundary sides"
         );
     }
 }

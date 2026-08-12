@@ -30,7 +30,19 @@ fn zebra_refutes_the_low_valence_cap_crease() {
         (3_usize, vec![0.04, 0.06, 0.05]),
         (4, vec![0.04, 0.06, 0.05, 0.055]),
     ] {
-        let o = run_pyramid_apex_outcome(n, &radii);
+        // n = 3 measures the CUBE corner — the fixture the
+        // exact-boundary cross-spoke + harmonization machinery
+        // serves. The old n=3 row measured a pyramid BASE corner
+        // (the valence-3 pick was ambiguous on a pyramid3) whose
+        // defective direct serve now declines (PK-260); the true
+        // pyramid apex serves the legacy Gregory fan, which is
+        // creased by construction and never carried the machinery
+        // this probe refutes the crease FOR.
+        let o = if n == 3 {
+            pns_apex_outcome::run_cube_corner_outcome(&radii)
+        } else {
+            run_pyramid_apex_outcome(n, &radii)
+        };
         assert!(o.metrics.seam_count > 0, "n={n}: no internal seams");
         let brep = &o.brep;
         let caps: std::collections::BTreeSet<_> = o.cap_face_handles.iter().copied().collect();

@@ -43,9 +43,11 @@ pub struct BlendRepairReport {
     pub orientation_flag_reconciliations: usize,
     /// PK-250 serving-boundary self-intersection retries: direct-apex
     /// corners whose SERVED region measured a face-face
-    /// self-intersection, forcing a one-shot pipeline re-run with the
-    /// vertex excluded from direct-apex promotion so the legacy
-    /// dispatch serves the corner instead.
+    /// self-intersection — or, since PK-260, whose direct-apex
+    /// construction recorded a serving-shape decline (see
+    /// [`SERVING_SHAPE_DECLINE_PREFIX`]) — forcing a one-shot
+    /// pipeline re-run with the vertex excluded from direct-apex
+    /// promotion so the legacy dispatch serves the corner instead.
     pub serving_self_intersection_retries: Vec<ServingSelfIntersectionRetry>,
     /// PK-251 serving-boundary footprint repairs: direct-apex corners
     /// whose served cap crossed a strip support and were repaired IN
@@ -55,6 +57,19 @@ pub struct BlendRepairReport {
     /// to the PK-250 exclusion retry.
     pub serving_footprint_repairs: Vec<ServingFootprintRepair>,
 }
+
+/// Marker prefix of the serving-shape gate's decline reason (PK-260).
+/// The direct-apex dispatch formats its
+/// [`ApexConstructionRoute::DirectApexFallbackToLegacy`] reason with
+/// this prefix when a body defect (glued surfaceless residuals or
+/// dead boundary sides) survives every serving-shape rung; the
+/// serving retry matches it to re-run the pipeline with the corner
+/// excluded, because the mid-pipeline fallback runs the legacy
+/// builder on direct-apex-convention anchors and serves a degraded
+/// body (measured 8.5e-2 edge/surface deviations on the oblique
+/// base-corner class) while the full re-run re-places legacy anchors
+/// and serves clean.
+pub const SERVING_SHAPE_DECLINE_PREFIX: &str = "serving-shape defect persists";
 
 /// Construction route used for one smooth multi-fillet apex.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

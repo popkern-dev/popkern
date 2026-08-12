@@ -18,14 +18,16 @@ use crate::{cancellation, progress};
 /// served direct-apex corner region must be free of face-face
 /// self-intersection (measured AFTER every tail pass; a mid-pipeline
 /// check is premature by the PK-165/PK-220 lessons and flipped 20
-/// clean serving fixtures when tried). A hit forces ONE re-run with
-/// the offending vertices excluded from direct-apex promotion so the
-/// legacy dispatch serves those corners; the retry is recorded on the
-/// repair report. A failing retry keeps the first result — never
-/// serve worse than the measured first pass. Opt-in via
-/// [`FilletOptions::serving_self_intersection_retry`] until the
-/// PK-245 arming campaign triages the pre-existing debt an always-on
-/// retry exposes (9 fixtures measured 2026-08-07).
+/// clean serving fixtures when tried) — and, since PK-260, no corner
+/// may carry a recorded serving-shape decline (the mid-pipeline
+/// fallback serves a degraded legacy body built on
+/// direct-apex-convention anchors). Either trigger forces ONE re-run
+/// with the affected vertices excluded from direct-apex promotion so
+/// the legacy dispatch serves those corners from clean legacy
+/// anchors; the retry is recorded on the repair report. A failing
+/// retry keeps the first result — never serve worse than the
+/// measured first pass. Default ON since the PK-245 arming campaign
+/// (per-fixture triage of the pre-existing debt, 2026-08-07).
 pub(crate) fn fillet_edges_internal(
     brep: &BRep,
     specs: &[FilletSpec],
@@ -49,7 +51,14 @@ pub(crate) fn fillet_edges_internal(
         return Ok(first);
     }
     let offending = served_direct_apex_self_intersections(&first);
-    if offending.is_empty() {
+    // PK-260: serving-shape declines trigger the same exclusion
+    // re-run. The mid-pipeline fallback runs the legacy builder on
+    // direct-apex-convention anchors and serves a degraded body
+    // (measured 8.5e-2 edge/surface deviations on the oblique
+    // base-corner class); excluding the corner BEFORE Phase A
+    // re-places legacy anchors and the legacy dispatch serves clean.
+    let declined = serving_shape_declined_corners(&first);
+    if offending.is_empty() && declined.is_empty() {
         return Ok(first);
     }
     // PK-251: before downgrading the corner to legacy, attempt the
@@ -80,7 +89,11 @@ pub(crate) fn fillet_edges_internal(
         );
     }
     let all_cleared = !repairs.is_empty() && repairs.iter().all(|repair| repair.cleared);
-    let recheck_clean = all_cleared
+    // A serving-shape decline cannot be footprint-repaired (the
+    // declined corner has no served direct cap) — it always takes the
+    // exclusion re-run.
+    let recheck_clean = declined.is_empty()
+        && all_cleared
         && first
             .repair_report
             .apex_routes
@@ -104,8 +117,11 @@ pub(crate) fn fillet_edges_internal(
             refresh_served_mid_seam_diagnostics(&first.brep, &mut first.repair_report);
         return Ok(first);
     }
-    let excluded: std::collections::BTreeSet<popkern_core::topology::VertexHandle> =
-        offending.iter().map(|(vertex, _)| *vertex).collect();
+    let excluded: std::collections::BTreeSet<popkern_core::topology::VertexHandle> = offending
+        .iter()
+        .map(|(vertex, _)| *vertex)
+        .chain(declined.iter().map(|(vertex, _)| *vertex))
+        .collect();
     match fillet_edges_attempt(
         brep,
         specs,
@@ -129,9 +145,22 @@ pub(crate) fn fillet_edges_internal(
             // adopt the retry. An unmeasurable candidate (no served
             // corner faces) fails the bars and ranks worst on quality —
             // quality claims need evidence.
-            let first_score = serve_score(&first, &excluded, !offending.is_empty());
+            // A serving-shape decline counts against the candidate's
+            // validity floor exactly like a crossing: the declined
+            // corner's construction failed its postconditions and the
+            // mid-pipeline fallback body is degraded.
+            let first_score = serve_score(
+                &first,
+                &excluded,
+                !offending.is_empty() || !declined.is_empty(),
+            );
             let retried_offending = served_direct_apex_self_intersections(&retried);
-            let retried_score = serve_score(&retried, &excluded, !retried_offending.is_empty());
+            let retried_declined = serving_shape_declined_corners(&retried);
+            let retried_score = serve_score(
+                &retried,
+                &excluded,
+                !retried_offending.is_empty() || !retried_declined.is_empty(),
+            );
             let adopt_retry = retried_score >= first_score;
             let decision_detail = format!(
                 "; keep-better: first (bars={}, crossing_free={}, g0={:.3e}, g1={:.3e}) vs \
@@ -148,6 +177,7 @@ pub(crate) fn fillet_edges_internal(
             );
             let retries: Vec<crate::types::ServingSelfIntersectionRetry> = offending
                 .into_iter()
+                .chain(declined)
                 .map(
                     |(vertex, detail)| crate::types::ServingSelfIntersectionRetry {
                         vertex,
@@ -260,6 +290,30 @@ fn serve_score(
         worst_g0,
         worst_g1,
     }
+}
+
+/// Corners whose direct-apex construction declined at the
+/// serving-shape gate (PK-260), with the recorded decline reason. The
+/// mid-pipeline fallback serves a degraded legacy body (direct-apex
+/// anchor convention); the exclusion re-run serves clean.
+fn serving_shape_declined_corners(
+    result: &BlendResult,
+) -> Vec<(popkern_core::topology::VertexHandle, String)> {
+    result
+        .repair_report
+        .apex_routes
+        .iter()
+        .filter(|route| {
+            route.route == crate::types::ApexConstructionRoute::DirectApexFallbackToLegacy
+        })
+        .filter_map(|route| {
+            route
+                .fallback_reason
+                .as_ref()
+                .filter(|reason| reason.contains(crate::types::SERVING_SHAPE_DECLINE_PREFIX))
+                .map(|reason| (route.vertex, format!("serving-shape decline: {reason}")))
+        })
+        .collect()
 }
 
 /// Served direct-apex corners whose region self-intersects, with the

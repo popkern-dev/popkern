@@ -438,6 +438,31 @@ fn try_constructive_with_legacy_fallthrough(
                 tolerance,
                 &mut result,
             );
+            // A body that still carries glued surfaceless residuals or
+            // dead boundary sides after EVERY serving-shape rung is not
+            // servable — the rungs' keep-better semantics pick the
+            // least-defective candidate, which is still a defective
+            // body. Decline the direct-apex route (entry snapshot
+            // restored, fallback recorded) so the legacy dispatch
+            // serves, instead of shipping the defect for downstream
+            // gates to catch (measured on the PK-260 oblique
+            // base-corner class: the apex-retaining winner carried 12
+            // dead sides, a coplanar-overlapped pocket complex, and an
+            // OCC-unreadable STEP export; every other matrix fixture
+            // serves 0/0 through this gate).
+            if let Some(defect) = direct_apex_serving_shape::served_shape_defect(brep) {
+                let diagnostics = result.diagnostics;
+                *brep = snapshot;
+                return Err(DirectApexDispatchError {
+                    reason: format!(
+                        "{} after every gate rung ({}); direct-apex declines to the \
+                         legacy dispatch (PK-260)",
+                        crate::types::SERVING_SHAPE_DECLINE_PREFIX,
+                        defect.describe()
+                    ),
+                    diagnostics,
+                });
+            }
             Ok(result)
         }
         Err(constructive_err) => {
