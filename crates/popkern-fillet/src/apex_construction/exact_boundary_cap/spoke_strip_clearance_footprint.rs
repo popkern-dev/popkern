@@ -45,7 +45,7 @@ pub(super) fn collect_strip_footprints(
         if vertices.is_empty() {
             continue;
         }
-        let ((_, _), v_range) = exact_bounded_parameter_range(&vertices, &surface);
+        let ((_, _), vertex_v) = exact_bounded_parameter_range(&vertices, &surface);
         let Some(arc) = prepared
             .iter()
             .find(|prep| prep.sector_index == sector.sector_index)
@@ -60,36 +60,79 @@ pub(super) fn collect_strip_footprints(
                 | SurfaceGeometry::Sphere { .. }
                 | SurfaceGeometry::Torus { .. }
         );
-        let Some(u_range) = arc_angular_window(arc, &surface, u_periodic) else {
+        let Some((u_range, arc_v)) = arc_windows(arc, &surface, u_periodic) else {
             continue;
         };
+        let Some(arc_profile) = arc_uv_profile(arc, &surface, u_periodic) else {
+            continue;
+        };
+        let arc_mid = (arc_v.0 + arc_v.1) * 0.5;
+        let far_side_positive = (vertex_v.1 - arc_mid) >= (arc_mid - vertex_v.0);
         strips.push(StripFootprint {
             face,
             surface,
             u_periodic,
             u_range,
-            v_range,
+            v_range: corner_anchored_axial_window(arc_v, vertex_v),
+            arc_profile,
+            far_side_positive,
         });
     }
     strips
 }
 
-/// The strip's angular window at its live end: project samples of the
-/// end arc (exact on-surface geometry) to UV, unwrap the periodic
-/// angle around the first sample, and pad the span. `None` when no
-/// sample projects.
-pub(super) fn arc_angular_window(
+/// The end arc as a `(unwrapped u, v)` profile sorted by u — the
+/// footprint's true corner-side boundary curve for
+/// [`StripFootprint::corner_side_of_arc`].
+fn arc_uv_profile(
     arc: &NurbsCurve,
     surface: &SurfaceGeometry,
     u_periodic: bool,
-) -> Option<(f64, f64)> {
+) -> Option<Vec<(f64, f64)>> {
+    let mut profile: Vec<(f64, f64)> = Vec::with_capacity(SPOKE_SAMPLES + 1);
     let mut reference = None;
-    let mut lo = f64::MAX;
-    let mut hi = f64::MIN;
     for k in 0..=SPOKE_SAMPLES {
         let t = k as f64 / SPOKE_SAMPLES as f64;
         let point = arc.point_at(t);
-        let Some((u, _)) = project_point_to_uv(surface, &point) else {
+        let Some((u, v)) = project_point_to_uv(surface, &point) else {
+            continue;
+        };
+        let u = match reference {
+            None => {
+                reference = Some(u);
+                u
+            }
+            Some(reference) if u_periodic => unwrap_periodic(u, reference),
+            Some(_) => u,
+        };
+        profile.push((u, v));
+    }
+    if profile.len() < 2 {
+        return None;
+    }
+    profile.sort_by(|a, b| a.0.total_cmp(&b.0));
+    Some(profile)
+}
+
+/// The strip's windows at its live end: project samples of the end
+/// arc (exact on-surface geometry) to UV, unwrap the periodic angle
+/// around the first sample, and pad the angular span. Returns the
+/// padded angular window and the arc's raw axial (v) span. `None`
+/// when no sample projects.
+pub(super) fn arc_windows(
+    arc: &NurbsCurve,
+    surface: &SurfaceGeometry,
+    u_periodic: bool,
+) -> Option<((f64, f64), (f64, f64))> {
+    let mut reference = None;
+    let mut lo = f64::MAX;
+    let mut hi = f64::MIN;
+    let mut v_lo = f64::MAX;
+    let mut v_hi = f64::MIN;
+    for k in 0..=SPOKE_SAMPLES {
+        let t = k as f64 / SPOKE_SAMPLES as f64;
+        let point = arc.point_at(t);
+        let Some((u, v)) = project_point_to_uv(surface, &point) else {
             continue;
         };
         let u = match reference {
@@ -102,10 +145,32 @@ pub(super) fn arc_angular_window(
         };
         lo = lo.min(u);
         hi = hi.max(u);
+        v_lo = v_lo.min(v);
+        v_hi = v_hi.max(v);
     }
     reference?;
     let padding = (hi - lo) * ANGULAR_WINDOW_PADDING;
-    Some((lo - padding, hi + padding))
+    Some(((lo - padding, hi + padding), (v_lo, v_hi)))
+}
+
+/// Anchor the axial window's CORNER end to the end arc. The vertex
+/// bound alone over-includes pole-ward of the arc when the loop
+/// vertices are Phase C's off-surface state, and a spoke legitimately
+/// spends most of its length pole-ward of the strip's end (the pole
+/// itself sits axially outside the footprint): measured
+/// pyramid4_mixed, the vertex-only window flagged mid-spoke sections
+/// at depth 1e-3..1e-2 that the validator's honest serve never
+/// crossed, and the resulting "corrections" regressed five
+/// hover/repair population pins. The corner side is whichever end of
+/// the vertex window the arc sits nearest; that end snaps to the
+/// arc's own span.
+fn corner_anchored_axial_window(arc_v: (f64, f64), vertex_v: (f64, f64)) -> (f64, f64) {
+    let arc_mid = (arc_v.0 + arc_v.1) * 0.5;
+    if (arc_mid - vertex_v.0).abs() <= (arc_mid - vertex_v.1).abs() {
+        (arc_v.0, vertex_v.1.max(arc_v.1))
+    } else {
+        (vertex_v.0.min(arc_v.0), arc_v.1)
+    }
 }
 
 /// Shift `u` by whole periods (2π) to the branch nearest `reference`.
@@ -115,9 +180,11 @@ pub(super) fn unwrap_periodic(u: f64, reference: f64) -> f64 {
 }
 
 impl StripFootprint {
-    /// Whether the point projects into the strip's footprint window
-    /// (arc-derived angular span × vertex-bounded axial span) — the
-    /// live footprint, not the infinite primitive.
+    /// Whether the point projects into the strip's footprint window:
+    /// arc-derived angular span, vertex-bounded axial span, AND on the
+    /// strip's far side of the end-arc profile at the point's own
+    /// angular position — the live footprint, not the infinite
+    /// primitive and not a rectangle over an oblique end arc.
     pub(super) fn contains_footprint_projection(&self, point: &Point3) -> bool {
         let Some((u, v)) = project_point_to_uv(&self.surface, point) else {
             return false;
@@ -127,7 +194,40 @@ impl StripFootprint {
         } else {
             u
         };
-        u >= self.u_range.0 && u <= self.u_range.1 && v >= self.v_range.0 && v <= self.v_range.1
+        u >= self.u_range.0
+            && u <= self.u_range.1
+            && v >= self.v_range.0
+            && v <= self.v_range.1
+            && self.corner_side_of_arc(u, v)
+    }
+
+    /// Whether `(u, v)` lies on the strip's interior side of the end
+    /// arc at angular position `u` (linear interpolation over the arc
+    /// profile, clamped at its ends).
+    fn corner_side_of_arc(&self, u: f64, v: f64) -> bool {
+        let profile = &self.arc_profile;
+        let arc_v = if u <= profile[0].0 {
+            profile[0].1
+        } else if u >= profile[profile.len() - 1].0 {
+            profile[profile.len() - 1].1
+        } else {
+            let mut value = profile[0].1;
+            for pair in profile.windows(2) {
+                let (u0, v0) = pair[0];
+                let (u1, v1) = pair[1];
+                if u >= u0 && u <= u1 {
+                    let alpha = if u1 > u0 { (u - u0) / (u1 - u0) } else { 0.0 };
+                    value = v0 + (v1 - v0) * alpha;
+                    break;
+                }
+            }
+            value
+        };
+        if self.far_side_positive {
+            v >= arc_v
+        } else {
+            v <= arc_v
+        }
     }
 
     /// Whether the point lies within the strip's axial (v) window,

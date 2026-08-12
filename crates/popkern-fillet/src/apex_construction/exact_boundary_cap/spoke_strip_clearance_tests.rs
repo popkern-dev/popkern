@@ -7,7 +7,7 @@ use popkern_core::geometry::{NurbsCurve, Point3, Vec3};
 
 use super::super::corner::GeneratedInnerSpoke;
 use super::super::sector::ExactBoundaryOuterSide;
-use super::footprint::{arc_angular_window, unwrap_periodic};
+use super::footprint::{arc_windows, unwrap_periodic};
 use super::{StripFootprint, clear_one_spoke, cubic_bezier_form, worst_violation};
 use crate::types::ApexConstructionDiagnostic;
 
@@ -28,6 +28,9 @@ fn test_strip() -> StripFootprint {
         u_periodic: true,
         u_range: (0.0, std::f64::consts::PI),
         v_range: (0.0, 2.0),
+        // Corner end arc at v = 0 (axis-perpendicular), interior above.
+        arc_profile: vec![(0.0, 0.0), (std::f64::consts::PI, 0.0)],
+        far_side_positive: true,
     }
 }
 
@@ -210,7 +213,7 @@ fn arc_window_handles_the_periodic_seam() {
         control_points: arc_points,
         weights: vec![1.0; n],
     };
-    let (lo, hi) = arc_angular_window(&arc, &surface, true).expect("arc projects");
+    let ((lo, hi), _) = arc_windows(&arc, &surface, true).expect("arc projects");
     assert!(
         hi - lo < 2.0 * quarter * 1.2,
         "the window must stay a quarter turn, not fold around the seam: [{lo},{hi}]"

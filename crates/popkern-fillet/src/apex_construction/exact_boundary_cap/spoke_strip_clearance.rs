@@ -44,7 +44,22 @@
 //! candidate proceeds unchanged — downstream the serving
 //! self-intersection retry detects any surviving crossing and serves
 //! the legacy dispatch, which is the pinned honest contract for the
-//! class. Kill-switch: `POPKERN_SPOKE_CLEARANCE=0`.
+//! class.
+//!
+//! **Armed by `POPKERN_SPOKE_CLEARANCE=1`, default OFF — gated on
+//! PK-262 (temporary containment).** The pass measures honestly, but
+//! the corpus's blessed serves were pinned under the Phase C
+//! poisoned-trim validator state (PK-262): the same folded trim
+//! polygons that fabricate pyramid3_extreme's crossing also bless
+//! REAL in-footprint spoke dips as clean (measured pyramid4_mixed:
+//! genuine 1e-3..1e-2 dips inside the arc-profile footprint, served
+//! "crossing-free" for ages). Default-on, this pass corrected those
+//! dips and five hover/repair population pins regressed — not
+//! because the bodies got worse, but because perturbing a
+//! blessed serve under an unreliable validator is unfalsifiable.
+//! When PK-262 makes trim classification honest, flip this default
+//! on (PK-262 acceptance) and the corrections become measurable
+//! against a trustworthy verdict.
 
 use popkern_core::geometry::analytic_surfaces::analytic_signed_distance;
 use popkern_core::geometry::curve::CurveEval;
@@ -91,6 +106,19 @@ struct StripFootprint {
     u_periodic: bool,
     u_range: (f64, f64),
     v_range: (f64, f64),
+    /// The end arc as an angular profile `(unwrapped u, v)` sorted by
+    /// u — the footprint's TRUE corner-side boundary. Mixed-radius
+    /// corners carry OBLIQUE end arcs (v varies along the arc), so a
+    /// rectangular v bound at the arc's minimum swallows the notch
+    /// under the slant, where spokes legitimately pass on their way
+    /// to the pole (measured pyramid4_mixed: phantom violations at
+    /// depth 1e-3..1e-2, t 0.22..0.56, unchanged by any rectangle
+    /// bound). A sample is in-footprint only when it lies on the
+    /// strip's far side of the arc AT ITS OWN angular position.
+    arc_profile: Vec<(f64, f64)>,
+    /// Whether the strip's interior lies at v GREATER than the arc
+    /// profile (the far end of the vertex window is above the arc).
+    far_side_positive: bool,
 }
 
 /// Worst material-side violation of a spoke against the strip set.
@@ -111,7 +139,7 @@ pub(super) fn apply_spoke_strip_clearance(
     sectors: &[ExactBoundaryCapSectorInput],
     inner: &mut PreparedExactBoundaryInnerSpokes,
 ) -> Vec<ApexConstructionDiagnostic> {
-    if std::env::var("POPKERN_SPOKE_CLEARANCE").as_deref() == Ok("0") {
+    if std::env::var("POPKERN_SPOKE_CLEARANCE").as_deref() != Ok("1") {
         return Vec::new();
     }
     let band = brep.tolerance.linear() * GRAZING_BAND_FACTOR;
