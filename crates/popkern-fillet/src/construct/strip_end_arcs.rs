@@ -45,6 +45,9 @@
 //! acceptance. Both are local to this pass.
 
 use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
+
+#[path = "strip_end_section_curves.rs"]
+mod strip_end_section_curves;
 use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::geometry::{Point3, Vec3};
 use popkern_core::topology::{BRep, FaceHandle, HalfEdgeHandle};
@@ -394,11 +397,11 @@ fn arcify_runout_boundaries(
         let p1 = brep.vertices[v1].position;
         let p2 = brep.vertices[v2].position;
         let section = if denom.abs() >= 1.0 - 1.0e-9 {
-            super::strip_end_section_curves::verified_circle_section(
+            strip_end_section_curves::verified_circle_section(
                 &origin, &axis, radius, c0, p1, p2, &p_origin, &n_hat,
             )
         } else {
-            super::strip_end_section_curves::verified_ellipse_section(
+            strip_end_section_curves::verified_ellipse_section(
                 &origin, &axis, radius, c0, p1, p2, &p_origin, &n_hat, denom,
             )
         };

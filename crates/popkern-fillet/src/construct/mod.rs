@@ -127,7 +127,6 @@ mod sphere_fit_edge_wire;
 mod sphere_fit_edge_wire_cap_identity;
 pub(crate) mod stale_vertex_settle;
 mod strip_end_arcs;
-mod strip_end_section_curves;
 pub(crate) mod strip_end_surface;
 pub(crate) mod strip_orientation;
 pub(crate) mod strip_pocket_expel;
