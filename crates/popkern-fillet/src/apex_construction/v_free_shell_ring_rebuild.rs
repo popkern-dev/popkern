@@ -153,6 +153,28 @@ pub(super) fn rebuild_face_ring(
                 open_pos.y,
                 open_pos.z
             ));
+            // PK-260 stall census: every side incident to the open
+            // position, with liveness/ownership — the measured basis
+            // for widening the continuation sourcing.
+            if crate::direct_apex_trace::enabled() {
+                for (handle, data) in brep.half_edges.iter() {
+                    let Some((start, end)) = side_span(brep, handle) else {
+                        continue;
+                    };
+                    let touches =
+                        start.distance_to(&open_pos) <= tol || end.distance_to(&open_pos) <= tol;
+                    if !touches {
+                        continue;
+                    }
+                    let twin_live = brep.half_edges.contains_key(data.twin);
+                    let owner = side_face(brep, handle);
+                    trace(&format!(
+                        "  stall side {handle:?} face={owner:?} twin_live={twin_live} \
+                         span=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                        start.x, start.y, start.z, end.x, end.y, end.z
+                    ));
+                }
+            }
             return None;
         };
         let dead_data = brep.half_edges.get(dead)?;
