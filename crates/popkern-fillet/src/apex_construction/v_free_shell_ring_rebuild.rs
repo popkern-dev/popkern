@@ -5,15 +5,22 @@
 
 use popkern_core::geometry::Point3;
 use popkern_core::geometry::surface::SurfaceGeometry;
-use popkern_core::topology::{BRep, FaceHandle, HalfEdge, HalfEdgeHandle, VertexHandle};
+use popkern_core::topology::{
+    BRep, FaceHandle, HalfEdge, HalfEdgeHandle, LoopHandle, VertexHandle,
+};
 
 use super::{side_face, side_span, trace};
 
 /// Rebuild a contorted face's outer ring by boundary completion:
 /// order the trusted sides into chains, then close the ring by
 /// authoring twin halves against coincident dead sides lying on the
-/// face's own surface. Returns seam vertices for coincident-record
-/// merging, or None when the walk is ambiguous or fails to close.
+/// face's carrier plane. The continuation walk is a bounded search
+/// that accepts only a UNIQUE closure (PK-260): at a stall with
+/// several coincident dead candidates the walk branches, and a ring
+/// is adopted only when exactly one branch closes — correctness by
+/// uniqueness, never by guessing. Returns seam vertices for
+/// coincident-record merging, or None when the search stalls, fails
+/// to close, or closes ambiguously.
 pub(super) fn rebuild_face_ring(
     brep: &mut BRep,
     face: FaceHandle,
@@ -21,18 +28,6 @@ pub(super) fn rebuild_face_ring(
 ) -> Option<Vec<VertexHandle>> {
     let tol = brep.tolerance.linear().max(1.0e-9) * 10.0;
     let loop_handle = brep.faces.get(face)?.outer_loop;
-    let span_of = |brep: &BRep, side: HalfEdgeHandle| -> Option<(VertexHandle, VertexHandle)> {
-        let data = brep.half_edges.get(side)?;
-        let twin = brep.half_edges.get(data.twin)?;
-        Some((data.origin, twin.origin))
-    };
-    let mut chain: Vec<HalfEdgeHandle> = Vec::new();
-    let mut pool: Vec<HalfEdgeHandle> = trusted.to_vec();
-    let first = pool.first().copied()?;
-    pool.remove(0);
-    chain.push(first);
-    let (ring_start, mut open_end) = span_of(brep, first)?;
-    let ring_start_pos = brep.vertices.get(ring_start)?.position;
     // PK-260: surfaceless residual slivers (the demotion passes strip
     // their inherited carrier before rung 1 runs) still have a
     // well-defined planar carrier — their trusted sides' endpoints.
@@ -40,186 +35,273 @@ pub(super) fn rebuild_face_ring(
     // continuation and sliver ring rebuilds always stall at zero
     // candidates (measured on the oblique base-corner class).
     let carrier = face_carrier_plane(brep, face, trusted, tol);
-    let mut seam_vertices = Vec::new();
-    for _ in 0..brep.half_edges.len() + trusted.len() + 8 {
-        let open_pos = brep.vertices.get(open_end)?.position;
-        if open_pos.distance_to(&ring_start_pos) <= tol && chain.len() > 2 {
-            break;
-        }
-        // Trusted continuation first.
-        if let Some(index) = pool.iter().position(|side| {
-            span_of(brep, *side).is_some_and(|(start, _)| {
-                brep.vertices
-                    .get(start)
-                    .is_some_and(|v| v.position.distance_to(&open_pos) <= tol)
-            })
-        }) {
-            let side = pool.remove(index);
-            let (start, end) = span_of(brep, side)?;
-            if start != open_end {
-                seam_vertices.push(start);
-                seam_vertices.push(open_end);
-            }
-            chain.push(side);
-            open_end = end;
-            continue;
-        }
-        // Dead-side completion: a dead side ending at the open
-        // position whose span lies on this face's surface gets its
-        // face-side twin authored here.
-        let candidates: Vec<HalfEdgeHandle> = brep
-            .half_edges
-            .iter()
-            .filter(|(_, data)| !brep.half_edges.contains_key(data.twin))
-            .filter(|(handle, _)| side_face(brep, *handle) != Some(face))
-            .filter(|(handle, _)| {
-                let Some((start, end)) = side_span(brep, *handle) else {
-                    return false;
-                };
-                end.distance_to(&open_pos) <= tol
-                    && span_on_carrier_plane(carrier.as_ref(), &start, &end, tol)
-            })
-            .map(|(handle, _)| handle)
-            .collect();
-        let chosen = match candidates.as_slice() {
-            [only] => Some(*only),
-            [] => None,
-            multiple => {
-                // PK-260: coincident duplicate dead sides (the
-                // far-side trim pair — the strip's stolen-trim slot
-                // and the support replacement's slot) both end at the
-                // open position. Resolve by ring-closure lookahead
-                // instead of declining: prefer the candidate whose far
-                // end closes the ring or chains onward (trusted pool
-                // first, then another dead side); tie-break to the
-                // side whose edge carries an exact curve (the authored
-                // trim) over a curve-less span. A residual tie still
-                // declines — the walk must not guess.
-                let far_pos = |side: HalfEdgeHandle| -> Option<Point3> {
-                    let origin = brep.half_edges.get(side)?.origin;
-                    brep.vertices.get(origin).map(|v| v.position)
-                };
-                let score = |side: HalfEdgeHandle| -> Option<usize> {
-                    let pos = far_pos(side)?;
-                    let closes = pos.distance_to(&ring_start_pos) <= tol;
-                    let trusted_next = pool.iter().any(|other| {
-                        span_of(brep, *other).is_some_and(|(start, _)| {
-                            brep.vertices
-                                .get(start)
-                                .is_some_and(|v| v.position.distance_to(&pos) <= tol)
-                        })
-                    });
-                    let dead_next = brep.half_edges.iter().any(|(handle, data)| {
-                        handle != side
-                            && !brep.half_edges.contains_key(data.twin)
-                            && side_span(brep, handle)
-                                .is_some_and(|(_, end)| end.distance_to(&pos) <= tol)
-                    });
-                    let curve = brep
-                        .half_edges
-                        .get(side)
-                        .and_then(|data| brep.edges.get(data.edge))
-                        .is_some_and(|edge| edge.curve.is_some());
-                    let rank = if closes {
-                        3
-                    } else if trusted_next {
-                        2
-                    } else if dead_next {
-                        1
-                    } else {
-                        0
-                    };
-                    Some(rank * 2 + usize::from(curve))
-                };
-                let mut best: Option<(usize, HalfEdgeHandle)> = None;
-                let mut tied = false;
-                for side in multiple {
-                    let Some(s) = score(*side) else { continue };
-                    match &best {
-                        Some((b, _)) if s == *b => tied = true,
-                        Some((b, _)) if s > *b => {
-                            best = Some((s, *side));
-                            tied = false;
-                        }
-                        None => best = Some((s, *side)),
-                        _ => {}
-                    }
-                }
-                match (best, tied) {
-                    (Some((_, side)), false) => Some(side),
-                    _ => None,
-                }
-            }
-        };
-        let Some(dead) = chosen else {
-            trace(&format!(
-                "winding reconciliation: ring rebuild for {face:?} found {} dead \
-                 continuation(s) at ({:.3},{:.3},{:.3})",
-                candidates.len(),
-                open_pos.x,
-                open_pos.y,
-                open_pos.z
-            ));
-            // PK-260 stall census: every side incident to the open
-            // position, with liveness/ownership — the measured basis
-            // for widening the continuation sourcing.
-            if crate::direct_apex_trace::enabled() {
-                for (handle, data) in brep.half_edges.iter() {
-                    let Some((start, end)) = side_span(brep, handle) else {
-                        continue;
-                    };
-                    let touches =
-                        start.distance_to(&open_pos) <= tol || end.distance_to(&open_pos) <= tol;
-                    if !touches {
-                        continue;
-                    }
-                    let twin_live = brep.half_edges.contains_key(data.twin);
-                    let owner = side_face(brep, handle);
-                    trace(&format!(
-                        "  stall side {handle:?} face={owner:?} twin_live={twin_live} \
-                         span=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
-                        start.x, start.y, start.z, end.x, end.y, end.z
-                    ));
-                }
-            }
-            return None;
-        };
-        let dead_data = brep.half_edges.get(dead)?;
-        let dead_edge = dead_data.edge;
-        let dead_origin = dead_data.origin;
-        let dead_end = brep
-            .half_edges
-            .get(dead_data.next)
-            .map(|next| next.origin)?;
-        let new_side = brep.half_edges.insert(HalfEdge {
-            origin: dead_end,
-            twin: dead,
-            next: Default::default(),
-            prev: Default::default(),
-            edge: dead_edge,
-            loop_: loop_handle,
-            pcurve: None,
-        });
-        brep.half_edges[dead].twin = new_side;
-        brep.boundary_edges.remove(&dead_edge);
-        if dead_end != open_end {
-            seam_vertices.push(dead_end);
-            seam_vertices.push(open_end);
-        }
-        chain.push(new_side);
-        open_end = dead_origin;
+    let plan = plan_face_ring(brep, face, trusted, tol, carrier.as_ref())?;
+    execute_face_ring(brep, face, loop_handle, &plan, tol)
+}
+
+/// One adopted continuation of the ring walk: an existing trusted
+/// side, or a dead side whose face-side twin the execute phase
+/// authors.
+#[derive(Clone, Copy)]
+enum RingStep {
+    Trusted(HalfEdgeHandle),
+    Dead(HalfEdgeHandle),
+}
+
+/// A unique closing walk found by [`plan_face_ring`], replayed
+/// verbatim by [`execute_face_ring`].
+struct RingPlan {
+    first: HalfEdgeHandle,
+    ring_start: VertexHandle,
+    ring_start_pos: Point3,
+    steps: Vec<RingStep>,
+}
+
+fn trusted_span(brep: &BRep, side: HalfEdgeHandle) -> Option<(VertexHandle, VertexHandle)> {
+    let data = brep.half_edges.get(side)?;
+    let twin = brep.half_edges.get(data.twin)?;
+    Some((data.origin, twin.origin))
+}
+
+/// Pure search phase: walk trusted continuations greedily (they are
+/// forced), branch at multi-candidate dead-side stalls, and accept
+/// only a unique closing walk. No topology is mutated here, so
+/// branches need no rollback.
+fn plan_face_ring(
+    brep: &BRep,
+    face: FaceHandle,
+    trusted: &[HalfEdgeHandle],
+    tol: f64,
+    carrier: Option<&(Point3, popkern_core::geometry::Vec3)>,
+) -> Option<RingPlan> {
+    let first = trusted.first().copied()?;
+    let (ring_start, first_end) = trusted_span(brep, first)?;
+    let ring_start_pos = brep.vertices.get(ring_start)?.position;
+    let position = |vertex: VertexHandle| brep.vertices.get(vertex).map(|v| v.position);
+
+    struct Node {
+        steps: Vec<RingStep>,
+        pool: Vec<HalfEdgeHandle>,
+        used_dead: Vec<HalfEdgeHandle>,
+        open_end: VertexHandle,
     }
+    let depth_cap = brep.half_edges.len() + trusted.len() + 8;
+    let mut stack = vec![Node {
+        steps: Vec::new(),
+        pool: trusted[1..].to_vec(),
+        used_dead: Vec::new(),
+        open_end: first_end,
+    }];
+    let mut solution: Option<Vec<RingStep>> = None;
+    let mut visits = 0usize;
+    // Deepest stall (position, candidate count, depth) for the
+    // decline diagnostics.
+    let mut deepest_stall: Option<(Point3, usize, usize)> = None;
+    while let Some(mut node) = stack.pop() {
+        visits += 1;
+        if visits > 512 {
+            trace(&format!(
+                "winding reconciliation: ring rebuild for {face:?} exceeded its search budget"
+            ));
+            return None;
+        }
+        loop {
+            if node.steps.len() + 1 > depth_cap {
+                break;
+            }
+            let Some(open_pos) = position(node.open_end) else {
+                break;
+            };
+            if open_pos.distance_to(&ring_start_pos) <= tol && node.steps.len() + 1 > 2 {
+                if solution.is_some() {
+                    trace(&format!(
+                        "winding reconciliation: ring rebuild for {face:?} closed ambiguously"
+                    ));
+                    return None;
+                }
+                solution = Some(node.steps.clone());
+                break;
+            }
+            // Trusted continuation first (forced, as in the original
+            // greedy walk).
+            if let Some(index) = node.pool.iter().position(|side| {
+                trusted_span(brep, *side).is_some_and(|(start, _)| {
+                    position(start).is_some_and(|p| p.distance_to(&open_pos) <= tol)
+                })
+            }) {
+                let side = node.pool.remove(index);
+                let Some((_, end)) = trusted_span(brep, side) else {
+                    break;
+                };
+                node.steps.push(RingStep::Trusted(side));
+                node.open_end = end;
+                continue;
+            }
+            // Dead-side continuations on the carrier.
+            let candidates: Vec<HalfEdgeHandle> = brep
+                .half_edges
+                .iter()
+                .filter(|(handle, data)| {
+                    !brep.half_edges.contains_key(data.twin) && !node.used_dead.contains(handle)
+                })
+                .filter(|(handle, _)| side_face(brep, *handle) != Some(face))
+                .filter(|(handle, _)| {
+                    let Some((start, end)) = side_span(brep, *handle) else {
+                        return false;
+                    };
+                    end.distance_to(&open_pos) <= tol
+                        && span_on_carrier_plane(carrier, &start, &end, tol)
+                })
+                .map(|(handle, _)| handle)
+                .collect();
+            match candidates.as_slice() {
+                [] => {
+                    let depth = node.steps.len();
+                    if deepest_stall.is_none_or(|(_, _, d)| depth > d) {
+                        deepest_stall = Some((open_pos, 0, depth));
+                    }
+                    break;
+                }
+                [only] => {
+                    let Some(origin) = brep.half_edges.get(*only).map(|data| data.origin) else {
+                        break;
+                    };
+                    node.used_dead.push(*only);
+                    node.steps.push(RingStep::Dead(*only));
+                    node.open_end = origin;
+                    continue;
+                }
+                multiple => {
+                    for side in multiple {
+                        let Some(origin) = brep.half_edges.get(*side).map(|data| data.origin)
+                        else {
+                            continue;
+                        };
+                        let mut steps = node.steps.clone();
+                        steps.push(RingStep::Dead(*side));
+                        let mut used_dead = node.used_dead.clone();
+                        used_dead.push(*side);
+                        stack.push(Node {
+                            steps,
+                            pool: node.pool.clone(),
+                            used_dead,
+                            open_end: origin,
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    match solution {
+        Some(steps) => Some(RingPlan {
+            first,
+            ring_start,
+            ring_start_pos,
+            steps,
+        }),
+        None => {
+            if let Some((pos, count, _)) = deepest_stall {
+                trace(&format!(
+                    "winding reconciliation: ring rebuild for {face:?} found {count} dead \
+                     continuation(s) at ({:.3},{:.3},{:.3})",
+                    pos.x, pos.y, pos.z
+                ));
+                // PK-260 stall census: every side incident to the
+                // stall position, with liveness/ownership — the
+                // measured basis for widening the continuation
+                // sourcing.
+                if crate::direct_apex_trace::enabled() {
+                    for (handle, data) in brep.half_edges.iter() {
+                        let Some((start, end)) = side_span(brep, handle) else {
+                            continue;
+                        };
+                        if start.distance_to(&pos) > tol && end.distance_to(&pos) > tol {
+                            continue;
+                        }
+                        let twin_live = brep.half_edges.contains_key(data.twin);
+                        let owner = side_face(brep, handle);
+                        trace(&format!(
+                            "  stall side {handle:?} face={owner:?} twin_live={twin_live} \
+                             span=({:.3},{:.3},{:.3})->({:.3},{:.3},{:.3})",
+                            start.x, start.y, start.z, end.x, end.y, end.z
+                        ));
+                    }
+                }
+            } else {
+                trace(&format!(
+                    "winding reconciliation: ring rebuild for {face:?} did not close"
+                ));
+            }
+            None
+        }
+    }
+}
+
+/// Mutating replay of a unique ring plan: author the face-side twins
+/// for adopted dead sides, collect seam vertices, and wire the chain.
+fn execute_face_ring(
+    brep: &mut BRep,
+    face: FaceHandle,
+    loop_handle: LoopHandle,
+    plan: &RingPlan,
+    tol: f64,
+) -> Option<Vec<VertexHandle>> {
+    let mut chain = vec![plan.first];
+    let (_, mut open_end) = trusted_span(brep, plan.first)?;
+    let mut seam_vertices = Vec::new();
+    for step in &plan.steps {
+        match step {
+            RingStep::Trusted(side) => {
+                let (start, end) = trusted_span(brep, *side)?;
+                if start != open_end {
+                    seam_vertices.push(start);
+                    seam_vertices.push(open_end);
+                }
+                chain.push(*side);
+                open_end = end;
+            }
+            RingStep::Dead(dead) => {
+                let dead_data = brep.half_edges.get(*dead)?;
+                let dead_edge = dead_data.edge;
+                let dead_origin = dead_data.origin;
+                let dead_end = brep
+                    .half_edges
+                    .get(dead_data.next)
+                    .map(|next| next.origin)?;
+                let new_side = brep.half_edges.insert(HalfEdge {
+                    origin: dead_end,
+                    twin: *dead,
+                    next: Default::default(),
+                    prev: Default::default(),
+                    edge: dead_edge,
+                    loop_: loop_handle,
+                    pcurve: None,
+                });
+                brep.half_edges[*dead].twin = new_side;
+                brep.boundary_edges.remove(&dead_edge);
+                if dead_end != open_end {
+                    seam_vertices.push(dead_end);
+                    seam_vertices.push(open_end);
+                }
+                chain.push(new_side);
+                open_end = dead_origin;
+            }
+        }
+    }
+    // The plan guarantees closure; re-verify cheaply so a stale
+    // handle between plan and execute rolls back via the caller.
     let open_pos = brep.vertices.get(open_end)?.position;
-    if open_pos.distance_to(&ring_start_pos) > tol || chain.len() < 3 {
+    if open_pos.distance_to(&plan.ring_start_pos) > tol || chain.len() < 3 {
         trace(&format!(
             "winding reconciliation: ring rebuild for {face:?} did not close ({} side(s))",
             chain.len()
         ));
         return None;
     }
-    if open_end != ring_start {
+    if open_end != plan.ring_start {
         seam_vertices.push(open_end);
-        seam_vertices.push(ring_start);
+        seam_vertices.push(plan.ring_start);
     }
     let n = chain.len();
     for k in 0..n {
