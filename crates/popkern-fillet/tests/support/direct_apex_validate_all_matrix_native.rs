@@ -350,75 +350,73 @@ fn assert_pyramid_exact_boundary_passes_commercial_cap_quality(
 
 #[test]
 fn pyramid3_exact_boundary_acceptance_matrix() {
-    // pyramid3_uniform RE-ENTERED with PK-219: the welded
-    // shared-corner substrate serves the uniform class natively
-    // (Coons sectors, g0 1.23e-6 / g1 2.34e-7). The mixed/extreme
-    // rows moved to the PK-260 decline pin below and return here
-    // when the support-side reconnection lands.
-    assert_pyramid_exact_boundary_passes_commercial_cap_quality(
-        "pyramid3_uniform",
-        &[0.10, 0.10, 0.10],
-        false,
-    );
+    // pyramid3_uniform RE-ENTERED with PK-219 (welded shared-corner
+    // substrate, Coons sectors, g0 1.23e-6 / g1 2.34e-7).
+    // pyramid3_mixed RE-ENTERED with PK-260: the oblique base-corner
+    // support-side stitching is fixed end-to-end (serving-shape
+    // decline containment, ring-rebuild ambiguity lookahead +
+    // surfaceless-sliver carrier + unique-closure search, and the
+    // magnitude-gated winding calibration that unblocked the mirror
+    // reversal) — the corner serves DirectApex with zero retries and
+    // a crossing-free census. pyramid3_extreme's stitching is fixed
+    // too, but its residual cap-into-strip footprint interference
+    // (the PK-250/251 family at 1:10) keeps it on the retry pin
+    // below.
+    for (fixture, radii) in [
+        ("pyramid3_uniform", [0.10, 0.10, 0.10]),
+        ("pyramid3_mixed", [0.08, 0.10, 0.12]),
+    ] {
+        assert_pyramid_exact_boundary_passes_commercial_cap_quality(fixture, &radii, false);
+    }
 }
 
-/// PK-260 honest containment: the oblique BASE-corner class
-/// (pyramid3 mixed/extreme radii) cannot yet serve direct-apex — the
-/// §14.9 partition leaves the big support faces unstitched from the
-/// corner complex (dead rail twins, coplanar overlap, OCC-unreadable
-/// STEP). The serving-shape gate DECLINES the route when a defect
-/// survives every rung, and the serving retry treats the recorded
-/// decline as a validity defect: the pipeline re-runs once with the
-/// corner excluded so the legacy dispatch serves from clean legacy
-/// anchors (the mid-pipeline fallback body is anchor-degraded and
-/// never served). This pin flips back to
-/// `assert_pyramid_exact_boundary_passes_commercial_cap_quality` rows
-/// when PK-260's support-side reconnection lands.
+/// PK-260 residual containment for pyramid3_extreme (1:10 radii): the
+/// support-side stitching root is FIXED (rung 1 completes: ghosts 15,
+/// reversed 12, rebuilt rings 1; cap-outer g0 1.62e-4 / g1 6.98e-6
+/// pass the commercial bars) but the served cap sector still crosses
+/// the middle-radius strip's footprint — the PK-250/251 interference
+/// family — so the serving retry detects the crossing and the
+/// exclusion re-run serves the legacy dispatch. This pin flips to a
+/// `pyramid3_exact_boundary_acceptance_matrix` row when the footprint
+/// interference is cleared.
 #[test]
-fn pyramid3_oblique_base_corner_declines_to_clean_legacy_serve() {
-    for (fixture, radii) in [
-        ("pyramid3_mixed", [0.08, 0.10, 0.12]),
-        ("pyramid3_extreme", [0.02, 0.10, 0.20]),
-    ] {
-        let result = build_under_direct_apex(true, &radii);
-        let retries = &result.repair_report.serving_self_intersection_retries;
-        assert!(
-            retries.iter().any(|retry| {
-                retry
-                    .detail
-                    .contains(popkern_fillet::types::SERVING_SHAPE_DECLINE_PREFIX)
-            }),
-            "{fixture} must record the serving-shape decline retry; got {retries:?}"
-        );
-        assert!(
-            result
-                .repair_report
-                .apex_routes
-                .iter()
-                .all(|route| route.route == popkern_fillet::types::ApexConstructionRoute::Legacy),
-            "{fixture} serves the legacy dispatch while PK-260 is open"
-        );
-        let crossings = result
-            .brep
-            .validate_all()
-            .into_iter()
-            .filter(|e| {
-                matches!(
-                    e,
-                    popkern_core::error::ValidationError::SelfIntersection { .. }
-                )
-            })
-            .count();
-        assert_eq!(
-            crossings, 0,
-            "{fixture} legacy serve must census zero SelfIntersection"
-        );
-        assert!(
-            result.brep.boundary_edges.is_empty(),
-            "{fixture} legacy serve must carry no dead boundary sides; got {}",
-            result.brep.boundary_edges.len()
-        );
-    }
+fn pyramid3_extreme_footprint_interference_serves_clean_legacy() {
+    let result = build_under_direct_apex(true, &[0.02, 0.10, 0.20]);
+    let retries = &result.repair_report.serving_self_intersection_retries;
+    assert!(
+        retries
+            .iter()
+            .any(|retry| retry.detail.contains("Self-intersection")),
+        "pyramid3_extreme must record the footprint-crossing retry; got {retries:?}"
+    );
+    assert!(
+        result
+            .repair_report
+            .apex_routes
+            .iter()
+            .all(|route| route.route == popkern_fillet::types::ApexConstructionRoute::Legacy),
+        "pyramid3_extreme serves the legacy dispatch while the footprint interference is open"
+    );
+    let crossings = result
+        .brep
+        .validate_all()
+        .into_iter()
+        .filter(|e| {
+            matches!(
+                e,
+                popkern_core::error::ValidationError::SelfIntersection { .. }
+            )
+        })
+        .count();
+    assert_eq!(
+        crossings, 0,
+        "pyramid3_extreme legacy serve must census zero SelfIntersection"
+    );
+    assert!(
+        result.brep.boundary_edges.is_empty(),
+        "pyramid3_extreme legacy serve must carry no dead boundary sides; got {}",
+        result.brep.boundary_edges.len()
+    );
 }
 
 #[test]

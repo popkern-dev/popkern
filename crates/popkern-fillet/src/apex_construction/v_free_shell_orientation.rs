@@ -322,13 +322,33 @@ fn select_reversal_class(
     let mut reversal = BTreeSet::new();
     for root in split_roots {
         let members = components.remove(&root)?;
+        // PK-260: calibrate with magnitude-gated votes. The parity
+        // classes are exact topology, but a near-degenerate sliver's
+        // Newell normal is noise — on the oblique base-corner class
+        // three slivers voted "honest" at |dot| 0.0015..0.047 against
+        // three genuinely mirror-wound production faces at 0.69..1.93
+        // in the SAME parity class, splitting the calibration and
+        // starving the reversal. Votes below 10% of the component's
+        // strongest magnitude abstain.
+        let ballots: Vec<(bool, bool, f64)> = members
+            .iter()
+            .filter_map(|(face, parity)| {
+                let honest = plane_winding_honest(brep, *face)?;
+                let magnitude = plane_winding_newell_magnitude(brep, *face)?.abs();
+                Some((*parity, honest, magnitude))
+            })
+            .collect();
+        let strongest = ballots
+            .iter()
+            .map(|(_, _, magnitude)| *magnitude)
+            .fold(0.0_f64, f64::max);
         let mut votes: BTreeMap<bool, (usize, usize)> = BTreeMap::new();
-        for (face, parity) in &members {
-            let Some(honest) = plane_winding_honest(brep, *face) else {
+        for (parity, honest, magnitude) in &ballots {
+            if *magnitude < strongest * 0.1 {
                 continue;
-            };
+            }
             let entry = votes.entry(*parity).or_default();
-            if honest {
+            if *honest {
                 entry.0 += 1;
             } else {
                 entry.1 += 1;
@@ -349,6 +369,19 @@ fn select_reversal_class(
             trace(&format!(
                 "winding reconciliation declined: ambiguous plane calibration votes {votes:?}"
             ));
+            // PK-260 calibration census: per-member verdicts with the
+            // Newell magnitude — near-degenerate sliver rings vote
+            // with noise-level normals and can split a class.
+            if crate::direct_apex_trace::enabled() {
+                for (face, parity) in &members {
+                    let verdict = plane_winding_honest(brep, *face);
+                    let magnitude = plane_winding_newell_magnitude(brep, *face);
+                    trace(&format!(
+                        "  calibration vote {face:?} parity={parity} honest={verdict:?} \
+                         newell_dot={magnitude:?}"
+                    ));
+                }
+            }
             return None;
         };
         for (face, parity) in members {
@@ -358,6 +391,29 @@ fn select_reversal_class(
         }
     }
     Some(reversal)
+}
+
+/// The raw Newell·normal magnitude behind [`plane_winding_honest`] —
+/// a signed-area scale that separates reliable votes from
+/// near-degenerate sliver noise.
+fn plane_winding_newell_magnitude(brep: &BRep, face: FaceHandle) -> Option<f64> {
+    let sof = brep.faces.get(face)?.surface.as_ref()?;
+    let SurfaceGeometry::Plane { normal, .. } = &sof.geometry else {
+        return None;
+    };
+    let ring = brep.face_outer_loop_positions(face);
+    if ring.len() < 3 {
+        return None;
+    }
+    let mut newell = Vec3::new(0.0, 0.0, 0.0);
+    for i in 0..ring.len() {
+        let p = ring[i];
+        let q = ring[(i + 1) % ring.len()];
+        newell.x += (p.y - q.y) * (p.z + q.z);
+        newell.y += (p.z - q.z) * (p.x + q.x);
+        newell.z += (p.x - q.x) * (p.y + q.y);
+    }
+    Some(newell.dot(normal))
 }
 
 /// Plane-winding honesty: Newell normal of the outer ring agrees in
