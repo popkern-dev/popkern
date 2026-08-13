@@ -10,6 +10,8 @@
 //!               →  surface complex (one component per spline)
 //!               →  boundary weld
 //!               →  validated Part
+//!   (and, when the family does not cover the cage as given, one
+//!    Catmull–Clark refinement step first — see below)
 //! ```
 //!
 //! The construction is the Karčiauskas–Peters polyhedral-net spline
@@ -19,27 +21,34 @@
 //! ordinary BRep geometry that booleans, fillets, tessellation, and
 //! STEP export all consume.
 //!
-//! # Why this is a Part-level entry point
+//! # Cage normalization
 //!
-//! The underlying machinery has existed in popkern-core for a long
-//! time with no production caller — reachable only by assembling four
-//! core calls in the right order and knowing which options each
-//! needs. That is not an API a GUI can drive. This module is the
-//! single call, and it returns a [`Part`], so a smooth body is
-//! immediately filletable, boolean-able, and exportable like any
-//! other.
+//! The spline family covers specific local configurations; a general
+//! cage (an n-gon face whose corners are not valence 4, a vertex
+//! whose neighborhood mixes quads and n-gons) may not decompose into
+//! them at all. When the direct attempt fails to produce a closed
+//! body, the cage is normalized by one Catmull–Clark refinement step
+//! — after which every face is a quad and every interior vertex has
+//! an all-quad neighborhood, the exact serving condition of the
+//! vertex-origin constructions — and the pipeline retries. The
+//! refined net represents the same Catmull–Clark limit surface the
+//! cage implies, so this changes the realization, not the design
+//! intent. Cages the family covers natively serve directly with
+//! [`SmoothMeshReport::refinement_steps`] `== 0`. See
+//! `docs/architecture/smooth-mesh-cage-normalization.md`.
 //!
 //! # Declining
 //!
 //! A control net can be unsuitable — non-manifold, a valence the
-//! spline family does not cover, or a cage whose components cannot be
-//! welded into a closed shell. Those are reported as
-//! [`PartError::SmoothMesh`] carrying the per-spline rejections and
-//! the weld report, not as a silently-degraded body.
+//! spline family does not cover even after refinement, or a cage
+//! whose components cannot be welded into a closed shell. Those are
+//! reported as [`PartError::SmoothMesh`] naming the pipeline stage,
+//! the per-attempt failure trail, and the unserved cage elements —
+//! not as a silently-degraded body.
 
 use popkern_core::geometry::polyhedral_spline::{
-    ControlNet, PolyhedralCoverageOptions, build_control_net_surface_complex,
-    weld_clean_surface_complex_boundaries,
+    ControlNet, ControlNetSplineOrigin, PolyhedralCoverageOptions, PolyhedralSplineSurfaceComplex,
+    build_control_net_surface_complex, weld_clean_surface_complex_boundaries,
 };
 use popkern_core::tolerance::Tolerance;
 
@@ -64,6 +73,16 @@ pub struct SmoothMeshOptions {
     /// an open sheet body, e.g. for a cage that is deliberately not
     /// closed.
     pub require_closed: bool,
+    /// Catmull–Clark refinement steps allowed when the direct attempt
+    /// does not produce a closed body (default 1 — one step already
+    /// makes every interior vertex servable, and refinement preserves
+    /// valences above the family's window, so more steps only help
+    /// exotic mixed declines).
+    pub max_refinement_steps: usize,
+    /// Screen the served body for self-intersections (`validate_all`)
+    /// and decline instead of serving a self-crossing body. On by
+    /// default; cage-scale bodies keep the O(n²) check cheap.
+    pub check_self_intersections: bool,
 }
 
 impl Default for SmoothMeshOptions {
@@ -72,6 +91,8 @@ impl Default for SmoothMeshOptions {
             samples: 8,
             weld_tolerance: 1e-6,
             require_closed: true,
+            max_refinement_steps: 1,
+            check_self_intersections: true,
         }
     }
 }
@@ -79,7 +100,8 @@ impl Default for SmoothMeshOptions {
 /// What the construction produced, beyond the body itself.
 #[derive(Debug, Clone)]
 pub struct SmoothMeshReport {
-    /// Control-net vertices consumed.
+    /// Control-net vertices consumed (of the cage actually served —
+    /// the refined cage when `refinement_steps > 0`).
     pub source_vertices: usize,
     /// Control-net faces consumed.
     pub source_faces: usize,
@@ -98,6 +120,12 @@ pub struct SmoothMeshReport {
     pub remaining_boundary_edges: usize,
     /// Largest positional gap closed by the weld.
     pub max_weld_gap: f64,
+    /// Catmull–Clark steps applied before the serving attempt
+    /// succeeded. Zero when the cage served as given.
+    pub refinement_steps: usize,
+    /// Failure summary of each attempt that preceded the serving one
+    /// (empty when the first attempt served).
+    pub attempts: Vec<String>,
 }
 
 impl SmoothMeshReport {
@@ -107,6 +135,11 @@ impl SmoothMeshReport {
     }
 }
 
+struct AttemptFailure {
+    stage: &'static str,
+    detail: String,
+}
+
 /// Build a smooth solid from a control net.
 ///
 /// # Errors
@@ -114,13 +147,58 @@ impl SmoothMeshReport {
 /// [`PartError::SmoothMesh`] when the net cannot be turned into a
 /// spline complex, when welding leaves the body open while
 /// [`SmoothMeshOptions::require_closed`] is set, or when the welded
-/// body fails kernel validation. The error carries the report so the
-/// caller can see which splines or boundaries were responsible.
+/// body fails kernel validation — after exhausting the allowed
+/// Catmull–Clark normalization retries. The error names the failing
+/// stage, the per-attempt trail, and the unserved cage elements.
 pub fn smooth_solid_from_control_net(
     net: &ControlNet,
     tolerance: Tolerance,
     options: SmoothMeshOptions,
 ) -> Result<(Part, SmoothMeshReport), PartError> {
+    let mut cage = net.clone();
+    let mut attempts: Vec<String> = Vec::new();
+    for step in 0..=options.max_refinement_steps {
+        match attempt(&cage, tolerance, options) {
+            Ok((part, mut report)) => {
+                report.refinement_steps = step;
+                report.attempts = attempts;
+                return Ok((part, report));
+            }
+            Err(failure) => {
+                attempts.push(format!(
+                    "step {step}: {}: {}",
+                    failure.stage, failure.detail
+                ));
+                if step == options.max_refinement_steps {
+                    return Err(PartError::SmoothMesh {
+                        stage: failure.stage,
+                        detail: attempt_trail(&failure.detail, &attempts),
+                    });
+                }
+                cage = cage
+                    .catmull_clark_refined()
+                    .map_err(|source| PartError::SmoothMesh {
+                        stage: "cage refinement",
+                        detail: source.to_string(),
+                    })?;
+            }
+        }
+    }
+    unreachable!("the attempt loop always returns on its final step")
+}
+
+fn attempt_trail(final_detail: &str, attempts: &[String]) -> String {
+    if attempts.len() <= 1 {
+        return final_detail.to_string();
+    }
+    format!("{final_detail}; attempt trail: [{}]", attempts.join("; "))
+}
+
+fn attempt(
+    cage: &ControlNet,
+    tolerance: Tolerance,
+    options: SmoothMeshOptions,
+) -> Result<(Part, SmoothMeshReport), AttemptFailure> {
     let coverage = PolyhedralCoverageOptions {
         tolerance,
         samples: options.samples,
@@ -128,12 +206,21 @@ pub fn smooth_solid_from_control_net(
         ..PolyhedralCoverageOptions::default()
     };
 
-    let complex = build_control_net_surface_complex(net, coverage).map_err(|source| {
-        PartError::SmoothMesh {
+    let complex =
+        build_control_net_surface_complex(cage, coverage).map_err(|source| AttemptFailure {
             stage: "spline construction",
             detail: source.to_string(),
-        }
-    })?;
+        })?;
+
+    if complex.components.is_empty() {
+        return Err(AttemptFailure {
+            stage: "spline construction",
+            detail: format!(
+                "the spline family covers none of the cage; {}",
+                unserved_census(cage, &complex)
+            ),
+        });
+    }
 
     let rejections: Vec<String> = complex
         .rejections
@@ -142,7 +229,7 @@ pub fn smooth_solid_from_control_net(
         .collect();
 
     let welded = weld_clean_surface_complex_boundaries(&complex, coverage).map_err(|detail| {
-        PartError::SmoothMesh {
+        AttemptFailure {
             stage: "boundary weld",
             detail,
         }
@@ -158,21 +245,116 @@ pub fn smooth_solid_from_control_net(
         declined_pairs: welded.report.declined_pairs,
         remaining_boundary_edges: welded.report.remaining_boundary_edges,
         max_weld_gap: welded.report.max_weld_gap,
+        refinement_steps: 0,
+        attempts: Vec::new(),
     };
 
     if options.require_closed && report.remaining_boundary_edges > 0 {
-        return Err(PartError::SmoothMesh {
+        return Err(AttemptFailure {
             stage: "closure",
             detail: format!(
                 "{} boundary edge(s) remain unwelded after {} weld(s) (max gap {:.3e}); \
-                 the cage did not close. Set require_closed=false to accept a sheet body.",
-                report.remaining_boundary_edges, report.welded_pairs, report.max_weld_gap
+                 the cage did not close ({}). Set require_closed=false to accept a sheet body.",
+                report.remaining_boundary_edges,
+                report.welded_pairs,
+                report.max_weld_gap,
+                unserved_census(cage, &complex),
             ),
         });
     }
 
-    let part = Part::from_brep(welded.brep, tolerance, "smooth mesh")?;
+    let part = Part::from_brep(welded.brep, tolerance, "smooth mesh").map_err(|source| {
+        AttemptFailure {
+            stage: "validation",
+            detail: source.to_string(),
+        }
+    })?;
+
+    if options.check_self_intersections {
+        let findings = part.brep().validate_all();
+        if !findings.is_empty() {
+            let summary: Vec<String> = findings.iter().take(4).map(|f| format!("{f}")).collect();
+            return Err(AttemptFailure {
+                stage: "self-intersection",
+                detail: format!(
+                    "the smooth body fails the full validation screen: {}",
+                    summary.join("; ")
+                ),
+            });
+        }
+    }
+
     Ok((part, report))
+}
+
+/// Name the cage elements no spline serves: vertices that anchor no
+/// vertex-origin spline and belong to no face-origin spline's face,
+/// with their valence and incident face arities. This is what a
+/// decline needs to be actionable — it points at the exact vertex
+/// whose configuration the family does not cover.
+fn unserved_census(cage: &ControlNet, complex: &PolyhedralSplineSurfaceComplex) -> String {
+    let mut served_vertices = vec![false; cage.vertices.len()];
+    let mut served_faces = vec![false; cage.faces.len()];
+    for component in &complex.components {
+        match component.origin {
+            ControlNetSplineOrigin::Vertex { vertex } => {
+                if let Some(slot) = served_vertices.get_mut(vertex) {
+                    *slot = true;
+                }
+            }
+            ControlNetSplineOrigin::Face { face } => {
+                if let Some(slot) = served_faces.get_mut(face) {
+                    *slot = true;
+                }
+            }
+        }
+    }
+    for (face, served) in served_faces.iter().enumerate() {
+        if *served {
+            for &vertex in &cage.faces[face].vertices {
+                served_vertices[vertex] = true;
+            }
+        }
+    }
+
+    let mut incident: Vec<Vec<usize>> = vec![Vec::new(); cage.vertices.len()];
+    for (face, data) in cage.faces.iter().enumerate() {
+        for &vertex in &data.vertices {
+            incident[vertex].push(face);
+        }
+    }
+
+    let unserved: Vec<usize> = (0..cage.vertices.len())
+        .filter(|&v| !served_vertices[v])
+        .collect();
+    if unserved.is_empty() {
+        return "every cage vertex anchors a spline".to_string();
+    }
+    let described: Vec<String> = unserved
+        .iter()
+        .take(8)
+        .map(|&v| {
+            let arities: Vec<usize> = incident[v]
+                .iter()
+                .map(|&f| cage.faces[f].vertices.len())
+                .collect();
+            format!(
+                "vertex {v} (valence {}, faces {arities:?})",
+                incident[v].len()
+            )
+        })
+        .collect();
+    format!(
+        "{} of {} cage vertices unserved by the spline family: {}{}",
+        unserved.len(),
+        cage.vertices.len(),
+        described.join(", "),
+        if unserved.len() > described.len() {
+            ", …"
+        } else {
+            ""
+        }
+    )
 }
 
 /// Build a smooth solid from a Wavefront OBJ control cage.

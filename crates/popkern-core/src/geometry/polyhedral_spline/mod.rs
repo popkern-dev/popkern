@@ -9,6 +9,7 @@
 mod adapter;
 mod atlas;
 mod brep_export;
+mod catmull_clark;
 mod complex;
 mod complex_weld;
 mod complex_weld_report;
@@ -18,6 +19,7 @@ mod coverage;
 mod diagnostics;
 mod mask;
 mod net;
+mod patch_subdivision;
 mod readiness;
 mod tables;
 mod types;
@@ -48,6 +50,9 @@ pub use validate::{
 #[cfg(test)]
 #[path = "brep_export_tests.rs"]
 mod brep_export_tests;
+#[cfg(test)]
+#[path = "catmull_clark_tests.rs"]
+mod catmull_clark_tests;
 #[cfg(test)]
 #[path = "complex_tests.rs"]
 mod complex_tests;

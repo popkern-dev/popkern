@@ -58,7 +58,8 @@ pub fn build_control_net_surface_complex(
     net: &ControlNet,
     options: PolyhedralCoverageOptions,
 ) -> Result<PolyhedralSplineSurfaceComplex, PolyhedralSplineError> {
-    let splines = construct_from_control_net_with_origins(net)?;
+    let mut splines = construct_from_control_net_with_origins(net)?;
+    unify_boundary_tiling(&mut splines)?;
     let mut components = Vec::new();
     let mut rejections = Vec::new();
 
@@ -81,6 +82,52 @@ pub fn build_control_net_surface_complex(
         components,
         rejections,
     })
+}
+
+/// Bring every component of a mixed complex to one boundary
+/// granularity.
+///
+/// The TOMS mask tables tile per quarter-cell for most families but
+/// per *half*-quarter for stars and n-gons of valence/sides ≥ 6
+/// (their tables emit a 2×2 macro-patch per sector). A complex mixing
+/// the two exposes 2:1 boundary relationships the pairwise weld
+/// cannot sew. When a fine-tiled family is present, every
+/// coarse-tiled component's patches are exactly subdivided once (de
+/// Casteljau at the midlines), so every shared side meets its
+/// neighbour 1:1. Complexes without a fine-tiled family are left
+/// untouched — the cube-cage class keeps its byte-identical serve.
+fn unify_boundary_tiling(
+    splines: &mut [super::adapter::ControlNetSpline],
+) -> Result<(), PolyhedralSplineError> {
+    let fine = |family: PolyhedralSplineFamily| {
+        matches!(
+            family,
+            PolyhedralSplineFamily::ExtraordinaryStar { valence } if valence >= 6
+        ) || matches!(
+            family,
+            PolyhedralSplineFamily::Ngon { sides } if sides >= 6
+        )
+    };
+    if !splines.iter().any(|item| fine(item.spline.family)) {
+        return Ok(());
+    }
+    for item in splines.iter_mut() {
+        // Polar components are exempt: a polar vertex requires an
+        // all-triangle neighbourhood while fine stars/n-gons require
+        // all-quad neighbour faces, so their dual cells can never
+        // share a face — and hence never share a weld seam — with a
+        // fine component. Subdividing them buys nothing and pushes
+        // seam-validation samples toward the collapsed apex, where
+        // normal angles are ill-conditioned (measured: hand.obj's
+        // Polar{7} artifact-rejected at 3.6e-6 vs the 1e-6 gate).
+        if matches!(item.spline.family, PolyhedralSplineFamily::Polar { .. }) {
+            continue;
+        }
+        if !fine(item.spline.family) {
+            item.spline = super::patch_subdivision::subdivide_spline_patch_grid(&item.spline)?;
+        }
+    }
+    Ok(())
 }
 
 pub fn analyze_surface_complex_sewing(

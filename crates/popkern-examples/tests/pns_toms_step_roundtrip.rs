@@ -100,7 +100,8 @@ fn run_roundtrip_fixtures(fixtures: &[Fixture]) {
         );
         export_and_validate_breps(fixture.stem, &breps, &validation).unwrap();
 
-        let welded = weld_clean_surface_complex_boundaries(&complex, options).unwrap();
+        let welded = weld_clean_surface_complex_boundaries(&complex, options)
+            .unwrap_or_else(|e| panic!("{} weld failed: {e}", fixture.stem));
         if welded.report.welded_pairs > 0 {
             export_and_validate_breps(
                 &format!("{}_welded", fixture.stem),

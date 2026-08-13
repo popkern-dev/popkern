@@ -240,6 +240,13 @@ pub enum PolyhedralSplineError {
     MissingVertex { face: usize, vertex: usize },
     #[error("control net contains duplicate directed edge {from}->{to}")]
     DuplicateDirectedEdge { from: usize, to: usize },
+    #[error(
+        "control net vertex {vertex} is a boundary pinch: {boundary_edges} boundary edges meet there (a manifold rim has exactly 2)"
+    )]
+    BoundaryPinch {
+        vertex: usize,
+        boundary_edges: usize,
+    },
     #[error("control net layout cannot provide stencil for {family:?}: {reason}")]
     StencilTopology {
         family: PolyhedralSplineFamily,

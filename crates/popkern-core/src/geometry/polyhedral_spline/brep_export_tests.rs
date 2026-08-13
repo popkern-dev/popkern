@@ -20,10 +20,13 @@ fn brep_export_builds_valid_regular_quad_sheet_with_pcurves() {
         },
     )
     .unwrap();
-    assert_eq!(export.faces.len(), 1);
-    assert_eq!(export.brep.faces.len(), 1);
-    assert_eq!(export.boundary_edge_count, 4);
-    assert_eq!(export.seam_edge_count, 0);
+    // Four quarter patches since the PK-198 tiling split: the dual
+    // cell's perimeter contributes 8 boundary edges (each side split
+    // at its midpoint) and the internal midlines 4 shared seams.
+    assert_eq!(export.faces.len(), 4);
+    assert_eq!(export.brep.faces.len(), 4);
+    assert_eq!(export.boundary_edge_count, 8);
+    assert_eq!(export.seam_edge_count, 4);
     assert!(export.brep.validate().is_ok());
     assert!(
         export

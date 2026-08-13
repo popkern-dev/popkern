@@ -92,6 +92,18 @@ fn cube_cage_becomes_a_smooth_part() {
         "a closed cage must weld into a closed body, {} edge(s) left over",
         report.remaining_boundary_edges
     );
+    // PK-198 no-regression pin: the all-quad-neighbourhood cage keeps
+    // its direct serve — no cage normalization, machine-zero welds.
+    assert_eq!(
+        report.refinement_steps, 0,
+        "the cube cage is family-native and must not be refined"
+    );
+    assert!(report.attempts.is_empty(), "no failed attempts");
+    assert!(
+        report.max_weld_gap < 1e-12,
+        "cube welds are machine-zero, got {:.3e}",
+        report.max_weld_gap
+    );
     assert!(
         part.brep().validate().is_ok(),
         "the smooth body must pass kernel validation"
@@ -124,36 +136,173 @@ fn smooth_body_is_ordinary_geometry_downstream() {
 }
 
 #[test]
-fn n_gon_and_high_valence_cage_is_served_or_declines_with_reasons() {
+fn n_gon_and_high_valence_cage_serves_through_cage_normalization() {
+    // PK-198: the direct enumeration covers exactly one vertex of this
+    // cage (the only all-quad neighbourhood), so the family cannot
+    // close it as given. One Catmull–Clark step normalizes it into an
+    // all-quad cage every vertex of which is served, and the body
+    // closes and validates.
     let net = truncated_corner_cage();
-    let result =
-        smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default());
-    match result {
-        Ok((part, report)) => {
-            assert!(
-                part.brep().validate().is_ok(),
-                "an accepted n-gon cage must still validate"
-            );
-            assert_eq!(
-                report.remaining_boundary_edges, 0,
-                "accepted body is closed"
-            );
-        }
-        Err(e) => {
-            // A decline is acceptable for this harder cage, but it must
-            // say which stage failed and why — a silent or generic
-            // failure would leave the caller with nothing to act on.
-            let message = e.to_string();
-            assert!(
-                message.contains("smooth mesh failed at"),
-                "decline must name the pipeline stage, got: {message}"
-            );
-            assert!(
-                message.len() > 40,
-                "decline must carry a real reason, got: {message}"
-            );
-        }
+    let (part, report) =
+        smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default())
+            .expect("the truncated-corner cage must serve through normalization");
+    assert_eq!(report.refinement_steps, 1, "one Catmull–Clark step");
+    assert_eq!(report.attempts.len(), 1, "the direct attempt is recorded");
+    assert!(
+        report.attempts[0].contains("unserved"),
+        "the recorded direct failure explains the coverage gap, got: {}",
+        report.attempts[0]
+    );
+    assert_eq!(report.remaining_boundary_edges, 0, "closed body");
+    assert_eq!(report.declined_pairs, 0, "every boundary pair welds");
+    assert!(report.rejections.is_empty(), "no spline rejections");
+    assert!(part.brep().validate().is_ok(), "kernel validation green");
+    assert!(
+        part.brep().validate_all().is_empty(),
+        "full validation (incl. self-intersection) green"
+    );
+}
+
+#[test]
+fn concave_hexagonal_cage_serves_through_cage_normalization() {
+    // PK-198 l_block class: hexagon end caps put a valence-6 face
+    // point into the refined cage, whose star tables tile at
+    // half-quarter granularity — the complex-level tiling unification
+    // subdivides the coarser components so the weld pairs 1:1.
+    let l_block = "\
+v 0 0 0
+v 2 0 0
+v 2 1 0
+v 1 1 0
+v 1 2 0
+v 0 2 0
+v 0 0 1
+v 2 0 1
+v 2 1 1
+v 1 1 1
+v 1 2 1
+v 0 2 1
+f 6 5 4 3 2 1
+f 7 8 9 10 11 12
+f 1 2 8 7
+f 2 3 9 8
+f 3 4 10 9
+f 4 5 11 10
+f 5 6 12 11
+f 6 1 7 12
+";
+    let (part, report) =
+        smooth_solid_from_obj(l_block, Tolerance::default(), SmoothMeshOptions::default())
+            .expect("the concave l_block cage must serve through normalization");
+    assert_eq!(report.refinement_steps, 1, "one Catmull–Clark step");
+    assert_eq!(report.remaining_boundary_edges, 0, "closed body");
+    assert_eq!(report.declined_pairs, 0, "every boundary pair welds");
+    assert!(part.brep().validate().is_ok(), "kernel validation green");
+    assert!(
+        part.brep().validate_all().is_empty(),
+        "full validation (incl. self-intersection) green"
+    );
+}
+
+#[test]
+fn unsupported_valence_declines_naming_the_vertex() {
+    // A 9-sided pyramid: the apex has valence 9, above the family's
+    // 3..=8 window. Refinement preserves valence, so the decline is
+    // structural and must name the offending vertex.
+    let mut vertices = vec![Point3::new(0.0, 0.0, 1.0)];
+    for k in 0..9 {
+        let angle = 2.0 * std::f64::consts::PI * k as f64 / 9.0;
+        vertices.push(Point3::new(angle.cos(), angle.sin(), 0.0));
     }
+    let mut faces: Vec<Vec<usize>> = (0..9).map(|k| vec![0, 1 + k, 1 + (k + 1) % 9]).collect();
+    faces.push((1..=9).rev().collect());
+    let net = ControlNet::new(vertices, faces).expect("pyramid cage");
+    let err =
+        smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default())
+            .expect_err("valence 9 is outside the family's window");
+    let message = err.to_string();
+    assert!(
+        message.contains("vertex 0") && message.contains("valence 9"),
+        "decline must name the apex and its valence, got: {message}"
+    );
+}
+
+#[test]
+fn non_manifold_cage_declines_naming_the_edge() {
+    // Three faces share the edge 0-1: the halfedge construction
+    // reports the duplicated directed edge by name before any
+    // geometry is built.
+    let net = ControlNet::new(
+        vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(1.0, 0.0, 0.0),
+            Point3::new(0.5, 1.0, 0.0),
+            Point3::new(0.5, -1.0, 0.0),
+            Point3::new(0.5, 0.0, 1.0),
+        ],
+        vec![vec![0, 1, 2], vec![1, 0, 3], vec![0, 1, 4]],
+    )
+    .expect("indices are valid even when non-manifold");
+    let err =
+        smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default())
+            .expect_err("a non-manifold cage must decline");
+    let message = err.to_string();
+    assert!(
+        message.contains("duplicate directed edge 0->1"),
+        "decline must name the non-manifold edge, got: {message}"
+    );
+}
+
+#[test]
+fn self_intersecting_body_declines_naming_the_faces() {
+    // A cube cage with one corner pulled just past the opposite
+    // corner: the direct smooth body grazes itself, and the
+    // validate_all screen declines naming the face pair. (Deeper
+    // pulls contract into embedded — measured crossing-free — bodies;
+    // this marginal graze is the reaching case.)
+    let mut vertices = vec![
+        Point3::new(-1.0, -1.0, -1.0),
+        Point3::new(1.0, -1.0, -1.0),
+        Point3::new(1.0, 1.0, -1.0),
+        Point3::new(-1.0, 1.0, -1.0),
+        Point3::new(-1.0, -1.0, 1.0),
+        Point3::new(1.0, -1.0, 1.0),
+        Point3::new(1.0, 1.0, 1.0),
+        Point3::new(-1.0, 1.0, 1.0),
+    ];
+    vertices[6] = Point3::new(-2.0, -2.0, -2.0);
+    let faces = vec![
+        vec![0, 3, 2, 1],
+        vec![4, 5, 6, 7],
+        vec![0, 1, 5, 4],
+        vec![1, 2, 6, 5],
+        vec![2, 3, 7, 6],
+        vec![3, 0, 4, 7],
+    ];
+    let net = ControlNet::new(vertices, faces).expect("pulled-corner cage");
+    let err = smooth_solid_from_control_net(
+        &net,
+        Tolerance::default(),
+        SmoothMeshOptions {
+            max_refinement_steps: 0,
+            ..SmoothMeshOptions::default()
+        },
+    )
+    .expect_err("the grazing body must decline the self-intersection screen");
+    let message = err.to_string();
+    assert!(
+        message.contains("self-intersection") && message.contains("face"),
+        "decline must name the screen and the faces, got: {message}"
+    );
+
+    // With normalization allowed, the refined realization of the same
+    // cage is tighter and measured crossing-free — the retry serves a
+    // genuinely clean body rather than masking the decline.
+    let (part, report) =
+        smooth_solid_from_control_net(&net, Tolerance::default(), SmoothMeshOptions::default())
+            .expect("the refined realization serves clean");
+    assert_eq!(report.refinement_steps, 1);
+    assert!(part.brep().validate_all().is_empty());
 }
 
 #[test]

@@ -1,5 +1,6 @@
 use super::mask::{apply_inline_mask_to_patch, apply_mask_to_patches};
 use super::net::HalfedgeNet;
+use super::patch_subdivision::quarter_subdivided;
 use super::tables;
 use super::types::{
     PolyhedralPatch, PolyhedralSpline, PolyhedralSplineError, PolyhedralSplineFamily,
@@ -11,7 +12,14 @@ pub fn construct_regular_quad(
 ) -> Result<PolyhedralSpline, PolyhedralSplineError> {
     let family = PolyhedralSplineFamily::RegularQuad;
     let patch = apply_inline_mask_to_patch(&tables::REGULAR_MASK, family, &stencil)?;
-    spline(family, vec![patch])
+    // The biquadratic mask spans the vertex's whole dual cell (its
+    // corners are the four face centroids), while extraordinary-star
+    // sectors tile per quarter-cell. Splitting at the parametric
+    // midlines is exact (de Casteljau) and gives every component the
+    // same quarter-cell boundary granularity, so mixed regular/star
+    // complexes weld 1:1. See
+    // docs/architecture/smooth-mesh-cage-normalization.md.
+    spline(family, quarter_subdivided(&patch)?)
 }
 
 pub fn construct_two_triangles_two_quads(
@@ -19,7 +27,12 @@ pub fn construct_two_triangles_two_quads(
 ) -> Result<PolyhedralSpline, PolyhedralSplineError> {
     let family = PolyhedralSplineFamily::TwoTrianglesTwoQuads;
     let patch = apply_inline_mask_to_patch(&tables::REGULAR_MASK, family, &stencil)?;
-    spline(family, vec![patch])
+    // Same dual-cell mask as RegularQuad, same quarter split (see
+    // construct_regular_quad): the quarter sides then pair 1:1 with
+    // regular neighbours AND with polar sector edges (whose endpoints
+    // are spoke midpoints and triangle centroids — points the coarse
+    // dual-cell side skipped over).
+    spline(family, quarter_subdivided(&patch)?)
 }
 
 pub fn construct_extraordinary_star(

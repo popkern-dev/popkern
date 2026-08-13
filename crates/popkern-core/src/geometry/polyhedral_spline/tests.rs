@@ -11,15 +11,43 @@ fn points(n: usize) -> Vec<Point3> {
 }
 
 #[test]
-fn regular_quad_uses_biquadratic_mask() {
+fn regular_quad_tiles_the_dual_cell_by_exact_quarters() {
     let stencil: [Point3; 9] = points(9).try_into().unwrap();
     let spline = construct_regular_quad(stencil).unwrap();
-    assert_eq!(spline.patches.len(), 1);
-    let patch = &spline.patches[0];
-    assert_eq!((patch.degree_u, patch.degree_v), (2, 2));
-    assert_eq!(patch.cp(1, 1), point(4));
-    let p00 = patch.cp(0, 0);
-    assert!((p00.x - 2.0).abs() < 1e-12);
+    // The biquadratic mask patch spans the vertex's dual cell; the
+    // construction ships it split at the parametric midlines so that
+    // regular components share the extraordinary sectors' quarter-cell
+    // boundary granularity.
+    assert_eq!(spline.patches.len(), 4);
+    assert!(
+        spline
+            .patches
+            .iter()
+            .all(|p| (p.degree_u, p.degree_v) == (2, 2))
+    );
+    // De Casteljau subdivision is exact: the quarters reproduce the
+    // undivided mask patch pointwise.
+    let whole = super::mask::apply_inline_mask_to_patch(
+        &super::tables::REGULAR_MASK,
+        PolyhedralSplineFamily::RegularQuad,
+        &stencil,
+    )
+    .unwrap();
+    let quarters = [(0, 0.0, 0.0), (1, 0.0, 0.5), (2, 0.5, 0.0), (3, 0.5, 0.5)];
+    for (patch_index, u0, v0) in quarters {
+        let quarter = &spline.patches[patch_index];
+        for iu in 0..=4 {
+            for iv in 0..=4 {
+                let (s, t) = (iu as f64 / 4.0, iv as f64 / 4.0);
+                let got = quarter.evaluate(s, t);
+                let want = whole.evaluate(u0 + 0.5 * s, v0 + 0.5 * t);
+                assert!(
+                    got.distance_to(&want) < 1e-12,
+                    "quarter {patch_index} deviates at ({s},{t})"
+                );
+            }
+        }
+    }
 }
 
 #[test]

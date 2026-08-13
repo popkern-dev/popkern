@@ -53,9 +53,15 @@ fn weld_clean_boundaries_reduces_tee_open_edges_transactionally() {
     assert!(welded.report.welded_pairs > 0);
     assert_eq!(welded.report.trim_repairs, 0);
     assert_eq!(welded.report.topology_errors, 0);
-    assert!(welded.report.topology_warnings > 0);
+    // Since the regular-quad quarter split (PK-198) the tee's mixed
+    // regular/star interfaces weld 1:1 and the cage closes fully —
+    // the historical open edges and topology warnings were the
+    // dual-cell/quarter-cell tiling mismatch, not real geometry.
+    assert_eq!(welded.report.remaining_boundary_edges, 0);
+    assert_eq!(welded.report.declined_pairs, 0);
+    assert_eq!(welded.report.topology_warnings, 0);
     assert!(welded.report.export_ready);
-    assert!(welded.report.expected_open_sheet_boundaries);
+    assert!(!welded.report.expected_open_sheet_boundaries);
     assert_eq!(welded.report.export_blockers, 0);
     assert_eq!(welded.report.missing_edge_curves, 0);
     assert_eq!(welded.report.trim_blockers, 0);

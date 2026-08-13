@@ -44,7 +44,9 @@ const SMOKE_FIXTURES: &[FixtureExpectation] = &[
         candidates: 24,
         accepted: 24,
         rejected: 0,
-        patches: 64,
+        // 88 since the PK-198 tiling changes: regular-quad components
+        // ship 4 quarter patches (was 1) so mixed complexes weld 1:1.
+        patches: 88,
     },
     FixtureExpectation {
         name: "cylinder_partial",
@@ -52,7 +54,7 @@ const SMOKE_FIXTURES: &[FixtureExpectation] = &[
         candidates: 20,
         accepted: 19,
         rejected: 1,
-        patches: 24,
+        patches: 78,
     },
 ];
 
@@ -65,7 +67,7 @@ const HEAVY_FIXTURES: &[FixtureExpectation] = &[
         candidates: 471,
         accepted: 471,
         rejected: 0,
-        patches: 844,
+        patches: 7648,
     },
     FixtureExpectation {
         name: "hand_partial",
@@ -73,7 +75,7 @@ const HEAVY_FIXTURES: &[FixtureExpectation] = &[
         candidates: 380,
         accepted: 370,
         rejected: 10,
-        patches: 532,
+        patches: 5947,
     },
     FixtureExpectation {
         name: "airplane_partial",
@@ -81,7 +83,7 @@ const HEAVY_FIXTURES: &[FixtureExpectation] = &[
         candidates: 868,
         accepted: 866,
         rejected: 2,
-        patches: 1045,
+        patches: 3496,
     },
 ];
 
@@ -91,7 +93,7 @@ fn pns_toms_fixture_matrix_matches_expected_coverage() {
 }
 
 #[test]
-#[ignore = "heavy: suzanne/hand/airplane full PnS matrix (1719 candidate splines, 2421 patches) + weld/sew analysis; nightly tier, PK-190 owns the CI wiring — the SMOKE matrix covers the same code paths by default"]
+#[ignore = "heavy: suzanne/hand/airplane full PnS matrix (1719 candidate splines, 17091 patches after the PK-198 tiling unification) + weld/sew analysis; nightly tier, PK-190 owns the CI wiring — the SMOKE matrix covers the same code paths by default"]
 fn pns_toms_heavy_fixture_matrix_matches_expected_coverage() {
     assert_fixture_matrix(HEAVY_FIXTURES);
 }
@@ -145,9 +147,17 @@ fn assert_fixture_matrix(fixtures: &[FixtureExpectation]) {
             assert_weld_timing_is_recorded("tee", &welded.report);
             assert_weld_scope_covers_candidates("tee", &welded.report);
             assert_repair_artifact_writes_json("tee_welded", &welded.repair_actions);
+            // Since the PK-198 tiling split the tee's mixed
+            // regular/star interfaces weld 1:1 and the cage closes
+            // fully — its historical open boundaries were the
+            // dual-cell/quarter-cell mismatch.
+            assert_eq!(
+                welded.report.remaining_boundary_edges, 0,
+                "tee closes fully"
+            );
             assert!(
-                welded.report.expected_open_sheet_boundaries,
-                "tee expected open-sheet boundaries"
+                !welded.report.expected_open_sheet_boundaries,
+                "tee no longer expects open-sheet boundaries"
             );
             assert_eq!(welded.report.export_blockers, 0, "tee export blockers");
             assert_eq!(

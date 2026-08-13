@@ -207,13 +207,25 @@ fn export_step(brep: &BRep, path: &Path, name: &str) -> Result<(), String> {
 }
 
 fn render(brep: &BRep, path: &Path, extent: f64) -> Result<(), String> {
+    let center = body_center(brep);
     let mut camera = popkern_viz::camera::Camera::default_iso();
     camera.aspect = 1.0;
     let d = (extent * 2.4) as f32;
-    camera.target = glam::Vec3::new(0.0, 0.0, (extent * 0.25) as f32);
-    camera.eye = glam::Vec3::new(d, -d, d * 0.8);
+    camera.target = center;
+    camera.eye = center + glam::Vec3::new(d, -d, d * 0.8);
     camera.up = glam::Vec3::Z;
     camera.fov_y = 40.0_f32.to_radians();
     popkern_viz::headless::render_to_png(brep, &camera, 900, 900, path, false)
         .map_err(|e| format!("render {}: {e}", path.display()))
+}
+
+fn body_center(brep: &BRep) -> glam::Vec3 {
+    let mut sum = glam::Vec3::ZERO;
+    let mut count = 0usize;
+    for vertex in brep.vertices.values() {
+        let p = vertex.position;
+        sum += glam::Vec3::new(p.x as f32, p.y as f32, p.z as f32);
+        count += 1;
+    }
+    if count == 0 { sum } else { sum / count as f32 }
 }
