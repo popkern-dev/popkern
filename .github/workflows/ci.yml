@@ -42,6 +42,29 @@ jobs:
       - name: Doc build
         run: cargo doc --no-deps --document-private-items
 
+  perf:
+    # PK-190 performance gate: absolute wall-clock budgets (measured
+    # baseline × 5 headroom — see tests/perf_budget.rs headers) plus
+    # the §17 < 1 s cancellation-latency claim. Release mode only:
+    # debug timings are meaningless and the budget tests self-skip.
+    name: Performance budgets (release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Fillet perf budgets + §17 cancellation latency
+        run: |
+          cargo test --release -p popkern-fillet \
+            --test perf_budget --test cancellation_latency --test perf_acceptance \
+            -- --nocapture
+
+      - name: Smooth-mesh perf budgets
+        run: cargo test --release -p popkern-part --test perf_budget -- --nocapture
+
   coverage:
     name: Coverage
     runs-on: ubuntu-latest

@@ -10,8 +10,10 @@
 //! 2. **Full fillet pipeline** end-to-end on a 12-edge unit cube
 //!    via `fillet_edges`, measuring the total cost of a
 //!    commercial-grade multi-edge fillet op.
-//! 3. **Walker-based cone base fillet** via `fillet_edges` on
-//!    `BRep::cone`, measuring the phase-1b walker path.
+//! 3. **Curved-support base fillet** via `fillet_edges` on
+//!    `BRep::cylinder`, measuring the seam-crossing analytic-torus
+//!    path (the cone base does not serve end-to-end — see
+//!    `bench_cylinder_base_fillet`).
 //! 4. **§13.1 degeneracy detector** cost on a clean cube,
 //!    measuring the per-edge overhead of the pre-pass.
 //! 5. **§13.1(2) sliver absorber** cost on a healthy fillet
@@ -148,29 +150,41 @@ fn bench_twelve_edge_cube_fillet(c: &mut Criterion) {
 }
 
 // ===========================================================================
-// Walker-based cone fillet — the phase-1b path
+// Curved-support base-circle fillet — plane×cylinder analytic torus
+// on a periodic (seam-crossing) edge
 // ===========================================================================
+//
+// Honesty note (PK-190): this bench previously ran the CONE base with
+// `.ok()`, which swallowed the result — and the cone base fillet fails
+// at every radius (walker footprint defect below max_radius,
+// RadiusTooLarge above), so the "walker path" baseline was timing a
+// sub-millisecond failure. The cylinder base is the serving
+// representative of the curved-support class; the `expect` keeps the
+// bench honest by failing loudly if the op ever stops serving.
 
-fn bench_cone_base_fillet(c: &mut Criterion) {
-    let cone = BRep::cone(1.0, 2.0, tol()).expect("cone BRep should build");
-    // Pick an edge with distinct adjacent faces (the base circle).
-    let chosen = cone
+fn bench_cylinder_base_fillet(c: &mut Criterion) {
+    let cyl = BRep::cylinder(1.0, 2.0, tol()).expect("cylinder BRep should build");
+    // Pick an edge with distinct adjacent faces (a base circle).
+    let chosen = cyl
         .edges
         .keys()
         .find(|&e| {
-            let he = cone.edges[e].half_edge;
-            let twin = cone.half_edges[he].twin;
-            let face_a = cone.loops[cone.half_edges[he].loop_].face;
-            let face_b = cone.loops[cone.half_edges[twin].loop_].face;
+            let he = cyl.edges[e].half_edge;
+            let twin = cyl.half_edges[he].twin;
+            let face_a = cyl.loops[cyl.half_edges[he].loop_].face;
+            let face_b = cyl.loops[cyl.half_edges[twin].loop_].face;
             face_a != face_b
         })
-        .unwrap_or_else(|| cone.edges.keys().next().unwrap());
+        .expect("cylinder has a base edge with distinct faces");
     let specs = vec![FilletSpec {
         edge: chosen,
-        radius: FilletRadius::Constant(0.005),
+        radius: FilletRadius::Constant(0.1),
     }];
-    c.bench_function("§18 cone base fillet (walker path)", |b| {
-        b.iter(|| fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None).ok())
+    c.bench_function("§18 cylinder base fillet (curved support)", |b| {
+        b.iter(|| {
+            fillet_edges(&cyl, &specs, &FilletOptions::default(), tol(), None)
+                .expect("cylinder base fillet must keep serving")
+        })
     });
 }
 
@@ -190,6 +204,6 @@ criterion_group!(
     bench_plane_plane_analytic_vs_nurbs,
     bench_single_edge_cube_fillet,
     bench_twelve_edge_cube_fillet,
-    bench_cone_base_fillet,
+    bench_cylinder_base_fillet,
 );
 criterion_main!(benches);

@@ -254,13 +254,9 @@ pub(crate) fn fillet_edges_attempt(
         options.use_direct_apex_construction,
         options.continuity,
         excluded_direct_apex_vertices,
+        cancel,
     )
-    .map_err(|edge_failures| BlendError::PartialFailure {
-        failed: edge_failures.len(),
-        total: specs.len(),
-        partial_result: Box::new(brep.clone()),
-        failures: edge_failures,
-    })?;
+    .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
         BlendError::PartialFailure {
             failed: 1,
@@ -284,6 +280,7 @@ pub(crate) fn fillet_edges_attempt(
     let t5 = Instant::now();
     let _ = apply_result.brep.recompute_all_pcurves();
     apply_result.brep.fix_stale_pcurves();
+    check_cancel!();
     let _ = construct::clamp_bounded_pcurves_post_phase5(&mut apply_result.brep);
     repair_stale_shell_anchors(&mut apply_result.brep).map_err(|err| {
         BlendError::PartialFailure {
@@ -330,6 +327,7 @@ pub(crate) fn fillet_edges_attempt(
     // only pcurves whose surface trace leaves the edge curve beyond
     // the accumulated imprecision are cleared and recomputed.
     apply_result.brep.fix_stale_pcurves();
+    check_cancel!();
     // PK-141 strip cleanup: seam slits + foreign pockets (see
     // cleanup_strip_slits_and_pockets docs).
     if apply_result.repair_report.region_resolved_trims > 0 {

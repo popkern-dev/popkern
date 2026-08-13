@@ -1,7 +1,7 @@
 //! Topology construction — apply fillet/chamfer geometry to the BRep.
 mod apex_face_lift;
 mod apply_types;
-pub use apply_types::{ApplyBlendResult, EdgeGeometry};
+pub use apply_types::{ApplyBlendError, ApplyBlendResult, EdgeGeometry, apply_cancel_poll};
 mod apex_vertex_coherence;
 pub(crate) mod blend_insert;
 pub(crate) mod blend_seam_corner;
@@ -162,7 +162,7 @@ use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use route_decision::{ApexRouteDecisionInput, apex_route_decision};
 
-/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions.
+/// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions. `cancel` = §17 cooperative cancellation, polled between stages and corners.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(
     brep: &BRep,
@@ -179,22 +179,10 @@ pub fn apply_blend_geometry(
     use_direct_apex_construction: bool,
     requested_continuity: crate::types::ContinuityLevel,
     excluded_direct_apex_vertices: &std::collections::BTreeSet<VertexHandle>,
-) -> Result<ApplyBlendResult, Vec<(EdgeHandle, BlendFailure)>> {
+    cancel: Option<&crate::cancellation::CancellationToken>,
+) -> Result<ApplyBlendResult, ApplyBlendError> {
     let mut result = brep.clone();
-    if post_pipeline::determinism_trace_enabled() {
-        post_pipeline::determinism_trace("pre_apply_input_brep", brep);
-        for (i, eg) in edge_geometries.iter().enumerate() {
-            eprintln!(
-                "dtrace: pre_apply eg[{i}] edge={:?} f1={:?} f2={:?} surf={:016x} trim1={:016x} trim2={:016x}",
-                eg.analysis.edge,
-                eg.analysis.face_1,
-                eg.analysis.face_2,
-                post_pipeline::determinism_value_hash(&eg.surface),
-                post_pipeline::determinism_value_hash(&eg.trim_3d_1),
-                post_pipeline::determinism_value_hash(&eg.trim_3d_2),
-            );
-        }
-    }
+    post_pipeline::determinism_trace_mod::pre_apply_trace(brep, edge_geometries);
     let mut failures: Vec<(EdgeHandle, BlendFailure)> = Vec::new();
     let mut warnings: Vec<(EdgeHandle, BlendWarning)> = Vec::new();
     let mut corner_patches: Vec<crate::types::CornerPatchInfo> = Vec::new();
@@ -276,12 +264,14 @@ pub fn apply_blend_geometry(
     // five blends missing, body validating clean (the same silent
     // wrong-shape class the Phase-2 gate closed one layer up).
     if !failures.is_empty() {
-        return Err(failures);
+        return Err(ApplyBlendError::Failures(failures));
     }
+    apply_cancel_poll(cancel)?; // §17 stage-boundary poll (post-trim).
 
     // Vertex blend handling. `BTreeMap` keyed on VertexHandle for
-    // deterministic insertion order across runs.
-    let (_, ms) = pipeline_timing::timed(|| {
+    // deterministic insertion order across runs. The closure reports whether
+    // a cancel poll fired (early return happens outside the timing wrapper).
+    let (blend_cancelled, ms) = pipeline_timing::timed(|| {
         if *vertex_mode == VertexMode::Smooth && edge_geometries.len() > 1 {
             let mut vertex_edges: std::collections::BTreeMap<VertexHandle, Vec<usize>> =
                 std::collections::BTreeMap::new();
@@ -315,6 +305,12 @@ pub fn apply_blend_geometry(
                 })
                 .collect();
             for (vertex, edge_indices) in &vertex_edges {
+                // §17 per-corner poll: corner construction dominates apply
+                // wall-clock (measured 34.1 s of 34.3 s, 12-edge G2 cube) —
+                // this poll bounds a cancelled run's stretch to one corner.
+                if apply_cancel_poll(cancel).is_err() {
+                    return true;
+                }
                 if edge_indices.len() >= 2 {
                     let pre = precomputed.get(vertex).copied().unwrap_or(
                         crate::vertex_classifier::VertexBlendClassification::SameSideConvex,
@@ -526,8 +522,12 @@ pub fn apply_blend_geometry(
                 post_pipeline::determinism_trace(&format!("post_vertex_{vertex:?}"), &result);
             }
         }
+        false
     });
     pipeline_timing.vertex_blend_ms = ms;
+    if blend_cancelled {
+        return Err(ApplyBlendError::Cancelled);
+    }
     // Fillet end runoff: trim strips at planar end faces they
     // overshoot and cut the end faces' sharp corners back to the
     // runoff curve (see end_runoff module docs).

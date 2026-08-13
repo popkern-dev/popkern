@@ -8,7 +8,52 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::topology::{BRep, EdgeHandle};
 
 use crate::analysis::EdgeAnalysis;
-use crate::error::BlendWarning;
+use crate::error::{BlendFailure, BlendWarning};
+
+/// Failure modes of [`crate::construct::apply_blend_geometry`].
+///
+/// Both variants are transactional: the caller's input BRep is
+/// untouched and the working clone is discarded.
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyBlendError {
+    /// Per-edge construction failures — the whole apply declines.
+    #[error("{} edge(s) failed during blend apply", .0.len())]
+    Failures(Vec<(EdgeHandle, BlendFailure)>),
+    /// A cancellation token fired between apply stages (§17 clean
+    /// termination — polls sit between phases and between corner
+    /// constructions, bounding the post-cancel stretch to one corner).
+    #[error("blend apply cancelled by token")]
+    Cancelled,
+}
+
+impl ApplyBlendError {
+    /// Adapt to the pipeline-level error: `Cancelled` maps straight
+    /// through; `Failures` becomes the transactional `PartialFailure`
+    /// carrying an unmodified copy of the input BRep.
+    pub fn into_blend_error(self, total: usize, brep: &BRep) -> crate::error::BlendError {
+        match self {
+            Self::Cancelled => crate::error::BlendError::Cancelled,
+            Self::Failures(failures) => crate::error::BlendError::PartialFailure {
+                failed: failures.len(),
+                total,
+                partial_result: Box::new(brep.clone()),
+                failures,
+            },
+        }
+    }
+}
+
+/// Poll a cancellation token between apply stages: `Err(Cancelled)`
+/// the moment any holder has fired it, `Ok(())` otherwise (including
+/// when no token was supplied).
+pub fn apply_cancel_poll(
+    cancel: Option<&crate::cancellation::CancellationToken>,
+) -> Result<(), ApplyBlendError> {
+    match cancel {
+        Some(token) if token.is_cancelled() => Err(ApplyBlendError::Cancelled),
+        _ => Ok(()),
+    }
+}
 
 /// Geometry computed for one fillet/chamfer edge.
 #[derive(Debug)]

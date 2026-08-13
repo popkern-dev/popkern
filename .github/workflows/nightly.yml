@@ -1,0 +1,46 @@
+name: Nightly heavy tier
+
+# PK-190: the heavy PnS fixtures (suzanne / hand / airplane) are the
+# designated nightly tier — too slow for the per-push gate, but the
+# only fixtures that exercise full-scale weld/sew analysis and STEP
+# round-tripping on real meshes. The step timeouts ARE the performance
+# budget for this tier. Justification (2026-08-13, dev reference
+# machine): debug-mode ceilings measured at PK-198 close were
+# matrix 3640 s (~61 min) and STEP roundtrip 11288 s (~188 min);
+# release is strictly faster, so the timeouts below sit above the
+# debug ceiling with runner headroom. A hang or a super-linear
+# regression fails the run.
+
+on:
+  schedule:
+    # 03:17 UTC daily — off the whole-hour spike.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  heavy-pns:
+    name: Heavy PnS fixtures (release)
+    runs-on: ubuntu-latest
+    # Whole-job budget: sum of step budgets + build.
+    timeout-minutes: 420
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Heavy fixture matrix (suzanne/hand/airplane weld + coverage)
+        timeout-minutes: 90
+        run: |
+          cargo test --release -p popkern-examples \
+            --test pns_toms_fixture_matrix -- --ignored --nocapture
+
+      - name: Heavy STEP round-trip through generic import
+        timeout-minutes: 300
+        run: |
+          cargo test --release -p popkern-examples \
+            --test pns_toms_step_roundtrip -- --ignored --nocapture

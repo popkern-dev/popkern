@@ -159,13 +159,9 @@ pub fn chamfer_edges(
         false, // chamfers don't go through the DirectApex apex builder
         crate::types::ContinuityLevel::G1,
         &std::collections::BTreeSet::new(),
+        None, // chamfer entry points expose no cancellation token
     )
-    .map_err(|edge_failures| BlendError::PartialFailure {
-        failed: edge_failures.len(),
-        total: specs.len(),
-        partial_result: Box::new(brep.clone()),
-        failures: edge_failures,
-    })?;
+    .map_err(|apply_error| apply_error.into_blend_error(specs.len(), brep))?;
 
     if std::env::var_os("PK_FILLET_TRACE").is_some() {
         eprintln!(

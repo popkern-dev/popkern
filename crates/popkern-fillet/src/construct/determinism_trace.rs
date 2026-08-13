@@ -119,6 +119,27 @@ pub(crate) fn determinism_trace_enabled() -> bool {
     std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some()
 }
 
+/// Pre-apply fingerprint of the input BRep plus every computed edge
+/// geometry bundle (surface + both 3D trims), printed before the
+/// apply pipeline mutates anything. Zero cost when tracing is off.
+pub(crate) fn pre_apply_trace(brep: &BRep, edge_geometries: &[crate::construct::EdgeGeometry]) {
+    if !determinism_trace_enabled() {
+        return;
+    }
+    determinism_trace("pre_apply_input_brep", brep);
+    for (i, eg) in edge_geometries.iter().enumerate() {
+        eprintln!(
+            "dtrace: pre_apply eg[{i}] edge={:?} f1={:?} f2={:?} surf={:016x} trim1={:016x} trim2={:016x}",
+            eg.analysis.edge,
+            eg.analysis.face_1,
+            eg.analysis.face_2,
+            determinism_value_hash(&eg.surface),
+            determinism_value_hash(&eg.trim_3d_1),
+            determinism_value_hash(&eg.trim_3d_2),
+        );
+    }
+}
+
 /// Stage-boundary fingerprint print (POPKERN_DETERMINISM_TRACE=1).
 pub(crate) fn determinism_trace(label: &str, brep: &BRep) {
     if std::env::var_os("POPKERN_DETERMINISM_TRACE").is_some() {
