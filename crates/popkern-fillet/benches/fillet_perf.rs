@@ -10,10 +10,9 @@
 //! 2. **Full fillet pipeline** end-to-end on a 12-edge unit cube
 //!    via `fillet_edges`, measuring the total cost of a
 //!    commercial-grade multi-edge fillet op.
-//! 3. **Curved-support base fillet** via `fillet_edges` on
-//!    `BRep::cylinder`, measuring the seam-crossing analytic-torus
-//!    path (the cone base does not serve end-to-end — see
-//!    `bench_cylinder_base_fillet`).
+//! 3. **Curved-support base fillets** via `fillet_edges` on
+//!    `BRep::cylinder` (seam-crossing analytic-torus path) and
+//!    `BRep::cone` (phase-1b walker path, restored by PK-264).
 //! 4. **§13.1 degeneracy detector** cost on a clean cube,
 //!    measuring the per-edge overhead of the pre-pass.
 //! 5. **§13.1(2) sliver absorber** cost on a healthy fillet
@@ -155,12 +154,12 @@ fn bench_twelve_edge_cube_fillet(c: &mut Criterion) {
 // ===========================================================================
 //
 // Honesty note (PK-190): this bench previously ran the CONE base with
-// `.ok()`, which swallowed the result — and the cone base fillet fails
-// at every radius (walker footprint defect below max_radius,
-// RadiusTooLarge above), so the "walker path" baseline was timing a
-// sub-millisecond failure. The cylinder base is the serving
-// representative of the curved-support class; the `expect` keeps the
-// bench honest by failing loudly if the op ever stops serving.
+// `.ok()`, which swallowed the result — and the cone base fillet then
+// failed at every radius (mirror-ball convexity misclassification +
+// cone-blind footprint clip), so the "walker path" baseline was timing
+// a sub-millisecond failure. PK-264 fixed the cone at the root and the
+// cone entry below returned; the `expect`s keep both honest by failing
+// loudly if either op ever stops serving.
 
 fn bench_cylinder_base_fillet(c: &mut Criterion) {
     let cyl = BRep::cylinder(1.0, 2.0, tol()).expect("cylinder BRep should build");
@@ -188,6 +187,31 @@ fn bench_cylinder_base_fillet(c: &mut Criterion) {
     });
 }
 
+fn bench_cone_base_fillet(c: &mut Criterion) {
+    let cone = BRep::cone(1.0, 2.0, tol()).expect("cone BRep should build");
+    let chosen = cone
+        .edges
+        .keys()
+        .find(|&e| {
+            let he = cone.edges[e].half_edge;
+            let twin = cone.half_edges[he].twin;
+            let face_a = cone.loops[cone.half_edges[he].loop_].face;
+            let face_b = cone.loops[cone.half_edges[twin].loop_].face;
+            face_a != face_b
+        })
+        .expect("cone has a base edge with distinct faces");
+    let specs = vec![FilletSpec {
+        edge: chosen,
+        radius: FilletRadius::Constant(0.03),
+    }];
+    c.bench_function("§18 cone base fillet (walker path)", |b| {
+        b.iter(|| {
+            fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None)
+                .expect("cone base fillet must keep serving (PK-264)")
+        })
+    });
+}
+
 // ===========================================================================
 // Pre-pass cost: degeneracy detectors + sliver absorber
 // ===========================================================================
@@ -205,5 +229,6 @@ criterion_group!(
     bench_single_edge_cube_fillet,
     bench_twelve_edge_cube_fillet,
     bench_cylinder_base_fillet,
+    bench_cone_base_fillet,
 );
 criterion_main!(benches);

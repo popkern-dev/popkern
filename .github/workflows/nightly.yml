@@ -3,13 +3,22 @@ name: Nightly heavy tier
 # PK-190: the heavy PnS fixtures (suzanne / hand / airplane) are the
 # designated nightly tier — too slow for the per-push gate, but the
 # only fixtures that exercise full-scale weld/sew analysis and STEP
-# round-tripping on real meshes. The step timeouts ARE the performance
-# budget for this tier. Justification (2026-08-13, dev reference
-# machine): debug-mode ceilings measured at PK-198 close were
-# matrix 3640 s (~61 min) and STEP roundtrip 11288 s (~188 min);
-# release is strictly faster, so the timeouts below sit above the
-# debug ceiling with runner headroom. A hang or a super-linear
-# regression fails the run.
+# round-tripping on real meshes. The job timeouts ARE the performance
+# budget for this tier: a hang or a super-linear regression fails the
+# run.
+#
+# Budget justification (2026-08-13, dev reference machine, both
+# measured under CPU contention — the tier is algorithm-bound, so
+# release ≈ debug):
+#  - fixture matrix: 3506 s release (debug ceiling 3640 s)
+#    → 240 min ≈ 4× headroom for hosted runners.
+#  - STEP roundtrip: 11013 s release (debug ceiling 11288 s)
+#    → 350 min, the most that fits GitHub's 6-hour hosted-job cap
+#    (~1.9× headroom). If a hosted runner proves slower than ~1.9×
+#    the dev box, split this job per fixture (suzanne / hand /
+#    airplane) rather than raising past the cap.
+# The two tests run as PARALLEL jobs so neither steals the other's
+# budget; the first real CI runs calibrate these numbers downward.
 
 on:
   schedule:
@@ -21,11 +30,10 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  heavy-pns:
-    name: Heavy PnS fixtures (release)
+  heavy-matrix:
+    name: Heavy fixture matrix (release)
     runs-on: ubuntu-latest
-    # Whole-job budget: sum of step budgets + build.
-    timeout-minutes: 420
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v4
 
@@ -34,13 +42,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Heavy fixture matrix (suzanne/hand/airplane weld + coverage)
-        timeout-minutes: 90
         run: |
           cargo test --release -p popkern-examples \
             --test pns_toms_fixture_matrix -- --ignored --nocapture
 
+  heavy-roundtrip:
+    name: Heavy STEP round-trip (release)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
       - name: Heavy STEP round-trip through generic import
-        timeout-minutes: 300
         run: |
           cargo test --release -p popkern-examples \
             --test pns_toms_step_roundtrip -- --ignored --nocapture

@@ -152,13 +152,6 @@ fn twelve_edge_cube_g2_fillet_within_budget() {
 /// Cylinder base-circle fillet — the curved-support seam-crossing
 /// path (plane×cylinder analytic torus on a periodic edge),
 /// structurally different from the cube's plane-plane analytics.
-///
-/// The cone base was the original candidate here, but it does not
-/// serve end-to-end at ANY radius (small radii hit the walker
-/// footprint-length defect, larger radii decline RadiusTooLarge at
-/// 0.0369) — measured 2026-08-13, filed as its own ledger task. A
-/// budget on a failure path is vacuous; the cylinder base is the
-/// serving representative of the curved-support class.
 #[test]
 fn cylinder_base_fillet_within_budget() {
     if debug_skip("cylinder base fillet (curved support)") {
@@ -185,4 +178,40 @@ fn cylinder_base_fillet_within_budget() {
     });
     // Measured 11–20 ms release (2026-08-13) × 5 ≈ 100 ms.
     assert_budget("cylinder base fillet (curved support)", measured, 100);
+}
+
+/// Cone base-circle fillet — the phase-1b walker path (no analytic
+/// offset exists for cones, so the rolling-ball contact walker
+/// produces the center curve; the §11.1 plane-cone arm then promotes
+/// it to an exact torus). Restored by PK-264: this op failed at every
+/// radius until the convexity mirror-ball and footprint-clip defects
+/// were fixed at the root, and its previous bench entry silently
+/// timed the failure path.
+#[test]
+fn cone_base_fillet_within_budget() {
+    if debug_skip("cone base fillet (walker)") {
+        return;
+    }
+    let cone = BRep::cone(1.0, 2.0, tol()).expect("cone builds");
+    let edge = cone
+        .edges
+        .keys()
+        .find(|&e| {
+            let he = cone.edges[e].half_edge;
+            let twin = cone.half_edges[he].twin;
+            cone.loops[cone.half_edges[he].loop_].face
+                != cone.loops[cone.half_edges[twin].loop_].face
+        })
+        .expect("cone has a base edge with distinct faces");
+    let specs = vec![FilletSpec {
+        edge,
+        radius: FilletRadius::Constant(0.03),
+    }];
+    let measured = best_of(5, || {
+        let result = fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None)
+            .expect("cone base fillet succeeds (PK-264)");
+        assert!(result.brep.validate().is_ok(), "result must validate");
+    });
+    // Measured 15.6–16.6 ms release (2026-08-13) × 5 ≈ 85 ms.
+    assert_budget("cone base fillet (walker)", measured, 85);
 }

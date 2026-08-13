@@ -402,22 +402,28 @@ fn baseline_cone_base_fillet_allocation_profile() {
         radius: FilletRadius::Constant(0.005),
     }];
 
-    // Warmup.
-    let _ = fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None);
+    // Warmup — and the serving assertion: the old "~56 alloc"
+    // baseline was measured on a FAILURE path (the cone base fillet
+    // declined at every radius until PK-264), so it profiled error
+    // construction, not the walker. The op must succeed for the
+    // profile to mean anything.
+    fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None)
+        .expect("cone base fillet must serve (PK-264)");
 
     let delta = profile("cone base fillet (walker path)", || {
         let _ = fillet_edges(&cone, &specs, &FilletOptions::default(), tol(), None);
     });
 
     // Walker path allocates per sample (default 20 samples) plus
-    // per-Newton-step temporaries. Baseline ~56 allocs; threshold
-    // set to 10× headroom to absorb any future change in sampling
-    // or Newton iteration count without false-positiving.
+    // per-Newton-step temporaries, then the full topology apply.
+    // Baseline ~1.1k allocs on the SERVING path (PK-264, 2026-08-13);
+    // threshold ~10× headroom to absorb sampling/Newton changes
+    // without false-positiving.
     assert!(
-        delta.count < 600,
+        delta.count < 12_000,
         "§18 regression: cone walker fillet made {} allocations \
-         (threshold 600; baseline ~56) — check for regression \
-         on the walker path",
+         (threshold 12,000; baseline ~1.1k serving) — check for \
+         regression on the walker path",
         delta.count
     );
 }

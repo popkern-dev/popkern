@@ -12,9 +12,7 @@ use crate::construct::EdgeGeometry;
 use crate::error::BlendFailure;
 use crate::fillet_surface;
 use crate::geometry_compute_caps::build_edge_caps;
-use crate::geometry_compute_feasibility::{
-    largest_requested_radius, self_intersection_safe_radius,
-};
+use crate::geometry_compute_feasibility::largest_requested_radius;
 use crate::trim;
 use crate::types::{CapKind, ChamferKind, ContinuityLevel, FilletRadius};
 
@@ -77,23 +75,26 @@ pub(crate) fn compute_fillet_geometry(
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
 
     // Pre-flight: the rolling-ball radius must not exceed the local
-    // minimum curvature radius on either support surface, or the
-    // offset surface self-intersects before the intersection solver
-    // has a chance. The self-intersection checker returns the
-    // largest safe radius, which we thread into
-    // `BlendFailure::RadiusTooLarge.max_radius` for the remediation
-    // hint. §10.4 "feasibility bounds".
-    if let Some(max_safe) = self_intersection_safe_radius(
-        &analysis.surface_1,
-        &analysis.surface_2,
-        radius,
-        analysis.orientation_1,
-        analysis.orientation_2,
-        u1_range,
-        v1_range,
-        u2_range,
-        v2_range,
-    ) {
+    // minimum curvature radius on either support, or the offset
+    // self-intersects before the solver runs. Evaluated over the
+    // CONTACT BAND around the edge, not the whole face (PK-264: the
+    // cone apex capped its base rim at 0.0369). The largest safe
+    // radius threads into `RadiusTooLarge.max_radius` (§10.4).
+    if let Some(max_safe) =
+        crate::geometry_compute_feasibility::banded_self_intersection_safe_radius(
+            brep,
+            analysis.edge,
+            &analysis.surface_1,
+            &analysis.surface_2,
+            radius,
+            analysis.orientation_1,
+            analysis.orientation_2,
+            u1_range,
+            v1_range,
+            u2_range,
+            v2_range,
+        )
+    {
         let requested = largest_requested_radius(radius);
         if requested > max_safe {
             return Err(BlendFailure::RadiusTooLarge {

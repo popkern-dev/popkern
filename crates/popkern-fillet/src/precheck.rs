@@ -180,9 +180,31 @@ pub fn precheck_fillet(
         issues.push(FilletIssue::Degeneracy(kind));
     }
 
-    // 3. Maximum curvature-safe radius on either support surface.
+    // 3. Maximum curvature-safe radius on either support surface —
+    //    evaluated over the edge's contact band, not the whole face
+    //    (PK-264: remote face features, e.g. the cone apex, must not
+    //    cap an edge they cannot touch). Same restriction the
+    //    pipeline pre-flight applies, keeping the verdicts in
+    //    lockstep.
     let (u1_range, v1_range) = face_param_range(brep, analysis.face_1, &analysis.surface_1);
     let (u2_range, v2_range) = face_param_range(brep, analysis.face_2, &analysis.surface_2);
+    let peak = largest_requested_radius(radius);
+    let (u1_range, v1_range) = crate::geometry_compute_feasibility::edge_contact_band(
+        brep,
+        analysis.edge,
+        &analysis.surface_1,
+        u1_range,
+        v1_range,
+        peak,
+    );
+    let (u2_range, v2_range) = crate::geometry_compute_feasibility::edge_contact_band(
+        brep,
+        analysis.edge,
+        &analysis.surface_2,
+        u2_range,
+        v2_range,
+        peak,
+    );
 
     let max_radius_estimate = non_destructive_max_radius(
         &analysis.surface_1,

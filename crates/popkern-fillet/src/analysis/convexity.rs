@@ -81,13 +81,50 @@ pub(super) fn classify_convexity(
     // measurement disambiguates.
     let shell = shell_outward_sign(brep);
 
+    // Winding-free side witness (PK-264): nudge the sample point a
+    // step along ±d in 3D, project into the face chart, and keep the
+    // sign whose nudged point classifies INSIDE the face's trimmed
+    // region (even-odd containment — loop direction never enters, and
+    // holes classify correctly). Decisive only when one side is
+    // Interior and the other is not; tangency, projection failure, or
+    // boundary-band ambiguity keeps the winding-derived answer.
+    //
+    // This witness is what makes the interior-left rule below honest
+    // on primitive output: cone/cylinder constructors encode
+    // outwardness in the orientation flag alone and wind their
+    // single-vertex base-circle loops AGAINST the flag, so the raw
+    // interior-left direction mirrors there (measured: the cone base
+    // rim classified Concave — both d1 and d2 inverted — sending the
+    // walker to the exterior mirror ball; the cylinder base's Convex
+    // verdict rested on a −0.000 knife-edge).
+    let trim_side_witness =
+        |face: FaceHandle, point: &popkern_core::geometry::Point3, dir: &Vec3| -> Option<Vec3> {
+            let face_data = brep.faces.get(face)?;
+            let surface = &face_data.surface.as_ref()?.geometry;
+            let step = 1.0e-3;
+            let classify = |p: &popkern_core::geometry::Point3| {
+                let (u, v) =
+                    popkern_core::geometry::uv_projection::project_point_to_uv(surface, p)?;
+                brep.face_uv_trim_containment(face, surface, u, v)
+            };
+            use popkern_core::validation::FaceUvContainment as C;
+            let plus = classify(&(*point + *dir * step));
+            let minus = classify(&(*point - *dir * step));
+            match (plus, minus) {
+                (Some(C::Interior), Some(C::Outside | C::Boundary)) => Some(*dir),
+                (Some(C::Outside | C::Boundary), Some(C::Interior)) => Some(*dir * -1.0),
+                _ => None,
+            }
+        };
+
     // Into-face direction at a boundary sample: walking a face's own
     // half-edge with the face's OUTWARD normal up, the interior is on
     // the LEFT — d = n_outward × t̂, with t̂ the half-edge traversal
     // direction from its pcurve. Holds for outer AND inner loops
     // (that is why inner loops wind opposite), unlike any
     // uv-box-center heuristic (the plate top's box center sits in
-    // its own hole).
+    // its own hole). The trim-side witness above overrides the sign
+    // whenever it is decisive; this rule remains the tie-breaker.
     let into_face_dir = |face: FaceHandle,
                          point: &popkern_core::geometry::Point3,
                          outward: &Vec3,
@@ -215,6 +252,8 @@ pub(super) fn classify_convexity(
         let Some(d2) = into_face_dir(face_2, &point, &m2, t) else {
             continue;
         };
+        let d1 = trim_side_witness(face_1, &point, &d1).unwrap_or(d1);
+        let d2 = trim_side_witness(face_2, &point, &d2).unwrap_or(d2);
         let dot = d1.dot(&n2) + d2.dot(&n1);
         if std::env::var_os("PK_CONVEXITY_TRACE").is_some() && i == 0 {
             eprintln!(

@@ -9,10 +9,113 @@
 //! `BlendFailure::RadiusTooLarge` carrying the tighter bound so the
 //! caller can reduce the radius and retry.
 
-use popkern_core::geometry::surface::SurfaceGeometry;
+use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
+use popkern_core::topology::{BRep, EdgeHandle};
 
 use crate::offset::self_intersect::check_offset_self_intersection;
 use crate::types::FilletRadius;
+
+/// [`self_intersection_safe_radius`] with both face domains restricted
+/// to the edge's contact band — the form the pipeline pre-flight and
+/// the §10.3 precheck both use.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn banded_self_intersection_safe_radius(
+    brep: &BRep,
+    edge: EdgeHandle,
+    surface_1: &SurfaceGeometry,
+    surface_2: &SurfaceGeometry,
+    radius: &FilletRadius,
+    orientation_1: bool,
+    orientation_2: bool,
+    u1_range: (f64, f64),
+    v1_range: (f64, f64),
+    u2_range: (f64, f64),
+    v2_range: (f64, f64),
+) -> Option<f64> {
+    let peak = largest_requested_radius(radius);
+    let (u1, v1) = edge_contact_band(brep, edge, surface_1, u1_range, v1_range, peak);
+    let (u2, v2) = edge_contact_band(brep, edge, surface_2, u2_range, v2_range, peak);
+    self_intersection_safe_radius(
+        surface_1,
+        surface_2,
+        radius,
+        orientation_1,
+        orientation_2,
+        u1,
+        v1,
+        u2,
+        v2,
+    )
+}
+
+/// Restrict a support face's UV domain to the band the rolling ball
+/// actually contacts around the filleted edge (PK-264).
+///
+/// The offset self-intersection pre-flight is a LOCAL curvature
+/// feasibility question — "can a ball of this radius roll along this
+/// edge?" — but it used to be evaluated over the face's entire
+/// parameter domain, so any remote feature of the face capped the
+/// radius for every edge on it. Measured: the cone base-circle fillet
+/// declined RadiusTooLarge at max 0.0369 on a radius-1.0 rim because
+/// the INWARD offset cone self-intersects near the APEX — a region a
+/// base fillet never touches.
+///
+/// The band is the edge's own UV bounding box (branch-normalized
+/// projection) padded by the chart-metric equivalent of `3 ×
+/// peak_radius` — the contact strip sits within ~1 radius of the
+/// edge, so 3× is generous — then intersected with the face domain.
+/// Any failure to sample or project falls back to the full face
+/// domain (the conservative pre-fix behavior).
+pub(crate) fn edge_contact_band(
+    brep: &BRep,
+    edge: EdgeHandle,
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    peak_radius: f64,
+) -> ((f64, f64), (f64, f64)) {
+    use popkern_core::geometry::curve::CurveEval;
+    let full = (u_range, v_range);
+    let Some(curve) = brep.edges.get(edge).and_then(|e| e.curve.as_ref()) else {
+        return full;
+    };
+    const SAMPLES: usize = 9;
+    let mut u_lo = f64::INFINITY;
+    let mut u_hi = f64::NEG_INFINITY;
+    let mut v_lo = f64::INFINITY;
+    let mut v_hi = f64::NEG_INFINITY;
+    let mut hits = 0usize;
+    for i in 0..SAMPLES {
+        let t = curve.t_start + (curve.t_end - curve.t_start) * (i as f64) / ((SAMPLES - 1) as f64);
+        let p = curve.geometry.point_at(t);
+        if let Some((u, v)) =
+            crate::center_curve_helpers::project_to_face_branch(surface, u_range, v_range, &p)
+        {
+            u_lo = u_lo.min(u);
+            u_hi = u_hi.max(u);
+            v_lo = v_lo.min(v);
+            v_hi = v_hi.max(v);
+            hits += 1;
+        }
+    }
+    if hits < 2 {
+        return full;
+    }
+    // Chart-metric pad: convert 3·r of arc length into parameter
+    // units via the local derivative magnitudes at the band center.
+    let (uc, vc) = (0.5 * (u_lo + u_hi), 0.5 * (v_lo + v_hi));
+    let su = surface.partial_u(uc, vc).length();
+    let sv = surface.partial_v(uc, vc).length();
+    let pad = 3.0 * peak_radius;
+    let pad_u = if su > 1.0e-12 { pad / su } else { pad };
+    let pad_v = if sv > 1.0e-12 { pad / sv } else { pad };
+    let band_u = ((u_lo - pad_u).max(u_range.0), (u_hi + pad_u).min(u_range.1));
+    let band_v = ((v_lo - pad_v).max(v_range.0), (v_hi + pad_v).min(v_range.1));
+    if band_u.0 >= band_u.1 || band_v.0 >= band_v.1 {
+        return full;
+    }
+    (band_u, band_v)
+}
 
 /// Largest requested radius in a radius spec. Used as the "requested"
 /// value in `BlendFailure::RadiusTooLarge`, so the user sees the

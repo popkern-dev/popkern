@@ -12,6 +12,8 @@ mod material_sense;
 mod orientation;
 mod precision;
 pub use material_sense::MaterialSense;
+mod face_trim_query;
+pub use face_trim_query::FaceUvContainment;
 mod self_intersection;
 mod self_intersection_trim;
 pub use self_intersection_trim::InteriorOverlapSample;

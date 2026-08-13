@@ -28,45 +28,25 @@ pub fn clip_footprint_to_bounds(
     v_range: (f64, f64),
     footprint: &[Point3],
 ) -> Vec<Point3> {
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-
     if footprint.len() < 2 {
         return footprint.to_vec();
     }
 
-    // Tolerance for boundary inclusion (generous enough for offset-surface
-    // numerical noise).
+    // Boundary-inclusion tolerance (generous for offset-surface noise).
     let eps = 1e-4;
 
     let in_bounds = |u: f64, v: f64| -> bool {
         u >= u_range.0 - eps && u <= u_range.1 + eps && v >= v_range.0 - eps && v <= v_range.1 + eps
     };
 
-    // Project all points to UV — analytically and branch-aware for
-    // cylinders: the generic projection lands angles in arbitrary
-    // period branches and the bounds test then DROPS valid contact
-    // samples (the boss/plate seam fillet lost 2 of 20).
+    // Branch-aware projection for EVERY periodic direction: the raw
+    // projection lands angles in arbitrary branches and the bounds test
+    // then DROPS valid samples. Measured twice: boss/plate seam lost
+    // 2/20 on a cylinder (fixed then cylinder-only), cone base lost
+    // 18/20 against its (-2π, 0) range (PK-264, "2 vs 20").
     let uvs: Vec<Option<(f64, f64)>> = footprint
         .iter()
-        .map(|pt| {
-            if let SurfaceGeometry::Cylinder { origin, axis, .. } = surface {
-                let (perp1, perp2) =
-                    popkern_core::geometry::analytic_surfaces::orthonormal_basis(*axis);
-                let d = *pt - *origin;
-                let mut u = d.dot(&perp2).atan2(d.dot(&perp1));
-                let mid = 0.5 * (u_range.0 + u_range.1);
-                let tau = std::f64::consts::TAU;
-                while u - mid > 0.5 * tau {
-                    u -= tau;
-                }
-                while u - mid < -0.5 * tau {
-                    u += tau;
-                }
-                Some((u, d.dot(axis)))
-            } else {
-                project_point_to_uv(surface, pt)
-            }
-        })
+        .map(|pt| project_to_face_branch(surface, u_range, v_range, pt))
         .collect();
 
     let mut clipped: Vec<Point3> = Vec::with_capacity(footprint.len());
@@ -110,6 +90,24 @@ pub fn clip_footprint_to_bounds(
     clipped
 }
 
+/// Project a 3D point into a face's UV chart, wrapping every periodic
+/// parameter into the branch nearest the face range's midpoint (the
+/// raw projection is branch-arbitrary on periodic surfaces).
+pub fn project_to_face_branch(
+    surface: &SurfaceGeometry,
+    u_range: (f64, f64),
+    v_range: (f64, f64),
+    point: &Point3,
+) -> Option<(f64, f64)> {
+    let (u, v) = popkern_core::geometry::uv_projection::project_point_to_uv(surface, point)?;
+    let wrap = |x: f64, range: (f64, f64), period: Option<f64>| match period {
+        Some(p) => x - p * ((x - 0.5 * (range.0 + range.1)) / p).round(),
+        None => x,
+    };
+    let (u_period, v_period) = surface.periodicity();
+    Some((wrap(u, u_range, u_period), wrap(v, v_range, v_period)))
+}
+
 /// Interpolate a point on the face boundary between an inside and outside
 /// footprint point using binary search in 3D.
 fn interpolate_boundary_point(
@@ -119,8 +117,6 @@ fn interpolate_boundary_point(
     u_range: (f64, f64),
     v_range: (f64, f64),
 ) -> Option<Point3> {
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
-
     let eps = 1e-4;
     let in_bounds = |u: f64, v: f64| -> bool {
         u >= u_range.0 - eps && u <= u_range.1 + eps && v >= v_range.0 - eps && v <= v_range.1 + eps
@@ -129,7 +125,8 @@ fn interpolate_boundary_point(
     // Binary search for the boundary crossing.
     let mut lo = 0.0_f64;
     let mut hi = 1.0_f64;
-    let a_in = project_point_to_uv(surface, pt_a).is_none_or(|(u, v)| in_bounds(u, v));
+    let a_in = project_to_face_branch(surface, u_range, v_range, pt_a)
+        .is_none_or(|(u, v)| in_bounds(u, v));
 
     for _ in 0..20 {
         let mid = (lo + hi) * 0.5;
@@ -138,7 +135,8 @@ fn interpolate_boundary_point(
             pt_a.y + (pt_b.y - pt_a.y) * mid,
             pt_a.z + (pt_b.z - pt_a.z) * mid,
         );
-        let mid_in = project_point_to_uv(surface, &pt).is_none_or(|(u, v)| in_bounds(u, v));
+        let mid_in = project_to_face_branch(surface, u_range, v_range, &pt)
+            .is_none_or(|(u, v)| in_bounds(u, v));
         if mid_in == a_in {
             lo = mid;
         } else {
@@ -163,10 +161,9 @@ fn snap_endpoint_to_boundary(
     v_range: (f64, f64),
 ) {
     use popkern_core::geometry::surface::SurfaceEval;
-    use popkern_core::geometry::uv_projection::project_point_to_uv;
 
     let snap_tol = 1e-3;
-    let (u, v) = match project_point_to_uv(surface, pt) {
+    let (u, v) = match project_to_face_branch(surface, u_range, v_range, pt) {
         Some(uv) => uv,
         None => return,
     };

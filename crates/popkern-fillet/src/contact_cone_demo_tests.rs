@@ -339,16 +339,13 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
         crate::types::CapKind::Open,
         crate::types::BlendProfile::Circular,
     );
-    let eg = match result {
-        Ok(eg) => eg,
-        Err(e) => {
-            // If the walker fails for an unrelated reason, skip
-            // the acceptance — the surface-type assertion only
-            // applies when the geometry compute succeeds.
-            eprintln!("[plane-cone end-to-end] geometry compute returned: {e:?}");
-            return;
-        }
-    };
+    // PK-264: no silent skip. The old escape hatch returned early on
+    // ANY compute error, which made this contract vacuous exactly when
+    // the walker regressed (it sat skipped while the mirror-ball
+    // defect shipped). The geometry compute must succeed.
+    let eg = result.unwrap_or_else(|e| {
+        panic!("plane-cone §11.1 geometry compute must succeed on the cone base edge: {e:?}")
+    });
 
     // THE assertion: the resulting fillet surface must be an
     // analytic Torus, not a NURBS sweep. This is the §11.1
@@ -357,7 +354,10 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
     // produces circular center curves for.
     match &eg.surface {
         SurfaceGeometry::Torus {
-            axis, minor_radius, ..
+            center,
+            axis,
+            major_radius,
+            minor_radius,
         } => {
             // The cone axis in `BRep::cone` is ±z, so the torus
             // axis should be parallel to z.
@@ -370,6 +370,21 @@ fn compute_fillet_geometry_on_cone_base_produces_analytic_torus() {
             assert!(
                 (minor_radius - 0.05).abs() < 1e-12,
                 "torus minor_radius should equal the fillet radius 0.05, got {minor_radius}"
+            );
+            // PK-264 side pins: the INSCRIBED ball sits one radius
+            // ABOVE the base plane with its center circle strictly
+            // inside the rim. The exterior mirror ball (the pre-fix
+            // walker attractor — center BELOW the plane, major radius
+            // OUTSIDE the rim) also produces "a Torus", which is why
+            // surface type alone was never a sufficient contract.
+            assert!(
+                (center.z - 0.05).abs() < 1e-9,
+                "inscribed torus center must sit at z = +radius, got z = {}",
+                center.z
+            );
+            assert!(
+                *major_radius < 1.0,
+                "inscribed major radius must lie inside the base circle, got {major_radius}"
             );
         }
         SurfaceGeometry::Nurbs(_) => panic!(
