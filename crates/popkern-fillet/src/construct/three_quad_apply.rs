@@ -8,6 +8,8 @@
 pub(super) mod three_quad_apply_helpers;
 #[path = "three_quad_blend_seam_reanchor.rs"]
 mod three_quad_blend_seam_reanchor;
+#[path = "three_quad_chart_orientation.rs"]
+pub(super) mod three_quad_chart_orientation;
 #[path = "three_quad_face_matching.rs"]
 mod three_quad_face_matching;
 #[path = "three_quad_kp_boundary_relock.rs"]
@@ -455,10 +457,22 @@ pub(crate) fn apply_three_quad_decomposition_to_blend(
         }
         break;
     }
-    // PK-240: a balanced fan curves the interior spokes; re-derive
-    // each interior seam's edge triple from the committed binonic
-    // sides (straight fans keep their placeholder seams untouched).
-    if decomp.balanced_spokes.is_some() && !sphere_cap_rung {
+    // PK-240: a balanced fan curves the interior spokes; PK-249: the
+    // chart-orientation repair moves the shared spoke rows on ANY
+    // fan. Either way the committed sides bow off the poke's
+    // straight-Line placeholder seams (measured 5.3e-3 at 1:20 under
+    // the repair), so re-derive each interior seam's edge triple
+    // from the committed binonic sides. Fans that neither balanced
+    // nor repaired keep their placeholder seams untouched.
+    let chart_repair_engaged = diagnostics.iter().any(|diagnostic| {
+        let crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(f) = diagnostic else {
+            return false;
+        };
+        let detail = f.detail_code.as_deref().unwrap_or("");
+        (f.stage == "kp_binonic.promotion.boundary_candidates" && detail.contains("repaired"))
+            || (f.stage == "kp_binonic.chart_orientation" && detail.contains("outcome=repaired"))
+    });
+    if (decomp.balanced_spokes.is_some() || chart_repair_engaged) && !sphere_cap_rung {
         let _ = super::three_quad_spoke_seam_curves::
             author_interior_spoke_seam_curves_from_committed_caps(brep, &sub_faces);
     }

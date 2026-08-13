@@ -7,6 +7,9 @@ use crate::construct::kp_twist_optimizer::optimize_c_twists_and_build_binonic;
 use crate::construct::promotion_ladder::KpBinonicPromotionReport;
 use popkern_core::geometry::gregory::RectangularGregoryBiNonic;
 
+#[path = "three_quad_kp_candidate_selection.rs"]
+mod three_quad_kp_candidate_selection;
+
 /// Promote sub-patches from `RectangularTwoStripe` to
 /// `RectangularBiNonic` via the Karciauskas-Peters guided-surface
 /// construction. Returns a report containing structured decline
@@ -66,19 +69,13 @@ pub(super) fn promote_decomp_to_kp_binonic(
     let char_len = estimate_characteristic_length(&two_stripe);
     let options = DirectConstructionOptions::with_characteristic_length(char_len);
     // Phase H.7 gap #2 closure — K-P 2004 §4 iterative twist
-    // optimization. The one-shot Shirman-Séquin twist is under-
-    // conditioned for extreme radius asymmetry (e.g. cube_extreme
-    // 1:10); this loop refines the N central-vertex twists by
-    // Gauss-Newton-style gradient descent against the ring-wide
-    // G1 coplanarity residual. Converges in 3-5 iterations
-    // typically; always monotonically improves the baseline
-    // (the iterate tracks the best-seen residual).
+    // optimization refines the N central-vertex twists against the
+    // ring-wide G1 coplanarity residual (the one-shot Shirman-Séquin
+    // twist is under-conditioned at extreme radius asymmetry).
     // Option C step 3: three-phase optimizer (bicubic → bi-quintic
-    // → bi-nonic). Phase 3 only engages when phases 1+2 fail to
-    // converge; for the vast majority of fixtures, behaviour is
-    // identical to the bi-quintic path. Falls through to the bi-
-    // quintic-only optimizer, then to the bicubic C-twist
-    // optimizer (Option B) if both fail.
+    // → bi-nonic); phase 3 engages only when phases 1+2 fail to
+    // converge, and the ladder falls through to the bi-quintic-only
+    // then bicubic C-twist optimizers if a phase is unavailable.
     // Phase 6c-B: env-gate on POPKERN_OUTER_FILLET_G1=1. When set,
     // pass the fillet surfaces to the binonic optimiser so its
     // L-M residual includes per-sample cap-vs-fillet G1 along
@@ -91,7 +88,6 @@ pub(super) fn promote_decomp_to_kp_binonic(
         };
 
     let pre_worst = worst_ring_coplanarity(sub_patches);
-    let boundary_relock = input.hex_boundaries.clone();
     let mut optimization_input = input.clone();
     optimization_input.hex_boundaries = None;
     let guide_binonic = match optimize_kp_binonic_candidate(
@@ -104,33 +100,20 @@ pub(super) fn promote_decomp_to_kp_binonic(
             return declined("candidate_unavailable", n, None, None, None);
         }
     };
-    let mut binonic = guide_binonic.clone();
-    let mut candidate_provenance = "guide";
-    if let Some(boundaries) = boundary_relock.as_deref() {
-        let exact_candidate = (n < 6)
-            .then(|| optimize_kp_binonic_candidate(&input, &options, outer_fillets.as_deref()))
-            .flatten()
-            .filter(|candidate| candidate_passes_promotion_gates(candidate, pre_worst))
-            .filter(|candidate| {
-                super::three_quad_kp_boundary_relock::boundary_residual_for_binonic(
-                    candidate, boundaries,
-                )
-                .is_some_and(|residual| residual <= PROMOTED_BOUNDARY_RESIDUAL_GATE)
-            });
-        if let Some(exact) = exact_candidate {
-            binonic = exact;
-            candidate_provenance = "exact";
-        } else if let Some(relocked) =
-            super::three_quad_kp_boundary_relock::accepted_boundary_relock(
-                &guide_binonic,
-                boundaries,
-                pre_worst,
-            )
-        {
-            binonic = relocked;
-            candidate_provenance = "relocked";
-        }
-    }
+    let gate_fillets: Vec<popkern_core::geometry::surface::SurfaceGeometry> =
+        fillet_surfaces.iter().map(|f| f.surface.clone()).collect();
+    let selected = three_quad_kp_candidate_selection::select_boundary_candidate(
+        guide_binonic,
+        &input,
+        &options,
+        outer_fillets.as_deref(),
+        &gate_fillets,
+        pre_worst,
+        n,
+    );
+    let mut binonic = selected.binonic;
+    let candidate_provenance = selected.provenance;
+    let selection_fact = selected.selection_fact;
 
     // Self-intersection gate — never commit a fold.
     let binonic_gp: Vec<GregoryPatch> = binonic
@@ -144,19 +127,20 @@ pub(super) fn promote_decomp_to_kp_binonic(
             // classes — "guide" means every optimizer arm's product
             // folds (the extreme-asymmetry flat-sector class), while
             // "exact"/"relocked" would implicate the boundary stages.
-            return declined(
+            return declined_with_selection(
                 "self_intersection",
                 n,
                 Some(format!("sub-patch {i}; candidate={candidate_provenance}")),
                 None,
                 Some(1e-6),
+                selection_fact,
             );
         }
     }
     const COMMERCIAL_G0_GATE: f64 = RING_G0_GATE;
     let post_g0 = worst_ring_g0_gap(&binonic_gp);
     if post_g0 > COMMERCIAL_G0_GATE {
-        return declined(
+        return declined_with_selection(
             "g0_exceeded",
             n,
             Some(format!(
@@ -164,6 +148,7 @@ pub(super) fn promote_decomp_to_kp_binonic(
             )),
             Some(post_g0),
             Some(COMMERCIAL_G0_GATE),
+            selection_fact,
         );
     }
 
@@ -173,18 +158,19 @@ pub(super) fn promote_decomp_to_kp_binonic(
     // regressions.
     let post_worst = worst_ring_coplanarity(&binonic_gp);
     if pre_worst > 1e-12 && post_worst > 1.2 * pre_worst {
-        return declined(
+        return declined_with_selection(
             "quality_regression",
             n,
             Some(format!("pre={pre_worst:.3e} post={post_worst:.3e}")),
             Some(post_worst),
             Some(1.2 * pre_worst),
+            selection_fact,
         );
     }
 
     const COMMERCIAL_GATE: f64 = RING_G1_GATE;
     if post_worst > COMMERCIAL_GATE {
-        return declined(
+        return declined_with_selection(
             "g1_exceeded",
             n,
             Some(format!(
@@ -192,13 +178,30 @@ pub(super) fn promote_decomp_to_kp_binonic(
             )),
             Some(post_worst),
             Some(COMMERCIAL_GATE),
+            selection_fact,
         );
     }
+
+    // PK-249 chart honesty: accepted candidates may carry chart
+    // handedness-reversal bands the arc-length fold gate cannot see
+    // (measured hugging the shared-spoke rails at 1:20–1:50
+    // asymmetry). Attempt the transactional orientation repair;
+    // on decline, today's candidate serves and the fact records
+    // the residual bands.
+    let chart_fact = three_quad_kp_candidate_selection::clear_committed_candidate_bands(
+        &mut binonic,
+        &gate_fillets,
+        pre_worst,
+        post_worst,
+    );
 
     for (idx, patch) in binonic.into_iter().enumerate() {
         sub_patches[idx] = GregoryPatch::RectangularBiNonic(Box::new(patch));
     }
-    KpBinonicPromotionReport::default()
+    KpBinonicPromotionReport {
+        relaxed_coplanarity: None,
+        diagnostics: selection_fact.into_iter().chain(chart_fact).collect(),
+    }
 }
 
 const PROMOTED_BOUNDARY_RESIDUAL_GATE: f64 = 5.0e-3;
@@ -218,25 +221,6 @@ fn optimize_kp_binonic_candidate(
         .or_else(|| {
             optimize_c_twists_and_build_binonic(input, options).map(|result| result.binonic)
         })
-}
-
-fn candidate_passes_promotion_gates(
-    candidate: &[RectangularGregoryBiNonic],
-    pre_worst: f64,
-) -> bool {
-    let binonic_gp: Vec<GregoryPatch> = candidate
-        .iter()
-        .cloned()
-        .map(|p| GregoryPatch::RectangularBiNonic(Box::new(p)))
-        .collect();
-    !binonic_gp
-        .iter()
-        .any(|gp| gp.self_intersects_with_tolerance(1e-6))
-        && worst_ring_g0_gap(&binonic_gp) <= RING_G0_GATE
-        && {
-            let post_worst = worst_ring_coplanarity(&binonic_gp);
-            post_worst <= RING_G1_GATE && (pre_worst <= 1e-12 || post_worst <= 1.2 * pre_worst)
-        }
 }
 
 /// Worst-case G1 coplanarity across the full ring's shared spokes,
@@ -302,17 +286,34 @@ fn declined(
     residual: Option<f64>,
     tolerance: Option<f64>,
 ) -> KpBinonicPromotionReport {
+    declined_with_selection(reason_code, n_sides, detail, residual, tolerance, None)
+}
+
+/// Decline report carrying the boundary-candidates selection fact
+/// alongside the decline itself, so a declined promotion still
+/// records which candidate paths were tried and why each fell
+/// short (PK-249 observability).
+fn declined_with_selection(
+    reason_code: &'static str,
+    n_sides: usize,
+    detail: Option<String>,
+    residual: Option<f64>,
+    tolerance: Option<f64>,
+    selection_fact: Option<crate::types::ApexConstructionDiagnostic>,
+) -> KpBinonicPromotionReport {
+    let mut diagnostics = vec![
+        crate::construct::three_quad_kp_diagnostics::promotion_declined(
+            reason_code,
+            n_sides,
+            detail,
+            residual,
+            tolerance,
+        ),
+    ];
+    diagnostics.extend(selection_fact);
     KpBinonicPromotionReport {
         relaxed_coplanarity: None,
-        diagnostics: vec![
-            crate::construct::three_quad_kp_diagnostics::promotion_declined(
-                reason_code,
-                n_sides,
-                detail,
-                residual,
-                tolerance,
-            ),
-        ],
+        diagnostics,
     }
 }
 

@@ -117,6 +117,19 @@ pub(super) fn apply_fold_triggered_balanced_retry(
     }
 }
 
+/// The `kp_binonic.promotion.boundary_candidates` fact's detail
+/// string from a ladder report, when the promotion recorded one.
+fn boundary_candidates_detail(diagnostics: &[ApexConstructionDiagnostic]) -> Option<String> {
+    diagnostics.iter().find_map(|diagnostic| {
+        let ApexConstructionDiagnostic::ExactBoundaryCap(d) = diagnostic else {
+            return None;
+        };
+        (d.stage == "kp_binonic.promotion.boundary_candidates")
+            .then(|| d.detail_code.clone())
+            .flatten()
+    })
+}
+
 /// Whether the ladder report carries the binonic self-intersection
 /// decline that arms the retry.
 fn binonic_fold_declined(diagnostics: &[ApexConstructionDiagnostic]) -> bool {
@@ -143,6 +156,7 @@ pub(super) fn retry_binonic_with_balanced_fan(
     promote_binonic: impl Fn(&mut [GregoryPatch], &[FilletSurfaceResult]) -> KpBinonicPromotionReport,
 ) -> BalancedRetryResult {
     let mut declined: Vec<String> = Vec::new();
+    let mut banded_acceptance: Option<Box<BalancedRetryOutcome>> = None;
     for strength in RETRY_STRENGTHS {
         let Some(mut retry_decomp) = build_n_quad_decomposition_balanced(
             boundary,
@@ -203,15 +217,24 @@ pub(super) fn retry_binonic_with_balanced_fan(
                 .iter()
                 .any(|p| p.self_intersects_with_tolerance(RETRY_FOLD_MARGIN_TOLERANCE));
         if committed && holds_boundary && fold_margined {
-            // Chart-health observability: the accepted candidate's
-            // charts can carry handedness-reversal bands hugging the
-            // distorted sector's spoke sides (measured at 1:20: the
+            // Chart-health preference (PK-249): the accepted
+            // candidate's charts can carry handedness-reversal bands
+            // hugging the distorted sector's spoke sides (the
             // Jacobian crosses zero in bands the mid-face twist
             // screen and the arc-length fold gate cannot see; the
-            // geometry stays curvature-continuous). Recorded, not
-            // gated — gating would trade a 1e-3 G1 serve for the
-            // 1.9e-1 creased fallback.
-            let reversal_bands = chart_reversal_band_count(&retry_decomp.sub_patches);
+            // geometry stays curvature-continuous). A chart-honest
+            // candidate (bands 0, possibly via the promotion's
+            // orientation repair) is served immediately; a banded
+            // one is stashed and the ladder keeps walking — stronger
+            // balancing measurably yields chart-clean candidates
+            // (1:100 serves clean at 0.85 while 0.33–0.66 band).
+            // When no strength reaches a clean chart, the weakest
+            // banded acceptance serves exactly as before — never
+            // trade a 1e-3 G1 serve for the 1.9e-1 creased fallback.
+            let reversal_bands =
+                super::three_quad_apply::three_quad_chart_orientation::chart_reversal_band_count(
+                    &retry_decomp.sub_patches,
+                );
             report.diagnostics.push(
                 super::three_quad_kp_diagnostics::balanced_spoke_fan_engaged(
                     natural_span,
@@ -220,54 +243,53 @@ pub(super) fn retry_binonic_with_balanced_fan(
                     reversal_bands,
                 ),
             );
-            return BalancedRetryResult::Accepted(Box::new(BalancedRetryOutcome {
+            let outcome = Box::new(BalancedRetryOutcome {
                 decomp: retry_decomp,
                 report,
                 relaxed_coplanarity,
-            }));
+            });
+            if reversal_bands == 0 {
+                return BalancedRetryResult::Accepted(outcome);
+            }
+            declined.push(format!(
+                "s{strength:.2}=accepted_with_bands({reversal_bands})"
+            ));
+            if banded_acceptance.is_none() {
+                banded_acceptance = Some(outcome);
+            }
+            continue;
         }
+        // Carry the promotion's candidate-selection anatomy (which
+        // boundary-fidelity path served and why the stronger ones
+        // fell short) into the per-strength decline reason — the
+        // declined runs' reports are dropped, and without this the
+        // extreme-asymmetry class (PK-249) records only the final
+        // residual, not which candidate produced it.
+        let selection = boundary_candidates_detail(&report.diagnostics)
+            .map(|detail| format!("[{detail}]"))
+            .unwrap_or_default();
         declined.push(if !committed {
-            format!("s{strength:.2}=binonic_not_committed")
+            format!("s{strength:.2}=binonic_not_committed{selection}")
         } else if !holds_boundary {
             format!(
-                "s{strength:.2}=boundary_residual_exceeded({:.3e})",
+                "s{strength:.2}=boundary_residual_exceeded({:.3e}){selection}",
                 measured_residual.unwrap_or(f64::NAN)
             )
         } else {
-            format!("s{strength:.2}=fold_margin_exceeded")
+            format!("s{strength:.2}=fold_margin_exceeded{selection}")
         });
     }
-    BalancedRetryResult::Declined(declined)
-}
-
-/// Count chart handedness-reversal bands over the candidate patches:
-/// contiguous runs of boundary-band samples whose natural normal
-/// opposes the patch's mid-face normal. A healthy chart counts zero.
-fn chart_reversal_band_count(patches: &[GregoryPatch]) -> usize {
-    let mut bands = 0usize;
-    for patch in patches {
-        let GregoryPatch::RectangularBiNonic(binonic) = patch else {
-            continue;
-        };
-        let normal = |u: f64, v: f64| binonic.partial_u(u, v).cross(&binonic.partial_v(u, v));
-        let reference = normal(0.5, 0.5);
-        for band in 0..4 {
-            let mut previous_opposed = false;
-            for k in 0..=24 {
-                let t = 0.02 + 0.96 * (k as f64) / 24.0;
-                let (u, v) = match band {
-                    0 => (0.02, t),
-                    1 => (0.98, t),
-                    2 => (t, 0.02),
-                    _ => (t, 0.98),
-                };
-                let opposed = normal(u, v).dot(&reference) < 0.0;
-                if opposed && !previous_opposed {
-                    bands += 1;
-                }
-                previous_opposed = opposed;
-            }
-        }
+    if let Some(mut outcome) = banded_acceptance {
+        // The full strength walk stays attributable on the served
+        // report: which stronger candidates were tried toward a
+        // chart-clean serve and why each fell short.
+        outcome
+            .report
+            .diagnostics
+            .push(super::three_quad_kp_diagnostics::balanced_spoke_fan_walk(
+                &declined.join(";"),
+            ));
+        return BalancedRetryResult::Accepted(outcome);
     }
-    bands
+    BalancedRetryResult::Declined(declined)
 }

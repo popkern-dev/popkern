@@ -12,26 +12,44 @@ enum RelockMode {
     PreserveSecondDerivative,
 }
 
-pub(super) fn accepted_boundary_relock(
+/// What the transactional relock achieved: the accepted candidate
+/// when any mode reached the boundary gate, plus the best boundary
+/// residual any mode achieved (its distance from the gate is the
+/// decline observability for the extreme-asymmetry class — PK-249).
+pub(super) struct RelockAttempt {
+    pub accepted: Option<Vec<RectangularGregoryBiNonic>>,
+    pub best_residual: Option<f64>,
+}
+
+pub(super) fn attempted_boundary_relock(
     binonic: &[RectangularGregoryBiNonic],
     boundaries: &[HexBoundaryData],
     pre_worst: f64,
-) -> Option<Vec<RectangularGregoryBiNonic>> {
+) -> RelockAttempt {
     let mut best_solution: Option<ScoredRelock> = None;
+    let mut best_residual: Option<f64> = None;
     for mode in [
         RelockMode::BoundaryLinearFrame,
         RelockMode::PreserveFirstDerivative,
         RelockMode::PreserveSecondDerivative,
     ] {
-        if let Some(solution) = optimize_boundary_relock(binonic, boundaries, pre_worst, mode)
-            && best_solution
-                .as_ref()
-                .is_none_or(|best| solution.score < best.score)
-        {
-            best_solution = Some(solution);
+        if let Some(solution) = optimize_boundary_relock(binonic, boundaries, pre_worst, mode) {
+            if best_residual.is_none_or(|r| solution.boundary_residual < r) {
+                best_residual = Some(solution.boundary_residual);
+            }
+            if solution.boundary_residual <= BOUNDARY_RESIDUAL_GATE
+                && best_solution
+                    .as_ref()
+                    .is_none_or(|best| solution.score < best.score)
+            {
+                best_solution = Some(solution);
+            }
         }
     }
-    best_solution.map(|solution| solution.patches)
+    RelockAttempt {
+        accepted: best_solution.map(|solution| solution.patches),
+        best_residual,
+    }
 }
 
 #[derive(Clone)]
@@ -100,7 +118,10 @@ fn optimize_boundary_relock(
         }
     }
 
-    (best.boundary_residual <= BOUNDARY_RESIDUAL_GATE).then_some(best)
+    // The caller gates on the boundary residual; returning the best
+    // ungated solution keeps the achieved residual observable when
+    // every mode falls short (PK-249 decline anatomy).
+    Some(best)
 }
 
 fn best_candidate_for_state(

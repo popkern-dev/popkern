@@ -68,6 +68,76 @@ pub(super) fn support_cell_candidate_nonselection(
     )
 }
 
+/// PK-249: the chart-orientation repair engaged on a binonic
+/// candidate whose accepted charts carried handedness-reversal
+/// bands (or whose exact-injection candidate folded). `outcome` is
+/// `repaired` or `declined(<reason>)`; the detail carries the
+/// before/after band counts and the G1 delta so serves stay
+/// attributable either way.
+pub(super) fn chart_orientation_fact(
+    outcome: &str,
+    pre_bands: usize,
+    post_bands: usize,
+    pre_g1: f64,
+    post_g1: f64,
+    post_g2: Option<f64>,
+) -> crate::types::ApexConstructionDiagnostic {
+    let post_g2 = post_g2
+        .map(|g2| format!(";post_g2={g2:.3e}"))
+        .unwrap_or_default();
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "kp_binonic.chart_orientation".to_string(),
+            code: "kp_binonic.chart_orientation".to_string(),
+            detail_code: Some(format!(
+                "outcome={outcome};pre_bands={pre_bands};post_bands={post_bands};pre_g1={pre_g1:.3e};post_g1={post_g1:.3e}{post_g2}"
+            )),
+            sector_name: "kp_binonic_ring".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: Some(post_g1),
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
+/// PK-249: which boundary-fidelity candidate the binonic promotion
+/// selected (`guide` / `exact` / `relocked`) and why the stronger
+/// paths fell short when they did — the exact-injection and relock
+/// outcomes were previously silently filtered, leaving the
+/// extreme-asymmetry decline class (1:100 boundary residual
+/// 1.323e-1) unattributable.
+pub(super) fn boundary_candidate_selection(
+    provenance: &str,
+    exact_outcome: &str,
+    relock_outcome: &str,
+    boundary_residual: Option<f64>,
+    n_sides: usize,
+) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "kp_binonic.promotion.boundary_candidates".to_string(),
+            code: "kp_binonic.promotion.boundary_candidates".to_string(),
+            detail_code: Some(format!(
+                "provenance={provenance};exact={exact_outcome};relock={relock_outcome}"
+            )),
+            sector_name: format!("kp_binonic_ring_n{n_sides}"),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: boundary_residual,
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
 /// PK-240: the balanced-spoke fan engaged — the natural sector split
 /// at the ring center was degenerate and the spoke tangents were
 /// redistributed to a regular 2π/N spacing so the fan matches the
@@ -92,6 +162,29 @@ pub(super) fn balanced_spoke_fan_engaged(
             support_half_edge: None,
             support_face: None,
             residual: Some(natural_max_span),
+            outer_side: None,
+            sample_parameter: None,
+            tolerance: None,
+            shared_fact_ids: Vec::new(),
+        },
+    )
+}
+
+/// PK-249: a banded balanced-retry acceptance served after the
+/// full strength walk found no chart-clean candidate — the walk's
+/// per-strength outcomes ride the served report so the preference
+/// stays attributable.
+pub(super) fn balanced_spoke_fan_walk(walk: &str) -> crate::types::ApexConstructionDiagnostic {
+    crate::types::ApexConstructionDiagnostic::ExactBoundaryCap(
+        crate::types::ExactBoundaryCapDiagnostic {
+            stage: "three_quad.balanced_spoke_fan.walk".to_string(),
+            code: "three_quad.balanced_spoke_fan.walk".to_string(),
+            detail_code: Some(walk.to_string()),
+            sector_name: "n_quad_ring".to_string(),
+            edge: None,
+            support_half_edge: None,
+            support_face: None,
+            residual: None,
             outer_side: None,
             sample_parameter: None,
             tolerance: None,

@@ -1,17 +1,27 @@
-//! PK-240 extreme radius-asymmetry ladder: the boundary-ring serve
-//! with the fold-triggered balanced-spoke retry.
+//! PK-240/PK-249 extreme radius-asymmetry ladder: the boundary-ring
+//! serve through the chart-orientation-repaired exact-injection
+//! binonic.
 //!
-//! The straight-spoke KP binonic fold-declines on these fixtures
-//! (the guided construction's regular characteristic map vs the
-//! angularly clustered ring — see
-//! `docs/architecture/lopsided-ring-balanced-spoke-fan.md`); the
-//! balanced retry then serves the binonic ring at the commercial G1
-//! gate through 1:50, and records its per-strength decline reasons
-//! at 1:100 (PK-247 owns the tail).
+//! History of the class: the straight-spoke KP binonic fold-declined
+//! on these fixtures (the guided construction's regular
+//! characteristic map vs the angularly clustered ring — see
+//! `docs/architecture/lopsided-ring-balanced-spoke-fan.md`), and
+//! PK-240's balanced-spoke retry served 1:20–1:50 while 1:100
+//! declined every strength. PK-249 closed the class at the root:
+//! the exact-injection candidate's fold is the severe end of a
+//! chart-orientation defect (its guided rows are authored with no
+//! orientation constraint), and the transactional orientation
+//! repair — localized TFI unfold + seam/spoke polish under the
+//! promotion's commercial gates — now unfolds the STRAIGHT-fan
+//! exact candidate on the whole ladder. Every fixture serves the
+//! binonic ring with a machine-zero outer boundary, no fold
+//! decline, no balanced retry, and chart-honest committed patches
+//! (see `docs/architecture/chart-orientation-honest-binonic-rings.md`).
 //!
 //! Split from `kp_binonic_commercial_gates.rs` for the 500-line
 //! structural cap.
 
+use popkern_core::geometry::gregory::GregoryPatch;
 use popkern_fillet::{ApexConstructionRoute, ExactBoundaryCandidateOutcome};
 
 #[path = "kp_gate_helpers.rs"]
@@ -23,33 +33,16 @@ use helpers::{
 };
 use kp_cube_fixture::fillet_cube_result;
 
-// ── K-P/binonic dispatch stress fixtures ─────────────────────
-//
-// Wider-asymmetry fixtures are gated on whichever route dispatch
-// actually selects: binonic continuity gates where the K-P ring
-// ships (≤ 1:30), legacy-route ownership tests beyond that.
-
-/// 1:20 — PK-240: the straight-spoke binonic still fold-declines
-/// (recorded), and the fold-triggered balanced-spoke retry then
-/// serves the binonic ring at the commercial G1 gate
-/// (measured g1 7.59e-4 at strength 0.50, validate_all CLEAN).
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_20() {
     assert_extreme_cube_ring_serve(&[0.01, 0.10, 0.20], "cube_extreme_20");
 }
 
-/// 1:30 radius asymmetry — same balanced-retry serve class as 1:20.
 #[test]
 fn binonic_passes_commercial_gates_on_cube_extreme_30() {
     assert_extreme_cube_ring_serve(&[0.0067, 0.10, 0.20], "cube_extreme_30");
 }
 
-/// 1:40+: previously LEGACY-owned with zero measurable patches,
-/// then (PK-239) a measurable ring with a creased plain-Gregory cap
-/// (g1 7.962e-2 / 1.952e-1 / 2.249e-1 at 1:40/50/100). The PK-240
-/// balanced retry now serves the binonic ring at the commercial G1
-/// gate across the whole tail (measured 2.66e-3 at 1:50,
-/// strength 0.33).
 #[test]
 fn cube_extreme_40_serves_boundary_ring_instead_of_fallback_cap() {
     assert_extreme_cube_ring_serve(&[0.005, 0.10, 0.20], "cube_extreme_40");
@@ -60,25 +53,61 @@ fn cube_extreme_50_serves_boundary_ring_instead_of_fallback_cap() {
     assert_extreme_cube_ring_serve(&[0.004, 0.10, 0.20], "cube_extreme_50");
 }
 
-/// 1:100 — the retry runs and DECLINES every strength (recorded
-/// per-strength reasons); the straight ring serve stands at its
-/// measured ceiling. The remaining tail class is PK-247.
+/// 1:100 — historically declined at EVERY balanced-retry strength
+/// (the tiny 0.0028 arc against 0.24 sides; the guide boundary sat
+/// 1.323e-1 off the rim and the relock accepted zero improvement
+/// steps). PK-249's orientation repair unfolds the exact candidate,
+/// so the fixture serves the same contract as the rest of the
+/// ladder.
 #[test]
 fn cube_extreme_100_serves_boundary_ring_instead_of_fallback_cap() {
-    assert_extreme_cube_ring_retry_declined(&[0.002, 0.10, 0.20], "cube_extreme_100", 2.8e-1);
+    assert_extreme_cube_ring_serve(&[0.002, 0.10, 0.20], "cube_extreme_100");
 }
 
-/// PK-240 ladder contract for extreme radius asymmetry: the ring
-/// applied-fact is recorded; the STRAIGHT-spoke binonic fold-decline
-/// is recorded (the chart-vs-geometry mismatch is real and stays
-/// visible); the fold-triggered balanced-spoke retry then serves
-/// the binonic ring — every committed patch `RectangularBiNonic`,
-/// balanced-fan fact recorded, validate_all CLEAN, ring G0 at the
-/// machine-zero gate and internal-spoke G1 at the commercial 5e-2
-/// gate, and ring G2 at the commercial 5e-2 gate (the historic
-/// "~1.2e0 balanced G2" was measurement artifact at the chart
-/// reversal bands — unfolded normals and singular-basis samples;
-/// the honest metric measures 1.0e-2..2.1e-2 — PK-247).
+/// Chart handedness-reversal bands over the committed cap patches —
+/// a test-side copy of the serving metric (contiguous opposed runs
+/// on the four 0.02/0.98 rails against the mid-face normal), so the
+/// pin measures committed geometry independent of the kernel's
+/// implementation.
+fn chart_reversal_band_count(patches: &[GregoryPatch]) -> usize {
+    let mut bands = 0usize;
+    for patch in patches {
+        let GregoryPatch::RectangularBiNonic(binonic) = patch else {
+            continue;
+        };
+        let normal = |u: f64, v: f64| binonic.partial_u(u, v).cross(&binonic.partial_v(u, v));
+        let reference = normal(0.5, 0.5);
+        for rail in 0..4 {
+            let mut previous_opposed = false;
+            for k in 0..=24 {
+                let t = 0.02 + 0.96 * (k as f64) / 24.0;
+                let (u, v) = match rail {
+                    0 => (0.02, t),
+                    1 => (0.98, t),
+                    2 => (t, 0.02),
+                    _ => (t, 0.98),
+                };
+                let opposed = normal(u, v).dot(&reference) < 0.0;
+                if opposed && !previous_opposed {
+                    bands += 1;
+                }
+                previous_opposed = opposed;
+            }
+        }
+    }
+    bands
+}
+
+/// PK-249 ladder contract for extreme radius asymmetry: the ring
+/// applied-fact is recorded; the promotion's boundary-candidates
+/// fact shows the EXACT-injection candidate serving through the
+/// orientation repair (`provenance=exact`, `repaired`, boundary
+/// residual at machine zero); no fold decline and no balanced-fan
+/// retry are recorded (the straight fan serves); validate_all is
+/// CLEAN; the committed 3-patch ring is all-binonic, chart-honest
+/// (zero reversal bands), and meets ring G0 at the machine-zero
+/// gate with internal-spoke G1 and ring G2 at the commercial 5e-2
+/// gates.
 fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
     let result = fillet_cube_result(radii, true);
     let route = result
@@ -96,28 +125,50 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
         ExactBoundaryCandidateOutcome::NotApplicable,
         "{fixture} should not pretend direct-apex/exact-boundary was attempted"
     );
-    let facts: Vec<&str> = result
+    let facts: Vec<(&str, &str)> = result
         .repair_report
         .apex_diagnostics
         .iter()
         .filter_map(|d| match d {
             popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(f) => {
-                Some(f.stage.as_str())
+                Some((f.stage.as_str(), f.detail_code.as_deref().unwrap_or("")))
             }
             _ => None,
         })
         .collect();
     assert!(
-        facts.contains(&"boundary_ring.applied"),
+        facts
+            .iter()
+            .any(|(stage, _)| *stage == "boundary_ring.applied"),
         "{fixture} must serve through the boundary ring carve; facts: {facts:?}"
     );
+    let selection = facts
+        .iter()
+        .find(|(stage, _)| *stage == "kp_binonic.promotion.boundary_candidates")
+        .unwrap_or_else(|| {
+            panic!("{fixture} must record the boundary-candidates selection; facts: {facts:?}")
+        });
     assert!(
-        facts.contains(&"kp_binonic.promotion.self_intersection"),
-        "{fixture} must record the straight-spoke binonic fold decline; facts: {facts:?}"
+        selection.1.contains("provenance=exact"),
+        "{fixture} must serve the exact-injection candidate, got {}",
+        selection.1
     );
     assert!(
-        facts.contains(&"three_quad.balanced_spoke_fan"),
-        "{fixture} must record the balanced-spoke retry provenance; facts: {facts:?}"
+        selection.1.contains("repaired") && selection.1.contains("accepted("),
+        "{fixture} must serve through the chart-orientation repair, got {}",
+        selection.1
+    );
+    assert!(
+        !facts
+            .iter()
+            .any(|(stage, _)| *stage == "kp_binonic.promotion.self_intersection"),
+        "{fixture} must not fold-decline anymore (PK-249); facts: {facts:?}"
+    );
+    assert!(
+        !facts
+            .iter()
+            .any(|(stage, _)| stage.starts_with("three_quad.balanced_spoke_fan")),
+        "{fixture} must serve the straight fan without the balanced retry; facts: {facts:?}"
     );
     let errors = result.brep.validate_all();
     assert!(
@@ -132,9 +183,14 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
         "{fixture} must ship a measurable 3-patch ring"
     );
     assert_all_binonic(&patches, fixture);
+    let bands = chart_reversal_band_count(&patches);
+    assert_eq!(
+        bands, 0,
+        "{fixture} committed patches must be chart-honest (PK-249)"
+    );
     let m = measure_ring(&patches, N_SAMPLES);
     eprintln!(
-        "balanced-retry {fixture}: g0={:.3e} g1={:.3e} g2={:.3e}",
+        "repaired-exact {fixture}: g0={:.3e} g1={:.3e} g2={:.3e} bands={bands}",
         m.worst_g0_gap, m.worst_g1_coplanarity, m.worst_g2_residual
     );
     assert!(
@@ -149,77 +205,7 @@ fn assert_extreme_cube_ring_serve(radii: &[f64], fixture: &str) {
     );
     assert!(
         m.worst_g2_residual <= 5.0e-2,
-        "{fixture} ring G2 {:.3e} exceeds the commercial gate 5e-2 (measured
-         1.0e-2..2.1e-2 across the served ladder once the metric folds chart
-         handedness and skips singular-basis samples — PK-247)",
+        "{fixture} ring G2 {:.3e} exceeds the commercial gate 5e-2",
         m.worst_g2_residual
-    );
-}
-
-/// Tail class: the balanced retry runs and declines every strength;
-/// the straight ring serve stands, pinned at its measured ceiling
-/// with the decline reasons recorded (PK-247 owns the tail).
-fn assert_extreme_cube_ring_retry_declined(radii: &[f64], fixture: &str, g1_ceiling: f64) {
-    let result = fillet_cube_result(radii, true);
-    let facts: Vec<&str> = result
-        .repair_report
-        .apex_diagnostics
-        .iter()
-        .filter_map(|d| match d {
-            popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(f) => {
-                Some(f.stage.as_str())
-            }
-            _ => None,
-        })
-        .collect();
-    assert!(
-        facts.contains(&"boundary_ring.applied"),
-        "{fixture} must serve through the boundary ring carve; facts: {facts:?}"
-    );
-    assert!(
-        facts.contains(&"kp_binonic.promotion.self_intersection"),
-        "{fixture} must record the straight-spoke binonic fold decline; facts: {facts:?}"
-    );
-    assert!(
-        facts.contains(&"three_quad.balanced_spoke_fan.declined"),
-        "{fixture} must record the balanced-retry decline reasons; facts: {facts:?}"
-    );
-    for d in &result.repair_report.apex_diagnostics {
-        if let popkern_fillet::ApexConstructionDiagnostic::ExactBoundaryCap(f) = d
-            && f.stage == "three_quad.balanced_spoke_fan.declined"
-        {
-            eprintln!(
-                "retry-declined {fixture} reasons: {}",
-                f.detail_code.as_deref().unwrap_or("")
-            );
-        }
-    }
-    let errors = result.brep.validate_all();
-    assert!(
-        errors.is_empty(),
-        "{fixture} ring serve must validate clean, got {errors:?}"
-    );
-    let faces = cap_faces_from_result(&result);
-    let patches = collect_patches(&result.brep, &faces);
-    assert_eq!(
-        patches.len(),
-        3,
-        "{fixture} must ship a measurable 3-patch ring"
-    );
-    let m = measure_ring(&patches, N_SAMPLES);
-    eprintln!(
-        "retry-declined {fixture}: g0={:.3e} g1={:.3e}",
-        m.worst_g0_gap, m.worst_g1_coplanarity
-    );
-    assert!(
-        m.worst_g0_gap < helpers::G0_GATE,
-        "{fixture} ring G0 gap {:.3e} exceeds the machine-zero gate",
-        m.worst_g0_gap
-    );
-    assert!(
-        m.worst_g1_coplanarity <= g1_ceiling,
-        "{fixture} internal-spoke crease {:.3e} exceeds the recorded ceiling {g1_ceiling:.1e} \
-         (PK-247 owns the balanced-retry tail)",
-        m.worst_g1_coplanarity
     );
 }
