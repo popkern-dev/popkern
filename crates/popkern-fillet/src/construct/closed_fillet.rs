@@ -36,12 +36,12 @@
 //! is a multi-half-edge loop with at most one seam edge sharing
 //! the rim vertex.
 
-use popkern_core::geometry::curve::CurveEval;
-use popkern_core::geometry::{Point3, Vec3};
+use popkern_core::geometry::Point3;
 use popkern_core::topology::{
-    BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex, VertexHandle,
+    BRep, Edge, EdgeHandle, Face, HalfEdge, HalfEdgeHandle, Loop, LoopHandle, Vertex,
 };
 
+use super::closed_fillet_seam;
 use crate::construct::EdgeGeometry;
 use crate::error::BlendFailure;
 
@@ -129,13 +129,23 @@ pub(crate) fn apply_closed_fillet(
         })?
         .face;
 
-    // 2. Pull the new contact-point positions from the precomputed
-    //    trim curves. Both curves are closed, so start point ==
-    //    end point — taking either is fine.
-    let (t1_start, _) = eg.trim_3d_1.parameter_range();
-    let (t2_start, _) = eg.trim_3d_2.parameter_range();
-    let new_pos_a = eg.trim_3d_1.point_at(t1_start);
-    let new_pos_b = eg.trim_3d_2.point_at(t2_start);
+    // 2. Compute the new contact-point positions on each support.
+    //    NOT the trim curve's own start point: for a closed rim the
+    //    trim NURBS inherits its parameterization origin from the
+    //    offset-surface intersection marcher's seed, which is an
+    //    arbitrary, ULP-sensitive artifact (PK-285 measured: a 7e-15
+    //    extrude-height difference moved the anchor from the seam
+    //    angle to the diametrically opposite side, and the rebuilt
+    //    seam line crossed the cylinder as a chord — check-9 caught
+    //    it at deviation = radius). The surgery's anchor must be
+    //    SEAM-CONSISTENT: the point on each contact circle nearest
+    //    the old rim-seam vertex, so the shortened seam edge stays a
+    //    generator of its surface.
+    let v_old_pos = brep.vertices[v_old].position;
+    let new_pos_a =
+        closed_fillet_seam::seam_consistent_anchor(&eg.trim_circle_1, &eg.trim_3d_1, v_old_pos);
+    let new_pos_b =
+        closed_fillet_seam::seam_consistent_anchor(&eg.trim_circle_2, &eg.trim_3d_2, v_old_pos);
 
     // The geometry pipeline associates trim_3d_1 with face_1 and
     // trim_3d_2 with face_2 (per analysis.face_1/face_2). We need
@@ -177,12 +187,12 @@ pub(crate) fn apply_closed_fillet(
     let seam_a = if a_is_single {
         None
     } else {
-        find_seam_edge_at_vertex(brep, loop_a, he_a_h, v_old)
+        closed_fillet_seam::find_seam_edge_at_vertex(brep, loop_a, he_a_h, v_old)
     };
     let seam_b = if b_is_single {
         None
     } else {
-        find_seam_edge_at_vertex(brep, loop_b, he_b_h, v_old)
+        closed_fillet_seam::find_seam_edge_at_vertex(brep, loop_b, he_b_h, v_old)
     };
 
     // 4. Move the rim vertex to whichever side has the seam edge —
@@ -212,7 +222,7 @@ pub(crate) fn apply_closed_fillet(
     //    update the seam edge's curve so its endpoint matches the
     //    new vertex position.
     if let Some(seam_edge) = seam_a.or(seam_b) {
-        rebuild_seam_curve(brep, seam_edge, pos_with_seam);
+        closed_fillet_seam::rebuild_seam_curve(brep, seam_edge);
     }
 
     // 6. Create a fresh vertex on the OTHER support's contact
@@ -556,6 +566,20 @@ pub(crate) fn apply_closed_fillet(
                     if let Some(period) = surface.parameter_periodicity().0 {
                         uv_b.0 -= period * ((uv_b.0 - uv_a.0) / period).round();
                     }
+                    // The v direction needs the same branch discipline
+                    // (PK-285): on a torus strip the outer contact
+                    // point sits at tube angle v = 0 ≡ 2π, and
+                    // atan2(±ε, ·) puts the raw projection on either
+                    // side of the wrap by ULP luck. Unaligned, the
+                    // seam interpolates the LONG way around the tube
+                    // (measured: 270° instead of 90°; its 17-point
+                    // polyline chords then sag 2.2e-2 into the tube,
+                    // the boundary-first tessellator rejects the ring
+                    // and the strip cracks open along both contact
+                    // circles).
+                    if let Some(period) = surface.parameter_periodicity().1 {
+                        uv_b.1 -= period * ((uv_b.1 - uv_a.1) / period).round();
+                    }
                     let n = 17usize;
                     let pts: Vec<Point3> = (0..n)
                         .map(|i| {
@@ -611,82 +635,4 @@ fn tracing_note_seam_decline(msg: &str) {
     if std::env::var_os("PK_FILLET_TRACE").is_some() {
         eprintln!("  [closed-fillet] {msg}");
     }
-}
-
-/// Find a half-edge in `loop_handle` other than `skip` whose
-/// `origin` is `vertex` — i.e. an edge incident to the rim vertex
-/// from a non-rim direction. For the cylinder case this returns
-/// the seam edge half-edge.
-fn find_seam_edge_at_vertex(
-    brep: &BRep,
-    loop_handle: LoopHandle,
-    skip: HalfEdgeHandle,
-    vertex: VertexHandle,
-) -> Option<EdgeHandle> {
-    let start = brep.loops.get(loop_handle)?.half_edge;
-    let mut cursor = start;
-    let mut iters = 0;
-    loop {
-        iters += 1;
-        if iters > 10_000 {
-            return None;
-        }
-        if cursor != skip {
-            let h = brep.half_edges.get(cursor)?;
-            if h.origin == vertex {
-                return Some(h.edge);
-            }
-        }
-        let next = brep.half_edges.get(cursor)?.next;
-        cursor = next;
-        if cursor == start {
-            break;
-        }
-    }
-    None
-}
-
-/// Replace a seam edge's curve geometry with a straight line that
-/// preserves the canonical "forward" direction of the edge — the
-/// curve starts at `edge.half_edge.origin`'s current position and
-/// ends at the twin's `origin` current position. Used to update
-/// the seam after one of its endpoint vertices moved to the new
-/// contact-circle height.
-///
-/// The `_end_pos` parameter is kept for documentation but no
-/// longer used — both vertex positions are read directly from the
-/// BRep.
-fn rebuild_seam_curve(brep: &mut BRep, edge: EdgeHandle, _end_pos: Point3) {
-    use popkern_core::geometry::curve::{CurveGeometry, CurveOnEdge};
-
-    let Some(edata) = brep.edges.get(edge) else {
-        return;
-    };
-    let he = edata.half_edge;
-    let Some(he_data) = brep.half_edges.get(he).cloned() else {
-        return;
-    };
-    let Some(twin_data) = brep.half_edges.get(he_data.twin).cloned() else {
-        return;
-    };
-
-    let v_start_pos = brep.vertices[he_data.origin].position;
-    let v_end_pos = brep.vertices[twin_data.origin].position;
-    let direction = Vec3::new(
-        v_end_pos.x - v_start_pos.x,
-        v_end_pos.y - v_start_pos.y,
-        v_end_pos.z - v_start_pos.z,
-    );
-    if direction.length() < 1e-12 {
-        return;
-    }
-
-    brep.edges[edge].curve = Some(CurveOnEdge {
-        geometry: CurveGeometry::Line {
-            origin: v_start_pos,
-            direction,
-        },
-        t_start: 0.0,
-        t_end: 1.0,
-    });
 }

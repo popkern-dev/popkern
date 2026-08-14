@@ -280,6 +280,41 @@ impl NurbsCurve {
             t,
         )
     }
+
+    /// Exact rational first derivative (PK-285): basis values +
+    /// derivatives at the span, one local contraction, then the
+    /// quotient rule C′ = (A′ − w′·C)/w on the homogeneous forms.
+    /// Replaces the 1e-7 central difference (2 evals + ~1e-9
+    /// truncation).
+    fn derivative_analytic_order1(&self, t: f64) -> Vec3 {
+        let span = nurbs_ops::find_span(self.degree, &self.knots, self.control_points.len(), t);
+        let (n, d) =
+            nurbs_ops::basis::basis_funs_and_first_derivs(self.degree, &self.knots, span, t);
+        let mut a = [0.0_f64; 4];
+        let mut a_t = [0.0_f64; 4];
+        for r in 0..=self.degree {
+            let i = span - self.degree + r;
+            let w = self.weights[i];
+            let cp = &self.control_points[i];
+            let hw = [w * cp.x, w * cp.y, w * cp.z, w];
+            for c in 0..4 {
+                a[c] += n[r] * hw[c];
+                a_t[c] += d[r] * hw[c];
+            }
+        }
+        if a[3].abs() < 1e-30 {
+            return Vec3::zero();
+        }
+        let inv_w = 1.0 / a[3];
+        let cx = a[0] * inv_w;
+        let cy = a[1] * inv_w;
+        let cz = a[2] * inv_w;
+        Vec3::new(
+            (a_t[0] - a_t[3] * cx) * inv_w,
+            (a_t[1] - a_t[3] * cy) * inv_w,
+            (a_t[2] - a_t[3] * cz) * inv_w,
+        )
+    }
 }
 
 impl CurveEval for NurbsCurve {
@@ -293,23 +328,16 @@ impl CurveEval for NurbsCurve {
             return Vec3::new(p.x, p.y, p.z);
         }
 
-        // Finite difference approximation.
-        // For order 1: central difference (f(t+h) - f(t-h)) / (2h)
-        // For higher orders: recurse on lower order derivatives.
+        if order == 1 {
+            return self.derivative_analytic_order1(t);
+        }
+
+        // Higher orders: finite difference of (order-1) derivatives —
+        // now a difference of EXACT first derivatives at order 2.
         let h = 1e-7;
         let (t_min, t_max) = self.parameter_range();
 
-        if order == 1 {
-            let t_fwd = (t + h).min(t_max);
-            let t_bwd = (t - h).max(t_min);
-            let dt = t_fwd - t_bwd;
-            if dt.abs() < 1e-30 {
-                return Vec3::zero();
-            }
-            let p1 = self.point_at(t_fwd);
-            let p0 = self.point_at(t_bwd);
-            Vec3::new((p1.x - p0.x) / dt, (p1.y - p0.y) / dt, (p1.z - p0.z) / dt)
-        } else {
+        {
             // Higher order: finite difference of (order-1) derivatives
             let t_fwd = (t + h).min(t_max);
             let t_bwd = (t - h).max(t_min);
@@ -379,3 +407,6 @@ impl CurveEval for NurbsCurve {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod derivative_tests;

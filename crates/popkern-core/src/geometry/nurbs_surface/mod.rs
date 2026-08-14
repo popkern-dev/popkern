@@ -127,34 +127,20 @@ impl SurfaceEval for NurbsSurface {
         )
     }
 
+    // Second partials are exact rational derivatives via the fused
+    // two-derivative basis contraction (PK-285) — previously 1e-5
+    // central differences of point_at (3–5 evaluations each), whose
+    // truncation error fed every curvature and G2 metric on NURBS.
     fn second_partial_uu(&self, u: f64, v: f64) -> Vec3 {
-        // Central finite difference: f''(u) ≈ (f(u+h) - 2f(u) + f(u-h)) / h²
-        let h = 1e-5;
-        let origin = Point3::new(0.0, 0.0, 0.0);
-        let fwd = self.point_at(u + h, v) - origin;
-        let mid = self.point_at(u, v) - origin;
-        let bwd = self.point_at(u - h, v) - origin;
-        (fwd - mid * 2.0 + bwd) * (1.0 / (h * h))
+        self.point_and_two_partials(u, v).3
     }
 
     fn second_partial_uv(&self, u: f64, v: f64) -> Vec3 {
-        // Central finite difference for mixed partial
-        let h = 1e-5;
-        let origin = Point3::new(0.0, 0.0, 0.0);
-        let pp = self.point_at(u + h, v + h) - origin;
-        let pm = self.point_at(u + h, v - h) - origin;
-        let mp = self.point_at(u - h, v + h) - origin;
-        let mm = self.point_at(u - h, v - h) - origin;
-        (pp - pm - mp + mm) * (1.0 / (4.0 * h * h))
+        self.point_and_two_partials(u, v).4
     }
 
     fn second_partial_vv(&self, u: f64, v: f64) -> Vec3 {
-        let h = 1e-5;
-        let origin = Point3::new(0.0, 0.0, 0.0);
-        let fwd = self.point_at(u, v + h) - origin;
-        let mid = self.point_at(u, v) - origin;
-        let bwd = self.point_at(u, v - h) - origin;
-        (fwd - mid * 2.0 + bwd) * (1.0 / (h * h))
+        self.point_and_two_partials(u, v).5
     }
 
     fn closest_point(&self, point: &Point3) -> Option<(f64, f64)> {

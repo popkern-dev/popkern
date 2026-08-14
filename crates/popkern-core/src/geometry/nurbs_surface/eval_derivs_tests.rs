@@ -131,6 +131,83 @@ fn fused_eval_agrees_at_domain_ends_and_knots() {
 }
 
 #[test]
+fn fused_second_partials_agree_with_fd_of_analytic_firsts() {
+    // Second-derivative pins (PK-285): central FD of the EXACT first
+    // partials has ~1e-9 truncation at h=1e-6, so agreement at 1e-6
+    // relative pins the analytic seconds well below the 1e-5-FD
+    // noise they replace.
+    for s in [multi_span_rational(), bezier_quadratic()] {
+        let n = 11;
+        let h = 1e-6;
+        for iu in 0..=n {
+            for iv in 0..=n {
+                let u = 0.01 + 0.98 * iu as f64 / n as f64;
+                let v = 0.01 + 0.98 * iv as f64 / n as f64;
+                let (p, su, sv, suu, suv, svv) = s.point_and_two_partials(u, v);
+
+                // Consistency with the first-partials evaluation.
+                let (p1, su1, sv1) = s.point_and_first_partials(u, v);
+                assert!(p.distance_to(&p1) < 1e-13);
+                assert!((su - su1).length() < 1e-10);
+                assert!((sv - sv1).length() < 1e-10);
+
+                let d = |a: f64, b: f64| s.point_and_first_partials(a, b);
+                let fd_uu = (d(u + h, v).1 - d(u - h, v).1) * (1.0 / (2.0 * h));
+                let fd_vv = (d(u, v + h).2 - d(u, v - h).2) * (1.0 / (2.0 * h));
+                let fd_uv = (d(u, v + h).1 - d(u, v - h).1) * (1.0 / (2.0 * h));
+                let rel = |x: crate::geometry::Vec3, y: crate::geometry::Vec3| {
+                    (x - y).length() / y.length().max(1.0)
+                };
+                assert!(
+                    rel(suu, fd_uu) < 1e-6,
+                    "S_uu diverged at ({u}, {v}): analytic {suu:?} fd {fd_uu:?}"
+                );
+                assert!(
+                    rel(svv, fd_vv) < 1e-6,
+                    "S_vv diverged at ({u}, {v}): analytic {svv:?} fd {fd_vv:?}"
+                );
+                assert!(
+                    rel(suv, fd_uv) < 1e-6,
+                    "S_uv diverged at ({u}, {v}): analytic {suv:?} fd {fd_uv:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn fused_second_partials_zero_for_low_degree() {
+    // Degree 1 in v: S is ruled — S_vv must vanish identically and
+    // S_uv must match FD (the twist of the ruling).
+    let s = NurbsSurface {
+        degree_u: 2,
+        degree_v: 1,
+        knots_u: vec![0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+        knots_v: vec![0.0, 0.0, 1.0, 1.0],
+        control_points: vec![
+            Point3::new(0.0, 0.0, 0.0),
+            Point3::new(0.0, 1.0, 0.3),
+            Point3::new(1.0, 0.0, 0.5),
+            Point3::new(1.0, 1.0, 0.1),
+            Point3::new(2.0, 0.0, 0.0),
+            Point3::new(2.0, 1.0, 0.4),
+        ],
+        num_u: 3,
+        num_v: 2,
+        // Unit weights: rational effects off, so the ruled direction
+        // is exactly linear and S_vv is identically zero.
+        weights: vec![1.0; 6],
+    };
+    let (_, _, _, _, suv, svv) = s.point_and_two_partials(0.4, 0.6);
+    assert!(svv.length() < 1e-12, "ruled S_vv should vanish: {svv:?}");
+    let h = 1e-6;
+    let fd_uv = (s.point_and_first_partials(0.4, 0.6 + h).1
+        - s.point_and_first_partials(0.4, 0.6 - h).1)
+        * (1.0 / (2.0 * h));
+    assert!((suv - fd_uv).length() < 1e-6);
+}
+
+#[test]
 fn fused_eval_degree_one_direction() {
     // Ruled strip: degree 1 in v — exercises the lower-row capture
     // special case (the degree-0 row is trivial).

@@ -17,6 +17,7 @@ mod bridge_warnings;
 pub(crate) mod cap_insert;
 pub(crate) mod cap_outer_acceptance;
 pub(crate) mod closed_fillet;
+mod closed_fillet_seam; // seam bookkeeping split (500-line ratchet)
 pub(crate) mod corner_arc_boundaries;
 pub(crate) mod corner_cap_geometry;
 mod corner_chord_settle;
@@ -161,7 +162,6 @@ use popkern_core::geometry::surface::SurfaceGeometry;
 use popkern_core::tolerance::Tolerance;
 use popkern_core::topology::{BRep, EdgeHandle, FaceHandle, VertexHandle};
 use route_decision::{ApexRouteDecisionInput, apex_route_decision};
-
 /// Apply computed fillet/chamfer geometry to a BRep. 3-phase: A perp splits, B multi-chord face splits, C kef merge + surface assign. `excluded_direct_apex_vertices` = PK-250 retry exclusions. `cancel` = §17 cooperative cancellation, polled between stages and corners.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_blend_geometry(

@@ -1,6 +1,7 @@
 //! Shared NURBS helper types and algorithms reused across curve, surface, and
 //! modification operations (knot insertion, removal, degree elevation, splitting).
 
+pub(crate) mod basis;
 pub mod degree_elevation;
 pub mod knot_insertion;
 pub mod knot_removal;
