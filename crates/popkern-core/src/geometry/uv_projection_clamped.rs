@@ -63,10 +63,10 @@ pub(super) fn nurbs_gauss_newton_single(
     let mut v = v0.clamp(v_lo, v_hi);
 
     for _ in 0..MAX_ITER {
-        let s = surface.point_at(u, v);
+        // Fused analytic point+partials (PK-281): one basis
+        // contraction per iteration.
+        let (s, su, sv) = nurbs.point_and_first_partials(u, v);
         let diff = *point - s;
-        let su = surface.partial_u(u, v);
-        let sv = surface.partial_v(u, v);
         let rhs_u = diff.dot(&su);
         let rhs_v = diff.dot(&sv);
         let a00 = su.dot(&su);

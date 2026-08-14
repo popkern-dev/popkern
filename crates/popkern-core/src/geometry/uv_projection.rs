@@ -197,11 +197,11 @@ fn nurbs_gauss_newton_project(
         let mut v = v0;
 
         for _ in 0..MAX_ITER {
-            let s = surface.point_at(u, v);
+            // Fused analytic point+partials: one basis contraction per
+            // iteration instead of the 5-evaluation point + FD pattern
+            // (PK-281).
+            let (s, su, sv) = nurbs.point_and_first_partials(u, v);
             let diff = *point - s;
-
-            let su = surface.partial_u(u, v);
-            let sv = surface.partial_v(u, v);
 
             let rhs_u = diff.dot(&su);
             let rhs_v = diff.dot(&sv);

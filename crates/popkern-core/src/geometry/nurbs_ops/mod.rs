@@ -145,6 +145,57 @@ pub(crate) fn de_boor_1d(
     d[degree]
 }
 
+/// 1D de Boor evaluation over a pre-gathered local control window.
+///
+/// `local` holds exactly the `degree + 1` control points with global
+/// indices `span - degree ..= span` (the only ones a de Boor
+/// evaluation at a parameter inside `span` ever reads). The recursion
+/// is arithmetic-identical to [`de_boor_1d`] — same alphas from the
+/// same knots in the same order — so results are bit-equal; the only
+/// difference is that the caller supplies the span instead of paying
+/// a `find_span` per call, and never materialises control points
+/// outside the window. This is what makes tensor-product surface
+/// evaluation O((p+1)·(q+1)) instead of O(num_u · num_v).
+pub(crate) fn de_boor_1d_local(
+    degree: usize,
+    knots: &[f64],
+    span: usize,
+    local: &[Homogeneous],
+    t: f64,
+) -> Homogeneous {
+    debug_assert!(
+        degree < MAX_DE_BOOR_DEGREE,
+        "de_boor_1d_local: degree {degree} exceeds MAX_DE_BOOR_DEGREE {MAX_DE_BOOR_DEGREE}"
+    );
+    debug_assert_eq!(
+        local.len(),
+        degree + 1,
+        "de_boor_1d_local: window must hold exactly degree + 1 points"
+    );
+    let mut d = [Homogeneous {
+        wx: 0.0,
+        wy: 0.0,
+        wz: 0.0,
+        w: 0.0,
+    }; MAX_DE_BOOR_DEGREE];
+    d[..=degree].copy_from_slice(local);
+
+    for r in 1..=degree {
+        for j in (r..=degree).rev() {
+            let idx = span - degree + j;
+            let denom = knots[idx + degree - r + 1] - knots[idx];
+            let alpha = if denom.abs() < 1e-30 {
+                0.0
+            } else {
+                (t - knots[idx]) / denom
+            };
+            d[j] = Homogeneous::lerp(&d[j - 1], &d[j], alpha);
+        }
+    }
+
+    d[degree]
+}
+
 /// 1D de Boor evaluation directly from Cartesian control points
 /// plus weights.
 ///

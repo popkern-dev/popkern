@@ -1,11 +1,12 @@
 //! NURBS surface evaluation via tensor-product de Boor algorithm.
 
-use crate::geometry::nurbs_ops::{Homogeneous, MAX_DE_BOOR_DEGREE, de_boor_1d};
+use crate::geometry::nurbs_ops::{Homogeneous, MAX_DE_BOOR_DEGREE, de_boor_1d_local, find_span};
 use crate::geometry::surface::SurfaceEval;
 use crate::geometry::{Point3, Vec3};
 use serde::{Deserialize, Serialize};
 
 mod degree_and_split;
+mod eval_derivs;
 mod iso_curve;
 mod knot_ops;
 
@@ -45,25 +46,18 @@ impl NurbsSurface {
     /// Evaluate the surface at (u, v) using tensor-product de Boor in
     /// homogeneous coordinates.
     ///
-    /// Hot path: when both `num_u` and `num_v` fit within
-    /// [`MAX_DE_BOOR_DEGREE`], both scratch arrays (the `intermediate`
-    /// column of partially-evaluated rows and the per-row buffer
-    /// feeding `de_boor_1d`) live on the stack and the call is
-    /// allocation-free. For larger grids (e.g. offset NURBS surfaces
-    /// with 64+ control points per direction), the function falls
-    /// back to heap-allocated scratch — those calls are not the
-    /// allocation-profile bottleneck.
-    ///
-    /// Measured impact of the allocation-free path: a 12-edge cube
-    /// fillet's `record_fallback_cap_support_continuity` path used to
-    /// dominate the allocation profile because every NURBS surface
-    /// evaluation built a fresh `Vec<Homogeneous>` per row plus one
-    /// for the intermediate column. The cascade ran ~12,500
-    /// allocations per cap/support seam edge measured (cube fillet:
-    /// 269k → 612k after Stage C1+ pcurve authoring widened the
-    /// "measurable seam" set). With the stack-scratch path the same
-    /// cube fillet runs at 195k allocations — below the pre-Stage-
-    /// C1+ baseline.
+    /// Span-local: a de Boor evaluation at (u, v) only ever reads the
+    /// `(degree_u + 1) × (degree_v + 1)` control window around the two
+    /// knot spans, so that is all this builds — one `find_span` per
+    /// direction, `degree_u + 1` row recursions, one column recursion.
+    /// Cost is O((p+1)·(q+1)) regardless of grid size, always
+    /// allocation-free (the scratch is bounded by the degree cap, not
+    /// by `num_u`/`num_v`), and bit-identical to evaluating the full
+    /// grid because [`de_boor_1d_local`] runs the same lerps on the
+    /// same values in the same order (PK-281; the earlier full-grid
+    /// form evaluated every row and discarded all but `degree_u + 1`
+    /// intermediates, which is what made `de_boor_1d` dominate the
+    /// G2 cube profile at 74/100 samples).
     fn eval_homogeneous(&self, u: f64, v: f64) -> Homogeneous {
         let zero = Homogeneous {
             wx: 0.0,
@@ -71,32 +65,32 @@ impl NurbsSurface {
             wz: 0.0,
             w: 0.0,
         };
-        if self.num_u <= MAX_DE_BOOR_DEGREE && self.num_v <= MAX_DE_BOOR_DEGREE {
-            let mut intermediate = [zero; MAX_DE_BOOR_DEGREE];
-            let mut row = [zero; MAX_DE_BOOR_DEGREE];
-            for (i_u, intermediate_slot) in intermediate.iter_mut().enumerate().take(self.num_u) {
-                for (i_v, row_slot) in row.iter_mut().enumerate().take(self.num_v) {
-                    *row_slot =
-                        Homogeneous::from_point_weight(self.cp(i_u, i_v), self.wt(i_u, i_v));
-                }
-                *intermediate_slot =
-                    de_boor_1d(self.degree_v, &self.knots_v, &row[..self.num_v], v);
+        let span_u = find_span(self.degree_u, &self.knots_u, self.num_u, u);
+        let span_v = find_span(self.degree_v, &self.knots_v, self.num_v, v);
+        let mut intermediate = [zero; MAX_DE_BOOR_DEGREE];
+        let mut row = [zero; MAX_DE_BOOR_DEGREE];
+        for (j_u, intermediate_slot) in intermediate.iter_mut().enumerate().take(self.degree_u + 1)
+        {
+            let i_u = span_u - self.degree_u + j_u;
+            for (j_v, row_slot) in row.iter_mut().enumerate().take(self.degree_v + 1) {
+                let i_v = span_v - self.degree_v + j_v;
+                *row_slot = Homogeneous::from_point_weight(self.cp(i_u, i_v), self.wt(i_u, i_v));
             }
-            de_boor_1d(self.degree_u, &self.knots_u, &intermediate[..self.num_u], u)
-        } else {
-            // Heap fallback for large grids (offset surfaces, swept NURBS,
-            // etc.). These are not the allocation hotspot — the cap-
-            // support continuity sampler iterates analytic and Gregory
-            // surfaces that fit the stack path.
-            let mut intermediate: Vec<Homogeneous> = Vec::with_capacity(self.num_u);
-            for i_u in 0..self.num_u {
-                let row: Vec<Homogeneous> = (0..self.num_v)
-                    .map(|i_v| Homogeneous::from_point_weight(self.cp(i_u, i_v), self.wt(i_u, i_v)))
-                    .collect();
-                intermediate.push(de_boor_1d(self.degree_v, &self.knots_v, &row, v));
-            }
-            de_boor_1d(self.degree_u, &self.knots_u, &intermediate, u)
+            *intermediate_slot = de_boor_1d_local(
+                self.degree_v,
+                &self.knots_v,
+                span_v,
+                &row[..=self.degree_v],
+                v,
+            );
         }
+        de_boor_1d_local(
+            self.degree_u,
+            &self.knots_u,
+            span_u,
+            &intermediate[..=self.degree_u],
+            u,
+        )
     }
 }
 
@@ -105,33 +99,20 @@ impl SurfaceEval for NurbsSurface {
         self.eval_homogeneous(u, v).to_point3()
     }
 
+    // First partials are exact rational derivatives via the fused
+    // basis-contraction evaluation (PK-281) — previously 1e-7 central
+    // differences, which cost two full evaluations each and carried
+    // ~1e-9 truncation error into every Gauss–Newton projection.
     fn partial_u(&self, u: f64, v: f64) -> Vec3 {
-        let h = 1e-7;
-        let p_fwd = self.point_at(u + h, v);
-        let p_bwd = self.point_at(u - h, v);
-        let inv_2h = 1.0 / (2.0 * h);
-        Vec3::new(
-            (p_fwd.x - p_bwd.x) * inv_2h,
-            (p_fwd.y - p_bwd.y) * inv_2h,
-            (p_fwd.z - p_bwd.z) * inv_2h,
-        )
+        self.point_and_first_partials(u, v).1
     }
 
     fn partial_v(&self, u: f64, v: f64) -> Vec3 {
-        let h = 1e-7;
-        let p_fwd = self.point_at(u, v + h);
-        let p_bwd = self.point_at(u, v - h);
-        let inv_2h = 1.0 / (2.0 * h);
-        Vec3::new(
-            (p_fwd.x - p_bwd.x) * inv_2h,
-            (p_fwd.y - p_bwd.y) * inv_2h,
-            (p_fwd.z - p_bwd.z) * inv_2h,
-        )
+        self.point_and_first_partials(u, v).2
     }
 
     fn normal_at(&self, u: f64, v: f64) -> Vec3 {
-        let du = self.partial_u(u, v);
-        let dv = self.partial_v(u, v);
+        let (_, du, dv) = self.point_and_first_partials(u, v);
         du.cross(&dv)
     }
 
@@ -193,6 +174,9 @@ impl SurfaceEval for NurbsSurface {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod eval_span_local_tests;
 
 #[cfg(test)]
 mod iso_curve_tests;
