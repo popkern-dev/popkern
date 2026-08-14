@@ -314,14 +314,19 @@ pub(super) fn try_pns_dispatch_with_acceptance(
             describe(rim_spoke.spoke)
         )),
     ));
-    let topology_error = brep.validate_collect_fast().into_iter().find(|error| {
-        matches!(
-            error,
-            ValidationError::BrokenCycle { .. }
-                | ValidationError::ShellGap { .. }
-                | ValidationError::OpenLoop { .. }
-        )
-    });
+    // Structural variant (PK-273): the filter below only matches
+    // structural classes — the full variant's Gregory sweep is waste.
+    let topology_error = brep
+        .validate_collect_structural()
+        .into_iter()
+        .find(|error| {
+            matches!(
+                error,
+                ValidationError::BrokenCycle { .. }
+                    | ValidationError::ShellGap { .. }
+                    | ValidationError::OpenLoop { .. }
+            )
+        });
     let continuity_error = crate::construct::cap_outer_acceptance::cap_support_acceptance_error(
         brep, &cap_faces, 5.0e-3, 5.0e-2,
     );

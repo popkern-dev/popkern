@@ -38,7 +38,21 @@ pub(super) fn run_with_pole_search(
     sectors: &[GregoryCapSector],
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let entry_snapshot = brep.clone();
-    let baseline = run_exact_boundary_cap_candidate_attempt(brep, cap_face, plan, sectors, None)?;
+    // Every attempt below starts from `entry_snapshot`, so the
+    // fast-validation baseline is computed ONCE here, scoped to the
+    // cap's one-ring (PK-273): the whole-model sweep is priced by
+    // committed Gregory count and was previously recomputed
+    // identically per attempt.
+    let baseline_validation_errors =
+        brep.validate_region_collect_fast(&brep.validation_region(&[cap_face]));
+    let baseline = run_exact_boundary_cap_candidate_attempt(
+        brep,
+        cap_face,
+        plan,
+        sectors,
+        &baseline_validation_errors,
+        None,
+    )?;
     if !search_enabled()
         || baseline.status != ExactBoundaryCapCandidateStatus::Accepted
         || committed_region_is_clean(brep, &baseline.committed_faces)
@@ -66,6 +80,7 @@ pub(super) fn run_with_pole_search(
             cap_face,
             plan,
             sectors,
+            &baseline_validation_errors,
             Some(candidate_pole),
         )?;
         if candidate.status == ExactBoundaryCapCandidateStatus::Accepted
@@ -83,7 +98,14 @@ pub(super) fn run_with_pole_search(
     }
     // Centroid fallback: reproduce the baseline deterministically.
     *brep = entry_snapshot;
-    run_exact_boundary_cap_candidate_attempt(brep, cap_face, plan, sectors, None)
+    run_exact_boundary_cap_candidate_attempt(
+        brep,
+        cap_face,
+        plan,
+        sectors,
+        &baseline_validation_errors,
+        None,
+    )
 }
 
 fn search_enabled() -> bool {

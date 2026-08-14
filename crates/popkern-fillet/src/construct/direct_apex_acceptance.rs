@@ -14,7 +14,10 @@ use popkern_core::geometry::surface::{SurfaceEval, SurfaceGeometry};
 pub(super) fn native_gregory_path_a_error(brep: &BRep) -> Option<String> {
     use popkern_core::error::ValidationError;
 
-    brep.validate_collect_fast()
+    // Structural variant (PK-273): this filter only ever matches
+    // structural classes, and the full variant's Gregory sweep is
+    // priced by committed patch count (~25 ms/patch).
+    brep.validate_collect_structural()
         .into_iter()
         .find_map(|err| match err {
             ValidationError::ShellGap { edge, .. } => {

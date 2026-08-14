@@ -85,9 +85,17 @@ pub(super) fn commit_multipatch_routes_transactionally(
             diagnostic.into_apex_diagnostic(),
         );
     }
+    let mut faces = sectors
+        .iter()
+        .map(|sector| sector.cap_face)
+        .collect::<Vec<_>>();
+    faces.extend(inner_faces.iter().copied());
+    faces.extend(strip_faces.iter().copied());
     if let Some(diagnostic) = post_commit_validation_diagnostic(
         baseline_validation_errors,
-        &brep.validate_collect_fast(),
+        // Scoped to the committed faces' one-ring (PK-273) — same
+        // rule as the one-patch commit path and the entry baseline.
+        &brep.validate_region_collect_fast(&brep.validation_region(&faces)),
         brep.tolerance.linear(),
     ) {
         return declined(
@@ -95,12 +103,6 @@ pub(super) fn commit_multipatch_routes_transactionally(
             diagnostic.into_apex_diagnostic(),
         );
     }
-    let mut faces = sectors
-        .iter()
-        .map(|sector| sector.cap_face)
-        .collect::<Vec<_>>();
-    faces.extend(inner_faces.iter().copied());
-    faces.extend(strip_faces.iter().copied());
     if let Some(diagnostic) = cap_support_continuity_diagnostic(brep, &faces, 5.0e-3, 5.0e-2) {
         return declined(apex_diagnostic_code(&diagnostic), diagnostic);
     }

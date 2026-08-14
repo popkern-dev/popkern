@@ -13,6 +13,47 @@ use crate::types::{
 use super::super::sector::ExactBoundaryCapSectorInput;
 use super::ExactBoundaryCapCandidateStatus;
 
+/// Decline exit for a candidate whose boundary-curve preparation
+/// failed before any construction: restores the snapshot and builds
+/// the declined result with the same report/diagnostic ordering
+/// rules as the main path (informational after the decision,
+/// fact-ids attached, performance finalized).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn declined_curve_preparation_result(
+    brep: &mut BRep,
+    snapshot: BRep,
+    mut diagnostics: Vec<ApexConstructionDiagnostic>,
+    informational: Vec<ApexConstructionDiagnostic>,
+    candidate_sectors: Vec<ExactBoundaryCapSectorInput>,
+    mut performance: ExactBoundaryCandidatePerformanceReport,
+    started: std::time::Instant,
+) -> super::ExactBoundaryCapCandidateResult {
+    use super::super::facts::attach_shared_repair_fact_ids;
+    use super::super::performance::finalize_performance_report;
+
+    *brep = snapshot;
+    diagnostics.extend(informational);
+    attach_shared_repair_fact_ids(brep, &mut diagnostics);
+    finalize_performance_report(&mut performance, started, &diagnostics);
+    let report = build_exact_boundary_report(
+        brep,
+        ExactBoundaryCapCandidateStatus::Declined,
+        &candidate_sectors,
+        &[],
+        &performance,
+        &diagnostics,
+    );
+    super::ExactBoundaryCapCandidateResult {
+        status: ExactBoundaryCapCandidateStatus::Declined,
+        sectors: candidate_sectors,
+        committed_faces: Vec::new(),
+        performance,
+        diagnostics,
+        report,
+        pole: None,
+    }
+}
+
 pub(crate) fn build_exact_boundary_report(
     brep: &BRep,
     status: ExactBoundaryCapCandidateStatus,

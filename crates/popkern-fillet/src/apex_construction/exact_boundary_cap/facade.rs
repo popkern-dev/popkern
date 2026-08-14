@@ -81,16 +81,22 @@ pub(crate) fn run_exact_boundary_cap_candidate(
 /// One exact-boundary candidate attempt at a fixed pole (`None` =
 /// shared-corner centroid). The PK-255 pole search drives this;
 /// everything below is the historical transactional candidate.
+///
+/// `baseline_validation_errors` is the region-scoped fast-validation
+/// baseline of the ENTRY state — every attempt in one pole search
+/// starts from the same entry snapshot, so the caller computes it
+/// once (PK-273; it was previously recomputed whole-model per
+/// attempt, up to 6× per corner).
 pub(super) fn run_exact_boundary_cap_candidate_attempt(
     brep: &mut BRep,
     cap_face: FaceHandle,
     plan: &ApexPlan,
     sectors: &[GregoryCapSector],
+    baseline_validation_errors: &[popkern_core::error::ValidationError],
     pole_override: Option<popkern_core::geometry::Point3>,
 ) -> Result<ExactBoundaryCapCandidateResult, ApexBuildError> {
     let started = Instant::now();
     let snapshot = brep.clone();
-    let baseline_validation_errors = snapshot.validate_collect_fast();
     let mut candidate_sectors = extract_exact_boundary_cap_sectors(brep, cap_face, plan, sectors)
         .map_err(|diagnostic| diagnostic.into_build_error())?;
     let mut performance = ExactBoundaryCandidatePerformanceReport {
@@ -114,30 +120,17 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
         Ok(prepared) => prepared,
         Err(diagnostic) => {
             diagnostics.push(diagnostic.into_apex_diagnostic());
-            *brep = snapshot;
             // Informational records join the report AFTER the accept decision,
             // so they can never change which route serves a corner.
-            let mut diagnostics = diagnostics;
-            diagnostics.extend(informational);
-            attach_shared_repair_fact_ids(brep, &mut diagnostics);
-            finalize_performance_report(&mut performance, started, &diagnostics);
-            let report = build_exact_boundary_report(
+            return Ok(report::declined_curve_preparation_result(
                 brep,
-                ExactBoundaryCapCandidateStatus::Declined,
-                &candidate_sectors,
-                &[],
-                &performance,
-                &diagnostics,
-            );
-            return Ok(ExactBoundaryCapCandidateResult {
-                status: ExactBoundaryCapCandidateStatus::Declined,
-                sectors: candidate_sectors,
-                committed_faces: Vec::new(),
-                performance,
+                snapshot,
                 diagnostics,
-                report,
-                pole: None,
-            });
+                informational,
+                candidate_sectors,
+                performance,
+                started,
+            ));
         }
     };
     performance.prepared_curve_count = boundary_curves.curves.len();
@@ -313,8 +306,15 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());
                         } else if let Some(diagnostic) = post_commit_validation_diagnostic(
-                            &baseline_validation_errors,
-                            &brep.validate_collect_fast(),
+                            baseline_validation_errors,
+                            // Post-commit sweep scoped to the surgery
+                            // neighbourhood (PK-273): the commit only
+                            // rewires the committed faces' one-ring,
+                            // and the diff baseline uses the same
+                            // scoping rule on the entry state.
+                            &brep.validate_region_collect_fast(
+                                &brep.validation_region(&committed_faces),
+                            ),
                             brep.tolerance.linear(),
                         ) {
                             diagnostics.push(diagnostic.into_apex_diagnostic());
@@ -395,7 +395,7 @@ pub(super) fn run_exact_boundary_cap_candidate_attempt(
                                 &candidate_sectors,
                                 solved_surfaces,
                                 &pcurves,
-                                &baseline_validation_errors,
+                                baseline_validation_errors,
                                 &multipatch_candidates,
                             ) {
                                 ExactBoundaryMultipatchCommitOutcome::Accepted { faces } => {

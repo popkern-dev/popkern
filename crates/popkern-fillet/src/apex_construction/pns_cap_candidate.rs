@@ -97,7 +97,9 @@ pub(super) fn try_boundary_preserving_pns_cap(
         })
         .collect::<Vec<_>>();
 
-    let topology_error = brep.validate_collect_fast().into_iter().find(|err| {
+    // Structural variant (PK-273): the filter below only matches
+    // structural classes — the full variant's Gregory sweep is waste.
+    let topology_error = brep.validate_collect_structural().into_iter().find(|err| {
         matches!(
             err,
             ValidationError::BrokenCycle { .. }
