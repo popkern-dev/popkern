@@ -41,6 +41,11 @@ fn open_setup() -> (BRep, FaceHandle) {
         radius: FilletRadius::Constant(0.1),
     }];
     let r1 = fillet_edges(&cube, &specs, &opts, tol(), None).unwrap();
+    // Plane-plane fillets on straight edges emit a Cylinder strip
+    // (kernel convention — a torus would only arise on a curved
+    // edge). The pre-fillet cube has no cylinder faces, so the match
+    // uniquely identifies the blend. This bench asserted Torus and
+    // panicked on every `cargo test --all-targets` run (PK-284).
     let blend = r1
         .brep
         .faces
@@ -48,10 +53,10 @@ fn open_setup() -> (BRep, FaceHandle) {
         .find(|fh| {
             matches!(
                 r1.brep.faces[*fh].surface.as_ref().map(|s| &s.geometry),
-                Some(SurfaceGeometry::Torus { .. })
+                Some(SurfaceGeometry::Cylinder { .. })
             )
         })
-        .expect("post-fillet brep should contain a Torus face");
+        .expect("post-fillet brep should contain the Cylinder blend strip");
     (r1.brep, blend)
 }
 
